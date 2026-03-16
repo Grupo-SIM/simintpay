@@ -1,0 +1,313 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  password      String
+  role          Role      @default(USER)
+  isActive      Boolean   @default(true)
+
+  domUserId     String?   @unique
+  domToken      String?
+
+  wallet        Wallet?
+  sessions      Session[]
+  transactions  Transaction[]
+  withdrawals   WithdrawRequest[]
+  paymentLinks  PaymentLink[]
+  plans         Plan[]
+  subscriptions Subscription[]
+  balanceLogs   BalanceLog[]
+  customers     Customer[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([email])
+  @@index([domUserId])
+}
+
+model Session {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshToken  String   @unique
+  userAgent     String?
+  ipAddress     String?
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([refreshToken])
+  @@index([expiresAt])
+}
+
+model Wallet {
+  id             String   @id @default(uuid())
+  balance        Decimal  @default(0) @db.Decimal(12, 2)
+  lockedBalance  Decimal  @default(0) @db.Decimal(12, 2)
+  version        Int      @default(0)
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model BalanceLog {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  action          String
+  transactionId   String?
+  amount          Decimal  @db.Decimal(12, 2)
+  balanceBefore   Decimal  @db.Decimal(12, 2)
+  balanceAfter    Decimal  @db.Decimal(12, 2)
+  lockedBefore    Decimal  @db.Decimal(12, 2)
+  lockedAfter     Decimal  @db.Decimal(12, 2)
+  description     String?
+  source          String
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([transactionId])
+  @@index([createdAt])
+}
+
+enum TransactionStatus {
+  DRAFT
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+  EXPIRED
+  IN_MEDIATION
+  CHARGEBACK
+  PENDING_REFUND
+}
+
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+}
+
+model Transaction {
+  id                   String            @id @default(uuid())
+  userId               String
+  user                 User              @relation(fields: [userId], references: [id])
+  amount               Decimal           @db.Decimal(12, 2)
+  netAmount            Decimal?          @db.Decimal(12, 2)
+  status               TransactionStatus @default(DRAFT)
+  previousStatus       TransactionStatus?
+  paymentMethod        PaymentMethod     @default(PIX)
+  description          String?
+  installments         Int               @default(1)
+
+  totalFee             Decimal           @default(0) @db.Decimal(12, 2)
+  domFee               Decimal           @default(0) @db.Decimal(12, 2)
+  platformFee          Decimal           @default(0) @db.Decimal(12, 2)
+
+  domTransactionId     String?           @unique
+  domPaymentId         String?           @unique
+
+  pixQrCode            String?
+  pixContent           String?
+  pixExpire            DateTime?
+
+  cardBrand            String?
+  cardBin              String?
+
+  customerName         String?
+  customerEmail        String?
+  customerDocument     String?
+  customerPhone        String?
+
+  paymentLinkId        String?
+  paymentLink          PaymentLink?      @relation(fields: [paymentLinkId], references: [id])
+
+  statusHistory        TransactionStatusHistory[]
+
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([domPaymentId])
+  @@index([createdAt])
+  @@index([paymentMethod])
+}
+
+model TransactionStatusHistory {
+  id             String            @id @default(uuid())
+  transactionId  String
+  transaction    Transaction       @relation(fields: [transactionId], references: [id])
+  fromStatus     TransactionStatus
+  toStatus       TransactionStatus
+  metadata       Json?
+  createdAt      DateTime          @default(now())
+
+  @@index([transactionId])
+}
+
+enum WithdrawStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  REJECTED
+}
+
+model WithdrawRequest {
+  id              String         @id @default(uuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id])
+  amount          Decimal        @db.Decimal(12, 2)
+  grossAmount     Decimal        @db.Decimal(12, 2)
+  fee             Decimal        @default(2.00) @db.Decimal(12, 2)
+  status          WithdrawStatus @default(PENDING)
+  pixKey          String
+  receiptImage    String?
+  rejectionReason String?
+
+  domWithdrawId   String?        @unique
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PaymentLink {
+  id               String        @id @default(uuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id])
+  code             String        @unique @default(uuid())
+  title            String
+  description      String?
+  amount           Decimal       @db.Decimal(12, 2)
+  maxInstallments  Int           @default(1)
+  isActive         Boolean       @default(true)
+  transactions     Transaction[]
+
+  domPaymentLinkId String?       @unique
+
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([code])
+}
+
+enum PlanType {
+  MONTHLY
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+}
+
+model Plan {
+  id            String         @id @default(uuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id])
+  name          String
+  description   String?
+  price         Decimal        @db.Decimal(12, 2)
+  type          PlanType
+  isActive      Boolean        @default(true)
+  webhookUrl    String?
+  redirectUrl   String?
+  subscriptions Subscription[]
+
+  domPlanId     String?        @unique
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([userId])
+}
+
+model Subscription {
+  id                  String   @id @default(uuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id])
+  planId              String
+  plan                Plan     @relation(fields: [planId], references: [id])
+  customerId          String?
+  customer            Customer? @relation(fields: [customerId], references: [id])
+  status              String   @default("active")
+  expiresAt           DateTime?
+  totalDaysCredited   Int      @default(0)
+
+  domSubscriptionId   String?  @unique
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+}
+
+model Customer {
+  id            String         @id @default(uuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id])
+  name          String
+  email         String
+  document      String
+  documentType  String         @default("CPF")
+  phone         String?
+  subscriptions Subscription[]
+
+  domCustomerId String?
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([userId, document])
+  @@index([email])
+}
+
+model WebhookEvent {
+  id          String   @id @default(uuid())
+  eventId     String   @unique
+  source      String
+  eventType   String
+  payload     Json
+  status      String   @default("PENDING")
+  retryCount  Int      @default(0)
+  error       String?
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([eventId])
+  @@index([status])
+}
+
+model UserSettings {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  emailNotifications  Boolean  @default(true)
+  webhookUrl          String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
