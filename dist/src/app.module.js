@@ -23,6 +23,7 @@ const report_module_1 = require("./presentation/report.module");
 const settings_module_1 = require("./presentation/settings.module");
 const withdraw_module_1 = require("./presentation/withdraw.module");
 const lead_module_1 = require("./presentation/lead.module");
+const admin_module_1 = require("./presentation/admin.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -51,6 +52,7 @@ exports.AppModule = AppModule = __decorate([
             settings_module_1.SettingsModule,
             withdraw_module_1.WithdrawModule,
             lead_module_1.LeadModule,
+            admin_module_1.AdminModule,
         ],
         providers: [
             {

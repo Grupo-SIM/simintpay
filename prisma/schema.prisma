@@ -311,3 +311,32 @@ model UserSettings {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }
+
+enum LeadStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Lead {
+  id              String     @id @default(uuid())
+  name            String
+  phone           String
+  email           String
+  razaoSocial     String
+  cnpj            String
+  faturamento     String
+  tempoOperacao   String
+  modeloOperacao  String?
+  cargo           String
+  comoConheceu    String?
+  status          LeadStatus @default(PENDING)
+  rejectionReason String?
+  approvedUserId  String?    @unique
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([status])
+  @@index([email])
+  @@index([cnpj])
+}

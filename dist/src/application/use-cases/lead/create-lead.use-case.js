@@ -14,20 +14,39 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CreateLeadUseCase = void 0;
 const common_1 = require("@nestjs/common");
-const payment_gateway_interface_1 = require("../../../core/services/payment-gateway.interface");
+const lead_repository_interface_1 = require("../../../core/repositories/lead.repository.interface");
 let CreateLeadUseCase = class CreateLeadUseCase {
-    gateway;
-    constructor(gateway) {
-        this.gateway = gateway;
+    leads;
+    constructor(leads) {
+        this.leads = leads;
     }
     async execute(dto) {
-        return this.gateway.createLead(dto);
+        const existing = await this.leads.findByEmailOrCnpj(dto.email, dto.cnpj);
+        if (existing && existing.status !== 'REJECTED') {
+            throw new common_1.ConflictException('Já existe uma solicitação pendente com este e-mail ou CNPJ');
+        }
+        const lead = await this.leads.create({
+            name: dto.name,
+            phone: dto.phone,
+            email: dto.email,
+            razaoSocial: dto.razaoSocial,
+            cnpj: dto.cnpj,
+            faturamento: dto.faturamento,
+            tempoOperacao: dto.tempoOperacao,
+            modeloOperacao: dto.modeloOperacao,
+            cargo: dto.cargo,
+            comoConheceu: dto.comoConheceu,
+        });
+        return {
+            data: { id: lead.id },
+            message: 'Solicitação enviada com sucesso! Entraremos em contato em breve.',
+        };
     }
 };
 exports.CreateLeadUseCase = CreateLeadUseCase;
 exports.CreateLeadUseCase = CreateLeadUseCase = __decorate([
     (0, common_1.Injectable)(),
-    __param(0, (0, common_1.Inject)(payment_gateway_interface_1.PAYMENT_GATEWAY)),
+    __param(0, (0, common_1.Inject)(lead_repository_interface_1.LEAD_REPOSITORY)),
     __metadata("design:paramtypes", [Object])
 ], CreateLeadUseCase);
 //# sourceMappingURL=create-lead.use-case.js.map

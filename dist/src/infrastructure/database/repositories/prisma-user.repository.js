@@ -54,6 +54,12 @@ let PrismaUserRepository = class PrismaUserRepository {
             },
         });
     }
+    async updatePassword(id, hashedPassword) {
+        await this.prisma.user.update({
+            where: { id },
+            data: { password: hashedPassword },
+        });
+    }
 };
 exports.PrismaUserRepository = PrismaUserRepository;
 exports.PrismaUserRepository = PrismaUserRepository = __decorate([

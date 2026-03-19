@@ -15,4 +15,5 @@ export declare class PrismaUserRepository implements IUserRepository {
         domUserId?: string | null;
         domToken?: string | null;
     }): Promise<User>;
+    updatePassword(id: string, hashedPassword: string): Promise<void>;
 }

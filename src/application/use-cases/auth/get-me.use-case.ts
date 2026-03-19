@@ -20,6 +20,7 @@ export class GetMeUseCase {
     name: string;
     email: string;
     role: string;
+    isAdmin: boolean;
     wallet: {
       balance: number;
       lockedBalance: number;
@@ -53,6 +54,7 @@ export class GetMeUseCase {
             name: domMe.name ?? user.name,
             email: domMe.email ?? user.email,
             role: user.role,
+            isAdmin: user.role === 'ADMIN',
             wallet: {
               balance,
               lockedBalance,
@@ -72,6 +74,7 @@ export class GetMeUseCase {
       name: user.name,
       email: user.email,
       role: user.role,
+      isAdmin: user.role === 'ADMIN',
       wallet: {
         balance,
         lockedBalance,

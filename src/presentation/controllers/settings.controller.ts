@@ -9,6 +9,8 @@ import { UpdateProfileUseCase } from '../../application/use-cases/settings/updat
 import { GetEmailSettingsUseCase } from '../../application/use-cases/settings/get-email-settings.use-case';
 import { UpdateEmailSettingsUseCase } from '../../application/use-cases/settings/update-email-settings.use-case';
 import { GetTaxesUseCase } from '../../application/use-cases/settings/get-taxes.use-case';
+import { ChangePasswordUseCase } from '../../application/use-cases/settings/change-password.use-case';
+import { ChangePasswordDto } from '../../application/dtos/settings/change-password.dto';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -28,6 +30,7 @@ export class SettingsController {
     private readonly getEmail: GetEmailSettingsUseCase,
     private readonly updateEmail: UpdateEmailSettingsUseCase,
     private readonly taxes: GetTaxesUseCase,
+    private readonly changePassword: ChangePasswordUseCase,
   ) {}
 
   @Get('perfil')
@@ -79,6 +82,24 @@ export class SettingsController {
     @CurrentUser() user: JwtPayload | undefined,
   ): Promise<{ data: unknown }> {
     return this.getEmail.execute({ userId: user?.sub ?? '' });
+  }
+
+  @Put('senha')
+  @ApiOperation({ summary: 'Alterar senha' })
+  @ApiBody({
+    type: ChangePasswordDto,
+    examples: {
+      default: { value: { currentPassword: 'senha-atual', newPassword: 'nova-senha' } },
+    },
+  })
+  @ApiResponse({ status: 200, schema: { example: { data: { updated: true } } } })
+  @ApiResponse({ status: 400, schema: { example: { statusCode: 400, message: 'Senha atual incorreta' } } })
+  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
+  async changePasswordRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<{ data: unknown }> {
+    return this.changePassword.execute({ userId: user?.sub ?? '', dto });
   }
 
   @Put('email')

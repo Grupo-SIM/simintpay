@@ -8,17 +8,20 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LeadModule = void 0;
 const common_1 = require("@nestjs/common");
-const api_dom_module_1 = require("../infrastructure/http/api-dom.module");
 const lead_controller_1 = require("./controllers/lead.controller");
 const create_lead_use_case_1 = require("../application/use-cases/lead/create-lead.use-case");
+const lead_repository_interface_1 = require("../core/repositories/lead.repository.interface");
+const prisma_lead_repository_1 = require("../infrastructure/database/repositories/prisma-lead.repository");
 let LeadModule = class LeadModule {
 };
 exports.LeadModule = LeadModule;
 exports.LeadModule = LeadModule = __decorate([
     (0, common_1.Module)({
-        imports: [api_dom_module_1.ApiDomModule],
         controllers: [lead_controller_1.LeadController],
-        providers: [create_lead_use_case_1.CreateLeadUseCase],
+        providers: [
+            create_lead_use_case_1.CreateLeadUseCase,
+            { provide: lead_repository_interface_1.LEAD_REPOSITORY, useClass: prisma_lead_repository_1.PrismaLeadRepository },
+        ],
     })
 ], LeadModule);
 //# sourceMappingURL=lead.module.js.map

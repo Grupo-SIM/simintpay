@@ -23,6 +23,8 @@ const update_profile_use_case_1 = require("../../application/use-cases/settings/
 const get_email_settings_use_case_1 = require("../../application/use-cases/settings/get-email-settings.use-case");
 const update_email_settings_use_case_1 = require("../../application/use-cases/settings/update-email-settings.use-case");
 const get_taxes_use_case_1 = require("../../application/use-cases/settings/get-taxes.use-case");
+const change_password_use_case_1 = require("../../application/use-cases/settings/change-password.use-case");
+const change_password_dto_1 = require("../../application/dtos/settings/change-password.dto");
 const swagger_1 = require("@nestjs/swagger");
 let SettingsController = class SettingsController {
     getProfile;
@@ -30,12 +32,14 @@ let SettingsController = class SettingsController {
     getEmail;
     updateEmail;
     taxes;
-    constructor(getProfile, updateProfile, getEmail, updateEmail, taxes) {
+    changePassword;
+    constructor(getProfile, updateProfile, getEmail, updateEmail, taxes, changePassword) {
         this.getProfile = getProfile;
         this.updateProfile = updateProfile;
         this.getEmail = getEmail;
         this.updateEmail = updateEmail;
         this.taxes = taxes;
+        this.changePassword = changePassword;
     }
     async profileRoute(user) {
         return this.getProfile.execute({ userId: user?.sub ?? '' });
@@ -48,6 +52,9 @@ let SettingsController = class SettingsController {
     }
     async emailRoute(user) {
         return this.getEmail.execute({ userId: user?.sub ?? '' });
+    }
+    async changePasswordRoute(user, dto) {
+        return this.changePassword.execute({ userId: user?.sub ?? '', dto });
     }
     async updateEmailRoute(user, dto) {
         return this.updateEmail.execute({ userId: user?.sub ?? '', dto });
@@ -106,6 +113,24 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], SettingsController.prototype, "emailRoute", null);
 __decorate([
+    (0, common_1.Put)('senha'),
+    (0, swagger_1.ApiOperation)({ summary: 'Alterar senha' }),
+    (0, swagger_1.ApiBody)({
+        type: change_password_dto_1.ChangePasswordDto,
+        examples: {
+            default: { value: { currentPassword: 'senha-atual', newPassword: 'nova-senha' } },
+        },
+    }),
+    (0, swagger_1.ApiResponse)({ status: 200, schema: { example: { data: { updated: true } } } }),
+    (0, swagger_1.ApiResponse)({ status: 400, schema: { example: { statusCode: 400, message: 'Senha atual incorreta' } } }),
+    (0, swagger_1.ApiResponse)({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, change_password_dto_1.ChangePasswordDto]),
+    __metadata("design:returntype", Promise)
+], SettingsController.prototype, "changePasswordRoute", null);
+__decorate([
     (0, common_1.Put)('email'),
     (0, swagger_1.ApiOperation)({ summary: 'Atualizar configurações de e-mail' }),
     (0, swagger_1.ApiBody)({
@@ -132,6 +157,7 @@ exports.SettingsController = SettingsController = __decorate([
         update_profile_use_case_1.UpdateProfileUseCase,
         get_email_settings_use_case_1.GetEmailSettingsUseCase,
         update_email_settings_use_case_1.UpdateEmailSettingsUseCase,
-        get_taxes_use_case_1.GetTaxesUseCase])
+        get_taxes_use_case_1.GetTaxesUseCase,
+        change_password_use_case_1.ChangePasswordUseCase])
 ], SettingsController);
 //# sourceMappingURL=settings.controller.js.map

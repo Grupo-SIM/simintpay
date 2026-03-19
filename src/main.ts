@@ -16,18 +16,18 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
   const logger = new Logger('Bootstrap');
 
-  // Security headers
-  app.use(helmet());
-
-  // CORS
+  // CORS — must be before helmet
   const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
   app.enableCors({
-    origin: [frontendUrl, 'http://localhost:3000'],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    origin: [frontendUrl, 'http://localhost:3000', 'https://simpay-back.simintermediacoes.com'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
     maxAge: 86400,
   });
+
+  // Security headers
+  app.use(helmet({ crossOriginResourcePolicy: false }));
 
   // Middlewares
   app.use(correlationIdMiddleware);

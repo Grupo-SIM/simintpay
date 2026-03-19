@@ -17,15 +17,15 @@ async function bootstrap() {
     }
     const app = await core_1.NestFactory.create(app_module_1.AppModule, { rawBody: true });
     const logger = new common_1.Logger('Bootstrap');
-    app.use((0, helmet_1.default)());
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
     app.enableCors({
-        origin: [frontendUrl, 'http://localhost:3000'],
-        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+        origin: [frontendUrl, 'http://localhost:3000', 'https://simpay-back.simintermediacoes.com'],
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization'],
         credentials: true,
         maxAge: 86400,
     });
+    app.use((0, helmet_1.default)({ crossOriginResourcePolicy: false }));
     app.use(correlation_id_middleware_1.correlationIdMiddleware);
     app.useGlobalFilters(new all_exceptions_filter_1.AllExceptionsFilter());
     app.useGlobalPipes(new common_1.ValidationPipe({

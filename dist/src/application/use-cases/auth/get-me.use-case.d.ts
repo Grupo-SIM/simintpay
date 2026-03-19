@@ -13,6 +13,7 @@ export declare class GetMeUseCase {
         name: string;
         email: string;
         role: string;
+        isAdmin: boolean;
         wallet: {
             balance: number;
             lockedBalance: number;

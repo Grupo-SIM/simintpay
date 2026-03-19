@@ -1,0 +1,53 @@
+import 'dotenv/config';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+import * as bcrypt from 'bcryptjs';
+
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error('DATABASE_URL não está definida');
+
+const pool = new Pool({ connectionString });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
+
+async function main() {
+  const email = process.env.SEED_ADMIN_EMAIL ?? 'adminljl@simpay.com.br';
+  const password = process.env.SEED_ADMIN_PASSWORD ?? 'xGzHA44e6L8';
+  const name = process.env.SEED_ADMIN_NAME ?? 'Admin';
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+
+  if (existing) {
+    // Promote to ADMIN if already exists
+    await prisma.user.update({
+      where: { email },
+      data: { role: 'ADMIN' },
+    });
+    console.log(`✓ Usuário ${email} promovido para ADMIN`);
+  } else {
+    const hashed = await bcrypt.hash(password, 12);
+
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashed,
+        role: 'ADMIN',
+        isActive: true,
+      },
+    });
+
+    await prisma.wallet.create({ data: { userId: user.id } });
+
+    console.log(`✓ Admin criado: ${email} / ${password}`);
+    console.log('  ⚠️  Troque a senha após o primeiro acesso!');
+  }
+}
+
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(() => prisma.$disconnect());

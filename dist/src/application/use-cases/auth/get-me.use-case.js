@@ -48,6 +48,7 @@ let GetMeUseCase = class GetMeUseCase {
                         name: domMe.name ?? user.name,
                         email: domMe.email ?? user.email,
                         role: user.role,
+                        isAdmin: user.role === 'ADMIN',
                         wallet: {
                             balance,
                             lockedBalance,
@@ -66,6 +67,7 @@ let GetMeUseCase = class GetMeUseCase {
             name: user.name,
             email: user.email,
             role: user.role,
+            isAdmin: user.role === 'ADMIN',
             wallet: {
                 balance,
                 lockedBalance,

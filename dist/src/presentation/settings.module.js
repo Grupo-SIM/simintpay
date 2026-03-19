@@ -15,8 +15,11 @@ const update_profile_use_case_1 = require("../application/use-cases/settings/upd
 const get_email_settings_use_case_1 = require("../application/use-cases/settings/get-email-settings.use-case");
 const update_email_settings_use_case_1 = require("../application/use-cases/settings/update-email-settings.use-case");
 const get_taxes_use_case_1 = require("../application/use-cases/settings/get-taxes.use-case");
+const change_password_use_case_1 = require("../application/use-cases/settings/change-password.use-case");
 const user_repository_interface_1 = require("../core/repositories/user.repository.interface");
 const prisma_user_repository_1 = require("../infrastructure/database/repositories/prisma-user.repository");
+const hash_interface_1 = require("../core/services/hash.interface");
+const bcrypt_service_1 = require("../infrastructure/security/bcrypt.service");
 let SettingsModule = class SettingsModule {
 };
 exports.SettingsModule = SettingsModule;
@@ -30,7 +33,9 @@ exports.SettingsModule = SettingsModule = __decorate([
             get_email_settings_use_case_1.GetEmailSettingsUseCase,
             update_email_settings_use_case_1.UpdateEmailSettingsUseCase,
             get_taxes_use_case_1.GetTaxesUseCase,
+            change_password_use_case_1.ChangePasswordUseCase,
             { provide: user_repository_interface_1.USER_REPOSITORY, useClass: prisma_user_repository_1.PrismaUserRepository },
+            { provide: hash_interface_1.HASH_SERVICE, useClass: bcrypt_service_1.BcryptService },
         ],
     })
 ], SettingsModule);

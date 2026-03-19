@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run seed:*)",
+      "Bash(npx ts-node:*)"
+    ]
+  }
+}

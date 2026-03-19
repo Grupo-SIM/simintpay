@@ -14,6 +14,7 @@ import { ReportModule } from './presentation/report.module';
 import { SettingsModule } from './presentation/settings.module';
 import { WithdrawModule } from './presentation/withdraw.module';
 import { LeadModule } from './presentation/lead.module';
+import { AdminModule } from './presentation/admin.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { LeadModule } from './presentation/lead.module';
     SettingsModule,
     WithdrawModule,
     LeadModule,
+    AdminModule,
   ],
   providers: [
     {

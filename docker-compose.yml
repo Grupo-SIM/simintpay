@@ -1,0 +1,43 @@
+version: "3.8"
+services:
+  api_donate:
+    image: brenolima1706/back-simpay:latest
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=secret
+      - JWT_DRIVER=jsonwebtoken
+      - HASH_DRIVER=bcrypt
+      - DATABASE_URL=postgresql://postgres:pUXSu1qNwOgl4It@postgres_prod:5432/simpay
+      - DIRECT_URL=postgresql://postgres:pUXSu1qNwOgl4It@postgres_prod:5432/simpay
+      - API_DOM_URL=https://api-dom.jbmidia.com
+      - PORT=3333
+    networks:
+      - externa
+      - interna
+    deploy:
+      mode: replicated
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.services.back-simpay.loadbalancer.server.port=3333"
+        - "traefik.http.services.back-simpay.loadbalancer.passHostHeader=true"
+        - "traefik.http.routers.back-simpay.service=back-simpay"
+        - "traefik.http.routers.back-simpay.rule=Host(`simpay-back.simintermediacoes.com`)"
+        - "traefik.http.routers.back-simpay.tls.certresolver=le"
+        - "traefik.http.routers.back-simpay.entrypoints=websecure"
+        - "traefik.http.routers.back-simpay.tls=true"
+
+networks:
+  externa:
+    external: true
+  interna:
+    external: true
