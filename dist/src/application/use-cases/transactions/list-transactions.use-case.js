@@ -70,22 +70,55 @@ let ListTransactionsUseCase = class ListTransactionsUseCase {
         if (user?.domToken) {
             try {
                 const domRes = await this.gateway.listDomTransactions(user.domToken, { page: 1, limit: 100 });
+                let domTaxes = null;
+                const masterKey = process.env.API_DOM_MASTER_KEY;
+                if (masterKey) {
+                    try {
+                        domTaxes = await this.gateway.getTaxes(masterKey);
+                        console.log('[Sync] Taxes PIX:', domTaxes?.pix, '| Card parcelas:', domTaxes?.cartaoCredito?.tabelaParcelas?.length);
+                    }
+                    catch (err) {
+                        console.error('[Sync] Failed to fetch taxes:', err.message);
+                    }
+                }
                 for (const item of domRes.transactions) {
-                    const amount = new client_1.Prisma.Decimal(item.amount);
+                    const amount = new client_1.Prisma.Decimal(item.amount / 100);
                     const liquidRaw = item.liquid_amount ?? 0;
-                    const netAmount = new client_1.Prisma.Decimal(liquidRaw > 0 ? liquidRaw : 0);
+                    const netAmount = new client_1.Prisma.Decimal(liquidRaw > 0 ? liquidRaw / 100 : 0);
                     const totalFee = amount.sub(netAmount);
+                    let calcDomFee = item.mdr_value != null ? new client_1.Prisma.Decimal(item.mdr_value) : undefined;
+                    if (!calcDomFee && domTaxes) {
+                        const isCard = item.payment_method?.toUpperCase().includes('CARD');
+                        const amt = item.amount / 100;
+                        if (!isCard && domTaxes.pix) {
+                            const pct = domTaxes.pix.percentual ?? 0;
+                            const fixed = domTaxes.pix.fixo ?? 0;
+                            calcDomFee = new client_1.Prisma.Decimal(amt * (pct / 100) + fixed);
+                        }
+                        else if (isCard && domTaxes.cartaoCredito?.tabelaParcelas) {
+                            const installments = item.installments ?? 1;
+                            const row = domTaxes.cartaoCredito.tabelaParcelas.find(r => Number(r.parcelas) === installments);
+                            if (row)
+                                calcDomFee = new client_1.Prisma.Decimal(amt * (parseFloat(row.taxaDom) / 100));
+                        }
+                    }
+                    const calcPlatformFee = calcDomFee
+                        ? client_1.Prisma.Decimal.max(new client_1.Prisma.Decimal(0), totalFee.sub(calcDomFee))
+                        : undefined;
                     const parsedDate = item.created_at
                         ? new Date(item.created_at.replace(' ', 'T'))
                         : new Date();
                     const createdAt = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+                    const domPaymentId = item.order_id || item.cod_external || item.id;
                     await this.prisma.transaction.upsert({
-                        where: { domPaymentId: item.cod_external || item.id },
+                        where: { domPaymentId },
                         update: {
                             status: mapDomStatusToTransactionStatus(item.status),
                             amount,
                             netAmount,
                             totalFee,
+                            ...(calcDomFee !== undefined && { domFee: calcDomFee }),
+                            ...(calcPlatformFee !== undefined && { platformFee: calcPlatformFee }),
                             customerName: item.customer_name,
                             customerEmail: item.customer_email,
                             customerDocument: item.customer_document,
@@ -97,10 +130,12 @@ let ListTransactionsUseCase = class ListTransactionsUseCase {
                             amount,
                             netAmount,
                             totalFee,
+                            ...(calcDomFee !== undefined && { domFee: calcDomFee }),
+                            ...(calcPlatformFee !== undefined && { platformFee: calcPlatformFee }),
                             status: mapDomStatusToTransactionStatus(item.status),
                             paymentMethod: item.payment_method?.toUpperCase().includes('CARD') ? client_1.PaymentMethod.CREDIT_CARD : client_1.PaymentMethod.PIX,
                             domTransactionId: item.id,
-                            domPaymentId: item.cod_external || item.id,
+                            domPaymentId,
                             customerName: item.customer_name,
                             customerEmail: item.customer_email,
                             customerDocument: item.customer_document,

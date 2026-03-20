@@ -68,6 +68,78 @@ export class ApiDomClient implements IPaymentGateway {
     return base.replace(/\/$/, '');
   }
 
+  /** URL base da API real do DOM Pagamentos */
+  private get domRealApiUrl(): string {
+    const base = process.env.DOM_REAL_API_URL ?? 'https://apiv3.dompagamentos.com.br/checkout/production';
+    return base.replace(/\/$/, '');
+  }
+
+  /** Normaliza resposta bruta da API real do DOM para o formato { order: {...} } */
+  private normalizeDomApiResponse(data: Record<string, unknown>): Record<string, unknown> | null {
+    // A API real retorna o objeto de transação diretamente (sem wrapper "order")
+    const id = this.pickString(data, 'id');
+    if (!id) return null;
+
+    // Taxa: a DOM retorna em fee_details.amount (objeto aninhado) — já em reais
+    const feeDetails = this.getObject((data as any).fee_details ?? null);
+    const feeAmount = this.pickNumber(feeDetails, 'amount') ?? 0;
+
+    // amount e liquid_amount vêm em centavos — converter para reais
+    const amountCents = this.pickNumber(data, 'amount') ?? 0;
+    const amount = amountCents / 100;
+
+    // liquid_amount = -1 significa liquidação pendente; calcula manualmente
+    const rawLiquidCents = this.pickNumber(data, 'liquid_amount');
+    const totalLiquid = (rawLiquidCents != null && rawLiquidCents >= 0)
+      ? rawLiquidCents / 100
+      : Math.max(0, amount - feeAmount);
+
+    const status = this.pickString(data, 'status') ?? '';
+    const isPaid = status === 'paid' || status === 'approved' || status === 'completed';
+
+    const order: Record<string, unknown> = {
+      order_id: this.pickString(data, 'cod_external') ?? id,
+      id_transaction: id,
+      type: status,
+      type_payment: this.pickString(data, 'payment_method') ?? 'PIX',
+      date_register: this.pickString(data, 'created_at'),
+      origin: 'DOM Pagamentos',
+      total: amount,
+      total_liquid: totalLiquid,
+      fee_total_value: feeAmount,
+      mdr_value: feeAmount,
+      fee_installment_value: 0,
+      paid_date: isPaid ? (this.pickString(data, 'updated_at') ?? null) : null,
+      msg_3ds: null,
+    };
+
+    // Cliente
+    const customer = this.getObject((data as any).customer ?? (data as any).payer ?? null);
+    if (customer) {
+      order.client_name = this.pickString(customer, 'name');
+      order.client_document = this.pickString(customer, 'document') ?? this.pickString(customer, 'cpf');
+      order.client_email = this.pickString(customer, 'email');
+      order.client_phone = this.pickString(customer, 'mobile_phone') ?? this.pickString(customer, 'phone') ?? this.pickString(customer, 'mobile');
+    }
+
+    // PIX
+    order.pix_content = this.pickString(data, 'pix_content');
+
+    // Items
+    const rawItems = Array.isArray(data.items) ? data.items : [];
+    order.items = rawItems.length > 0
+      ? rawItems.map((it: any) => ({ name: it.description ?? it.name ?? 'Produto', quant: it.quantity ?? it.quant ?? 1, price: (it.price ?? it.amount ?? 0) / 100 }))
+      : [{ name: String((data as any).product_first ?? 'Produto'), quant: 1, price: amount }];
+
+    // Histórico de status
+    const rawHistory = Array.isArray((data as any).status_history) ? (data as any).status_history : [];
+    order.historic_status = rawHistory.length > 0
+      ? rawHistory.map((h: any) => ({ status: h.status, type: h.type ?? h.status, date: h.created_at ?? h.date, color: '#3fa0e5' }))
+      : [];
+
+    return { order };
+  }
+
   async register(input: DomRegisterInput): Promise<DomRegisterOutput> {
     const url = `${this.baseUrl}/auth/register`;
 
@@ -540,17 +612,30 @@ export class ApiDomClient implements IPaymentGateway {
       this.getArray(root) ??
       [];
 
-    const transactions: DomTransactionItem[] = arr
+    const rawObjects = arr
       .map((x) => this.getObject(x))
-      .filter((x): x is Record<string, unknown> => Boolean(x))
+      .filter((x): x is Record<string, unknown> => Boolean(x));
+
+    if (rawObjects.length > 0) {
+      console.log('[DOM List] First raw transaction keys:', Object.keys(rawObjects[0]));
+      console.log('[DOM List] First raw transaction mdr_value:', rawObjects[0]['mdr_value']);
+      console.log('[DOM List] First raw transaction id:', rawObjects[0]['id']);
+      console.log('[DOM List] First raw transaction order_id:', rawObjects[0]['order_id']);
+      console.log('[DOM List] First raw transaction cod_external:', rawObjects[0]['cod_external']);
+      console.log('[DOM List] First raw transaction id_transaction:', rawObjects[0]['id_transaction']);
+    }
+
+    const transactions: DomTransactionItem[] = rawObjects
       .map((x): DomTransactionItem => ({
         id: this.pickString(x, 'id') ?? '',
+        order_id: this.pickString(x, 'order_id'),
         cod_external: this.pickString(x, 'cod_external'),
         created_at:
           this.pickString(x, 'created_at') ?? new Date().toISOString(),
         updated_at: this.pickString(x, 'updated_at'),
         amount: this.pickNumber(x, 'amount') ?? 0,
         liquid_amount: this.pickNumber(x, 'liquid_amount') ?? 0,
+        mdr_value: this.pickNumber(x, 'mdr_value'),
         status: this.pickString(x, 'status') ?? 'pending',
         status_details: this.pickString(x, 'status_details'),
         payment_method: this.pickString(x, 'payment_method') ?? 'pix',
@@ -611,14 +696,54 @@ export class ApiDomClient implements IPaymentGateway {
     domToken: string,
     id: string,
   ): Promise<any> {
-    const url = `${this.baseUrl}/front-store/transaction/${id}`;
-    console.log(`[DOM Client] GET ${url}`);
-    
-    const res = await firstValueFrom(
-      this.http.get<any>(url, {
-        headers: { 'x-access-token': domToken },
-      }),
-    );
-    return res.data;
+    const domApiToken = process.env.DOM_TOKEN;
+
+    // 1. API real do DOM Pagamentos (apiv3.dompagamentos.com.br) com Bearer token
+    if (domApiToken) {
+      const realUrl = `${this.domRealApiUrl}/transactions/${id}`;
+      try {
+        console.log(`[DOM Client] GET ${realUrl} (real API)`);
+        const res = await firstValueFrom(
+          this.http.get<any>(realUrl, {
+            headers: { Authorization: `Bearer ${domApiToken}` },
+          }),
+        );
+        const data = this.getObject(res.data);
+        if (data) {
+          // A API real retorna o objeto diretamente; normaliza para { order: {...} }
+          const normalized = this.normalizeDomApiResponse(data);
+          if (normalized?.order) {
+            console.log(`[DOM Client] Success from real DOM API: ${realUrl}`);
+            return normalized;
+          }
+        }
+      } catch (err: any) {
+        console.log(`[DOM Client] ${realUrl} → ${err?.response?.status ?? err?.message}`);
+      }
+    }
+
+    // 2. Wrapper api-dom.jbmidia.com (fallback)
+    const fallbackEndpoints = [
+      `${this.baseUrl}/payments/dom/transactions/${id}`,
+    ];
+
+    for (const url of fallbackEndpoints) {
+      try {
+        console.log(`[DOM Client] GET ${url}`);
+        const res = await firstValueFrom(
+          this.http.get<any>(url, {
+            headers: { 'x-access-token': domToken },
+          }),
+        );
+        if (res.data?.status === 'OK' || res.data?.order || res.data?.id) {
+          console.log(`[DOM Client] Success from ${url}`);
+          return res.data;
+        }
+      } catch (err: any) {
+        console.log(`[DOM Client] ${url} → ${err?.response?.status ?? err?.message}`);
+      }
+    }
+
+    throw new Error(`Transaction ${id} not found in any Dom endpoint`);
   }
 }

@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(npm run seed:*)",
-      "Bash(npx ts-node:*)"
+      "Bash(npx ts-node:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx tsc:*)",
+      "WebFetch(domain:dom-pagamentos.readme.io)"
     ]
   }
 }

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, Inject } from '@nestjs/common';
-import { TransactionStatus } from '@prisma/client';
+import { Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 
@@ -117,23 +117,40 @@ export class GetTransactionDetailsUseCase {
       throw new NotFoundException(`Transação ${input.id} não encontrada.`);
     }
 
-    // 2. Try Dom API using all available IDs (domPaymentId first, then domTransactionId)
+    // 2. Try Dom API using all available IDs
     const domToken = tx.user?.domToken;
-    const domIdsToTry = [tx.domPaymentId, tx.domTransactionId].filter(Boolean) as string[];
+    const domIdsToTry = [
+      tx.domPaymentId,
+      tx.domTransactionId,
+    ].filter(Boolean) as string[];
+
+    console.log(`[Detail] tx.id=${tx.id} domPaymentId=${tx.domPaymentId} domTransactionId=${tx.domTransactionId} hasToken=${!!domToken} idsToTry=${JSON.stringify(domIdsToTry)}`);
 
     if (domToken && domIdsToTry.length > 0) {
       for (const domId of domIdsToTry) {
         try {
+          console.log(`[Detail] Calling Dom API with id=${domId}`);
           const detail = await this.gateway.getDomTransactionDetail(domToken, domId);
-          if (detail?.status === 'OK' && detail?.order) {
+          console.log(`[Detail] Dom response hasOrder=${!!detail?.order} mdr_value=${detail?.order?.mdr_value}`);
+          // DOM /front-store/transaction retorna { order: {...}, reasons: [...] } sem status: 'OK'
+          if (detail?.order) {
+            // Cache mdr_value in domFee column for future fallbacks
+            const mdrVal = Number(detail.order.mdr_value ?? 0);
+            if (mdrVal > 0) {
+              this.prisma.transaction.update({
+                where: { id: tx.id },
+                data: { domFee: new Prisma.Decimal(mdrVal) },
+              }).catch(() => {});
+            }
             return detail;
           }
-        } catch {
-          // Try next ID
+        } catch (err: any) {
+          console.log(`[Detail] Dom API error for id=${domId}: ${err?.message ?? err}`);
         }
       }
     }
 
+    console.log(`[Detail] Using fallback for tx.id=${tx.id} totalFee=${tx.totalFee} domFee=${tx.domFee}`);
     // 3. Fallback: build from local DB
     return { status: 'OK', order: this.buildFallbackOrder(tx) };
   }

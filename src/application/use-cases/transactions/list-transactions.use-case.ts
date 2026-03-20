@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import { PAYMENT_GATEWAY, type IPaymentGateway, type DomTaxesOutput } from '../../../core/services/payment-gateway.interface';
 import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-transactions.query.dto';
 
 function mapInternalStatusToPt(
@@ -89,24 +89,67 @@ export class ListTransactionsUseCase {
     if (user?.domToken) {
       try {
         const domRes = await this.gateway.listDomTransactions(user.domToken, { page: 1, limit: 100 });
+
+        // Fetch Dom tax rates once so we can calculate domFee per transaction
+        // (the list endpoint does not return mdr_value)
+        let domTaxes: DomTaxesOutput | null = null;
+        const masterKey = process.env.API_DOM_MASTER_KEY;
+        if (masterKey) {
+          try {
+            domTaxes = await this.gateway.getTaxes(masterKey);
+            console.log('[Sync] Taxes PIX:', domTaxes?.pix, '| Card parcelas:', domTaxes?.cartaoCredito?.tabelaParcelas?.length);
+          } catch (err: any) {
+            console.error('[Sync] Failed to fetch taxes:', err.message);
+          }
+        }
+
         for (const item of domRes.transactions) {
-           const amount = new Prisma.Decimal(item.amount);
+           // DOM retorna amount e liquid_amount em centavos — converter para reais
+           const amount = new Prisma.Decimal(item.amount / 100);
            const liquidRaw = item.liquid_amount ?? 0;
-           const netAmount = new Prisma.Decimal(liquidRaw > 0 ? liquidRaw : 0);
+           const netAmount = new Prisma.Decimal(liquidRaw > 0 ? liquidRaw / 100 : 0);
            const totalFee = amount.sub(netAmount);
+
+           // Prefer mdr_value from API; fall back to taxes-based calculation
+           let calcDomFee: Prisma.Decimal | undefined =
+             item.mdr_value != null ? new Prisma.Decimal(item.mdr_value) : undefined;
+
+           if (!calcDomFee && domTaxes) {
+             const isCard = item.payment_method?.toUpperCase().includes('CARD');
+             const amt = item.amount / 100; // em reais
+             if (!isCard && domTaxes.pix) {
+               const pct = domTaxes.pix.percentual ?? 0;
+               const fixed = domTaxes.pix.fixo ?? 0;
+               calcDomFee = new Prisma.Decimal(amt * (pct / 100) + fixed);
+             } else if (isCard && domTaxes.cartaoCredito?.tabelaParcelas) {
+               const installments = item.installments ?? 1;
+               const row = domTaxes.cartaoCredito.tabelaParcelas.find(r => Number(r.parcelas) === installments);
+               if (row) calcDomFee = new Prisma.Decimal(amt * (parseFloat(row.taxaDom) / 100));
+             }
+           }
+
+           const calcPlatformFee = calcDomFee
+             ? Prisma.Decimal.max(new Prisma.Decimal(0), totalFee.sub(calcDomFee))
+             : undefined;
+
            const parsedDate = item.created_at
              ? new Date(item.created_at.replace(' ', 'T'))
              : new Date();
            const createdAt = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
 
+           // order_id é o identificador aceito pelo endpoint /front-store/transaction/{id} do DOM
+           const domPaymentId = item.order_id || item.cod_external || item.id;
+
            // Upsert na tabela local
            await this.prisma.transaction.upsert({
-             where: { domPaymentId: item.cod_external || item.id },
+             where: { domPaymentId },
              update: {
                status: mapDomStatusToTransactionStatus(item.status),
                amount,
                netAmount,
                totalFee,
+               ...(calcDomFee !== undefined && { domFee: calcDomFee }),
+               ...(calcPlatformFee !== undefined && { platformFee: calcPlatformFee }),
                customerName: item.customer_name,
                customerEmail: item.customer_email,
                customerDocument: item.customer_document,
@@ -118,10 +161,12 @@ export class ListTransactionsUseCase {
                amount,
                netAmount,
                totalFee,
+               ...(calcDomFee !== undefined && { domFee: calcDomFee }),
+               ...(calcPlatformFee !== undefined && { platformFee: calcPlatformFee }),
                status: mapDomStatusToTransactionStatus(item.status),
                paymentMethod: item.payment_method?.toUpperCase().includes('CARD') ? PaymentMethod.CREDIT_CARD : PaymentMethod.PIX,
                domTransactionId: item.id,
-               domPaymentId: item.cod_external || item.id,
+               domPaymentId,
                customerName: item.customer_name,
                customerEmail: item.customer_email,
                customerDocument: item.customer_document,

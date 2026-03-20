@@ -8,6 +8,8 @@ export declare class ApiDomClient implements IPaymentGateway {
     private pickString;
     private pickNestedString;
     private get baseUrl();
+    private get domRealApiUrl();
+    private normalizeDomApiResponse;
     register(input: DomRegisterInput): Promise<DomRegisterOutput>;
     generateToken(email: string, password: string): Promise<DomGenerateTokenOutput>;
     me(domToken: string): Promise<DomMeOutput>;

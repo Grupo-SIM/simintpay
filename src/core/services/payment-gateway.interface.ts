@@ -117,11 +117,13 @@ export type DomSubscriptionOutput = {
 
 export type DomTransactionItem = {
   id: string;
+  order_id?: string | null;
   cod_external?: string | null;
   created_at: string;
   updated_at?: string | null;
   amount: number;
   liquid_amount: number;
+  mdr_value?: number | null;
   status: string;
   status_details?: string | null;
   payment_method: string;
