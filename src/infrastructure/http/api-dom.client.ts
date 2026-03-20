@@ -92,22 +92,33 @@ export class ApiDomClient implements IPaymentGateway {
     const rawLiquidCents = this.pickNumber(data, 'liquid_amount');
     const totalLiquid = (rawLiquidCents != null && rawLiquidCents >= 0)
       ? rawLiquidCents / 100
-      : Math.max(0, amount - feeAmount);
+      : amount - feeAmount;
 
     const status = this.pickString(data, 'status') ?? '';
     const isPaid = status === 'paid' || status === 'approved' || status === 'completed';
+    const paymentMethod = this.pickString(data, 'payment_method') ?? '';
+    const installments = Math.max(1, Math.round(this.pickNumber(data, 'installments') ?? 1));
+    const isCard = /card|credit/i.test(paymentMethod);
+
+    // Calcular MDR (parte percentual da taxa) com as mesmas taxas do api-dom
+    const CARD_RATES: Record<number, number> = {
+      1: 0.0399, 2: 0.083,  3: 0.0968, 4: 0.1104, 5: 0.1237, 6: 0.1367,
+      7: 0.1495, 8: 0.1621, 9: 0.1744, 10: 0.1864, 11: 0.1983, 12: 0.2099,
+    };
+    const mdrRate = isCard ? (CARD_RATES[installments] ?? 0.0399) : 0.0098;
+    const mdrValue = parseFloat((amount * mdrRate).toFixed(2));
 
     const order: Record<string, unknown> = {
       order_id: this.pickString(data, 'cod_external') ?? id,
       id_transaction: id,
       type: status,
-      type_payment: this.pickString(data, 'payment_method') ?? 'PIX',
+      type_payment: paymentMethod,
       date_register: this.pickString(data, 'created_at'),
       origin: 'DOM Pagamentos',
       total: amount,
       total_liquid: totalLiquid,
       fee_total_value: feeAmount,
-      mdr_value: feeAmount,
+      mdr_value: mdrValue,
       fee_installment_value: 0,
       paid_date: isPaid ? (this.pickString(data, 'updated_at') ?? null) : null,
       msg_3ds: null,
