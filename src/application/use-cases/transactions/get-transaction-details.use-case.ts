@@ -142,6 +142,22 @@ export class GetTransactionDetailsUseCase {
                 data: { domFee: new Prisma.Decimal(mdrVal) },
               }).catch(() => {});
             }
+            // API real não retorna status_history — injetar do banco local
+            if (!detail.order.historic_status?.length) {
+              detail.order.historic_status = tx.statusHistory?.length
+                ? tx.statusHistory.map((h: any) => ({
+                    status: this.mapStatusToLabel(h.toStatus),
+                    type: this.mapStatusToType(h.toStatus),
+                    date: this.toBRT(h.createdAt),
+                    color: h.toStatus === TransactionStatus.COMPLETED ? '#40a083' : '#3fa0e5',
+                  }))
+                : [
+                    { status: 'Pendente', type: 'pending', date: this.toBRT(tx.createdAt), color: '#3fa0e5' },
+                    ...(tx.status === TransactionStatus.COMPLETED
+                      ? [{ status: 'Aprovado', type: 'approved', date: this.toBRT(tx.updatedAt), color: '#40a083' }]
+                      : []),
+                  ];
+            }
             return detail;
           }
         } catch (err: any) {
