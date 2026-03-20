@@ -10,13 +10,16 @@ exports.TransactionsModule = void 0;
 const common_1 = require("@nestjs/common");
 const transactions_controller_1 = require("./controllers/transactions.controller");
 const list_transactions_use_case_1 = require("../application/use-cases/transactions/list-transactions.use-case");
+const get_transaction_details_use_case_1 = require("../application/use-cases/transactions/get-transaction-details.use-case");
+const api_dom_module_1 = require("../infrastructure/http/api-dom.module");
 let TransactionsModule = class TransactionsModule {
 };
 exports.TransactionsModule = TransactionsModule;
 exports.TransactionsModule = TransactionsModule = __decorate([
     (0, common_1.Module)({
+        imports: [api_dom_module_1.ApiDomModule],
         controllers: [transactions_controller_1.TransactionsController],
-        providers: [list_transactions_use_case_1.ListTransactionsUseCase],
+        providers: [list_transactions_use_case_1.ListTransactionsUseCase, get_transaction_details_use_case_1.GetTransactionDetailsUseCase],
     })
 ], TransactionsModule);
 //# sourceMappingURL=transactions.module.js.map

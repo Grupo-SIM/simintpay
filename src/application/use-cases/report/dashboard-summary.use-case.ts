@@ -35,7 +35,7 @@ export class DashboardSummaryUseCase {
     };
 
     const [txTotal, txApproved, txPending, txRejected, txRefunded] =
-      await this.prisma.$transaction([
+      await Promise.all([
         this.prisma.transaction.count({ where: { userId: input.userId } }),
         this.prisma.transaction.count({
           where: { userId: input.userId, status: TransactionStatus.COMPLETED },
@@ -67,7 +67,7 @@ export class DashboardSummaryUseCase {
       ]);
 
     const [revTodayAgg, revWeekAgg, revMonthAgg, revPrevMonthAgg] =
-      await this.prisma.$transaction([
+      await Promise.all([
         this.prisma.transaction.aggregate({
           where: { ...completedWhere, createdAt: { gte: todayStart } },
           _sum: { netAmount: true },
@@ -104,7 +104,7 @@ export class DashboardSummaryUseCase {
         : 0;
 
     const [withdrawPendingAgg, withdrawPaidAgg] =
-      await this.prisma.$transaction([
+      await Promise.all([
         this.prisma.withdrawRequest.aggregate({
           where: { userId: input.userId, status: WithdrawStatus.PENDING },
           _count: { _all: true },

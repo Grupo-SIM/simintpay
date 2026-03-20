@@ -19,13 +19,16 @@ async function bootstrap() {
     const logger = new common_1.Logger('Bootstrap');
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
     app.enableCors({
-        origin: [frontendUrl, 'http://localhost:3000', 'https://simpay-back.simintermediacoes.com'],
+        origin: [frontendUrl, 'http://localhost:3000', 'https://simpay-back.simintermediacoes.com', 'http://localhost:3001'],
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
         credentials: true,
         maxAge: 86400,
     });
-    app.use((0, helmet_1.default)({ crossOriginResourcePolicy: false }));
+    app.use((0, helmet_1.default)({
+        crossOriginResourcePolicy: false,
+        referrerPolicy: { policy: 'no-referrer-when-downgrade' }
+    }));
     app.use(correlation_id_middleware_1.correlationIdMiddleware);
     app.useGlobalFilters(new all_exceptions_filter_1.AllExceptionsFilter());
     app.useGlobalPipes(new common_1.ValidationPipe({

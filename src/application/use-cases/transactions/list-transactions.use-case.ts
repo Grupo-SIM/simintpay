@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-transactions.query.dto';
 
 function mapInternalStatusToPt(
@@ -23,6 +24,14 @@ function mapInternalStatusToPt(
   }
 }
 
+function mapDomStatusToTransactionStatus(status: string): TransactionStatus {
+  const s = status.toLowerCase();
+  if (s === 'paid' || s === 'approved' || s === 'completed') return TransactionStatus.COMPLETED;
+  if (s === 'refunded' || s === 'chargeback') return TransactionStatus.REFUNDED;
+  if (s === 'failed' || s === 'rejected' || s === 'expired') return TransactionStatus.FAILED;
+  return TransactionStatus.PENDING;
+}
+
 function mapPtStatusToInternal(
   status: ListTransactionsQueryDto['status'],
 ): TransactionStatus[] | undefined {
@@ -42,7 +51,10 @@ function mapPtStatusToInternal(
 
 @Injectable()
 export class ListTransactionsUseCase {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+  ) {}
 
   async execute(input: {
     userId: string;
@@ -72,48 +84,139 @@ export class ListTransactionsUseCase {
     pageSize: number;
     total: number;
   }> {
+    // 1. Sincronizar com a DOM
+    const user = await this.prisma.user.findUnique({ where: { id: input.userId } });
+    if (user?.domToken) {
+      try {
+        const domRes = await this.gateway.listDomTransactions(user.domToken, { page: 1, limit: 100 });
+        for (const item of domRes.transactions) {
+           const amount = new Prisma.Decimal(item.amount);
+           const liquidRaw = item.liquid_amount ?? 0;
+           const netAmount = new Prisma.Decimal(liquidRaw > 0 ? liquidRaw : 0);
+           const totalFee = amount.sub(netAmount);
+           const parsedDate = item.created_at
+             ? new Date(item.created_at.replace(' ', 'T'))
+             : new Date();
+           const createdAt = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+
+           // Upsert na tabela local
+           await this.prisma.transaction.upsert({
+             where: { domPaymentId: item.cod_external || item.id },
+             update: {
+               status: mapDomStatusToTransactionStatus(item.status),
+               amount,
+               netAmount,
+               totalFee,
+               customerName: item.customer_name,
+               customerEmail: item.customer_email,
+               customerDocument: item.customer_document,
+               customerPhone: item.customer_phone,
+               updatedAt: new Date(),
+             },
+             create: {
+               userId: user.id,
+               amount,
+               netAmount,
+               totalFee,
+               status: mapDomStatusToTransactionStatus(item.status),
+               paymentMethod: item.payment_method?.toUpperCase().includes('CARD') ? PaymentMethod.CREDIT_CARD : PaymentMethod.PIX,
+               domTransactionId: item.id,
+               domPaymentId: item.cod_external || item.id,
+               customerName: item.customer_name,
+               customerEmail: item.customer_email,
+               customerDocument: item.customer_document,
+               customerPhone: item.customer_phone,
+               description: item.product_first,
+               createdAt,
+             }
+           }).catch(err => console.error(`Erro ao sincronizar transação ${item.id}:`, err.message));
+        }
+      } catch (err: any) {
+        console.error('[Sync Error]', err.message);
+      }
+    }
     const page = input.query.page ?? 1;
     const pageSize = input.query.pageSize ?? 20;
 
-    const where: Prisma.TransactionWhereInput = {
-      userId: input.userId,
-    };
+    const and: Prisma.TransactionWhereInput[] = [{ userId: input.userId }];
 
     const statuses = mapPtStatusToInternal(input.query.status);
     if (statuses) {
-      where.status = { in: statuses };
+      and.push({ status: { in: statuses } });
     }
 
     if (input.query.metodo) {
-      where.paymentMethod =
-        input.query.metodo === 'PIX'
-          ? PaymentMethod.PIX
-          : PaymentMethod.CREDIT_CARD;
+      and.push({
+        paymentMethod:
+          input.query.metodo === 'PIX'
+            ? PaymentMethod.PIX
+            : PaymentMethod.CREDIT_CARD,
+      });
     }
 
     const q = input.query.q?.trim();
     if (q && q.length > 0) {
-      where.OR = [
-        { description: { contains: q, mode: 'insensitive' } },
-        { customerEmail: { contains: q, mode: 'insensitive' } },
-        { customerName: { contains: q, mode: 'insensitive' } },
-      ];
+      and.push({
+        OR: [
+          { id: { contains: q, mode: 'insensitive' } },
+          { domTransactionId: { contains: q, mode: 'insensitive' } },
+          { description: { contains: q, mode: 'insensitive' } },
+          { customerEmail: { contains: q, mode: 'insensitive' } },
+          { customerName: { contains: q, mode: 'insensitive' } },
+          { customerDocument: { contains: q, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (input.query.id) {
+      and.push({
+        OR: [
+          { id: { contains: input.query.id, mode: 'insensitive' } },
+          { domTransactionId: { contains: input.query.id, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (input.query.customerName) {
+      and.push({ customerName: { contains: input.query.customerName, mode: 'insensitive' } });
+    }
+
+    if (input.query.customerEmail) {
+      and.push({ customerEmail: { contains: input.query.customerEmail, mode: 'insensitive' } });
+    }
+
+    if (input.query.customerDocument) {
+      and.push({ customerDocument: { contains: input.query.customerDocument, mode: 'insensitive' } });
+    }
+
+    if (input.query.domTransactionId) {
+      and.push({ domTransactionId: { contains: input.query.domTransactionId, mode: 'insensitive' } });
     }
 
     if (input.query.dataInicio || input.query.dataFim) {
       const createdAt: Prisma.DateTimeFilter = {};
       if (input.query.dataInicio) {
         const d = new Date(input.query.dataInicio);
-        if (!Number.isNaN(d.getTime())) createdAt.gte = d;
+        if (!Number.isNaN(d.getTime())) {
+          // Garante início do dia em UTC ou conforme a string
+          d.setUTCHours(0, 0, 0, 0);
+          createdAt.gte = d;
+        }
       }
       if (input.query.dataFim) {
         const d = new Date(input.query.dataFim);
-        if (!Number.isNaN(d.getTime())) createdAt.lte = d;
+        if (!Number.isNaN(d.getTime())) {
+          // Garante fim do dia (23:59:59.999)
+          d.setUTCHours(23, 59, 59, 999);
+          createdAt.lte = d;
+        }
       }
-      where.createdAt = createdAt;
+      and.push({ createdAt });
     }
 
-    const [total, items] = await this.prisma.$transaction([
+    const where: Prisma.TransactionWhereInput = { AND: and };
+
+    const [total, items] = await Promise.all([
       this.prisma.transaction.count({ where }),
       this.prisma.transaction.findMany({
         where,

@@ -1,9 +1,10 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import { ListTransactionsQueryDto } from '../../application/dtos/transactions/list-transactions.query.dto';
 import { ListTransactionsUseCase } from '../../application/use-cases/transactions/list-transactions.use-case';
+import { GetTransactionDetailsUseCase } from '../../application/use-cases/transactions/get-transaction-details.use-case';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 @Controller('transacoes')
@@ -11,7 +12,10 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 @ApiTags('Transações')
 @ApiBearerAuth()
 export class TransactionsController {
-  constructor(private readonly list: ListTransactionsUseCase) {}
+  constructor(
+    private readonly list: ListTransactionsUseCase,
+    private readonly detail: GetTransactionDetailsUseCase,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Listar transações' })
@@ -38,6 +42,31 @@ export class TransactionsController {
     total: number;
   }> {
     const out = await this.list.execute({ userId: user?.sub ?? '', query });
+    return out;
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Detalhes da transação' })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      example: {
+        status: 'OK',
+        order: {
+          id_transaction: '8948074',
+          total: 1,
+          client_name: 'Breno Lima',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 404, schema: { example: { statusCode: 404, message: 'Transação não encontrada' } } })
+  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
+  async detailRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+  ): Promise<any> {
+    const out = await this.detail.execute({ userId: user?.sub ?? '', id });
     return out;
   }
 }

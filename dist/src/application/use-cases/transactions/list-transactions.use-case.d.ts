@@ -1,8 +1,10 @@
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-transactions.query.dto';
 export declare class ListTransactionsUseCase {
     private readonly prisma;
-    constructor(prisma: PrismaService);
+    private readonly gateway;
+    constructor(prisma: PrismaService, gateway: IPaymentGateway);
     execute(input: {
         userId: string;
         query: ListTransactionsQueryDto;

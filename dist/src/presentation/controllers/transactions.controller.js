@@ -18,14 +18,21 @@ const jwt_auth_guard_1 = require("../../infrastructure/security/guards/jwt-auth.
 const current_user_decorator_1 = require("../../infrastructure/security/decorators/current-user.decorator");
 const list_transactions_query_dto_1 = require("../../application/dtos/transactions/list-transactions.query.dto");
 const list_transactions_use_case_1 = require("../../application/use-cases/transactions/list-transactions.use-case");
+const get_transaction_details_use_case_1 = require("../../application/use-cases/transactions/get-transaction-details.use-case");
 const swagger_1 = require("@nestjs/swagger");
 let TransactionsController = class TransactionsController {
     list;
-    constructor(list) {
+    detail;
+    constructor(list, detail) {
         this.list = list;
+        this.detail = detail;
     }
     async listRoute(user, query) {
         const out = await this.list.execute({ userId: user?.sub ?? '', query });
+        return out;
+    }
+    async detailRoute(user, id) {
+        const out = await this.detail.execute({ userId: user?.sub ?? '', id });
         return out;
     }
 };
@@ -52,11 +59,36 @@ __decorate([
     __metadata("design:paramtypes", [Object, list_transactions_query_dto_1.ListTransactionsQueryDto]),
     __metadata("design:returntype", Promise)
 ], TransactionsController.prototype, "listRoute", null);
+__decorate([
+    (0, common_1.Get)(':id'),
+    (0, swagger_1.ApiOperation)({ summary: 'Detalhes da transação' }),
+    (0, swagger_1.ApiResponse)({
+        status: 200,
+        schema: {
+            example: {
+                status: 'OK',
+                order: {
+                    id_transaction: '8948074',
+                    total: 1,
+                    client_name: 'Breno Lima',
+                },
+            },
+        },
+    }),
+    (0, swagger_1.ApiResponse)({ status: 404, schema: { example: { statusCode: 404, message: 'Transação não encontrada' } } }),
+    (0, swagger_1.ApiResponse)({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], TransactionsController.prototype, "detailRoute", null);
 exports.TransactionsController = TransactionsController = __decorate([
     (0, common_1.Controller)('transacoes'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, swagger_1.ApiTags)('Transações'),
     (0, swagger_1.ApiBearerAuth)(),
-    __metadata("design:paramtypes", [list_transactions_use_case_1.ListTransactionsUseCase])
+    __metadata("design:paramtypes", [list_transactions_use_case_1.ListTransactionsUseCase,
+        get_transaction_details_use_case_1.GetTransactionDetailsUseCase])
 ], TransactionsController);
 //# sourceMappingURL=transactions.controller.js.map

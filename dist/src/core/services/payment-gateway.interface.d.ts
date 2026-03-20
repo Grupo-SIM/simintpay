@@ -100,6 +100,33 @@ export type DomSubscriptionOutput = {
     };
     createdAt?: string;
 };
+export type DomTransactionItem = {
+    id: string;
+    cod_external?: string | null;
+    created_at: string;
+    updated_at?: string | null;
+    amount: number;
+    liquid_amount: number;
+    status: string;
+    status_details?: string | null;
+    payment_method: string;
+    installments?: number | null;
+    card_bin?: string | null;
+    card_brand?: string | null;
+    pix_qrcode?: string | null;
+    pix_content?: string | null;
+    pix_expire?: string | null;
+    customer_name?: string | null;
+    customer_document?: string | null;
+    customer_email?: string | null;
+    customer_phone?: string | null;
+    product_first?: string | null;
+};
+export type DomListTransactionsOutput = {
+    transactions: DomTransactionItem[];
+    total?: number;
+    last_page?: number;
+};
 export interface IPaymentGateway {
     register(input: DomRegisterInput): Promise<DomRegisterOutput>;
     generateToken(email: string, password: string): Promise<DomGenerateTokenOutput>;
@@ -132,6 +159,11 @@ export interface IPaymentGateway {
         amount: number;
         pixKey: string;
     }): Promise<DomRequestWithdrawOutput>;
+    listDomTransactions(domToken: string, input: {
+        page: number;
+        limit: number;
+    }): Promise<DomListTransactionsOutput>;
+    getDomTransactionDetail(domToken: string, id: string): Promise<any>;
     createLead(data: {
         name: string;
         phone: string;

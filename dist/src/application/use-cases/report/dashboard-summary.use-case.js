@@ -33,7 +33,7 @@ let DashboardSummaryUseCase = class DashboardSummaryUseCase {
             userId: input.userId,
             status: client_1.TransactionStatus.COMPLETED,
         };
-        const [txTotal, txApproved, txPending, txRejected, txRefunded] = await this.prisma.$transaction([
+        const [txTotal, txApproved, txPending, txRejected, txRefunded] = await Promise.all([
             this.prisma.transaction.count({ where: { userId: input.userId } }),
             this.prisma.transaction.count({
                 where: { userId: input.userId, status: client_1.TransactionStatus.COMPLETED },
@@ -63,7 +63,7 @@ let DashboardSummaryUseCase = class DashboardSummaryUseCase {
                 },
             }),
         ]);
-        const [revTodayAgg, revWeekAgg, revMonthAgg, revPrevMonthAgg] = await this.prisma.$transaction([
+        const [revTodayAgg, revWeekAgg, revMonthAgg, revPrevMonthAgg] = await Promise.all([
             this.prisma.transaction.aggregate({
                 where: { ...completedWhere, createdAt: { gte: todayStart } },
                 _sum: { netAmount: true },
@@ -95,7 +95,7 @@ let DashboardSummaryUseCase = class DashboardSummaryUseCase {
         const variation = prevMonthValue > 0
             ? ((monthValue - prevMonthValue) / prevMonthValue) * 100
             : 0;
-        const [withdrawPendingAgg, withdrawPaidAgg] = await this.prisma.$transaction([
+        const [withdrawPendingAgg, withdrawPaidAgg] = await Promise.all([
             this.prisma.withdrawRequest.aggregate({
                 where: { userId: input.userId, status: client_1.WithdrawStatus.PENDING },
                 _count: { _all: true },

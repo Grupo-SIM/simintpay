@@ -18,6 +18,7 @@ import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.st
 import { ListLeadsUseCase } from '../../application/use-cases/admin/list-leads.use-case';
 import { ApproveLeadUseCase } from '../../application/use-cases/admin/approve-lead.use-case';
 import { RejectLeadUseCase } from '../../application/use-cases/admin/reject-lead.use-case';
+import { SyncDomTransactionsUseCase } from '../../application/use-cases/admin/sync-dom-transactions.use-case';
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 
 @ApiTags('Admin')
@@ -30,6 +31,7 @@ export class AdminController {
     private readonly listLeads: ListLeadsUseCase,
     private readonly approveLead: ApproveLeadUseCase,
     private readonly rejectLead: RejectLeadUseCase,
+    private readonly syncTransactions: SyncDomTransactionsUseCase,
   ) {}
 
   @Get('leads')
@@ -62,6 +64,18 @@ export class AdminController {
     const result = await this.approveLead.execute({
       leadId: id,
       adminUserId: user?.sub ?? '',
+    });
+    return { data: result };
+  }
+
+  @Post('sync-transactions')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Importar transações da conta Dom para o banco local' })
+  async syncTransactionsRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+  ) {
+    const result = await this.syncTransactions.execute({
+      userId: user?.sub ?? '',
     });
     return { data: result };
   }

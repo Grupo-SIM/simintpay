@@ -1,5 +1,5 @@
 import { HttpService } from '@nestjs/axios';
-import { DomGenerateTokenOutput, DomCreatePlanInput, DomPaymentLinkInput, DomPaymentLinkOutput, DomMonthlyRevenueOutput, DomPlanOutput, DomSubscriptionOutput, DomTaxesOutput, DomRequestWithdrawOutput, DomMeOutput, DomRegisterInput, DomRegisterOutput, IPaymentGateway } from '../../core/services/payment-gateway.interface';
+import { DomGenerateTokenOutput, DomCreatePlanInput, DomPaymentLinkInput, DomPaymentLinkOutput, DomMonthlyRevenueOutput, DomPlanOutput, DomSubscriptionOutput, DomTaxesOutput, DomRequestWithdrawOutput, DomMeOutput, DomRegisterInput, DomRegisterOutput, DomListTransactionsOutput, IPaymentGateway } from '../../core/services/payment-gateway.interface';
 export declare class ApiDomClient implements IPaymentGateway {
     private readonly http;
     constructor(http: HttpService);
@@ -45,6 +45,10 @@ export declare class ApiDomClient implements IPaymentGateway {
         amount: number;
         pixKey: string;
     }): Promise<DomRequestWithdrawOutput>;
+    listDomTransactions(domToken: string, input: {
+        page: number;
+        limit: number;
+    }): Promise<DomListTransactionsOutput>;
     createLead(data: {
         name: string;
         phone: string;
@@ -62,4 +66,5 @@ export declare class ApiDomClient implements IPaymentGateway {
         };
         message: string;
     }>;
+    getDomTransactionDetail(domToken: string, id: string): Promise<any>;
 }

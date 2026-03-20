@@ -15,6 +15,8 @@ import {
   DomMeOutput,
   DomRegisterInput,
   DomRegisterOutput,
+  DomListTransactionsOutput,
+  DomTransactionItem,
   IPaymentGateway,
 } from '../../core/services/payment-gateway.interface';
 
@@ -518,6 +520,71 @@ export class ApiDomClient implements IPaymentGateway {
     };
   }
 
+  async listDomTransactions(
+    domToken: string,
+    input: { page: number; limit: number },
+  ): Promise<DomListTransactionsOutput> {
+    const url = `${this.baseUrl}/payments/dom/transactions`;
+
+    const res = await firstValueFrom(
+      this.http.get<unknown>(url, {
+        headers: { 'x-access-token': domToken },
+        params: { page: input.page, limit: input.limit, per_page: input.limit },
+      }),
+    );
+
+    const root = this.getObject(res.data);
+    const arr =
+      this.getArray(root?.transactions) ??
+      this.getArray(root?.data) ??
+      this.getArray(root) ??
+      [];
+
+    const transactions: DomTransactionItem[] = arr
+      .map((x) => this.getObject(x))
+      .filter((x): x is Record<string, unknown> => Boolean(x))
+      .map((x): DomTransactionItem => ({
+        id: this.pickString(x, 'id') ?? '',
+        cod_external: this.pickString(x, 'cod_external'),
+        created_at:
+          this.pickString(x, 'created_at') ?? new Date().toISOString(),
+        updated_at: this.pickString(x, 'updated_at'),
+        amount: this.pickNumber(x, 'amount') ?? 0,
+        liquid_amount: this.pickNumber(x, 'liquid_amount') ?? 0,
+        status: this.pickString(x, 'status') ?? 'pending',
+        status_details: this.pickString(x, 'status_details'),
+        payment_method: this.pickString(x, 'payment_method') ?? 'pix',
+        installments: this.pickNumber(x, 'installments') ?? 1,
+        card_bin: this.pickString(x, 'card_bin'),
+        card_brand: this.pickString(x, 'card_brand'),
+        pix_qrcode: this.pickString(x, 'pix_qrcode'),
+        pix_content: this.pickString(x, 'pix_content'),
+        pix_expire: this.pickString(x, 'pix_expire'),
+        customer_name: this.pickString(x, 'customer_name'),
+        customer_document: this.pickString(x, 'customer_document'),
+        customer_email: this.pickString(x, 'customer_email'),
+        customer_phone: this.pickString(x, 'customer_phone'),
+        product_first: this.pickString(x, 'product_first'),
+      }))
+      .filter((x) => x.id.length > 0);
+
+    const total =
+      this.pickNumber(root, 'total') ??
+      this.pickNumber(root, 'count') ??
+      undefined;
+
+    const lastPage =
+      this.pickNumber(root, 'last_page') ??
+      this.pickNumber(root, 'pages') ??
+      undefined;
+
+    return {
+      transactions,
+      total: total ?? undefined,
+      last_page: lastPage ?? undefined,
+    };
+  }
+
   async createLead(data: {
     name: string;
     phone: string;
@@ -535,6 +602,21 @@ export class ApiDomClient implements IPaymentGateway {
     const res = await firstValueFrom(
       this.http.post(url, data, {
         headers: { 'x-access-token': masterKey },
+      }),
+    );
+    return res.data;
+  }
+ 
+  async getDomTransactionDetail(
+    domToken: string,
+    id: string,
+  ): Promise<any> {
+    const url = `${this.baseUrl}/front-store/transaction/${id}`;
+    console.log(`[DOM Client] GET ${url}`);
+    
+    const res = await firstValueFrom(
+      this.http.get<any>(url, {
+        headers: { 'x-access-token': domToken },
       }),
     );
     return res.data;

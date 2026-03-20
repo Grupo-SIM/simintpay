@@ -8,11 +8,15 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ListTransactionsUseCase = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../../../infrastructure/database/prisma/prisma.service");
+const payment_gateway_interface_1 = require("../../../core/services/payment-gateway.interface");
 function mapInternalStatusToPt(status) {
     switch (status) {
         case client_1.TransactionStatus.COMPLETED:
@@ -30,6 +34,16 @@ function mapInternalStatusToPt(status) {
             return 'PENDENTE';
     }
 }
+function mapDomStatusToTransactionStatus(status) {
+    const s = status.toLowerCase();
+    if (s === 'paid' || s === 'approved' || s === 'completed')
+        return client_1.TransactionStatus.COMPLETED;
+    if (s === 'refunded' || s === 'chargeback')
+        return client_1.TransactionStatus.REFUNDED;
+    if (s === 'failed' || s === 'rejected' || s === 'expired')
+        return client_1.TransactionStatus.FAILED;
+    return client_1.TransactionStatus.PENDING;
+}
 function mapPtStatusToInternal(status) {
     switch (status) {
         case 'APROVADA':
@@ -46,48 +60,128 @@ function mapPtStatusToInternal(status) {
 }
 let ListTransactionsUseCase = class ListTransactionsUseCase {
     prisma;
-    constructor(prisma) {
+    gateway;
+    constructor(prisma, gateway) {
         this.prisma = prisma;
+        this.gateway = gateway;
     }
     async execute(input) {
+        const user = await this.prisma.user.findUnique({ where: { id: input.userId } });
+        if (user?.domToken) {
+            try {
+                const domRes = await this.gateway.listDomTransactions(user.domToken, { page: 1, limit: 100 });
+                for (const item of domRes.transactions) {
+                    const amount = new client_1.Prisma.Decimal(item.amount);
+                    const liquidRaw = item.liquid_amount ?? 0;
+                    const netAmount = new client_1.Prisma.Decimal(liquidRaw > 0 ? liquidRaw : 0);
+                    const totalFee = amount.sub(netAmount);
+                    const parsedDate = item.created_at
+                        ? new Date(item.created_at.replace(' ', 'T'))
+                        : new Date();
+                    const createdAt = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+                    await this.prisma.transaction.upsert({
+                        where: { domPaymentId: item.cod_external || item.id },
+                        update: {
+                            status: mapDomStatusToTransactionStatus(item.status),
+                            amount,
+                            netAmount,
+                            totalFee,
+                            customerName: item.customer_name,
+                            customerEmail: item.customer_email,
+                            customerDocument: item.customer_document,
+                            customerPhone: item.customer_phone,
+                            updatedAt: new Date(),
+                        },
+                        create: {
+                            userId: user.id,
+                            amount,
+                            netAmount,
+                            totalFee,
+                            status: mapDomStatusToTransactionStatus(item.status),
+                            paymentMethod: item.payment_method?.toUpperCase().includes('CARD') ? client_1.PaymentMethod.CREDIT_CARD : client_1.PaymentMethod.PIX,
+                            domTransactionId: item.id,
+                            domPaymentId: item.cod_external || item.id,
+                            customerName: item.customer_name,
+                            customerEmail: item.customer_email,
+                            customerDocument: item.customer_document,
+                            customerPhone: item.customer_phone,
+                            description: item.product_first,
+                            createdAt,
+                        }
+                    }).catch(err => console.error(`Erro ao sincronizar transação ${item.id}:`, err.message));
+                }
+            }
+            catch (err) {
+                console.error('[Sync Error]', err.message);
+            }
+        }
         const page = input.query.page ?? 1;
         const pageSize = input.query.pageSize ?? 20;
-        const where = {
-            userId: input.userId,
-        };
+        const and = [{ userId: input.userId }];
         const statuses = mapPtStatusToInternal(input.query.status);
         if (statuses) {
-            where.status = { in: statuses };
+            and.push({ status: { in: statuses } });
         }
         if (input.query.metodo) {
-            where.paymentMethod =
-                input.query.metodo === 'PIX'
+            and.push({
+                paymentMethod: input.query.metodo === 'PIX'
                     ? client_1.PaymentMethod.PIX
-                    : client_1.PaymentMethod.CREDIT_CARD;
+                    : client_1.PaymentMethod.CREDIT_CARD,
+            });
         }
         const q = input.query.q?.trim();
         if (q && q.length > 0) {
-            where.OR = [
-                { description: { contains: q, mode: 'insensitive' } },
-                { customerEmail: { contains: q, mode: 'insensitive' } },
-                { customerName: { contains: q, mode: 'insensitive' } },
-            ];
+            and.push({
+                OR: [
+                    { id: { contains: q, mode: 'insensitive' } },
+                    { domTransactionId: { contains: q, mode: 'insensitive' } },
+                    { description: { contains: q, mode: 'insensitive' } },
+                    { customerEmail: { contains: q, mode: 'insensitive' } },
+                    { customerName: { contains: q, mode: 'insensitive' } },
+                    { customerDocument: { contains: q, mode: 'insensitive' } },
+                ],
+            });
+        }
+        if (input.query.id) {
+            and.push({
+                OR: [
+                    { id: { contains: input.query.id, mode: 'insensitive' } },
+                    { domTransactionId: { contains: input.query.id, mode: 'insensitive' } },
+                ],
+            });
+        }
+        if (input.query.customerName) {
+            and.push({ customerName: { contains: input.query.customerName, mode: 'insensitive' } });
+        }
+        if (input.query.customerEmail) {
+            and.push({ customerEmail: { contains: input.query.customerEmail, mode: 'insensitive' } });
+        }
+        if (input.query.customerDocument) {
+            and.push({ customerDocument: { contains: input.query.customerDocument, mode: 'insensitive' } });
+        }
+        if (input.query.domTransactionId) {
+            and.push({ domTransactionId: { contains: input.query.domTransactionId, mode: 'insensitive' } });
         }
         if (input.query.dataInicio || input.query.dataFim) {
             const createdAt = {};
             if (input.query.dataInicio) {
                 const d = new Date(input.query.dataInicio);
-                if (!Number.isNaN(d.getTime()))
+                if (!Number.isNaN(d.getTime())) {
+                    d.setUTCHours(0, 0, 0, 0);
                     createdAt.gte = d;
+                }
             }
             if (input.query.dataFim) {
                 const d = new Date(input.query.dataFim);
-                if (!Number.isNaN(d.getTime()))
+                if (!Number.isNaN(d.getTime())) {
+                    d.setUTCHours(23, 59, 59, 999);
                     createdAt.lte = d;
+                }
             }
-            where.createdAt = createdAt;
+            and.push({ createdAt });
         }
-        const [total, items] = await this.prisma.$transaction([
+        const where = { AND: and };
+        const [total, items] = await Promise.all([
             this.prisma.transaction.count({ where }),
             this.prisma.transaction.findMany({
                 where,
@@ -126,6 +220,7 @@ let ListTransactionsUseCase = class ListTransactionsUseCase {
 exports.ListTransactionsUseCase = ListTransactionsUseCase;
 exports.ListTransactionsUseCase = ListTransactionsUseCase = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __param(1, (0, common_1.Inject)(payment_gateway_interface_1.PAYMENT_GATEWAY)),
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService, Object])
 ], ListTransactionsUseCase);
 //# sourceMappingURL=list-transactions.use-case.js.map

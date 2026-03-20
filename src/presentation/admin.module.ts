@@ -3,6 +3,7 @@ import { AdminController } from './controllers/admin.controller';
 import { ListLeadsUseCase } from '../application/use-cases/admin/list-leads.use-case';
 import { ApproveLeadUseCase } from '../application/use-cases/admin/approve-lead.use-case';
 import { RejectLeadUseCase } from '../application/use-cases/admin/reject-lead.use-case';
+import { SyncDomTransactionsUseCase } from '../application/use-cases/admin/sync-dom-transactions.use-case';
 import { LEAD_REPOSITORY } from '../core/repositories/lead.repository.interface';
 import { PrismaLeadRepository } from '../infrastructure/database/repositories/prisma-lead.repository';
 import { USER_REPOSITORY } from '../core/repositories/user.repository.interface';
@@ -21,6 +22,7 @@ import { EmailService } from '../infrastructure/email/email.service';
     ListLeadsUseCase,
     ApproveLeadUseCase,
     RejectLeadUseCase,
+    SyncDomTransactionsUseCase,
     EmailService,
     { provide: LEAD_REPOSITORY, useClass: PrismaLeadRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },

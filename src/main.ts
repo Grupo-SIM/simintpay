@@ -19,15 +19,18 @@ async function bootstrap() {
   // CORS — must be before helmet
   const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
   app.enableCors({
-    origin: [frontendUrl, 'http://localhost:3000', 'https://simpay-back.simintermediacoes.com'],
+    origin: [frontendUrl, 'http://localhost:3000', 'https://simpay-back.simintermediacoes.com', 'http://localhost:3001'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true,
     maxAge: 86400,
   });
 
   // Security headers
-  app.use(helmet({ crossOriginResourcePolicy: false }));
+  app.use(helmet({ 
+    crossOriginResourcePolicy: false,
+    referrerPolicy: { policy: 'no-referrer-when-downgrade' }
+  }));
 
   // Middlewares
   app.use(correlationIdMiddleware);
