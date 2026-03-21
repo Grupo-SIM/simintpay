@@ -86,9 +86,29 @@ export class ListTransactionsUseCase {
   }> {
     // 1. Sincronizar com a DOM
     const user = await this.prisma.user.findUnique({ where: { id: input.userId } });
-    if (user?.domToken) {
+    if (!user) throw new Error('Usuário não encontrado');
+
+    // 2. Resolver o Token (Prioridade: User > Módulo > Master)
+    let domToken: string | null | undefined = user.domToken;
+    let source = 'Individual';
+
+    if (!domToken && user?.tenantModuleId) {
+      const module = await this.prisma.tenantModule.findUnique({ where: { id: user.tenantModuleId } });
+      if (module) {
+        domToken = process.env[`${module.slug.toUpperCase()}_DOM_TOKEN` ];
+        source = `Módulo (${module.slug})`;
+      }
+    }
+
+    if (!domToken) {
+      domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+      source = 'Master/Env';
+    }
+
+    if (domToken) {
       try {
-        const domRes = await this.gateway.listDomTransactions(user.domToken, { page: 1, limit: 100 });
+        console.log(`[Sync List] Sincronizando via ${source}...`);
+        const domRes = await this.gateway.listDomTransactions(domToken, { page: 1, limit: 100 });
 
         // Fetch Dom tax rates once so we can calculate domFee per transaction
         // (the list endpoint does not return mdr_value)

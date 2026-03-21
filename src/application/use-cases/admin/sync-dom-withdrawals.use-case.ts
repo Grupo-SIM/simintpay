@@ -57,12 +57,35 @@ export class SyncDomWithdrawalsUseCase {
     const user = await this.users.findById(input.userId);
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    const domToken = (user as any).domToken;
+    // 1. Prioridade: Token individual do usuário
+    let domToken = (user as any).domToken;
+    let source = 'Individual';
+
+    // 2. Fallback: Token do Módulo (Revalida, Renovada, etc)
+    if (!domToken && (user as any).tenantModuleId) {
+      const module = await this.prisma.tenantModule.findUnique({
+        where: { id: (user as any).tenantModuleId },
+      });
+      if (module) {
+        const envKey = `${module.slug.toUpperCase()}_DOM_TOKEN`;
+        domToken = process.env[envKey];
+        source = `Módulo (${module.slug})`;
+      }
+    }
+
+    // 3. Fallback Master (Para o admin principal)
+    if (!domToken) {
+       domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+       source = 'Master/BFF';
+    }
+
     if (!domToken) {
       throw new BadRequestException(
-        'Usuário não possui domToken configurado para sincronização.',
+        'Nenhum Token (Individual, Módulo ou Master) encontrado para sincronização.',
       );
     }
+
+    this.logger.log(`Usando Token ${source} para sincronizar usuários do Breno...`);
 
     let page = 1;
     const limit = 50;
