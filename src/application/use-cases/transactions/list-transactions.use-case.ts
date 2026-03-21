@@ -97,7 +97,6 @@ export class ListTransactionsUseCase {
         if (masterKey) {
           try {
             domTaxes = await this.gateway.getTaxes(masterKey);
-            console.log('[Sync] Taxes PIX:', domTaxes?.pix, '| Card parcelas:', domTaxes?.cartaoCredito?.tabelaParcelas?.length);
           } catch (err: any) {
             console.error('[Sync] Failed to fetch taxes:', err.message);
           }

@@ -12,7 +12,7 @@ import { CACHE_SERVICE } from '../core/services/cache.interface';
 import { NoopCacheService } from '../infrastructure/cache/noop-cache.service';
 
 @Module({
-  imports: [ApiDomModule],
+  imports: [],
   controllers: [WithdrawController],
   providers: [
     RequestWithdrawUseCase,

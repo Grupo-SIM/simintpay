@@ -28,16 +28,14 @@ export class PrismaWithdrawRepository implements IWithdrawRepository {
       status: input.status,
     };
 
-    const [total, items] = await this.prisma.$transaction([
-      this.prisma.withdrawRequest.count({ where }),
-      this.prisma.withdrawRequest.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (input.page - 1) * input.pageSize,
-        take: input.pageSize,
-        include: { user: { select: { name: true, email: true } } },
-      }),
-    ]);
+    const total = await this.prisma.withdrawRequest.count({ where });
+    const items = await this.prisma.withdrawRequest.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (input.page - 1) * input.pageSize,
+      take: input.pageSize,
+      include: { user: { select: { name: true, email: true } } },
+    });
 
     return { total, items };
   }

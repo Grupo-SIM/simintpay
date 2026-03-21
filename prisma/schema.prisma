@@ -7,28 +7,31 @@ datasource db {
 }
 
 model User {
-  id            String            @id @default(uuid())
-  name          String
-  email         String            @unique
-  password      String
-  role          Role              @default(USER)
-  isActive      Boolean           @default(true)
-  domUserId     String?           @unique
-  domToken      String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  balanceLogs   BalanceLog[]
-  customers     Customer[]
-  paymentLinks  PaymentLink[]
-  plans         Plan[]
-  sessions      Session[]
-  subscriptions Subscription[]
-  transactions  Transaction[]
-  wallet        Wallet?
-  withdrawals   WithdrawRequest[]
+  id             String            @id @default(uuid())
+  name           String
+  email          String            @unique
+  password       String
+  role           Role              @default(USER)
+  isActive       Boolean           @default(true)
+  domUserId      String?           @unique
+  domToken       String?
+  tenantModuleId String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  balanceLogs    BalanceLog[]
+  customers      Customer[]
+  paymentLinks   PaymentLink[]
+  plans          Plan[]
+  sessions       Session[]
+  subscriptions  Subscription[]
+  transactions   Transaction[]
+  wallet         Wallet?
+  withdrawals    WithdrawRequest[]
+  tenantModule   TenantModule?     @relation(fields: [tenantModuleId], references: [id])
 
   @@index([email])
   @@index([domUserId])
+  @@index([tenantModuleId])
 }
 
 model Session {
@@ -247,6 +250,18 @@ model UserSettings {
   webhookUrl         String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+}
+
+model TenantModule {
+  id        String   @id @default(uuid())
+  name      String   // Ex: "Revalida", "Renovada"
+  slug      String   @unique // Ex: "revalida", "renovada" — usado p/ env var {SLUG}_DOM_TOKEN
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+
+  @@index([slug])
 }
 
 model Lead {

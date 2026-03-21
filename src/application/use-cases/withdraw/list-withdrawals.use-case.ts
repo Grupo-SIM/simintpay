@@ -1,13 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { WithdrawStatus } from '@prisma/client';
-import { WITHDRAW_REPOSITORY } from '../../../core/repositories/withdraw.repository.interface';
-import type {
-  IWithdrawRepository,
-  WithdrawWithUser,
+import {
+  WITHDRAW_REPOSITORY,
+  type IWithdrawRepository,
+  type WithdrawWithUser,
 } from '../../../core/repositories/withdraw.repository.interface';
 import type { ListWithdrawalsQueryDto } from '../../dtos/withdraw/list-withdrawals.query.dto';
 
-function mapPtToInternal(
+function mapPtStatusToDb(
   status: ListWithdrawalsQueryDto['status'],
 ): WithdrawStatus | undefined {
   switch (status) {
@@ -24,9 +24,9 @@ function mapPtToInternal(
   }
 }
 
-function mapInternalToPt(
+function mapDbStatusToPt(
   status: WithdrawStatus,
-): 'PENDENTE' | 'APROVADO' | 'REJEITADO' | 'PAGO' {
+): 'PENDENTE' | 'APROVADO' | 'PAGO' | 'REJEITADO' {
   switch (status) {
     case WithdrawStatus.PENDING:
       return 'PENDENTE';
@@ -35,55 +35,48 @@ function mapInternalToPt(
     case WithdrawStatus.COMPLETED:
       return 'PAGO';
     case WithdrawStatus.REJECTED:
-    default:
       return 'REJEITADO';
+    default:
+      return 'PENDENTE';
   }
 }
 
-function toResponse(w: WithdrawWithUser) {
+function mapWithdrawToResponse(w: WithdrawWithUser) {
   return {
     id: w.id,
     valor: Number(w.amount),
-    valorBruto: Number(w.grossAmount),
-    taxa: Number(w.fee),
-    status: mapInternalToPt(w.status),
+    status: mapDbStatusToPt(w.status),
+    via: 'PIX',
     chavePix: w.pixKey,
+    banco: null,
+    agencia: null,
+    conta: null,
     comprovante: w.receiptImage ?? null,
-    motivoRejeicao: w.rejectionReason ?? null,
+    observacao: w.rejectionReason ?? null,
     criadoEm: w.createdAt.toISOString(),
-    atualizadoEm: w.updatedAt.toISOString(),
-    usuario: {
-      nome: w.user.name,
-      email: w.user.email,
-    },
+    dataTransferencia: null,
   };
 }
 
 @Injectable()
 export class ListWithdrawalsUseCase {
   constructor(
-    @Inject(WITHDRAW_REPOSITORY)
-    private readonly withdraws: IWithdrawRepository,
+    @Inject(WITHDRAW_REPOSITORY) private readonly withdrawRepo: IWithdrawRepository,
   ) {}
 
   async execute(input: {
     userId: string;
     query: ListWithdrawalsQueryDto;
-  }): Promise<{
-    data: unknown;
-    page: number;
-    pageSize: number;
-    total: number;
-  }> {
+  }): Promise<{ data: unknown; page: number; pageSize: number; total: number }> {
     const page = input.query.page ?? 1;
     const pageSize = input.query.pageSize ?? 10;
 
     const dbStatus =
       input.query.status && input.query.status !== 'all'
-        ? mapPtToInternal(input.query.status)
+        ? mapPtStatusToDb(input.query.status)
         : undefined;
 
-    const { total, items } = await this.withdraws.findByUserId({
+    const res = await this.withdrawRepo.findByUserId({
       userId: input.userId,
       page,
       pageSize,
@@ -91,10 +84,10 @@ export class ListWithdrawalsUseCase {
     });
 
     return {
-      data: items.map(toResponse),
+      data: res.items.map(mapWithdrawToResponse),
       page,
       pageSize,
-      total,
+      total: res.total,
     };
   }
 }

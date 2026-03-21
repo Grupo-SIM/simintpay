@@ -146,6 +146,37 @@ export type DomListTransactionsOutput = {
   last_page?: number;
 };
 
+export type DomWithdrawReceiver = {
+  name: string | null;
+  total: number;
+  status: string;
+  pix_key: string | null;
+  external_id: string | null;
+  receipt_url: string | null;
+};
+
+export type DomWithdrawItem = {
+  id_transfer: string;
+  create_date: string;
+  date_transfer: string;
+  value: string;
+  bank_name: string | null;
+  bank_agency: string | null;
+  bank_bill: string | null;
+  obs_client: string | null;
+  status: string;
+  type_transfer: string;
+  pix_key: string | null;
+  receivers: DomWithdrawReceiver[] | null;
+};
+
+export type DomListWithdrawsOutput = {
+  withdraws: DomWithdrawItem[];
+  total_results: number;
+  total_pages: number;
+  page: number;
+};
+
 export interface IPaymentGateway {
   register(input: DomRegisterInput): Promise<DomRegisterOutput>;
   generateToken(
@@ -197,6 +228,11 @@ export interface IPaymentGateway {
   ): Promise<DomListTransactionsOutput>;
 
   getDomTransactionDetail(domToken: string, id: string): Promise<any>;
+
+  listDomWithdraws(
+    domToken: string,
+    input: { page: number; limit: number; status?: string },
+  ): Promise<DomListWithdrawsOutput>;
 
   createLead(data: {
     name: string;

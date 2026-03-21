@@ -124,14 +124,10 @@ export class GetTransactionDetailsUseCase {
       tx.domTransactionId,
     ].filter(Boolean) as string[];
 
-    console.log(`[Detail] tx.id=${tx.id} domPaymentId=${tx.domPaymentId} domTransactionId=${tx.domTransactionId} hasToken=${!!domToken} idsToTry=${JSON.stringify(domIdsToTry)}`);
-
     if (domToken && domIdsToTry.length > 0) {
       for (const domId of domIdsToTry) {
         try {
-          console.log(`[Detail] Calling Dom API with id=${domId}`);
           const detail = await this.gateway.getDomTransactionDetail(domToken, domId);
-          console.log(`[Detail] Dom response hasOrder=${!!detail?.order} mdr_value=${detail?.order?.mdr_value}`);
           // DOM /front-store/transaction retorna { order: {...}, reasons: [...] } sem status: 'OK'
           if (detail?.order) {
             // Cache mdr_value in domFee column for future fallbacks
@@ -160,13 +156,11 @@ export class GetTransactionDetailsUseCase {
             }
             return detail;
           }
-        } catch (err: any) {
-          console.log(`[Detail] Dom API error for id=${domId}: ${err?.message ?? err}`);
+        } catch {
+          // try next id
         }
       }
     }
-
-    console.log(`[Detail] Using fallback for tx.id=${tx.id} totalFee=${tx.totalFee} domFee=${tx.domFee}`);
     // 3. Fallback: build from local DB
     return { status: 'OK', order: this.buildFallbackOrder(tx) };
   }

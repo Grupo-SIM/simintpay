@@ -5,7 +5,20 @@
       "Bash(npx ts-node:*)",
       "Bash(npm run build:*)",
       "Bash(npx tsc:*)",
-      "WebFetch(domain:dom-pagamentos.readme.io)"
+      "WebFetch(domain:dom-pagamentos.readme.io)",
+      "Bash(dir:*)",
+      "Bash(cmd /c \"dir C:\\\\Users\\\\breno\\\\Desktop\\\\JB\")",
+      "Bash(cmd /c \"dir C:\\\\Users\\\\breno\\\\Desktop\")",
+      "Bash(cmd /c:*)",
+      "Bash(npx prisma migrate dev:*)",
+      "Bash(npx prisma generate:*)",
+      "Bash(npx prisma db seed:*)",
+      "Bash(npx tsx:*)",
+      "Bash(bun:*)",
+      "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Users\\\\breno\\\\Desktop'' -Directory | Select-Object Name\")",
+      "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Users\\\\breno\\\\Desktop\\\\JB'' -Directory | Select-Object Name\")",
+      "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\master-admin'' | Select-Object Name\")",
+      "Bash(powershell -Command:*)"
     ]
   }
 }

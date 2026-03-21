@@ -4,25 +4,21 @@ import {
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.repository.interface';
 import { WITHDRAW_REPOSITORY } from '../../../core/repositories/withdraw.repository.interface';
-import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import { CACHE_SERVICE } from '../../../core/services/cache.interface';
 import type { IBalanceLogRepository } from '../../../core/repositories/balance-log.repository.interface';
 import type { IWithdrawRepository } from '../../../core/repositories/withdraw.repository.interface';
-import type {
-  IPaymentGateway,
-  DomRequestWithdrawOutput,
-} from '../../../core/services/payment-gateway.interface';
 import type { ICacheService } from '../../../core/services/cache.interface';
 import type { RequestWithdrawDto } from '../../dtos/withdraw/request-withdraw.dto';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { getModuleConfig } from '../../../modules/module.registry';
 
-const FEE = 2;
-const NET_PERCENT = 0.91;
+// Fallback para usuários sem módulo configurado
+const DEFAULT_MIN_VALOR = 100;
+const DEFAULT_TAXA_FIXA = 2;
 
 @Injectable()
 export class RequestWithdrawUseCase {
@@ -32,19 +28,8 @@ export class RequestWithdrawUseCase {
     private readonly withdraws: IWithdrawRepository,
     @Inject(BALANCE_LOG_REPOSITORY)
     private readonly balanceLogs: IBalanceLogRepository,
-    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     @Inject(CACHE_SERVICE) private readonly cache: ICacheService,
   ) {}
-
-  private async requestOnDom(input: {
-    domToken: string;
-    dto: RequestWithdrawDto;
-  }): Promise<DomRequestWithdrawOutput> {
-    return this.gateway.requestWithdraw(input.domToken, {
-      amount: input.dto.valor,
-      pixKey: input.dto.chavePix,
-    });
-  }
 
   async execute(
     userId: string,
@@ -57,9 +42,35 @@ export class RequestWithdrawUseCase {
       taxa: number;
       status: 'PENDENTE';
       chavePix: string;
+      modulo: string | null;
     };
     message: string;
   }> {
+    // Busca usuário com módulo
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        tenantModule: { select: { slug: true, name: true } },
+      },
+    });
+
+    // Regras do módulo (ou fallback padrão)
+    const moduleSlug = user?.tenantModule?.slug ?? null;
+    const config = getModuleConfig(moduleSlug);
+
+    const minValor = config?.saque.minValor ?? DEFAULT_MIN_VALOR;
+    const calcularTaxa = config
+      ? (v: number) => config.saque.calcularTaxa(v)
+      : (v: number) => DEFAULT_TAXA_FIXA + v * 0;
+
+    // Valor mínimo de saque
+    if (dto.valor < minValor) {
+      throw new UnprocessableEntityException(
+        `O valor mínimo para saque é de R$ ${minValor.toFixed(2).replace('.', ',')}`,
+      );
+    }
+
+    // Apenas um saque pendente por vez
     const pending = await this.withdraws.findPendingByUserId(userId);
     if (pending) {
       throw new ConflictException(
@@ -67,47 +78,40 @@ export class RequestWithdrawUseCase {
       );
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { domToken: true },
-    });
-
-    if (!user?.domToken) {
-      throw new UnauthorizedException('Usuário não autenticado na api-dom');
-    }
-
-    const wallet = await this.prisma.wallet.findUnique({
-      where: { userId },
-    });
+    // Verifica saldo
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
     if (!wallet) throw new NotFoundException('Wallet não encontrada');
 
-    const balance = Number(wallet.balance);
-    const locked = Number(wallet.lockedBalance);
-    const availableBalance = balance - locked;
+    const availableBalance = Number(wallet.balance) - Number(wallet.lockedBalance);
 
-    if (dto.valor > availableBalance - FEE) {
+    if (dto.valor > availableBalance) {
       throw new UnprocessableEntityException(
-        'Saldo insuficiente para saque (considere a taxa de R$ 2,00)',
+        `Saldo insuficiente para realizar o saque de R$ ${dto.valor.toFixed(2).replace('.', ',')}`,
       );
     }
 
-    const domRes = await this.requestOnDom({ domToken: user.domToken, dto });
+    const taxa = calcularTaxa(dto.valor);
+    const netAmount = dto.valor - taxa;
+
+    if (netAmount <= 0) {
+      throw new UnprocessableEntityException(
+        `O valor solicitado é insuficiente para cobrir as taxas (taxa: R$ ${taxa.toFixed(2).replace('.', ',')})`,
+      );
+    }
 
     const amountToLock = dto.valor;
-
     const beforeLocked = Number(wallet.lockedBalance);
     const beforeBalance = Number(wallet.balance);
 
+    // Cria o saque no banco local (status PENDING)
     let created;
-
     try {
       created = await this.withdraws.createWithWalletLock({
         userId,
-        amount: domRes.netAmount,
+        amount: netAmount,
         grossAmount: dto.valor,
-        fee: domRes.fee,
+        fee: taxa,
         pixKey: dto.chavePix,
-        domWithdrawId: domRes.requestId,
         amountToLock,
         currentWalletVersion: wallet.version,
       });
@@ -120,8 +124,6 @@ export class RequestWithdrawUseCase {
       throw e;
     }
 
-    const afterLocked = beforeLocked + amountToLock;
-
     await this.balanceLogs.create({
       userId,
       action: 'WITHDRAW_REQUESTED',
@@ -129,9 +131,9 @@ export class RequestWithdrawUseCase {
       balanceBefore: new Prisma.Decimal(beforeBalance).toFixed(2),
       balanceAfter: new Prisma.Decimal(beforeBalance).toFixed(2),
       lockedBefore: new Prisma.Decimal(beforeLocked).toFixed(2),
-      lockedAfter: new Prisma.Decimal(afterLocked).toFixed(2),
+      lockedAfter: new Prisma.Decimal(beforeLocked + amountToLock).toFixed(2),
       source: 'WITHDRAW',
-      description: 'Solicitação de saque',
+      description: `Solicitação de saque${user?.tenantModule ? ` — ${user.tenantModule.name}` : ''}`,
     });
 
     await this.cache.delete(`wallet:${userId}`);
@@ -144,6 +146,7 @@ export class RequestWithdrawUseCase {
         taxa: Number(created.fee),
         status: 'PENDENTE',
         chavePix: created.pixKey,
+        modulo: user?.tenantModule?.name ?? null,
       },
       message: 'Saque solicitado com sucesso',
     };

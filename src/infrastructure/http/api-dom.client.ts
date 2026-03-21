@@ -17,6 +17,8 @@ import {
   DomRegisterOutput,
   DomListTransactionsOutput,
   DomTransactionItem,
+  DomWithdrawItem,
+  DomListWithdrawsOutput,
   IPaymentGateway,
 } from '../../core/services/payment-gateway.interface';
 
@@ -627,15 +629,6 @@ export class ApiDomClient implements IPaymentGateway {
       .map((x) => this.getObject(x))
       .filter((x): x is Record<string, unknown> => Boolean(x));
 
-    if (rawObjects.length > 0) {
-      console.log('[DOM List] First raw transaction keys:', Object.keys(rawObjects[0]));
-      console.log('[DOM List] First raw transaction mdr_value:', rawObjects[0]['mdr_value']);
-      console.log('[DOM List] First raw transaction id:', rawObjects[0]['id']);
-      console.log('[DOM List] First raw transaction order_id:', rawObjects[0]['order_id']);
-      console.log('[DOM List] First raw transaction cod_external:', rawObjects[0]['cod_external']);
-      console.log('[DOM List] First raw transaction id_transaction:', rawObjects[0]['id_transaction']);
-    }
-
     const transactions: DomTransactionItem[] = rawObjects
       .map((x): DomTransactionItem => ({
         id: this.pickString(x, 'id') ?? '',
@@ -756,5 +749,128 @@ export class ApiDomClient implements IPaymentGateway {
     }
 
     throw new Error(`Transaction ${id} not found in any Dom endpoint`);
+  }
+
+  async listDomWithdraws(
+    domToken: string,
+    input: { page: number; limit: number; status?: string },
+  ): Promise<DomListWithdrawsOutput> {
+    const domApiToken = process.env.DOM_TOKEN;
+    const backendBase = (process.env.DOM_BACKEND_URL ?? 'https://backend.dompagamentos.com.br').replace(/\/$/, '');
+
+    const mapItem = (x: Record<string, unknown>): DomWithdrawItem => {
+      // Normaliza campos — suporta formato backend.dom (id_transfer, value, create_date)
+      // e formato apiv3/pixout (id, amount, created_at, recipient_key)
+      const idTransfer = this.toSafeString(x.id_transfer) ?? this.toSafeString(x.id) ?? '';
+      const value = String(
+        x.value ?? (x.amount != null ? Number(x.amount) / 100 : 0)
+      );
+      const createDate = this.toSafeString(x.create_date) ?? this.toSafeString(x.created_at) ?? '';
+      const dateTransfer = this.toSafeString(x.date_transfer) ?? this.toSafeString(x.updated_at) ?? '';
+      const pixKey = this.toSafeString(x.pix_key) ?? this.toSafeString(x.recipient_key) ?? this.toSafeString(x.recipient_account) ?? null;
+      const status = String(x.status ?? 'pending');
+
+      return {
+        id_transfer: idTransfer,
+        create_date: createDate,
+        date_transfer: dateTransfer,
+        value,
+        bank_name: this.toSafeString(x.bank_name) ?? this.toSafeString(x.recipient_bank),
+        bank_agency: this.toSafeString(x.bank_agency),
+        bank_bill: this.toSafeString(x.bank_bill) ?? this.toSafeString(x.recipient_account),
+        obs_client: this.toSafeString(x.obs_client) ?? this.toSafeString(x.error_message),
+        status,
+        type_transfer: String(x.type_transfer ?? (pixKey ? 'PIX' : 'TED')),
+        pix_key: pixKey,
+        receivers: Array.isArray(x.receivers)
+          ? x.receivers.map((r: any) => ({
+              name: this.toSafeString(r.name),
+              total: Number(r.total ?? 0),
+              status: String(r.status ?? ''),
+              pix_key: this.toSafeString(r.pix_key),
+              external_id: this.toSafeString(r.external_id),
+              receipt_url: this.toSafeString(r.receipt_url),
+            }))
+          : null,
+      };
+    };
+
+    const params: Record<string, unknown> = { limit: input.limit, page: input.page };
+    if (input.status) params.status = input.status;
+
+    const parseWithdrawsResponse = (data: Record<string, unknown> | unknown[]): DomListWithdrawsOutput | null => {
+      // Resposta pode ser array direto ou objeto com chave de lista
+      let arr: Record<string, unknown>[];
+      let meta: Record<string, unknown> = {};
+
+      if (Array.isArray(data)) {
+        arr = data.map((x) => this.getObject(x)).filter((x): x is Record<string, unknown> => Boolean(x));
+      } else {
+        arr = (
+          this.getArray((data as any).pixouts) ??
+          this.getArray((data as any).transfers) ??
+          this.getArray((data as any).withdraws) ??
+          this.getArray((data as any).data) ??
+          []
+        ).map((x) => this.getObject(x)).filter((x): x is Record<string, unknown> => Boolean(x));
+        meta = data as Record<string, unknown>;
+      }
+
+      if (arr.length === 0 && !Array.isArray(data) &&
+          !('pixouts' in data) && !('transfers' in data) &&
+          !('withdraws' in data) && !('data' in data)) {
+        return null;
+      }
+
+      return {
+        withdraws: arr.map(mapItem),
+        total_results: Number((meta as any).total_results ?? (meta as any).total ?? arr.length),
+        total_pages: Number((meta as any).total_pages ?? (meta as any).pages ?? 1),
+        page: Number((meta as any).page ?? input.page),
+      };
+    };
+
+    // Tentativas em ordem: todas na API real da DOM
+    const attempts: Array<{ url: string; headers: Record<string, string>; label: string }> = [
+      // apiv3 /pixout — endpoint oficial de listagem de saques PixOut
+      ...(domApiToken ? [
+        { url: `${this.domRealApiUrl}/pixout`, headers: { Authorization: `Bearer ${domApiToken}` }, label: 'apiv3 /pixout Bearer' },
+      ] : []),
+      // apiv3 /pixout/transfer — endpoint alternativo
+      ...(domApiToken ? [
+        { url: `${this.domRealApiUrl}/pixout/transfer`, headers: { Authorization: `Bearer ${domApiToken}` }, label: 'apiv3 /pixout/transfer Bearer' },
+      ] : []),
+      // backend com master key como x-access-token
+      ...(domApiToken ? [
+        { url: `${backendBase}/front-store/withdraws`, headers: { 'x-access-token': domApiToken }, label: 'backend master-key' },
+      ] : []),
+      // backend com token do usuário
+      { url: `${backendBase}/front-store/withdraws`, headers: { 'x-access-token': domToken }, label: 'backend user-token' },
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        console.log(`[DOM Client] GET ${attempt.url} (${attempt.label})`);
+        const res = await firstValueFrom(
+          this.http.get<any>(attempt.url, { headers: attempt.headers, params }),
+        );
+        console.log(`[DOM Client] ${attempt.label} → ${res.status} body keys: ${Object.keys(res.data ?? {}).join(',')}`);
+        const rawData = res.data;
+        const parsed = Array.isArray(rawData)
+          ? parseWithdrawsResponse(rawData)
+          : rawData && typeof rawData === 'object'
+            ? parseWithdrawsResponse(rawData as Record<string, unknown>)
+            : null;
+        if (parsed) {
+          console.log(`[DOM Client] Withdraws success via ${attempt.label} (${parsed.withdraws.length} items)`);
+          return parsed;
+        }
+        console.log(`[DOM Client] ${attempt.label} → 200 mas sem dados reconhecidos. Chaves: ${Object.keys(rawData ?? {}).join(',')}`);
+      } catch (err: any) {
+        console.log(`[DOM Client] ${attempt.label} → ${err?.response?.status ?? err?.message}`);
+      }
+    }
+
+    return { withdraws: [], total_results: 0, total_pages: 0, page: input.page };
   }
 }
