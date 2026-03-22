@@ -414,22 +414,28 @@ export class ApiDomClient implements IPaymentGateway {
 
       const transactions: DomTransactionItem[] = arr.map(x => {
         const o = this.getObject(x);
-        // Mapeamento flexível para suportar apiv3 e front-store (backend.dom)
         const id = this.pickString(o, 'id') ?? this.pickString(o, 'id_transaction') ?? '';
         
-        // Se o valor vier como "35" (Real) ou 3500 (Centavos), precisamos normalizar.
-        // A UseCase hoje divide por 100. Então se vier "35", virará 0.35 se não ajustarmos aqui.
-        // Para manter compatibilidade com a UseCase que divide por 100, vamos garantir que retornamos centavos.
-        let rawAmount = this.pickNumber(o, 'amount') ?? this.pickNumber(o, 'total') ?? 0;
-        let rawLiquid = this.pickNumber(o, 'liquid_amount') ?? this.pickNumber(o, 'total_liquid') ?? 0;
+        // Normalização de Valores (BFF trabalha sempre em REAIS)
+        let amt = this.pickNumber(o, 'amount') ?? this.pickNumber(o, 'total') ?? 0;
+        let liq = this.pickNumber(o, 'liquid_amount') ?? this.pickNumber(o, 'total_liquid') ?? 0;
 
-        // Heurística: se o valor for "pequeno" ou tiver decimal, provavelmente já está em Reais na API.
-        // Se for um dashboard da DOM (front-store), geralmente vem em Reais.
-        // Vamos converter tudo para centavos para a UseCase processar corretamente.
-        if (o && rawAmount > 0 && rawAmount < 100000 && (String(o.total || o.amount).includes('.') || rawAmount < 500)) {
-           // Provavelmente está em Reais. Multiplicar por 100 para a UseCase dividir depois.
-           rawAmount = Math.round(rawAmount * 100);
-           rawLiquid = Math.round(rawLiquid * 100);
+        // Heurística de conversão Cêntimos -> Reais
+        // Se o valor for muito alto (> 500) e não tiver decimal vindo da API checkout,
+        // é provável que sejam centavos (ex: 3500).
+        // Se vier da API Dashboard (front-store) ou tiver ponto decimal, já é Reais.
+        const isCheckoutV3 = !!root?.transactions;
+        const rawStr = String(o?.total || o?.amount || '');
+        const hasDecimal = rawStr.includes('.') || rawStr.includes(',');
+
+        if (isCheckoutV3 && amt >= 100 && !hasDecimal) {
+          // Checkout V3 costuma mandar centavos
+          this.logger.debug(`[Normalization] Guessing Cents for ID ${id}: ${amt} -> ${amt/100}`);
+          amt = amt / 100;
+          liq = liq / 100;
+        } else {
+          // Dashboard/front-store ou valor com decimal já é Reais
+          this.logger.debug(`[Normalization] Keeping Reais for ID ${id}: ${amt}`);
         }
 
         return {
@@ -438,8 +444,8 @@ export class ApiDomClient implements IPaymentGateway {
           cod_external: this.pickString(o, 'cod_external'),
           created_at: this.pickString(o, 'created_at') ?? this.pickString(o, 'create_date') ?? new Date().toISOString(),
           updated_at: this.pickString(o, 'updated_at') ?? this.pickString(o, 'last_date'),
-          amount: rawAmount,
-          liquid_amount: rawLiquid,
+          amount: amt,
+          liquid_amount: liq,
           mdr_value: this.pickNumber(o, 'mdr_value') ?? this.pickNumber(o, 'mdr'),
           status: this.pickString(o, 'status') ?? this.pickString(o, 'status_type') ?? 'pending',
           payment_method: this.pickString(o, 'payment_method') ?? this.pickString(o, 'type_payment') ?? 'pix',

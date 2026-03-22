@@ -132,7 +132,7 @@ export class SyncDomTransactionsUseCase {
           if (existing) {
             await this.prisma.transaction.update({
               where: { domPaymentId: tx.id },
-              data: { status, netAmount, totalFee },
+              data: { status, amount, netAmount, totalFee },
             });
             updated++;
           } else {

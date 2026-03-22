@@ -123,19 +123,18 @@ export class ListTransactionsUseCase {
         }
 
         for (const item of domRes.transactions) {
-           // DOM retorna amount e liquid_amount em centavos — converter para reais
-           const amount = new Prisma.Decimal(item.amount / 100);
-           const liquidRaw = item.liquid_amount ?? 0;
-           const netAmount = new Prisma.Decimal(liquidRaw > 0 ? liquidRaw / 100 : 0);
+           // O Gateway agora já retorna os valores em REAIS
+           const amount = new Prisma.Decimal(item.amount);
+           const netAmount = new Prisma.Decimal(item.liquid_amount ?? 0);
            const totalFee = amount.sub(netAmount);
-
+ 
            // Prefer mdr_value from API; fall back to taxes-based calculation
            let calcDomFee: Prisma.Decimal | undefined =
              item.mdr_value != null ? new Prisma.Decimal(item.mdr_value) : undefined;
-
+ 
            if (!calcDomFee && domTaxes) {
              const isCard = item.payment_method?.toUpperCase().includes('CARD');
-             const amt = item.amount / 100; // em reais
+             const amt = item.amount; // em reais
              if (!isCard && domTaxes.pix) {
                const pct = domTaxes.pix.percentual ?? 0;
                const fixed = domTaxes.pix.fixo ?? 0;
