@@ -158,41 +158,54 @@ export class ListTransactionsUseCase {
            // order_id é o identificador aceito pelo endpoint /front-store/transaction/{id} do DOM
            const domPaymentId = item.order_id || item.cod_external || item.id;
 
-           // Upsert na tabela local
-           await this.prisma.transaction.upsert({
-             where: { domPaymentId },
-             update: {
-               status: mapDomStatusToTransactionStatus(item.status),
-               amount,
-               netAmount,
-               totalFee,
-               ...(calcDomFee !== undefined && { domFee: calcDomFee }),
-               ...(calcPlatformFee !== undefined && { platformFee: calcPlatformFee }),
-               customerName: item.customer_name,
-               customerEmail: item.customer_email,
-               customerDocument: item.customer_document,
-               customerPhone: item.customer_phone,
-               updatedAt: new Date(),
-             },
-             create: {
-               userId: user.id,
-               amount,
-               netAmount,
-               totalFee,
-               ...(calcDomFee !== undefined && { domFee: calcDomFee }),
-               ...(calcPlatformFee !== undefined && { platformFee: calcPlatformFee }),
-               status: mapDomStatusToTransactionStatus(item.status),
-               paymentMethod: item.payment_method?.toUpperCase().includes('CARD') ? PaymentMethod.CREDIT_CARD : PaymentMethod.PIX,
-               domTransactionId: item.id,
-               domPaymentId,
-               customerName: item.customer_name,
-               customerEmail: item.customer_email,
-               customerDocument: item.customer_document,
-               customerPhone: item.customer_phone,
-               description: item.product_first,
-               createdAt,
+           const updateData = {
+             status: mapDomStatusToTransactionStatus(item.status),
+             amount,
+             netAmount,
+             totalFee,
+             ...(calcDomFee !== undefined && { domFee: calcDomFee }),
+             ...(calcPlatformFee !== undefined && { platformFee: calcPlatformFee }),
+             customerName: item.customer_name,
+             customerEmail: item.customer_email,
+             customerDocument: item.customer_document,
+             customerPhone: item.customer_phone,
+             updatedAt: new Date(),
+           };
+
+           try {
+             // Busca por domPaymentId OU por domTransactionId (fallback para registros antigos
+             // criados com chave diferente — evita falha silenciosa por conflito de uniqueness)
+             const existing = await this.prisma.transaction.findFirst({
+               where: {
+                 OR: [
+                   { domPaymentId },
+                   ...(item.id ? [{ domTransactionId: item.id }] : []),
+                 ],
+               },
+               select: { id: true },
+             });
+
+             if (existing) {
+               await this.prisma.transaction.update({
+                 where: { id: existing.id },
+                 data: updateData,
+               });
+             } else {
+               await this.prisma.transaction.create({
+                 data: {
+                   userId: user.id,
+                   ...updateData,
+                   paymentMethod: item.payment_method?.toUpperCase().includes('CARD') ? PaymentMethod.CREDIT_CARD : PaymentMethod.PIX,
+                   domTransactionId: item.id,
+                   domPaymentId,
+                   description: item.product_first,
+                   createdAt,
+                 },
+               });
              }
-           }).catch(err => console.error(`Erro ao sincronizar transação ${item.id}:`, err.message));
+           } catch (err: any) {
+             console.error(`Erro ao sincronizar transação ${item.id}:`, err.message);
+           }
         }
       } catch (err: any) {
         console.error('[Sync Error]', err.message);

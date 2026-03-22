@@ -125,13 +125,22 @@ export class SyncDomTransactionsUseCase {
           const totalFee = amount.sub(netAmount);
           const createdAt = this.parseDate(tx.created_at) ?? new Date();
 
-          const existing = await this.prisma.transaction.findUnique({
-            where: { domPaymentId: tx.id },
+          // Busca por domPaymentId OU por domTransactionId para cobrir registros
+          // criados com chaves diferentes por versões anteriores do sync
+          const domPaymentId = tx.order_id || tx.cod_external || tx.id;
+          const existing = await this.prisma.transaction.findFirst({
+            where: {
+              OR: [
+                { domPaymentId },
+                ...(tx.id ? [{ domTransactionId: tx.id }] : []),
+              ],
+            },
+            select: { id: true },
           });
 
           if (existing) {
             await this.prisma.transaction.update({
-              where: { domPaymentId: tx.id },
+              where: { id: existing.id },
               data: { status, amount, netAmount, totalFee },
             });
             updated++;
@@ -139,7 +148,8 @@ export class SyncDomTransactionsUseCase {
             await this.prisma.transaction.create({
               data: {
                 userId: input.userId,
-                domPaymentId: tx.id,
+                domTransactionId: tx.id,
+                domPaymentId,
                 amount,
                 netAmount,
                 totalFee,

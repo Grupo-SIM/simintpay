@@ -420,23 +420,9 @@ export class ApiDomClient implements IPaymentGateway {
         let amt = this.pickNumber(o, 'amount') ?? this.pickNumber(o, 'total') ?? 0;
         let liq = this.pickNumber(o, 'liquid_amount') ?? this.pickNumber(o, 'total_liquid') ?? 0;
 
-        // Heurística de conversão Cêntimos -> Reais
-        // Se o valor for muito alto (> 500) e não tiver decimal vindo da API checkout,
-        // é provável que sejam centavos (ex: 3500).
-        // Se vier da API Dashboard (front-store) ou tiver ponto decimal, já é Reais.
-        const isCheckoutV3 = !!root?.transactions;
-        const rawStr = String(o?.total || o?.amount || '');
-        const hasDecimal = rawStr.includes('.') || rawStr.includes(',');
-
-        if (isCheckoutV3 && amt >= 100 && !hasDecimal) {
-          // Checkout V3 costuma mandar centavos
-          this.logger.debug(`[Normalization] Guessing Cents for ID ${id}: ${amt} -> ${amt/100}`);
-          amt = amt / 100;
-          liq = liq / 100;
-        } else {
-          // Dashboard/front-store ou valor com decimal já é Reais
-          this.logger.debug(`[Normalization] Keeping Reais for ID ${id}: ${amt}`);
-        }
+        // Ambos os endpoints (v3 checkout /transactions e front-store /front-store/transactions)
+        // retornam valores já em REAIS. Não há conversão centavos->reais necessária aqui.
+        this.logger.debug(`[Normalization] Keeping Reais for ID ${id}: amt=${amt}, liq=${liq}`);
 
         return {
           id,
