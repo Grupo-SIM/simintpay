@@ -9,7 +9,6 @@ services:
       - HASH_DRIVER=bcrypt
       - DATABASE_URL=postgresql://postgres:pUXSu1qNwOgl4It@postgres_prod:5432/simpay
       - DIRECT_URL=postgresql://postgres:pUXSu1qNwOgl4It@postgres_prod:5432/simpay
-      - API_DOM_URL=https://api-dom.jbmidia.com
       - PORT=3333
     networks:
       - externa

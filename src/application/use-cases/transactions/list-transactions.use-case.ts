@@ -4,6 +4,18 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { PAYMENT_GATEWAY, type IPaymentGateway, type DomTaxesOutput } from '../../../core/services/payment-gateway.interface';
 import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-transactions.query.dto';
 
+function formatDocument(doc: string | null | undefined): string | null {
+  if (!doc) return null;
+  const digits = doc.replace(/\D/g, '');
+  if (digits.length === 11) {
+    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  }
+  if (digits.length === 14) {
+    return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+  }
+  return doc;
+}
+
 function mapInternalStatusToPt(
   status: TransactionStatus,
 ): 'PENDENTE' | 'APROVADA' | 'RECUSADA' | 'ESTORNADA' {
@@ -314,7 +326,7 @@ export class ListTransactionsUseCase {
         cliente: {
           nome: t.customerName ?? null,
           email: t.customerEmail ?? null,
-          documento: t.customerDocument ?? null,
+          documento: formatDocument(t.customerDocument),
         },
         taxas: {
           total: Number(t.totalFee),
