@@ -1,0 +1,8 @@
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+
+  0      0   0      0   0      0      0      0                              0
+100    206 100    206   0      0    246      0                              0
+100    206 100    206   0      0    245      0                              0
+100    206 100    206   0      0    245      0                              0
+{"statusCode":401,"message":"Não autorizado","error":"ExternalServiceError","timestamp":"2026-03-23T16:28:04.483Z","path":"/admin/sync/full-renovada","correlationId":"114d008f-d9a2-4d33-ba96-dd9bf643189b"}

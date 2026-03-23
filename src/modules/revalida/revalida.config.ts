@@ -5,9 +5,10 @@ export const RevalidaConfig: ModuleConfig = {
   slug: 'revalida',
 
   saque: {
-    minValor: 100,          // mínimo R$ 100,00
-    taxaFixa: 2,            // R$ 2,00 por saque
-    taxaPercentual: 0,      // sem taxa percentual
+    minValor: Number(process.env.REVALIDA_SAQUE_MIN || 100),
+    taxaFixa: Number(process.env.REVALIDA_TAXA_SAQUE_FIXA || 2),
+    taxaPercentual: Number(process.env.REVALIDA_TAXA_SAQUE_PERCENT || 0),
+    fatorLiquidez: Number(process.env.REVALIDA_LIQUIDEZ || 0.91),
 
     calcularTaxa(valorBruto) {
       return this.taxaFixa + valorBruto * this.taxaPercentual;
@@ -18,22 +19,22 @@ export const RevalidaConfig: ModuleConfig = {
   },
 
   mdr: {
-    pix: 0.0098,            // 0,98%
+    pix: Number(process.env.REVALIDA_MDR_PIX || 0.0098),
     cartao: {
-      1:  0.0399,           // 3,99%
-      2:  0.0830,
-      3:  0.0968,
-      4:  0.1104,
-      5:  0.1237,
-      6:  0.1367,
-      7:  0.1495,
-      8:  0.1621,
-      9:  0.1744,
-      10: 0.1864,
-      11: 0.1983,
-      12: 0.2099,           // 20,99%
+      1:  Number(process.env.REVALIDA_MDR_CC_1X || 0.0399),
+      2:  Number(process.env.REVALIDA_MDR_CC_2X || 0.0830),
+      3:  Number(process.env.REVALIDA_MDR_CC_3X || 0.0968),
+      4:  Number(process.env.REVALIDA_MDR_CC_4X || 0.1104),
+      5:  Number(process.env.REVALIDA_MDR_CC_5X || 0.1237),
+      6:  Number(process.env.REVALIDA_MDR_CC_6X || 0.1367),
+      7:  Number(process.env.REVALIDA_MDR_CC_7X || 0.1495),
+      8:  Number(process.env.REVALIDA_MDR_CC_8X || 0.1621),
+      9:  Number(process.env.REVALIDA_MDR_CC_9X || 0.1744),
+      10: Number(process.env.REVALIDA_MDR_CC_10X || 0.1864),
+      11: Number(process.env.REVALIDA_MDR_CC_11X || 0.1983),
+      12: Number(process.env.REVALIDA_MDR_CC_12X || 0.2099),
     },
-    taxaFixaPorTransacao: 1.00,
+    taxaFixaPorTransacao: Number(process.env.REVALIDA_TAXA_FIXA_TRANSACAO || 1.00),
   },
 
   limites: {

@@ -48,13 +48,14 @@ function mapWithdrawToResponse(w: WithdrawWithUser) {
     status: mapDbStatusToPt(w.status),
     via: 'PIX',
     chavePix: w.pixKey,
-    banco: null,
-    agencia: null,
-    conta: null,
     comprovante: w.receiptImage ?? null,
     observacao: w.rejectionReason ?? null,
     criadoEm: w.createdAt.toISOString(),
-    dataTransferencia: null,
+    usuario: {
+      id: w.user.id,
+      nome: w.user.name,
+      email: w.user.email,
+    },
   };
 }
 

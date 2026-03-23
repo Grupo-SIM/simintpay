@@ -26,7 +26,7 @@ import {
 export class ApiDomClient implements IPaymentGateway {
   private readonly logger = new Logger(ApiDomClient.name);
 
-  constructor(private readonly http: HttpService) {}
+  constructor(private readonly http: HttpService) { }
 
   private toSafeString(value: unknown): string | null {
     if (value == null) return null;
@@ -68,7 +68,12 @@ export class ApiDomClient implements IPaymentGateway {
   }
 
   private get baseUrl(): string {
-    const base = process.env.DOM_REAL_API_URL ?? 'https://apiv3.dompagamentos.com.br/checkout/production';
+    const base = process.env.DOM_REAL_API_URL ?? 'https://api-dom.jbmidia.com';
+    return base.replace(/\/$/, '');
+  }
+
+  private get paymentsUrl(): string {
+    const base = process.env.DOM_PAYMENTS_API_URL ?? 'https://api-dom.jbmidia.com/payments';
     return base.replace(/\/$/, '');
   }
 
@@ -99,7 +104,7 @@ export class ApiDomClient implements IPaymentGateway {
     const isCard = /card|credit/i.test(paymentMethod);
 
     const CARD_RATES: Record<number, number> = {
-      1: 0.0399, 2: 0.083,  3: 0.0968, 4: 0.1104, 5: 0.1237, 6: 0.1367,
+      1: 0.0399, 2: 0.083, 3: 0.0968, 4: 0.1104, 5: 0.1237, 6: 0.1367,
       7: 0.1495, 8: 0.1621, 9: 0.1744, 10: 0.1864, 11: 0.1983, 12: 0.2099,
     };
     const mdrRate = isCard ? (CARD_RATES[installments] ?? 0.0399) : 0.0098;
@@ -187,7 +192,12 @@ export class ApiDomClient implements IPaymentGateway {
   async me(domToken: string): Promise<DomMeOutput> {
     const url = `${this.baseUrl}/auth/me`;
     try {
-      const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${domToken}` } }));
+      const res = await firstValueFrom(this.http.get<any>(url, {
+        headers: {
+          'Authorization': `Bearer ${domToken}`,
+          'x-access-token': domToken
+        }
+      }));
       const payload = this.getObject(res.data?.data ?? res.data);
       return {
         id: this.pickString(payload, 'id') ?? undefined,
@@ -196,6 +206,51 @@ export class ApiDomClient implements IPaymentGateway {
       };
     } catch (error: any) {
       this.logger.error(`Me error: ${error?.response?.status}`);
+      throw error;
+    }
+  }
+
+  private isUUID(token: string): boolean {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(token);
+  }
+
+  async getDomSummary(domToken: string): Promise<any> {
+    const isLegacy = this.isUUID(domToken);
+    const url = isLegacy ? `${this.paymentsUrl}/summary` : `${this.domRealApiUrl}/summary`;
+    this.logger.log(`[DOM Diagnostic] Fetching summary from: ${url} (Legacy: ${isLegacy}) with token: ${domToken.substring(0, 5)}...`);
+    try {
+      const res = await firstValueFrom(this.http.get<any>(url, {
+        headers: {
+          'Authorization': `Bearer ${domToken}`,
+          'x-access-token': domToken,
+          'Accept': 'application/json'
+        }
+      }));
+      this.logger.log(`[DOM Diagnostic] Summary response status: ${res.status}`);
+      return res.data?.data ?? res.data;
+    } catch (error: any) {
+      this.logger.error(`[DOM Error] summary URL: ${url} STATUS: ${error?.response?.status}`);
+      if (error?.response?.data) {
+        this.logger.error(`[DOM Error] response data: ${JSON.stringify(error.response.data)}`);
+      }
+      throw error;
+    }
+  }
+
+  async getSpecificMachineTransactions(domToken: string): Promise<any> {
+    const url = `${this.paymentsUrl}/dom/specific-machines-transactions`;
+    try {
+      const res = await firstValueFrom(this.http.get<any>(url, {
+        headers: {
+          'Authorization': `Bearer ${domToken}`,
+          'x-access-token': domToken,
+          'Accept': 'application/json'
+        }
+      }));
+      return res.data?.data ?? res.data;
+    } catch (error: any) {
+      this.logger.error(`Dom Machines error: ${error?.response?.status}`);
       throw error;
     }
   }
@@ -377,79 +432,112 @@ export class ApiDomClient implements IPaymentGateway {
     };
   }
 
-  async listDomTransactions(domToken: string, input: { page: number; limit: number }): Promise<DomListTransactionsOutput> {
-    const url = `${this.baseUrl}/transactions`;
-    
-    // A API v3 exige datas de início e fim. Vamos usar os últimos 30 dias como padrão.
-    const now = new Date();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(now.getDate() - 30);
+  async listDomTransactions(
+    domToken: string,
+    input: { page: number; limit: number; status?: string; begin_date?: string; end_date?: string },
+  ): Promise<DomListTransactionsOutput> {
+    const isLegacy = this.isUUID(domToken);
+    // PONTE: Legacy bridge usually has it at /payments directly or /payments/transactions
+    // REAL: Real API usually at /transactions
+    const url = isLegacy ? this.paymentsUrl : `${this.domRealApiUrl}/transactions`;
 
-    const formatDate = (d: Date) => d.toISOString().split('T')[0];
-
-    const params: any = { 
+    const params: any = {
       limit: input.limit,
-      begin_date: formatDate(thirtyDaysAgo),
-      end_date: formatDate(now)
+      page: input.page,
     };
-    if (input.page > 1) params.page = input.page;
+    if (input.status) params.status = input.status;
+    if (input.begin_date) params.begin_date = input.begin_date;
+    if (input.end_date) {
+      params.end_date = input.end_date;
+    } else if (input.begin_date) {
+      params.end_date = '2026-12-31'; // Safe default for range
+    }
 
     try {
-      this.logger.log(`[DOM Client] GET ${url} Params: ${JSON.stringify(params)}`);
+      this.logger.log(`[DOM List] GET ${url} (Legacy=${isLegacy}) Token=${domToken.substring(0, 5)}... Params=${JSON.stringify(params)}`);
       const res = await firstValueFrom(this.http.get<any>(url, {
-        headers: { 
+        headers: {
           'Authorization': `Bearer ${domToken}`,
-          'Origin': process.env.URL_APP || 'https://simpay.simintermediacoes.com',
+          'x-access-token': domToken, // Alguns legados v2 usam esse header
           'Accept': 'application/json'
         },
         params,
       }));
-      
-      const root = this.getObject(res.data);
-      const arr = 
-        this.getArray(root?.transactions) ?? 
-        this.getArray(root?.rows) ?? 
-        this.getArray(root?.data) ?? 
-        (Array.isArray(root) ? root : []);
 
-      const transactions: DomTransactionItem[] = arr.map(x => {
-        const o = this.getObject(x);
-        const id = this.pickString(o, 'id') ?? this.pickString(o, 'id_transaction') ?? '';
+      const root = res.data;
+      const arr = Array.isArray(root?.data) ? root.data : (Array.isArray(root?.transactions) ? root.transactions : (Array.isArray(root) ? root : []));
+      this.logger.log(`[DOM List] Received ${arr.length} items from ${url}`);
+
+      const transactions: DomTransactionItem[] = arr.map((o: any) => {
+        const id = this.pickString(o, 'id') ?? this.pickString(o, 'order_id') ?? '';
         
-        // Normalização de Valores (BFF trabalha sempre em REAIS)
-        let amt = this.pickNumber(o, 'amount') ?? this.pickNumber(o, 'total') ?? 0;
-        let liq = this.pickNumber(o, 'liquid_amount') ?? this.pickNumber(o, 'total_liquid') ?? 0;
+        let amt = this.pickNumber(o, 'amount') ?? this.pickNumber(o, 'total') ?? this.pickNumber(o, 'valor_bruto') ?? 0;
+        let liq = this.pickNumber(o, 'liquid_amount') ?? this.pickNumber(o, 'amountWithoutAllFee') ?? this.pickNumber(o, 'total_liquido') ?? this.pickNumber(o, 'amountWithoutFee') ?? amt;
+        
+        // Se amortized_fee_total existe e liquid_amount é 0, calcula
+        if (liq === 0 && amt > 0 && (this.pickNumber(o, 'fee') ?? 0) > 0) {
+           liq = amt - (this.pickNumber(o, 'fee') ?? 0);
+        }
 
-        // Ambos os endpoints (v3 checkout /transactions e front-store /front-store/transactions)
-        // retornam valores já em REAIS. Não há conversão centavos->reais necessária aqui.
-        this.logger.debug(`[Normalization] Keeping Reais for ID ${id}: amt=${amt}, liq=${liq}`);
+        const customer = this.getObject(o.customer) || o;
 
         return {
           id,
-          order_id: this.pickString(o, 'order_id') ?? id,
-          cod_external: this.pickString(o, 'cod_external'),
-          created_at: this.pickString(o, 'created_at') ?? this.pickString(o, 'create_date') ?? new Date().toISOString(),
-          updated_at: this.pickString(o, 'updated_at') ?? this.pickString(o, 'last_date'),
+          order_id: this.pickString(o, 'paymentId') ?? this.pickString(o, 'order_id') ?? this.pickString(o, 'id') ?? id,
+          cod_external: this.pickString(o, 'cod_external') ?? this.pickString(o, 'external_id'),
+          created_at: this.pickString(o, 'created_at') ?? this.pickString(o, 'createdAt') ?? this.pickString(o, 'create_date') ?? new Date().toISOString(),
+          updated_at: this.pickString(o, 'updated_at') ?? this.pickString(o, 'updatedAt'),
           amount: amt,
           liquid_amount: liq,
-          mdr_value: this.pickNumber(o, 'mdr_value') ?? this.pickNumber(o, 'mdr'),
-          status: this.pickString(o, 'status') ?? this.pickString(o, 'status_type') ?? 'pending',
-          payment_method: this.pickString(o, 'payment_method') ?? this.pickString(o, 'type_payment') ?? 'pix',
+          status: this.pickString(o, 'status') ?? 'pending',
+          payment_method: this.pickString(o, 'payment_method') ?? this.pickString(o, 'method') ?? 'pix',
           installments: this.pickNumber(o, 'installments') ?? 1,
-          customer_name: this.pickString(o, 'customer_name') ?? this.pickString(o, 'client_name'),
-          customer_email: this.pickString(o, 'customer_email') ?? this.pickString(o, 'client_email'),
-          customer_phone: this.pickString(o, 'customer_phone') ?? this.pickString(o, 'client_phone'),
-          customer_document: this.pickString(o, 'customer_document') ?? this.pickString(o, 'client_document'),
-          product_first: this.pickString(o, 'product_first'),
+          customer_name: this.pickString(customer, 'name') ?? this.pickString(customer, 'customer_name'),
+          customer_email: this.pickString(customer, 'email') ?? this.pickString(customer, 'customer_email'),
+          customer_phone: this.pickString(customer, 'mobile_phone') ?? this.pickString(customer, 'phone') ?? this.pickString(customer, 'customer_phone'),
+          customer_document: this.pickString(customer, 'document') ?? this.pickString(customer, 'customer_document'),
+          product_first: (Array.isArray(o?.items) && o.items.length > 0) ? (o.items[0]?.description || o.items[0]?.name || null) : (this.pickString(o, 'description') || null),
+          fee_total: amt - liq,
+          dom_fee: this.pickNumber(o, 'dom_fee') ?? this.pickNumber(o, 'fee_dom') ?? 0,
         };
-      }).filter(tx => tx.id.length > 0);
+      }).filter((tx: DomTransactionItem) => tx.id.length > 0);
 
       return {
         transactions,
         total: this.pickNumber(root, 'total') ?? transactions.length,
       };
     } catch (error: any) {
-      this.logger.error(`[DOM Client Error] status=${error?.response?.status} error=${JSON.stringify(error?.response?.data || error.message)}`);
+      this.logger.error(`[DOM Direct Error] status=${error?.response?.status} error=${JSON.stringify(error?.response?.data || error.message)}`);
+      throw error;
+    }
+  }
+
+  async listAllTransactionsDirectlyFromDom(params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    begin_date?: string;
+    end_date?: string;
+  }): Promise<any> {
+    const url = `${this.domRealApiUrl}/transactions`;
+    const domToken = process.env.API_DOM_MASTER_KEY || process.env.DOM_TOKEN;
+
+    if (!domToken) {
+      throw new Error('DOM Token not configured in Simpay');
+    }
+
+    try {
+      this.logger.log(`[DOM Direct Master] GET ${url} Params: ${JSON.stringify(params)}`);
+      const res = await firstValueFrom(this.http.get<any>(url, {
+        headers: {
+          'Authorization': `Bearer ${domToken}`,
+          'Accept': 'application/json'
+        },
+        params
+      }));
+      return res.data;
+    } catch (error: any) {
+      this.logger.error(`[DOM Direct Master Error] status=${error?.response?.status} error=${JSON.stringify(error?.response?.data || error.message)}`);
       throw error;
     }
   }
@@ -470,30 +558,38 @@ export class ApiDomClient implements IPaymentGateway {
   }
 
   async listDomWithdraws(domToken: string, input: { page: number; limit: number; status?: string }): Promise<DomListWithdrawsOutput> {
-    const url = `${this.baseUrl}/pixout`;
+    const url = `${this.paymentsUrl}/withdrawals`;
     const params: any = { limit: input.limit, page: input.page };
     if (input.status) params.status = input.status;
 
     try {
-      const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${domToken}` }, params }));
+      const res = await firstValueFrom(this.http.get<any>(url, {
+        headers: {
+          'Authorization': `Bearer ${domToken}`,
+          'x-access-token': domToken
+        },
+        params
+      }));
       const root = this.getObject(res.data);
-      const arr = this.getArray(root?.pixouts) ?? this.getArray(root?.withdraws) ?? this.getArray(root?.data) ?? (Array.isArray(root) ? root : []);
+      const arr = this.getArray(root?.withdrawals) ?? this.getArray(root?.withdraws) ?? this.getArray(root?.pixouts) ?? this.getArray(root?.data) ?? (Array.isArray(root) ? root : []);
+
+      this.logger.log(`DOM: Encontrados ${arr.length} saques na página ${input.page}`);
 
       const withdraws: DomWithdrawItem[] = arr.map(x => {
         const o = this.getObject(x);
         return {
           id_transfer: this.pickString(o, 'id') ?? this.pickString(o, 'id_transfer') ?? '',
-          value: String(this.pickNumber(o, 'amount') ?? (this.pickNumber(o, 'value') != null ? (this.pickNumber(o, 'value')! / 100) : 0)),
-          create_date: this.pickString(o, 'created_at') ?? this.pickString(o, 'create_date') ?? '',
-          date_transfer: this.pickString(o, 'updated_at') ?? this.pickString(o, 'date_transfer') ?? '',
+          value: String(this.pickNumber(o, 'amount') ?? this.pickNumber(o, 'value') ?? 0),
+          create_date: this.pickString(o, 'createdAt') ?? this.pickString(o, 'created_at') ?? this.pickString(o, 'create_date') ?? '',
+          date_transfer: this.pickString(o, 'updatedAt') ?? this.pickString(o, 'updated_at') ?? this.pickString(o, 'date_transfer') ?? '',
           bank_name: this.pickString(o, 'bank_name'),
           bank_agency: this.pickString(o, 'bank_agency'),
           bank_bill: this.pickString(o, 'bank_bill'),
           obs_client: this.pickString(o, 'obs_client'),
           status: this.pickString(o, 'status') ?? 'pending',
           type_transfer: this.pickString(o, 'type_transfer') ?? 'PIX',
-          pix_key: this.pickString(o, 'pix_key') ?? this.pickString(o, 'recipient_key'),
-          receivers: null,
+          pix_key: this.pickString(o, 'pixKey') ?? this.pickString(o, 'pix_key') ?? this.pickString(o, 'recipient_key'),
+          receivers: Array.isArray(o?.receivers) ? o.receivers : null,
         };
       });
 

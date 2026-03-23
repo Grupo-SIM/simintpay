@@ -34,7 +34,7 @@ export class PrismaWithdrawRepository implements IWithdrawRepository {
       orderBy: { createdAt: 'desc' },
       skip: (input.page - 1) * input.pageSize,
       take: input.pageSize,
-      include: { user: { select: { name: true, email: true } } },
+      include: { user: { select: { id: true, name: true, email: true } } },
     });
 
     return { total, items };
@@ -77,5 +77,13 @@ export class PrismaWithdrawRepository implements IWithdrawRepository {
 
       return created;
     });
+  }
+
+  async sumPendingByUserId(userId: string): Promise<number> {
+    const aggregate = await this.prisma.withdrawRequest.aggregate({
+      where: { userId, status: WithdrawStatus.PENDING },
+      _sum: { grossAmount: true },
+    });
+    return Number(aggregate._sum.grossAmount ?? 0);
   }
 }

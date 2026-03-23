@@ -6,7 +6,7 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 export class ApproveWithdrawalUseCase {
   constructor(private readonly prisma: PrismaService) {}
 
-  async execute(withdrawId: string): Promise<{ message: string }> {
+  async execute(withdrawId: string, receiptImage?: string): Promise<{ message: string }> {
     const withdraw = await this.prisma.withdrawRequest.findUnique({
       where: { id: withdrawId },
       include: { user: { include: { wallet: true } } },
@@ -34,6 +34,7 @@ export class ApproveWithdrawalUseCase {
         where: { id: withdrawId },
         data: {
           status: WithdrawStatus.APPROVED,
+          receiptImage: receiptImage ?? undefined,
           updatedAt: new Date(),
         },
       });

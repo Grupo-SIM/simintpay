@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SyncDomTransactionsCron } from '../infrastructure/cron/sync-dom-transactions.cron';
 import { AdminController } from './controllers/admin.controller';
 import { ListLeadsUseCase } from '../application/use-cases/admin/list-leads.use-case';
 import { ApproveLeadUseCase } from '../application/use-cases/admin/approve-lead.use-case';
@@ -8,6 +9,7 @@ import { ListWithdrawalsAdminUseCase } from '../application/use-cases/admin/list
 import { ApproveWithdrawalUseCase } from '../application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../application/use-cases/admin/reject-withdrawal.use-case';
 import { SyncDomWithdrawalsUseCase } from '../application/use-cases/admin/sync-dom-withdrawals.use-case';
+import { SyncFullRenovadaUseCase } from '../application/use-cases/admin/sync-full-renovada.use-case';
 import { LEAD_REPOSITORY } from '../core/repositories/lead.repository.interface';
 import { PrismaLeadRepository } from '../infrastructure/database/repositories/prisma-lead.repository';
 import { USER_REPOSITORY } from '../core/repositories/user.repository.interface';
@@ -23,6 +25,7 @@ import { EmailService } from '../infrastructure/email/email.service';
   imports: [ApiDomModule],
   controllers: [AdminController],
   providers: [
+    SyncDomTransactionsCron,
     ListLeadsUseCase,
     ApproveLeadUseCase,
     RejectLeadUseCase,
@@ -31,6 +34,7 @@ import { EmailService } from '../infrastructure/email/email.service';
     ApproveWithdrawalUseCase,
     RejectWithdrawalUseCase,
     SyncDomWithdrawalsUseCase,
+    SyncFullRenovadaUseCase,
     EmailService,
     { provide: LEAD_REPOSITORY, useClass: PrismaLeadRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },

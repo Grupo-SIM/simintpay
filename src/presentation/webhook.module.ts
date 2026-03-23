@@ -10,8 +10,10 @@ import { PrismaTransactionRepository } from '../infrastructure/database/reposito
 import { BALANCE_LOG_REPOSITORY } from '../core/repositories/balance-log.repository.interface';
 import { PrismaBalanceLogRepository } from '../infrastructure/database/repositories/prisma-balance-log.repository';
 
+import { RenovadaModule } from '../modules/renovada/renovada.module';
+
 @Module({
-  imports: [RabbitMqModule],
+  imports: [RabbitMqModule, RenovadaModule],
   controllers: [WebhookController],
   providers: [
     ProcessWebhookUseCase,

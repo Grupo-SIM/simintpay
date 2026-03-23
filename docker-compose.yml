@@ -10,6 +10,9 @@ services:
       - DATABASE_URL=postgresql://postgres:pUXSu1qNwOgl4It@postgres_prod:5432/simpay
       - DIRECT_URL=postgresql://postgres:pUXSu1qNwOgl4It@postgres_prod:5432/simpay
       - PORT=3333
+      - DOM_TOKEN=seu-dom-token-aqui
+      - API_DOM_MASTER_KEY=seu-dom-master-key-aqui
+      - DISABLED_DOM_SYNC=false
     networks:
       - externa
       - interna

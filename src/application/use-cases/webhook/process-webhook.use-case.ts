@@ -1,9 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, TransactionStatus } from '@prisma/client';
 import { TRANSACTION_REPOSITORY } from '../../../core/repositories/transaction.repository.interface';
 import { WEBHOOK_EVENT_REPOSITORY } from '../../../core/repositories/webhook-event.repository.interface';
 import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.repository.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
 
 import type { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
 import type { IWebhookEventRepository } from '../../../core/repositories/webhook-event.repository.interface';
@@ -18,12 +19,24 @@ type DomWebhookPayload = {
     paymentId: string;
     status: string;
     amountWithoutAllFee: number;
+    amount?: number;
+    payment_method?: string;
+    description?: string;
+    installments?: number;
+    customer?: {
+      name?: string;
+      email?: string;
+      document?: string;
+      mobile_phone?: string;
+    };
     [k: string]: unknown;
   };
 };
 
 @Injectable()
 export class ProcessWebhookUseCase {
+  private readonly logger = new Logger(ProcessWebhookUseCase.name);
+
   constructor(
     @Inject(WEBHOOK_EVENT_REPOSITORY)
     private readonly events: IWebhookEventRepository,
@@ -32,6 +45,7 @@ export class ProcessWebhookUseCase {
     @Inject(BALANCE_LOG_REPOSITORY)
     private readonly balanceLogs: IBalanceLogRepository,
     private readonly prisma: PrismaService,
+    private readonly renovadaEvents: RenovadaEventsService,
   ) {}
 
   private getObject(v: unknown): Record<string, unknown> | null {
@@ -167,14 +181,14 @@ export class ProcessWebhookUseCase {
     try {
       const domPaymentId = parsed.data.paymentId;
 
-      const trx = await this.transactions.findByDomPaymentId(domPaymentId);
+      let trx = await this.transactions.findByDomPaymentId(domPaymentId);
+
       if (!trx) {
-        await this.events.markFailed(
-          event.id,
-          `transaction not found for domPaymentId=${domPaymentId}`,
-        );
+        this.logger.log(`[WEBHOOK] Transaction ${domPaymentId} not found, ignoring because we cannot determine the tenant user.`);
         return;
       }
+      
+      const t = trx;
 
       const nextStatus = this.mapDomStatusToTransactionStatus(
         parsed.data.status,
@@ -187,10 +201,10 @@ export class ProcessWebhookUseCase {
         return;
       }
 
-      if (!this.isValidTransition(trx.status, nextStatus)) {
+      if (!this.isValidTransition(t.status, nextStatus)) {
         await this.events.markFailed(
           event.id,
-          `invalid status transition ${trx.status} -> ${nextStatus}`,
+          `invalid status transition ${t.status} -> ${nextStatus}`,
         );
         return;
       }
@@ -222,7 +236,7 @@ export class ProcessWebhookUseCase {
         if (shouldMutateWallet) {
           for (let attempt = 0; attempt < 3; attempt++) {
             const wallet = await p.wallet.findUnique({
-              where: { userId: trx.userId },
+              where: { userId: t.userId },
             });
             if (!wallet) throw new Error('wallet not found');
 
@@ -269,14 +283,14 @@ export class ProcessWebhookUseCase {
         }
 
         await p.transaction.update({
-          where: { id: trx.id },
-          data: { previousStatus: trx.status, status: nextStatus },
+          where: { id: t.id },
+          data: { previousStatus: t.status, status: nextStatus },
         });
 
         await p.transactionStatusHistory.create({
           data: {
-            transactionId: trx.id,
-            fromStatus: trx.status,
+            transactionId: t.id,
+            fromStatus: t.status,
             toStatus: nextStatus,
             metadata: { reason: `webhook: ${eventType}` },
           },
@@ -291,9 +305,9 @@ export class ProcessWebhookUseCase {
         ) {
           await p.balanceLog.create({
             data: {
-              userId: trx.userId,
+              userId: t.userId,
               action: `WEBHOOK_${eventType}`,
-              transactionId: trx.id,
+              transactionId: t.id,
               amount: amountWithoutAllFee,
               balanceBefore: walletBeforeBalance,
               balanceAfter: walletAfterBalance,
@@ -307,7 +321,13 @@ export class ProcessWebhookUseCase {
       });
 
       await this.events.markProcessed(event.id);
+
+      // EMIT EVENT for Real-Time UI (Renovada)
+      if (t.userId === 'ba2b57d6-e3bf-4395-af31-58454f27207a') {
+        this.renovadaEvents.emitTransaction(t);
+      }
     } catch (e: unknown) {
+      this.logger.error(`Error processing webhook ${event.id}: ${e instanceof Error ? e.message : 'unknown error'}`);
       await this.events.markFailed(
         event.id,
         e instanceof Error ? e.message : 'unknown error',

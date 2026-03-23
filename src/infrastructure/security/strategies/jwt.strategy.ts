@@ -6,7 +6,11 @@ export type JwtPayload = {
   sub: string;
   email: string;
   role: string;
-};
+  domToken?: string;
+  domUserId?: string;
+} & {
+  domToken?: string;
+}
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {

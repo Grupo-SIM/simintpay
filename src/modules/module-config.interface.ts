@@ -21,6 +21,8 @@ export interface ModuleConfig {
     calcularLiquido(valorBruto: number): number;
     /** Calcular a taxa total cobrada */
     calcularTaxa(valorBruto: number): number;
+    /** Fator de liquidez do saldo disponível (ex: 0.91 = 91% do saldo bruto fica disponível p/ saque). null = 1.0 */
+    fatorLiquidez?: number;
   };
 
   /** Taxas de processamento (MDR) por método de pagamento */

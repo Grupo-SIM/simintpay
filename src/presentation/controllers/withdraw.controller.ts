@@ -16,6 +16,7 @@ import { RequestWithdrawDto } from '../../application/dtos/withdraw/request-with
 import { ListWithdrawalsUseCase } from '../../application/use-cases/withdraw/list-withdrawals.use-case';
 import { RequestWithdrawUseCase } from '../../application/use-cases/withdraw/request-withdraw.use-case';
 import { CheckPendingWithdrawUseCase } from '../../application/use-cases/withdraw/check-pending-withdraw.use-case';
+import { GetWithdrawSummaryUseCase } from '../../application/use-cases/withdraw/get-withdraw-summary.use-case';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -33,6 +34,7 @@ export class WithdrawController {
     private readonly requestWithdraw: RequestWithdrawUseCase,
     private readonly listWithdrawals: ListWithdrawalsUseCase,
     private readonly checkPending: CheckPendingWithdrawUseCase,
+    private readonly getSummary: GetWithdrawSummaryUseCase,
   ) {}
 
   @Get()
@@ -89,6 +91,17 @@ export class WithdrawController {
     @CurrentUser() user: JwtPayload | undefined,
   ): Promise<{ data: unknown }> {
     const out = await this.checkPending.execute(user?.sub ?? '');
+    return { data: out };
+  }
+
+  @Get('resumo')
+  @ApiOperation({ summary: 'Obter resumo financeiro para saque' })
+  @ApiResponse({ status: 200, schema: { example: { data: { availableBalance: 100, netBalance: 91 } } } })
+  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
+  async summary(
+    @CurrentUser() user: JwtPayload | undefined,
+  ): Promise<{ data: unknown }> {
+    const out = await this.getSummary.execute(user?.sub ?? '');
     return { data: out };
   }
 }

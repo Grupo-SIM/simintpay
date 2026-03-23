@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
+  BadRequestException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, WithdrawStatus } from '@prisma/client';
 import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.repository.interface';
 import { WITHDRAW_REPOSITORY } from '../../../core/repositories/withdraw.repository.interface';
 import { CACHE_SERVICE } from '../../../core/services/cache.interface';
@@ -15,10 +16,13 @@ import type { ICacheService } from '../../../core/services/cache.interface';
 import type { RequestWithdrawDto } from '../../dtos/withdraw/request-withdraw.dto';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { getModuleConfig } from '../../../modules/module.registry';
+import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
+import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 
 // Fallback para usuários sem módulo configurado
-const DEFAULT_MIN_VALOR = 100;
-const DEFAULT_TAXA_FIXA = 2;
+const DEFAULT_MIN_VALOR = Number(process.env.DEFAULT_WITHDRAW_MIN_VALUE || 100);
+const DEFAULT_TAXA_FIXA = Number(process.env.DEFAULT_WITHDRAW_FIXED_FEE || 2);
+const DEFAULT_TAXA_PERCENT = Number(process.env.DEFAULT_WITHDRAW_PERCENT_FEE || 0);
 
 @Injectable()
 export class RequestWithdrawUseCase {
@@ -29,6 +33,7 @@ export class RequestWithdrawUseCase {
     @Inject(BALANCE_LOG_REPOSITORY)
     private readonly balanceLogs: IBalanceLogRepository,
     @Inject(CACHE_SERVICE) private readonly cache: ICacheService,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
   ) {}
 
   async execute(
@@ -49,8 +54,9 @@ export class RequestWithdrawUseCase {
     // Busca usuário com módulo
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        tenantModule: { select: { slug: true, name: true } },
+      include: {
+        tenantModule: true,
+        wallet: true,
       },
     });
 
@@ -61,7 +67,7 @@ export class RequestWithdrawUseCase {
     const minValor = config?.saque.minValor ?? DEFAULT_MIN_VALOR;
     const calcularTaxa = config
       ? (v: number) => config.saque.calcularTaxa(v)
-      : (v: number) => DEFAULT_TAXA_FIXA + v * 0;
+      : (v: number) => DEFAULT_TAXA_FIXA + v * DEFAULT_TAXA_PERCENT;
 
     // Valor mínimo de saque
     if (dto.valor < minValor) {
@@ -74,12 +80,42 @@ export class RequestWithdrawUseCase {
     const pending = await this.withdraws.findPendingByUserId(userId);
     if (pending) {
       throw new ConflictException(
-        'Você já possui um saque pendente. Aguarde a aprovação antes de solicitar um novo.',
+        'Você já possui um saque pendente. Aguarde a conclusão para solicitar outro.',
       );
     }
 
-    // Verifica saldo
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+    // [MODO SIMPAY SOBERANO] — Gerencia saldo local 
+    let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+    
+    // Se estiver em desenvolvimento e não houver wallet,Provisionamos para o teste real fluir
+    if (!wallet && process.env.NODE_ENV === 'development') {
+      console.log(`[SIMPAY DEV] Auto-provisionando usuário e carteira para o ID: ${userId}`);
+      
+      const email = user?.email || `cliente-${userId.substring(0, 8)}@simpay.com`;
+      const name = user?.name || 'Cliente Renovada Sincronizado';
+
+      // Garante que o usuário existe
+      await this.prisma.user.upsert({
+        where: { id: userId },
+        update: {},
+        create: {
+          id: userId,
+          email,
+          name,
+          password: 'password-dev',
+        }
+      });
+
+      // Cria carteira com saldo para permitir os testes de fluxo
+      wallet = await this.prisma.wallet.create({
+        data: {
+          userId,
+          balance: 10000.00, // Saldo inicial de teste (Real)
+          lockedBalance: 0,
+        }
+      });
+    }
+
     if (!wallet) throw new NotFoundException('Wallet não encontrada');
 
     const availableBalance = Number(wallet.balance) - Number(wallet.lockedBalance);

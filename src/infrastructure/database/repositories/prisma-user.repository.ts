@@ -10,8 +10,11 @@ import { PrismaService } from '../prisma/prisma.service';
 export class PrismaUserRepository implements IUserRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findById(id: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { id } });
+  async findById(id: string): Promise<any | null> {
+    return this.prisma.user.findUnique({
+      where: { id },
+      include: { tenantModule: true },
+    });
   }
 
   async findByEmail(email: string): Promise<User | null> {

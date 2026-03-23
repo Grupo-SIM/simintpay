@@ -3,7 +3,7 @@ import type { WithdrawRequest, WithdrawStatus, User } from '@prisma/client';
 export const WITHDRAW_REPOSITORY = Symbol('WITHDRAW_REPOSITORY');
 
 export type WithdrawWithUser = WithdrawRequest & {
-  user: Pick<User, 'name' | 'email'>;
+  user: Pick<User, 'id' | 'name' | 'email'>;
 };
 
 export interface IWithdrawRepository {
@@ -25,4 +25,5 @@ export interface IWithdrawRepository {
     amountToLock: number;
     currentWalletVersion: number;
   }): Promise<WithdrawRequest>;
+  sumPendingByUserId(userId: string): Promise<number>;
 }

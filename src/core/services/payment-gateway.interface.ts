@@ -138,6 +138,8 @@ export type DomTransactionItem = {
   customer_email?: string | null;
   customer_phone?: string | null;
   product_first?: string | null;
+  fee_total?: number | null;
+  dom_fee?: number | null;
 };
 
 export type DomListTransactionsOutput = {
@@ -213,7 +215,8 @@ export interface IPaymentGateway {
     input: { page?: number; pageSize?: number },
   ): Promise<{ items: DomSubscriptionOutput[]; total?: number }>;
   cancelSubscription(domToken: string, id: string): Promise<void>;
-
+  getDomSummary(domToken: string): Promise<any>;
+  getSpecificMachineTransactions(domToken: string): Promise<any>;
   getMonthlyRevenue(domToken: string): Promise<DomMonthlyRevenueOutput>;
   getTaxes(masterKey: string): Promise<DomTaxesOutput>;
 
@@ -224,8 +227,16 @@ export interface IPaymentGateway {
 
   listDomTransactions(
     domToken: string,
-    input: { page: number; limit: number },
+    input: { page: number; limit: number; status?: string; begin_date?: string; end_date?: string },
   ): Promise<DomListTransactionsOutput>;
+
+  listAllTransactionsDirectlyFromDom(params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    begin_date?: string;
+    end_date?: string;
+  }): Promise<any>;
 
   getDomTransactionDetail(domToken: string, id: string): Promise<any>;
 

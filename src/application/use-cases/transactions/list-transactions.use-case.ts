@@ -66,7 +66,7 @@ export class ListTransactionsUseCase {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
-  ) {}
+  ) { }
 
   async execute(input: {
     userId: string;
@@ -107,7 +107,7 @@ export class ListTransactionsUseCase {
     if (!domToken && user?.tenantModuleId) {
       const module = await this.prisma.tenantModule.findUnique({ where: { id: user.tenantModuleId } });
       if (module) {
-        domToken = process.env[`${module.slug.toUpperCase()}_DOM_TOKEN` ];
+        domToken = process.env[`${module.slug.toUpperCase()}_DOM_TOKEN`];
         source = `Módulo (${module.slug})`;
       }
     }
@@ -135,89 +135,89 @@ export class ListTransactionsUseCase {
         }
 
         for (const item of domRes.transactions) {
-           // O Gateway agora já retorna os valores em REAIS
-           const amount = new Prisma.Decimal(item.amount);
-           const netAmount = new Prisma.Decimal(item.liquid_amount ?? 0);
-           const totalFee = amount.sub(netAmount);
- 
-           // Prefer mdr_value from API; fall back to taxes-based calculation
-           let calcDomFee: Prisma.Decimal | undefined =
-             item.mdr_value != null ? new Prisma.Decimal(item.mdr_value) : undefined;
- 
-           if (!calcDomFee && domTaxes) {
-             const isCard = item.payment_method?.toUpperCase().includes('CARD');
-             const amt = item.amount; // em reais
-             if (!isCard && domTaxes.pix) {
-               const pct = domTaxes.pix.percentual ?? 0;
-               const fixed = domTaxes.pix.fixo ?? 0;
-               calcDomFee = new Prisma.Decimal(amt * (pct / 100) + fixed);
-             } else if (isCard && domTaxes.cartaoCredito?.tabelaParcelas) {
-               const installments = item.installments ?? 1;
-               const row = domTaxes.cartaoCredito.tabelaParcelas.find(r => Number(r.parcelas) === installments);
-               if (row) calcDomFee = new Prisma.Decimal(amt * (parseFloat(row.taxaDom) / 100));
-             }
-           }
+          // O Gateway agora já retorna os valores em REAIS
+          const amount = new Prisma.Decimal(item.amount);
+          const netAmount = new Prisma.Decimal(item.liquid_amount ?? 0);
+          const totalFee = amount.sub(netAmount);
 
-           const calcPlatformFee = calcDomFee
-             ? Prisma.Decimal.max(new Prisma.Decimal(0), totalFee.sub(calcDomFee))
-             : undefined;
+          // Prefer mdr_value from API; fall back to taxes-based calculation
+          let calcDomFee: Prisma.Decimal | undefined =
+            item.mdr_value != null ? new Prisma.Decimal(item.mdr_value) : undefined;
 
-           const parsedDate = item.created_at
-             ? new Date(item.created_at.replace(' ', 'T'))
-             : new Date();
-           const createdAt = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+          if (!calcDomFee && domTaxes) {
+            const isCard = item.payment_method?.toUpperCase().includes('CARD');
+            const amt = item.amount; // em reais
+            if (!isCard && domTaxes.pix) {
+              const pct = domTaxes.pix.percentual ?? 0;
+              const fixed = domTaxes.pix.fixo ?? 0;
+              calcDomFee = new Prisma.Decimal(amt * (pct / 100) + fixed);
+            } else if (isCard && domTaxes.cartaoCredito?.tabelaParcelas) {
+              const installments = item.installments ?? 1;
+              const row = domTaxes.cartaoCredito.tabelaParcelas.find(r => Number(r.parcelas) === installments);
+              if (row) calcDomFee = new Prisma.Decimal(amt * (parseFloat(row.taxaDom) / 100));
+            }
+          }
 
-           // order_id é o identificador aceito pelo endpoint /front-store/transaction/{id} do DOM
-           const domPaymentId = item.order_id || item.cod_external || item.id;
+          const calcPlatformFee = calcDomFee
+            ? Prisma.Decimal.max(new Prisma.Decimal(0), totalFee.sub(calcDomFee))
+            : undefined;
 
-           const updateData = {
-             status: mapDomStatusToTransactionStatus(item.status),
-             amount,
-             netAmount,
-             totalFee,
-             ...(calcDomFee !== undefined && { domFee: calcDomFee }),
-             ...(calcPlatformFee !== undefined && { platformFee: calcPlatformFee }),
-             customerName: item.customer_name,
-             customerEmail: item.customer_email,
-             customerDocument: item.customer_document,
-             customerPhone: item.customer_phone,
-             updatedAt: new Date(),
-           };
+          const parsedDate = item.created_at
+            ? new Date(item.created_at.replace(' ', 'T'))
+            : new Date();
+          const createdAt = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
 
-           try {
-             // Busca por domPaymentId OU por domTransactionId (fallback para registros antigos
-             // criados com chave diferente — evita falha silenciosa por conflito de uniqueness)
-             const existing = await this.prisma.transaction.findFirst({
-               where: {
-                 OR: [
-                   { domPaymentId },
-                   ...(item.id ? [{ domTransactionId: item.id }] : []),
-                 ],
-               },
-               select: { id: true },
-             });
+          // order_id é o identificador aceito pelo endpoint /front-store/transaction/{id} do DOM
+          const domPaymentId = item.order_id || item.cod_external || item.id;
 
-             if (existing) {
-               await this.prisma.transaction.update({
-                 where: { id: existing.id },
-                 data: updateData,
-               });
-             } else {
-               await this.prisma.transaction.create({
-                 data: {
-                   userId: user.id,
-                   ...updateData,
-                   paymentMethod: item.payment_method?.toUpperCase().includes('CARD') ? PaymentMethod.CREDIT_CARD : PaymentMethod.PIX,
-                   domTransactionId: item.id,
-                   domPaymentId,
-                   description: item.product_first,
-                   createdAt,
-                 },
-               });
-             }
-           } catch (err: any) {
-             console.error(`Erro ao sincronizar transação ${item.id}:`, err.message);
-           }
+          const updateData = {
+            status: mapDomStatusToTransactionStatus(item.status),
+            amount,
+            netAmount,
+            totalFee,
+            ...(calcDomFee !== undefined && { domFee: calcDomFee }),
+            ...(calcPlatformFee !== undefined && { platformFee: calcPlatformFee }),
+            customerName: item.customer_name,
+            customerEmail: item.customer_email,
+            customerDocument: item.customer_document,
+            customerPhone: item.customer_phone,
+            updatedAt: new Date(),
+          };
+
+          try {
+            // Busca por domPaymentId OU por domTransactionId (fallback para registros antigos
+            // criados com chave diferente — evita falha silenciosa por conflito de uniqueness)
+            const existing = await this.prisma.transaction.findFirst({
+              where: {
+                OR: [
+                  { domPaymentId },
+                  ...(item.id ? [{ domTransactionId: item.id }] : []),
+                ],
+              },
+              select: { id: true },
+            });
+
+            if (existing) {
+              await this.prisma.transaction.update({
+                where: { id: existing.id },
+                data: updateData,
+              });
+            } else {
+              await this.prisma.transaction.create({
+                data: {
+                  userId: user.id,
+                  ...updateData,
+                  paymentMethod: item.payment_method?.toUpperCase().includes('CARD') ? PaymentMethod.CREDIT_CARD : PaymentMethod.PIX,
+                  domTransactionId: item.id,
+                  domPaymentId,
+                  description: item.product_first,
+                  createdAt,
+                },
+              });
+            }
+          } catch (err: any) {
+            console.error(`Erro ao sincronizar transação ${item.id}:`, err.message);
+          }
         }
       } catch (err: any) {
         console.error('[Sync Error]', err.message);

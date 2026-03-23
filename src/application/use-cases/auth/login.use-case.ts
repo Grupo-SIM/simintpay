@@ -40,6 +40,22 @@ export class LoginUseCase {
       if (!ok) {
         throw new UnauthorizedException('Credenciais inválidas');
       }
+      
+      // Se usuário não tem domToken, tentar obter do DOM
+      if (!user.domToken) {
+        try {
+          const dom = await this.gateway.generateToken(email, password);
+          await this.users.updateDomData(user.id, {
+            domToken: dom.domToken,
+            domUserId: dom.domUserId ?? null,
+          });
+          user.domToken = dom.domToken;
+          user.domUserId = dom.domUserId ?? null;
+        } catch (error) {
+          // Se falhar, continua com o token existente
+          console.warn('Failed to update domToken for existing user:', error.message);
+        }
+      }
     } else {
       const dom = await this.gateway.generateToken(email, password);
 
@@ -62,8 +78,9 @@ export class LoginUseCase {
       {
         sub: user.id,
         email: user.email,
-        role: user.role,
-      },
+        role: user.role as any,
+        domToken: user.domToken, // Adicionar domToken ao JWT
+      } as any,
     );
 
     const refreshToken = randomUUID();

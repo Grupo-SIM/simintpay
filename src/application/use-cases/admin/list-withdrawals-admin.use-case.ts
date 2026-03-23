@@ -11,11 +11,13 @@ export class ListWithdrawalsAdminUseCase {
     pageSize: number;
     status?: WithdrawStatus;
     moduleSlug?: string;
+    userId?: string;
   }) {
     const skip = (input.page - 1) * input.pageSize;
 
     const where = {
       ...(input.status ? { status: input.status } : {}),
+      ...(input.userId ? { userId: input.userId } : {}),
       ...(input.moduleSlug
         ? { user: { tenantModule: { slug: input.moduleSlug } } }
         : {}),
