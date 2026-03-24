@@ -17,7 +17,7 @@ export class SubscriptionController {
     private readonly cancel: CancelSubscriptionUseCase,
   ) {}
 
-  @Get('assinantes')
+  @Get()
   @ApiOperation({ summary: 'Listar assinantes' })
   @ApiResponse({
     status: 200,

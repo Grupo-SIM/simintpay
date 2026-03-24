@@ -1,14 +1,11 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
-import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
+import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
-import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { ListSubscribersQueryDto } from '../../dtos/subscription/list-subscribers.query.dto';
 
 @Injectable()
 export class ListSubscribersUseCase {
   constructor(
-    @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
   ) {}
 
@@ -21,15 +18,15 @@ export class ListSubscribersUseCase {
     pageSize: number;
     total: number;
   }> {
-    const user = await this.users.findById(input.userId);
-    if (!user?.domToken) {
-      throw new UnauthorizedException('Usuário não autenticado na api-dom');
+    const domToken = process.env.DOM_TOKEN;
+    if (!domToken) {
+      throw new InternalServerErrorException('DOM_TOKEN não configurado');
     }
 
     const page = input.query.page ?? 1;
     const pageSize = input.query.pageSize ?? 20;
 
-    const res = await this.gateway.listSubscriptions(user.domToken, {
+    const res = await this.gateway.listSubscriptions(domToken, {
       page,
       pageSize,
     });
@@ -44,7 +41,15 @@ export class ListSubscribersUseCase {
       data: filtered.map((s) => ({
         id: s.id,
         status: s.status ?? null,
-        expiresAt: s.expiresAt ?? null,
+        nome: s.name ?? null,
+        descricao: s.description ?? null,
+        valor: s.amount ?? null,
+        frequencia: s.frequency ?? null,
+        intervalo: s.interval ?? null,
+        ciclo: s.cycle ?? null,
+        formaPagamento: s.paymentMethod ?? null,
+        primeiraCobranca: s.firstBillingDate ?? null,
+        proximaCobranca: s.expiresAt ?? null,
         planoId: s.planId ?? null,
         cliente: s.customer
           ? {

@@ -68,7 +68,7 @@ export class ApiDomClient implements IPaymentGateway {
   }
 
   private get baseUrl(): string {
-    const base = process.env.DOM_REAL_API_URL ?? 'https://api-dom.jbmidia.com';
+    const base = process.env.DOM_BACKEND_URL ?? 'https://api-dom.jbmidia.com';
     return base.replace(/\/$/, '');
   }
 
@@ -210,15 +210,10 @@ export class ApiDomClient implements IPaymentGateway {
     }
   }
 
-  private isUUID(token: string): boolean {
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(token);
-  }
 
   async getDomSummary(domToken: string): Promise<any> {
-    const isLegacy = this.isUUID(domToken);
-    const url = isLegacy ? `${this.paymentsUrl}/summary` : `${this.domRealApiUrl}/summary`;
-    this.logger.log(`[DOM Diagnostic] Fetching summary from: ${url} (Legacy: ${isLegacy}) with token: ${domToken.substring(0, 5)}...`);
+    const url = `${this.domRealApiUrl}/summary`;
+    this.logger.log(`[DOM Diagnostic] Fetching summary from: ${url} with token: ${domToken.substring(0, 5)}...`);
     try {
       const res = await firstValueFrom(this.http.get<any>(url, {
         headers: {
@@ -313,19 +308,22 @@ export class ApiDomClient implements IPaymentGateway {
   private mapSubscription(obj: Record<string, unknown> | null): DomSubscriptionOutput | null {
     const id = this.pickString(obj, 'id');
     if (!id) return null;
-    const customer = this.getObject(obj?.customer);
+    const active = obj?.active;
     return {
       id,
-      status: this.pickString(obj, 'status') ?? undefined,
-      expiresAt: this.pickString(obj, 'expiresAt'),
-      planId: this.pickString(obj, 'planId'),
-      customer: customer ? {
-        name: this.pickString(customer, 'name') ?? undefined,
-        email: this.pickString(customer, 'email') ?? undefined,
-        document: this.pickString(customer, 'document') ?? undefined,
-        phone: this.pickString(customer, 'phone') ?? undefined,
-      } : undefined,
-      createdAt: this.pickString(obj, 'createdAt') ?? undefined,
+      status: active === true ? 'active' : active === false ? 'inactive' : undefined,
+      expiresAt: this.pickString(obj, 'next_date_invoice'),
+      planId: this.pickString(obj, 'plan_id') ?? undefined,
+      name: this.pickString(obj, 'customer_name'),
+      description: this.pickString(obj, 'description'),
+      amount: this.pickNumber(obj, 'value'),
+      frequency: this.pickString(obj, 'frequency_type'),
+      interval: 1,
+      cycle: this.pickNumber(obj, 'repetitions'),
+      paymentMethod: this.pickString(obj, 'payment_method'),
+      firstBillingDate: this.pickString(obj, 'start_date_invoice'),
+      customer: undefined,
+      createdAt: this.pickString(obj, 'created_at') ?? undefined,
     };
   }
 
@@ -386,17 +384,28 @@ export class ApiDomClient implements IPaymentGateway {
   }
 
   async listSubscriptions(domToken: string, input: { page?: number; pageSize?: number }): Promise<{ items: DomSubscriptionOutput[]; total?: number }> {
-    const url = `${this.baseUrl}/subscription`;
-    const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${domToken}` }, params: input }));
-    const root = this.getObject(res.data?.data ?? res.data);
-    const arr = this.getArray(root?.items ?? root?.data ?? root);
-    const items = (arr ?? []).map(x => this.mapSubscription(this.getObject(x))).filter((x): x is DomSubscriptionOutput => !!x);
-    return { items, total: this.pickNumber(root, 'total') ?? items.length };
+    const url = `${this.domRealApiUrl}/recurrence/subscriptions`;
+    const params: any = {};
+    if (input.page) params.page = input.page;
+    if (input.pageSize) params.limit = input.pageSize;
+    const res = await firstValueFrom(this.http.get<any>(url, {
+      headers: { 'Authorization': `Bearer ${domToken}`, 'Accept': 'application/json' },
+      params,
+    }));
+    const root = res.data;
+    this.logger.log(`[DOM Subscriptions RAW] ${JSON.stringify(root).substring(0, 500)}`);
+    const arr = this.getArray(root?.data ?? root?.items ?? root) ?? [];
+    if (arr.length > 0) {
+      this.logger.log(`[DOM Subscriptions FIRST ITEM] ${JSON.stringify(arr[0])}`);
+    }
+    const items = arr.map(x => this.mapSubscription(this.getObject(x))).filter((x): x is DomSubscriptionOutput => !!x);
+    return { items, total: this.pickNumber(this.getObject(root), 'total') ?? items.length };
   }
 
   async cancelSubscription(domToken: string, id: string): Promise<void> {
-    await firstValueFrom(this.http.put(`${this.baseUrl}/subscription/${id}/cancel`, {}, { headers: { 'Authorization': `Bearer ${domToken}` } }));
+    await firstValueFrom(this.http.delete(`${this.domRealApiUrl}/recurrence/subscriptions/${id}`, { headers: { 'Authorization': `Bearer ${domToken}` } }));
   }
+
 
   async getMonthlyRevenue(domToken: string): Promise<DomMonthlyRevenueOutput> {
     const url = `${this.baseUrl}/payments/monthly-revenue`;
@@ -436,10 +445,7 @@ export class ApiDomClient implements IPaymentGateway {
     domToken: string,
     input: { page: number; limit: number; status?: string; begin_date?: string; end_date?: string },
   ): Promise<DomListTransactionsOutput> {
-    const isLegacy = this.isUUID(domToken);
-    // PONTE: Legacy bridge usually has it at /payments directly or /payments/transactions
-    // REAL: Real API usually at /transactions
-    const url = isLegacy ? this.paymentsUrl : `${this.domRealApiUrl}/transactions`;
+    const url = `${this.domRealApiUrl}/transactions`;
 
     const params: any = {
       limit: input.limit,
@@ -454,7 +460,7 @@ export class ApiDomClient implements IPaymentGateway {
     }
 
     try {
-      this.logger.log(`[DOM List] GET ${url} (Legacy=${isLegacy}) Token=${domToken.substring(0, 5)}... Params=${JSON.stringify(params)}`);
+      this.logger.log(`[DOM List] GET ${url} Token=${domToken.substring(0, 5)}... Params=${JSON.stringify(params)}`);
       const res = await firstValueFrom(this.http.get<any>(url, {
         headers: {
           'Authorization': `Bearer ${domToken}`,
@@ -589,7 +595,7 @@ export class ApiDomClient implements IPaymentGateway {
           status: this.pickString(o, 'status') ?? 'pending',
           type_transfer: this.pickString(o, 'type_transfer') ?? 'PIX',
           pix_key: this.pickString(o, 'pixKey') ?? this.pickString(o, 'pix_key') ?? this.pickString(o, 'recipient_key'),
-          receivers: Array.isArray(o?.receivers) ? o.receivers : null,
+          receivers: Array.isArray(o?.receivers) ? (o as any).receivers : null,
         };
       });
 

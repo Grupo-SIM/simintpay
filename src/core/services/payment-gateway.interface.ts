@@ -106,6 +106,14 @@ export type DomSubscriptionOutput = {
   status?: string;
   expiresAt?: string | null;
   planId?: string | null;
+  name?: string | null;
+  description?: string | null;
+  amount?: number | null;
+  frequency?: string | null;
+  interval?: number | null;
+  cycle?: number | null;
+  paymentMethod?: string | null;
+  firstBillingDate?: string | null;
   customer?: {
     name?: string;
     email?: string;
@@ -114,6 +122,7 @@ export type DomSubscriptionOutput = {
   };
   createdAt?: string;
 };
+
 
 export type DomTransactionItem = {
   id: string;

@@ -3,13 +3,6 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { RenovadaWebhookService } from '../services/renovada-webhook.service';
 
-/**
- * Recebe webhooks diretos do gateway DOM para o módulo Renovada,
- * sem depender do api-dom como intermediário.
- *
- * Configure este endpoint como URL de webhook na conta DOM da Renovada:
- *   POST /webhook/renovada
- */
 @Controller('webhook')
 @ApiTags('Webhook')
 export class RenovadaWebhookController {

@@ -1,35 +1,45 @@
-import { Controller, Post, Body, Get, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../../infrastructure/security/guards/jwt-auth.guard';
+import { Controller, Post, Body, Get, Param } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CheckoutPixDto } from '../dtos/checkout-pix.dto';
 import { CheckoutCreditCardDto } from '../dtos/checkout-credit-card.dto';
 import { PaymentNewService } from '../services/payment-new.service';
-import { CurrentUser } from '../../../infrastructure/security/decorators/current-user.decorator';
-import type { JwtPayload } from '../../../infrastructure/security/strategies/jwt.strategy';
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+
+const RENOVADA_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
 @ApiTags('Renovada Payments')
-@ApiBearerAuth()
 @Controller('renovada/payments')
-@UseGuards(JwtAuthGuard)
 export class RenovadaPaymentController {
-  constructor(private readonly paymentService: PaymentNewService) {}
+  constructor(
+    private readonly paymentService: PaymentNewService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Post('pix')
   @ApiOperation({ summary: '[RENOVADA] Criar pagamento PIX' })
-  async createPix(
-    @Body() body: CheckoutPixDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.paymentService.createPaymentPix(user.sub, body);
+  async createPix(@Body() body: CheckoutPixDto) {
+    return this.paymentService.createPaymentPix(RENOVADA_USER_ID, body);
   }
 
   @Post('credit-card')
   @ApiOperation({ summary: '[RENOVADA] Criar pagamento com Cartão de Crédito' })
-  async createCreditCard(
-    @Body() body: CheckoutCreditCardDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.paymentService.createPaymentCreditCard(user.sub, body);
+  async createCreditCard(@Body() body: CheckoutCreditCardDto) {
+    return this.paymentService.createPaymentCreditCard(RENOVADA_USER_ID, body);
+  }
+
+  @Get('status/:paymentId')
+  @ApiOperation({ summary: '[RENOVADA] Verificar status de pagamento por domPaymentId' })
+  async checkStatus(@Param('paymentId') paymentId: string) {
+    const tx = await this.prisma.transaction.findFirst({
+      where: {
+        userId: RENOVADA_USER_ID,
+        OR: [{ domPaymentId: paymentId }, { domTransactionId: paymentId }],
+      },
+      select: { domPaymentId: true, status: true },
+    });
+
+    if (!tx) return { paymentId, status: 'PENDING' };
+    return { paymentId: tx.domPaymentId, status: tx.status };
   }
 
   @Get('test')

@@ -9,9 +9,10 @@ import { RenovadaPaymentController } from './controllers/renovada-payment.contro
 import { RenovadaWebhookNewController } from './controllers/renovada-webhook-new.controller';
 import { WebhookService } from './services/webhook.service';
 import { ApiDomModule } from '../../infrastructure/http/api-dom.module';
+import { PrismaModule } from '../../infrastructure/database/prisma/prisma.module';
 
 @Module({
-  imports: [ApiDomModule],
+  imports: [ApiDomModule, PrismaModule],
   controllers: [
     RenovadaRealtimeController, 
     RenovadaWebhookController, 

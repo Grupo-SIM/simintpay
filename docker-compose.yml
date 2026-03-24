@@ -10,9 +10,25 @@ services:
       - DATABASE_URL=postgresql://postgres:pUXSu1qNwOgl4It@postgres_prod:5432/simpay
       - DIRECT_URL=postgresql://postgres:pUXSu1qNwOgl4It@postgres_prod:5432/simpay
       - PORT=3333
-      - DOM_TOKEN=seu-dom-token-aqui
-      - API_DOM_MASTER_KEY=seu-dom-master-key-aqui
-      - DISABLED_DOM_SYNC=false
+      - API_DOM_URL=
+      - FRONTEND_URL=https://simpay.simintermediacoes.com
+      - SEED_ADMIN_EMAIL=adminljl@simpay.com.br
+      - SEED_ADMIN_PASSWORD=xGzHA44e6L8
+      - SEED_ADMIN_NAME=Admin
+      - API_DOM_MASTER_KEY=55ac4cdab8adb226e043596d3faedaab9266c95d878f592a4fc12f0c4a2e7de1
+      - DOM_REAL_API_URL=https://apiv3.dompagamentos.com.br/checkout/production
+      - DOM_BACKEND_URL=https://backend.dompagamentos.com.br
+      - DOM_TOKEN=55ac4cdab8adb226e043596d3faedaab9266c95d878f592a4fc12f0c4a2e7de1
+      - WEBHOOK_SECRET=simpay-bff-webhook-secret-change-me-in-production-64chars-minimum-ok
+      - REVALIDA_DOM_TOKEN=
+      - RENOVADA_DOM_TOKEN=55ac4cdab8adb226e043596d3faedaab9266c95d878f592a4fc12f0c4a2e7de1
+      - BOSQUE_DOM_TOKEN=
+      - PAGATG_DOM_TOKEN=
+      - EBOOKSIM_DOM_TOKEN=
+      - FRENDZ_DOM_TOKEN=
+      - DISABLE_DOM_SYNC=false
+      - DOM_WEBHOOK_SECRET=simpay-webhook-secret-renovada-change-me-in-production
+      - URL_APP=https://simpay-back.simintermediacoes.com
     networks:
       - externa
       - interna
@@ -37,6 +53,12 @@ services:
         - "traefik.http.routers.back-simpay.tls.certresolver=le"
         - "traefik.http.routers.back-simpay.entrypoints=websecure"
         - "traefik.http.routers.back-simpay.tls=true"
+        - "traefik.http.routers.back-simpay.middlewares=simpay-cors"
+        - "traefik.http.middlewares.simpay-cors.headers.accesscontrolallowmethods=GET,POST,PUT,PATCH,DELETE,OPTIONS"
+        - "traefik.http.middlewares.simpay-cors.headers.accesscontrolallowheaders=Content-Type,Authorization"
+        - "traefik.http.middlewares.simpay-cors.headers.accesscontrolalloworiginlist=https://simpay.simintermediacoes.com,http://localhost:3000,https://simpay-back.simintermediacoes.com"
+        - "traefik.http.middlewares.simpay-cors.headers.accesscontrolallowcredentials=true"
+        - "traefik.http.middlewares.simpay-cors.headers.accesscontrolmaxage=86400"
 
 networks:
   externa:

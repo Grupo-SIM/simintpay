@@ -53,16 +53,17 @@ export class SyncFullRenovadaUseCase {
     });
 
     // 2. Sincronizar Saldo Atual (Summary)
-    console.log(`[SyncFullRenovada] Sincronizando saldo com token ${RENOVADA_TOKEN.substring(0, 5)}...`);
-    let summary;
+    const MASTER_TOKEN = process.env.API_DOM_MASTER_KEY || process.env.DOM_TOKEN || RENOVADA_TOKEN;
+    console.log(`[SyncFullRenovada] Sincronizando saldo com token ${MASTER_TOKEN.substring(0, 5)}...`);
+    let balance = 0;
+    let lockedBalance = 0;
     try {
-      summary = await this.gateway.getDomSummary(RENOVADA_TOKEN);
+      const summary = await this.gateway.getDomSummary(MASTER_TOKEN);
+      balance = Number(summary?.netBalance || summary?.balance || 0);
+      lockedBalance = Number(summary?.lockedBalance || 0);
     } catch (err) {
-      console.error(`[SyncFullRenovada] Erro ao buscar summary: ${err.message}`, err.response?.data);
-      throw err;
+      console.error(`[SyncFullRenovada] Erro ao buscar summary (continuando sem saldo): ${err.message}`);
     }
-    const balance = Number(summary.netBalance || summary.balance || 0);
-    const lockedBalance = Number(summary.lockedBalance || 0);
 
     await this.prisma.wallet.upsert({
       where: { userId: RENOVADA_ID },
@@ -78,19 +79,24 @@ export class SyncFullRenovadaUseCase {
 
     while (hasMore) {
       this.logger.log(`Buscando página ${page} de transações...`);
-      const transResult = await this.gateway.listDomTransactions(RENOVADA_TOKEN, { 
-        page, 
+      const transResult = await this.gateway.listAllTransactionsDirectlyFromDom({
+        page,
         limit: 100,
-        begin_date: '2023-01-01', // Data inicial para histórico completo
-        end_date: '2026-12-31'   // Data final para histórico completo
+        begin_date: '2023-01-01',
+        end_date: '2026-12-31'
       });
       
-      if (!transResult.transactions || transResult.transactions.length === 0) {
+      const txList = Array.isArray(transResult?.transactions) ? transResult.transactions
+        : Array.isArray(transResult?.data) ? transResult.data
+        : Array.isArray(transResult) ? transResult
+        : [];
+
+      if (txList.length === 0) {
         hasMore = false;
         break;
       }
 
-      const transactionsToCreate = transResult.transactions.map(tx => ({
+      const transactionsToCreate = txList.map((tx: any) => ({
         id: tx.id.length === 36 ? tx.id : undefined,
         userId: RENOVADA_ID,
         amount: tx.amount,
@@ -123,7 +129,7 @@ export class SyncFullRenovadaUseCase {
       this.logger.log(`Página ${page} processada. Total até agora: ${totalSynced}`);
       
       // Se pegamos menos que o limite, chegamos ao fim
-      if (transResult.transactions.length < 100) {
+      if (txList.length < 100) {
         hasMore = false;
       } else {
         page++;
