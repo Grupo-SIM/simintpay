@@ -4,7 +4,7 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 
 @Injectable()
 export class ListWithdrawalsAdminUseCase {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async execute(input: {
     page: number;
