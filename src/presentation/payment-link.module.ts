@@ -6,8 +6,6 @@ import { ListPaymentLinksUseCase } from '../application/use-cases/payment-link/l
 import { GetPaymentLinkUseCase } from '../application/use-cases/payment-link/get-payment-link.use-case';
 import { UpdatePaymentLinkUseCase } from '../application/use-cases/payment-link/update-payment-link.use-case';
 import { DeletePaymentLinkUseCase } from '../application/use-cases/payment-link/delete-payment-link.use-case';
-import { USER_REPOSITORY } from '../core/repositories/user.repository.interface';
-import { PrismaUserRepository } from '../infrastructure/database/repositories/prisma-user.repository';
 import { PAYMENT_LINK_REPOSITORY } from '../core/repositories/payment-link.repository.interface';
 import { PrismaPaymentLinkRepository } from '../infrastructure/database/repositories/prisma-payment-link.repository';
 
@@ -20,7 +18,6 @@ import { PrismaPaymentLinkRepository } from '../infrastructure/database/reposito
     GetPaymentLinkUseCase,
     UpdatePaymentLinkUseCase,
     DeletePaymentLinkUseCase,
-    { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: PAYMENT_LINK_REPOSITORY, useClass: PrismaPaymentLinkRepository },
   ],
 })

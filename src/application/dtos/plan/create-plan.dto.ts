@@ -24,6 +24,18 @@ export class CreatePlanDto {
   @IsEnum(['MENSAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
   tipo!: PlanTipoDto;
 
+  @IsNumber()
+  @IsOptional()
+  frequencia?: number;
+
+  @IsNumber()
+  @IsOptional()
+  repeticoes?: number;
+
+  @IsNumber()
+  @IsOptional()
+  diasRetentativa?: number;
+
   @IsUrl()
   @IsOptional()
   webhookUrl?: string;

@@ -1,9 +1,7 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
-import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { PLAN_REPOSITORY } from '../../../core/repositories/plan.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
-import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPlanRepository } from '../../../core/repositories/plan.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type {
@@ -31,7 +29,6 @@ function mapTipo(tipo: PlanTipoDto): {
 @Injectable()
 export class CreatePlanUseCase {
   constructor(
-    @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
   ) {}
@@ -40,17 +37,20 @@ export class CreatePlanUseCase {
     userId: string;
     dto: CreatePlanDto;
   }): Promise<{ data: unknown }> {
-    const user = await this.users.findById(input.userId);
-    if (!user?.domToken) {
-      throw new UnauthorizedException('Usuário não autenticado na api-dom');
+    const domToken = process.env.DOM_TOKEN;
+    if (!domToken) {
+      throw new UnauthorizedException('DOM_TOKEN não configurado');
     }
 
     const { planType, frequency } = mapTipo(input.dto.tipo);
 
-    const dom = await this.gateway.createPlan(user.domToken, {
+    const dom = await this.gateway.createPlan(domToken, {
       price: input.dto.preco,
-      description: `${input.dto.nome}${input.dto.descricao ? ` - ${input.dto.descricao}` : ''}`,
+      description: input.dto.nome,
       frequency_type: frequency,
+      frequency: input.dto.frequencia ?? 1,
+      repetitions: input.dto.repeticoes ?? 0,
+      retry_days: input.dto.diasRetentativa ?? 3,
       webhookUrl: input.dto.webhookUrl,
       redirectUrl: input.dto.redirectUrl,
     });

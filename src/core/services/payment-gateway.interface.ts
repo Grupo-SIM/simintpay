@@ -29,6 +29,7 @@ export type DomPaymentLinkInput = {
   amount: number;
   maxInstallments?: number;
   isActive?: boolean;
+  redirectUrl?: string;
 };
 
 export type DomPaymentLinkOutput = {
@@ -87,6 +88,9 @@ export type DomCreatePlanInput = {
   price: number;
   description: string;
   frequency_type: DomPlanFrequencyType;
+  frequency?: number;
+  repetitions?: number;
+  retry_days?: number;
   webhookUrl?: string;
   redirectUrl?: string;
 };
@@ -96,6 +100,11 @@ export type DomPlanOutput = {
   price?: number;
   description?: string;
   frequency_type?: DomPlanFrequencyType;
+  frequency?: number;
+  repetitions?: number;
+  status?: string;
+  externalReference?: string;
+  paymentMethods?: string[];
   webhookUrl?: string | null;
   redirectUrl?: string | null;
   createdAt?: string;

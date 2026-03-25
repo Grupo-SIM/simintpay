@@ -1,6 +1,5 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, UnauthorizedException, HttpException, Logger } from '@nestjs/common';
-import type { AxiosResponse } from 'axios';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import {
   DomGenerateTokenOutput,
@@ -296,12 +295,17 @@ export class ApiDomClient implements IPaymentGateway {
     if (!id) return null;
     return {
       id,
-      price: this.pickNumber(obj, 'price') ?? undefined,
+      price: this.pickNumber(obj, 'value') ?? undefined,
       description: this.pickString(obj, 'description') ?? undefined,
       frequency_type: this.pickString(obj, 'frequency_type') as any,
-      webhookUrl: this.pickString(obj, 'webhookUrl'),
+      frequency: this.pickNumber(obj, 'frequency') ?? undefined,
+      repetitions: this.pickNumber(obj, 'repetitions') ?? undefined,
+      status: this.pickString(obj, 'status') ?? undefined,
+      externalReference: this.pickString(obj, 'external_reference') ?? undefined,
+      paymentMethods: Array.isArray(obj?.payment_methods) ? (obj?.payment_methods as string[]) : undefined,
+      webhookUrl: this.pickString(obj, 'postbackurl') ?? this.pickString(obj, 'webhookUrl'),
       redirectUrl: this.pickString(obj, 'redirectUrl'),
-      createdAt: this.pickString(obj, 'createdAt') ?? undefined,
+      createdAt: this.pickString(obj, 'created_at') ?? this.pickString(obj, 'createdAt') ?? undefined,
     };
   }
 
@@ -328,11 +332,43 @@ export class ApiDomClient implements IPaymentGateway {
   }
 
   async createPaymentLink(domToken: string, input: DomPaymentLinkInput): Promise<DomPaymentLinkOutput> {
-    const url = `${this.baseUrl}/payment-links`;
-    const res = await firstValueFrom(this.http.post<any>(url, input, { headers: { 'Authorization': `Bearer ${domToken}` } }));
-    const mapped = this.mapPaymentLink(this.getObject(res.data?.data ?? res.data));
-    if (!mapped) throw new Error('Invalid payment link response');
-    return mapped;
+    const url = `${this.domRealApiUrl}/set-payment-link`;
+    const body: any = {
+      title: input.title,
+      description: input.description ?? '',
+      actived: true,
+      limit: 0,
+      products: [
+        { name: input.title ?? 'Produto', price: input.amount ?? 0, min: 1, max: 1 },
+      ],
+      paymentConfig: {
+        pix: true,
+        credit: true,
+        boleto: false,
+        installments: input.maxInstallments ?? 1,
+        boletoExpireDay: 0,
+        interest_rate_installment: 0,
+      },
+    };
+    if (input.redirectUrl) body.redirect_url = input.redirectUrl;
+    const res = await firstValueFrom(this.http.post<any>(url, body, {
+      headers: { 'Authorization': `Bearer ${domToken}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    }));
+    this.logger.log(`[DOM Create Link RAW] ${JSON.stringify(res.data)}`);
+    const root = res.data;
+    const id = root?.id ?? root?.data?.id;
+    const link = root?.link ?? root?.data?.link ?? '';
+    if (!id) throw new Error('Invalid payment link response: missing id');
+    return {
+      id,
+      title: input.title,
+      description: input.description ?? undefined,
+      amount: input.amount,
+      maxInstallments: input.maxInstallments,
+      isActive: true,
+      code: link,
+      createdAt: new Date().toISOString(),
+    };
   }
 
   async listPaymentLinks(domToken: string, input: { page?: number; pageSize?: number }): Promise<{ items: DomPaymentLinkOutput[]; total?: number }> {
@@ -365,22 +401,41 @@ export class ApiDomClient implements IPaymentGateway {
   }
 
   async createPlan(domToken: string, input: DomCreatePlanInput): Promise<DomPlanOutput> {
-    const url = `${this.baseUrl}/recurrence/plan`;
-    const res = await firstValueFrom(this.http.post<any>(url, input, { headers: { 'Authorization': `Bearer ${domToken}` } }));
+    const url = `${this.domRealApiUrl}/recurrence/plan`;
+    const body: any = {
+      description: input.description,
+      value: input.price,
+      frequency: input.frequency ?? 1,
+      frequency_type: input.frequency_type,
+      repetitions: input.repetitions ?? 0,
+      payment_methods: ['credit_card'],
+      installments: 1,
+      billing_type: 'prepaid',
+      billing_day: 0,
+      trial_period_days: 0,
+      retry_days: input.retry_days ?? 3,
+    };
+    if (input.webhookUrl) body.postbackurl = input.webhookUrl;
+    const res = await firstValueFrom(this.http.post<any>(url, body, {
+      headers: { 'Authorization': `Bearer ${domToken}`, 'Content-Type': 'application/json' },
+    }));
+    this.logger.log(`[DOM Create Plan RAW] ${JSON.stringify(res.data)}`);
     const mapped = this.mapPlan(this.getObject(res.data?.data ?? res.data));
     if (!mapped) throw new Error('Invalid plan response');
     return mapped;
   }
 
   async listPlans(domToken: string): Promise<DomPlanOutput[]> {
-    const url = `${this.baseUrl}/recurrence/plan`;
-    const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${domToken}` } }));
+    const url = `${this.domRealApiUrl}/recurrence/plan`;
+    const res = await firstValueFrom(this.http.get<any>(url, {
+      headers: { 'Authorization': `Bearer ${domToken}`, 'Accept': 'application/json' },
+    }));
     const arr = this.getArray(res.data?.data ?? res.data);
     return (arr ?? []).map(x => this.mapPlan(this.getObject(x))).filter((x): x is DomPlanOutput => !!x);
   }
 
   async deletePlan(domToken: string, id: string): Promise<void> {
-    await firstValueFrom(this.http.delete(`${this.baseUrl}/recurrence/plan/${id}`, { headers: { 'Authorization': `Bearer ${domToken}` } }));
+    await firstValueFrom(this.http.delete(`${this.domRealApiUrl}/recurrence/plan/${id}`, { headers: { 'Authorization': `Bearer ${domToken}` } }));
   }
 
   async listSubscriptions(domToken: string, input: { page?: number; pageSize?: number }): Promise<{ items: DomSubscriptionOutput[]; total?: number }> {
@@ -611,7 +666,7 @@ export class ApiDomClient implements IPaymentGateway {
     }
   }
 
-  async createLead(data: {
+  async createLead(_data: {
     name: string;
     phone: string;
     email: string;
