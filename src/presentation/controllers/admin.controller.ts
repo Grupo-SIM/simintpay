@@ -173,6 +173,95 @@ export class AdminController {
     return this.syncFullRenovadaUseCase.execute();
   }
 
+  @Post('sync/sync-wallet-renovada')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Sincronizar saldo da carteira Renovada com o api-dom' })
+  async syncWalletRenovada() {
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const API_DOM_URL = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
+    const RENOVADA_API_DOM_TOKEN = process.env.RENOVADA_APIDOM_XTOKEN || '4a29df01-a980-45e3-b3c7-1a8b8eb7850f';
+
+    try {
+      // Buscar saldo do api-dom
+      const response = await fetch(`${API_DOM_URL}/payments/summary`, {
+        headers: {
+          'x-access-token': RENOVADA_API_DOM_TOKEN,
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        return {
+          message: `Erro ao buscar saldo do api-dom: status ${response.status}`,
+          error: errorData,
+        };
+      }
+
+      const summary = await response.json();
+      const apiDomBalance = summary.availableBalance ?? 0;
+      const apiDomLockedBalance = summary.lockedBalance ?? 0;
+
+      // Buscar wallet atual do simpay
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId: RENOVADA_ID },
+      });
+
+      if (!wallet) {
+        return { message: 'Wallet da Renovada não encontrada no simpay' };
+      }
+
+      const oldBalance = Number(wallet.balance);
+      const oldLocked = Number(wallet.lockedBalance);
+
+      // Atualizar wallet com saldo do api-dom
+      const updated = await this.prisma.wallet.update({
+        where: { userId: RENOVADA_ID },
+        data: {
+          balance: apiDomBalance,
+          lockedBalance: apiDomLockedBalance,
+          version: { increment: 1 },
+        },
+      });
+
+      // Log de auditoria
+      await this.prisma.balanceLog.create({
+        data: {
+          userId: RENOVADA_ID,
+          action: 'WALLET_SYNC_APIDOM',
+          amount: apiDomBalance - oldBalance,
+          balanceBefore: oldBalance,
+          balanceAfter: apiDomBalance,
+          lockedBefore: oldLocked,
+          lockedAfter: apiDomLockedBalance,
+          description: `Sync wallet com api-dom. Saldo: ${oldBalance} → ${apiDomBalance}`,
+          source: 'ADMIN_SYNC',
+          metadata: {
+            apiDomSummary: summary,
+            oldBalance,
+            oldLocked,
+          },
+        },
+      });
+
+      return {
+        message: `Carteira sincronizada com sucesso.`,
+        before: { balance: oldBalance, lockedBalance: oldLocked },
+        after: { balance: apiDomBalance, lockedBalance: apiDomLockedBalance },
+        apiDomSummary: {
+          availableBalance: summary.availableBalance,
+          netBalance: summary.netBalance,
+          lockedBalance: summary.lockedBalance,
+          pendingWithdraws: summary.pendingWithdraws,
+        },
+      };
+    } catch (error: any) {
+      return {
+        message: `Erro ao sincronizar carteira: ${error.message}`,
+      };
+    }
+  }
+
   @Post('migrar-transacoes-para-admin')
   @HttpCode(200)
   @ApiOperation({
