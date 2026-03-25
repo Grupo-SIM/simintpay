@@ -140,10 +140,19 @@ export class ApiDomClient implements IPaymentGateway {
       ? rawItems.map((it: any) => ({ name: it.description ?? it.name ?? 'Produto', quant: it.quantity ?? it.quant ?? 1, price: (it.price ?? it.amount ?? 0) / 100 }))
       : [{ name: String((data as any).product_first ?? 'Produto'), quant: 1, price: amount }];
 
-    const rawHistory = Array.isArray((data as any).status_history) ? (data as any).status_history : [];
-    order.historic_status = rawHistory.length > 0
-      ? rawHistory.map((h: any) => ({ status: h.status, type: h.type ?? h.status, date: h.created_at ?? h.date, color: '#3fa0e5' }))
-      : [];
+    // DOM retorna o campo como "historic_status"; alguns fluxos legados usam "status_history"
+    const rawHistory: any[] = Array.isArray((data as any).historic_status)
+      ? (data as any).historic_status
+      : Array.isArray((data as any).status_history)
+        ? (data as any).status_history
+        : [];
+    order.historic_status = rawHistory.map((h: any) => ({
+      status: h.status,
+      type:   h.type ?? h.status,
+      date:   h.date ?? h.created_at ?? h.date_register,
+      color:  h.color ?? '#3fa0e5',
+      msg:    h.msg ?? null,
+    }));
 
     return { order };
   }

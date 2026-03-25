@@ -109,11 +109,56 @@ export class GetTransactionDetailsUseCase {
       },
       include: {
         statusHistory: { orderBy: { createdAt: 'asc' } },
-        user: { select: { domToken: true } },
+        user: { select: { domToken: true, role: true } },
       },
     });
 
+    // 2. Se não achou no banco, tenta direto na DOM API com token master (fluxo admin sem persistência)
     if (!tx) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: input.userId },
+        select: { role: true },
+      });
+
+      const masterToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+      if (user?.role === 'ADMIN' && masterToken) {
+        try {
+          const detail = await this.gateway.getDomTransactionDetail(masterToken, input.id);
+          if (detail?.order) {
+            // A API DOM não retorna historic_status — injeta histórico sintético baseado no status/datas
+            if (!detail.order.historic_status?.length) {
+              const order = detail.order;
+              const history: any[] = [
+                {
+                  status: 'Pendente',
+                  type: 'pending',
+                  date: order.date_register ?? new Date().toISOString(),
+                  color: '#3fa0e5',
+                },
+              ];
+              if (order.type === 'approved' || order.type === 'paid') {
+                history.push({
+                  status: 'Aprovado',
+                  type: 'approved',
+                  date: order.paid_date ?? order.date_register,
+                  color: '#40a083',
+                });
+              } else if (order.type === 'refunded') {
+                history.push({ status: 'Estornado', type: 'refunded', date: order.paid_date ?? order.date_register, color: '#f59e0b' });
+              } else if (order.type === 'failed' || order.type === 'not_authorized') {
+                history.push({ status: 'Recusado', type: 'failed', date: order.date_register, color: '#ef4444' });
+              } else if (order.type === 'expired') {
+                history.push({ status: 'Expirado', type: 'expired', date: order.date_register, color: '#6b7280' });
+              }
+              detail.order.historic_status = history;
+            }
+            return detail;
+          }
+        } catch {
+          // ignora e lança o 404 abaixo
+        }
+      }
+
       throw new NotFoundException(`Transação ${input.id} não encontrada.`);
     }
 
