@@ -100,7 +100,9 @@ export class ListTransactionsUseCase {
     const user = await this.prisma.user.findUnique({ where: { id: input.userId } });
     if (!user) throw new Error('Usuário não encontrado');
 
-    // 2. Resolver o Token (Prioridade: User > Módulo > Master)
+    // 2. Resolver o Token (Prioridade: User > Módulo)
+    // NÃO usar master token aqui — ele traz transações de TODAS as plataformas.
+    // Para Renovada, o sync acontece via CRON dedicado (RenovadaSyncService).
     let domToken: string | null | undefined = user.domToken;
     let source = 'Individual';
 
@@ -112,10 +114,10 @@ export class ListTransactionsUseCase {
       }
     }
 
-    if (!domToken) {
-      domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
-      source = 'Master/Env';
-    }
+    // NÃO fazer fallback para master token:
+    // O master token retorna transações de TODAS as plataformas,
+    // não apenas as do usuário logado. A sync automática cuida disso.
+    // if (!domToken) { domToken = process.env.DOM_TOKEN; } // ← REMOVIDO
 
     if (domToken) {
       try {

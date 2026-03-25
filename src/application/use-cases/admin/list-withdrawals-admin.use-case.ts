@@ -2,6 +2,23 @@ import { Injectable } from '@nestjs/common';
 import { WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
+function mapWithdrawStatusToPt(
+  status: WithdrawStatus,
+): 'PENDENTE' | 'APROVADA' | 'RECUSADA' | 'PAGO' {
+  switch (status) {
+    case WithdrawStatus.PENDING:
+      return 'PENDENTE';
+    case WithdrawStatus.APPROVED:
+      return 'APROVADA';
+    case WithdrawStatus.COMPLETED:
+      return 'PAGO';
+    case WithdrawStatus.REJECTED:
+      return 'RECUSADA';
+    default:
+      return 'PENDENTE';
+  }
+}
+
 @Injectable()
 export class ListWithdrawalsAdminUseCase {
   constructor(private readonly prisma: PrismaService) { }
@@ -46,16 +63,18 @@ export class ListWithdrawalsAdminUseCase {
     return {
       data: items.map((w) => ({
         id: w.id,
-        valor: Number(w.amount),
-        valorBruto: Number(w.grossAmount),
-        taxa: Number(w.fee),
-        status: w.status,
+        valor: Number(w.grossAmount), // Valor Bruto (Total deduzido)
+        valorLiquido: Number(w.amount), // Valor Líquido (Recebido)
+        status: mapWithdrawStatusToPt(w.status),
+        metodo: 'PIX',
+        descricao: 'Saque SimPay',
         chavePix: w.pixKey,
         comprovante: w.receiptImage ?? null,
         observacao: w.rejectionReason ?? null,
-        criadoEm: w.createdAt.toISOString(),
-        atualizadoEm: w.updatedAt.toISOString(),
-        usuario: {
+        taxas: {
+          total: Number(w.fee),
+        },
+        cliente: {
           id: w.user.id,
           nome: w.user.name,
           email: w.user.email,
@@ -63,6 +82,8 @@ export class ListWithdrawalsAdminUseCase {
             ? { nome: w.user.tenantModule.name, slug: w.user.tenantModule.slug }
             : null,
         },
+        criadoEm: w.createdAt.toISOString(),
+        atualizadoEm: w.updatedAt.toISOString(),
       })),
       page: input.page,
       pageSize: input.pageSize,

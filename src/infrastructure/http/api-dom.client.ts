@@ -601,6 +601,7 @@ export class ApiDomClient implements IPaymentGateway {
       const res = await firstValueFrom(this.http.get<any>(url, {
         headers: {
           'Authorization': `Bearer ${domToken}`,
+          'x-access-token': domToken,
           'Accept': 'application/json'
         },
         params

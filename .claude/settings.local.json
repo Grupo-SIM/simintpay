@@ -19,7 +19,9 @@
       "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Users\\\\breno\\\\Desktop\\\\JB'' -Directory | Select-Object Name\")",
       "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\master-admin'' | Select-Object Name\")",
       "Bash(powershell -Command:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(test:*)",
+      "Bash(curl:*)"
     ]
   }
 }

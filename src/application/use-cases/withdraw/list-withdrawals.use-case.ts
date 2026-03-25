@@ -24,18 +24,18 @@ function mapPtStatusToDb(
   }
 }
 
-function mapDbStatusToPt(
+function mapWithdrawStatusToPt(
   status: WithdrawStatus,
-): 'PENDENTE' | 'APROVADO' | 'PAGO' | 'REJEITADO' {
+): 'PENDENTE' | 'APROVADA' | 'RECUSADA' | 'PAGO' {
   switch (status) {
     case WithdrawStatus.PENDING:
       return 'PENDENTE';
     case WithdrawStatus.APPROVED:
-      return 'APROVADO';
+      return 'APROVADA';
     case WithdrawStatus.COMPLETED:
       return 'PAGO';
     case WithdrawStatus.REJECTED:
-      return 'REJEITADO';
+      return 'RECUSADA';
     default:
       return 'PENDENTE';
   }
@@ -44,12 +44,17 @@ function mapDbStatusToPt(
 function mapWithdrawToResponse(w: WithdrawWithUser) {
   return {
     id: w.id,
-    valor: Number(w.amount),
-    status: mapDbStatusToPt(w.status),
-    via: 'PIX',
+    valor: Number(w.grossAmount),
+    valorLiquido: Number(w.amount),
+    status: mapWithdrawStatusToPt(w.status),
+    metodo: 'PIX',
+    descricao: 'Saque SimPay',
     chavePix: w.pixKey,
     comprovante: w.receiptImage ?? null,
     observacao: w.rejectionReason ?? null,
+    taxas: {
+      total: Number(w.fee),
+    },
     criadoEm: w.createdAt.toISOString(),
     usuario: {
       id: w.user.id,

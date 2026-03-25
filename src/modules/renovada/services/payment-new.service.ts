@@ -383,7 +383,7 @@ export class PaymentNewService {
       Authorization: `Bearer ${process.env.DOM_TOKEN}`,
       accept: 'application/json',
       'content-type': 'application/json',
-      Origin: process.env.URL_APP || 'https://api-renovada.jbmidia.com',
+      Origin: 'https://simpay-back.simintermediacoes.com',
     };
 
     try {
@@ -464,7 +464,7 @@ export class PaymentNewService {
       Authorization: `Bearer ${process.env.DOM_TOKEN}`,
       accept: 'application/json',
       'content-type': 'application/json',
-      Origin: process.env.URL_APP || 'https://api-renovada.jbmidia.com',
+      Origin: 'https://simpay-back.simintermediacoes.com',
     };
 
     try {

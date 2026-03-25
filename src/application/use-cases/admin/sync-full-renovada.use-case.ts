@@ -1,11 +1,11 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
-import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
-import { TransactionStatus, WithdrawStatus, PaymentMethod } from '@prisma/client';
+import { TransactionStatus, WithdrawStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { HASH_SERVICE } from '../../../core/services/hash.interface';
 import type { IHashService } from '../../../core/services/hash.interface';
-import type { JwtPayload } from '../../../infrastructure/security/strategies/jwt.strategy';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import dayjs from 'dayjs';
 
 @Injectable()
 export class SyncFullRenovadaUseCase {
@@ -13,203 +13,342 @@ export class SyncFullRenovadaUseCase {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly http: HttpService,
     @Inject(HASH_SERVICE) private readonly hashService: IHashService,
   ) {}
 
   async execute() {
     const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-    const RENOVADA_TOKEN = process.env.RENOVADA_DOM_TOKEN || '4a29df01-a980-45e3-b3c7-1a8b8eb7850f';
     const RENOVADA_EMAIL = process.env.RENOVADA_EMAIL || 'contato@renovada12.com.br';
     const RENOVADA_NAME = 'Renovada 12';
 
-    this.logger.log(`LIMPEZA: Apagando dados antigos da Renovada (${RENOVADA_ID}) para sincronização limpa...`);
-    
-    // Apaga transações e saques para evitar lixo de sincronizações parciais
-    await this.prisma.transaction.deleteMany({ where: { userId: RENOVADA_ID } });
-    await this.prisma.withdrawRequest.deleteMany({ where: { userId: RENOVADA_ID } });
+    /**
+     * Usamos o api-dom para buscar transações da Renovada,
+     * porque o token DOM (55ac4...) é da CONTA MASTER e retorna transações
+     * de TODAS as plataformas.
+     * 
+     * O api-dom já tem a separação por userId correta no banco dele.
+     * O x-access-token "4a29df01..." mapeia para o user da Renovada no api-dom.
+     */
+    const API_DOM_URL = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
+    // x-access-token do api-dom para a Renovada (NÃO é o token da DOM Pagamentos!)
+    // Usar RENOVADA_APIDOM_XTOKEN para não confundir com RENOVADA_DOM_TOKEN (que em prod é o master)
+    const RENOVADA_API_DOM_TOKEN = process.env.RENOVADA_APIDOM_XTOKEN || '4a29df01-a980-45e3-b3c7-1a8b8eb7850f';
 
-    this.logger.log(`INICIANDO SINCRONIZAÇÃO COMPLETA (3.600+ registros)...`);
+    this.logger.log(`=== SINCRONIZAÇÃO COMPLETA RENOVADA ===`);
+    this.logger.log(`RENOVADA_ID: ${RENOVADA_ID}`);
+    this.logger.log(`API_DOM_URL: ${API_DOM_URL}`);
+    this.logger.log(`Token: ${RENOVADA_API_DOM_TOKEN.substring(0, 8)}...`);
 
     const hashedPassword = await this.hashService.hash('password-migrated');
 
-    // 1. Upsert Usuário & Carteira
+    // 1. Upsert Usuário & Carteira (NÃO setar domToken — é master e traria tudo)
     await this.prisma.user.upsert({
       where: { id: RENOVADA_ID },
       update: {
-        domToken: RENOVADA_TOKEN,
         email: RENOVADA_EMAIL,
         name: RENOVADA_NAME,
         password: hashedPassword,
+        domToken: null, // IMPORTANTE: NÃO setar domToken (master token traz ALL plataformas)
       },
       create: {
         id: RENOVADA_ID,
         name: RENOVADA_NAME,
         email: RENOVADA_EMAIL,
         password: hashedPassword,
-        domToken: RENOVADA_TOKEN,
         role: 'USER',
+        domToken: null,
       },
     });
 
-    // 2. Sincronizar Saldo Atual (Summary)
-    const MASTER_TOKEN = process.env.API_DOM_MASTER_KEY || process.env.DOM_TOKEN || RENOVADA_TOKEN;
-    console.log(`[SyncFullRenovada] Sincronizando saldo com token ${MASTER_TOKEN.substring(0, 5)}...`);
-    let balance = 0;
-    let lockedBalance = 0;
-    try {
-      const summary = await this.gateway.getDomSummary(MASTER_TOKEN);
-      balance = Number(summary?.netBalance || summary?.balance || 0);
-      lockedBalance = Number(summary?.lockedBalance || 0);
-    } catch (err) {
-      console.error(`[SyncFullRenovada] Erro ao buscar summary (continuando sem saldo): ${err.message}`);
-    }
-
     await this.prisma.wallet.upsert({
       where: { userId: RENOVADA_ID },
-      update: { balance, lockedBalance },
-      create: { userId: RENOVADA_ID, balance, lockedBalance },
+      update: {},
+      create: { userId: RENOVADA_ID, balance: 0, lockedBalance: 0 },
     });
 
-    // 3. Sincronizar Histórico de Transações (Paginado)
-    this.logger.log('Sincronizando transações (Histórico total)...');
-    let page = 1;
-    let totalSynced = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      this.logger.log(`Buscando página ${page} de transações...`);
-      const transResult = await this.gateway.listAllTransactionsDirectlyFromDom({
-        page,
-        limit: 100,
-        begin_date: '2023-01-01',
-        end_date: '2026-12-31'
-      });
-      
-      const txList = Array.isArray(transResult?.transactions) ? transResult.transactions
-        : Array.isArray(transResult?.data) ? transResult.data
-        : Array.isArray(transResult) ? transResult
-        : [];
-
-      if (txList.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      const transactionsToCreate = txList.map((tx: any) => ({
-        id: tx.id.length === 36 ? tx.id : undefined,
-        userId: RENOVADA_ID,
-        amount: tx.amount,
-        netAmount: tx.liquid_amount,
-        status: this.mapTransactionStatus(tx.status),
-        paymentMethod: this.mapPaymentMethod(tx.payment_method),
-        description: tx.product_first || 'Migração Histórica',
-        domTransactionId: tx.id,
-        domPaymentId: tx.order_id,
-        customerName: tx.customer_name,
-        customerEmail: tx.customer_email,
-        customerDocument: tx.customer_document,
-        customerPhone: tx.customer_phone,
-        totalFee: tx.fee_total || 0,
-        domFee: tx.dom_fee || 0,
-        createdAt: new Date(tx.created_at),
-        updatedAt: tx.updated_at ? new Date(tx.updated_at) : new Date(tx.created_at),
+    // 2. Testar conexão com api-dom primeiro
+    this.logger.log('Testando conexão com api-dom...');
+    try {
+      const testRes = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/history`, {
+        headers: {
+          'x-access-token': RENOVADA_API_DOM_TOKEN,
+          'Accept': 'application/json',
+        },
+        params: { page: 1, limit: 1 },
+        timeout: 10000,
       }));
-
-      // Inserção em massa ou um a um para garantir consistência
-      for (const txData of transactionsToCreate) {
-        try {
-          await this.prisma.transaction.create({ data: txData });
-          totalSynced++;
-        } catch (err) {
-          this.logger.warn(`Erro ao inserir transação ${txData.domTransactionId}: ${err.message}`);
-        }
-      }
-
-      this.logger.log(`Página ${page} processada. Total até agora: ${totalSynced}`);
       
-      // Se pegamos menos que o limite, chegamos ao fim
-      if (txList.length < 100) {
-        hasMore = false;
-      } else {
-        page++;
-      }
-      
-      // Limite de segurança para testes (37 páginas para cobrir os 3601 registros)
-      if (page > 500) hasMore = false;
+      this.logger.log(`Conexão OK! Total de transações no api-dom: ${testRes.data?.meta?.totalItems ?? 'desconhecido'}`);
+      this.logger.log(`Resposta test: ${JSON.stringify(testRes.data?.meta)}`);
+    } catch (testErr: any) {
+      this.logger.error(`FALHA na conexão com api-dom: ${testErr.message}`);
+      this.logger.error(`Status: ${testErr.response?.status}`);
+      this.logger.error(`Data: ${JSON.stringify(testErr.response?.data)}`);
+      return {
+        message: `ERRO: Não foi possível conectar ao api-dom (${API_DOM_URL}). Verifique se está acessível.`,
+        error: testErr.message,
+        totalTransactions: 0,
+      };
     }
 
-    // 4. Sincronizar Saques (Paginado)
-    this.logger.log('Sincronizando saques (Histórico total)...');
-    page = 1;
-    let totalWithdrawalsSynced = 0;
-    hasMore = true;
+    // 3. Sincronizar Transações
+    this.logger.log('Iniciando sincronização de transações...');
+    let totalSynced = 0;
+    let totalSkipped = 0;
+    let totalErrors = 0;
+    let page = 1;
+    let hasMore = true;
+    const LIMIT = 100;
 
     while (hasMore) {
-      const withdrawResult = await this.gateway.listDomWithdraws(RENOVADA_TOKEN, { page, limit: 100 });
-      
-      if (!withdrawResult.withdraws || withdrawResult.withdraws.length === 0) {
-        hasMore = false;
-        break;
-      }
+      try {
+        this.logger.log(`Buscando página ${page}...`);
 
-      for (const w of withdrawResult.withdraws) {
-        try {
-          await this.prisma.withdrawRequest.create({
-            data: {
-              id: w.id_transfer.length === 36 ? w.id_transfer : undefined,
-              userId: RENOVADA_ID,
-              amount: Number(w.value),
-              grossAmount: Number(w.value) + 2,
-              fee: 2.0,
-              status: this.mapWithdrawStatus(w.status),
-              pixKey: w.pix_key || 'migracao@simpay.com',
-              receiptImage: w.receivers?.[0]?.receipt_url ?? null,
-              domWithdrawId: w.id_transfer,
-              createdAt: new Date(w.create_date),
-            },
-          });
-          totalWithdrawalsSynced++;
-        } catch (err) {
-          // Já existe ou erro de ID
+        const res = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/history`, {
+          headers: {
+            'x-access-token': RENOVADA_API_DOM_TOKEN,
+            'Accept': 'application/json',
+          },
+          params: { page, limit: LIMIT },
+          timeout: 30000,
+        }));
+
+        const data = res.data;
+        const txList: any[] = data?.transactions ?? [];
+        const totalPages = data?.meta?.totalPages ?? 1;
+        const totalItems = data?.meta?.totalItems ?? 0;
+
+        if (txList.length === 0) {
+          this.logger.log(`Página ${page}: 0 transações (fim)`);
+          hasMore = false;
+          break;
         }
-      }
 
-      if (withdrawResult.withdraws.length < 100) {
+        this.logger.log(`Página ${page}/${totalPages}: ${txList.length} transações (total: ${totalItems})`);
+
+        for (const tx of txList) {
+          try {
+            const paymentId = tx.paymentId || tx.id;
+            const txId = tx.id;
+
+            // Verificar se já existe
+            const existing = await this.prisma.transaction.findFirst({
+              where: {
+                OR: [
+                  ...(paymentId ? [{ domPaymentId: paymentId }] : []),
+                  ...(txId ? [{ domTransactionId: txId }] : []),
+                ],
+              },
+            });
+
+            const mappedStatus = this.mapTransactionStatus(tx.status);
+            const amount = new Prisma.Decimal(tx.amount || 0);
+            const netAmount = new Prisma.Decimal(tx.amountWithoutAllFee ?? Number(tx.amount || 0) * 0.91);
+            const totalFee = new Prisma.Decimal(tx.fee || 0);
+            const domFee = new Prisma.Decimal(tx.dom_fee || 0);
+            const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
+
+            if (existing) {
+              // Atualizar
+              await this.prisma.transaction.update({
+                where: { id: existing.id },
+                data: {
+                  status: mappedStatus,
+                  amount,
+                  netAmount,
+                  totalFee,
+                  domFee,
+                  platformFee,
+                  description: tx.description || existing.description,
+                  customerName: tx.name || existing.customerName,
+                  customerEmail: tx.email || existing.customerEmail,
+                  customerDocument: tx.document || existing.customerDocument,
+                  customerPhone: tx.mobile_phone || existing.customerPhone,
+                  updatedAt: new Date(),
+                },
+              });
+              totalSkipped++;
+              continue;
+            }
+
+            // Criar nova
+            await this.prisma.transaction.create({
+              data: {
+                userId: RENOVADA_ID,
+                amount,
+                netAmount,
+                status: mappedStatus,
+                paymentMethod: this.mapPaymentMethod(tx.payment_method),
+                description: tx.description || 'Migração API-DOM',
+                domTransactionId: txId,
+                domPaymentId: paymentId,
+                customerName: tx.name,
+                customerEmail: tx.email,
+                customerDocument: tx.document,
+                customerPhone: tx.mobile_phone,
+                totalFee,
+                domFee,
+                platformFee,
+                installments: tx.installments || 1,
+                createdAt: new Date(tx.createdAt),
+                updatedAt: tx.updatedAt ? new Date(tx.updatedAt) : new Date(tx.createdAt),
+              },
+            });
+            totalSynced++;
+          } catch (err: any) {
+            if (err.code === 'P2002') {
+              totalSkipped++;
+            } else {
+              totalErrors++;
+              if (totalErrors <= 5) {
+                this.logger.warn(`Erro ao processar transação: ${err.message}`);
+              }
+            }
+          }
+        }
+
+        if (page >= totalPages) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+
+        if (page > 500) hasMore = false;
+      } catch (err: any) {
+        this.logger.error(`Erro ao buscar página ${page}: ${err.message}`);
+        this.logger.error(`Response status: ${err.response?.status}`);
+        this.logger.error(`Response data: ${JSON.stringify(err.response?.data)}`);
         hasMore = false;
-      } else {
-        page++;
       }
-      if (page > 100) hasMore = false;
     }
 
-    this.logger.log(`Sincronização concluída. Transações: ${totalSynced}, Saques: ${totalWithdrawalsSynced}`);
+    this.logger.log(`Transações: ${totalSynced} novas, ${totalSkipped} atualizadas, ${totalErrors} erros`);
+
+    // 4. Sincronizar Saques
+    this.logger.log('Sincronizando saques...');
+    let totalWithdrawalsSynced = 0;
+    try {
+      let wdPage = 1;
+      let wdHasMore = true;
+
+      while (wdHasMore) {
+        const res = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/withdrawals`, {
+          headers: {
+            'x-access-token': RENOVADA_API_DOM_TOKEN,
+            'Accept': 'application/json',
+          },
+          params: { page: wdPage, limit: 100 },
+          timeout: 30000,
+        }));
+
+        const wdData = res.data;
+        const withdrawals: any[] = wdData?.withdrawals ?? wdData?.data ?? [];
+
+        if (withdrawals.length === 0) { wdHasMore = false; break; }
+
+        for (const w of withdrawals) {
+          try {
+            const existing = await this.prisma.withdrawRequest.findFirst({
+              where: { OR: [...(w.id ? [{ domWithdrawId: w.id }, { id: w.id }] : [])] },
+            });
+            if (existing) continue;
+
+            await this.prisma.withdrawRequest.create({
+              data: {
+                userId: RENOVADA_ID,
+                amount: Number(w.amount),
+                grossAmount: Number(w.amount) + Number(w.fee || 2),
+                fee: Number(w.fee || 2),
+                status: this.mapWithdrawStatus(w.status),
+                pixKey: w.pixKey || w.pix_key || 'migracao@simpay.com',
+                receiptImage: w.receiptImage ?? null,
+                domWithdrawId: w.id,
+                createdAt: new Date(w.createdAt || w.created_at || new Date()),
+              },
+            });
+            totalWithdrawalsSynced++;
+          } catch (err: any) {
+            if (err.code !== 'P2002') this.logger.warn(`Erro saque: ${err.message}`);
+          }
+        }
+
+        const wdTotalPages = wdData?.meta?.totalPages ?? 1;
+        if (wdPage >= wdTotalPages) { wdHasMore = false; } else { wdPage++; }
+        if (wdPage > 100) wdHasMore = false;
+      }
+    } catch (err: any) {
+      this.logger.error(`Erro saques: ${err.message}`);
+    }
+
+    // 5. Recalcular saldo
+    this.logger.log('Recalculando saldo...');
+    const completedTxs = await this.prisma.transaction.aggregate({
+      where: { userId: RENOVADA_ID, status: TransactionStatus.COMPLETED },
+      _sum: { netAmount: true },
+    });
+
+    const completedWithdraws = await this.prisma.withdrawRequest.aggregate({
+      where: {
+        userId: RENOVADA_ID,
+        status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
+      },
+      _sum: { amount: true },
+    });
+
+    const totalReceived = Number(completedTxs._sum.netAmount || 0);
+    const totalWithdrawn = Number(completedWithdraws._sum.amount || 0);
+    const calculatedBalance = Math.max(0, totalReceived - totalWithdrawn);
+
+    await this.prisma.wallet.update({
+      where: { userId: RENOVADA_ID },
+      data: { balance: calculatedBalance },
+    });
+
+    const totalRenovadaTxs = await this.prisma.transaction.count({
+      where: { userId: RENOVADA_ID },
+    });
+
+    this.logger.log(`=== SINCRONIZAÇÃO CONCLUÍDA ===`);
+    this.logger.log(`  Transações: ${totalSynced} novas, ${totalSkipped} atualizadas`);
+    this.logger.log(`  Total no banco: ${totalRenovadaTxs}`);
+    this.logger.log(`  Saques: ${totalWithdrawalsSynced}`);
+    this.logger.log(`  Saldo: R$ ${calculatedBalance.toFixed(2)}`);
+
     return {
       message: 'Sincronização completa realizada com sucesso',
       totalTransactions: totalSynced,
+      totalSkipped,
+      totalErrors,
+      totalInDatabase: totalRenovadaTxs,
       totalWithdrawals: totalWithdrawalsSynced,
-      balance,
+      balance: calculatedBalance,
+      totalReceived,
+      totalWithdrawn,
     };
   }
 
   private mapTransactionStatus(domStatus: string): TransactionStatus {
-    const s = domStatus.toUpperCase();
+    const s = (domStatus || '').toUpperCase();
     if (s === 'PAID' || s === 'APPROVED' || s === 'COMPLETED') return TransactionStatus.COMPLETED;
     if (s === 'PENDING' || s === 'WAITING' || s === 'AUTHORIZED') return TransactionStatus.PENDING;
-    if (s === 'REFUSED' || s === 'CANCELED' || s === 'FAILED' || s === 'ERROR') return TransactionStatus.FAILED;
+    if (s === 'REFUSED' || s === 'CANCELED' || s === 'FAILED' || s === 'ERROR' || s === 'NOT_AUTHORIZED') return TransactionStatus.FAILED;
+    if (s === 'REFUNDED') return TransactionStatus.REFUNDED;
+    if (s === 'EXPIRED') return TransactionStatus.EXPIRED;
+    if (s === 'CHARGEBACK') return TransactionStatus.CHARGEBACK;
     return TransactionStatus.DRAFT;
   }
 
   private mapPaymentMethod(domMethod: string): PaymentMethod {
-    const m = domMethod.toLowerCase();
+    const m = (domMethod || '').toLowerCase();
     if (m.includes('pix')) return PaymentMethod.PIX;
     if (m.includes('card') || m.includes('credit')) return PaymentMethod.CREDIT_CARD;
     return PaymentMethod.PIX;
   }
 
   private mapWithdrawStatus(domStatus: string): WithdrawStatus {
-    const s = domStatus.toLowerCase();
-    if (s.includes('paid') || s.includes('completed')) return WithdrawStatus.COMPLETED;
+    const s = (domStatus || '').toLowerCase();
+    if (s.includes('paid') || s.includes('completed') || s.includes('approved')) return WithdrawStatus.COMPLETED;
     if (s.includes('rejected') || s.includes('canceled') || s.includes('failed')) return WithdrawStatus.REJECTED;
     return WithdrawStatus.PENDING;
   }

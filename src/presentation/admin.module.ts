@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 import { SyncDomTransactionsCron } from '../infrastructure/cron/sync-dom-transactions.cron';
 import { AdminController } from './controllers/admin.controller';
 import { ListLeadsUseCase } from '../application/use-cases/admin/list-leads.use-case';
@@ -24,7 +25,7 @@ import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { EmailService } from '../infrastructure/email/email.service';
 
 @Module({
-  imports: [ApiDomModule],
+  imports: [ApiDomModule, HttpModule],
   controllers: [AdminController],
   providers: [
     SyncDomTransactionsCron,

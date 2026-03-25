@@ -1,174 +1,199 @@
 import { Injectable, Logger, Inject, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
-import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../events/renovada-events.service';
 import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 
+/**
+ * RenovadaSyncService - Sincroniza transações novas do api-dom para o back-simpay.
+ * 
+ * O app mobile (versão deployada) ainda cria pagamentos via api-dom.
+ * Precisamos puxar transações novas do api-dom periodicamente.
+ * 
+ * Usa o x-access-token do api-dom (4a29df01...) que retorna APENAS
+ * transações da Renovada. NÃO usa o master token DOM.
+ */
 @Injectable()
 export class RenovadaSyncService implements OnModuleInit {
   private readonly logger = new Logger(RenovadaSyncService.name);
   private readonly RENOVADA_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-  private readonly RENOVADA_EMAIL = 'pedro.henrique.diniz.2002@hotmail.com';
-  private readonly RENOVADA_TOKEN = '4a29df01-a980-45e3-b3c7-1a8b8eb7850f';
 
   constructor(
-    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
     private readonly events: RenovadaEventsService,
+    private readonly http: HttpService,
   ) {}
 
   onModuleInit() {
-    this.logger.log('RenovadaSyncService (Module Specific) initialized');
+    this.logger.log('RenovadaSyncService initialized (api-dom sync mode)');
   }
 
+  /**
+   * A cada minuto, busca transações recentes do api-dom e sincroniza.
+   */
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSync() {
     if (process.env.DISABLE_RENOVADA_SYNC === 'true') {
       return;
     }
 
-    this.logger.log('🔄 [RENOVADA] Starting background sync...');
+    const API_DOM_URL = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
+    const RENOVADA_API_DOM_TOKEN = process.env.RENOVADA_APIDOM_XTOKEN || '4a29df01-a980-45e3-b3c7-1a8b8eb7850f';
 
     try {
-      const beginDate = dayjs().subtract(1, 'hour').format('YYYY-MM-DD');
-      
-      const response = await this.gateway.listDomTransactions(this.RENOVADA_TOKEN, {
-        page: 1,
-        limit: 100,
-        begin_date: beginDate,
-        end_date: dayjs().format('YYYY-MM-DD'),
-      });
+      // Buscar as transações mais recentes do api-dom (páginas 1 a 3 = últimas 300)
+      let created = 0;
+      let updated = 0;
 
-      if (!response || !Array.isArray(response.transactions)) {
-        return;
-      }
+      for (let page = 1; page <= 3; page++) {
+        const res = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/history`, {
+          headers: {
+            'x-access-token': RENOVADA_API_DOM_TOKEN,
+            'Accept': 'application/json',
+          },
+          params: { page, limit: 100 },
+          timeout: 15000,
+        }));
 
-      for (const domTx of response.transactions) {
-        try {
-          const domPaymentId = String(domTx.id);
-          
-          const existingTx = await this.prisma.transaction.findUnique({
-            where: { domPaymentId },
-          });
+        const txList: any[] = res.data?.transactions ?? [];
+        if (txList.length === 0) break;
 
-          const currentDomStatus = this.mapStatus(domTx.status);
+        for (const tx of txList) {
+          try {
+            const paymentId = tx.paymentId || tx.id;
+            const txId = tx.id;
 
-          if (existingTx) {
-            if (existingTx.status !== currentDomStatus) {
-              await this.updateTransaction(existingTx.id, currentDomStatus, domTx);
+            // Verificar se já existe
+            const existing = await this.prisma.transaction.findFirst({
+              where: {
+                OR: [
+                  ...(paymentId ? [{ domPaymentId: paymentId }] : []),
+                  ...(txId ? [{ domTransactionId: txId }] : []),
+                  ...(txId ? [{ id: txId }] : []),
+                ],
+              },
+            });
+
+            const mappedStatus = this.mapStatus(tx.status);
+            const amount = new Prisma.Decimal(tx.amount || 0);
+            const netAmount = new Prisma.Decimal(tx.amountWithoutAllFee ?? Number(tx.amount || 0) * 0.91);
+            const totalFee = new Prisma.Decimal(tx.fee || 0);
+            const domFee = new Prisma.Decimal(tx.dom_fee || 0);
+            const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
+
+            if (existing) {
+              // Só atualizar se status mudou
+              if (existing.status !== mappedStatus) {
+                await this.prisma.transaction.update({
+                  where: { id: existing.id },
+                  data: {
+                    status: mappedStatus,
+                    previousStatus: existing.status,
+                    amount,
+                    netAmount,
+                    totalFee,
+                    domFee,
+                    platformFee,
+                    customerName: tx.name || existing.customerName,
+                    customerEmail: tx.email || existing.customerEmail,
+                    customerDocument: tx.document || existing.customerDocument,
+                    updatedAt: new Date(),
+                  },
+                });
+
+                // Se completou, atualizar saldo
+                if (mappedStatus === TransactionStatus.COMPLETED && existing.status !== TransactionStatus.COMPLETED) {
+                  await this.prisma.wallet.update({
+                    where: { userId: this.RENOVADA_ID },
+                    data: {
+                      balance: { increment: netAmount },
+                      version: { increment: 1 },
+                    },
+                  });
+                }
+
+                updated++;
+                this.events.emitTransaction({ ...existing, status: mappedStatus });
+              }
+              continue;
             }
-            continue;
+
+            // Criar nova transação
+            const newTx = await this.prisma.transaction.create({
+              data: {
+                userId: this.RENOVADA_ID,
+                amount,
+                netAmount,
+                status: mappedStatus,
+                paymentMethod: this.mapPaymentMethod(tx.payment_method),
+                description: tx.description || 'Sincronização Renovada',
+                domTransactionId: txId,
+                domPaymentId: paymentId,
+                customerName: tx.name,
+                customerEmail: tx.email,
+                customerDocument: tx.document,
+                customerPhone: tx.mobile_phone,
+                totalFee,
+                domFee,
+                platformFee,
+                installments: tx.installments || 1,
+                createdAt: new Date(tx.createdAt),
+                updatedAt: tx.updatedAt ? new Date(tx.updatedAt) : new Date(tx.createdAt),
+              },
+            });
+
+            // Se já completou, atualizar saldo
+            if (mappedStatus === TransactionStatus.COMPLETED) {
+              await this.prisma.wallet.update({
+                where: { userId: this.RENOVADA_ID },
+                data: {
+                  balance: { increment: netAmount },
+                  version: { increment: 1 },
+                },
+              });
+            }
+
+            created++;
+            this.events.emitTransaction(newTx);
+          } catch (err: any) {
+            if (err.code !== 'P2002') {
+              this.logger.warn(`Erro ao processar transação: ${err.message}`);
+            }
           }
-
-          // New transaction for Renovada
-          const newTx = await this.createTransaction(domTx, currentDomStatus);
-          
-          // EMIT EVENT for Real-Time UI
-          this.events.emitTransaction(newTx);
-
-        } catch (individualError) {
-          this.logger.error(`Error processing Renovada tx ${domTx.id}: ${individualError.message}`);
         }
+
+        // Se a primeira página tem menos de 100, não precisa buscar mais
+        if (txList.length < 100) break;
       }
 
-    } catch (error) {
-      this.logger.error(`Renovada sync critical error: ${error.message}`);
+      if (created > 0 || updated > 0) {
+        this.logger.log(`[RENOVADA] Sync: ${created} criadas, ${updated} atualizadas`);
+      }
+    } catch (error: any) {
+      this.logger.error(`[RENOVADA] Sync error: ${error.message}`);
+      if (error.response?.status === 401) {
+        this.logger.error(`[RENOVADA] Token inválido. Verifique RENOVADA_APIDOM_XTOKEN`);
+      }
     }
   }
 
   private mapStatus(domStatus: string): TransactionStatus {
-    const s = domStatus.toLowerCase();
-    if (s === 'paid' || s === 'approved' || s === 'completed') return TransactionStatus.COMPLETED;
-    if (s === 'refunded') return TransactionStatus.REFUNDED;
-    if (s === 'chargeback') return TransactionStatus.CHARGEBACK;
-    if (s === 'failed' || s === 'not_authorized') return TransactionStatus.FAILED;
-    if (s === 'expired') return TransactionStatus.EXPIRED;
+    const s = (domStatus || '').toUpperCase();
+    if (s === 'PAID' || s === 'APPROVED' || s === 'COMPLETED') return TransactionStatus.COMPLETED;
+    if (s === 'PENDING' || s === 'WAITING' || s === 'AUTHORIZED') return TransactionStatus.PENDING;
+    if (s === 'REFUSED' || s === 'CANCELED' || s === 'FAILED' || s === 'ERROR' || s === 'NOT_AUTHORIZED') return TransactionStatus.FAILED;
+    if (s === 'REFUNDED') return TransactionStatus.REFUNDED;
+    if (s === 'EXPIRED') return TransactionStatus.EXPIRED;
+    if (s === 'CHARGEBACK') return TransactionStatus.CHARGEBACK;
     return TransactionStatus.PENDING;
   }
 
-  private async updateTransaction(txId: string, nextStatus: TransactionStatus, domTx: any) {
-    const amount = new Prisma.Decimal(domTx.liquid_amount || (domTx.amount * 0.91));
-
-    await this.prisma.$transaction(async (p) => {
-      await p.transaction.update({
-        where: { id: txId },
-        data: { status: nextStatus, updatedAt: new Date() }
-      });
-
-      if (nextStatus === TransactionStatus.COMPLETED) {
-        await p.wallet.update({
-          where: { userId: this.RENOVADA_ID },
-          data: { balance: { increment: amount }, version: { increment: 1 } }
-        });
-
-        await p.balanceLog.create({
-          data: {
-            userId: this.RENOVADA_ID,
-            action: 'RENOVADA_SYNC_PAID',
-            amount,
-            source: 'RENOVADA_MODULE_SYNC',
-            description: `Sync: ${domTx.product_first || 'DOM Transação'}`,
-            balanceBefore: 0,
-            balanceAfter: 0,
-            lockedBefore: 0,
-            lockedAfter: 0,
-          }
-        });
-      }
-    });
-  }
-
-  private async createTransaction(domTx: any, status: TransactionStatus) {
-    const amount = new Prisma.Decimal(domTx.amount);
-    const netAmount = new Prisma.Decimal(domTx.liquid_amount || (domTx.amount * 0.91));
-
-    return await this.prisma.$transaction(async (p) => {
-      const tx = await p.transaction.create({
-        data: {
-          userId: this.RENOVADA_ID,
-          amount,
-          netAmount,
-          status,
-          paymentMethod: domTx.payment_method?.toLowerCase().includes('card') ? PaymentMethod.CREDIT_CARD : PaymentMethod.PIX,
-          description: domTx.product_first || 'Sincronização Renovada',
-          installments: domTx.installments || 1,
-          domPaymentId: String(domTx.id),
-          customerName: domTx.customer_name,
-          customerEmail: domTx.customer_email,
-          customerDocument: domTx.customer_document,
-          customerPhone: domTx.customer_phone,
-          createdAt: domTx.created_at ? new Date(domTx.created_at) : new Date(),
-          updatedAt: new Date(),
-          platformFee: amount.minus(netAmount),
-          domFee: new Prisma.Decimal(domTx.dom_fee || 0),
-        }
-      });
-
-      if (status === TransactionStatus.COMPLETED) {
-        await p.wallet.update({
-          where: { userId: this.RENOVADA_ID },
-          data: { balance: { increment: netAmount }, version: { increment: 1 } }
-        });
-
-        await p.balanceLog.create({
-          data: {
-            userId: this.RENOVADA_ID,
-            action: 'RENOVADA_SYNC_PAID',
-            amount: netAmount,
-            source: 'RENOVADA_MODULE_SYNC',
-            description: `Sync: ${domTx.product_first || 'DOM Transação'}`,
-            balanceBefore: 0,
-            balanceAfter: 0,
-            lockedBefore: 0,
-            lockedAfter: 0,
-          }
-        });
-      }
-      
-      return tx;
-    });
+  private mapPaymentMethod(domMethod: string): PaymentMethod {
+    const m = (domMethod || '').toLowerCase();
+    if (m.includes('pix')) return PaymentMethod.PIX;
+    if (m.includes('card') || m.includes('credit')) return PaymentMethod.CREDIT_CARD;
+    return PaymentMethod.PIX;
   }
 }
