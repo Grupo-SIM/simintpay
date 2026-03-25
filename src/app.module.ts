@@ -18,6 +18,7 @@ import { LeadModule } from './presentation/lead.module';
 import { AdminModule } from './presentation/admin.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
 import { RenovadaModule } from './modules/renovada/renovada.module';
+import { MasterModule } from './modules/master/master.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { RenovadaModule } from './modules/renovada/renovada.module';
     AdminModule,
     StorageModule,
     RenovadaModule,
+    MasterModule,
   ],
   providers: [
     {
