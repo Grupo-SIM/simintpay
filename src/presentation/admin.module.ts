@@ -10,6 +10,8 @@ import { ApproveWithdrawalUseCase } from '../application/use-cases/admin/approve
 import { RejectWithdrawalUseCase } from '../application/use-cases/admin/reject-withdrawal.use-case';
 import { SyncDomWithdrawalsUseCase } from '../application/use-cases/admin/sync-dom-withdrawals.use-case';
 import { SyncFullRenovadaUseCase } from '../application/use-cases/admin/sync-full-renovada.use-case';
+import { MigrateRenovadaTxsToAdminUseCase } from '../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
+import { ListDomTransactionsDirectUseCase } from '../application/use-cases/admin/list-dom-transactions-direct.use-case';
 import { LEAD_REPOSITORY } from '../core/repositories/lead.repository.interface';
 import { PrismaLeadRepository } from '../infrastructure/database/repositories/prisma-lead.repository';
 import { USER_REPOSITORY } from '../core/repositories/user.repository.interface';
@@ -35,6 +37,8 @@ import { EmailService } from '../infrastructure/email/email.service';
     RejectWithdrawalUseCase,
     SyncDomWithdrawalsUseCase,
     SyncFullRenovadaUseCase,
+    MigrateRenovadaTxsToAdminUseCase,
+    ListDomTransactionsDirectUseCase,
     EmailService,
     { provide: LEAD_REPOSITORY, useClass: PrismaLeadRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },

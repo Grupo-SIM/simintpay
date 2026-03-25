@@ -27,6 +27,8 @@ import { ApproveWithdrawalUseCase } from '../../application/use-cases/admin/appr
 import { RejectWithdrawalUseCase } from '../../application/use-cases/admin/reject-withdrawal.use-case';
 import { SyncDomWithdrawalsUseCase } from '../../application/use-cases/admin/sync-dom-withdrawals.use-case';
 import { SyncFullRenovadaUseCase } from '../../application/use-cases/admin/sync-full-renovada.use-case';
+import { MigrateRenovadaTxsToAdminUseCase } from '../../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
+import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/admin/list-dom-transactions-direct.use-case';
 import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-transactions.cron';
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
@@ -47,6 +49,8 @@ export class AdminController {
     private readonly rejectWithdrawal: RejectWithdrawalUseCase,
     private readonly syncWithdrawalsUseCase: SyncDomWithdrawalsUseCase,
     private readonly syncFullRenovadaUseCase: SyncFullRenovadaUseCase,
+    private readonly migrateRenovadaTxsToAdmin: MigrateRenovadaTxsToAdminUseCase,
+    private readonly listDomTransactionsDirect: ListDomTransactionsDirectUseCase,
     private readonly syncDomTransactionsCron: SyncDomTransactionsCron,
     private readonly storageService: StorageService,
   ) {}
@@ -118,6 +122,44 @@ export class AdminController {
   @ApiOperation({ summary: 'Sincronização completa de histórico (Renovada 12)' })
   async syncFullRenovada() {
     return this.syncFullRenovadaUseCase.execute();
+  }
+
+  @Post('migrar-transacoes-para-admin')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Migra transações incorretamente atribuídas à Renovada para o Admin (executa uma vez)',
+  })
+  async migrarTransacoesParaAdmin() {
+    const result = await this.migrateRenovadaTxsToAdmin.execute();
+    return { data: result };
+  }
+
+  @Get('transacoes-dom')
+  @ApiOperation({ summary: 'Lista transações diretamente da API DOM (conta master) sem passar pelo banco' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
+  @ApiQuery({ name: 'begin_date', required: false, example: '2025-01-01', description: 'yyyy-mm-dd' })
+  @ApiQuery({ name: 'end_date', required: false, example: '2025-12-31', description: 'yyyy-mm-dd' })
+  @ApiQuery({ name: 'status', required: false, description: 'paid | pending | failed | refunded | expired' })
+  @ApiQuery({ name: 'payment_method', required: false, description: 'pix | credit_card' })
+  async transacoesDom(
+    @Query('page') page = '1',
+    @Query('limit') limit = '50',
+    @Query('begin_date') begin_date?: string,
+    @Query('end_date') end_date?: string,
+    @Query('status') status?: string,
+    @Query('payment_method') payment_method?: string,
+  ) {
+    const result = await this.listDomTransactionsDirect.execute({
+      page: Number(page),
+      limit: Number(limit),
+      begin_date,
+      end_date,
+      status,
+      payment_method,
+    });
+    return { data: result };
   }
 
   @Post('sync/test-cron')
