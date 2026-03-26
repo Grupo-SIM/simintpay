@@ -99,6 +99,37 @@ async function seedTestUser() {
   console.log(`  ✓ Saldo inicial: R$ ${balanceToCredit.toFixed(2)} — módulo: ${mod.name}`);
 }
 
+async function seedBosqueUser() {
+  const BOSQUE_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+  const BOSQUE_EMAIL = process.env.BOSQUE_EMAIL || 'contato@bosque.com.br';
+  const BOSQUE_NAME = 'Bosque';
+
+  const mod = await prisma.tenantModule.findUnique({ where: { slug: 'bosque' } });
+  const hashed = await bcrypt.hash('password-migrated', 12);
+
+  await prisma.user.upsert({
+    where: { id: BOSQUE_ID },
+    update: { email: BOSQUE_EMAIL, name: BOSQUE_NAME, domToken: null, ...(mod ? { tenantModuleId: mod.id } : {}) },
+    create: {
+      id: BOSQUE_ID,
+      name: BOSQUE_NAME,
+      email: BOSQUE_EMAIL,
+      password: hashed,
+      role: 'USER',
+      domToken: null,
+      ...(mod ? { tenantModuleId: mod.id } : {}),
+    },
+  });
+
+  await prisma.wallet.upsert({
+    where: { userId: BOSQUE_ID },
+    update: {},
+    create: { userId: BOSQUE_ID, balance: 0, lockedBalance: 0 },
+  });
+
+  console.log(`  ✓ Usuário Bosque: ${BOSQUE_EMAIL} (ID: ${BOSQUE_ID})`);
+}
+
 async function main() {
   // 1. Seed módulos
   console.log('\n📦 Módulos:');
@@ -141,7 +172,11 @@ async function main() {
     console.log('  ⚠️  Troque a senha após o primeiro acesso!');
   }
 
-  // 3. Seed usuário teste
+  // 3. Seed usuário Bosque
+  console.log('\n🌲 Usuário Bosque:');
+  await seedBosqueUser();
+
+  // 4. Seed usuário teste
   console.log('\n🧪 Usuário teste:');
   await seedTestUser();
 }

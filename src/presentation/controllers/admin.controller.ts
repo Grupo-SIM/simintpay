@@ -30,6 +30,7 @@ import { ApproveWithdrawalUseCase } from '../../application/use-cases/admin/appr
 import { RejectWithdrawalUseCase } from '../../application/use-cases/admin/reject-withdrawal.use-case';
 import { SyncDomWithdrawalsUseCase } from '../../application/use-cases/admin/sync-dom-withdrawals.use-case';
 import { SyncFullRenovadaUseCase } from '../../application/use-cases/admin/sync-full-renovada.use-case';
+import { SyncFullBosqueUseCase } from '../../application/use-cases/admin/sync-full-bosque.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/admin/list-dom-transactions-direct.use-case';
 import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-transactions.cron';
@@ -52,6 +53,7 @@ export class AdminController {
     private readonly rejectWithdrawal: RejectWithdrawalUseCase,
     private readonly syncWithdrawalsUseCase: SyncDomWithdrawalsUseCase,
     private readonly syncFullRenovadaUseCase: SyncFullRenovadaUseCase,
+    private readonly syncFullBosqueUseCase: SyncFullBosqueUseCase,
     private readonly migrateRenovadaTxsToAdmin: MigrateRenovadaTxsToAdminUseCase,
     private readonly listDomTransactionsDirect: ListDomTransactionsDirectUseCase,
     private readonly syncDomTransactionsCron: SyncDomTransactionsCron,
@@ -171,6 +173,12 @@ export class AdminController {
   @ApiOperation({ summary: 'Sincronização completa de histórico (Renovada 12) - puxa do api-dom' })
   async syncFullRenovada() {
     return this.syncFullRenovadaUseCase.execute();
+  }
+
+  @Post('sync/full-bosque')
+  @ApiOperation({ summary: 'Sincronização completa de histórico (Bosque) - puxa da DOM Pagamentos' })
+  async syncFullBosque() {
+    return this.syncFullBosqueUseCase.execute();
   }
 
   @Post('sync/sync-wallet-renovada')

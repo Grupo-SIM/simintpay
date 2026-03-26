@@ -11,6 +11,7 @@ import { ApproveWithdrawalUseCase } from '../application/use-cases/admin/approve
 import { RejectWithdrawalUseCase } from '../application/use-cases/admin/reject-withdrawal.use-case';
 import { SyncDomWithdrawalsUseCase } from '../application/use-cases/admin/sync-dom-withdrawals.use-case';
 import { SyncFullRenovadaUseCase } from '../application/use-cases/admin/sync-full-renovada.use-case';
+import { SyncFullBosqueUseCase } from '../application/use-cases/admin/sync-full-bosque.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../application/use-cases/admin/list-dom-transactions-direct.use-case';
 import { LEAD_REPOSITORY } from '../core/repositories/lead.repository.interface';
@@ -38,6 +39,7 @@ import { EmailService } from '../infrastructure/email/email.service';
     RejectWithdrawalUseCase,
     SyncDomWithdrawalsUseCase,
     SyncFullRenovadaUseCase,
+    SyncFullBosqueUseCase,
     MigrateRenovadaTxsToAdminUseCase,
     ListDomTransactionsDirectUseCase,
     EmailService,
