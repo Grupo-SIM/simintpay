@@ -26,6 +26,9 @@ services:
       - PAGATG_DOM_TOKEN=
       - EBOOKSIM_DOM_TOKEN=
       - FRENDZ_DOM_TOKEN=
+      - BOSQUE_ID=c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c
+      - BOSQUE_EMAIL=contato@bosque.com.br
+      - DISABLE_BOSQUE_SYNC=false
       - DISABLE_DOM_SYNC=false
       - DOM_WEBHOOK_SECRET=simpay-webhook-secret-renovada-change-me-in-production
       - URL_APP=https://simpay-back.simintermediacoes.com

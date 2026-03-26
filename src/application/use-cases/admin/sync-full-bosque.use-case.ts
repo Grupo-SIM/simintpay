@@ -75,7 +75,7 @@ export class SyncFullBosqueUseCase {
     try {
       const today = new Date().toISOString().split('T')[0];
       const testRes = await fetch(
-        `${this.DOM_API}/transactions?page=1&limit=1&start_date=2020-01-01&end_date=${today}`,
+        `${this.DOM_API}/transactions?page=1&limit=1&begin_date=2020-01-01&end_date=${today}`,
         { headers: { Authorization: `Bearer ${DOM_TOKEN}`, accept: 'application/json' } },
       );
 
@@ -122,7 +122,7 @@ export class SyncFullBosqueUseCase {
         const endDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
         const res = await fetch(
-          `${this.DOM_API}/transactions?page=${page}&limit=${LIMIT}&start_date=${startDate}&end_date=${endDate}`,
+          `${this.DOM_API}/transactions?page=${page}&limit=${LIMIT}&begin_date=${startDate}&end_date=${endDate}`,
           { headers: { Authorization: `Bearer ${DOM_TOKEN}`, accept: 'application/json' } },
         );
 

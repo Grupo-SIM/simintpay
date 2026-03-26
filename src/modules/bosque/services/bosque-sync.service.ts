@@ -48,7 +48,7 @@ export class BosqueSyncService implements OnModuleInit {
 
       for (let page = 1; page <= 3; page++) {
         const res = await fetch(
-          `${this.DOM_API}/transactions?page=${page}&limit=100&start_date=${startDate}&end_date=${endDate}`,
+          `${this.DOM_API}/transactions?page=${page}&limit=100&begin_date=${startDate}&end_date=${endDate}`,
           { headers: { Authorization: `Bearer ${token}`, accept: 'application/json' } },
         );
 
