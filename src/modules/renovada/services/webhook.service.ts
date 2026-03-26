@@ -183,8 +183,8 @@ export class WebhookService {
           },
         });
 
-        // Se status for COMPLETED, atualiza o saldo da wallet
-        if (newStatus === TransactionStatus.COMPLETED) {
+        // Se status for COMPLETED, credita o saldo da wallet
+        if (newStatus === TransactionStatus.COMPLETED && transaction.status !== TransactionStatus.COMPLETED) {
           const wallet = await prisma.wallet.findUnique({
             where: { userId: transaction.userId },
           });
@@ -192,7 +192,6 @@ export class WebhookService {
           if (wallet) {
             // wallet.balance é o saldo BRUTO; netBalance = balance * fatorLiquidez
             // Usar amount (bruto) diretamente, NÃO netAmount/fatorLiquidez
-            // liquid_amount do DOM reflete taxas DOM, não o fatorLiquidez do negócio
             const balanceIncrement = new Prisma.Decimal(transaction.amount || 0);
             this.logger.log(`[RENOVADA] 💰 Creditando wallet: balanceIncrement=${balanceIncrement}, amount=${transaction.amount}, netAmount=${transaction.netAmount}, balanceBefore=${wallet.balance}`);
             const updatedWallet = await prisma.wallet.update({
@@ -206,7 +205,6 @@ export class WebhookService {
               },
             });
 
-            // Registrar BalanceLog
             await prisma.balanceLog.create({
               data: {
                 userId: transaction.userId,
@@ -228,6 +226,53 @@ export class WebhookService {
             });
 
             this.logger.log(`[RENOVADA] 💰 Saldo atualizado: ${wallet.balance} → ${updatedWallet.balance}`);
+          }
+        }
+
+        // Se REFUNDED ou CHARGEBACK (vindo de COMPLETED), debita o saldo
+        if (
+          (newStatus === TransactionStatus.REFUNDED || newStatus === TransactionStatus.CHARGEBACK) &&
+          transaction.status === TransactionStatus.COMPLETED
+        ) {
+          const wallet = await prisma.wallet.findUnique({
+            where: { userId: transaction.userId },
+          });
+
+          if (wallet) {
+            const balanceDecrement = new Prisma.Decimal(transaction.amount || 0);
+            this.logger.log(`[RENOVADA] 💸 Estorno/chargeback: debitando ${balanceDecrement} do wallet, balanceBefore=${wallet.balance}`);
+            const updatedWallet = await prisma.wallet.update({
+              where: {
+                id: wallet.id,
+                version: wallet.version,
+              },
+              data: {
+                balance: { decrement: balanceDecrement },
+                version: { increment: 1 },
+              },
+            });
+
+            await prisma.balanceLog.create({
+              data: {
+                userId: transaction.userId,
+                action: `WEBHOOK_${newStatus}_RENOVADA`,
+                transactionId: transaction.id,
+                amount: balanceDecrement,
+                balanceBefore: wallet.balance,
+                balanceAfter: updatedWallet.balance,
+                lockedBefore: wallet.lockedBalance,
+                lockedAfter: updatedWallet.lockedBalance,
+                description: `Estorno: ${transaction.description}`,
+                source: 'WEBHOOK_RENOVADA',
+                metadata: {
+                  signature: event.signature,
+                  eventStatus: event.data.status,
+                  transactionAmount: transaction.amount,
+                },
+              },
+            });
+
+            this.logger.log(`[RENOVADA] 💸 Saldo debitado: ${wallet.balance} → ${updatedWallet.balance}`);
           }
         }
       });
