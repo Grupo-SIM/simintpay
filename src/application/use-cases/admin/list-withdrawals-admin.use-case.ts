@@ -4,14 +4,13 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 
 function mapWithdrawStatusToPt(
   status: WithdrawStatus,
-): 'PENDENTE' | 'APROVADA' | 'RECUSADA' | 'PAGO' {
+): 'PENDENTE' | 'APROVADA' | 'RECUSADA' {
   switch (status) {
     case WithdrawStatus.PENDING:
       return 'PENDENTE';
     case WithdrawStatus.APPROVED:
-      return 'APROVADA';
     case WithdrawStatus.COMPLETED:
-      return 'PAGO';
+      return 'APROVADA';
     case WithdrawStatus.REJECTED:
       return 'RECUSADA';
     default:

@@ -18,7 +18,7 @@ export class ListWithdrawalsQueryDto {
   )
   pageSize?: number = 10;
 
-  @IsEnum(['PENDENTE', 'APROVADO', 'REJEITADO', 'PAGO', 'all'])
+  @IsEnum(['PENDENTE', 'APROVADO', 'REJEITADO', 'all'])
   @IsOptional()
-  status?: 'PENDENTE' | 'APROVADO' | 'REJEITADO' | 'PAGO' | 'all';
+  status?: 'PENDENTE' | 'APROVADO' | 'REJEITADO' | 'all';
 }

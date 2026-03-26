@@ -283,7 +283,7 @@ export class SyncFullBosqueUseCase {
 
   private mapWithdrawStatus(domStatus: string): WithdrawStatus {
     const s = (domStatus || '').toLowerCase();
-    if (s.includes('paid') || s.includes('completed') || s.includes('approved')) return WithdrawStatus.COMPLETED;
+    if (s.includes('paid') || s.includes('completed') || s.includes('approved')) return WithdrawStatus.APPROVED;
     if (s.includes('rejected') || s.includes('canceled') || s.includes('failed')) return WithdrawStatus.REJECTED;
     return WithdrawStatus.PENDING;
   }

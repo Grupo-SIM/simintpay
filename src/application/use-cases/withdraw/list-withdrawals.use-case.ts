@@ -15,8 +15,6 @@ function mapPtStatusToDb(
       return WithdrawStatus.PENDING;
     case 'APROVADO':
       return WithdrawStatus.APPROVED;
-    case 'PAGO':
-      return WithdrawStatus.COMPLETED;
     case 'REJEITADO':
       return WithdrawStatus.REJECTED;
     default:
@@ -26,14 +24,13 @@ function mapPtStatusToDb(
 
 function mapWithdrawStatusToPt(
   status: WithdrawStatus,
-): 'PENDENTE' | 'APROVADA' | 'RECUSADA' | 'PAGO' {
+): 'PENDENTE' | 'APROVADA' | 'RECUSADA' {
   switch (status) {
     case WithdrawStatus.PENDING:
       return 'PENDENTE';
     case WithdrawStatus.APPROVED:
-      return 'APROVADA';
     case WithdrawStatus.COMPLETED:
-      return 'PAGO';
+      return 'APROVADA';
     case WithdrawStatus.REJECTED:
       return 'RECUSADA';
     default:

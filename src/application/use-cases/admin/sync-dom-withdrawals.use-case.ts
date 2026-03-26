@@ -27,14 +27,14 @@ export class SyncDomWithdrawalsUseCase {
     
     // Status de sucesso/pago na DOM
     if (
-      s.includes('approve') || 
-      s.includes('paid') || 
-      s === 'ok' || 
-      s === 'completed' || 
+      s.includes('approve') ||
+      s.includes('paid') ||
+      s === 'ok' ||
+      s === 'completed' ||
       s === 'success' ||
       s === 'pago'
     ) {
-      return WithdrawStatus.COMPLETED;
+      return WithdrawStatus.APPROVED;
     }
 
     // Status de erro/rejeição na DOM
