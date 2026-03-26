@@ -40,7 +40,7 @@ export class PlanController {
   async listRoute(
     @CurrentUser() user: JwtPayload | undefined,
   ): Promise<{ data: unknown }> {
-    return this.list.execute({ userId: user?.sub ?? '' });
+    return this.list.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER' });
   }
 
   @Post()

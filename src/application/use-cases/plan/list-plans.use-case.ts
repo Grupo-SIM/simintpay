@@ -25,8 +25,16 @@ export class ListPlansUseCase {
     @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
   ) {}
 
-  async execute(input: { userId: string }): Promise<{ data: unknown }> {
-    const items = await this.plans.findManyByUserId(input.userId);
+  async execute(input: { userId: string; role: string }): Promise<{ data: unknown }> {
+    let items;
+
+    if (input.role === 'ADMIN') {
+      // Master vê todos os planos de todos os módulos
+      items = await this.plans.findAll();
+    } else {
+      // Módulo X vê apenas os seus próprios planos
+      items = await this.plans.findManyByUserId(input.userId);
+    }
 
     return {
       data: items.map((p) => ({

@@ -40,6 +40,13 @@ export class PrismaPlanRepository implements IPlanRepository {
     });
   }
 
+  /** Todos os planos — usado somente pelo admin (master) */
+  async findAll(): Promise<Plan[]> {
+    return this.prisma.plan.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async findByIdForUser(input: {
     id: string;
     userId: string;
