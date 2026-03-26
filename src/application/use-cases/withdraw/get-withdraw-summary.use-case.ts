@@ -7,6 +7,8 @@ import type { IWithdrawRepository } from '../../../core/repositories/withdraw.re
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import type { ModuleConfig } from '../../../modules/module-config.interface';
+import type { Prisma } from '@prisma/client';
 import { TransactionStatus, WithdrawStatus } from '@prisma/client';
 
 @Injectable()
@@ -16,7 +18,107 @@ export class GetWithdrawSummaryUseCase {
     @Inject(WALLET_REPOSITORY) private readonly wallets: IWalletRepository,
     @Inject(WITHDRAW_REPOSITORY) private readonly withdraws: IWithdrawRepository,
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
+
+  /**
+   * Espelha `PaymentService.getFinancialSummary` (api-dom /payments/summary):
+   * saldo a partir das transações COMPLETED (bruto + líquido), não de wallet.balance,
+   * com recorte após o último saque COMPLETED (lastWithDrawDate equivalente).
+   * Saques pendentes reduzem pelo total amount + fee (travado).
+   */
+  private async sumsCompletedTransactionsDomStyle(
+    userId: string,
+    fatorLiquidez: number,
+    createdAfter?: Date | null,
+  ): Promise<{ gross: number; net: number }> {
+    const where: Prisma.TransactionWhereInput = {
+      userId,
+      status: TransactionStatus.COMPLETED,
+      amount: { gt: 0 },
+    };
+    if (createdAfter) {
+      where.createdAt = { gt: createdAfter };
+    }
+    const txs = await this.prisma.transaction.findMany({
+      where,
+      select: { amount: true, netAmount: true },
+    });
+    let gross = 0;
+    let net = 0;
+    for (const t of txs) {
+      const a = Number(t.amount);
+      gross += a;
+      const n = t.netAmount != null ? Number(t.netAmount) : a * fatorLiquidez;
+      net += n;
+    }
+    return { gross, net };
+  }
+
+  private summaryConfigBlock(config: ModuleConfig | null, fatorLiquidez: number) {
+    return {
+      minValor: config?.saque.minValor ?? Number(process.env.DEFAULT_WITHDRAW_MIN_VALUE || 100),
+      taxaFixa: config?.saque.taxaFixa ?? Number(process.env.DEFAULT_WITHDRAW_FIXED_FEE || 2),
+      taxaPercentual: config?.saque.taxaPercentual ?? Number(process.env.DEFAULT_WITHDRAW_PERCENT_FEE || 0),
+      fatorLiquidez,
+    };
+  }
+
+  /** Resumo igual à plataforma antiga (api-dom) — usado no módulo Bosque no admin máquina. */
+  private async executeBosqueLikeDomSummary(
+    userId: string,
+    wallet: { id: string; userId: string; version: number; updatedAt: Date },
+    fatorLiquidez: number,
+    config: ModuleConfig | null,
+  ) {
+    const pendingList = await this.prisma.withdrawRequest.findMany({
+      where: { userId, status: WithdrawStatus.PENDING },
+      select: { amount: true, fee: true },
+    });
+
+    const pendingWithdraws = pendingList.reduce((s, w) => s + Number(w.amount), 0);
+    const pendingWithdrawFees = pendingList.reduce((s, w) => s + Number(w.fee ?? 0), 0);
+    const pendingWithdrawsTotal = pendingWithdraws + pendingWithdrawFees;
+    const netLockedBalance = pendingWithdraws - pendingWithdrawFees;
+
+    const lastCompletedWithdraw = await this.prisma.withdrawRequest.findFirst({
+      where: { userId, status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] } },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+
+    let { gross: grossFromTx, net: netFromTx } = await this.sumsCompletedTransactionsDomStyle(
+      userId,
+      fatorLiquidez,
+      lastCompletedWithdraw?.createdAt,
+    );
+
+    // Migração: se o último saque importado ficou “depois” das transações no tempo, o recorte zera tudo.
+    if (netFromTx <= 0 && grossFromTx <= 0 && lastCompletedWithdraw?.createdAt) {
+      const noCutoff = await this.sumsCompletedTransactionsDomStyle(userId, fatorLiquidez, undefined);
+      if (noCutoff.net > 0 || noCutoff.gross > 0) {
+        grossFromTx = noCutoff.gross;
+        netFromTx = noCutoff.net;
+      }
+    }
+
+    const availableBalance = Math.max(0, grossFromTx - pendingWithdrawsTotal);
+    const netBalance = Math.max(0, netFromTx - pendingWithdrawsTotal);
+
+    return {
+      availableBalance,
+      netBalance,
+      pendingWithdraws,
+      lockedBalance: netLockedBalance,
+      netLockedBalance,
+      config: this.summaryConfigBlock(config, fatorLiquidez),
+      wallet: {
+        id: wallet.id,
+        userId: wallet.userId,
+        version: wallet.version,
+        updatedAt: wallet.updatedAt.toISOString(),
+      },
+    };
+  }
 
   /**
    * Retorna o resumo financeiro para o usuário.
@@ -39,50 +141,49 @@ export class GetWithdrawSummaryUseCase {
       : 0.91;
     const fatorLiquidez = config?.saque?.fatorLiquidez ?? envFactor;
 
-    // wallet.balance é a fonte da verdade (gerenciado incrementalmente)
+    const moduleSlug = user.tenantModule?.slug?.toLowerCase();
+    if (moduleSlug === 'bosque') {
+      return this.executeBosqueLikeDomSummary(userId, wallet, fatorLiquidez, config);
+    }
+
+    // wallet.balance é a fonte da verdade (gerenciado incrementalmente) — valor em reais “bruto” de carteira
     let balance = Number(wallet.balance);
     const lockedBalance = Number(wallet.lockedBalance);
+    let balanceFromTxLedger = false;
 
     /**
-     * Fallback de migração:
-     * Se a carteira ainda está zerada, mas já existem transações/saques no banco,
-     * recalculamos o saldo a partir da soma das transações COMPLETED (netAmount)
-     * menos a soma de saques COMPLETED/APPROVED (amount).
-     *
-     * Isso evita "Disponível para saque = 0" em módulos migrados (ex.: Bosque)
-     * quando o saldo incremental ainda não foi reconstruído.
+     * Fallback de migração (demais módulos):
+     * Se a carteira ainda está zerada, recalcula a partir das transações COMPLETED:
+     * usa netAmount quando existir; senão aplica fator sobre amount (como amountWithoutAllFee na dom).
      */
     if (balance <= 0) {
-      const [completedTxs, completedWithdraws] = await Promise.all([
-        this.prisma.transaction.aggregate({
-          where: { userId, status: TransactionStatus.COMPLETED },
-          _sum: { netAmount: true },
-        }),
-        this.prisma.withdrawRequest.aggregate({
-          where: {
-            userId,
-            status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
-          },
-          _sum: { amount: true },
-        }),
-      ]);
+      const { net: sumNet } = await this.sumsCompletedTransactionsDomStyle(userId, fatorLiquidez, undefined);
 
-      const totalReceived = Number(completedTxs._sum.netAmount || 0);
+      const completedWithdraws = await this.prisma.withdrawRequest.aggregate({
+        where: {
+          userId,
+          status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
+        },
+        _sum: { amount: true },
+      });
+
       const totalWithdrawn = Number(completedWithdraws._sum.amount || 0);
-      const calculated = Math.max(0, totalReceived - totalWithdrawn);
+      const calculated = Math.max(0, sumNet - totalWithdrawn);
 
       if (calculated > 0) {
         balance = calculated;
+        balanceFromTxLedger = true;
       }
     }
 
     // Saldo disponível = saldo total - bloqueado por saques pendentes
     const availableBalance = Math.max(0, balance - lockedBalance);
 
-    // Saldo líquido = (saldo bruto * fator) - bloqueado
-    // O fator de liquidez reduz o saldo bruto, mas saques bloqueados deduzem 1:1
-    // Ex: balance=3840.70, fator=0.91, locked=100 → netBalance = 3495.04 - 100 = 3395.04
-    const netBalance = Math.max(0, balance * fatorLiquidez - lockedBalance);
+    // Saldo líquido: com saldo vindo da carteira, aplica fator sobre o bruto.
+    // Com fallback por ledger, `balance` já é líquido (soma tipo amountWithoutAllFee) — não multiplicar de novo.
+    const netBalance = balanceFromTxLedger
+      ? Math.max(0, balance - lockedBalance)
+      : Math.max(0, balance * fatorLiquidez - lockedBalance);
 
     // Saldo bloqueado líquido (valor bruto do bloqueio)
     const netLockedBalance = lockedBalance;
@@ -96,12 +197,7 @@ export class GetWithdrawSummaryUseCase {
       pendingWithdraws,
       lockedBalance,
       netLockedBalance,
-      config: {
-        minValor: config?.saque.minValor ?? Number(process.env.DEFAULT_WITHDRAW_MIN_VALUE || 100),
-        taxaFixa: config?.saque.taxaFixa ?? Number(process.env.DEFAULT_WITHDRAW_FIXED_FEE || 2),
-        taxaPercentual: config?.saque.taxaPercentual ?? Number(process.env.DEFAULT_WITHDRAW_PERCENT_FEE || 0),
-        fatorLiquidez,
-      },
+      config: this.summaryConfigBlock(config, fatorLiquidez),
       wallet: {
         id: wallet.id,
         userId: wallet.userId,
