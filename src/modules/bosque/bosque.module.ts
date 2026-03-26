@@ -8,9 +8,10 @@ import { BosquePaymentController } from './controllers/bosque-payment.controller
 import { BosqueWebhookController } from './controllers/bosque-webhook.controller';
 import { BosqueRealtimeController } from './controllers/bosque-realtime.controller';
 import { PrismaModule } from '../../infrastructure/database/prisma/prisma.module';
+import { ApiDomModule } from '../../infrastructure/http/api-dom.module';
 
 @Module({
-  imports: [PrismaModule, HttpModule],
+  imports: [ApiDomModule, PrismaModule, HttpModule],
   controllers: [
     BosquePaymentController,
     BosqueWebhookController,

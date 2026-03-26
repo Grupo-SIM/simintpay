@@ -3,34 +3,25 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { TransactionStatus, WithdrawStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { HASH_SERVICE } from '../../../core/services/hash.interface';
 import type { IHashService } from '../../../core/services/hash.interface';
+import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
+import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import dayjs from 'dayjs';
 
-/**
- * SyncFullBosqueUseCase
- *
- * Sincroniza TODAS as transações históricas do Bosque diretamente da DOM Pagamentos.
- * Não usa a api-dom (descontinuada).
- *
- * A DOM Pagamentos retorna transações de TODAS as plataformas com o token master.
- * Para filtrar apenas as do Bosque, buscamos transações cujo cod_external existe
- * no nosso banco com userId = BOSQUE_ID.
- *
- * Endpoint: POST /admin/sync/full-bosque
- */
 @Injectable()
 export class SyncFullBosqueUseCase {
   private readonly logger = new Logger(SyncFullBosqueUseCase.name);
-  private readonly DOM_API = 'https://apiv3.dompagamentos.com.br/checkout/production';
 
   constructor(
     private readonly prisma: PrismaService,
     @Inject(HASH_SERVICE) private readonly hashService: IHashService,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
   ) {}
 
   async execute() {
-    const BOSQUE_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
-    const BOSQUE_EMAIL = process.env.BOSQUE_EMAIL || 'contato@bosque.com.br';
-    const BOSQUE_NAME = 'Bosque';
-    const DOM_TOKEN = process.env.DOM_TOKEN;
+    const BOSQUE_ID    = process.env.BOSQUE_ID    || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+    const BOSQUE_EMAIL = process.env.BOSQUE_EMAIL  || 'contato@bosque.com.br';
+    const BOSQUE_NAME  = 'Bosque';
+    const DOM_TOKEN    = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
 
     if (!DOM_TOKEN) {
       return { message: 'ERRO: DOM_TOKEN não configurado', totalTransactions: 0 };
@@ -55,7 +46,6 @@ export class SyncFullBosqueUseCase {
       },
     });
 
-    // Vincular ao TenantModule bosque
     const bosqueModule = await this.prisma.tenantModule.findUnique({ where: { slug: 'bosque' } });
     if (bosqueModule) {
       await this.prisma.user.update({
@@ -70,170 +60,143 @@ export class SyncFullBosqueUseCase {
       create: { userId: BOSQUE_ID, balance: 0, lockedBalance: 0 },
     });
 
-    // 2. Testar conexão com DOM Pagamentos
+    // 2. Testar conexão — 1 item nos últimos 90 dias
     this.logger.log('Testando conexão com DOM Pagamentos...');
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const testRes = await fetch(
-        `${this.DOM_API}/transactions?page=1&limit=1&begin_date=2020-01-01&end_date=${today}`,
-        { headers: { Authorization: `Bearer ${DOM_TOKEN}`, accept: 'application/json' } },
-      );
-
-      if (!testRes.ok) {
-        const err = await testRes.text();
-        return {
-          message: `ERRO: DOM Pagamentos retornou ${testRes.status}. Verifique DOM_TOKEN.`,
-          error: err,
-          totalTransactions: 0,
-        };
-      }
-
-      const testData = await testRes.json() as any;
-      this.logger.log(`Conexão OK! Total DOM: ${testData?.meta?.total ?? 'desconhecido'}`);
+      await this.gateway.listDomTransactions(DOM_TOKEN, {
+        page: 1,
+        limit: 1,
+        begin_date: dayjs().subtract(90, 'day').format('YYYY-MM-DD'),
+        end_date: dayjs().format('YYYY-MM-DD'),
+      });
+      this.logger.log('Conexão OK!');
     } catch (err: any) {
-      return { message: `ERRO: Não foi possível conectar à DOM Pagamentos: ${err.message}`, totalTransactions: 0 };
+      return {
+        message: `ERRO: Não foi possível conectar à DOM Pagamentos: ${err.message}`,
+        totalTransactions: 0,
+      };
     }
 
-    // 3. Buscar transações existentes do Bosque no banco (por cod_external)
-    //    A DOM retorna transações de TODOS os clientes — filtramos pelo userId
-    const existingBosqueTxIds = new Set(
-      (await this.prisma.transaction.findMany({
-        where: { userId: BOSQUE_ID },
-        select: { id: true, domPaymentId: true },
-      })).flatMap(t => [t.id, t.domPaymentId].filter(Boolean) as string[]),
+    // 3. Buscar IDs existentes do Bosque para filtrar
+    const existingBosqueTxs = await this.prisma.transaction.findMany({
+      where: { userId: BOSQUE_ID },
+      select: { id: true, domPaymentId: true },
+    });
+    const existingIds = new Set<string>(
+      existingBosqueTxs.flatMap(t => [t.id, t.domPaymentId].filter(Boolean) as string[]),
     );
 
-    this.logger.log(`Transações existentes no banco do Bosque: ${existingBosqueTxIds.size / 2}`);
+    this.logger.log(`Transações existentes do Bosque no banco: ${existingBosqueTxs.length}`);
 
-    // 4. Sincronizar transações da DOM
-    let totalSynced = 0;
+    // 4. Iterar em blocos de 3 meses desde 2023 até hoje
+    let totalSynced  = 0;
     let totalSkipped = 0;
-    let totalErrors = 0;
-    let page = 1;
-    let hasMore = true;
-    const LIMIT = 100;
+    let totalErrors  = 0;
 
-    while (hasMore) {
-      try {
-        this.logger.log(`Buscando página ${page} na DOM...`);
+    const startFrom = dayjs('2023-01-01');
+    const today     = dayjs();
+    let blockStart  = startFrom;
 
-        // DOM exige datas — busca desde o início até hoje
-        const startDate = '2020-01-01';
-        const endDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    while (blockStart.isBefore(today)) {
+      const blockEnd = blockStart.add(3, 'month').subtract(1, 'day');
+      const begin_date = blockStart.format('YYYY-MM-DD');
+      const end_date   = (blockEnd.isAfter(today) ? today : blockEnd).format('YYYY-MM-DD');
 
-        const res = await fetch(
-          `${this.DOM_API}/transactions?page=${page}&limit=${LIMIT}&begin_date=${startDate}&end_date=${endDate}`,
-          { headers: { Authorization: `Bearer ${DOM_TOKEN}`, accept: 'application/json' } },
-        );
+      this.logger.log(`Bloco: ${begin_date} → ${end_date}`);
 
-        if (!res.ok) {
-          this.logger.error(`Erro DOM página ${page}: ${res.status}`);
-          hasMore = false;
-          break;
-        }
+      let page = 1;
+      let hasMore = true;
 
-        const data = await res.json() as any;
-        const txList: any[] = data?.data ?? data?.transactions ?? [];
-        const totalPages: number = data?.meta?.last_page ?? data?.meta?.totalPages ?? 1;
+      while (hasMore) {
+        try {
+          const result = await this.gateway.listDomTransactions(DOM_TOKEN, {
+            page,
+            limit: 100,
+            begin_date,
+            end_date,
+          });
 
-        if (txList.length === 0) {
-          hasMore = false;
-          break;
-        }
+          const txList = result.transactions ?? [];
+          this.logger.log(`  Página ${page}: ${txList.length} transações`);
 
-        this.logger.log(`Página ${page}/${totalPages}: ${txList.length} transações`);
+          if (txList.length === 0) { hasMore = false; break; }
 
-        for (const tx of txList) {
-          try {
-            const codExternal = tx.cod_external as string | undefined;
-            const domPaymentId = tx.id as string;
+          for (const tx of txList) {
+            try {
+              const domPaymentId = tx.id;
+              const codExternal  = tx.externalRef ?? tx.id;
 
-            // Filtramos: só processar se o cod_external existe no banco do Bosque
-            // OU se o domPaymentId já está vinculado ao Bosque
-            const belongsToBosque =
-              (codExternal && existingBosqueTxIds.has(codExternal)) ||
-              existingBosqueTxIds.has(domPaymentId);
+              // Filtra: só processa se pertence ao Bosque
+              if (!existingIds.has(domPaymentId) && !existingIds.has(codExternal)) continue;
 
-            if (!belongsToBosque) continue;
+              const mappedStatus = this.mapStatus(tx.status);
+              const amount    = new Prisma.Decimal(tx.amount ?? 0);
+              const netAmount = new Prisma.Decimal(tx.liquidAmount ?? Number(tx.amount ?? 0) * 0.91);
+              const domFee    = amount.sub(netAmount).lessThan(0) ? new Prisma.Decimal(0) : amount.sub(netAmount);
 
-            const mappedStatus = this.mapStatus(tx.status);
-            const amount = new Prisma.Decimal(tx.amount || 0);
-            const netAmount = new Prisma.Decimal(Number(tx.amount || 0) * 0.91);
-            const domFee = new Prisma.Decimal(Number(tx.amount || 0) * 0.09);
+              const existing = await this.prisma.transaction.findFirst({
+                where: { OR: [{ domPaymentId }, { id: codExternal }] },
+              });
 
-            // Verificar se já existe pelo domPaymentId
-            const existing = await this.prisma.transaction.findFirst({
-              where: {
-                OR: [
-                  ...(domPaymentId ? [{ domPaymentId }] : []),
-                  ...(codExternal ? [{ id: codExternal }] : []),
-                ],
-              },
-            });
+              if (existing) {
+                await this.prisma.transaction.update({
+                  where: { id: existing.id },
+                  data: {
+                    status: mappedStatus,
+                    amount,
+                    netAmount,
+                    domFee,
+                    totalFee: domFee,
+                    customerName:     tx.customerName     || existing.customerName,
+                    customerEmail:    tx.customerEmail    || existing.customerEmail,
+                    customerDocument: tx.customerDocument || existing.customerDocument,
+                    updatedAt: new Date(),
+                  },
+                });
+                totalSkipped++;
+                continue;
+              }
 
-            if (existing) {
-              await this.prisma.transaction.update({
-                where: { id: existing.id },
+              await this.prisma.transaction.create({
                 data: {
-                  status: mappedStatus,
+                  userId:           BOSQUE_ID,
                   amount,
                   netAmount,
-                  domPaymentId: existing.domPaymentId ?? domPaymentId,
-                  customerName: tx.customer?.name || existing.customerName,
-                  customerEmail: tx.customer?.email || existing.customerEmail,
-                  customerDocument: tx.customer?.document || existing.customerDocument,
-                  updatedAt: new Date(),
+                  status:           mappedStatus,
+                  paymentMethod:    this.mapPaymentMethod(tx.paymentMethod),
+                  description:      tx.description || 'Migração Bosque',
+                  domPaymentId,
+                  customerName:     tx.customerName,
+                  customerEmail:    tx.customerEmail,
+                  customerDocument: tx.customerDocument,
+                  customerPhone:    tx.customerPhone,
+                  totalFee:         domFee,
+                  domFee,
+                  platformFee:      new Prisma.Decimal(0),
+                  installments:     tx.installments ?? 1,
+                  createdAt:        tx.createdAt ? new Date(tx.createdAt) : new Date(),
+                  updatedAt:        tx.createdAt ? new Date(tx.createdAt) : new Date(),
                 },
               });
-              totalSkipped++;
-              continue;
-            }
-
-            // Criar nova
-            await this.prisma.transaction.create({
-              data: {
-                ...(codExternal ? { id: codExternal } : {}),
-                userId: BOSQUE_ID,
-                amount,
-                netAmount,
-                status: mappedStatus,
-                paymentMethod: this.mapPaymentMethod(tx.payment_method),
-                description: tx.items?.[0]?.description || 'Migração Bosque',
-                domPaymentId,
-                customerName: tx.customer?.name,
-                customerEmail: tx.customer?.email,
-                customerDocument: tx.customer?.document,
-                customerPhone: tx.customer?.mobile_phone,
-                totalFee: domFee,
-                domFee,
-                platformFee: new Prisma.Decimal(0),
-                installments: Number(tx.installments) || 1,
-                createdAt: new Date(tx.created_at || new Date()),
-                updatedAt: new Date(tx.updated_at || new Date()),
-              },
-            });
-            totalSynced++;
-          } catch (err: any) {
-            if (err.code === 'P2002') {
-              totalSkipped++;
-            } else {
-              totalErrors++;
-              if (totalErrors <= 5) this.logger.warn(`Erro ao processar tx: ${err.message}`);
+              totalSynced++;
+            } catch (err: any) {
+              if (err.code === 'P2002') { totalSkipped++; }
+              else {
+                totalErrors++;
+                if (totalErrors <= 5) this.logger.warn(`Erro tx: ${err.message}`);
+              }
             }
           }
-        }
 
-        if (page >= totalPages) {
+          if (txList.length < 100) { hasMore = false; } else { page++; }
+          if (page > 100) hasMore = false;
+        } catch (err: any) {
+          this.logger.error(`Erro página ${page}: ${err.message}`);
           hasMore = false;
-        } else {
-          page++;
         }
-
-        if (page > 500) hasMore = false;
-      } catch (err: any) {
-        this.logger.error(`Erro ao buscar página ${page}: ${err.message}`);
-        hasMore = false;
       }
+
+      blockStart = blockStart.add(3, 'month');
     }
 
     this.logger.log(`Transações: ${totalSynced} novas, ${totalSkipped} atualizadas, ${totalErrors} erros`);
@@ -252,7 +215,7 @@ export class SyncFullBosqueUseCase {
       _sum: { amount: true },
     });
 
-    const totalReceived = Number(completedTxs._sum.netAmount || 0);
+    const totalReceived  = Number(completedTxs._sum.netAmount || 0);
     const totalWithdrawn = Number(completedWithdraws._sum.amount || 0);
     const calculatedBalance = Math.max(0, totalReceived - totalWithdrawn);
 
@@ -261,10 +224,10 @@ export class SyncFullBosqueUseCase {
       data: { balance: calculatedBalance },
     });
 
-    const totalBosqueTxs = await this.prisma.transaction.count({ where: { userId: BOSQUE_ID } });
+    const totalInDb = await this.prisma.transaction.count({ where: { userId: BOSQUE_ID } });
 
     this.logger.log('=== SINCRONIZAÇÃO BOSQUE CONCLUÍDA ===');
-    this.logger.log(`  Total no banco: ${totalBosqueTxs}`);
+    this.logger.log(`  Total no banco: ${totalInDb}`);
     this.logger.log(`  Saldo: R$ ${calculatedBalance.toFixed(2)}`);
 
     return {
@@ -272,7 +235,7 @@ export class SyncFullBosqueUseCase {
       totalTransactions: totalSynced,
       totalSkipped,
       totalErrors,
-      totalInDatabase: totalBosqueTxs,
+      totalInDatabase: totalInDb,
       balance: calculatedBalance,
       totalReceived,
       totalWithdrawn,
