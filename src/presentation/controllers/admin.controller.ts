@@ -61,7 +61,7 @@ export class AdminController {
     private readonly syncDomTransactionsCron: SyncDomTransactionsCron,
     private readonly storageService: StorageService,
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
 
   // ──────────── LEADS ────────────
 
@@ -285,15 +285,15 @@ export class AdminController {
   async testCronSync() {
     try {
       await this.syncDomTransactionsCron.handleSync();
-      return { 
-        success: true, 
-        message: 'Sincronização do cron executada com sucesso' 
+      return {
+        success: true,
+        message: 'Sincronização do cron executada com sucesso'
       };
     } catch (error) {
-      return { 
-        success: false, 
-        message: 'Erro na sincronização', 
-        error: error.message 
+      return {
+        success: false,
+        message: 'Erro na sincronização',
+        error: error.message
       };
     }
   }
@@ -396,11 +396,11 @@ export class AdminController {
       ...(description && description !== 'ALL' ? { description: { contains: description, mode: 'insensitive' } } : {}),
       ...(startDate || endDate
         ? {
-            createdAt: {
-              ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
-              ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
-            },
-          }
+          createdAt: {
+            ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
+            ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
+          },
+        }
         : {}),
     };
 
@@ -465,11 +465,11 @@ export class AdminController {
       ...(description && description !== 'ALL' ? { description: { contains: description, mode: 'insensitive' } } : {}),
       ...(startDate || endDate
         ? {
-            createdAt: {
-              ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
-              ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
-            },
-          }
+          createdAt: {
+            ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
+            ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
+          },
+        }
         : {}),
     };
 

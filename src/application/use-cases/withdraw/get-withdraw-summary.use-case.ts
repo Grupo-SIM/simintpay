@@ -6,6 +6,8 @@ import { getModuleConfig } from '../../../modules/module.registry';
 import type { IWithdrawRepository } from '../../../core/repositories/withdraw.repository.interface';
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { TransactionStatus, WithdrawStatus } from '@prisma/client';
 
 @Injectable()
 export class GetWithdrawSummaryUseCase {
@@ -13,6 +15,7 @@ export class GetWithdrawSummaryUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(WALLET_REPOSITORY) private readonly wallets: IWalletRepository,
     @Inject(WITHDRAW_REPOSITORY) private readonly withdraws: IWithdrawRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -37,8 +40,41 @@ export class GetWithdrawSummaryUseCase {
     const fatorLiquidez = config?.saque?.fatorLiquidez ?? envFactor;
 
     // wallet.balance é a fonte da verdade (gerenciado incrementalmente)
-    const balance = Number(wallet.balance);
+    let balance = Number(wallet.balance);
     const lockedBalance = Number(wallet.lockedBalance);
+
+    /**
+     * Fallback de migração:
+     * Se a carteira ainda está zerada, mas já existem transações/saques no banco,
+     * recalculamos o saldo a partir da soma das transações COMPLETED (netAmount)
+     * menos a soma de saques COMPLETED/APPROVED (amount).
+     *
+     * Isso evita "Disponível para saque = 0" em módulos migrados (ex.: Bosque)
+     * quando o saldo incremental ainda não foi reconstruído.
+     */
+    if (balance <= 0) {
+      const [completedTxs, completedWithdraws] = await Promise.all([
+        this.prisma.transaction.aggregate({
+          where: { userId, status: TransactionStatus.COMPLETED },
+          _sum: { netAmount: true },
+        }),
+        this.prisma.withdrawRequest.aggregate({
+          where: {
+            userId,
+            status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
+          },
+          _sum: { amount: true },
+        }),
+      ]);
+
+      const totalReceived = Number(completedTxs._sum.netAmount || 0);
+      const totalWithdrawn = Number(completedWithdraws._sum.amount || 0);
+      const calculated = Math.max(0, totalReceived - totalWithdrawn);
+
+      if (calculated > 0) {
+        balance = calculated;
+      }
+    }
 
     // Saldo disponível = saldo total - bloqueado por saques pendentes
     const availableBalance = Math.max(0, balance - lockedBalance);
