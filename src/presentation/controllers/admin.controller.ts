@@ -39,6 +39,13 @@ import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 
+/** Extrai o serial do terminal a partir da descrição da transação */
+function extractTerminal(description: string | null | undefined): string {
+  if (!description) return '-';
+  const m = description.match(/Terminal:\s*([A-Z0-9]+)/i);
+  return m ? m[1] : '-';
+}
+
 @ApiTags('Admin')
 @Controller('admin')
 //@UseGuards(JwtAuthGuard, RolesGuard)
@@ -627,12 +634,15 @@ export class AdminController {
   ) {
     const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
     const pageNum = Number(page);
-    const limitNum = Math.min(Number(limit), 100);
+    const limitNum = Math.max(1, Math.min(Number(limit) || 20, 100));
     const skip = (pageNum - 1) * limitNum;
 
     const where: any = {
       userId: RENOVADA_ID,
-      description: { contains: 'Terminal:', mode: 'insensitive' },
+      OR: [
+        { description: { contains: 'Terminal:', mode: 'insensitive' } },
+        { description: { contains: 'Maquineta', mode: 'insensitive' } },
+      ],
       ...(startDate || endDate
         ? {
             createdAt: {
@@ -653,80 +663,59 @@ export class AdminController {
       this.prisma.transaction.count({ where }),
     ]);
 
-    const extractTerminal = (desc: string | null | undefined) => {
-      if (!desc) return '-';
-      const m = desc.match(/Terminal:\s*([A-Z0-9]+)/i);
-      return m ? m[1] : '-';
-    };
+    const mapped = transactions.map((tx) => {
+      const netAmt = Number(tx.netAmount);
+      const amt = Number(tx.amount);
+      const sLabel = tx.status === 'COMPLETED' ? 'Aprovado'
+        : tx.status === 'PENDING' ? 'Pendente'
+        : tx.status === 'FAILED' ? 'Falhou'
+        : tx.status === 'REFUNDED' ? 'Estornado'
+        : tx.status;
+      
+      return {
+        // Camel case
+        id: tx.domPaymentId || tx.id,
+        domPaymentId: tx.domPaymentId,
+        domTransactionId: tx.domTransactionId || null,
+        terminal: extractTerminal(tx.description),
+        amount: amt,
+        liquidAmount: amt,
+        netAmount: netAmt,
+        netbalancemachine: netAmt,
+        status: tx.status.toLowerCase(),
+        statusDetails: sLabel,
+        paymentMethod: tx.paymentMethod.toLowerCase(),
+        installments: tx.installments,
+        cardBrand: tx.cardBrand,
+        cardBin: tx.cardBin,
+        customerName: tx.customerName,
+        customerDocument: tx.customerDocument,
+        customerEmail: tx.customerEmail,
+        customerPhone: tx.customerPhone,
+        createdAt: tx.createdAt.toISOString(),
+        updatedAt: tx.updatedAt.toISOString(),
+
+        // Legacy snake_case
+        type_operation: 'fisical',
+        created_at: tx.createdAt.toISOString(),
+        updated_at: tx.updatedAt.toISOString(),
+        cod_external: tx.domTransactionId || null,
+        liquid_amount: amt,
+        profit_minus_tax: netAmt,
+        status_details: sLabel,
+        payment_method: tx.paymentMethod.toLowerCase(),
+        card_brand: tx.cardBrand,
+        card_bin: tx.cardBin,
+        customer_name: tx.customerName,
+        customer_document: tx.customerDocument,
+        customer_email: tx.customerEmail,
+        customer_phone: tx.customerPhone,
+        description: tx.description,
+      };
+    });
 
     return {
-      transactions: transactions.map((tx) => {
-        const netAmt = Number(tx.netAmount);
-        const amt = Number(tx.amount);
-        const statusLower = tx.status.toLowerCase();
-        const statusDetails = tx.status === 'COMPLETED' ? 'Aprovado'
-          : tx.status === 'PENDING' ? 'Pendente'
-          : tx.status === 'FAILED' ? 'Falhou'
-          : tx.status === 'REFUNDED' ? 'Estornado'
-          : tx.status;
-        return {
-          // Camel case fields
-          id: tx.domPaymentId || tx.id,
-          domPaymentId: tx.domPaymentId,
-          domTransactionId: tx.domTransactionId || null,
-          terminal: extractTerminal(tx.description),
-          amount: amt,
-          liquidAmount: amt,
-          netAmount: netAmt,
-          netbalancemachine: netAmt,
-          status: statusLower,
-          statusDetails,
-          paymentMethod: tx.paymentMethod.toLowerCase(),
-          installments: tx.installments,
-          cardBrand: tx.cardBrand,
-          cardBin: tx.cardBin,
-          cardCodeAuth: tx.cardCodeAuth ?? null,
-          customerName: tx.customerName,
-          customerDocument: tx.customerDocument,
-          customerEmail: tx.customerEmail,
-          customerPhone: tx.customerPhone,
-          customerBirthdate: null,
-          pixQrCode: tx.pixQrCode ?? null,
-          pixContent: tx.pixContent ?? null,
-          pixExpire: tx.pixExpire ?? null,
-          boletoUrl: null,
-          boletoDigitableLine: null,
-          productFirst: null,
-          postbackUrl: null,
-          createdAt: tx.createdAt.toISOString(),
-          updatedAt: tx.updatedAt.toISOString(),
-
-          // Snake case para compatibilidade com admin-renovada12 (mesmo formato do api-dom)
-          type_operation: 'fisical',
-          created_at: tx.createdAt.toISOString(),
-          updated_at: tx.updatedAt.toISOString(),
-          cod_external: tx.domTransactionId || null,
-          liquid_amount: amt,
-          profit_minus_tax: netAmt,
-          status_details: statusDetails,
-          payment_method: tx.paymentMethod.toLowerCase(),
-          card_brand: tx.cardBrand,
-          card_bin: tx.cardBin,
-          card_code_auth: tx.cardCodeAuth ?? null,
-          boleto_url: null,
-          boleto_digitable_line: null,
-          pix_qrcode: tx.pixQrCode ?? null,
-          pix_content: tx.pixContent ?? null,
-          pix_expire: tx.pixExpire ?? null,
-          customer_name: tx.customerName,
-          customer_document: tx.customerDocument,
-          customer_birthdate: null,
-          customer_email: tx.customerEmail,
-          customer_phone: tx.customerPhone,
-          product_first: null,
-          description: tx.customerName ?? 'Cliente POS',
-        };
-      }),
+      transactions: mapped,
       meta: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
     };
   }
