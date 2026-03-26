@@ -16,15 +16,12 @@ export class GetWithdrawSummaryUseCase {
   ) {}
 
   /**
-   * Calcula o resumo financeiro para o usuário.
-   * 
-   * LÓGICA DE NEGÓCIO (Migrada da API-DOM):
-   * 1. Saldo Disponível (Available): Saldo Total - Saldo Bloqueado (Saques em processamento/reservados).
-   * 2. Saldo Líquido (Net Balance): Saldo Disponível * Fator de Liquidez (default 0.91).
-   *    - O fator de 0.91 (9% de spread/margem) é aplicado para mostrar ao usuário um valor conservador 
-   *      pós-taxas de processamento e segurança (chargeback reserve).
-   * 3. Saques Pendentes: Soma do valor BRUTO de todas as solicitações com status PENDING.
-   * 4. Taxas de Saque: Aplicadas no momento da solicitação (RequestWithdrawUseCase).
+   * Retorna o resumo financeiro para o usuário.
+   *
+   * wallet.balance é a fonte da verdade, gerenciado incrementalmente:
+   *   - Inicializado via POST /admin/sync/sync-wallet-renovada (admin define o saldo base)
+   *   - +netAmount quando o cron detecta nova transação COMPLETED
+   *   - -grossAmount quando ApproveWithdrawalUseCase aprova um saque
    */
   async execute(userId: string) {
     const user = await this.users.findById(userId);
@@ -33,33 +30,36 @@ export class GetWithdrawSummaryUseCase {
     const wallet = await this.wallets.findByUserId(userId);
     if (!wallet) throw new NotFoundException('Carteira não encontrada');
 
-    // Mapeamento das regras do módulo
     const config = getModuleConfig(user.tenantModule?.slug);
-    const envFactor = process.env.DEFAULT_LIQUIDITY_FACTOR ? Number(process.env.DEFAULT_LIQUIDITY_FACTOR) : 0.91;
+    const envFactor = process.env.DEFAULT_LIQUIDITY_FACTOR
+      ? Number(process.env.DEFAULT_LIQUIDITY_FACTOR)
+      : 0.91;
     const fatorLiquidez = config?.saque?.fatorLiquidez ?? envFactor;
 
+    // wallet.balance é a fonte da verdade (gerenciado incrementalmente)
     const balance = Number(wallet.balance);
     const lockedBalance = Number(wallet.lockedBalance);
-    
-    // Saldo Disponível (Bruto - Bloqueado)
-    const availableBalance = balance - lockedBalance;
-    
-    // Saldo Líquido (Disponível * Fator de Liquidez)
-    // Esse é o valor que o usuário "vê" como disponível para solicitar saques.
-    const netBalance = availableBalance * fatorLiquidez;
 
-    // Saldo Bloqueado Líquido
-    const netLockedBalance = lockedBalance * fatorLiquidez;
+    // Saldo disponível = saldo total - bloqueado por saques pendentes
+    const availableBalance = Math.max(0, balance - lockedBalance);
 
-    // Soma de todos os saques pendentes (grossAmount)
+    // Saldo líquido = (saldo bruto * fator) - bloqueado
+    // O fator de liquidez reduz o saldo bruto, mas saques bloqueados deduzem 1:1
+    // Ex: balance=3840.70, fator=0.91, locked=100 → netBalance = 3495.04 - 100 = 3395.04
+    const netBalance = Math.max(0, balance * fatorLiquidez - lockedBalance);
+
+    // Saldo bloqueado líquido (valor bruto do bloqueio)
+    const netLockedBalance = lockedBalance;
+
+    // Soma de saques pendentes
     const pendingWithdraws = await this.withdraws.sumPendingByUserId(userId);
 
     return {
-      availableBalance,    // Saldo disponível para saque (Bruto)
-      netBalance,          // Saldo disponível para saque (Líquido estimado)
-      pendingWithdraws,    // Total em saques pendentes
-      lockedBalance,       // Saldo total bloqueado (Bruto)
-      netLockedBalance,    // Saldo total bloqueado (Líquido)
+      availableBalance,
+      netBalance,
+      pendingWithdraws,
+      lockedBalance,
+      netLockedBalance,
       config: {
         minValor: config?.saque.minValor ?? Number(process.env.DEFAULT_WITHDRAW_MIN_VALUE || 100),
         taxaFixa: config?.saque.taxaFixa ?? Number(process.env.DEFAULT_WITHDRAW_FIXED_FEE || 2),

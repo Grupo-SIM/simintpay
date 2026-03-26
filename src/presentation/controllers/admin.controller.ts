@@ -32,6 +32,7 @@ import { SyncDomWithdrawalsUseCase } from '../../application/use-cases/admin/syn
 import { SyncFullRenovadaUseCase } from '../../application/use-cases/admin/sync-full-renovada.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/admin/list-dom-transactions-direct.use-case';
+import { ListMachineTransactionsUseCase } from '../../application/use-cases/admin/list-machine-transactions.use-case';
 import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-transactions.cron';
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
@@ -54,6 +55,7 @@ export class AdminController {
     private readonly syncFullRenovadaUseCase: SyncFullRenovadaUseCase,
     private readonly migrateRenovadaTxsToAdmin: MigrateRenovadaTxsToAdminUseCase,
     private readonly listDomTransactionsDirect: ListDomTransactionsDirectUseCase,
+    private readonly listMachineTransactions: ListMachineTransactionsUseCase,
     private readonly syncDomTransactionsCron: SyncDomTransactionsCron,
     private readonly storageService: StorageService,
     private readonly prisma: PrismaService,
@@ -175,90 +177,59 @@ export class AdminController {
 
   @Post('sync/sync-wallet-renovada')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Sincronizar saldo da carteira Renovada com o api-dom' })
-  async syncWalletRenovada() {
+  @ApiOperation({ summary: 'Definir saldo base da carteira Renovada (execução única para inicializar o saldo correto)' })
+  @ApiQuery({ name: 'balance', required: true, description: 'Saldo base a definir (ex: 3840.70)', example: 3840.70 })
+  async syncWalletRenovada(@Query('balance') balanceParam?: string) {
     const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-    const API_DOM_URL = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
-    const RENOVADA_API_DOM_TOKEN = process.env.RENOVADA_APIDOM_XTOKEN || '4a29df01-a980-45e3-b3c7-1a8b8eb7850f';
 
     try {
-      // Buscar saldo do api-dom
-      const response = await fetch(`${API_DOM_URL}/payments/summary`, {
-        headers: {
-          'x-access-token': RENOVADA_API_DOM_TOKEN,
-          'Accept': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        return {
-          message: `Erro ao buscar saldo do api-dom: status ${response.status}`,
-          error: errorData,
-        };
-      }
-
-      const summary = await response.json();
-      const apiDomBalance = summary.availableBalance ?? 0;
-      const apiDomLockedBalance = summary.lockedBalance ?? 0;
-
-      // Buscar wallet atual do simpay
-      const wallet = await this.prisma.wallet.findUnique({
-        where: { userId: RENOVADA_ID },
-      });
-
+      const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
       if (!wallet) {
         return { message: 'Wallet da Renovada não encontrada no simpay' };
       }
 
       const oldBalance = Number(wallet.balance);
-      const oldLocked = Number(wallet.lockedBalance);
 
-      // Atualizar wallet com saldo do api-dom
-      const updated = await this.prisma.wallet.update({
+      if (!balanceParam) {
+        return {
+          message: 'Forneça o saldo base via query: ?balance=3840.70. Este endpoint define o saldo inicial; a partir daí o saldo é gerenciado incrementalmente.',
+          currentBalance: oldBalance,
+        };
+      }
+
+      // O valor informado é o netBalance desejado (saldo líquido exibido).
+      // wallet.balance armazena o valor bruto: netBalance / fatorLiquidez.
+      const fatorLiquidez = Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
+      const netBalance = Number(balanceParam);
+      const grossBalance = netBalance / fatorLiquidez;
+
+      await this.prisma.wallet.update({
         where: { userId: RENOVADA_ID },
-        data: {
-          balance: apiDomBalance,
-          lockedBalance: apiDomLockedBalance,
-          version: { increment: 1 },
-        },
+        data: { balance: String(grossBalance), version: { increment: 1 } },
       });
 
-      // Log de auditoria
       await this.prisma.balanceLog.create({
         data: {
           userId: RENOVADA_ID,
-          action: 'WALLET_SYNC_APIDOM',
-          amount: apiDomBalance - oldBalance,
+          action: 'WALLET_RECALCULATE',
+          amount: grossBalance - oldBalance,
           balanceBefore: oldBalance,
-          balanceAfter: apiDomBalance,
-          lockedBefore: oldLocked,
-          lockedAfter: apiDomLockedBalance,
-          description: `Sync wallet com api-dom. Saldo: ${oldBalance} → ${apiDomBalance}`,
+          balanceAfter: grossBalance,
+          lockedBefore: wallet.lockedBalance,
+          lockedAfter: wallet.lockedBalance,
+          description: `Saldo base definido manualmente. netBalance: R$ ${netBalance.toFixed(2)}, bruto armazenado: R$ ${grossBalance.toFixed(2)}`,
           source: 'ADMIN_SYNC',
-          metadata: {
-            apiDomSummary: summary,
-            oldBalance,
-            oldLocked,
-          },
+          metadata: { oldBalance, netBalance, grossBalance, fatorLiquidez, setManually: true },
         },
       });
 
       return {
-        message: `Carteira sincronizada com sucesso.`,
-        before: { balance: oldBalance, lockedBalance: oldLocked },
-        after: { balance: apiDomBalance, lockedBalance: apiDomLockedBalance },
-        apiDomSummary: {
-          availableBalance: summary.availableBalance,
-          netBalance: summary.netBalance,
-          lockedBalance: summary.lockedBalance,
-          pendingWithdraws: summary.pendingWithdraws,
-        },
+        message: 'Saldo base definido com sucesso. A partir de agora o saldo é atualizado incrementalmente (novas transações e saques).',
+        before: { balance: oldBalance },
+        after: { grossBalance, netBalance },
       };
     } catch (error: any) {
-      return {
-        message: `Erro ao sincronizar carteira: ${error.message}`,
-      };
+      return { message: `Erro ao definir saldo: ${error.message}` };
     }
   }
 
@@ -544,11 +515,16 @@ export class AdminController {
   }
 
   // Equivalente ao api-dom GET /payments/dom/specific-machines-transactions
-  // (retorna vazio pois Renovada não tem maquinetas próprias)
   @Get('renovada/machines')
-  @ApiOperation({ summary: 'Transações de maquinetas (placeholder — Renovada não usa maquinetas)' })
+  @ApiOperation({ summary: 'Transações de maquinetas da Renovada (alias para /admin/maquinetas)' })
   async renovadaMachines() {
-    return { transactions: [] };
+    return this.listMachineTransactions.execute();
+  }
+
+  @Get('maquinetas')
+  @ApiOperation({ summary: 'Transações de maquinetas centralizadas (usa token master)' })
+  async getMaquinetas() {
+    return this.listMachineTransactions.execute();
   }
 
   @Delete('renovada/transactions/:id')

@@ -108,7 +108,9 @@ export class ListTransactionsUseCase {
 
     if (!domToken && user?.tenantModuleId) {
       const module = await this.prisma.tenantModule.findUnique({ where: { id: user.tenantModuleId } });
-      if (module) {
+      // Renovada usa RenovadaSyncService (cron dedicado) — não sincronizar aqui para evitar
+      // que transações de outros tenants sejam atribuídas à Renovada via token de módulo.
+      if (module && module.slug !== 'renovada') {
         domToken = process.env[`${module.slug.toUpperCase()}_DOM_TOKEN`];
         source = `Módulo (${module.slug})`;
       }

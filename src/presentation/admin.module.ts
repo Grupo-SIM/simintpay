@@ -13,6 +13,7 @@ import { SyncDomWithdrawalsUseCase } from '../application/use-cases/admin/sync-d
 import { SyncFullRenovadaUseCase } from '../application/use-cases/admin/sync-full-renovada.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../application/use-cases/admin/list-dom-transactions-direct.use-case';
+import { ListMachineTransactionsUseCase } from '../application/use-cases/admin/list-machine-transactions.use-case';
 import { LEAD_REPOSITORY } from '../core/repositories/lead.repository.interface';
 import { PrismaLeadRepository } from '../infrastructure/database/repositories/prisma-lead.repository';
 import { USER_REPOSITORY } from '../core/repositories/user.repository.interface';
@@ -40,6 +41,7 @@ import { EmailService } from '../infrastructure/email/email.service';
     SyncFullRenovadaUseCase,
     MigrateRenovadaTxsToAdminUseCase,
     ListDomTransactionsDirectUseCase,
+    ListMachineTransactionsUseCase,
     EmailService,
     { provide: LEAD_REPOSITORY, useClass: PrismaLeadRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },

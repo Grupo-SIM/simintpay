@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../events/renovada-events.service';
@@ -8,12 +8,16 @@ import { firstValueFrom } from 'rxjs';
 
 /**
  * RenovadaSyncService - Sincroniza transações novas do api-dom para o back-simpay.
- * 
+ *
  * O app mobile (versão deployada) ainda cria pagamentos via api-dom.
  * Precisamos puxar transações novas do api-dom periodicamente.
- * 
+ *
  * Usa o x-access-token do api-dom (4a29df01...) que retorna APENAS
  * transações da Renovada. NÃO usa o master token DOM.
+ *
+ * IMPORTANTE: O cron gerencia wallet.balance incrementalmente.
+ * O saldo parte de um valor base definido via POST /admin/sync/sync-wallet-renovada
+ * e é atualizado apenas com deltas de novas transações COMPLETED e saques aprovados.
  */
 @Injectable()
 export class RenovadaSyncService implements OnModuleInit {
@@ -32,6 +36,7 @@ export class RenovadaSyncService implements OnModuleInit {
 
   /**
    * A cada minuto, busca transações recentes do api-dom e sincroniza.
+   * Atualiza wallet.balance incrementalmente: +netAmount por nova transação COMPLETED.
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSync() {
@@ -46,6 +51,8 @@ export class RenovadaSyncService implements OnModuleInit {
       // Buscar as transações mais recentes do api-dom (páginas 1 a 3 = últimas 300)
       let created = 0;
       let updated = 0;
+      // Delta incremental: quanto somar/subtrair do saldo desta rodada
+      let completedDelta = new Prisma.Decimal(0);
 
       for (let page = 1; page <= 3; page++) {
         const res = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/history`, {
@@ -71,7 +78,6 @@ export class RenovadaSyncService implements OnModuleInit {
                 OR: [
                   ...(paymentId ? [{ domPaymentId: paymentId }] : []),
                   ...(txId ? [{ domTransactionId: txId }] : []),
-                  ...(txId ? [{ id: txId }] : []),
                 ],
               },
             });
@@ -103,19 +109,17 @@ export class RenovadaSyncService implements OnModuleInit {
                   },
                 });
 
-                // Se completou, atualizar saldo
-                if (mappedStatus === TransactionStatus.COMPLETED && existing.status !== TransactionStatus.COMPLETED) {
-                  await this.prisma.wallet.update({
-                    where: { userId: this.RENOVADA_ID },
-                    data: {
-                      balance: { increment: netAmount },
-                      version: { increment: 1 },
-                    },
-                  });
-                }
-
                 updated++;
                 this.events.emitTransaction({ ...existing, status: mappedStatus });
+
+                // Transição para COMPLETED: soma o netAmount ao delta
+                if (existing.status !== TransactionStatus.COMPLETED && mappedStatus === TransactionStatus.COMPLETED) {
+                  completedDelta = completedDelta.add(netAmount);
+                }
+                // Transição de COMPLETED para outro: subtrai o netAmount do delta
+                if (existing.status === TransactionStatus.COMPLETED && mappedStatus !== TransactionStatus.COMPLETED) {
+                  completedDelta = completedDelta.sub(new Prisma.Decimal(existing.netAmount ?? 0));
+                }
               }
               continue;
             }
@@ -144,19 +148,13 @@ export class RenovadaSyncService implements OnModuleInit {
               },
             });
 
-            // Se já completou, atualizar saldo
-            if (mappedStatus === TransactionStatus.COMPLETED) {
-              await this.prisma.wallet.update({
-                where: { userId: this.RENOVADA_ID },
-                data: {
-                  balance: { increment: netAmount },
-                  version: { increment: 1 },
-                },
-              });
-            }
-
             created++;
             this.events.emitTransaction(newTx);
+
+            // Nova transação já COMPLETED: soma ao delta incremental
+            if (mappedStatus === TransactionStatus.COMPLETED) {
+              completedDelta = completedDelta.add(netAmount);
+            }
           } catch (err: any) {
             if (err.code !== 'P2002') {
               this.logger.warn(`Erro ao processar transação: ${err.message}`);
@@ -170,6 +168,18 @@ export class RenovadaSyncService implements OnModuleInit {
 
       if (created > 0 || updated > 0) {
         this.logger.log(`[RENOVADA] Sync: ${created} criadas, ${updated} atualizadas`);
+
+        // Atualizar saldo incrementalmente (não recalcular do zero — saldo base foi definido manualmente)
+        if (!completedDelta.equals(0)) {
+          await this.prisma.wallet.update({
+            where: { userId: this.RENOVADA_ID },
+            data: {
+              balance: { increment: completedDelta },
+              version: { increment: 1 },
+            },
+          });
+          this.logger.log(`[RENOVADA] Saldo ajustado em R$ ${completedDelta.toFixed(2)}`);
+        }
       }
     } catch (error: any) {
       this.logger.error(`[RENOVADA] Sync error: ${error.message}`);

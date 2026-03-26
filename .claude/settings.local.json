@@ -21,7 +21,8 @@
       "Bash(powershell -Command:*)",
       "Bash(ls:*)",
       "Bash(test:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(powershell.exe -Command \"Get-ChildItem ''C:\\\\Users\\\\breno\\\\Desktop\\\\JB'' -Directory | Select-Object Name\")"
     ]
   }
 }
