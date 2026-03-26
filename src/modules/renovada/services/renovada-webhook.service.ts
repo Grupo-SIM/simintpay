@@ -61,23 +61,24 @@ export class RenovadaWebhookService {
       return;
     }
 
-    // Idempotência: evita reprocessamento duplicado
-    const already = await this.prisma.webhookEvent.findUnique({
-      where: { eventId: event.signature },
-    });
-    if (already) {
-      this.logger.log(`[RenovadaWebhook] ${event.signature} já processado`);
-      return;
+    // Idempotência atômica: tenta inserir e captura P2002 (unique violation)
+    let wh: any;
+    try {
+      wh = await this.prisma.webhookEvent.create({
+        data: {
+          eventId: event.signature,
+          source: 'renovada-dom-direct',
+          eventType: event.event,
+          payload: payload as never,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        this.logger.log(`[RenovadaWebhook] ${event.signature} já processado`);
+        return;
+      }
+      throw err;
     }
-
-    const wh = await this.prisma.webhookEvent.create({
-      data: {
-        eventId: event.signature,
-        source: 'renovada-dom-direct',
-        eventType: event.event,
-        payload: payload as never,
-      },
-    });
 
     try {
       const serial = this.detectSerial(event.data);
@@ -173,8 +174,9 @@ export class RenovadaWebhookService {
       return;
     }
 
-    const amountDec = new Prisma.Decimal(data.amount);
-    const netDec = this.calcNet(data.amount, data.liquid_amount);
+    // DOM Pagamentos envia amount e liquid_amount em CENTAVOS → dividir por 100
+    const amountDec = new Prisma.Decimal(data.amount / 100);
+    const netDec = this.calcNet(data.amount / 100, data.liquid_amount != null ? data.liquid_amount / 100 : undefined);
     const totalFee = amountDec.sub(netDec);
     const domFee = new Prisma.Decimal(data.dom_fee ?? 0);
     const platformFee = totalFee.greaterThan(domFee)
@@ -187,6 +189,10 @@ export class RenovadaWebhookService {
 
     if (existing) {
       if (existing.status === nextStatus) return;
+
+      // wallet.balance é gross; netBalance = balance * fatorLiquidez
+      // Para que netBalance += amount * fator, adicionamos amountDec (bruto) ao balance
+      // NÃO usar netDec/fatorLiquidez pois liquid_amount do DOM reflete taxas DOM, não o fatorLiquidez
 
       await this.prisma.$transaction(async (p) => {
         await p.transaction.update({
@@ -203,7 +209,7 @@ export class RenovadaWebhookService {
           },
         });
 
-        // Mutação do saldo
+        // Mutação do saldo — usar amountDec (bruto) para wallet gross
         let balanceDelta = new Prisma.Decimal(0);
         let lockedDelta = new Prisma.Decimal(0);
 
@@ -211,19 +217,19 @@ export class RenovadaWebhookService {
           nextStatus === TransactionStatus.COMPLETED &&
           existing.status !== TransactionStatus.COMPLETED
         ) {
-          balanceDelta = netDec;
+          balanceDelta = amountDec;
         } else if (
           (nextStatus === TransactionStatus.REFUNDED ||
             nextStatus === TransactionStatus.CHARGEBACK) &&
           existing.status === TransactionStatus.COMPLETED
         ) {
-          balanceDelta = netDec.neg();
+          balanceDelta = amountDec.neg();
         } else if (
           nextStatus === TransactionStatus.IN_MEDIATION &&
           existing.status === TransactionStatus.COMPLETED
         ) {
-          balanceDelta = netDec.neg();
-          lockedDelta = netDec;
+          balanceDelta = amountDec.neg();
+          lockedDelta = amountDec;
         }
 
         if (balanceDelta.isZero() && lockedDelta.isZero()) return;
@@ -233,6 +239,8 @@ export class RenovadaWebhookService {
 
         const newBalance = wallet.balance.add(balanceDelta);
         const newLocked = wallet.lockedBalance.add(lockedDelta);
+
+        this.logger.log(`[RenovadaWebhook] 💰 Creditando wallet: balanceDelta=${balanceDelta}, amountDec=${amountDec}, netDec=${netDec}, balanceBefore=${wallet.balance}, balanceAfter=${newBalance}`);
 
         await p.wallet.updateMany({
           where: { id: wallet.id, version: wallet.version },
@@ -291,7 +299,11 @@ export class RenovadaWebhookService {
         if (nextStatus === TransactionStatus.COMPLETED) {
           const wallet = await p.wallet.findUnique({ where: { userId: this.RENOVADA_ID } });
           if (wallet) {
-            const newBalance = wallet.balance.add(netDec);
+            // wallet.balance é gross; netBalance = balance * fatorLiquidez
+            // Usar amountDec (bruto) diretamente, não netDec/fator
+            const grossIncrement = amountDec;
+            const newBalance = wallet.balance.add(grossIncrement);
+            this.logger.log(`[RenovadaWebhook] 💰 Nova tx COMPLETED: grossIncrement=${grossIncrement}, amountDec=${amountDec}, netDec=${netDec}, balanceBefore=${wallet.balance}, balanceAfter=${newBalance}`);
             await p.wallet.updateMany({
               where: { id: wallet.id, version: wallet.version },
               data: { balance: newBalance, version: { increment: 1 } },
@@ -301,7 +313,7 @@ export class RenovadaWebhookService {
                 userId: this.RENOVADA_ID,
                 action: 'RENOVADA_WEBHOOK_COMPLETED',
                 transactionId: newTx.id,
-                amount: netDec,
+                amount: grossIncrement,
                 balanceBefore: wallet.balance,
                 balanceAfter: newBalance,
                 lockedBefore: wallet.lockedBalance,
@@ -342,8 +354,9 @@ export class RenovadaWebhookService {
       return;
     }
 
-    const amountDec = new Prisma.Decimal(data.amount);
-    const netDec = this.calcNet(data.amount, data.liquid_amount);
+    // DOM Pagamentos envia amount e liquid_amount em CENTAVOS → dividir por 100
+    const amountDec = new Prisma.Decimal(data.amount / 100);
+    const netDec = this.calcNet(data.amount / 100, data.liquid_amount != null ? data.liquid_amount / 100 : undefined);
 
     const tx = await this.prisma.$transaction(async (p) => {
       const newTx = await p.transaction.create({
