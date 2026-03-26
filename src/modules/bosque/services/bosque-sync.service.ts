@@ -1,17 +1,15 @@
-import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { BosqueEventsService } from '../events/bosque-events.service';
 import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
-import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
-import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
-import dayjs from 'dayjs';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 
 /**
- * BosqueSyncService — sincroniza transações recentes da DOM Pagamentos
- * usando o ApiDomClient (PAYMENT_GATEWAY), igual ao padrão da Renovada.
- *
- * Saldo gerenciado incrementalmente via completedDelta por rodada.
+ * BosqueSyncService — sincroniza transações novas do api-dom para o simpay.
+ * Usa o x-access-token do api-dom do Bosque (BOSQUE_APIDOM_XTOKEN) que retorna
+ * APENAS transações do Bosque. Igual ao padrão da Renovada.
  */
 @Injectable()
 export class BosqueSyncService implements OnModuleInit {
@@ -21,79 +19,116 @@ export class BosqueSyncService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: BosqueEventsService,
-    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly http: HttpService,
   ) {}
 
   onModuleInit() {
-    this.logger.log('[BOSQUE] BosqueSyncService inicializado (DOM Pagamentos direto)');
+    this.logger.log('[BOSQUE] BosqueSyncService inicializado (api-dom sync mode)');
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSync() {
     if (process.env.DISABLE_BOSQUE_SYNC === 'true') return;
 
-    const token = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
-    if (!token) {
-      this.logger.error('[BOSQUE] DOM_TOKEN não configurado');
-      return;
-    }
+    const API_DOM_URL = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
+    const BOSQUE_APIDOM_XTOKEN = process.env.BOSQUE_APIDOM_XTOKEN || '0ba3f139-b1ff-4ded-a5ef-71ccb1c9482f';
 
     try {
       let created = 0;
       let updated = 0;
       let completedDelta = new Prisma.Decimal(0);
 
-      // Busca últimos 2 dias (dentro do limite de 3 meses da DOM)
-      const begin_date = dayjs().subtract(2, 'day').format('YYYY-MM-DD');
-      const end_date   = dayjs().format('YYYY-MM-DD');
-
       for (let page = 1; page <= 3; page++) {
-        const result = await this.gateway.listDomTransactions(token, {
-          page,
-          limit: 100,
-          begin_date,
-          end_date,
-        });
+        const res = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/history`, {
+          headers: { 'x-access-token': BOSQUE_APIDOM_XTOKEN, 'Accept': 'application/json' },
+          params: { page, limit: 100 },
+          timeout: 15000,
+        }));
 
-        const txList = result.transactions ?? [];
+        const txList: any[] = res.data?.transactions ?? [];
         if (txList.length === 0) break;
 
         for (const tx of txList) {
           try {
-            const domPaymentId = tx.id;
-            const codExternal  = tx.cod_external ?? tx.id;
+            const paymentId = tx.paymentId || tx.id;
+            const txId = tx.id;
 
             const existing = await this.prisma.transaction.findFirst({
               where: {
-                userId: this.BOSQUE_ID,
-                OR: [{ domPaymentId }, { id: codExternal }],
+                OR: [
+                  ...(paymentId ? [{ domPaymentId: paymentId }] : []),
+                  ...(txId ? [{ domTransactionId: txId }] : []),
+                ],
               },
             });
 
-            if (!existing) continue; // só atualiza — novas transações do Bosque chegam via webhook
-
             const mappedStatus = this.mapStatus(tx.status);
+            const amount      = new Prisma.Decimal(tx.amount || 0);
+            const netAmount   = new Prisma.Decimal(tx.amountWithoutAllFee ?? Number(tx.amount || 0) * 0.91);
+            const totalFee    = new Prisma.Decimal(tx.fee || 0);
+            const domFee      = new Prisma.Decimal(tx.dom_fee || 0);
+            const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
 
-            if (existing.status !== mappedStatus) {
-              await this.prisma.transaction.update({
-                where: { id: existing.id },
-                data: {
-                  status: mappedStatus,
-                  previousStatus: existing.status,
-                  domPaymentId: existing.domPaymentId ?? domPaymentId,
-                  updatedAt: new Date(),
-                },
-              });
+            if (existing) {
+              if (existing.status !== mappedStatus) {
+                await this.prisma.transaction.update({
+                  where: { id: existing.id },
+                  data: {
+                    status: mappedStatus,
+                    previousStatus: existing.status,
+                    amount,
+                    netAmount,
+                    totalFee,
+                    domFee,
+                    platformFee,
+                    customerName:     tx.name  || existing.customerName,
+                    customerEmail:    tx.email || existing.customerEmail,
+                    customerDocument: tx.document || existing.customerDocument,
+                    updatedAt: new Date(),
+                  },
+                });
 
-              if (existing.status !== TransactionStatus.COMPLETED && mappedStatus === TransactionStatus.COMPLETED) {
-                completedDelta = completedDelta.add(new Prisma.Decimal(existing.netAmount ?? 0));
+                updated++;
+                this.events.emitTransaction({ ...existing, status: mappedStatus });
+
+                if (existing.status !== TransactionStatus.COMPLETED && mappedStatus === TransactionStatus.COMPLETED) {
+                  completedDelta = completedDelta.add(netAmount);
+                }
+                if (existing.status === TransactionStatus.COMPLETED && mappedStatus !== TransactionStatus.COMPLETED) {
+                  completedDelta = completedDelta.sub(new Prisma.Decimal(existing.netAmount ?? 0));
+                }
               }
-              if (existing.status === TransactionStatus.COMPLETED && mappedStatus !== TransactionStatus.COMPLETED) {
-                completedDelta = completedDelta.sub(new Prisma.Decimal(existing.netAmount ?? 0));
-              }
+              continue;
+            }
 
-              updated++;
-              this.events.emitTransaction({ ...existing, status: mappedStatus });
+            const newTx = await this.prisma.transaction.create({
+              data: {
+                userId:           this.BOSQUE_ID,
+                amount,
+                netAmount,
+                status:           mappedStatus,
+                paymentMethod:    this.mapPaymentMethod(tx.payment_method),
+                description:      tx.description || 'Sincronização Bosque',
+                domTransactionId: txId,
+                domPaymentId:     paymentId,
+                customerName:     tx.name,
+                customerEmail:    tx.email,
+                customerDocument: tx.document,
+                customerPhone:    tx.mobile_phone,
+                totalFee,
+                domFee,
+                platformFee,
+                installments:     tx.installments || 1,
+                createdAt:        new Date(tx.createdAt),
+                updatedAt:        tx.updatedAt ? new Date(tx.updatedAt) : new Date(tx.createdAt),
+              },
+            });
+
+            created++;
+            this.events.emitTransaction(newTx);
+
+            if (mappedStatus === TransactionStatus.COMPLETED) {
+              completedDelta = completedDelta.add(netAmount);
             }
           } catch (err: any) {
             if (err.code !== 'P2002') this.logger.warn(`[BOSQUE] Erro tx: ${err.message}`);
@@ -116,6 +151,9 @@ export class BosqueSyncService implements OnModuleInit {
       }
     } catch (error: any) {
       this.logger.error(`[BOSQUE] Sync error: ${error.message}`);
+      if (error.response?.status === 401) {
+        this.logger.error('[BOSQUE] Token inválido. Verifique BOSQUE_APIDOM_XTOKEN');
+      }
     }
   }
 

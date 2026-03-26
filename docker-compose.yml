@@ -28,6 +28,7 @@ services:
       - FRENDZ_DOM_TOKEN=
       - BOSQUE_ID=c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c
       - BOSQUE_EMAIL=contato@bosque.com.br
+      - BOSQUE_APIDOM_XTOKEN=0ba3f139-b1ff-4ded-a5ef-71ccb1c9482f
       - DISABLE_BOSQUE_SYNC=false
       - DISABLE_DOM_SYNC=false
       - DOM_WEBHOOK_SECRET=simpay-webhook-secret-renovada-change-me-in-production

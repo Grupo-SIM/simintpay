@@ -3,9 +3,8 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { TransactionStatus, WithdrawStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { HASH_SERVICE } from '../../../core/services/hash.interface';
 import type { IHashService } from '../../../core/services/hash.interface';
-import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
-import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
-import dayjs from 'dayjs';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class SyncFullBosqueUseCase {
@@ -13,22 +12,21 @@ export class SyncFullBosqueUseCase {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly http: HttpService,
     @Inject(HASH_SERVICE) private readonly hashService: IHashService,
-    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
   ) {}
 
   async execute() {
     const BOSQUE_ID    = process.env.BOSQUE_ID    || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
     const BOSQUE_EMAIL = process.env.BOSQUE_EMAIL  || 'contato@bosque.com.br';
-    const BOSQUE_NAME  = 'Bosque';
-    const DOM_TOKEN    = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
-
-    if (!DOM_TOKEN) {
-      return { message: 'ERRO: DOM_TOKEN não configurado', totalTransactions: 0 };
-    }
+    const BOSQUE_NAME  = 'Igreja Batista do Bosque';
+    const API_DOM_URL  = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
+    const BOSQUE_APIDOM_XTOKEN = process.env.BOSQUE_APIDOM_XTOKEN || '0ba3f139-b1ff-4ded-a5ef-71ccb1c9482f';
 
     this.logger.log('=== SINCRONIZAÇÃO COMPLETA BOSQUE ===');
     this.logger.log(`BOSQUE_ID: ${BOSQUE_ID}`);
+    this.logger.log(`API_DOM_URL: ${API_DOM_URL}`);
+    this.logger.log(`Token: ${BOSQUE_APIDOM_XTOKEN.substring(0, 8)}...`);
 
     const hashedPassword = await this.hashService.hash('password-migrated');
 
@@ -60,151 +58,190 @@ export class SyncFullBosqueUseCase {
       create: { userId: BOSQUE_ID, balance: 0, lockedBalance: 0 },
     });
 
-    // 2. Testar conexão — 1 item nos últimos 90 dias
-    this.logger.log('Testando conexão com DOM Pagamentos...');
+    // 2. Testar conexão com api-dom
+    this.logger.log('Testando conexão com api-dom...');
     try {
-      await this.gateway.listDomTransactions(DOM_TOKEN, {
-        page: 1,
-        limit: 1,
-        begin_date: dayjs().subtract(90, 'day').format('YYYY-MM-DD'),
-        end_date: dayjs().format('YYYY-MM-DD'),
-      });
-      this.logger.log('Conexão OK!');
+      const testRes = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/history`, {
+        headers: { 'x-access-token': BOSQUE_APIDOM_XTOKEN, 'Accept': 'application/json' },
+        params: { page: 1, limit: 1 },
+        timeout: 10000,
+      }));
+      this.logger.log(`Conexão OK! Total: ${testRes.data?.meta?.totalItems ?? 'desconhecido'}`);
     } catch (err: any) {
+      this.logger.error(`FALHA na conexão com api-dom: ${err.message}`);
       return {
-        message: `ERRO: Não foi possível conectar à DOM Pagamentos: ${err.message}`,
+        message: `ERRO: Não foi possível conectar ao api-dom. ${err.message}`,
         totalTransactions: 0,
       };
     }
 
-    // 3. Buscar IDs existentes do Bosque para filtrar
-    const existingBosqueTxs = await this.prisma.transaction.findMany({
-      where: { userId: BOSQUE_ID },
-      select: { id: true, domPaymentId: true },
-    });
-    const existingIds = new Set<string>(
-      existingBosqueTxs.flatMap(t => [t.id, t.domPaymentId].filter(Boolean) as string[]),
-    );
-
-    this.logger.log(`Transações existentes do Bosque no banco: ${existingBosqueTxs.length}`);
-
-    // 4. Iterar em blocos de 3 meses desde 2023 até hoje
+    // 3. Sincronizar Transações
+    this.logger.log('Iniciando sincronização de transações...');
     let totalSynced  = 0;
     let totalSkipped = 0;
     let totalErrors  = 0;
+    let page = 1;
+    let hasMore = true;
+    const LIMIT = 100;
 
-    const startFrom = dayjs('2023-01-01');
-    const today     = dayjs();
-    let blockStart  = startFrom;
+    while (hasMore) {
+      try {
+        this.logger.log(`Buscando página ${page}...`);
+        const res = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/history`, {
+          headers: { 'x-access-token': BOSQUE_APIDOM_XTOKEN, 'Accept': 'application/json' },
+          params: { page, limit: LIMIT },
+          timeout: 30000,
+        }));
 
-    while (blockStart.isBefore(today)) {
-      const blockEnd = blockStart.add(3, 'month').subtract(1, 'day');
-      const begin_date = blockStart.format('YYYY-MM-DD');
-      const end_date   = (blockEnd.isAfter(today) ? today : blockEnd).format('YYYY-MM-DD');
+        const data = res.data;
+        const txList: any[] = data?.transactions ?? [];
+        const totalPages = data?.meta?.totalPages ?? 1;
+        const totalItems = data?.meta?.totalItems ?? 0;
 
-      this.logger.log(`Bloco: ${begin_date} → ${end_date}`);
+        if (txList.length === 0) { hasMore = false; break; }
 
-      let page = 1;
-      let hasMore = true;
+        this.logger.log(`Página ${page}/${totalPages}: ${txList.length} transações (total: ${totalItems})`);
 
-      while (hasMore) {
-        try {
-          const result = await this.gateway.listDomTransactions(DOM_TOKEN, {
-            page,
-            limit: 100,
-            begin_date,
-            end_date,
-          });
+        for (const tx of txList) {
+          try {
+            const paymentId = tx.paymentId || tx.id;
+            const txId = tx.id;
 
-          const txList = result.transactions ?? [];
-          this.logger.log(`  Página ${page}: ${txList.length} transações`);
+            const existing = await this.prisma.transaction.findFirst({
+              where: {
+                OR: [
+                  ...(paymentId ? [{ domPaymentId: paymentId }] : []),
+                  ...(txId ? [{ domTransactionId: txId }] : []),
+                ],
+              },
+            });
 
-          if (txList.length === 0) { hasMore = false; break; }
+            const mappedStatus = this.mapStatus(tx.status);
+            const amount      = new Prisma.Decimal(tx.amount || 0);
+            const netAmount   = new Prisma.Decimal(tx.amountWithoutAllFee ?? Number(tx.amount || 0) * 0.91);
+            const totalFee    = new Prisma.Decimal(tx.fee || 0);
+            const domFee      = new Prisma.Decimal(tx.dom_fee || 0);
+            const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
 
-          for (const tx of txList) {
-            try {
-              const domPaymentId = tx.id;
-              const codExternal  = tx.cod_external ?? tx.id;
-
-              // Filtra: só processa se pertence ao Bosque
-              if (!existingIds.has(domPaymentId) && !existingIds.has(codExternal)) continue;
-
-              const mappedStatus = this.mapStatus(tx.status);
-              const amount    = new Prisma.Decimal(tx.amount ?? 0);
-              const netAmount = new Prisma.Decimal(tx.liquid_amount ?? Number(tx.amount ?? 0) * 0.91);
-              const domFee    = amount.sub(netAmount).lessThan(0) ? new Prisma.Decimal(0) : amount.sub(netAmount);
-
-              const existing = await this.prisma.transaction.findFirst({
-                where: { OR: [{ domPaymentId }, { id: codExternal }, { userId: BOSQUE_ID, domPaymentId }] },
-              });
-
-              // Se existe mas pertence a outro usuário, pula — não é do Bosque
-              if (existing && existing.userId !== BOSQUE_ID) continue;
-
-              if (existing) {
-                await this.prisma.transaction.update({
-                  where: { id: existing.id },
-                  data: {
-                    status: mappedStatus,
-                    amount,
-                    netAmount,
-                    domFee,
-                    totalFee: domFee,
-                    customerName:     tx.customer_name     || existing.customerName,
-                    customerEmail:    tx.customer_email    || existing.customerEmail,
-                    customerDocument: tx.customer_document || existing.customerDocument,
-                    updatedAt: new Date(),
-                  },
-                });
-                totalSkipped++;
-                continue;
-              }
-
-              await this.prisma.transaction.create({
+            if (existing) {
+              await this.prisma.transaction.update({
+                where: { id: existing.id },
                 data: {
-                  userId:           BOSQUE_ID,
+                  status: mappedStatus,
                   amount,
                   netAmount,
-                  status:           mappedStatus,
-                  paymentMethod:    this.mapPaymentMethod(tx.payment_method),
-                  description:      tx.product_first || 'Migração Bosque',
-                  domPaymentId,
-                  customerName:     tx.customer_name,
-                  customerEmail:    tx.customer_email,
-                  customerDocument: tx.customer_document,
-                  customerPhone:    tx.customer_phone,
-                  totalFee:         domFee,
+                  totalFee,
                   domFee,
-                  platformFee:      new Prisma.Decimal(0),
-                  installments:     tx.installments ?? 1,
-                  createdAt:        tx.created_at ? new Date(tx.created_at) : new Date(),
-                  updatedAt:        tx.created_at ? new Date(tx.created_at) : new Date(),
+                  platformFee,
+                  description:      tx.description || existing.description,
+                  customerName:     tx.name        || existing.customerName,
+                  customerEmail:    tx.email       || existing.customerEmail,
+                  customerDocument: tx.document    || existing.customerDocument,
+                  customerPhone:    tx.mobile_phone || existing.customerPhone,
+                  updatedAt: new Date(),
                 },
               });
-              totalSynced++;
-            } catch (err: any) {
-              if (err.code === 'P2002') { totalSkipped++; }
-              else {
-                totalErrors++;
-                if (totalErrors <= 5) this.logger.warn(`Erro tx: ${err.message}`);
-              }
+              totalSkipped++;
+              continue;
+            }
+
+            await this.prisma.transaction.create({
+              data: {
+                userId:           BOSQUE_ID,
+                amount,
+                netAmount,
+                status:           mappedStatus,
+                paymentMethod:    this.mapPaymentMethod(tx.payment_method),
+                description:      tx.description || 'Migração Bosque',
+                domTransactionId: txId,
+                domPaymentId:     paymentId,
+                customerName:     tx.name,
+                customerEmail:    tx.email,
+                customerDocument: tx.document,
+                customerPhone:    tx.mobile_phone,
+                totalFee,
+                domFee,
+                platformFee,
+                installments:     tx.installments || 1,
+                createdAt:        new Date(tx.createdAt),
+                updatedAt:        tx.updatedAt ? new Date(tx.updatedAt) : new Date(tx.createdAt),
+              },
+            });
+            totalSynced++;
+          } catch (err: any) {
+            if (err.code === 'P2002') { totalSkipped++; }
+            else {
+              totalErrors++;
+              if (totalErrors <= 5) this.logger.warn(`Erro tx: ${err.message}`);
             }
           }
-
-          if (txList.length < 100) { hasMore = false; } else { page++; }
-          if (page > 100) hasMore = false;
-        } catch (err: any) {
-          this.logger.error(`Erro página ${page}: ${err.message}`);
-          hasMore = false;
         }
-      }
 
-      blockStart = blockStart.add(3, 'month');
+        if (page >= totalPages) { hasMore = false; } else { page++; }
+        if (page > 500) hasMore = false;
+      } catch (err: any) {
+        this.logger.error(`Erro página ${page}: ${err.message}`);
+        hasMore = false;
+      }
     }
 
     this.logger.log(`Transações: ${totalSynced} novas, ${totalSkipped} atualizadas, ${totalErrors} erros`);
 
+    // 4. Sincronizar Saques
+    this.logger.log('Sincronizando saques...');
+    let totalWithdrawalsSynced = 0;
+    try {
+      let wdPage = 1;
+      let wdHasMore = true;
+
+      while (wdHasMore) {
+        const res = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/withdrawals`, {
+          headers: { 'x-access-token': BOSQUE_APIDOM_XTOKEN, 'Accept': 'application/json' },
+          params: { page: wdPage, limit: 100 },
+          timeout: 30000,
+        }));
+
+        const wdData = res.data;
+        const withdrawals: any[] = wdData?.withdrawals ?? wdData?.data ?? [];
+
+        if (withdrawals.length === 0) { wdHasMore = false; break; }
+
+        for (const w of withdrawals) {
+          try {
+            const existing = await this.prisma.withdrawRequest.findFirst({
+              where: { OR: [...(w.id ? [{ domWithdrawId: w.id }, { id: w.id }] : [])] },
+            });
+            if (existing) continue;
+
+            await this.prisma.withdrawRequest.create({
+              data: {
+                userId:       BOSQUE_ID,
+                amount:       Number(w.amount),
+                grossAmount:  Number(w.amount) + Number(w.fee || 2),
+                fee:          Number(w.fee || 2),
+                status:       this.mapWithdrawStatus(w.status),
+                pixKey:       w.pixKey || w.pix_key || 'migracao@simpay.com',
+                receiptImage: w.receiptImage ?? null,
+                domWithdrawId: w.id,
+                createdAt:    new Date(w.createdAt || w.created_at || new Date()),
+              },
+            });
+            totalWithdrawalsSynced++;
+          } catch (err: any) {
+            if (err.code !== 'P2002') this.logger.warn(`Erro saque: ${err.message}`);
+          }
+        }
+
+        const wdTotalPages = wdData?.meta?.totalPages ?? 1;
+        if (wdPage >= wdTotalPages) { wdHasMore = false; } else { wdPage++; }
+        if (wdPage > 100) wdHasMore = false;
+      }
+    } catch (err: any) {
+      this.logger.error(`Erro saques: ${err.message}`);
+    }
+
     // 5. Recalcular saldo
+    this.logger.log('Recalculando saldo...');
     const completedTxs = await this.prisma.transaction.aggregate({
       where: { userId: BOSQUE_ID, status: TransactionStatus.COMPLETED },
       _sum: { netAmount: true },
@@ -230,7 +267,9 @@ export class SyncFullBosqueUseCase {
     const totalInDb = await this.prisma.transaction.count({ where: { userId: BOSQUE_ID } });
 
     this.logger.log('=== SINCRONIZAÇÃO BOSQUE CONCLUÍDA ===');
+    this.logger.log(`  Transações: ${totalSynced} novas, ${totalSkipped} atualizadas`);
     this.logger.log(`  Total no banco: ${totalInDb}`);
+    this.logger.log(`  Saques: ${totalWithdrawalsSynced}`);
     this.logger.log(`  Saldo: R$ ${calculatedBalance.toFixed(2)}`);
 
     return {
@@ -239,6 +278,7 @@ export class SyncFullBosqueUseCase {
       totalSkipped,
       totalErrors,
       totalInDatabase: totalInDb,
+      totalWithdrawals: totalWithdrawalsSynced,
       balance: calculatedBalance,
       totalReceived,
       totalWithdrawn,
@@ -261,5 +301,12 @@ export class SyncFullBosqueUseCase {
     if (m.includes('pix')) return PaymentMethod.PIX;
     if (m.includes('card') || m.includes('credit')) return PaymentMethod.CREDIT_CARD;
     return PaymentMethod.PIX;
+  }
+
+  private mapWithdrawStatus(domStatus: string): WithdrawStatus {
+    const s = (domStatus || '').toLowerCase();
+    if (s.includes('paid') || s.includes('completed') || s.includes('approved')) return WithdrawStatus.COMPLETED;
+    if (s.includes('rejected') || s.includes('canceled') || s.includes('failed')) return WithdrawStatus.REJECTED;
+    return WithdrawStatus.PENDING;
   }
 }
