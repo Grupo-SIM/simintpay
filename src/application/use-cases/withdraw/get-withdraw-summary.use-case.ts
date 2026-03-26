@@ -179,14 +179,16 @@ export class GetWithdrawSummaryUseCase {
     // Saldo disponível = saldo total - bloqueado por saques pendentes
     const availableBalance = Math.max(0, balance - lockedBalance);
 
-    // Saldo líquido: com saldo vindo da carteira, aplica fator sobre o bruto.
-    // Com fallback por ledger, `balance` já é líquido (soma tipo amountWithoutAllFee) — não multiplicar de novo.
+    // Saldo líquido: aplica fator sobre o saldo bruto livre (balance - lockedBalance)
+    // Se balanceFromTxLedger (migração), a soma já é líquida — subtrair lockedBalance 1:1
     const netBalance = balanceFromTxLedger
       ? Math.max(0, balance - lockedBalance)
-      : Math.max(0, balance * fatorLiquidez - lockedBalance);
+      : Math.max(0, (balance - lockedBalance) * fatorLiquidez);
 
-    // Saldo bloqueado líquido (valor bruto do bloqueio)
-    const netLockedBalance = lockedBalance;
+    // Saldo bloqueado líquido
+    const netLockedBalance = balanceFromTxLedger
+      ? lockedBalance
+      : lockedBalance * fatorLiquidez;
 
     // Soma de saques pendentes
     const pendingWithdraws = await this.withdraws.sumPendingByUserId(userId);

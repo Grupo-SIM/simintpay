@@ -120,37 +120,49 @@ export class RequestWithdrawUseCase {
 
     if (!wallet) throw new NotFoundException('Wallet não encontrada');
 
-    const availableBalance = Number(wallet.balance) - Number(wallet.lockedBalance);
+    const fatorLiquidez = new Prisma.Decimal(config?.saque?.fatorLiquidez ?? (process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91));
+    const walletBalance = new Prisma.Decimal(wallet.balance.toString());
+    const walletLocked = new Prisma.Decimal(wallet.lockedBalance.toString());
+    
+    const availableBalanceGross = walletBalance.sub(walletLocked);
+    const availableBalanceNet = availableBalanceGross.mul(fatorLiquidez);
 
-    if (dto.valor > availableBalance) {
+    const requestedValueNet = new Prisma.Decimal(dto.valor);
+
+    if (requestedValueNet.gt(availableBalanceNet)) {
       throw new UnprocessableEntityException(
-        `Saldo insuficiente para realizar o saque de R$ ${dto.valor.toFixed(2).replace('.', ',')}`,
+        `Saldo líquido insuficiente para realizar o saque de R$ ${requestedValueNet.toFixed(2).replace('.', ',')}. Seu saldo líquido atual é R$ ${availableBalanceNet.toFixed(2).replace('.', ',')}`,
       );
     }
 
-    const taxa = calcularTaxa(dto.valor);
-    const netAmount = dto.valor - taxa;
+    const taxa = new Prisma.Decimal(calcularTaxa(dto.valor));
+    const netAmount = requestedValueNet.sub(taxa);
 
-    if (netAmount <= 0) {
+    if (netAmount.lte(0)) {
       throw new UnprocessableEntityException(
         `O valor solicitado é insuficiente para cobrir as taxas (taxa: R$ ${taxa.toFixed(2).replace('.', ',')})`,
       );
     }
 
-    const amountToLock = dto.valor;
-    const beforeLocked = Number(wallet.lockedBalance);
-    const beforeBalance = Number(wallet.balance);
+    // O usuário solicitou dto.valor (líquido). 
+    // Para que o netBalance diminua exatamente dto.valor, precisamos bloquear e debitar do balance bruto
+    // o valor correspondente (valor / fatorLiquidez).
+    const grossToDeduct = requestedValueNet.div(fatorLiquidez);
+    const amountToLock = grossToDeduct;
+
+    const beforeLocked = walletLocked;
+    const beforeBalance = walletBalance;
 
     // Cria o saque no banco local (status PENDING)
     let created;
     try {
       created = await this.withdraws.createWithWalletLock({
         userId,
-        amount: netAmount,
-        grossAmount: dto.valor,
-        fee: taxa,
+        amount: netAmount.toNumber(),
+        grossAmount: grossToDeduct.toNumber(),
+        fee: taxa.toNumber(),
         pixKey: dto.chavePix,
-        amountToLock,
+        amountToLock: grossToDeduct.toNumber(),
         currentWalletVersion: wallet.version,
       });
     } catch (e) {
@@ -165,11 +177,11 @@ export class RequestWithdrawUseCase {
     await this.balanceLogs.create({
       userId,
       action: 'WITHDRAW_REQUESTED',
-      amount: new Prisma.Decimal(-amountToLock).toFixed(2),
-      balanceBefore: new Prisma.Decimal(beforeBalance).toFixed(2),
-      balanceAfter: new Prisma.Decimal(beforeBalance).toFixed(2),
-      lockedBefore: new Prisma.Decimal(beforeLocked).toFixed(2),
-      lockedAfter: new Prisma.Decimal(beforeLocked + amountToLock).toFixed(2),
+      amount: new Prisma.Decimal(-amountToLock.toNumber()).toFixed(2),
+      balanceBefore: beforeBalance.toFixed(2),
+      balanceAfter: beforeBalance.toFixed(2),
+      lockedBefore: beforeLocked.toFixed(2),
+      lockedAfter: beforeLocked.add(amountToLock).toFixed(2),
       source: 'WITHDRAW',
       description: `Solicitação de saque${user?.tenantModule ? ` — ${user.tenantModule.name}` : ''}`,
     });

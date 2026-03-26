@@ -2,6 +2,7 @@ import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { WALLET_REPOSITORY } from '../../../core/repositories/wallet.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
+import { getModuleConfig } from '../../../modules/module.registry';
 
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
@@ -44,7 +45,10 @@ export class GetMeUseCase {
     const lockedBalance = Number(wallet.lockedBalance);
     const availableBalance = balance - lockedBalance;
 
-    const netBalance = availableBalance;
+    // Calcula saldo líquido baseado no módulo do usuário
+    const config = getModuleConfig(user.tenantModule?.slug);
+    const fatorLiquidez = config?.saque?.fatorLiquidez ?? Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
+    const netBalance = availableBalance * fatorLiquidez;
 
     const tenant =
       user.tenantModule != null
