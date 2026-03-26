@@ -9,8 +9,8 @@ import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
  * diretamente, sem passar pela api-dom (descontinuada).
  *
  * Usa GET /checkout/production/transactions da DOM com o DOM_TOKEN master.
- * A cada minuto busca as últimas transações e sincroniza as que pertencem
- * ao cod_external de transações do Bosque (userId = BOSQUE_ID).
+ * Filtra pelo cod_external vinculado ao BOSQUE_ID.
+ * Saldo gerenciado incrementalmente via completedDelta — não recalcula do zero.
  */
 @Injectable()
 export class BosqueSyncService implements OnModuleInit {
@@ -40,15 +40,17 @@ export class BosqueSyncService implements OnModuleInit {
     try {
       let created = 0;
       let updated = 0;
+      let completedDelta = new Prisma.Decimal(0);
 
-      // Busca as últimas páginas de transações da DOM
+      // DOM exige start_date e end_date — busca últimos 2 dias para sync periódico
+      const endDate = new Date().toISOString().split('T')[0];
+      const startDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
       for (let page = 1; page <= 3; page++) {
-        const res = await fetch(`${this.DOM_API}/transactions?page=${page}&limit=100`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            accept: 'application/json',
-          },
-        });
+        const res = await fetch(
+          `${this.DOM_API}/transactions?page=${page}&limit=100&start_date=${startDate}&end_date=${endDate}`,
+          { headers: { Authorization: `Bearer ${token}`, accept: 'application/json' } },
+        );
 
         if (!res.ok) {
           this.logger.warn(`[BOSQUE] Erro DOM (página ${page}): ${res.status}`);
@@ -62,19 +64,13 @@ export class BosqueSyncService implements OnModuleInit {
 
         for (const tx of txList) {
           try {
-            // O cod_external é o ID da transação no nosso banco (uuid)
             const codExternal = tx.cod_external as string | undefined;
-
-            // Só processar se a transação pertence ao Bosque (cod_external existir no banco do Bosque)
             if (!codExternal) continue;
 
             const existing = await this.prisma.transaction.findFirst({
               where: {
                 userId: this.BOSQUE_ID,
-                OR: [
-                  { id: codExternal },
-                  { domPaymentId: tx.id },
-                ],
+                OR: [{ id: codExternal }, { domPaymentId: tx.id }],
               },
             });
 
@@ -94,11 +90,13 @@ export class BosqueSyncService implements OnModuleInit {
                   },
                 });
 
-                if (mappedStatus === TransactionStatus.COMPLETED && existing.status !== TransactionStatus.COMPLETED) {
-                  await this.prisma.wallet.update({
-                    where: { userId: this.BOSQUE_ID },
-                    data: { balance: { increment: existing.netAmount ?? netAmount }, version: { increment: 1 } },
-                  });
+                // Transição para COMPLETED: soma ao delta
+                if (existing.status !== TransactionStatus.COMPLETED && mappedStatus === TransactionStatus.COMPLETED) {
+                  completedDelta = completedDelta.add(new Prisma.Decimal(existing.netAmount ?? netAmount));
+                }
+                // Transição de COMPLETED para outro: subtrai do delta
+                if (existing.status === TransactionStatus.COMPLETED && mappedStatus !== TransactionStatus.COMPLETED) {
+                  completedDelta = completedDelta.sub(new Prisma.Decimal(existing.netAmount ?? 0));
                 }
 
                 updated++;
@@ -107,10 +105,6 @@ export class BosqueSyncService implements OnModuleInit {
               continue;
             }
 
-            // Se não existe e o cod_external corresponde a um userId Bosque, criar
-            // (caso raro: transação criada por outro caminho)
-            const paymentMethod = this.mapPaymentMethod(tx.payment_method);
-
             const newTx = await this.prisma.transaction.create({
               data: {
                 id: codExternal,
@@ -118,7 +112,7 @@ export class BosqueSyncService implements OnModuleInit {
                 amount,
                 netAmount,
                 status: mappedStatus,
-                paymentMethod,
+                paymentMethod: this.mapPaymentMethod(tx.payment_method),
                 description: tx.items?.[0]?.description || 'Sincronização Bosque',
                 domPaymentId: tx.id,
                 customerName: tx.customer?.name,
@@ -134,11 +128,9 @@ export class BosqueSyncService implements OnModuleInit {
               },
             });
 
+            // Nova transação já COMPLETED: soma ao delta
             if (mappedStatus === TransactionStatus.COMPLETED) {
-              await this.prisma.wallet.update({
-                where: { userId: this.BOSQUE_ID },
-                data: { balance: { increment: netAmount }, version: { increment: 1 } },
-              });
+              completedDelta = completedDelta.add(netAmount);
             }
 
             created++;
@@ -155,6 +147,15 @@ export class BosqueSyncService implements OnModuleInit {
 
       if (created > 0 || updated > 0) {
         this.logger.log(`[BOSQUE] Sync: ${created} criadas, ${updated} atualizadas`);
+
+        // Aplicar delta incremental em uma única operação
+        if (!completedDelta.equals(0)) {
+          await this.prisma.wallet.update({
+            where: { userId: this.BOSQUE_ID },
+            data: { balance: { increment: completedDelta }, version: { increment: 1 } },
+          });
+          this.logger.log(`[BOSQUE] Saldo ajustado em R$ ${completedDelta.toFixed(2)}`);
+        }
       }
     } catch (error: any) {
       this.logger.error(`[BOSQUE] Sync error: ${error.message}`);

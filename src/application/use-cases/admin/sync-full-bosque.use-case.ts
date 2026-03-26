@@ -73,9 +73,11 @@ export class SyncFullBosqueUseCase {
     // 2. Testar conexão com DOM Pagamentos
     this.logger.log('Testando conexão com DOM Pagamentos...');
     try {
-      const testRes = await fetch(`${this.DOM_API}/transactions?page=1&limit=1`, {
-        headers: { Authorization: `Bearer ${DOM_TOKEN}`, accept: 'application/json' },
-      });
+      const today = new Date().toISOString().split('T')[0];
+      const testRes = await fetch(
+        `${this.DOM_API}/transactions?page=1&limit=1&start_date=2020-01-01&end_date=${today}`,
+        { headers: { Authorization: `Bearer ${DOM_TOKEN}`, accept: 'application/json' } },
+      );
 
       if (!testRes.ok) {
         const err = await testRes.text();
@@ -115,9 +117,14 @@ export class SyncFullBosqueUseCase {
       try {
         this.logger.log(`Buscando página ${page} na DOM...`);
 
-        const res = await fetch(`${this.DOM_API}/transactions?page=${page}&limit=${LIMIT}`, {
-          headers: { Authorization: `Bearer ${DOM_TOKEN}`, accept: 'application/json' },
-        });
+        // DOM exige datas — busca desde o início até hoje
+        const startDate = '2020-01-01';
+        const endDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+        const res = await fetch(
+          `${this.DOM_API}/transactions?page=${page}&limit=${LIMIT}&start_date=${startDate}&end_date=${endDate}`,
+          { headers: { Authorization: `Bearer ${DOM_TOKEN}`, accept: 'application/json' } },
+        );
 
         if (!res.ok) {
           this.logger.error(`Erro DOM página ${page}: ${res.status}`);
