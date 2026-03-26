@@ -61,21 +61,75 @@ export class SyncMaquinetasUseCase {
 
     for (const tx of allMachineTxs) {
       try {
-        // Verificar se já existe no banco
-        const existing = await this.prisma.transaction.findFirst({
-          where: { domPaymentId: tx.id, userId: RENOVADA_ID },
+        const amountReais = tx.amount; // DOM envia em Reais (ex: 25.00) para máquinas
+        const netbalancemachine = amountReais * (1 - TAXA_MAQUINETA); // valor - 9%
+        const serial = tx.serial;
+
+        // Verificar se já existe no banco (pela domPaymentId que é UNICA)
+        const existing = await this.prisma.transaction.findUnique({
+          where: { domPaymentId: tx.id },
         });
 
         if (existing) {
-          skipped++;
+          const oldAmount = existing.amount.toNumber();
+          const diff = amountReais - oldAmount;
+
+          // Se o valor estiver OK, pula
+          if (Math.abs(diff) < 0.001) {
+            skipped++;
+            continue;
+          }
+
+          // Se o valor estiver errado (ex: 0.25 vs 25.00), vamos CORRIGIR!
+          this.logger.log(`[SyncMaquinetas] Corrigindo transação ${tx.id}: R$${oldAmount} -> R$${amountReais} (Dif: R$${diff.toFixed(2)})`);
+
+          await this.prisma.$transaction(async (p) => {
+            // 1. Atualizar a transação
+            await p.transaction.update({
+              where: { id: existing.id },
+              data: {
+                amount: new Prisma.Decimal(amountReais),
+                netAmount: new Prisma.Decimal(netbalancemachine),
+                totalFee: new Prisma.Decimal(amountReais - netbalancemachine),
+                platformFee: new Prisma.Decimal(amountReais - netbalancemachine),
+                description: `Maquineta (CORRIGIDA) - Terminal: ${serial}`,
+              },
+            });
+
+            // 2. Ajustar saldo da carteira com a DIFERENÇA
+            const currentWallet = await p.wallet.findUnique({ where: { userId: RENOVADA_ID } });
+            if (currentWallet) {
+              const newBalance = currentWallet.balance.add(new Prisma.Decimal(diff));
+              await p.wallet.updateMany({
+                where: { id: currentWallet.id, version: currentWallet.version },
+                data: { balance: newBalance, version: { increment: 1 } },
+              });
+
+              await p.balanceLog.create({
+                data: {
+                  userId: RENOVADA_ID,
+                  action: 'MAQUINETA_CORRECTION',
+                  transactionId: existing.id,
+                  amount: new Prisma.Decimal(diff),
+                  balanceBefore: currentWallet.balance,
+                  balanceAfter: newBalance,
+                  lockedBefore: currentWallet.lockedBalance,
+                  lockedAfter: currentWallet.lockedBalance,
+                  source: 'MAQUINETA_SYNC',
+                  description: `Ajuste de valor: ${oldAmount} -> ${amountReais}`,
+                },
+              });
+            }
+          });
+
+          synced++;
+          totalAmount += diff;
           continue;
         }
 
-        const amountReais = tx.amount / 100; // DOM envia em centavos
-        const netbalancemachine = amountReais * (1 - TAXA_MAQUINETA); // valor - 9%
-
-        const serial = tx.serial;
-        const paymentMethod = tx.payment_method?.toLowerCase().includes('card')
+        // --- NOVA TRANSAÇÃO ---
+        const pm = String(tx.payment_method ?? '').toLowerCase();
+        const paymentMethod = (pm.includes('card') || pm.includes('debit') || pm.includes('credit'))
           ? PaymentMethod.CREDIT_CARD
           : PaymentMethod.PIX;
 
@@ -150,6 +204,7 @@ export class SyncMaquinetasUseCase {
       }
     }
 
+
     const message = `Sincronização concluída: ${synced} novas, ${skipped} já existentes, ${errors} erros. Total: R$${totalAmount.toFixed(2)}`;
     this.logger.log(`[SyncMaquinetas] ${message}`);
 
@@ -161,8 +216,15 @@ export class SyncMaquinetasUseCase {
     const baseUrl = (process.env.DOM_REAL_API_URL ?? 'https://apiv3.dompagamentos.com.br/checkout/production').replace(/\/$/, '');
     const url = `${baseUrl}/transactions`;
 
-    const beginDate = process.env.MAQUINETA_SYNC_BEGIN_DATE ?? '2024-01-01';
+    // Forçar 30 dias se não houver data no env, ou se a data do env for muito antiga (2024, etc)
+    const envDate = process.env.MAQUINETA_SYNC_BEGIN_DATE;
+    const beginDate = (envDate && !envDate.startsWith('2024'))
+      ? envDate 
+      : dayjs().subtract(30, 'day').format('YYYY-MM-DD');
+      
     const endDate = dayjs().format('YYYY-MM-DD');
+
+    this.logger.log(`[SyncMaquinetas] Rodando busca na DOM: ${beginDate} até ${endDate} (URL: ${url})`);
 
     const headers = {
       Authorization: `Bearer ${domToken}`,
@@ -172,37 +234,49 @@ export class SyncMaquinetasUseCase {
 
     const allTxs: any[] = [];
     let page = 1;
-    const limit = 100;
+    const limit = 50; // Reduzido para 50 para evitar sobrecarga no master token
 
     while (true) {
       try {
+        const params = {
+          page,
+          limit,
+          begin_date: beginDate,
+          end_date: endDate,
+        };
+        
+        this.logger.debug(`[SyncMaquinetas] GET Page ${page} Params: ${JSON.stringify(params)}`);
+
         const res = await firstValueFrom(
           this.http.get<any>(url, {
             headers,
-            params: {
-              page,
-              limit,
-              status: 'paid',
-              begin_date: beginDate,
-              end_date: endDate,
-            },
+            params,
           }),
         );
 
         const root = res.data;
-        const items: any[] = Array.isArray(root?.data)
-          ? root.data
-          : Array.isArray(root?.transactions)
-          ? root.transactions
-          : Array.isArray(root)
-          ? root
-          : [];
+        const items = root?.transactions || root?.data || (Array.isArray(root) ? root : []);
 
-        if (items.length === 0) break;
+        if (!items || items.length === 0) {
+          this.logger.log(`[SyncMaquinetas] Página ${page} sem itens.`);
+          break;
+        }
+
+        this.logger.log(`[SyncMaquinetas] Página ${page}: Recebidos ${items.length} itens brutos.`);
 
         // Filtrar apenas transações de maquinetas
-        const machineItems = items.filter((item) => this.isMachineTx(item));
-        allTxs.push(...machineItems.map((item) => this.normalizeTx(item)));
+        let machineCountInPage = 0;
+        for (const item of items) {
+          const s = String(item.status ?? '').toLowerCase();
+          const isSuccessful = s === 'paid' || s === 'approved' || s === 'completed';
+
+          if (isSuccessful && this.isMachineTx(item)) {
+            allTxs.push(this.normalizeTx(item));
+            machineCountInPage++;
+          }
+        }
+        
+        this.logger.log(`[SyncMaquinetas] Página ${page}: ${machineCountInPage} identificados como máquina (pagas/aprovadas).`);
 
         if (items.length < limit) break;
 
@@ -216,6 +290,9 @@ export class SyncMaquinetasUseCase {
         }
       } catch (err: any) {
         this.logger.error(`[SyncMaquinetas] Erro na página ${page}: ${err?.response?.status ?? err.message}`);
+        if (err?.response?.data) {
+          this.logger.error(`[SyncMaquinetas] Detalhes do erro: ${JSON.stringify(err.response.data)}`);
+        }
         break;
       }
     }
@@ -223,53 +300,62 @@ export class SyncMaquinetasUseCase {
     return allTxs;
   }
 
+  /**
+   * Identifica se uma transação da DOM é de maquineta (POS).
+   * Lógica: type_operation === 'fisical' E doc === CNPJ Renovada
+   */
   private isMachineTx(item: any): boolean {
-    // Verifica serial_number direto
-    if (item.serial_number && RENOVADA_MACHINE_SERIALS.includes(item.serial_number)) {
+    const typeOp = String(item.type_operation ?? '').toLowerCase();
+    const doc = String(item.customer_document ?? item.customer?.document ?? '').replace(/\D/g, '');
+    
+    // 1. Prioridade: Operação física + CNPJ da Renovada (44522660000108)
+    if (typeOp === 'fisical' && doc === '44522660000108') {
       return true;
     }
-    // Verifica customer_name com padrão "Terminal: [SERIAL]"
-    const name: string = item.customer?.name ?? item.customer_name ?? '';
-    const m = name.match(/Terminal:\s*([A-Z0-9]+)/i);
-    if (m && RENOVADA_MACHINE_SERIALS.includes(m[1])) {
+
+    // 2. Fallback: Se tiver serial e estiver na lista cadastrada
+    const serial = String(item.serial_number ?? item.terminal_serial ?? '').toUpperCase();
+    if (serial && serial !== 'SEM-SERIAL' && RENOVADA_MACHINE_SERIALS.includes(serial)) {
       return true;
     }
-    // Verifica origin fisical + document Renovada
-    if (item.origin === 'FISICAL') {
-      const doc: string = item.customer?.document ?? item.customer_document ?? '';
-      const docClean = doc.replace(/\D/g, '');
-      if (docClean === '44522660000108') return true;
+
+    // 3. Fallback: Se o nome do cliente for "Cliente POS" ou conter um dos nossos seriais
+    const name = String(item.customer?.name ?? item.customer_name ?? '').toUpperCase();
+    if (name === 'CLIENTE POS' || name === 'PAYWAVE/VISA') {
+      return true;
     }
+
     return false;
   }
-
   private extractSerial(item: any): string {
-    if (item.serial_number && RENOVADA_MACHINE_SERIALS.includes(item.serial_number)) {
-      return item.serial_number;
-    }
-    const name: string = item.customer?.name ?? item.customer_name ?? '';
+    const serial = String(item.serial_number ?? item.terminal_serial ?? '').toUpperCase();
+    if (serial && serial !== 'SEM-SERIAL') return serial;
+
+    const name = String(item.customer?.name ?? item.customer_name ?? '').toUpperCase();
     const m = name.match(/Terminal:\s*([A-Z0-9]+)/i);
     if (m) return m[1];
-    return item.serial_number ?? 'DESCONHECIDO';
+
+    return 'POS-MIG-RENOVADA';
   }
 
   private normalizeTx(item: any): any {
-    const amountRaw = typeof item.amount === 'number' ? item.amount : Number(item.amount ?? 0);
-    const liquidRaw = typeof item.liquid_amount === 'number' ? item.liquid_amount : Number(item.liquid_amount ?? 0);
+    // A DOM traz amount em valor real (ex: 25.00), mas salvamos bruto
+    const amountRaw = Number(item.amount ?? 0);
+    const liquidRaw = Number(item.liquid_amount ?? 0);
 
     return {
       id: item.id ?? item.order_id,
       created_at: item.created_at ?? item.createdAt,
-      amount: amountRaw, // em centavos
-      liquid_amount: liquidRaw, // em centavos
+      amount: amountRaw, 
+      liquid_amount: liquidRaw, 
       status: item.status ?? 'paid',
-      payment_method: item.payment_method ?? 'pix',
+      payment_method: item.payment_method ?? 'credit_card',
       installments: item.installments ?? 1,
       card_brand: item.card_brand ?? null,
       card_bin: item.card_bin ?? null,
       customer_name: item.customer?.name ?? item.customer_name ?? 'Cliente POS',
       customer_email: item.customer?.email ?? item.customer_email ?? '',
-      customer_document: item.customer?.document ?? item.customer_document ?? '',
+      customer_document: item.customer?.document ?? item.customer_document ?? '44522660000108',
       customer_phone: item.customer?.mobile_phone ?? item.customer_phone ?? '',
       serial: this.extractSerial(item),
     };
