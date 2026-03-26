@@ -117,10 +117,12 @@ export class SyncMaquinetasUseCase {
               },
             });
 
-            // 2. Ajustar saldo da carteira com a DIFERENÇA
+            // 2. Ajustar saldo da carteira com a DIFERENÇA LÍQUIDA
             const currentWallet = await p.wallet.findUnique({ where: { userId: RENOVADA_ID } });
             if (currentWallet) {
-              const newBalance = currentWallet.balance.add(new Prisma.Decimal(diff));
+              const oldNet = existing.netAmount?.toNumber() || (existing.amount.toNumber() * 0.91);
+              const diffNet = netbalancemachine - oldNet;
+              const newBalance = currentWallet.balance.add(new Prisma.Decimal(diffNet));
               await p.wallet.updateMany({
                 where: { id: currentWallet.id, version: currentWallet.version },
                 data: { balance: newBalance, version: { increment: 1 } },
@@ -131,13 +133,13 @@ export class SyncMaquinetasUseCase {
                   userId: RENOVADA_ID,
                   action: 'MAQUINETA_CORRECTION',
                   transactionId: existing.id,
-                  amount: new Prisma.Decimal(diff),
+                  amount: new Prisma.Decimal(diffNet),
                   balanceBefore: currentWallet.balance,
                   balanceAfter: newBalance,
                   lockedBefore: currentWallet.lockedBalance,
                   lockedAfter: currentWallet.lockedBalance,
                   source: 'MAQUINETA_SYNC',
-                  description: `Ajuste de valor: ${oldAmount} -> ${amountReais}`,
+                  description: `Ajuste de valor líquido: ${oldNet.toFixed(2)} -> ${netbalancemachine.toFixed(2)}`,
                 },
               });
             }
@@ -189,10 +191,10 @@ export class SyncMaquinetasUseCase {
             },
           });
 
-          // Adicionar o valor bruto ao wallet.balance (netBalance = balance * 0.91)
+          // Adicionar o lucro líquido ao wallet.balance
           const currentWallet = await p.wallet.findUnique({ where: { userId: RENOVADA_ID } });
           if (currentWallet) {
-            const newBalance = currentWallet.balance.add(new Prisma.Decimal(amountReais));
+            const newBalance = currentWallet.balance.add(new Prisma.Decimal(netbalancemachine));
             await p.wallet.updateMany({
               where: { id: currentWallet.id, version: currentWallet.version },
               data: { balance: newBalance, version: { increment: 1 } },
@@ -202,7 +204,7 @@ export class SyncMaquinetasUseCase {
                 userId: RENOVADA_ID,
                 action: 'MAQUINETA_SYNC',
                 transactionId: newTx.id,
-                amount: new Prisma.Decimal(amountReais),
+                amount: new Prisma.Decimal(netbalancemachine),
                 balanceBefore: currentWallet.balance,
                 balanceAfter: newBalance,
                 lockedBefore: currentWallet.lockedBalance,
