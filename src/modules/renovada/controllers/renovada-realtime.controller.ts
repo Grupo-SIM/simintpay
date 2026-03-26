@@ -17,4 +17,18 @@ export class RenovadaRealtimeController {
       }) as MessageEvent)
     );
   }
+
+  @Sse('withdrawals')
+  sseWithdrawals(): Observable<MessageEvent> {
+    return this.events.getWithdrawalStream().pipe(
+      map(
+        (w) =>
+          ({
+            data: w,
+            id: w?.withdrawId ?? w?.id ?? 'withdraw',
+            type: 'new-withdrawal',
+          }) as MessageEvent,
+      ),
+    );
+  }
 }

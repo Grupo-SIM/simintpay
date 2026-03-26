@@ -4,6 +4,7 @@ import { Subject } from 'rxjs';
 @Injectable()
 export class RenovadaEventsService {
   private readonly transactionEventSubject = new Subject<any>();
+  private readonly withdrawalEventSubject = new Subject<any>();
 
   /**
    * Pushes a new transaction event to all subscribers (SSE)
@@ -13,9 +14,20 @@ export class RenovadaEventsService {
   }
 
   /**
+   * Pushes saque/withdrawal updates (criação, aprovação, rejeição).
+   */
+  emitWithdrawal(data: any) {
+    this.withdrawalEventSubject.next(data);
+  }
+
+  /**
    * Observable stream for SSE
    */
   getTransactionStream() {
     return this.transactionEventSubject.asObservable();
+  }
+
+  getWithdrawalStream() {
+    return this.withdrawalEventSubject.asObservable();
   }
 }

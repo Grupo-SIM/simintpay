@@ -25,9 +25,10 @@ import { HASH_SERVICE } from '../core/services/hash.interface';
 import { BcryptService } from '../infrastructure/security/bcrypt.service';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { EmailService } from '../infrastructure/email/email.service';
+import { ModuleRealtimeModule } from '../infrastructure/realtime/module-realtime.module';
 
 @Module({
-  imports: [ApiDomModule, HttpModule],
+  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule],
   controllers: [AdminController],
   providers: [
     SyncDomTransactionsCron,

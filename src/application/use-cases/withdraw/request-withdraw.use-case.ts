@@ -18,6 +18,7 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { getModuleConfig } from '../../../modules/module.registry';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
 
 // Fallback para usuários sem módulo configurado
 const DEFAULT_MIN_VALOR = Number(process.env.DEFAULT_WITHDRAW_MIN_VALUE || 100);
@@ -34,6 +35,7 @@ export class RequestWithdrawUseCase {
     private readonly balanceLogs: IBalanceLogRepository,
     @Inject(CACHE_SERVICE) private readonly cache: ICacheService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly realtime: ModuleRealtimeNotifyService,
   ) {}
 
   async execute(
@@ -173,6 +175,7 @@ export class RequestWithdrawUseCase {
     });
 
     await this.cache.delete(`wallet:${userId}`);
+    await this.realtime.notifyWithdrawal(userId, { withdrawId: created.id });
 
     return {
       data: {

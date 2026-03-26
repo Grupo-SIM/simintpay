@@ -14,9 +14,10 @@ import { NoopCacheService } from '../infrastructure/cache/noop-cache.service';
 import { AuthModule } from './auth.module';
 import { USER_REPOSITORY } from '../core/repositories/user.repository.interface';
 import { WALLET_REPOSITORY } from '../core/repositories/wallet.repository.interface';
+import { ModuleRealtimeModule } from '../infrastructure/realtime/module-realtime.module';
 
 @Module({
-  imports: [AuthModule, ApiDomModule],
+  imports: [AuthModule, ApiDomModule, ModuleRealtimeModule],
   controllers: [WithdrawController],
   providers: [
     RequestWithdrawUseCase,

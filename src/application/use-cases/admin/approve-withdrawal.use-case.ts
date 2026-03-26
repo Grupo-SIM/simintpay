@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { WithdrawStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
 
 @Injectable()
 export class ApproveWithdrawalUseCase {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtime: ModuleRealtimeNotifyService,
+  ) {}
 
   async execute(withdrawId: string, receiptImage?: string): Promise<{ message: string }> {
     const withdraw = await this.prisma.withdrawRequest.findUnique({
@@ -65,6 +69,8 @@ export class ApproveWithdrawalUseCase {
         },
       });
     });
+
+    await this.realtime.notifyWithdrawal(withdraw.userId, { withdrawId, action: 'approved' });
 
     return { message: 'Saque aprovado com sucesso e saldo debitado' };
   }

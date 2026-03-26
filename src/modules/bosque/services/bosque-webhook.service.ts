@@ -1,7 +1,8 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { TransactionStatus, PaymentMethod } from '@prisma/client';
+import { TransactionStatus } from '@prisma/client';
 import { createHmac } from 'crypto';
+import { BosqueEventsService } from '../events/bosque-events.service';
 
 interface WebhookEvent {
   event: string;
@@ -45,7 +46,10 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 export class BosqueWebhookService {
   private readonly logger = new Logger(BosqueWebhookService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: BosqueEventsService,
+  ) {}
 
   async processWebhook(event: WebhookEvent): Promise<void> {
     this.logger.log('[BOSQUE] Webhook recebido', {
@@ -148,6 +152,16 @@ export class BosqueWebhookService {
             this.logger.log(`[BOSQUE] Saldo atualizado: ${wallet.balance} → ${updatedWallet.balance}`);
           }
         }
+      });
+
+      this.events.emitTransaction({
+        id: transaction.id,
+        userId: transaction.userId,
+        status: newStatus,
+        amount: transaction.amount,
+        netAmount: transaction.netAmount,
+        description: transaction.description,
+        domPaymentId: transaction.domPaymentId,
       });
 
       await this.prisma.webhookEvent.update({

@@ -21,6 +21,7 @@ export class GetMeUseCase {
     email: string;
     role: string;
     isAdmin: boolean;
+    tenantModule: { slug: string; name: string } | null;
     wallet: {
       balance: number;
       lockedBalance: number;
@@ -45,6 +46,11 @@ export class GetMeUseCase {
 
     const netBalance = availableBalance;
 
+    const tenant =
+      user.tenantModule != null
+        ? { slug: user.tenantModule.slug, name: user.tenantModule.name }
+        : null;
+
     if (user.domToken) {
       try {
         const domMe = await this.gateway.me(user.domToken);
@@ -55,6 +61,7 @@ export class GetMeUseCase {
             email: domMe.email ?? user.email,
             role: user.role,
             isAdmin: user.role === 'ADMIN',
+            tenantModule: tenant,
             wallet: {
               balance,
               lockedBalance,
@@ -75,6 +82,7 @@ export class GetMeUseCase {
       email: user.email,
       role: user.role,
       isAdmin: user.role === 'ADMIN',
+      tenantModule: tenant,
       wallet: {
         balance,
         lockedBalance,
