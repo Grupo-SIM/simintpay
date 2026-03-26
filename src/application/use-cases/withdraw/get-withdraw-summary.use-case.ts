@@ -66,7 +66,7 @@ export class GetWithdrawSummaryUseCase {
   /** Resumo igual à plataforma antiga (api-dom) — usado no módulo Bosque no admin máquina. */
   private async executeBosqueLikeDomSummary(
     userId: string,
-    wallet: { id: string; userId: string; version: number; updatedAt: Date },
+    wallet: { id: string; userId: string; balance: any; lockedBalance: any; version: number; updatedAt: Date },
     fatorLiquidez: number,
     config: ModuleConfig | null,
   ) {
@@ -79,6 +79,31 @@ export class GetWithdrawSummaryUseCase {
     const pendingWithdrawFees = pendingList.reduce((s, w) => s + Number(w.fee ?? 0), 0);
     const pendingWithdrawsTotal = pendingWithdraws + pendingWithdrawFees;
     const netLockedBalance = pendingWithdraws - pendingWithdrawFees;
+
+    const storedBalance = Number(wallet.balance);
+    const lockedBalance = Number(wallet.lockedBalance);
+
+    // Se wallet.balance foi definido (não-zero), usa como fonte da verdade (igual à Renovada).
+    // wallet.balance é bruto; netBalance = (balance - locked) * fatorLiquidez
+    if (storedBalance > 0) {
+      const availableBalance = Math.max(0, storedBalance - lockedBalance);
+      const netBalance = Math.max(0, (storedBalance - lockedBalance) * fatorLiquidez);
+      const netLockedBalanceFinal = lockedBalance * fatorLiquidez;
+      return {
+        availableBalance,
+        netBalance,
+        pendingWithdraws,
+        lockedBalance: netLockedBalanceFinal,
+        netLockedBalance: netLockedBalanceFinal,
+        config: this.summaryConfigBlock(config, fatorLiquidez),
+        wallet: {
+          id: wallet.id,
+          userId: wallet.userId,
+          version: wallet.version,
+          updatedAt: wallet.updatedAt.toISOString(),
+        },
+      };
+    }
 
     const lastCompletedWithdraw = await this.prisma.withdrawRequest.findFirst({
       where: { userId, status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] } },
