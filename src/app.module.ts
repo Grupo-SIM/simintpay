@@ -18,6 +18,7 @@ import { LeadModule } from './presentation/lead.module';
 import { AdminModule } from './presentation/admin.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
 import { RenovadaModule } from './modules/renovada/renovada.module';
+import { BosqueModule } from './modules/bosque/bosque.module';
 import { MasterModule } from './modules/master/master.module';
 
 @Module({
@@ -48,6 +49,7 @@ import { MasterModule } from './modules/master/master.module';
     AdminModule,
     StorageModule,
     RenovadaModule,
+    BosqueModule,
     MasterModule,
   ],
   providers: [
