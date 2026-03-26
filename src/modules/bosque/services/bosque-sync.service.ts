@@ -61,7 +61,7 @@ export class BosqueSyncService implements OnModuleInit {
         for (const tx of txList) {
           try {
             const domPaymentId = tx.id;
-            const codExternal  = tx.externalRef ?? tx.id;
+            const codExternal  = tx.cod_external ?? tx.id;
 
             const existing = await this.prisma.transaction.findFirst({
               where: {

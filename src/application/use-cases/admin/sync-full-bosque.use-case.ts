@@ -124,19 +124,22 @@ export class SyncFullBosqueUseCase {
           for (const tx of txList) {
             try {
               const domPaymentId = tx.id;
-              const codExternal  = tx.externalRef ?? tx.id;
+              const codExternal  = tx.cod_external ?? tx.id;
 
               // Filtra: só processa se pertence ao Bosque
               if (!existingIds.has(domPaymentId) && !existingIds.has(codExternal)) continue;
 
               const mappedStatus = this.mapStatus(tx.status);
               const amount    = new Prisma.Decimal(tx.amount ?? 0);
-              const netAmount = new Prisma.Decimal(tx.liquidAmount ?? Number(tx.amount ?? 0) * 0.91);
+              const netAmount = new Prisma.Decimal(tx.liquid_amount ?? Number(tx.amount ?? 0) * 0.91);
               const domFee    = amount.sub(netAmount).lessThan(0) ? new Prisma.Decimal(0) : amount.sub(netAmount);
 
               const existing = await this.prisma.transaction.findFirst({
-                where: { OR: [{ domPaymentId }, { id: codExternal }] },
+                where: { OR: [{ domPaymentId }, { id: codExternal }, { userId: BOSQUE_ID, domPaymentId }] },
               });
+
+              // Se existe mas pertence a outro usuário, pula — não é do Bosque
+              if (existing && existing.userId !== BOSQUE_ID) continue;
 
               if (existing) {
                 await this.prisma.transaction.update({
@@ -147,9 +150,9 @@ export class SyncFullBosqueUseCase {
                     netAmount,
                     domFee,
                     totalFee: domFee,
-                    customerName:     tx.customerName     || existing.customerName,
-                    customerEmail:    tx.customerEmail    || existing.customerEmail,
-                    customerDocument: tx.customerDocument || existing.customerDocument,
+                    customerName:     tx.customer_name     || existing.customerName,
+                    customerEmail:    tx.customer_email    || existing.customerEmail,
+                    customerDocument: tx.customer_document || existing.customerDocument,
                     updatedAt: new Date(),
                   },
                 });
@@ -163,19 +166,19 @@ export class SyncFullBosqueUseCase {
                   amount,
                   netAmount,
                   status:           mappedStatus,
-                  paymentMethod:    this.mapPaymentMethod(tx.paymentMethod),
-                  description:      tx.description || 'Migração Bosque',
+                  paymentMethod:    this.mapPaymentMethod(tx.payment_method),
+                  description:      tx.product_first || 'Migração Bosque',
                   domPaymentId,
-                  customerName:     tx.customerName,
-                  customerEmail:    tx.customerEmail,
-                  customerDocument: tx.customerDocument,
-                  customerPhone:    tx.customerPhone,
+                  customerName:     tx.customer_name,
+                  customerEmail:    tx.customer_email,
+                  customerDocument: tx.customer_document,
+                  customerPhone:    tx.customer_phone,
                   totalFee:         domFee,
                   domFee,
                   platformFee:      new Prisma.Decimal(0),
                   installments:     tx.installments ?? 1,
-                  createdAt:        tx.createdAt ? new Date(tx.createdAt) : new Date(),
-                  updatedAt:        tx.createdAt ? new Date(tx.createdAt) : new Date(),
+                  createdAt:        tx.created_at ? new Date(tx.created_at) : new Date(),
+                  updatedAt:        tx.created_at ? new Date(tx.created_at) : new Date(),
                 },
               });
               totalSynced++;
