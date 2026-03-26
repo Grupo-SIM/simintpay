@@ -241,6 +241,64 @@ export class AdminController {
     }
   }
 
+  @Post('sync/sync-wallet-bosque')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Definir saldo base da carteira Bosque (execução única para inicializar o saldo correto)' })
+  @ApiQuery({ name: 'balance', required: true, description: 'Saldo líquido (netBalance) a exibir (ex: 554.08). Será convertido para bruto internamente.', example: 554.08 })
+  async syncWalletBosque(@Query('balance') balanceParam?: string) {
+    const BOSQUE_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+
+    try {
+      const wallet = await this.prisma.wallet.findUnique({ where: { userId: BOSQUE_ID } });
+      if (!wallet) {
+        return { message: 'Wallet do Bosque não encontrada no simpay' };
+      }
+
+      const oldBalance = Number(wallet.balance);
+
+      if (!balanceParam) {
+        return {
+          message: 'Forneça o saldo líquido via query: ?balance=554.08. Será convertido para bruto (netBalance / fatorLiquidez).',
+          currentBalance: oldBalance,
+        };
+      }
+
+      // O valor informado é o netBalance desejado (saldo líquido exibido).
+      // wallet.balance armazena o valor bruto: netBalance / fatorLiquidez.
+      const fatorLiquidez = Number(process.env.BOSQUE_LIQUIDEZ || 0.91);
+      const netBalance = Number(balanceParam);
+      const grossBalance = netBalance / fatorLiquidez;
+
+      await this.prisma.wallet.update({
+        where: { userId: BOSQUE_ID },
+        data: { balance: String(grossBalance), version: { increment: 1 } },
+      });
+
+      await this.prisma.balanceLog.create({
+        data: {
+          userId: BOSQUE_ID,
+          action: 'WALLET_RECALCULATE',
+          amount: grossBalance - oldBalance,
+          balanceBefore: oldBalance,
+          balanceAfter: grossBalance,
+          lockedBefore: wallet.lockedBalance,
+          lockedAfter: wallet.lockedBalance,
+          description: `Saldo base Bosque definido manualmente. netBalance: R$ ${netBalance.toFixed(2)}, bruto armazenado: R$ ${grossBalance.toFixed(2)}`,
+          source: 'ADMIN_SYNC',
+          metadata: { oldBalance, netBalance, grossBalance, fatorLiquidez, setManually: true },
+        },
+      });
+
+      return {
+        message: 'Saldo base do Bosque definido com sucesso. A partir de agora o saldo é atualizado incrementalmente.',
+        before: { balance: oldBalance },
+        after: { grossBalance, netBalance },
+      };
+    } catch (error: any) {
+      return { message: `Erro ao definir saldo: ${error.message}` };
+    }
+  }
+
   @Post('migrar-transacoes-para-admin')
   @HttpCode(200)
   @ApiOperation({

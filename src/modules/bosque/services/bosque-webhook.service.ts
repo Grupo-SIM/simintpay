@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { TransactionStatus } from '@prisma/client';
+import { TransactionStatus, Prisma } from '@prisma/client';
 import { createHmac } from 'crypto';
 import { BosqueEventsService } from '../events/bosque-events.service';
 
@@ -115,7 +115,10 @@ export class BosqueWebhookService {
           },
         });
 
-        if (newStatus === TransactionStatus.COMPLETED) {
+        // wallet.balance é bruto — usa amount, não netAmount (igual à Renovada)
+        const balanceIncrement = new Prisma.Decimal(transaction.amount || 0);
+
+        if (newStatus === TransactionStatus.COMPLETED && transaction.status !== TransactionStatus.COMPLETED) {
           const wallet = await prisma.wallet.findUnique({
             where: { userId: transaction.userId },
           });
@@ -124,7 +127,7 @@ export class BosqueWebhookService {
             const updatedWallet = await prisma.wallet.update({
               where: { id: wallet.id, version: wallet.version },
               data: {
-                balance: { increment: transaction.netAmount || 0 },
+                balance: { increment: balanceIncrement },
                 version: { increment: 1 },
               },
             });
@@ -134,7 +137,7 @@ export class BosqueWebhookService {
                 userId: transaction.userId,
                 action: 'WEBHOOK_PAID_BOSQUE',
                 transactionId: transaction.id,
-                amount: transaction.netAmount || 0,
+                amount: balanceIncrement,
                 balanceBefore: wallet.balance,
                 balanceAfter: updatedWallet.balance,
                 lockedBefore: wallet.lockedBalance,
@@ -150,6 +153,48 @@ export class BosqueWebhookService {
             });
 
             this.logger.log(`[BOSQUE] Saldo atualizado: ${wallet.balance} → ${updatedWallet.balance}`);
+          }
+        }
+
+        // Estorno/chargeback: debita o saldo
+        if (
+          (newStatus === TransactionStatus.REFUNDED || newStatus === TransactionStatus.CHARGEBACK) &&
+          transaction.status === TransactionStatus.COMPLETED
+        ) {
+          const wallet = await prisma.wallet.findUnique({
+            where: { userId: transaction.userId },
+          });
+
+          if (wallet) {
+            const updatedWallet = await prisma.wallet.update({
+              where: { id: wallet.id, version: wallet.version },
+              data: {
+                balance: { decrement: balanceIncrement },
+                version: { increment: 1 },
+              },
+            });
+
+            await prisma.balanceLog.create({
+              data: {
+                userId: transaction.userId,
+                action: `WEBHOOK_${newStatus}_BOSQUE`,
+                transactionId: transaction.id,
+                amount: balanceIncrement,
+                balanceBefore: wallet.balance,
+                balanceAfter: updatedWallet.balance,
+                lockedBefore: wallet.lockedBalance,
+                lockedAfter: updatedWallet.lockedBalance,
+                description: `Estorno: ${transaction.description}`,
+                source: 'WEBHOOK_BOSQUE',
+                metadata: {
+                  signature: event.signature,
+                  eventStatus: event.data.status,
+                  transactionAmount: transaction.amount,
+                },
+              },
+            });
+
+            this.logger.log(`[BOSQUE] Estorno debitado: ${wallet.balance} → ${updatedWallet.balance}`);
           }
         }
       });

@@ -240,29 +240,9 @@ export class SyncFullBosqueUseCase {
       this.logger.error(`Erro saques: ${err.message}`);
     }
 
-    // 5. Recalcular saldo
-    this.logger.log('Recalculando saldo...');
-    const completedTxs = await this.prisma.transaction.aggregate({
-      where: { userId: BOSQUE_ID, status: TransactionStatus.COMPLETED },
-      _sum: { netAmount: true },
-    });
-
-    const completedWithdraws = await this.prisma.withdrawRequest.aggregate({
-      where: {
-        userId: BOSQUE_ID,
-        status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
-      },
-      _sum: { amount: true },
-    });
-
-    const totalReceived  = Number(completedTxs._sum.netAmount || 0);
-    const totalWithdrawn = Number(completedWithdraws._sum.amount || 0);
-    const calculatedBalance = Math.max(0, totalReceived - totalWithdrawn);
-
-    await this.prisma.wallet.update({
-      where: { userId: BOSQUE_ID },
-      data: { balance: calculatedBalance },
-    });
+    // 5. Saldo — não recalcula automaticamente; use POST /admin/sync/sync-wallet-bosque?balance=X para definir o saldo correto
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId: BOSQUE_ID } });
+    const currentBalance = Number(wallet?.balance ?? 0);
 
     const totalInDb = await this.prisma.transaction.count({ where: { userId: BOSQUE_ID } });
 
@@ -270,18 +250,16 @@ export class SyncFullBosqueUseCase {
     this.logger.log(`  Transações: ${totalSynced} novas, ${totalSkipped} atualizadas`);
     this.logger.log(`  Total no banco: ${totalInDb}`);
     this.logger.log(`  Saques: ${totalWithdrawalsSynced}`);
-    this.logger.log(`  Saldo: R$ ${calculatedBalance.toFixed(2)}`);
+    this.logger.log(`  Saldo atual: R$ ${currentBalance.toFixed(2)}`);
 
     return {
-      message: 'Sincronização completa do Bosque realizada com sucesso',
+      message: 'Sincronização completa do Bosque realizada com sucesso. Use POST /admin/sync/sync-wallet-bosque?balance=X para definir o saldo correto.',
       totalTransactions: totalSynced,
       totalSkipped,
       totalErrors,
       totalInDatabase: totalInDb,
       totalWithdrawals: totalWithdrawalsSynced,
-      balance: calculatedBalance,
-      totalReceived,
-      totalWithdrawn,
+      currentBalance,
     };
   }
 
