@@ -42,11 +42,20 @@ export class SyncDomTransactionsCron implements OnModuleInit {
         return;
       }
 
+      // IDs de usuários com serviços de sync dedicados — não processar aqui para evitar
+      // race condition e dupla contagem de saldo com renovada-sync / bosque-sync.
+      const DEDICATED_SYNC_USER_IDS = [
+        'ba2b57d6-e3bf-4395-af31-58454f27207a', // Renovada (renovada-sync.service)
+        process.env.BOSQUE_ID,                   // Bosque   (bosque-sync.service)
+      ].filter(Boolean) as string[];
+
       // Buscar transações PENDENTES que precisam de atualização de status
       const pendingTxs = await this.prisma.transaction.findMany({
         where: {
           status: TransactionStatus.PENDING,
           domPaymentId: { not: null },
+          // Excluir usuários com sync dedicado — eles gerenciam o próprio saldo
+          userId: { notIn: DEDICATED_SYNC_USER_IDS },
           // Só transações recentes (últimas 48h)
           createdAt: { gte: dayjs().subtract(48, 'hour').toDate() },
         },
