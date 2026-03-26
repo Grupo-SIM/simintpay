@@ -33,7 +33,7 @@ import { SyncFullRenovadaUseCase } from '../../application/use-cases/admin/sync-
 import { SyncFullBosqueUseCase } from '../../application/use-cases/admin/sync-full-bosque.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/admin/list-dom-transactions-direct.use-case';
-import { ListMachineTransactionsUseCase } from '../../application/use-cases/admin/list-machine-transactions.use-case';
+import { SyncMaquinetasUseCase } from '../../application/use-cases/admin/sync-maquinetas.use-case';
 import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-transactions.cron';
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
@@ -57,7 +57,7 @@ export class AdminController {
     private readonly syncFullBosqueUseCase: SyncFullBosqueUseCase,
     private readonly migrateRenovadaTxsToAdmin: MigrateRenovadaTxsToAdminUseCase,
     private readonly listDomTransactionsDirect: ListDomTransactionsDirectUseCase,
-    private readonly listMachineTransactions: ListMachineTransactionsUseCase,
+    private readonly syncMaquinetasUseCase: SyncMaquinetasUseCase,
     private readonly syncDomTransactionsCron: SyncDomTransactionsCron,
     private readonly storageService: StorageService,
     private readonly prisma: PrismaService,
@@ -522,17 +522,101 @@ export class AdminController {
     };
   }
 
-  // Equivalente ao api-dom GET /payments/dom/specific-machines-transactions
+  // ──────────── MAQUINETAS ────────────
+
+  @Post('sync/maquinetas')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Sincronizar transações históricas de maquinetas direto da DOM Pagamentos' })
+  async syncMaquinetas() {
+    return this.syncMaquinetasUseCase.execute();
+  }
+
   @Get('renovada/machines')
-  @ApiOperation({ summary: 'Transações de maquinetas da Renovada (alias para /admin/maquinetas)' })
-  async renovadaMachines() {
-    return this.listMachineTransactions.execute();
+  @ApiOperation({ summary: 'Transações de maquinetas da Renovada (lê do banco local)' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  async renovadaMachines(
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.getMaquinetasFromDb(page, limit, startDate, endDate);
   }
 
   @Get('maquinetas')
-  @ApiOperation({ summary: 'Transações de maquinetas centralizadas (usa token master)' })
-  async getMaquinetas() {
-    return this.listMachineTransactions.execute();
+  @ApiOperation({ summary: 'Transações de maquinetas centralizadas (lê do banco local)' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  async getMaquinetas(
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.getMaquinetasFromDb(page, limit, startDate, endDate);
+  }
+
+  private async getMaquinetasFromDb(
+    page: string,
+    limit: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const pageNum = Number(page);
+    const limitNum = Math.min(Number(limit), 100);
+    const skip = (pageNum - 1) * limitNum;
+
+    const where: any = {
+      userId: RENOVADA_ID,
+      description: { contains: 'Terminal:', mode: 'insensitive' },
+      ...(startDate || endDate
+        ? {
+            createdAt: {
+              ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
+              ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const [transactions, total] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limitNum,
+      }),
+      this.prisma.transaction.count({ where }),
+    ]);
+
+    const extractTerminal = (desc: string | null | undefined) => {
+      if (!desc) return '-';
+      const m = desc.match(/Terminal:\s*([A-Z0-9]+)/i);
+      return m ? m[1] : '-';
+    };
+
+    return {
+      transactions: transactions.map((tx) => ({
+        id: tx.id,
+        domPaymentId: tx.domPaymentId,
+        terminal: extractTerminal(tx.description),
+        amount: Number(tx.amount),
+        netbalancemachine: Number(tx.netAmount),
+        status: tx.status,
+        paymentMethod: tx.paymentMethod,
+        cardBrand: tx.cardBrand,
+        installments: tx.installments,
+        customerName: tx.customerName,
+        createdAt: tx.createdAt.toISOString(),
+      })),
+      meta: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+    };
   }
 
   @Delete('renovada/transactions/:id')

@@ -16,6 +16,7 @@ import { SettingsModule } from './presentation/settings.module';
 import { WithdrawModule } from './presentation/withdraw.module';
 import { LeadModule } from './presentation/lead.module';
 import { AdminModule } from './presentation/admin.module';
+import { MaquinetasModule } from './presentation/maquinetas.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
 import { RenovadaModule } from './modules/renovada/renovada.module';
 import { BosqueModule } from './modules/bosque/bosque.module';
@@ -47,6 +48,7 @@ import { MasterModule } from './modules/master/master.module';
     WithdrawModule,
     LeadModule,
     AdminModule,
+    MaquinetasModule,
     StorageModule,
     RenovadaModule,
     BosqueModule,
