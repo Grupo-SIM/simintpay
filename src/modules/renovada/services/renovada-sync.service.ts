@@ -52,6 +52,9 @@ export class RenovadaSyncService implements OnModuleInit {
       let created = 0;
       let updated = 0;
       // Delta incremental: quanto somar/subtrair do saldo desta rodada
+      // wallet.balance é o saldo BRUTO; netBalance = balance * fatorLiquidez
+      // Usar amount (bruto) diretamente — NÃO netAmount/fatorLiquidez
+      // liquid_amount do DOM reflete taxas DOM, não o fatorLiquidez do negócio
       let completedDelta = new Prisma.Decimal(0);
 
       for (let page = 1; page <= 3; page++) {
@@ -112,13 +115,44 @@ export class RenovadaSyncService implements OnModuleInit {
                 updated++;
                 this.events.emitTransaction({ ...existing, status: mappedStatus });
 
-                // Transição para COMPLETED: soma o netAmount ao delta
+                // Transição para COMPLETED: soma amount (bruto) ao delta
                 if (existing.status !== TransactionStatus.COMPLETED && mappedStatus === TransactionStatus.COMPLETED) {
-                  completedDelta = completedDelta.add(netAmount);
+                  completedDelta = completedDelta.add(amount);
                 }
-                // Transição de COMPLETED para outro: subtrai o netAmount do delta
+                // Transição de COMPLETED para outro: subtrai amount bruto anterior
                 if (existing.status === TransactionStatus.COMPLETED && mappedStatus !== TransactionStatus.COMPLETED) {
-                  completedDelta = completedDelta.sub(new Prisma.Decimal(existing.netAmount ?? 0));
+                  completedDelta = completedDelta.sub(new Prisma.Decimal(existing.amount ?? 0));
+                }
+              }
+              continue;
+            }
+
+            // Fallback: busca diretamente por domPaymentId antes de criar
+            // (evita P2002 quando findFirst acima falha por mapeamento de campos divergente)
+            const byPaymentId = await this.prisma.transaction.findFirst({
+              where: { domPaymentId: paymentId },
+            });
+            if (byPaymentId) {
+              if (byPaymentId.status !== mappedStatus) {
+                await this.prisma.transaction.update({
+                  where: { id: byPaymentId.id },
+                  data: {
+                    status: mappedStatus,
+                    previousStatus: byPaymentId.status,
+                    amount,
+                    netAmount,
+                    totalFee,
+                    domFee,
+                    platformFee,
+                    updatedAt: new Date(),
+                  },
+                });
+                updated++;
+                if (byPaymentId.status !== TransactionStatus.COMPLETED && mappedStatus === TransactionStatus.COMPLETED) {
+                  completedDelta = completedDelta.add(amount);
+                }
+                if (byPaymentId.status === TransactionStatus.COMPLETED && mappedStatus !== TransactionStatus.COMPLETED) {
+                  completedDelta = completedDelta.sub(new Prisma.Decimal(byPaymentId.amount ?? 0));
                 }
               }
               continue;
@@ -151,9 +185,9 @@ export class RenovadaSyncService implements OnModuleInit {
             created++;
             this.events.emitTransaction(newTx);
 
-            // Nova transação já COMPLETED: soma ao delta incremental
+            // Nova transação já COMPLETED: soma amount (bruto) ao delta
             if (mappedStatus === TransactionStatus.COMPLETED) {
-              completedDelta = completedDelta.add(netAmount);
+              completedDelta = completedDelta.add(amount);
             }
           } catch (err: any) {
             if (err.code !== 'P2002') {
@@ -178,7 +212,7 @@ export class RenovadaSyncService implements OnModuleInit {
               version: { increment: 1 },
             },
           });
-          this.logger.log(`[RENOVADA] Saldo ajustado em R$ ${completedDelta.toFixed(2)}`);
+          this.logger.log(`[RENOVADA] 💰 Saldo ajustado em R$ ${completedDelta.toFixed(2)} (bruto)`);
         }
       }
     } catch (error: any) {
