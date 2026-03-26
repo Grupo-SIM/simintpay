@@ -101,6 +101,7 @@ model Transaction {
   pixExpire        DateTime?
   cardBrand        String?
   cardBin          String?
+  cardCodeAuth     String?
   customerName     String?
   customerEmail    String?
   customerDocument String?

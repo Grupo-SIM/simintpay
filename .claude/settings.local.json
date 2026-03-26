@@ -22,7 +22,10 @@
       "Bash(ls:*)",
       "Bash(test:*)",
       "Bash(curl:*)",
-      "Bash(powershell.exe -Command \"Get-ChildItem ''C:\\\\Users\\\\breno\\\\Desktop\\\\JB'' -Directory | Select-Object Name\")"
+      "Bash(powershell.exe -Command \"Get-ChildItem ''C:\\\\Users\\\\breno\\\\Desktop\\\\JB'' -Directory | Select-Object Name\")",
+      "Bash(node -e \"const { PrismaClient } = require\\(''@prisma/client''\\); const p = new PrismaClient\\(\\); const fields = Object.keys\\(p.transaction.fields\\); console.log\\(fields.join\\('', ''\\)\\);\")",
+      "Bash(node -e:*)",
+      "Bash(echo:*)"
     ]
   }
 }

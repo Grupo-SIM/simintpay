@@ -72,20 +72,72 @@ export class MaquinetasController {
       this.prisma.transaction.count({ where }),
     ]);
 
-    const mapped = transactions.map((tx) => ({
-      id: tx.id,
-      domPaymentId: tx.domPaymentId,
-      terminal: extractTerminal(tx.description),
-      amount: Number(tx.amount),
-      netbalancemachine: Number(tx.netAmount),
-      status: tx.status,
-      paymentMethod: tx.paymentMethod,
-      cardBrand: tx.cardBrand,
-      cardBin: tx.cardBin,
-      installments: tx.installments,
-      customerName: tx.customerName,
-      createdAt: tx.createdAt.toISOString(),
-    }));
+    const mapped = transactions.map((tx) => {
+      const netAmt = Number(tx.netAmount);
+      const amt = Number(tx.amount);
+      const statusDetails = tx.status === 'COMPLETED' ? 'Aprovado'
+        : tx.status === 'PENDING' ? 'Pendente'
+        : tx.status === 'FAILED' ? 'Falhou'
+        : tx.status === 'REFUNDED' ? 'Estornado'
+        : tx.status;
+      return {
+        // Camel case fields
+        id: tx.domPaymentId || tx.id,
+        domPaymentId: tx.domPaymentId,
+        domTransactionId: tx.domTransactionId || null,
+        terminal: extractTerminal(tx.description),
+        amount: amt,
+        liquidAmount: amt,
+        netAmount: netAmt,
+        netbalancemachine: netAmt,
+        status: tx.status.toLowerCase(),
+        statusDetails,
+        paymentMethod: tx.paymentMethod.toLowerCase(),
+        installments: tx.installments,
+        cardBrand: tx.cardBrand,
+        cardBin: tx.cardBin,
+        cardCodeAuth: (tx as any).cardCodeAuth ?? null,
+        customerName: tx.customerName,
+        customerDocument: tx.customerDocument,
+        customerEmail: tx.customerEmail,
+        customerPhone: tx.customerPhone,
+        customerBirthdate: null,
+        pixQrCode: tx.pixQrCode ?? null,
+        pixContent: tx.pixContent ?? null,
+        pixExpire: tx.pixExpire ?? null,
+        boletoUrl: null,
+        boletoDigitableLine: null,
+        productFirst: null,
+        postbackUrl: null,
+        createdAt: tx.createdAt.toISOString(),
+        updatedAt: tx.updatedAt.toISOString(),
+
+        // Snake case para compatibilidade com admin-renovada12 (mesmo formato do api-dom)
+        type_operation: 'fisical',
+        created_at: tx.createdAt.toISOString(),
+        updated_at: tx.updatedAt.toISOString(),
+        cod_external: tx.domTransactionId || null,
+        liquid_amount: amt,
+        profit_minus_tax: netAmt,
+        status_details: statusDetails,
+        payment_method: tx.paymentMethod.toLowerCase(),
+        card_brand: tx.cardBrand,
+        card_bin: tx.cardBin,
+        card_code_auth: (tx as any).cardCodeAuth ?? null,
+        boleto_url: null,
+        boleto_digitable_line: null,
+        pix_qrcode: tx.pixQrCode ?? null,
+        pix_content: tx.pixContent ?? null,
+        pix_expire: tx.pixExpire ?? null,
+        customer_name: tx.customerName,
+        customer_document: tx.customerDocument,
+        customer_birthdate: null,
+        customer_email: tx.customerEmail,
+        customer_phone: tx.customerPhone,
+        product_first: null,
+        description: tx.customerName ?? 'Cliente POS',
+      };
+    });
 
     return {
       transactions: mapped,

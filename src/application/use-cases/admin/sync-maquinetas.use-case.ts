@@ -74,8 +74,25 @@ export class SyncMaquinetasUseCase {
           const oldAmount = existing.amount.toNumber();
           const diff = amountReais - oldAmount;
 
-          // Se o valor estiver OK, pula
+          // Se o valor estiver OK, verifica se faltam dados (como documento, NSU ou código de autorização)
           if (Math.abs(diff) < 0.001) {
+            if (!existing.customerDocument || !existing.domTransactionId || !(existing as any).cardCodeAuth) {
+              await this.prisma.transaction.update({
+                where: { id: existing.id },
+                data: {
+                  // Só atualiza domTransactionId se ainda não está preenchido (evita unique constraint)
+                  ...(!existing.domTransactionId && tx.cod_external ? { domTransactionId: tx.cod_external } : {}),
+                  customerEmail: tx.customer_email,
+                  customerDocument: tx.customer_document,
+                  customerPhone: tx.customer_phone,
+                  cardBrand: tx.card_brand,
+                  cardBin: tx.card_bin,
+                  cardCodeAuth: tx.card_code_auth,
+                },
+              });
+              synced++;
+              continue;
+            }
             skipped++;
             continue;
           }
@@ -93,6 +110,10 @@ export class SyncMaquinetasUseCase {
                 totalFee: new Prisma.Decimal(amountReais - netbalancemachine),
                 platformFee: new Prisma.Decimal(amountReais - netbalancemachine),
                 description: `Maquineta (CORRIGIDA) - Terminal: ${serial}`,
+                domTransactionId: tx.cod_external,
+                customerEmail: tx.customer_email,
+                customerDocument: tx.customer_document,
+                customerPhone: tx.customer_phone,
               },
             });
 
@@ -138,6 +159,7 @@ export class SyncMaquinetasUseCase {
             data: {
               userId: RENOVADA_ID,
               domPaymentId: tx.id,
+              domTransactionId: tx.cod_external, // NSU/cod_external
               amount: new Prisma.Decimal(amountReais),
               netAmount: new Prisma.Decimal(netbalancemachine),
               totalFee: new Prisma.Decimal(amountReais - netbalancemachine),
@@ -153,6 +175,7 @@ export class SyncMaquinetasUseCase {
               customerPhone: tx.customer_phone ?? '',
               cardBrand: tx.card_brand ?? null,
               cardBin: tx.card_bin ?? null,
+              cardCodeAuth: tx.card_code_auth ?? null,
               createdAt: tx.created_at ? new Date(tx.created_at) : new Date(),
             },
           });
@@ -346,17 +369,22 @@ export class SyncMaquinetasUseCase {
     return {
       id: item.id ?? item.order_id,
       created_at: item.created_at ?? item.createdAt,
+      updated_at: item.updated_at ?? item.updatedAt ?? item.created_at,
       amount: amountRaw, 
       liquid_amount: liquidRaw, 
       status: item.status ?? 'paid',
+      status_details: item.status_details ?? 'Aprovado',
       payment_method: item.payment_method ?? 'credit_card',
       installments: item.installments ?? 1,
       card_brand: item.card_brand ?? null,
       card_bin: item.card_bin ?? null,
+      card_code_auth: item.card_code_auth ?? null,
       customer_name: item.customer?.name ?? item.customer_name ?? 'Cliente POS',
       customer_email: item.customer?.email ?? item.customer_email ?? '',
       customer_document: item.customer?.document ?? item.customer_document ?? '44522660000108',
       customer_phone: item.customer?.mobile_phone ?? item.customer_phone ?? '',
+      cod_external: item.cod_external ?? item.external_id ?? item.nsu ?? '',
+      type_operation: item.type_operation ?? 'fisical',
       serial: this.extractSerial(item),
     };
   }
