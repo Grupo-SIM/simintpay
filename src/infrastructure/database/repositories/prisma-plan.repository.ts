@@ -47,6 +47,10 @@ export class PrismaPlanRepository implements IPlanRepository {
     });
   }
 
+  async findById(id: string): Promise<Plan | null> {
+    return this.prisma.plan.findUnique({ where: { id } });
+  }
+
   async findByIdForUser(input: {
     id: string;
     userId: string;

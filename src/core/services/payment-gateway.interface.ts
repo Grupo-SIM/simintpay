@@ -263,6 +263,25 @@ export interface IPaymentGateway {
     input: { page: number; limit: number; status?: string },
   ): Promise<DomListWithdrawsOutput>;
 
+  createSubscriptionFromCheckout(
+    domToken: string,
+    input: {
+      planId: string;
+      customer: { name: string; email: string; document: string; phone: string };
+      card: {
+        token: string;
+        brand?: string;
+        bin?: string;
+        exp_month: string;
+        exp_year: string;
+        cvv: string;
+        holder_name: string;
+        holder_document: string;
+        number?: string;
+      };
+    },
+  ): Promise<{ id: string; status?: string; [key: string]: unknown }>;
+
   createLead(data: {
     name: string;
     phone: string;

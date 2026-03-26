@@ -470,6 +470,55 @@ export class ApiDomClient implements IPaymentGateway {
     await firstValueFrom(this.http.delete(`${this.domRealApiUrl}/recurrence/subscriptions/${id}`, { headers: { 'Authorization': `Bearer ${domToken}` } }));
   }
 
+  async createSubscriptionFromCheckout(
+    domToken: string,
+    input: {
+      planId: string;
+      customer: { name: string; email: string; document: string; phone: string };
+      card: {
+        token: string;
+        brand?: string;
+        bin?: string;
+        exp_month: string;
+        exp_year: string;
+        cvv: string;
+        holder_name: string;
+        holder_document: string;
+        number?: string;
+      };
+    },
+  ): Promise<{ id: string; status?: string; [key: string]: unknown }> {
+    const url = `${this.domRealApiUrl}/recurrence/subscriptions`;
+    const body = {
+      plan_id: input.planId,
+      payment_method: 'credit_card',
+      customer: {
+        name: input.customer.name,
+        email: input.customer.email,
+        document: input.customer.document,
+        phone: input.customer.phone,
+      },
+      card: {
+        token: input.card.token,
+        brand: input.card.brand,
+        bin: input.card.bin,
+        exp_month: input.card.exp_month,
+        exp_year: input.card.exp_year,
+        cvv: input.card.cvv,
+        holder_name: input.card.holder_name,
+        holder_document: input.card.holder_document,
+      },
+    };
+    const res = await firstValueFrom(
+      this.http.post<any>(url, body, {
+        headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' },
+      }),
+    );
+    const data = res.data?.data ?? res.data;
+    const id = this.pickString(this.getObject(data), 'id') ?? String(Date.now());
+    return { id, status: this.pickString(this.getObject(data), 'status') ?? 'pending', ...(this.getObject(data) ?? {}) };
+  }
+
 
   async getMonthlyRevenue(domToken: string): Promise<DomMonthlyRevenueOutput> {
     const url = `${this.baseUrl}/payments/monthly-revenue`;
