@@ -371,12 +371,14 @@ export class AdminController {
   @ApiQuery({ name: 'pageSize', required: false, example: 20 })
   @ApiQuery({ name: 'status', required: false, enum: WithdrawStatus })
   @ApiQuery({ name: 'modulo', required: false, description: 'Slug do módulo (ex: revalida)' })
+  @ApiQuery({ name: 'search', required: false, description: 'Buscar por id, nome ou email do usuário' })
   async saques(
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
     @Query('status') status?: WithdrawStatus,
     @Query('modulo') modulo?: string,
     @Query('userId') userId?: string,
+    @Query('search') search?: string,
   ) {
     return this.listWithdrawalsAdmin.execute({
       page: Number(page),
@@ -384,6 +386,7 @@ export class AdminController {
       status,
       moduleSlug: modulo,
       userId,
+      search,
     });
   }
 

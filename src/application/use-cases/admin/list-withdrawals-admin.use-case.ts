@@ -28,6 +28,7 @@ export class ListWithdrawalsAdminUseCase {
     status?: WithdrawStatus;
     moduleSlug?: string;
     userId?: string;
+    search?: string;
   }) {
     const skip = (input.page - 1) * input.pageSize;
 
@@ -36,6 +37,15 @@ export class ListWithdrawalsAdminUseCase {
       ...(input.userId ? { userId: input.userId } : {}),
       ...(input.moduleSlug
         ? { user: { tenantModule: { slug: input.moduleSlug } } }
+        : {}),
+      ...(input.search
+        ? {
+            OR: [
+              { id: { contains: input.search, mode: 'insensitive' as const } },
+              { user: { name: { contains: input.search, mode: 'insensitive' as const } } },
+              { user: { email: { contains: input.search, mode: 'insensitive' as const } } },
+            ],
+          }
         : {}),
     };
 
