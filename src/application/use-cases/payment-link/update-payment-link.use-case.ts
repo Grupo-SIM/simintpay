@@ -41,6 +41,7 @@ export class UpdatePaymentLinkUseCase {
       title: input.dto.titulo ?? existing.title,
       description: input.dto.descricao ?? existing.description,
       amount: input.dto.valor ?? Number(existing.amount),
+      expiresAt: input.dto.dataExpiracao ? new Date(input.dto.dataExpiracao) : (existing as any).expiresAt ?? null,
       maxInstallments: input.dto.parcelasMax ?? existing.maxInstallments,
       isActive: input.dto.isActive ?? existing.isActive,
     });
@@ -52,6 +53,7 @@ export class UpdatePaymentLinkUseCase {
         titulo: updated.title,
         descricao: updated.description ?? null,
         valor: Number(updated.amount),
+        dataExpiracao: (updated as any).expiresAt ? (updated as any).expiresAt.toISOString() : null,
         parcelasMax: updated.maxInstallments,
         ativo: updated.isActive,
         criadoEm: updated.createdAt.toISOString(),

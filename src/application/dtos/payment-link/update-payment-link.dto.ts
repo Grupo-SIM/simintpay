@@ -1,4 +1,5 @@
 import {
+  IsDateString,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -30,4 +31,8 @@ export class UpdatePaymentLinkDto {
 
   @IsOptional()
   isActive?: boolean;
+
+  @IsDateString()
+  @IsOptional()
+  dataExpiracao?: string;
 }

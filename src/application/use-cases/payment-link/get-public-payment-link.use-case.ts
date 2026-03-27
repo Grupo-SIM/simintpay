@@ -18,9 +18,13 @@ export class GetPublicPaymentLinkUseCase {
     aceitaCartao: boolean;
     aceitaPix: boolean;
     ativo: boolean;
+    dataExpiracao: string | null;
   }> {
     const link = await this.links.findById(id);
-    if (!link || !link.isActive) {
+    const isExpired =
+      Boolean((link as any)?.expiresAt) &&
+      new Date((link as any).expiresAt).getTime() <= Date.now();
+    if (!link || !link.isActive || isExpired) {
       throw new NotFoundException('Link de pagamento não encontrado ou inativo');
     }
     return {
@@ -32,6 +36,7 @@ export class GetPublicPaymentLinkUseCase {
       aceitaCartao: (link as any).aceitaCartao ?? true,
       aceitaPix: (link as any).aceitaPix ?? true,
       ativo: link.isActive,
+      dataExpiracao: (link as any).expiresAt ? (link as any).expiresAt.toISOString() : null,
     };
   }
 }

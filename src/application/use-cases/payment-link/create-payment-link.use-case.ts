@@ -24,6 +24,7 @@ export class CreatePaymentLinkUseCase {
       titulo: string;
       descricao: string | null;
       valor: number;
+      dataExpiracao: string | null;
       parcelasMax: number;
       ativo: boolean;
       criadoEm: string;
@@ -80,6 +81,7 @@ export class CreatePaymentLinkUseCase {
       title: input.dto.titulo,
       description: input.dto.descricao ?? null,
       amount: input.dto.valor,
+      expiresAt: input.dto.dataExpiracao ? new Date(input.dto.dataExpiracao) : null,
       maxInstallments,
       aceitaCartao,
       aceitaPix,
@@ -94,6 +96,7 @@ export class CreatePaymentLinkUseCase {
         titulo: saved.title,
         descricao: saved.description ?? null,
         valor: Number(saved.amount),
+        dataExpiracao: (saved as any).expiresAt ? (saved as any).expiresAt.toISOString() : null,
         parcelasMax: saved.maxInstallments,
         ativo: saved.isActive,
         criadoEm: saved.createdAt.toISOString(),

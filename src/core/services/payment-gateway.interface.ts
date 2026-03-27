@@ -342,4 +342,25 @@ export interface IPaymentGateway {
     cargo: string;
     comoConheceu?: string;
   }): Promise<{ data: { id: string }; message: string }>;
+
+  createPixCheckout(
+    domToken: string,
+    input: {
+      codExternal: string;
+      amount: number;
+      description: string;
+      customerName: string;
+      customerEmail: string;
+      customerDocument: string;
+      customerPhone: string;
+      documentType: 'CPF' | 'CNPJ';
+    },
+  ): Promise<{
+    id: string;
+    status: string;
+    pixContent: string | null;
+    qrCode: string | null;
+    pixExpire: string | null;
+    amount: number;
+  }>;
 }

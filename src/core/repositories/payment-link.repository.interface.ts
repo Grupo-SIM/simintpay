@@ -7,6 +7,7 @@ export type CreatePaymentLinkData = {
   title: string;
   description?: string | null;
   amount: number;
+  expiresAt?: Date | null;
   maxInstallments: number;
   aceitaCartao?: boolean;
   aceitaPix?: boolean;

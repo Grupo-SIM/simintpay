@@ -14,6 +14,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
         title: data.title,
         description: data.description ?? undefined,
         amount: new Prisma.Decimal(data.amount),
+        expiresAt: data.expiresAt ?? undefined,
         maxInstallments: data.maxInstallments,
         aceitaCartao: data.aceitaCartao ?? true,
         aceitaPix: data.aceitaPix ?? true,
@@ -76,6 +77,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
       title: string;
       description?: string | null;
       amount: number;
+      expiresAt?: Date | null;
       maxInstallments: number;
       isActive: boolean;
       domPaymentLinkId?: string | null;
@@ -88,6 +90,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
         description: data.description ?? undefined,
         amount:
           data.amount != null ? new Prisma.Decimal(data.amount) : undefined,
+        expiresAt: data.expiresAt ?? undefined,
         maxInstallments: data.maxInstallments,
         isActive: data.isActive,
         domPaymentLinkId: data.domPaymentLinkId ?? undefined,

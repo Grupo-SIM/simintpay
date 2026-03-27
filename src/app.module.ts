@@ -21,6 +21,7 @@ import { StorageModule } from './infrastructure/storage/storage.module';
 import { RenovadaModule } from './modules/renovada/renovada.module';
 import { BosqueModule } from './modules/bosque/bosque.module';
 import { MasterModule } from './modules/master/master.module';
+import { PixPlanModule } from './presentation/pix-plan.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { MasterModule } from './modules/master/master.module';
     TransactionsModule,
     PaymentLinkModule,
     PlanModule,
+    PixPlanModule,
     SubscriptionModule,
     ReportModule,
     SettingsModule,

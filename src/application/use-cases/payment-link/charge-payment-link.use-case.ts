@@ -49,6 +49,9 @@ export class ChargePaymentLinkUseCase {
     if (!link || !link.isActive) {
       throw new NotFoundException('Link de pagamento não encontrado ou inativo');
     }
+    if ((link as any).expiresAt && new Date((link as any).expiresAt).getTime() <= Date.now()) {
+      throw new NotFoundException('Link de pagamento expirado');
+    }
     if (!link.domPaymentLinkId) {
       throw new BadRequestException('Link ainda não sincronizado com o gateway');
     }

@@ -35,6 +35,7 @@ export class ListPaymentLinksUseCase {
         titulo: l.title,
         descricao: l.description ?? null,
         valor: Number(l.amount),
+        dataExpiracao: (l as any).expiresAt ? (l as any).expiresAt.toISOString() : null,
         parcelasMax: l.maxInstallments,
         ativo: l.isActive,
         criadoEm: l.createdAt.toISOString(),

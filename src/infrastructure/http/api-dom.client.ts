@@ -946,4 +946,103 @@ export class ApiDomClient implements IPaymentGateway {
   }): Promise<{ data: { id: string }; message: string }> {
     return { data: { id: 'local-' + Date.now() }, message: 'Lead created locally' };
   }
+
+  async createPixCheckout(
+    domToken: string,
+    input: {
+      codExternal: string;
+      amount: number;
+      description: string;
+      customerName: string;
+      customerEmail: string;
+      customerDocument: string;
+      customerPhone: string;
+      documentType: 'CPF' | 'CNPJ';
+    },
+  ): Promise<{
+    id: string;
+    status: string;
+    pixContent: string | null;
+    qrCode: string | null;
+    pixExpire: string | null;
+    amount: number;
+  }> {
+    const url = `${this.domRealApiUrl}/transactions`;
+
+    const expireAt = new Date();
+    expireAt.setHours(expireAt.getHours() + 24);
+    const pixExpireFormatted = expireAt.toISOString().slice(0, 16).replace('T', ' ');
+
+    const body = {
+      cod_external: input.codExternal,
+      customer: {
+        name: input.customerName,
+        email: input.customerEmail,
+        document: input.customerDocument.replace(/\D/g, ''),
+        document_type: input.documentType,
+        mobile_phone: input.customerPhone.replace(/\D/g, ''),
+      },
+      items: {
+        description: input.description,
+        price: input.amount,
+        quantity: 1,
+      },
+      payment: {
+        pix: { pix_expire: pixExpireFormatted },
+        payment_method: 'pix',
+        total: input.amount,
+      },
+    };
+
+    this.logger.log(`[DOM PIX Checkout] POST ${url} amount=${input.amount}`);
+
+    const res = await firstValueFrom(
+      this.http.post<any>(url, body, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      }),
+    );
+
+    const root = res.data?.data ?? res.data;
+    const id =
+      this.pickString(this.getObject(root), 'id') ??
+      this.pickString(this.getObject(root), 'transaction_id');
+    if (!id) throw new Error('DOM PIX: resposta sem id de transação');
+
+    const pixContent =
+      this.pickString(this.getObject(root), 'pix_content') ??
+      this.pickString(this.getObject(root), 'pix_copy_paste') ??
+      this.pickString(this.getObject(root), 'pixContent') ??
+      null;
+
+    let qrCode =
+      this.pickString(this.getObject(root), 'qr_code') ??
+      this.pickString(this.getObject(root), 'qr_code_text') ??
+      null;
+
+    if (!qrCode && pixContent) {
+      try {
+        qrCode = await QRCode.toDataURL(pixContent, { width: 256, margin: 2 });
+      } catch (e) {
+        this.logger.warn(`[DOM PIX Checkout] Falha ao gerar QR code: ${e}`);
+      }
+    }
+
+    const pixExpire =
+      this.pickString(this.getObject(root), 'pix_expire_at') ??
+      this.pickString(this.getObject(root), 'pix_expire') ??
+      pixExpireFormatted;
+
+    return {
+      id,
+      status: this.pickString(this.getObject(root), 'status') ?? 'waiting',
+      pixContent,
+      qrCode,
+      pixExpire,
+      amount: input.amount,
+    };
+  }
 }

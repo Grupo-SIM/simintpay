@@ -1,0 +1,803 @@
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PIX_PLAN_REPOSITORY } from '../../../core/repositories/pix-plan.repository.interface';
+import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import type { IPixPlanRepository } from '../../../core/repositories/pix-plan.repository.interface';
+import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import type { PixPlanCheckoutDto } from '../../dtos/pix-plan/pix-plan-checkout.dto';
+import type { PixPlanCheckoutByCodeDto } from '../../dtos/pix-plan/pix-plan-checkout-by-code.dto';
+import type { CreatePixCreditPlanDto } from '../../dtos/pix-plan/create-pix-credit-plan.dto';
+
+@Injectable()
+export class PixPlanService {
+  private readonly logger = new Logger(PixPlanService.name);
+
+  constructor(
+    @Inject(PIX_PLAN_REPOSITORY) private readonly repo: IPixPlanRepository,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  private getDaysForPlan(planType: string): number {
+    const daysMapping: Record<string, number> = {
+      MONTHLY: 30,
+      MONTH: 30,
+      QUARTER: 90,
+      TRIMESTRAL: 90,
+      SEMESTER: 180,
+      SEMESTRAL: 180,
+      YEAR: 365,
+      ANUAL: 365,
+      ANNUAL: 365,
+      DAILY: 1,
+      WEEKLY: 7,
+    };
+    const normalizedType = planType.toUpperCase().trim();
+    return daysMapping[normalizedType] ?? 30;
+  }
+
+  private mapFrequencyToType(
+    freq?: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR',
+  ): 'MONTHLY' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' {
+    switch (freq) {
+      case 'MONTH':
+        return 'MONTHLY';
+      case 'QUARTER':
+        return 'TRIMESTRAL';
+      case 'SEMESTER':
+        return 'SEMESTRAL';
+      case 'YEAR':
+        return 'ANUAL';
+      default:
+        return 'MONTHLY';
+    }
+  }
+
+  private mapPixTypeToFrequency(
+    pixType: string,
+  ): 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR' {
+    switch (pixType) {
+      case 'ANUAL':
+        return 'YEAR';
+      case 'SEMESTRAL':
+        return 'SEMESTER';
+      case 'TRIMESTRAL':
+        return 'QUARTER';
+      case 'MONTHLY':
+      default:
+        return 'MONTH';
+    }
+  }
+
+  // ── POST /payments/pix-plan/checkout ─────────────────────────────────────
+
+  async createPixPlanPayment(userId: string, body: PixPlanCheckoutDto) {
+    const domToken = process.env.DOM_TOKEN;
+    if (!domToken) throw new UnauthorizedException('DOM_TOKEN não configurado');
+
+    if (!body.document || !body.document_type)
+      throw new BadRequestException('Documento e tipo de documento são obrigatórios');
+    if (!body.price || body.price <= 0)
+      throw new BadRequestException('Preço deve ser maior que zero');
+    if (!body.email || !body.email.includes('@'))
+      throw new BadRequestException('Email inválido');
+    if (!body.name || body.name.trim().length < 2)
+      throw new BadRequestException('Nome deve ter pelo menos 2 caracteres');
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+    if (!wallet) throw new BadRequestException('Carteira não encontrada');
+
+    const amount = body.price;
+    const netAmount = parseFloat((amount * 0.91).toFixed(2));
+    const totalFee = parseFloat((amount * 0.09).toFixed(2));
+    const domFee = parseFloat((amount * 0.0098).toFixed(2));
+    const platformFee = parseFloat((totalFee - domFee).toFixed(2));
+
+    const transaction = await this.prisma.transaction.create({
+      data: {
+        userId,
+        amount: new Prisma.Decimal(amount),
+        netAmount: new Prisma.Decimal(netAmount),
+        status: 'DRAFT',
+        paymentMethod: 'PIX',
+        totalFee: new Prisma.Decimal(totalFee),
+        domFee: new Prisma.Decimal(domFee),
+        platformFee: new Prisma.Decimal(platformFee),
+        description: body.description ?? `PIX_PLAN:${body.planType}`,
+        customerName: body.name,
+        customerEmail: body.email,
+        customerDocument: body.document.replace(/[.-]/g, ''),
+        customerPhone: body.mobile_phone,
+      },
+    });
+
+    try {
+      const payment = await this.gateway.createPixCheckout(domToken, {
+        codExternal: transaction.id,
+        amount,
+        description: body.description ?? `Plano PIX ${body.planType}`,
+        customerName: body.name,
+        customerEmail: body.email,
+        customerDocument: body.document.replace(/[.-]/g, ''),
+        customerPhone: body.mobile_phone,
+        documentType: body.document_type as 'CPF' | 'CNPJ',
+      });
+
+      await this.prisma.transaction.update({
+        where: { id: transaction.id },
+        data: { status: 'PENDING', domPaymentId: payment.id },
+      });
+
+      const days = this.getDaysForPlan(body.planType);
+
+      await this.repo.createPixPlanOrder({
+        transactionId: transaction.id,
+        userId,
+        customerEmail: body.email,
+        customerDocument: body.document.replace(/[.-]/g, ''),
+        planType: body.planType,
+        daysCredited: days,
+        pixCreditPlanId: body.pixCreditPlanId || null,
+        paid: false,
+      });
+
+      return {
+        ...payment,
+        paymentId: payment.id,
+        transactionId: transaction.id,
+        status: 'PENDING',
+      };
+    } catch (error) {
+      this.logger.error('Erro ao criar pagamento de plano PIX:', error);
+      if (error instanceof HttpException) throw error;
+      throw new BadRequestException('Erro ao processar compra do plano via PIX');
+    }
+  }
+
+  // ── GET /payments/pix-plan/link-code/:code ───────────────────────────────
+
+  async getPixPlanLinkCode(code: string) {
+    const link = await this.repo.findPixPlanLinkCodeByCode(code);
+    if (!link || !link.isActive) {
+      throw new NotFoundException('Link-code PIX-PLAN não encontrado ou inativo');
+    }
+    return link;
+  }
+
+  // ── GET /payments/pix-plan/link-code-details/:code/checkout ──────────────
+
+  async getPixPlanLinkCodeDetailsForCheckout(code: string) {
+    const link = await this.repo.findPixPlanLinkCodeByCodeWithPlan(code);
+    if (!link || !link.isActive) {
+      throw new NotFoundException('Link code PIX-PLAN não encontrado');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: link.pixCreditPlan.userId },
+      select: { domToken: true },
+    });
+
+    return {
+      id: link.id,
+      code: link.code,
+      pixCreditPlanId: link.pixCreditPlanId,
+      createdAt: link.createdAt,
+      updatedAt: link.updatedAt,
+      plan: {
+        id: link.pixCreditPlan.id,
+        value: link.pixCreditPlan.price,
+        frequencyType: this.mapPixTypeToFrequency(String(link.pixCreditPlan.type)),
+        paymentMethods: ['pix'],
+        userId: link.pixCreditPlan.userId,
+        description: link.pixCreditPlan.description,
+        externalReference: null,
+        redirectUrl: link.pixCreditPlan.redirectUrl,
+        webhookUrl: link.pixCreditPlan.webhookUrl,
+        domPlanId: null,
+        status: link.pixCreditPlan.status,
+        frequency: 1,
+        retryDays: 0,
+        createdAt: link.pixCreditPlan.createdAt,
+        updatedAt: link.pixCreditPlan.updatedAt,
+      },
+      token: user?.domToken ?? null,
+    };
+  }
+
+  // ── POST /payments/pix-plan/checkout-by-code ─────────────────────────────
+
+  async createPixPlanPaymentFromCode(userId: string, body: PixPlanCheckoutByCodeDto) {
+    const link = await this.getPixPlanLinkCode(body.code);
+    const plan = await this.repo.findPixCreditPlanById(link.pixCreditPlanId);
+
+    if (!plan || plan.userId !== userId)
+      throw new BadRequestException('Code não pertence a este usuário');
+
+    let finalPrice = plan.price;
+
+    if (body.voucherCode && body.voucherCode.trim()) {
+      try {
+        const API_PAGATG_URL = process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com';
+        const voucherResponse = await fetch(
+          `${API_PAGATG_URL}/webhook/validate-voucher-by-plan`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              linkCode: body.code,
+              voucherCode: body.voucherCode.trim().toUpperCase(),
+              amount: plan.price,
+            }),
+          },
+        );
+        const voucherData = await voucherResponse.json();
+        if (voucherResponse.ok && voucherData.valid) {
+          finalPrice = voucherData.finalAmount;
+        }
+      } catch {
+        // Continuar com preço original em caso de erro
+      }
+    } else if (body.finalAmount !== undefined && body.finalAmount !== null) {
+      finalPrice = body.finalAmount;
+    }
+
+    return this.createPixPlanPayment(userId, {
+      planType: plan.type,
+      price: finalPrice,
+      name: body.name,
+      email: body.email,
+      document: body.document,
+      document_type: body.document_type,
+      mobile_phone: body.mobile_phone,
+      description: `PIX_PLAN_CODE:${link.code}${body.voucherCode ? ` (VOUCHER:${body.voucherCode})` : ''}`,
+      pixCreditPlanId: plan.id,
+    });
+  }
+
+  // ── POST /payments/pix-plan/:id/link-code ────────────────────────────────
+
+  async createPixPlanLinkCodeForPlan(userId: string, pixPlanId: string) {
+    const plan = await this.repo.findPixCreditPlanById(pixPlanId);
+    if (!plan || plan.status !== 'ACTIVE')
+      throw new NotFoundException('Plano PIX não encontrado ou inativo');
+    if (plan.userId !== userId)
+      throw new BadRequestException('Plano não pertence a este usuário');
+
+    const code = `PX-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    return this.repo.createPixPlanLinkCode({
+      pixCreditPlanId: plan.id,
+      code,
+    });
+  }
+
+  // ── GET /payments/pix-plan ───────────────────────────────────────────────
+
+  async listPixCreditPlans(userId: string) {
+    const plans = await this.repo.findPixCreditPlansByUserId(userId);
+    return plans.map((p: any) => ({
+      id: p.id,
+      userId: p.userId,
+      type: p.type,
+      price: p.price,
+      description: p.description,
+      redirectUrl: p.redirectUrl,
+      webhookUrl: p.webhookUrl,
+      status: p.status,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      linkCode: p.linkCodes?.[0]?.code ?? null,
+    }));
+  }
+
+  // ── DELETE /payments/pix-plan/:id ────────────────────────────────────────
+
+  async deletePixCreditPlan(userId: string, pixPlanId: string) {
+    const plan = await this.repo.findPixCreditPlanById(pixPlanId);
+    if (!plan) throw new NotFoundException('Plano PIX não encontrado');
+    if (plan.userId !== userId)
+      throw new BadRequestException('Plano não pertence a este usuário');
+
+    await this.prisma.$transaction(async () => {
+      await this.repo.deletePixPlanLinkCodesByPlanId(pixPlanId);
+      await this.repo.deletePixCreditPlan(pixPlanId);
+    });
+
+    return { success: true, message: 'Plano PIX deletado com sucesso' };
+  }
+
+  // ── POST /payments/pix-plan ──────────────────────────────────────────────
+
+  async createPixCreditPlanFromPublicDto(
+    userId: string,
+    body: CreatePixCreditPlanDto,
+  ) {
+    const type = this.mapFrequencyToType(body.frequency_type);
+    const plan = await this.repo.createPixCreditPlan({
+      userId,
+      type,
+      price: body.price,
+      description: body.description,
+      redirectUrl: body.redirectUrl,
+      webhookUrl: body.webhookUrl,
+    });
+
+    const code = `PX-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    const linkCode = await this.repo.createPixPlanLinkCode({
+      pixCreditPlanId: plan.id,
+      code,
+    });
+
+    return { ...plan, linkCode: linkCode.code };
+  }
+
+  // ── GET /payments/plan-access ────────────────────────────────────────────
+
+  async getPlanAccess(userId: string, customerDocument: string) {
+    const doc = customerDocument.replace(/[.-]/g, '');
+    const access = await this.repo.findActiveCustomerPlanAccess({
+      userId,
+      customerDocument: doc,
+    });
+
+    if (!access) {
+      return {
+        isActive: false,
+        expiresAt: null,
+        remainingDays: 0,
+        totalDaysCredited: 0,
+      };
+    }
+
+    await this.decrementPlanDays(access);
+    const updatedAccess = await this.repo.findCustomerPlanAccessById(access.id);
+
+    const now = Date.now();
+    const expiresAtMs = new Date(updatedAccess.expiresAt).getTime();
+    const remainingMs = Math.max(expiresAtMs - now, 0);
+    const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+
+    return {
+      isActive: updatedAccess.isActive && expiresAtMs > now,
+      expiresAt: updatedAccess.expiresAt,
+      remainingDays,
+      totalDaysCredited: updatedAccess.totalDaysCredited,
+    };
+  }
+
+  // ── GET /payments/admin/pix-plan-access + GET /public/pix-plan-access ────
+
+  async listAllPixPlanAccess(params: {
+    page: number;
+    limit: number;
+    userId?: string;
+    isActive?: boolean;
+  }) {
+    try {
+      const { page, limit } = params;
+      const { items: planAccess, total } =
+        await this.repo.listAllCustomerPlanAccess(params);
+
+      const enrichedAccess = await Promise.all(
+        planAccess.map(async (access: any) => {
+          const now = Date.now();
+          const expiresAtMs = new Date(access.expiresAt).getTime();
+          const remainingMs = Math.max(expiresAtMs - now, 0);
+          const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+
+          let pixPlanCode: string | null = null;
+          if (access.lastTransactionId) {
+            try {
+              const transaction = await this.prisma.transaction.findUnique({
+                where: { id: access.lastTransactionId },
+                select: { description: true },
+              });
+              if (transaction?.description?.includes('PIX_PLAN_CODE:')) {
+                const match = transaction.description.match(
+                  /PIX_PLAN_CODE:([A-Z0-9-]+)/,
+                );
+                if (match) pixPlanCode = match[1];
+              }
+            } catch {
+              // ignorar
+            }
+          }
+
+          return {
+            id: access.id,
+            userId: access.userId,
+            seller: access.user,
+            customer: access.customer,
+            customerEmail: access.customerEmail,
+            customerDocument: access.customerDocument,
+            isActive: access.isActive && expiresAtMs > now,
+            expiresAt: access.expiresAt,
+            remainingDays,
+            totalDaysCredited: access.totalDaysCredited,
+            lastTransactionId: access.lastTransactionId,
+            pixPlanCode,
+            createdAt: access.createdAt,
+            updatedAt: access.updatedAt,
+          };
+        }),
+      );
+
+      return {
+        planAccess: enrichedAccess,
+        meta: {
+          currentPage: page,
+          itemsPerPage: limit,
+          totalItems: total,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        `Erro ao listar acessos: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  // ── POST /payments/plan-access/decrement-all ─────────────────────────────
+
+  async decrementAllPlanDays() {
+    const activePlans = await this.repo.findAllActiveCustomerPlanAccess();
+    const results = {
+      processed: 0,
+      expired: 0,
+      updated: 0,
+      errors: 0,
+      details: [] as any[],
+    };
+
+    for (const plan of activePlans) {
+      try {
+        const beforeDays = Math.ceil(
+          (new Date(plan.expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000),
+        );
+        await this.decrementPlanDays(plan);
+        const updatedPlan = await this.repo.findCustomerPlanAccessById(plan.id);
+        const afterDays = Math.ceil(
+          (new Date(updatedPlan.expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000),
+        );
+        results.processed++;
+        if (!updatedPlan.isActive) {
+          results.expired++;
+        } else if (beforeDays !== afterDays) {
+          results.updated++;
+        }
+        results.details.push({
+          id: plan.id,
+          customerDocument: plan.customerDocument,
+          customerEmail: plan.customerEmail,
+          userName: plan.user?.name,
+          beforeDays,
+          afterDays,
+          isActive: updatedPlan.isActive,
+          totalDaysCredited: plan.totalDaysCredited,
+        });
+      } catch {
+        results.errors++;
+      }
+    }
+    return results;
+  }
+
+  async decrementPlanDays(access: any) {
+    const now = new Date();
+    const expiresAt = new Date(access.expiresAt);
+
+    if (expiresAt <= now) {
+      await this.repo.updateCustomerPlanAccessById(access.id, { isActive: false });
+      return;
+    }
+
+    const createdAt = new Date(access.createdAt);
+    const daysSinceCreation = Math.floor(
+      (now.getTime() - createdAt.getTime()) / (24 * 60 * 60 * 1000),
+    );
+    const remainingDays = Math.max(access.totalDaysCredited - daysSinceCreation, 0);
+
+    if (remainingDays <= 0) {
+      await this.repo.updateCustomerPlanAccessById(access.id, {
+        isActive: false,
+        expiresAt: now,
+      });
+      return;
+    }
+
+    const newExpiresAt = new Date(now.getTime() + remainingDays * 24 * 60 * 60 * 1000);
+    await this.repo.updateCustomerPlanAccessById(access.id, {
+      expiresAt: newExpiresAt,
+      isActive: remainingDays > 0,
+    });
+  }
+
+  // ── GET /public/purchase/:transactionId ──────────────────────────────────
+
+  async getPurchaseDetails(transactionId: string) {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    if (!transaction) {
+      const subscription = await this.prisma.subscription.findFirst({
+        where: {
+          OR: [{ id: transactionId }, { domSubscriptionId: transactionId }],
+        },
+        include: { customer: true, plan: true, user: true },
+      });
+      if (subscription) {
+        return {
+          type: 'SUBSCRIPTION',
+          transaction: null,
+          subscription: {
+            id: subscription.id,
+            status: subscription.status,
+            customer: subscription.customer
+              ? {
+                  id: subscription.customer.id,
+                  name: subscription.customer.name,
+                  email: subscription.customer.email,
+                  document: subscription.customer.document,
+                }
+              : null,
+            plan: {
+              id: subscription.plan.id,
+              description: subscription.plan.description,
+              price: Number(subscription.plan.price),
+              type: subscription.plan.type,
+              redirectUrl: subscription.plan.redirectUrl ?? null,
+            },
+            createdAt: subscription.createdAt,
+          },
+        };
+      }
+      throw new NotFoundException('Transação não encontrada');
+    }
+
+    const pixPlanOrder = await this.repo.findPixPlanOrderByTransactionId(transaction.id);
+
+    if (pixPlanOrder) {
+      const planAccess = await (this.prisma as any).customerPlanAccess.findFirst({
+        where: { lastTransactionId: transaction.id },
+        include: { customer: true },
+      });
+
+      let remainingDays = 0;
+      if (planAccess?.expiresAt) {
+        const now = new Date();
+        const expiresAt = new Date(planAccess.expiresAt);
+        const diffTime = expiresAt.getTime() - now.getTime();
+        remainingDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+      }
+
+      return {
+        type: 'PIX_PLAN',
+        transaction: {
+          id: transaction.id,
+          status: transaction.status,
+          amount: Number(transaction.amount),
+          createdAt: transaction.createdAt,
+          description: transaction.description,
+        },
+        seller: transaction.user,
+        customer: {
+          email: pixPlanOrder.customerEmail,
+          document: pixPlanOrder.customerDocument,
+          name: planAccess?.customer?.name || null,
+        },
+        plan: {
+          name: pixPlanOrder.pixCreditPlan?.description || `Plano ${pixPlanOrder.planType}`,
+          type: pixPlanOrder.planType,
+          daysCredited: pixPlanOrder.daysCredited,
+          price: pixPlanOrder.pixCreditPlan?.price || Number(transaction.amount),
+          code: pixPlanOrder.pixCreditPlan?.linkCodes?.[0]?.code || null,
+        },
+        planAccess: planAccess
+          ? {
+              id: planAccess.id,
+              isActive: planAccess.isActive,
+              expiresAt: planAccess.expiresAt,
+              remainingDays,
+              totalDaysCredited: planAccess.totalDaysCredited,
+            }
+          : null,
+      };
+    }
+
+    const subscription = await this.prisma.subscription.findFirst({
+      where: {
+        OR: [{ id: transactionId }, { domSubscriptionId: transactionId }],
+      },
+      include: { customer: true, plan: true, user: true },
+    });
+
+    if (subscription) {
+      return {
+        type: 'SUBSCRIPTION',
+        transaction: {
+          id: transaction.id,
+          status: transaction.status,
+          amount: Number(transaction.amount),
+          createdAt: transaction.createdAt,
+        },
+        subscription: {
+          id: subscription.id,
+          status: subscription.status,
+          customer: subscription.customer
+            ? {
+                id: subscription.customer.id,
+                name: subscription.customer.name,
+                email: subscription.customer.email,
+                document: subscription.customer.document,
+              }
+            : null,
+          plan: {
+            id: subscription.plan.id,
+            description: subscription.plan.description,
+            price: Number(subscription.plan.price),
+            type: subscription.plan.type,
+            redirectUrl: subscription.plan.redirectUrl ?? null,
+          },
+          createdAt: subscription.createdAt,
+        },
+      };
+    }
+
+    return {
+      type: 'UNKNOWN',
+      transaction: {
+        id: transaction.id,
+        status: transaction.status,
+        amount: Number(transaction.amount),
+        createdAt: transaction.createdAt,
+        description: transaction.description,
+      },
+      seller: transaction.user,
+    };
+  }
+
+  // ── Webhook handler (chamado pelo ProcessWebhookUseCase) ─────────────────
+
+  async handlePixPlanWebhook(
+    transactionId: string,
+    customerData: {
+      name: string;
+      email: string;
+      document: string;
+      document_type: string;
+      mobile_phone?: string;
+    },
+  ) {
+    const pixOrder = await this.repo.findPixPlanOrderByTransactionId(transactionId);
+    if (!pixOrder || pixOrder.paid) return;
+
+    this.logger.log(`PIX-PLAN: Creditando ${pixOrder.daysCredited} dias (${pixOrder.planType})`);
+
+    const doc = customerData.document.replace(/[.-]/g, '');
+    const now = new Date();
+
+    // Garantir Customer
+    let customer = await this.prisma.customer.findFirst({
+      where: { userId: pixOrder.userId, document: doc },
+    });
+
+    if (!customer) {
+      customer = await this.prisma.customer.create({
+        data: {
+          userId: pixOrder.userId,
+          name: customerData.name,
+          email: customerData.email,
+          document: doc,
+          documentType: customerData.document_type,
+          phone: customerData.mobile_phone,
+        },
+      });
+    }
+
+    const pixPlanIdToUse = pixOrder.pixCreditPlanId || pixOrder.planType;
+
+    let pixPlanLinkCode: string | null = null;
+    if (pixOrder.pixCreditPlanId) {
+      const pixPlan = await this.repo.findPixCreditPlanById(pixOrder.pixCreditPlanId);
+      if (pixPlan) {
+        const linkCodes = await (this.prisma as any).pixPlanLinkCode.findFirst({
+          where: { pixCreditPlanId: pixOrder.pixCreditPlanId },
+        });
+        pixPlanLinkCode = linkCodes?.code || null;
+      }
+    }
+
+    const existing = await this.repo.findCustomerPlanAccess({
+      userId: pixOrder.userId,
+      customerDocument: doc,
+      pixPlanId: pixPlanIdToUse,
+    });
+
+    const additionalDays = pixOrder.daysCredited;
+
+    if (existing) {
+      const base = new Date(existing.expiresAt) > now ? new Date(existing.expiresAt) : now;
+      const newExpiresAt = new Date(base.getTime() + additionalDays * 24 * 60 * 60 * 1000);
+
+      await this.repo.updateCustomerPlanAccess(
+        {
+          userId: pixOrder.userId,
+          customerDocument: doc,
+          pixPlanId: pixPlanIdToUse,
+        },
+        {
+          isActive: true,
+          expiresAt: newExpiresAt,
+          totalDaysCredited: existing.totalDaysCredited + additionalDays,
+          lastTransactionId: transactionId,
+          customerId: customer.id,
+          pixPlanCode: pixPlanLinkCode || existing.pixPlanCode,
+        },
+      );
+    } else {
+      const newExpiresAt = new Date(now.getTime() + additionalDays * 24 * 60 * 60 * 1000);
+
+      await this.repo.createCustomerPlanAccess({
+        userId: pixOrder.userId,
+        customerId: customer.id,
+        customerEmail: pixOrder.customerEmail,
+        customerDocument: doc,
+        pixPlanId: pixPlanIdToUse,
+        pixPlanCode: pixPlanLinkCode,
+        isActive: true,
+        expiresAt: newExpiresAt,
+        totalDaysCredited: additionalDays,
+        lastTransactionId: transactionId,
+      });
+    }
+
+    await this.repo.updatePixPlanOrderPaid(transactionId, {
+      paid: true,
+      creditedAt: new Date(),
+      customerId: customer.id,
+    });
+
+    // Notificar api-pagatg
+    try {
+      let linkCodeForNotification = pixPlanLinkCode;
+      if (!linkCodeForNotification && pixOrder.pixCreditPlanId) {
+        const foundLinkCode = await (this.prisma as any).pixPlanLinkCode.findFirst({
+          where: { pixCreditPlanId: pixOrder.pixCreditPlanId },
+        });
+        linkCodeForNotification = foundLinkCode?.code || null;
+      }
+      if (linkCodeForNotification) {
+        await fetch('https://api-bot.jbmidia.com/webhook/pix-credit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: linkCodeForNotification,
+            email: pixOrder.customerEmail,
+            customerId: customer.id,
+            status: 'COMPLETED',
+            userId: pixOrder.userId,
+          }),
+        });
+      }
+    } catch (webhookError: any) {
+      this.logger.error('Erro ao notificar api-pagatg:', webhookError.message);
+    }
+
+    this.logger.log('PIX-PLAN: Crédito de dias concluído com sucesso!');
+  }
+}

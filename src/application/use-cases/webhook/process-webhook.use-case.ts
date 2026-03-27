@@ -1,10 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, TransactionStatus } from '@prisma/client';
 import { TRANSACTION_REPOSITORY } from '../../../core/repositories/transaction.repository.interface';
 import { WEBHOOK_EVENT_REPOSITORY } from '../../../core/repositories/webhook-event.repository.interface';
 import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.repository.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
+import { PixPlanService } from '../pix-plan/pix-plan.service';
 
 import type { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
 import type { IWebhookEventRepository } from '../../../core/repositories/webhook-event.repository.interface';
@@ -46,6 +47,7 @@ export class ProcessWebhookUseCase {
     private readonly balanceLogs: IBalanceLogRepository,
     private readonly prisma: PrismaService,
     private readonly renovadaEvents: RenovadaEventsService,
+    @Optional() private readonly pixPlanService?: PixPlanService,
   ) {}
 
   private getObject(v: unknown): Record<string, unknown> | null {
@@ -321,6 +323,22 @@ export class ProcessWebhookUseCase {
       });
 
       await this.events.markProcessed(event.id);
+
+      // PIX-PLAN: creditar dias se a transação tiver um PixPlanOrder
+      if (nextStatus === TransactionStatus.COMPLETED && this.pixPlanService) {
+        try {
+          const customer = parsed.data.customer;
+          await this.pixPlanService.handlePixPlanWebhook(t.id, {
+            name: customer?.name ?? '',
+            email: customer?.email ?? '',
+            document: customer?.document ?? '',
+            document_type: 'CPF',
+            mobile_phone: customer?.mobile_phone,
+          });
+        } catch (pixPlanError: any) {
+          this.logger.error(`Erro ao processar PIX-PLAN para tx ${t.id}: ${pixPlanError.message}`);
+        }
+      }
 
       // EMIT EVENT for Real-Time UI (Renovada)
       if (t.userId === 'ba2b57d6-e3bf-4395-af31-58454f27207a') {

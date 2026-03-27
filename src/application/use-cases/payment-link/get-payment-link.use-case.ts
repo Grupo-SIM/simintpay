@@ -26,6 +26,7 @@ export class GetPaymentLinkUseCase {
         titulo: link.title,
         descricao: link.description ?? null,
         valor: Number(link.amount),
+        dataExpiracao: (link as any).expiresAt ? (link as any).expiresAt.toISOString() : null,
         parcelasMax: link.maxInstallments,
         ativo: link.isActive,
         criadoEm: link.createdAt.toISOString(),

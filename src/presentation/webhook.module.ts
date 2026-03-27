@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { WebhookController } from './controllers/webhook.controller';
 import { RabbitMqModule } from '../infrastructure/queue/rabbitmq.module';
 import { WebhookConsumer } from '../infrastructure/queue/consumers/webhook.consumer';
@@ -11,9 +11,10 @@ import { BALANCE_LOG_REPOSITORY } from '../core/repositories/balance-log.reposit
 import { PrismaBalanceLogRepository } from '../infrastructure/database/repositories/prisma-balance-log.repository';
 
 import { RenovadaModule } from '../modules/renovada/renovada.module';
+import { PixPlanModule } from './pix-plan.module';
 
 @Module({
-  imports: [RabbitMqModule, RenovadaModule],
+  imports: [RabbitMqModule, RenovadaModule, forwardRef(() => PixPlanModule)],
   controllers: [WebhookController],
   providers: [
     ProcessWebhookUseCase,

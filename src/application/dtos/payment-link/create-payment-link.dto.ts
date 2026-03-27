@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsDateString,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -38,4 +39,8 @@ export class CreatePaymentLinkDto {
   @IsString()
   @IsOptional()
   redirectUrl?: string;
+
+  @IsDateString()
+  @IsOptional()
+  dataExpiracao?: string;
 }
