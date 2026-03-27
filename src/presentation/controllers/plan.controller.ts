@@ -143,7 +143,7 @@ export class PlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ deleted: true }> {
-    await this.del.execute({ userId: user?.sub ?? '', id });
+    await this.del.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
     return { deleted: true };
   }
 }

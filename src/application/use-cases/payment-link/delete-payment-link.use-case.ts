@@ -12,11 +12,10 @@ export class DeletePaymentLinkUseCase {
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
   ) {}
 
-  async execute(input: { userId: string; id: string }): Promise<void> {
-    const existing = await this.links.findByIdForUser({
-      id: input.id,
-      userId: input.userId,
-    });
+  async execute(input: { userId: string; role?: string; id: string }): Promise<void> {
+    const existing = input.role === 'ADMIN'
+      ? await this.links.findById(input.id)
+      : await this.links.findByIdForUser({ id: input.id, userId: input.userId });
     if (!existing) throw new NotFoundException('Link não encontrado');
 
     const domToken = process.env.DOM_TOKEN;

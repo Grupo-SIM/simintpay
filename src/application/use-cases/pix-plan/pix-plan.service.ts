@@ -265,11 +265,11 @@ export class PixPlanService {
 
   // ── POST /payments/pix-plan/:id/link-code ────────────────────────────────
 
-  async createPixPlanLinkCodeForPlan(userId: string, pixPlanId: string) {
+  async createPixPlanLinkCodeForPlan(userId: string, pixPlanId: string, role?: string) {
     const plan = await this.repo.findPixCreditPlanById(pixPlanId);
     if (!plan || plan.status !== 'ACTIVE')
       throw new NotFoundException('Plano PIX não encontrado ou inativo');
-    if (plan.userId !== userId)
+    if (role !== 'ADMIN' && plan.userId !== userId)
       throw new BadRequestException('Plano não pertence a este usuário');
 
     const code = `PX-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
@@ -359,10 +359,10 @@ export class PixPlanService {
 
   // ── DELETE /payments/pix-plan/:id ────────────────────────────────────────
 
-  async deletePixCreditPlan(userId: string, pixPlanId: string) {
+  async deletePixCreditPlan(userId: string, pixPlanId: string, role?: string) {
     const plan = await this.repo.findPixCreditPlanById(pixPlanId);
     if (!plan) throw new NotFoundException('Plano PIX não encontrado');
-    if (plan.userId !== userId)
+    if (role !== 'ADMIN' && plan.userId !== userId)
       throw new BadRequestException('Plano não pertence a este usuário');
 
     await this.prisma.$transaction(async () => {

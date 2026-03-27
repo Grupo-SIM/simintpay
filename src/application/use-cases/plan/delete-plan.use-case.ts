@@ -11,11 +11,10 @@ export class DeletePlanUseCase {
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
   ) {}
 
-  async execute(input: { userId: string; id: string }): Promise<void> {
-    const plan = await this.plans.findByIdForUser({
-      id: input.id,
-      userId: input.userId,
-    });
+  async execute(input: { userId: string; role?: string; id: string }): Promise<void> {
+    const plan = input.role === 'ADMIN'
+      ? await this.plans.findById(input.id)
+      : await this.plans.findByIdForUser({ id: input.id, userId: input.userId });
     if (!plan) throw new NotFoundException('Plano não encontrado');
 
     const domToken = process.env.DOM_TOKEN;

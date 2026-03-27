@@ -11,12 +11,12 @@ export class GetPaymentLinkUseCase {
 
   async execute(input: {
     userId: string;
+    role?: string;
     id: string;
   }): Promise<{ data: unknown }> {
-    const link = await this.links.findByIdForUser({
-      id: input.id,
-      userId: input.userId,
-    });
+    const link = input.role === 'ADMIN'
+      ? await this.links.findById(input.id)
+      : await this.links.findByIdForUser({ id: input.id, userId: input.userId });
     if (!link) throw new NotFoundException('Link não encontrado');
 
     return {
