@@ -14,6 +14,13 @@ export interface IPixPlanRepository {
   findPixCreditPlanById(id: string): Promise<any>;
 
   findPixCreditPlansByUserId(userId: string): Promise<any[]>;
+  findPixCreditPlansByUserIdPaginated(params: {
+    userId: string;
+    page: number;
+    limit: number;
+    status?: 'ACTIVE' | 'INACTIVE';
+    search?: string;
+  }): Promise<{ items: any[]; total: number }>;
 
   deletePixCreditPlan(id: string): Promise<void>;
 

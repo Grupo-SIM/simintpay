@@ -46,6 +46,48 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     });
   }
 
+  async findPixCreditPlansByUserIdPaginated(params: {
+    userId: string;
+    page: number;
+    limit: number;
+    status?: 'ACTIVE' | 'INACTIVE';
+    search?: string;
+  }) {
+    const { userId, page, limit, status, search } = params;
+    const skip = (page - 1) * limit;
+    const where: any = { userId };
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (search?.trim()) {
+      where.OR = [
+        { description: { contains: search.trim(), mode: 'insensitive' } },
+        { type: { contains: search.trim(), mode: 'insensitive' } },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      (this.prisma as any).pixCreditPlan.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          linkCodes: {
+            where: { isActive: true },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
+      }),
+      (this.prisma as any).pixCreditPlan.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
   async deletePixCreditPlan(id: string) {
     await (this.prisma as any).pixCreditPlan.delete({ where: { id } });
   }
