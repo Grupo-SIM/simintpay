@@ -83,10 +83,31 @@ export class PixPlanController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Listar todos os planos PIX de crédito do usuário' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'status', required: false, enum: ['ACTIVE', 'INACTIVE'] })
+  @ApiQuery({ name: 'search', required: false, type: String })
   @ApiResponse({ status: 200 })
   @ApiResponse({ status: 401 })
-  async listPixCreditPlans(@CurrentUser() user: JwtPayload | undefined) {
-    return this.pixPlanService.listPixCreditPlans(user?.sub ?? '');
+  async listPixCreditPlans(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+  ) {
+    const pageNumber = page ? parseInt(page, 10) : 1;
+    const limitNumber = limit ? parseInt(limit, 10) : 10;
+    const normalizedStatus =
+      status === 'ACTIVE' || status === 'INACTIVE' ? status : undefined;
+
+    return this.pixPlanService.listPixCreditPlansPaginated({
+      userId: user?.sub ?? '',
+      page: pageNumber,
+      limit: limitNumber,
+      status: normalizedStatus,
+      search,
+    });
   }
 
   @Post('pix-plan')
@@ -117,16 +138,13 @@ export class PixPlanController {
   }
 
   @Post('pix-plan/checkout-by-code')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Criar pagamento PIX-PLAN a partir de um code' })
   @ApiResponse({ status: 201 })
-  @ApiResponse({ status: 401 })
+  @ApiResponse({ status: 400 })
   async createPixPlanPaymentFromCode(
-    @CurrentUser() user: JwtPayload | undefined,
     @Body() body: PixPlanCheckoutByCodeDto,
   ) {
-    return this.pixPlanService.createPixPlanPaymentFromCode(user?.sub ?? '', body);
+    return this.pixPlanService.createPixPlanPaymentFromCode(body);
   }
 
   @Get('plan-access')

@@ -216,12 +216,11 @@ export class PixPlanService {
 
   // ── POST /payments/pix-plan/checkout-by-code ─────────────────────────────
 
-  async createPixPlanPaymentFromCode(userId: string, body: PixPlanCheckoutByCodeDto) {
+  async createPixPlanPaymentFromCode(body: PixPlanCheckoutByCodeDto) {
     const link = await this.getPixPlanLinkCode(body.code);
     const plan = await this.repo.findPixCreditPlanById(link.pixCreditPlanId);
 
-    if (!plan || plan.userId !== userId)
-      throw new BadRequestException('Code não pertence a este usuário');
+    if (!plan) throw new BadRequestException('Code inválido para plano PIX');
 
     let finalPrice = plan.price;
 
@@ -251,7 +250,7 @@ export class PixPlanService {
       finalPrice = body.finalAmount;
     }
 
-    return this.createPixPlanPayment(userId, {
+    return this.createPixPlanPayment(plan.userId, {
       planType: plan.type,
       price: finalPrice,
       name: body.name,
@@ -297,6 +296,51 @@ export class PixPlanService {
       updatedAt: p.updatedAt,
       linkCode: p.linkCodes?.[0]?.code ?? null,
     }));
+  }
+
+  async listPixCreditPlansPaginated(params: {
+    userId: string;
+    page: number;
+    limit: number;
+    status?: 'ACTIVE' | 'INACTIVE';
+    search?: string;
+  }) {
+    const safePage = Number.isFinite(params.page) ? Math.max(1, params.page) : 1;
+    const safeLimit = Number.isFinite(params.limit)
+      ? Math.min(Math.max(1, params.limit), 100)
+      : 10;
+
+    const { items, total } = await this.repo.findPixCreditPlansByUserIdPaginated({
+      userId: params.userId,
+      page: safePage,
+      limit: safeLimit,
+      status: params.status,
+      search: params.search,
+    });
+
+    const mappedItems = items.map((p: any) => ({
+      id: p.id,
+      userId: p.userId,
+      type: p.type,
+      price: p.price,
+      description: p.description,
+      redirectUrl: p.redirectUrl,
+      webhookUrl: p.webhookUrl,
+      status: p.status,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      linkCode: p.linkCodes?.[0]?.code ?? null,
+    }));
+
+    return {
+      items: mappedItems,
+      meta: {
+        currentPage: safePage,
+        itemsPerPage: safeLimit,
+        totalItems: total,
+        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+      },
+    };
   }
 
   // ── DELETE /payments/pix-plan/:id ────────────────────────────────────────
