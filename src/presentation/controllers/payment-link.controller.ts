@@ -20,6 +20,8 @@ import { ListPaymentLinksUseCase } from '../../application/use-cases/payment-lin
 import { GetPaymentLinkUseCase } from '../../application/use-cases/payment-link/get-payment-link.use-case';
 import { UpdatePaymentLinkUseCase } from '../../application/use-cases/payment-link/update-payment-link.use-case';
 import { DeletePaymentLinkUseCase } from '../../application/use-cases/payment-link/delete-payment-link.use-case';
+import { GetPublicPaymentLinkUseCase } from '../../application/use-cases/payment-link/get-public-payment-link.use-case';
+import { ChargePaymentLinkUseCase, ChargePaymentLinkInput } from '../../application/use-cases/payment-link/charge-payment-link.use-case';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -39,7 +41,30 @@ export class PaymentLinkController {
     private readonly getOne: GetPaymentLinkUseCase,
     private readonly update: UpdatePaymentLinkUseCase,
     private readonly del: DeletePaymentLinkUseCase,
+    private readonly getPublic: GetPublicPaymentLinkUseCase,
+    private readonly charge: ChargePaymentLinkUseCase,
   ) {}
+
+  // ── Rotas públicas (sem autenticação) ──────────────────────────────────────
+
+  @Get('public/:id')
+  @ApiOperation({ summary: 'Detalhes públicos de um link de pagamento (checkout)' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 404 })
+  async getPublicRoute(@Param('id') id: string) {
+    return this.getPublic.execute(id);
+  }
+
+  @Post('public/:id/charge')
+  @ApiOperation({ summary: 'Cobrar via link de pagamento (checkout público)' })
+  @ApiResponse({ status: 201 })
+  @ApiResponse({ status: 404 })
+  async chargeRoute(
+    @Param('id') id: string,
+    @Body() body: Omit<ChargePaymentLinkInput, 'linkId'>,
+  ) {
+    return this.charge.execute({ ...body, linkId: id });
+  }
 
   @Get()
   @ApiOperation({ summary: 'Listar links de pagamento' })

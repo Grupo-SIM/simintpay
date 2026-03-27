@@ -409,6 +409,60 @@ export class ApiDomClient implements IPaymentGateway {
     await firstValueFrom(this.http.delete(`${this.baseUrl}/payment-links/${id}`, { headers: { 'Authorization': `Bearer ${domToken}` } }));
   }
 
+  async chargePaymentLink(
+    domToken: string,
+    input: {
+      domLinkId: string;
+      customerName: string;
+      customerEmail: string;
+      customerDocument: string;
+      customerPhone: string;
+      installments: number;
+      card: {
+        token: string;
+        brand?: string;
+        bin?: string;
+        exp_month: string;
+        exp_year: string;
+        cvv: string;
+        holder_name: string;
+        holder_document: string;
+        number?: string;
+      };
+    },
+  ): Promise<{ id: string; status?: string }> {
+    const url = `${this.domRealApiUrl}/set-payment-link/${input.domLinkId}/charge`;
+    const body = {
+      customer: {
+        name: input.customerName,
+        email: input.customerEmail,
+        document: input.customerDocument,
+        phone: input.customerPhone,
+      },
+      payment_method: 'credit_card',
+      installments: input.installments,
+      card: {
+        token: input.card.token,
+        brand: input.card.brand,
+        bin: input.card.bin,
+        exp_month: input.card.exp_month,
+        exp_year: input.card.exp_year,
+        cvv: input.card.cvv,
+        holder_name: input.card.holder_name,
+        holder_document: input.card.holder_document,
+        number: input.card.number,
+      },
+    };
+    const res = await firstValueFrom(this.http.post<any>(url, body, {
+      headers: { 'Authorization': `Bearer ${domToken}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    }));
+    this.logger.log(`[DOM Charge Link RAW] ${JSON.stringify(res.data)}`);
+    const root = res.data?.data ?? res.data;
+    const id = root?.id ?? root?.transaction_id;
+    if (!id) throw new Error('Charge response missing id');
+    return { id, status: root?.status };
+  }
+
   async createPlan(domToken: string, input: DomCreatePlanInput): Promise<DomPlanOutput> {
     const url = `${this.domRealApiUrl}/recurrence/plan`;
     const body: any = {
