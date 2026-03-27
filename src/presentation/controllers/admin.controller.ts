@@ -195,6 +195,76 @@ export class AdminController {
     };
   }
 
+  // ──────────── RENOVADA: LIMPAR TRANSAÇÕES + RECALCULAR SALDO ────────────
+
+  @Post('renovada/recalcular')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Remove transações sem dízimo/primícia/oferta do pool Renovada e recalcula o saldo' })
+  async renovadaRecalcular() {
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+
+    const keywordOr = [
+      { description: { contains: 'dizimo', mode: 'insensitive' as const } },
+      { description: { contains: 'dízimo', mode: 'insensitive' as const } },
+      { description: { contains: 'primicia', mode: 'insensitive' as const } },
+      { description: { contains: 'primícia', mode: 'insensitive' as const } },
+      { description: { contains: 'oferta', mode: 'insensitive' as const } },
+    ];
+
+    const whereToDelete = { userId: RENOVADA_ID, NOT: { OR: keywordOr } };
+
+    // 1. Antes de deletar as transações, deletar o histórico de status para evitar violação de FK
+    const txsToDelete = await this.prisma.transaction.findMany({
+      where: whereToDelete,
+      select: { id: true },
+    });
+
+    if (txsToDelete.length > 0) {
+      await this.prisma.transactionStatusHistory.deleteMany({
+        where: { transactionId: { in: txsToDelete.map(t => t.id) } },
+      });
+    }
+
+    // Agora deletar as transações
+    const deleted = await this.prisma.transaction.deleteMany({
+      where: whereToDelete,
+    });
+
+    // 2. Recalcular saldo com as transações COMPLETED restantes
+    // IMPORTANTE: wallet.balance armazena o valor BRUTO (amount).
+    const completedTxs = await this.prisma.transaction.aggregate({
+      where: { userId: RENOVADA_ID, status: TransactionStatus.COMPLETED, OR: keywordOr },
+      _sum: { amount: true },
+    });
+
+    const completedWithdraws = await this.prisma.withdrawRequest.aggregate({
+      where: {
+        userId: RENOVADA_ID,
+        status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
+      },
+      _sum: { amount: true },
+    });
+
+    const totalReceived = Number(completedTxs._sum.amount || 0);
+    const totalWithdrawn = Number(completedWithdraws._sum.amount || 0);
+    const calculatedBalance = Math.max(0, totalReceived - totalWithdrawn);
+    const netEquivalent = calculatedBalance * 0.91; // Só informativo
+
+    await this.prisma.wallet.update({
+      where: { userId: RENOVADA_ID },
+      data: { balance: calculatedBalance },
+    });
+
+    return {
+      message: 'Transações limpas e saldo recalculado (usando valores brutos)',
+      transacoesRemovidas: deleted.count,
+      grossBalanceRecalculado: calculatedBalance,
+      netEquivalent,
+      totalRecebidoBruto: totalReceived,
+      totalSacado: totalWithdrawn,
+    };
+  }
+
   @Post('sync-transactions')
   @HttpCode(200)
   @ApiOperation({ summary: 'Importar transações da conta Dom para o banco local' })

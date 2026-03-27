@@ -289,10 +289,17 @@ export class SyncFullRenovadaUseCase {
       this.logger.error(`Erro saques: ${err.message}`);
     }
 
-    // 5. Recalcular saldo
+    // 5. Recalcular saldo (apenas transações com dízimo/primícia/oferta)
     this.logger.log('Recalculando saldo...');
+    const renovadaKeywords = [
+      { description: { contains: 'dizimo', mode: 'insensitive' as const } },
+      { description: { contains: 'dízimo', mode: 'insensitive' as const } },
+      { description: { contains: 'primicia', mode: 'insensitive' as const } },
+      { description: { contains: 'primícia', mode: 'insensitive' as const } },
+      { description: { contains: 'oferta', mode: 'insensitive' as const } },
+    ];
     const completedTxs = await this.prisma.transaction.aggregate({
-      where: { userId: RENOVADA_ID, status: TransactionStatus.COMPLETED },
+      where: { userId: RENOVADA_ID, status: TransactionStatus.COMPLETED, OR: renovadaKeywords },
       _sum: { netAmount: true },
     });
 
