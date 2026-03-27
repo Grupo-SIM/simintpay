@@ -46,7 +46,9 @@ export class CreatePaymentLinkUseCase {
     }
 
     // Busca taxas para obter interest_rate_installment correto por número de parcelas
-    const maxInstallments = input.dto.parcelasMax ?? 1;
+    const aceitaCartao = input.dto.aceitaCartao ?? true;
+    const aceitaPix = input.dto.aceitaPix ?? true;
+    const maxInstallments = aceitaCartao ? (input.dto.parcelasMax ?? 1) : 1;
     let interestRate = 0;
 
     try {
@@ -69,6 +71,8 @@ export class CreatePaymentLinkUseCase {
       amount: input.dto.valor,
       maxInstallments,
       interestRateInstallment: interestRate,
+      aceitaCartao,
+      aceitaPix,
     });
 
     const saved = await this.links.create({
@@ -77,6 +81,8 @@ export class CreatePaymentLinkUseCase {
       description: input.dto.descricao ?? null,
       amount: input.dto.valor,
       maxInstallments,
+      aceitaCartao,
+      aceitaPix,
       isActive: true,
       domPaymentLinkId: created.id,
     });

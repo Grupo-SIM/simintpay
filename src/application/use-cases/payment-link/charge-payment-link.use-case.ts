@@ -13,8 +13,9 @@ export type ChargePaymentLinkInput = {
   customerEmail: string;
   customerDocument: string;
   customerPhone: string;
+  paymentMethod?: 'credit_card' | 'pix';
   installments?: number;
-  card: {
+  card?: {
     token: string;
     brand?: string;
     bin?: string;
@@ -41,6 +42,7 @@ export class ChargePaymentLinkUseCase {
   async execute(input: ChargePaymentLinkInput): Promise<{
     id: string;
     status: string;
+    pixContent: string | null;
     redirectUrl: string | null;
   }> {
     const link = await this.links.findById(input.linkId);
@@ -73,6 +75,7 @@ export class ChargePaymentLinkUseCase {
       customerEmail: input.customerEmail,
       customerDocument: input.customerDocument.replace(/\D/g, ''),
       customerPhone: input.customerPhone.replace(/\D/g, ''),
+      paymentMethod: input.paymentMethod ?? 'credit_card',
       installments: input.installments ?? 1,
       card: input.card,
     });
@@ -80,7 +83,8 @@ export class ChargePaymentLinkUseCase {
     return {
       id: result.id,
       status: result.status ?? 'pending',
-      redirectUrl: link.description ?? null, // redirectUrl não está no modelo ainda, usando null
+      pixContent: result.pixContent ?? null,
+      redirectUrl: null,
     };
   }
 }

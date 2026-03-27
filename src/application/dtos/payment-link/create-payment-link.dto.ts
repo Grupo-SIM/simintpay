@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -25,4 +26,16 @@ export class CreatePaymentLinkDto {
   @Max(12)
   @IsOptional()
   parcelasMax?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  aceitaCartao?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  aceitaPix?: boolean;
+
+  @IsString()
+  @IsOptional()
+  redirectUrl?: string;
 }

@@ -351,8 +351,8 @@ export class ApiDomClient implements IPaymentGateway {
         { name: input.title ?? 'Produto', price: input.amount ?? 0, min: 1, max: 1 },
       ],
       paymentConfig: {
-        pix: true,
-        credit: true,
+        pix: input.aceitaPix ?? true,
+        credit: input.aceitaCartao ?? true,
         boleto: false,
         installments: input.maxInstallments ?? 1,
         boletoExpireDay: 0,
@@ -417,8 +417,9 @@ export class ApiDomClient implements IPaymentGateway {
       customerEmail: string;
       customerDocument: string;
       customerPhone: string;
+      paymentMethod: 'credit_card' | 'pix';
       installments: number;
-      card: {
+      card?: {
         token: string;
         brand?: string;
         bin?: string;
@@ -430,18 +431,20 @@ export class ApiDomClient implements IPaymentGateway {
         number?: string;
       };
     },
-  ): Promise<{ id: string; status?: string }> {
+  ): Promise<{ id: string; status?: string; pixContent?: string | null }> {
     const url = `${this.domRealApiUrl}/set-payment-link/${input.domLinkId}/charge`;
-    const body = {
+    const body: any = {
       customer: {
         name: input.customerName,
         email: input.customerEmail,
         document: input.customerDocument,
         phone: input.customerPhone,
       },
-      payment_method: 'credit_card',
+      payment_method: input.paymentMethod,
       installments: input.installments,
-      card: {
+    };
+    if (input.paymentMethod === 'credit_card' && input.card) {
+      body.card = {
         token: input.card.token,
         brand: input.card.brand,
         bin: input.card.bin,
@@ -451,8 +454,8 @@ export class ApiDomClient implements IPaymentGateway {
         holder_name: input.card.holder_name,
         holder_document: input.card.holder_document,
         number: input.card.number,
-      },
-    };
+      };
+    }
     const res = await firstValueFrom(this.http.post<any>(url, body, {
       headers: { 'Authorization': `Bearer ${domToken}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
     }));
@@ -460,7 +463,8 @@ export class ApiDomClient implements IPaymentGateway {
     const root = res.data?.data ?? res.data;
     const id = root?.id ?? root?.transaction_id;
     if (!id) throw new Error('Charge response missing id');
-    return { id, status: root?.status };
+    const pixContent = root?.pix_content ?? root?.pixContent ?? null;
+    return { id, status: root?.status, pixContent };
   }
 
   async createPlan(domToken: string, input: DomCreatePlanInput): Promise<DomPlanOutput> {

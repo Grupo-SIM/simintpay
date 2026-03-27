@@ -15,6 +15,8 @@ export class GetPublicPaymentLinkUseCase {
     descricao: string | null;
     valor: number;
     parcelasMax: number;
+    aceitaCartao: boolean;
+    aceitaPix: boolean;
     ativo: boolean;
   }> {
     const link = await this.links.findById(id);
@@ -27,6 +29,8 @@ export class GetPublicPaymentLinkUseCase {
       descricao: link.description ?? null,
       valor: Number(link.amount),
       parcelasMax: link.maxInstallments,
+      aceitaCartao: (link as any).aceitaCartao ?? true,
+      aceitaPix: (link as any).aceitaPix ?? true,
       ativo: link.isActive,
     };
   }

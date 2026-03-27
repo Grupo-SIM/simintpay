@@ -8,6 +8,8 @@ export type CreatePaymentLinkData = {
   description?: string | null;
   amount: number;
   maxInstallments: number;
+  aceitaCartao?: boolean;
+  aceitaPix?: boolean;
   isActive?: boolean;
   domPaymentLinkId?: string | null;
 };

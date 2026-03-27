@@ -31,6 +31,8 @@ export type DomPaymentLinkInput = {
   isActive?: boolean;
   redirectUrl?: string;
   interestRateInstallment?: number;
+  aceitaCartao?: boolean;
+  aceitaPix?: boolean;
 };
 
 export type DomPaymentLinkOutput = {
@@ -229,8 +231,9 @@ export interface IPaymentGateway {
       customerEmail: string;
       customerDocument: string;
       customerPhone: string;
+      paymentMethod: 'credit_card' | 'pix';
       installments: number;
-      card: {
+      card?: {
         token: string;
         brand?: string;
         bin?: string;
@@ -242,7 +245,7 @@ export interface IPaymentGateway {
         number?: string;
       };
     },
-  ): Promise<{ id: string; status?: string }>;
+  ): Promise<{ id: string; status?: string; pixContent?: string | null }>;
 
   createPlan(
     domToken: string,

@@ -23,6 +23,8 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
         description: data.description ?? undefined,
         amount: new Prisma.Decimal(data.amount),
         maxInstallments: data.maxInstallments,
+        aceitaCartao: data.aceitaCartao ?? true,
+        aceitaPix: data.aceitaPix ?? true,
         isActive: data.isActive ?? true,
         domPaymentLinkId: data.domPaymentLinkId ?? undefined,
       },
