@@ -31,9 +31,7 @@ import {
 } from '@nestjs/swagger';
 
 @Controller('links-pagamento')
-@UseGuards(JwtAuthGuard)
 @ApiTags('Links de Pagamento')
-@ApiBearerAuth()
 export class PaymentLinkController {
   constructor(
     private readonly create: CreatePaymentLinkUseCase,
@@ -67,6 +65,8 @@ export class PaymentLinkController {
   }
 
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Listar links de pagamento' })
   @ApiResponse({
     status: 200,
@@ -91,6 +91,8 @@ export class PaymentLinkController {
   }
 
   @Post()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Criar link de pagamento' })
   @ApiBody({
     type: CreatePaymentLinkDto,
@@ -127,6 +129,8 @@ export class PaymentLinkController {
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Buscar link de pagamento por id' })
   @ApiResponse({
     status: 200,
@@ -142,6 +146,8 @@ export class PaymentLinkController {
   }
 
   @Put(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Atualizar link de pagamento' })
   @ApiBody({
     type: UpdatePaymentLinkDto,
@@ -169,6 +175,8 @@ export class PaymentLinkController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Remover link de pagamento' })
   @ApiResponse({ status: 200, schema: { example: { deleted: true } } })
   @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
