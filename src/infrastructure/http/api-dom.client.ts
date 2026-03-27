@@ -1,6 +1,7 @@
 import { HttpService } from '@nestjs/axios';
 import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
+import * as QRCode from 'qrcode';
 import {
   DomGenerateTokenOutput,
   DomCreatePlanInput,
@@ -471,8 +472,8 @@ export class ApiDomClient implements IPaymentGateway {
     pixExpire: string | null;
     amount: number;
   }> {
-    // Usa o endpoint de cobrança por link para vincular o pagamento ao link na DOM
-    const url = `${this.domRealApiUrl}/set-payment-link/${input.domLinkId}/charge`;
+    // DOM não suporta pix via set-payment-link/charge — usa /transactions direto
+    const url = `${this.domRealApiUrl}/transactions`;
 
     const expireAt = new Date();
     expireAt.setHours(expireAt.getHours() + 24);
@@ -482,15 +483,24 @@ export class ApiDomClient implements IPaymentGateway {
       .replace('T', ' ');
 
     const body = {
+      cod_external: input.codExternal,
       customer: {
         name: input.customerName,
         email: input.customerEmail,
         document: input.customerDocument.replace(/\D/g, ''),
         document_type: input.documentType,
-        phone: input.customerPhone.replace(/\D/g, ''),
+        mobile_phone: input.customerPhone.replace(/\D/g, ''),
       },
-      payment_method: 'pix',
-      pix: { pix_expire: pixExpireFormatted },
+      items: {
+        description: input.description,
+        price: input.amount,
+        quantity: 1,
+      },
+      payment: {
+        pix: { pix_expire: pixExpireFormatted },
+        payment_method: 'pix',
+        total: input.amount,
+      },
     };
 
     this.logger.log(
@@ -519,10 +529,19 @@ export class ApiDomClient implements IPaymentGateway {
       this.pickString(this.getObject(root), 'pixContent') ??
       null;
 
-    const qrCode =
+    let qrCode =
       this.pickString(this.getObject(root), 'qr_code') ??
       this.pickString(this.getObject(root), 'qr_code_text') ??
       null;
+
+    // DOM não retorna QR code na resposta — gera a partir do pixContent
+    if (!qrCode && pixContent) {
+      try {
+        qrCode = await QRCode.toDataURL(pixContent, { width: 256, margin: 2 });
+      } catch (e) {
+        this.logger.warn(`[DOM PIX Link] Falha ao gerar QR code: ${e}`);
+      }
+    }
 
     const pixExpire =
       this.pickString(this.getObject(root), 'pix_expire_at') ??
