@@ -8,6 +8,7 @@ export type CreateLeadData = {
   email: string;
   razaoSocial: string;
   cnpj: string;
+  cpf?: string;
   faturamento: string;
   tempoOperacao: string;
   modeloOperacao?: string;

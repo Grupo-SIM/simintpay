@@ -23,6 +23,7 @@ export class CreateLeadUseCase {
       email: dto.email,
       razaoSocial: dto.razaoSocial,
       cnpj: dto.cnpj,
+      cpf: dto.cpf.replace(/\D/g, ''),
       faturamento: dto.faturamento,
       tempoOperacao: dto.tempoOperacao,
       modeloOperacao: dto.modeloOperacao,

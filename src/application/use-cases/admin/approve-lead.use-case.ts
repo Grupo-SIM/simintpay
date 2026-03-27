@@ -45,11 +45,12 @@ export class ApproveLeadUseCase {
     const tempPassword = randomBytes(12).toString('base64').slice(0, 16);
     const hashed = await this.hash.hash(tempPassword);
 
-    // Create local user record
+    // Create local user record (with CPF from lead for transaction filtering)
     const user = await this.users.create({
       name: lead.name,
       email: lead.email,
       password: hashed,
+      cpf: lead.cpf ?? null,
     });
 
     await this.wallets.createForUser(user.id);

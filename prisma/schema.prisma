@@ -282,6 +282,7 @@ model Lead {
   email           String
   razaoSocial     String
   cnpj            String
+  cpf             String?
   faturamento     String
   tempoOperacao   String
   modeloOperacao  String?

@@ -59,6 +59,12 @@ export class CreateLeadDto {
   @Matches(/^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/, { message: 'CNPJ inválido' })
   cnpj: string;
 
+  @ApiProperty({ example: '123.456.789-09' })
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, { message: 'CPF inválido' })
+  cpf: string;
+
   @ApiProperty({ enum: Faturamento, example: Faturamento.DE_50K_A_100K })
   @IsEnum(Faturamento)
   faturamento: Faturamento;
