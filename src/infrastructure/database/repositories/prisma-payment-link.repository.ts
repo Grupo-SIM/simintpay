@@ -47,6 +47,22 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
     return { total, items };
   }
 
+  async findAll(input: {
+    page: number;
+    pageSize: number;
+  }): Promise<{ total: number; items: PaymentLink[] }> {
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.paymentLink.count(),
+      this.prisma.paymentLink.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip: (input.page - 1) * input.pageSize,
+        take: input.pageSize,
+      }),
+    ]);
+
+    return { total, items };
+  }
+
   async findById(id: string): Promise<PaymentLink | null> {
     return this.prisma.paymentLink.findUnique({ where: { id } });
   }

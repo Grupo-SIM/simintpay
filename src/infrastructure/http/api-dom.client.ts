@@ -356,7 +356,7 @@ export class ApiDomClient implements IPaymentGateway {
         boleto: false,
         installments: input.maxInstallments ?? 1,
         boletoExpireDay: 0,
-        interest_rate_installment: 0,
+        interest_rate_installment: input.interestRateInstallment ?? 0,
       },
     };
     if (input.redirectUrl) body.redirect_url = input.redirectUrl;
