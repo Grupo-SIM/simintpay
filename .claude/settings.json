@@ -3,10 +3,19 @@
     "allow": [
       "Bash(node_modules/.bin/prisma generate:*)",
       "Read(//c/Users/breno/Desktop/JB/admin-renovada12/**)",
-      "Read(//c/Users/breno/Desktop/JB/**)"
+      "Read(//c/Users/breno/Desktop/JB/**)",
+      "Bash(PRISMA_HIDE_UPDATE_MESSAGE=true npx prisma db push:*)",
+      "Bash(npx prisma db push:*)",
+      "Bash(Get-Date -Format \"yyyyMMddHHmmss\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "additionalDirectories": [
-      "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\painel\\renovada"
+      "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\painel\\renovada",
+      "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\components\\layout",
+      "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\services\\api",
+      "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\admin\\criar-conta"
     ]
   }
 }

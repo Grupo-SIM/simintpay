@@ -269,7 +269,19 @@ export class ListTransactionsUseCase {
       const filterPlanTransactions = moduleSlug === 'renovada';
       and = [
         { userId: input.userId },
-        ...(filterPlanTransactions ? [{ NOT: { description: { startsWith: 'PIX_PLAN_CODE:', mode: Prisma.QueryMode.insensitive } } }] : []),
+        ...(filterPlanTransactions
+          ? [
+              {
+                OR: [
+                  { description: { contains: 'dizimo', mode: Prisma.QueryMode.insensitive } },
+                  { description: { contains: 'dízimo', mode: Prisma.QueryMode.insensitive } },
+                  { description: { contains: 'primicia', mode: Prisma.QueryMode.insensitive } },
+                  { description: { contains: 'primícia', mode: Prisma.QueryMode.insensitive } },
+                  { description: { contains: 'oferta', mode: Prisma.QueryMode.insensitive } },
+                ],
+              },
+            ]
+          : []),
       ];
     }
 
