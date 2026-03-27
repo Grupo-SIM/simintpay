@@ -38,6 +38,7 @@ import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-tran
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
 import { StorageService } from '../../infrastructure/storage/storage.service';
+import { RevalidaSyncService } from '../../modules/revalida/services/revalida-sync.service';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -66,6 +67,7 @@ export class AdminController {
     private readonly listDomTransactionsDirect: ListDomTransactionsDirectUseCase,
     private readonly syncMaquinetasUseCase: SyncMaquinetasUseCase,
     private readonly syncDomTransactionsCron: SyncDomTransactionsCron,
+    private readonly revalidaSyncService: RevalidaSyncService,
     private readonly storageService: StorageService,
     private readonly prisma: PrismaService,
   ) { }
@@ -190,6 +192,12 @@ export class AdminController {
     return this.syncFullBosqueUseCase.execute();
   }
 
+  @Post('sync/full-revalida')
+  @ApiOperation({ summary: 'Sincronização completa de histórico (Revalida) - puxa da DOM Pagamentos' })
+  async syncFullRevalida() {
+    return this.revalidaSyncService.syncFull();
+  }
+
   @Post('sync/sync-wallet-renovada')
   @HttpCode(200)
   @ApiOperation({ summary: 'Definir saldo base da carteira Renovada (execução única para inicializar o saldo correto)' })
@@ -304,6 +312,15 @@ export class AdminController {
     } catch (error: any) {
       return { message: `Erro ao definir saldo: ${error.message}` };
     }
+  }
+
+  @Post('sync/sync-wallet-revalida')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Definir saldo base da carteira Revalida (execução única)' })
+  @ApiQuery({ name: 'balance', required: true, description: 'Saldo líquido (ex: 1200.50)', example: 1200.50 })
+  async syncWalletRevalida(@Query('balance') balanceParam?: string) {
+    if (!balanceParam) return { message: 'Informe o saldo via query ?balance=...' };
+    return this.revalidaSyncService.setWalletBalance(Number(balanceParam));
   }
 
   @Post('migrar-transacoes-para-admin')

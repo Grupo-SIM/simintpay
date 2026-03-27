@@ -19,6 +19,7 @@ import { AdminModule } from './presentation/admin.module';
 import { MaquinetasModule } from './presentation/maquinetas.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
 import { RenovadaModule } from './modules/renovada/renovada.module';
+import { RevalidaModule } from './modules/revalida/revalida.module';
 import { BosqueModule } from './modules/bosque/bosque.module';
 import { MasterModule } from './modules/master/master.module';
 
@@ -51,6 +52,7 @@ import { MasterModule } from './modules/master/master.module';
     MaquinetasModule,
     StorageModule,
     RenovadaModule,
+    RevalidaModule,
     BosqueModule,
     MasterModule,
   ],
