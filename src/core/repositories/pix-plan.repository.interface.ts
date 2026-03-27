@@ -15,7 +15,7 @@ export interface IPixPlanRepository {
 
   findPixCreditPlansByUserId(userId: string): Promise<any[]>;
   findPixCreditPlansByUserIdPaginated(params: {
-    userId: string;
+    userId?: string;
     page: number;
     limit: number;
     status?: 'ACTIVE' | 'INACTIVE';

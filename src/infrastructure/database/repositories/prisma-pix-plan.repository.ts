@@ -47,7 +47,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
   }
 
   async findPixCreditPlansByUserIdPaginated(params: {
-    userId: string;
+    userId?: string;
     page: number;
     limit: number;
     status?: 'ACTIVE' | 'INACTIVE';
@@ -55,7 +55,11 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
   }) {
     const { userId, page, limit, status, search } = params;
     const skip = (page - 1) * limit;
-    const where: any = { userId };
+    const where: any = {};
+
+    if (userId) {
+      where.userId = userId;
+    }
 
     if (status) {
       where.status = status;
@@ -80,6 +84,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
             orderBy: { createdAt: 'desc' },
             take: 1,
           },
+          user: { select: { cpf: true } },
         },
       }),
       (this.prisma as any).pixCreditPlan.count({ where }),

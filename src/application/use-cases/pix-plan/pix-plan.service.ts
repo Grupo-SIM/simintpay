@@ -300,6 +300,7 @@ export class PixPlanService {
 
   async listPixCreditPlansPaginated(params: {
     userId: string;
+    role?: string;
     page: number;
     limit: number;
     status?: 'ACTIVE' | 'INACTIVE';
@@ -310,27 +311,40 @@ export class PixPlanService {
       ? Math.min(Math.max(1, params.limit), 100)
       : 10;
 
+    const isAdmin = params.role === 'ADMIN';
+
     const { items, total } = await this.repo.findPixCreditPlansByUserIdPaginated({
-      userId: params.userId,
+      userId: isAdmin ? undefined : params.userId,
       page: safePage,
       limit: safeLimit,
       status: params.status,
       search: params.search,
     });
 
-    const mappedItems = items.map((p: any) => ({
-      id: p.id,
-      userId: p.userId,
-      type: p.type,
-      price: p.price,
-      description: p.description,
-      redirectUrl: p.redirectUrl,
-      webhookUrl: p.webhookUrl,
-      status: p.status,
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt,
-      linkCode: p.linkCodes?.[0]?.code ?? null,
-    }));
+    const mappedItems = items.map((p: any) => {
+      const cpfRaw: string | null | undefined = p.user?.cpf;
+      let cpfDono: string | null = null;
+      if (cpfRaw) {
+        const digits = cpfRaw.replace(/\D/g, '');
+        cpfDono = digits.length === 11
+          ? digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
+          : cpfRaw;
+      }
+      return {
+        id: p.id,
+        userId: p.userId,
+        type: p.type,
+        price: p.price,
+        description: p.description,
+        redirectUrl: p.redirectUrl,
+        webhookUrl: p.webhookUrl,
+        status: p.status,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+        linkCode: p.linkCodes?.[0]?.code ?? null,
+        cpfDono,
+      };
+    });
 
     return {
       items: mappedItems,

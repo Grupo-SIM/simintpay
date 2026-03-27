@@ -103,6 +103,7 @@ export class PixPlanController {
 
     return this.pixPlanService.listPixCreditPlansPaginated({
       userId: user?.sub ?? '',
+      role: user?.role,
       page: pageNumber,
       limit: limitNumber,
       status: normalizedStatus,

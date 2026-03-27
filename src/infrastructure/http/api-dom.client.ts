@@ -673,6 +673,23 @@ export class ApiDomClient implements IPaymentGateway {
     return { items, total: this.pickNumber(this.getObject(root), 'total') ?? items.length };
   }
 
+  async getSubscription(domToken: string, id: string): Promise<unknown> {
+    const url = `${this.domRealApiUrl}/recurrence/subscriptions/${id}`;
+    const res = await firstValueFrom(
+      this.http.get<unknown>(url, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          Accept: 'application/json',
+        },
+      }),
+    );
+    const root = res.data as Record<string, unknown> | undefined;
+    if (root && typeof root === 'object' && 'data' in root && root.data !== undefined) {
+      return root.data;
+    }
+    return res.data;
+  }
+
   async cancelSubscription(domToken: string, id: string): Promise<void> {
     await firstValueFrom(this.http.delete(`${this.domRealApiUrl}/recurrence/subscriptions/${id}`, { headers: { 'Authorization': `Bearer ${domToken}` } }));
   }

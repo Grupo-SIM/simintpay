@@ -3,6 +3,8 @@ import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { PlanController } from './controllers/plan.controller';
 import { CreatePlanUseCase } from '../application/use-cases/plan/create-plan.use-case';
 import { ListPlansUseCase } from '../application/use-cases/plan/list-plans.use-case';
+import { GetPlanByIdUseCase } from '../application/use-cases/plan/get-plan-by-id.use-case';
+import { UpdatePlanUseCase } from '../application/use-cases/plan/update-plan.use-case';
 import { DeletePlanUseCase } from '../application/use-cases/plan/delete-plan.use-case';
 import { GetPublicPlanUseCase } from '../application/use-cases/plan/get-public-plan.use-case';
 import { CreatePublicSubscriptionUseCase } from '../application/use-cases/plan/create-public-subscription.use-case';
@@ -19,6 +21,8 @@ import { PrismaUserRepository } from '../infrastructure/database/repositories/pr
   providers: [
     CreatePlanUseCase,
     ListPlansUseCase,
+    GetPlanByIdUseCase,
+    UpdatePlanUseCase,
     DeletePlanUseCase,
     GetPublicPlanUseCase,
     CreatePublicSubscriptionUseCase,

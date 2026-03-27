@@ -5,6 +5,7 @@ import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.st
 import { ListSubscribersQueryDto } from '../../application/dtos/subscription/list-subscribers.query.dto';
 import { ListSubscribersUseCase } from '../../application/use-cases/subscription/list-subscribers.use-case';
 import { CancelSubscriptionUseCase } from '../../application/use-cases/subscription/cancel-subscription.use-case';
+import { GetSubscriptionDetailUseCase } from '../../application/use-cases/subscription/get-subscription-detail.use-case';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 @Controller('assinantes')
@@ -15,6 +16,7 @@ export class SubscriptionController {
   constructor(
     private readonly listSubscribers: ListSubscribersUseCase,
     private readonly cancel: CancelSubscriptionUseCase,
+    private readonly getDetail: GetSubscriptionDetailUseCase,
   ) {}
 
   @Get()
@@ -36,7 +38,20 @@ export class SubscriptionController {
     @CurrentUser() user: JwtPayload | undefined,
     @Query() query: ListSubscribersQueryDto,
   ): Promise<{ data: unknown; page: number; pageSize: number; total: number }> {
-    return this.listSubscribers.execute({ userId: user?.sub ?? '', query });
+    return this.listSubscribers.execute({ userId: user?.sub ?? '', role: user?.role, query });
+  }
+
+  @Get('subscription/:id')
+  @ApiOperation({
+    summary: 'Detalhe da assinatura (DOM recurrence/subscriptions/:id)',
+  })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 401 })
+  async getSubscriptionDetailRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+  ): Promise<unknown> {
+    return this.getDetail.execute({ userId: user?.sub ?? '', id });
   }
 
   @Put('subscription/:id/cancel')
