@@ -19,7 +19,7 @@ const RENOVADA_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 export class RenovadaDashboardService {
   private readonly logger = new Logger(RenovadaDashboardService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async getDashboardData(period: string = 'hoje') {
     const now = dayjs().tz(TZ);
@@ -82,12 +82,12 @@ export class RenovadaDashboardService {
         }
       });
       const getPct = (val: number) => total > 0 ? (val / total) * 100 : 0;
-      return { 
-        total: Number(total.toFixed(2)), 
-        maquinetas: Number(maquinetas.toFixed(2)), 
-        offers: Number(offers.toFixed(2)), 
-        maquinetasPct: getPct(maquinetas), 
-        offersPct: getPct(offers) 
+      return {
+        total: Number(total.toFixed(2)),
+        maquinetas: Number(maquinetas.toFixed(2)),
+        offers: Number(offers.toFixed(2)),
+        maquinetasPct: getPct(maquinetas),
+        offersPct: getPct(offers)
       };
     };
 
@@ -101,7 +101,7 @@ export class RenovadaDashboardService {
     this.logger.log(
       `[Dashboard] Período "${period}": ${txsInPeriod.length} txs | líquido total=${profitSelected.total.toFixed(2)} (online=${profitSelected.offers.toFixed(2)} físico=${profitSelected.maquinetas.toFixed(2)})`,
     );
-    
+
     // 2. Dados da Wallet — mesmo cálculo da rota de saques (get-withdraw-summary):
     // wallet.balance é BRUTO; saldo líquido disponível = (balance - locked) * fatorLiquidez
     const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });

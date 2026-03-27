@@ -1,9 +1,11 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
   HttpCode,
+  Inject,
   Param,
   Post,
   Query,
@@ -38,6 +40,10 @@ import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-tran
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
 import { StorageService } from '../../infrastructure/storage/storage.service';
+import { RevalidaSyncService } from '../../modules/revalida/services/revalida-sync.service';
+import { HASH_SERVICE, type IHashService } from '../../core/services/hash.interface';
+import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
+import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositories/wallet.repository.interface';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -66,8 +72,12 @@ export class AdminController {
     private readonly listDomTransactionsDirect: ListDomTransactionsDirectUseCase,
     private readonly syncMaquinetasUseCase: SyncMaquinetasUseCase,
     private readonly syncDomTransactionsCron: SyncDomTransactionsCron,
+    private readonly revalidaSyncService: RevalidaSyncService,
     private readonly storageService: StorageService,
     private readonly prisma: PrismaService,
+    @Inject(HASH_SERVICE) private readonly hashService: IHashService,
+    @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway,
+    @Inject(WALLET_REPOSITORY) private readonly walletRepository: IWalletRepository,
   ) { }
 
   // ──────────── LEADS ────────────
@@ -115,6 +125,68 @@ export class AdminController {
       reason: body.reason,
     });
     return { data: lead };
+  }
+
+  // ──────────── CRIAR CONTA ────────────
+
+  @Post('criar-conta')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Criar conta diretamente (admin master) — vincula ao módulo renovada e filtra transações pelo CPF' })
+  async criarConta(
+    @Body() body: { email: string; password: string; cpf: string },
+  ) {
+    const { email, password, cpf } = body;
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new ConflictException('Já existe um usuário com este e-mail');
+    }
+
+    const cpfClean = cpf.replace(/\D/g, '');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingCpf = await (this.prisma.user as any).findFirst({ where: { cpf: cpfClean } });
+    if (existingCpf) {
+      throw new ConflictException('Já existe um usuário com este CPF');
+    }
+
+    const hashed = await this.hashService.hash(password);
+
+    // Tentar registrar na DOM (falha silenciosa)
+    let domUserId: string | null = null;
+    let domToken: string | null = null;
+    try {
+      const name = email.split('@')[0];
+      const domReg = await this.paymentGateway.register({ name, email, password });
+      const domTok = await this.paymentGateway.generateToken(email, password);
+      domUserId = domReg.domUserId ?? null;
+      domToken = domTok.domToken ?? null;
+    } catch (err: any) {
+      // Segue sem conta DOM
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const user = await (this.prisma.user as any).create({
+      data: {
+        name: email.split('@')[0],
+        email,
+        password: hashed,
+        cpf: cpfClean,
+        domUserId: domUserId ?? undefined,
+        domToken: domToken ?? undefined,
+      },
+    });
+
+    await this.walletRepository.createForUser(user.id);
+
+    return {
+      data: {
+        userId: user.id,
+        email: user.email,
+        cpf: cpfClean,
+        modulo: null,
+      },
+      message: 'Conta do cliente criada com sucesso (Conta Avulsa)',
+    };
   }
 
   @Post('sync-transactions')
@@ -188,6 +260,12 @@ export class AdminController {
   @ApiOperation({ summary: 'Sincronização completa de histórico (Bosque) - puxa da DOM Pagamentos' })
   async syncFullBosque() {
     return this.syncFullBosqueUseCase.execute();
+  }
+
+  @Post('sync/full-revalida')
+  @ApiOperation({ summary: 'Sincronização completa de histórico (Revalida) - puxa da DOM Pagamentos' })
+  async syncFullRevalida() {
+    return this.revalidaSyncService.syncFull();
   }
 
   @Post('sync/sync-wallet-renovada')
@@ -304,6 +382,15 @@ export class AdminController {
     } catch (error: any) {
       return { message: `Erro ao definir saldo: ${error.message}` };
     }
+  }
+
+  @Post('sync/sync-wallet-revalida')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Definir saldo base da carteira Revalida (execução única)' })
+  @ApiQuery({ name: 'balance', required: true, description: 'Saldo líquido (ex: 1200.50)', example: 1200.50 })
+  async syncWalletRevalida(@Query('balance') balanceParam?: string) {
+    if (!balanceParam) return { message: 'Informe o saldo via query ?balance=...' };
+    return this.revalidaSyncService.setWalletBalance(Number(balanceParam));
   }
 
   @Post('migrar-transacoes-para-admin')
@@ -648,11 +735,11 @@ export class AdminController {
       ],
       ...(startDate || endDate
         ? {
-          createdAt: {
-            ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
-            ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
-          },
-        }
+            createdAt: {
+              ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
+              ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
+            },
+          }
         : {}),
     };
 
@@ -671,10 +758,10 @@ export class AdminController {
       const amt = Number(tx.amount);
       const sLabel = tx.status === 'COMPLETED' ? 'Aprovado'
         : tx.status === 'PENDING' ? 'Pendente'
-          : tx.status === 'FAILED' ? 'Falhou'
-            : tx.status === 'REFUNDED' ? 'Estornado'
-              : tx.status;
-
+        : tx.status === 'FAILED' ? 'Falhou'
+        : tx.status === 'REFUNDED' ? 'Estornado'
+        : tx.status;
+      
       return {
         // Camel case
         id: tx.domPaymentId || tx.id,
@@ -780,5 +867,133 @@ export class AdminController {
     await this.prisma.transaction.delete({ where: { id } });
 
     return { success: true, message: 'Transação deletada com sucesso' };
+  }
+
+  // ──────────── RENOVADA: LIMPAR TRANSAÇÕES + RECALCULAR SALDO ────────────
+
+  @Post('renovada/recalcular')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Remove transações sem dízimo/primícia/oferta do pool Renovada e recalcula o saldo' })
+  async renovadaRecalcular() {
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+
+    const keywordOr = [
+      { description: { contains: 'dizimo', mode: 'insensitive' as const } },
+      { description: { contains: 'dízimo', mode: 'insensitive' as const } },
+      { description: { contains: 'primicia', mode: 'insensitive' as const } },
+      { description: { contains: 'primícia', mode: 'insensitive' as const } },
+      { description: { contains: 'oferta', mode: 'insensitive' as const } },
+    ];
+
+    const whereToDelete = { userId: RENOVADA_ID, NOT: { OR: keywordOr } };
+
+    // 1. Antes de deletar as transações, deletar o histórico de status para evitar violação de FK
+    const txsToDelete = await this.prisma.transaction.findMany({
+      where: whereToDelete,
+      select: { id: true },
+    });
+
+    if (txsToDelete.length > 0) {
+      await this.prisma.transactionStatusHistory.deleteMany({
+        where: { transactionId: { in: txsToDelete.map(t => t.id) } },
+      });
+    }
+
+    // Agora deletar as transações
+    const deleted = await this.prisma.transaction.deleteMany({
+      where: whereToDelete,
+    });
+
+    // 2. Recalcular saldo com as transações COMPLETED restantes
+    // IMPORTANTE: wallet.balance armazena o valor BRUTO (amount).
+    const completedTxs = await this.prisma.transaction.aggregate({
+      where: { userId: RENOVADA_ID, status: TransactionStatus.COMPLETED, OR: keywordOr },
+      _sum: { amount: true },
+    });
+
+    const completedWithdraws = await this.prisma.withdrawRequest.aggregate({
+      where: {
+        userId: RENOVADA_ID,
+        status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
+      },
+      _sum: { amount: true },
+    });
+
+    const totalReceived = Number(completedTxs._sum.amount || 0);
+    const totalWithdrawn = Number(completedWithdraws._sum.amount || 0);
+    const calculatedBalance = Math.max(0, totalReceived - totalWithdrawn);
+    const netEquivalent = calculatedBalance * 0.91; // Só informativo
+
+    await this.prisma.wallet.update({
+      where: { userId: RENOVADA_ID },
+      data: { balance: calculatedBalance },
+    });
+
+    return {
+      message: 'Transações limpas e saldo recalculado (usando valores brutos)',
+      transacoesRemovidas: deleted.count,
+      grossBalanceRecalculado: calculatedBalance,
+      netEquivalent,
+      totalRecebidoBruto: totalReceived,
+      totalSacado: totalWithdrawn,
+    };
+  }
+
+  @Delete('usuarios/:email')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Deletar um usuário pelo e-mail (Master Admin only)' })
+  async deleteUserByEmail(@Param('email') email: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: {
+        wallet: true,
+        transactions: { select: { id: true } },
+      },
+    });
+
+    if (!user) {
+      return { success: false, message: 'Usuário não encontrado' };
+    }
+
+    // Identificar IDs de transações para limpar histórico
+    const txIds = user.transactions.map(t => t.id);
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // 1. Histórico de Status de Transações
+        if (txIds.length > 0) {
+          await tx.transactionStatusHistory.deleteMany({
+            where: { transactionId: { in: txIds } },
+          });
+        }
+
+        // 2. Logs de Saldo
+        await tx.balanceLog.deleteMany({ where: { userId: user.id } });
+
+        // 3. Transações
+        await tx.transaction.deleteMany({ where: { userId: user.id } });
+
+        // 4. Saques
+        await tx.withdrawRequest.deleteMany({ where: { userId: user.id } });
+
+        // 5. Links de Pagamento
+        await tx.paymentLink.deleteMany({ where: { userId: user.id } });
+
+        // 6. Sessões
+        await tx.session.deleteMany({ where: { userId: user.id } });
+
+        // 7. Wallet
+        if (user.wallet) {
+          await tx.wallet.delete({ where: { userId: user.id } });
+        }
+
+        // 8. O Usuário
+        await tx.user.delete({ where: { id: user.id } });
+      });
+
+      return { success: true, message: `Usuário ${email} e todos os seus dados foram excluídos com sucesso.` };
+    } catch (error: any) {
+      return { success: false, message: `Erro ao excluir usuário: ${error.message}` };
+    }
   }
 }

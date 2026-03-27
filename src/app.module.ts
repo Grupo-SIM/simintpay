@@ -65,4 +65,4 @@ import { PixPlanModule } from './presentation/pix-plan.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule { }
