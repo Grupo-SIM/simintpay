@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node_modules/.bin/prisma generate:*)"
+      "Bash(node_modules/.bin/prisma generate:*)",
+      "Read(//c/Users/breno/Desktop/JB/admin-renovada12/**)",
+      "Read(//c/Users/breno/Desktop/JB/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\painel\\renovada"
     ]
   }
 }

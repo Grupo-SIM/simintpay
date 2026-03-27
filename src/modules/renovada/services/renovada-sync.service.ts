@@ -72,6 +72,11 @@ export class RenovadaSyncService implements OnModuleInit {
 
         for (const tx of txList) {
           try {
+            // Ignorar transações de assinaturas de planos (não pertencem à Renovada)
+            if ((tx.description || '').startsWith('PIX_PLAN_CODE:')) {
+              continue;
+            }
+
             const paymentId = tx.paymentId || tx.id;
             const txId = tx.id;
 

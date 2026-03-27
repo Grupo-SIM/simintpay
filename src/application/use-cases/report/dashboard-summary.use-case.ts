@@ -1,179 +1,169 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-
-function startOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
+import dayjs from 'dayjs';
 
 @Injectable()
 export class DashboardSummaryUseCase {
   constructor(private readonly prisma: PrismaService) {}
 
-  async execute(input: { userId: string }): Promise<{ data: unknown }> {
-    const now = new Date();
+  async execute(input: { userId: string, period?: string }): Promise<any> {
+    const { userId, period = 'hoje' } = input;
+    
+    // 1. Datas baseadas no período
+    const now = dayjs();
+    let start: Date;
+    let end: Date = now.toDate();
 
-    const todayStart = startOfDay(now);
-    const weekStart = new Date(todayStart);
-    weekStart.setDate(todayStart.getDate() - 7);
+    switch (period) {
+      case 'ontem':
+        start = now.subtract(1, 'day').startOf('day').toDate();
+        end = now.subtract(1, 'day').endOf('day').toDate();
+        break;
+      case '7dias':
+        start = now.subtract(7, 'day').startOf('day').toDate();
+        break;
+      case '15dias':
+        start = now.subtract(15, 'day').startOf('day').toDate();
+        break;
+      case '30dias':
+        start = now.subtract(30, 'day').startOf('day').toDate();
+        break;
+      case 'hoje':
+      default:
+        start = now.startOf('day').toDate();
+        break;
+    }
 
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevMonthEnd = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      0,
-      23,
-      59,
-      59,
-      999,
-    );
+    // 2. Dados do Usuário e Wallet
+    const [user, wallet] = await Promise.all([
+      this.prisma.user.findUnique({ 
+        where: { id: userId }, 
+        include: { tenantModule: true } 
+      }),
+      this.prisma.wallet.findUnique({ where: { userId } }),
+    ]);
 
-    const completedWhere: Prisma.TransactionWhereInput = {
-      userId: input.userId,
-      status: TransactionStatus.COMPLETED,
-    };
+    // 3. Cálculo de Saldo Disponível conforme Liquidez do Módulo
+    const slug = user?.tenantModule?.slug || null;
+    const fatorLiquidez = (slug === 'renovada') ? 0.91 : 0.91; // Fallback 0.91 ou buscar de config
+    
+    const balance = Number(wallet?.balance || 0);
+    const locked = Number(wallet?.lockedBalance || 0);
+    const availableNet = (balance - locked) * fatorLiquidez;
 
-    const [txTotal, txApproved, txPending, txRejected, txRefunded] =
-      await Promise.all([
-        this.prisma.transaction.count({ where: { userId: input.userId } }),
-        this.prisma.transaction.count({
-          where: { userId: input.userId, status: TransactionStatus.COMPLETED },
-        }),
-        this.prisma.transaction.count({
-          where: {
-            userId: input.userId,
-            status: {
-              in: [TransactionStatus.PENDING, TransactionStatus.DRAFT],
-            },
-          },
-        }),
-        this.prisma.transaction.count({
-          where: {
-            userId: input.userId,
-            status: {
-              in: [TransactionStatus.FAILED, TransactionStatus.EXPIRED],
-            },
-          },
-        }),
-        this.prisma.transaction.count({
-          where: {
-            userId: input.userId,
-            status: {
-              in: [TransactionStatus.REFUNDED, TransactionStatus.CHARGEBACK],
-            },
-          },
-        }),
-      ]);
+    // 4. Resumo Financeiro (Geral)
+    const [disputedAgg] = await Promise.all([
+      this.prisma.transaction.count({
+        where: { userId, status: TransactionStatus.CHARGEBACK },
+      }),
+    ]);
 
-    const [revTodayAgg, revWeekAgg, revMonthAgg, revPrevMonthAgg] =
-      await Promise.all([
-        this.prisma.transaction.aggregate({
-          where: { ...completedWhere, createdAt: { gte: todayStart } },
-          _sum: { netAmount: true },
-          _count: { _all: true },
-        }),
-        this.prisma.transaction.aggregate({
-          where: { ...completedWhere, createdAt: { gte: weekStart } },
-          _sum: { netAmount: true },
-          _count: { _all: true },
-        }),
-        this.prisma.transaction.aggregate({
-          where: { ...completedWhere, createdAt: { gte: monthStart } },
-          _sum: { netAmount: true },
-          _count: { _all: true },
-        }),
-        this.prisma.transaction.aggregate({
-          where: {
-            ...completedWhere,
-            createdAt: { gte: prevMonthStart, lte: prevMonthEnd },
-          },
-          _sum: { netAmount: true },
-          _count: { _all: true },
-        }),
-      ]);
-
-    const todayValue = Number(revTodayAgg._sum.netAmount ?? 0);
-    const weekValue = Number(revWeekAgg._sum.netAmount ?? 0);
-    const monthValue = Number(revMonthAgg._sum.netAmount ?? 0);
-    const prevMonthValue = Number(revPrevMonthAgg._sum.netAmount ?? 0);
-
-    const variation =
-      prevMonthValue > 0
-        ? ((monthValue - prevMonthValue) / prevMonthValue) * 100
-        : 0;
-
-    const [withdrawPendingAgg, withdrawPaidAgg] =
-      await Promise.all([
-        this.prisma.withdrawRequest.aggregate({
-          where: { userId: input.userId, status: WithdrawStatus.PENDING },
-          _count: { _all: true },
-          _sum: { amount: true },
-        }),
-        this.prisma.withdrawRequest.aggregate({
-          where: { userId: input.userId, status: WithdrawStatus.COMPLETED },
-          _sum: { amount: true },
-        }),
-      ]);
-
-    const graphFrom = new Date(todayStart);
-    graphFrom.setDate(todayStart.getDate() - 6);
-
-    const graphAgg = await this.prisma.transaction.groupBy({
-      by: ['createdAt'],
+    // 4. Transações no período selecionado
+    const txsInPeriod = await this.prisma.transaction.findMany({
       where: {
-        ...completedWhere,
-        createdAt: { gte: graphFrom },
+        userId,
+        createdAt: { gte: start, lte: end },
       },
-      _sum: { netAmount: true },
-      _count: { _all: true },
     });
 
-    const bucket: Record<string, { valor: number; quantidade: number }> = {};
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(graphFrom);
-      d.setDate(graphFrom.getDate() + i);
-      const key = startOfDay(d).toISOString().slice(0, 10);
-      bucket[key] = { valor: 0, quantidade: 0 };
+    const totalTxsInPeriod = txsInPeriod.length;
+    const paidTxs = txsInPeriod.filter(t => t.status === TransactionStatus.COMPLETED);
+    // Para Renovada, mostramos lucro líquido em "Vendas"
+    const totalSales = paidTxs.reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+    
+    const approvalRate = totalTxsInPeriod > 0 ? (paidTxs.length / totalTxsInPeriod) * 100 : 0;
+    const averageTicket = paidTxs.length > 0 ? totalSales / paidTxs.length : 0;
+
+    // 5. Métodos de Pagamento
+    const pmStats = {
+      pix: { count: 0, amount: 0 },
+      credit: { count: 0, amount: 0 },
+      debit: { count: 0, amount: 0 },
+      boleto: { count: 0, amount: 0 },
+    };
+
+    paidTxs.forEach(tx => {
+      const amt = Number(tx.amount || 0); // Keep original amount for payment method stats
+      const method = tx.paymentMethod.toLowerCase();
+      if (method.includes('pix')) { pmStats.pix.count++; pmStats.pix.amount += amt; }
+      else if (method.includes('credit')) { pmStats.credit.count++; pmStats.credit.amount += amt; }
+      else if (method.includes('debit')) { pmStats.debit.count++; pmStats.debit.amount += amt; }
+      else { pmStats.boleto.count++; pmStats.boleto.amount += amt; }
+    });
+
+    const getPct = (amt: number) => totalSales > 0 ? (amt / totalSales) * 100 : 0;
+
+    // 6. Canais de Venda (Ofertas vs Maquinetas) - Usando valores líquidos
+    const paidOnline = paidTxs.filter(t => !t.description?.includes('Terminal:'));
+    const paidPhysical = paidTxs.filter(t => t.description?.includes('Terminal:'));
+    
+    const onlineAmount = paidOnline.reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+    const physicalAmount = paidPhysical.reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+
+    // 7. Dados do Gráfico (Últimas 24h ou conforme período)
+    const chartData: any[] = [];
+    const chartPoints = (period === 'hoje' || period === 'ontem') ? 24 : 7;
+    const chartUnit = (period === 'hoje' || period === 'ontem') ? 'hour' : 'day';
+    
+    for (let i = chartPoints - 1; i >= 0; i--) {
+      const d = dayjs(end).subtract(i, chartUnit as any);
+      const dStart = d.startOf(chartUnit as any).toDate();
+      const dEnd = d.endOf(chartUnit as any).toDate();
+      
+      const pointTxs = txsInPeriod.filter(t => t.status === TransactionStatus.COMPLETED && t.createdAt >= dStart && t.createdAt <= dEnd);
+      const online = pointTxs.filter(t => !t.description?.includes('Terminal:')).reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+      const physical = pointTxs.filter(t => t.description?.includes('Terminal:')).reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+      
+      chartData.push({
+        label: chartUnit === 'hour' ? d.format('HH:00') : d.format('DD/MM'),
+        online,
+        physical,
+      });
     }
 
-    for (const row of graphAgg) {
-      const key = startOfDay(row.createdAt).toISOString().slice(0, 10);
-      const item = bucket[key];
-      if (!item) continue;
-      item.valor += Number(row._sum.netAmount ?? 0);
-      item.quantidade += row._count._all;
-    }
-
-    const grafico = Object.entries(bucket).map(([data, v]) => ({
-      data,
-      valor: v.valor,
-      quantidade: v.quantidade,
-    }));
+    // 8. Chargebacks (Simplificado para o dash)
+    const totalRefunded = txsInPeriod.filter(t => t.status === TransactionStatus.REFUNDED).reduce((acc, t) => acc + Number(t.amount || 0), 0);
+    const chargebacksCount = txsInPeriod.filter(t => t.status === TransactionStatus.CHARGEBACK).length;
+    const chargebacksAmount = txsInPeriod.filter(t => t.status === TransactionStatus.CHARGEBACK).reduce((acc, t) => acc + Number(t.amount || 0), 0);
 
     return {
-      data: {
-        receita: {
-          hoje: todayValue,
-          semana: weekValue,
-          mes: monthValue,
-          mesAnterior: prevMonthValue,
-          variacao: variation,
-        },
-        transacoes: {
-          total: txTotal,
-          aprovadas: txApproved,
-          pendentes: txPending,
-          recusadas: txRejected,
-          estornadas: txRefunded,
-        },
-        saques: {
-          pendentes: withdrawPendingAgg._count._all,
-          valorPendente: Number(withdrawPendingAgg._sum.amount ?? 0),
-          totalPago: Number(withdrawPaidAgg._sum.amount ?? 0),
-        },
-        grafico,
+      user: { name: user?.name || 'Usuário' },
+      summary: {
+        availableBalance: availableNet,
+        balanceInProcessing: 0,
+        withdrawalsInAnalysis: 0,
+        financialReserve: 0,
+        disputedTransactions: disputedAgg,
+        globalRetention: 0,
+        blockedBalance: 0,
       },
+      transactionsByPeriod: {
+        totalSales,
+        paidTransactions: paidTxs.length,
+        approvalRate,
+        averageTicket,
+        installmentInterest: 0,
+        onlineSalesRate: getPct(onlineAmount),
+        physicalSalesRate: getPct(physicalAmount),
+        chartData,
+      },
+      paymentMethods: {
+        offers: { percentage: getPct(onlineAmount), amount: onlineAmount },
+        maquinetas: { percentage: getPct(physicalAmount), amount: physicalAmount },
+      },
+      chargebacks: {
+        totalRefunded,
+        chargebackNotifications: chargebacksCount,
+        refunds: { count: txsInPeriod.filter(t => t.status === TransactionStatus.REFUNDED).length, amount: totalRefunded },
+        chargebackPrevention: { count: 0, amount: 0 },
+        chargebacks: { count: chargebacksCount, amount: chargebacksAmount },
+      },
+      installments: {
+        data: [
+          { installments: 1, amount: totalSales, count: paidTxs.length }
+        ]
+      }
     };
   }
 }

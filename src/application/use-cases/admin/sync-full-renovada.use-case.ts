@@ -144,10 +144,18 @@ export class SyncFullRenovadaUseCase {
 
             const mappedStatus = this.mapTransactionStatus(tx.status);
             const amount = new Prisma.Decimal(tx.amount || 0);
-            const netAmount = new Prisma.Decimal(tx.amountWithoutAllFee ?? Number(tx.amount || 0) * 0.91);
-            const totalFee = new Prisma.Decimal(tx.fee || 0);
-            const domFee = new Prisma.Decimal(tx.dom_fee || 0);
-            const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
+            
+            // Força o lucro líquido em 0.91 conforme regra da Renovada
+            const netAmountVal = Number(tx.amount || 0) * 0.91;
+            const netAmount = new Prisma.Decimal(netAmountVal);
+            
+            const totalFeeVal = Number(tx.amount || 0) - netAmountVal;
+            const totalFee = new Prisma.Decimal(totalFeeVal);
+            
+            // Estimativa de divisao de taxas
+            const domFeeVal = Math.min(totalFeeVal, Number(tx.dom_fee || totalFeeVal * 0.4));
+            const domFee = new Prisma.Decimal(domFeeVal);
+            const platformFee = new Prisma.Decimal(Math.max(0, totalFeeVal - domFeeVal));
 
             if (existing) {
               // Atualizar

@@ -3,6 +3,14 @@ import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY, type IPaymentGateway, type DomTaxesOutput } from '../../../core/services/payment-gateway.interface';
 import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-transactions.query.dto';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const BRT = 'America/Sao_Paulo';
 
 function formatDocument(doc: string | null | undefined): string | null {
   if (!doc) return null;
@@ -97,7 +105,10 @@ export class ListTransactionsUseCase {
     total: number;
   }> {
     // 1. Sincronizar com a DOM
-    const user = await this.prisma.user.findUnique({ where: { id: input.userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: input.userId },
+      include: { tenantModule: true },
+    });
     if (!user) throw new Error('Usuário não encontrado');
 
     // 2. Resolver o Token (Prioridade: User > Módulo)
@@ -230,7 +241,12 @@ export class ListTransactionsUseCase {
     const page = input.query.page ?? 1;
     const pageSize = input.query.pageSize ?? 20;
 
-    const and: Prisma.TransactionWhereInput[] = [{ userId: input.userId }];
+    const moduleSlug = user.tenantModule?.slug?.toLowerCase();
+    const filterPlanTransactions = moduleSlug === 'renovada';
+    const and: Prisma.TransactionWhereInput[] = [
+      { userId: input.userId },
+      ...(filterPlanTransactions ? [{ NOT: { description: { startsWith: 'PIX_PLAN_CODE:', mode: Prisma.QueryMode.insensitive } } }] : []),
+    ];
 
     const statuses = mapPtStatusToInternal(input.query.status);
     if (statuses) {
@@ -288,18 +304,14 @@ export class ListTransactionsUseCase {
     if (input.query.dataInicio || input.query.dataFim) {
       const createdAt: Prisma.DateTimeFilter = {};
       if (input.query.dataInicio) {
-        const d = new Date(input.query.dataInicio);
+        const d = dayjs.tz(input.query.dataInicio, BRT).startOf('day').toDate();
         if (!Number.isNaN(d.getTime())) {
-          // Garante início do dia em UTC ou conforme a string
-          d.setUTCHours(0, 0, 0, 0);
           createdAt.gte = d;
         }
       }
       if (input.query.dataFim) {
-        const d = new Date(input.query.dataFim);
+        const d = dayjs.tz(input.query.dataFim, BRT).endOf('day').toDate();
         if (!Number.isNaN(d.getTime())) {
-          // Garante fim do dia (23:59:59.999)
-          d.setUTCHours(23, 59, 59, 999);
           createdAt.lte = d;
         }
       }
