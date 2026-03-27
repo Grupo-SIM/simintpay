@@ -20,5 +20,6 @@ export interface IPlanRepository {
   findAll(): Promise<Plan[]>;
   findById(id: string): Promise<Plan | null>;
   findByIdForUser(input: { id: string; userId: string }): Promise<Plan | null>;
+  update(id: string, data: Partial<Omit<CreatePlanData, 'userId'>>): Promise<Plan>;
   delete(id: string): Promise<void>;
 }

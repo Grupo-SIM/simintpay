@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { PLAN_REPOSITORY } from '../../../core/repositories/plan.repository.interface';
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import type { IPlanRepository } from '../../../core/repositories/plan.repository.interface';
 
 function mapPlanTypeToPt(
@@ -19,21 +20,36 @@ function mapPlanTypeToPt(
   }
 }
 
+function formatCpf(cpf: string | null | undefined): string | null {
+  if (!cpf) return null;
+  const digits = cpf.replace(/\D/g, '');
+  if (digits.length === 11) {
+    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  }
+  return cpf;
+}
+
 @Injectable()
 export class ListPlansUseCase {
   constructor(
     @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(input: { userId: string; role: string }): Promise<{ data: unknown }> {
-    let items;
+    let items: any[];
 
     if (input.role === 'ADMIN') {
-      // Master vê todos os planos de todos os módulos
-      items = await this.plans.findAll();
+      items = await this.prisma.plan.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: { cpf: true } } },
+      });
     } else {
-      // Módulo X vê apenas os seus próprios planos
-      items = await this.plans.findManyByUserId(input.userId);
+      items = await this.prisma.plan.findMany({
+        where: { userId: input.userId },
+        orderBy: { createdAt: 'desc' },
+        include: { user: { select: { cpf: true } } },
+      });
     }
 
     return {
@@ -47,6 +63,7 @@ export class ListPlansUseCase {
         webhookUrl: p.webhookUrl ?? null,
         redirectUrl: p.redirectUrl ?? null,
         criadoEm: p.createdAt.toISOString(),
+        cpfDono: formatCpf(p.user?.cpf),
       })),
     };
   }

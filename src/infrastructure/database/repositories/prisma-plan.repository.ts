@@ -60,6 +60,34 @@ export class PrismaPlanRepository implements IPlanRepository {
     });
   }
 
+  async update(
+    id: string,
+    data: Partial<{
+      name: string;
+      description?: string | null;
+      price: number;
+      type: PlanType;
+      isActive?: boolean;
+      webhookUrl?: string | null;
+      redirectUrl?: string | null;
+      domPlanId?: string | null;
+    }>,
+  ): Promise<Plan> {
+    return this.prisma.plan.update({
+      where: { id },
+      data: {
+        name: data.name,
+        description: data.description ?? undefined,
+        price: data.price != null ? new Prisma.Decimal(data.price) : undefined,
+        type: data.type,
+        isActive: data.isActive,
+        webhookUrl: data.webhookUrl ?? undefined,
+        redirectUrl: data.redirectUrl ?? undefined,
+        domPlanId: data.domPlanId ?? undefined,
+      },
+    });
+  }
+
   async delete(id: string): Promise<void> {
     await this.prisma.plan.delete({ where: { id } });
   }

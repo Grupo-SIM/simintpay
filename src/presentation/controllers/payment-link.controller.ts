@@ -169,7 +169,7 @@ export class PaymentLinkController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ data: unknown }> {
-    return this.getOne.execute({ userId: user?.sub ?? '', id });
+    return this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
   }
 
   @Put(':id')
@@ -198,7 +198,7 @@ export class PaymentLinkController {
     @Param('id') id: string,
     @Body() dto: UpdatePaymentLinkDto,
   ): Promise<{ data: unknown }> {
-    return this.update.execute({ userId: user?.sub ?? '', id, dto });
+    return this.update.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id, dto });
   }
 
   @Delete(':id')
@@ -212,7 +212,7 @@ export class PaymentLinkController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ deleted: true }> {
-    await this.del.execute({ userId: user?.sub ?? '', id });
+    await this.del.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
     return { deleted: true };
   }
 }

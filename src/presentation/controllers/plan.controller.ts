@@ -13,6 +13,8 @@ import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.st
 import { CreatePlanDto } from '../../application/dtos/plan/create-plan.dto';
 import { CreatePlanUseCase } from '../../application/use-cases/plan/create-plan.use-case';
 import { ListPlansUseCase } from '../../application/use-cases/plan/list-plans.use-case';
+import { GetPlanByIdUseCase } from '../../application/use-cases/plan/get-plan-by-id.use-case';
+import { UpdatePlanUseCase } from '../../application/use-cases/plan/update-plan.use-case';
 import { DeletePlanUseCase } from '../../application/use-cases/plan/delete-plan.use-case';
 import { GetPublicPlanUseCase } from '../../application/use-cases/plan/get-public-plan.use-case';
 import { CreatePublicSubscriptionUseCase, CreatePublicSubscriptionInput } from '../../application/use-cases/plan/create-public-subscription.use-case';
@@ -30,6 +32,8 @@ export class PlanController {
   constructor(
     private readonly list: ListPlansUseCase,
     private readonly create: CreatePlanUseCase,
+    private readonly getById: GetPlanByIdUseCase,
+    private readonly update: UpdatePlanUseCase,
     private readonly del: DeletePlanUseCase,
     private readonly getPublic: GetPublicPlanUseCase,
     private readonly createPublicSub: CreatePublicSubscriptionUseCase,
@@ -99,6 +103,35 @@ export class PlanController {
     return this.create.execute({ userId: user?.sub ?? '', dto });
   }
 
+  @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Detalhe de um plano' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 404 })
+  @ApiResponse({ status: 401 })
+  async getByIdRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+  ): Promise<{ data: unknown }> {
+    return this.getById.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+  }
+
+  @Post(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Atualizar plano' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 404 })
+  @ApiResponse({ status: 401 })
+  async updateRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+    @Body() dto: Partial<CreatePlanDto>,
+  ): Promise<{ data: unknown }> {
+    return this.update.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id, dto });
+  }
+
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -110,7 +143,7 @@ export class PlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ deleted: true }> {
-    await this.del.execute({ userId: user?.sub ?? '', id });
+    await this.del.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
     return { deleted: true };
   }
 }

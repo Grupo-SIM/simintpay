@@ -265,11 +265,11 @@ export class PixPlanService {
 
   // ── POST /payments/pix-plan/:id/link-code ────────────────────────────────
 
-  async createPixPlanLinkCodeForPlan(userId: string, pixPlanId: string) {
+  async createPixPlanLinkCodeForPlan(userId: string, pixPlanId: string, role?: string) {
     const plan = await this.repo.findPixCreditPlanById(pixPlanId);
     if (!plan || plan.status !== 'ACTIVE')
       throw new NotFoundException('Plano PIX não encontrado ou inativo');
-    if (plan.userId !== userId)
+    if (role !== 'ADMIN' && plan.userId !== userId)
       throw new BadRequestException('Plano não pertence a este usuário');
 
     const code = `PX-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
@@ -300,6 +300,7 @@ export class PixPlanService {
 
   async listPixCreditPlansPaginated(params: {
     userId: string;
+    role?: string;
     page: number;
     limit: number;
     status?: 'ACTIVE' | 'INACTIVE';
@@ -310,27 +311,40 @@ export class PixPlanService {
       ? Math.min(Math.max(1, params.limit), 100)
       : 10;
 
+    const isAdmin = params.role === 'ADMIN';
+
     const { items, total } = await this.repo.findPixCreditPlansByUserIdPaginated({
-      userId: params.userId,
+      userId: isAdmin ? undefined : params.userId,
       page: safePage,
       limit: safeLimit,
       status: params.status,
       search: params.search,
     });
 
-    const mappedItems = items.map((p: any) => ({
-      id: p.id,
-      userId: p.userId,
-      type: p.type,
-      price: p.price,
-      description: p.description,
-      redirectUrl: p.redirectUrl,
-      webhookUrl: p.webhookUrl,
-      status: p.status,
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt,
-      linkCode: p.linkCodes?.[0]?.code ?? null,
-    }));
+    const mappedItems = items.map((p: any) => {
+      const cpfRaw: string | null | undefined = p.user?.cpf;
+      let cpfDono: string | null = null;
+      if (cpfRaw) {
+        const digits = cpfRaw.replace(/\D/g, '');
+        cpfDono = digits.length === 11
+          ? digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
+          : cpfRaw;
+      }
+      return {
+        id: p.id,
+        userId: p.userId,
+        type: p.type,
+        price: p.price,
+        description: p.description,
+        redirectUrl: p.redirectUrl,
+        webhookUrl: p.webhookUrl,
+        status: p.status,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+        linkCode: p.linkCodes?.[0]?.code ?? null,
+        cpfDono,
+      };
+    });
 
     return {
       items: mappedItems,
@@ -345,10 +359,10 @@ export class PixPlanService {
 
   // ── DELETE /payments/pix-plan/:id ────────────────────────────────────────
 
-  async deletePixCreditPlan(userId: string, pixPlanId: string) {
+  async deletePixCreditPlan(userId: string, pixPlanId: string, role?: string) {
     const plan = await this.repo.findPixCreditPlanById(pixPlanId);
     if (!plan) throw new NotFoundException('Plano PIX não encontrado');
-    if (plan.userId !== userId)
+    if (role !== 'ADMIN' && plan.userId !== userId)
       throw new BadRequestException('Plano não pertence a este usuário');
 
     await this.prisma.$transaction(async () => {

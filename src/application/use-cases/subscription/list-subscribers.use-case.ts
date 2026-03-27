@@ -1,16 +1,22 @@
-import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
-import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { getModuleDomToken } from '../../../modules/module.registry';
+import type { IPaymentGateway, DomSubscriptionOutput } from '../../../core/services/payment-gateway.interface';
 import type { ListSubscribersQueryDto } from '../../dtos/subscription/list-subscribers.query.dto';
 
 @Injectable()
 export class ListSubscribersUseCase {
+  private readonly logger = new Logger(ListSubscribersUseCase.name);
+
   constructor(
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(input: {
     userId: string;
+    role?: string;
     query: ListSubscribersQueryDto;
   }): Promise<{
     data: unknown;
@@ -18,52 +24,68 @@ export class ListSubscribersUseCase {
     pageSize: number;
     total: number;
   }> {
-    const domToken = process.env.DOM_TOKEN;
-    if (!domToken) {
-      throw new InternalServerErrorException('DOM_TOKEN não configurado');
-    }
-
     const page = input.query.page ?? 1;
     const pageSize = input.query.pageSize ?? 20;
+    const isAdmin = input.role === 'ADMIN';
 
-    const res = await this.gateway.listSubscriptions(domToken, {
-      page,
-      pageSize,
-    });
+    const domToken = await this.resolveDomToken(input.userId, isAdmin);
 
-    const filtered = res.items.filter((s) => {
-      if (input.query.status && s.status !== input.query.status) return false;
-      if (input.query.planoId && s.planId !== input.query.planoId) return false;
-      return true;
-    });
+    if (!domToken) {
+      this.logger.warn(`[ListSubscribers] Sem domToken para userId=${input.userId} role=${input.role}`);
+      return { data: [], page, pageSize, total: 0 };
+    }
 
-    return {
-      data: filtered.map((s) => ({
+    try {
+      const result = await this.gateway.listSubscriptions(domToken, {
+        page,
+        pageSize,
+      });
+
+      const mapped = result.items.map((s: DomSubscriptionOutput) => ({
         id: s.id,
         status: s.status ?? null,
         nome: s.name ?? null,
         descricao: s.description ?? null,
         valor: s.amount ?? null,
         frequencia: s.frequency ?? null,
-        intervalo: s.interval ?? null,
-        ciclo: s.cycle ?? null,
-        formaPagamento: s.paymentMethod ?? null,
-        primeiraCobranca: s.firstBillingDate ?? null,
+        intervalo: s.interval ?? 1,
+        ciclo: s.cycle ?? 0,
+        formaPagamento: s.paymentMethod ?? 'credit_card',
+        primeiraCobranca: s.firstBillingDate ?? s.createdAt ?? null,
         proximaCobranca: s.expiresAt ?? null,
         planoId: s.planId ?? null,
-        cliente: s.customer
-          ? {
-              nome: s.customer.name ?? null,
-              email: s.customer.email ?? null,
-              documento: s.customer.document ?? null,
-              telefone: s.customer.phone ?? null,
-            }
-          : null,
+        planNome: s.description ?? null,
+        cliente: s.customer ?? null,
         criadoEm: s.createdAt ?? null,
-      })),
-      page,
-      pageSize,
-      total: filtered.length,
-    };
+      }));
+
+      return {
+        data: mapped,
+        page,
+        pageSize,
+        total: result.total ?? mapped.length,
+      };
+    } catch (err: any) {
+      this.logger.error(`[ListSubscribers] Erro ao buscar da DOM: ${err.message}`, err.stack);
+      return { data: [], page, pageSize, total: 0 };
+    }
+  }
+
+  private async resolveDomToken(userId: string, isAdmin: boolean): Promise<string | null> {
+    if (isAdmin) {
+      return process.env.DOM_TOKEN ?? null;
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { domToken: true, tenantModule: { select: { slug: true } } },
+    });
+
+    if (user?.domToken) return user.domToken;
+
+    const moduleToken = getModuleDomToken(user?.tenantModule?.slug);
+    if (moduleToken) return moduleToken;
+
+    return process.env.DOM_TOKEN ?? null;
   }
 }

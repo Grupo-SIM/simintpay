@@ -76,7 +76,7 @@ export class PixPlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ) {
-    return this.pixPlanService.createPixPlanLinkCodeForPlan(user?.sub ?? '', id);
+    return this.pixPlanService.createPixPlanLinkCodeForPlan(user?.sub ?? '', id, user?.role);
   }
 
   @Get('pix-plan')
@@ -103,6 +103,7 @@ export class PixPlanController {
 
     return this.pixPlanService.listPixCreditPlansPaginated({
       userId: user?.sub ?? '',
+      role: user?.role,
       page: pageNumber,
       limit: limitNumber,
       status: normalizedStatus,
@@ -134,7 +135,7 @@ export class PixPlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ) {
-    return this.pixPlanService.deletePixCreditPlan(user?.sub ?? '', id);
+    return this.pixPlanService.deletePixCreditPlan(user?.sub ?? '', id, user?.role);
   }
 
   @Post('pix-plan/checkout-by-code')
@@ -265,6 +266,6 @@ export class BotPixPlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ) {
-    return this.pixPlanService.deletePixCreditPlan(user?.sub ?? '', id);
+    return this.pixPlanService.deletePixCreditPlan(user?.sub ?? '', id, user?.role);
   }
 }

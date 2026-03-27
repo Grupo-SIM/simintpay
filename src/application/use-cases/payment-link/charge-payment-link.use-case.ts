@@ -13,7 +13,7 @@ export type ChargePaymentLinkInput = {
   customerEmail: string;
   customerDocument: string;
   customerPhone: string;
-  paymentMethod?: 'credit_card' | 'pix';
+  paymentMethod?: 'credit_card' | 'debit_card' | 'pix';
   installments?: number;
   card?: {
     token: string;

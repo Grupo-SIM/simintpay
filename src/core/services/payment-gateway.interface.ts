@@ -253,7 +253,7 @@ export interface IPaymentGateway {
       customerEmail: string;
       customerDocument: string;
       customerPhone: string;
-      paymentMethod: 'credit_card' | 'pix';
+      paymentMethod: 'credit_card' | 'debit_card' | 'pix';
       installments: number;
       card?: {
         token: string;
@@ -280,6 +280,8 @@ export interface IPaymentGateway {
     domToken: string,
     input: { page?: number; pageSize?: number },
   ): Promise<{ items: DomSubscriptionOutput[]; total?: number }>;
+  /** Detalhe bruto da assinatura na API DOM (recurrence/subscriptions/:id). */
+  getSubscription(domToken: string, id: string): Promise<unknown>;
   cancelSubscription(domToken: string, id: string): Promise<void>;
   getDomSummary(domToken: string): Promise<any>;
   getSpecificMachineTransactions(domToken: string): Promise<any>;
