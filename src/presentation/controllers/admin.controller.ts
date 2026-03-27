@@ -720,6 +720,41 @@ export class AdminController {
     };
   }
 
+  @Delete('renovada/transactions/cleanup-plan-txs')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Deletar transações PIX_PLAN_CODE incorretamente atribuídas à Renovada' })
+  async cleanupRenovadaPlanTxs() {
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+
+    const txs = await this.prisma.transaction.findMany({
+      where: {
+        userId: RENOVADA_ID,
+        description: { startsWith: 'PIX_PLAN_CODE:', mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+
+    if (txs.length === 0) {
+      return { success: true, deletedCount: 0, message: 'Nenhuma transação PIX_PLAN_CODE encontrada' };
+    }
+
+    const ids = txs.map(t => t.id);
+
+    await this.prisma.transactionStatusHistory.deleteMany({
+      where: { transactionId: { in: ids } },
+    });
+
+    const deleted = await this.prisma.transaction.deleteMany({
+      where: { id: { in: ids } },
+    });
+
+    return {
+      success: true,
+      deletedCount: deleted.count,
+      message: `${deleted.count} transações PIX_PLAN_CODE removidas da Renovada`,
+    };
+  }
+
   @Delete('renovada/transactions/:id')
   @HttpCode(200)
   @ApiOperation({ summary: 'Deletar uma transação da Renovada' })

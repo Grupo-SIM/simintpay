@@ -1,19 +1,28 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus, WithdrawStatus } from '@prisma/client';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 import 'dayjs/locale/pt-br';
+import { RenovadaConfig } from '../renovada.config';
 
+dayjs.extend(utc);
+dayjs.extend(timezone);
 dayjs.locale('pt-br');
+
+const TZ = 'America/Sao_Paulo';
 
 const RENOVADA_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
 @Injectable()
 export class RenovadaDashboardService {
+  private readonly logger = new Logger(RenovadaDashboardService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async getDashboardData(period: string = 'hoje') {
-    const now = dayjs();
+    const now = dayjs().tz(TZ);
     let start: Date;
     let end: Date = now.toDate();
 
@@ -42,6 +51,8 @@ export class RenovadaDashboardService {
     const fifteenDaysAgo = now.subtract(15, 'day').startOf('day').toDate();
     const thirtyDaysAgo = now.subtract(30, 'day').startOf('day').toDate();
     const yearStart = now.startOf('year').toDate();
+
+    this.logger.log(`[Dashboard] Agora (BRT): ${now.format('DD/MM/YYYY HH:mm:ss')} | Início do período "${period}": ${dayjs(start).tz(TZ).format('DD/MM/YYYY HH:mm:ss')}`);
 
     // 1. Todas as Transações (para cálculo de totais, se necessário, mas focando no período selecionado)
     const allTransactions = await this.prisma.transaction.findMany({
@@ -80,20 +91,37 @@ export class RenovadaDashboardService {
       };
     };
 
-    const profitSelected = getProfit(allTransactions.filter(tx => {
+    const txsInPeriod = allTransactions.filter(tx => {
       const txDate = dayjs(tx.createdAt);
       return (txDate.isAfter(start) || txDate.isSame(start)) && (txDate.isBefore(end) || txDate.isSame(end));
-    }));
+    });
+    const profitSelected = getProfit(txsInPeriod);
     const profitTotal = getProfit(allTransactions);
+
+    this.logger.log(
+      `[Dashboard] Período "${period}": ${txsInPeriod.length} txs | líquido total=${profitSelected.total.toFixed(2)} (online=${profitSelected.offers.toFixed(2)} físico=${profitSelected.maquinetas.toFixed(2)})`,
+    );
     
-    // 2. Dados da Wallet (Saldo Disponível Real)
-    // Para Renovada, o saldo no banco (wallet.balance) já é o lucro líquido (recebido - sacado)
+    // 2. Dados da Wallet — mesmo cálculo da rota de saques (get-withdraw-summary):
+    // wallet.balance é BRUTO; saldo líquido disponível = (balance - locked) * fatorLiquidez
     const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
     const balanceVal = Number(wallet?.balance || 0);
     const lockedVal = Number(wallet?.lockedBalance || 0);
-    const availableBalanceNet = Number((balanceVal - lockedVal).toFixed(2));
+    const fatorLiquidez = RenovadaConfig.saque.fatorLiquidez ?? 0.91;
+    const availableBalanceNet = Number(((balanceVal - lockedVal) * fatorLiquidez).toFixed(3));
 
-    // 3. Quantidade de Saques
+    this.logger.log(
+      `[Dashboard] Saldo: bruto=${balanceVal.toFixed(2)} bloqueado=${lockedVal.toFixed(2)} fator=${fatorLiquidez} líquido=${availableBalanceNet}`,
+    );
+
+    // 3. Estornos (REFUNDED)
+    const estornosAgg = await this.prisma.transaction.aggregate({
+      where: { userId: RENOVADA_ID, status: TransactionStatus.REFUNDED },
+      _count: { id: true },
+      _sum: { netAmount: true },
+    });
+
+    // 4. Quantidade de Saques
     const withdrawals = await this.prisma.withdrawRequest.findMany({
       where: { userId: RENOVADA_ID },
       select: { createdAt: true },
@@ -136,6 +164,10 @@ export class RenovadaDashboardService {
           annualByMonth,
         }
       },
+      estornos: {
+        quantidade: estornosAgg._count.id,
+        valorLiquido: Number(Number(estornosAgg._sum.netAmount || 0).toFixed(2)),
+      },
       withdrawals: {
         today: countWD(todayStart),
         sevenDays: countWD(sevenDaysAgo),
@@ -148,7 +180,7 @@ export class RenovadaDashboardService {
 
   private async getChartData(count: number, unit: 'day' | 'month') {
     const data: { label: string; value: number }[] = [];
-    const now = dayjs();
+    const now = dayjs().tz(TZ);
 
     for (let i = count - 1; i >= 0; i--) {
       const d = now.subtract(i, unit);
@@ -166,10 +198,12 @@ export class RenovadaDashboardService {
         },
       });
 
-      data.push({
-        label: unit === 'day' ? d.format('DD/MM') : d.format('MMM'),
-        value: Number(Number(result._sum.netAmount || 0).toFixed(2)),
-      });
+      const label = unit === 'day' ? d.format('DD/MM') : d.format('MMM');
+      const value = Number(Number(result._sum.netAmount || 0).toFixed(2));
+
+      this.logger.debug(`[Dashboard] Gráfico ${unit} ${label} (${start.toISOString()} → ${end.toISOString()}): líquido=${value}`);
+
+      data.push({ label, value });
     }
 
     return data;
