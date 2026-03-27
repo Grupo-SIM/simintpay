@@ -1,9 +1,11 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
   HttpCode,
+  Inject,
   Param,
   Post,
   Query,
@@ -39,6 +41,9 @@ import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import { RevalidaSyncService } from '../../modules/revalida/services/revalida-sync.service';
+import { HASH_SERVICE, type IHashService } from '../../core/services/hash.interface';
+import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
+import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositories/wallet.repository.interface';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -70,6 +75,9 @@ export class AdminController {
     private readonly revalidaSyncService: RevalidaSyncService,
     private readonly storageService: StorageService,
     private readonly prisma: PrismaService,
+    @Inject(HASH_SERVICE) private readonly hashService: IHashService,
+    @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway,
+    @Inject(WALLET_REPOSITORY) private readonly walletRepository: IWalletRepository,
   ) { }
 
   // ──────────── LEADS ────────────
@@ -117,6 +125,74 @@ export class AdminController {
       reason: body.reason,
     });
     return { data: lead };
+  }
+
+  // ──────────── CRIAR CONTA ────────────
+
+  @Post('criar-conta')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Criar conta diretamente (admin master) — vincula ao módulo renovada e filtra transações pelo CPF' })
+  async criarConta(
+    @Body() body: { email: string; password: string; cpf: string },
+  ) {
+    const { email, password, cpf } = body;
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new ConflictException('Já existe um usuário com este e-mail');
+    }
+
+    const cpfClean = cpf.replace(/\D/g, '');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingCpf = await (this.prisma.user as any).findFirst({ where: { cpf: cpfClean } });
+    if (existingCpf) {
+      throw new ConflictException('Já existe um usuário com este CPF');
+    }
+
+    const hashed = await this.hashService.hash(password);
+
+    // Tentar registrar na DOM (falha silenciosa)
+    let domUserId: string | null = null;
+    let domToken: string | null = null;
+    try {
+      const name = email.split('@')[0];
+      const domReg = await this.paymentGateway.register({ name, email, password });
+      const domTok = await this.paymentGateway.generateToken(email, password);
+      domUserId = domReg.domUserId ?? null;
+      domToken = domTok.domToken ?? null;
+    } catch (err: any) {
+      // Segue sem conta DOM — transações virão do pool renovada filtradas pelo CPF
+    }
+
+    // Buscar TenantModule renovada para associar o usuário
+    const renovadaModule = await this.prisma.tenantModule.findFirst({
+      where: { slug: 'renovada' },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const user = await (this.prisma.user as any).create({
+      data: {
+        name: email.split('@')[0],
+        email,
+        password: hashed,
+        cpf: cpfClean,
+        domUserId: domUserId ?? undefined,
+        domToken: domToken ?? undefined,
+        tenantModuleId: renovadaModule?.id ?? undefined,
+      },
+    });
+
+    await this.walletRepository.createForUser(user.id);
+
+    return {
+      data: {
+        userId: user.id,
+        email: user.email,
+        cpf: cpfClean,
+        modulo: renovadaModule?.name ?? null,
+      },
+      message: 'Conta criada com sucesso',
+    };
   }
 
   @Post('sync-transactions')

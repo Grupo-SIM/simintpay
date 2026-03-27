@@ -16,6 +16,7 @@ model User {
   domUserId      String?           @unique
   domToken       String?
   tenantModuleId String?
+  cpf            String?           @unique
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   balanceLogs    BalanceLog[]

@@ -111,10 +111,15 @@ export class ListTransactionsUseCase {
     });
     if (!user) throw new Error('Usuário não encontrado');
 
+    // Usuários criados via admin com CPF: transações vêm do pool Renovada filtradas pelo CPF
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const userCpf: string | null | undefined = (user as any).cpf;
+
     // 2. Resolver o Token (Prioridade: User > Módulo)
     // NÃO usar master token aqui — ele traz transações de TODAS as plataformas.
     // Para Renovada, o sync acontece via CRON dedicado (RenovadaSyncService).
-    let domToken: string | null | undefined = user.domToken;
+    // Para usuários com CPF: não sincronizar via DOM, usam pool Renovada.
+    let domToken: string | null | undefined = userCpf ? null : user.domToken;
     let source = 'Individual';
 
     if (!domToken && user?.tenantModuleId) {
@@ -242,11 +247,31 @@ export class ListTransactionsUseCase {
     const pageSize = input.query.pageSize ?? 20;
 
     const moduleSlug = user.tenantModule?.slug?.toLowerCase();
-    const filterPlanTransactions = moduleSlug === 'renovada';
-    const and: Prisma.TransactionWhereInput[] = [
-      { userId: input.userId },
-      ...(filterPlanTransactions ? [{ NOT: { description: { startsWith: 'PIX_PLAN_CODE:', mode: Prisma.QueryMode.insensitive } } }] : []),
-    ];
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+
+    let and: Prisma.TransactionWhereInput[];
+
+    if (userCpf) {
+      // Conta criada via admin: mostrar transações do pool Renovada onde a descrição
+      // contém o CPF do usuário (aceita formato com e sem pontuação)
+      const cpfDigits = userCpf.replace(/\D/g, '');
+      const cpfFormatted = cpfDigits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+      and = [
+        { userId: RENOVADA_ID },
+        {
+          OR: [
+            { description: { contains: cpfDigits, mode: Prisma.QueryMode.insensitive } },
+            { description: { contains: cpfFormatted, mode: Prisma.QueryMode.insensitive } },
+          ],
+        },
+      ];
+    } else {
+      const filterPlanTransactions = moduleSlug === 'renovada';
+      and = [
+        { userId: input.userId },
+        ...(filterPlanTransactions ? [{ NOT: { description: { startsWith: 'PIX_PLAN_CODE:', mode: Prisma.QueryMode.insensitive } } }] : []),
+      ];
+    }
 
     const statuses = mapPtStatusToInternal(input.query.status);
     if (statuses) {

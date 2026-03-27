@@ -31,6 +31,8 @@ export class PrismaUserRepository implements IUserRepository {
         isActive: data.isActive,
         domUserId: data.domUserId ?? undefined,
         domToken: data.domToken ?? undefined,
+        cpf: data.cpf ?? undefined,
+        tenantModuleId: data.tenantModuleId ?? undefined,
       },
     });
   }

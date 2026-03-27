@@ -10,6 +10,8 @@ export type CreateUserData = {
   isActive?: boolean;
   domUserId?: string | null;
   domToken?: string | null;
+  cpf?: string | null;
+  tenantModuleId?: string | null;
 };
 
 export interface IUserRepository {
