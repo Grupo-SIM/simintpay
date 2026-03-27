@@ -179,7 +179,7 @@ export class RenovadaDashboardService {
   }
 
   private async getChartData(count: number, unit: 'day' | 'month') {
-    const data: { label: string; value: number }[] = [];
+    const data: { label: string; value: number; maquinetas: number; offers: number }[] = [];
     const now = dayjs().tz(TZ);
 
     for (let i = count - 1; i >= 0; i--) {
@@ -187,23 +187,32 @@ export class RenovadaDashboardService {
       const start = d.startOf(unit).toDate();
       const end = d.endOf(unit).toDate();
 
-      const result = await this.prisma.transaction.aggregate({
+      const txs = await this.prisma.transaction.findMany({
         where: {
           userId: RENOVADA_ID,
           status: TransactionStatus.COMPLETED,
           createdAt: { gte: start, lte: end },
         },
-        _sum: {
-          netAmount: true,
-        },
+        select: { netAmount: true, description: true },
       });
 
+      let maquinetas = 0;
+      let offers = 0;
+      for (const tx of txs) {
+        const net = Number(tx.netAmount || 0);
+        if (tx.description?.includes('Maquineta') || tx.description?.includes('Terminal:')) {
+          maquinetas += net;
+        } else {
+          offers += net;
+        }
+      }
+
       const label = unit === 'day' ? d.format('DD/MM') : d.format('MMM');
-      const value = Number(Number(result._sum.netAmount || 0).toFixed(2));
+      const value = Number((maquinetas + offers).toFixed(2));
 
       this.logger.debug(`[Dashboard] Gráfico ${unit} ${label} (${start.toISOString()} → ${end.toISOString()}): líquido=${value}`);
 
-      data.push({ label, value });
+      data.push({ label, value, maquinetas: Number(maquinetas.toFixed(2)), offers: Number(offers.toFixed(2)) });
     }
 
     return data;
