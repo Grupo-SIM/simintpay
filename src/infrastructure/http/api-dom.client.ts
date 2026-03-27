@@ -361,7 +361,12 @@ export class ApiDomClient implements IPaymentGateway {
     };
     if (input.redirectUrl) body.redirect_url = input.redirectUrl;
     const res = await firstValueFrom(this.http.post<any>(url, body, {
-      headers: { 'Authorization': `Bearer ${domToken}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${domToken}`,
+        'x-access-token': domToken,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
     }));
     this.logger.log(`[DOM Create Link RAW] ${JSON.stringify(res.data)}`);
     const root = res.data;
@@ -382,7 +387,10 @@ export class ApiDomClient implements IPaymentGateway {
 
   async listPaymentLinks(domToken: string, input: { page?: number; pageSize?: number }): Promise<{ items: DomPaymentLinkOutput[]; total?: number }> {
     const url = `${this.baseUrl}/payment-links`;
-    const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${domToken}` }, params: input }));
+    const res = await firstValueFrom(this.http.get<any>(url, {
+      headers: { 'Authorization': `Bearer ${domToken}`, 'x-access-token': domToken },
+      params: input,
+    }));
     const root = this.getObject(res.data?.data ?? res.data);
     const arr = this.getArray(root?.items ?? root?.data ?? root);
     const items = (arr ?? []).map(x => this.mapPaymentLink(this.getObject(x))).filter((x): x is DomPaymentLinkOutput => !!x);
@@ -391,22 +399,55 @@ export class ApiDomClient implements IPaymentGateway {
 
   async getPaymentLink(domToken: string, id: string): Promise<DomPaymentLinkOutput> {
     const url = `${this.baseUrl}/payment-links/${id}`;
-    const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${domToken}` } }));
+    const res = await firstValueFrom(this.http.get<any>(url, {
+      headers: { 'Authorization': `Bearer ${domToken}`, 'x-access-token': domToken },
+    }));
     const mapped = this.mapPaymentLink(this.getObject(res.data?.data ?? res.data));
     if (!mapped) throw new Error('Invalid payment link response');
     return mapped;
   }
 
   async updatePaymentLink(domToken: string, id: string, input: Partial<DomPaymentLinkInput>): Promise<DomPaymentLinkOutput> {
-    const url = `${this.baseUrl}/payment-links/${id}`;
-    const res = await firstValueFrom(this.http.put<any>(url, input, { headers: { 'Authorization': `Bearer ${domToken}` } }));
-    const mapped = this.mapPaymentLink(this.getObject(res.data?.data ?? res.data));
-    if (!mapped) throw new Error('Invalid update response');
-    return mapped;
+    // Endpoint direto da DOM Pagamentos (api-dom descontinuada para este fluxo)
+    const url = `${this.domRealApiUrl}/edit-payment-link/${id}`;
+    const payload: Record<string, unknown> = {};
+    if (input.title !== undefined) payload.title = input.title;
+    if (input.description !== undefined) payload.description = input.description;
+    if (input.amount !== undefined) payload.amount = input.amount;
+    if (input.maxInstallments !== undefined) payload.maxInstallments = input.maxInstallments;
+    if (input.isActive !== undefined) payload.isActive = input.isActive;
+    if (input.redirectUrl !== undefined) payload.redirectUrl = input.redirectUrl;
+
+    const res = await firstValueFrom(
+      this.http.put<any>(url, payload, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+
+    return {
+      id: this.pickString(this.getObject(res.data), 'id') ?? id,
+      title: input.title,
+      description: input.description ?? undefined,
+      amount: input.amount,
+      maxInstallments: input.maxInstallments,
+      isActive: input.isActive,
+    };
   }
 
   async deletePaymentLink(domToken: string, id: string): Promise<void> {
-    await firstValueFrom(this.http.delete(`${this.baseUrl}/payment-links/${id}`, { headers: { 'Authorization': `Bearer ${domToken}` } }));
+    // Endpoint direto da DOM Pagamentos (api-dom descontinuada para este fluxo)
+    await firstValueFrom(
+      this.http.delete(`${this.domRealApiUrl}/delete-payment-link/${id}`, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          Accept: 'application/json',
+        },
+      }),
+    );
   }
 
   async chargePaymentLink(
