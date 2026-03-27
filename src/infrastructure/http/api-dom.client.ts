@@ -791,7 +791,10 @@ export class ApiDomClient implements IPaymentGateway {
       }));
 
       const root = res.data;
-      const arr = Array.isArray(root?.data) ? root.data : (Array.isArray(root?.transactions) ? root.transactions : (Array.isArray(root) ? root : []));
+      const arr = Array.isArray(root?.data) ? root.data : 
+                  (Array.isArray(root?.transactions) ? root.transactions : 
+                  (Array.isArray(root?.rows) ? root.rows : 
+                  (Array.isArray(root) ? root : [])));
       this.logger.log(`[DOM List] Received ${arr.length} items from ${url}`);
 
       const transactions: DomTransactionItem[] = arr.map((o: any) => {
@@ -815,14 +818,14 @@ export class ApiDomClient implements IPaymentGateway {
           updated_at: this.pickString(o, 'updated_at') ?? this.pickString(o, 'updatedAt'),
           amount: amt,
           liquid_amount: liq,
-          status: this.pickString(o, 'status') ?? 'pending',
-          payment_method: this.pickString(o, 'payment_method') ?? this.pickString(o, 'method') ?? 'pix',
+          status: this.pickString(o, 'status_type') ?? this.pickString(o, 'status') ?? 'pending',
+          payment_method: this.pickString(o, 'payment_method') ?? this.pickString(o, 'method') ?? this.pickString(o, 'type_payment') ?? 'pix',
           installments: this.pickNumber(o, 'installments') ?? 1,
-          customer_name: this.pickString(customer, 'name') ?? this.pickString(customer, 'customer_name'),
-          customer_email: this.pickString(customer, 'email') ?? this.pickString(customer, 'customer_email'),
-          customer_phone: this.pickString(customer, 'mobile_phone') ?? this.pickString(customer, 'phone') ?? this.pickString(customer, 'customer_phone'),
-          customer_document: this.pickString(customer, 'document') ?? this.pickString(customer, 'customer_document'),
-          product_first: (Array.isArray(o?.items) && o.items.length > 0) ? (o.items[0]?.description || o.items[0]?.name || null) : (this.pickString(o, 'description') || null),
+          customer_name: this.pickString(customer, 'name') ?? this.pickString(customer, 'customer_name') ?? this.pickString(o, 'client_name'),
+          customer_email: this.pickString(customer, 'email') ?? this.pickString(customer, 'customer_email') ?? this.pickString(o, 'client_email'),
+          customer_phone: this.pickString(customer, 'mobile_phone') ?? this.pickString(customer, 'phone') ?? this.pickString(customer, 'customer_phone') ?? this.pickString(o, 'client_phone'),
+          customer_document: this.pickString(customer, 'document') ?? this.pickString(customer, 'customer_document') ?? this.pickString(o, 'client_document'),
+          product_first: this.pickString(o, 'product_first') || (Array.isArray(o?.items) && o.items.length > 0 ? (o.items[0]?.description || o.items[0]?.name || null) : (this.pickString(o, 'description') || null)),
           fee_total: amt - liq,
           dom_fee: this.pickNumber(o, 'dom_fee') ?? this.pickNumber(o, 'fee_dom') ?? 0,
         };

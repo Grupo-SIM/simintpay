@@ -16,6 +16,7 @@ model User {
   domUserId            String?              @unique
   domToken             String?
   tenantModuleId       String?
+  cpf                  String?              @unique
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
   balanceLogs          BalanceLog[]
@@ -264,7 +265,7 @@ model UserSettings {
 
 model TenantModule {
   id        String   @id @default(uuid())
-  name      String   // Ex: "Revalida", "Renovada"
+  name      String // Ex: "Revalida", "Renovada"
   slug      String   @unique // Ex: "revalida", "renovada" — usado p/ env var {SLUG}_DOM_TOKEN
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -342,17 +343,17 @@ enum LeadStatus {
 // ── PIX Credit Plan (crédito de dias via PIX) ─────────────────────────────
 
 model PixCreditPlan {
-  id          String             @id @default(uuid())
+  id          String               @id @default(uuid())
   userId      String
   type        PlanType
   price       Float
   description String?
   redirectUrl String?
   webhookUrl  String?
-  status      String             @default("ACTIVE")
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      String               @default("ACTIVE")
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   linkCodes   PixPlanLinkCode[]
   orders      PixPlanOrder[]
   accesses    CustomerPlanAccess[]

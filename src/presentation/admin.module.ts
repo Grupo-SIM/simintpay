@@ -26,9 +26,10 @@ import { BcryptService } from '../infrastructure/security/bcrypt.service';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { EmailService } from '../infrastructure/email/email.service';
 import { ModuleRealtimeModule } from '../infrastructure/realtime/module-realtime.module';
+import { RevalidaModule } from '../modules/revalida/revalida.module';
 
 @Module({
-  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule],
+  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule],
   controllers: [AdminController],
   providers: [
     SyncDomTransactionsCron,
