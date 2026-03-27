@@ -22,6 +22,8 @@ import { UpdatePaymentLinkUseCase } from '../../application/use-cases/payment-li
 import { DeletePaymentLinkUseCase } from '../../application/use-cases/payment-link/delete-payment-link.use-case';
 import { GetPublicPaymentLinkUseCase } from '../../application/use-cases/payment-link/get-public-payment-link.use-case';
 import { ChargePaymentLinkUseCase, ChargePaymentLinkInput } from '../../application/use-cases/payment-link/charge-payment-link.use-case';
+import { ChargePixPaymentLinkUseCase } from '../../application/use-cases/payment-link/charge-pix-payment-link.use-case';
+import { ChargePixPaymentLinkDto } from '../../application/dtos/payment-link/charge-pix-payment-link.dto';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -41,6 +43,7 @@ export class PaymentLinkController {
     private readonly del: DeletePaymentLinkUseCase,
     private readonly getPublic: GetPublicPaymentLinkUseCase,
     private readonly charge: ChargePaymentLinkUseCase,
+    private readonly chargePix: ChargePixPaymentLinkUseCase,
   ) {}
 
   // ── Rotas públicas (sem autenticação) ──────────────────────────────────────
@@ -54,7 +57,7 @@ export class PaymentLinkController {
   }
 
   @Post('public/:id/charge')
-  @ApiOperation({ summary: 'Cobrar via link de pagamento (checkout público)' })
+  @ApiOperation({ summary: 'Cobrar via link de pagamento (checkout público — cartão)' })
   @ApiResponse({ status: 201 })
   @ApiResponse({ status: 404 })
   async chargeRoute(
@@ -62,6 +65,30 @@ export class PaymentLinkController {
     @Body() body: Omit<ChargePaymentLinkInput, 'linkId'>,
   ) {
     return this.charge.execute({ ...body, linkId: id });
+  }
+
+  @Post('public/:id/pix')
+  @ApiOperation({ summary: 'Gerar cobrança PIX via link de pagamento (QR code + copia e cola)' })
+  @ApiResponse({
+    status: 201,
+    schema: {
+      example: {
+        id: 'transaction-uuid',
+        status: 'waiting',
+        pixContent: '00020126360014br.gov.bcb.pix...',
+        qrCode: 'data:image/png;base64,...',
+        pixExpire: '2026-03-28 12:00',
+        amount: 99.9,
+      },
+    },
+  })
+  @ApiResponse({ status: 404, schema: { example: { statusCode: 404, message: 'Link de pagamento não encontrado ou inativo' } } })
+  @ApiResponse({ status: 400, schema: { example: { statusCode: 400, message: 'Este link não aceita pagamento via PIX' } } })
+  async chargePixRoute(
+    @Param('id') id: string,
+    @Body() body: ChargePixPaymentLinkDto,
+  ) {
+    return this.chargePix.execute({ ...body, linkId: id });
   }
 
   @Get()

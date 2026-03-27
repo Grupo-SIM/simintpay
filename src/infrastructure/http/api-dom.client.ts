@@ -450,6 +450,95 @@ export class ApiDomClient implements IPaymentGateway {
     );
   }
 
+  async chargePixForLink(
+    domToken: string,
+    input: {
+      domLinkId: string;
+      amount: number;
+      description: string;
+      customerName: string;
+      customerEmail: string;
+      customerDocument: string;
+      customerPhone: string;
+      documentType: 'CPF' | 'CNPJ';
+      codExternal: string;
+    },
+  ): Promise<{
+    id: string;
+    status: string;
+    pixContent: string | null;
+    qrCode: string | null;
+    pixExpire: string | null;
+    amount: number;
+  }> {
+    // Usa o endpoint de cobrança por link para vincular o pagamento ao link na DOM
+    const url = `${this.domRealApiUrl}/set-payment-link/${input.domLinkId}/charge`;
+
+    const expireAt = new Date();
+    expireAt.setHours(expireAt.getHours() + 24);
+    const pixExpireFormatted = expireAt
+      .toISOString()
+      .slice(0, 16)
+      .replace('T', ' ');
+
+    const body = {
+      customer: {
+        name: input.customerName,
+        email: input.customerEmail,
+        document: input.customerDocument.replace(/\D/g, ''),
+        document_type: input.documentType,
+        phone: input.customerPhone.replace(/\D/g, ''),
+      },
+      payment_method: 'pix',
+      pix: { pix_expire: pixExpireFormatted },
+    };
+
+    this.logger.log(
+      `[DOM PIX Link] POST ${url} amount=${input.amount}`,
+    );
+
+    const res = await firstValueFrom(
+      this.http.post<any>(url, body, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      }),
+    );
+
+    this.logger.log(`[DOM PIX Link RAW] ${JSON.stringify(res.data)}`);
+
+    const root = res.data?.data ?? res.data;
+    const id = this.pickString(this.getObject(root), 'id') ?? this.pickString(this.getObject(root), 'transaction_id');
+    if (!id) throw new Error('DOM PIX: resposta sem id de transação');
+
+    const pixContent =
+      this.pickString(this.getObject(root), 'pix_content') ??
+      this.pickString(this.getObject(root), 'pix_copy_paste') ??
+      this.pickString(this.getObject(root), 'pixContent') ??
+      null;
+
+    const qrCode =
+      this.pickString(this.getObject(root), 'qr_code') ??
+      this.pickString(this.getObject(root), 'qr_code_text') ??
+      null;
+
+    const pixExpire =
+      this.pickString(this.getObject(root), 'pix_expire_at') ??
+      this.pickString(this.getObject(root), 'pix_expire') ??
+      pixExpireFormatted;
+
+    return {
+      id,
+      status: this.pickString(this.getObject(root), 'status') ?? 'waiting',
+      pixContent,
+      qrCode,
+      pixExpire,
+      amount: input.amount,
+    };
+  }
+
   async chargePaymentLink(
     domToken: string,
     input: {

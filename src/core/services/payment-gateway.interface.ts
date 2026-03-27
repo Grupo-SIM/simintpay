@@ -223,6 +223,28 @@ export interface IPaymentGateway {
     input: Partial<DomPaymentLinkInput>,
   ): Promise<DomPaymentLinkOutput>;
   deletePaymentLink(domToken: string, id: string): Promise<void>;
+  chargePixForLink(
+    domToken: string,
+    input: {
+      domLinkId: string;
+      amount: number;
+      description: string;
+      customerName: string;
+      customerEmail: string;
+      customerDocument: string;
+      customerPhone: string;
+      documentType: 'CPF' | 'CNPJ';
+      codExternal: string;
+    },
+  ): Promise<{
+    id: string;
+    status: string;
+    pixContent: string | null;
+    qrCode: string | null;
+    pixExpire: string | null;
+    amount: number;
+  }>;
+
   chargePaymentLink(
     domToken: string,
     input: {
