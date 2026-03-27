@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, UseGuards, Logger } from '@nestjs/common';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
@@ -6,20 +6,45 @@ import { ListSubscribersQueryDto } from '../../application/dtos/subscription/lis
 import { ListSubscribersUseCase } from '../../application/use-cases/subscription/list-subscribers.use-case';
 import { CancelSubscriptionUseCase } from '../../application/use-cases/subscription/cancel-subscription.use-case';
 import { GetSubscriptionDetailUseCase } from '../../application/use-cases/subscription/get-subscription-detail.use-case';
+import { SubscriptionWebhookService } from '../../application/use-cases/subscription/subscription-webhook.service';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 
-@Controller('assinantes')
-@UseGuards(JwtAuthGuard)
+@Controller()
 @ApiTags('Assinantes')
-@ApiBearerAuth()
 export class SubscriptionController {
+  private readonly logger = new Logger(SubscriptionController.name);
+
   constructor(
     private readonly listSubscribers: ListSubscribersUseCase,
     private readonly cancel: CancelSubscriptionUseCase,
     private readonly getDetail: GetSubscriptionDetailUseCase,
+    private readonly subscriptionWebhook: SubscriptionWebhookService,
   ) {}
 
-  @Get()
+  // ── Webhook público para recorrência (postback do gateway) ─────────────
+  @Post('subscription/webhook')
+  @HttpCode(200)
+  @SkipThrottle()
+  @ApiOperation({ summary: 'Webhook de assinatura (postback do gateway)' })
+  @ApiResponse({ status: 200, schema: { example: { status: 'ok' } } })
+  async handleSubscriptionWebhook(
+    @Body() body: Record<string, unknown>,
+  ): Promise<{ status: string }> {
+    this.logger.log(`[SubscriptionWebhook] Payload: ${JSON.stringify(body).substring(0, 500)}`);
+    try {
+      await this.subscriptionWebhook.handleWebhook(body);
+    } catch (err) {
+      this.logger.error(`[SubscriptionWebhook] Erro: ${err.message}`, err.stack);
+    }
+    return { status: 'ok' };
+  }
+
+  // ── Rotas autenticadas (/assinantes/*) ──────────────────────────────────
+
+  @Get('assinantes')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Listar assinantes' })
   @ApiResponse({
     status: 200,
@@ -41,7 +66,9 @@ export class SubscriptionController {
     return this.listSubscribers.execute({ userId: user?.sub ?? '', role: user?.role, query });
   }
 
-  @Get('subscription/:id')
+  @Get('assinantes/subscription/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Detalhe da assinatura (DOM recurrence/subscriptions/:id)',
   })
@@ -54,7 +81,9 @@ export class SubscriptionController {
     return this.getDetail.execute({ userId: user?.sub ?? '', id });
   }
 
-  @Put('subscription/:id/cancel')
+  @Put('assinantes/subscription/:id/cancel')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Cancelar assinatura' })
   @ApiResponse({ status: 200, schema: { example: { cancelled: true } } })
   @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })

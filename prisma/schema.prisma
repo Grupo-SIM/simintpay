@@ -318,6 +318,7 @@ enum TransactionStatus {
 enum PaymentMethod {
   PIX
   CREDIT_CARD
+  DEBIT_CARD
 }
 
 enum WithdrawStatus {

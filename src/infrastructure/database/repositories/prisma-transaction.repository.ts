@@ -1,11 +1,38 @@
 import { Injectable } from '@nestjs/common';
 import { Transaction, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
+import {
+  ITransactionRepository,
+  CreateTransactionData,
+} from '../../../core/repositories/transaction.repository.interface';
 
 @Injectable()
 export class PrismaTransactionRepository implements ITransactionRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  async create(data: CreateTransactionData): Promise<Transaction> {
+    return this.prisma.transaction.create({
+      data: {
+        userId: data.userId,
+        amount: data.amount,
+        netAmount: data.netAmount ?? data.amount,
+        status: data.status,
+        paymentMethod: data.paymentMethod,
+        description: data.description ?? undefined,
+        installments: data.installments ?? 1,
+        totalFee: data.totalFee ?? 0,
+        domFee: data.domFee ?? 0,
+        platformFee: data.platformFee ?? 0,
+        domPaymentId: data.domPaymentId ?? undefined,
+        domTransactionId: data.domTransactionId ?? undefined,
+        customerName: data.customerName ?? undefined,
+        customerEmail: data.customerEmail ?? undefined,
+        customerDocument: data.customerDocument ?? undefined,
+        customerPhone: data.customerPhone ?? undefined,
+        paymentLinkId: data.paymentLinkId ?? undefined,
+      },
+    });
+  }
 
   async findByDomPaymentId(domPaymentId: string): Promise<Transaction | null> {
     return this.prisma.transaction.findFirst({ where: { domPaymentId } });

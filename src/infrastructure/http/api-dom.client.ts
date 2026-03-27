@@ -566,7 +566,7 @@ export class ApiDomClient implements IPaymentGateway {
       customerEmail: string;
       customerDocument: string;
       customerPhone: string;
-      paymentMethod: 'credit_card' | 'pix';
+      paymentMethod: 'credit_card' | 'debit_card' | 'pix';
       installments: number;
       card?: {
         token: string;
@@ -590,9 +590,9 @@ export class ApiDomClient implements IPaymentGateway {
         phone: input.customerPhone,
       },
       payment_method: input.paymentMethod,
-      installments: input.installments,
+      installments: input.paymentMethod === 'debit_card' ? 1 : input.installments,
     };
-    if (input.paymentMethod === 'credit_card' && input.card) {
+    if ((input.paymentMethod === 'credit_card' || input.paymentMethod === 'debit_card') && input.card) {
       body.card = {
         token: input.card.token,
         brand: input.card.brand,
@@ -713,6 +713,7 @@ export class ApiDomClient implements IPaymentGateway {
     },
   ): Promise<{ id: string; status?: string; [key: string]: unknown }> {
     const url = `${this.domRealApiUrl}/recurrence/subscriptions`;
+    const appUrl = process.env.URL_APP ?? 'https://simpay-back.simintermediacoes.com';
     const body = {
       plan_id: input.planId,
       payment_method: 'credit_card',
@@ -732,6 +733,8 @@ export class ApiDomClient implements IPaymentGateway {
         holder_name: input.card.holder_name,
         holder_document: input.card.holder_document,
       },
+      cashback_active: false,
+      postbackurl: `${appUrl}/subscription/webhook`,
     };
     const res = await firstValueFrom(
       this.http.post<any>(url, body, {

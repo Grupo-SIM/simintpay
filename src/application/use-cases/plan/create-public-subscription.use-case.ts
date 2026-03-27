@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PLAN_REPOSITORY } from '../../../core/repositories/plan.repository.interface';
@@ -12,6 +13,8 @@ import type { IPlanRepository } from '../../../core/repositories/plan.repository
 import type { ISubscriptionRepository } from '../../../core/repositories/subscription.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { getModuleDomToken } from '../../../modules/module.registry';
 
 export type CreatePublicSubscriptionInput = {
   planId: string;
@@ -34,11 +37,14 @@ export type CreatePublicSubscriptionInput = {
 
 @Injectable()
 export class CreatePublicSubscriptionUseCase {
+  private readonly logger = new Logger(CreatePublicSubscriptionUseCase.name);
+
   constructor(
     @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
     @Inject(SUBSCRIPTION_REPOSITORY) private readonly subscriptions: ISubscriptionRepository,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(input: CreatePublicSubscriptionInput): Promise<{
@@ -56,18 +62,47 @@ export class CreatePublicSubscriptionUseCase {
     }
 
     const owner = await this.users.findById(plan.userId);
-    const domToken = owner?.domToken ?? process.env.DOM_TOKEN;
+    let domToken: string | null | undefined = owner?.domToken;
+    if (!domToken && owner?.tenantModule?.slug) {
+      domToken = getModuleDomToken(owner.tenantModule.slug);
+    }
+    if (!domToken) domToken = process.env.DOM_TOKEN;
     if (!domToken) {
       throw new BadRequestException('Token do gateway não configurado');
     }
+
+    const cleanDoc = input.customerDocument.replace(/\D/g, '');
+    const cleanPhone = input.customerPhone.replace(/\D/g, '');
+
+    const customer = await this.prisma.customer.upsert({
+      where: {
+        userId_document: {
+          userId: plan.userId,
+          document: cleanDoc,
+        },
+      },
+      update: {
+        name: input.customerName,
+        email: input.customerEmail,
+        phone: cleanPhone || undefined,
+      },
+      create: {
+        userId: plan.userId,
+        name: input.customerName,
+        email: input.customerEmail,
+        document: cleanDoc,
+        documentType: cleanDoc.length === 14 ? 'CNPJ' : 'CPF',
+        phone: cleanPhone || undefined,
+      },
+    });
 
     const domResult = await this.gateway.createSubscriptionFromCheckout(domToken, {
       planId: plan.domPlanId,
       customer: {
         name: input.customerName,
         email: input.customerEmail,
-        document: input.customerDocument.replace(/\D/g, ''),
-        phone: input.customerPhone.replace(/\D/g, ''),
+        document: cleanDoc,
+        phone: cleanPhone,
       },
       card: input.card,
     });
@@ -75,9 +110,14 @@ export class CreatePublicSubscriptionUseCase {
     const saved = await this.subscriptions.create({
       userId: plan.userId,
       planId: plan.id,
+      customerId: customer.id,
       status: (domResult.status as string) ?? 'active',
       domSubscriptionId: domResult.id,
     });
+
+    this.logger.log(
+      `Assinatura criada: subId=${saved.id}, domSubId=${domResult.id}, planId=${plan.id}`,
+    );
 
     return {
       id: saved.id,
