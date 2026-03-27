@@ -19,6 +19,10 @@ export interface IPaymentLinkRepository {
     page: number;
     pageSize: number;
   }): Promise<{ total: number; items: PaymentLink[] }>;
+  findAll(input: {
+    page: number;
+    pageSize: number;
+  }): Promise<{ total: number; items: PaymentLink[] }>;
   findById(id: string): Promise<PaymentLink | null>;
   findByIdForUser(input: {
     id: string;

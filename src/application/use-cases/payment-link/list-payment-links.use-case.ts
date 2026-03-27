@@ -12,6 +12,7 @@ export class ListPaymentLinksUseCase {
 
   async execute(input: {
     userId: string;
+    role: string;
     query: ListPaymentLinksQueryDto;
   }): Promise<{
     data: unknown;
@@ -22,11 +23,10 @@ export class ListPaymentLinksUseCase {
     const page = input.query.page ?? 1;
     const pageSize = input.query.pageSize ?? 20;
 
-    const { total, items } = await this.links.findManyByUserId({
-      userId: input.userId,
-      page,
-      pageSize,
-    });
+    const { total, items } =
+      input.role === 'ADMIN'
+        ? await this.links.findAll({ page, pageSize })
+        : await this.links.findManyByUserId({ userId: input.userId, page, pageSize });
 
     return {
       data: items.map((l) => ({

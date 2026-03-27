@@ -62,7 +62,7 @@ export class PaymentLinkController {
     @CurrentUser() user: JwtPayload | undefined,
     @Query() query: ListPaymentLinksQueryDto,
   ): Promise<{ data: unknown; page: number; pageSize: number; total: number }> {
-    return this.list.execute({ userId: user?.sub ?? '', query });
+    return this.list.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', query });
   }
 
   @Post()

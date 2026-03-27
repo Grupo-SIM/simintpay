@@ -30,6 +30,7 @@ export type DomPaymentLinkInput = {
   maxInstallments?: number;
   isActive?: boolean;
   redirectUrl?: string;
+  interestRateInstallment?: number;
 };
 
 export type DomPaymentLinkOutput = {
