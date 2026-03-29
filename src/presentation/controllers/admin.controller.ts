@@ -52,6 +52,68 @@ function extractTerminal(description: string | null | undefined): string {
   return m ? m[1] : '-';
 }
 
+const PLAN_PLATFORM_CPF_REGEX = /\[CPF:([^\]|]*)\|([^\]]+)\]/;
+
+function extractOwnerDocDigitsFromPlanDescription(description: string | null | undefined): string | null {
+  const m = (description ?? '').match(PLAN_PLATFORM_CPF_REGEX);
+  if (!m) return null;
+  const digits = m[1].replace(/\D/g, '');
+  if (digits.length < 11) return null;
+  return digits;
+}
+
+/** userIds dos planos técnicos + contas Simpay (CPF) para listar todas as transações da plataforma */
+/** Extrai todos os CPFs/CNPJs (11-14 dígitos) presentes em uma string */
+function extractAllDocDigitsFromText(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const matches = (text).match(/\d{11,14}/g) ?? [];
+  return [...new Set(matches.filter(d => d.length >= 11 && d.length <= 14))];
+}
+
+async function expandPlatformTransactionUserIds(
+  prisma: PrismaService,
+  plans: { userId: string; description: string | null }[],
+): Promise<string[]> {
+  const ids = new Set(plans.map((p) => p.userId));
+  if (plans.length === 0) return [];
+
+  // Coleta todos os dígitos de documento presentes nas descrições dos planos
+  // (tanto no formato [CPF:xxx|TAG] quanto em texto livre)
+  const digitsToResolve = new Set<string>();
+
+  for (const p of plans) {
+    // Tenta o formato padrão primeiro
+    const tagged = extractOwnerDocDigitsFromPlanDescription(p.description);
+    if (tagged) {
+      digitsToResolve.add(tagged);
+      continue;
+    }
+    // Fallback: qualquer sequência de 11-14 dígitos na descrição
+    for (const d of extractAllDocDigitsFromText(p.description)) {
+      digitsToResolve.add(d);
+    }
+  }
+
+  if (digitsToResolve.size === 0) return [...ids];
+
+  const orClause = [...digitsToResolve].flatMap((d) => {
+    const row: { cpf: string }[] = [{ cpf: d }];
+    if (d.length === 11) {
+      row.push({ cpf: d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') });
+    } else if (d.length === 14) {
+      row.push({ cpf: d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') });
+    }
+    return row;
+  });
+
+  const merchants = await prisma.user.findMany({
+    where: { OR: orClause },
+    select: { id: true },
+  });
+  for (const m of merchants) ids.add(m.id);
+  return [...ids];
+}
+
 @ApiTags('Admin')
 @Controller('admin')
 //@UseGuards(JwtAuthGuard, RolesGuard)
@@ -937,6 +999,165 @@ export class AdminController {
       totalRecebidoBruto: totalReceived,
       totalSacado: totalWithdrawn,
     };
+  }
+
+  // ──────────── PLATAFORMAS ────────────
+
+  @Get('plataformas')
+  @ApiOperation({ summary: 'Listar plataformas detectadas (via tag [CPF:xxx|TAG] nos planos)' })
+  async listPlataformas() {
+    const plans = await this.prisma.pixCreditPlan.findMany({
+      select: { description: true, userId: true, createdAt: true },
+    });
+
+    const map = new Map<
+      string,
+      {
+        tag: string;
+        cpf: string;
+        planRows: { userId: string; description: string | null }[];
+        plansCount: number;
+        firstSeen: Date;
+      }
+    >();
+
+    // Plataformas conhecidas para detecção por texto livre (fallback sem formato padrão)
+    const KNOWN_TAGS = ['PAGATG', 'RENOVADA', 'REVALIDA', 'BOSQUE', 'FRENDZ', 'EBOOKSIM'];
+
+    for (const p of plans) {
+      const desc = p.description ?? '';
+      const row = { userId: p.userId, description: p.description };
+
+      // Tenta formato padrão [CPF:xxx|TAG]
+      const m = desc.match(PLAN_PLATFORM_CPF_REGEX);
+      if (m) {
+        const [, cpf, tag] = m;
+        const key = tag.toUpperCase();
+        const existing = map.get(key);
+        if (existing) {
+          existing.planRows.push(row);
+          existing.plansCount++;
+          if (p.createdAt < existing.firstSeen) existing.firstSeen = p.createdAt;
+        } else {
+          map.set(key, { tag: key, cpf, planRows: [row], plansCount: 1, firstSeen: p.createdAt });
+        }
+        continue;
+      }
+
+      // Fallback: detecta tag conhecida em texto livre e CPF como sequência de dígitos
+      const upperDesc = desc.toUpperCase();
+      const matchedTag = KNOWN_TAGS.find(t => upperDesc.includes(t));
+      if (!matchedTag) continue;
+      const cpfDigits = (desc.match(/\d{11,14}/g) ?? []).find(d => d.length >= 11) ?? '';
+      if (!cpfDigits) continue;
+
+      const existing = map.get(matchedTag);
+      if (existing) {
+        existing.planRows.push(row);
+        existing.plansCount++;
+        if (p.createdAt < existing.firstSeen) existing.firstSeen = p.createdAt;
+      } else {
+        map.set(matchedTag, { tag: matchedTag, cpf: cpfDigits, planRows: [row], plansCount: 1, firstSeen: p.createdAt });
+      }
+    }
+
+    const result = [];
+    for (const v of map.values()) {
+      const expandedUserIds = await expandPlatformTransactionUserIds(this.prisma, v.planRows);
+      const txCounts =
+        expandedUserIds.length > 0
+          ? await this.prisma.transaction.groupBy({
+              by: ['userId'],
+              where: { userId: { in: expandedUserIds } },
+              _count: true,
+            })
+          : [];
+      const txMap = new Map(txCounts.map((t) => [t.userId, t._count]));
+      const totalTx = expandedUserIds.reduce((sum, uid) => sum + (txMap.get(uid) ?? 0), 0);
+      result.push({
+        tag: v.tag,
+        cpf: v.cpf,
+        plansCount: v.plansCount,
+        transactionsCount: totalTx,
+        firstSeen: v.firstSeen,
+      });
+    }
+
+    return { data: result };
+  }
+
+  @Get('plataformas/:tag/transacoes')
+  @ApiOperation({ summary: 'Listar transações de uma plataforma (por tag)' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'pageSize', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  async listPlataformaTransacoes(
+    @Param('tag') tag: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+    @Query('status') status?: string,
+  ) {
+    const upperTag = tag.toUpperCase();
+    // Busca planos com a tag no formato padrão [CPF:xxx|TAG] OU como texto livre
+    const plans = await this.prisma.pixCreditPlan.findMany({
+      where: {
+        OR: [
+          { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
+          { description: { contains: upperTag, mode: 'insensitive' } },
+        ],
+      },
+      select: { userId: true, description: true },
+    });
+
+    const userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
+    if (userIds.length === 0) return { data: [], page: 1, pageSize: 20, total: 0 };
+
+    const pageNum = Math.max(1, Number(page));
+    const size = Math.min(Math.max(1, Number(pageSize)), 100);
+
+    const where: any = { userId: { in: userIds } };
+    if (status) {
+      const statusUpper = status.toUpperCase();
+      const statusMap: Record<string, string> = {
+        PENDENTE: 'PENDING', COMPLETADA: 'COMPLETED', FALHADA: 'FAILED',
+        REEMBOLSADA: 'REFUNDED', EXPIRADA: 'EXPIRED', RASCUNHO: 'DRAFT',
+      };
+      where.status = statusMap[statusUpper] ?? statusUpper;
+    }
+
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.transaction.count({ where }),
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (pageNum - 1) * size,
+        take: size,
+        include: { pixPlanOrder: { select: { pixCreditPlanId: true, customerDocument: true } } },
+      }),
+    ]);
+
+    const data = items.map(t => ({
+      id: t.id,
+      valor: Number(t.amount),
+      valorLiquido: t.netAmount ? Number(t.netAmount) : null,
+      status: t.status,
+      metodoPagamento: t.paymentMethod,
+      descricao: (t.description ?? '').replace(/\s*\[CPF:[^\]]*\|[^\]]+\]/g, ''),
+      cliente: {
+        nome: t.customerName ?? null,
+        email: t.customerEmail ?? null,
+        documento: t.customerDocument ?? null,
+      },
+      taxas: {
+        total: Number(t.totalFee),
+        dom: Number(t.domFee),
+        plataforma: Number(t.platformFee),
+      },
+      criadoEm: t.createdAt,
+      atualizadoEm: t.updatedAt,
+    }));
+
+    return { data, page: pageNum, pageSize: size, total };
   }
 
   @Delete('usuarios/:email')

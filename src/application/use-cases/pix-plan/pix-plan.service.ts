@@ -26,7 +26,7 @@ export class PixPlanService {
     @Inject(PIX_PLAN_REPOSITORY) private readonly repo: IPixPlanRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
 
   private getDaysForPlan(planType: string): number {
     const daysMapping: Record<string, number> = {
@@ -63,6 +63,54 @@ export class PixPlanService {
     }
   }
 
+  private static readonly PLAN_PLATFORM_CPF_REGEX = /\[CPF:([^\]|]*)\|([^\]]+)\]/;
+
+  /** CPF/CNPJ só com dígitos a partir do trecho [CPF:...|TAG] da descrição do plano */
+  private extractOwnerDocumentDigitsFromPlanDescription(description: string | null | undefined): string | null {
+    const m = (description ?? '').match(PixPlanService.PLAN_PLATFORM_CPF_REGEX);
+    if (!m) return null;
+    const digits = m[1].replace(/\D/g, '');
+    if (digits.length < 11) return null;
+    return digits;
+  }
+
+  /** Conta Simpay com mesmo documento (CPF ou CNPJ no campo `cpf`) */
+  private async findMerchantUserIdByDocumentDigits(digits: string): Promise<string | null> {
+    const variants: string[] = [digits];
+    if (digits.length === 11) {
+      variants.push(digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'));
+    } else if (digits.length === 14) {
+      variants.push(digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5'));
+    }
+    const user = await this.prisma.user.findFirst({
+      where: { OR: variants.map((cpf) => ({ cpf })) },
+      select: { id: true },
+    });
+    return user?.id ?? null;
+  }
+
+  /**
+   * Pagatg/integrações criam o plano com userId = usuário técnico (domToken).
+   * Transações e saldo devem ir para o usuário Simpay cujo `cpf` bate com [CPF:...|TAG].
+   */
+  private async resolveTransactionUserIdForPixPlan(plan: {
+    userId: string;
+    description: string | null;
+  }): Promise<string> {
+    const owner = await this.prisma.user.findUnique({
+      where: { id: plan.userId },
+      select: { email: true },
+    });
+    const isPlatformShadow = (owner?.email ?? '').toLowerCase().endsWith('@auto.simpay.com');
+    if (!isPlatformShadow) return plan.userId;
+
+    const docDigits = this.extractOwnerDocumentDigitsFromPlanDescription(plan.description);
+    if (!docDigits) return plan.userId;
+
+    const merchantId = await this.findMerchantUserIdByDocumentDigits(docDigits);
+    return merchantId ?? plan.userId;
+  }
+
   private mapPixTypeToFrequency(
     pixType: string,
   ): 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR' {
@@ -85,6 +133,14 @@ export class PixPlanService {
     const domToken = process.env.DOM_TOKEN;
     if (!domToken) throw new UnauthorizedException('DOM_TOKEN não configurado');
 
+    let effectiveUserId = userId;
+    if (body.pixCreditPlanId) {
+      const planRow = await this.repo.findPixCreditPlanById(body.pixCreditPlanId);
+      if (planRow) {
+        effectiveUserId = await this.resolveTransactionUserIdForPixPlan(planRow);
+      }
+    }
+
     if (!body.document || !body.document_type)
       throw new BadRequestException('Documento e tipo de documento são obrigatórios');
     if (!body.price || body.price <= 0)
@@ -94,8 +150,12 @@ export class PixPlanService {
     if (!body.name || body.name.trim().length < 2)
       throw new BadRequestException('Nome deve ter pelo menos 2 caracteres');
 
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-    if (!wallet) throw new BadRequestException('Carteira não encontrada');
+    let wallet = await this.prisma.wallet.findUnique({ where: { userId: effectiveUserId } });
+    if (!wallet) {
+      wallet = await this.prisma.wallet.create({
+        data: { userId: effectiveUserId, balance: 0 },
+      });
+    }
 
     const amount = body.price;
     const netAmount = parseFloat((amount * 0.91).toFixed(2));
@@ -105,7 +165,7 @@ export class PixPlanService {
 
     const transaction = await this.prisma.transaction.create({
       data: {
-        userId,
+        userId: effectiveUserId,
         amount: new Prisma.Decimal(amount),
         netAmount: new Prisma.Decimal(netAmount),
         status: 'DRAFT',
@@ -142,7 +202,7 @@ export class PixPlanService {
 
       await this.repo.createPixPlanOrder({
         transactionId: transaction.id,
-        userId,
+        userId: effectiveUserId,
         customerEmail: body.email,
         customerDocument: body.document.replace(/[.-]/g, ''),
         planType: body.planType,
@@ -199,7 +259,7 @@ export class PixPlanService {
         frequencyType: this.mapPixTypeToFrequency(String(link.pixCreditPlan.type)),
         paymentMethods: ['pix'],
         userId: link.pixCreditPlan.userId,
-        description: link.pixCreditPlan.description,
+        description: (link.pixCreditPlan.description ?? '').replace(/\s*\[CPF:[^\]]*\|PAGATG\]/g, ''),
         externalReference: null,
         redirectUrl: link.pixCreditPlan.redirectUrl,
         webhookUrl: link.pixCreditPlan.webhookUrl,
@@ -322,13 +382,22 @@ export class PixPlanService {
     });
 
     const mappedItems = items.map((p: any) => {
-      const cpfRaw: string | null | undefined = p.user?.cpf;
+      // CPF do dono: extrair da descrição ([CPF:xxx|TAG]) — o userId do plano é conta técnica
       let cpfDono: string | null = null;
-      if (cpfRaw) {
-        const digits = cpfRaw.replace(/\D/g, '');
-        cpfDono = digits.length === 11
-          ? digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
-          : cpfRaw;
+      const descCpf = this.extractOwnerDocumentDigitsFromPlanDescription(p.description);
+      if (descCpf) {
+        cpfDono = descCpf.length === 11
+          ? descCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
+          : descCpf;
+      } else {
+        // Fallback: CPF do user dono (quando o plano foi criado pelo próprio merchant)
+        const cpfRaw: string | null | undefined = p.user?.cpf;
+        if (cpfRaw) {
+          const digits = cpfRaw.replace(/\D/g, '');
+          cpfDono = digits.length === 11
+            ? digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
+            : cpfRaw;
+        }
       }
       return {
         id: p.id,
@@ -607,11 +676,11 @@ export class PixPlanService {
             status: subscription.status,
             customer: subscription.customer
               ? {
-                  id: subscription.customer.id,
-                  name: subscription.customer.name,
-                  email: subscription.customer.email,
-                  document: subscription.customer.document,
-                }
+                id: subscription.customer.id,
+                name: subscription.customer.name,
+                email: subscription.customer.email,
+                document: subscription.customer.document,
+              }
               : null,
             plan: {
               id: subscription.plan.id,
@@ -667,12 +736,12 @@ export class PixPlanService {
         },
         planAccess: planAccess
           ? {
-              id: planAccess.id,
-              isActive: planAccess.isActive,
-              expiresAt: planAccess.expiresAt,
-              remainingDays,
-              totalDaysCredited: planAccess.totalDaysCredited,
-            }
+            id: planAccess.id,
+            isActive: planAccess.isActive,
+            expiresAt: planAccess.expiresAt,
+            remainingDays,
+            totalDaysCredited: planAccess.totalDaysCredited,
+          }
           : null,
       };
     }
@@ -698,11 +767,11 @@ export class PixPlanService {
           status: subscription.status,
           customer: subscription.customer
             ? {
-                id: subscription.customer.id,
-                name: subscription.customer.name,
-                email: subscription.customer.email,
-                document: subscription.customer.document,
-              }
+              id: subscription.customer.id,
+              name: subscription.customer.name,
+              email: subscription.customer.email,
+              document: subscription.customer.document,
+            }
             : null,
           plan: {
             id: subscription.plan.id,

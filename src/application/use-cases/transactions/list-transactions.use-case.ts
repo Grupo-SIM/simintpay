@@ -252,16 +252,26 @@ export class ListTransactionsUseCase {
     let and: Prisma.TransactionWhereInput[];
 
     if (userCpf) {
-      // Conta criada via admin: mostrar transações do pool Renovada onde a descrição
-      // contém o CPF do usuário (aceita formato com e sem pontuação)
+      // Conta criada via admin:
+      // 1) transações do pool Renovada filtradas por CPF na descrição
+      // 2) transações já atribuídas diretamente ao próprio usuário
       const cpfDigits = userCpf.replace(/\D/g, '');
       const cpfFormatted = cpfDigits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
       and = [
-        { userId: RENOVADA_ID },
         {
           OR: [
-            { description: { contains: cpfDigits, mode: Prisma.QueryMode.insensitive } },
-            { description: { contains: cpfFormatted, mode: Prisma.QueryMode.insensitive } },
+            {
+              AND: [
+                { userId: RENOVADA_ID },
+                {
+                  OR: [
+                    { description: { contains: cpfDigits, mode: Prisma.QueryMode.insensitive } },
+                    { description: { contains: cpfFormatted, mode: Prisma.QueryMode.insensitive } },
+                  ],
+                },
+              ],
+            },
+            { userId: input.userId },
           ],
         },
       ];

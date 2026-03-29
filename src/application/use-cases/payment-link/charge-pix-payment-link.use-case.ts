@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -6,6 +7,7 @@ import type { IPaymentLinkRepository } from '../../../core/repositories/payment-
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { getModuleDomToken } from '../../../modules/module.registry';
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
 export type ChargePixPaymentLinkInput = {
   linkId: string;
@@ -25,6 +27,8 @@ export type ChargePixPaymentLinkOutput = {
   amount: number;
 };
 
+const PLAN_PLATFORM_CPF_REGEX = /\[CPF:([^\]|]*)\|([^\]]+)\]/;
+
 @Injectable()
 export class ChargePixPaymentLinkUseCase {
   constructor(
@@ -34,7 +38,41 @@ export class ChargePixPaymentLinkUseCase {
     private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY)
     private readonly gateway: IPaymentGateway,
+    private readonly prisma: PrismaService,
   ) {}
+
+  private extractOwnerDocumentDigits(description: string | null | undefined): string | null {
+    const m = (description ?? '').match(PLAN_PLATFORM_CPF_REGEX);
+    if (!m) return null;
+    const digits = m[1].replace(/\D/g, '');
+    if (digits.length < 11) return null;
+    return digits;
+  }
+
+  private async resolveMerchantUserIdByDocument(description: string | null | undefined, fallbackUserId: string): Promise<string> {
+    const owner = await this.prisma.user.findUnique({
+      where: { id: fallbackUserId },
+      select: { email: true },
+    });
+    const isPlatformShadow = (owner?.email ?? '').toLowerCase().endsWith('@auto.simpay.com');
+    if (!isPlatformShadow) return fallbackUserId;
+
+    const digits = this.extractOwnerDocumentDigits(description);
+    if (!digits) return fallbackUserId;
+
+    const variants: string[] = [digits];
+    if (digits.length === 11) {
+      variants.push(digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'));
+    } else if (digits.length === 14) {
+      variants.push(digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5'));
+    }
+
+    const merchant = await this.prisma.user.findFirst({
+      where: { OR: variants.map((cpf) => ({ cpf })) },
+      select: { id: true },
+    });
+    return merchant?.id ?? fallbackUserId;
+  }
 
   async execute(input: ChargePixPaymentLinkInput): Promise<ChargePixPaymentLinkOutput> {
     const link = await this.links.findById(input.linkId);
@@ -80,6 +118,51 @@ export class ChargePixPaymentLinkUseCase {
       customerPhone: phone,
       documentType,
       codExternal,
+    });
+
+    const effectiveUserId = await this.resolveMerchantUserIdByDocument(link.description, link.userId);
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId: effectiveUserId } });
+    if (!wallet) {
+      await this.prisma.wallet.create({ data: { userId: effectiveUserId, balance: 0 } });
+    }
+
+    await this.prisma.transaction.upsert({
+      where: { domPaymentId: result.id },
+      update: {
+        status: TransactionStatus.PENDING,
+        paymentMethod: PaymentMethod.PIX,
+        amount: new Prisma.Decimal(amountInReais),
+        netAmount: new Prisma.Decimal(amountInReais),
+        totalFee: new Prisma.Decimal(0),
+        domFee: new Prisma.Decimal(0),
+        platformFee: new Prisma.Decimal(0),
+        userId: effectiveUserId,
+        description: link.description ?? link.title,
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+        customerDocument: document,
+        customerPhone: phone || null,
+        paymentLinkId: link.id,
+        pixContent: result.pixContent ?? null,
+      },
+      create: {
+        userId: effectiveUserId,
+        amount: new Prisma.Decimal(amountInReais),
+        netAmount: new Prisma.Decimal(amountInReais),
+        status: TransactionStatus.PENDING,
+        paymentMethod: PaymentMethod.PIX,
+        totalFee: new Prisma.Decimal(0),
+        domFee: new Prisma.Decimal(0),
+        platformFee: new Prisma.Decimal(0),
+        domPaymentId: result.id,
+        description: link.description ?? link.title,
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+        customerDocument: document,
+        customerPhone: phone || null,
+        paymentLinkId: link.id,
+        pixContent: result.pixContent ?? null,
+      },
     });
 
     return result;
