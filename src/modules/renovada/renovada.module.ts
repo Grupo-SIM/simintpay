@@ -11,8 +11,8 @@ import { RenovadaWebhookNewController } from './controllers/renovada-webhook-new
 import { WebhookService } from './services/webhook.service';
 import { ApiDomModule } from '../../infrastructure/http/api-dom.module';
 import { PrismaModule } from '../../infrastructure/database/prisma/prisma.module';
-import { RenovadaDashboardService } from './services/renovada-dashboard.service';
-import { RenovadaDashboardController } from './controllers/renovada-dashboard.controller';
+import { PlatformDashboardService } from './services/renovada-dashboard.service';
+import { PlatformDashboardController } from './controllers/renovada-dashboard.controller';
 
 @Module({
   imports: [ApiDomModule, PrismaModule, HttpModule],
@@ -21,7 +21,7 @@ import { RenovadaDashboardController } from './controllers/renovada-dashboard.co
     RenovadaWebhookController, 
     RenovadaPaymentController, 
     RenovadaWebhookNewController,
-    RenovadaDashboardController
+    PlatformDashboardController
   ],
   providers: [
     RenovadaSyncService,
@@ -29,7 +29,7 @@ import { RenovadaDashboardController } from './controllers/renovada-dashboard.co
     RenovadaEventsService,
     PaymentNewService,
     WebhookService,
-    RenovadaDashboardService,
+    PlatformDashboardService,
   ],
   exports: [
     RenovadaSyncService, 

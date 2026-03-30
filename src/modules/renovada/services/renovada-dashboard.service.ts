@@ -16,15 +16,25 @@ const TZ = 'America/Sao_Paulo';
 const RENOVADA_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
 @Injectable()
-export class RenovadaDashboardService {
-  private readonly logger = new Logger(RenovadaDashboardService.name);
+export class PlatformDashboardService {
+  private readonly logger = new Logger(PlatformDashboardService.name);
 
   constructor(private readonly prisma: PrismaService) { }
 
-  async getDashboardData(period: string = 'hoje', dataInicio?: string, dataFim?: string) {
+  async getDashboardData(tag: string, period: string = 'hoje', dataInicio?: string, dataFim?: string) {
+    const upperTag = (tag || 'renovada').toUpperCase();
     const now = dayjs().tz(TZ);
     let start: Date;
     let end: Date = now.toDate();
+
+    // Dynamically resolve platform ID from environment variables
+    const platIdKey = `${upperTag}_ID`;
+    const platformId = process.env[platIdKey] || process.env.RENOVADA_ID;
+
+    if (!platformId) {
+       this.logger.error(`[Dashboard] ID da plataforma não encontrado para tag ${upperTag} no .env`);
+       throw new Error(`Configuração da plataforma ${upperTag} incompleta.`);
+    }
 
     if (dataInicio || dataFim) {
       start = dataInicio ? dayjs(dataInicio).startOf('day').toDate() : now.subtract(10, 'year').toDate();
@@ -57,20 +67,17 @@ export class RenovadaDashboardService {
     const thirtyDaysAgo = now.subtract(30, 'day').startOf('day').toDate();
     const yearStart = now.startOf('year').toDate();
 
-    this.logger.log(`[Dashboard] Agora (BRT): ${now.format('DD/MM/YYYY HH:mm:ss')} | Início do período "${period}": ${dayjs(start).tz(TZ).format('DD/MM/YYYY HH:mm:ss')}`);
+    this.logger.log(`[Dashboard] Tag: ${upperTag} | Período "${period}": ${dayjs(start).tz(TZ).format('DD/MM/YYYY HH:mm:ss')}`);
 
-    // 1. Transactions filtered by description keywords (same as AdminController)
-    const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
-    const descriptionFilter = {
-      OR: renovadaKeywords.map(k => ({ description: { contains: k, mode: 'insensitive' } }))
-    };
+    // Keywords filter only for Renovada (historical requirement), others take all platform transactions
+    let filter: any = { userId: platformId, status: TransactionStatus.COMPLETED };
+    if (upperTag === 'RENOVADA') {
+      const keywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
+      filter.OR = keywords.map(k => ({ description: { contains: k, mode: 'insensitive' } }));
+    }
 
     const allTransactions = await this.prisma.transaction.findMany({
-      where: {
-        userId: RENOVADA_ID,
-        status: TransactionStatus.COMPLETED,
-        ...descriptionFilter as any
-      },
+      where: filter,
       select: {
         amount: true,
         netAmount: true,
@@ -79,9 +86,10 @@ export class RenovadaDashboardService {
       },
     });
 
-    const liquidityKey = `RENOVADA_LIQUIDEZ`;
-    const fixedFeeKey = `RENOVADA_TAXA_FIXA_TRANSACAO`;
-    const cashbackKey = `RENOVADA_TAXA_CASHBACK`;
+    // Resolve liquidity and fees based on platform tag
+    const liquidityKey = `${upperTag}_LIQUIDEZ`;
+    const fixedFeeKey = `${upperTag}_TAXA_FIXA_TRANSACAO`;
+    const cashbackKey = `${upperTag}_TAXA_CASHBACK`;
 
     const liquidityFactor = Number(process.env[liquidityKey] || process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
     const fixedFee = Number(process.env[fixedFeeKey] || 0);
@@ -96,10 +104,10 @@ export class RenovadaDashboardService {
 
       txs.forEach((tx) => {
         const net = Number(tx.netAmount || 0);
-        const bruto = Number(tx.amount || (net / liquidityFactor)); // Fallback to estimate bruto if missing
+        const bruto = Number(tx.amount || (net / liquidityFactor));
         
         total += net;
-        lucroSimpay += (bruto * adminMargin) - fixedFee - cashbackFee;
+        lucroSimpay += Number(((bruto * adminMargin) - fixedFee - cashbackFee).toFixed(2));
 
         const desc = (tx.description || '').toLowerCase();
         if (desc.includes('maquineta') || desc.includes('terminal')) {
@@ -120,39 +128,34 @@ export class RenovadaDashboardService {
     };
 
     const txsInPeriod = allTransactions.filter(tx => {
-      const txDate = dayjs(tx.createdAt);
-      return (txDate.isAfter(start) || txDate.isSame(start)) && (txDate.isBefore(end) || txDate.isSame(end));
+      const d = dayjs(tx.createdAt);
+      return (d.isAfter(start) || d.isSame(start)) && (d.isBefore(end) || d.isSame(end));
     });
 
     const profitSelected = getProfit(txsInPeriod);
     const profitTotal = getProfit(allTransactions);
 
-    this.logger.log(
-      `[Dashboard] Período "${period}": ${txsInPeriod.length} txs | líquido total=${profitSelected.total.toFixed(2)}`,
-    );
-
-    // 2. Dados da Wallet
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
+    // 2. Dados da Wallet (netBalance)
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId: platformId } });
     const balanceVal = Number(wallet?.balance || 0);
     const lockedVal = Number(wallet?.lockedBalance || 0);
-    const fatorLiquidez = RenovadaConfig.saque.fatorLiquidez ?? 0.91;
-    const availableBalanceNet = Number(((balanceVal - lockedVal) * fatorLiquidez).toFixed(3));
+    const availableBalanceNet = Number(((balanceVal - lockedVal) * liquidityFactor).toFixed(3));
 
-    // 3. Estornos (REFUNDED)
+    // 3. Estornos
     const estornosAgg = await this.prisma.transaction.aggregate({
       where: { 
-        userId: RENOVADA_ID, 
+        userId: platformId, 
         status: TransactionStatus.REFUNDED,
         createdAt: { gte: start, lte: end },
-        ...descriptionFilter as any
+        ...(filter.OR ? { OR: filter.OR } : {})
       },
       _count: { id: true },
       _sum: { netAmount: true },
     });
 
-    // 4. Quantidade de Saques
+    // 4. Saques
     const withdrawals = await this.prisma.withdrawRequest.findMany({
-      where: { userId: RENOVADA_ID },
+      where: { userId: platformId },
       select: { createdAt: true },
     });
 
@@ -165,10 +168,9 @@ export class RenovadaDashboardService {
       }).length;
     };
 
-    const last30Days = await this.getChartData(30, 'day');
-    const annualByMonth = await this.getChartData(12, 'month');
+    const last30Days = await this.getChartData(platformId, 30, 'day', liquidityFactor);
+    const annualByMonth = await this.getChartData(platformId, 12, 'month', liquidityFactor);
 
-    // Determine metrics based on whether filters are active
     const isFiltered = !!(dataInicio || dataFim);
     const mainProfit = isFiltered ? profitSelected : profitTotal;
 
@@ -213,7 +215,7 @@ export class RenovadaDashboardService {
     };
   }
 
-  private async getChartData(count: number, unit: 'day' | 'month') {
+  private async getChartData(platformId: string, count: number, unit: 'day' | 'month', liquidityFactor: number) {
     const data: { label: string; value: number; maquinetas: number; offers: number }[] = [];
     const now = dayjs().tz(TZ);
 
@@ -224,7 +226,7 @@ export class RenovadaDashboardService {
 
       const txs = await this.prisma.transaction.findMany({
         where: {
-          userId: RENOVADA_ID,
+          userId: platformId,
           status: TransactionStatus.COMPLETED,
           createdAt: { gte: start, lte: end },
         },
@@ -235,7 +237,7 @@ export class RenovadaDashboardService {
       let offers = 0;
       for (const tx of txs) {
         const net = Number(tx.netAmount || 0);
-        if (tx.description?.includes('Maquineta') || tx.description?.includes('Terminal:')) {
+        if (tx.description?.toLowerCase().includes('maquineta') || tx.description?.toLowerCase().includes('terminal')) {
           maquinetas += net;
         } else {
           offers += net;
@@ -244,8 +246,6 @@ export class RenovadaDashboardService {
 
       const label = unit === 'day' ? d.format('DD/MM') : d.format('MMM');
       const value = Number((maquinetas + offers).toFixed(2));
-
-      this.logger.debug(`[Dashboard] Gráfico ${unit} ${label} (${start.toISOString()} → ${end.toISOString()}): líquido=${value}`);
 
       data.push({ label, value, maquinetas: Number(maquinetas.toFixed(2)), offers: Number(offers.toFixed(2)) });
     }

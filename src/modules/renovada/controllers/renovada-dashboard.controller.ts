@@ -1,15 +1,20 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { RenovadaDashboardService } from '../services/renovada-dashboard.service';
+import { PlatformDashboardService } from '../services/renovada-dashboard.service';
 
-@ApiTags('Renovada Dashboard')
-@Controller('dashboard/renovada')
-export class RenovadaDashboardController {
-  constructor(private readonly dashboardService: RenovadaDashboardService) { }
+@ApiTags('Admin Platforms')
+@Controller('admin/plataformas')
+export class PlatformDashboardController {
+  constructor(private readonly dashboardService: PlatformDashboardService) { }
 
-  @Get('stats')
-  @ApiOperation({ summary: '[RENOVADA] Obter dados da dashboard' })
-  async getStats(@Query('period') period?: string, @Query('dataInicio') dataInicio?: string, @Query('dataFim') dataFim?: string) {
-    return this.dashboardService.getDashboardData(period, dataInicio, dataFim);
+  @Get(':tag/dashboard')
+  @ApiOperation({ summary: 'Obter dados da dashboard de uma plataforma específica' })
+  async getStats(
+    @Param('tag') tag: string,
+    @Query('period') period?: string, 
+    @Query('dataInicio') dataInicio?: string, 
+    @Query('dataFim') dataFim?: string
+  ) {
+    return this.dashboardService.getDashboardData(tag, period, dataInicio, dataFim);
   }
 }
