@@ -10,7 +10,7 @@ export class ApproveWithdrawalUseCase {
     private readonly realtime: ModuleRealtimeNotifyService,
   ) {}
 
-  async execute(withdrawId: string, receiptImage?: string): Promise<{ message: string }> {
+  async execute(withdrawId: string, receiptImage?: string, adminUserId?: string): Promise<{ message: string }> {
     const withdraw = await this.prisma.withdrawRequest.findUnique({
       where: { id: withdrawId },
       include: { user: { include: { wallet: true } } },
@@ -29,6 +29,18 @@ export class ApproveWithdrawalUseCase {
     const wallet = withdraw.user.wallet;
     if (!wallet) {
       throw new NotFoundException('Carteira (Wallet) não encontrada para este usuário');
+    }
+
+    // Identifica se o admin é do módulo master
+    let isMasterAdmin = false;
+    if (adminUserId) {
+      const admin = await this.prisma.user.findUnique({
+        where: { id: adminUserId },
+        include: { tenantModule: true },
+      });
+      if (admin?.role === 'ADMIN' && (admin?.tenantModule?.slug || '').toLowerCase().includes('master')) {
+        isMasterAdmin = true;
+      }
     }
 
     // Executa tudo dentro de uma transação do Prisma
@@ -68,6 +80,41 @@ export class ApproveWithdrawalUseCase {
           description: `Saque aprovado: R$ ${withdraw.grossAmount.toFixed(2)}`,
         },
       });
+
+      // 4. Se for master, incrementa taxa e lucro no log administrativo
+      if (isMasterAdmin && adminUserId) {
+        // Incremento da Taxa de Saque (1 real)
+        await tx.balanceLog.create({
+          data: {
+            userId: adminUserId,
+            action: 'ADMIN_WITHDRAW_FEE_INC',
+            amount: new Prisma.Decimal(1),
+            balanceBefore: 0,
+            balanceAfter: 0,
+            lockedBefore: 0,
+            lockedAfter: 0,
+            source: 'MASTER_ADMIN_CONTROL',
+            description: `Incremento de taxa de saque (Master)`,
+            metadata: { withdrawId },
+          },
+        });
+
+        // Incremento do Lucro de Saque (2 reais)
+        await tx.balanceLog.create({
+          data: {
+            userId: adminUserId,
+            action: 'ADMIN_WITHDRAW_PROFIT_INC',
+            amount: new Prisma.Decimal(2),
+            balanceBefore: 0,
+            balanceAfter: 0,
+            lockedBefore: 0,
+            lockedAfter: 0,
+            source: 'MASTER_ADMIN_CONTROL',
+            description: `Incremento de lucro de saque (Master)`,
+            metadata: { withdrawId },
+          },
+        });
+      }
     });
 
     await this.realtime.notifyWithdrawal(withdraw.userId, { withdrawId, action: 'approved' });

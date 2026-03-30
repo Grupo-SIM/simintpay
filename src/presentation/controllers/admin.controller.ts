@@ -611,7 +611,25 @@ export class AdminController {
       _count: { id: true },
     });
 
-    const totalTaxaSaque = Number(saquesStats._sum.fee || 0);
+    // 4. Incrementos Master (Taxa +1, Lucro +2 por aprovação se processado pelo Master)
+    const [feeInc, profitInc] = await Promise.all([
+      this.prisma.balanceLog.aggregate({
+        where: {
+          action: 'ADMIN_WITHDRAW_FEE_INC',
+          createdAt: saquesWhere.createdAt,
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.balanceLog.aggregate({
+        where: {
+          action: 'ADMIN_WITHDRAW_PROFIT_INC',
+          createdAt: saquesWhere.createdAt,
+        },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const totalTaxaSaque = Number(saquesStats._sum.fee || 0) + Number(feeInc._sum.amount || 0);
     const brutoTotal = Number(globalStats._sum.amount || 0);
 
     return {
@@ -619,7 +637,7 @@ export class AdminController {
       valorLiquido: Number(globalStats._sum.netAmount || 0),
       lucroSimpay: totalLucroSimpay,
       totalTaxaSaque: totalTaxaSaque,
-      lucroTaxaSaque: totalTaxaSaque * 0.5,
+      lucroTaxaSaque: (Number(saquesStats._sum.fee || 0) * 0.5) + Number(profitInc._sum.amount || 0),
       cashback: brutoTotal * 0.03,
       saquesAprovados: {
         quantidade: saquesStats._count.id || 0,
@@ -634,6 +652,62 @@ export class AdminController {
           _sum: { amount: true }
         }))._sum.amount || 0)
       }
+    };
+  }
+
+  @Get('relatorios/taxa-saque')
+  @ApiOperation({ summary: 'Obter total de taxa de saque (admin master)' })
+  async getTaxaSaque(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
+    const saquesWhere: any = { userId: { in: platformIds }, status: 'COMPLETED' };
+    if (dataInicio || dataFim) {
+      const saquesCreatedAt: any = {};
+      if (dataInicio) saquesCreatedAt.gte = dayjs.tz(dataInicio, TZ).startOf('day').toDate();
+      if (dataFim) saquesCreatedAt.lte = dayjs.tz(dataFim, TZ).endOf('day').toDate();
+      saquesWhere.createdAt = saquesCreatedAt;
+    }
+
+    const [saquesStats, feeInc] = await Promise.all([
+      this.prisma.withdrawRequest.aggregate({ where: saquesWhere, _sum: { fee: true } }),
+      this.prisma.balanceLog.aggregate({
+        where: { action: 'ADMIN_WITHDRAW_FEE_INC', createdAt: saquesWhere.createdAt },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    return {
+      totalTaxaSaque: Number(saquesStats._sum.fee || 0) + Number(feeInc._sum.amount || 0),
+    };
+  }
+
+  @Get('relatorios/lucro-saque')
+  @ApiOperation({ summary: 'Obter total de lucro de saque (admin master)' })
+  async getLucroSaque(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
+    const saquesWhere: any = { userId: { in: platformIds }, status: 'COMPLETED' };
+    if (dataInicio || dataFim) {
+      const saquesCreatedAt: any = {};
+      if (dataInicio) saquesCreatedAt.gte = dayjs.tz(dataInicio, TZ).startOf('day').toDate();
+      if (dataFim) saquesCreatedAt.lte = dayjs.tz(dataFim, TZ).endOf('day').toDate();
+      saquesWhere.createdAt = saquesCreatedAt;
+    }
+
+    const [saquesStats, profitInc] = await Promise.all([
+      this.prisma.withdrawRequest.aggregate({ where: saquesWhere, _sum: { fee: true } }),
+      this.prisma.balanceLog.aggregate({
+        where: { action: 'ADMIN_WITHDRAW_PROFIT_INC', createdAt: saquesWhere.createdAt },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    return {
+      totalLucroSaque: (Number(saquesStats._sum.fee || 0) * 0.5) + Number(profitInc._sum.amount || 0),
     };
   }
 
@@ -1200,6 +1274,7 @@ export class AdminController {
     @Param('id') id: string,
     @UploadedFile() file?: Express.Multer.File,
     @Body('receiptImage') receiptImageUrl?: string,
+    @CurrentUser() user?: JwtPayload,
   ) {
     let finalUrl = receiptImageUrl;
 
@@ -1207,7 +1282,7 @@ export class AdminController {
       finalUrl = await this.storageService.uploadFile(file, 'comprovantes-saque');
     }
 
-    return this.approveWithdrawal.execute(id, finalUrl);
+    return this.approveWithdrawal.execute(id, finalUrl, user?.sub);
   }
 
   @Post('saques/:id/rejeitar')
