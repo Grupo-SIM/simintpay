@@ -50,9 +50,20 @@ export class CheckoutSubscriptionLinkCardUseCase {
       card: input.dto.card,
     });
 
+    // Alinhado à api-dom (subscription-link.service): cartão recusado / assinatura inválida na resposta síncrona
+    const statusLower = (domResult.status ?? '').toString().toLowerCase();
+    const cardNotAuthorized = ['inactive', 'cancelled', 'canceled', 'suspended'].includes(statusLower);
+    if (cardNotAuthorized) {
+      throw new BadRequestException(
+        'Pagamento não autorizado. Tente outro cartão ou forma de pagamento.',
+      );
+    }
+
     const VALID = ['active', 'pending', 'trial'];
-    if (!VALID.includes((domResult.status ?? '').toLowerCase())) {
-      throw new BadRequestException(`Assinatura recusada pelo gateway: ${domResult.status}`);
+    if (!VALID.includes(statusLower)) {
+      throw new BadRequestException(
+        `Assinatura recusada pelo gateway${domResult.status ? `: ${domResult.status}` : ''}.`,
+      );
     }
 
     const order = await this.repo.createOrder({

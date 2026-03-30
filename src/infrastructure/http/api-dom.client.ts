@@ -1,6 +1,7 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
+import type { AxiosError } from 'axios';
 import * as QRCode from 'qrcode';
 import {
   DomGenerateTokenOutput,
@@ -736,14 +737,43 @@ export class ApiDomClient implements IPaymentGateway {
       cashback_active: false,
       postbackurl: `${appUrl}/subscription/webhook`,
     };
-    const res = await firstValueFrom(
-      this.http.post<any>(url, body, {
-        headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' },
-      }),
-    );
-    const data = res.data?.data ?? res.data;
-    const id = this.pickString(this.getObject(data), 'id') ?? String(Date.now());
-    return { id, status: this.pickString(this.getObject(data), 'status') ?? 'pending', ...(this.getObject(data) ?? {}) };
+    try {
+      const res = await firstValueFrom(
+        this.http.post<any>(url, body, {
+          headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' },
+        }),
+      );
+      const data = res.data?.data ?? res.data;
+      const obj = this.getObject(data);
+      const id = this.pickString(obj, 'id');
+      if (!id) {
+        this.logger.warn(
+          `[DOM] createSubscriptionFromCheckout: resposta sem id: ${JSON.stringify(data)?.slice(0, 400)}`,
+        );
+        throw new BadRequestException(
+          'Não foi possível concluir a assinatura. Verifique os dados do cartão ou tente outra forma de pagamento.',
+        );
+      }
+      return {
+        id,
+        status: this.pickString(obj, 'status') ?? 'pending',
+        ...(obj ?? {}),
+      };
+    } catch (err) {
+      const ax = err as AxiosError<{ msg?: string; message?: string; error?: string }>;
+      if (ax?.isAxiosError === true && ax.response?.data) {
+        const d = ax.response.data as Record<string, unknown>;
+        const piece =
+          (typeof d.msg === 'string' && d.msg) ||
+          (typeof d.message === 'string' && d.message) ||
+          (typeof d.error === 'string' && d.error);
+        if (piece) {
+          throw new BadRequestException(piece);
+        }
+      }
+      if (err instanceof BadRequestException) throw err;
+      throw err;
+    }
   }
 
 

@@ -40,11 +40,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const data = axiosError.response.data as
         | Record<string, unknown>
         | undefined;
+      // DOM costuma enviar `msg`; outros serviços usam `message` / `error`
+      const rawMsg =
+        data?.msg ?? data?.message ?? data?.error ?? axiosError.message;
       message =
-        data?.message ??
-        data?.error ??
-        axiosError.message ??
-        'External service error';
+        typeof rawMsg === 'string'
+          ? rawMsg
+          : Array.isArray(rawMsg)
+            ? rawMsg.join('; ')
+            : rawMsg != null
+              ? JSON.stringify(rawMsg)
+              : 'External service error';
       error = `ExternalServiceError`;
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;

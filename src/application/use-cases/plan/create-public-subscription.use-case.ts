@@ -107,6 +107,19 @@ export class CreatePublicSubscriptionUseCase {
       card: input.card,
     });
 
+    const statusLower = (domResult.status ?? '').toString().toLowerCase();
+    if (['inactive', 'cancelled', 'canceled', 'suspended'].includes(statusLower)) {
+      throw new BadRequestException(
+        'Pagamento não autorizado. Tente outro cartão ou forma de pagamento.',
+      );
+    }
+    const VALID = ['active', 'pending', 'trial'];
+    if (!VALID.includes(statusLower)) {
+      throw new BadRequestException(
+        `Assinatura recusada pelo gateway${domResult.status ? `: ${domResult.status}` : ''}.`,
+      );
+    }
+
     const saved = await this.subscriptions.create({
       userId: plan.userId,
       planId: plan.id,
