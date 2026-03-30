@@ -372,6 +372,11 @@ export class AdminController {
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     if (!slugBase) throw new BadRequestException('Slug inválido');
 
+    const already = await this.prisma.community.findUnique({ where: { slug: slugBase } });
+    if (already) {
+      throw new ConflictException(`Já existe uma comunidade com slug "${slugBase}"`);
+    }
+
     const created = await this.prisma.community.create({
       data: {
         name,
@@ -456,34 +461,58 @@ export class AdminController {
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
 
-    const [rows, total] = await Promise.all([
-      this.prisma.communityAccess.findMany({
-        where: { communityId: id },
-        include: {
-          user: { select: { id: true, name: true, email: true, cpf: true } },
+    const community = await this.prisma.community.findUnique({
+      where: { id },
+      include: {
+        bindings: {
+          where: { subscriptionLinkId: { not: null } },
+          include: {
+            subscriptionLink: {
+              include: {
+                subscriptions: {
+                  orderBy: { createdAt: 'desc' },
+                },
+              },
+            },
+          },
         },
-        orderBy: { updatedAt: 'desc' },
-        skip: (pageNum - 1) * size,
-        take: size,
-      }),
-      this.prisma.communityAccess.count({ where: { communityId: id } }),
-    ]);
+      },
+    });
+    if (!community) throw new NotFoundException('Comunidade não encontrada');
 
-    const now = Date.now();
+    const mapFrequencyToDays = (frequencyType: string) => {
+      if (frequencyType === 'TRIMESTRAL') return 90;
+      if (frequencyType === 'SEMESTRAL') return 180;
+      if (frequencyType === 'ANUAL') return 365;
+      return 30;
+    };
+
+    const allRows = community.bindings.flatMap((binding) => {
+      const link = binding.subscriptionLink;
+      if (!link) return [];
+      return link.subscriptions.map((sub) => {
+        const createdAt = sub.createdAt;
+        const renewAt = new Date(createdAt.getTime() + mapFrequencyToDays(link.frequencyType) * 86400000);
+        const normalized = (sub.status ?? '').toLowerCase();
+        const isActive = ['active', 'completed', 'pending', 'trial'].includes(normalized);
+        return {
+          id: sub.id,
+          nome: sub.customerName,
+          email: sub.customerEmail,
+          cpf: sub.customerDocument,
+          telefone: sub.customerPhone,
+          dataAssinatura: createdAt,
+          dataRenovacao: renewAt,
+          status: isActive ? 'Ativo' : 'Inativo',
+        };
+      });
+    });
+
+    const total = allRows.length;
+    const rows = allRows.slice((pageNum - 1) * size, pageNum * size);
+
     return {
-      data: rows.map((row) => ({
-        id: row.id,
-        userId: row.userId,
-        userName: row.user.name,
-        userEmail: row.user.email,
-        userCpf: row.user.cpf,
-        status: row.status,
-        isActive: row.isActive,
-        daysRemaining: Math.max(0, Math.floor((row.expiresAt.getTime() - now) / 86400000)),
-        startedAt: row.startedAt,
-        expiresAt: row.expiresAt,
-        totalDaysCredited: row.totalDaysCredited,
-      })),
+      data: rows,
       page: pageNum,
       pageSize: size,
       total,
