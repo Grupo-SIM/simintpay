@@ -542,6 +542,11 @@ export class AdminController {
     @Param('id') id: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    @Query('nome') nome?: string,
+    @Query('cpf') cpf?: string,
+    @Query('email') email?: string,
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
   ) {
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
@@ -593,8 +598,25 @@ export class AdminController {
       });
     });
 
-    const total = allRows.length;
-    const rows = allRows.slice((pageNum - 1) * size, pageNum * size);
+    const filtered = allRows.filter((row) => {
+      const nomeMatch = !nome?.trim() || row.nome?.toLowerCase().includes(nome.trim().toLowerCase());
+      const emailMatch = !email?.trim() || row.email?.toLowerCase().includes(email.trim().toLowerCase());
+      const cpfDigits = (cpf ?? "").replace(/\D/g, "");
+      const rowCpfDigits = (row.cpf ?? "").replace(/\D/g, "");
+      const cpfMatch = !cpfDigits || rowCpfDigits.includes(cpfDigits);
+
+      const start = dataInicio ? new Date(`${dataInicio}T00:00:00`) : null;
+      const end = dataFim ? new Date(`${dataFim}T23:59:59`) : null;
+      const assinaturaDate = row.dataAssinatura ? new Date(row.dataAssinatura) : null;
+      const dateMatch = !assinaturaDate
+        ? true
+        : (!start || assinaturaDate >= start) && (!end || assinaturaDate <= end);
+
+      return Boolean(nomeMatch && emailMatch && cpfMatch && dateMatch);
+    });
+
+    const total = filtered.length;
+    const rows = filtered.slice((pageNum - 1) * size, pageNum * size);
 
     return {
       data: rows,
