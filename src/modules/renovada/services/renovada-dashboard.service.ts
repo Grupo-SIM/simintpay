@@ -72,19 +72,35 @@ export class RenovadaDashboardService {
         ...descriptionFilter as any
       },
       select: {
+        amount: true,
         netAmount: true,
         description: true,
         createdAt: true,
       },
     });
 
+    const liquidityKey = `RENOVADA_LIQUIDEZ`;
+    const fixedFeeKey = `RENOVADA_TAXA_FIXA_TRANSACAO`;
+    const cashbackKey = `RENOVADA_TAXA_CASHBACK`;
+
+    const liquidityFactor = Number(process.env[liquidityKey] || process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
+    const fixedFee = Number(process.env[fixedFeeKey] || 0);
+    const cashbackFee = Number(process.env[cashbackKey] || 0);
+    const adminMargin = 1 - liquidityFactor;
+
     const getProfit = (txs: any[]) => {
       let total = 0;
       let maquinetas = 0;
       let offers = 0;
+      let lucroSimpay = 0;
+
       txs.forEach((tx) => {
         const net = Number(tx.netAmount || 0);
+        const bruto = Number(tx.amount || (net / liquidityFactor)); // Fallback to estimate bruto if missing
+        
         total += net;
+        lucroSimpay += (bruto * adminMargin) - fixedFee - cashbackFee;
+
         const desc = (tx.description || '').toLowerCase();
         if (desc.includes('maquineta') || desc.includes('terminal')) {
           maquinetas += net;
@@ -97,6 +113,7 @@ export class RenovadaDashboardService {
         total: Number(total.toFixed(2)),
         maquinetas: Number(maquinetas.toFixed(2)),
         offers: Number(offers.toFixed(2)),
+        lucroSimpay: Number(lucroSimpay.toFixed(2)),
         maquinetasPct: getPct(maquinetas),
         offersPct: getPct(offers)
       };
