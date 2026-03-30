@@ -154,7 +154,16 @@ export class ListTransactionsUseCase {
           }
         }
 
+        const RENOVADA_ID_SYNC = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+        const RENOVADA_KEYWORDS = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
+
         for (const item of domRes.transactions) {
+          // Para a conta Renovada, ignorar transações sem keywords — o CRON dedicado gerencia isso
+          if (user.id === RENOVADA_ID_SYNC) {
+            const desc = (item.product_first || '').toLowerCase();
+            if (!RENOVADA_KEYWORDS.some(k => desc.includes(k))) continue;
+          }
+
           // O Gateway agora já retorna os valores em REAIS
           const amount = new Prisma.Decimal(item.amount);
           const netAmount = new Prisma.Decimal(item.liquid_amount ?? 0);
