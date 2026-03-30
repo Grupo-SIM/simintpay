@@ -17,11 +17,11 @@ import { PlatformDashboardController } from './controllers/renovada-dashboard.co
 @Module({
   imports: [ApiDomModule, PrismaModule, HttpModule],
   controllers: [
-    RenovadaRealtimeController, 
-    RenovadaWebhookController, 
-    RenovadaPaymentController, 
+    RenovadaRealtimeController,
+    RenovadaWebhookController,
+    RenovadaPaymentController,
     RenovadaWebhookNewController,
-    PlatformDashboardController
+    PlatformDashboardController,
   ],
   providers: [
     RenovadaSyncService,
@@ -32,10 +32,10 @@ import { PlatformDashboardController } from './controllers/renovada-dashboard.co
     PlatformDashboardService,
   ],
   exports: [
-    RenovadaSyncService, 
-    RenovadaEventsService, 
+    RenovadaSyncService,
+    RenovadaEventsService,
     PaymentNewService,
-    WebhookService
+    WebhookService,
   ],
 })
 export class RenovadaModule {}

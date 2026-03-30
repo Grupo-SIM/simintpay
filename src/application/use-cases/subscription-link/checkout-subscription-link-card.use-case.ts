@@ -10,6 +10,19 @@ import { getModuleDomToken } from '../../../modules/module.registry';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
 
+function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR'; frequency: number } {
+  switch (linkFrequency) {
+    case 'TRIMESTRAL':
+      return { frequency_type: 'QUARTER', frequency: 1 };
+    case 'SEMESTRAL':
+      return { frequency_type: 'SEMESTER', frequency: 1 };
+    case 'ANUAL':
+      return { frequency_type: 'YEAR', frequency: 1 };
+    default:
+      return { frequency_type: 'MONTH', frequency: 1 };
+  }
+}
+
 @Injectable()
 export class CheckoutSubscriptionLinkCardUseCase {
   constructor(
@@ -26,13 +39,28 @@ export class CheckoutSubscriptionLinkCardUseCase {
     if (link.maxUses != null && link.currentUses >= link.maxUses) {
       throw new BadRequestException('Limite de assinaturas atingido');
     }
-    if (!link.domPlanId) throw new BadRequestException('Link ainda não sincronizado com o gateway');
-
     const owner = await this.users.findById(link.userId);
     let domToken: string | null | undefined = owner?.domToken;
     if (!domToken && owner?.tenantModule?.slug) domToken = getModuleDomToken(owner.tenantModule.slug);
     if (!domToken) domToken = process.env.DOM_TOKEN;
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
+
+    let domPlanId = link.domPlanId;
+    if (!domPlanId) {
+      const planFreq = mapPlanFrequencyToDom(link.frequencyType);
+      const syncedPlan = await this.gateway.createPlan(domToken, {
+        price: Number(link.amount),
+        description: link.name,
+        frequency_type: planFreq.frequency_type,
+        frequency: planFreq.frequency,
+        repetitions: 0,
+        retry_days: 3,
+        webhookUrl: link.webhookUrl ?? undefined,
+        redirectUrl: link.redirectUrl ?? undefined,
+      });
+      domPlanId = syncedPlan.id;
+      await this.repo.update(link.id, { domPlanId });
+    }
 
     const base = Number(link.amount);
     const platformFeeAmount = link.isStandalone ? 0 : Math.round(base * (link.platformFee / 100) * 100) / 100;
@@ -42,7 +70,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
     const cleanPhone = (input.dto.customerPhone ?? '').replace(/\D/g, '');
 
     const domResult = await this.gateway.createSubscriptionFromCheckout(domToken, {
-      planId: link.domPlanId,
+      planId: domPlanId,
       customer: {
         name: input.dto.customerName,
         email: input.dto.customerEmail,

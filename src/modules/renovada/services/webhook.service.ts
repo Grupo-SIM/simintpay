@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { createHmac } from 'crypto';
@@ -66,7 +66,7 @@ export class WebhookService {
   constructor(private readonly prisma: PrismaService) {}
 
   async processWebhook(event: WebhookEvent): Promise<void> {
-    this.logger.log('🔔 [RENOVADA] WEBHOOK RECEBIDO - Processando webhook', {
+    this.logger.log('[RENOVADA] Webhook recebido', {
       signature: event.signature,
       event: event.event,
       paymentId: event.data?.id,
@@ -100,13 +100,10 @@ export class WebhookService {
       });
 
       if (!transaction) {
-        // Transação ainda não existe no banco (cron não rodou ainda).
-        // Criar imediatamente para que apareça na lista do usuário.
-        this.logger.log(`[RENOVADA] 🆕 Transação ${event.data.id} não encontrada — criando via webhook`);
+        this.logger.log(`[RENOVADA] Transação ${event.data.id} não encontrada — criando via webhook`);
         // DOM Pagamentos envia amount em CENTAVOS → dividir por 100
         const amount = new Prisma.Decimal((event.data.amount || 0) / 100);
         const fatorLiquidez = Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
-        // Estimativa de valorLíquido; o cron atualizará com o valor exato depois
         const netAmountEst = amount.mul(new Prisma.Decimal(fatorLiquidez));
         const isCard = (event.data.payment_method || '').toLowerCase().includes('card');
         try {
@@ -114,7 +111,7 @@ export class WebhookService {
             data: {
               userId: RENOVADA_USER_ID,
               domPaymentId: event.data.id,
-              status: TransactionStatus.PENDING, // Cron/webhook seguinte corrige se necessário
+              status: TransactionStatus.PENDING,
               amount,
               netAmount: netAmountEst,
               totalFee: new Prisma.Decimal(0),
@@ -131,10 +128,9 @@ export class WebhookService {
             },
             include: { user: true },
           });
-          this.logger.log(`[RENOVADA] ✅ Transação criada via webhook: ${transaction.id}`);
+          this.logger.log(`[RENOVADA] Transação criada via webhook: ${transaction.id}`);
         } catch (createErr: any) {
           if (createErr.code === 'P2002') {
-            // Race condition: cron criou entre o findFirst e o create
             transaction = await this.prisma.transaction.findFirst({
               where: { domPaymentId: event.data.id },
               include: { user: true },
@@ -148,13 +144,6 @@ export class WebhookService {
         }
       }
 
-      this.logger.log('[RENOVADA] ✅ Transaction encontrada:', {
-        id: transaction.id,
-        status: transaction.status,
-        amount: transaction.amount,
-        description: transaction.description,
-      });
-
       const newStatus = this.mapPaymentStatus(event.data.status);
 
       if (!this.isValidStatusTransition(transaction.status, newStatus)) {
@@ -163,10 +152,7 @@ export class WebhookService {
         return;
       }
 
-      // Processamento em uma única transação atômica
       await this.prisma.$transaction(async (prisma) => {
-
-        // Atualiza a transação
         await prisma.transaction.update({
           where: { id: transaction.id },
           data: {
@@ -183,22 +169,15 @@ export class WebhookService {
           },
         });
 
-        // Se status for COMPLETED, credita o saldo da wallet
         if (newStatus === TransactionStatus.COMPLETED && transaction.status !== TransactionStatus.COMPLETED) {
           const wallet = await prisma.wallet.findUnique({
             where: { userId: transaction.userId },
           });
 
           if (wallet) {
-            // wallet.balance é o saldo BRUTO; netBalance = balance * fatorLiquidez
-            // Usar amount (bruto) diretamente, NÃO netAmount/fatorLiquidez
             const balanceIncrement = new Prisma.Decimal(transaction.amount || 0);
-            this.logger.log(`[RENOVADA] 💰 Creditando wallet: balanceIncrement=${balanceIncrement}, amount=${transaction.amount}, netAmount=${transaction.netAmount}, balanceBefore=${wallet.balance}`);
             const updatedWallet = await prisma.wallet.update({
-              where: {
-                id: wallet.id,
-                version: wallet.version,
-              },
+              where: { id: wallet.id, version: wallet.version },
               data: {
                 balance: { increment: balanceIncrement },
                 version: { increment: 1 },
@@ -224,12 +203,9 @@ export class WebhookService {
                 },
               },
             });
-
-            this.logger.log(`[RENOVADA] 💰 Saldo atualizado: ${wallet.balance} → ${updatedWallet.balance}`);
           }
         }
 
-        // Se REFUNDED ou CHARGEBACK (vindo de COMPLETED), debita o saldo
         if (
           (newStatus === TransactionStatus.REFUNDED || newStatus === TransactionStatus.CHARGEBACK) &&
           transaction.status === TransactionStatus.COMPLETED
@@ -240,12 +216,8 @@ export class WebhookService {
 
           if (wallet) {
             const balanceDecrement = new Prisma.Decimal(transaction.amount || 0);
-            this.logger.log(`[RENOVADA] 💸 Estorno/chargeback: debitando ${balanceDecrement} do wallet, balanceBefore=${wallet.balance}`);
             const updatedWallet = await prisma.wallet.update({
-              where: {
-                id: wallet.id,
-                version: wallet.version,
-              },
+              where: { id: wallet.id, version: wallet.version },
               data: {
                 balance: { decrement: balanceDecrement },
                 version: { increment: 1 },
@@ -271,13 +243,10 @@ export class WebhookService {
                 },
               },
             });
-
-            this.logger.log(`[RENOVADA] 💸 Saldo debitado: ${wallet.balance} → ${updatedWallet.balance}`);
           }
         }
       });
 
-      // Marcar webhook como processado
       await this.prisma.webhookEvent.update({
         where: { eventId: event.signature },
         data: {
@@ -286,11 +255,10 @@ export class WebhookService {
         },
       });
 
-      this.logger.log(`[RENOVADA] ✅ Webhook processado com sucesso para transação ${transaction.id}`);
-    } catch (error) {
-      this.logger.error(`[RENOVADA] ❌ Erro ao processar webhook: ${error.message}`, error.stack);
-      
-      // Marcar webhook como falha
+      this.logger.log(`[RENOVADA] Webhook processado com sucesso para transação ${transaction.id}`);
+    } catch (error: any) {
+      this.logger.error(`[RENOVADA] Erro ao processar webhook: ${error.message}`, error.stack);
+
       await this.prisma.webhookEvent.update({
         where: { eventId: event.signature },
         data: {
@@ -299,11 +267,8 @@ export class WebhookService {
           processedAt: new Date(),
         },
       }).catch(() => {
-        // Se falhar ao atualizar, apenas loga
         this.logger.error('[RENOVADA] Falha ao atualizar status do webhook');
       });
-
-      throw new BadRequestException('Erro ao processar webhook');
     }
   }
 
@@ -347,7 +312,7 @@ export class WebhookService {
     const secret = process.env.DOM_WEBHOOK_SECRET;
     if (!secret) {
       this.logger.warn('[RENOVADA] DOM_WEBHOOK_SECRET não configurado');
-      return true; // Se não tiver secret, permite tudo (ambiente de dev)
+      return true;
     }
 
     const expectedSignature = createHmac('sha256', secret)

@@ -57,8 +57,9 @@ export class CreateSubscriptionLinkUseCase {
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
 
     const { planType, domFrequency } = mapFrequency(input.dto.frequencia);
+    const isStandalone = input.dto.isStandalone ?? true;
 
-    // Cria o plano de recorrência na DOM
+    // Sempre precisa de plano DOM para checkout (cartão e PIX), inclusive quando isStandalone=true.
     const domPlan = await this.gateway.createPlan(domToken, {
       price: input.dto.valor,
       description: input.dto.nome,
@@ -77,7 +78,7 @@ export class CreateSubscriptionLinkUseCase {
       description: input.dto.descricao ?? null,
       amount: input.dto.valor,
       frequencyType: planType,
-      isStandalone: input.dto.isStandalone ?? true,
+      isStandalone,
       platformFee: input.dto.platformFee ?? 9.0,
       redirectUrl: input.dto.redirectUrl ?? null,
       webhookUrl: input.dto.webhookUrl ?? null,
