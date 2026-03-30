@@ -29,9 +29,11 @@ model User {
   wallet               Wallet?
   withdrawals          WithdrawRequest[]
   tenantModule         TenantModule?        @relation(fields: [tenantModuleId], references: [id])
-  pixCreditPlans       PixCreditPlan[]
-  pixPlanOrders        PixPlanOrder[]
-  customerPlanAccesses CustomerPlanAccess[]
+  pixCreditPlans         PixCreditPlan[]
+  pixPlanOrders          PixPlanOrder[]
+  customerPlanAccesses   CustomerPlanAccess[]
+  subscriptionLinks      SubscriptionLink[]
+  subscriptionLinkOrders SubscriptionLinkOrder[]
 
   @@index([email])
   @@index([domUserId])
@@ -194,6 +196,62 @@ model PaymentLink {
 
   @@index([userId])
   @@index([code])
+}
+
+// ── Subscription Link (link de assinatura com recorrência) ───────────────────
+model SubscriptionLink {
+  id            String    @id @default(uuid())
+  userId        String
+  code          String    @unique @default(uuid())
+  /// E-mail da conta dona do link (para resolver userId por email)
+  ownerEmail    String?
+  name          String
+  description   String?
+  amount        Decimal   @db.Decimal(12, 2)
+  frequencyType PlanType
+  /// true = Avulso (cliente paga valor sem juros); false = Plataforma (aplica platformFee)
+  isStandalone  Boolean   @default(true)
+  platformFee   Float     @default(9.00)
+  isActive      Boolean   @default(true)
+  redirectUrl   String?
+  webhookUrl    String?
+  maxUses       Int?
+  currentUses   Int       @default(0)
+  domPlanId     String?   @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id])
+  subscriptions SubscriptionLinkOrder[]
+
+  @@index([userId])
+  @@index([code])
+}
+
+/// Registro de cada assinatura originada por um SubscriptionLink
+model SubscriptionLinkOrder {
+  id                  String    @id @default(uuid())
+  subscriptionLinkId  String
+  userId              String
+  customerName        String
+  customerEmail       String
+  customerDocument    String
+  customerPhone       String?
+  paymentMethod       PaymentMethod @default(CREDIT_CARD)
+  status              String    @default("pending")
+  domSubscriptionId   String?   @unique
+  domPixPaymentId     String?   @unique
+  pixContent          String?
+  pixExpire           DateTime?
+  amountCharged       Decimal   @db.Decimal(12, 2)
+  platformFeeAmount   Decimal   @default(0) @db.Decimal(12, 2)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  subscriptionLink    SubscriptionLink @relation(fields: [subscriptionLinkId], references: [id])
+  user                User      @relation(fields: [userId], references: [id])
+
+  @@index([subscriptionLinkId])
+  @@index([userId])
+  @@index([customerEmail])
 }
 
 model Plan {

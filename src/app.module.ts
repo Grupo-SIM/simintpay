@@ -23,6 +23,7 @@ import { RevalidaModule } from './modules/revalida/revalida.module';
 import { BosqueModule } from './modules/bosque/bosque.module';
 import { MasterModule } from './modules/master/master.module';
 import { PixPlanModule } from './presentation/pix-plan.module';
+import { SubscriptionLinkModule } from './presentation/subscription-link.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { PixPlanModule } from './presentation/pix-plan.module';
     PaymentLinkModule,
     PlanModule,
     PixPlanModule,
+    SubscriptionLinkModule,
     SubscriptionModule,
     ReportModule,
     SettingsModule,

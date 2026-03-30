@@ -1,0 +1,33 @@
+import { Module } from '@nestjs/common';
+import { ApiDomModule } from '../infrastructure/http/api-dom.module';
+import { SUBSCRIPTION_LINK_REPOSITORY } from '../core/repositories/subscription-link.repository.interface';
+import { USER_REPOSITORY } from '../core/repositories/user.repository.interface';
+import { PrismaSubscriptionLinkRepository } from '../infrastructure/database/repositories/prisma-subscription-link.repository';
+import { PrismaUserRepository } from '../infrastructure/database/repositories/prisma-user.repository';
+import { SubscriptionLinkController } from './controllers/subscription-link.controller';
+import { CreateSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/create-subscription-link.use-case';
+import { ListSubscriptionLinksUseCase } from '../application/use-cases/subscription-link/list-subscription-links.use-case';
+import { GetPublicSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/get-public-subscription-link.use-case';
+import { UpdateSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/update-subscription-link.use-case';
+import { DeleteSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/delete-subscription-link.use-case';
+import { CheckoutSubscriptionLinkCardUseCase } from '../application/use-cases/subscription-link/checkout-subscription-link-card.use-case';
+import { CheckoutSubscriptionLinkPixUseCase } from '../application/use-cases/subscription-link/checkout-subscription-link-pix.use-case';
+import { ListSubscriptionLinkOrdersUseCase } from '../application/use-cases/subscription-link/list-subscription-link-orders.use-case';
+
+@Module({
+  imports: [ApiDomModule],
+  controllers: [SubscriptionLinkController],
+  providers: [
+    { provide: SUBSCRIPTION_LINK_REPOSITORY, useClass: PrismaSubscriptionLinkRepository },
+    { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
+    CreateSubscriptionLinkUseCase,
+    ListSubscriptionLinksUseCase,
+    GetPublicSubscriptionLinkUseCase,
+    UpdateSubscriptionLinkUseCase,
+    DeleteSubscriptionLinkUseCase,
+    CheckoutSubscriptionLinkCardUseCase,
+    CheckoutSubscriptionLinkPixUseCase,
+    ListSubscriptionLinkOrdersUseCase,
+  ],
+})
+export class SubscriptionLinkModule {}
