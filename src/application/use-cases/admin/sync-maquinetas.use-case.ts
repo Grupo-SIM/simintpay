@@ -30,7 +30,7 @@ export class SyncMaquinetasUseCase {
     private readonly http: HttpService,
   ) {}
 
-  async execute(): Promise<{
+  async execute(daysBack?: number): Promise<{
     synced: number;
     skipped: number;
     errors: number;
@@ -51,7 +51,7 @@ export class SyncMaquinetasUseCase {
     }
 
     // Buscar todas as transações de maquinetas da DOM Pagamentos
-    const allMachineTxs = await this.fetchAllMachineTxsFromDom(domToken);
+    const allMachineTxs = await this.fetchAllMachineTxsFromDom(domToken, daysBack);
     this.logger.log(`[SyncMaquinetas] Encontradas ${allMachineTxs.length} transações de maquinetas na DOM`);
 
     let synced = 0;
@@ -62,7 +62,10 @@ export class SyncMaquinetasUseCase {
     for (const tx of allMachineTxs) {
       try {
         const amountReais = tx.amount; // DOM envia em Reais (ex: 25.00) para máquinas
-        const netbalancemachine = amountReais * (1 - TAXA_MAQUINETA); // valor - 9%
+        const liquidReais = (tx.liquid_amount && tx.liquid_amount > 0) ? tx.liquid_amount : amountReais;
+        const domFeeAmt = amountReais - liquidReais; // MDR cobrado pela DOM
+        const platformFeeAmt = liquidReais * TAXA_MAQUINETA; // 9% sobre o líquido
+        const netbalancemachine = liquidReais * (1 - TAXA_MAQUINETA); // liquid × 0.91
         const serial = tx.serial;
 
         // Verificar se já existe no banco (pela domPaymentId que é UNICA)
@@ -74,9 +77,14 @@ export class SyncMaquinetasUseCase {
           const oldAmount = existing.amount.toNumber();
           const diff = amountReais - oldAmount;
 
-          // Se o valor estiver OK, verifica se faltam dados (como documento, NSU ou código de autorização)
-          if (Math.abs(diff) < 0.001) {
-            if (!existing.customerDocument || !existing.domTransactionId || !(existing as any).cardCodeAuth) {
+          const oldNet = existing.netAmount?.toNumber() ?? (existing.amount.toNumber() * (1 - TAXA_MAQUINETA));
+          const netDiffCheck = Math.abs(netbalancemachine - oldNet);
+          const shouldCorrectNet = netDiffCheck >= 0.01;
+          const hasMissingFields = !existing.customerDocument || !existing.domTransactionId || !(existing as any).cardCodeAuth;
+
+          // Se o valor bruto estiver OK e o net também, verifica só campos faltantes
+          if (Math.abs(diff) < 0.001 && !shouldCorrectNet) {
+            if (hasMissingFields) {
               await this.prisma.transaction.update({
                 where: { id: existing.id },
                 data: {
@@ -107,20 +115,23 @@ export class SyncMaquinetasUseCase {
               data: {
                 amount: new Prisma.Decimal(amountReais),
                 netAmount: new Prisma.Decimal(netbalancemachine),
-                totalFee: new Prisma.Decimal(amountReais - netbalancemachine),
-                platformFee: new Prisma.Decimal(amountReais - netbalancemachine),
+                totalFee: new Prisma.Decimal(domFeeAmt + platformFeeAmt),
+                domFee: new Prisma.Decimal(domFeeAmt),
+                platformFee: new Prisma.Decimal(platformFeeAmt),
                 description: `Maquineta (CORRIGIDA) - Terminal: ${serial}`,
-                domTransactionId: tx.cod_external,
+                domTransactionId: tx.cod_external || null,
                 customerEmail: tx.customer_email,
                 customerDocument: tx.customer_document,
                 customerPhone: tx.customer_phone,
               },
             });
 
-            // 2. Ajustar saldo da carteira com a DIFERENÇA LÍQUIDA
+            // 2. Ajustar saldo da carteira com a DIFERENÇA de netbalancemachine
+            // wallet.balance acumula netbalancemachine (= liquidReais × (1 - TAXA_MAQUINETA)).
+            // oldNet = netAmount armazenado = o que foi adicionado ao wallet na última sync.
             const currentWallet = await p.wallet.findUnique({ where: { userId: RENOVADA_ID } });
             if (currentWallet) {
-              const oldNet = existing.netAmount?.toNumber() || (existing.amount.toNumber() * 0.91);
+              const oldNet = existing.netAmount?.toNumber() ?? (existing.amount.toNumber() * (1 - TAXA_MAQUINETA));
               const diffNet = netbalancemachine - oldNet;
               const newBalance = currentWallet.balance.add(new Prisma.Decimal(diffNet));
               await p.wallet.updateMany({
@@ -139,7 +150,7 @@ export class SyncMaquinetasUseCase {
                   lockedBefore: currentWallet.lockedBalance,
                   lockedAfter: currentWallet.lockedBalance,
                   source: 'MAQUINETA_SYNC',
-                  description: `Ajuste de valor líquido: ${oldNet.toFixed(2)} -> ${netbalancemachine.toFixed(2)}`,
+                  description: `Ajuste net: R$${oldNet.toFixed(2)} -> R$${netbalancemachine.toFixed(2)} (diff: R$${diffNet.toFixed(2)})`,
                 },
               });
             }
@@ -152,6 +163,7 @@ export class SyncMaquinetasUseCase {
 
         // --- NOVA TRANSAÇÃO ---
         const pm = String(tx.payment_method ?? '').toLowerCase();
+        // TODO: mudar CREDIT_CARD para DEBIT_CARD quando rodar: prisma migrate dev + prisma generate
         const paymentMethod = (pm.includes('card') || pm.includes('debit') || pm.includes('credit'))
           ? PaymentMethod.CREDIT_CARD
           : PaymentMethod.PIX;
@@ -161,12 +173,12 @@ export class SyncMaquinetasUseCase {
             data: {
               userId: RENOVADA_ID,
               domPaymentId: tx.id,
-              domTransactionId: tx.cod_external, // NSU/cod_external
+              domTransactionId: tx.cod_external || null, // null para PIX sem cod_external
               amount: new Prisma.Decimal(amountReais),
               netAmount: new Prisma.Decimal(netbalancemachine),
-              totalFee: new Prisma.Decimal(amountReais - netbalancemachine),
-              domFee: new Prisma.Decimal(0),
-              platformFee: new Prisma.Decimal(amountReais - netbalancemachine),
+              totalFee: new Prisma.Decimal(domFeeAmt + platformFeeAmt),
+              domFee: new Prisma.Decimal(domFeeAmt),
+              platformFee: new Prisma.Decimal(platformFeeAmt),
               status: TransactionStatus.COMPLETED,
               paymentMethod,
               description: `Maquineta - Terminal: ${serial}`,
@@ -191,7 +203,7 @@ export class SyncMaquinetasUseCase {
             },
           });
 
-          // Adicionar o lucro líquido ao wallet.balance
+          // wallet.balance armazena o netBalance = netbalancemachine = liquidReais × (1 - TAXA_MAQUINETA)
           const currentWallet = await p.wallet.findUnique({ where: { userId: RENOVADA_ID } });
           if (currentWallet) {
             const newBalance = currentWallet.balance.add(new Prisma.Decimal(netbalancemachine));
@@ -236,16 +248,23 @@ export class SyncMaquinetasUseCase {
     return { synced, skipped, errors, totalAmount, message };
   }
 
-  /** Busca TODAS as transações pagas de maquinetas diretamente da DOM Pagamentos */
-  private async fetchAllMachineTxsFromDom(domToken: string): Promise<any[]> {
+  /** Busca transações pagas de maquinetas diretamente da DOM Pagamentos.
+   * @param daysBack - Se informado, limita a busca aos últimos N dias (para uso no cron).
+   *                   Se omitido, usa MAQUINETA_SYNC_BEGIN_DATE ou 30 dias (sync completo). */
+  private async fetchAllMachineTxsFromDom(domToken: string, daysBack?: number): Promise<any[]> {
     const baseUrl = (process.env.DOM_REAL_API_URL ?? 'https://apiv3.dompagamentos.com.br/checkout/production').replace(/\/$/, '');
     const url = `${baseUrl}/transactions`;
 
-    // Forçar 30 dias se não houver data no env, ou se a data do env for muito antiga (2024, etc)
-    const envDate = process.env.MAQUINETA_SYNC_BEGIN_DATE;
-    const beginDate = (envDate && !envDate.startsWith('2024'))
-      ? envDate 
-      : dayjs().subtract(30, 'day').format('YYYY-MM-DD');
+    let beginDate: string;
+    if (daysBack) {
+      beginDate = dayjs().subtract(daysBack, 'day').format('YYYY-MM-DD');
+    } else {
+      // Forçar 30 dias se não houver data no env, ou se a data do env for muito antiga (2024, etc)
+      const envDate = process.env.MAQUINETA_SYNC_BEGIN_DATE;
+      beginDate = (envDate && !envDate.startsWith('2024'))
+        ? envDate
+        : dayjs().subtract(30, 'day').format('YYYY-MM-DD');
+    }
       
     const endDate = dayjs().format('YYYY-MM-DD');
 
@@ -332,9 +351,11 @@ export class SyncMaquinetasUseCase {
   private isMachineTx(item: any): boolean {
     const typeOp = String(item.type_operation ?? '').toLowerCase();
     const doc = String(item.customer_document ?? item.customer?.document ?? '').replace(/\D/g, '');
-    
-    // 1. Prioridade: Operação física + CNPJ da Renovada (44522660000108)
-    if (typeOp === 'fisical' && doc === '44522660000108') {
+    const email = String(item.customer_email ?? item.customer?.email ?? '').toLowerCase();
+
+    // 1. Prioridade: Operação física + CNPJ da Renovada OU email de maquineta
+    // (Para PIX via POS, customer_document pode ser o CPF do pagador — não o CNPJ da Renovada)
+    if (typeOp === 'fisical' && (doc === '44522660000108' || email.includes('maquininha'))) {
       return true;
     }
 
@@ -385,7 +406,9 @@ export class SyncMaquinetasUseCase {
       customer_email: item.customer?.email ?? item.customer_email ?? '',
       customer_document: item.customer?.document ?? item.customer_document ?? '44522660000108',
       customer_phone: item.customer?.mobile_phone ?? item.customer_phone ?? '',
-      cod_external: item.cod_external ?? item.external_id ?? item.nsu ?? '',
+      // Para PIX via POS, cod_external é null — usa o E2E ID (card_code_auth) como referência única
+      // Nunca usar '' como fallback: string vazia viola o unique constraint de domTransactionId
+      cod_external: item.cod_external || item.external_id || item.nsu || item.card_code_auth || null,
       type_operation: item.type_operation ?? 'fisical',
       serial: this.extractSerial(item),
     };

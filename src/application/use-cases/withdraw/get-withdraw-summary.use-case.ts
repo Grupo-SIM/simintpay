@@ -146,6 +146,51 @@ export class GetWithdrawSummaryUseCase {
   }
 
   /**
+   * Resumo para a Renovada: netBalance calculado a partir do ledger de transações (sum netAmount).
+   * Garante que transações de maquineta registradas via webhook apareçam imediatamente no saldo.
+   * lockedBalance (bruto) é convertido para líquido antes de subtrair.
+   */
+  private async executeRenovadaSummary(
+    userId: string,
+    wallet: { id: string; userId: string; balance: any; lockedBalance: any; version: number; updatedAt: Date },
+    fatorLiquidez: number,
+    config: ModuleConfig | null,
+  ) {
+    const { net: sumNet } = await this.sumsCompletedTransactionsDomStyle(userId, fatorLiquidez, undefined);
+
+    const completedWithdraws = await this.prisma.withdrawRequest.aggregate({
+      where: {
+        userId,
+        status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
+      },
+      _sum: { amount: true },
+    });
+    const totalWithdrawn = Number(completedWithdraws._sum.amount ?? 0);
+
+    const pendingWithdraws = await this.withdraws.sumPendingByUserId(userId);
+
+    const lockedBalance = Number(wallet.lockedBalance);
+    // lockedBalance é bruto (= requestedValue / fatorLiquidez); converter para líquido
+    const netLockedBalance = lockedBalance * fatorLiquidez;
+    const netBalance = Math.max(0, sumNet - totalWithdrawn - netLockedBalance);
+
+    return {
+      availableBalance: netBalance,
+      netBalance,
+      pendingWithdraws,
+      lockedBalance: netLockedBalance,
+      netLockedBalance,
+      config: this.summaryConfigBlock(config, fatorLiquidez),
+      wallet: {
+        id: wallet.id,
+        userId: wallet.userId,
+        version: wallet.version,
+        updatedAt: wallet.updatedAt.toISOString(),
+      },
+    };
+  }
+
+  /**
    * Retorna o resumo financeiro para o usuário.
    *
    * wallet.balance é a fonte da verdade, gerenciado incrementalmente:
@@ -171,7 +216,14 @@ export class GetWithdrawSummaryUseCase {
       return this.executeBosqueLikeDomSummary(userId, wallet, fatorLiquidez, config);
     }
 
-    // wallet.balance é a fonte da verdade (gerenciado incrementalmente) — valor em reais “bruto” de carteira
+    // Renovada: netBalance sempre calculado a partir do ledger de transações (sum netAmount).
+    // Isso garante que transações de maquineta registradas via webhook apareçam imediatamente no saldo,
+    // sem precisar chamar o sync manualmente.
+    if (moduleSlug === 'renovada') {
+      return this.executeRenovadaSummary(userId, wallet, fatorLiquidez, config);
+    }
+
+    // wallet.balance é a fonte da verdade (gerenciado incrementalmente) — valor em reais "bruto" de carteira
     let balance = Number(wallet.balance);
     const lockedBalance = Number(wallet.lockedBalance);
     let balanceFromTxLedger = false;

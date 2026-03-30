@@ -9,7 +9,9 @@
       "Bash(Get-Date -Format \"yyyyMMddHHmmss\")",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Read(//c/tmp/**)",
+      "Bash(node_modules/.bin/tsc:*)"
     ],
     "additionalDirectories": [
       "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\painel\\renovada",

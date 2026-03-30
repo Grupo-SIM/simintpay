@@ -6,7 +6,7 @@ import {
   UnprocessableEntityException,
   BadRequestException,
 } from '@nestjs/common';
-import { Prisma, WithdrawStatus } from '@prisma/client';
+import { Prisma, WithdrawStatus, TransactionStatus } from '@prisma/client';
 import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.repository.interface';
 import { WITHDRAW_REPOSITORY } from '../../../core/repositories/withdraw.repository.interface';
 import { CACHE_SERVICE } from '../../../core/services/cache.interface';
@@ -129,7 +129,31 @@ export class RequestWithdrawUseCase {
 
     const requestedValueNet = new Prisma.Decimal(dto.valor);
 
-    if (requestedValueNet.gt(availableBalanceNet)) {
+    if (moduleSlug === 'renovada') {
+      // Para Renovada: disponível = sum(netAmount) das transações COMPLETED − saques concluídos − locked(líquido)
+      // Consistente com executeRenovadaSummary em get-withdraw-summary.use-case.ts
+      const fatorNum = fatorLiquidez.toNumber();
+      const txRows = await this.prisma.transaction.findMany({
+        where: { userId, status: TransactionStatus.COMPLETED, amount: { gt: 0 } },
+        select: { amount: true, netAmount: true },
+      });
+      const sumNet = txRows.reduce((s, t) => {
+        return s + (t.netAmount != null ? Number(t.netAmount) : Number(t.amount) * fatorNum);
+      }, 0);
+      const cwAgg = await this.prisma.withdrawRequest.aggregate({
+        where: { userId, status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] } },
+        _sum: { amount: true },
+      });
+      const totalWithdrawn = Number(cwAgg._sum.amount ?? 0);
+      const netLockedBalance = walletLocked.mul(fatorLiquidez).toNumber();
+      const availableNet = Math.max(0, sumNet - totalWithdrawn - netLockedBalance);
+
+      if (requestedValueNet.gt(availableNet)) {
+        throw new UnprocessableEntityException(
+          `Saldo líquido insuficiente para realizar o saque de R$ ${requestedValueNet.toFixed(2).replace('.', ',')}. Seu saldo líquido atual é R$ ${availableNet.toFixed(2).replace('.', ',')}`,
+        );
+      }
+    } else if (requestedValueNet.gt(availableBalanceNet)) {
       throw new UnprocessableEntityException(
         `Saldo líquido insuficiente para realizar o saque de R$ ${requestedValueNet.toFixed(2).replace('.', ',')}. Seu saldo líquido atual é R$ ${availableBalanceNet.toFixed(2).replace('.', ',')}`,
       );

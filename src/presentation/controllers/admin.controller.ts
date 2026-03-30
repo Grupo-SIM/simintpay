@@ -748,6 +748,74 @@ export class AdminController {
     return this.syncMaquinetasUseCase.execute();
   }
 
+  @Post('sync/recalcular-balance-maquinetas')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Recalcular balance da Renovada do zero baseado nas transações de maquineta (amount - domFee)',
+    description:
+      'Soma amount - domFee de todas as transações COMPLETED de maquineta, desconta saques aprovados/completos e define o wallet.balance correto.',
+  })
+  async recalcularBalanceMaquinetas() {
+    const RENOVADA_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
+    if (!wallet) {
+      return { message: 'Wallet da Renovada não encontrada' };
+    }
+
+    // wallet.balance = netBalance: soma de netAmount de todas as transações COMPLETED
+    const aggTxs = await this.prisma.transaction.aggregate({
+      where: { userId: RENOVADA_ID, status: TransactionStatus.COMPLETED },
+      _sum: { netAmount: true },
+      _count: true,
+    });
+
+    const totalNet = Number(aggTxs._sum.netAmount ?? 0);
+
+    // Desconta saques aprovados/concluídos
+    const saques = await this.prisma.withdrawRequest.aggregate({
+      where: {
+        userId: RENOVADA_ID,
+        status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
+      },
+      _sum: { grossAmount: true },
+    });
+    const totalSaques = Number(saques._sum.grossAmount ?? 0);
+
+    const newBalance = Math.max(0, totalNet - totalSaques);
+    const oldBalance = Number(wallet.balance);
+
+    await this.prisma.wallet.update({
+      where: { userId: RENOVADA_ID },
+      data: { balance: newBalance, version: { increment: 1 } },
+    });
+
+    await this.prisma.balanceLog.create({
+      data: {
+        userId: RENOVADA_ID,
+        action: 'WALLET_RECALCULATE',
+        amount: newBalance - oldBalance,
+        balanceBefore: oldBalance,
+        balanceAfter: newBalance,
+        lockedBefore: wallet.lockedBalance,
+        lockedAfter: wallet.lockedBalance,
+        source: 'ADMIN_RECALC',
+        description: `Recálculo: netTotal=${totalNet.toFixed(2)}, saques=${totalSaques.toFixed(2)}`,
+      },
+    });
+
+    return {
+      message: 'Balance recalculado com sucesso',
+      details: {
+        totalTransacoes: aggTxs._count,
+        totalNet: totalNet.toFixed(2),
+        totalSaques: totalSaques.toFixed(2),
+        balanceAntes: oldBalance.toFixed(2),
+        balanceNovo: newBalance.toFixed(2),
+      },
+    };
+  }
+
   @Get('renovada/machines')
   @ApiOperation({ summary: 'Transações de maquinetas da Renovada (lê do banco local)' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
@@ -797,11 +865,11 @@ export class AdminController {
       ],
       ...(startDate || endDate
         ? {
-            createdAt: {
-              ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
-              ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
-            },
-          }
+          createdAt: {
+            ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
+            ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
+          },
+        }
         : {}),
     };
 
@@ -820,10 +888,10 @@ export class AdminController {
       const amt = Number(tx.amount);
       const sLabel = tx.status === 'COMPLETED' ? 'Aprovado'
         : tx.status === 'PENDING' ? 'Pendente'
-        : tx.status === 'FAILED' ? 'Falhou'
-        : tx.status === 'REFUNDED' ? 'Estornado'
-        : tx.status;
-      
+          : tx.status === 'FAILED' ? 'Falhou'
+            : tx.status === 'REFUNDED' ? 'Estornado'
+              : tx.status;
+
       return {
         // Camel case
         id: tx.domPaymentId || tx.id,
@@ -1067,10 +1135,10 @@ export class AdminController {
       const txCounts =
         expandedUserIds.length > 0
           ? await this.prisma.transaction.groupBy({
-              by: ['userId'],
-              where: { userId: { in: expandedUserIds } },
-              _count: true,
-            })
+            by: ['userId'],
+            where: { userId: { in: expandedUserIds } },
+            _count: true,
+          })
           : [];
       const txMap = new Map(txCounts.map((t) => [t.userId, t._count]));
       const totalTx = expandedUserIds.reduce((sum, uid) => sum + (txMap.get(uid) ?? 0), 0);

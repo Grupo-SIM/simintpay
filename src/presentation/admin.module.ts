@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { SyncDomTransactionsCron } from '../infrastructure/cron/sync-dom-transactions.cron';
+import { SyncMaquinetasCron } from '../infrastructure/cron/sync-maquinetas.cron';
 import { AdminController } from './controllers/admin.controller';
 import { ListLeadsUseCase } from '../application/use-cases/admin/list-leads.use-case';
 import { ApproveLeadUseCase } from '../application/use-cases/admin/approve-lead.use-case';
@@ -33,6 +34,7 @@ import { RevalidaModule } from '../modules/revalida/revalida.module';
   controllers: [AdminController],
   providers: [
     SyncDomTransactionsCron,
+    SyncMaquinetasCron,
     ListLeadsUseCase,
     ApproveLeadUseCase,
     RejectLeadUseCase,

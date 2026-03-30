@@ -78,6 +78,8 @@ export class MaquinetasController {
     const mapped = transactions.map((tx) => {
       const netAmt = Number(tx.netAmount);
       const amt = Number(tx.amount);
+      const domFeeVal = Number(tx.domFee ?? 0);
+      const liquidAmt = amt - domFeeVal;
       const sLabel = tx.status === 'COMPLETED' ? 'Aprovado'
         : tx.status === 'PENDING' ? 'Pendente'
         : tx.status === 'FAILED' ? 'Falhou'
@@ -91,7 +93,7 @@ export class MaquinetasController {
         domTransactionId: tx.domTransactionId || null,
         terminal: extractTerminal(tx.description),
         amount: amt,
-        liquidAmount: amt,
+        liquidAmount: liquidAmt,
         netAmount: netAmt,
         netbalancemachine: netAmt,
         status: tx.status.toLowerCase(),
@@ -112,7 +114,7 @@ export class MaquinetasController {
         created_at: tx.createdAt.toISOString(),
         updated_at: tx.updatedAt.toISOString(),
         cod_external: tx.domTransactionId || null,
-        liquid_amount: amt,
+        liquid_amount: liquidAmt,
         profit_minus_tax: netAmt,
         status_details: sLabel,
         payment_method: tx.paymentMethod.toLowerCase(),
