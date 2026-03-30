@@ -60,4 +60,20 @@ export class CreateSubscriptionLinkDto {
   @IsEmail()
   @IsOptional()
   email?: string;
+
+  /**
+   * ID da comunidade a vincular automaticamente ao criar o link.
+   * Opcional. Se não informado, cria sem comunidade (pode vincular manualmente depois).
+   */
+  @IsString()
+  @IsOptional()
+  communityId?: string;
+
+  /**
+   * Métodos de pagamento aceitos: 'PIX' | 'CREDIT_CARD' | 'BOTH'
+   * Default: 'BOTH'
+   */
+  @IsEnum(['PIX', 'CREDIT_CARD', 'BOTH'])
+  @IsOptional()
+  paymentMethods?: 'PIX' | 'CREDIT_CARD' | 'BOTH';
 }

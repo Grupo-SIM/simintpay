@@ -45,8 +45,9 @@ export class GetPublicSubscriptionLinkUseCase {
       frequencia: mapFrequencyLabel(link.frequencyType),
       ativo: link.isActive,
       redirectUrl: link.redirectUrl ?? null,
-      aceitaCartao: true,
-      aceitaPix: true,
+      paymentMethods: (link.paymentMethods as string | undefined) ?? 'BOTH',
+      aceitaCartao: ((link.paymentMethods as string | undefined) ?? 'BOTH') !== 'PIX',
+      aceitaPix: ((link.paymentMethods as string | undefined) ?? 'BOTH') !== 'CREDIT_CARD',
     };
   }
 }

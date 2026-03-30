@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -7,8 +8,10 @@ import {
   Get,
   HttpCode,
   Inject,
+  NotFoundException,
   Param,
   Post,
+  Put,
   Query,
   UseGuards,
   UseInterceptors,
@@ -1458,6 +1461,84 @@ export class AdminController {
     }
 
     return { data: result };
+  }
+
+  @Get('plataformas/:tag/comunidades')
+  @ApiOperation({ summary: 'Listar comunidades vinculadas a links de assinatura de uma plataforma' })
+  async listPlataformaComunidades(@Param('tag') tag: string) {
+    const slug = tag.toLowerCase();
+
+    // Busca usuários do módulo que corresponde à tag
+    const moduleUsers = await this.prisma.user.findMany({
+      where: {
+        tenantModule: { slug: { contains: slug, mode: 'insensitive' } },
+      },
+      select: { id: true },
+    });
+    const userIds = moduleUsers.map((u) => u.id);
+
+    // Busca links de assinatura desses usuários
+    const links = await this.prisma.subscriptionLink.findMany({
+      where: userIds.length > 0 ? { userId: { in: userIds } } : { id: 'none' },
+      select: { id: true, name: true, code: true, isActive: true, amount: true, frequencyType: true, currentUses: true },
+    });
+    const linkIds = links.map((l) => l.id);
+
+    if (linkIds.length === 0) return { data: [] };
+
+    // Busca comunidades vinculadas
+    const bindings = await this.prisma.communityLinkBinding.findMany({
+      where: { subscriptionLinkId: { in: linkIds } },
+      include: {
+        community: {
+          include: {
+            accesses: {
+              select: { isActive: true, expiresAt: true },
+            },
+          },
+        },
+        subscriptionLink: {
+          select: { id: true, name: true, code: true, amount: true, frequencyType: true, currentUses: true, isActive: true },
+        },
+      },
+    });
+
+    // Agrupa por comunidade
+    const communityMap = new Map<string, {
+      id: string; name: string; slug: string; isActive: boolean;
+      accessesActive: number; accessesExpired: number; minDaysRemaining: number;
+      links: { id: string; name: string; code: string; amount: string; frequencyType: string; currentUses: number; isActive: boolean }[];
+    }>();
+
+    const now = new Date();
+    for (const b of bindings) {
+      const c = b.community;
+      if (!communityMap.has(c.id)) {
+        const active = c.accesses.filter((a) => a.isActive && a.expiresAt > now);
+        const expired = c.accesses.filter((a) => !a.isActive || a.expiresAt <= now);
+        const minDays = active.length
+          ? Math.min(...active.map((a) => Math.max(0, Math.floor((a.expiresAt.getTime() - now.getTime()) / 86400000))))
+          : 0;
+        communityMap.set(c.id, {
+          id: c.id, name: c.name, slug: c.slug, isActive: c.isActive,
+          accessesActive: active.length, accessesExpired: expired.length, minDaysRemaining: minDays,
+          links: [],
+        });
+      }
+      if (b.subscriptionLink) {
+        communityMap.get(c.id)!.links.push({
+          id: b.subscriptionLink.id,
+          name: b.subscriptionLink.name,
+          code: b.subscriptionLink.code,
+          amount: String(b.subscriptionLink.amount),
+          frequencyType: b.subscriptionLink.frequencyType,
+          currentUses: b.subscriptionLink.currentUses,
+          isActive: b.subscriptionLink.isActive,
+        });
+      }
+    }
+
+    return { data: Array.from(communityMap.values()) };
   }
 
   @Get('plataformas/:tag/transacoes')

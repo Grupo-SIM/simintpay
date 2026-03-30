@@ -15,6 +15,7 @@ export type CreateSubscriptionLinkData = {
   webhookUrl?: string | null;
   maxUses?: number | null;
   domPlanId?: string | null;
+  paymentMethods?: string;
 };
 
 export type CreateSubscriptionLinkOrderData = {

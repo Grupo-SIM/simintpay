@@ -83,13 +83,22 @@ export class CreateSubscriptionLinkUseCase {
       webhookUrl: input.dto.webhookUrl ?? null,
       maxUses: input.dto.maxUses ?? null,
       domPlanId: domPlan.id,
+      paymentMethods: input.dto.paymentMethods ?? 'BOTH',
     });
 
-    await this.communities.ensureAutomaticBindingForSubscriptionLink({
-      subscriptionLinkId: saved.id,
-      linkName: saved.name,
-      linkDescription: saved.description,
-    });
+    // Se communityId informado, vincula manualmente; senão, cria vínculo automático por slug
+    if (input.dto.communityId) {
+      await this.communities.bindSubscriptionLinkManually({
+        communityId: input.dto.communityId,
+        subscriptionLinkId: saved.id,
+      });
+    } else {
+      await this.communities.ensureAutomaticBindingForSubscriptionLink({
+        subscriptionLinkId: saved.id,
+        linkName: saved.name,
+        linkDescription: saved.description,
+      });
+    }
 
     return {
       data: {
