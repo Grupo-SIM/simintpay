@@ -360,6 +360,82 @@ export class AdminController {
     return { data: items, page: pageNum, pageSize: size, total };
   }
 
+  @Get('relatorios/consolidado')
+  @ApiOperation({ summary: 'Obter resumo financeiro consolidado de todas as plataformas' })
+  async getConsolidado(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    const PLATFORMS = [
+      { tag: 'RENOVADA', id: 'ba2b57d6-e3bf-4395-af31-58454f27207a' },
+      { tag: 'PAGATG', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5d' },
+      { tag: 'BOSQUE', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c' },
+      { tag: 'REVALIDA', id: '7929df01-a980-45e3-b3c7-1a8b8eb7850f' },
+    ];
+    const platformIds = PLATFORMS.map(p => p.id);
+
+    const where: any = {
+      userId: { in: platformIds },
+      status: 'COMPLETED',
+    };
+
+    if (dataInicio || dataFim) {
+      where.createdAt = {};
+      if (dataInicio) where.createdAt.gte = new Date(dataInicio);
+      if (dataFim) where.createdAt.lte = new Date(dataFim);
+    }
+
+    // 1. Agregações Globais Úteis
+    const globalStats = await this.prisma.transaction.aggregate({
+      where,
+      _sum: { amount: true, netAmount: true },
+      _count: { id: true },
+    });
+
+    // 2. Agrupamento por plataforma para calcular Lucro Admin específico
+    const platformStats = await this.prisma.transaction.groupBy({
+      by: ['userId'],
+      where,
+      _sum: { amount: true },
+      _count: { id: true },
+    });
+
+    let totalLucroSimpay = 0;
+    platformStats.forEach(stat => {
+      const platform = PLATFORMS.find(p => p.id === stat.userId);
+      const tag = platform?.tag || 'RENOVADA';
+      
+      const liquidez = Number(process.env[`${tag}_LIQUIDEZ`] || 0.91);
+      const taxaFixa = Number(process.env[`${tag}_TAXA_FIXA_TRANSACAO`] || 1.00);
+      const taxaCashback = Number(process.env[`${tag}_TAXA_CASHBACK`] || 3.00);
+
+      const brutoPlataforma = Number(stat._sum.amount || 0);
+      const txCount = stat._count.id || 0;
+
+      // Lucro Admin = (Bruto * (1 - liquidez)) - (Taxa Fixa + Taxa Cashback) * Qtd Transações
+      const lucroPlat = (brutoPlataforma * (1 - liquidez)) - (txCount * (taxaFixa + taxaCashback));
+      totalLucroSimpay += lucroPlat;
+    });
+
+    // 3. Stats de Saques master
+    const saquesStats = await this.prisma.withdrawRequest.aggregate({
+      where,
+      _sum: { fee: true },
+    });
+
+    const totalTaxaSaque = Number(saquesStats._sum.fee || 0);
+    const brutoTotal = Number(globalStats._sum.amount || 0);
+
+    return {
+      valorBruto: brutoTotal,
+      valorLiquido: Number(globalStats._sum.netAmount || 0),
+      lucroSimpay: totalLucroSimpay, // Agora calculado corretamente per-plataforma
+      totalTaxaSaque: totalTaxaSaque,
+      lucroTaxaSaque: totalTaxaSaque * 0.5,
+      cashback: brutoTotal * 0.03,
+    };
+  }
+
   @Post('comunidades')
   @ApiOperation({ summary: 'Criar comunidade manualmente' })
   async createComunidade(
