@@ -21,29 +21,34 @@ export class RenovadaDashboardService {
 
   constructor(private readonly prisma: PrismaService) { }
 
-  async getDashboardData(period: string = 'hoje') {
+  async getDashboardData(period: string = 'hoje', dataInicio?: string, dataFim?: string) {
     const now = dayjs().tz(TZ);
     let start: Date;
     let end: Date = now.toDate();
 
-    switch (period) {
-      case 'ontem':
-        start = now.subtract(1, 'day').startOf('day').toDate();
-        end = now.subtract(1, 'day').endOf('day').toDate();
-        break;
-      case '7dias':
-        start = now.subtract(7, 'day').startOf('day').toDate();
-        break;
-      case '15dias':
-        start = now.subtract(15, 'day').startOf('day').toDate();
-        break;
-      case '30dias':
-        start = now.subtract(30, 'day').startOf('day').toDate();
-        break;
-      case 'hoje':
-      default:
-        start = now.startOf('day').toDate();
-        break;
+    if (dataInicio || dataFim) {
+      start = dataInicio ? dayjs(dataInicio).startOf('day').toDate() : now.subtract(10, 'year').toDate();
+      end = dataFim ? dayjs(dataFim).endOf('day').toDate() : now.toDate();
+    } else {
+      switch (period) {
+        case 'ontem':
+          start = now.subtract(1, 'day').startOf('day').toDate();
+          end = now.subtract(1, 'day').endOf('day').toDate();
+          break;
+        case '7dias':
+          start = now.subtract(7, 'day').startOf('day').toDate();
+          break;
+        case '15dias':
+          start = now.subtract(15, 'day').startOf('day').toDate();
+          break;
+        case '30dias':
+          start = now.subtract(30, 'day').startOf('day').toDate();
+          break;
+        case 'hoje':
+        default:
+          start = now.startOf('day').toDate();
+          break;
+      }
     }
 
     const todayStart = now.startOf('day').toDate();
@@ -54,11 +59,17 @@ export class RenovadaDashboardService {
 
     this.logger.log(`[Dashboard] Agora (BRT): ${now.format('DD/MM/YYYY HH:mm:ss')} | Início do período "${period}": ${dayjs(start).tz(TZ).format('DD/MM/YYYY HH:mm:ss')}`);
 
-    // 1. Todas as Transações (para cálculo de totais, se necessário, mas focando no período selecionado)
+    // 1. Transactions filtered by description keywords (same as AdminController)
+    const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
+    const descriptionFilter = {
+      OR: renovadaKeywords.map(k => ({ description: { contains: k, mode: 'insensitive' } }))
+    };
+
     const allTransactions = await this.prisma.transaction.findMany({
       where: {
         userId: RENOVADA_ID,
         status: TransactionStatus.COMPLETED,
+        ...descriptionFilter as any
       },
       select: {
         netAmount: true,
@@ -74,8 +85,8 @@ export class RenovadaDashboardService {
       txs.forEach((tx) => {
         const net = Number(tx.netAmount || 0);
         total += net;
-        // Identifica maquinetas pelo padrão "Maquineta" ou "Terminal:"
-        if (tx.description?.includes('Maquineta') || tx.description?.includes('Terminal:')) {
+        const desc = (tx.description || '').toLowerCase();
+        if (desc.includes('maquineta') || desc.includes('terminal')) {
           maquinetas += net;
         } else {
           offers += net;
@@ -95,28 +106,29 @@ export class RenovadaDashboardService {
       const txDate = dayjs(tx.createdAt);
       return (txDate.isAfter(start) || txDate.isSame(start)) && (txDate.isBefore(end) || txDate.isSame(end));
     });
+
     const profitSelected = getProfit(txsInPeriod);
     const profitTotal = getProfit(allTransactions);
 
     this.logger.log(
-      `[Dashboard] Período "${period}": ${txsInPeriod.length} txs | líquido total=${profitSelected.total.toFixed(2)} (online=${profitSelected.offers.toFixed(2)} físico=${profitSelected.maquinetas.toFixed(2)})`,
+      `[Dashboard] Período "${period}": ${txsInPeriod.length} txs | líquido total=${profitSelected.total.toFixed(2)}`,
     );
 
-    // 2. Dados da Wallet — mesmo cálculo da rota de saques (get-withdraw-summary):
-    // wallet.balance é BRUTO; saldo líquido disponível = (balance - locked) * fatorLiquidez
+    // 2. Dados da Wallet
     const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
     const balanceVal = Number(wallet?.balance || 0);
     const lockedVal = Number(wallet?.lockedBalance || 0);
     const fatorLiquidez = RenovadaConfig.saque.fatorLiquidez ?? 0.91;
     const availableBalanceNet = Number(((balanceVal - lockedVal) * fatorLiquidez).toFixed(3));
 
-    this.logger.log(
-      `[Dashboard] Saldo: bruto=${balanceVal.toFixed(2)} bloqueado=${lockedVal.toFixed(2)} fator=${fatorLiquidez} líquido=${availableBalanceNet}`,
-    );
-
     // 3. Estornos (REFUNDED)
     const estornosAgg = await this.prisma.transaction.aggregate({
-      where: { userId: RENOVADA_ID, status: TransactionStatus.REFUNDED },
+      where: { 
+        userId: RENOVADA_ID, 
+        status: TransactionStatus.REFUNDED,
+        createdAt: { gte: start, lte: end },
+        ...descriptionFilter as any
+      },
       _count: { id: true },
       _sum: { netAmount: true },
     });
@@ -136,12 +148,16 @@ export class RenovadaDashboardService {
       }).length;
     };
 
-    // 4. Gráficos (lucro líquido diário e mensal)
     const last30Days = await this.getChartData(30, 'day');
     const annualByMonth = await this.getChartData(12, 'month');
 
+    // Determine metrics based on whether filters are active
+    const isFiltered = !!(dataInicio || dataFim);
+    const mainProfit = isFiltered ? profitSelected : profitTotal;
+
     return {
       period,
+      isFiltered,
       summary: {
         availableBalance: availableBalanceNet,
         balanceInProcessing: 0,
@@ -151,9 +167,9 @@ export class RenovadaDashboardService {
         withdrawals: countWD(start, end),
       },
       profit: {
-        total: Number(profitTotal.total.toFixed(2)),
-        maquinetas: Number(profitTotal.maquinetas.toFixed(2)),
-        offers: Number(profitTotal.offers.toFixed(2)),
+        total: Number(mainProfit.total.toFixed(2)),
+        maquinetas: Number(mainProfit.maquinetas.toFixed(2)),
+        offers: Number(mainProfit.offers.toFixed(2)),
         today: getProfit(allTransactions.filter(tx => dayjs(tx.createdAt).isAfter(dayjs(todayStart)) || dayjs(tx.createdAt).isSame(dayjs(todayStart)))),
         sevenDays: getProfit(allTransactions.filter(tx => dayjs(tx.createdAt).isAfter(dayjs(sevenDaysAgo)) || dayjs(tx.createdAt).isSame(dayjs(sevenDaysAgo)))),
         fifteenDays: getProfit(allTransactions.filter(tx => dayjs(tx.createdAt).isAfter(dayjs(fifteenDaysAgo)) || dayjs(tx.createdAt).isSame(dayjs(fifteenDaysAgo)))),
@@ -174,6 +190,7 @@ export class RenovadaDashboardService {
         fifteenDays: countWD(fifteenDaysAgo),
         thirtyDays: countWD(thirtyDaysAgo),
         annual: countWD(yearStart),
+        selected: countWD(start, end),
       },
     };
   }

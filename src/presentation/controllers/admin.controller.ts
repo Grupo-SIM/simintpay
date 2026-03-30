@@ -18,6 +18,12 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { LeadStatus, WithdrawStatus, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+const TZ = 'America/Sao_Paulo';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/security/guards/roles.guard';
 import { Roles } from '../../infrastructure/security/decorators/roles.decorator';
@@ -1129,14 +1135,45 @@ export class AdminController {
       }
     }
 
+    // Garante que a plataforma RENOVADA apareça na listagem mesmo sem planos tagueados
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    if (!map.has('RENOVADA')) {
+      const firstTx = await this.prisma.transaction.findFirst({
+        where: { userId: RENOVADA_ID },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      if (firstTx) {
+        map.set('RENOVADA', {
+          tag: 'RENOVADA',
+          cpf: '',
+          planRows: [{ userId: RENOVADA_ID, description: 'Plataforma Renovada' }],
+          plansCount: 0,
+          firstSeen: firstTx.createdAt,
+        });
+      }
+    }
+
     const result = [];
     for (const v of map.values()) {
       const expandedUserIds = await expandPlatformTransactionUserIds(this.prisma, v.planRows);
+
+      const whereTx: any = { userId: { in: expandedUserIds } };
+      if (v.tag === 'RENOVADA') {
+        whereTx.OR = [
+          { description: { contains: 'dizimo', mode: 'insensitive' } },
+          { description: { contains: 'dízimo', mode: 'insensitive' } },
+          { description: { contains: 'primicia', mode: 'insensitive' } },
+          { description: { contains: 'primícia', mode: 'insensitive' } },
+          { description: { contains: 'oferta', mode: 'insensitive' } },
+        ];
+      }
+
       const txCounts =
         expandedUserIds.length > 0
           ? await this.prisma.transaction.groupBy({
             by: ['userId'],
-            where: { userId: { in: expandedUserIds } },
+            where: whereTx,
             _count: true,
           })
           : [];
@@ -1159,71 +1196,177 @@ export class AdminController {
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
   @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'dataInicio', required: false })
+  @ApiQuery({ name: 'dataFim', required: false })
+  @ApiQuery({ name: 'codigoTransacao', required: false })
+  @ApiQuery({ name: 'codigoReferencia', required: false })
+  @ApiQuery({ name: 'compradorNome', required: false })
+  @ApiQuery({ name: 'compradorDocumento', required: false })
+  @ApiQuery({ name: 'compradorEmail', required: false })
+  @ApiQuery({ name: 'periodType', required: false })
   async listPlataformaTransacoes(
     @Param('tag') tag: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
     @Query('status') status?: string,
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+    @Query('codigoTransacao') codigoTransacao?: string,
+    @Query('codigoReferencia') codigoReferencia?: string,
+    @Query('compradorNome') compradorNome?: string,
+    @Query('compradorDocumento') compradorDocumento?: string,
+    @Query('compradorEmail') compradorEmail?: string,
+    @Query('periodType') periodType?: string,
+    @Query('tipoTransacao') tipoTransacao?: string,
   ) {
     const upperTag = tag.toUpperCase();
-    // Busca planos com a tag no formato padrão [CPF:xxx|TAG] OU como texto livre
-    const plans = await this.prisma.pixCreditPlan.findMany({
-      where: {
-        OR: [
-          { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
-          { description: { contains: upperTag, mode: 'insensitive' } },
-        ],
-      },
-      select: { userId: true, description: true },
-    });
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
-    const userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
+    let userIds: string[] = [];
+
+    if (upperTag === 'RENOVADA') {
+      userIds = [RENOVADA_ID];
+    } else {
+      const plans = await this.prisma.pixCreditPlan.findMany({
+        where: {
+          OR: [
+            { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
+            { description: { contains: upperTag, mode: 'insensitive' } },
+          ],
+        },
+        select: { userId: true, description: true },
+      });
+      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
+    }
+
     if (userIds.length === 0) return { data: [], page: 1, pageSize: 20, total: 0 };
 
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
 
-    const where: any = { userId: { in: userIds } };
+    const where: any = {
+      userId: { in: userIds },
+    };
+
+    const and: any[] = [];
+
+    if (upperTag === 'RENOVADA') {
+      and.push({
+        OR: [
+          { description: { contains: 'dizimo', mode: 'insensitive' } },
+          { description: { contains: 'dízimo', mode: 'insensitive' } },
+          { description: { contains: 'primicia', mode: 'insensitive' } },
+          { description: { contains: 'primícia', mode: 'insensitive' } },
+          { description: { contains: 'oferta', mode: 'insensitive' } },
+          { description: { contains: 'maquineta', mode: 'insensitive' } },
+          { description: { contains: 'terminal', mode: 'insensitive' } },
+        ],
+      });
+    }
+
     if (status) {
       const statusUpper = status.toUpperCase();
       const statusMap: Record<string, string> = {
         PENDENTE: 'PENDING', COMPLETADA: 'COMPLETED', FALHADA: 'FAILED',
         REEMBOLSADA: 'REFUNDED', EXPIRADA: 'EXPIRED', RASCUNHO: 'DRAFT',
+        APROVADA: 'COMPLETED', RECUSADA: 'FAILED', ESTORNADA: 'REFUNDED',
       };
       where.status = statusMap[statusUpper] ?? statusUpper;
     }
 
-    const [total, items] = await this.prisma.$transaction([
-      this.prisma.transaction.count({ where }),
-      this.prisma.transaction.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (pageNum - 1) * size,
-        take: size,
-        include: { pixPlanOrder: { select: { pixCreditPlanId: true, customerDocument: true } } },
-      }),
-    ]);
+    if (codigoTransacao) where.id = codigoTransacao;
+    if (codigoReferencia) where.domTransactionId = codigoReferencia;
+    if (compradorNome) where.customerName = { contains: compradorNome, mode: 'insensitive' };
+    if (compradorDocumento) where.customerDocument = { contains: compradorDocumento.replace(/\D/g, '') };
+    if (compradorEmail) where.customerEmail = { contains: compradorEmail, mode: 'insensitive' };
 
-    const data = items.map(t => ({
-      id: t.id,
-      valor: Number(t.amount),
-      valorLiquido: t.netAmount ? Number(t.netAmount) : null,
-      status: t.status,
-      metodoPagamento: t.paymentMethod,
-      descricao: (t.description ?? '').replace(/\s*\[CPF:[^\]]*\|[^\]]+\]/g, ''),
-      cliente: {
-        nome: t.customerName ?? null,
-        email: t.customerEmail ?? null,
-        documento: t.customerDocument ?? null,
-      },
-      taxas: {
-        total: Number(t.totalFee),
-        dom: Number(t.domFee),
-        plataforma: Number(t.platformFee),
-      },
-      criadoEm: t.createdAt,
-      atualizadoEm: t.updatedAt,
-    }));
+    if (tipoTransacao === 'maquinetas') {
+      and.push({
+        OR: [
+          { description: { contains: 'maquineta', mode: 'insensitive' } },
+          { description: { contains: 'terminal', mode: 'insensitive' } },
+        ],
+      });
+    } else if (tipoTransacao === 'online') {
+      and.push({
+        NOT: {
+          OR: [
+            { description: { contains: 'maquineta', mode: 'insensitive' } },
+            { description: { contains: 'terminal', mode: 'insensitive' } },
+          ],
+        },
+      });
+    }
+
+    if (dataInicio || dataFim) {
+      const dateFilter: any = {};
+      if (dataInicio) {
+        const d = dayjs.tz(`${dataInicio} 00:00:00`, TZ);
+        if (d.isValid()) dateFilter.gte = d.toDate();
+      }
+      if (dataFim) {
+        const d = dayjs.tz(`${dataFim} 23:59:59`, TZ);
+        if (d.isValid()) dateFilter.lte = d.toDate();
+      }
+      if (Object.keys(dateFilter).length > 0) {
+        where.createdAt = dateFilter;
+      }
+    }
+
+    if (and.length > 0) {
+      where.AND = and;
+    }
+
+    const total = await this.prisma.transaction.count({ where });
+    const items = await this.prisma.transaction.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (pageNum - 1) * size,
+      take: size,
+      include: { pixPlanOrder: { select: { pixCreditPlanId: true, customerDocument: true } } },
+    });
+
+    const liquidityKey = `${upperTag}_LIQUIDEZ`;
+    const fixedFeeKey = `${upperTag}_TAXA_FIXA_TRANSACAO`;
+    const cashbackKey = `${upperTag}_TAXA_CASHBACK`;
+
+    const liquidityFactor = Number(process.env[liquidityKey] || process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
+    const fixedFee = Number(process.env[fixedFeeKey] || 0);
+    const cashbackFee = Number(process.env[cashbackKey] || 0);
+
+    const adminMargin = 1 - liquidityFactor;
+
+    const data = items.map(t => {
+      const valorBruto = Number(t.amount);
+      const lucroAdmin = Number((valorBruto * adminMargin - fixedFee - cashbackFee).toFixed(2));
+      const valorLiquido = t.netAmount ? Number(t.netAmount) : Number((valorBruto * liquidityFactor).toFixed(2));
+
+      return {
+        id: t.id,
+        valorBruto: valorBruto,
+        valorLiquido: valorLiquido,
+        lucroAdmin: lucroAdmin,
+        calculos: {
+          valorLiquido: `${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)} = ${valorLiquido.toFixed(2)}`,
+          lucroAdmin: `(${valorBruto.toFixed(2)} * ${(1 - liquidityFactor).toFixed(2)}) - ${fixedFee.toFixed(2)} - ${cashbackFee.toFixed(2)} = ${lucroAdmin.toFixed(2)}`
+        },
+        status: t.status,
+        metodoPagamento: t.paymentMethod,
+        descricao: (t.description ?? '').replace(/\s*\[CPF:[^\]]*\|[^\]]+\]/g, '').replace(/Terminal:\s*/gi, 'Maquineta '),
+        cliente: {
+          nome: t.customerName ?? null,
+          email: t.customerEmail ?? null,
+          documento: t.customerDocument ?? null,
+        },
+        taxas: {
+          total: Number(t.totalFee),
+          dom: Number(t.domFee),
+          plataforma: Number(t.platformFee),
+        },
+        criadoEm: t.createdAt,
+        atualizadoEm: t.updatedAt,
+      };
+    });
 
     return { data, page: pageNum, pageSize: size, total };
   }

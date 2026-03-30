@@ -9,7 +9,7 @@ export class RenovadaDashboardController {
 
   @Get('stats')
   @ApiOperation({ summary: '[RENOVADA] Obter dados da dashboard' })
-  async getStats(@Query('period') period?: string) {
-    return this.dashboardService.getDashboardData(period);
+  async getStats(@Query('period') period?: string, @Query('dataInicio') dataInicio?: string, @Query('dataFim') dataFim?: string) {
+    return this.dashboardService.getDashboardData(period, dataInicio, dataFim);
   }
 }
