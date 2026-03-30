@@ -8,6 +8,7 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { calculatePaymentLinkFees } from './payment-link-fees.helper';
 
 export type ChargePaymentLinkInput = {
   linkId: string;
@@ -104,6 +105,9 @@ export class ChargePaymentLinkUseCase {
     if ((link as any).expiresAt && new Date((link as any).expiresAt).getTime() <= Date.now()) {
       throw new NotFoundException('Link de pagamento expirado');
     }
+    if ((link as any).maxUses != null && (link as any).currentUses >= (link as any).maxUses) {
+      throw new BadRequestException('Limite de usos do link atingido');
+    }
     if (!link.domPaymentLinkId) {
       throw new BadRequestException('Link ainda não sincronizado com o gateway');
     }
@@ -124,6 +128,10 @@ export class ChargePaymentLinkUseCase {
       throw new BadRequestException('Token do gateway não configurado');
     }
 
+    const installments = input.installments ?? 1;
+    const fees = calculatePaymentLinkFees(link, installments);
+    const { totalAmount, interestAmount, platformFeeRate, cashbackFee, netAmount, domFeeAmount } = fees;
+
     const result = await this.gateway.chargePaymentLink(domToken, {
       domLinkId: link.domPaymentLinkId,
       customerName: input.customerName,
@@ -131,7 +139,7 @@ export class ChargePaymentLinkUseCase {
       customerDocument: input.customerDocument.replace(/\D/g, ''),
       customerPhone: input.customerPhone.replace(/\D/g, ''),
       paymentMethod: input.paymentMethod ?? 'credit_card',
-      installments: input.installments ?? 1,
+      installments,
       card: input.card,
     });
 
@@ -143,18 +151,20 @@ export class ChargePaymentLinkUseCase {
 
     const customerDocument = input.customerDocument.replace(/\D/g, '');
     const customerPhone = input.customerPhone.replace(/\D/g, '');
-    const amountInReais = Number(link.amount);
+
+    // totalFee = taxaDom + juros da plataforma + cashback (tudo que sai fora do base)
+    const totalFee = domFeeAmount + interestAmount + cashbackFee;
 
     await this.prisma.transaction.upsert({
       where: { domPaymentId: result.id },
       update: {
         status: this.mapGatewayStatusToTxStatus(result.status),
         paymentMethod: this.mapPaymentMethod(input.paymentMethod),
-        amount: new Prisma.Decimal(amountInReais),
-        netAmount: new Prisma.Decimal(amountInReais),
-        totalFee: new Prisma.Decimal(0),
-        domFee: new Prisma.Decimal(0),
-        platformFee: new Prisma.Decimal(0),
+        amount: new Prisma.Decimal(totalAmount),
+        netAmount: new Prisma.Decimal(netAmount),
+        totalFee: new Prisma.Decimal(totalFee),
+        domFee: new Prisma.Decimal(domFeeAmount),
+        platformFee: new Prisma.Decimal(interestAmount),
         userId: effectiveUserId,
         description: link.description ?? link.title,
         customerName: input.customerName,
@@ -163,16 +173,17 @@ export class ChargePaymentLinkUseCase {
         customerPhone,
         paymentLinkId: link.id,
         pixContent: result.pixContent ?? null,
+        installments,
       },
       create: {
         userId: effectiveUserId,
-        amount: new Prisma.Decimal(amountInReais),
-        netAmount: new Prisma.Decimal(amountInReais),
+        amount: new Prisma.Decimal(totalAmount),
+        netAmount: new Prisma.Decimal(netAmount),
         status: this.mapGatewayStatusToTxStatus(result.status),
         paymentMethod: this.mapPaymentMethod(input.paymentMethod),
-        totalFee: new Prisma.Decimal(0),
-        domFee: new Prisma.Decimal(0),
-        platformFee: new Prisma.Decimal(0),
+        totalFee: new Prisma.Decimal(totalFee),
+        domFee: new Prisma.Decimal(domFeeAmount),
+        platformFee: new Prisma.Decimal(interestAmount),
         domPaymentId: result.id,
         description: link.description ?? link.title,
         customerName: input.customerName,
@@ -181,7 +192,13 @@ export class ChargePaymentLinkUseCase {
         customerPhone,
         paymentLinkId: link.id,
         pixContent: result.pixContent ?? null,
+        installments,
       },
+    });
+
+    // Incrementa contador de usos
+    await this.links.update(link.id, {
+      currentUses: ((link as any).currentUses ?? 0) + 1,
     });
 
     return {

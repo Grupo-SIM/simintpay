@@ -12,6 +12,22 @@ export type CreatePaymentLinkData = {
   aceitaCartao?: boolean;
   aceitaPix?: boolean;
   isActive?: boolean;
+  isStandalone?: boolean;
+  platformFee1x?: number;
+  platformFee2x?: number;
+  platformFee3x?: number;
+  platformFee4x?: number;
+  platformFee5x?: number;
+  platformFee6x?: number;
+  platformFee7x?: number;
+  platformFee8x?: number;
+  platformFee9x?: number;
+  platformFee10x?: number;
+  platformFee11x?: number;
+  platformFee12x?: number;
+  cashbackFee?: number;
+  webhookUrl?: string | null;
+  maxUses?: number | null;
   domPaymentLinkId?: string | null;
 };
 
@@ -27,13 +43,14 @@ export interface IPaymentLinkRepository {
     pageSize: number;
   }): Promise<{ total: number; items: PaymentLink[] }>;
   findById(id: string): Promise<PaymentLink | null>;
+  findByCode(code: string): Promise<PaymentLink | null>;
   findByIdForUser(input: {
     id: string;
     userId: string;
   }): Promise<PaymentLink | null>;
   update(
     id: string,
-    data: Partial<Omit<CreatePaymentLinkData, 'userId'>>,
+    data: Partial<Omit<CreatePaymentLinkData, 'userId'> & { currentUses: number }>,
   ): Promise<PaymentLink>;
   delete(id: string): Promise<void>;
 }

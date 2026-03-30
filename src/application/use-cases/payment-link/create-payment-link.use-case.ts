@@ -27,6 +27,7 @@ export class CreatePaymentLinkUseCase {
       dataExpiracao: string | null;
       parcelasMax: number;
       ativo: boolean;
+      isStandalone: boolean;
       criadoEm: string;
     };
   }> {
@@ -46,12 +47,13 @@ export class CreatePaymentLinkUseCase {
       throw new UnauthorizedException('Token DOM não encontrado para este usuário/módulo');
     }
 
-    // Busca taxas para obter interest_rate_installment correto por número de parcelas
     const aceitaCartao = input.dto.aceitaCartao ?? true;
     const aceitaPix = input.dto.aceitaPix ?? true;
     const maxInstallments = aceitaCartao ? (input.dto.parcelasMax ?? 1) : 1;
-    let interestRate = 0;
+    const isStandalone = input.dto.isStandalone ?? true;
 
+    // Taxa de juros DOM para o número máximo de parcelas (para registro no gateway)
+    let interestRate = 0;
     try {
       const masterKey = process.env.API_DOM_MASTER_KEY;
       if (masterKey) {
@@ -86,6 +88,22 @@ export class CreatePaymentLinkUseCase {
       aceitaCartao,
       aceitaPix,
       isActive: true,
+      isStandalone,
+      platformFee1x: input.dto.platformFee1x,
+      platformFee2x: input.dto.platformFee2x,
+      platformFee3x: input.dto.platformFee3x,
+      platformFee4x: input.dto.platformFee4x,
+      platformFee5x: input.dto.platformFee5x,
+      platformFee6x: input.dto.platformFee6x,
+      platformFee7x: input.dto.platformFee7x,
+      platformFee8x: input.dto.platformFee8x,
+      platformFee9x: input.dto.platformFee9x,
+      platformFee10x: input.dto.platformFee10x,
+      platformFee11x: input.dto.platformFee11x,
+      platformFee12x: input.dto.platformFee12x,
+      cashbackFee: input.dto.cashbackFee,
+      webhookUrl: input.dto.webhookUrl ?? null,
+      maxUses: input.dto.maxUses ?? null,
       domPaymentLinkId: created.id,
     });
 
@@ -99,6 +117,7 @@ export class CreatePaymentLinkUseCase {
         dataExpiracao: (saved as any).expiresAt ? (saved as any).expiresAt.toISOString() : null,
         parcelasMax: saved.maxInstallments,
         ativo: saved.isActive,
+        isStandalone: saved.isStandalone,
         criadoEm: saved.createdAt.toISOString(),
       },
     };

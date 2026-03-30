@@ -8,6 +8,7 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { calculatePaymentLinkFees } from './payment-link-fees.helper';
 
 export type ChargePixPaymentLinkInput = {
   linkId: string;
@@ -82,6 +83,9 @@ export class ChargePixPaymentLinkUseCase {
     if ((link as any).expiresAt && new Date((link as any).expiresAt).getTime() <= Date.now()) {
       throw new NotFoundException('Link de pagamento expirado');
     }
+    if ((link as any).maxUses != null && (link as any).currentUses >= (link as any).maxUses) {
+      throw new BadRequestException('Limite de usos do link atingido');
+    }
     if (!link.domPaymentLinkId) {
       throw new BadRequestException('Link ainda não sincronizado com o gateway');
     }
@@ -106,11 +110,14 @@ export class ChargePixPaymentLinkUseCase {
     const documentType = input.documentType ?? (document.length === 14 ? 'CNPJ' : 'CPF');
     const phone = (input.customerPhone ?? '').replace(/\D/g, '');
     const codExternal = `pix-link-${link.id}-${Date.now()}`;
-    const amountInReais = Number(link.amount);
+
+    // PIX é sempre 1 parcela; aplica juros se isStandalone=false
+    const fees = calculatePaymentLinkFees(link, 1);
+    const { totalAmount, interestAmount, platformFeeRate, cashbackFee, netAmount, domFeeAmount } = fees;
 
     const result = await this.gateway.chargePixForLink(domToken, {
       domLinkId: link.domPaymentLinkId,
-      amount: amountInReais,
+      amount: totalAmount,
       description: link.title,
       customerName: input.customerName,
       customerEmail: input.customerEmail,
@@ -126,16 +133,18 @@ export class ChargePixPaymentLinkUseCase {
       await this.prisma.wallet.create({ data: { userId: effectiveUserId, balance: 0 } });
     }
 
+    const totalFee = domFeeAmount + interestAmount + cashbackFee;
+
     await this.prisma.transaction.upsert({
       where: { domPaymentId: result.id },
       update: {
         status: TransactionStatus.PENDING,
         paymentMethod: PaymentMethod.PIX,
-        amount: new Prisma.Decimal(amountInReais),
-        netAmount: new Prisma.Decimal(amountInReais),
-        totalFee: new Prisma.Decimal(0),
-        domFee: new Prisma.Decimal(0),
-        platformFee: new Prisma.Decimal(0),
+        amount: new Prisma.Decimal(totalAmount),
+        netAmount: new Prisma.Decimal(netAmount),
+        totalFee: new Prisma.Decimal(totalFee),
+        domFee: new Prisma.Decimal(domFeeAmount),
+        platformFee: new Prisma.Decimal(interestAmount),
         userId: effectiveUserId,
         description: link.description ?? link.title,
         customerName: input.customerName,
@@ -147,13 +156,13 @@ export class ChargePixPaymentLinkUseCase {
       },
       create: {
         userId: effectiveUserId,
-        amount: new Prisma.Decimal(amountInReais),
-        netAmount: new Prisma.Decimal(amountInReais),
+        amount: new Prisma.Decimal(totalAmount),
+        netAmount: new Prisma.Decimal(netAmount),
         status: TransactionStatus.PENDING,
         paymentMethod: PaymentMethod.PIX,
-        totalFee: new Prisma.Decimal(0),
-        domFee: new Prisma.Decimal(0),
-        platformFee: new Prisma.Decimal(0),
+        totalFee: new Prisma.Decimal(totalFee),
+        domFee: new Prisma.Decimal(domFeeAmount),
+        platformFee: new Prisma.Decimal(interestAmount),
         domPaymentId: result.id,
         description: link.description ?? link.title,
         customerName: input.customerName,
@@ -165,6 +174,14 @@ export class ChargePixPaymentLinkUseCase {
       },
     });
 
-    return result;
+    // Incrementa contador de usos
+    await this.links.update(link.id, {
+      currentUses: ((link as any).currentUses ?? 0) + 1,
+    });
+
+    return {
+      ...result,
+      amount: totalAmount,
+    };
   }
 }

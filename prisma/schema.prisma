@@ -169,6 +169,23 @@ model PaymentLink {
   aceitaCartao     Boolean       @default(true)
   aceitaPix        Boolean       @default(true)
   isActive         Boolean       @default(true)
+  isStandalone     Boolean       @default(true)
+  platformFee1x    Float         @default(9.00)
+  platformFee2x    Float         @default(13.30)
+  platformFee3x    Float         @default(14.68)
+  platformFee4x    Float         @default(16.04)
+  platformFee5x    Float         @default(17.37)
+  platformFee6x    Float         @default(18.67)
+  platformFee7x    Float         @default(19.95)
+  platformFee8x    Float         @default(21.21)
+  platformFee9x    Float         @default(22.44)
+  platformFee10x   Float         @default(23.64)
+  platformFee11x   Float         @default(24.83)
+  platformFee12x   Float         @default(25.99)
+  cashbackFee      Float         @default(3.00)
+  webhookUrl       String?
+  maxUses          Int?
+  currentUses      Int           @default(0)
   domPaymentLinkId String?       @unique
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt

@@ -19,6 +19,22 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
         aceitaCartao: data.aceitaCartao ?? true,
         aceitaPix: data.aceitaPix ?? true,
         isActive: data.isActive ?? true,
+        isStandalone: data.isStandalone ?? true,
+        platformFee1x: data.platformFee1x ?? 9.00,
+        platformFee2x: data.platformFee2x ?? 13.30,
+        platformFee3x: data.platformFee3x ?? 14.68,
+        platformFee4x: data.platformFee4x ?? 16.04,
+        platformFee5x: data.platformFee5x ?? 17.37,
+        platformFee6x: data.platformFee6x ?? 18.67,
+        platformFee7x: data.platformFee7x ?? 19.95,
+        platformFee8x: data.platformFee8x ?? 21.21,
+        platformFee9x: data.platformFee9x ?? 22.44,
+        platformFee10x: data.platformFee10x ?? 23.64,
+        platformFee11x: data.platformFee11x ?? 24.83,
+        platformFee12x: data.platformFee12x ?? 25.99,
+        cashbackFee: data.cashbackFee ?? 3.00,
+        webhookUrl: data.webhookUrl ?? undefined,
+        maxUses: data.maxUses ?? undefined,
         domPaymentLinkId: data.domPaymentLinkId ?? undefined,
       },
     });
@@ -62,6 +78,10 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
     return this.prisma.paymentLink.findUnique({ where: { id } });
   }
 
+  async findByCode(code: string): Promise<PaymentLink | null> {
+    return this.prisma.paymentLink.findUnique({ where: { code } });
+  }
+
   async findByIdForUser(input: {
     id: string;
     userId: string;
@@ -80,6 +100,23 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
       expiresAt?: Date | null;
       maxInstallments: number;
       isActive: boolean;
+      isStandalone: boolean;
+      platformFee1x: number;
+      platformFee2x: number;
+      platformFee3x: number;
+      platformFee4x: number;
+      platformFee5x: number;
+      platformFee6x: number;
+      platformFee7x: number;
+      platformFee8x: number;
+      platformFee9x: number;
+      platformFee10x: number;
+      platformFee11x: number;
+      platformFee12x: number;
+      cashbackFee: number;
+      webhookUrl?: string | null;
+      maxUses?: number | null;
+      currentUses: number;
       domPaymentLinkId?: string | null;
     }>,
   ): Promise<PaymentLink> {
@@ -88,11 +125,27 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
       data: {
         title: data.title,
         description: data.description ?? undefined,
-        amount:
-          data.amount != null ? new Prisma.Decimal(data.amount) : undefined,
+        amount: data.amount != null ? new Prisma.Decimal(data.amount) : undefined,
         expiresAt: data.expiresAt ?? undefined,
         maxInstallments: data.maxInstallments,
         isActive: data.isActive,
+        isStandalone: data.isStandalone,
+        platformFee1x: data.platformFee1x,
+        platformFee2x: data.platformFee2x,
+        platformFee3x: data.platformFee3x,
+        platformFee4x: data.platformFee4x,
+        platformFee5x: data.platformFee5x,
+        platformFee6x: data.platformFee6x,
+        platformFee7x: data.platformFee7x,
+        platformFee8x: data.platformFee8x,
+        platformFee9x: data.platformFee9x,
+        platformFee10x: data.platformFee10x,
+        platformFee11x: data.platformFee11x,
+        platformFee12x: data.platformFee12x,
+        cashbackFee: data.cashbackFee,
+        webhookUrl: data.webhookUrl ?? undefined,
+        maxUses: data.maxUses ?? undefined,
+        currentUses: data.currentUses,
         domPaymentLinkId: data.domPaymentLinkId ?? undefined,
       },
     });
