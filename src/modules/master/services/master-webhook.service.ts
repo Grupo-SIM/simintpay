@@ -30,7 +30,7 @@ export class MasterWebhookService {
   private readonly logger = new Logger(MasterWebhookService.name);
   private readonly ADMIN_USER_ID = process.env.ADMIN_USER_ID!;
 
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async process(payload: unknown): Promise<void> {
     const event = this.parsePayload(payload);
@@ -39,7 +39,6 @@ export class MasterWebhookService {
       return;
     }
 
-    // Idempotência atômica: tenta inserir e captura P2002 (unique violation)
     let wh: any;
     try {
       wh = await this.prisma.webhookEvent.create({
@@ -125,14 +124,12 @@ export class MasterWebhookService {
       : PaymentMethod.PIX;
   }
 
-  // ID do usuário Renovada (wallet.balance é gross; netBalance = balance * fatorLiquidez)
   private readonly RENOVADA_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
   private getLiquidezFactor(userId: string): Prisma.Decimal {
     if (userId === this.RENOVADA_USER_ID) {
       return new Prisma.Decimal(process.env.RENOVADA_LIQUIDEZ || 0.91);
     }
-    // Para outros usuários wallet.balance = netBalance (fator 1:1)
     return new Prisma.Decimal(1);
   }
 
@@ -144,7 +141,6 @@ export class MasterWebhookService {
       return;
     }
 
-    // DOM Pagamentos envia amount e liquid_amount em CENTAVOS → dividir por 100
     const amountDec = new Prisma.Decimal(data.amount / 100);
     const netDec = this.calcNet(data.amount / 100, data.liquid_amount != null ? data.liquid_amount / 100 : undefined);
     const totalFee = amountDec.sub(netDec);
@@ -160,9 +156,6 @@ export class MasterWebhookService {
     if (existing) {
       if (existing.status === nextStatus) return;
 
-      // Renovada: wallet.balance = gross → netBalance = balance × fatorLiquidez
-      // balanceDelta = amountDec (bruto) → netBalance += amount × fatorLiquidez (ex: R$5 → +R$4,55)
-      // Outros usuários: wallet.balance = netBalance (1:1) → balanceDelta = netDec (liquid)
       const isRenovada = existing.userId === this.RENOVADA_USER_ID;
       const delta = isRenovada ? amountDec : netDec;
 
@@ -210,8 +203,6 @@ export class MasterWebhookService {
 
         const newBalance = wallet.balance.add(balanceDelta);
         const newLocked = wallet.lockedBalance.add(lockedDelta);
-
-        this.logger.log(`[MasterWebhook] 💰 Tx existente ${nextStatus}: balanceDelta=${balanceDelta}, amountDec=${amountDec}, netDec=${netDec}, balanceBefore=${wallet.balance}, balanceAfter=${newBalance}`);
 
         await p.wallet.updateMany({
           where: { id: wallet.id, version: wallet.version },
@@ -270,7 +261,6 @@ export class MasterWebhookService {
           const wallet = await p.wallet.findUnique({ where: { userId: this.ADMIN_USER_ID } });
           if (wallet) {
             const newBalance = wallet.balance.add(amountDec);
-            this.logger.log(`[MasterWebhook] 💰 Nova tx COMPLETED: balanceDelta=${amountDec}, amountDec=${amountDec}, netDec=${netDec}, balanceBefore=${wallet.balance}, balanceAfter=${newBalance}`);
             await p.wallet.updateMany({
               where: { id: wallet.id, version: wallet.version },
               data: { balance: newBalance, version: { increment: 1 } },
