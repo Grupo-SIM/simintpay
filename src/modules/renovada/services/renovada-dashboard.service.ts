@@ -224,11 +224,13 @@ export class PlatformDashboardService {
       const start = d.startOf(unit).toDate();
       const end = d.endOf(unit).toDate();
 
+      const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
       const txs = await this.prisma.transaction.findMany({
         where: {
           userId: platformId,
           status: TransactionStatus.COMPLETED,
           createdAt: { gte: start, lte: end },
+          OR: renovadaKeywords.map(k => ({ description: { contains: k, mode: 'insensitive' as const } })),
         },
         select: { netAmount: true, description: true },
       });

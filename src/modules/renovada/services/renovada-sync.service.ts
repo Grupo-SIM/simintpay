@@ -77,6 +77,14 @@ export class RenovadaSyncService implements OnModuleInit {
               continue;
             }
 
+            // Ignorar transações que não possuem keywords da Renovada na descrição
+            const desc = (tx.description || '').toLowerCase();
+            const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
+            const isRenovadaTx = renovadaKeywords.some(k => desc.includes(k));
+            if (!isRenovadaTx) {
+              continue;
+            }
+
             const paymentId = tx.paymentId || tx.id;
             const txId = tx.id;
 
