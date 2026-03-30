@@ -187,6 +187,7 @@ export class RenovadaDashboardService {
         total: Number(mainProfit.total.toFixed(2)),
         maquinetas: Number(mainProfit.maquinetas.toFixed(2)),
         offers: Number(mainProfit.offers.toFixed(2)),
+        lucroSimpay: Number(mainProfit.lucroSimpay.toFixed(2)),
         today: getProfit(allTransactions.filter(tx => dayjs(tx.createdAt).isAfter(dayjs(todayStart)) || dayjs(tx.createdAt).isSame(dayjs(todayStart)))),
         sevenDays: getProfit(allTransactions.filter(tx => dayjs(tx.createdAt).isAfter(dayjs(sevenDaysAgo)) || dayjs(tx.createdAt).isSame(dayjs(sevenDaysAgo)))),
         fifteenDays: getProfit(allTransactions.filter(tx => dayjs(tx.createdAt).isAfter(dayjs(fifteenDaysAgo)) || dayjs(tx.createdAt).isSame(dayjs(fifteenDaysAgo)))),
