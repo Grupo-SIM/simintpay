@@ -19,7 +19,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { LeadStatus, WithdrawStatus, TransactionStatus } from '@prisma/client';
+import { LeadStatus, Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -123,6 +123,104 @@ async function expandPlatformTransactionUserIds(
   });
   for (const m of merchants) ids.add(m.id);
   return [...ids];
+}
+
+/** Contas plataforma usadas no consolidado e no cálculo do Lucro Simpay */
+const CONSOLIDADO_PLATFORMS = [
+  { tag: 'RENOVADA', id: 'ba2b57d6-e3bf-4395-af31-58454f27207a' },
+  { tag: 'PAGATG', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5d' },
+  { tag: 'BOSQUE', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c' },
+  { tag: 'REVALIDA', id: '7929df01-a980-45e3-b3c7-1a8b8eb7850f' },
+] as const;
+
+type ConsolidadoListQuery = {
+  dataInicio?: string;
+  dataFim?: string;
+  customerName?: string;
+  transactionId?: string;
+  transactionType?: string;
+  paymentLink?: string;
+  planName?: string;
+};
+
+function buildConsolidadoTransactionWhere(input: ConsolidadoListQuery): Prisma.TransactionWhereInput {
+  const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
+
+  const where: Prisma.TransactionWhereInput = {
+    userId: { in: platformIds },
+    status: 'COMPLETED',
+  };
+
+  if (input.transactionType === 'out') {
+    where.status = { in: ['REFUNDED', 'CHARGEBACK'] };
+  } else if (input.transactionType === 'all') {
+    where.status = { in: ['COMPLETED', 'REFUNDED', 'CHARGEBACK'] };
+  }
+
+  if (input.dataInicio || input.dataFim) {
+    const createdAt: Prisma.DateTimeFilter = {};
+    if (input.dataInicio) {
+      const d = dayjs.tz(input.dataInicio, TZ).startOf('day');
+      if (d.isValid()) createdAt.gte = d.toDate();
+    }
+    if (input.dataFim) {
+      const d = dayjs.tz(input.dataFim, TZ).endOf('day');
+      if (d.isValid()) createdAt.lte = d.toDate();
+    }
+    if (Object.keys(createdAt).length > 0) {
+      where.createdAt = createdAt;
+    }
+  }
+
+  if (input.customerName?.trim()) {
+    where.customerName = { contains: input.customerName.trim(), mode: 'insensitive' };
+  }
+
+  if (input.transactionId?.trim()) {
+    where.OR = [{ id: input.transactionId.trim() }, { domTransactionId: input.transactionId.trim() }];
+  }
+
+  if (input.paymentLink?.trim()) {
+    where.paymentLinkId = input.paymentLink.trim();
+  }
+
+  if (input.planName?.trim()) {
+    where.description = { contains: input.planName.trim(), mode: 'insensitive' };
+  }
+
+  return where;
+}
+
+function mapConsolidadoTxStatusToPt(
+  status: TransactionStatus,
+): 'PENDENTE' | 'APROVADA' | 'RECUSADA' | 'ESTORNADA' {
+  switch (status) {
+    case TransactionStatus.COMPLETED:
+      return 'APROVADA';
+    case TransactionStatus.PENDING:
+    case TransactionStatus.DRAFT:
+      return 'PENDENTE';
+    case TransactionStatus.FAILED:
+    case TransactionStatus.EXPIRED:
+      return 'RECUSADA';
+    case TransactionStatus.REFUNDED:
+    case TransactionStatus.CHARGEBACK:
+      return 'ESTORNADA';
+    default:
+      return 'PENDENTE';
+  }
+}
+
+function formatConsolidadoDoc(doc: string | null | undefined): string | null {
+  if (!doc) return null;
+  const digits = doc.replace(/\D/g, '');
+  if (digits.length === 11) {
+    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  }
+  if (digits.length === 14) {
+    return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+  }
+  return doc;
 }
 
 @ApiTags('Admin')
@@ -360,6 +458,76 @@ export class AdminController {
     return { data: items, page: pageNum, pageSize: size, total };
   }
 
+  @Get('relatorios/consolidado/transacoes')
+  @ApiOperation({
+    summary: 'Listar transações que entram no consolidado (base do cálculo do Lucro Simpay)',
+  })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'pageSize', required: false })
+  async listConsolidadoTransacoes(
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+    @Query('customerName') customerName?: string,
+    @Query('transactionId') transactionId?: string,
+    @Query('transactionType') transactionType?: string,
+    @Query('paymentLink') paymentLink?: string,
+    @Query('planName') planName?: string,
+  ) {
+    const where = buildConsolidadoTransactionWhere({
+      dataInicio,
+      dataFim,
+      customerName,
+      transactionId,
+      transactionType,
+      paymentLink,
+      planName,
+    });
+    const pageNum = Math.max(1, Number(page));
+    const size = Math.min(Math.max(1, Number(pageSize)), 100);
+    const tagByUserId = new Map(CONSOLIDADO_PLATFORMS.map((p) => [p.id, p.tag]));
+
+    const [total, items] = await Promise.all([
+      this.prisma.transaction.count({ where }),
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (pageNum - 1) * size,
+        take: size,
+      }),
+    ]);
+
+    return {
+      data: items.map((t) => ({
+        id: t.id,
+        domTransactionId: t.domTransactionId,
+        userId: t.userId,
+        plataformaTag: tagByUserId.get(t.userId) ?? '—',
+        valor: Number(t.amount),
+        valorLiquido: t.netAmount != null ? Number(t.netAmount) : null,
+        status: mapConsolidadoTxStatusToPt(t.status),
+        metodo: t.paymentMethod,
+        descricao: t.description ?? null,
+        parcelas: t.installments,
+        cliente: {
+          nome: t.customerName ?? null,
+          email: t.customerEmail ?? null,
+          documento: formatConsolidadoDoc(t.customerDocument),
+        },
+        taxas: {
+          total: Number(t.totalFee),
+          dom: Number(t.domFee),
+          plataforma: Number(t.platformFee),
+        },
+        criadoEm: t.createdAt.toISOString(),
+      })),
+      page: pageNum,
+      pageSize: size,
+      total,
+    };
+  }
+
   @Get('relatorios/consolidado')
   @ApiOperation({ summary: 'Obter resumo financeiro consolidado de todas as plataformas' })
   async getConsolidado(
@@ -371,50 +539,17 @@ export class AdminController {
     @Query('paymentLink') paymentLink?: string,
     @Query('planName') planName?: string,
   ) {
-    const PLATFORMS = [
-      { tag: 'RENOVADA', id: 'ba2b57d6-e3bf-4395-af31-58454f27207a' },
-      { tag: 'PAGATG', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5d' },
-      { tag: 'BOSQUE', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c' },
-      { tag: 'REVALIDA', id: '7929df01-a980-45e3-b3c7-1a8b8eb7850f' },
-    ];
-    const platformIds = PLATFORMS.map(p => p.id);
+    const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
 
-    const where: any = {
-      userId: { in: platformIds },
-      status: 'COMPLETED',
-    };
-
-    // Ajuste de status baseado no tipo
-    if (transactionType === 'out') {
-      where.status = { in: ['REFUNDED', 'CHARGEBACK'] };
-    } else if (transactionType === 'all') {
-      where.status = { in: ['COMPLETED', 'REFUNDED', 'CHARGEBACK'] };
-    }
-
-    if (dataInicio || dataFim) {
-      where.createdAt = {};
-      if (dataInicio) where.createdAt.gte = new Date(dataInicio);
-      if (dataFim) where.createdAt.lte = new Date(dataFim);
-    }
-
-    if (customerName?.trim()) {
-      where.customerName = { contains: customerName.trim(), mode: 'insensitive' };
-    }
-
-    if (transactionId?.trim()) {
-      where.OR = [
-        { id: transactionId.trim() },
-        { domTransactionId: transactionId.trim() }
-      ];
-    }
-
-    if (paymentLink?.trim()) {
-      where.paymentLinkId = paymentLink.trim();
-    }
-
-    if (planName?.trim()) {
-      where.description = { contains: planName.trim(), mode: 'insensitive' };
-    }
+    const where = buildConsolidadoTransactionWhere({
+      dataInicio,
+      dataFim,
+      customerName,
+      transactionId,
+      transactionType,
+      paymentLink,
+      planName,
+    });
 
     // 1. Agregações Globais Úteis
     const globalStats = await this.prisma.transaction.aggregate({
@@ -433,7 +568,7 @@ export class AdminController {
 
     let totalLucroSimpay = 0;
     platformStats.forEach(stat => {
-      const platform = PLATFORMS.find(p => p.id === stat.userId);
+      const platform = CONSOLIDADO_PLATFORMS.find(p => p.id === stat.userId);
       const tag = platform?.tag || 'RENOVADA';
       
       const liquidez = Number(process.env[`${tag}_LIQUIDEZ`] || 0.91);
@@ -454,9 +589,18 @@ export class AdminController {
       status: 'COMPLETED',
     };
     if (dataInicio || dataFim) {
-      saquesWhere.createdAt = {};
-      if (dataInicio) saquesWhere.createdAt.gte = new Date(dataInicio);
-      if (dataFim) saquesWhere.createdAt.lte = new Date(dataFim);
+      const saquesCreatedAt: { gte?: Date; lte?: Date } = {};
+      if (dataInicio) {
+        const d = dayjs.tz(dataInicio, TZ).startOf('day');
+        if (d.isValid()) saquesCreatedAt.gte = d.toDate();
+      }
+      if (dataFim) {
+        const d = dayjs.tz(dataFim, TZ).endOf('day');
+        if (d.isValid()) saquesCreatedAt.lte = d.toDate();
+      }
+      if (Object.keys(saquesCreatedAt).length > 0) {
+        saquesWhere.createdAt = saquesCreatedAt;
+      }
     }
 
     const saquesStats = await this.prisma.withdrawRequest.aggregate({
