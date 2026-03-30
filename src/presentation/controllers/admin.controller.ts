@@ -365,6 +365,11 @@ export class AdminController {
   async getConsolidado(
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
+    @Query('customerName') customerName?: string,
+    @Query('transactionId') transactionId?: string,
+    @Query('transactionType') transactionType?: string,
+    @Query('paymentLink') paymentLink?: string,
+    @Query('planName') planName?: string,
   ) {
     const PLATFORMS = [
       { tag: 'RENOVADA', id: 'ba2b57d6-e3bf-4395-af31-58454f27207a' },
@@ -379,10 +384,36 @@ export class AdminController {
       status: 'COMPLETED',
     };
 
+    // Ajuste de status baseado no tipo
+    if (transactionType === 'out') {
+      where.status = { in: ['REFUNDED', 'CHARGEBACK'] };
+    } else if (transactionType === 'all') {
+      where.status = { in: ['COMPLETED', 'REFUNDED', 'CHARGEBACK'] };
+    }
+
     if (dataInicio || dataFim) {
       where.createdAt = {};
       if (dataInicio) where.createdAt.gte = new Date(dataInicio);
       if (dataFim) where.createdAt.lte = new Date(dataFim);
+    }
+
+    if (customerName?.trim()) {
+      where.customerName = { contains: customerName.trim(), mode: 'insensitive' };
+    }
+
+    if (transactionId?.trim()) {
+      where.OR = [
+        { id: transactionId.trim() },
+        { domTransactionId: transactionId.trim() }
+      ];
+    }
+
+    if (paymentLink?.trim()) {
+      where.paymentLinkId = paymentLink.trim();
+    }
+
+    if (planName?.trim()) {
+      where.description = { contains: planName.trim(), mode: 'insensitive' };
     }
 
     // 1. Agregações Globais Úteis
@@ -417,10 +448,21 @@ export class AdminController {
       totalLucroSimpay += lucroPlat;
     });
 
-    // 3. Stats de Saques master
+    // 3. Stats de Saques master (Filtramos apenas por plataforma e data para saques)
+    const saquesWhere: any = {
+      userId: { in: platformIds },
+      status: 'COMPLETED',
+    };
+    if (dataInicio || dataFim) {
+      saquesWhere.createdAt = {};
+      if (dataInicio) saquesWhere.createdAt.gte = new Date(dataInicio);
+      if (dataFim) saquesWhere.createdAt.lte = new Date(dataFim);
+    }
+
     const saquesStats = await this.prisma.withdrawRequest.aggregate({
-      where,
-      _sum: { fee: true },
+      where: saquesWhere,
+      _sum: { fee: true, amount: true },
+      _count: { id: true },
     });
 
     const totalTaxaSaque = Number(saquesStats._sum.fee || 0);
@@ -429,10 +471,23 @@ export class AdminController {
     return {
       valorBruto: brutoTotal,
       valorLiquido: Number(globalStats._sum.netAmount || 0),
-      lucroSimpay: totalLucroSimpay, // Agora calculado corretamente per-plataforma
+      lucroSimpay: totalLucroSimpay,
       totalTaxaSaque: totalTaxaSaque,
       lucroTaxaSaque: totalTaxaSaque * 0.5,
       cashback: brutoTotal * 0.03,
+      saquesAprovados: {
+        quantidade: saquesStats._count.id || 0,
+        valor: Number(saquesStats._sum.amount || 0)
+      },
+      estornos: {
+        quantidade: await this.prisma.transaction.count({
+          where: { ...where, status: { in: ['REFUNDED', 'CHARGEBACK'] } }
+        }),
+        valor: Number((await this.prisma.transaction.aggregate({
+          where: { ...where, status: { in: ['REFUNDED', 'CHARGEBACK'] } },
+          _sum: { amount: true }
+        }))._sum.amount || 0)
+      }
     };
   }
 
