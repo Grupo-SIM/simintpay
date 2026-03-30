@@ -408,6 +408,15 @@ export class AdminController {
     return { data: updated };
   }
 
+  @Delete('comunidades/:id')
+  @ApiOperation({ summary: 'Excluir comunidade' })
+  async deleteComunidade(@Param('id') id: string) {
+    const existing = await this.prisma.community.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Comunidade não encontrada');
+    await this.prisma.community.delete({ where: { id } });
+    return { success: true };
+  }
+
   @Get('comunidades/:id/resumo')
   @ApiOperation({ summary: 'Resumo da comunidade: status, dias e métricas' })
   async comunidadeResumo(@Param('id') id: string) {
