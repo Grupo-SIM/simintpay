@@ -13,7 +13,12 @@ dayjs.locale('pt-br');
 
 const TZ = 'America/Sao_Paulo';
 
-const RENOVADA_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+const PLATFORM_IDS: Record<string, string> = {
+  RENOVADA: 'ba2b57d6-e3bf-4395-af31-58454f27207a',
+  PAGATG: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5d',
+  BOSQUE: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c',
+  REVALIDA: '7929df01-a980-45e3-b3c7-1a8b8eb7850f',
+};
 
 @Injectable()
 export class PlatformDashboardService {
@@ -27,14 +32,9 @@ export class PlatformDashboardService {
     let start: Date;
     let end: Date = now.toDate();
 
-    // Dynamically resolve platform ID from environment variables
+    // Prioridade: .env -> Mapa Interno -> ID da Renovada (Legacy Fallback)
     const platIdKey = `${upperTag}_ID`;
-    const platformId = process.env[platIdKey] || process.env.RENOVADA_ID;
-
-    if (!platformId) {
-       this.logger.error(`[Dashboard] ID da plataforma não encontrado para tag ${upperTag} no .env`);
-       throw new Error(`Configuração da plataforma ${upperTag} incompleta.`);
-    }
+    const platformId = process.env[platIdKey] || PLATFORM_IDS[upperTag] || PLATFORM_IDS.RENOVADA;
 
     if (dataInicio || dataFim) {
       start = dataInicio ? dayjs(dataInicio).startOf('day').toDate() : now.subtract(10, 'year').toDate();
