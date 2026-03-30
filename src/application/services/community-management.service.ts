@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { PaymentMethod, PlanType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 
@@ -90,14 +90,10 @@ export class CommunityManagementService {
       where: { subscriptionLinkId: input.subscriptionLinkId },
     });
     if (existing) {
-      return this.prisma.communityLinkBinding.update({
-        where: { id: existing.id },
-        data: {
-          communityId: input.communityId,
-          bindingType: 'SUBSCRIPTION_LINK',
-          isManual: true,
-        },
-      });
+      if (existing.communityId === input.communityId) {
+        throw new ConflictException('Este link de assinatura ja esta vinculado a esta comunidade.');
+      }
+      throw new ConflictException('Este link de assinatura ja esta vinculado a outra comunidade.');
     }
     return this.prisma.communityLinkBinding.create({
       data: {
@@ -114,14 +110,10 @@ export class CommunityManagementService {
       where: { paymentLinkId: input.paymentLinkId },
     });
     if (existing) {
-      return this.prisma.communityLinkBinding.update({
-        where: { id: existing.id },
-        data: {
-          communityId: input.communityId,
-          bindingType: 'PAYMENT_LINK',
-          isManual: true,
-        },
-      });
+      if (existing.communityId === input.communityId) {
+        throw new ConflictException('Este link de pagamento ja esta vinculado a esta comunidade.');
+      }
+      throw new ConflictException('Este link de pagamento ja esta vinculado a outra comunidade.');
     }
     return this.prisma.communityLinkBinding.create({
       data: {

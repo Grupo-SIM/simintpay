@@ -637,9 +637,14 @@ export class AdminController {
       if (!link) return [];
       return link.subscriptions.map((sub) => {
         const createdAt = sub.createdAt;
-        const renewAt = new Date(createdAt.getTime() + mapFrequencyToDays(link.frequencyType) * 86400000);
         const normalized = (sub.status ?? '').toLowerCase();
-        const isActive = ['active', 'completed', 'pending', 'trial'].includes(normalized);
+        const isPaidOrActive = ['active', 'completed', 'approved', 'paid', 'success', 'trial'].includes(normalized);
+        const isPending = ['pending', 'waiting', 'waiting_payment', 'processing', 'pix_pending'].includes(normalized);
+        const renewAt = isPaidOrActive
+          ? new Date(createdAt.getTime() + mapFrequencyToDays(link.frequencyType) * 86400000)
+          : null;
+
+        const statusLabel = isPaidOrActive ? 'Ativo' : isPending ? 'Pendente' : 'Inativo';
         return {
           id: sub.id,
           nome: sub.customerName,
@@ -648,7 +653,7 @@ export class AdminController {
           telefone: sub.customerPhone,
           dataAssinatura: createdAt,
           dataRenovacao: renewAt,
-          status: isActive ? 'Ativo' : 'Inativo',
+          status: statusLabel,
         };
       });
     });
