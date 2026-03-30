@@ -1338,8 +1338,12 @@ export class AdminController {
 
     const data = items.map(t => {
       const valorBruto = Number(t.amount);
-      const lucroAdmin = Number((valorBruto * adminMargin - fixedFee - cashbackFee).toFixed(2));
-      const valorLiquido = t.netAmount ? Number(t.netAmount) : Number((valorBruto * liquidityFactor).toFixed(2));
+      const isCompleted = t.status === 'COMPLETED';
+
+      const lucroAdmin = isCompleted ? Number((valorBruto * adminMargin - fixedFee - cashbackFee).toFixed(2)) : 0;
+      const valorLiquido = isCompleted 
+        ? (t.netAmount ? Number(t.netAmount) : Number((valorBruto * liquidityFactor).toFixed(2)))
+        : 0;
 
       return {
         id: t.id,
@@ -1347,8 +1351,12 @@ export class AdminController {
         valorLiquido: valorLiquido,
         lucroAdmin: lucroAdmin,
         calculos: {
-          valorLiquido: `${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)} = ${valorLiquido.toFixed(2)}`,
-          lucroAdmin: `(${valorBruto.toFixed(2)} * ${(1 - liquidityFactor).toFixed(2)}) - ${fixedFee.toFixed(2)} - ${cashbackFee.toFixed(2)} = ${lucroAdmin.toFixed(2)}`
+          valorLiquido: isCompleted 
+            ? `${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)} = ${valorLiquido.toFixed(2)}`
+            : "Aguardando confirmação do pagamento",
+          lucroAdmin: isCompleted
+            ? `(${valorBruto.toFixed(2)} * ${(1 - liquidityFactor).toFixed(2)}) - ${fixedFee.toFixed(2)} - ${cashbackFee.toFixed(2)} = ${lucroAdmin.toFixed(2)}`
+            : "Aguardando confirmação do pagamento"
         },
         status: t.status,
         metodoPagamento: t.paymentMethod,
