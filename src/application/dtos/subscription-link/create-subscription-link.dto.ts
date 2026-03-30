@@ -7,8 +7,19 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
   Min,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+function normalizeOptionalUrl(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^[\w.-]+\.[a-z]{2,}([/:?#].*)?$/i.test(trimmed)) return `https://${trimmed}`;
+  return trimmed;
+}
 
 export type FrequencyTypeDto = 'MENSAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
 
@@ -41,10 +52,14 @@ export class CreateSubscriptionLinkDto {
   platformFee?: number;
 
   @IsString()
+  @Transform(({ value }) => normalizeOptionalUrl(value))
+  @IsUrl({ require_protocol: true })
   @IsOptional()
   redirectUrl?: string;
 
   @IsString()
+  @Transform(({ value }) => normalizeOptionalUrl(value))
+  @IsUrl({ require_protocol: true })
   @IsOptional()
   webhookUrl?: string;
 

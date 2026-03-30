@@ -632,10 +632,27 @@ export class ApiDomClient implements IPaymentGateway {
       trial_period_days: 0,
       retry_days: input.retry_days ?? 3,
     };
-    if (input.webhookUrl) body.postbackurl = input.webhookUrl;
-    const res = await firstValueFrom(this.http.post<any>(url, body, {
-      headers: { 'Authorization': `Bearer ${domToken}`, 'Content-Type': 'application/json' },
-    }));
+    // NOTE:
+    // `postbackurl` e `redirectUrl` nao fazem parte do payload de criacao do plano
+    // de recorrencia na DOM para este fluxo. Quando enviados, podem causar 400.
+    // Esses campos continuam armazenados localmente no link/plano.
+    let res: any;
+    try {
+      res = await firstValueFrom(this.http.post<any>(url, body, {
+        headers: { 'Authorization': `Bearer ${domToken}`, 'Content-Type': 'application/json' },
+      }));
+    } catch (err) {
+      const ax = err as AxiosError<{ msg?: string; message?: string; error?: string }>;
+      if (ax?.isAxiosError === true && ax.response?.data) {
+        const data = ax.response.data as Record<string, unknown>;
+        const msg =
+          (typeof data.msg === 'string' && data.msg) ||
+          (typeof data.message === 'string' && data.message) ||
+          (typeof data.error === 'string' && data.error);
+        if (msg) throw new BadRequestException(msg);
+      }
+      throw err;
+    }
     this.logger.log(`[DOM Create Plan RAW] ${JSON.stringify(res.data)}`);
     const mapped = this.mapPlan(this.getObject(res.data?.data ?? res.data));
     if (!mapped) throw new Error('Invalid plan response');
