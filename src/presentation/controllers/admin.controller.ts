@@ -637,9 +637,26 @@ export class AdminController {
     if (!body?.linkId) throw new BadRequestException('linkId é obrigatório');
 
     if (body.type === 'SUBSCRIPTION_LINK') {
+      const rawLinkId = body.linkId.trim();
+      const link = await this.prisma.subscriptionLink.findFirst({
+        where: {
+          OR: [
+            { id: rawLinkId },
+            { code: rawLinkId },
+            { domPlanId: rawLinkId },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!link) {
+        throw new BadRequestException(
+          'Link de assinatura não encontrado. Informe o ID interno, código do link ou domPlanId.',
+        );
+      }
+
       const result = await this.communities.bindSubscriptionLinkManually({
         communityId,
-        subscriptionLinkId: body.linkId,
+        subscriptionLinkId: link.id,
       });
       return { data: result };
     }
