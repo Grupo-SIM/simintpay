@@ -2,11 +2,13 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
 import type { ISubscriptionLinkRepository } from '../../../core/repositories/subscription-link.repository.interface';
 import type { UpdateSubscriptionLinkDto } from '../../dtos/subscription-link/update-subscription-link.dto';
+import { CommunityManagementService } from '../../services/community-management.service';
 
 @Injectable()
 export class UpdateSubscriptionLinkUseCase {
   constructor(
     @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
+    private readonly communities: CommunityManagementService,
   ) {}
 
   async execute(input: { userId: string; role?: string; id: string; dto: UpdateSubscriptionLinkDto }) {
@@ -24,6 +26,12 @@ export class UpdateSubscriptionLinkUseCase {
       redirectUrl: input.dto.redirectUrl ?? existing.redirectUrl,
       webhookUrl: input.dto.webhookUrl ?? existing.webhookUrl,
       maxUses: input.dto.maxUses ?? existing.maxUses,
+    });
+
+    await this.communities.ensureAutomaticBindingForSubscriptionLink({
+      subscriptionLinkId: updated.id,
+      linkName: updated.name,
+      linkDescription: updated.description,
     });
 
     return {

@@ -9,6 +9,7 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import type { CreateSubscriptionLinkDto, FrequencyTypeDto } from '../../dtos/subscription-link/create-subscription-link.dto';
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { CommunityManagementService } from '../../services/community-management.service';
 
 function mapFrequency(f: FrequencyTypeDto): {
   planType: PlanType;
@@ -29,6 +30,7 @@ export class CreateSubscriptionLinkUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
+    private readonly communities: CommunityManagementService,
   ) {}
 
   async execute(input: { userId: string; role?: string; dto: CreateSubscriptionLinkDto }) {
@@ -81,6 +83,12 @@ export class CreateSubscriptionLinkUseCase {
       webhookUrl: input.dto.webhookUrl ?? null,
       maxUses: input.dto.maxUses ?? null,
       domPlanId: domPlan.id,
+    });
+
+    await this.communities.ensureAutomaticBindingForSubscriptionLink({
+      subscriptionLinkId: saved.id,
+      linkName: saved.name,
+      linkDescription: saved.description,
     });
 
     return {

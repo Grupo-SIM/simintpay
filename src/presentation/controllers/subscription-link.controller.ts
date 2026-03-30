@@ -19,6 +19,7 @@ import { DeleteSubscriptionLinkUseCase } from '../../application/use-cases/subsc
 import { CheckoutSubscriptionLinkCardUseCase } from '../../application/use-cases/subscription-link/checkout-subscription-link-card.use-case';
 import { CheckoutSubscriptionLinkPixUseCase } from '../../application/use-cases/subscription-link/checkout-subscription-link-pix.use-case';
 import { ListSubscriptionLinkOrdersUseCase } from '../../application/use-cases/subscription-link/list-subscription-link-orders.use-case';
+import { SendSubscriptionLinkAccessEmailUseCase } from '../../application/use-cases/subscription-link/send-access-email.use-case';
 
 @Controller('links-assinatura')
 @ApiTags('Links de Assinatura')
@@ -32,6 +33,7 @@ export class SubscriptionLinkController {
     private readonly checkoutCardUC: CheckoutSubscriptionLinkCardUseCase,
     private readonly checkoutPixUC: CheckoutSubscriptionLinkPixUseCase,
     private readonly listOrdersUC: ListSubscriptionLinkOrdersUseCase,
+    private readonly sendAccessEmailUC: SendSubscriptionLinkAccessEmailUseCase,
   ) {}
 
   // ── Rotas públicas ──────────────────────────────────────────────────────────
@@ -58,6 +60,15 @@ export class SubscriptionLinkController {
     @Body() dto: CheckoutSubscriptionLinkPixDto,
   ) {
     return this.checkoutPixUC.execute({ code, dto });
+  }
+
+  @Post('orders/:orderId/send-access-email')
+  @ApiOperation({ summary: 'Enviar e-mail de acesso ao conteúdo após assinatura' })
+  async sendAccessEmail(
+    @Param('orderId') orderId: string,
+    @Body() body: { email?: string },
+  ) {
+    return this.sendAccessEmailUC.execute({ orderId, customerEmail: body.email });
   }
 
   // ── Rotas autenticadas ──────────────────────────────────────────────────────

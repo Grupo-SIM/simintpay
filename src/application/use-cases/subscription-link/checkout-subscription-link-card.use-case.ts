@@ -7,6 +7,7 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { CheckoutSubscriptionLinkCardDto } from '../../dtos/subscription-link/checkout-subscription-link.dto';
 import { getModuleDomToken } from '../../../modules/module.registry';
+import { CommunityManagementService } from '../../services/community-management.service';
 
 @Injectable()
 export class CheckoutSubscriptionLinkCardUseCase {
@@ -14,6 +15,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
     @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly communities: CommunityManagementService,
   ) {}
 
   async execute(input: { code: string; dto: CheckoutSubscriptionLinkCardDto }) {
@@ -68,6 +70,20 @@ export class CheckoutSubscriptionLinkCardUseCase {
     });
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });
+
+    const binding = await this.communities.ensureAutomaticBindingForSubscriptionLink({
+      subscriptionLinkId: link.id,
+      linkName: link.name,
+      linkDescription: link.description,
+    });
+    await this.communities.activateOrRenewCommunityAccess({
+      communityId: binding.id,
+      userId: link.userId,
+      frequencyType: link.frequencyType,
+      paymentMethod: 'CREDIT_CARD',
+      amountCharged,
+      subscriptionLinkOrderId: order.id,
+    });
 
     return {
       id: order.id,

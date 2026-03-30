@@ -7,6 +7,7 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { CheckoutSubscriptionLinkPixDto } from '../../dtos/subscription-link/checkout-subscription-link.dto';
 import { getModuleDomToken } from '../../../modules/module.registry';
+import { CommunityManagementService } from '../../services/community-management.service';
 
 @Injectable()
 export class CheckoutSubscriptionLinkPixUseCase {
@@ -14,6 +15,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
     @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly communities: CommunityManagementService,
   ) {}
 
   async execute(input: { code: string; dto: CheckoutSubscriptionLinkPixDto }) {
@@ -70,6 +72,20 @@ export class CheckoutSubscriptionLinkPixUseCase {
     });
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });
+
+    const community = await this.communities.ensureAutomaticBindingForSubscriptionLink({
+      subscriptionLinkId: link.id,
+      linkName: link.name,
+      linkDescription: link.description,
+    });
+    await this.communities.registerPendingPix({
+      communityId: community.id,
+      userId: link.userId,
+      frequencyType: link.frequencyType,
+      paymentMethod: 'PIX',
+      amountCharged,
+      subscriptionLinkOrderId: order.id,
+    });
 
     return {
       id: order.id,

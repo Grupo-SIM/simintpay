@@ -44,6 +44,7 @@ export class GetPublicSubscriptionLinkUseCase {
       isStandalone: link.isStandalone,
       frequencia: mapFrequencyLabel(link.frequencyType),
       ativo: link.isActive,
+      redirectUrl: link.redirectUrl ?? null,
       aceitaCartao: true,
       aceitaPix: true,
     };

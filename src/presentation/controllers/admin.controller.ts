@@ -3,6 +3,7 @@ import {
   ConflictException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   Inject,
@@ -50,6 +51,7 @@ import { RevalidaSyncService } from '../../modules/revalida/services/revalida-sy
 import { HASH_SERVICE, type IHashService } from '../../core/services/hash.interface';
 import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
 import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositories/wallet.repository.interface';
+import { CommunityManagementService } from '../../application/services/community-management.service';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -141,6 +143,7 @@ export class AdminController {
     private readonly syncMaquinetasUseCase: SyncMaquinetasUseCase,
     private readonly syncDomTransactionsCron: SyncDomTransactionsCron,
     private readonly revalidaSyncService: RevalidaSyncService,
+    private readonly communities: CommunityManagementService,
     private readonly storageService: StorageService,
     private readonly prisma: PrismaService,
     @Inject(HASH_SERVICE) private readonly hashService: IHashService,
@@ -255,6 +258,272 @@ export class AdminController {
       },
       message: 'Conta do cliente criada com sucesso (Conta Avulsa)',
     };
+  }
+
+  @Get('users')
+  @ApiOperation({ summary: 'Listar usuários para autocomplete (admin master)' })
+  @ApiQuery({ name: 'search', required: false, description: 'Prefixo do e-mail' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'pageSize', required: false, example: 20 })
+  async listUsers(
+    @Query('search') search = '',
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+    @CurrentUser() authUser?: JwtPayload,
+  ) {
+    if (authUser?.sub) {
+      const requester = await this.prisma.user.findUnique({
+        where: { id: authUser.sub },
+        include: { tenantModule: true },
+      });
+      const requesterIsAdmin = requester?.role === 'ADMIN';
+      const requesterIsMaster = (requester?.tenantModule?.slug ?? '').toLowerCase().includes('master');
+      if (!requesterIsAdmin || !requesterIsMaster) {
+        throw new ForbiddenException('Somente admin do módulo master pode consultar usuários');
+      }
+    }
+
+    const pageNum = Math.max(1, Number(page));
+    const size = Math.min(Math.max(1, Number(pageSize)), 50);
+    const term = (search ?? '').trim();
+
+    const where = term
+      ? {
+        email: {
+          startsWith: term,
+          mode: 'insensitive' as const,
+        },
+      }
+      : {};
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        orderBy: { email: 'asc' },
+        skip: (pageNum - 1) * size,
+        take: size,
+        select: {
+          id: true,
+          email: true,
+          cpf: true,
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: users,
+      page: pageNum,
+      pageSize: size,
+      total,
+    };
+  }
+
+  // ──────────── COMUNIDADES ────────────
+
+  @Get('comunidades')
+  @ApiOperation({ summary: 'Listar comunidades (automáticas e manuais)' })
+  async listComunidades(
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+    @Query('search') search = '',
+  ) {
+    const pageNum = Math.max(1, Number(page));
+    const size = Math.min(Math.max(1, Number(pageSize)), 100);
+    const where = search.trim()
+      ? {
+          OR: [
+            { name: { contains: search.trim(), mode: 'insensitive' as const } },
+            { slug: { contains: search.trim(), mode: 'insensitive' as const } },
+          ],
+        }
+      : {};
+
+    const [items, total] = await Promise.all([
+      this.prisma.community.findMany({
+        where,
+        include: {
+          _count: {
+            select: { bindings: true, accesses: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (pageNum - 1) * size,
+        take: size,
+      }),
+      this.prisma.community.count({ where }),
+    ]);
+
+    return { data: items, page: pageNum, pageSize: size, total };
+  }
+
+  @Post('comunidades')
+  @ApiOperation({ summary: 'Criar comunidade manualmente' })
+  async createComunidade(
+    @Body() body: { name: string; slug?: string; description?: string; isActive?: boolean },
+  ) {
+    const name = body.name?.trim();
+    if (!name) throw new BadRequestException('Nome da comunidade é obrigatório');
+    const slugBase = (body.slug ?? name).trim().toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!slugBase) throw new BadRequestException('Slug inválido');
+
+    const created = await this.prisma.community.create({
+      data: {
+        name,
+        slug: slugBase,
+        description: body.description?.trim() || null,
+        source: 'MANUAL',
+        isActive: body.isActive ?? true,
+      },
+    });
+    return { data: created };
+  }
+
+  @Put('comunidades/:id')
+  @ApiOperation({ summary: 'Atualizar comunidade' })
+  async updateComunidade(
+    @Param('id') id: string,
+    @Body() body: { name?: string; description?: string; isActive?: boolean },
+  ) {
+    const existing = await this.prisma.community.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Comunidade não encontrada');
+    const updated = await this.prisma.community.update({
+      where: { id },
+      data: {
+        name: body.name?.trim() || existing.name,
+        description: body.description?.trim() ?? existing.description,
+        isActive: body.isActive ?? existing.isActive,
+      },
+    });
+    return { data: updated };
+  }
+
+  @Get('comunidades/:id/resumo')
+  @ApiOperation({ summary: 'Resumo da comunidade: status, dias e métricas' })
+  async comunidadeResumo(@Param('id') id: string) {
+    const community = await this.prisma.community.findUnique({
+      where: { id },
+      include: {
+        bindings: true,
+        accesses: true,
+        _count: {
+          select: {
+            accesses: true,
+            events: true,
+          },
+        },
+      },
+    });
+    if (!community) throw new NotFoundException('Comunidade não encontrada');
+
+    const now = new Date();
+    const activeAccesses = community.accesses.filter(a => a.isActive && a.expiresAt > now);
+    const expiredAccesses = community.accesses.filter(a => !a.isActive || a.expiresAt <= now);
+    const minDays = activeAccesses.length
+      ? Math.min(
+          ...activeAccesses.map(a => Math.max(0, Math.floor((a.expiresAt.getTime() - now.getTime()) / 86400000))),
+        )
+      : 0;
+
+    return {
+      data: {
+        id: community.id,
+        name: community.name,
+        slug: community.slug,
+        source: community.source,
+        isActive: community.isActive,
+        bindings: community.bindings.length,
+        accessesTotal: community._count.accesses,
+        accessesActive: activeAccesses.length,
+        accessesExpired: expiredAccesses.length,
+        minDaysRemaining: minDays,
+      },
+    };
+  }
+
+  @Get('comunidades/:id/assinantes')
+  @ApiOperation({ summary: 'Listar assinantes/acessos da comunidade' })
+  async comunidadeAssinantes(
+    @Param('id') id: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    const pageNum = Math.max(1, Number(page));
+    const size = Math.min(Math.max(1, Number(pageSize)), 100);
+
+    const [rows, total] = await Promise.all([
+      this.prisma.communityAccess.findMany({
+        where: { communityId: id },
+        include: {
+          user: { select: { id: true, name: true, email: true, cpf: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        skip: (pageNum - 1) * size,
+        take: size,
+      }),
+      this.prisma.communityAccess.count({ where: { communityId: id } }),
+    ]);
+
+    const now = Date.now();
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        userId: row.userId,
+        userName: row.user.name,
+        userEmail: row.user.email,
+        userCpf: row.user.cpf,
+        status: row.status,
+        isActive: row.isActive,
+        daysRemaining: Math.max(0, Math.floor((row.expiresAt.getTime() - now) / 86400000)),
+        startedAt: row.startedAt,
+        expiresAt: row.expiresAt,
+        totalDaysCredited: row.totalDaysCredited,
+      })),
+      page: pageNum,
+      pageSize: size,
+      total,
+    };
+  }
+
+  @Post('comunidades/:id/vinculos')
+  @ApiOperation({ summary: 'Vincular link manualmente a uma comunidade' })
+  async bindComunidade(
+    @Param('id') communityId: string,
+    @Body() body: { type: 'SUBSCRIPTION_LINK' | 'PAYMENT_LINK'; linkId: string },
+  ) {
+    const community = await this.prisma.community.findUnique({ where: { id: communityId } });
+    if (!community) throw new NotFoundException('Comunidade não encontrada');
+    if (!body?.linkId) throw new BadRequestException('linkId é obrigatório');
+
+    if (body.type === 'SUBSCRIPTION_LINK') {
+      const result = await this.communities.bindSubscriptionLinkManually({
+        communityId,
+        subscriptionLinkId: body.linkId,
+      });
+      return { data: result };
+    }
+
+    const result = await this.communities.bindPaymentLinkManually({
+      communityId,
+      paymentLinkId: body.linkId,
+    });
+    return { data: result };
+  }
+
+  @Delete('comunidades/:id/vinculos/:bindingId')
+  @ApiOperation({ summary: 'Remover vínculo de comunidade' })
+  async unbindComunidade(
+    @Param('id') communityId: string,
+    @Param('bindingId') bindingId: string,
+  ) {
+    const binding = await this.prisma.communityLinkBinding.findFirst({
+      where: { id: bindingId, communityId },
+    });
+    if (!binding) throw new NotFoundException('Vínculo não encontrado');
+    await this.communities.unbind(bindingId);
+    return { success: true };
   }
 
   @Post('sync-transactions')

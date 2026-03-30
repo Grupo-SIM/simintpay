@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { SyncDomTransactionsCron } from '../infrastructure/cron/sync-dom-transactions.cron';
 import { SyncMaquinetasCron } from '../infrastructure/cron/sync-maquinetas.cron';
+import { CommunityAccessCron } from '../infrastructure/cron/community-access.cron';
 import { AdminController } from './controllers/admin.controller';
 import { ListLeadsUseCase } from '../application/use-cases/admin/list-leads.use-case';
 import { ApproveLeadUseCase } from '../application/use-cases/admin/approve-lead.use-case';
@@ -28,6 +29,7 @@ import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { EmailService } from '../infrastructure/email/email.service';
 import { ModuleRealtimeModule } from '../infrastructure/realtime/module-realtime.module';
 import { RevalidaModule } from '../modules/revalida/revalida.module';
+import { CommunityManagementService } from '../application/services/community-management.service';
 
 @Module({
   imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule],
@@ -35,6 +37,7 @@ import { RevalidaModule } from '../modules/revalida/revalida.module';
   providers: [
     SyncDomTransactionsCron,
     SyncMaquinetasCron,
+    CommunityAccessCron,
     ListLeadsUseCase,
     ApproveLeadUseCase,
     RejectLeadUseCase,
@@ -49,6 +52,7 @@ import { RevalidaModule } from '../modules/revalida/revalida.module';
     ListDomTransactionsDirectUseCase,
     SyncMaquinetasUseCase,
     EmailService,
+    CommunityManagementService,
     { provide: LEAD_REPOSITORY, useClass: PrismaLeadRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: WALLET_REPOSITORY, useClass: PrismaWalletRepository },

@@ -13,6 +13,9 @@ import { DeleteSubscriptionLinkUseCase } from '../application/use-cases/subscrip
 import { CheckoutSubscriptionLinkCardUseCase } from '../application/use-cases/subscription-link/checkout-subscription-link-card.use-case';
 import { CheckoutSubscriptionLinkPixUseCase } from '../application/use-cases/subscription-link/checkout-subscription-link-pix.use-case';
 import { ListSubscriptionLinkOrdersUseCase } from '../application/use-cases/subscription-link/list-subscription-link-orders.use-case';
+import { SendSubscriptionLinkAccessEmailUseCase } from '../application/use-cases/subscription-link/send-access-email.use-case';
+import { CommunityManagementService } from '../application/services/community-management.service';
+import { EmailService } from '../infrastructure/email/email.service';
 
 @Module({
   imports: [ApiDomModule],
@@ -28,6 +31,9 @@ import { ListSubscriptionLinkOrdersUseCase } from '../application/use-cases/subs
     CheckoutSubscriptionLinkCardUseCase,
     CheckoutSubscriptionLinkPixUseCase,
     ListSubscriptionLinkOrdersUseCase,
+    SendSubscriptionLinkAccessEmailUseCase,
+    CommunityManagementService,
+    EmailService,
   ],
 })
 export class SubscriptionLinkModule {}
