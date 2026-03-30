@@ -486,7 +486,9 @@ export class AdminController {
     });
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
-    const tagByUserId = new Map(CONSOLIDADO_PLATFORMS.map((p) => [p.id, p.tag]));
+    const tagByUserId = new Map<string, string>(
+      CONSOLIDADO_PLATFORMS.map((p) => [p.id, p.tag]),
+    );
 
     const [total, items] = await Promise.all([
       this.prisma.transaction.count({ where }),
