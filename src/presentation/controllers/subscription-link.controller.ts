@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards,
+  Body, Controller, Delete, Get, NotFoundException, Param, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
@@ -20,6 +20,7 @@ import { CheckoutSubscriptionLinkCardUseCase } from '../../application/use-cases
 import { CheckoutSubscriptionLinkPixUseCase } from '../../application/use-cases/subscription-link/checkout-subscription-link-pix.use-case';
 import { ListSubscriptionLinkOrdersUseCase } from '../../application/use-cases/subscription-link/list-subscription-link-orders.use-case';
 import { SendSubscriptionLinkAccessEmailUseCase } from '../../application/use-cases/subscription-link/send-access-email.use-case';
+import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 
 @Controller('links-assinatura')
 @ApiTags('Links de Assinatura')
@@ -34,6 +35,7 @@ export class SubscriptionLinkController {
     private readonly checkoutPixUC: CheckoutSubscriptionLinkPixUseCase,
     private readonly listOrdersUC: ListSubscriptionLinkOrdersUseCase,
     private readonly sendAccessEmailUC: SendSubscriptionLinkAccessEmailUseCase,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ── Rotas públicas ──────────────────────────────────────────────────────────
@@ -60,6 +62,17 @@ export class SubscriptionLinkController {
     @Body() dto: CheckoutSubscriptionLinkPixDto,
   ) {
     return this.checkoutPixUC.execute({ code, dto });
+  }
+
+  @Get('orders/:orderId/status')
+  @ApiOperation({ summary: 'Verificar status de um pedido (polling PIX)' })
+  async getOrderStatus(@Param('orderId') orderId: string) {
+    const order = await this.prisma.subscriptionLinkOrder.findUnique({
+      where: { id: orderId },
+      select: { id: true, status: true, subscriptionLink: { select: { redirectUrl: true } } },
+    });
+    if (!order) throw new NotFoundException('Pedido não encontrado');
+    return { status: order.status, redirectUrl: order.subscriptionLink?.redirectUrl ?? null };
   }
 
   @Post('orders/:orderId/send-access-email')

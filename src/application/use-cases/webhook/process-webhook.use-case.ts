@@ -6,6 +6,8 @@ import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.r
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
 import { PixPlanService } from '../pix-plan/pix-plan.service';
+import { CommunityManagementService } from '../../services/community-management.service';
+import { EmailService } from '../../../infrastructure/email/email.service';
 
 import type { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
 import type { IWebhookEventRepository } from '../../../core/repositories/webhook-event.repository.interface';
@@ -48,6 +50,8 @@ export class ProcessWebhookUseCase {
     private readonly prisma: PrismaService,
     private readonly renovadaEvents: RenovadaEventsService,
     @Optional() private readonly pixPlanService?: PixPlanService,
+    @Optional() private readonly communities?: CommunityManagementService,
+    @Optional() private readonly emailService?: EmailService,
   ) {}
 
   private getObject(v: unknown): Record<string, unknown> | null {
@@ -186,6 +190,10 @@ export class ProcessWebhookUseCase {
       let trx = await this.transactions.findByDomPaymentId(domPaymentId);
 
       if (!trx) {
+        // Check if this is a subscription link PIX payment
+        const handled = await this.handleSubscriptionLinkPix(domPaymentId, parsed.data.status, event.id);
+        if (handled) return;
+
         this.logger.log(`[WEBHOOK] Transaction ${domPaymentId} not found, ignoring because we cannot determine the tenant user.`);
         return;
       }
@@ -351,5 +359,94 @@ export class ProcessWebhookUseCase {
         e instanceof Error ? e.message : 'unknown error',
       );
     }
+  }
+
+  private async handleSubscriptionLinkPix(
+    domPixPaymentId: string,
+    domStatus: string,
+    eventId: string,
+  ): Promise<boolean> {
+    const order = await this.prisma.subscriptionLinkOrder.findFirst({
+      where: { domPixPaymentId },
+      include: {
+        subscriptionLink: true,
+      },
+    });
+
+    if (!order) return false;
+
+    this.logger.log(`[WEBHOOK] Found SubscriptionLinkOrder ${order.id} for domPixPaymentId ${domPixPaymentId}, status=${domStatus}`);
+
+    if (domStatus !== 'paid') {
+      // Update order status for other statuses (expired, failed, etc.)
+      const statusMap: Record<string, string> = {
+        expired: 'expired',
+        failed: 'failed',
+        refunded: 'refunded',
+      };
+      const newStatus = statusMap[domStatus];
+      if (newStatus && order.status === 'pending') {
+        await this.prisma.subscriptionLinkOrder.update({
+          where: { id: order.id },
+          data: { status: newStatus },
+        });
+      }
+      await this.events.markProcessed(eventId);
+      return true;
+    }
+
+    // Already processed
+    if (order.status === 'paid') {
+      await this.events.markProcessed(eventId);
+      return true;
+    }
+
+    // Mark order as paid
+    await this.prisma.subscriptionLinkOrder.update({
+      where: { id: order.id },
+      data: { status: 'paid' },
+    });
+
+    // Activate community access
+    if (this.communities) {
+      try {
+        const binding = await this.prisma.communityLinkBinding.findFirst({
+          where: { subscriptionLinkId: order.subscriptionLinkId },
+        });
+
+        if (binding) {
+          await this.communities.activateOrRenewCommunityAccess({
+            communityId: binding.communityId,
+            userId: order.userId,
+            frequencyType: order.subscriptionLink.frequencyType,
+            paymentMethod: 'PIX',
+            amountCharged: Number(order.amountCharged),
+            subscriptionLinkOrderId: order.id,
+          });
+          this.logger.log(`[WEBHOOK] Community access activated for order ${order.id}`);
+        }
+      } catch (err: unknown) {
+        this.logger.error(`[WEBHOOK] Error activating community for order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`);
+      }
+    }
+
+    // Send access email
+    if (this.emailService) {
+      try {
+        await this.emailService.sendSubscriptionAccess({
+          to: order.customerEmail,
+          customerName: order.customerName,
+          linkName: order.subscriptionLink.name,
+          redirectUrl: order.subscriptionLink.redirectUrl ?? null,
+          orderId: order.id,
+        });
+        this.logger.log(`[WEBHOOK] Access email sent to ${order.customerEmail} for order ${order.id}`);
+      } catch (err: unknown) {
+        this.logger.error(`[WEBHOOK] Error sending email for order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`);
+      }
+    }
+
+    await this.events.markProcessed(eventId);
+    return true;
   }
 }

@@ -8,6 +8,7 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import type { CheckoutSubscriptionLinkCardDto } from '../../dtos/subscription-link/checkout-subscription-link.dto';
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { CommunityManagementService } from '../../services/community-management.service';
+import { EmailService } from '../../../infrastructure/email/email.service';
 
 @Injectable()
 export class CheckoutSubscriptionLinkCardUseCase {
@@ -16,6 +17,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly communities: CommunityManagementService,
+    private readonly emailService: EmailService,
   ) {}
 
   async execute(input: { code: string; dto: CheckoutSubscriptionLinkCardDto }) {
@@ -82,19 +84,31 @@ export class CheckoutSubscriptionLinkCardUseCase {
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });
 
-    const binding = await this.communities.ensureAutomaticBindingForSubscriptionLink({
+    const community = await this.communities.ensureAutomaticBindingForSubscriptionLink({
       subscriptionLinkId: link.id,
       linkName: link.name,
       linkDescription: link.description,
     });
     await this.communities.activateOrRenewCommunityAccess({
-      communityId: binding.id,
+      communityId: community.id,
       userId: link.userId,
       frequencyType: link.frequencyType,
       paymentMethod: 'CREDIT_CARD',
       amountCharged,
       subscriptionLinkOrderId: order.id,
     });
+
+    try {
+      await this.emailService.sendSubscriptionAccess({
+        to: input.dto.customerEmail,
+        customerName: input.dto.customerName,
+        linkName: link.name,
+        redirectUrl: link.redirectUrl ?? null,
+        orderId: order.id,
+      });
+    } catch {
+      // Email failure must not block the checkout response
+    }
 
     return {
       id: order.id,
