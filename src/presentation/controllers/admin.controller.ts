@@ -19,7 +19,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { LeadStatus, Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
+import { LeadStatus, PaymentMethod, Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -300,6 +300,50 @@ function buildConsolidadoResumoWhere(
   }
   return where;
 }
+
+/** Todas as transações das contas consolidadas no intervalo (qualquer status). */
+function buildConsolidadoDistribuicaoWhere(
+  dataInicio?: string,
+  dataFim?: string,
+): Prisma.TransactionWhereInput {
+  const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
+  const where: Prisma.TransactionWhereInput = {
+    userId: { in: platformIds },
+  };
+  if (dataInicio || dataFim) {
+    const createdAt: Prisma.DateTimeFilter = {};
+    if (dataInicio) {
+      const d = dayjs.tz(dataInicio, TZ).startOf('day');
+      if (d.isValid()) createdAt.gte = d.toDate();
+    }
+    if (dataFim) {
+      const d = dayjs.tz(dataFim, TZ).endOf('day');
+      if (d.isValid()) createdAt.lte = d.toDate();
+    }
+    if (Object.keys(createdAt).length > 0) {
+      where.createdAt = createdAt;
+    }
+  }
+  return where;
+}
+
+const STATUS_DISTRIBUICAO_LABELS: Record<TransactionStatus, string> = {
+  DRAFT: 'Rascunho',
+  PENDING: 'Pendente',
+  COMPLETED: 'Completo',
+  FAILED: 'Não autorizado',
+  REFUNDED: 'Reembolsado',
+  EXPIRED: 'Expirado',
+  IN_MEDIATION: 'Em mediação',
+  CHARGEBACK: 'Chargeback',
+  PENDING_REFUND: 'Reembolso pendente',
+};
+
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  PIX: 'PIX',
+  CREDIT_CARD: 'Cartão de Crédito',
+  DEBIT_CARD: 'Débito',
+};
 
 function masterLogDateFilter(
   dataInicio?: string,
@@ -1148,6 +1192,74 @@ export class AdminController {
     return {
       totalLucroSaque: Number(profitInc._sum.amount || 0),
     };
+  }
+
+  @Get('relatorios/transacoes-por-status')
+  @ApiOperation({
+    summary: 'Distribuição de transações por status (contas consolidadas)',
+    description:
+      'Conta transações das plataformas do consolidado, opcionalmente filtradas por dataInicio/dataFim (America/Sao_Paulo).',
+  })
+  @ApiQuery({ name: 'dataInicio', required: false, example: '2026-03-01' })
+  @ApiQuery({ name: 'dataFim', required: false, example: '2026-03-31' })
+  async getRelatorioTransacoesPorStatus(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    const where = buildConsolidadoDistribuicaoWhere(dataInicio, dataFim);
+    const rows = await this.prisma.transaction.groupBy({
+      by: ['status'],
+      where,
+      _count: { id: true },
+    });
+    const total = rows.reduce((s, r) => s + r._count.id, 0);
+    const items = rows
+      .map((r) => {
+        const quantidade = r._count.id;
+        const percentual = total > 0 ? Number(((quantidade / total) * 100).toFixed(2)) : 0;
+        return {
+          codigo: r.status,
+          nome: STATUS_DISTRIBUICAO_LABELS[r.status] ?? r.status,
+          quantidade,
+          percentual,
+        };
+      })
+      .sort((a, b) => b.quantidade - a.quantidade);
+    return { total, items };
+  }
+
+  @Get('relatorios/transacoes-por-metodo')
+  @ApiOperation({
+    summary: 'Distribuição de transações por método de pagamento (contas consolidadas)',
+    description:
+      'Conta transações das plataformas do consolidado, opcionalmente filtradas por dataInicio/dataFim (America/Sao_Paulo).',
+  })
+  @ApiQuery({ name: 'dataInicio', required: false, example: '2026-03-01' })
+  @ApiQuery({ name: 'dataFim', required: false, example: '2026-03-31' })
+  async getRelatorioTransacoesPorMetodo(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    const where = buildConsolidadoDistribuicaoWhere(dataInicio, dataFim);
+    const rows = await this.prisma.transaction.groupBy({
+      by: ['paymentMethod'],
+      where,
+      _count: { id: true },
+    });
+    const total = rows.reduce((s, r) => s + r._count.id, 0);
+    const items = rows
+      .map((r) => {
+        const quantidade = r._count.id;
+        const percentual = total > 0 ? Number(((quantidade / total) * 100).toFixed(2)) : 0;
+        return {
+          codigo: r.paymentMethod,
+          nome: PAYMENT_METHOD_LABELS[r.paymentMethod] ?? r.paymentMethod,
+          quantidade,
+          percentual,
+        };
+      })
+      .sort((a, b) => b.quantidade - a.quantidade);
+    return { total, items };
   }
 
   @Post('comunidades')
