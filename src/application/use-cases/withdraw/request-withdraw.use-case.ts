@@ -134,26 +134,10 @@ export class RequestWithdrawUseCase {
 
     const availableBalanceGross = walletBalance.sub(walletLocked);
 
-    const fatorRenovada = new Prisma.Decimal(
-      renovadaConfig?.saque.fatorLiquidez ?? process.env.RENOVADA_LIQUIDEZ ?? 0.91,
-    );
+    /** dto.valor = valor bruto do saque (ex.: 100). Taxa sobre o bruto; líquido PIX = bruto − taxa (ex.: 98). */
+    const requestedGross = new Prisma.Decimal(dto.valor);
 
-    /** Renovada: dto.valor = compromisso em saldo líquido (net); lock na wallet em bruto = valor/fator */
-    const valorLiquidoComprometido = new Prisma.Decimal(dto.valor);
-    const grossToLockRenovada = isRenovada
-      ? valorLiquidoComprometido.div(fatorRenovada)
-      : new Prisma.Decimal(0);
-    const requestedGross = isRenovada ? grossToLockRenovada : new Prisma.Decimal(dto.valor);
-
-    if (isRenovada) {
-      const availableGross = walletBalance.sub(walletLocked);
-      const availableNet = availableGross.mul(fatorRenovada);
-      if (valorLiquidoComprometido.toDP(2).gt(availableNet.toDP(2))) {
-        throw new UnprocessableEntityException(
-          `Saldo insuficiente para realizar o saque de R$ ${valorLiquidoComprometido.toFixed(2).replace('.', ',')} (líquido). Seu saldo líquido disponível é R$ ${availableNet.toFixed(2).replace('.', ',')}`,
-        );
-      }
-    } else if (requestedGross.toDP(2).gt(availableBalanceGross.toDP(2))) {
+    if (requestedGross.toDP(2).gt(availableBalanceGross.toDP(2))) {
       throw new UnprocessableEntityException(
         `Saldo insuficiente para realizar o saque de R$ ${requestedGross.toFixed(2).replace('.', ',')}. Seu saldo disponível é R$ ${availableBalanceGross.toFixed(2).replace('.', ',')}`,
       );

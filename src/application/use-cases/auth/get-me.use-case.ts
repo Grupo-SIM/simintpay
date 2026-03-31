@@ -63,22 +63,24 @@ export class GetMeUseCase {
     };
 
     if (useRenovadaWalletLedger) {
-      // Alinhado a POST /admin/sync/sync-wallet-renovada: balance na wallet é bruto;
-      // net exibido = bruto * fator (mesmo RENOVADA_LIQUIDEZ do admin). Cron e saques ajustam a wallet incrementalmente.
+      // Saldo total líquido = bruto na wallet * fator (sync/cron). Saque: pendente = soma grossAmount (valor solicitado), disponível = total líquido − pendente (sem fator no desconto).
       const fatorRenovada =
         getModuleConfig('renovada')?.saque?.fatorLiquidez ??
         Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
       const storedGross = Number(wallet.balance);
-      const lockedGross = Number(wallet.lockedBalance);
-      const availableGross = Math.max(0, storedGross - lockedGross);
+      const activeAggr = await this.prisma.withdrawRequest.aggregate({
+        where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } },
+        _sum: { grossAmount: true },
+      });
+      const pendingBruto = Number(activeAggr._sum.grossAmount || 0);
       const totalNet = storedGross * fatorRenovada;
-      const lockedNet = lockedGross * fatorRenovada;
-      const availableNet = availableGross * fatorRenovada;
+      const availableNet = Math.max(0, totalNet - pendingBruto);
+      const r2 = (n: number) => Number(n.toFixed(2));
       walletResp = {
-        balance: Number(totalNet.toFixed(2)),
-        lockedBalance: Number(lockedNet.toFixed(2)),
-        availableBalance: Number(availableNet.toFixed(2)),
-        netBalance: Number(availableNet.toFixed(2)),
+        balance: r2(totalNet),
+        lockedBalance: r2(pendingBruto),
+        availableBalance: r2(availableNet),
+        netBalance: r2(availableNet),
       };
     } else {
       // 1. Busca Transações (Lucro Líquido Real)

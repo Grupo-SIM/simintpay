@@ -62,17 +62,23 @@ export class GetWithdrawSummaryUseCase {
     if (isRenovadaWallet) {
       const fatorRenovada = configResp.fatorLiquidez;
       const storedGross = Number(wallet.balance);
-      const lockedGross = Number(wallet.lockedBalance);
-      const availableNet = Math.max(0, storedGross - lockedGross) * fatorRenovada;
-      const lockedNetDisplay = lockedGross * fatorRenovada;
+      const totalNet = storedGross * fatorRenovada;
+      // Saque em exibição: sem aplicar fator no pendente — desconta do líquido o valor bruto solicitado (100), não locked*fator (91).
+      const pendingBruto = lockedBalanceGross;
+      const availableNet = Math.max(0, totalNet - pendingBruto);
+      const r2 = (n: number) => Number(n.toFixed(2));
 
       return {
-        availableBalance: availableNet,
-        netBalance: String(availableNet),
-        pendingWithdraws: lockedNetDisplay,
-        lockedBalance: lockedNetDisplay,
-        netLockedBalance: String(lockedBalanceNet),
-        config: configResp,
+        availableBalance: r2(availableNet),
+        netBalance: String(r2(availableNet)),
+        pendingWithdraws: r2(pendingBruto),
+        lockedBalance: r2(pendingBruto),
+        netLockedBalance: String(r2(lockedBalanceNet)),
+        config: {
+          minValor: configResp.minValor,
+          taxaFixa: configResp.taxaFixa,
+          taxaPercentual: configResp.taxaPercentual,
+        },
         wallet: {
           id: wallet.id,
           userId: wallet.userId,

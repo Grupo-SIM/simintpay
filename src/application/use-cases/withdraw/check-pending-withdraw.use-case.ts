@@ -13,8 +13,12 @@ export class CheckPendingWithdrawUseCase {
     temPendente: boolean;
     saquePendente: {
       id: string;
+      /** Valor bruto solicitado (ex.: 100) — alinhado a GET /saques e resumo */
       valor: number;
       valorBruto: number;
+      /** Valor líquido a receber após taxa (ex.: 98) */
+      valorLiquido: number;
+      taxa: number;
       criadoEm: string;
     } | null;
   }> {
@@ -25,8 +29,10 @@ export class CheckPendingWithdrawUseCase {
       saquePendente: pending
         ? {
           id: pending.id,
-          valor: Number(pending.amount),
+          valor: Number(pending.grossAmount),
           valorBruto: Number(pending.grossAmount),
+          valorLiquido: Number(pending.amount),
+          taxa: Number(pending.fee),
           criadoEm: pending.createdAt.toISOString(),
         }
         : null,
