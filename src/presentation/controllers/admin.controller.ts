@@ -193,6 +193,26 @@ function buildConsolidadoTransactionWhere(input: ConsolidadoListQuery): Prisma.T
   return where;
 }
 
+/**
+ * Transações COMPLETED que entram em valor bruto consolidado e lucro Simpay.
+ * Exclui bruto ≤ 0 e lançamentos de ajuste/sincronização (não são venda).
+ */
+function transacaoEntraNoLucroSimpayConsolidado(
+  amount: unknown,
+  description: string | null,
+): boolean {
+  const bruto = Number(amount);
+  if (!Number.isFinite(bruto) || bruto <= 0) return false;
+  const d = (description ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (d.includes('sincronizacao de saldo')) return false;
+  if (d.includes('ajuste administrativo')) return false;
+  if (d.includes('balance sync')) return false;
+  return true;
+}
+
 /** Resumo dos cards: só plataformas + COMPLETED + intervalo (ignora filtros de tabela). */
 function buildConsolidadoResumoWhere(
   dataInicio?: string,
@@ -860,13 +880,7 @@ export class AdminController {
     const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim);
 
-    const globalStats = await this.prisma.transaction.aggregate({
-      where: whereResumo,
-      _sum: { amount: true, netAmount: true },
-      _count: { id: true },
-    });
-
-    const txRowsLucro = await this.prisma.transaction.findMany({
+    const txRowsTodas = await this.prisma.transaction.findMany({
       where: whereResumo,
       select: {
         id: true,
@@ -877,6 +891,14 @@ export class AdminController {
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    const txRowsLucro = txRowsTodas.filter((t) =>
+      transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
+    );
+
+    const brutoTotal = Number(
+      txRowsLucro.reduce((s, t) => s + Number(t.amount), 0).toFixed(2),
+    );
 
     const { totalLucroSimpay, plataformas: plataformasLucroDetalhe } =
       buildLucroSimpayDetalhePorPlataforma(txRowsLucro);
@@ -936,8 +958,6 @@ export class AdminController {
       dataFim,
     );
 
-    const brutoTotal = Number(globalStats._sum.amount || 0);
-
     const payload: Record<string, unknown> = {
       valorBruto: brutoTotal,
       valorLiquido: Number(valorLiquidoPlataformas.toFixed(2)),
@@ -960,9 +980,28 @@ export class AdminController {
           })
         : plataformasLucroDetalhe;
 
+      const excluidas = txRowsTodas.filter(
+        (t) => !transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
+      );
+
       payload.lucroSimpayDetalhe = {
         formula:
           'Por transação: lucro = bruto × (1 − LIQUIDEZ_LOJISTA) − TAXA_FIXA_TRANSACAO − TAXA_CASHBACK. LIQUIDEZ_LOJISTA vem do .env (*_LIQUIDEZ, ex. 0,91 → 9% do bruto para o master).',
+        exclusoesDoCalculo: {
+          regra:
+            'Não entram: bruto ≤ 0; ou descrição contendo "Sincronização de Saldo", "Ajuste Administrativo" ou "balance sync" (ajustes internos, não venda).',
+          quantidadeExcluidas: excluidas.length,
+          exemplos: excluidas.slice(0, 30).map((t) => ({
+            id: t.id,
+            createdAt: t.createdAt.toISOString(),
+            bruto: Number(t.amount),
+            descricao: t.description,
+            motivo:
+              Number(t.amount) <= 0 || !Number.isFinite(Number(t.amount))
+                ? 'bruto_zero_ou_invalido'
+                : 'ajuste_ou_sincronizacao',
+          })),
+        },
         periodo: {
           dataInicio: dataInicio ?? null,
           dataFim: dataFim ?? null,
