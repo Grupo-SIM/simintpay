@@ -65,6 +65,13 @@ function extractTerminal(description: string | null | undefined): string {
 }
 
 const PLAN_PLATFORM_CPF_REGEX = /\[CPF:([^\]|]*)\|([^\]]+)\]/;
+const TENANT_EBOOK_TAG = '[TENANT:EBOOK]';
+
+function normalizePlatformTag(tag: string): string {
+  const upper = String(tag || '').toUpperCase();
+  if (upper === 'EBOOKSIM' || upper === 'EBOOK') return 'EBOOK';
+  return upper;
+}
 
 function extractOwnerDocDigitsFromPlanDescription(description: string | null | undefined): string | null {
   const m = (description ?? '').match(PLAN_PLATFORM_CPF_REGEX);
@@ -1826,7 +1833,7 @@ export class AdminController {
     >();
 
     // Plataformas conhecidas para detecção por texto livre (fallback sem formato padrão)
-    const KNOWN_TAGS = ['PAGATG', 'RENOVADA', 'REVALIDA', 'BOSQUE', 'FRENDZ', 'EBOOKSIM'];
+    const KNOWN_TAGS = ['PAGATG', 'RENOVADA', 'REVALIDA', 'BOSQUE', 'FRENDZ', 'EBOOKSIM', 'EBOOK'];
 
     for (const p of plans) {
       const desc = p.description ?? '';
@@ -1836,7 +1843,7 @@ export class AdminController {
       const m = desc.match(PLAN_PLATFORM_CPF_REGEX);
       if (m) {
         const [, cpf, tag] = m;
-        const key = tag.toUpperCase();
+        const key = normalizePlatformTag(tag);
         const existing = map.get(key);
         if (existing) {
           existing.planRows.push(row);
@@ -1854,14 +1861,15 @@ export class AdminController {
       if (!matchedTag) continue;
       const cpfDigits = (desc.match(/\d{11,14}/g) ?? []).find(d => d.length >= 11) ?? '';
       if (!cpfDigits) continue;
+      const normalizedTag = normalizePlatformTag(matchedTag);
 
-      const existing = map.get(matchedTag);
+      const existing = map.get(normalizedTag);
       if (existing) {
         existing.planRows.push(row);
         existing.plansCount++;
         if (p.createdAt < existing.firstSeen) existing.firstSeen = p.createdAt;
       } else {
-        map.set(matchedTag, { tag: matchedTag, cpf: cpfDigits, planRows: [row], plansCount: 1, firstSeen: p.createdAt });
+        map.set(normalizedTag, { tag: normalizedTag, cpf: cpfDigits, planRows: [row], plansCount: 1, firstSeen: p.createdAt });
       }
     }
 
@@ -1884,11 +1892,54 @@ export class AdminController {
       }
     }
 
+    // Garante que EBOOK apareça quando houver transações tagueadas ou contas do módulo ebook
+    if (!map.has('EBOOK')) {
+      const ebookModuleUsers = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
+            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
+          ],
+        },
+        select: { id: true },
+      });
+      const ebookUserIds = ebookModuleUsers.map((u) => u.id);
+
+      const firstEbookTx = await this.prisma.transaction.findFirst({
+        where: {
+          OR: [
+            { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
+            ...(ebookUserIds.length > 0 ? [{ userId: { in: ebookUserIds } }] : []),
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+
+      if (firstEbookTx) {
+        map.set('EBOOK', {
+          tag: 'EBOOK',
+          cpf: '',
+          planRows: ebookUserIds.map((id) => ({ userId: id, description: 'Plataforma Ebook' })),
+          plansCount: 0,
+          firstSeen: firstEbookTx.createdAt,
+        });
+      }
+    }
+
     const result = [];
     for (const v of map.values()) {
       const expandedUserIds = await expandPlatformTransactionUserIds(this.prisma, v.planRows);
 
-      const whereTx: any = { userId: { in: expandedUserIds } };
+      const whereTx: any =
+        v.tag === 'EBOOK'
+          ? {
+              OR: [
+                { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
+                ...(expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
+              ],
+            }
+          : { userId: { in: expandedUserIds } };
       if (v.tag === 'RENOVADA') {
         whereTx.OR = [
           { description: { contains: 'dizimo', mode: 'insensitive' } },
@@ -1897,18 +1948,26 @@ export class AdminController {
           { description: { contains: 'primícia', mode: 'insensitive' } },
           { description: { contains: 'oferta', mode: 'insensitive' } },
         ];
+      } else if (v.tag === 'EBOOK') {
+        whereTx.OR = [
+          { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
+          ...(expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
+          { description: { contains: 'ebook', mode: 'insensitive' } },
+        ];
       }
 
-      const txCounts =
-        expandedUserIds.length > 0
-          ? await this.prisma.transaction.groupBy({
-            by: ['userId'],
-            where: whereTx,
-            _count: true,
-          })
-          : [];
-      const txMap = new Map(txCounts.map((t) => [t.userId, t._count]));
-      const totalTx = expandedUserIds.reduce((sum, uid) => sum + (txMap.get(uid) ?? 0), 0);
+      let totalTx = 0;
+      if (v.tag === 'EBOOK') {
+        totalTx = await this.prisma.transaction.count({ where: whereTx });
+      } else if (expandedUserIds.length > 0) {
+        const txCounts = await this.prisma.transaction.groupBy({
+          by: ['userId'],
+          where: whereTx,
+          _count: true,
+        });
+        const txMap = new Map(txCounts.map((t) => [t.userId, t._count]));
+        totalTx = expandedUserIds.reduce((sum, uid) => sum + (txMap.get(uid) ?? 0), 0);
+      }
       result.push({
         tag: v.tag,
         cpf: v.cpf,
@@ -2027,13 +2086,24 @@ export class AdminController {
     @Query('periodType') periodType?: string,
     @Query('tipoTransacao') tipoTransacao?: string,
   ) {
-    const upperTag = tag.toUpperCase();
+    const upperTag = normalizePlatformTag(tag);
     const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
     let userIds: string[] = [];
 
     if (upperTag === 'RENOVADA') {
       userIds = [RENOVADA_ID];
+    } else if (upperTag === 'EBOOK') {
+      const users = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
+            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
+          ],
+        },
+        select: { id: true },
+      });
+      userIds = users.map((u) => u.id);
     } else {
       const plans = await this.prisma.pixCreditPlan.findMany({
         where: {
@@ -2047,14 +2117,22 @@ export class AdminController {
       userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
     }
 
-    if (userIds.length === 0) return { data: [], page: 1, pageSize: 20, total: 0 };
+    if (upperTag !== 'EBOOK' && userIds.length === 0) return { data: [], page: 1, pageSize: 20, total: 0 };
 
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
 
-    const where: any = {
-      userId: { in: userIds },
-    };
+    const where: any =
+      upperTag === 'EBOOK'
+        ? {
+            OR: [
+              { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
+              ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+            ],
+          }
+        : {
+            userId: { in: userIds },
+          };
 
     const and: any[] = [];
 
