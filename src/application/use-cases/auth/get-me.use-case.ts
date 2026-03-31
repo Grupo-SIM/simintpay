@@ -7,6 +7,8 @@ import { getModuleConfig } from '../../../modules/module.registry';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class GetMeUseCase {
@@ -14,6 +16,7 @@ export class GetMeUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(WALLET_REPOSITORY) private readonly wallets: IWalletRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(input: { userId: string }): Promise<{
@@ -36,19 +39,84 @@ export class GetMeUseCase {
       throw new UnauthorizedException('Usuário não encontrado');
     }
 
-    const wallet = await this.wallets.findByUserId(user.id);
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: user.id },
+    });
+    
     if (!wallet) {
       throw new UnauthorizedException('Wallet não encontrada');
     }
 
-    const balance = Number(wallet.balance);
-    const lockedBalance = Number(wallet.lockedBalance);
-    const availableBalance = balance - lockedBalance;
-
-    // Calcula saldo líquido baseado no módulo do usuário
     const config = getModuleConfig(user.tenantModule?.slug);
     const fatorLiquidez = config?.saque?.fatorLiquidez ?? Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
-    const netBalance = availableBalance * fatorLiquidez;
+
+    const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const slug = (user.tenantModule?.slug || '').toLowerCase();
+    const useRenovadaWalletLedger =
+      slug === 'renovada' || user.id === renovadaId;
+
+    let walletResp: {
+      balance: number;
+      lockedBalance: number;
+      availableBalance: number;
+      netBalance: number;
+    };
+
+    if (useRenovadaWalletLedger) {
+      // Alinhado a POST /admin/sync/sync-wallet-renovada: balance na wallet é bruto;
+      // net exibido = bruto * fator (mesmo RENOVADA_LIQUIDEZ do admin). Cron e saques ajustam a wallet incrementalmente.
+      const fatorRenovada =
+        getModuleConfig('renovada')?.saque?.fatorLiquidez ??
+        Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
+      const storedGross = Number(wallet.balance);
+      const lockedGross = Number(wallet.lockedBalance);
+      const availableGross = Math.max(0, storedGross - lockedGross);
+      const totalNet = storedGross * fatorRenovada;
+      const lockedNet = lockedGross * fatorRenovada;
+      const availableNet = availableGross * fatorRenovada;
+      walletResp = {
+        balance: Number(totalNet.toFixed(2)),
+        lockedBalance: Number(lockedNet.toFixed(2)),
+        availableBalance: Number(availableNet.toFixed(2)),
+        netBalance: Number(availableNet.toFixed(2)),
+      };
+    } else {
+      // 1. Busca Transações (Lucro Líquido Real)
+      const txRows = await this.prisma.transaction.findMany({
+        where: { userId: user.id, status: 'COMPLETED', amount: { gt: 0 } },
+        select: { amount: true, netAmount: true },
+      });
+
+      const totalLiquidProfit = txRows.reduce((s: number, t: { amount: Prisma.Decimal; netAmount: Prisma.Decimal | null }) => {
+        const net = t.netAmount != null ? Number(t.netAmount) : Number(t.amount) * fatorLiquidez;
+        return s + net;
+      }, 0);
+
+      // 2. Busca Saques (Finalizados)
+      const completedAggr = await this.prisma.withdrawRequest.aggregate({
+        where: { userId: user.id, status: 'COMPLETED' },
+        _sum: { grossAmount: true }
+      });
+      const totalCompletedGross = Number(completedAggr._sum.grossAmount || 0);
+
+      // 3. Saques em Processamento (Bloqueados)
+      const activeAggr = await this.prisma.withdrawRequest.aggregate({
+        where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } },
+        _sum: { grossAmount: true }
+      });
+      const lockedBalanceGross = Number(activeAggr._sum.grossAmount || 0);
+
+      // 4. Balanço Final (Modelo Mental do Usuário: Lucro Líquido - Saques Brutos)
+      const currentNetProfit = totalLiquidProfit - totalCompletedGross;
+      const availableBalance = Math.max(0, currentNetProfit - lockedBalanceGross);
+
+      walletResp = {
+        balance: Number(currentNetProfit.toFixed(2)),
+        lockedBalance: Number(lockedBalanceGross.toFixed(2)),
+        availableBalance: Number(availableBalance.toFixed(2)),
+        netBalance: Number(availableBalance.toFixed(2)),
+      };
+    }
 
     const tenant =
       user.tenantModule != null
@@ -66,12 +134,7 @@ export class GetMeUseCase {
             role: user.role,
             isAdmin: user.role === 'ADMIN',
             tenantModule: tenant,
-            wallet: {
-              balance,
-              lockedBalance,
-              availableBalance,
-              netBalance,
-            },
+            wallet: walletResp,
             createdAt: user.createdAt.toISOString(),
           };
         }
@@ -87,12 +150,7 @@ export class GetMeUseCase {
       role: user.role,
       isAdmin: user.role === 'ADMIN',
       tenantModule: tenant,
-      wallet: {
-        balance,
-        lockedBalance,
-        availableBalance,
-        netBalance,
-      },
+      wallet: walletResp,
       createdAt: user.createdAt.toISOString(),
     };
   }

@@ -4,9 +4,8 @@ import {
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
-  BadRequestException,
 } from '@nestjs/common';
-import { Prisma, WithdrawStatus, TransactionStatus } from '@prisma/client';
+import { Prisma, WithdrawStatus } from '@prisma/client';
 import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.repository.interface';
 import { WITHDRAW_REPOSITORY } from '../../../core/repositories/withdraw.repository.interface';
 import { CACHE_SERVICE } from '../../../core/services/cache.interface';
@@ -64,12 +63,19 @@ export class RequestWithdrawUseCase {
 
     // Regras do módulo (ou fallback padrão)
     const moduleSlug = user?.tenantModule?.slug ?? null;
+    const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const isRenovada = moduleSlug === 'renovada' || userId === renovadaId;
     const config = getModuleConfig(moduleSlug);
+    const renovadaConfig = getModuleConfig('renovada');
 
-    const minValor = config?.saque.minValor ?? DEFAULT_MIN_VALOR;
-    const calcularTaxa = config
-      ? (v: number) => config.saque.calcularTaxa(v)
-      : (v: number) => DEFAULT_TAXA_FIXA + v * DEFAULT_TAXA_PERCENT;
+    const minValor = isRenovada
+      ? (renovadaConfig?.saque.minValor ?? DEFAULT_MIN_VALOR)
+      : (config?.saque.minValor ?? DEFAULT_MIN_VALOR);
+    const calcularTaxa = isRenovada && renovadaConfig
+      ? (v: number) => renovadaConfig.saque.calcularTaxa(v)
+      : config
+        ? (v: number) => config.saque.calcularTaxa(v)
+        : (v: number) => DEFAULT_TAXA_FIXA + v * DEFAULT_TAXA_PERCENT;
 
     // Valor mínimo de saque
     if (dto.valor < minValor) {
@@ -123,45 +129,28 @@ export class RequestWithdrawUseCase {
 
     if (!wallet) throw new NotFoundException('Wallet não encontrada');
 
-    const fatorLiquidez = new Prisma.Decimal(config?.saque?.fatorLiquidez ?? (process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91));
     const walletBalance = new Prisma.Decimal(wallet.balance.toString());
     const walletLocked = new Prisma.Decimal(wallet.lockedBalance.toString());
-    
+
     const availableBalanceGross = walletBalance.sub(walletLocked);
-    const availableBalanceNet = availableBalanceGross.mul(fatorLiquidez);
 
-    const requestedGross = new Prisma.Decimal(dto.valor);
+    const fatorRenovada = new Prisma.Decimal(
+      renovadaConfig?.saque.fatorLiquidez ?? process.env.RENOVADA_LIQUIDEZ ?? 0.91,
+    );
 
-    if (moduleSlug === 'renovada') {
-      // Para Renovada: disponível = sum(netAmount) das transações COMPLETED − saques concluídos − locked(líquido)
-      // Consistente com executeRenovadaSummary em get-withdraw-summary.use-case.ts
-      const txRows = await this.prisma.transaction.findMany({
-        where: { userId, status: TransactionStatus.COMPLETED, amount: { gt: 0 } },
-        select: { amount: true, netAmount: true },
-      });
+    /** Renovada: dto.valor = compromisso em saldo líquido (net); lock na wallet em bruto = valor/fator */
+    const valorLiquidoComprometido = new Prisma.Decimal(dto.valor);
+    const grossToLockRenovada = isRenovada
+      ? valorLiquidoComprometido.div(fatorRenovada)
+      : new Prisma.Decimal(0);
+    const requestedGross = isRenovada ? grossToLockRenovada : new Prisma.Decimal(dto.valor);
 
-      const sumNet = txRows.reduce((s, t) => {
-        const net = t.netAmount != null 
-          ? new Prisma.Decimal(t.netAmount.toString()) 
-          : new Prisma.Decimal(t.amount.toString()).mul(fatorLiquidez);
-        return s.add(net);
-      }, new Prisma.Decimal(0));
-
-      const cwAgg = await this.prisma.withdrawRequest.aggregate({
-        where: { userId, status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] } },
-        _sum: { grossAmount: true },
-      });
-
-      // Para Renovada, o que foi sacado (em termos de "direito de saque" bruto) é a soma dos grossAmount
-      const totalWithdrawnGross = new Prisma.Decimal(cwAgg._sum.grossAmount?.toString() ?? '0');
-      const grossLocked = walletLocked;
-      
-      // Saldo bruto disponível na Renovada
-      const availableGross = sumNet.div(fatorLiquidez).sub(totalWithdrawnGross).sub(grossLocked);
-
-      if (requestedGross.toDP(2).gt(availableGross.toDP(2))) {
+    if (isRenovada) {
+      const availableGross = walletBalance.sub(walletLocked);
+      const availableNet = availableGross.mul(fatorRenovada);
+      if (valorLiquidoComprometido.toDP(2).gt(availableNet.toDP(2))) {
         throw new UnprocessableEntityException(
-          `Saldo insuficiente para realizar o saque de R$ ${requestedGross.toFixed(2).replace('.', ',')}. Seu saldo disponível é R$ ${availableGross.toFixed(2).replace('.', ',')}`,
+          `Saldo insuficiente para realizar o saque de R$ ${valorLiquidoComprometido.toFixed(2).replace('.', ',')} (líquido). Seu saldo líquido disponível é R$ ${availableNet.toFixed(2).replace('.', ',')}`,
         );
       }
     } else if (requestedGross.toDP(2).gt(availableBalanceGross.toDP(2))) {
@@ -170,7 +159,7 @@ export class RequestWithdrawUseCase {
       );
     }
 
-    const taxa = new Prisma.Decimal(calcularTaxa(dto.valor));
+    const taxa = new Prisma.Decimal(calcularTaxa(requestedGross.toNumber()));
     const netAmount = requestedGross.sub(taxa);
 
     if (netAmount.lte(0)) {
@@ -179,8 +168,6 @@ export class RequestWithdrawUseCase {
       );
     }
 
-    // O valor bruto é exatamente o que o usuário solicitou.
-    // A taxa é exatamente o retorno de calcularTaxa.
     const grossToDeduct = requestedGross;
     const amountToLock = grossToDeduct;
 

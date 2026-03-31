@@ -46,7 +46,7 @@ export class PrismaWithdrawRepository implements IWithdrawRepository {
     grossAmount: number;
     fee: number;
     pixKey: string;
-    domWithdrawId: string;
+    domWithdrawId?: string | null;
     amountToLock: number;
     currentWalletVersion: number;
   }): Promise<WithdrawRequest> {
@@ -59,7 +59,7 @@ export class PrismaWithdrawRepository implements IWithdrawRepository {
           fee: new Prisma.Decimal(input.fee),
           status: WithdrawStatus.PENDING,
           pixKey: input.pixKey,
-          domWithdrawId: input.domWithdrawId,
+          domWithdrawId: input.domWithdrawId ?? null,
         },
       });
 
