@@ -8,7 +8,7 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { Prisma, WithdrawStatus } from '@prisma/client';
+import { computeUserNetBalance } from '../../helpers/user-platform-net-balance.helper';
 
 @Injectable()
 export class GetMeUseCase {
@@ -47,13 +47,16 @@ export class GetMeUseCase {
       throw new UnauthorizedException('Wallet não encontrada');
     }
 
-    const config = getModuleConfig(user.tenantModule?.slug);
-    const fatorLiquidez = config?.saque?.fatorLiquidez ?? Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
-
-    const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
     const slug = (user.tenantModule?.slug || '').toLowerCase();
+    const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
     const useRenovadaWalletLedger =
       slug === 'renovada' || user.id === renovadaId;
+
+    const netBalance = await computeUserNetBalance(
+      this.prisma,
+      user.id,
+      user.tenantModule?.slug,
+    );
 
     let walletResp: {
       balance: number;
@@ -63,72 +66,65 @@ export class GetMeUseCase {
     };
 
     if (useRenovadaWalletLedger) {
-      // Wallet em bruto * fator = "líquido bruto"; ao aprovar saque debita gross na wallet (−100 bruto ⇒ só −91 no B*fator).
-      // Exibição: saldo líquido total = B*fator + saques já debitados_bruto*(fator−1) = B0*fator − soma(brutos sacados).
-      // Bloqueado só PENDING (ainda não aprovado); APPROVED já debitou e não entra em locked.
       const fatorRenovada =
         getModuleConfig('renovada')?.saque?.fatorLiquidez ??
         Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
       const storedGross = Number(wallet.balance);
+      const pendingAggr = await this.prisma.withdrawRequest.aggregate({
+        where: { userId: user.id, status: 'PENDING' },
+        _sum: { grossAmount: true },
+      });
+      const pendingBruto = Number(pendingAggr._sum.grossAmount || 0);
       const debitedAggr = await this.prisma.withdrawRequest.aggregate({
         where: {
           userId: user.id,
-          status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
+          status: { in: ['APPROVED', 'COMPLETED'] },
         },
         _sum: { grossAmount: true },
       });
       const debitedBruto = Number(debitedAggr._sum.grossAmount || 0);
-      const pendingAggr = await this.prisma.withdrawRequest.aggregate({
-        where: { userId: user.id, status: WithdrawStatus.PENDING },
-        _sum: { grossAmount: true },
-      });
-      const pendingBruto = Number(pendingAggr._sum.grossAmount || 0);
       const rawDisplayTotalNet =
         storedGross * fatorRenovada + debitedBruto * (fatorRenovada - 1);
       const displayTotalNet = Math.max(0, rawDisplayTotalNet);
-      const availableNet = Math.max(0, displayTotalNet - pendingBruto);
       const r2 = (n: number) => Number(n.toFixed(2));
       walletResp = {
         balance: r2(displayTotalNet),
         lockedBalance: r2(pendingBruto),
-        availableBalance: r2(availableNet),
-        netBalance: r2(availableNet),
+        availableBalance: r2(netBalance),
+        netBalance: r2(netBalance),
       };
     } else {
-      // 1. Busca Transações (Lucro Líquido Real)
+      const fatorLiquidez =
+        getModuleConfig(user.tenantModule?.slug)?.saque?.fatorLiquidez ??
+        Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
       const txRows = await this.prisma.transaction.findMany({
         where: { userId: user.id, status: 'COMPLETED', amount: { gt: 0 } },
         select: { amount: true, netAmount: true },
       });
-
-      const totalLiquidProfit = txRows.reduce((s: number, t: { amount: Prisma.Decimal; netAmount: Prisma.Decimal | null }) => {
-        const net = t.netAmount != null ? Number(t.netAmount) : Number(t.amount) * fatorLiquidez;
-        return s + net;
-      }, 0);
-
-      // 2. Busca Saques (Finalizados)
+      const totalLiquidProfit = txRows.reduce(
+        (s, t) =>
+          s +
+          (t.netAmount != null
+            ? Number(t.netAmount)
+            : Number(t.amount) * fatorLiquidez),
+        0,
+      );
       const completedAggr = await this.prisma.withdrawRequest.aggregate({
         where: { userId: user.id, status: 'COMPLETED' },
-        _sum: { grossAmount: true }
+        _sum: { grossAmount: true },
       });
       const totalCompletedGross = Number(completedAggr._sum.grossAmount || 0);
-
-      // 3. Saques em Processamento (Bloqueados)
       const activeAggr = await this.prisma.withdrawRequest.aggregate({
         where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } },
-        _sum: { grossAmount: true }
+        _sum: { grossAmount: true },
       });
       const lockedBalanceGross = Number(activeAggr._sum.grossAmount || 0);
-
-      // 4. Balanço Final (Modelo Mental do Usuário: Lucro Líquido - Saques Brutos)
       const currentNetProfit = totalLiquidProfit - totalCompletedGross;
-      const availableBalance = Math.max(0, currentNetProfit - lockedBalanceGross);
-
       walletResp = {
         balance: Number(currentNetProfit.toFixed(2)),
         lockedBalance: Number(lockedBalanceGross.toFixed(2)),
-        availableBalance: Number(availableBalance.toFixed(2)),
-        netBalance: Number(availableBalance.toFixed(2)),
+        availableBalance: netBalance,
+        netBalance,
       };
     }
 

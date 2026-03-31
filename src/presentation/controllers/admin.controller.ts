@@ -56,6 +56,7 @@ import { HASH_SERVICE, type IHashService } from '../../core/services/hash.interf
 import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
 import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositories/wallet.repository.interface';
 import { CommunityManagementService } from '../../application/services/community-management.service';
+import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -197,6 +198,306 @@ function buildConsolidadoTransactionWhere(input: ConsolidadoListQuery): Prisma.T
   }
 
   return where;
+}
+
+/** Resumo dos cards: só plataformas + COMPLETED + intervalo (ignora filtros de tabela). */
+function buildConsolidadoResumoWhere(
+  dataInicio?: string,
+  dataFim?: string,
+): Prisma.TransactionWhereInput {
+  const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
+  const where: Prisma.TransactionWhereInput = {
+    userId: { in: platformIds },
+    status: 'COMPLETED',
+  };
+  if (dataInicio || dataFim) {
+    const createdAt: Prisma.DateTimeFilter = {};
+    if (dataInicio) {
+      const d = dayjs.tz(dataInicio, TZ).startOf('day');
+      if (d.isValid()) createdAt.gte = d.toDate();
+    }
+    if (dataFim) {
+      const d = dayjs.tz(dataFim, TZ).endOf('day');
+      if (d.isValid()) createdAt.lte = d.toDate();
+    }
+    if (Object.keys(createdAt).length > 0) {
+      where.createdAt = createdAt;
+    }
+  }
+  return where;
+}
+
+function masterLogDateFilter(
+  dataInicio?: string,
+  dataFim?: string,
+): Prisma.DateTimeFilter | undefined {
+  if (!dataInicio && !dataFim) return undefined;
+  const createdAt: Prisma.DateTimeFilter = {};
+  if (dataInicio) {
+    const d = dayjs.tz(dataInicio, TZ).startOf('day');
+    if (d.isValid()) createdAt.gte = d.toDate();
+  }
+  if (dataFim) {
+    const d = dayjs.tz(dataFim, TZ).endOf('day');
+    if (d.isValid()) createdAt.lte = d.toDate();
+  }
+  return Object.keys(createdAt).length > 0 ? createdAt : undefined;
+}
+
+function domStatusIsEstorno(status: string): boolean {
+  const s = status.toLowerCase();
+  return (
+    s.includes('refund') ||
+    s.includes('chargeback') ||
+    s.includes('dispute') ||
+    s.includes('med') ||
+    s.includes('contest')
+  );
+}
+
+/**
+ * Estornos na API DOM Pagamentos (DOM_REAL_API_URL / apiv3.dompagamentos.com.br), não api-dom.
+ * Usa o domToken de cada conta plataforma; deduplica por id da transação; fallback no token master do .env.
+ */
+async function aggregateEstornosDomPagamentos(
+  prisma: PrismaService,
+  gateway: IPaymentGateway,
+  platformUserIds: string[],
+  dataInicio?: string,
+  dataFim?: string,
+): Promise<{ quantidade: number; valor: number }> {
+  const end = dataFim
+    ? dayjs.tz(dataFim, TZ).format('YYYY-MM-DD')
+    : dayjs().tz(TZ).format('YYYY-MM-DD');
+  const begin = dataInicio
+    ? dayjs.tz(dataInicio, TZ).format('YYYY-MM-DD')
+    : dayjs().tz(TZ).subtract(365, 'day').format('YYYY-MM-DD');
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: platformUserIds } },
+    select: { domToken: true },
+  });
+  const tokens = [
+    ...new Set(
+      users
+        .map((u) => u.domToken)
+        .filter((t): t is string => Boolean(t && String(t).trim())),
+    ),
+  ];
+  const master = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+  if (tokens.length === 0 && master) tokens.push(String(master));
+
+  if (tokens.length === 0) return { quantidade: 0, valor: 0 };
+
+  const seenIds = new Set<string>();
+  let quantidade = 0;
+  let valor = 0;
+  const limit = 100;
+  const maxPages = 200;
+
+  try {
+    for (const domToken of tokens) {
+      let page = 1;
+      while (page <= maxPages) {
+        const res = await gateway.listDomTransactions(domToken, {
+          page,
+          limit,
+          begin_date: begin,
+          end_date: end,
+        });
+        const txs = res.transactions ?? [];
+        if (txs.length === 0) break;
+        for (const tx of txs) {
+          if (!tx.id || seenIds.has(tx.id)) continue;
+          if (domStatusIsEstorno(tx.status)) {
+            seenIds.add(tx.id);
+            quantidade += 1;
+            valor += Number(tx.amount ?? 0);
+          }
+        }
+        if (txs.length < limit) break;
+        page += 1;
+      }
+    }
+  } catch {
+    return { quantidade: 0, valor: 0 };
+  }
+
+  return { quantidade, valor: Number(valor.toFixed(2)) };
+}
+
+type LucroSimpayLinhaTx = {
+  id: string;
+  createdAt: string;
+  descricao: string | null;
+  bruto: number;
+  liquidezLojista: number;
+  parteAdminMasterBruto: number;
+  formulaParteAdmin: string;
+  taxaFixaTransacao: number;
+  taxaCashback: number;
+  lucroTransacao: number;
+  formulaLucro: string;
+};
+
+type LucroSimpayPorPlataforma = {
+  tag: string;
+  userId: string;
+  envLiquidez: string;
+  envTaxaFixa: string;
+  envTaxaCashback: string;
+  liquidezLojista: number;
+  taxaFixaTransacao: number;
+  taxaCashback: number;
+  quantidadeTransacoes: number;
+  subtotalBruto: number;
+  subtotalParteAdminMaster: number;
+  subtotalDeducaoTaxaFixa: number;
+  subtotalDeducaoTaxaCashback: number;
+  subtotalLucro: number;
+  transacoes: LucroSimpayLinhaTx[];
+};
+
+function buildLucroSimpayDetalhePorPlataforma(
+  txs: {
+    id: string;
+    userId: string;
+    amount: unknown;
+    createdAt: Date;
+    description: string | null;
+  }[],
+): { totalLucroSimpay: number; plataformas: LucroSimpayPorPlataforma[] } {
+  const byTag = new Map<
+    string,
+    {
+      userId: string;
+      liquidezLojista: number;
+      taxaFixa: number;
+      taxaCashback: number;
+      envLiquidez: string;
+      envTaxaFixa: string;
+      envCashback: string;
+      transacoes: LucroSimpayLinhaTx[];
+      subtotalBruto: number;
+      subtotalParte: number;
+      subtotalLucro: number;
+    }
+  >();
+
+  let totalLucroSimpay = 0;
+
+  for (const tx of txs) {
+    const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+    const tag = platform?.tag || 'RENOVADA';
+    const liquidezKey = `${tag}_LIQUIDEZ`;
+    const fixaKey = `${tag}_TAXA_FIXA_TRANSACAO`;
+    const cbKey = `${tag}_TAXA_CASHBACK`;
+
+    const liquidezLojista = Number(process.env[liquidezKey] ?? 0.91);
+    const taxaFixa = Number(process.env[fixaKey] ?? 1.0);
+    const taxaCashback = Number(process.env[cbKey] ?? 3.0);
+
+    const bruto = Number(tx.amount);
+    const parteAdmin = bruto * (1 - liquidezLojista);
+    const lucroTx = parteAdmin - taxaFixa - taxaCashback;
+    totalLucroSimpay += lucroTx;
+
+    if (!byTag.has(tag)) {
+      byTag.set(tag, {
+        userId: tx.userId,
+        liquidezLojista,
+        taxaFixa,
+        taxaCashback,
+        envLiquidez: liquidezKey,
+        envTaxaFixa: fixaKey,
+        envCashback: cbKey,
+        transacoes: [],
+        subtotalBruto: 0,
+        subtotalParte: 0,
+        subtotalLucro: 0,
+      });
+    }
+    const agg = byTag.get(tag)!;
+
+    const formulaParte = `${bruto.toFixed(2)} × (1 − ${liquidezLojista}) = ${parteAdmin.toFixed(2)}`;
+    const formulaLucro = `${parteAdmin.toFixed(2)} − ${taxaFixa} − ${taxaCashback} = ${lucroTx.toFixed(2)}`;
+
+    agg.transacoes.push({
+      id: tx.id,
+      createdAt: tx.createdAt.toISOString(),
+      descricao: tx.description,
+      bruto,
+      liquidezLojista,
+      parteAdminMasterBruto: Number(parteAdmin.toFixed(2)),
+      formulaParteAdmin: formulaParte,
+      taxaFixaTransacao: taxaFixa,
+      taxaCashback,
+      lucroTransacao: Number(lucroTx.toFixed(2)),
+      formulaLucro,
+    });
+    agg.subtotalBruto += bruto;
+    agg.subtotalParte += parteAdmin;
+    agg.subtotalLucro += lucroTx;
+  }
+
+  const plataformas: LucroSimpayPorPlataforma[] = CONSOLIDADO_PLATFORMS.map(
+    (p) => {
+      const hit = byTag.get(p.tag);
+      const liquidezKey = `${p.tag}_LIQUIDEZ`;
+      const fixaKey = `${p.tag}_TAXA_FIXA_TRANSACAO`;
+      const cbKey = `${p.tag}_TAXA_CASHBACK`;
+      const L = Number(process.env[liquidezKey] ?? 0.91);
+      const tf = Number(process.env[fixaKey] ?? 1.0);
+      const tc = Number(process.env[cbKey] ?? 3.0);
+
+      if (!hit) {
+        return {
+          tag: p.tag,
+          userId: p.id,
+          envLiquidez: liquidezKey,
+          envTaxaFixa: fixaKey,
+          envTaxaCashback: cbKey,
+          liquidezLojista: L,
+          taxaFixaTransacao: tf,
+          taxaCashback: tc,
+          quantidadeTransacoes: 0,
+          subtotalBruto: 0,
+          subtotalParteAdminMaster: 0,
+          subtotalDeducaoTaxaFixa: 0,
+          subtotalDeducaoTaxaCashback: 0,
+          subtotalLucro: 0,
+          transacoes: [],
+        };
+      }
+
+      const n = hit.transacoes.length;
+      return {
+        tag: p.tag,
+        userId: p.id,
+        envLiquidez: liquidezKey,
+        envTaxaFixa: fixaKey,
+        envTaxaCashback: cbKey,
+        liquidezLojista: hit.liquidezLojista,
+        taxaFixaTransacao: hit.taxaFixa,
+        taxaCashback: hit.taxaCashback,
+        quantidadeTransacoes: n,
+        subtotalBruto: Number(hit.subtotalBruto.toFixed(2)),
+        subtotalParteAdminMaster: Number(hit.subtotalParte.toFixed(2)),
+        subtotalDeducaoTaxaFixa: Number((n * hit.taxaFixa).toFixed(2)),
+        subtotalDeducaoTaxaCashback: Number((n * hit.taxaCashback).toFixed(2)),
+        subtotalLucro: Number(hit.subtotalLucro.toFixed(2)),
+        transacoes: hit.transacoes.sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        ),
+      };
+    },
+  );
+
+  return {
+    totalLucroSimpay: Number(totalLucroSimpay.toFixed(2)),
+    plataformas,
+  };
 }
 
 function mapConsolidadoTxStatusToPt(
@@ -540,6 +841,18 @@ export class AdminController {
 
   @Get('relatorios/consolidado')
   @ApiOperation({ summary: 'Obter resumo financeiro consolidado de todas as plataformas' })
+  @ApiQuery({
+    name: 'detalharLucro',
+    required: false,
+    description:
+      'Se true/1: inclui lucroSimpayDetalhe (por plataforma e por transação, com fórmulas).',
+  })
+  @ApiQuery({
+    name: 'detalharLucroSoloResumo',
+    required: false,
+    description:
+      'Com detalharLucro: se true, omite a lista de transações e mantém só subtotais por plataforma.',
+  })
   async getConsolidado(
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
@@ -548,119 +861,132 @@ export class AdminController {
     @Query('transactionType') transactionType?: string,
     @Query('paymentLink') paymentLink?: string,
     @Query('planName') planName?: string,
+    @Query('detalharLucro') detalharLucro?: string,
+    @Query('detalharLucroSoloResumo') detalharLucroSoloResumo?: string,
   ) {
     const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
+    const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim);
 
-    const where = buildConsolidadoTransactionWhere({
-      dataInicio,
-      dataFim,
-      customerName,
-      transactionId,
-      transactionType,
-      paymentLink,
-      planName,
-    });
-
-    // 1. Agregações Globais Úteis
     const globalStats = await this.prisma.transaction.aggregate({
-      where,
+      where: whereResumo,
       _sum: { amount: true, netAmount: true },
       _count: { id: true },
     });
 
-    // 2. Agrupamento por plataforma para calcular Lucro Admin específico
-    const platformStats = await this.prisma.transaction.groupBy({
-      by: ['userId'],
-      where,
-      _sum: { amount: true },
-      _count: { id: true },
+    const txRowsLucro = await this.prisma.transaction.findMany({
+      where: whereResumo,
+      select: {
+        id: true,
+        userId: true,
+        amount: true,
+        createdAt: true,
+        description: true,
+      },
+      orderBy: { createdAt: 'asc' },
     });
 
-    let totalLucroSimpay = 0;
-    platformStats.forEach(stat => {
-      const platform = CONSOLIDADO_PLATFORMS.find(p => p.id === stat.userId);
-      const tag = platform?.tag || 'RENOVADA';
+    const { totalLucroSimpay, plataformas: plataformasLucroDetalhe } =
+      buildLucroSimpayDetalhePorPlataforma(txRowsLucro);
 
-      const liquidez = Number(process.env[`${tag}_LIQUIDEZ`] || 0.91);
-      const taxaFixa = Number(process.env[`${tag}_TAXA_FIXA_TRANSACAO`] || 1.00);
-      const taxaCashback = Number(process.env[`${tag}_TAXA_CASHBACK`] || 3.00);
+    const querDetalhe =
+      detalharLucro === '1' ||
+      detalharLucro === 'true' ||
+      detalharLucro?.toLowerCase() === 'sim';
+    const soloResumo =
+      detalharLucroSoloResumo === '1' ||
+      detalharLucroSoloResumo === 'true';
 
-      const brutoPlataforma = Number(stat._sum.amount || 0);
-      const txCount = stat._count.id || 0;
-
-      // Lucro Admin = (Bruto * (1 - liquidez)) - (Taxa Fixa + Taxa Cashback) * Qtd Transações
-      const lucroPlat = (brutoPlataforma * (1 - liquidez)) - (txCount * (taxaFixa + taxaCashback));
-      totalLucroSimpay += lucroPlat;
-    });
-
-    // 3. Stats de Saques master (Filtramos apenas por plataforma e data para saques)
-    const saquesWhere: any = {
-      userId: { in: platformIds },
-      status: 'COMPLETED',
+    const logDt = masterLogDateFilter(dataInicio, dataFim);
+    const masterWithdrawLogBase: Prisma.BalanceLogWhereInput = {
+      source: 'MASTER_ADMIN_CONTROL',
+      ...(logDt ? { createdAt: logDt } : {}),
     };
-    if (dataInicio || dataFim) {
-      const saquesCreatedAt: { gte?: Date; lte?: Date } = {};
-      if (dataInicio) {
-        const d = dayjs.tz(dataInicio, TZ).startOf('day');
-        if (d.isValid()) saquesCreatedAt.gte = d.toDate();
-      }
-      if (dataFim) {
-        const d = dayjs.tz(dataFim, TZ).endOf('day');
-        if (d.isValid()) saquesCreatedAt.lte = d.toDate();
-      }
-      if (Object.keys(saquesCreatedAt).length > 0) {
-        saquesWhere.createdAt = saquesCreatedAt;
-      }
+
+    const feeLogs = await this.prisma.balanceLog.findMany({
+      where: { ...masterWithdrawLogBase, action: 'ADMIN_WITHDRAW_FEE_INC' },
+      select: { metadata: true },
+    });
+    const withdrawIds = [
+      ...new Set(
+        feeLogs
+          .map((l) => (l.metadata as { withdrawId?: string } | null)?.withdrawId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    const saquesStats =
+      withdrawIds.length === 0
+        ? null
+        : await this.prisma.withdrawRequest.aggregate({
+            where: { id: { in: withdrawIds } },
+            _sum: { amount: true },
+          });
+
+    const platformUsers = await this.prisma.user.findMany({
+      where: { id: { in: platformIds } },
+      include: { tenantModule: true },
+    });
+    let valorLiquidoPlataformas = 0;
+    for (const u of platformUsers) {
+      valorLiquidoPlataformas += await computeUserNetBalance(
+        this.prisma,
+        u.id,
+        u.tenantModule?.slug,
+      );
     }
 
-    const saquesStats = await this.prisma.withdrawRequest.aggregate({
-      where: saquesWhere,
-      _sum: { fee: true, amount: true },
-      _count: { id: true },
-    });
+    const estornos = await aggregateEstornosDomPagamentos(
+      this.prisma,
+      this.paymentGateway,
+      platformIds,
+      dataInicio,
+      dataFim,
+    );
 
-    // 4. Incrementos Master (Taxa +1, Lucro +2 por aprovação se processado pelo Master)
-    const [feeInc, profitInc] = await Promise.all([
-      this.prisma.balanceLog.aggregate({
-        where: {
-          action: 'ADMIN_WITHDRAW_FEE_INC',
-          createdAt: saquesWhere.createdAt,
-        },
-        _sum: { amount: true },
-      }),
-      this.prisma.balanceLog.aggregate({
-        where: {
-          action: 'ADMIN_WITHDRAW_PROFIT_INC',
-          createdAt: saquesWhere.createdAt,
-        },
-        _sum: { amount: true },
-      }),
-    ]);
-
-    const totalTaxaSaque = Number(saquesStats._sum.fee || 0) + Number(feeInc._sum.amount || 0);
     const brutoTotal = Number(globalStats._sum.amount || 0);
 
-    return {
+    const payload: Record<string, unknown> = {
       valorBruto: brutoTotal,
-      valorLiquido: Number(globalStats._sum.netAmount || 0),
-      lucroSimpay: totalLucroSimpay,
-      totalTaxaSaque: totalTaxaSaque,
-      lucroTaxaSaque: (Number(saquesStats._sum.fee || 0) * 0.5) + Number(profitInc._sum.amount || 0),
-      cashback: brutoTotal * 0.03,
+      valorLiquido: Number(valorLiquidoPlataformas.toFixed(2)),
+      lucroSimpay: Number(totalLucroSimpay.toFixed(2)),
       saquesAprovados: {
-        quantidade: saquesStats._count.id || 0,
-        valor: Number(saquesStats._sum.amount || 0)
+        quantidade: withdrawIds.length,
+        valor: Number(saquesStats?._sum.amount || 0),
       },
       estornos: {
-        quantidade: await this.prisma.transaction.count({
-          where: { ...where, status: { in: ['REFUNDED', 'CHARGEBACK'] } }
-        }),
-        valor: Number((await this.prisma.transaction.aggregate({
-          where: { ...where, status: { in: ['REFUNDED', 'CHARGEBACK'] } },
-          _sum: { amount: true }
-        }))._sum.amount || 0)
-      }
+        quantidade: estornos.quantidade,
+        valor: estornos.valor,
+      },
     };
+
+    if (querDetalhe) {
+      const plats = soloResumo
+        ? plataformasLucroDetalhe.map((row) => {
+            const { transacoes: _lista, ...semLista } = row;
+            return semLista;
+          })
+        : plataformasLucroDetalhe;
+
+      payload.lucroSimpayDetalhe = {
+        formula:
+          'Por transação: lucro = bruto × (1 − LIQUIDEZ_LOJISTA) − TAXA_FIXA_TRANSACAO − TAXA_CASHBACK. LIQUIDEZ_LOJISTA vem do .env (*_LIQUIDEZ, ex. 0,91 → 9% do bruto para o master).',
+        periodo: {
+          dataInicio: dataInicio ?? null,
+          dataFim: dataFim ?? null,
+          fuso: TZ,
+          observacao:
+            dataInicio || dataFim
+              ? 'Somente transações com createdAt nesse intervalo (início/fim do dia em America/Sao_Paulo).'
+              : 'Sem dataInicio/dataFim na URL: entram todas as transações COMPLETED das contas do consolidado (sem limite de data). Para ver só um dia (ex. 31/03), envie dataInicio=2026-03-31&dataFim=2026-03-31.',
+        },
+        transacoesConsideradas: txRowsLucro.length,
+        lucroSimpayTotal: Number(totalLucroSimpay.toFixed(2)),
+        plataformas: plats,
+        soloResumoPlataforma: soloResumo,
+      };
+    }
+
+    return payload;
   }
 
   @Get('relatorios/taxa-saque')
@@ -669,25 +995,18 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
-    const saquesWhere: any = { userId: { in: platformIds }, status: 'COMPLETED' };
-    if (dataInicio || dataFim) {
-      const saquesCreatedAt: any = {};
-      if (dataInicio) saquesCreatedAt.gte = dayjs.tz(dataInicio, TZ).startOf('day').toDate();
-      if (dataFim) saquesCreatedAt.lte = dayjs.tz(dataFim, TZ).endOf('day').toDate();
-      saquesWhere.createdAt = saquesCreatedAt;
-    }
-
-    const [saquesStats, feeInc] = await Promise.all([
-      this.prisma.withdrawRequest.aggregate({ where: saquesWhere, _sum: { fee: true } }),
-      this.prisma.balanceLog.aggregate({
-        where: { action: 'ADMIN_WITHDRAW_FEE_INC', createdAt: saquesWhere.createdAt },
-        _sum: { amount: true },
-      }),
-    ]);
+    const logDt = masterLogDateFilter(dataInicio, dataFim);
+    const feeInc = await this.prisma.balanceLog.aggregate({
+      where: {
+        action: 'ADMIN_WITHDRAW_FEE_INC',
+        source: 'MASTER_ADMIN_CONTROL',
+        ...(logDt ? { createdAt: logDt } : {}),
+      },
+      _sum: { amount: true },
+    });
 
     return {
-      totalTaxaSaque: Number(saquesStats._sum.fee || 0) + Number(feeInc._sum.amount || 0),
+      totalTaxaSaque: Number(feeInc._sum.amount || 0),
     };
   }
 
@@ -697,25 +1016,18 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
-    const saquesWhere: any = { userId: { in: platformIds }, status: 'COMPLETED' };
-    if (dataInicio || dataFim) {
-      const saquesCreatedAt: any = {};
-      if (dataInicio) saquesCreatedAt.gte = dayjs.tz(dataInicio, TZ).startOf('day').toDate();
-      if (dataFim) saquesCreatedAt.lte = dayjs.tz(dataFim, TZ).endOf('day').toDate();
-      saquesWhere.createdAt = saquesCreatedAt;
-    }
-
-    const [saquesStats, profitInc] = await Promise.all([
-      this.prisma.withdrawRequest.aggregate({ where: saquesWhere, _sum: { fee: true } }),
-      this.prisma.balanceLog.aggregate({
-        where: { action: 'ADMIN_WITHDRAW_PROFIT_INC', createdAt: saquesWhere.createdAt },
-        _sum: { amount: true },
-      }),
-    ]);
+    const logDt = masterLogDateFilter(dataInicio, dataFim);
+    const profitInc = await this.prisma.balanceLog.aggregate({
+      where: {
+        action: 'ADMIN_WITHDRAW_PROFIT_INC',
+        source: 'MASTER_ADMIN_CONTROL',
+        ...(logDt ? { createdAt: logDt } : {}),
+      },
+      _sum: { amount: true },
+    });
 
     return {
-      totalLucroSaque: (Number(saquesStats._sum.fee || 0) * 0.5) + Number(profitInc._sum.amount || 0),
+      totalLucroSaque: Number(profitInc._sum.amount || 0),
     };
   }
 
