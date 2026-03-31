@@ -13,6 +13,7 @@ const REGISTRY: Record<string, ModuleConfig> = {
   bosque:    BosqueConfig,
   pagatg:    PagaTGConfig,
   ebooksim:  EbookSimConfig,
+  ebook:     EbookSimConfig,
   frendz:    FrendzConfig,
 };
 
