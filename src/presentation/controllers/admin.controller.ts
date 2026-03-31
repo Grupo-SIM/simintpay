@@ -10,6 +10,7 @@ import {
   Inject,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -29,6 +30,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 const TZ = 'America/Sao_Paulo';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
+import { MasterAdminGuard } from '../../infrastructure/security/guards/master-admin.guard';
 import { RolesGuard } from '../../infrastructure/security/guards/roles.guard';
 import { Roles } from '../../infrastructure/security/decorators/roles.decorator';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
@@ -62,6 +64,8 @@ import {
 import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositories/wallet.repository.interface';
 import { CommunityManagementService } from '../../application/services/community-management.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
+import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
+import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -269,7 +273,7 @@ function valorLiquidoTransacaoConsolidado(
   tagPlataforma: string,
 ): number {
   const bruto = Number(tx.amount);
-  const L = Number(process.env[`${tagPlataforma}_LIQUIDEZ`] ?? 0.91);
+  const L = getPlatformTaxaEffective(tagPlataforma, 'LIQUIDEZ', 0.91);
   const rawNet = tx.netAmount;
   if (rawNet != null && rawNet !== undefined && String(rawNet) !== '') {
     const n = Number(rawNet);
@@ -521,9 +525,9 @@ function buildLucroSimpayDetalhePorPlataforma(
     const fixaKey = `${tag}_TAXA_FIXA_TRANSACAO`;
     const cbKey = `${tag}_TAXA_CASHBACK`;
 
-    const liquidezLojista = Number(process.env[liquidezKey] ?? 0.91);
-    const taxaFixa = Number(process.env[fixaKey] ?? 1.0);
-    const taxaCashback = Number(process.env[cbKey] ?? 3.0);
+    const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
+    const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
+    const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
 
     const bruto = Number(tx.amount);
     const parteAdmin = bruto * (1 - liquidezLojista);
@@ -574,9 +578,9 @@ function buildLucroSimpayDetalhePorPlataforma(
       const liquidezKey = `${p.tag}_LIQUIDEZ`;
       const fixaKey = `${p.tag}_TAXA_FIXA_TRANSACAO`;
       const cbKey = `${p.tag}_TAXA_CASHBACK`;
-      const L = Number(process.env[liquidezKey] ?? 0.91);
-      const tf = Number(process.env[fixaKey] ?? 1.0);
-      const tc = Number(process.env[cbKey] ?? 3.0);
+      const L = getPlatformTaxaEffective(p.tag, 'LIQUIDEZ', 0.91);
+      const tf = getPlatformTaxaEffective(p.tag, 'TAXA_FIXA_TRANSACAO', 1.0);
+      const tc = getPlatformTaxaEffective(p.tag, 'TAXA_CASHBACK', 3.0);
 
       if (!hit) {
         return {
@@ -688,6 +692,7 @@ export class AdminController {
     @Inject(HASH_SERVICE) private readonly hashService: IHashService,
     @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway,
     @Inject(WALLET_REPOSITORY) private readonly walletRepository: IWalletRepository,
+    private readonly platformTaxas: PlatformTaxasService,
   ) { }
 
   /**
@@ -2580,6 +2585,27 @@ export class AdminController {
   }
 
   // ──────────── PLATAFORMAS ────────────
+
+  @Get('plataformas/taxas')
+  @UseGuards(JwtAuthGuard, MasterAdminGuard)
+  @ApiOperation({
+    summary: 'Taxas por plataforma (.env + overrides em storage) — somente admin master',
+  })
+  async listPlatformTaxas() {
+    return this.platformTaxas.getTaxasResponse();
+  }
+
+  @Patch('plataformas/taxas/:tag')
+  @UseGuards(JwtAuthGuard, MasterAdminGuard)
+  @ApiOperation({
+    summary: 'Persistir overrides de taxas de uma plataforma — somente admin master',
+  })
+  async patchPlatformTaxas(
+    @Param('tag') tag: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.platformTaxas.patchPlatform(tag, body);
+  }
 
   @Get('plataformas')
   @ApiOperation({ summary: 'Listar plataformas detectadas (via tag [CPF:xxx|TAG] nos planos)' })

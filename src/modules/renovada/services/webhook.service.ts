@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { createHmac } from 'crypto';
+import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.store';
 
 const RENOVADA_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
@@ -103,7 +104,7 @@ export class WebhookService {
         this.logger.log(`[RENOVADA] Transação ${event.data.id} não encontrada — criando via webhook`);
         // DOM Pagamentos envia amount em CENTAVOS → dividir por 100
         const amount = new Prisma.Decimal((event.data.amount || 0) / 100);
-        const fatorLiquidez = Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
+        const fatorLiquidez = getPlatformTaxaEffective('RENOVADA', 'LIQUIDEZ', 0.91);
         const netAmountEst = amount.mul(new Prisma.Decimal(fatorLiquidez));
         const isCard = (event.data.payment_method || '').toLowerCase().includes('card');
         try {

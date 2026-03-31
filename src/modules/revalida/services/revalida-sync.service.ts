@@ -6,6 +6,7 @@ import { RevalidaEventsService } from '../events/revalida-events.service';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import dayjs from 'dayjs';
+import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.store';
 
 /**
  * RevalidaSyncService — Sincroniza transações do Revalida a partir da API v3 da DOM.
@@ -402,7 +403,7 @@ export class RevalidaSyncService implements OnModuleInit {
     if (!wallet) return { success: false, error: 'Wallet não encontrada.' };
 
     const oldBalance = Number(wallet.balance || 0);
-    const fatorLiquidez = Number(process.env.REVALIDA_LIQUIDEZ || 0.91);
+    const fatorLiquidez = getPlatformTaxaEffective('REVALIDA', 'LIQUIDEZ', 0.91);
     const netBalance = Number(netBalanceParam);
     const grossBalance = netBalance / fatorLiquidez;
 

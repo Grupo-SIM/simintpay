@@ -31,6 +31,8 @@ import { EmailService } from '../infrastructure/email/email.service';
 import { ModuleRealtimeModule } from '../infrastructure/realtime/module-realtime.module';
 import { RevalidaModule } from '../modules/revalida/revalida.module';
 import { CommunityManagementService } from '../application/services/community-management.service';
+import { PlatformTaxasService } from '../application/services/platform-taxas.service';
+import { MasterAdminGuard } from '../infrastructure/security/guards/master-admin.guard';
 
 @Module({
   imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule],
@@ -55,6 +57,8 @@ import { CommunityManagementService } from '../application/services/community-ma
     SyncMaquinetasUseCase,
     EmailService,
     CommunityManagementService,
+    PlatformTaxasService,
+    MasterAdminGuard,
     { provide: LEAD_REPOSITORY, useClass: PrismaLeadRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: WALLET_REPOSITORY, useClass: PrismaWalletRepository },

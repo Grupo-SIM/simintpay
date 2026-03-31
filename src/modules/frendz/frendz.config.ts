@@ -1,40 +1,43 @@
 import type { ModuleConfig } from '../module-config.interface';
+import { getPlatformTaxaEffective } from '../platform-taxas/platform-taxas.store';
+import { cartaoMdrProxy } from '../platform-taxas/cartao-mdr-proxy';
+
+const TAG = 'FRENDZ';
 
 export const FrendzConfig: ModuleConfig = {
   name: 'Frendz',
   slug: 'frendz',
 
   saque: {
-    minValor: Number(process.env.FRENDZ_SAQUE_MIN || 100),
-    taxaFixa: Number(process.env.FRENDZ_TAXA_SAQUE_FIXA || 2),
-    taxaPercentual: Number(process.env.FRENDZ_TAXA_SAQUE_PERCENT || 0),
-    fatorLiquidez: Number(process.env.FRENDZ_LIQUIDEZ || 0.91),
+    get minValor() {
+      return getPlatformTaxaEffective(TAG, 'SAQUE_MIN', 100);
+    },
+    get taxaFixa() {
+      return getPlatformTaxaEffective(TAG, 'TAXA_SAQUE_FIXA', 2);
+    },
+    get taxaPercentual() {
+      return getPlatformTaxaEffective(TAG, 'TAXA_SAQUE_PERCENT', 0);
+    },
+    get fatorLiquidez() {
+      return getPlatformTaxaEffective(TAG, 'LIQUIDEZ', 0.91);
+    },
 
-    calcularTaxa(valorBruto) {
+    calcularTaxa(valorBruto: number) {
       return this.taxaFixa + valorBruto * this.taxaPercentual;
     },
-    calcularLiquido(valorBruto) {
+    calcularLiquido(valorBruto: number) {
       return valorBruto - this.calcularTaxa(valorBruto);
     },
   },
 
   mdr: {
-    pix: Number(process.env.FRENDZ_MDR_PIX || 0.0098),
-    cartao: {
-      1:  Number(process.env.FRENDZ_MDR_CC_1X || 0.0399),
-      2:  Number(process.env.FRENDZ_MDR_CC_2X || 0.0830),
-      3:  Number(process.env.FRENDZ_MDR_CC_3X || 0.0968),
-      4:  Number(process.env.FRENDZ_MDR_CC_4X || 0.1104),
-      5:  Number(process.env.FRENDZ_MDR_CC_5X || 0.1237),
-      6:  Number(process.env.FRENDZ_MDR_CC_6X || 0.1367),
-      7:  Number(process.env.FRENDZ_MDR_CC_7X || 0.1495),
-      8:  Number(process.env.FRENDZ_MDR_CC_8X || 0.1621),
-      9:  Number(process.env.FRENDZ_MDR_CC_9X || 0.1744),
-      10: Number(process.env.FRENDZ_MDR_CC_10X || 0.1864),
-      11: Number(process.env.FRENDZ_MDR_CC_11X || 0.1983),
-      12: Number(process.env.FRENDZ_MDR_CC_12X || 0.2099),
+    get pix() {
+      return getPlatformTaxaEffective(TAG, 'MDR_PIX', 0.0098);
     },
-    taxaFixaPorTransacao: Number(process.env.FRENDZ_TAXA_FIXA_TRANSACAO || 1.00),
+    cartao: cartaoMdrProxy(TAG),
+    get taxaFixaPorTransacao() {
+      return getPlatformTaxaEffective(TAG, 'TAXA_FIXA_TRANSACAO', 1.0);
+    },
   },
 
   limites: {

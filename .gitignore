@@ -43,6 +43,9 @@ lerna-debug.log*
 .env.local
 .env.example
 
+# Overrides de taxas (runtime; não versionar ambiente local)
+/storage/platform-taxas-overrides.json
+
 # temp directory
 .temp
 .tmp

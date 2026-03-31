@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, PaymentMethod, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.store';
 
 interface RawDomData {
   id: string;
@@ -128,7 +129,9 @@ export class MasterWebhookService {
 
   private getLiquidezFactor(userId: string): Prisma.Decimal {
     if (userId === this.RENOVADA_USER_ID) {
-      return new Prisma.Decimal(process.env.RENOVADA_LIQUIDEZ || 0.91);
+      return new Prisma.Decimal(
+        getPlatformTaxaEffective('RENOVADA', 'LIQUIDEZ', 0.91),
+      );
     }
     return new Prisma.Decimal(1);
   }
