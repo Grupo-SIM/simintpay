@@ -632,6 +632,74 @@ function buildLucroSimpayDetalhePorPlataforma(
   };
 }
 
+/** Lucro Simpay de uma transação (mesma fórmula que buildLucroSimpayDetalhePorPlataforma). */
+function lucroSimpayUmaTransacaoConsolidado(tx: {
+  userId: string;
+  amount: unknown;
+}): number {
+  const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+  const tag = platform?.tag || 'RENOVADA';
+  const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
+  const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
+  const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
+  const bruto = Number(tx.amount);
+  const parteAdmin = bruto * (1 - liquidezLojista);
+  return parteAdmin - taxaFixa - taxaCashback;
+}
+
+function listYmdInclusiveSp(dataInicio: string, dataFim: string): string[] {
+  const start = dayjs.tz(dataInicio, TZ).startOf('day');
+  const end = dayjs.tz(dataFim, TZ).startOf('day');
+  if (!start.isValid() || !end.isValid()) return [];
+  if (end.isBefore(start)) return [];
+  const out: string[] = [];
+  let cur = start;
+  while (!cur.isAfter(end, 'day')) {
+    out.push(cur.format('YYYY-MM-DD'));
+    cur = cur.add(1, 'day');
+  }
+  return out;
+}
+
+/**
+ * Série diária alinhada a lucroTotalMaster: lucro Simpay (por dia da transação) +
+ * logs ADMIN_WITHDRAW_PROFIT_INC − ADMIN_WITHDRAW_FEE_INC (por dia do log), fuso America/Sao_Paulo.
+ */
+function buildLucroTotalMasterHistoricoDiario(
+  txRowsLucro: { userId: string; amount: unknown; createdAt: Date }[],
+  withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
+  dataInicio: string,
+  dataFim: string,
+): Array<{ label: string; valor: number }> {
+  const lucroPorDia = new Map<string, number>();
+  for (const tx of txRowsLucro) {
+    const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
+    const l = lucroSimpayUmaTransacaoConsolidado(tx);
+    lucroPorDia.set(ymd, (lucroPorDia.get(ymd) ?? 0) + l);
+  }
+  const feePorDia = new Map<string, number>();
+  const profitPorDia = new Map<string, number>();
+  for (const log of withdrawLogs) {
+    const ymd = dayjs(log.createdAt).tz(TZ).format('YYYY-MM-DD');
+    const amt = Number(log.amount);
+    if (!Number.isFinite(amt)) continue;
+    if (log.action === 'ADMIN_WITHDRAW_FEE_INC') {
+      feePorDia.set(ymd, (feePorDia.get(ymd) ?? 0) + amt);
+    } else if (log.action === 'ADMIN_WITHDRAW_PROFIT_INC') {
+      profitPorDia.set(ymd, (profitPorDia.get(ymd) ?? 0) + amt);
+    }
+  }
+  const dias = listYmdInclusiveSp(dataInicio, dataFim);
+  return dias.map((ymd) => {
+    const v =
+      (lucroPorDia.get(ymd) ?? 0) +
+      (profitPorDia.get(ymd) ?? 0) -
+      (feePorDia.get(ymd) ?? 0);
+    const label = dayjs.tz(ymd, TZ).format('DD/MM');
+    return { label, valor: Number(v.toFixed(2)) };
+  });
+}
+
 function mapConsolidadoTxStatusToPt(
   status: TransactionStatus,
 ): 'PENDENTE' | 'APROVADA' | 'RECUSADA' | 'ESTORNADA' {
@@ -1152,6 +1220,30 @@ export class AdminController {
       dataFim,
     );
 
+    let lucroTotalMasterHistorico: Array<{ label: string; valor: number }> = [];
+    if (
+      temFiltroData &&
+      String(dataInicio ?? '').trim() &&
+      String(dataFim ?? '').trim()
+    ) {
+      const withdrawLogsHistorico = await this.prisma.balanceLog.findMany({
+        where: {
+          source: 'MASTER_ADMIN_CONTROL',
+          ...(logDt ? { createdAt: logDt } : {}),
+          action: {
+            in: ['ADMIN_WITHDRAW_FEE_INC', 'ADMIN_WITHDRAW_PROFIT_INC'],
+          },
+        },
+        select: { createdAt: true, amount: true, action: true },
+      });
+      lucroTotalMasterHistorico = buildLucroTotalMasterHistoricoDiario(
+        txRowsLucro,
+        withdrawLogsHistorico,
+        String(dataInicio).trim(),
+        String(dataFim).trim(),
+      );
+    }
+
     const payload: Record<string, unknown> = {
       valorBruto: brutoTotal,
       valorLiquido: valorLiquidoPlataformas,
@@ -1160,6 +1252,9 @@ export class AdminController {
       totalTaxaSaque,
       totalLucroSaque,
       lucroTotalMaster,
+      lucroTotalMasterHistorico,
+      lucroTotalMasterHistoricoCriterio:
+        'Com dataInicio/dataFim: um ponto por dia no fuso America/Sao_Paulo. valor = soma do lucro Simpay das transações COMPLETED elegíveis daquele dia + soma ADMIN_WITHDRAW_PROFIT_INC − soma ADMIN_WITHDRAW_FEE_INC nos logs daquele dia (mesma base do lucroTotalMaster agregado).',
       lucroTotalMasterCriterio:
         'lucroSimpay + totalLucroSaque − totalTaxaSaque. totalTaxaSaque e totalLucroSaque vêm de BalanceLog (source MASTER_ADMIN_CONTROL, ações ADMIN_WITHDRAW_FEE_INC e ADMIN_WITHDRAW_PROFIT_INC), com o mesmo filtro de data que dataInicio/dataFim na URL (igual a GET /admin/relatorios/taxa-saque e /lucro-saque). Sem datas nos logs: soma de todos esses logs.',
       saquesAprovados: {
