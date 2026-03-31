@@ -37,6 +37,10 @@ interface RawDomData {
   payment_method?: string;
   installments?: string | number;
   serial_number?: string | null;
+  /** DOM v3: descrição / primeiro produto (checkout ebook costuma repetir ORD-… aqui) */
+  description?: string;
+  product_first?: string;
+  items?: Array<{ description?: string; name?: string }>;
   customer?: {
     name?: string;
     email?: string;
@@ -301,7 +305,24 @@ export class ProcessDomWebhookUseCase {
       if (existing.userId === RENOVADA_USER_ID && this.renovadaEvents) {
         this.renovadaEvents.emitTransaction({ ...existing, status: nextStatus });
       }
+
+      if (
+        nextStatus === TransactionStatus.COMPLETED &&
+        existing.status !== TransactionStatus.COMPLETED
+      ) {
+        void this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
+      }
     } else {
+      // Checkout ebook (back-ebook): não cria transação local antes do pagamento → não há domPaymentId na base.
+      // Se o payload da DOM trouxer o número do pedido (ORD-AAAA-NNNNNN), notificamos o back-ebook aqui (substitui api-dom).
+      const ebookHandled = await this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
+      if (ebookHandled) {
+        this.logger.log(
+          `[DomWebhook] domPaymentId=${data.id} tratado como ebook: back-ebook notificado (sem tx prévia na machine).`,
+        );
+        return;
+      }
+
       // Segurança anti-mistura:
       // Se não houver transação pré-existente para o domPaymentId, este webhook não tem
       // contexto confiável de tenant para criar uma nova transação sem risco de atribuir
@@ -311,6 +332,85 @@ export class ProcessDomWebhookUseCase {
       );
       return;
 
+    }
+  }
+
+  /**
+   * Detecta pedido ebook (ORD-AAAA-NNNNNN) no payload da DOM e chama o back-ebook com token interno.
+   * Fluxo oficial pós api-dom: api-machine recebe webhook DOM → confirma pedido no back-ebook.
+   */
+  private extractEbookOrderNumberFromDomPayload(data: RawDomData): string | null {
+    const chunks: string[] = [];
+    const push = (v: unknown) => {
+      if (typeof v === 'string') chunks.push(v);
+    };
+    push(data.description);
+    push(data.product_first);
+    if (Array.isArray(data.items)) {
+      for (const it of data.items) {
+        push(it?.description);
+        push(it?.name);
+      }
+    }
+    const blob = chunks.length > 0 ? chunks.join(' ') : '';
+    let m = blob.match(/ORD-\d{4}-\d{6}/i);
+    if (!m) {
+      m = JSON.stringify(data).match(/ORD-\d{4}-\d{6}/i);
+    }
+    return m ? m[0].toUpperCase() : null;
+  }
+
+  private async tryNotifyBackEbookOrderPaidFromDomWebhook(data: RawDomData): Promise<boolean> {
+    const st = String(data.status ?? '').toLowerCase();
+    if (!['paid', 'approved', 'completed', 'revision_paid', 'capture'].includes(st)) {
+      return false;
+    }
+
+    const orderNumber = this.extractEbookOrderNumberFromDomPayload(data);
+    if (!orderNumber) {
+      return false;
+    }
+
+    const backEbookUrl = String(process.env.BACK_EBOOK_URL ?? '').replace(/\/+$/, '');
+    const token =
+      process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    if (!backEbookUrl || !token) {
+      this.logger.warn(
+        `[DomWebhook] Ebook pedido ${orderNumber} detectado mas BACK_EBOOK_URL/API_MACHINE_INTERNAL_TOKEN não configurados`,
+      );
+      return true;
+    }
+
+    const email = data.customer?.email?.trim();
+    const endpoint = `${backEbookUrl}/webhook/payment-confirmation`;
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-token': token,
+        },
+        body: JSON.stringify({
+          orderNumber,
+          status: 'COMPLETED',
+          store: 'ebook',
+          ...(email ? { email } : {}),
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        this.logger.error(
+          `[DomWebhook] back-ebook ${orderNumber} respondeu ${res.status}: ${text.slice(0, 600)}`,
+        );
+        return true;
+      }
+      this.logger.log(`[DomWebhook] back-ebook confirmou pedido ebook ${orderNumber}`);
+      return true;
+    } catch (e) {
+      this.logger.error(
+        `[DomWebhook] falha ao chamar back-ebook para ${orderNumber}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return true;
     }
   }
 

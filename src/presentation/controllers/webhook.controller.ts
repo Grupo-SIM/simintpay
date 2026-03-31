@@ -104,6 +104,9 @@ export class WebhookController {
     }
 
     const endpoint = `${backEbookUrl.replace(/\/+$/, '')}/webhook/payment-confirmation`;
+    this.logger.log(
+      `[ebook/payment-confirmation] Encaminhando para back-ebook url=${endpoint} orderNumber=${body.orderNumber} status=${body.status} tokenLen=${internalToken.length}`,
+    );
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -120,9 +123,13 @@ export class WebhookController {
 
     if (!response.ok) {
       const text = await response.text();
+      this.logger.error(
+        `[ebook/payment-confirmation] back-ebook falhou status=${response.status} body=${text.slice(0, 800)}`,
+      );
       throw new BadRequestException(`Falha ao encaminhar webhook para back-ebook: ${response.status} ${text}`);
     }
 
+    this.logger.log('[ebook/payment-confirmation] Encaminhamento OK');
     return { status: 'ok', forwarded: true };
   }
 }
