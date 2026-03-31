@@ -43,6 +43,7 @@ import { RejectWithdrawalUseCase } from '../../application/use-cases/admin/rejec
 import { SyncDomWithdrawalsUseCase } from '../../application/use-cases/admin/sync-dom-withdrawals.use-case';
 import { SyncFullRenovadaUseCase } from '../../application/use-cases/admin/sync-full-renovada.use-case';
 import { SyncFullBosqueUseCase } from '../../application/use-cases/admin/sync-full-bosque.use-case';
+import { SyncFullEbookUseCase } from '../../application/use-cases/admin/sync-full-ebook.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/admin/list-dom-transactions-direct.use-case';
 import { SyncMaquinetasUseCase } from '../../application/use-cases/admin/sync-maquinetas.use-case';
@@ -90,6 +91,22 @@ function extractAllDocDigitsFromText(text: string | null | undefined): string[] 
   return [...new Set(matches.filter(d => d.length >= 11 && d.length <= 14))];
 }
 
+function normalizeDocDigits(raw: string | null | undefined): string {
+  return String(raw ?? '').replace(/\D/g, '');
+}
+
+function docVariants(doc: string | null | undefined): string[] {
+  const digits = normalizeDocDigits(doc);
+  if (!digits) return [];
+  if (digits.length === 11) {
+    return [digits, digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
+  }
+  if (digits.length === 14) {
+    return [digits, digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')];
+  }
+  return [digits];
+}
+
 async function expandPlatformTransactionUserIds(
   prisma: PrismaService,
   plans: { userId: string; description: string | null }[],
@@ -131,6 +148,28 @@ async function expandPlatformTransactionUserIds(
     select: { id: true },
   });
   for (const m of merchants) ids.add(m.id);
+  return [...ids];
+}
+
+async function expandUserIdsByCpf(
+  prisma: PrismaService,
+  baseUserIds: string[],
+): Promise<string[]> {
+  const ids = new Set(baseUserIds);
+  if (baseUserIds.length === 0) return [];
+
+  const baseUsers = await prisma.user.findMany({
+    where: { id: { in: baseUserIds } },
+    select: { cpf: true },
+  });
+  const variants = [...new Set(baseUsers.flatMap((u) => docVariants(u.cpf ?? null)))];
+  if (variants.length === 0) return [...ids];
+
+  const relatedUsers = await prisma.user.findMany({
+    where: { cpf: { in: variants } },
+    select: { id: true },
+  });
+  for (const u of relatedUsers) ids.add(u.id);
   return [...ids];
 }
 
@@ -548,6 +587,7 @@ export class AdminController {
     private readonly syncWithdrawalsUseCase: SyncDomWithdrawalsUseCase,
     private readonly syncFullRenovadaUseCase: SyncFullRenovadaUseCase,
     private readonly syncFullBosqueUseCase: SyncFullBosqueUseCase,
+    private readonly syncFullEbookUseCase: SyncFullEbookUseCase,
     private readonly migrateRenovadaTxsToAdmin: MigrateRenovadaTxsToAdminUseCase,
     private readonly listDomTransactionsDirect: ListDomTransactionsDirectUseCase,
     private readonly syncMaquinetasUseCase: SyncMaquinetasUseCase,
@@ -1353,6 +1393,12 @@ export class AdminController {
   @ApiOperation({ summary: 'Sincronização completa de histórico (Bosque) - puxa da DOM Pagamentos' })
   async syncFullBosque() {
     return this.syncFullBosqueUseCase.execute();
+  }
+
+  @Post('sync/full-ebook')
+  @ApiOperation({ summary: 'Sincronização completa de histórico (EBOOK) - legado api-dom' })
+  async syncFullEbook() {
+    return this.syncFullEbookUseCase.execute();
   }
 
   @Post('sync/full-revalida')
@@ -2216,12 +2262,13 @@ export class AdminController {
         select: { id: true },
       });
       const ebookUserIds = ebookModuleUsers.map((u) => u.id);
+      const ebookExpandedUserIds = await expandUserIdsByCpf(this.prisma, ebookUserIds);
 
       const firstEbookTx = await this.prisma.transaction.findFirst({
         where: {
           OR: [
             { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
-            ...(ebookUserIds.length > 0 ? [{ userId: { in: ebookUserIds } }] : []),
+            ...(ebookExpandedUserIds.length > 0 ? [{ userId: { in: ebookExpandedUserIds } }] : []),
           ],
         },
         orderBy: { createdAt: 'asc' },
@@ -2232,9 +2279,18 @@ export class AdminController {
         map.set('EBOOK', {
           tag: 'EBOOK',
           cpf: '',
-          planRows: ebookUserIds.map((id) => ({ userId: id, description: 'Plataforma Ebook' })),
+          planRows: ebookExpandedUserIds.map((id) => ({ userId: id, description: 'Plataforma Ebook' })),
           plansCount: 0,
           firstSeen: firstEbookTx.createdAt,
+        });
+      } else {
+        // Mantém o card de EBOOK visível no módulo master, mesmo antes da primeira transação.
+        map.set('EBOOK', {
+          tag: 'EBOOK',
+          cpf: '',
+          planRows: ebookExpandedUserIds.map((id) => ({ userId: id, description: 'Plataforma Ebook' })),
+          plansCount: 0,
+          firstSeen: new Date(),
         });
       }
     }
@@ -2415,7 +2471,7 @@ export class AdminController {
         },
         select: { id: true },
       });
-      userIds = users.map((u) => u.id);
+      userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
     } else {
       const plans = await this.prisma.pixCreditPlan.findMany({
         where: {
