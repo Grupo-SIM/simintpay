@@ -998,7 +998,11 @@ export class AdminController {
   }
 
   @Get('relatorios/consolidado')
-  @ApiOperation({ summary: 'Obter resumo financeiro consolidado de todas as plataformas' })
+  @ApiOperation({
+    summary: 'Obter resumo financeiro consolidado de todas as plataformas',
+    description:
+      'Inclui lucroTotalMaster = lucroSimpay + totalLucroSaque − totalTaxaSaque (logs master no mesmo intervalo de data dos saques).',
+  })
   @ApiQuery({
     name: 'detalharLucro',
     required: false,
@@ -1063,10 +1067,27 @@ export class AdminController {
       ...(logDt ? { createdAt: logDt } : {}),
     };
 
-    const feeLogs = await this.prisma.balanceLog.findMany({
-      where: { ...masterWithdrawLogBase, action: 'ADMIN_WITHDRAW_FEE_INC' },
-      select: { metadata: true },
-    });
+    const [feeLogs, feeIncAgg, profitIncAgg] = await Promise.all([
+      this.prisma.balanceLog.findMany({
+        where: { ...masterWithdrawLogBase, action: 'ADMIN_WITHDRAW_FEE_INC' },
+        select: { metadata: true },
+      }),
+      this.prisma.balanceLog.aggregate({
+        where: { ...masterWithdrawLogBase, action: 'ADMIN_WITHDRAW_FEE_INC' },
+        _sum: { amount: true },
+      }),
+      this.prisma.balanceLog.aggregate({
+        where: { ...masterWithdrawLogBase, action: 'ADMIN_WITHDRAW_PROFIT_INC' },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const totalTaxaSaque = Number(feeIncAgg._sum.amount || 0);
+    const totalLucroSaque = Number(profitIncAgg._sum.amount || 0);
+    const lucroSimpayNum = Number(totalLucroSimpay.toFixed(2));
+    const lucroTotalMaster = Number(
+      (lucroSimpayNum + totalLucroSaque - totalTaxaSaque).toFixed(2),
+    );
     const withdrawIds = [
       ...new Set(
         feeLogs
@@ -1130,7 +1151,12 @@ export class AdminController {
       valorBruto: brutoTotal,
       valorLiquido: valorLiquidoPlataformas,
       valorLiquidoCriterio,
-      lucroSimpay: Number(totalLucroSimpay.toFixed(2)),
+      lucroSimpay: lucroSimpayNum,
+      totalTaxaSaque,
+      totalLucroSaque,
+      lucroTotalMaster,
+      lucroTotalMasterCriterio:
+        'lucroSimpay + totalLucroSaque − totalTaxaSaque. totalTaxaSaque e totalLucroSaque vêm de BalanceLog (source MASTER_ADMIN_CONTROL, ações ADMIN_WITHDRAW_FEE_INC e ADMIN_WITHDRAW_PROFIT_INC), com o mesmo filtro de data que dataInicio/dataFim na URL (igual a GET /admin/relatorios/taxa-saque e /lucro-saque). Sem datas nos logs: soma de todos esses logs.',
       saquesAprovados: {
         quantidade: withdrawIds.length,
         valor: Number(saquesStats?._sum.amount || 0),
@@ -1230,6 +1256,87 @@ export class AdminController {
 
     return {
       totalLucroSaque: Number(profitInc._sum.amount || 0),
+    };
+  }
+
+  @Get('relatorios/total-repasse')
+  @ApiOperation({
+    summary: 'Total de repasse (líquido consolidado − lucro Simpay)',
+    description:
+      'totalRepasse = valorLiquido − lucroSimpay, com a mesma base de transações e critérios de GET /admin/relatorios/consolidado.',
+  })
+  @ApiQuery({ name: 'dataInicio', required: false, example: '2026-03-01' })
+  @ApiQuery({ name: 'dataFim', required: false, example: '2026-03-31' })
+  async getTotalRepasse(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
+    const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim);
+
+    const txRowsTodas = await this.prisma.transaction.findMany({
+      where: whereResumo,
+      select: {
+        id: true,
+        userId: true,
+        amount: true,
+        netAmount: true,
+        createdAt: true,
+        description: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const txRowsLucro = txRowsTodas.filter((t) =>
+      transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
+    );
+
+    const { totalLucroSimpay } = buildLucroSimpayDetalhePorPlataforma(txRowsLucro);
+    const lucroSimpayNum = Number(totalLucroSimpay.toFixed(2));
+
+    const temFiltroData = Boolean(dataInicio?.trim() || dataFim?.trim());
+    let valorLiquidoPlataformas: number;
+    let valorLiquidoCriterio: string;
+
+    if (temFiltroData) {
+      valorLiquidoPlataformas = Number(
+        txRowsLucro
+          .reduce((s, tx) => {
+            const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+            const tag = platform?.tag || 'RENOVADA';
+            return s + valorLiquidoTransacaoConsolidado(tx, tag);
+          }, 0)
+          .toFixed(2),
+      );
+      valorLiquidoCriterio =
+        'Com dataInicio/dataFim: soma do líquido das transações elegíveis no período (netAmount ou bruto × *_LIQUIDEZ). Igual ao campo valorLiquido do consolidado.';
+    } else {
+      const platformUsers = await this.prisma.user.findMany({
+        where: { id: { in: platformIds } },
+        include: { tenantModule: true },
+      });
+      let snap = 0;
+      for (const u of platformUsers) {
+        snap += await computeUserNetBalance(
+          this.prisma,
+          u.id,
+          u.tenantModule?.slug,
+        );
+      }
+      valorLiquidoPlataformas = Number(snap.toFixed(2));
+      valorLiquidoCriterio =
+        'Sem dataInicio/dataFim: soma dos saldos líquidos atuais (netBalance) das contas plataforma — igual ao consolidado; combine com período explícito para repasse alinhado ao lucro Simpay do intervalo.';
+    }
+
+    const totalRepasse = Number((valorLiquidoPlataformas - lucroSimpayNum).toFixed(2));
+
+    return {
+      totalRepasse,
+      valorLiquido: valorLiquidoPlataformas,
+      lucroSimpay: lucroSimpayNum,
+      valorLiquidoCriterio,
+      totalRepasseCriterio:
+        'totalRepasse = valorLiquido − lucroSimpay. Transações: COMPLETED das contas do consolidado; lucro exclui ajustes/sincronização (mesma regra do consolidado).',
     };
   }
 
