@@ -128,7 +128,6 @@ export class RequestWithdrawUseCase {
     const availableBalanceNet = availableBalanceGross.mul(fatorLiquidez);
 
     const requestedGross = new Prisma.Decimal(dto.valor);
-    const requestedNet = requestedGross.mul(fatorLiquidez);
 
     if (moduleSlug === 'renovada') {
       // Para Renovada: disponível = sum(netAmount) das transações COMPLETED − saques concluídos − locked(líquido)
@@ -150,15 +149,14 @@ export class RequestWithdrawUseCase {
         _sum: { grossAmount: true },
       });
 
-      // Para Renovada, o débito no ledger líquido é o equivalente líquido do valor bruto retirado
-      const totalWithdrawn = new Prisma.Decimal(cwAgg._sum.grossAmount?.toString() ?? '0').mul(fatorLiquidez);
+      // Para Renovada, o que foi sacado (em termos de "direito de saque" bruto) é a soma dos grossAmount
+      const totalWithdrawnGross = new Prisma.Decimal(cwAgg._sum.grossAmount?.toString() ?? '0');
+      const grossLocked = walletLocked;
       
-      const netLockedBalance = walletLocked.mul(fatorLiquidez);
-      const availableNetCalculation = sumNet.sub(totalWithdrawn).sub(netLockedBalance);
-      const availableNet = availableNetCalculation.lt(0) ? new Prisma.Decimal(0) : availableNetCalculation;
+      // Saldo bruto disponível na Renovada
+      const availableGross = sumNet.div(fatorLiquidez).sub(totalWithdrawnGross).sub(grossLocked);
 
-      if (requestedNet.toDP(2).gt(availableNet.toDP(2))) {
-        const availableGross = availableNet.div(fatorLiquidez);
+      if (requestedGross.toDP(2).gt(availableGross.toDP(2))) {
         throw new UnprocessableEntityException(
           `Saldo insuficiente para realizar o saque de R$ ${requestedGross.toFixed(2).replace('.', ',')}. Seu saldo disponível é R$ ${availableGross.toFixed(2).replace('.', ',')}`,
         );
@@ -169,19 +167,18 @@ export class RequestWithdrawUseCase {
       );
     }
 
-    const taxaFixa = new Prisma.Decimal(calcularTaxa(dto.valor));
-    const netAmount = requestedNet.sub(taxaFixa);
+    const taxa = new Prisma.Decimal(calcularTaxa(dto.valor));
+    const netAmount = requestedGross.sub(taxa);
 
     if (netAmount.lte(0)) {
       throw new UnprocessableEntityException(
-        `O valor solicitado é insuficiente para cobrir as taxas (taxa: R$ ${taxaFixa.toFixed(2).replace('.', ',')})`,
+        `O valor solicitado é insuficiente para cobrir as taxas (taxa: R$ ${taxa.toFixed(2).replace('.', ',')})`,
       );
     }
 
     // O valor bruto é exatamente o que o usuário solicitou.
-    // A taxa total armazenada incluirá tanto a taxa fixa quanto a diferença do fator de liquidez
+    // A taxa é exatamente o retorno de calcularTaxa.
     const grossToDeduct = requestedGross;
-    const totalTax = grossToDeduct.sub(netAmount);
     const amountToLock = grossToDeduct;
 
     const beforeLocked = walletLocked;
@@ -194,7 +191,7 @@ export class RequestWithdrawUseCase {
         userId,
         amount: netAmount.toNumber(),
         grossAmount: grossToDeduct.toNumber(),
-        fee: totalTax.toNumber(),
+        fee: taxa.toNumber(),
         pixKey: dto.chavePix,
         amountToLock: grossToDeduct.toNumber(),
         currentWalletVersion: wallet.version,

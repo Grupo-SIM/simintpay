@@ -255,35 +255,35 @@ export class GetWithdrawSummaryUseCase {
       }
     }
 
-    // Saldo disponível = saldo total - bloqueado por saques pendentes
-    const availableBalance = Math.max(0, balance - lockedBalance);
+    const pendingList = await this.prisma.withdrawRequest.findMany({
+      where: { userId, status: WithdrawStatus.PENDING },
+      select: { amount: true, fee: true, grossAmount: true },
+    });
 
-    const balanceDecimal = new Prisma.Decimal(balance.toString());
-    const lockedDecimal = new Prisma.Decimal(lockedBalance.toString());
-    const fatorDecimal = new Prisma.Decimal(fatorLiquidez.toString());
+    const pendingWithdrawsGross = pendingList.reduce((s, w) => s.add(new Prisma.Decimal(w.grossAmount.toString())), new Prisma.Decimal(0));
+    const pendingWithdrawsNet = pendingList.reduce((s, w) => s.add(new Prisma.Decimal(w.amount.toString())), new Prisma.Decimal(0));
 
-    // Saldo líquido: aplica fator sobre o saldo bruto livre (balance - lockedBalance)
-    // Se balanceFromTxLedger (migração), a soma já é líquida — subtrair lockedBalance 1:1
-    const netBalance = balanceFromTxLedger
-      ? balanceDecimal.sub(lockedDecimal)
-      : balanceDecimal.sub(lockedDecimal).mul(fatorDecimal);
+    // Saldo disponível bruto = saldo total - bloqueado por saques pendentes
+    const availableBalanceGross = Math.max(0, balance - lockedBalance);
+
+    // Saldo líquido disponível: Para o usuário, é o que ele receberia se sacasse tudo agora.
+    // Regra do usuário: Receber = Bruto - Taxa Fixa.
+    const taxaFixa = new Prisma.Decimal(config?.saque?.taxaFixa ?? 2);
+    const netBalance = availableBalanceGross > 0
+      ? new Prisma.Decimal(availableBalanceGross.toString()).sub(taxaFixa)
+      : new Prisma.Decimal(0);
 
     const finalNetBalance = netBalance.lt(0) ? new Prisma.Decimal(0) : netBalance;
 
-    // Saldo bloqueado líquido
-    const netLockedBalance = balanceFromTxLedger
-      ? lockedDecimal
-      : lockedDecimal.mul(fatorDecimal);
-
-    // Soma de saques pendentes
-    const pendingWithdraws = await this.withdraws.sumPendingByUserId(userId);
+    // Saldo bloqueado líquido: Soma exata dos valores 'amount' (o que será pago) dos saques pendentes.
+    const netLockedBalance = pendingWithdrawsNet;
 
     return {
-      availableBalance,
-      netBalance,
-      pendingWithdraws,
+      availableBalance: availableBalanceGross,
+      netBalance: finalNetBalance.toNumber().toString(),
+      pendingWithdraws: pendingWithdrawsGross.toNumber(),
       lockedBalance,
-      netLockedBalance,
+      netLockedBalance: netLockedBalance.toNumber().toString(),
       config: this.summaryConfigBlock(config, fatorLiquidez),
       wallet: {
         id: wallet.id,
