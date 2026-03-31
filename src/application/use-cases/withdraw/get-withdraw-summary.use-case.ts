@@ -51,7 +51,7 @@ export class GetWithdrawSummaryUseCase {
       fatorLiquidez: resolvedConfig.saque.fatorLiquidez ?? 0.91,
     };
 
-    // 1. Saques Ativos (Pendente ou Aprovado - ainda bloqueiam a conta)
+    // 1. Saques ativos (ledger geral); Renovada usa só PENDING em "bloqueado"
     const activeWithdraws = await this.prisma.withdrawRequest.findMany({
       where: { userId, status: { in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED] } },
     });
@@ -62,10 +62,21 @@ export class GetWithdrawSummaryUseCase {
     if (isRenovadaWallet) {
       const fatorRenovada = configResp.fatorLiquidez;
       const storedGross = Number(wallet.balance);
-      const totalNet = storedGross * fatorRenovada;
-      // Saque em exibição: sem aplicar fator no pendente — desconta do líquido o valor bruto solicitado (100), não locked*fator (91).
-      const pendingBruto = lockedBalanceGross;
-      const availableNet = Math.max(0, totalNet - pendingBruto);
+      const debitedAggr = await this.prisma.withdrawRequest.aggregate({
+        where: {
+          userId,
+          status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
+        },
+        _sum: { grossAmount: true },
+      });
+      const debitedBruto = Number(debitedAggr._sum.grossAmount || 0);
+      const pendingOnly = activeWithdraws.filter((w) => w.status === WithdrawStatus.PENDING);
+      const pendingBruto = pendingOnly.reduce((s, r) => s + Number(r.grossAmount), 0);
+      const pendingNetSum = pendingOnly.reduce((s, r) => s + Number(r.amount), 0);
+      const rawDisplayTotalNet =
+        storedGross * fatorRenovada + debitedBruto * (fatorRenovada - 1);
+      const displayTotalNet = Math.max(0, rawDisplayTotalNet);
+      const availableNet = Math.max(0, displayTotalNet - pendingBruto);
       const r2 = (n: number) => Number(n.toFixed(2));
 
       return {
@@ -73,7 +84,7 @@ export class GetWithdrawSummaryUseCase {
         netBalance: String(r2(availableNet)),
         pendingWithdraws: r2(pendingBruto),
         lockedBalance: r2(pendingBruto),
-        netLockedBalance: String(r2(lockedBalanceNet)),
+        netLockedBalance: String(r2(pendingNetSum)),
         config: {
           minValor: configResp.minValor,
           taxaFixa: configResp.taxaFixa,

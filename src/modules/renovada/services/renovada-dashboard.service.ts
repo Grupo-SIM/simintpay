@@ -135,11 +135,33 @@ export class PlatformDashboardService {
     const profitSelected = getProfit(txsInPeriod);
     const profitTotal = getProfit(allTransactions);
 
-    // 2. Dados da Wallet (netBalance)
+    // 2. Dados da Wallet — Renovada: mesmo critério de /auth/me (saldo líquido − só PENDING; débitos APPROVED/COMPLETED corrigem fator)
     const wallet = await this.prisma.wallet.findUnique({ where: { userId: platformId } });
     const balanceVal = Number(wallet?.balance || 0);
     const lockedVal = Number(wallet?.lockedBalance || 0);
-    const availableBalanceNet = Number(((balanceVal - lockedVal) * liquidityFactor).toFixed(3));
+
+    let availableBalanceNet: number;
+    if (upperTag === 'RENOVADA') {
+      const debitedAggr = await this.prisma.withdrawRequest.aggregate({
+        where: {
+          userId: platformId,
+          status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
+        },
+        _sum: { grossAmount: true },
+      });
+      const debitedBruto = Number(debitedAggr._sum.grossAmount || 0);
+      const pendingAggr = await this.prisma.withdrawRequest.aggregate({
+        where: { userId: platformId, status: WithdrawStatus.PENDING },
+        _sum: { grossAmount: true },
+      });
+      const pendingBruto = Number(pendingAggr._sum.grossAmount || 0);
+      const rawTotalNet =
+        balanceVal * liquidityFactor + debitedBruto * (liquidityFactor - 1);
+      const displayTotalNet = Math.max(0, rawTotalNet);
+      availableBalanceNet = Number(Math.max(0, displayTotalNet - pendingBruto).toFixed(2));
+    } else {
+      availableBalanceNet = Number(((balanceVal - lockedVal) * liquidityFactor).toFixed(3));
+    }
 
     // 3. Estornos
     const estornosAgg = await this.prisma.transaction.aggregate({

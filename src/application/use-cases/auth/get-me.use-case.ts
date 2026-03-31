@@ -8,7 +8,7 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, WithdrawStatus } from '@prisma/client';
 
 @Injectable()
 export class GetMeUseCase {
@@ -63,21 +63,33 @@ export class GetMeUseCase {
     };
 
     if (useRenovadaWalletLedger) {
-      // Saldo total líquido = bruto na wallet * fator (sync/cron). Saque: pendente = soma grossAmount (valor solicitado), disponível = total líquido − pendente (sem fator no desconto).
+      // Wallet em bruto * fator = "líquido bruto"; ao aprovar saque debita gross na wallet (−100 bruto ⇒ só −91 no B*fator).
+      // Exibição: saldo líquido total = B*fator + saques já debitados_bruto*(fator−1) = B0*fator − soma(brutos sacados).
+      // Bloqueado só PENDING (ainda não aprovado); APPROVED já debitou e não entra em locked.
       const fatorRenovada =
         getModuleConfig('renovada')?.saque?.fatorLiquidez ??
         Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
       const storedGross = Number(wallet.balance);
-      const activeAggr = await this.prisma.withdrawRequest.aggregate({
-        where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } },
+      const debitedAggr = await this.prisma.withdrawRequest.aggregate({
+        where: {
+          userId: user.id,
+          status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
+        },
         _sum: { grossAmount: true },
       });
-      const pendingBruto = Number(activeAggr._sum.grossAmount || 0);
-      const totalNet = storedGross * fatorRenovada;
-      const availableNet = Math.max(0, totalNet - pendingBruto);
+      const debitedBruto = Number(debitedAggr._sum.grossAmount || 0);
+      const pendingAggr = await this.prisma.withdrawRequest.aggregate({
+        where: { userId: user.id, status: WithdrawStatus.PENDING },
+        _sum: { grossAmount: true },
+      });
+      const pendingBruto = Number(pendingAggr._sum.grossAmount || 0);
+      const rawDisplayTotalNet =
+        storedGross * fatorRenovada + debitedBruto * (fatorRenovada - 1);
+      const displayTotalNet = Math.max(0, rawDisplayTotalNet);
+      const availableNet = Math.max(0, displayTotalNet - pendingBruto);
       const r2 = (n: number) => Number(n.toFixed(2));
       walletResp = {
-        balance: r2(totalNet),
+        balance: r2(displayTotalNet),
         lockedBalance: r2(pendingBruto),
         availableBalance: r2(availableNet),
         netBalance: r2(availableNet),

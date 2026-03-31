@@ -1044,7 +1044,11 @@ export class AdminController {
 
   @Post('sync/sync-wallet-renovada')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Definir saldo base da carteira Renovada (execução única para inicializar o saldo correto)' })
+  @ApiOperation({
+    summary: 'Definir saldo base da carteira Renovada (execução única para inicializar o saldo correto)',
+    description:
+      'Define wallet em bruto = balance/fator. Remove saques APPROVED/COMPLETED antigos para não distorcer o /auth/me (fórmula com debitedBruto). Saques PENDING são mantidos.',
+  })
   @ApiQuery({ name: 'balance', required: true, description: 'Saldo base a definir (ex: 3840.70)', example: 3840.70 })
   async syncWalletRenovada(@Query('balance') balanceParam?: string) {
     const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
@@ -1070,30 +1074,49 @@ export class AdminController {
       const netBalance = Number(balanceParam);
       const grossBalance = netBalance / fatorLiquidez;
 
-      await this.prisma.wallet.update({
-        where: { userId: RENOVADA_ID },
-        data: { balance: String(grossBalance), version: { increment: 1 } },
-      });
+      const removedWithdraws = await this.prisma.$transaction(async (tx) => {
+        const del = await tx.withdrawRequest.deleteMany({
+          where: {
+            userId: RENOVADA_ID,
+            status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
+          },
+        });
 
-      await this.prisma.balanceLog.create({
-        data: {
-          userId: RENOVADA_ID,
-          action: 'WALLET_RECALCULATE',
-          amount: grossBalance - oldBalance,
-          balanceBefore: oldBalance,
-          balanceAfter: grossBalance,
-          lockedBefore: wallet.lockedBalance,
-          lockedAfter: wallet.lockedBalance,
-          description: `Saldo base definido manualmente. netBalance: R$ ${netBalance.toFixed(2)}, bruto armazenado: R$ ${grossBalance.toFixed(2)}`,
-          source: 'ADMIN_SYNC',
-          metadata: { oldBalance, netBalance, grossBalance, fatorLiquidez, setManually: true },
-        },
+        await tx.wallet.update({
+          where: { userId: RENOVADA_ID },
+          data: { balance: String(grossBalance), version: { increment: 1 } },
+        });
+
+        await tx.balanceLog.create({
+          data: {
+            userId: RENOVADA_ID,
+            action: 'WALLET_RECALCULATE',
+            amount: grossBalance - oldBalance,
+            balanceBefore: oldBalance,
+            balanceAfter: grossBalance,
+            lockedBefore: wallet.lockedBalance,
+            lockedAfter: wallet.lockedBalance,
+            description: `Saldo base definido manualmente. netBalance: R$ ${netBalance.toFixed(2)}, bruto armazenado: R$ ${grossBalance.toFixed(2)}`,
+            source: 'ADMIN_SYNC',
+            metadata: {
+              oldBalance,
+              netBalance,
+              grossBalance,
+              fatorLiquidez,
+              setManually: true,
+              removedApprovedOrCompletedWithdraws: del.count,
+            },
+          },
+        });
+
+        return del.count;
       });
 
       return {
         message: 'Saldo base definido com sucesso. A partir de agora o saldo é atualizado incrementalmente (novas transações e saques).',
         before: { balance: oldBalance },
         after: { grossBalance, netBalance },
+        removedApprovedOrCompletedWithdraws: removedWithdraws,
       };
     } catch (error: any) {
       return { message: `Erro ao definir saldo: ${error.message}` };
@@ -2215,69 +2238,42 @@ export class AdminController {
 
   @Post('renovada/reset-wallet')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Zerar saldo da Renovada garantindo 0,00 no ledger' })
+  @ApiOperation({
+    summary: 'Zerar saldo e bloqueios da carteira Renovada (sem saque sintético)',
+    description:
+      'Zera wallet, remove todos os saques. O /auth/me Renovada usa wallet + saques COMPLETED/APPROVED; um saque sintético COMPLETED quebrava o saldo (gross × (fator−1) ficava negativo). Transações permanecem no banco.',
+  })
   async resetRenovadaWallet() {
     const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
     await this.prisma.$transaction(async (tx) => {
-      // 1. Zera Tabela Wallet (bloqueios e saldo manual)
       await tx.wallet.update({
         where: { userId: RENOVADA_ID },
         data: { balance: 0, lockedBalance: 0, version: { increment: 1 } },
       });
 
-      // 2. Remove TODOS os saques anteriores para limpar o histórico de débitos
       await tx.withdrawRequest.deleteMany({
         where: { userId: RENOVADA_ID },
       });
 
-      // 3. Calcula o Lucro Líquido Acumulado total (o que o /me soma)
-      const txRows = await tx.transaction.findMany({
-        where: { userId: RENOVADA_ID, status: 'COMPLETED', amount: { gt: 0 } },
-        select: { amount: true, netAmount: true },
-      });
-
-      const config = getModuleConfig('renovada');
-      const fator = config?.saque?.fatorLiquidez ?? 0.91;
-
-      const totalAccumulatedProfit = txRows.reduce((s, t) => {
-        const net = t.netAmount != null ? Number(t.netAmount) : Number(t.amount) * fator;
-        return s + net;
-      }, 0);
-
-      // 4. Cria um ÚNICO saque de ajuste que consome exatamente esse lucro
-      if (totalAccumulatedProfit > 0) {
-        await tx.withdrawRequest.create({
-          data: {
-            userId: RENOVADA_ID,
-            amount: totalAccumulatedProfit,
-            grossAmount: totalAccumulatedProfit,
-            fee: 0,
-            status: WithdrawStatus.COMPLETED,
-            pixKey: 'SYSTEM-RESET',
-          },
-        });
-      }
-
-      // 5. Log
       await tx.balanceLog.create({
         data: {
           userId: RENOVADA_ID,
           action: 'WALLET_RESET_FINAL',
-          amount: totalAccumulatedProfit,
+          amount: 0,
           balanceBefore: 0,
           balanceAfter: 0,
           lockedBefore: 0,
           lockedAfter: 0,
           source: 'ADMIN_FORCE',
-          description: 'Reset total via limpeza de saques e compensação de lucro acumulado.',
+          description: 'Reset Renovada: wallet zerada e histórico de saques removido.',
         },
       });
     });
 
     return {
       success: true,
-      message: 'Saldo zerado com sucesso (0,00). Histórico de transações mantido.'
+      message: 'Saldo zerado com sucesso (0,00). Histórico de transações mantido.',
     };
   }
 }
