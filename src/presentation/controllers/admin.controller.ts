@@ -220,6 +220,21 @@ function transacaoEntraNoLucroSimpayConsolidado(
   return true;
 }
 
+/** Líquido da transação para o consolidado: netAmount quando existir, senão bruto × LIQUIDEZ da plataforma. */
+function valorLiquidoTransacaoConsolidado(
+  tx: { amount: unknown; netAmount: unknown | null },
+  tagPlataforma: string,
+): number {
+  const bruto = Number(tx.amount);
+  const L = Number(process.env[`${tagPlataforma}_LIQUIDEZ`] ?? 0.91);
+  const rawNet = tx.netAmount;
+  if (rawNet != null && rawNet !== undefined && String(rawNet) !== '') {
+    const n = Number(rawNet);
+    if (Number.isFinite(n)) return n;
+  }
+  return bruto * L;
+}
+
 /** Resumo dos cards: só plataformas + COMPLETED + intervalo (ignora filtros de tabela). */
 function buildConsolidadoResumoWhere(
   dataInicio?: string,
@@ -893,6 +908,7 @@ export class AdminController {
         id: true,
         userId: true,
         amount: true,
+        netAmount: true,
         createdAt: true,
         description: true,
       },
@@ -944,17 +960,39 @@ export class AdminController {
             _sum: { amount: true },
           });
 
-    const platformUsers = await this.prisma.user.findMany({
-      where: { id: { in: platformIds } },
-      include: { tenantModule: true },
-    });
-    let valorLiquidoPlataformas = 0;
-    for (const u of platformUsers) {
-      valorLiquidoPlataformas += await computeUserNetBalance(
-        this.prisma,
-        u.id,
-        u.tenantModule?.slug,
+    const temFiltroData = Boolean(dataInicio?.trim() || dataFim?.trim());
+
+    let valorLiquidoPlataformas: number;
+    let valorLiquidoCriterio: string;
+
+    if (temFiltroData) {
+      valorLiquidoPlataformas = Number(
+        txRowsLucro
+          .reduce((s, tx) => {
+            const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+            const tag = platform?.tag || 'RENOVADA';
+            return s + valorLiquidoTransacaoConsolidado(tx, tag);
+          }, 0)
+          .toFixed(2),
       );
+      valorLiquidoCriterio =
+        'Com dataInicio/dataFim: soma do líquido das transações elegíveis no período (campo netAmount; se vazio, bruto × *_LIQUIDEZ da plataforma). Alinhado ao valor bruto e ao lucro Simpay do período.';
+    } else {
+      const platformUsers = await this.prisma.user.findMany({
+        where: { id: { in: platformIds } },
+        include: { tenantModule: true },
+      });
+      let snap = 0;
+      for (const u of platformUsers) {
+        snap += await computeUserNetBalance(
+          this.prisma,
+          u.id,
+          u.tenantModule?.slug,
+        );
+      }
+      valorLiquidoPlataformas = Number(snap.toFixed(2));
+      valorLiquidoCriterio =
+        'Sem dataInicio/dataFim: soma dos saldos líquidos atuais (netBalance) das contas plataforma no Simpay — não é soma de transações.';
     }
 
     const estornos = await aggregateEstornosDomPagamentos(
@@ -967,7 +1005,8 @@ export class AdminController {
 
     const payload: Record<string, unknown> = {
       valorBruto: brutoTotal,
-      valorLiquido: Number(valorLiquidoPlataformas.toFixed(2)),
+      valorLiquido: valorLiquidoPlataformas,
+      valorLiquidoCriterio,
       lucroSimpay: Number(totalLucroSimpay.toFixed(2)),
       saquesAprovados: {
         quantidade: withdrawIds.length,
@@ -1015,9 +1054,10 @@ export class AdminController {
           fuso: TZ,
           observacao:
             dataInicio || dataFim
-              ? 'Somente transações com createdAt nesse intervalo (início/fim do dia em America/Sao_Paulo).'
+              ? 'Somente transações com createdAt nesse intervalo (início/fim do dia em America/Sao_Paulo). Valor líquido total = soma do líquido dessas transações elegíveis (ver valorLiquidoCriterio na raiz da resposta).'
               : 'Sem dataInicio/dataFim na URL: entram todas as transações COMPLETED das contas do consolidado (sem limite de data). Para ver só um dia (ex. 31/03), envie dataInicio=2026-03-31&dataFim=2026-03-31.',
         },
+        valorLiquidoCriterio,
         transacoesConsideradas: txRowsLucro.length,
         lucroSimpayTotal: Number(totalLucroSimpay.toFixed(2)),
         plataformas: plats,
