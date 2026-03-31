@@ -11,7 +11,7 @@ export class SendSubscriptionLinkAccessEmailUseCase {
     @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
     private readonly email: EmailService,
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
 
   async execute(input: { orderId: string; customerEmail?: string }) {
     const order = await this.prisma.subscriptionLinkOrder.findUnique({
@@ -25,13 +25,12 @@ export class SendSubscriptionLinkAccessEmailUseCase {
     if (!to) throw new BadRequestException('E-mail do destinatário não informado');
 
     const link = order.subscriptionLink;
-    const redirectUrl = link.redirectUrl;
 
     await this.email.sendSubscriptionAccess({
       to,
       customerName: order.customerName,
       linkName: link.name,
-      redirectUrl: redirectUrl ?? null,
+      redirectUrl: link.redirectUrl ?? null,
       orderId: order.id,
     });
 

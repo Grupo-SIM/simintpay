@@ -13,6 +13,7 @@ import {
 } from '../../application/dtos/subscription-link/checkout-subscription-link.dto';
 import { CreateSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/create-subscription-link.use-case';
 import { ListSubscriptionLinksUseCase } from '../../application/use-cases/subscription-link/list-subscription-links.use-case';
+import { GetSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/get-subscription-link.use-case';
 import { GetPublicSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/get-public-subscription-link.use-case';
 import { UpdateSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/update-subscription-link.use-case';
 import { DeleteSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/delete-subscription-link.use-case';
@@ -28,6 +29,7 @@ export class SubscriptionLinkController {
   constructor(
     private readonly createUC: CreateSubscriptionLinkUseCase,
     private readonly listUC: ListSubscriptionLinksUseCase,
+    private readonly getUC: GetSubscriptionLinkUseCase,
     private readonly getPublicUC: GetPublicSubscriptionLinkUseCase,
     private readonly updateUC: UpdateSubscriptionLinkUseCase,
     private readonly deleteUC: DeleteSubscriptionLinkUseCase,
@@ -69,10 +71,18 @@ export class SubscriptionLinkController {
   async getOrderStatus(@Param('orderId') orderId: string) {
     const order = await this.prisma.subscriptionLinkOrder.findUnique({
       where: { id: orderId },
-      select: { id: true, status: true, subscriptionLink: { select: { redirectUrl: true } } },
+      select: { id: true, status: true, subscriptionLink: { select: { code: true, redirectUrl: true } } },
     });
     if (!order) throw new NotFoundException('Pedido não encontrado');
-    return { status: order.status, redirectUrl: order.subscriptionLink?.redirectUrl ?? null };
+    const fallbackCheckoutUrl = order.subscriptionLink?.code
+      ? `https://checkout.jbmidia.com/?subscriptionLinkCode=${encodeURIComponent(order.subscriptionLink.code)}`
+      : null;
+    const accessUrl = order.subscriptionLink?.redirectUrl ?? fallbackCheckoutUrl;
+    return {
+      status: order.status,
+      redirectUrl: order.subscriptionLink?.redirectUrl ?? null,
+      accessUrl,
+    };
   }
 
   @Post('orders/:orderId/send-access-email')
@@ -112,6 +122,17 @@ export class SubscriptionLinkController {
     @Body() dto: CreateSubscriptionLinkDto,
   ) {
     return this.createUC.execute({ userId: user.sub, role: user.role, dto });
+  }
+
+  @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Buscar link de assinatura por id' })
+  async getOne(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ) {
+    return this.getUC.execute({ userId: user.sub, role: user.role, id });
   }
 
   @Put(':id')

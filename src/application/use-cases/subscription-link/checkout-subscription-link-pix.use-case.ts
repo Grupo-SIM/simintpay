@@ -101,19 +101,17 @@ export class CheckoutSubscriptionLinkPixUseCase {
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });
 
-    const community = await this.communities.ensureAutomaticBindingForSubscriptionLink({
-      subscriptionLinkId: link.id,
-      linkName: link.name,
-      linkDescription: link.description,
-    });
-    await this.communities.registerPendingPix({
-      communityId: community.id,
-      userId: link.userId,
-      frequencyType: link.frequencyType,
-      paymentMethod: 'PIX',
-      amountCharged,
-      subscriptionLinkOrderId: order.id,
-    });
+    const community = await this.communities.findBoundCommunityForSubscriptionLink(link.id);
+    if (community) {
+      await this.communities.registerPendingPix({
+        communityId: community.id,
+        userId: link.userId,
+        frequencyType: link.frequencyType,
+        paymentMethod: 'PIX',
+        amountCharged,
+        subscriptionLinkOrderId: order.id,
+      });
+    }
 
     return {
       id: order.id,

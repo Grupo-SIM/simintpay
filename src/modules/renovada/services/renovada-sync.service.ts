@@ -5,6 +5,7 @@ import { RenovadaEventsService } from '../events/renovada-events.service';
 import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { appendInternalTags, TENANT_RENOVADA_TAG } from '../../../application/utils/internal-tags.util';
 
 /**
  * RenovadaSyncService - Sincroniza transações novas do api-dom para o back-simpay.
@@ -79,7 +80,7 @@ export class RenovadaSyncService implements OnModuleInit {
 
             // Ignorar transações que não possuem keywords da Renovada na descrição
             const desc = (tx.description || '').toLowerCase();
-            const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
+            const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'fundacao', 'fundação', 'maquineta', 'terminal'];
             const isRenovadaTx = renovadaKeywords.some(k => desc.includes(k));
             if (!isRenovadaTx) {
               continue;
@@ -104,6 +105,10 @@ export class RenovadaSyncService implements OnModuleInit {
             const totalFee = new Prisma.Decimal(tx.fee || 0);
             const domFee = new Prisma.Decimal(tx.dom_fee || 0);
             const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
+            const internalDescription = appendInternalTags(
+              tx.description || existing?.description || 'Sincronização Renovada',
+              [TENANT_RENOVADA_TAG],
+            );
 
             if (existing) {
               // Só atualizar se status mudou
@@ -118,6 +123,7 @@ export class RenovadaSyncService implements OnModuleInit {
                     totalFee,
                     domFee,
                     platformFee,
+                    description: internalDescription,
                     customerName: tx.name || existing.customerName,
                     customerEmail: tx.email || existing.customerEmail,
                     customerDocument: tx.document || existing.customerDocument,
@@ -179,7 +185,7 @@ export class RenovadaSyncService implements OnModuleInit {
                 netAmount,
                 status: mappedStatus,
                 paymentMethod: this.mapPaymentMethod(tx.payment_method),
-                description: tx.description || 'Sincronização Renovada',
+                description: internalDescription,
                 domTransactionId: txId,
                 domPaymentId: paymentId,
                 customerName: tx.name,

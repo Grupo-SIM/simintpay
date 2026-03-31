@@ -9,7 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async create(data: CreateSubscriptionLinkData): Promise<SubscriptionLink> {
     return this.prisma.subscriptionLink.create({

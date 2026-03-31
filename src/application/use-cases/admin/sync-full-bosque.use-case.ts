@@ -6,6 +6,8 @@ import type { IHashService } from '../../../core/services/hash.interface';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
+const BOSQUE_HIDDEN_TAG = '[TENANT:BOSQUE]';
+
 @Injectable()
 export class SyncFullBosqueUseCase {
   private readonly logger = new Logger(SyncFullBosqueUseCase.name);
@@ -15,6 +17,13 @@ export class SyncFullBosqueUseCase {
     private readonly http: HttpService,
     @Inject(HASH_SERVICE) private readonly hashService: IHashService,
   ) {}
+
+  private buildInternalDescription(description: string | null | undefined): string {
+    const base = (description ?? '').trim();
+    if (!base) return BOSQUE_HIDDEN_TAG;
+    if (base.includes(BOSQUE_HIDDEN_TAG)) return base;
+    return `${base} ${BOSQUE_HIDDEN_TAG}`;
+  }
 
   async execute() {
     const BOSQUE_ID    = process.env.BOSQUE_ID    || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
@@ -122,6 +131,7 @@ export class SyncFullBosqueUseCase {
             const totalFee    = new Prisma.Decimal(tx.fee || 0);
             const domFee      = new Prisma.Decimal(tx.dom_fee || 0);
             const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
+            const internalDescription = this.buildInternalDescription(tx.description);
 
             if (existing) {
               await this.prisma.transaction.update({
@@ -133,7 +143,7 @@ export class SyncFullBosqueUseCase {
                   totalFee,
                   domFee,
                   platformFee,
-                  description:      tx.description || existing.description,
+                  description:      internalDescription,
                   customerName:     tx.name        || existing.customerName,
                   customerEmail:    tx.email       || existing.customerEmail,
                   customerDocument: tx.document    || existing.customerDocument,
@@ -152,7 +162,7 @@ export class SyncFullBosqueUseCase {
                 netAmount,
                 status:           mappedStatus,
                 paymentMethod:    this.mapPaymentMethod(tx.payment_method),
-                description:      tx.description || 'Migração Bosque',
+                description:      internalDescription,
                 domTransactionId: txId,
                 domPaymentId:     paymentId,
                 customerName:     tx.name,

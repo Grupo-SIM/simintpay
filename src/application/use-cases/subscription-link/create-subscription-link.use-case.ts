@@ -87,17 +87,12 @@ export class CreateSubscriptionLinkUseCase {
       paymentMethods: input.dto.paymentMethods ?? 'BOTH',
     });
 
-    // Se communityId informado, vincula manualmente; senão, cria vínculo automático por slug
+    // Regra de negócio: link de assinatura NUNCA cria comunidade automaticamente.
+    // Apenas vincula quando communityId é informado no cadastro.
     if (input.dto.communityId) {
       await this.communities.bindSubscriptionLinkManually({
         communityId: input.dto.communityId,
         subscriptionLinkId: saved.id,
-      });
-    } else {
-      await this.communities.ensureAutomaticBindingForSubscriptionLink({
-        subscriptionLinkId: saved.id,
-        linkName: saved.name,
-        linkDescription: saved.description,
       });
     }
 

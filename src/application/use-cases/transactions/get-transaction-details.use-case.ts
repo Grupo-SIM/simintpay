@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, Inject } from '@nestjs/common';
 import { Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import { stripInternalTags } from '../../utils/internal-tags.util';
 
 @Injectable()
 export class GetTransactionDetailsUseCase {
@@ -92,7 +93,7 @@ export class GetTransactionDetailsUseCase {
       paid_date: tx.status === TransactionStatus.COMPLETED ? this.toBRT(tx.updatedAt) : null,
       msg_3ds: null,
       pix_content: tx.pixContent ?? null,
-      items: [{ name: tx.description ?? 'Produto', quant: 1, price: amount }],
+      items: [{ name: stripInternalTags(tx.description) ?? 'Produto', quant: 1, price: amount }],
       historic_status: historicStatus,
     };
   }
@@ -151,6 +152,12 @@ export class GetTransactionDetailsUseCase {
                 history.push({ status: 'Expirado', type: 'expired', date: order.date_register, color: '#6b7280' });
               }
               detail.order.historic_status = history;
+            }
+            if (Array.isArray(detail.order?.items)) {
+              detail.order.items = detail.order.items.map((item: any) => ({
+                ...item,
+                name: stripInternalTags(item?.name) ?? item?.name ?? 'Produto',
+              }));
             }
             return detail;
           }

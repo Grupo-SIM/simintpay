@@ -27,6 +27,10 @@ export class EmailService {
     redirectUrl: string | null;
     orderId: string;
   }): Promise<void> {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+      throw new Error('SMTP não configurado no api-machine (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)');
+    }
+
     const transport = this.createTransport();
     const from = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
 
@@ -65,6 +69,7 @@ export class EmailService {
       });
     } catch (err) {
       this.logger.error(`Falha ao enviar e-mail de acesso de assinatura para ${input.to}: ${String(err)}`);
+      throw err;
     }
   }
 

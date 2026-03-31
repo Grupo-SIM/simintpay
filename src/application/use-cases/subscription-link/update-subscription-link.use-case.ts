@@ -28,12 +28,6 @@ export class UpdateSubscriptionLinkUseCase {
       maxUses: input.dto.maxUses ?? existing.maxUses,
     });
 
-    await this.communities.ensureAutomaticBindingForSubscriptionLink({
-      subscriptionLinkId: updated.id,
-      linkName: updated.name,
-      linkDescription: updated.description,
-    });
-
     return {
       data: {
         id: updated.id,

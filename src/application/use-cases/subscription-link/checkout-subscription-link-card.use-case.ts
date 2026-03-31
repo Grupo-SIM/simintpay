@@ -31,7 +31,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly communities: CommunityManagementService,
     private readonly emailService: EmailService,
-  ) {}
+  ) { }
 
   async execute(input: { code: string; dto: CheckoutSubscriptionLinkCardDto }) {
     const link = await this.repo.findByCode(input.code);
@@ -112,19 +112,17 @@ export class CheckoutSubscriptionLinkCardUseCase {
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });
 
-    const community = await this.communities.ensureAutomaticBindingForSubscriptionLink({
-      subscriptionLinkId: link.id,
-      linkName: link.name,
-      linkDescription: link.description,
-    });
-    await this.communities.activateOrRenewCommunityAccess({
-      communityId: community.id,
-      userId: link.userId,
-      frequencyType: link.frequencyType,
-      paymentMethod: 'CREDIT_CARD',
-      amountCharged,
-      subscriptionLinkOrderId: order.id,
-    });
+    const community = await this.communities.findBoundCommunityForSubscriptionLink(link.id);
+    if (community) {
+      await this.communities.activateOrRenewCommunityAccess({
+        communityId: community.id,
+        userId: link.userId,
+        frequencyType: link.frequencyType,
+        paymentMethod: 'CREDIT_CARD',
+        amountCharged,
+        subscriptionLinkOrderId: order.id,
+      });
+    }
 
     try {
       await this.emailService.sendSubscriptionAccess({

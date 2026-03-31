@@ -52,7 +52,7 @@ export class ProcessWebhookUseCase {
     @Optional() private readonly pixPlanService?: PixPlanService,
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
-  ) {}
+  ) { }
 
   private getObject(v: unknown): Record<string, unknown> | null {
     if (v && typeof v === 'object' && !Array.isArray(v))
@@ -197,7 +197,7 @@ export class ProcessWebhookUseCase {
         this.logger.log(`[WEBHOOK] Transaction ${domPaymentId} not found, ignoring because we cannot determine the tenant user.`);
         return;
       }
-      
+
       const t = trx;
 
       const nextStatus = this.mapDomStatusToTransactionStatus(

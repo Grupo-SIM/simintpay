@@ -72,11 +72,20 @@ interface DomCreditCardRequest {
   };
 }
 
+const RENOVADA_HIDDEN_TAG = '[TENANT:RENOVADA]';
+
 @Injectable()
 export class RenovadaPaymentService {
   private readonly logger = new Logger(RenovadaPaymentService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  private buildInternalDescription(description: string | null | undefined): string {
+    const base = (description ?? '').trim();
+    if (!base) return RENOVADA_HIDDEN_TAG;
+    if (base.includes(RENOVADA_HIDDEN_TAG)) return base;
+    return `${base} ${RENOVADA_HIDDEN_TAG}`;
+  }
 
   async createPaymentPix(
     userId: string,
@@ -125,6 +134,8 @@ export class RenovadaPaymentService {
         throw new BadRequestException('Carteira não encontrada');
       }
 
+      const internalDescription = this.buildInternalDescription(body?.description);
+
       // Criar transação
       const transaction = await this.prisma.transaction.create({
         data: {
@@ -136,7 +147,7 @@ export class RenovadaPaymentService {
           domFee,
           platformFee: totalFees,
           paymentMethod: PaymentMethod.PIX,
-          description: body?.description ?? '-',
+          description: internalDescription,
           customerName: body?.name,
           customerEmail: body?.email,
           customerDocument: body?.document,
@@ -273,6 +284,8 @@ export class RenovadaPaymentService {
         throw new BadRequestException('Carteira não encontrada');
       }
 
+      const internalDescription = this.buildInternalDescription(body?.description);
+
       // Criar transação
       const transaction = await this.prisma.transaction.create({
         data: {
@@ -284,7 +297,7 @@ export class RenovadaPaymentService {
           domFee,
           platformFee: totalFeesFinal,
           paymentMethod: PaymentMethod.CREDIT_CARD,
-          description: body?.description ?? '-',
+          description: internalDescription,
           customerName: body?.name,
           customerEmail: body?.email,
           customerDocument: body?.document,

@@ -6,9 +6,9 @@ import type { ISubscriptionLinkRepository } from '../../../core/repositories/sub
 function mapFrequencyLabel(t: PlanType): string {
   switch (t) {
     case PlanType.TRIMESTRAL: return 'TRIMESTRAL';
-    case PlanType.SEMESTRAL:  return 'SEMESTRAL';
-    case PlanType.ANUAL:      return 'ANUAL';
-    default:                  return 'MENSAL';
+    case PlanType.SEMESTRAL: return 'SEMESTRAL';
+    case PlanType.ANUAL: return 'ANUAL';
+    default: return 'MENSAL';
   }
 }
 
@@ -16,7 +16,7 @@ function mapFrequencyLabel(t: PlanType): string {
 export class GetPublicSubscriptionLinkUseCase {
   constructor(
     @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
-  ) {}
+  ) { }
 
   async execute(code: string) {
     const link = await this.repo.findByCode(code);

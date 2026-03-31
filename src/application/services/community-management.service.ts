@@ -85,6 +85,15 @@ export class CommunityManagementService {
     return community;
   }
 
+  async findBoundCommunityForSubscriptionLink(subscriptionLinkId: string) {
+    const binding = await this.prisma.communityLinkBinding.findFirst({
+      where: { subscriptionLinkId },
+      select: { communityId: true },
+    });
+    if (!binding) return null;
+    return this.prisma.community.findUnique({ where: { id: binding.communityId } });
+  }
+
   async bindSubscriptionLinkManually(input: { communityId: string; subscriptionLinkId: string }) {
     const existing = await this.prisma.communityLinkBinding.findFirst({
       where: { subscriptionLinkId: input.subscriptionLinkId },

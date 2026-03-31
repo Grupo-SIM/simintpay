@@ -7,6 +7,7 @@ import { PrismaUserRepository } from '../infrastructure/database/repositories/pr
 import { SubscriptionLinkController } from './controllers/subscription-link.controller';
 import { CreateSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/create-subscription-link.use-case';
 import { ListSubscriptionLinksUseCase } from '../application/use-cases/subscription-link/list-subscription-links.use-case';
+import { GetSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/get-subscription-link.use-case';
 import { GetPublicSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/get-public-subscription-link.use-case';
 import { UpdateSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/update-subscription-link.use-case';
 import { DeleteSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/delete-subscription-link.use-case';
@@ -25,6 +26,7 @@ import { EmailService } from '../infrastructure/email/email.service';
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     CreateSubscriptionLinkUseCase,
     ListSubscriptionLinksUseCase,
+    GetSubscriptionLinkUseCase,
     GetPublicSubscriptionLinkUseCase,
     UpdateSubscriptionLinkUseCase,
     DeleteSubscriptionLinkUseCase,

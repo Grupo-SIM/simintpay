@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { appendInternalTags, ORIGEM_MAQUINETA_TAG, TENANT_RENOVADA_TAG } from '../../utils/internal-tags.util';
 
 /**
  * Seriais das maquinetas que pertencem ao usuário Renovada 12.
@@ -118,7 +119,10 @@ export class SyncMaquinetasUseCase {
                 totalFee: new Prisma.Decimal(domFeeAmt + platformFeeAmt),
                 domFee: new Prisma.Decimal(domFeeAmt),
                 platformFee: new Prisma.Decimal(platformFeeAmt),
-                description: `Maquineta (CORRIGIDA) - Terminal: ${serial}`,
+                description: appendInternalTags(
+                  `Maquineta (CORRIGIDA) - Terminal: ${serial}`,
+                  [TENANT_RENOVADA_TAG, ORIGEM_MAQUINETA_TAG],
+                ),
                 domTransactionId: tx.cod_external || null,
                 customerEmail: tx.customer_email,
                 customerDocument: tx.customer_document,
@@ -181,7 +185,10 @@ export class SyncMaquinetasUseCase {
               platformFee: new Prisma.Decimal(platformFeeAmt),
               status: TransactionStatus.COMPLETED,
               paymentMethod,
-              description: `Maquineta - Terminal: ${serial}`,
+              description: appendInternalTags(
+                `Maquineta - Terminal: ${serial}`,
+                [TENANT_RENOVADA_TAG, ORIGEM_MAQUINETA_TAG],
+              ),
               installments: Number(tx.installments ?? 1),
               customerName: tx.customer_name ?? 'Cliente POS',
               customerEmail: tx.customer_email ?? '',

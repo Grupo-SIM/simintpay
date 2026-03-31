@@ -3,6 +3,7 @@ import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY, type IPaymentGateway, type DomTaxesOutput } from '../../../core/services/payment-gateway.interface';
 import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-transactions.query.dto';
+import { stripInternalTags } from '../../utils/internal-tags.util';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -11,6 +12,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const BRT = 'America/Sao_Paulo';
+const RENOVADA_HIDDEN_TAG = '[TENANT:RENOVADA]';
 
 function formatDocument(doc: string | null | undefined): string | null {
   if (!doc) return null;
@@ -155,7 +157,18 @@ export class ListTransactionsUseCase {
         }
 
         const RENOVADA_ID_SYNC = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-        const RENOVADA_KEYWORDS = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
+        const RENOVADA_KEYWORDS = [
+          'dizimo',
+          'dízimo',
+          'primicia',
+          'primícia',
+          'oferta',
+          'fundacao',
+          'fundação',
+          'maquineta',
+          'terminal',
+          RENOVADA_HIDDEN_TAG.toLowerCase(),
+        ];
 
         for (const item of domRes.transactions) {
           // Para a conta Renovada, ignorar transações sem keywords — o CRON dedicado gerencia isso
@@ -297,6 +310,9 @@ export class ListTransactionsUseCase {
                   { description: { contains: 'primicia', mode: Prisma.QueryMode.insensitive } },
                   { description: { contains: 'primícia', mode: Prisma.QueryMode.insensitive } },
                   { description: { contains: 'oferta', mode: Prisma.QueryMode.insensitive } },
+                  { description: { contains: 'fundacao', mode: Prisma.QueryMode.insensitive } },
+                  { description: { contains: 'fundação', mode: Prisma.QueryMode.insensitive } },
+                  { description: { contains: RENOVADA_HIDDEN_TAG, mode: Prisma.QueryMode.insensitive } },
                 ],
               },
             ]
@@ -393,7 +409,7 @@ export class ListTransactionsUseCase {
         valorLiquido: t.netAmount != null ? Number(t.netAmount) : null,
         status: mapInternalStatusToPt(t.status),
         metodo: t.paymentMethod,
-        descricao: t.description ?? null,
+        descricao: stripInternalTags(t.description),
         parcelas: t.installments,
         cliente: {
           nome: t.customerName ?? null,

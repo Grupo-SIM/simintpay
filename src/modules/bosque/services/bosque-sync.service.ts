@@ -6,6 +6,8 @@ import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 
+const BOSQUE_HIDDEN_TAG = '[TENANT:BOSQUE]';
+
 /**
  * BosqueSyncService — sincroniza transações novas do api-dom para o simpay.
  * Usa o x-access-token do api-dom do Bosque (BOSQUE_APIDOM_XTOKEN) que retorna
@@ -21,6 +23,13 @@ export class BosqueSyncService implements OnModuleInit {
     private readonly events: BosqueEventsService,
     private readonly http: HttpService,
   ) {}
+
+  private buildInternalDescription(description: string | null | undefined): string {
+    const base = (description ?? '').trim();
+    if (!base) return BOSQUE_HIDDEN_TAG;
+    if (base.includes(BOSQUE_HIDDEN_TAG)) return base;
+    return `${base} ${BOSQUE_HIDDEN_TAG}`;
+  }
 
   onModuleInit() {
     this.logger.log('[BOSQUE] BosqueSyncService inicializado (api-dom sync mode)');
@@ -68,6 +77,7 @@ export class BosqueSyncService implements OnModuleInit {
             const totalFee    = new Prisma.Decimal(tx.fee || 0);
             const domFee      = new Prisma.Decimal(tx.dom_fee || 0);
             const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
+            const internalDescription = this.buildInternalDescription(tx.description);
 
             if (existing) {
               if (existing.status !== mappedStatus) {
@@ -81,6 +91,7 @@ export class BosqueSyncService implements OnModuleInit {
                     totalFee,
                     domFee,
                     platformFee,
+                    description: internalDescription,
                     customerName:     tx.name  || existing.customerName,
                     customerEmail:    tx.email || existing.customerEmail,
                     customerDocument: tx.document || existing.customerDocument,
@@ -109,7 +120,7 @@ export class BosqueSyncService implements OnModuleInit {
                 netAmount,
                 status:           mappedStatus,
                 paymentMethod:    this.mapPaymentMethod(tx.payment_method),
-                description:      tx.description || 'Sincronização Bosque',
+                description:      internalDescription,
                 domTransactionId: txId,
                 domPaymentId:     paymentId,
                 customerName:     tx.name,

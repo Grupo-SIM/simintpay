@@ -6,6 +6,7 @@ import type { IHashService } from '../../../core/services/hash.interface';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import dayjs from 'dayjs';
+import { appendInternalTags, TENANT_RENOVADA_TAG } from '../../utils/internal-tags.util';
 
 @Injectable()
 export class SyncFullRenovadaUseCase {
@@ -156,6 +157,10 @@ export class SyncFullRenovadaUseCase {
             const domFeeVal = Math.min(totalFeeVal, Number(tx.dom_fee || totalFeeVal * 0.4));
             const domFee = new Prisma.Decimal(domFeeVal);
             const platformFee = new Prisma.Decimal(Math.max(0, totalFeeVal - domFeeVal));
+            const internalDescription = appendInternalTags(
+              tx.description || existing?.description || 'Migração API-DOM',
+              [TENANT_RENOVADA_TAG],
+            );
 
             if (existing) {
               // Atualizar
@@ -168,7 +173,7 @@ export class SyncFullRenovadaUseCase {
                   totalFee,
                   domFee,
                   platformFee,
-                  description: tx.description || existing.description,
+                  description: internalDescription,
                   customerName: tx.name || existing.customerName,
                   customerEmail: tx.email || existing.customerEmail,
                   customerDocument: tx.document || existing.customerDocument,
@@ -188,7 +193,7 @@ export class SyncFullRenovadaUseCase {
                 netAmount,
                 status: mappedStatus,
                 paymentMethod: this.mapPaymentMethod(tx.payment_method),
-                description: tx.description || 'Migração API-DOM',
+                description: internalDescription,
                 domTransactionId: txId,
                 domPaymentId: paymentId,
                 customerName: tx.name,
@@ -297,6 +302,9 @@ export class SyncFullRenovadaUseCase {
       { description: { contains: 'primicia', mode: 'insensitive' as const } },
       { description: { contains: 'primícia', mode: 'insensitive' as const } },
       { description: { contains: 'oferta', mode: 'insensitive' as const } },
+      { description: { contains: 'fundacao', mode: 'insensitive' as const } },
+      { description: { contains: 'fundação', mode: 'insensitive' as const } },
+      { description: { contains: TENANT_RENOVADA_TAG, mode: 'insensitive' as const } },
     ];
     const completedTxs = await this.prisma.transaction.aggregate({
       where: { userId: RENOVADA_ID, status: TransactionStatus.COMPLETED, OR: renovadaKeywords },

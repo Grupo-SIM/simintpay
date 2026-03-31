@@ -21,12 +21,21 @@ interface DomPagamentosResponse {
   };
 }
 
+const BOSQUE_HIDDEN_TAG = '[TENANT:BOSQUE]';
+
 @Injectable()
 export class BosquePaymentService {
   private readonly logger = new Logger(BosquePaymentService.name);
   private readonly DOM_URL = 'https://apiv3.dompagamentos.com.br/checkout/production/transactions';
 
   constructor(private readonly prisma: PrismaService) {}
+
+  private buildInternalDescription(description: string | null | undefined): string {
+    const base = (description ?? '').trim();
+    if (!base) return BOSQUE_HIDDEN_TAG;
+    if (base.includes(BOSQUE_HIDDEN_TAG)) return base;
+    return `${base} ${BOSQUE_HIDDEN_TAG}`;
+  }
 
   private get domToken(): string {
     return process.env.DOM_TOKEN ?? '';
@@ -51,6 +60,7 @@ export class BosquePaymentService {
 
       const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
       if (!wallet) throw new BadRequestException('Carteira não encontrada');
+      const internalDescription = this.buildInternalDescription(body.description);
 
       const transaction = await this.prisma.transaction.create({
         data: {
@@ -62,7 +72,7 @@ export class BosquePaymentService {
           domFee,
           platformFee: domFee,
           paymentMethod: PaymentMethod.PIX,
-          description: body.description ?? '-',
+          description: internalDescription,
           customerName: body.name,
           customerEmail: body.email,
           customerDocument: body.document,
@@ -148,6 +158,7 @@ export class BosquePaymentService {
 
       const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
       if (!wallet) throw new BadRequestException('Carteira não encontrada');
+      const internalDescription = this.buildInternalDescription(body.description);
 
       const transaction = await this.prisma.transaction.create({
         data: {
@@ -159,7 +170,7 @@ export class BosquePaymentService {
           domFee,
           platformFee: domFee,
           paymentMethod: PaymentMethod.CREDIT_CARD,
-          description: body.description ?? '-',
+          description: internalDescription,
           customerName: body.name,
           customerEmail: body.email,
           customerDocument: body.document,

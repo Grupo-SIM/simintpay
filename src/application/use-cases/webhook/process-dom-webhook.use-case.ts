@@ -4,16 +4,23 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
+import {
+  appendInternalTags,
+  ORIGEM_MAQUINETA_TAG,
+  TENANT_BOSQUE_TAG,
+  TENANT_RENOVADA_TAG,
+} from '../../utils/internal-tags.util';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
 const RENOVADA_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+const BOSQUE_USER_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
 
 const MACHINE_CONFIG: Record<string, string> = {
-  '4AF61W62R':     'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  '4AF61V34L':     'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  '4AF61VY6G':     'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  '4AF61W759':     '8b63ba8f-3622-4ecc-ad9a-35389eaeded6',
+  '4AF61W62R': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
+  '4AF61V34L': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
+  '4AF61VY6G': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
+  '4AF61W759': '8b63ba8f-3622-4ecc-ad9a-35389eaeded6',
   'PB1S24C373609': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
   'PB1S24C373623': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
   'PB1S24C373616': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
@@ -58,7 +65,7 @@ export class ProcessDomWebhookUseCase {
     @Optional() private readonly renovadaEvents?: RenovadaEventsService,
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
-  ) {}
+  ) { }
 
   async execute(payload: unknown): Promise<void> {
     const event = this.parsePayload(payload);
@@ -295,85 +302,15 @@ export class ProcessDomWebhookUseCase {
         this.renovadaEvents.emitTransaction({ ...existing, status: nextStatus });
       }
     } else {
-      // Nova transação — determinar userId pelo contexto
-      // Sem contexto de módulo no payload direto, usamos RENOVADA_USER_ID como fallback
-      // (RenovadaWebhookController e MasterWebhookController encaminham para a mesma fila;
-      //  transações do master já existem no banco pois são criadas pelo cron antes)
-      const userId = RENOVADA_USER_ID;
+      // Segurança anti-mistura:
+      // Se não houver transação pré-existente para o domPaymentId, este webhook não tem
+      // contexto confiável de tenant para criar uma nova transação sem risco de atribuir
+      // ao tenant errado (ex.: Renovada x Bosque). Nesse caso, ignoramos a criação.
+      this.logger.warn(
+        `[DomWebhook] domPaymentId=${data.id} sem transação prévia. Ignorando criação para evitar mistura de tenant.`,
+      );
+      return;
 
-      const tx = await this.prisma.$transaction(async (p) => {
-        const newTx = await p.transaction.create({
-          data: {
-            userId,
-            domPaymentId: data.id,
-            amount: amountDec,
-            netAmount: netDec,
-            totalFee,
-            domFee,
-            platformFee,
-            status: nextStatus,
-            paymentMethod: this.calcPaymentMethod(data.payment_method),
-            description: 'DOM Transação',
-            installments: Number(data.installments ?? 1),
-            customerName: data.customer?.name ?? '',
-            customerEmail: data.customer?.email ?? '',
-            customerDocument: data.customer?.document ?? '',
-            customerPhone: data.customer?.mobile_phone ?? '',
-            createdAt: data.created_at ? new Date(data.created_at) : new Date(),
-          },
-        });
-
-        await p.transactionStatusHistory.create({
-          data: {
-            transactionId: newTx.id,
-            fromStatus: TransactionStatus.DRAFT,
-            toStatus: nextStatus,
-            metadata: { reason: `dom-webhook-create: ${event.event}` },
-          },
-        });
-
-        if (nextStatus === TransactionStatus.COMPLETED) {
-          for (let attempt = 0; attempt < 3; attempt++) {
-            const wallet = await p.wallet.findUnique({ where: { userId } });
-            if (!wallet) break;
-
-            const newBalance = wallet.balance.add(amountDec);
-
-            const result = await p.wallet.updateMany({
-              where: { id: wallet.id, version: wallet.version },
-              data: { balance: newBalance, version: { increment: 1 } },
-            });
-
-            if (result.count > 0) {
-              await p.balanceLog.create({
-                data: {
-                  userId,
-                  action: 'DOM_WEBHOOK_COMPLETED',
-                  transactionId: newTx.id,
-                  amount: amountDec,
-                  balanceBefore: wallet.balance,
-                  balanceAfter: newBalance,
-                  lockedBefore: wallet.lockedBalance,
-                  lockedAfter: wallet.lockedBalance,
-                  source: 'DOM_WEBHOOK',
-                },
-              });
-              break;
-            }
-
-            if (attempt === 2) {
-              throw new Error('Wallet version conflict after 3 retries');
-            }
-          }
-        }
-
-        return newTx;
-      });
-
-      if (userId === RENOVADA_USER_ID && this.renovadaEvents) {
-        this.renovadaEvents.emitTransaction(tx);
-      }
-      this.logger.log(`[DomWebhook] Tx criada ${tx.id} para domPaymentId=${data.id}`);
     }
   }
 
@@ -413,7 +350,14 @@ export class ProcessDomWebhookUseCase {
           totalFee: amountDec.sub(netDec),
           status: TransactionStatus.COMPLETED,
           paymentMethod: this.calcPaymentMethod(data.payment_method),
-          description: `Sincronização Automática - Terminal: ${serial}`,
+          description: appendInternalTags(
+            `Sincronização Automática - Terminal: ${serial}`,
+            [
+              ...(userId === RENOVADA_USER_ID ? [TENANT_RENOVADA_TAG] : []),
+              ...(userId === BOSQUE_USER_ID ? [TENANT_BOSQUE_TAG] : []),
+              ORIGEM_MAQUINETA_TAG,
+            ],
+          ),
           installments: Number(data.installments ?? 1),
           customerName: data.customer?.name ?? 'Cliente POS',
           customerEmail: data.customer?.email ?? '',
