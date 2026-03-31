@@ -8,8 +8,7 @@ import type { IWalletRepository } from '../../../core/repositories/wallet.reposi
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import type { ModuleConfig } from '../../../modules/module-config.interface';
-import type { Prisma } from '@prisma/client';
-import { TransactionStatus, WithdrawStatus } from '@prisma/client';
+import { Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
 
 @Injectable()
 export class GetWithdrawSummaryUseCase {
@@ -156,7 +155,8 @@ export class GetWithdrawSummaryUseCase {
     fatorLiquidez: number,
     config: ModuleConfig | null,
   ) {
-    const { net: sumNet } = await this.sumsCompletedTransactionsDomStyle(userId, fatorLiquidez, undefined);
+    const { net: sumNetValue } = await this.sumsCompletedTransactionsDomStyle(userId, fatorLiquidez, undefined);
+    const sumNet = new Prisma.Decimal(sumNetValue.toString());
 
     const completedWithdraws = await this.prisma.withdrawRequest.aggregate({
       where: {
@@ -165,21 +165,23 @@ export class GetWithdrawSummaryUseCase {
       },
       _sum: { amount: true },
     });
-    const totalWithdrawn = Number(completedWithdraws._sum.amount ?? 0);
 
+    const totalWithdrawn = new Prisma.Decimal(completedWithdraws._sum.amount?.toString() ?? '0');
     const pendingWithdraws = await this.withdraws.sumPendingByUserId(userId);
+    const fatorDecimal = new Prisma.Decimal(fatorLiquidez.toString());
 
-    const lockedBalance = Number(wallet.lockedBalance);
+    const lockedBalance = new Prisma.Decimal(wallet.lockedBalance.toString());
     // lockedBalance é bruto (= requestedValue / fatorLiquidez); converter para líquido
-    const netLockedBalance = lockedBalance * fatorLiquidez;
-    const netBalance = Math.max(0, sumNet - totalWithdrawn - netLockedBalance);
+    const netLockedBalance = lockedBalance.mul(fatorDecimal);
+    const netBalanceCalculation = sumNet.sub(totalWithdrawn).sub(netLockedBalance);
+    const netBalance = netBalanceCalculation.lt(0) ? new Prisma.Decimal(0) : netBalanceCalculation;
 
     return {
-      availableBalance: netBalance,
-      netBalance,
+      availableBalance: Number(netBalance.toFixed(2)),
+      netBalance: Number(netBalance.toFixed(2)),
       pendingWithdraws,
-      lockedBalance: netLockedBalance,
-      netLockedBalance,
+      lockedBalance: Number(netLockedBalance.toFixed(2)),
+      netLockedBalance: Number(netLockedBalance.toFixed(2)),
       config: this.summaryConfigBlock(config, fatorLiquidez),
       wallet: {
         id: wallet.id,
@@ -256,16 +258,22 @@ export class GetWithdrawSummaryUseCase {
     // Saldo disponível = saldo total - bloqueado por saques pendentes
     const availableBalance = Math.max(0, balance - lockedBalance);
 
+    const balanceDecimal = new Prisma.Decimal(balance.toString());
+    const lockedDecimal = new Prisma.Decimal(lockedBalance.toString());
+    const fatorDecimal = new Prisma.Decimal(fatorLiquidez.toString());
+
     // Saldo líquido: aplica fator sobre o saldo bruto livre (balance - lockedBalance)
     // Se balanceFromTxLedger (migração), a soma já é líquida — subtrair lockedBalance 1:1
     const netBalance = balanceFromTxLedger
-      ? Math.max(0, balance - lockedBalance)
-      : Math.max(0, (balance - lockedBalance) * fatorLiquidez);
+      ? balanceDecimal.sub(lockedDecimal)
+      : balanceDecimal.sub(lockedDecimal).mul(fatorDecimal);
+
+    const finalNetBalance = netBalance.lt(0) ? new Prisma.Decimal(0) : netBalance;
 
     // Saldo bloqueado líquido
     const netLockedBalance = balanceFromTxLedger
-      ? lockedBalance
-      : lockedBalance * fatorLiquidez;
+      ? lockedDecimal
+      : lockedDecimal.mul(fatorDecimal);
 
     // Soma de saques pendentes
     const pendingWithdraws = await this.withdraws.sumPendingByUserId(userId);

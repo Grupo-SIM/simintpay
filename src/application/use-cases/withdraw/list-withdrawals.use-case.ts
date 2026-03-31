@@ -41,7 +41,7 @@ function mapWithdrawStatusToPt(
 function mapWithdrawToResponse(w: WithdrawWithUser) {
   return {
     id: w.id,
-    valor: Number(w.grossAmount),
+    valor: Number(w.amount) + Number(w.fee ?? 0),
     valorLiquido: Number(w.amount),
     status: mapWithdrawStatusToPt(w.status),
     metodo: 'PIX',

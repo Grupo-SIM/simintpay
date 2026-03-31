@@ -7,7 +7,7 @@ export class CheckPendingWithdrawUseCase {
   constructor(
     @Inject(WITHDRAW_REPOSITORY)
     private readonly withdraws: IWithdrawRepository,
-  ) {}
+  ) { }
 
   async execute(userId: string): Promise<{
     temPendente: boolean;
@@ -24,11 +24,11 @@ export class CheckPendingWithdrawUseCase {
       temPendente: Boolean(pending),
       saquePendente: pending
         ? {
-            id: pending.id,
-            valor: Number(pending.amount),
-            valorBruto: Number(pending.grossAmount),
-            criadoEm: pending.createdAt.toISOString(),
-          }
+          id: pending.id,
+          valor: Number(pending.amount),
+          valorBruto: Number(pending.grossAmount),
+          criadoEm: pending.createdAt.toISOString(),
+        }
         : null,
     };
   }
