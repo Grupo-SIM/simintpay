@@ -163,10 +163,10 @@ export class GetWithdrawSummaryUseCase {
         userId,
         status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
       },
-      _sum: { amount: true },
+      _sum: { grossAmount: true },
     });
 
-    const totalWithdrawn = new Prisma.Decimal(completedWithdraws._sum.amount?.toString() ?? '0');
+    const totalWithdrawn = new Prisma.Decimal(completedWithdraws._sum.grossAmount?.toString() ?? '0').mul(new Prisma.Decimal(fatorLiquidez.toString()));
     const pendingWithdraws = await this.withdraws.sumPendingByUserId(userId);
     const fatorDecimal = new Prisma.Decimal(fatorLiquidez.toString());
 

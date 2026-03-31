@@ -127,7 +127,8 @@ export class RequestWithdrawUseCase {
     const availableBalanceGross = walletBalance.sub(walletLocked);
     const availableBalanceNet = availableBalanceGross.mul(fatorLiquidez);
 
-    const requestedValueNet = new Prisma.Decimal(dto.valor);
+    const requestedGross = new Prisma.Decimal(dto.valor);
+    const requestedNet = requestedGross.mul(fatorLiquidez);
 
     if (moduleSlug === 'renovada') {
       // Para Renovada: disponível = sum(netAmount) das transações COMPLETED − saques concluídos − locked(líquido)
@@ -146,38 +147,41 @@ export class RequestWithdrawUseCase {
 
       const cwAgg = await this.prisma.withdrawRequest.aggregate({
         where: { userId, status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] } },
-        _sum: { amount: true },
+        _sum: { grossAmount: true },
       });
 
-      const totalWithdrawn = new Prisma.Decimal(cwAgg._sum.amount?.toString() ?? '0');
+      // Para Renovada, o débito no ledger líquido é o equivalente líquido do valor bruto retirado
+      const totalWithdrawn = new Prisma.Decimal(cwAgg._sum.grossAmount?.toString() ?? '0').mul(fatorLiquidez);
+      
       const netLockedBalance = walletLocked.mul(fatorLiquidez);
       const availableNetCalculation = sumNet.sub(totalWithdrawn).sub(netLockedBalance);
       const availableNet = availableNetCalculation.lt(0) ? new Prisma.Decimal(0) : availableNetCalculation;
 
-      if (requestedValueNet.toDP(2).gt(availableNet.toDP(2))) {
+      if (requestedNet.toDP(2).gt(availableNet.toDP(2))) {
+        const availableGross = availableNet.div(fatorLiquidez);
         throw new UnprocessableEntityException(
-          `Saldo líquido insuficiente para realizar o saque de R$ ${requestedValueNet.toFixed(2).replace('.', ',')}. Seu saldo líquido atual é R$ ${availableNet.toFixed(2).replace('.', ',')}`,
+          `Saldo insuficiente para realizar o saque de R$ ${requestedGross.toFixed(2).replace('.', ',')}. Seu saldo disponível é R$ ${availableGross.toFixed(2).replace('.', ',')}`,
         );
       }
-    } else if (requestedValueNet.toDP(2).gt(availableBalanceNet.toDP(2))) {
+    } else if (requestedGross.toDP(2).gt(availableBalanceGross.toDP(2))) {
       throw new UnprocessableEntityException(
-        `Saldo líquido insuficiente para realizar o saque de R$ ${requestedValueNet.toFixed(2).replace('.', ',')}. Seu saldo líquido atual é R$ ${availableBalanceNet.toFixed(2).replace('.', ',')}`,
+        `Saldo insuficiente para realizar o saque de R$ ${requestedGross.toFixed(2).replace('.', ',')}. Seu saldo disponível é R$ ${availableBalanceGross.toFixed(2).replace('.', ',')}`,
       );
     }
 
-    const taxa = new Prisma.Decimal(calcularTaxa(dto.valor));
-    const netAmount = requestedValueNet.sub(taxa);
+    const taxaFixa = new Prisma.Decimal(calcularTaxa(dto.valor));
+    const netAmount = requestedNet.sub(taxaFixa);
 
     if (netAmount.lte(0)) {
       throw new UnprocessableEntityException(
-        `O valor solicitado é insuficiente para cobrir as taxas (taxa: R$ ${taxa.toFixed(2).replace('.', ',')})`,
+        `O valor solicitado é insuficiente para cobrir as taxas (taxa: R$ ${taxaFixa.toFixed(2).replace('.', ',')})`,
       );
     }
 
-    // O usuário solicitou dto.valor (líquido). 
-    // Para que o netBalance diminua exatamente dto.valor, precisamos bloquear e debitar do balance bruto
-    // o valor correspondente (valor / fatorLiquidez).
-    const grossToDeduct = requestedValueNet.div(fatorLiquidez);
+    // O valor bruto é exatamente o que o usuário solicitou.
+    // A taxa total armazenada incluirá tanto a taxa fixa quanto a diferença do fator de liquidez
+    const grossToDeduct = requestedGross;
+    const totalTax = grossToDeduct.sub(netAmount);
     const amountToLock = grossToDeduct;
 
     const beforeLocked = walletLocked;
@@ -190,7 +194,7 @@ export class RequestWithdrawUseCase {
         userId,
         amount: netAmount.toNumber(),
         grossAmount: grossToDeduct.toNumber(),
-        fee: taxa.toNumber(),
+        fee: totalTax.toNumber(),
         pixKey: dto.chavePix,
         amountToLock: grossToDeduct.toNumber(),
         currentWalletVersion: wallet.version,
