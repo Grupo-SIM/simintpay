@@ -19,7 +19,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { LeadStatus, PaymentMethod, Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
+import { LeadStatus, Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -54,7 +54,11 @@ import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdra
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import { RevalidaSyncService } from '../../modules/revalida/services/revalida-sync.service';
 import { HASH_SERVICE, type IHashService } from '../../core/services/hash.interface';
-import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
+import {
+  PAYMENT_GATEWAY,
+  type DomTransactionItem,
+  type IPaymentGateway,
+} from '../../core/services/payment-gateway.interface';
 import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositories/wallet.repository.interface';
 import { CommunityManagementService } from '../../application/services/community-management.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
@@ -301,49 +305,55 @@ function buildConsolidadoResumoWhere(
   return where;
 }
 
-/** Todas as transações das contas consolidadas no intervalo (qualquer status). */
-function buildConsolidadoDistribuicaoWhere(
-  dataInicio?: string,
-  dataFim?: string,
-): Prisma.TransactionWhereInput {
-  const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
-  const where: Prisma.TransactionWhereInput = {
-    userId: { in: platformIds },
-  };
-  if (dataInicio || dataFim) {
-    const createdAt: Prisma.DateTimeFilter = {};
-    if (dataInicio) {
-      const d = dayjs.tz(dataInicio, TZ).startOf('day');
-      if (d.isValid()) createdAt.gte = d.toDate();
-    }
-    if (dataFim) {
-      const d = dayjs.tz(dataFim, TZ).endOf('day');
-      if (d.isValid()) createdAt.lte = d.toDate();
-    }
-    if (Object.keys(createdAt).length > 0) {
-      where.createdAt = createdAt;
-    }
+/**
+ * Mesma regra que o front (`mapDomStatusToInternal` em transacoes.service.ts).
+ * Garante que os cards de distribuição batam com a listagem admin (API DOM).
+ */
+type DomStatusBucket = 'PENDING' | 'COMPLETED' | 'REFUNDED' | 'FAILED';
+
+function domRawStatusToBucket(status: string | undefined | null): DomStatusBucket {
+  const s = String(status ?? 'pending').toLowerCase();
+  if (s === 'paid' || s === 'approved' || s === 'completed' || s === 'revision_paid') {
+    return 'COMPLETED';
   }
-  return where;
+  if (s === 'refunded' || s === 'pending_refund') return 'REFUNDED';
+  if (s === 'chargeback') return 'REFUNDED';
+  if (s === 'failed' || s === 'not_authorized' || s === 'expired') return 'FAILED';
+  return 'PENDING';
 }
 
-const STATUS_DISTRIBUICAO_LABELS: Record<TransactionStatus, string> = {
-  DRAFT: 'Rascunho',
+/** Rótulos alinhados à coluna Status em /transacoes (mapStatusLabel). */
+const DOM_DIST_STATUS_LABEL: Record<DomStatusBucket, string> = {
   PENDING: 'Pendente',
-  COMPLETED: 'Completo',
-  FAILED: 'Não autorizado',
-  REFUNDED: 'Reembolsado',
-  EXPIRED: 'Expirado',
-  IN_MEDIATION: 'Em mediação',
-  CHARGEBACK: 'Chargeback',
-  PENDING_REFUND: 'Reembolso pendente',
+  COMPLETED: 'Aprovado',
+  REFUNDED: 'Estornado',
+  FAILED: 'Recusado',
 };
 
-const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+type DomMethodBucket = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD';
+
+function domPaymentMethodToBucket(method: string | undefined | null): DomMethodBucket {
+  const m = String(method ?? 'pix').toLowerCase();
+  if (m.includes('debit')) return 'DEBIT_CARD';
+  if (m.includes('credit') || m.includes('cartao') || m.includes('card')) return 'CREDIT_CARD';
+  return 'PIX';
+}
+
+const DOM_DIST_METHOD_LABEL: Record<DomMethodBucket, string> = {
   PIX: 'PIX',
   CREDIT_CARD: 'Cartão de Crédito',
   DEBIT_CARD: 'Débito',
 };
+
+/** Mesmo padrão de datas que o hook admin em `use-transacoes` (listTransacoesAdmin). */
+function relatorioDomDateRange(dataInicio?: string, dataFim?: string): { begin_date: string; end_date: string } {
+  const endDay = dataFim?.trim() || dayjs().tz(TZ).format('YYYY-MM-DD');
+  const beginDay = dataInicio?.trim() || dayjs().tz(TZ).subtract(90, 'day').format('YYYY-MM-DD');
+  return {
+    begin_date: dataInicio?.trim() ? `${dataInicio.trim()} 00:00:00` : beginDay,
+    end_date: dataFim?.trim() ? `${dataFim.trim()} 23:59:59` : `${endDay} 23:59:59`,
+  };
+}
 
 function masterLogDateFilter(
   dataInicio?: string,
@@ -679,6 +689,35 @@ export class AdminController {
     @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway,
     @Inject(WALLET_REPOSITORY) private readonly walletRepository: IWalletRepository,
   ) { }
+
+  /**
+   * Todas as páginas da listagem DOM no intervalo — mesma fonte que GET /admin/transacoes-dom.
+   */
+  private async fetchAllDomTransactionsForRelatorio(
+    dataInicio?: string,
+    dataFim?: string,
+  ): Promise<DomTransactionItem[]> {
+    const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+    if (!domToken?.trim()) {
+      throw new BadRequestException('DOM_TOKEN / API_DOM_MASTER_KEY não configurado');
+    }
+    const { begin_date, end_date } = relatorioDomDateRange(dataInicio, dataFim);
+    const limit = 150;
+    const maxPages = 400;
+    const all: DomTransactionItem[] = [];
+    for (let page = 1; page <= maxPages; page += 1) {
+      const res = await this.paymentGateway.listDomTransactions(domToken, {
+        page,
+        limit,
+        begin_date,
+        end_date,
+      });
+      const batch = res.transactions ?? [];
+      all.push(...batch);
+      if (batch.length < limit) break;
+    }
+    return all;
+  }
 
   // ──────────── LEADS ────────────
 
@@ -1196,9 +1235,10 @@ export class AdminController {
 
   @Get('relatorios/transacoes-por-status')
   @ApiOperation({
-    summary: 'Distribuição de transações por status (contas consolidadas)',
+    summary: 'Distribuição de transações por status (API DOM)',
     description:
-      'Conta transações das plataformas do consolidado, opcionalmente filtradas por dataInicio/dataFim (America/Sao_Paulo).',
+      'Agrega a mesma listagem de GET /admin/transacoes-dom (token master). dataInicio/dataFim no formato YYYY-MM-DD, ' +
+      'com início 00:00:00 e fim 23:59:59, como na tela de transações admin.',
   })
   @ApiQuery({ name: 'dataInicio', required: false, example: '2026-03-01' })
   @ApiQuery({ name: 'dataFim', required: false, example: '2026-03-31' })
@@ -1206,33 +1246,35 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const where = buildConsolidadoDistribuicaoWhere(dataInicio, dataFim);
-    const rows = await this.prisma.transaction.groupBy({
-      by: ['status'],
-      where,
-      _count: { id: true },
-    });
-    const total = rows.reduce((s, r) => s + r._count.id, 0);
-    const items = rows
-      .map((r) => {
-        const quantidade = r._count.id;
+    const txs = await this.fetchAllDomTransactionsForRelatorio(dataInicio, dataFim);
+    const mapCount = new Map<DomStatusBucket, number>();
+    for (const tx of txs) {
+      const bucket = domRawStatusToBucket(tx.status);
+      mapCount.set(bucket, (mapCount.get(bucket) ?? 0) + 1);
+    }
+    const total = txs.length;
+    const buckets: DomStatusBucket[] = ['PENDING', 'COMPLETED', 'REFUNDED', 'FAILED'];
+    const items = buckets
+      .map((codigo) => {
+        const quantidade = mapCount.get(codigo) ?? 0;
         const percentual = total > 0 ? Number(((quantidade / total) * 100).toFixed(2)) : 0;
         return {
-          codigo: r.status,
-          nome: STATUS_DISTRIBUICAO_LABELS[r.status] ?? r.status,
+          codigo,
+          nome: DOM_DIST_STATUS_LABEL[codigo],
           quantidade,
           percentual,
         };
       })
+      .filter((row) => row.quantidade > 0)
       .sort((a, b) => b.quantidade - a.quantidade);
     return { total, items };
   }
 
   @Get('relatorios/transacoes-por-metodo')
   @ApiOperation({
-    summary: 'Distribuição de transações por método de pagamento (contas consolidadas)',
+    summary: 'Distribuição de transações por método de pagamento (API DOM)',
     description:
-      'Conta transações das plataformas do consolidado, opcionalmente filtradas por dataInicio/dataFim (America/Sao_Paulo).',
+      'Mesma fonte que GET /admin/transacoes-dom. Intervalo de datas igual ao card de status.',
   })
   @ApiQuery({ name: 'dataInicio', required: false, example: '2026-03-01' })
   @ApiQuery({ name: 'dataFim', required: false, example: '2026-03-31' })
@@ -1240,24 +1282,26 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const where = buildConsolidadoDistribuicaoWhere(dataInicio, dataFim);
-    const rows = await this.prisma.transaction.groupBy({
-      by: ['paymentMethod'],
-      where,
-      _count: { id: true },
-    });
-    const total = rows.reduce((s, r) => s + r._count.id, 0);
-    const items = rows
-      .map((r) => {
-        const quantidade = r._count.id;
+    const txs = await this.fetchAllDomTransactionsForRelatorio(dataInicio, dataFim);
+    const mapCount = new Map<DomMethodBucket, number>();
+    for (const tx of txs) {
+      const bucket = domPaymentMethodToBucket(tx.payment_method);
+      mapCount.set(bucket, (mapCount.get(bucket) ?? 0) + 1);
+    }
+    const total = txs.length;
+    const buckets: DomMethodBucket[] = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD'];
+    const items = buckets
+      .map((codigo) => {
+        const quantidade = mapCount.get(codigo) ?? 0;
         const percentual = total > 0 ? Number(((quantidade / total) * 100).toFixed(2)) : 0;
         return {
-          codigo: r.paymentMethod,
-          nome: PAYMENT_METHOD_LABELS[r.paymentMethod] ?? r.paymentMethod,
+          codigo,
+          nome: DOM_DIST_METHOD_LABEL[codigo],
           quantidade,
           percentual,
         };
       })
+      .filter((row) => row.quantidade > 0)
       .sort((a, b) => b.quantidade - a.quantidade);
     return { total, items };
   }
