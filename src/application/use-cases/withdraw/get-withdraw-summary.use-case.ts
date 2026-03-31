@@ -69,31 +69,25 @@ export class GetWithdrawSummaryUseCase {
     fatorLiquidez: number,
     config: ModuleConfig | null,
   ) {
-    const pendingList = await this.prisma.withdrawRequest.findMany({
+    const pendingRequests = await this.prisma.withdrawRequest.findMany({
       where: { userId, status: WithdrawStatus.PENDING },
-      select: { amount: true, fee: true },
+      select: { amount: true, grossAmount: true }
     });
-
-    const pendingWithdraws = pendingList.reduce((s, w) => s + Number(w.amount), 0);
-    const pendingWithdrawFees = pendingList.reduce((s, w) => s + Number(w.fee ?? 0), 0);
-    const pendingWithdrawsTotal = pendingWithdraws + pendingWithdrawFees;
-    const netLockedBalance = pendingWithdraws - pendingWithdrawFees;
+    const lockedBalanceGross = pendingRequests.reduce((s, r) => s + Number(r.grossAmount), 0);
+    const lockedBalanceNet = pendingRequests.reduce((s, r) => s + Number(r.amount), 0);
 
     const storedBalance = Number(wallet.balance);
-    const lockedBalance = Number(wallet.lockedBalance);
 
-    // Se wallet.balance foi definido (não-zero), usa como fonte da verdade (igual à Renovada).
-    // wallet.balance é bruto; netBalance = (balance - locked) * fatorLiquidez
     if (storedBalance > 0) {
-      const availableBalance = Math.max(0, storedBalance - lockedBalance);
-      const netBalance = Math.max(0, (storedBalance - lockedBalance) * fatorLiquidez);
-      const netLockedBalanceFinal = lockedBalance * fatorLiquidez;
+      const availableBalance = Math.max(0, storedBalance - lockedBalanceGross);
+      const taxaFixa = config?.saque?.taxaFixa ?? 2;
+      const netBalance = Math.max(0, availableBalance - taxaFixa);
       return {
         availableBalance,
         netBalance,
-        pendingWithdraws,
-        lockedBalance: netLockedBalanceFinal,
-        netLockedBalance: netLockedBalanceFinal,
+        pendingWithdraws: lockedBalanceGross,
+        lockedBalance: lockedBalanceGross,
+        netLockedBalance: lockedBalanceNet,
         config: this.summaryConfigBlock(config, fatorLiquidez),
         wallet: {
           id: wallet.id,
@@ -125,15 +119,16 @@ export class GetWithdrawSummaryUseCase {
       }
     }
 
-    const availableBalance = Math.max(0, grossFromTx - pendingWithdrawsTotal);
-    const netBalance = Math.max(0, netFromTx - pendingWithdrawsTotal);
+    const availableBalance = Math.max(0, grossFromTx - lockedBalanceGross);
+    const taxaFixa = config?.saque?.taxaFixa ?? 2;
+    const netBalance = Math.max(0, netFromTx - lockedBalanceNet); // Simplificado para manter coerência
 
     return {
       availableBalance,
       netBalance,
-      pendingWithdraws,
-      lockedBalance: netLockedBalance,
-      netLockedBalance,
+      pendingWithdraws: lockedBalanceGross,
+      lockedBalance: lockedBalanceGross,
+      netLockedBalance: lockedBalanceNet,
       config: this.summaryConfigBlock(config, fatorLiquidez),
       wallet: {
         id: wallet.id,
@@ -167,21 +162,29 @@ export class GetWithdrawSummaryUseCase {
     });
 
     const totalWithdrawn = new Prisma.Decimal(completedWithdraws._sum.grossAmount?.toString() ?? '0').mul(new Prisma.Decimal(fatorLiquidez.toString()));
-    const pendingWithdraws = await this.withdraws.sumPendingByUserId(userId);
-    const fatorDecimal = new Prisma.Decimal(fatorLiquidez.toString());
+    const pendingRequests = await this.prisma.withdrawRequest.findMany({
+      where: { userId, status: WithdrawStatus.PENDING },
+      select: { amount: true, grossAmount: true }
+    });
+    const lockedBalanceGross = pendingRequests.reduce((s, r) => s.add(new Prisma.Decimal(r.grossAmount.toString())), new Prisma.Decimal(0));
+    const lockedBalanceNet = pendingRequests.reduce((s, r) => s.add(new Prisma.Decimal(r.amount.toString())), new Prisma.Decimal(0));
 
-    const lockedBalance = new Prisma.Decimal(wallet.lockedBalance.toString());
-    // lockedBalance é bruto (= requestedValue / fatorLiquidez); converter para líquido
-    const netLockedBalance = lockedBalance.mul(fatorDecimal);
-    const netBalanceCalculation = sumNet.sub(totalWithdrawn).sub(netLockedBalance);
+    // Para Renovada, sumNet é o ledger líquido total (incluindo o que já foi sacado).
+    // netBalanceAvailable = sumNet - totalWithdrawn(liquidly) - currentLocked(liquidly).
+    const netBalanceCalculation = sumNet.sub(totalWithdrawn).sub(lockedBalanceNet);
     const netBalance = netBalanceCalculation.lt(0) ? new Prisma.Decimal(0) : netBalanceCalculation;
+    
+    // O que o usuário vê como disponível BRUTO é o equivalente bruto do lucro líquido disponível
+    const availableBalanceGross = netBalance.gt(0) 
+      ? netBalance.div(new Prisma.Decimal(fatorLiquidez.toString()))
+      : new Prisma.Decimal(0);
 
     return {
-      availableBalance: Number(netBalance.toFixed(2)),
+      availableBalance: Number(availableBalanceGross.toFixed(2)),
       netBalance: Number(netBalance.toFixed(2)),
-      pendingWithdraws,
-      lockedBalance: Number(netLockedBalance.toFixed(2)),
-      netLockedBalance: Number(netLockedBalance.toFixed(2)),
+      pendingWithdraws: Number(lockedBalanceGross.toFixed(2)),
+      lockedBalance: Number(lockedBalanceGross.toFixed(2)),
+      netLockedBalance: Number(lockedBalanceNet.toFixed(2)),
       config: this.summaryConfigBlock(config, fatorLiquidez),
       wallet: {
         id: wallet.id,

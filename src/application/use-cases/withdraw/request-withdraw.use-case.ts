@@ -78,11 +78,14 @@ export class RequestWithdrawUseCase {
       );
     }
 
-    // Apenas um saque pendente por vez
-    const pending = await this.withdraws.findPendingByUserId(userId);
-    if (pending) {
+    // Apenas um saque ativo por vez (PENDING ou APPROVED)
+    const activeWithdrawal = await this.prisma.withdrawRequest.findFirst({
+      where: { userId, status: { in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED] } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (activeWithdrawal) {
       throw new ConflictException(
-        'Você já possui um saque pendente. Aguarde a conclusão para solicitar outro.',
+        `Você já possui uma solicitação de saque em andamento [ID: ${activeWithdrawal.id}, Status: ${activeWithdrawal.status}, Data: ${activeWithdrawal.createdAt.toISOString()}]. Aguarde a conclusão para solicitar outra.`,
       );
     }
 
