@@ -24,6 +24,7 @@ import { BosqueModule } from './modules/bosque/bosque.module';
 import { MasterModule } from './modules/master/master.module';
 import { PixPlanModule } from './presentation/pix-plan.module';
 import { SubscriptionLinkModule } from './presentation/subscription-link.module';
+import { CheckoutModule } from './presentation/checkout.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { SubscriptionLinkModule } from './presentation/subscription-link.module'
     PlanModule,
     PixPlanModule,
     SubscriptionLinkModule,
+    CheckoutModule,
     SubscriptionModule,
     ReportModule,
     SettingsModule,
