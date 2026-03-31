@@ -32,7 +32,7 @@ import { ModuleRealtimeModule } from '../infrastructure/realtime/module-realtime
 import { RevalidaModule } from '../modules/revalida/revalida.module';
 import { CommunityManagementService } from '../application/services/community-management.service';
 import { PlatformTaxasService } from '../application/services/platform-taxas.service';
-import { MasterAdminGuard } from '../infrastructure/security/guards/master-admin.guard';
+import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
 
 @Module({
   imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule],
@@ -58,7 +58,7 @@ import { MasterAdminGuard } from '../infrastructure/security/guards/master-admin
     EmailService,
     CommunityManagementService,
     PlatformTaxasService,
-    MasterAdminGuard,
+    RolesGuard,
     { provide: LEAD_REPOSITORY, useClass: PrismaLeadRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: WALLET_REPOSITORY, useClass: PrismaWalletRepository },

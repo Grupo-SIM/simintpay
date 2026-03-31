@@ -9,6 +9,7 @@ import type { IWalletRepository } from '../../../core/repositories/wallet.reposi
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { computeUserNetBalance } from '../../helpers/user-platform-net-balance.helper';
+import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
 
 @Injectable()
 export class GetMeUseCase {
@@ -25,6 +26,8 @@ export class GetMeUseCase {
     email: string;
     role: string;
     isAdmin: boolean;
+    /** Admin master (taxas globais, etc.) — derivado de role + tenant slug/nome. */
+    isMasterAdmin: boolean;
     tenantModule: { slug: string; name: string } | null;
     wallet: {
       balance: number;
@@ -133,6 +136,12 @@ export class GetMeUseCase {
         ? { slug: user.tenantModule.slug, name: user.tenantModule.name }
         : null;
 
+    const master = isMasterAdminUser({
+      role: user.role,
+      email: user.email,
+      tenantModule: user.tenantModule,
+    });
+
     if (user.domToken) {
       try {
         const domMe = await this.gateway.me(user.domToken);
@@ -143,6 +152,7 @@ export class GetMeUseCase {
             email: domMe.email ?? user.email,
             role: user.role,
             isAdmin: user.role === 'ADMIN',
+            isMasterAdmin: master,
             tenantModule: tenant,
             wallet: walletResp,
             createdAt: user.createdAt.toISOString(),
@@ -159,6 +169,7 @@ export class GetMeUseCase {
       email: user.email,
       role: user.role,
       isAdmin: user.role === 'ADMIN',
+      isMasterAdmin: master,
       tenantModule: tenant,
       wallet: walletResp,
       createdAt: user.createdAt.toISOString(),

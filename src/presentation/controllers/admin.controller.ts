@@ -20,7 +20,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { LeadStatus, Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
+import { LeadStatus, Prisma, Role, TransactionStatus, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -30,7 +30,6 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 const TZ = 'America/Sao_Paulo';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
-import { MasterAdminGuard } from '../../infrastructure/security/guards/master-admin.guard';
 import { RolesGuard } from '../../infrastructure/security/guards/roles.guard';
 import { Roles } from '../../infrastructure/security/decorators/roles.decorator';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
@@ -66,6 +65,7 @@ import { CommunityManagementService } from '../../application/services/community
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -850,7 +850,7 @@ export class AdminController {
         include: { tenantModule: true },
       });
       const requesterIsAdmin = requester?.role === 'ADMIN';
-      const requesterIsMaster = (requester?.tenantModule?.slug ?? '').toLowerCase().includes('master');
+      const requesterIsMaster = requester ? isMasterAdminUser(requester) : false;
       if (!requesterIsAdmin || !requesterIsMaster) {
         throw new ForbiddenException('Somente admin do módulo master pode consultar usuários');
       }
@@ -2587,18 +2587,22 @@ export class AdminController {
   // ──────────── PLATAFORMAS ────────────
 
   @Get('plataformas/taxas')
-  @UseGuards(JwtAuthGuard, MasterAdminGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Taxas por plataforma (.env + overrides em storage) — somente admin master',
+    summary: 'Taxas por plataforma (.env + overrides em storage) — administradores',
   })
   async listPlatformTaxas() {
     return this.platformTaxas.getTaxasResponse();
   }
 
   @Patch('plataformas/taxas/:tag')
-  @UseGuards(JwtAuthGuard, MasterAdminGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Persistir overrides de taxas de uma plataforma — somente admin master',
+    summary: 'Persistir overrides de taxas de uma plataforma — administradores',
   })
   async patchPlatformTaxas(
     @Param('tag') tag: string,

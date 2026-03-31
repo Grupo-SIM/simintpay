@@ -5,6 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma/prisma.service';
+import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
 
 @Injectable()
 export class MasterAdminGuard implements CanActivate {
@@ -20,11 +21,7 @@ export class MasterAdminGuard implements CanActivate {
       where: { id: sub },
       include: { tenantModule: true },
     });
-    if (admin?.role !== 'ADMIN') {
-      throw new ForbiddenException('Somente administradores');
-    }
-    const slug = (admin.tenantModule?.slug ?? '').toLowerCase();
-    if (!slug.includes('master')) {
+    if (!admin || !isMasterAdminUser(admin)) {
       throw new ForbiddenException('Somente admin master');
     }
     return true;

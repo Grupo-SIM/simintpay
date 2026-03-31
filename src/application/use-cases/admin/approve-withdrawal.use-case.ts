@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { WithdrawStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
+import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
 
 @Injectable()
 export class ApproveWithdrawalUseCase {
@@ -38,7 +39,7 @@ export class ApproveWithdrawalUseCase {
         where: { id: adminUserId },
         include: { tenantModule: true },
       });
-      if (admin?.role === 'ADMIN' && (admin?.tenantModule?.slug || '').toLowerCase().includes('master')) {
+      if (admin && isMasterAdminUser(admin)) {
         isMasterAdmin = true;
       }
     }
