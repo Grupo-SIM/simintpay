@@ -78,7 +78,7 @@ export class SubscriptionController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<unknown> {
-    return this.getDetail.execute({ userId: user?.sub ?? '', id });
+    return this.getDetail.execute({ userId: user?.sub ?? '', role: user?.role, id });
   }
 
   @Put('assinantes/subscription/:id/cancel')
@@ -92,7 +92,7 @@ export class SubscriptionController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ cancelled: true }> {
-    await this.cancel.execute({ userId: user?.sub ?? '', id });
+    await this.cancel.execute({ userId: user?.sub ?? '', role: user?.role, id });
     return { cancelled: true };
   }
 }
