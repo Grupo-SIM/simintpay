@@ -48,6 +48,7 @@ import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/ad
 import { SyncMaquinetasUseCase } from '../../application/use-cases/admin/sync-maquinetas.use-case';
 import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-transactions.cron';
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
+import { getModuleConfig } from '../../modules/module.registry';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import { RevalidaSyncService } from '../../modules/revalida/services/revalida-sync.service';
@@ -433,11 +434,11 @@ export class AdminController {
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
     const where = search.trim()
       ? {
-          OR: [
-            { name: { contains: search.trim(), mode: 'insensitive' as const } },
-            { slug: { contains: search.trim(), mode: 'insensitive' as const } },
-          ],
-        }
+        OR: [
+          { name: { contains: search.trim(), mode: 'insensitive' as const } },
+          { slug: { contains: search.trim(), mode: 'insensitive' as const } },
+        ],
+      }
       : {};
 
     const [items, total] = await Promise.all([
@@ -572,7 +573,7 @@ export class AdminController {
     platformStats.forEach(stat => {
       const platform = CONSOLIDADO_PLATFORMS.find(p => p.id === stat.userId);
       const tag = platform?.tag || 'RENOVADA';
-      
+
       const liquidez = Number(process.env[`${tag}_LIQUIDEZ`] || 0.91);
       const taxaFixa = Number(process.env[`${tag}_TAXA_FIXA_TRANSACAO`] || 1.00);
       const taxaCashback = Number(process.env[`${tag}_TAXA_CASHBACK`] || 3.00);
@@ -791,8 +792,8 @@ export class AdminController {
     const expiredAccesses = community.accesses.filter(a => !a.isActive || a.expiresAt <= now);
     const minDays = activeAccesses.length
       ? Math.min(
-          ...activeAccesses.map(a => Math.max(0, Math.floor((a.expiresAt.getTime() - now.getTime()) / 86400000))),
-        )
+        ...activeAccesses.map(a => Math.max(0, Math.floor((a.expiresAt.getTime() - now.getTime()) / 86400000))),
+      )
       : 0;
 
     return {
@@ -2125,7 +2126,7 @@ export class AdminController {
       const isCompleted = t.status === 'COMPLETED';
 
       const lucroAdmin = isCompleted ? Number((valorBruto * adminMargin - fixedFee - cashbackFee).toFixed(2)) : 0;
-      const valorLiquido = isCompleted 
+      const valorLiquido = isCompleted
         ? (t.netAmount ? Number(t.netAmount) : Number((valorBruto * liquidityFactor).toFixed(2)))
         : 0;
 
@@ -2135,7 +2136,7 @@ export class AdminController {
         valorLiquido: valorLiquido,
         lucroAdmin: lucroAdmin,
         calculos: {
-          valorLiquido: isCompleted 
+          valorLiquido: isCompleted
             ? `${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)} = ${valorLiquido.toFixed(2)}`
             : "Aguardando confirmação do pagamento",
           lucroAdmin: isCompleted
@@ -2163,61 +2164,120 @@ export class AdminController {
     return { data, page: pageNum, pageSize: size, total };
   }
 
-  @Delete('usuarios/:email')
+  @Post('withdrawals/approve-all')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Deletar um usuário pelo e-mail (Master Admin only)' })
-  async deleteUserByEmail(@Param('email') email: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-      include: {
-        wallet: true,
-        transactions: { select: { id: true } },
-      },
+  @ApiOperation({ summary: 'Marcar todos os saques PENDENTES e APROVADOS como CONCLUÍDOS (Bulk Approval)' })
+  async approveAllWithdrawals() {
+    // 1. Saques PENDENTES (precisam debitar o saldo e desbloquear)
+    const pendingWiths = await this.prisma.withdrawRequest.findMany({
+      where: { status: WithdrawStatus.PENDING },
     });
 
-    if (!user) {
-      return { success: false, message: 'Usuário não encontrado' };
+    // 2. Saques APROVADOS (já debitaram o saldo, só precisam ser marcados como concluídos)
+    const approvedWiths = await this.prisma.withdrawRequest.findMany({
+      where: { status: WithdrawStatus.APPROVED },
+    });
+
+    let updated = 0;
+
+    // Processar PENDENTES (precisa de transação por usuário para saldo)
+    for (const w of pendingWiths) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.withdrawRequest.update({
+            where: { id: w.id },
+            data: { status: WithdrawStatus.COMPLETED, updatedAt: new Date() },
+          });
+          await tx.wallet.update({
+            where: { userId: w.userId },
+            data: {
+              balance: { decrement: w.grossAmount },
+              lockedBalance: { decrement: w.grossAmount },
+              version: { increment: 1 },
+            },
+          });
+        });
+        updated++;
+      } catch (err) {
+        console.error(`Erro ao aprovar em massa saque ${w.id}:`, err);
+      }
     }
 
-    // Identificar IDs de transações para limpar histórico
-    const txIds = user.transactions.map(t => t.id);
+    // Processar APROVADOS (apenas mudar status)
+    const approvedUpdate = await this.prisma.withdrawRequest.updateMany({
+      where: { id: { in: approvedWiths.map(aw => aw.id) } },
+      data: { status: WithdrawStatus.COMPLETED, updatedAt: new Date() },
+    });
+    updated += approvedUpdate.count;
 
-    try {
-      await this.prisma.$transaction(async (tx) => {
-        // 1. Histórico de Status de Transações
-        if (txIds.length > 0) {
-          await tx.transactionStatusHistory.deleteMany({
-            where: { transactionId: { in: txIds } },
-          });
-        }
+    return { success: true, count: updated, message: `${updated} saques marcados como concluídos.` };
+  }
 
-        // 2. Logs de Saldo
-        await tx.balanceLog.deleteMany({ where: { userId: user.id } });
+  @Post('renovada/reset-wallet')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Zerar saldo da Renovada garantindo 0,00 no ledger' })
+  async resetRenovadaWallet() {
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
-        // 3. Transações
-        await tx.transaction.deleteMany({ where: { userId: user.id } });
-
-        // 4. Saques
-        await tx.withdrawRequest.deleteMany({ where: { userId: user.id } });
-
-        // 5. Links de Pagamento
-        await tx.paymentLink.deleteMany({ where: { userId: user.id } });
-
-        // 6. Sessões
-        await tx.session.deleteMany({ where: { userId: user.id } });
-
-        // 7. Wallet
-        if (user.wallet) {
-          await tx.wallet.delete({ where: { userId: user.id } });
-        }
-
-        // 8. O Usuário
-        await tx.user.delete({ where: { id: user.id } });
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Zera Tabela Wallet (bloqueios e saldo manual)
+      await tx.wallet.update({
+        where: { userId: RENOVADA_ID },
+        data: { balance: 0, lockedBalance: 0, version: { increment: 1 } },
       });
 
-      return { success: true, message: `Usuário ${email} e todos os seus dados foram excluídos com sucesso.` };
-    } catch (error: any) {
-      return { success: false, message: `Erro ao excluir usuário: ${error.message}` };
-    }
+      // 2. Remove TODOS os saques anteriores para limpar o histórico de débitos
+      await tx.withdrawRequest.deleteMany({
+        where: { userId: RENOVADA_ID },
+      });
+
+      // 3. Calcula o Lucro Líquido Acumulado total (o que o /me soma)
+      const txRows = await tx.transaction.findMany({
+        where: { userId: RENOVADA_ID, status: 'COMPLETED', amount: { gt: 0 } },
+        select: { amount: true, netAmount: true },
+      });
+
+      const config = getModuleConfig('renovada');
+      const fator = config?.saque?.fatorLiquidez ?? 0.91;
+
+      const totalAccumulatedProfit = txRows.reduce((s, t) => {
+        const net = t.netAmount != null ? Number(t.netAmount) : Number(t.amount) * fator;
+        return s + net;
+      }, 0);
+
+      // 4. Cria um ÚNICO saque de ajuste que consome exatamente esse lucro
+      if (totalAccumulatedProfit > 0) {
+        await tx.withdrawRequest.create({
+          data: {
+            userId: RENOVADA_ID,
+            amount: totalAccumulatedProfit,
+            grossAmount: totalAccumulatedProfit,
+            fee: 0,
+            status: WithdrawStatus.COMPLETED,
+            pixKey: 'SYSTEM-RESET',
+          },
+        });
+      }
+
+      // 5. Log
+      await tx.balanceLog.create({
+        data: {
+          userId: RENOVADA_ID,
+          action: 'WALLET_RESET_FINAL',
+          amount: totalAccumulatedProfit,
+          balanceBefore: 0,
+          balanceAfter: 0,
+          lockedBefore: 0,
+          lockedAfter: 0,
+          source: 'ADMIN_FORCE',
+          description: 'Reset total via limpeza de saques e compensação de lucro acumulado.',
+        },
+      });
+    });
+
+    return {
+      success: true,
+      message: 'Saldo zerado com sucesso (0,00). Histórico de transações mantido.'
+    };
   }
 }

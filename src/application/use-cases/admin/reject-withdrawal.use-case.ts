@@ -20,9 +20,9 @@ export class RejectWithdrawalUseCase {
       throw new NotFoundException('Saque não encontrado');
     }
 
-    if (withdraw.status !== WithdrawStatus.PENDING) {
+    if (withdraw.status !== WithdrawStatus.PENDING && withdraw.status !== WithdrawStatus.APPROVED) {
       throw new BadRequestException(
-        `Não é possível rejeitar um saque com status ${withdraw.status}. Somente saques PENDENTES podem ser rejeitados.`,
+        `Não é possível rejeitar um saque com status ${withdraw.status}. Somente saques PENDENTES ou APROVADOS podem ser rejeitados.`,
       );
     }
 
