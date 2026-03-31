@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Headers,
   HttpCode,
+  InternalServerErrorException,
   Post,
   Req,
   UnauthorizedException,
@@ -76,5 +78,51 @@ export class WebhookController {
     await this.queue.publish(QueueNames.WEBHOOK_EVENTS, body);
 
     return { status: 'ok' };
+  }
+
+  @Post('ebook/payment-confirmation')
+  @HttpCode(200)
+  @SkipThrottle()
+  @ApiOperation({ summary: 'Receber confirmação de pagamento do ebook e encaminhar ao back-ebook' })
+  async handleEbookPaymentConfirmation(
+    @Body() body: { orderNumber?: string; status?: string; email?: string; store?: string },
+    @Headers('x-webhook-secret') secretHeader: string | undefined,
+  ): Promise<{ status: string; forwarded: boolean }> {
+    const expectedSecret = process.env.WEBHOOK_SECRET;
+    if (!expectedSecret || !secretHeader || secretHeader !== expectedSecret) {
+      throw new UnauthorizedException('Invalid webhook secret');
+    }
+
+    if (!body?.orderNumber || !body?.status) {
+      throw new BadRequestException('orderNumber e status são obrigatórios');
+    }
+
+    const backEbookUrl = process.env.BACK_EBOOK_URL;
+    const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN;
+    if (!backEbookUrl || !internalToken) {
+      throw new InternalServerErrorException('BACK_EBOOK_URL/API_MACHINE_INTERNAL_TOKEN não configurados');
+    }
+
+    const endpoint = `${backEbookUrl.replace(/\/+$/, '')}/webhook/payment-confirmation`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-internal-token': internalToken,
+      },
+      body: JSON.stringify({
+        orderNumber: body.orderNumber,
+        status: body.status,
+        email: body.email,
+        store: body.store || 'ebook',
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new BadRequestException(`Falha ao encaminhar webhook para back-ebook: ${response.status} ${text}`);
+    }
+
+    return { status: 'ok', forwarded: true };
   }
 }

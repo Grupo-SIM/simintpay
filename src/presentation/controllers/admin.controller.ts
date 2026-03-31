@@ -1462,6 +1462,73 @@ export class AdminController {
     };
   }
 
+  @Post('sync/cleanup-ebook')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Remover transações do EBOOK importadas via legado api-dom' })
+  async cleanupEbook() {
+    const EBOOK_ID = process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
+
+    const whereEbookImported: Prisma.TransactionWhereInput = {
+      AND: [
+        {
+          OR: [
+            { userId: EBOOK_ID },
+            { description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' } },
+          ],
+        },
+        {
+          OR: [
+            { domPaymentId: { not: null } },
+            { domTransactionId: { not: null } },
+          ],
+        },
+      ],
+    };
+
+    const txBefore = await this.prisma.transaction.count({ where: whereEbookImported });
+    const wdBefore = await this.prisma.withdrawRequest.count({
+      where: { userId: EBOOK_ID, domWithdrawId: { not: null } },
+    });
+
+    const txRows = await this.prisma.transaction.findMany({
+      where: whereEbookImported,
+      select: { id: true },
+    });
+    const txIds = txRows.map((t) => t.id);
+
+    if (txIds.length > 0) {
+      await this.prisma.transactionStatusHistory.deleteMany({
+        where: { transactionId: { in: txIds } },
+      });
+      await this.prisma.pixPlanOrder.deleteMany({
+        where: { transactionId: { in: txIds } },
+      });
+    }
+
+    const deletedTx = await this.prisma.transaction.deleteMany({
+      where: whereEbookImported,
+    });
+
+    const deletedWd = await this.prisma.withdrawRequest.deleteMany({
+      where: { userId: EBOOK_ID, domWithdrawId: { not: null } },
+    });
+
+    await this.prisma.wallet.update({
+      where: { userId: EBOOK_ID },
+      data: { balance: 0, lockedBalance: 0, version: { increment: 1 } },
+    }).catch(() => { /* wallet pode não existir */ });
+
+    return {
+      message: `Limpeza EBOOK concluída. ${deletedTx.count} transações e ${deletedWd.count} saques removidos.`,
+      ebookId: EBOOK_ID,
+      transactionsBefore: txBefore,
+      withdrawalsBefore: wdBefore,
+      transactionsDeleted: deletedTx.count,
+      withdrawalsDeleted: deletedWd.count,
+      nextStep: 'Execute /admin/sync/full-ebook para sincronizar novamente com os tokens corretos.',
+    };
+  }
+
   @Post('sync/full-renovada')
   @ApiOperation({ summary: 'Sincronização completa de histórico (Renovada 12) - puxa do api-dom' })
   async syncFullRenovada() {
