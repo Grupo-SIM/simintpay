@@ -239,6 +239,41 @@ function buildConsolidadoTransactionWhere(input: ConsolidadoListQuery): Prisma.T
   return where;
 }
 
+/**
+ * Transações COMPLETED que entram em valor bruto consolidado e lucro Simpay.
+ * Exclui bruto ≤ 0 e lançamentos de ajuste/sincronização (não são venda).
+ */
+function transacaoEntraNoLucroSimpayConsolidado(
+  amount: unknown,
+  description: string | null,
+): boolean {
+  const bruto = Number(amount);
+  if (!Number.isFinite(bruto) || bruto <= 0) return false;
+  const d = (description ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (d.includes('sincronizacao de saldo')) return false;
+  if (d.includes('ajuste administrativo')) return false;
+  if (d.includes('balance sync')) return false;
+  return true;
+}
+
+/** Líquido da transação para o consolidado: netAmount quando existir, senão bruto × LIQUIDEZ da plataforma. */
+function valorLiquidoTransacaoConsolidado(
+  tx: { amount: unknown; netAmount: unknown | null },
+  tagPlataforma: string,
+): number {
+  const bruto = Number(tx.amount);
+  const L = Number(process.env[`${tagPlataforma}_LIQUIDEZ`] ?? 0.91);
+  const rawNet = tx.netAmount;
+  if (rawNet != null && rawNet !== undefined && String(rawNet) !== '') {
+    const n = Number(rawNet);
+    if (Number.isFinite(n)) return n;
+  }
+  return bruto * L;
+}
+
 /** Resumo dos cards: só plataformas + COMPLETED + intervalo (ignora filtros de tabela). */
 function buildConsolidadoResumoWhere(
   dataInicio?: string,
@@ -907,23 +942,26 @@ export class AdminController {
     const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim);
 
-    const globalStats = await this.prisma.transaction.aggregate({
-      where: whereResumo,
-      _sum: { amount: true, netAmount: true },
-      _count: { id: true },
-    });
-
-    const txRowsLucro = await this.prisma.transaction.findMany({
+    const txRowsTodas = await this.prisma.transaction.findMany({
       where: whereResumo,
       select: {
         id: true,
         userId: true,
         amount: true,
+        netAmount: true,
         createdAt: true,
         description: true,
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    const txRowsLucro = txRowsTodas.filter((t) =>
+      transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
+    );
+
+    const brutoTotal = Number(
+      txRowsLucro.reduce((s, t) => s + Number(t.amount), 0).toFixed(2),
+    );
 
     const { totalLucroSimpay, plataformas: plataformasLucroDetalhe } =
       buildLucroSimpayDetalhePorPlataforma(txRowsLucro);
@@ -962,17 +1000,39 @@ export class AdminController {
             _sum: { amount: true },
           });
 
-    const platformUsers = await this.prisma.user.findMany({
-      where: { id: { in: platformIds } },
-      include: { tenantModule: true },
-    });
-    let valorLiquidoPlataformas = 0;
-    for (const u of platformUsers) {
-      valorLiquidoPlataformas += await computeUserNetBalance(
-        this.prisma,
-        u.id,
-        u.tenantModule?.slug,
+    const temFiltroData = Boolean(dataInicio?.trim() || dataFim?.trim());
+
+    let valorLiquidoPlataformas: number;
+    let valorLiquidoCriterio: string;
+
+    if (temFiltroData) {
+      valorLiquidoPlataformas = Number(
+        txRowsLucro
+          .reduce((s, tx) => {
+            const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+            const tag = platform?.tag || 'RENOVADA';
+            return s + valorLiquidoTransacaoConsolidado(tx, tag);
+          }, 0)
+          .toFixed(2),
       );
+      valorLiquidoCriterio =
+        'Com dataInicio/dataFim: soma do líquido das transações elegíveis no período (campo netAmount; se vazio, bruto × *_LIQUIDEZ da plataforma). Alinhado ao valor bruto e ao lucro Simpay do período.';
+    } else {
+      const platformUsers = await this.prisma.user.findMany({
+        where: { id: { in: platformIds } },
+        include: { tenantModule: true },
+      });
+      let snap = 0;
+      for (const u of platformUsers) {
+        snap += await computeUserNetBalance(
+          this.prisma,
+          u.id,
+          u.tenantModule?.slug,
+        );
+      }
+      valorLiquidoPlataformas = Number(snap.toFixed(2));
+      valorLiquidoCriterio =
+        'Sem dataInicio/dataFim: soma dos saldos líquidos atuais (netBalance) das contas plataforma no Simpay — não é soma de transações.';
     }
 
     const estornos = await aggregateEstornosDomPagamentos(
@@ -983,11 +1043,10 @@ export class AdminController {
       dataFim,
     );
 
-    const brutoTotal = Number(globalStats._sum.amount || 0);
-
     const payload: Record<string, unknown> = {
       valorBruto: brutoTotal,
-      valorLiquido: Number(valorLiquidoPlataformas.toFixed(2)),
+      valorLiquido: valorLiquidoPlataformas,
+      valorLiquidoCriterio,
       lucroSimpay: Number(totalLucroSimpay.toFixed(2)),
       saquesAprovados: {
         quantidade: withdrawIds.length,
@@ -1007,18 +1066,38 @@ export class AdminController {
           })
         : plataformasLucroDetalhe;
 
+      const excluidas = txRowsTodas.filter(
+        (t) => !transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
+      );
+
       payload.lucroSimpayDetalhe = {
         formula:
           'Por transação: lucro = bruto × (1 − LIQUIDEZ_LOJISTA) − TAXA_FIXA_TRANSACAO − TAXA_CASHBACK. LIQUIDEZ_LOJISTA vem do .env (*_LIQUIDEZ, ex. 0,91 → 9% do bruto para o master).',
+        exclusoesDoCalculo: {
+          regra:
+            'Não entram: bruto ≤ 0; ou descrição contendo "Sincronização de Saldo", "Ajuste Administrativo" ou "balance sync" (ajustes internos, não venda).',
+          quantidadeExcluidas: excluidas.length,
+          exemplos: excluidas.slice(0, 30).map((t) => ({
+            id: t.id,
+            createdAt: t.createdAt.toISOString(),
+            bruto: Number(t.amount),
+            descricao: t.description,
+            motivo:
+              Number(t.amount) <= 0 || !Number.isFinite(Number(t.amount))
+                ? 'bruto_zero_ou_invalido'
+                : 'ajuste_ou_sincronizacao',
+          })),
+        },
         periodo: {
           dataInicio: dataInicio ?? null,
           dataFim: dataFim ?? null,
           fuso: TZ,
           observacao:
             dataInicio || dataFim
-              ? 'Somente transações com createdAt nesse intervalo (início/fim do dia em America/Sao_Paulo).'
+              ? 'Somente transações com createdAt nesse intervalo (início/fim do dia em America/Sao_Paulo). Valor líquido total = soma do líquido dessas transações elegíveis (ver valorLiquidoCriterio na raiz da resposta).'
               : 'Sem dataInicio/dataFim na URL: entram todas as transações COMPLETED das contas do consolidado (sem limite de data). Para ver só um dia (ex. 31/03), envie dataInicio=2026-03-31&dataFim=2026-03-31.',
         },
+        valorLiquidoCriterio,
         transacoesConsideradas: txRowsLucro.length,
         lucroSimpayTotal: Number(totalLucroSimpay.toFixed(2)),
         plataformas: plats,
