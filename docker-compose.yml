@@ -17,14 +17,15 @@ services:
       - SEED_ADMIN_NAME=Admin
       - API_DOM_MASTER_KEY=55ac4cdab8adb226e043596d3faedaab9266c95d878f592a4fc12f0c4a2e7de1
       - DOM_REAL_API_URL=https://apiv3.dompagamentos.com.br/checkout/production
-      - DOM_BACKEND_URL=https://backend.dompagamentos.com.br
+      - DOM_BACKEND_URL=https://api-dom.jbmidia.com
       - DOM_TOKEN=55ac4cdab8adb226e043596d3faedaab9266c95d878f592a4fc12f0c4a2e7de1
       - WEBHOOK_SECRET=simpay-bff-webhook-secret-change-me-in-production-64chars-minimum-ok
       - REVALIDA_DOM_TOKEN=
-      - RENOVADA_DOM_TOKEN=55ac4cdab8adb226e043596d3faedaab9266c95d878f592a4fc12f0c4a2e7de1
+      - REVALIDA_USER_ID=27598c29-0ace-4b5d-ad49-f5d399910854
+      - RENOVADA_DOM_TOKEN=
       - BOSQUE_DOM_TOKEN=
       - PAGATG_DOM_TOKEN=
-      - EBOOKSIM_DOM_TOKEN=
+      - EBOOK_APIDOM_XTOKENS=4a29df01-a980-45e3-b3c7-1a8b8eb7850f
       - FRENDZ_DOM_TOKEN=
       - BOSQUE_ID=c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c
       - BOSQUE_EMAIL=contato@bosque.com.br
@@ -33,10 +34,41 @@ services:
       - DISABLE_DOM_SYNC=false
       - DOM_WEBHOOK_SECRET=simpay-webhook-secret-renovada-change-me-in-production
       - URL_APP=https://simpay-back.simintermediacoes.com
-      # Integração back-ebook (webhook DOM → confirmação de pedido). Obrigatório; mesmo API_MACHINE_INTERNAL_TOKEN do back-ebook.
-      - BACK_EBOOK_URL=https://back.ebooksim.com
+      - RENOVADA_MDR_PIX=0.0098
+      - RENOVADA_TAXA_SAQUE_FIXA=2.00
+      - RENOVADA_TAXA_SAQUE_PERCENT=0.00
+      - RENOVADA_SAQUE_MIN=100.00
+      - RENOVADA_LIQUIDEZ=0.91
+      - RENOVADA_TAXA_FIXA_TRANSACAO=1.00
+      - RENOVADA_TAXA_CASHBACK=3.00
+      - RENOVADA_MDR_CC_1X=0.0399
+      - RENOVADA_MDR_CC_2X=0.0830
+      - RENOVADA_MDR_CC_3X=0.0968
+      - RENOVADA_MDR_CC_4X=0.1104
+      - RENOVADA_MDR_CC_5X=0.1237
+      - RENOVADA_MDR_CC_6X=0.1367
+      - RENOVADA_MDR_CC_7X=0.1495
+      - RENOVADA_MDR_CC_8X=0.1621
+      - RENOVADA_MDR_CC_9X=0.1744
+      - RENOVADA_MDR_CC_10X=0.1864
+      - RENOVADA_MDR_CC_11X=0.1983
+      - RENOVADA_MDR_CC_12X=0.2099
+      - SMTP_HOST=mail.jbmidia.com
+      - SMTP_PORT=587
+      - SMTP_SECURE=false
+      - SMTP_USER=noreply@jbmidia.com
+      - SMTP_PASSWORD=j0M$$s5e55
+      - SMTP_FROM_EMAIL=noreply@jbmidia.com
+      - STORJ_ACCESS_KEY=jwedqlbin4rklmmkvqtzaqbkdncq
+      - STORJ_SECRET_KEY=j3khsrqjvyypuuuh7ywyk64uyzuphychv4s3trddjjt6f74tmxr3y
+      - STORJ_BUCKET=ebook
+      - STORJ_REGION=US1
+      - STORJ_ENDPOINT=https://gateway.storjshare.io
       - API_MACHINE_URL=https://simpay-back.simintermediacoes.com
-      # - EBOOK_DOM_WEBHOOK_RELAXED=1  # só se o webhook da DOM não trouxer ORD/store e o token DOM for exclusivo do ebook
+      # Integração back-ebook (webhook DOM → confirmação de pedido)
+      - BACK_EBOOK_URL=https://back.ebooksim.com
+      - API_MACHINE_INTERNAL_TOKEN=91b324f6aa36368c536b4f1f9e75f7565b385737b1aa3a4adf07b8c7d99300c9
+      - INTERNAL_SERVICE_TOKEN=91b324f6aa36368c536b4f1f9e75f7565b385737b1aa3a4adf07b8c7d99300c9
       # Integração PagaTG (api-machine → api-pagatg notifica pix-credit após confirmação DOM)
       - API_PAGATG_URL=https://api-bot.jbmidia.com
       - PAGATG_INTERNAL_TOKEN=f7d82b3a9c1e4d5f8a2b6c0e7d9f1a3b5c7e9d1f0a2b4c6e8d0f2a4b6c8e0d1f
@@ -64,12 +96,6 @@ services:
         - "traefik.http.routers.back-simpay.tls.certresolver=le"
         - "traefik.http.routers.back-simpay.entrypoints=websecure"
         - "traefik.http.routers.back-simpay.tls=true"
-        - "traefik.http.routers.back-simpay.middlewares=simpay-cors"
-        - "traefik.http.middlewares.simpay-cors.headers.accesscontrolallowmethods=GET,POST,PUT,PATCH,DELETE,OPTIONS"
-        - "traefik.http.middlewares.simpay-cors.headers.accesscontrolallowheaders=Content-Type,Authorization"
-        - "traefik.http.middlewares.simpay-cors.headers.accesscontrolalloworiginlist=https://simpay.simintermediacoes.com,http://localhost:3000,https://simpay-back.simintermediacoes.com"
-        - "traefik.http.middlewares.simpay-cors.headers.accesscontrolallowcredentials=true"
-        - "traefik.http.middlewares.simpay-cors.headers.accesscontrolmaxage=86400"
 
 networks:
   externa:
