@@ -25,10 +25,19 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import customParseFormat from 'dayjs/plugin/customParseFormat';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
+dayjs.extend(customParseFormat);
 const TZ = 'America/Sao_Paulo';
+
+/** dataInicio/dataFim no formato YYYY-MM-DD interpretados no fuso SP. */
+function parseYmdSp(s: string): dayjs.Dayjs {
+  const t = s.trim();
+  const strict = dayjs.tz(t, 'YYYY-MM-DD', TZ);
+  return strict.isValid() ? strict : dayjs.tz(t, TZ);
+}
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/security/guards/roles.guard';
 import { Roles } from '../../infrastructure/security/decorators/roles.decorator';
@@ -700,6 +709,56 @@ function buildLucroTotalMasterHistoricoDiario(
   });
 }
 
+function isSingleCalendarDaySp(dataInicio: string, dataFim: string): boolean {
+  const a = parseYmdSp(dataInicio).startOf('day');
+  const b = parseYmdSp(dataFim).startOf('day');
+  if (!a.isValid() || !b.isValid()) return false;
+  return a.format('YYYY-MM-DD') === b.format('YYYY-MM-DD');
+}
+
+/**
+ * Mesma fórmula do consolidado diário, mas com um ponto por hora (0–23) em America/Sao_Paulo.
+ */
+function buildLucroTotalMasterHistoricoPorHora(
+  txRowsLucro: { userId: string; amount: unknown; createdAt: Date }[],
+  withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
+  dataInicio: string,
+): Array<{ label: string; valor: number }> {
+  const ymd = parseYmdSp(dataInicio).startOf('day').format('YYYY-MM-DD');
+  const lucroPorHora = new Map<number, number>();
+  for (const tx of txRowsLucro) {
+    const d = dayjs(tx.createdAt).tz(TZ);
+    if (d.format('YYYY-MM-DD') !== ymd) continue;
+    const h = d.hour();
+    const l = lucroSimpayUmaTransacaoConsolidado(tx);
+    lucroPorHora.set(h, (lucroPorHora.get(h) ?? 0) + l);
+  }
+  const feePorHora = new Map<number, number>();
+  const profitPorHora = new Map<number, number>();
+  for (const log of withdrawLogs) {
+    const d = dayjs(log.createdAt).tz(TZ);
+    if (d.format('YYYY-MM-DD') !== ymd) continue;
+    const h = d.hour();
+    const amt = Number(log.amount);
+    if (!Number.isFinite(amt)) continue;
+    if (log.action === 'ADMIN_WITHDRAW_FEE_INC') {
+      feePorHora.set(h, (feePorHora.get(h) ?? 0) + amt);
+    } else if (log.action === 'ADMIN_WITHDRAW_PROFIT_INC') {
+      profitPorHora.set(h, (profitPorHora.get(h) ?? 0) + amt);
+    }
+  }
+  return Array.from({ length: 24 }, (_, h) => {
+    const v =
+      (lucroPorHora.get(h) ?? 0) +
+      (profitPorHora.get(h) ?? 0) -
+      (feePorHora.get(h) ?? 0);
+    return {
+      label: `${String(h).padStart(2, '0')}h`,
+      valor: Number(v.toFixed(2)),
+    };
+  });
+}
+
 function mapConsolidadoTxStatusToPt(
   status: TransactionStatus,
 ): 'PENDENTE' | 'APROVADA' | 'RECUSADA' | 'ESTORNADA' {
@@ -1221,11 +1280,15 @@ export class AdminController {
     );
 
     let lucroTotalMasterHistorico: Array<{ label: string; valor: number }> = [];
+    let lucroTotalMasterHistoricoCriterio =
+      'Com dataInicio/dataFim: um ponto por dia no fuso America/Sao_Paulo. valor = soma do lucro Simpay das transações COMPLETED elegíveis daquele dia + soma ADMIN_WITHDRAW_PROFIT_INC − soma ADMIN_WITHDRAW_FEE_INC nos logs daquele dia (mesma base do lucroTotalMaster agregado).';
     if (
       temFiltroData &&
       String(dataInicio ?? '').trim() &&
       String(dataFim ?? '').trim()
     ) {
+      const di = String(dataInicio).trim();
+      const df = String(dataFim).trim();
       const withdrawLogsHistorico = await this.prisma.balanceLog.findMany({
         where: {
           source: 'MASTER_ADMIN_CONTROL',
@@ -1236,12 +1299,22 @@ export class AdminController {
         },
         select: { createdAt: true, amount: true, action: true },
       });
-      lucroTotalMasterHistorico = buildLucroTotalMasterHistoricoDiario(
-        txRowsLucro,
-        withdrawLogsHistorico,
-        String(dataInicio).trim(),
-        String(dataFim).trim(),
-      );
+      if (isSingleCalendarDaySp(di, df)) {
+        lucroTotalMasterHistorico = buildLucroTotalMasterHistoricoPorHora(
+          txRowsLucro,
+          withdrawLogsHistorico,
+          di,
+        );
+        lucroTotalMasterHistoricoCriterio =
+          'Quando dataInicio e dataFim são o mesmo dia (America/Sao_Paulo): 24 pontos (horas 00h–23h). Mesma fórmula do consolidado diário, agregada por hora do createdAt da transação ou do BalanceLog.';
+      } else {
+        lucroTotalMasterHistorico = buildLucroTotalMasterHistoricoDiario(
+          txRowsLucro,
+          withdrawLogsHistorico,
+          di,
+          df,
+        );
+      }
     }
 
     const payload: Record<string, unknown> = {
@@ -1253,8 +1326,7 @@ export class AdminController {
       totalLucroSaque,
       lucroTotalMaster,
       lucroTotalMasterHistorico,
-      lucroTotalMasterHistoricoCriterio:
-        'Com dataInicio/dataFim: um ponto por dia no fuso America/Sao_Paulo. valor = soma do lucro Simpay das transações COMPLETED elegíveis daquele dia + soma ADMIN_WITHDRAW_PROFIT_INC − soma ADMIN_WITHDRAW_FEE_INC nos logs daquele dia (mesma base do lucroTotalMaster agregado).',
+      lucroTotalMasterHistoricoCriterio,
       lucroTotalMasterCriterio:
         'lucroSimpay + totalLucroSaque − totalTaxaSaque. totalTaxaSaque e totalLucroSaque vêm de BalanceLog (source MASTER_ADMIN_CONTROL, ações ADMIN_WITHDRAW_FEE_INC e ADMIN_WITHDRAW_PROFIT_INC), com o mesmo filtro de data que dataInicio/dataFim na URL (igual a GET /admin/relatorios/taxa-saque e /lucro-saque). Sem datas nos logs: soma de todos esses logs.',
       saquesAprovados: {
