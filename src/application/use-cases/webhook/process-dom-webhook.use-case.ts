@@ -1,4 +1,5 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { Prisma, PaymentMethod, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
@@ -8,6 +9,7 @@ import {
   appendInternalTags,
   ORIGEM_MAQUINETA_TAG,
   TENANT_BOSQUE_TAG,
+  TENANT_EBOOK_TAG,
   TENANT_RENOVADA_TAG,
 } from '../../utils/internal-tags.util';
 
@@ -15,6 +17,7 @@ import {
 
 const RENOVADA_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 const BOSQUE_USER_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+const EBOOK_USER_ID = process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
 
 const MACHINE_CONFIG: Record<string, string> = {
   '4AF61W62R': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
@@ -41,6 +44,10 @@ interface RawDomData {
   description?: string;
   product_first?: string;
   items?: Array<{ description?: string; name?: string }>;
+  external_reference?: string;
+  reference_id?: string;
+  metadata?: Record<string, unknown>;
+  store?: string;
   customer?: {
     name?: string;
     email?: string;
@@ -69,6 +76,7 @@ export class ProcessDomWebhookUseCase {
     @Optional() private readonly renovadaEvents?: RenovadaEventsService,
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
+    @Optional() @Inject(PAYMENT_GATEWAY) private readonly paymentGateway?: IPaymentGateway,
   ) { }
 
   async execute(payload: unknown): Promise<void> {
@@ -78,7 +86,15 @@ export class ProcessDomWebhookUseCase {
       return;
     }
 
-    // Idempotência atômica via unique constraint em eventId
+    const existingEv = await this.prisma.webhookEvent.findFirst({
+      where: { eventId: event.signature },
+      select: { id: true },
+    });
+    if (existingEv) {
+      this.logger.log(`[DomWebhook] ${event.signature} já registrado – ignorando`);
+      return;
+    }
+
     let wh: { id: string };
     try {
       wh = await this.prisma.webhookEvent.create({
@@ -91,7 +107,7 @@ export class ProcessDomWebhookUseCase {
       });
     } catch (err: any) {
       if (err?.code === 'P2002') {
-        this.logger.log(`[DomWebhook] ${event.signature} já processado – ignorando`);
+        this.logger.log(`[DomWebhook] ${event.signature} corrida duplicada – ignorando`);
         return;
       }
       throw err;
@@ -310,9 +326,19 @@ export class ProcessDomWebhookUseCase {
         nextStatus === TransactionStatus.COMPLETED &&
         existing.status !== TransactionStatus.COMPLETED
       ) {
+        this.logger.log(
+          `[DomWebhook][ebook] tx local ${existing.id} → COMPLETED; tentando notificar back-ebook domPaymentId=${data.id}`,
+        );
         void this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
       }
     } else {
+      const amountReais = Number(data.amount) / 100;
+      const topKeys = Object.keys(data as Record<string, unknown>).slice(0, 18).join(',');
+      this.logger.log(
+        `[DomWebhook][ebook] sem tx prévia domPaymentId=${data.id} status=${data.status} amount≈${amountReais} ` +
+          `hasEmail=${Boolean(data.customer?.email)} BACK_EBOOK_URL=${Boolean(String(process.env.BACK_EBOOK_URL ?? '').trim())} ` +
+          `payloadKeys=[${topKeys}]`,
+      );
       // Checkout ebook (back-ebook): não cria transação local antes do pagamento → não há domPaymentId na base.
       // Se o payload da DOM trouxer o número do pedido (ORD-AAAA-NNNNNN), notificamos o back-ebook aqui (substitui api-dom).
       const ebookHandled = await this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
@@ -346,6 +372,13 @@ export class ProcessDomWebhookUseCase {
     };
     push(data.description);
     push(data.product_first);
+    push(data.external_reference);
+    push(data.reference_id);
+    if (data.metadata && typeof data.metadata === 'object') {
+      for (const v of Object.values(data.metadata)) {
+        if (typeof v === 'string') push(v);
+      }
+    }
     if (Array.isArray(data.items)) {
       for (const it of data.items) {
         push(it?.description);
@@ -360,29 +393,179 @@ export class ProcessDomWebhookUseCase {
     return m ? m[0].toUpperCase() : null;
   }
 
+  /** Sinais de que a cobrança veio do checkout ebook (DOM nem sempre manda ORD no webhook). */
+  private domPayloadSuggestsEbookCheckout(data: RawDomData): boolean {
+    const d = data as Record<string, unknown>;
+    const store = String(d.store ?? '').toLowerCase();
+    if (store === 'ebook' || store === 'ebooksim') return true;
+
+    const s = JSON.stringify(data).toLowerCase();
+    if (/["']store["']\s*:\s*["']ebook/.test(s) || /["']store["']\s*:\s*["']ebooksim/.test(s)) {
+      return true;
+    }
+    if (s.includes('checkout.jbmidia.com') && (s.includes('ebook') || s.includes('ebooksim'))) {
+      return true;
+    }
+    if (s.includes('back.ebooksim.com')) return true;
+    if (/\borderid=/.test(s) && (s.includes('ebook') || s.includes('ebooksim'))) return true;
+    if (/\bordernumber=/.test(s) && (s.includes('ebook') || s.includes('ebooksim'))) return true;
+    return false;
+  }
+
+  /**
+   * Monta body para /webhook/payment-confirmation do back-ebook.
+   * @param detect — webhook + opcionalmente texto da GET /transactions/:id (para achar ORD- e URLs ebook)
+   * @param bodySource — payload cru do webhook (título curto no body; evita mandar JSON gigante ao back-ebook)
+   * 1) Preferência: ORD-AAAA-NNNNNN em qualquer campo de `detect`.
+   * 2) Senão: checkout ebook inferido + título + email.
+   */
+  private buildBackEbookNotifyPayload(
+    detect: RawDomData,
+    bodySource: RawDomData = detect,
+  ): {
+    orderNumber: string;
+    email?: string;
+    descriptionLine?: string;
+    matchedOrdPattern: boolean;
+  } | null {
+    const email = bodySource.customer?.email?.trim();
+    const ord = this.extractEbookOrderNumberFromDomPayload(detect);
+    if (ord) {
+      return {
+        orderNumber: ord,
+        ...(email ? { email } : {}),
+        matchedOrdPattern: true,
+      };
+    }
+
+    const relaxed =
+      String(process.env.EBOOK_DOM_WEBHOOK_RELAXED ?? '').toLowerCase() === 'true' ||
+      String(process.env.EBOOK_DOM_WEBHOOK_RELAXED ?? '') === '1';
+
+    const suggestsEbook = this.domPayloadSuggestsEbookCheckout(detect);
+    const looksEbook = suggestsEbook || relaxed;
+    if (!looksEbook) {
+      this.logger.warn(
+        `[DomWebhook][ebook] domPaymentId=${bodySource.id} sem notificação: sem ORD (webhook+detalhe API) e sem heurística ebook ` +
+          `(EBOOK_DOM_WEBHOOK_RELAXED=${relaxed ? '1' : '0'}).`,
+      );
+      return null;
+    }
+
+    if (relaxed && !suggestsEbook) {
+      this.logger.warn(
+        `[DomWebhook][ebook] EBOOK_DOM_WEBHOOK_RELAXED ativo — notificando por título+email domPaymentId=${bodySource.id}`,
+      );
+    } else if (suggestsEbook) {
+      this.logger.log(
+        `[DomWebhook][ebook] domPaymentId=${bodySource.id} heurística ebook positiva → fallback título+email ou ORD só no detalhe`,
+      );
+    }
+
+    const title = String(bodySource.product_first || bodySource.description || '').trim();
+    if (!title) {
+      this.logger.warn(
+        `[DomWebhook][ebook] domPaymentId=${bodySource.id} inferido ebook mas sem product_first/description`,
+      );
+      return null;
+    }
+
+    if (!email) {
+      this.logger.warn(
+        `[DomWebhook][ebook] domPaymentId=${bodySource.id} inferido ebook mas sem customer.email`,
+      );
+      return null;
+    }
+
+    const descriptionLine = [
+      bodySource.description,
+      bodySource.product_first,
+      `dom_payment_id:${bodySource.id}`,
+    ]
+      .filter((x) => typeof x === 'string' && x.trim())
+      .join(' | ');
+
+    return {
+      orderNumber: title,
+      email,
+      descriptionLine: descriptionLine || undefined,
+      matchedOrdPattern: false,
+    };
+  }
+
+  /** DOM v3: o webhook é pobre; GET /transactions/:id costuma trazer ORD- na descrição/checkout. */
+  private async fetchDomTransactionDetailJson(domPaymentId: string): Promise<string | null> {
+    if (!this.paymentGateway) return null;
+    const domToken = String(process.env.DOM_TOKEN ?? process.env.API_DOM_MASTER_KEY ?? '').trim();
+    if (!domToken) return null;
+    try {
+      const detail = await this.paymentGateway.getDomTransactionDetail(domToken, domPaymentId);
+      if (detail == null) return null;
+      return typeof detail === 'string' ? detail : JSON.stringify(detail);
+    } catch (e) {
+      this.logger.warn(
+        `[DomWebhook][ebook] GET DOM transactions/${domPaymentId} falhou: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return null;
+    }
+  }
+
   private async tryNotifyBackEbookOrderPaidFromDomWebhook(data: RawDomData): Promise<boolean> {
     const st = String(data.status ?? '').toLowerCase();
     if (!['paid', 'approved', 'completed', 'revision_paid', 'capture'].includes(st)) {
+      this.logger.log(
+        `[DomWebhook][ebook] domPaymentId=${data.id} skip_notify reason=status_not_final status=${data.status}`,
+      );
       return false;
     }
 
-    const orderNumber = this.extractEbookOrderNumberFromDomPayload(data);
-    if (!orderNumber) {
+    const bodySource = data;
+    let detect: RawDomData = data;
+    const wantEnrich = Boolean(String(process.env.BACK_EBOOK_URL ?? '').trim());
+    if (wantEnrich) {
+      const blob = await this.fetchDomTransactionDetailJson(data.id);
+      if (blob) {
+        const ordInDetail = /ORD-\d{4}-\d{6}/i.test(blob);
+        const ebookHint =
+          blob.toLowerCase().includes('ebook') ||
+          blob.includes('jbmidia.com') ||
+          blob.includes('ebooksim');
+        this.logger.log(
+          `[DomWebhook][ebook] detalhe API DOM domPaymentId=${data.id} jsonBytes=${blob.length} ordInDetail=${ordInDetail} ebookUrlHint=${ebookHint}`,
+        );
+        detect = {
+          ...data,
+          description: `${String(data.description ?? '')} ${blob.slice(0, 20000)}`.trim(),
+        };
+      } else {
+        this.logger.log(
+          `[DomWebhook][ebook] sem detalhe API DOM para ${data.id} (token/gateway indisponível ou tx não encontrada)`,
+        );
+      }
+    }
+
+    const payload = this.buildBackEbookNotifyPayload(detect, bodySource);
+    if (!payload) {
       return false;
     }
+
+    const { orderNumber, email, descriptionLine, matchedOrdPattern } = payload;
 
     const backEbookUrl = String(process.env.BACK_EBOOK_URL ?? '').replace(/\/+$/, '');
     const token =
       process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
     if (!backEbookUrl || !token) {
       this.logger.warn(
-        `[DomWebhook] Ebook pedido ${orderNumber} detectado mas BACK_EBOOK_URL/API_MACHINE_INTERNAL_TOKEN não configurados`,
+        `[DomWebhook][ebook] domPaymentId=${data.id} orderRef=${orderNumber} bloqueado: ` +
+          `BACK_EBOOK_URL=${backEbookUrl ? 'ok' : 'MISSING'} tokenConfigured=${Boolean(token)}`,
       );
       return true;
     }
 
-    const email = data.customer?.email?.trim();
     const endpoint = `${backEbookUrl}/webhook/payment-confirmation`;
+    this.logger.log(
+      `[DomWebhook][ebook] POST ${endpoint} domPaymentId=${data.id} orderRef=${orderNumber} ordPattern=${matchedOrdPattern} hasEmail=${Boolean(email)} tokenLen=${token.length}`,
+    );
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -395,6 +578,7 @@ export class ProcessDomWebhookUseCase {
           status: 'COMPLETED',
           store: 'ebook',
           ...(email ? { email } : {}),
+          ...(descriptionLine ? { description: descriptionLine } : {}),
         }),
       });
       const text = await res.text();
@@ -404,13 +588,202 @@ export class ProcessDomWebhookUseCase {
         );
         return true;
       }
-      this.logger.log(`[DomWebhook] back-ebook confirmou pedido ebook ${orderNumber}`);
+      this.logger.log(
+        `[DomWebhook][ebook] back-ebook HTTP ${res.status} OK ref=${orderNumber} domPaymentId=${data.id}`,
+      );
+
+      // Extrair ownerCpf da resposta do back-ebook para vincular a transaction ao autor correto
+      let ownerCpf: string | null = null;
+      try {
+        const parsed = JSON.parse(text);
+        ownerCpf = typeof parsed?.ownerCpf === 'string' ? parsed.ownerCpf : null;
+      } catch { /* resposta não-JSON, ignorar */ }
+
+      void this.upsertEbookTransaction(data, orderNumber, ownerCpf);
+
       return true;
     } catch (e) {
       this.logger.error(
-        `[DomWebhook] falha ao chamar back-ebook para ${orderNumber}: ${e instanceof Error ? e.message : String(e)}`,
+        `[DomWebhook][ebook] fetch back-ebook falhou orderRef=${orderNumber} domPaymentId=${data.id}: ` +
+          `${e instanceof Error ? e.message : String(e)}`,
       );
       return true;
+    }
+  }
+
+  /** Cria ou garante que existe uma Transaction local para o pedido ebook,
+   *  permitindo que /admin/plataformas/ebook/transacoes e /internal/ebook/finance/* funcionem. */
+  private async upsertEbookTransaction(data: RawDomData, orderNumber: string, ownerCpf: string | null): Promise<void> {
+    try {
+      const existing = await this.prisma.transaction.findFirst({
+        where: { domPaymentId: data.id },
+      });
+      if (existing) {
+        this.logger.log(`[DomWebhook][ebook] tx local já existe id=${existing.id} para domPaymentId=${data.id}`);
+        return;
+      }
+
+      // Busca qualquer transação existente para esse orderNumber (PENDING, BACKFILL ou qualquer outro estado)
+      const pendingDomId = `EBOOK_PENDING_${orderNumber}`;
+      const backfillDomId = `EBOOK_BACKFILL_${orderNumber}`;
+      const pendingTx = await this.prisma.transaction.findFirst({
+        where: {
+          OR: [
+            { domPaymentId: pendingDomId },
+            { domPaymentId: backfillDomId },
+            { description: { contains: orderNumber } },
+          ],
+        },
+      });
+      if (pendingTx) {
+        this.logger.log(`[DomWebhook][ebook] atualizando tx PENDING → COMPLETED id=${pendingTx.id}`);
+        const amountDec = new Prisma.Decimal(data.amount / 100);
+        const netDec = this.calcNet(data.amount / 100, data.liquid_amount != null ? data.liquid_amount / 100 : null);
+        const custName = (data as any).customer_name || data.customer?.name || null;
+        const custEmail = (data as any).customer_email || data.customer?.email || null;
+        const custDoc = ((data as any).customer_document || data.customer?.document || '').replace(/\D/g, '') || null;
+        await this.prisma.$transaction(async (p) => {
+          await p.transaction.update({
+            where: { id: pendingTx.id },
+            data: {
+              status: 'COMPLETED',
+              domPaymentId: data.id,
+              amount: amountDec,
+              netAmount: netDec,
+              totalFee: amountDec.sub(netDec),
+              domFee: new Prisma.Decimal(data.dom_fee ?? 0),
+              customerName: custName,
+              customerEmail: custEmail,
+              customerDocument: custDoc,
+              updatedAt: new Date(),
+            },
+          });
+          await p.wallet.update({
+            where: { userId: pendingTx.userId },
+            data: { balance: { increment: netDec }, updatedAt: new Date() },
+          });
+        });
+        return;
+      }
+
+      // Resolve o userId do autor pelo CPF, se disponível
+      let ebookUserId: string | null = null;
+      if (ownerCpf) {
+        const cpfClean = ownerCpf.replace(/\D/g, '');
+        const cpfFormatted = cpfClean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+        const author = await this.prisma.user.findFirst({
+          where: { cpf: { in: [cpfClean, cpfFormatted] } },
+          select: { id: true },
+        });
+        ebookUserId = author?.id ?? null;
+        if (ebookUserId) {
+          this.logger.log(`[DomWebhook][ebook] CPF ${cpfClean} → userId=${ebookUserId}`);
+        } else {
+          this.logger.log(`[DomWebhook][ebook] CPF ${cpfClean} sem conta na api-machine — usando conta genérica ebook`);
+        }
+      }
+
+      // Autor sem conta ainda: usar conta genérica ebook como placeholder
+      if (!ebookUserId) {
+        ebookUserId = EBOOK_USER_ID;
+        await this.prisma.user.upsert({
+          where: { id: ebookUserId },
+          update: {},
+          create: {
+            id: ebookUserId,
+            name: process.env.EBOOK_NAME || 'Ebook',
+            email: process.env.EBOOK_EMAIL || 'contato@ebook.com.br',
+            password: 'migrated',
+            role: 'USER',
+            domToken: null,
+          },
+        });
+      }
+
+      await this.prisma.wallet.upsert({
+        where: { userId: ebookUserId },
+        update: {},
+        create: { userId: ebookUserId, balance: 0, lockedBalance: 0 },
+      });
+
+      const amountDec = new Prisma.Decimal(data.amount / 100);
+      const netDec = this.calcNet(
+        data.amount / 100,
+        data.liquid_amount != null ? data.liquid_amount / 100 : null,
+      );
+
+      // CPF do dono na description garante reconhecimento quando ele criar conta no simpay
+      const cpfTag = ownerCpf ? ` [CPF_DONO:${ownerCpf.replace(/\D/g, '')}]` : '';
+      const description = appendInternalTags(orderNumber, [TENANT_EBOOK_TAG]) + cpfTag;
+
+      await this.prisma.$transaction(async (p) => {
+        const tx = await p.transaction.create({
+          data: {
+            userId: ebookUserId,
+            domPaymentId: data.id,
+            amount: amountDec,
+            netAmount: netDec,
+            totalFee: amountDec.sub(netDec),
+            domFee: new Prisma.Decimal(data.dom_fee ?? 0),
+            status: TransactionStatus.COMPLETED,
+            paymentMethod: this.calcPaymentMethod(data.payment_method),
+            description,
+            installments: Number(data.installments ?? 1),
+            customerName: (data as any).customer_name || data.customer?.name || '',
+            customerEmail: (data as any).customer_email || data.customer?.email || '',
+            customerDocument: (((data as any).customer_document || data.customer?.document || '') as string).replace(/\D/g, ''),
+            customerPhone: (data as any).customer_phone || data.customer?.mobile_phone || '',
+            createdAt: data.created_at ? new Date(data.created_at) : new Date(),
+          },
+        });
+
+        await p.transactionStatusHistory.create({
+          data: {
+            transactionId: tx.id,
+            fromStatus: TransactionStatus.DRAFT,
+            toStatus: TransactionStatus.COMPLETED,
+            metadata: { reason: 'ebook-dom-webhook', orderNumber },
+          },
+        });
+
+        // Atualizar saldo da wallet do usuário ebook
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const wallet = await p.wallet.findUnique({ where: { userId: ebookUserId } });
+          if (!wallet) break;
+          const newBalance = wallet.balance.add(netDec);
+          const updated = await p.wallet.updateMany({
+            where: { id: wallet.id, version: wallet.version },
+            data: { balance: newBalance, version: { increment: 1 } },
+          });
+          if (updated.count > 0) {
+            await p.balanceLog.create({
+              data: {
+                userId: ebookUserId,
+                action: 'DOM_WEBHOOK_COMPLETED',
+                transactionId: tx.id,
+                amount: netDec,
+                balanceBefore: wallet.balance,
+                balanceAfter: newBalance,
+                lockedBefore: wallet.lockedBalance,
+                lockedAfter: wallet.lockedBalance,
+                source: 'EBOOK_WEBHOOK',
+                description: `Pedido ebook: ${orderNumber}`,
+              },
+            });
+            break;
+          }
+          if (attempt === 2) throw new Error('Wallet version conflict after 3 retries');
+        }
+
+        return tx;
+      });
+
+      this.logger.log(`[DomWebhook][ebook] Transaction local criada para domPaymentId=${data.id} orderNumber=${orderNumber}`);
+    } catch (e) {
+      this.logger.error(
+        `[DomWebhook][ebook] Falha ao criar transaction local domPaymentId=${data.id}: ` +
+          `${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 

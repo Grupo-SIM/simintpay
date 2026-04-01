@@ -33,6 +33,10 @@ services:
       - DISABLE_DOM_SYNC=false
       - DOM_WEBHOOK_SECRET=simpay-webhook-secret-renovada-change-me-in-production
       - URL_APP=https://simpay-back.simintermediacoes.com
+      # Integração back-ebook (webhook DOM → confirmação de pedido). Obrigatório; mesmo API_MACHINE_INTERNAL_TOKEN do back-ebook.
+      - BACK_EBOOK_URL=https://back.ebooksim.com
+      - API_MACHINE_URL=https://simpay-back.simintermediacoes.com
+      # - EBOOK_DOM_WEBHOOK_RELAXED=1  # só se o webhook da DOM não trouxer ORD/store e o token DOM for exclusivo do ebook
     networks:
       - externa
       - interna

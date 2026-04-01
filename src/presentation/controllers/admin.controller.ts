@@ -851,6 +851,22 @@ export class AdminController {
     return all;
   }
 
+  private extractOrderNumberFromText(value: string | null | undefined): string | null {
+    const raw = String(value ?? '');
+    const match = raw.match(/\bORD-\d{4}-\d+\b/i);
+    return match ? match[0].toUpperCase() : null;
+  }
+
+  private parseDomCreatedAt(raw: string | null | undefined): Date | null {
+    if (!raw) return null;
+    const normalized = String(raw).trim().replace(' ', 'T');
+    const withTimezone = /[zZ]|[+-]\d{2}:\d{2}$/.test(normalized)
+      ? normalized
+      : `${normalized}-03:00`;
+    const date = new Date(withTimezone);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
   // ──────────── LEADS ────────────
 
   @Get('leads')
@@ -3196,14 +3212,79 @@ export class AdminController {
 
     const adminMargin = 1 - liquidityFactor;
 
+    let domByOrderNumber = new Map<string, DomTransactionItem[]>();
+    if (upperTag === 'EBOOK' && items.length > 0) {
+      const parsedDates = items
+        .map((t) => t.createdAt)
+        .filter((d): d is Date => d instanceof Date && !Number.isNaN(d.getTime()));
+      const minCreated = parsedDates.length > 0
+        ? new Date(Math.min(...parsedDates.map((d) => d.getTime())))
+        : new Date();
+      const maxCreated = parsedDates.length > 0
+        ? new Date(Math.max(...parsedDates.map((d) => d.getTime())))
+        : new Date();
+      const endMoment = dayjs(maxCreated).add(2, 'day');
+      const beginCandidate = dayjs(minCreated).subtract(2, 'day');
+      // API da DOM aceita no máximo 3 meses por consulta.
+      const minAllowedBegin = dayjs(endMoment).subtract(3, 'month');
+      const beginMoment = beginCandidate.isBefore(minAllowedBegin) ? minAllowedBegin : beginCandidate;
+      const beginDate = beginMoment.format('YYYY-MM-DD');
+      const endDate = endMoment.format('YYYY-MM-DD');
+      const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+      if (domToken?.trim()) {
+        const limit = 150;
+        for (let domPage = 1; domPage <= 12; domPage += 1) {
+          const res = await this.paymentGateway.listDomTransactions(domToken, {
+            page: domPage,
+            limit,
+            begin_date: beginDate,
+            end_date: endDate,
+          });
+          const batch = res.transactions ?? [];
+          for (const tx of batch) {
+            const orderNumber = this.extractOrderNumberFromText(tx.product_first);
+            if (!orderNumber) continue;
+            const arr = domByOrderNumber.get(orderNumber) ?? [];
+            arr.push(tx);
+            domByOrderNumber.set(orderNumber, arr);
+          }
+          if (batch.length < limit) break;
+        }
+      }
+    }
+
     const data = items.map(t => {
       const valorBruto = Number(t.amount);
       const isCompleted = t.status === 'COMPLETED';
 
       const lucroAdmin = isCompleted ? Number((valorBruto * adminMargin - fixedFee - cashbackFee).toFixed(2)) : 0;
-      const valorLiquido = isCompleted
-        ? (t.netAmount ? Number(t.netAmount) : Number((valorBruto * liquidityFactor).toFixed(2)))
-        : 0;
+      const valorLiquido = t.netAmount
+        ? Number(t.netAmount)
+        : Number((valorBruto * liquidityFactor).toFixed(2));
+
+      let reconciledCustomerName = t.customerName ?? null;
+      let reconciledCustomerEmail = t.customerEmail ?? null;
+      let reconciledCustomerDocument = t.customerDocument ?? null;
+      if (upperTag === 'EBOOK') {
+        const orderNumber = this.extractOrderNumberFromText(t.description);
+        const domCandidates = orderNumber ? domByOrderNumber.get(orderNumber) ?? [] : [];
+        if (domCandidates.length > 0) {
+          const txCreatedAt = t.createdAt instanceof Date ? t.createdAt.getTime() : Date.now();
+          let best = domCandidates[0];
+          let bestDistance = Number.MAX_SAFE_INTEGER;
+          for (const candidate of domCandidates) {
+            const candDate = this.parseDomCreatedAt(candidate.created_at);
+            const dist = candDate ? Math.abs(candDate.getTime() - txCreatedAt) : Number.MAX_SAFE_INTEGER - 1;
+            if (dist < bestDistance) {
+              bestDistance = dist;
+              best = candidate;
+            }
+          }
+          reconciledCustomerName = best.customer_name ?? reconciledCustomerName;
+          reconciledCustomerEmail = best.customer_email ?? reconciledCustomerEmail;
+          reconciledCustomerDocument = best.customer_document ?? reconciledCustomerDocument;
+        }
+      }
 
       return {
         id: t.id,
@@ -3211,9 +3292,7 @@ export class AdminController {
         valorLiquido: valorLiquido,
         lucroAdmin: lucroAdmin,
         calculos: {
-          valorLiquido: isCompleted
-            ? `${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)} = ${valorLiquido.toFixed(2)}`
-            : "Aguardando confirmação do pagamento",
+          valorLiquido: `${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)} = ${valorLiquido.toFixed(2)}`,
           lucroAdmin: isCompleted
             ? `(${valorBruto.toFixed(2)} * ${(1 - liquidityFactor).toFixed(2)}) - ${fixedFee.toFixed(2)} - ${cashbackFee.toFixed(2)} = ${lucroAdmin.toFixed(2)}`
             : "Aguardando confirmação do pagamento"
@@ -3222,9 +3301,9 @@ export class AdminController {
         metodoPagamento: t.paymentMethod,
         descricao: (t.description ?? '').replace(/\s*\[CPF:[^\]]*\|[^\]]+\]/g, '').replace(/Terminal:\s*/gi, 'Maquineta '),
         cliente: {
-          nome: t.customerName ?? null,
-          email: t.customerEmail ?? null,
-          documento: t.customerDocument ?? null,
+          nome: reconciledCustomerName,
+          email: reconciledCustomerEmail,
+          documento: reconciledCustomerDocument,
         },
         taxas: {
           total: Number(t.totalFee),
