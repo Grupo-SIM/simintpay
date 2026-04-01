@@ -3186,9 +3186,13 @@ export class AdminController {
       const isCompleted = t.status === 'COMPLETED';
 
       const lucroAdmin = isCompleted ? Number((valorBruto * adminMargin - fixedFee - cashbackFee).toFixed(2)) : 0;
-      const valorLiquido = t.netAmount
-        ? Number(t.netAmount)
-        : Number((valorBruto * liquidityFactor).toFixed(2));
+      const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
+      const fallbackNet = Number((valorBruto * liquidityFactor).toFixed(2));
+      // Alguns registros antigos/com erro ficaram COMPLETED com netAmount=0.
+      // Nesses casos, exibimos o líquido calculado pela liquidez da plataforma.
+      const valorLiquido = isCompleted && (netFromDb == null || netFromDb <= 0)
+        ? fallbackNet
+        : (netFromDb ?? fallbackNet);
 
       let reconciledCustomerName = t.customerName ?? null;
       let reconciledCustomerEmail = t.customerEmail ?? null;

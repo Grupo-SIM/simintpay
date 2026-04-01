@@ -14,6 +14,8 @@ dayjs.extend(timezone);
 const BRT = 'America/Sao_Paulo';
 const RENOVADA_HIDDEN_TAG = '[TENANT:RENOVADA]';
 const EBOOK_TAG = '[TENANT:EBOOK]';
+const DEFAULT_LIQUIDITY_FACTOR = Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
+const EBOOK_LIQUIDITY_FACTOR = Number(process.env.EBOOK_LIQUIDEZ || DEFAULT_LIQUIDITY_FACTOR);
 
 function formatDocument(doc: string | null | undefined): string | null {
   if (!doc) return null;
@@ -489,7 +491,14 @@ export class ListTransactionsUseCase {
         return {
           id: t.id,
           valor: Number(t.amount),
-          valorLiquido: t.netAmount != null ? Number(t.netAmount) : null,
+          valorLiquido: (() => {
+            const isCompleted = t.status === TransactionStatus.COMPLETED;
+            const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
+            const liquidity = (t.description ?? '').includes(EBOOK_TAG) ? EBOOK_LIQUIDITY_FACTOR : DEFAULT_LIQUIDITY_FACTOR;
+            const fallbackNet = Number((Number(t.amount) * liquidity).toFixed(2));
+            if (isCompleted && (netFromDb == null || netFromDb <= 0)) return fallbackNet;
+            return netFromDb;
+          })(),
           status: mapInternalStatusToPt(t.status),
           metodo: t.paymentMethod,
           descricao: stripInternalTags(t.description),
