@@ -1686,6 +1686,19 @@ export class AdminController {
     };
   }
 
+  @Get('relatorios/quantidade-usuarios-externos')
+  @ApiOperation({
+    summary: 'Total de usuários de plataformas (cadastro externo)',
+    description:
+      'Mesmo total retornado em GET /admin/usuarios (`total`), contagem de registros em ExternalPlatformUser. Filtro opcional `platform` igual à listagem.',
+  })
+  @ApiQuery({ name: 'platform', required: false })
+  async getQuantidadeUsuariosExternos(@Query('platform') platform?: string) {
+    const where = platform ? { platform } : {};
+    const total = await this.prisma.externalPlatformUser.count({ where });
+    return { total };
+  }
+
   @Get('relatorios/total-repasse')
   @ApiOperation({
     summary: 'Total de repasse (líquido consolidado − lucro Simpay)',
