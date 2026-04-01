@@ -146,4 +146,28 @@ export class RevalidaDashboardController {
   async setBalance(@Body() data: { balance: number }) {
     return this.syncService.setWalletBalance(data.balance);
   }
+
+  @Post('wallet-zerar')
+  @ApiOperation({
+    summary: '[REVALIDA] Zerar carteira (balance e lockedBalance)',
+    description:
+      'Usa REVALIDA_USER_ID do .env. Zera saldo disponível e bloqueado, registra BalanceLog e atualiza ExternalPlatformWallet.',
+  })
+  async zeroWallet() {
+    const result = await this.syncService.zeroWallet();
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+    return {
+      success: true,
+      message:
+        result.alreadyZero === true
+          ? 'Carteira Revalida já estava zerada (ExternalPlatformWallet alinhada).'
+          : 'Carteira Revalida zerada.',
+      userId: result.userId,
+      balanceAntes: result.balanceBefore,
+      lockedAntes: result.lockedBefore,
+      alreadyZero: result.alreadyZero === true,
+    };
+  }
 }

@@ -441,6 +441,78 @@ export class RevalidaSyncService implements OnModuleInit {
   }
 
   /**
+   * Zera balance e lockedBalance da carteira do usuário Revalida (REVALIDA_USER_ID no .env).
+   * Registra BalanceLog e sincroniza ExternalPlatformWallet com 0.
+   */
+  async zeroWallet(): Promise<{
+    success: boolean;
+    error?: string;
+    userId?: string;
+    balanceBefore?: number;
+    lockedBefore?: number;
+    alreadyZero?: boolean;
+  }> {
+    const userId = await this.resolveRevalidaUserId();
+    if (!userId) {
+      return { success: false, error: 'REVALIDA_USER_ID não configurado ou usuário revalida não encontrado.' };
+    }
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+    if (!wallet) {
+      return { success: false, error: 'Wallet não encontrada para o usuário Revalida.' };
+    }
+
+    const oldBalance = Number(wallet.balance || 0);
+    const oldLocked = Number(wallet.lockedBalance || 0);
+
+    if (oldBalance === 0 && oldLocked === 0) {
+      await this.syncExternalPlatformBalance(userId, 0);
+      return {
+        success: true,
+        userId,
+        balanceBefore: 0,
+        lockedBefore: 0,
+        alreadyZero: true as const,
+      };
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.wallet.update({
+        where: { userId },
+        data: {
+          balance: new Prisma.Decimal(0),
+          lockedBalance: new Prisma.Decimal(0),
+          version: { increment: 1 },
+        },
+      }),
+      this.prisma.balanceLog.create({
+        data: {
+          userId,
+          action: 'REVALIDA_WALLET_ZERO',
+          amount: new Prisma.Decimal(-oldBalance),
+          balanceBefore: oldBalance,
+          balanceAfter: 0,
+          lockedBefore: oldLocked,
+          lockedAfter: 0,
+          description: `Carteira Revalida zerada (admin). Saldo bruto antes: R$ ${oldBalance.toFixed(2)}, bloqueado: R$ ${oldLocked.toFixed(2)}`,
+          source: 'ADMIN_SYNC',
+          metadata: { oldBalance, oldLocked, userId },
+        },
+      }),
+    ]);
+
+    await this.syncExternalPlatformBalance(userId, 0);
+    this.logger.warn(`[REVALIDA] Carteira zerada para userId=${userId} (balance era ${oldBalance}, locked ${oldLocked})`);
+
+    return {
+      success: true,
+      userId,
+      balanceBefore: oldBalance,
+      lockedBefore: oldLocked,
+    };
+  }
+
+  /**
    * Mantém a ExternalPlatformWallet do usuário Revalida sincronizada com a Wallet real.
    * Se o registro ainda não existir em ExternalPlatformUser, cria automaticamente.
    */
