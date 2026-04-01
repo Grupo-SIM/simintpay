@@ -185,7 +185,7 @@ export class RevalidaSyncService implements OnModuleInit {
         this.logger.log(`[REVALIDA] Sync: ${created} criadas, ${updated} atualizadas`);
 
         if (!completedDelta.equals(0)) {
-          await this.prisma.wallet.update({
+          const updatedWallet = await this.prisma.wallet.update({
             where: { userId },
             data: {
               balance: { increment: completedDelta },
@@ -193,6 +193,7 @@ export class RevalidaSyncService implements OnModuleInit {
             },
           });
           this.logger.log(`[REVALIDA] Saldo ajustado em R$ ${completedDelta.toFixed(2)} (bruto)`);
+          await this.syncExternalPlatformBalance(userId, Number(updatedWallet.balance));
         }
       }
     } catch (error: any) {
@@ -370,6 +371,7 @@ export class RevalidaSyncService implements OnModuleInit {
       where: { userId },
       data: { balance: new Prisma.Decimal(newBalance), version: { increment: 1 } },
     });
+    await this.syncExternalPlatformBalance(userId, newBalance);
 
     const totalInDatabase = await this.prisma.transaction.count({ where: { userId } });
 
@@ -436,6 +438,36 @@ export class RevalidaSyncService implements OnModuleInit {
       grossBalance,
       userId
     };
+  }
+
+  /**
+   * Mantém a ExternalPlatformWallet do usuário Revalida sincronizada com a Wallet real.
+   * Se o registro ainda não existir em ExternalPlatformUser, cria automaticamente.
+   */
+  private async syncExternalPlatformBalance(userId: string, balance: number): Promise<void> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, cpf: true },
+      });
+      if (!user) return;
+
+      const cpf = user.cpf ?? userId.replace(/-/g, '').slice(0, 11).padEnd(11, '0');
+
+      const extUser = await this.prisma.externalPlatformUser.upsert({
+        where: { cpf_platform: { cpf, platform: 'revalida' } },
+        update: { name: user.name, userId: user.id },
+        create: { cpf, name: user.name, platform: 'revalida', userId: user.id },
+      });
+
+      await this.prisma.externalPlatformWallet.upsert({
+        where: { externalUserId: extUser.id },
+        update: { balance },
+        create: { externalUserId: extUser.id, balance },
+      });
+    } catch (err: any) {
+      this.logger.warn(`[REVALIDA] Falha ao sincronizar ExternalPlatformWallet: ${err.message}`);
+    }
   }
 
   private mapStatus(domStatus: string): TransactionStatus {
