@@ -112,10 +112,14 @@ export class RevalidaSyncService implements OnModuleInit {
             const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
 
             if (existing) {
-              if (existing.status !== mappedStatus) {
+              const needsUserFix = existing.userId !== userId;
+              const needsStatusUpdate = existing.status !== mappedStatus;
+
+              if (needsUserFix || needsStatusUpdate) {
                 await this.prisma.transaction.update({
                   where: { id: existing.id },
                   data: {
+                    ...(needsUserFix ? { userId } : {}),
                     status: mappedStatus,
                     previousStatus: existing.status,
                     amount,
@@ -132,11 +136,18 @@ export class RevalidaSyncService implements OnModuleInit {
                 updated++;
                 this.events.emitTransaction({ ...existing, status: mappedStatus });
 
-                if (existing.status !== TransactionStatus.COMPLETED && mappedStatus === TransactionStatus.COMPLETED) {
-                  completedDelta = completedDelta.add(amount);
+                if (needsStatusUpdate) {
+                  if (existing.status !== TransactionStatus.COMPLETED && mappedStatus === TransactionStatus.COMPLETED) {
+                    completedDelta = completedDelta.add(amount);
+                  }
+                  if (existing.status === TransactionStatus.COMPLETED && mappedStatus !== TransactionStatus.COMPLETED) {
+                    completedDelta = completedDelta.sub(new Prisma.Decimal(existing.amount ?? 0));
+                  }
                 }
-                if (existing.status === TransactionStatus.COMPLETED && mappedStatus !== TransactionStatus.COMPLETED) {
-                  completedDelta = completedDelta.sub(new Prisma.Decimal(existing.amount ?? 0));
+
+                if (needsUserFix && mappedStatus === TransactionStatus.COMPLETED) {
+                  completedDelta = completedDelta.add(amount);
+                  this.logger.log(`[REVALIDA] Tx ${existing.id} reassociada de userId=${existing.userId} para userId=${userId}`);
                 }
               }
               continue;
@@ -296,9 +307,11 @@ export class RevalidaSyncService implements OnModuleInit {
             const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
 
             if (existing) {
+              const needsUserFix = existing.userId !== (this.revalidaUserId || userId);
               await this.prisma.transaction.update({
                 where: { id: existing.id },
                 data: {
+                  ...(needsUserFix ? { userId: this.revalidaUserId || userId } : {}),
                   status: mappedStatus,
                   amount,
                   netAmount,
@@ -313,6 +326,9 @@ export class RevalidaSyncService implements OnModuleInit {
                   updatedAt: new Date(),
                 },
               });
+              if (needsUserFix) {
+                this.logger.log(`[REVALIDA] syncFull: Tx ${existing.id} reassociada de userId=${existing.userId} para Revalida`);
+              }
               totalUpdated++;
               continue;
             }
