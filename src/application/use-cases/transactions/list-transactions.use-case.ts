@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { PAYMENT_GATEWAY, type IPaymentGateway, type DomTaxesOutput } from '../../../core/services/payment-gateway.interface';
+import { PAYMENT_GATEWAY, type IPaymentGateway, type DomTaxesOutput, type DomTransactionItem } from '../../../core/services/payment-gateway.interface';
 import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-transactions.query.dto';
 import { stripInternalTags } from '../../utils/internal-tags.util';
 import dayjs from 'dayjs';
@@ -13,6 +13,7 @@ dayjs.extend(timezone);
 
 const BRT = 'America/Sao_Paulo';
 const RENOVADA_HIDDEN_TAG = '[TENANT:RENOVADA]';
+const EBOOK_TAG = '[TENANT:EBOOK]';
 
 function formatDocument(doc: string | null | undefined): string | null {
   if (!doc) return null;
@@ -69,6 +70,22 @@ function mapPtStatusToInternal(
     default:
       return undefined;
   }
+}
+
+function extractOrderNumber(value: string | null | undefined): string | null {
+  const raw = String(value ?? '');
+  const match = raw.match(/\bORD-\d{4}-\d+\b/i);
+  return match ? match[0].toUpperCase() : null;
+}
+
+function parseDomDate(raw: string | null | undefined): Date | null {
+  if (!raw) return null;
+  const normalized = String(raw).trim().replace(' ', 'T');
+  const withTimezone = /[zZ]|[+-]\d{2}:\d{2}$/.test(normalized)
+    ? normalized
+    : `${normalized}-03:00`;
+  const date = new Date(withTimezone);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 @Injectable()
@@ -402,27 +419,94 @@ export class ListTransactionsUseCase {
       }),
     ]);
 
+    // Para transações EBOOK, prioriza cliente vindo do checkout da DOM.
+    let domByOrderNumber = new Map<string, DomTransactionItem[]>();
+    try {
+      const ebookItems = items.filter((t) => (t.description ?? '').includes(EBOOK_TAG));
+      if (ebookItems.length > 0) {
+        const domToken = process.env.API_DOM_MASTER_KEY || process.env.DOM_TOKEN;
+        if (domToken?.trim()) {
+          const minCreated = new Date(Math.min(...ebookItems.map((t) => t.createdAt.getTime())));
+          const maxCreated = new Date(Math.max(...ebookItems.map((t) => t.createdAt.getTime())));
+          const endMoment = dayjs(maxCreated).add(2, 'day');
+          const beginCandidate = dayjs(minCreated).subtract(2, 'day');
+          const minAllowedBegin = dayjs(endMoment).subtract(3, 'month');
+          const beginMoment = beginCandidate.isBefore(minAllowedBegin) ? minAllowedBegin : beginCandidate;
+          const beginDate = beginMoment.format('YYYY-MM-DD');
+          const endDate = endMoment.format('YYYY-MM-DD');
+
+          const limitDom = 150;
+          for (let domPage = 1; domPage <= 12; domPage += 1) {
+            const res = await this.gateway.listDomTransactions(domToken, {
+              page: domPage,
+              limit: limitDom,
+              begin_date: beginDate,
+              end_date: endDate,
+            });
+            const batch = res.transactions ?? [];
+            for (const tx of batch) {
+              const order = extractOrderNumber(tx.product_first);
+              if (!order) continue;
+              const list = domByOrderNumber.get(order) ?? [];
+              list.push(tx);
+              domByOrderNumber.set(order, list);
+            }
+            if (batch.length < limitDom) break;
+          }
+        }
+      }
+    } catch {
+      domByOrderNumber = new Map<string, DomTransactionItem[]>();
+    }
+
     return {
-      data: items.map((t) => ({
-        id: t.id,
-        valor: Number(t.amount),
-        valorLiquido: t.netAmount != null ? Number(t.netAmount) : null,
-        status: mapInternalStatusToPt(t.status),
-        metodo: t.paymentMethod,
-        descricao: stripInternalTags(t.description),
-        parcelas: t.installments,
-        cliente: {
-          nome: t.customerName ?? null,
-          email: t.customerEmail ?? null,
-          documento: formatDocument(t.customerDocument),
-        },
-        taxas: {
-          total: Number(t.totalFee),
-          dom: Number(t.domFee),
-          plataforma: Number(t.platformFee),
-        },
-        criadoEm: t.createdAt.toISOString(),
-      })),
+      data: items.map((t) => {
+        let customerName = t.customerName ?? null;
+        let customerEmail = t.customerEmail ?? null;
+        let customerDocument = t.customerDocument ?? null;
+
+        if ((t.description ?? '').includes(EBOOK_TAG)) {
+          const order = extractOrderNumber(t.description);
+          const candidates = order ? domByOrderNumber.get(order) ?? [] : [];
+          if (candidates.length > 0) {
+            const txCreatedAt = t.createdAt.getTime();
+            let best = candidates[0];
+            let bestDistance = Number.MAX_SAFE_INTEGER;
+            for (const candidate of candidates) {
+              const candDate = parseDomDate(candidate.created_at);
+              const dist = candDate ? Math.abs(candDate.getTime() - txCreatedAt) : Number.MAX_SAFE_INTEGER - 1;
+              if (dist < bestDistance) {
+                bestDistance = dist;
+                best = candidate;
+              }
+            }
+            customerName = best.customer_name ?? customerName;
+            customerEmail = best.customer_email ?? customerEmail;
+            customerDocument = best.customer_document ?? customerDocument;
+          }
+        }
+
+        return {
+          id: t.id,
+          valor: Number(t.amount),
+          valorLiquido: t.netAmount != null ? Number(t.netAmount) : null,
+          status: mapInternalStatusToPt(t.status),
+          metodo: t.paymentMethod,
+          descricao: stripInternalTags(t.description),
+          parcelas: t.installments,
+          cliente: {
+            nome: customerName,
+            email: customerEmail,
+            documento: formatDocument(customerDocument),
+          },
+          taxas: {
+            total: Number(t.totalFee),
+            dom: Number(t.domFee),
+            plataforma: Number(t.platformFee),
+          },
+          criadoEm: t.createdAt.toISOString(),
+        };
+      }),
       page,
       pageSize,
       total,

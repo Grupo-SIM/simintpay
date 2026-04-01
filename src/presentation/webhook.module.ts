@@ -16,9 +16,10 @@ import { EmailService } from '../infrastructure/email/email.service';
 
 import { RenovadaModule } from '../modules/renovada/renovada.module';
 import { PixPlanModule } from './pix-plan.module';
+import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 
 @Module({
-  imports: [RabbitMqModule, RenovadaModule, forwardRef(() => PixPlanModule)],
+  imports: [RabbitMqModule, RenovadaModule, forwardRef(() => PixPlanModule), ApiDomModule],
   controllers: [WebhookController],
   providers: [
     ProcessWebhookUseCase,

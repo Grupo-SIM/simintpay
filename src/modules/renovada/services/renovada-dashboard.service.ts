@@ -32,9 +32,14 @@ export class PlatformDashboardService {
     let start: Date;
     let end: Date = now.toDate();
 
-    // Prioridade: .env -> Mapa Interno -> ID da Renovada (Legacy Fallback)
+    // Para EBOOK: usa filtro por tag na descrição (multi-vendor), não por userId único
+    const isEbook = upperTag === 'EBOOK';
+
+    // Prioridade: .env -> Mapa Interno -> ID da Renovada (Legacy Fallback) — não usado para EBOOK
     const platIdKey = `${upperTag}_ID`;
-    const platformId = process.env[platIdKey] || PLATFORM_IDS[upperTag] || PLATFORM_IDS.RENOVADA;
+    const platformId = isEbook
+      ? null
+      : (process.env[platIdKey] || PLATFORM_IDS[upperTag] || PLATFORM_IDS.RENOVADA);
 
     if (dataInicio || dataFim) {
       start = dataInicio ? dayjs(dataInicio).startOf('day').toDate() : now.subtract(10, 'year').toDate();
@@ -70,7 +75,13 @@ export class PlatformDashboardService {
     this.logger.log(`[Dashboard] Tag: ${upperTag} | Período "${period}": ${dayjs(start).tz(TZ).format('DD/MM/YYYY HH:mm:ss')}`);
 
     // Keywords filter only for Renovada (historical requirement), others take all platform transactions
-    let filter: any = { userId: platformId, status: TransactionStatus.COMPLETED };
+    let filter: any = isEbook
+      ? {
+          status: TransactionStatus.COMPLETED,
+          description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' as const },
+        }
+      : { userId: platformId, status: TransactionStatus.COMPLETED };
+
     if (upperTag === 'RENOVADA') {
       const keywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
       filter.OR = keywords.map(k => ({ description: { contains: k, mode: 'insensitive' } }));
@@ -135,23 +146,25 @@ export class PlatformDashboardService {
     const profitSelected = getProfit(txsInPeriod);
     const profitTotal = getProfit(allTransactions);
 
-    // 2. Dados da Wallet — Renovada: mesmo critério de /auth/me (saldo líquido − só PENDING; débitos APPROVED/COMPLETED corrigem fator)
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: platformId } });
+    // 2. Dados da Wallet — EBOOK é multi-vendor, não tem wallet única; Renovada usa lógica especial
+    const wallet = isEbook ? null : await this.prisma.wallet.findUnique({ where: { userId: platformId! } });
     const balanceVal = Number(wallet?.balance || 0);
     const lockedVal = Number(wallet?.lockedBalance || 0);
 
     let availableBalanceNet: number;
-    if (upperTag === 'RENOVADA') {
+    if (isEbook) {
+      availableBalanceNet = 0; // multi-vendor: each author has their own wallet
+    } else if (upperTag === 'RENOVADA') {
       const debitedAggr = await this.prisma.withdrawRequest.aggregate({
         where: {
-          userId: platformId,
+          userId: platformId!,
           status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
         },
         _sum: { grossAmount: true },
       });
       const debitedBruto = Number(debitedAggr._sum.grossAmount || 0);
       const pendingAggr = await this.prisma.withdrawRequest.aggregate({
-        where: { userId: platformId, status: WithdrawStatus.PENDING },
+        where: { userId: platformId!, status: WithdrawStatus.PENDING },
         _sum: { grossAmount: true },
       });
       const pendingBruto = Number(pendingAggr._sum.grossAmount || 0);
@@ -164,22 +177,31 @@ export class PlatformDashboardService {
     }
 
     // 3. Estornos
+    const estornosWhere: any = isEbook
+      ? {
+          status: TransactionStatus.REFUNDED,
+          createdAt: { gte: start, lte: end },
+          description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' as const },
+        }
+      : {
+          userId: platformId,
+          status: TransactionStatus.REFUNDED,
+          createdAt: { gte: start, lte: end },
+          ...(filter.OR ? { OR: filter.OR } : {}),
+        };
     const estornosAgg = await this.prisma.transaction.aggregate({
-      where: { 
-        userId: platformId, 
-        status: TransactionStatus.REFUNDED,
-        createdAt: { gte: start, lte: end },
-        ...(filter.OR ? { OR: filter.OR } : {})
-      },
+      where: estornosWhere,
       _count: { id: true },
       _sum: { netAmount: true },
     });
 
-    // 4. Saques
-    const withdrawals = await this.prisma.withdrawRequest.findMany({
-      where: { userId: platformId },
-      select: { createdAt: true },
-    });
+    // 4. Saques — EBOOK não tem saques centralizados (cada autor saca da própria conta)
+    const withdrawals = isEbook
+      ? []
+      : await this.prisma.withdrawRequest.findMany({
+          where: { userId: platformId! },
+          select: { createdAt: true },
+        });
 
     const countWD = (s: Date, e: Date = now.toDate()) => {
       const startD = dayjs(s);
@@ -190,8 +212,8 @@ export class PlatformDashboardService {
       }).length;
     };
 
-    const last30Days = await this.getChartData(platformId, 30, 'day', liquidityFactor);
-    const annualByMonth = await this.getChartData(platformId, 12, 'month', liquidityFactor);
+    const last30Days = await this.getChartData(isEbook ? null : platformId, 30, 'day', liquidityFactor, isEbook);
+    const annualByMonth = await this.getChartData(isEbook ? null : platformId, 12, 'month', liquidityFactor, isEbook);
 
     const isFiltered = !!(dataInicio || dataFim);
     const mainProfit = isFiltered ? profitSelected : profitTotal;
@@ -237,7 +259,7 @@ export class PlatformDashboardService {
     };
   }
 
-  private async getChartData(platformId: string, count: number, unit: 'day' | 'month', liquidityFactor: number) {
+  private async getChartData(platformId: string | null, count: number, unit: 'day' | 'month', liquidityFactor: number, isEbook = false) {
     const data: { label: string; value: number; maquinetas: number; offers: number }[] = [];
     const now = dayjs().tz(TZ);
 
@@ -247,13 +269,20 @@ export class PlatformDashboardService {
       const end = d.endOf(unit).toDate();
 
       const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
+      const chartWhere: any = isEbook
+        ? {
+            status: TransactionStatus.COMPLETED,
+            createdAt: { gte: start, lte: end },
+            description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' as const },
+          }
+        : {
+            userId: platformId,
+            status: TransactionStatus.COMPLETED,
+            createdAt: { gte: start, lte: end },
+            OR: renovadaKeywords.map(k => ({ description: { contains: k, mode: 'insensitive' as const } })),
+          };
       const txs = await this.prisma.transaction.findMany({
-        where: {
-          userId: platformId,
-          status: TransactionStatus.COMPLETED,
-          createdAt: { gte: start, lte: end },
-          OR: renovadaKeywords.map(k => ({ description: { contains: k, mode: 'insensitive' as const } })),
-        },
+        where: chartWhere,
         select: { netAmount: true, description: true },
       });
 

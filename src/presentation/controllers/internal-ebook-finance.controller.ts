@@ -4,17 +4,22 @@ import {
   Controller,
   Get,
   Headers,
+  Inject,
   Post,
   Query,
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { PAYMENT_GATEWAY, type DomTransactionItem, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
 @Controller('internal/ebook/finance')
 export class InternalEbookFinanceController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway,
+  ) {}
 
   private ensureInternalToken(token?: string) {
     const expected = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN;
@@ -43,6 +48,22 @@ export class InternalEbookFinanceController {
     return [...new Set(users.map((u) => u.id))];
   }
 
+  private extractOrderNumberFromText(value: string | null | undefined): string | null {
+    const raw = String(value ?? '');
+    const match = raw.match(/\bORD-\d{4}-\d+\b/i);
+    return match ? match[0].toUpperCase() : null;
+  }
+
+  private parseDomCreatedAt(raw: string | null | undefined): Date | null {
+    if (!raw) return null;
+    const normalized = String(raw).trim().replace(' ', 'T');
+    const withTimezone = /[zZ]|[+-]\d{2}:\d{2}$/.test(normalized)
+      ? normalized
+      : `${normalized}-03:00`;
+    const date = new Date(withTimezone);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
   @Get('summary')
   async summary(
     @Query('cpf') cpf: string,
@@ -58,10 +79,7 @@ export class InternalEbookFinanceController {
       where: {
         userId: { in: userIds },
         status: 'COMPLETED',
-        OR: [
-          { description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' } },
-          { userId: { in: userIds } },
-        ],
+        description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' },
       },
       _sum: { netAmount: true, amount: true },
     });
@@ -108,10 +126,8 @@ export class InternalEbookFinanceController {
     const pageNum = Math.max(1, Number(page || 1));
     const size = Math.min(Math.max(1, Number(limit || 10)), 200);
     const where: any = {
-      OR: [
-        { description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' } },
-        { userId: { in: userIds } },
-      ],
+      userId: { in: userIds },
+      description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' },
     };
 
     if (status && status !== 'ALL') {
@@ -136,25 +152,93 @@ export class InternalEbookFinanceController {
       }),
     ]);
 
+    let domByOrderNumber = new Map<string, DomTransactionItem[]>();
+    try {
+      if (items.length > 0) {
+        const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+        if (domToken?.trim()) {
+          const parsedDates = items
+            .map((t) => t.createdAt)
+            .filter((d): d is Date => d instanceof Date && !Number.isNaN(d.getTime()));
+          const minCreated = parsedDates.length > 0
+            ? new Date(Math.min(...parsedDates.map((d) => d.getTime())))
+            : new Date();
+          const maxCreated = parsedDates.length > 0
+            ? new Date(Math.max(...parsedDates.map((d) => d.getTime())))
+            : new Date();
+          const endMoment = new Date(maxCreated.getTime() + (2 * 24 * 60 * 60 * 1000));
+          const beginCandidate = new Date(minCreated.getTime() - (2 * 24 * 60 * 60 * 1000));
+          const minAllowedBegin = new Date(endMoment);
+          minAllowedBegin.setMonth(minAllowedBegin.getMonth() - 3);
+          const beginMoment = beginCandidate < minAllowedBegin ? minAllowedBegin : beginCandidate;
+          const beginDate = beginMoment.toISOString().slice(0, 10);
+          const endDate = endMoment.toISOString().slice(0, 10);
+          const limitDom = 150;
+          for (let domPage = 1; domPage <= 12; domPage += 1) {
+            const res = await this.paymentGateway.listDomTransactions(domToken, {
+              page: domPage,
+              limit: limitDom,
+              begin_date: beginDate,
+              end_date: endDate,
+            });
+            const batch = res.transactions ?? [];
+            for (const tx of batch) {
+              const orderNumber = this.extractOrderNumberFromText(tx.product_first);
+              if (!orderNumber) continue;
+              const arr = domByOrderNumber.get(orderNumber) ?? [];
+              arr.push(tx);
+              domByOrderNumber.set(orderNumber, arr);
+            }
+            if (batch.length < limitDom) break;
+          }
+        }
+      }
+    } catch {
+      // Falha na DOM não deve impedir histórico financeiro
+      domByOrderNumber = new Map<string, DomTransactionItem[]>();
+    }
+
     return {
-      transactions: items.map((t) => ({
-        id: t.id,
-        userId: t.userId,
-        amount: Number(t.amount),
-        name: t.customerName ?? null,
-        email: t.customerEmail ?? null,
-        status: t.status,
-        description: t.description ?? null,
-        appliedGlobalFee: false,
-        fee: Number(t.platformFee ?? 0),
-        dom_fee: Number(t.domFee ?? 0),
-        payment_method: t.paymentMethod,
-        amountWithoutAllFee: Number(t.netAmount ?? t.amount),
-        walletId: null,
-        createdAt: t.createdAt,
-        paymentId: t.domPaymentId ?? t.domTransactionId ?? null,
-        updatedAt: t.updatedAt,
-      })),
+      transactions: items.map((t) => {
+        let name = t.customerName ?? null;
+        let email = t.customerEmail ?? null;
+        const orderNumber = this.extractOrderNumberFromText(t.description);
+        const domCandidates = orderNumber ? domByOrderNumber.get(orderNumber) ?? [] : [];
+        if (domCandidates.length > 0) {
+          const txCreatedAt = t.createdAt instanceof Date ? t.createdAt.getTime() : Date.now();
+          let best = domCandidates[0];
+          let bestDistance = Number.MAX_SAFE_INTEGER;
+          for (const candidate of domCandidates) {
+            const candDate = this.parseDomCreatedAt(candidate.created_at);
+            const dist = candDate ? Math.abs(candDate.getTime() - txCreatedAt) : Number.MAX_SAFE_INTEGER - 1;
+            if (dist < bestDistance) {
+              bestDistance = dist;
+              best = candidate;
+            }
+          }
+          name = best.customer_name ?? name;
+          email = best.customer_email ?? email;
+        }
+
+        return {
+          id: t.id,
+          userId: t.userId,
+          amount: Number(t.amount),
+          name,
+          email,
+          status: t.status,
+          description: t.description ?? null,
+          appliedGlobalFee: false,
+          fee: Number(t.platformFee ?? 0),
+          dom_fee: Number(t.domFee ?? 0),
+          payment_method: t.paymentMethod,
+          amountWithoutAllFee: Number(t.netAmount ?? t.amount),
+          walletId: null,
+          createdAt: t.createdAt,
+          paymentId: t.domPaymentId ?? t.domTransactionId ?? null,
+          updatedAt: t.updatedAt,
+        };
+      }),
       meta: {
         currentPage: pageNum,
         itemsPerPage: size,
@@ -207,6 +291,78 @@ export class InternalEbookFinanceController {
         totalPages: Math.max(1, Math.ceil(totalItems / size)),
       },
     };
+  }
+
+  @Post('pending-transaction')
+  async createPendingTransaction(
+    @Body() body: {
+      orderNumber: string;
+      amount: number;
+      ownerCpf?: string;
+      paymentMethod?: string;
+      buyerName?: string;
+      buyerEmail?: string;
+      buyerDocument?: string;
+    },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
+    if (!body.orderNumber?.trim()) throw new BadRequestException('orderNumber é obrigatório');
+
+    const domPaymentId = `EBOOK_PENDING_${body.orderNumber}`;
+
+    const existing = await this.prisma.transaction.findFirst({
+      where: { domPaymentId },
+      select: { id: true },
+    });
+    if (existing) return { success: true, id: existing.id, created: false };
+
+    let userId = 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
+    if (body.ownerCpf) {
+      const cpf = body.ownerCpf.replace(/\D/g, '');
+      const cpfFmt = cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+      const author = await this.prisma.user.findFirst({
+        where: { cpf: { in: [cpf, cpfFmt] } },
+        select: { id: true },
+      });
+      if (author) userId = author.id;
+    }
+
+    await this.prisma.user.upsert({
+      where: { id: 'd4fbf80f-6f13-4bc6-8e15-ebook00000001' },
+      update: {},
+      create: {
+        id: 'd4fbf80f-6f13-4bc6-8e15-ebook00000001',
+        name: 'EbookSim Platform',
+        email: 'ebook-platform@ebooksim.com',
+        cpf: '00000000000',
+        password: 'SYSTEM_NO_LOGIN',
+      },
+    });
+
+    const cpfTag = body.ownerCpf ? ` [CPF_DONO:${body.ownerCpf.replace(/\D/g, '')}]` : '';
+    const description = `${body.orderNumber.trim()} [TENANT:EBOOK]${cpfTag}`;
+    const netAmount = Number((amount * 0.91).toFixed(2));
+    const method = (body.paymentMethod || 'PIX').toUpperCase();
+
+    const tx = await this.prisma.transaction.create({
+      data: {
+        userId,
+        amount,
+        netAmount,
+        status: 'PENDING',
+        paymentMethod: method as any,
+        description,
+        domPaymentId,
+        customerName: body.buyerName ?? null,
+        customerEmail: body.buyerEmail ?? null,
+        customerDocument: body.buyerDocument ? body.buyerDocument.replace(/\D/g, '') : null,
+      },
+    });
+
+    return { success: true, id: tx.id, created: true };
   }
 
   @Post('withdraw')
