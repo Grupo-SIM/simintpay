@@ -36,6 +36,7 @@ model User {
   subscriptionLinkOrders SubscriptionLinkOrder[]
   communityAccesses      CommunityAccess[]
   communityEvents        CommunitySubscriptionEvent[]
+  externalPlatformUsers  ExternalPlatformUser[]
 
   @@index([email])
   @@index([domUserId])
@@ -521,6 +522,36 @@ enum LeadStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+// ── External Platform Users (donos de plataformas externas, ex: ebook) ────────
+// Representa usuários identificados via CPF nas descrições de transações.
+// Quando o usuário se cadastra na Simpay com o mesmo CPF, é feita a vinculação.
+model ExternalPlatformUser {
+  id          String                   @id @default(uuid())
+  cpf         String
+  name        String
+  platform    String                   // slug da plataforma ex: "ebook"
+  userId      String?                  // vinculado ao User da Simpay quando se cadastra
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  wallet      ExternalPlatformWallet?
+  user        User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([cpf, platform])
+  @@index([cpf])
+  @@index([platform])
+  @@index([userId])
+}
+
+model ExternalPlatformWallet {
+  id                   String               @id @default(uuid())
+  externalUserId       String               @unique
+  balance              Decimal              @default(0) @db.Decimal(12, 2)
+  lockedBalance        Decimal              @default(0) @db.Decimal(12, 2)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  externalUser         ExternalPlatformUser @relation(fields: [externalUserId], references: [id])
 }
 
 // ── PIX Credit Plan (crédito de dias via PIX) ─────────────────────────────

@@ -25,7 +25,11 @@
       "Bash(powershell.exe -Command \"Get-ChildItem ''C:\\\\Users\\\\breno\\\\Desktop\\\\JB'' -Directory | Select-Object Name\")",
       "Bash(node -e \"const { PrismaClient } = require\\(''@prisma/client''\\); const p = new PrismaClient\\(\\); const fields = Object.keys\\(p.transaction.fields\\); console.log\\(fields.join\\('', ''\\)\\);\")",
       "Bash(node -e:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(xargs grep:*)",
+      "Bash(find node_modules/.prisma -name \"*.d.ts\" -exec grep -l \"ExternalPlatform\" {})",
+      "Bash(2)"
     ]
   }
 }

@@ -75,6 +75,8 @@ import { computeUserNetBalance } from '../../application/helpers/user-platform-n
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
+import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
+import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -820,6 +822,8 @@ export class AdminController {
     @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway,
     @Inject(WALLET_REPOSITORY) private readonly walletRepository: IWalletRepository,
     private readonly platformTaxas: PlatformTaxasService,
+    private readonly linkExternal: LinkExternalPlatformUserService,
+    private readonly scanPlatformOwners: ScanPlatformOwnersUseCase,
   ) { }
 
   /**
@@ -965,6 +969,9 @@ export class AdminController {
 
     await this.walletRepository.createForUser(user.id);
 
+    // Vincula ExternalPlatformUser se o CPF já foi identificado em transações
+    await this.linkExternal.linkByCpf(user.id, cpfClean);
+
     return {
       data: {
         userId: user.id,
@@ -973,6 +980,66 @@ export class AdminController {
         modulo: null,
       },
       message: 'Conta do cliente criada com sucesso (Conta Avulsa)',
+    };
+  }
+
+  // ──────────── USUÁRIOS DE PLATAFORMAS EXTERNAS ────────────
+
+  @Post('usuarios/scan')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Dispara varredura manual de donos de plataformas (extrai CPF_DONO das transações)' })
+  async scanPlatformOwnersManual() {
+    const result = await this.scanPlatformOwners.execute();
+    return { data: result };
+  }
+
+  @Get('usuarios')
+  @ApiOperation({ summary: 'Lista usuários externos por plataforma com saldo líquido' })
+  @ApiQuery({ name: 'platform', required: false })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'pageSize', required: false, example: 20 })
+  async listExternalUsers(
+    @Query('platform') platform?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    const pageNum = Math.max(1, Number(page));
+    const size = Math.min(Math.max(1, Number(pageSize)), 100);
+
+    const where = platform ? { platform } : {};
+
+    const [total, items] = await Promise.all([
+      this.prisma.externalPlatformUser.count({ where }),
+      this.prisma.externalPlatformUser.findMany({
+        where,
+        include: {
+          wallet: true,
+          user: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (pageNum - 1) * size,
+        take: size,
+      }),
+    ]);
+
+    return {
+      data: items.map((u) => ({
+        id: u.id,
+        cpf: u.cpf,
+        name: u.name,
+        platform: u.platform,
+        balance: Number(u.wallet?.balance ?? 0),
+        lockedBalance: Number(u.wallet?.lockedBalance ?? 0),
+        vinculado: !!u.userId,
+        simpayUser: u.user
+          ? { id: u.user.id, name: u.user.name, email: u.user.email }
+          : null,
+        createdAt: u.createdAt,
+        updatedAt: u.updatedAt,
+      })),
+      total,
+      page: pageNum,
+      pageSize: size,
     };
   }
 
