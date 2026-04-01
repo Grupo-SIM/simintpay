@@ -135,12 +135,14 @@ export class PixPlanService {
 
     let effectiveUserId = userId;
     let planTenantTag: string | null = null;
+    let planOwnerCpf: string | null = null;
     if (body.pixCreditPlanId) {
       const planRow = await this.repo.findPixCreditPlanById(body.pixCreditPlanId);
       if (planRow) {
         effectiveUserId = await this.resolveTransactionUserIdForPixPlan(planRow);
         const tagMatch = (planRow.description ?? '').match(/\|([A-Z0-9]+)\]/i);
         if (tagMatch) planTenantTag = tagMatch[1].toUpperCase();
+        planOwnerCpf = this.extractOwnerDocumentDigitsFromPlanDescription(planRow.description);
       }
     }
 
@@ -176,7 +178,7 @@ export class PixPlanService {
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFee),
         platformFee: new Prisma.Decimal(platformFee),
-        description: `${body.description ?? `PIX_PLAN:${body.planType}`}${planTenantTag ? ` [TENANT:${planTenantTag}]` : ''}`,
+        description: `${body.description ?? `PIX_PLAN:${body.planType}`}${planTenantTag ? ` [TENANT:${planTenantTag}]` : ''}${planOwnerCpf ? ` [CPF_DONO:${planOwnerCpf}]` : ''}`,
         customerName: body.name,
         customerEmail: body.email,
         customerDocument: body.document.replace(/[.-]/g, ''),
