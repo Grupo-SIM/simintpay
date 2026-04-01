@@ -17,6 +17,7 @@ import type { IWalletRepository } from '../../../core/repositories/wallet.reposi
 import type { IHashService } from '../../../core/services/hash.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { EmailService } from '../../../infrastructure/email/email.service';
+import { LinkExternalPlatformUserService } from '../../services/link-external-platform-user.service';
 
 @Injectable()
 export class ApproveLeadUseCase {
@@ -29,6 +30,7 @@ export class ApproveLeadUseCase {
     @Inject(HASH_SERVICE) private readonly hash: IHashService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly email: EmailService,
+    private readonly linkExternal: LinkExternalPlatformUserService,
   ) {}
 
   async execute(input: { leadId: string; adminUserId: string }) {
@@ -80,6 +82,11 @@ export class ApproveLeadUseCase {
     }
 
     await this.leads.approve(input.leadId, user.id);
+
+    // Vincula ExternalPlatformUser se o CPF já foi identificado em transações
+    if (lead.cpf) {
+      await this.linkExternal.linkByCpf(user.id, lead.cpf);
+    }
 
     // Send welcome email (non-blocking — failure doesn't roll back)
     const loginUrl = process.env.APP_URL
