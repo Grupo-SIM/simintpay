@@ -32,12 +32,14 @@ export class PlatformDashboardService {
     let start: Date;
     let end: Date = now.toDate();
 
-    // Para EBOOK: usa filtro por tag na descrição (multi-vendor), não por userId único
+    // Para EBOOK/PAGATG: usa filtro por tag na descrição (multi-vendor), não por userId único
     const isEbook = upperTag === 'EBOOK';
+    const isPagatg = upperTag === 'PAGATG';
+    const isTenantTagged = isEbook || isPagatg;
 
-    // Prioridade: .env -> Mapa Interno -> ID da Renovada (Legacy Fallback) — não usado para EBOOK
+    // Prioridade: .env -> Mapa Interno -> ID da Renovada (Legacy Fallback) — não usado para tenant-tagged
     const platIdKey = `${upperTag}_ID`;
-    const platformId = isEbook
+    const platformId = isTenantTagged
       ? null
       : (process.env[platIdKey] || PLATFORM_IDS[upperTag] || PLATFORM_IDS.RENOVADA);
 
@@ -75,10 +77,10 @@ export class PlatformDashboardService {
     this.logger.log(`[Dashboard] Tag: ${upperTag} | Período "${period}": ${dayjs(start).tz(TZ).format('DD/MM/YYYY HH:mm:ss')}`);
 
     // Keywords filter only for Renovada (historical requirement), others take all platform transactions
-    let filter: any = isEbook
+    let filter: any = isTenantTagged
       ? {
           status: TransactionStatus.COMPLETED,
-          description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' as const },
+          description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const },
         }
       : { userId: platformId, status: TransactionStatus.COMPLETED };
 
@@ -146,13 +148,13 @@ export class PlatformDashboardService {
     const profitSelected = getProfit(txsInPeriod);
     const profitTotal = getProfit(allTransactions);
 
-    // 2. Dados da Wallet — EBOOK é multi-vendor, não tem wallet única; Renovada usa lógica especial
-    const wallet = isEbook ? null : await this.prisma.wallet.findUnique({ where: { userId: platformId! } });
+    // 2. Dados da Wallet — EBOOK/PAGATG são multi-vendor, não têm wallet única; Renovada usa lógica especial
+    const wallet = isTenantTagged ? null : await this.prisma.wallet.findUnique({ where: { userId: platformId! } });
     const balanceVal = Number(wallet?.balance || 0);
     const lockedVal = Number(wallet?.lockedBalance || 0);
 
     let availableBalanceNet: number;
-    if (isEbook) {
+    if (isTenantTagged) {
       availableBalanceNet = 0; // multi-vendor: each author has their own wallet
     } else if (upperTag === 'RENOVADA') {
       const debitedAggr = await this.prisma.withdrawRequest.aggregate({
@@ -177,11 +179,11 @@ export class PlatformDashboardService {
     }
 
     // 3. Estornos
-    const estornosWhere: any = isEbook
+    const estornosWhere: any = isTenantTagged
       ? {
           status: TransactionStatus.REFUNDED,
           createdAt: { gte: start, lte: end },
-          description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' as const },
+          description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const },
         }
       : {
           userId: platformId,
@@ -195,8 +197,8 @@ export class PlatformDashboardService {
       _sum: { netAmount: true },
     });
 
-    // 4. Saques — EBOOK não tem saques centralizados (cada autor saca da própria conta)
-    const withdrawals = isEbook
+    // 4. Saques — EBOOK/PAGATG não têm saques centralizados (cada autor saca da própria conta)
+    const withdrawals = isTenantTagged
       ? []
       : await this.prisma.withdrawRequest.findMany({
           where: { userId: platformId! },
@@ -212,8 +214,8 @@ export class PlatformDashboardService {
       }).length;
     };
 
-    const last30Days = await this.getChartData(isEbook ? null : platformId, 30, 'day', liquidityFactor, isEbook);
-    const annualByMonth = await this.getChartData(isEbook ? null : platformId, 12, 'month', liquidityFactor, isEbook);
+    const last30Days = await this.getChartData(isTenantTagged ? null : platformId, 30, 'day', liquidityFactor, isTenantTagged ? upperTag : null);
+    const annualByMonth = await this.getChartData(isTenantTagged ? null : platformId, 12, 'month', liquidityFactor, isTenantTagged ? upperTag : null);
 
     const isFiltered = !!(dataInicio || dataFim);
     const mainProfit = isFiltered ? profitSelected : profitTotal;
@@ -259,7 +261,7 @@ export class PlatformDashboardService {
     };
   }
 
-  private async getChartData(platformId: string | null, count: number, unit: 'day' | 'month', liquidityFactor: number, isEbook = false) {
+  private async getChartData(platformId: string | null, count: number, unit: 'day' | 'month', liquidityFactor: number, tenantTag: string | null = null) {
     const data: { label: string; value: number; maquinetas: number; offers: number }[] = [];
     const now = dayjs().tz(TZ);
 
@@ -269,11 +271,11 @@ export class PlatformDashboardService {
       const end = d.endOf(unit).toDate();
 
       const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
-      const chartWhere: any = isEbook
+      const chartWhere: any = tenantTag
         ? {
             status: TransactionStatus.COMPLETED,
             createdAt: { gte: start, lte: end },
-            description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' as const },
+            description: { contains: `[TENANT:${tenantTag}]`, mode: 'insensitive' as const },
           }
         : {
             userId: platformId,

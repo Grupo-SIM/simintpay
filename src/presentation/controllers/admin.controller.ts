@@ -2917,16 +2917,33 @@ export class AdminController {
       }
     }
 
+    // Garante que PAGATG apareça quando houver transações [TENANT:PAGATG]
+    if (!map.has('PAGATG')) {
+      const firstPagatgTx = await this.prisma.transaction.findFirst({
+        where: { description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' } },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      map.set('PAGATG', {
+        tag: 'PAGATG',
+        cpf: '',
+        planRows: [],
+        plansCount: 0,
+        firstSeen: firstPagatgTx?.createdAt ?? new Date(),
+      });
+    }
+
     const result = [];
     for (const v of map.values()) {
       const expandedUserIds = await expandPlatformTransactionUserIds(this.prisma, v.planRows);
+      const isTenantTaggedPlatform = v.tag === 'EBOOK' || v.tag === 'PAGATG';
 
       const whereTx: any =
-        v.tag === 'EBOOK'
+        isTenantTaggedPlatform
           ? {
               OR: [
-                { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
-                ...(expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
+                { description: { contains: `[TENANT:${v.tag}]`, mode: 'insensitive' } },
+                ...(v.tag === 'EBOOK' && expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
               ],
             }
           : { userId: { in: expandedUserIds } };
@@ -2947,7 +2964,7 @@ export class AdminController {
       }
 
       let totalTx = 0;
-      if (v.tag === 'EBOOK') {
+      if (isTenantTaggedPlatform) {
         totalTx = await this.prisma.transaction.count({ where: whereTx });
       } else if (expandedUserIds.length > 0) {
         const txCounts = await this.prisma.transaction.groupBy({
@@ -3094,7 +3111,7 @@ export class AdminController {
         select: { id: true },
       });
       userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
-    } else {
+    } else if (upperTag !== 'PAGATG') {
       const plans = await this.prisma.pixCreditPlan.findMany({
         where: {
           OR: [
@@ -3107,17 +3124,18 @@ export class AdminController {
       userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
     }
 
-    if (upperTag !== 'EBOOK' && userIds.length === 0) return { data: [], page: 1, pageSize: 20, total: 0 };
+    const isTenantTagged = upperTag === 'EBOOK' || upperTag === 'PAGATG';
+    if (!isTenantTagged && userIds.length === 0) return { data: [], page: 1, pageSize: 20, total: 0 };
 
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
 
     const where: any =
-      upperTag === 'EBOOK'
+      isTenantTagged
         ? {
             OR: [
-              { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
-              ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+              { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
+              ...(upperTag === 'EBOOK' && userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
             ],
           }
         : {

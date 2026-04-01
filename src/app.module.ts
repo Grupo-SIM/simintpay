@@ -21,6 +21,7 @@ import { StorageModule } from './infrastructure/storage/storage.module';
 import { RenovadaModule } from './modules/renovada/renovada.module';
 import { RevalidaModule } from './modules/revalida/revalida.module';
 import { BosqueModule } from './modules/bosque/bosque.module';
+import { PagatgModule } from './modules/pagatg/pagatg.module';
 import { MasterModule } from './modules/master/master.module';
 import { PixPlanModule } from './presentation/pix-plan.module';
 import { SubscriptionLinkModule } from './presentation/subscription-link.module';
@@ -60,6 +61,7 @@ import { CheckoutModule } from './presentation/checkout.module';
     RenovadaModule,
     RevalidaModule,
     BosqueModule,
+    PagatgModule,
     MasterModule,
   ],
   providers: [

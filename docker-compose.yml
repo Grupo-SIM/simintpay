@@ -37,6 +37,9 @@ services:
       - BACK_EBOOK_URL=https://back.ebooksim.com
       - API_MACHINE_URL=https://simpay-back.simintermediacoes.com
       # - EBOOK_DOM_WEBHOOK_RELAXED=1  # só se o webhook da DOM não trouxer ORD/store e o token DOM for exclusivo do ebook
+      # Integração PagaTG (api-machine → api-pagatg notifica pix-credit após confirmação DOM)
+      - API_PAGATG_URL=https://api-bot.jbmidia.com
+      - PAGATG_INTERNAL_TOKEN=f7d82b3a9c1e4d5f8a2b6c0e7d9f1a3b5c7e9d1f0a2b4c6e8d0f2a4b6c8e0d1f
     networks:
       - externa
       - interna

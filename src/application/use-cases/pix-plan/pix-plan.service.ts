@@ -134,10 +134,13 @@ export class PixPlanService {
     if (!domToken) throw new UnauthorizedException('DOM_TOKEN não configurado');
 
     let effectiveUserId = userId;
+    let planTenantTag: string | null = null;
     if (body.pixCreditPlanId) {
       const planRow = await this.repo.findPixCreditPlanById(body.pixCreditPlanId);
       if (planRow) {
         effectiveUserId = await this.resolveTransactionUserIdForPixPlan(planRow);
+        const tagMatch = (planRow.description ?? '').match(/\|([A-Z0-9]+)\]/i);
+        if (tagMatch) planTenantTag = tagMatch[1].toUpperCase();
       }
     }
 
@@ -173,7 +176,7 @@ export class PixPlanService {
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFee),
         platformFee: new Prisma.Decimal(platformFee),
-        description: body.description ?? `PIX_PLAN:${body.planType}`,
+        description: `${body.description ?? `PIX_PLAN:${body.planType}`}${planTenantTag ? ` [TENANT:${planTenantTag}]` : ''}`,
         customerName: body.name,
         customerEmail: body.email,
         customerDocument: body.document.replace(/[.-]/g, ''),
@@ -909,9 +912,14 @@ export class PixPlanService {
         linkCodeForNotification = foundLinkCode?.code || null;
       }
       if (linkCodeForNotification) {
-        await fetch('https://api-bot.jbmidia.com/webhook/pix-credit', {
+        const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
+        const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+        await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+          },
           body: JSON.stringify({
             code: linkCodeForNotification,
             email: pixOrder.customerEmail,
