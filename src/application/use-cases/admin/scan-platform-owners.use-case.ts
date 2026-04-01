@@ -1,6 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { CpfLookupService } from '../../../infrastructure/http/cpf-lookup.service';
+import {
+  PAYMENT_GATEWAY,
+  type IPaymentGateway,
+} from '../../../core/services/payment-gateway.interface';
 
 /**
  * Mapeia cada tag de tenant para o slug da plataforma correspondente.
@@ -21,6 +25,21 @@ const TENANT_TO_PLATFORM: Record<string, string> = {
 const TENANT_REGEX = /\[TENANT:([A-Z0-9_]+)\]/i;
 const CPF_DONO_REGEX = /\[CPF_DONO:(\d{11})\]/i;
 
+function formatDateYmd(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function domCountsTowardOwnerBalance(status: string): boolean {
+  const s = (status || '').toLowerCase();
+  return (
+    s === 'paid' ||
+    s === 'completed' ||
+    s === 'approved' ||
+    s === 'aprovado' ||
+    s === 'aprovada'
+  );
+}
+
 @Injectable()
 export class ScanPlatformOwnersUseCase {
   private readonly logger = new Logger(ScanPlatformOwnersUseCase.name);
@@ -28,23 +47,29 @@ export class ScanPlatformOwnersUseCase {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cpfLookup: CpfLookupService,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
   ) {}
 
   async execute(): Promise<{
     scanned: number;
+    scannedDom: number;
     created: number;
     linked: number;
     walletsUpdated: number;
   }> {
-    let scanned = 0;
     let created = 0;
     let linked = 0;
     let walletsUpdated = 0;
 
-    // Busca todas as transações que possuem [CPF_DONO:] na descrição
+    const ownerMap = new Map<
+      string,
+      { cpf: string; platform: string; totalNet: number }
+    >();
+
+    // ── 1) Transações locais (webhook / interno) com tags na description
     const transactions = await this.prisma.transaction.findMany({
       where: {
-        description: { contains: '[CPF_DONO:' },
+        description: { contains: 'CPF_DONO', mode: 'insensitive' },
       },
       select: {
         id: true,
@@ -55,13 +80,7 @@ export class ScanPlatformOwnersUseCase {
       },
     });
 
-    scanned = transactions.length;
-
-    // Agrupa por (cpf + plataforma) → soma netAmount de transações COMPLETED
-    const ownerMap = new Map<
-      string,
-      { cpf: string; platform: string; totalNet: number }
-    >();
+    const scanned = transactions.length;
 
     for (const tx of transactions) {
       const desc = tx.description ?? '';
@@ -86,23 +105,39 @@ export class ScanPlatformOwnersUseCase {
       ownerMap.set(key, current);
     }
 
+    // Chaves DOM já refletidas no banco com CPF_DONO (evita somar 2x com a API)
+    const syncedDomKeySet = new Set<string>();
+    const domTaggedRows = await this.prisma.transaction.findMany({
+      where: {
+        description: { contains: 'CPF_DONO', mode: 'insensitive' },
+      },
+      select: { domPaymentId: true, domTransactionId: true },
+    });
+    for (const row of domTaggedRows) {
+      if (row.domPaymentId) syncedDomKeySet.add(row.domPaymentId);
+      if (row.domTransactionId) syncedDomKeySet.add(row.domTransactionId);
+    }
+
+    // ── 2) API DOM (product_first / descricao) — mesmas tags, até 24 meses em janelas de 3 meses
+    const scannedDom = await this.mergeDomTransactionsIntoOwnerMap(
+      ownerMap,
+      syncedDomKeySet,
+    );
+
     // Processa cada owner encontrado
     for (const { cpf, platform, totalNet } of ownerMap.values()) {
       try {
-        // Verifica se já existe ExternalPlatformUser para esse cpf+plataforma
         const existing = await this.prisma.externalPlatformUser.findUnique({
           where: { cpf_platform: { cpf, platform } },
           include: { wallet: true },
         });
 
-        // Tenta encontrar usuário Simpay com esse CPF
         const simpayUser = await this.prisma.user.findUnique({
           where: { cpf },
           select: { id: true, name: true },
         });
 
         if (existing) {
-          // Atualiza vinculação se encontrou usuário Simpay e ainda não estava vinculado
           if (simpayUser && !existing.userId) {
             await this.prisma.externalPlatformUser.update({
               where: { id: existing.id },
@@ -111,7 +146,6 @@ export class ScanPlatformOwnersUseCase {
             linked++;
           }
 
-          // Atualiza saldo da wallet
           if (existing.wallet) {
             await this.prisma.externalPlatformWallet.update({
               where: { externalUserId: existing.id },
@@ -125,13 +159,12 @@ export class ScanPlatformOwnersUseCase {
             walletsUpdated++;
           }
         } else {
-          // Novo owner: busca nome via CPF
           let name = simpayUser?.name ?? null;
           if (!name) {
             name = await this.cpfLookup.lookupName(cpf);
           }
           if (!name) {
-            name = `CPF ${cpf}`; // fallback
+            name = `CPF ${cpf}`;
           }
 
           const newExtUser = await this.prisma.externalPlatformUser.create({
@@ -159,9 +192,106 @@ export class ScanPlatformOwnersUseCase {
     }
 
     this.logger.log(
-      `ScanPlatformOwners: scanned=${scanned} created=${created} linked=${linked} walletsUpdated=${walletsUpdated}`,
+      `ScanPlatformOwners: scannedDb=${scanned} scannedDomRows=${scannedDom} owners=${ownerMap.size} created=${created} linked=${linked} walletsUpdated=${walletsUpdated}`,
     );
 
-    return { scanned, created, linked, walletsUpdated };
+    return { scanned, scannedDom, created, linked, walletsUpdated };
+  }
+
+  /**
+   * Acrescenta ao mapa totais vindos da DOM; ignora transações já representadas no Prisma com CPF_DONO.
+   */
+  private async mergeDomTransactionsIntoOwnerMap(
+    ownerMap: Map<string, { cpf: string; platform: string; totalNet: number }>,
+    syncedDomKeySet: Set<string>,
+  ): Promise<number> {
+    const token =
+      process.env.DOM_TOKEN?.trim() || process.env.API_DOM_MASTER_KEY?.trim();
+    if (!token) {
+      this.logger.warn(
+        'ScanPlatformOwners: DOM_TOKEN/API_DOM_MASTER_KEY ausente — pulando varredura na API DOM',
+      );
+      return 0;
+    }
+
+    let domMatched = 0;
+    const limit = 150;
+    const maxPagesPerWindow = 100;
+    const minDate = new Date();
+    minDate.setMonth(minDate.getMonth() - 24);
+
+    let windowEnd = new Date();
+
+    for (let w = 0; w < 12; w++) {
+      const windowStart = new Date(windowEnd);
+      windowStart.setMonth(windowStart.getMonth() - 3);
+      if (windowStart < minDate) {
+        windowStart.setTime(minDate.getTime());
+      }
+
+      const begin_date = formatDateYmd(windowStart);
+      const end_date = formatDateYmd(windowEnd);
+
+      if (begin_date > end_date) break;
+
+      for (let page = 1; page <= maxPagesPerWindow; page++) {
+        let batch: NonNullable<
+          Awaited<
+            ReturnType<IPaymentGateway['listDomTransactions']>
+          >['transactions']
+        > = [];
+        try {
+          const res = await this.gateway.listDomTransactions(token, {
+            page,
+            limit,
+            begin_date,
+            end_date,
+          });
+          batch = res.transactions ?? [];
+        } catch (err: any) {
+          this.logger.warn(
+            `ScanPlatformOwners DOM janela ${begin_date}..${end_date} página ${page}: ${err?.message ?? err}`,
+          );
+          break;
+        }
+
+        for (const tx of batch) {
+          const text = tx.product_first ?? '';
+          const cpfMatch = CPF_DONO_REGEX.exec(text);
+          const tenantMatch = TENANT_REGEX.exec(text);
+
+          if (!cpfMatch || !tenantMatch) continue;
+
+          const cpf = cpfMatch[1];
+          const tenantTag = tenantMatch[1].toUpperCase();
+          const platform = TENANT_TO_PLATFORM[tenantTag];
+          if (!platform) continue;
+
+          const keys = [tx.id, tx.order_id, tx.cod_external].filter(
+            (k): k is string => typeof k === 'string' && k.length > 0,
+          );
+          if (keys.some((k) => syncedDomKeySet.has(k))) continue;
+
+          if (!domCountsTowardOwnerBalance(tx.status)) continue;
+
+          const net = Number(tx.liquid_amount ?? tx.amount ?? 0);
+          if (!Number.isFinite(net) || net <= 0) continue;
+
+          const key = `${cpf}::${platform}`;
+          const current = ownerMap.get(key) ?? { cpf, platform, totalNet: 0 };
+          current.totalNet += net;
+          ownerMap.set(key, current);
+          domMatched++;
+        }
+
+        if (batch.length < limit) break;
+      }
+
+      windowEnd = new Date(windowStart);
+      windowEnd.setDate(windowEnd.getDate() - 1);
+      if (windowStart.getTime() <= minDate.getTime()) break;
+    }
+
+    return domMatched;
   }
 }

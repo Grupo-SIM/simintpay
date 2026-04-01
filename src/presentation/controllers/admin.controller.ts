@@ -192,13 +192,21 @@ async function expandUserIdsByCpf(
   return [...ids];
 }
 
-/** Contas plataforma usadas no consolidado e no cálculo do Lucro Simpay */
-const CONSOLIDADO_PLATFORMS = [
+/**
+ * Conta técnica onde ficam as transações do checkout Ebook (`[TENANT:EBOOK]` no webhook/sync).
+ * Mesmo default de `EBOOK_ID` nos endpoints de limpeza/sync do ebook.
+ */
+const EBOOK_CONSOLIDADO_USER_ID =
+  process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
+
+/** Contas plataforma usadas no consolidado e no cálculo do Lucro Simpay (inclui Ebook). */
+const CONSOLIDADO_PLATFORMS: ReadonlyArray<{ tag: string; id: string }> = [
   { tag: 'RENOVADA', id: 'ba2b57d6-e3bf-4395-af31-58454f27207a' },
   { tag: 'PAGATG', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5d' },
   { tag: 'BOSQUE', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c' },
   { tag: 'REVALIDA', id: '7929df01-a980-45e3-b3c7-1a8b8eb7850f' },
-] as const;
+  { tag: 'EBOOK', id: EBOOK_CONSOLIDADO_USER_ID },
+];
 
 type ConsolidadoListQuery = {
   dataInicio?: string;
@@ -759,6 +767,150 @@ function buildLucroTotalMasterHistoricoPorHora(
       valor: Number(v.toFixed(2)),
     };
   });
+}
+
+/** Série enriquecida para o dashboard admin (gráfico de resumo financeiro). */
+type DashboardFinanceHistoricoRow = {
+  label: string;
+  valorBruto: number;
+  valorLiquido: number;
+  lucroSimpay: number;
+  cashback: number;
+  taxaSaque: number;
+  lucroSaque: number;
+};
+
+function accumTxFinancePorDia(
+  txRowsLucro: {
+    userId: string;
+    amount: unknown;
+    netAmount: unknown | null;
+    createdAt: Date;
+  }[],
+): {
+  bruto: Map<string, number>;
+  liquido: Map<string, number>;
+  lucro: Map<string, number>;
+  cashback: Map<string, number>;
+} {
+  const bruto = new Map<string, number>();
+  const liquido = new Map<string, number>();
+  const lucro = new Map<string, number>();
+  const cashback = new Map<string, number>();
+  for (const tx of txRowsLucro) {
+    const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
+    const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+    const tag = platform?.tag || 'RENOVADA';
+    const b = Number(tx.amount);
+    if (Number.isFinite(b)) {
+      bruto.set(ymd, (bruto.get(ymd) ?? 0) + b);
+    }
+    const liq = valorLiquidoTransacaoConsolidado(tx, tag);
+    liquido.set(ymd, (liquido.get(ymd) ?? 0) + liq);
+    const l = lucroSimpayUmaTransacaoConsolidado(tx);
+    lucro.set(ymd, (lucro.get(ymd) ?? 0) + l);
+    const tc = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
+    cashback.set(ymd, (cashback.get(ymd) ?? 0) + tc);
+  }
+  return { bruto, liquido, lucro, cashback };
+}
+
+function accumWithdrawPorDia(
+  withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
+): { fee: Map<string, number>; profit: Map<string, number> } {
+  const fee = new Map<string, number>();
+  const profit = new Map<string, number>();
+  for (const log of withdrawLogs) {
+    const ymd = dayjs(log.createdAt).tz(TZ).format('YYYY-MM-DD');
+    const amt = Number(log.amount);
+    if (!Number.isFinite(amt)) continue;
+    if (log.action === 'ADMIN_WITHDRAW_FEE_INC') {
+      fee.set(ymd, (fee.get(ymd) ?? 0) + amt);
+    } else if (log.action === 'ADMIN_WITHDRAW_PROFIT_INC') {
+      profit.set(ymd, (profit.get(ymd) ?? 0) + amt);
+    }
+  }
+  return { fee, profit };
+}
+
+function buildDashboardFinanceHistoricoDiario(
+  txRowsLucro: {
+    userId: string;
+    amount: unknown;
+    netAmount: unknown | null;
+    createdAt: Date;
+  }[],
+  withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
+  dataInicio: string,
+  dataFim: string,
+): DashboardFinanceHistoricoRow[] {
+  const { bruto, liquido, lucro, cashback } = accumTxFinancePorDia(txRowsLucro);
+  const { fee, profit } = accumWithdrawPorDia(withdrawLogs);
+  const dias = listYmdInclusiveSp(dataInicio, dataFim);
+  return dias.map((ymd) => ({
+    label: dayjs.tz(ymd, TZ).format('DD/MM'),
+    valorBruto: Number((bruto.get(ymd) ?? 0).toFixed(2)),
+    valorLiquido: Number((liquido.get(ymd) ?? 0).toFixed(2)),
+    lucroSimpay: Number((lucro.get(ymd) ?? 0).toFixed(2)),
+    cashback: Number((cashback.get(ymd) ?? 0).toFixed(2)),
+    taxaSaque: Number((fee.get(ymd) ?? 0).toFixed(2)),
+    lucroSaque: Number((profit.get(ymd) ?? 0).toFixed(2)),
+  }));
+}
+
+function buildDashboardFinanceHistoricoPorHora(
+  txRowsLucro: {
+    userId: string;
+    amount: unknown;
+    netAmount: unknown | null;
+    createdAt: Date;
+  }[],
+  withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
+  dataInicio: string,
+): DashboardFinanceHistoricoRow[] {
+  const ymdTarget = parseYmdSp(dataInicio).startOf('day').format('YYYY-MM-DD');
+  const bruto = new Map<number, number>();
+  const liquido = new Map<number, number>();
+  const lucro = new Map<number, number>();
+  const cashback = new Map<number, number>();
+  for (const tx of txRowsLucro) {
+    const d = dayjs(tx.createdAt).tz(TZ);
+    if (d.format('YYYY-MM-DD') !== ymdTarget) continue;
+    const h = d.hour();
+    const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+    const tag = platform?.tag || 'RENOVADA';
+    const b = Number(tx.amount);
+    if (Number.isFinite(b)) {
+      bruto.set(h, (bruto.get(h) ?? 0) + b);
+    }
+    liquido.set(h, (liquido.get(h) ?? 0) + valorLiquidoTransacaoConsolidado(tx, tag));
+    lucro.set(h, (lucro.get(h) ?? 0) + lucroSimpayUmaTransacaoConsolidado(tx));
+    const tc = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
+    cashback.set(h, (cashback.get(h) ?? 0) + tc);
+  }
+  const fee = new Map<number, number>();
+  const profit = new Map<number, number>();
+  for (const log of withdrawLogs) {
+    const d = dayjs(log.createdAt).tz(TZ);
+    if (d.format('YYYY-MM-DD') !== ymdTarget) continue;
+    const h = d.hour();
+    const amt = Number(log.amount);
+    if (!Number.isFinite(amt)) continue;
+    if (log.action === 'ADMIN_WITHDRAW_FEE_INC') {
+      fee.set(h, (fee.get(h) ?? 0) + amt);
+    } else if (log.action === 'ADMIN_WITHDRAW_PROFIT_INC') {
+      profit.set(h, (profit.get(h) ?? 0) + amt);
+    }
+  }
+  return Array.from({ length: 24 }, (_, h) => ({
+    label: `${String(h).padStart(2, '0')}h`,
+    valorBruto: Number((bruto.get(h) ?? 0).toFixed(2)),
+    valorLiquido: Number((liquido.get(h) ?? 0).toFixed(2)),
+    lucroSimpay: Number((lucro.get(h) ?? 0).toFixed(2)),
+    cashback: Number((cashback.get(h) ?? 0).toFixed(2)),
+    taxaSaque: Number((fee.get(h) ?? 0).toFixed(2)),
+    lucroSaque: Number((profit.get(h) ?? 0).toFixed(2)),
+  }));
 }
 
 function mapConsolidadoTxStatusToPt(
@@ -1365,6 +1517,9 @@ export class AdminController {
     let lucroTotalMasterHistorico: Array<{ label: string; valor: number }> = [];
     let lucroTotalMasterHistoricoCriterio =
       'Com dataInicio/dataFim: um ponto por dia no fuso America/Sao_Paulo. valor = soma do lucro Simpay das transações COMPLETED elegíveis daquele dia + soma ADMIN_WITHDRAW_PROFIT_INC − soma ADMIN_WITHDRAW_FEE_INC nos logs daquele dia (mesma base do lucroTotalMaster agregado).';
+    let dashboardFinanceHistorico: DashboardFinanceHistoricoRow[] | undefined;
+    const dashboardFinanceHistoricoCriterio =
+      'Mesmo recorte de data do consolidado (America/Sao_Paulo). Por dia ou por hora (24h) se um único dia: valorBruto e valorLiquido somam transações elegíveis ao lucro; lucroSimpay = fórmula por transação; cashback = soma da taxa cashback fixa por transação; taxaSaque e lucroSaque vêm dos BalanceLog ADMIN_WITHDRAW_FEE_INC e ADMIN_WITHDRAW_PROFIT_INC naquele dia/hora.';
     if (
       temFiltroData &&
       String(dataInicio ?? '').trim() &&
@@ -1390,8 +1545,19 @@ export class AdminController {
         );
         lucroTotalMasterHistoricoCriterio =
           'Quando dataInicio e dataFim são o mesmo dia (America/Sao_Paulo): 24 pontos (horas 00h–23h). Mesma fórmula do consolidado diário, agregada por hora do createdAt da transação ou do BalanceLog.';
+        dashboardFinanceHistorico = buildDashboardFinanceHistoricoPorHora(
+          txRowsLucro,
+          withdrawLogsHistorico,
+          di,
+        );
       } else {
         lucroTotalMasterHistorico = buildLucroTotalMasterHistoricoDiario(
+          txRowsLucro,
+          withdrawLogsHistorico,
+          di,
+          df,
+        );
+        dashboardFinanceHistorico = buildDashboardFinanceHistoricoDiario(
           txRowsLucro,
           withdrawLogsHistorico,
           di,
@@ -1420,6 +1586,12 @@ export class AdminController {
         quantidade: estornos.quantidade,
         valor: estornos.valor,
       },
+      ...(dashboardFinanceHistorico && dashboardFinanceHistorico.length > 0
+        ? {
+            dashboardFinanceHistorico,
+            dashboardFinanceHistoricoCriterio,
+          }
+        : {}),
     };
 
     if (querDetalhe) {

@@ -29,7 +29,8 @@
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
       "Bash(xargs grep:*)",
       "Bash(find node_modules/.prisma -name \"*.d.ts\" -exec grep -l \"ExternalPlatform\" {})",
-      "Bash(2)"
+      "Bash(2)",
+      "Bash(node -e \":*)"
     ]
   }
 }
