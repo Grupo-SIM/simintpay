@@ -136,4 +136,22 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
     ]);
     return { total, items };
   }
+
+  async findOrdersByUserId(input: {
+    userId: string;
+    page: number;
+    pageSize: number;
+  }): Promise<{ total: number; items: (SubscriptionLinkOrder & { subscriptionLink: { name: string; amount: unknown; platformFee: unknown } })[] }> {
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.subscriptionLinkOrder.count({ where: { userId: input.userId } }),
+      this.prisma.subscriptionLinkOrder.findMany({
+        where: { userId: input.userId },
+        orderBy: { createdAt: 'desc' },
+        skip: (input.page - 1) * input.pageSize,
+        take: input.pageSize,
+        include: { subscriptionLink: { select: { name: true, amount: true, platformFee: true } } },
+      }),
+    ]);
+    return { total, items } as any;
+  }
 }

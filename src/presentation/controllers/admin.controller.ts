@@ -3754,4 +3754,50 @@ export class AdminController {
       message: 'Saldo zerado com sucesso (0,00). Histórico de transações mantido.',
     };
   }
+
+  // ── Areaflix ─────────────────────────────────────────────────────────────
+
+  @Get('areaflix/orders')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Listar todas as ordens de subscription links (Areaflix)' })
+  async listAreaflixOrders(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('userId') userId?: string,
+  ) {
+    const p = page ? Number(page) : 1;
+    const ps = pageSize ? Number(pageSize) : 50;
+    const skip = (p - 1) * ps;
+
+    const where = userId ? { userId } : {};
+
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.subscriptionLinkOrder.count({ where }),
+      this.prisma.subscriptionLinkOrder.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: ps,
+        include: {
+          subscriptionLink: { select: { name: true, amount: true, platformFee: true, frequencyType: true } },
+        },
+      }),
+    ]);
+
+    const totalRevenue = await this.prisma.subscriptionLinkOrder.aggregate({
+      where: { ...where, status: { in: ['active', 'pending', 'approved'] } },
+      _sum: { amountCharged: true, platformFeeAmount: true },
+    });
+
+    return {
+      total,
+      page: p,
+      pageSize: ps,
+      totalRevenue: Number(totalRevenue._sum.amountCharged ?? 0),
+      totalFee: Number(totalRevenue._sum.platformFeeAmount ?? 0),
+      items,
+    };
+  }
 }
