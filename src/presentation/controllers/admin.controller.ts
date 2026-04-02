@@ -223,11 +223,67 @@ async function resolveAtlasConsolidadoUserId(prisma: PrismaService): Promise<str
   return u?.id ?? '';
 }
 
+/** Alinha listagem /plataformas ao consolidado (env → e-mail técnico → UUID padrão). */
+async function resolveRevalidaConsolidadoUserId(prisma: PrismaService): Promise<string> {
+  const envId = process.env.REVALIDA_USER_ID?.trim();
+  if (envId) return envId;
+  const u = await prisma.user.findFirst({
+    where: { email: 'revalida@jbmidia.com.br' },
+    select: { id: true },
+  });
+  return u?.id ?? REVALIDA_CONSOLIDADO_USER_ID;
+}
+
+const BOSQUE_CONSOLIDADO_DEFAULT_ID = 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+
+/** Env BOSQUE_ID → usuário BOSQUE_EMAIL (padrão contato@bosque.com.br) → UUID fixo do seed/sync. */
+async function resolveBosqueConsolidadoUserId(prisma: PrismaService): Promise<string> {
+  const envId = process.env.BOSQUE_ID?.trim();
+  if (envId) return envId;
+  const email = (process.env.BOSQUE_EMAIL || 'contato@bosque.com.br').trim();
+  const u = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true },
+  });
+  return u?.id ?? BOSQUE_CONSOLIDADO_DEFAULT_ID;
+}
+
 function mergeConsolidadoPlatforms(atlasUserId: string): ConsolidadoPlatformEntry[] {
   const id = atlasUserId?.trim();
   return id
     ? [...CONSOLIDADO_PLATFORMS_CORE, { tag: 'ATLAS', id }]
     : [...CONSOLIDADO_PLATFORMS_CORE];
+}
+
+/** Escopo do consolidado: contas plataforma OU transações Bosque pela descrição/tag. */
+function buildConsolidadoScopeOr(platformIds: string[]): Prisma.TransactionWhereInput {
+  return {
+    OR: [
+      { userId: { in: platformIds } },
+      {
+        OR: [
+          { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+          { description: { contains: 'bosque', mode: 'insensitive' } },
+        ],
+      },
+    ],
+  };
+}
+
+/** Prioridade Bosque pela descrição (alinha com /plataformas/bosque). */
+function transacaoAtribuiBosquePorDescricao(description: string | null | undefined): boolean {
+  if (!description) return false;
+  if (/\[\s*TENANT\s*:\s*BOSQUE\s*\]/i.test(description)) return true;
+  return description.toLowerCase().includes('bosque');
+}
+
+function consolidadoTagParaTransacao(
+  tx: { userId: string; description: string | null },
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
+): string {
+  if (transacaoAtribuiBosquePorDescricao(tx.description)) return 'BOSQUE';
+  const platform = platforms.find((p) => p.id === tx.userId);
+  return platform?.tag ?? 'RENOVADA';
 }
 
 type ConsolidadoListQuery = {
@@ -246,16 +302,15 @@ function buildConsolidadoTransactionWhere(
 ): Prisma.TransactionWhereInput {
   const platformIds = platforms.map((p) => p.id);
 
-  const where: Prisma.TransactionWhereInput = {
-    userId: { in: platformIds },
-    status: 'COMPLETED',
-  };
+  const and: Prisma.TransactionWhereInput[] = [buildConsolidadoScopeOr(platformIds)];
 
+  let statusFilter: Prisma.TransactionWhereInput['status'] = 'COMPLETED';
   if (input.transactionType === 'out') {
-    where.status = { in: ['REFUNDED', 'CHARGEBACK'] };
+    statusFilter = { in: ['REFUNDED', 'CHARGEBACK'] };
   } else if (input.transactionType === 'all') {
-    where.status = { in: ['COMPLETED', 'REFUNDED', 'CHARGEBACK'] };
+    statusFilter = { in: ['COMPLETED', 'REFUNDED', 'CHARGEBACK'] };
   }
+  and.push({ status: statusFilter });
 
   if (input.dataInicio || input.dataFim) {
     const createdAt: Prisma.DateTimeFilter = {};
@@ -268,27 +323,29 @@ function buildConsolidadoTransactionWhere(
       if (d.isValid()) createdAt.lte = d.toDate();
     }
     if (Object.keys(createdAt).length > 0) {
-      where.createdAt = createdAt;
+      and.push({ createdAt });
     }
   }
 
   if (input.customerName?.trim()) {
-    where.customerName = { contains: input.customerName.trim(), mode: 'insensitive' };
+    and.push({ customerName: { contains: input.customerName.trim(), mode: 'insensitive' } });
   }
 
   if (input.transactionId?.trim()) {
-    where.OR = [{ id: input.transactionId.trim() }, { domTransactionId: input.transactionId.trim() }];
+    and.push({
+      OR: [{ id: input.transactionId.trim() }, { domTransactionId: input.transactionId.trim() }],
+    });
   }
 
   if (input.paymentLink?.trim()) {
-    where.paymentLinkId = input.paymentLink.trim();
+    and.push({ paymentLinkId: input.paymentLink.trim() });
   }
 
   if (input.planName?.trim()) {
-    where.description = { contains: input.planName.trim(), mode: 'insensitive' };
+    and.push({ description: { contains: input.planName.trim(), mode: 'insensitive' } });
   }
 
-  return where;
+  return { AND: and };
 }
 
 /**
@@ -334,8 +391,8 @@ function buildConsolidadoResumoWhere(
 ): Prisma.TransactionWhereInput {
   const platformIds = platforms.map((p) => p.id);
   const where: Prisma.TransactionWhereInput = {
-    userId: { in: platformIds },
     status: 'COMPLETED',
+    ...buildConsolidadoScopeOr(platformIds),
   };
   if (dataInicio || dataFim) {
     const createdAt: Prisma.DateTimeFilter = {};
@@ -565,8 +622,12 @@ function buildLucroSimpayDetalhePorPlataforma(
   let totalLucroSimpay = 0;
 
   for (const tx of txs) {
-    const platform = platforms.find((p) => p.id === tx.userId);
-    const tag = platform?.tag || 'RENOVADA';
+    const tag = consolidadoTagParaTransacao(
+      { userId: tx.userId, description: tx.description ?? null },
+      platforms,
+    );
+    const platformEntry = platforms.find((p) => p.tag === tag);
+    const canonicalUserId = platformEntry?.id ?? tx.userId;
     const liquidezKey = `${tag}_LIQUIDEZ`;
     const fixaKey = `${tag}_TAXA_FIXA_TRANSACAO`;
     const cbKey = `${tag}_TAXA_CASHBACK`;
@@ -582,7 +643,7 @@ function buildLucroSimpayDetalhePorPlataforma(
 
     if (!byTag.has(tag)) {
       byTag.set(tag, {
-        userId: tx.userId,
+        userId: canonicalUserId,
         liquidezLojista,
         taxaFixa,
         taxaCashback,
@@ -683,11 +744,14 @@ function lucroSimpayUmaTransacaoConsolidado(
   tx: {
     userId: string;
     amount: unknown;
+    description?: string | null;
   },
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): number {
-  const platform = platforms.find((p) => p.id === tx.userId);
-  const tag = platform?.tag || 'RENOVADA';
+  const tag = consolidadoTagParaTransacao(
+    { userId: tx.userId, description: tx.description ?? null },
+    platforms,
+  );
   const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
   const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
   const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
@@ -715,7 +779,7 @@ function listYmdInclusiveSp(dataInicio: string, dataFim: string): string[] {
  * logs ADMIN_WITHDRAW_PROFIT_INC − ADMIN_WITHDRAW_FEE_INC (por dia do log), fuso America/Sao_Paulo.
  */
 function buildLucroTotalMasterHistoricoDiario(
-  txRowsLucro: { userId: string; amount: unknown; createdAt: Date }[],
+  txRowsLucro: { userId: string; amount: unknown; createdAt: Date; description?: string | null }[],
   withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
   dataInicio: string,
   dataFim: string,
@@ -761,7 +825,7 @@ function isSingleCalendarDaySp(dataInicio: string, dataFim: string): boolean {
  * Mesma fórmula do consolidado diário, mas com um ponto por hora (0–23) em America/Sao_Paulo.
  */
 function buildLucroTotalMasterHistoricoPorHora(
-  txRowsLucro: { userId: string; amount: unknown; createdAt: Date }[],
+  txRowsLucro: { userId: string; amount: unknown; createdAt: Date; description?: string | null }[],
   withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
   dataInicio: string,
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
@@ -818,6 +882,7 @@ function accumTxFinancePorDia(
     amount: unknown;
     netAmount: unknown | null;
     createdAt: Date;
+    description?: string | null;
   }[],
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): {
@@ -832,8 +897,10 @@ function accumTxFinancePorDia(
   const cashback = new Map<string, number>();
   for (const tx of txRowsLucro) {
     const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
-    const platform = platforms.find((p) => p.id === tx.userId);
-    const tag = platform?.tag || 'RENOVADA';
+    const tag = consolidadoTagParaTransacao(
+      { userId: tx.userId, description: tx.description ?? null },
+      platforms,
+    );
     const b = Number(tx.amount);
     if (Number.isFinite(b)) {
       bruto.set(ymd, (bruto.get(ymd) ?? 0) + b);
@@ -872,6 +939,7 @@ function buildDashboardFinanceHistoricoDiario(
     amount: unknown;
     netAmount: unknown | null;
     createdAt: Date;
+    description?: string | null;
   }[],
   withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
   dataInicio: string,
@@ -898,6 +966,7 @@ function buildDashboardFinanceHistoricoPorHora(
     amount: unknown;
     netAmount: unknown | null;
     createdAt: Date;
+    description?: string | null;
   }[],
   withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
   dataInicio: string,
@@ -912,8 +981,10 @@ function buildDashboardFinanceHistoricoPorHora(
     const d = dayjs(tx.createdAt).tz(TZ);
     if (d.format('YYYY-MM-DD') !== ymdTarget) continue;
     const h = d.hour();
-    const platform = platforms.find((p) => p.id === tx.userId);
-    const tag = platform?.tag || 'RENOVADA';
+    const tag = consolidadoTagParaTransacao(
+      { userId: tx.userId, description: tx.description ?? null },
+      platforms,
+    );
     const b = Number(tx.amount);
     if (Number.isFinite(b)) {
       bruto.set(h, (bruto.get(h) ?? 0) + b);
@@ -1360,9 +1431,6 @@ export class AdminController {
     );
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
-    const tagByUserId = new Map<string, string>(
-      platforms.map((p) => [p.id, p.tag]),
-    );
 
     const [total, items] = await Promise.all([
       this.prisma.transaction.count({ where }),
@@ -1379,7 +1447,10 @@ export class AdminController {
         id: t.id,
         domTransactionId: t.domTransactionId,
         userId: t.userId,
-        plataformaTag: tagByUserId.get(t.userId) ?? '—',
+        plataformaTag: consolidadoTagParaTransacao(
+          { userId: t.userId, description: t.description ?? null },
+          platforms,
+        ),
         valor: Number(t.amount),
         valorLiquido: t.netAmount != null ? Number(t.netAmount) : null,
         status: mapConsolidadoTxStatusToPt(t.status),
@@ -1509,9 +1580,9 @@ export class AdminController {
       withdrawIds.length === 0
         ? null
         : await this.prisma.withdrawRequest.aggregate({
-            where: { id: { in: withdrawIds } },
-            _sum: { amount: true },
-          });
+          where: { id: { in: withdrawIds } },
+          _sum: { amount: true },
+        });
 
     const temFiltroData = Boolean(dataInicio?.trim() || dataFim?.trim());
 
@@ -1522,8 +1593,10 @@ export class AdminController {
       valorLiquidoPlataformas = Number(
         txRowsLucro
           .reduce((s, tx) => {
-            const platform = platforms.find((p) => p.id === tx.userId);
-            const tag = platform?.tag || 'RENOVADA';
+            const tag = consolidadoTagParaTransacao(
+              { userId: tx.userId, description: tx.description ?? null },
+              platforms,
+            );
             return s + valorLiquidoTransacaoConsolidado(tx, tag);
           }, 0)
           .toFixed(2),
@@ -1634,18 +1707,18 @@ export class AdminController {
       },
       ...(dashboardFinanceHistorico && dashboardFinanceHistorico.length > 0
         ? {
-            dashboardFinanceHistorico,
-            dashboardFinanceHistoricoCriterio,
-          }
+          dashboardFinanceHistorico,
+          dashboardFinanceHistoricoCriterio,
+        }
         : {}),
     };
 
     if (querDetalhe) {
       const plats = soloResumo
         ? plataformasLucroDetalhe.map((row) => {
-            const { transacoes: _lista, ...semLista } = row;
-            return semLista;
-          })
+          const { transacoes: _lista, ...semLista } = row;
+          return semLista;
+        })
         : plataformasLucroDetalhe;
 
       const excluidas = txRowsTodas.filter(
@@ -1790,8 +1863,10 @@ export class AdminController {
       valorLiquidoPlataformas = Number(
         txRowsLucro
           .reduce((s, tx) => {
-            const platform = platforms.find((p) => p.id === tx.userId);
-            const tag = platform?.tag || 'RENOVADA';
+            const tag = consolidadoTagParaTransacao(
+              { userId: tx.userId, description: tx.description ?? null },
+              platforms,
+            );
             return s + valorLiquidoTransacaoConsolidado(tx, tag);
           }, 0)
           .toFixed(2),
@@ -3255,6 +3330,51 @@ export class AdminController {
       });
     }
 
+    // Garante que REVALIDA apareça (conta técnica / consolidado, como Atlas)
+    const revalidaConsolidadoId = await resolveRevalidaConsolidadoUserId(this.prisma);
+    if (!map.has('REVALIDA')) {
+      const firstRevalidaTx = await this.prisma.transaction.findFirst({
+        where: {
+          OR: [
+            { userId: revalidaConsolidadoId },
+            { description: { contains: '[TENANT:REVALIDA]', mode: 'insensitive' } },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      map.set('REVALIDA', {
+        tag: 'REVALIDA',
+        cpf: '',
+        planRows: [{ userId: revalidaConsolidadoId, description: 'Plataforma Revalida' }],
+        plansCount: 0,
+        firstSeen: firstRevalidaTx?.createdAt ?? new Date(),
+      });
+    }
+
+    // Garante que BOSQUE apareça (conta técnica + [TENANT:BOSQUE] / "bosque" na descrição)
+    const bosqueConsolidadoId = await resolveBosqueConsolidadoUserId(this.prisma);
+    if (!map.has('BOSQUE')) {
+      const firstBosqueTx = await this.prisma.transaction.findFirst({
+        where: {
+          OR: [
+            { userId: bosqueConsolidadoId },
+            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+            { description: { contains: 'bosque', mode: 'insensitive' } },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      map.set('BOSQUE', {
+        tag: 'BOSQUE',
+        cpf: '',
+        planRows: [{ userId: bosqueConsolidadoId, description: 'Plataforma Bosque' }],
+        plansCount: 0,
+        firstSeen: firstBosqueTx?.createdAt ?? new Date(),
+      });
+    }
+
     // Garante que AREAFLIX apareça sempre (ordens de subscription links)
     if (!map.has('AREAFLIX')) {
       const firstAreaflixOrder = await this.prisma.subscriptionLinkOrder.findFirst({
@@ -3275,14 +3395,14 @@ export class AdminController {
       const expandedUserIds = await expandPlatformTransactionUserIds(this.prisma, v.planRows);
       const isTenantTaggedPlatform = v.tag === 'EBOOK' || v.tag === 'PAGATG';
 
-      const whereTx: any =
+      let whereTx: any =
         isTenantTaggedPlatform
           ? {
-              OR: [
-                { description: { contains: `[TENANT:${v.tag}]`, mode: 'insensitive' } },
-                ...(v.tag === 'EBOOK' && expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
-              ],
-            }
+            OR: [
+              { description: { contains: `[TENANT:${v.tag}]`, mode: 'insensitive' } },
+              ...(v.tag === 'EBOOK' && expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
+            ],
+          }
           : { userId: { in: expandedUserIds } };
       if (v.tag === 'RENOVADA') {
         whereTx.OR = [
@@ -3298,6 +3418,14 @@ export class AdminController {
           ...(expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
           { description: { contains: 'ebook', mode: 'insensitive' } },
         ];
+      } else if (v.tag === 'BOSQUE') {
+        whereTx = {
+          OR: [
+            ...(expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
+            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+            { description: { contains: 'bosque', mode: 'insensitive' } },
+          ],
+        };
       }
 
       let totalTx = 0;
@@ -3453,6 +3581,9 @@ export class AdminController {
     } else if (upperTag === 'ATLAS') {
       const aid = await resolveAtlasConsolidadoUserId(this.prisma);
       userIds = aid ? [aid] : [];
+    } else if (upperTag === 'BOSQUE') {
+      const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+      userIds = [bid];
     } else if (upperTag !== 'PAGATG') {
       const plans = await this.prisma.pixCreditPlan.findMany({
         where: {
@@ -3467,7 +3598,9 @@ export class AdminController {
     }
 
     const isTenantTagged = upperTag === 'EBOOK' || upperTag === 'PAGATG';
-    if (!isTenantTagged && userIds.length === 0) return { data: [], page: 1, pageSize: 20, total: 0 };
+    const isBosqueDescScope = upperTag === 'BOSQUE';
+    if (!isTenantTagged && !isBosqueDescScope && userIds.length === 0)
+      return { data: [], page: 1, pageSize: 20, total: 0 };
 
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
@@ -3475,12 +3608,20 @@ export class AdminController {
     const where: any =
       isTenantTagged
         ? {
+          OR: [
+            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
+            ...(upperTag === 'EBOOK' && userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+          ],
+        }
+        : isBosqueDescScope
+          ? {
             OR: [
-              { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
-              ...(upperTag === 'EBOOK' && userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+              { userId: { in: userIds } },
+              { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+              { description: { contains: 'bosque', mode: 'insensitive' } },
             ],
           }
-        : {
+          : {
             userId: { in: userIds },
           };
 
