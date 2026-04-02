@@ -5,6 +5,7 @@ import { BosqueConfig }    from './bosque/bosque.config';
 import { PagaTGConfig }    from './pagatg/pagatg.config';
 import { EbookSimConfig }  from './ebooksim/ebooksim.config';
 import { FrendzConfig }    from './frendz/frendz.config';
+import { AtlasConfig }     from './atlas/atlas.config';
 
 /** Registro de todos os módulos indexados pelo slug */
 const REGISTRY: Record<string, ModuleConfig> = {
@@ -15,6 +16,7 @@ const REGISTRY: Record<string, ModuleConfig> = {
   ebooksim:  EbookSimConfig,
   ebook:     EbookSimConfig,
   frendz:    FrendzConfig,
+  atlas:     AtlasConfig,
 };
 
 /**
