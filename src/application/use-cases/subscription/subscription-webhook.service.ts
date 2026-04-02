@@ -86,6 +86,16 @@ export class SubscriptionWebhookService {
       }
     }
 
+    // Verificar se é uma SubscriptionLinkOrder (link de assinatura)
+    const linkOrder = await this.prisma.subscriptionLinkOrder.findFirst({
+      where: { domSubscriptionId: subscriberId },
+      include: { subscriptionLink: true },
+    });
+    if (linkOrder) {
+      await this.handleSubscriptionLinkRenewal(linkOrder, amount, domFee, domTransactionId, 'SIGNATURE-INVOICE-PAID');
+      return;
+    }
+
     const subscription = await this.prisma.subscription.findFirst({
       where: { domSubscriptionId: subscriberId },
       include: {
@@ -156,8 +166,18 @@ export class SubscriptionWebhookService {
     const feeDetails = data.fee_details as Record<string, unknown> | undefined;
     const domFeeRaw = typeof feeDetails?.amount === 'number' ? feeDetails.amount : 0;
     const domFee = new Prisma.Decimal(domFeeRaw).div(100);
-    const netAmount = amount.sub(domFee);
 
+    // Verificar se é uma SubscriptionLinkOrder (link de assinatura)
+    const linkOrder = await this.prisma.subscriptionLinkOrder.findFirst({
+      where: { domSubscriptionId: subscriberId },
+      include: { subscriptionLink: true },
+    });
+    if (linkOrder) {
+      await this.handleSubscriptionLinkRenewal(linkOrder, amount, domFee, domTransactionId, 'CHARGE-APPROVED');
+      return;
+    }
+
+    const netAmount = amount.sub(domFee);
     const subscription = await this.prisma.subscription.findFirst({
       where: { domSubscriptionId: subscriberId },
       include: {
@@ -181,6 +201,84 @@ export class SubscriptionWebhookService {
     });
   }
 
+  private async handleSubscriptionLinkRenewal(
+    linkOrder: any,
+    amount: Prisma.Decimal,
+    domFee: Prisma.Decimal,
+    domTransactionId: string | null,
+    source: string,
+  ): Promise<void> {
+    const link = linkOrder.subscriptionLink;
+    const platformFeeAmount = link.isStandalone ? 0 : Math.round(amount.toNumber() * (link.platformFee / 100) * 100) / 100;
+    const netAmount = amount.sub(domFee).sub(platformFeeAmount);
+
+    // Criar nova ordem para registro da renovação
+    const newOrder = await this.prisma.subscriptionLinkOrder.create({
+      data: {
+        subscriptionLinkId: link.id,
+        userId: linkOrder.userId,
+        customerName: linkOrder.customerName,
+        customerEmail: linkOrder.customerEmail,
+        customerDocument: linkOrder.customerDocument,
+        customerPhone: linkOrder.customerPhone,
+        paymentMethod: 'CREDIT_CARD',
+        status: 'paid',
+        amountCharged: amount.toNumber(),
+        platformFeeAmount,
+      },
+    });
+
+    // Creditar wallet do dono do link
+    const owner = await this.prisma.user.findUnique({
+      where: { id: linkOrder.userId },
+      include: { wallet: true },
+    });
+    if (owner?.wallet) {
+      const walletBefore = await this.prisma.wallet.findUnique({ where: { userId: owner.id } });
+      const walletAfter = await this.prisma.wallet.update({
+        where: { userId: owner.id },
+        data: { version: { increment: 1 }, balance: { increment: netAmount.toNumber() } },
+      });
+      await this.balanceLogs.create({
+        userId: owner.id,
+        action: 'SUBSCRIPTION_LINK_RENEWAL',
+        transactionId: newOrder.id,
+        amount: netAmount.toString(),
+        balanceBefore: (walletBefore?.balance ?? new Prisma.Decimal(0)).toString(),
+        balanceAfter: walletAfter.balance.toString(),
+        lockedBefore: (walletBefore?.lockedBalance ?? new Prisma.Decimal(0)).toString(),
+        lockedAfter: walletAfter.lockedBalance.toString(),
+        description: `Renovação ${link.name}`,
+        source: 'SUBSCRIPTION_LINK',
+        metadata: { orderId: newOrder.id, source },
+      });
+    }
+
+    // Notificar webhook externo (saas-netflix-back) com evento subscription_renewed
+    const webhookUrl = link.webhookUrl ?? null;
+    if (webhookUrl) {
+      const token = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-simpay-token': token },
+        body: JSON.stringify({
+          event: 'subscription_renewed',
+          customerEmail: linkOrder.customerEmail,
+          customerName: linkOrder.customerName,
+          planName: link.name,
+          paymentMethod: 'CREDIT_CARD',
+          frequencyType: link.frequencyType,
+          amountCharged: amount.toNumber(),
+          orderId: newOrder.id,
+        }),
+      }).catch((err: unknown) => {
+        this.logger.warn(`[SubscriptionLinkRenewal] Falha ao notificar ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
+
+    this.logger.log(`[SubscriptionLinkRenewal] Renovação processada para ${linkOrder.customerEmail}, orderId=${newOrder.id}, source=${source}`);
+  }
+
   private async handleCancelled(payload: Record<string, unknown>): Promise<void> {
     const data = payload.data as Record<string, unknown> | undefined;
     if (!data) return;
@@ -189,6 +287,40 @@ export class SubscriptionWebhookService {
     const subscriberId = this.getString(relations?.id_subscriber);
     if (!subscriberId) {
       this.logger.warn('[handleCancelled] Sem id_subscriber, ignorando.');
+      return;
+    }
+
+    // Verificar se é uma SubscriptionLinkOrder
+    const linkOrder = await this.prisma.subscriptionLinkOrder.findFirst({
+      where: { domSubscriptionId: subscriberId },
+      include: { subscriptionLink: true },
+    });
+    if (linkOrder) {
+      await this.prisma.subscriptionLinkOrder.update({
+        where: { id: linkOrder.id },
+        data: { status: 'cancelled' },
+      });
+      const webhookUrl = linkOrder.subscriptionLink?.webhookUrl ?? null;
+      if (webhookUrl) {
+        const token = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+        fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-simpay-token': token },
+          body: JSON.stringify({
+            event: 'subscription_expired',
+            customerEmail: linkOrder.customerEmail,
+            customerName: linkOrder.customerName,
+            planName: linkOrder.subscriptionLink.name,
+            paymentMethod: 'CREDIT_CARD',
+            frequencyType: linkOrder.subscriptionLink.frequencyType,
+            amountCharged: 0,
+            orderId: linkOrder.id,
+          }),
+        }).catch((err: unknown) => {
+          this.logger.warn(`[handleCancelled] Falha ao notificar ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
+      this.logger.log(`[handleCancelled] SubscriptionLinkOrder ${linkOrder.id} cancelada e webhook externo notificado`);
       return;
     }
 

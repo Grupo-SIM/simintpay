@@ -3931,7 +3931,14 @@ export class AdminController {
     const ps = pageSize ? Number(pageSize) : 50;
     const skip = (p - 1) * ps;
 
-    const where: any = {};
+    // Filtrar apenas links de assinatura que pertencem à Areaflix (webhookUrl contém "areaflix")
+    const areaflixLinks = await this.prisma.subscriptionLink.findMany({
+      where: { webhookUrl: { contains: 'areaflix', mode: 'insensitive' } },
+      select: { id: true },
+    });
+    const areaflixLinkIds = areaflixLinks.map((l) => l.id);
+
+    const where: any = { subscriptionLinkId: { in: areaflixLinkIds } };
     if (status) where.status = status;
     if (customerEmail) where.customerEmail = { contains: customerEmail, mode: 'insensitive' };
     if (customerName) where.customerName = { contains: customerName, mode: 'insensitive' };
@@ -3949,8 +3956,9 @@ export class AdminController {
       }),
     ]);
 
+    const areaflixPaidWhere = { subscriptionLinkId: { in: areaflixLinkIds }, status: { in: ['paid', 'active', 'approved'] } };
     const totalRevenue = await this.prisma.subscriptionLinkOrder.aggregate({
-      where: { status: { in: ['paid', 'active', 'approved'] } },
+      where: areaflixPaidWhere,
       _sum: { amountCharged: true, platformFeeAmount: true },
     });
 
