@@ -3255,6 +3255,21 @@ export class AdminController {
       });
     }
 
+    // Garante que AREAFLIX apareça sempre (ordens de subscription links)
+    if (!map.has('AREAFLIX')) {
+      const firstAreaflixOrder = await this.prisma.subscriptionLinkOrder.findFirst({
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      map.set('AREAFLIX', {
+        tag: 'AREAFLIX',
+        cpf: '',
+        planRows: [],
+        plansCount: 0,
+        firstSeen: firstAreaflixOrder?.createdAt ?? new Date(),
+      });
+    }
+
     const result = [];
     for (const v of map.values()) {
       const expandedUserIds = await expandPlatformTransactionUserIds(this.prisma, v.planRows);
@@ -3286,7 +3301,9 @@ export class AdminController {
       }
 
       let totalTx = 0;
-      if (isTenantTaggedPlatform) {
+      if (v.tag === 'AREAFLIX') {
+        totalTx = await this.prisma.subscriptionLinkOrder.count();
+      } else if (isTenantTaggedPlatform) {
         totalTx = await this.prisma.transaction.count({ where: whereTx });
       } else if (expandedUserIds.length > 0) {
         const txCounts = await this.prisma.transaction.groupBy({
