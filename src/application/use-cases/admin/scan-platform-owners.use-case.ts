@@ -19,6 +19,7 @@ const TENANT_TO_PLATFORM: Record<string, string> = {
   BOSQUE: 'bosque',
   PAGATG: 'pagatg',
   FRENDZ: 'frendz',
+  ATLAS: 'atlas',
 };
 
 // Regex para extrair [TENANT:XXX], [CPF_DONO:YYY] e [NOME_DONO:ZZZ] da descrição

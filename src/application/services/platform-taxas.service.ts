@@ -21,6 +21,7 @@ const KNOWN_CANONICAL_TAGS = [
   'PAGATG',
   'EBOOK',
   'FRENDZ',
+  'ATLAS',
 ] as const;
 
 export type PlataformaTaxaSourceMap = Record<

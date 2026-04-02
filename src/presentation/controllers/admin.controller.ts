@@ -202,14 +202,33 @@ const EBOOK_CONSOLIDADO_USER_ID =
 const REVALIDA_CONSOLIDADO_USER_ID =
   process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
 
-/** Contas plataforma usadas no consolidado e no cálculo do Lucro Simpay (inclui Ebook). */
-const CONSOLIDADO_PLATFORMS: ReadonlyArray<{ tag: string; id: string }> = [
+type ConsolidadoPlatformEntry = { tag: string; id: string };
+
+/** Núcleo do consolidado; Atlas é acrescentado em runtime (env ou usuário tenant atlas). */
+const CONSOLIDADO_PLATFORMS_CORE: ReadonlyArray<ConsolidadoPlatformEntry> = [
   { tag: 'RENOVADA', id: 'ba2b57d6-e3bf-4395-af31-58454f27207a' },
   { tag: 'PAGATG', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5d' },
   { tag: 'BOSQUE', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c' },
   { tag: 'REVALIDA', id: REVALIDA_CONSOLIDADO_USER_ID },
   { tag: 'EBOOK', id: EBOOK_CONSOLIDADO_USER_ID },
 ];
+
+async function resolveAtlasConsolidadoUserId(prisma: PrismaService): Promise<string> {
+  const envId = process.env.ATLAS_USER_ID?.trim();
+  if (envId) return envId;
+  const u = await prisma.user.findFirst({
+    where: { tenantModule: { slug: { equals: 'atlas', mode: 'insensitive' } } },
+    select: { id: true },
+  });
+  return u?.id ?? '';
+}
+
+function mergeConsolidadoPlatforms(atlasUserId: string): ConsolidadoPlatformEntry[] {
+  const id = atlasUserId?.trim();
+  return id
+    ? [...CONSOLIDADO_PLATFORMS_CORE, { tag: 'ATLAS', id }]
+    : [...CONSOLIDADO_PLATFORMS_CORE];
+}
 
 type ConsolidadoListQuery = {
   dataInicio?: string;
@@ -221,8 +240,11 @@ type ConsolidadoListQuery = {
   planName?: string;
 };
 
-function buildConsolidadoTransactionWhere(input: ConsolidadoListQuery): Prisma.TransactionWhereInput {
-  const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
+function buildConsolidadoTransactionWhere(
+  input: ConsolidadoListQuery,
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
+): Prisma.TransactionWhereInput {
+  const platformIds = platforms.map((p) => p.id);
 
   const where: Prisma.TransactionWhereInput = {
     userId: { in: platformIds },
@@ -306,10 +328,11 @@ function valorLiquidoTransacaoConsolidado(
 
 /** Resumo dos cards: só plataformas + COMPLETED + intervalo (ignora filtros de tabela). */
 function buildConsolidadoResumoWhere(
-  dataInicio?: string,
-  dataFim?: string,
+  dataInicio: string | undefined,
+  dataFim: string | undefined,
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): Prisma.TransactionWhereInput {
-  const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
+  const platformIds = platforms.map((p) => p.id);
   const where: Prisma.TransactionWhereInput = {
     userId: { in: platformIds },
     status: 'COMPLETED',
@@ -520,6 +543,7 @@ function buildLucroSimpayDetalhePorPlataforma(
     createdAt: Date;
     description: string | null;
   }[],
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): { totalLucroSimpay: number; plataformas: LucroSimpayPorPlataforma[] } {
   const byTag = new Map<
     string,
@@ -541,7 +565,7 @@ function buildLucroSimpayDetalhePorPlataforma(
   let totalLucroSimpay = 0;
 
   for (const tx of txs) {
-    const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+    const platform = platforms.find((p) => p.id === tx.userId);
     const tag = platform?.tag || 'RENOVADA';
     const liquidezKey = `${tag}_LIQUIDEZ`;
     const fixaKey = `${tag}_TAXA_FIXA_TRANSACAO`;
@@ -594,7 +618,7 @@ function buildLucroSimpayDetalhePorPlataforma(
     agg.subtotalLucro += lucroTx;
   }
 
-  const plataformas: LucroSimpayPorPlataforma[] = CONSOLIDADO_PLATFORMS.map(
+  const plataformas: LucroSimpayPorPlataforma[] = platforms.map(
     (p) => {
       const hit = byTag.get(p.tag);
       const liquidezKey = `${p.tag}_LIQUIDEZ`;
@@ -655,11 +679,14 @@ function buildLucroSimpayDetalhePorPlataforma(
 }
 
 /** Lucro Simpay de uma transação (mesma fórmula que buildLucroSimpayDetalhePorPlataforma). */
-function lucroSimpayUmaTransacaoConsolidado(tx: {
-  userId: string;
-  amount: unknown;
-}): number {
-  const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+function lucroSimpayUmaTransacaoConsolidado(
+  tx: {
+    userId: string;
+    amount: unknown;
+  },
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
+): number {
+  const platform = platforms.find((p) => p.id === tx.userId);
   const tag = platform?.tag || 'RENOVADA';
   const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
   const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
@@ -692,11 +719,12 @@ function buildLucroTotalMasterHistoricoDiario(
   withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
   dataInicio: string,
   dataFim: string,
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): Array<{ label: string; valor: number }> {
   const lucroPorDia = new Map<string, number>();
   for (const tx of txRowsLucro) {
     const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
-    const l = lucroSimpayUmaTransacaoConsolidado(tx);
+    const l = lucroSimpayUmaTransacaoConsolidado(tx, platforms);
     lucroPorDia.set(ymd, (lucroPorDia.get(ymd) ?? 0) + l);
   }
   const feePorDia = new Map<string, number>();
@@ -736,6 +764,7 @@ function buildLucroTotalMasterHistoricoPorHora(
   txRowsLucro: { userId: string; amount: unknown; createdAt: Date }[],
   withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
   dataInicio: string,
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): Array<{ label: string; valor: number }> {
   const ymd = parseYmdSp(dataInicio).startOf('day').format('YYYY-MM-DD');
   const lucroPorHora = new Map<number, number>();
@@ -743,7 +772,7 @@ function buildLucroTotalMasterHistoricoPorHora(
     const d = dayjs(tx.createdAt).tz(TZ);
     if (d.format('YYYY-MM-DD') !== ymd) continue;
     const h = d.hour();
-    const l = lucroSimpayUmaTransacaoConsolidado(tx);
+    const l = lucroSimpayUmaTransacaoConsolidado(tx, platforms);
     lucroPorHora.set(h, (lucroPorHora.get(h) ?? 0) + l);
   }
   const feePorHora = new Map<number, number>();
@@ -790,6 +819,7 @@ function accumTxFinancePorDia(
     netAmount: unknown | null;
     createdAt: Date;
   }[],
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): {
   bruto: Map<string, number>;
   liquido: Map<string, number>;
@@ -802,7 +832,7 @@ function accumTxFinancePorDia(
   const cashback = new Map<string, number>();
   for (const tx of txRowsLucro) {
     const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
-    const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+    const platform = platforms.find((p) => p.id === tx.userId);
     const tag = platform?.tag || 'RENOVADA';
     const b = Number(tx.amount);
     if (Number.isFinite(b)) {
@@ -810,7 +840,7 @@ function accumTxFinancePorDia(
     }
     const liq = valorLiquidoTransacaoConsolidado(tx, tag);
     liquido.set(ymd, (liquido.get(ymd) ?? 0) + liq);
-    const l = lucroSimpayUmaTransacaoConsolidado(tx);
+    const l = lucroSimpayUmaTransacaoConsolidado(tx, platforms);
     lucro.set(ymd, (lucro.get(ymd) ?? 0) + l);
     const tc = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
     cashback.set(ymd, (cashback.get(ymd) ?? 0) + tc);
@@ -846,8 +876,9 @@ function buildDashboardFinanceHistoricoDiario(
   withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
   dataInicio: string,
   dataFim: string,
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): DashboardFinanceHistoricoRow[] {
-  const { bruto, liquido, lucro, cashback } = accumTxFinancePorDia(txRowsLucro);
+  const { bruto, liquido, lucro, cashback } = accumTxFinancePorDia(txRowsLucro, platforms);
   const { fee, profit } = accumWithdrawPorDia(withdrawLogs);
   const dias = listYmdInclusiveSp(dataInicio, dataFim);
   return dias.map((ymd) => ({
@@ -870,6 +901,7 @@ function buildDashboardFinanceHistoricoPorHora(
   }[],
   withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
   dataInicio: string,
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): DashboardFinanceHistoricoRow[] {
   const ymdTarget = parseYmdSp(dataInicio).startOf('day').format('YYYY-MM-DD');
   const bruto = new Map<number, number>();
@@ -880,14 +912,14 @@ function buildDashboardFinanceHistoricoPorHora(
     const d = dayjs(tx.createdAt).tz(TZ);
     if (d.format('YYYY-MM-DD') !== ymdTarget) continue;
     const h = d.hour();
-    const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+    const platform = platforms.find((p) => p.id === tx.userId);
     const tag = platform?.tag || 'RENOVADA';
     const b = Number(tx.amount);
     if (Number.isFinite(b)) {
       bruto.set(h, (bruto.get(h) ?? 0) + b);
     }
     liquido.set(h, (liquido.get(h) ?? 0) + valorLiquidoTransacaoConsolidado(tx, tag));
-    lucro.set(h, (lucro.get(h) ?? 0) + lucroSimpayUmaTransacaoConsolidado(tx));
+    lucro.set(h, (lucro.get(h) ?? 0) + lucroSimpayUmaTransacaoConsolidado(tx, platforms));
     const tc = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
     cashback.set(h, (cashback.get(h) ?? 0) + tc);
   }
@@ -1312,19 +1344,24 @@ export class AdminController {
     @Query('paymentLink') paymentLink?: string,
     @Query('planName') planName?: string,
   ) {
-    const where = buildConsolidadoTransactionWhere({
-      dataInicio,
-      dataFim,
-      customerName,
-      transactionId,
-      transactionType,
-      paymentLink,
-      planName,
-    });
+    const atlasId = await resolveAtlasConsolidadoUserId(this.prisma);
+    const platforms = mergeConsolidadoPlatforms(atlasId);
+    const where = buildConsolidadoTransactionWhere(
+      {
+        dataInicio,
+        dataFim,
+        customerName,
+        transactionId,
+        transactionType,
+        paymentLink,
+        planName,
+      },
+      platforms,
+    );
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
     const tagByUserId = new Map<string, string>(
-      CONSOLIDADO_PLATFORMS.map((p) => [p.id, p.tag]),
+      platforms.map((p) => [p.id, p.tag]),
     );
 
     const [total, items] = await Promise.all([
@@ -1396,8 +1433,10 @@ export class AdminController {
     @Query('detalharLucro') detalharLucro?: string,
     @Query('detalharLucroSoloResumo') detalharLucroSoloResumo?: string,
   ) {
-    const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
-    const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim);
+    const atlasId = await resolveAtlasConsolidadoUserId(this.prisma);
+    const platforms = mergeConsolidadoPlatforms(atlasId);
+    const platformIds = platforms.map((p) => p.id);
+    const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
 
     const txRowsTodas = await this.prisma.transaction.findMany({
       where: whereResumo,
@@ -1421,7 +1460,7 @@ export class AdminController {
     );
 
     const { totalLucroSimpay, plataformas: plataformasLucroDetalhe } =
-      buildLucroSimpayDetalhePorPlataforma(txRowsLucro);
+      buildLucroSimpayDetalhePorPlataforma(txRowsLucro, platforms);
 
     const querDetalhe =
       detalharLucro === '1' ||
@@ -1483,7 +1522,7 @@ export class AdminController {
       valorLiquidoPlataformas = Number(
         txRowsLucro
           .reduce((s, tx) => {
-            const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+            const platform = platforms.find((p) => p.id === tx.userId);
             const tag = platform?.tag || 'RENOVADA';
             return s + valorLiquidoTransacaoConsolidado(tx, tag);
           }, 0)
@@ -1545,6 +1584,7 @@ export class AdminController {
           txRowsLucro,
           withdrawLogsHistorico,
           di,
+          platforms,
         );
         lucroTotalMasterHistoricoCriterio =
           'Quando dataInicio e dataFim são o mesmo dia (America/Sao_Paulo): 24 pontos (horas 00h–23h). Mesma fórmula do consolidado diário, agregada por hora do createdAt da transação ou do BalanceLog.';
@@ -1552,6 +1592,7 @@ export class AdminController {
           txRowsLucro,
           withdrawLogsHistorico,
           di,
+          platforms,
         );
       } else {
         lucroTotalMasterHistorico = buildLucroTotalMasterHistoricoDiario(
@@ -1559,12 +1600,14 @@ export class AdminController {
           withdrawLogsHistorico,
           di,
           df,
+          platforms,
         );
         dashboardFinanceHistorico = buildDashboardFinanceHistoricoDiario(
           txRowsLucro,
           withdrawLogsHistorico,
           di,
           df,
+          platforms,
         );
       }
     }
@@ -1714,8 +1757,10 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const platformIds = CONSOLIDADO_PLATFORMS.map((p) => p.id);
-    const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim);
+    const atlasId = await resolveAtlasConsolidadoUserId(this.prisma);
+    const platforms = mergeConsolidadoPlatforms(atlasId);
+    const platformIds = platforms.map((p) => p.id);
+    const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
 
     const txRowsTodas = await this.prisma.transaction.findMany({
       where: whereResumo,
@@ -1734,7 +1779,7 @@ export class AdminController {
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
     );
 
-    const { totalLucroSimpay } = buildLucroSimpayDetalhePorPlataforma(txRowsLucro);
+    const { totalLucroSimpay } = buildLucroSimpayDetalhePorPlataforma(txRowsLucro, platforms);
     const lucroSimpayNum = Number(totalLucroSimpay.toFixed(2));
 
     const temFiltroData = Boolean(dataInicio?.trim() || dataFim?.trim());
@@ -1745,7 +1790,7 @@ export class AdminController {
       valorLiquidoPlataformas = Number(
         txRowsLucro
           .reduce((s, tx) => {
-            const platform = CONSOLIDADO_PLATFORMS.find((p) => p.id === tx.userId);
+            const platform = platforms.find((p) => p.id === tx.userId);
             const tag = platform?.tag || 'RENOVADA';
             return s + valorLiquidoTransacaoConsolidado(tx, tag);
           }, 0)
@@ -3068,7 +3113,7 @@ export class AdminController {
     >();
 
     // Plataformas conhecidas para detecção por texto livre (fallback sem formato padrão)
-    const KNOWN_TAGS = ['PAGATG', 'RENOVADA', 'REVALIDA', 'BOSQUE', 'FRENDZ', 'EBOOKSIM', 'EBOOK'];
+    const KNOWN_TAGS = ['PAGATG', 'RENOVADA', 'REVALIDA', 'BOSQUE', 'FRENDZ', 'EBOOKSIM', 'EBOOK', 'ATLAS'];
 
     for (const p of plans) {
       const desc = p.description ?? '';
@@ -3185,6 +3230,28 @@ export class AdminController {
         planRows: [],
         plansCount: 0,
         firstSeen: firstPagatgTx?.createdAt ?? new Date(),
+      });
+    }
+
+    // Garante que ATLAS apareça com o mesmo userId do consolidado (env ou tenant atlas)
+    const atlasConsolidadoId = await resolveAtlasConsolidadoUserId(this.prisma);
+    if (!map.has('ATLAS') && atlasConsolidadoId) {
+      const firstAtlasTx = await this.prisma.transaction.findFirst({
+        where: {
+          OR: [
+            { userId: atlasConsolidadoId },
+            { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      map.set('ATLAS', {
+        tag: 'ATLAS',
+        cpf: '',
+        planRows: [{ userId: atlasConsolidadoId, description: 'Plataforma Atlas' }],
+        plansCount: 0,
+        firstSeen: firstAtlasTx?.createdAt ?? new Date(),
       });
     }
 
@@ -3366,6 +3433,9 @@ export class AdminController {
         select: { id: true },
       });
       userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
+    } else if (upperTag === 'ATLAS') {
+      const aid = await resolveAtlasConsolidadoUserId(this.prisma);
+      userIds = aid ? [aid] : [];
     } else if (upperTag !== 'PAGATG') {
       const plans = await this.prisma.pixCreditPlan.findMany({
         where: {
