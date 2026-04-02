@@ -46,4 +46,5 @@ export interface ISubscriptionLinkRepository {
   delete(id: string): Promise<void>;
   createOrder(data: CreateSubscriptionLinkOrderData): Promise<SubscriptionLinkOrder>;
   findOrdersByLinkId(input: { linkId: string; page: number; pageSize: number }): Promise<{ total: number; items: SubscriptionLinkOrder[] }>;
+  findOrdersByUserId(input: { userId: string; page: number; pageSize: number }): Promise<{ total: number; items: any[] }>;
 }
