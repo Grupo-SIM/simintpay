@@ -234,6 +234,20 @@ async function resolveRevalidaConsolidadoUserId(prisma: PrismaService): Promise<
   return u?.id ?? REVALIDA_CONSOLIDADO_USER_ID;
 }
 
+const BOSQUE_CONSOLIDADO_DEFAULT_ID = 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+
+/** Env BOSQUE_ID → usuário BOSQUE_EMAIL (padrão contato@bosque.com.br) → UUID fixo do seed/sync. */
+async function resolveBosqueConsolidadoUserId(prisma: PrismaService): Promise<string> {
+  const envId = process.env.BOSQUE_ID?.trim();
+  if (envId) return envId;
+  const email = (process.env.BOSQUE_EMAIL || 'contato@bosque.com.br').trim();
+  const u = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true },
+  });
+  return u?.id ?? BOSQUE_CONSOLIDADO_DEFAULT_ID;
+}
+
 function mergeConsolidadoPlatforms(atlasUserId: string): ConsolidadoPlatformEntry[] {
   const id = atlasUserId?.trim();
   return id
@@ -3335,6 +3349,29 @@ export class AdminController {
         planRows: [{ userId: revalidaConsolidadoId, description: 'Plataforma Revalida' }],
         plansCount: 0,
         firstSeen: firstRevalidaTx?.createdAt ?? new Date(),
+      });
+    }
+
+    // Garante que BOSQUE apareça (conta técnica + [TENANT:BOSQUE] / "bosque" na descrição)
+    const bosqueConsolidadoId = await resolveBosqueConsolidadoUserId(this.prisma);
+    if (!map.has('BOSQUE')) {
+      const firstBosqueTx = await this.prisma.transaction.findFirst({
+        where: {
+          OR: [
+            { userId: bosqueConsolidadoId },
+            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+            { description: { contains: 'bosque', mode: 'insensitive' } },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      map.set('BOSQUE', {
+        tag: 'BOSQUE',
+        cpf: '',
+        planRows: [{ userId: bosqueConsolidadoId, description: 'Plataforma Bosque' }],
+        plansCount: 0,
+        firstSeen: firstBosqueTx?.createdAt ?? new Date(),
       });
     }
 
