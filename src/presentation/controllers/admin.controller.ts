@@ -3923,13 +3923,18 @@ export class AdminController {
   async listAreaflixOrders(
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
-    @Query('userId') userId?: string,
+    @Query('status') status?: string,
+    @Query('customerEmail') customerEmail?: string,
+    @Query('customerName') customerName?: string,
   ) {
     const p = page ? Number(page) : 1;
     const ps = pageSize ? Number(pageSize) : 50;
     const skip = (p - 1) * ps;
 
-    const where = userId ? { userId } : {};
+    const where: any = {};
+    if (status) where.status = status;
+    if (customerEmail) where.customerEmail = { contains: customerEmail, mode: 'insensitive' };
+    if (customerName) where.customerName = { contains: customerName, mode: 'insensitive' };
 
     const [total, items] = await this.prisma.$transaction([
       this.prisma.subscriptionLinkOrder.count({ where }),
@@ -3945,7 +3950,7 @@ export class AdminController {
     ]);
 
     const totalRevenue = await this.prisma.subscriptionLinkOrder.aggregate({
-      where: { ...where, status: { in: ['active', 'pending', 'approved'] } },
+      where: { status: { in: ['paid', 'active', 'approved'] } },
       _sum: { amountCharged: true, platformFeeAmount: true },
     });
 
