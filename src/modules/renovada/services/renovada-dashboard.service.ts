@@ -35,7 +35,22 @@ export class PlatformDashboardService {
     // Para EBOOK/PAGATG: usa filtro por tag na descrição (multi-vendor), não por userId único
     const isEbook = upperTag === 'EBOOK';
     const isPagatg = upperTag === 'PAGATG';
+    const isAtlas = upperTag === 'ATLAS';
     const isTenantTagged = isEbook || isPagatg;
+
+    // Carteira/saques Atlas: conta técnica (não usar fallback Renovada no userId)
+    let atlasWalletUserId: string | null = null;
+    if (isAtlas) {
+      const envAtlas = process.env.ATLAS_USER_ID?.trim();
+      if (envAtlas) atlasWalletUserId = envAtlas;
+      else {
+        const u = await this.prisma.user.findFirst({
+          where: { email: 'atlas@jbmidia.com.br' },
+          select: { id: true },
+        });
+        atlasWalletUserId = u?.id ?? null;
+      }
+    }
 
     // Prioridade: .env -> Mapa Interno -> ID da Renovada (Legacy Fallback) — não usado para tenant-tagged
     const platIdKey = `${upperTag}_ID`;
@@ -76,8 +91,13 @@ export class PlatformDashboardService {
 
     this.logger.log(`[Dashboard] Tag: ${upperTag} | Período "${period}": ${dayjs(start).tz(TZ).format('DD/MM/YYYY HH:mm:ss')}`);
 
-    // Keywords filter only for Renovada (historical requirement), others take all platform transactions
-    let filter: any = isTenantTagged
+    // Atlas (/plataformas/atlas): lucro/estornos/gráficos por descrição com "atlas" (qualquer userId)
+    let filter: any = isAtlas
+      ? {
+          status: TransactionStatus.COMPLETED,
+          description: { contains: 'atlas', mode: 'insensitive' as const },
+        }
+      : isTenantTagged
       ? {
           status: TransactionStatus.COMPLETED,
           description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const },
@@ -148,14 +168,25 @@ export class PlatformDashboardService {
     const profitSelected = getProfit(txsInPeriod);
     const profitTotal = getProfit(allTransactions);
 
-    // 2. Dados da Wallet — EBOOK/PAGATG são multi-vendor, não têm wallet única; Renovada usa lógica especial
-    const wallet = isTenantTagged ? null : await this.prisma.wallet.findUnique({ where: { userId: platformId! } });
+    // 2. Dados da Wallet — EBOOK/PAGATG multi-vendor; Atlas usa conta técnica; Renovada usa lógica especial
+    const wallet =
+      isTenantTagged
+        ? null
+        : isAtlas
+        ? atlasWalletUserId
+          ? await this.prisma.wallet.findUnique({ where: { userId: atlasWalletUserId } })
+          : null
+        : await this.prisma.wallet.findUnique({ where: { userId: platformId! } });
     const balanceVal = Number(wallet?.balance || 0);
     const lockedVal = Number(wallet?.lockedBalance || 0);
 
     let availableBalanceNet: number;
     if (isTenantTagged) {
       availableBalanceNet = 0; // multi-vendor: each author has their own wallet
+    } else if (isAtlas) {
+      availableBalanceNet = atlasWalletUserId
+        ? Number(((balanceVal - lockedVal) * liquidityFactor).toFixed(3))
+        : 0;
     } else if (upperTag === 'RENOVADA') {
       const debitedAggr = await this.prisma.withdrawRequest.aggregate({
         where: {
@@ -179,7 +210,13 @@ export class PlatformDashboardService {
     }
 
     // 3. Estornos
-    const estornosWhere: any = isTenantTagged
+    const estornosWhere: any = isAtlas
+      ? {
+          status: TransactionStatus.REFUNDED,
+          createdAt: { gte: start, lte: end },
+          description: { contains: 'atlas', mode: 'insensitive' as const },
+        }
+      : isTenantTagged
       ? {
           status: TransactionStatus.REFUNDED,
           createdAt: { gte: start, lte: end },
@@ -200,6 +237,13 @@ export class PlatformDashboardService {
     // 4. Saques — EBOOK/PAGATG não têm saques centralizados (cada autor saca da própria conta)
     const withdrawals = isTenantTagged
       ? []
+      : isAtlas
+      ? atlasWalletUserId
+        ? await this.prisma.withdrawRequest.findMany({
+            where: { userId: atlasWalletUserId },
+            select: { createdAt: true },
+          })
+        : []
       : await this.prisma.withdrawRequest.findMany({
           where: { userId: platformId! },
           select: { createdAt: true },
@@ -214,8 +258,11 @@ export class PlatformDashboardService {
       }).length;
     };
 
-    const last30Days = await this.getChartData(isTenantTagged ? null : platformId, 30, 'day', liquidityFactor, isTenantTagged ? upperTag : null);
-    const annualByMonth = await this.getChartData(isTenantTagged ? null : platformId, 12, 'month', liquidityFactor, isTenantTagged ? upperTag : null);
+    const chartPlatformId = isTenantTagged || isAtlas ? null : platformId;
+    const chartTenant = isTenantTagged ? upperTag : null;
+    const chartDescContains = isAtlas ? 'atlas' : null;
+    const last30Days = await this.getChartData(chartPlatformId, 30, 'day', liquidityFactor, chartTenant, chartDescContains);
+    const annualByMonth = await this.getChartData(chartPlatformId, 12, 'month', liquidityFactor, chartTenant, chartDescContains);
 
     const isFiltered = !!(dataInicio || dataFim);
     const mainProfit = isFiltered ? profitSelected : profitTotal;
@@ -261,7 +308,14 @@ export class PlatformDashboardService {
     };
   }
 
-  private async getChartData(platformId: string | null, count: number, unit: 'day' | 'month', liquidityFactor: number, tenantTag: string | null = null) {
+  private async getChartData(
+    platformId: string | null,
+    count: number,
+    unit: 'day' | 'month',
+    liquidityFactor: number,
+    tenantTag: string | null = null,
+    descriptionContains: string | null = null,
+  ) {
     const data: { label: string; value: number; maquinetas: number; offers: number }[] = [];
     const now = dayjs().tz(TZ);
 
@@ -271,7 +325,13 @@ export class PlatformDashboardService {
       const end = d.endOf(unit).toDate();
 
       const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
-      const chartWhere: any = tenantTag
+      const chartWhere: any = descriptionContains
+        ? {
+            status: TransactionStatus.COMPLETED,
+            createdAt: { gte: start, lte: end },
+            description: { contains: descriptionContains, mode: 'insensitive' as const },
+          }
+        : tenantTag
         ? {
             status: TransactionStatus.COMPLETED,
             createdAt: { gte: start, lte: end },
