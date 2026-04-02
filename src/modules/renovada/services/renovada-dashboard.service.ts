@@ -36,7 +36,16 @@ export class PlatformDashboardService {
     const isEbook = upperTag === 'EBOOK';
     const isPagatg = upperTag === 'PAGATG';
     const isAtlas = upperTag === 'ATLAS';
+    const isBosque = upperTag === 'BOSQUE';
     const isTenantTagged = isEbook || isPagatg;
+
+    const bosqueTxWhere = {
+      status: TransactionStatus.COMPLETED,
+      OR: [
+        { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' as const } },
+        { description: { contains: 'bosque', mode: 'insensitive' as const } },
+      ],
+    };
 
     // Carteira/saques Atlas: conta técnica (não usar fallback Renovada no userId)
     let atlasWalletUserId: string | null = null;
@@ -91,12 +100,14 @@ export class PlatformDashboardService {
 
     this.logger.log(`[Dashboard] Tag: ${upperTag} | Período "${period}": ${dayjs(start).tz(TZ).format('DD/MM/YYYY HH:mm:ss')}`);
 
-    // Atlas (/plataformas/atlas): lucro/estornos/gráficos por descrição com "atlas" (qualquer userId)
+    // Atlas: descrição "atlas". Bosque: [TENANT:BOSQUE] ou "bosque" na descrição.
     let filter: any = isAtlas
       ? {
           status: TransactionStatus.COMPLETED,
           description: { contains: 'atlas', mode: 'insensitive' as const },
         }
+      : isBosque
+      ? bosqueTxWhere
       : isTenantTagged
       ? {
           status: TransactionStatus.COMPLETED,
@@ -176,7 +187,9 @@ export class PlatformDashboardService {
         ? atlasWalletUserId
           ? await this.prisma.wallet.findUnique({ where: { userId: atlasWalletUserId } })
           : null
-        : await this.prisma.wallet.findUnique({ where: { userId: platformId! } });
+        : await this.prisma.wallet.findUnique({
+            where: { userId: platformId! },
+          });
     const balanceVal = Number(wallet?.balance || 0);
     const lockedVal = Number(wallet?.lockedBalance || 0);
 
@@ -215,6 +228,15 @@ export class PlatformDashboardService {
           status: TransactionStatus.REFUNDED,
           createdAt: { gte: start, lte: end },
           description: { contains: 'atlas', mode: 'insensitive' as const },
+        }
+      : isBosque
+      ? {
+          status: TransactionStatus.REFUNDED,
+          createdAt: { gte: start, lte: end },
+          OR: [
+            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' as const } },
+            { description: { contains: 'bosque', mode: 'insensitive' as const } },
+          ],
         }
       : isTenantTagged
       ? {
@@ -258,11 +280,27 @@ export class PlatformDashboardService {
       }).length;
     };
 
-    const chartPlatformId = isTenantTagged || isAtlas ? null : platformId;
+    const chartPlatformId = isTenantTagged || isAtlas || isBosque ? null : platformId;
     const chartTenant = isTenantTagged ? upperTag : null;
     const chartDescContains = isAtlas ? 'atlas' : null;
-    const last30Days = await this.getChartData(chartPlatformId, 30, 'day', liquidityFactor, chartTenant, chartDescContains);
-    const annualByMonth = await this.getChartData(chartPlatformId, 12, 'month', liquidityFactor, chartTenant, chartDescContains);
+    const last30Days = await this.getChartData(
+      chartPlatformId,
+      30,
+      'day',
+      liquidityFactor,
+      chartTenant,
+      chartDescContains,
+      isBosque,
+    );
+    const annualByMonth = await this.getChartData(
+      chartPlatformId,
+      12,
+      'month',
+      liquidityFactor,
+      chartTenant,
+      chartDescContains,
+      isBosque,
+    );
 
     const isFiltered = !!(dataInicio || dataFim);
     const mainProfit = isFiltered ? profitSelected : profitTotal;
@@ -315,6 +353,7 @@ export class PlatformDashboardService {
     liquidityFactor: number,
     tenantTag: string | null = null,
     descriptionContains: string | null = null,
+    useBosqueDescriptionOr = false,
   ) {
     const data: { label: string; value: number; maquinetas: number; offers: number }[] = [];
     const now = dayjs().tz(TZ);
@@ -325,7 +364,16 @@ export class PlatformDashboardService {
       const end = d.endOf(unit).toDate();
 
       const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
-      const chartWhere: any = descriptionContains
+      const chartWhere: any = useBosqueDescriptionOr
+        ? {
+            status: TransactionStatus.COMPLETED,
+            createdAt: { gte: start, lte: end },
+            OR: [
+              { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' as const } },
+              { description: { contains: 'bosque', mode: 'insensitive' as const } },
+            ],
+          }
+        : descriptionContains
         ? {
             status: TransactionStatus.COMPLETED,
             createdAt: { gte: start, lte: end },
