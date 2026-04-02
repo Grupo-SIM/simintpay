@@ -136,10 +136,42 @@ export class CheckoutSubscriptionLinkCardUseCase {
       // Email failure must not block the checkout response
     }
 
+    // Notificar webhook externo configurado no link (ex: saas-netflix-back para atualizar plano do usuário)
+    void notifyExternalWebhook(link.webhookUrl ?? null, {
+      event: 'subscription_activated',
+      customerEmail: input.dto.customerEmail,
+      customerName: input.dto.customerName,
+      planName: link.name,
+      paymentMethod: 'CREDIT_CARD',
+      frequencyType: link.frequencyType,
+      amountCharged,
+      orderId: order.id,
+    });
+
     return {
       id: order.id,
       status: order.status,
       redirectUrl: link.redirectUrl ?? null,
     };
+  }
+}
+
+async function notifyExternalWebhook(
+  webhookUrl: string | null,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (!webhookUrl) return;
+  const token = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-simpay-token': token,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Falha no webhook externo não bloqueia o fluxo
   }
 }

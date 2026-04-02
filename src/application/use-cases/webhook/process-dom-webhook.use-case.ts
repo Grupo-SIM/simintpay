@@ -995,6 +995,28 @@ export class ProcessDomWebhookUseCase {
       }
     }
 
+    // Notificar webhook externo configurado no link (ex: saas-netflix-back para atualizar plano)
+    const webhookUrl = order.subscriptionLink.webhookUrl ?? null;
+    if (webhookUrl) {
+      const simpayToken = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-simpay-token': simpayToken },
+        body: JSON.stringify({
+          event: 'subscription_activated',
+          customerEmail: order.customerEmail,
+          customerName: order.customerName,
+          planName: order.subscriptionLink.name,
+          paymentMethod: 'PIX',
+          frequencyType: order.subscriptionLink.frequencyType,
+          amountCharged: Number(order.amountCharged),
+          orderId: order.id,
+        }),
+      }).catch((err: unknown) => {
+        this.logger.warn(`[DomWebhook] Falha ao notificar webhookUrl ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
+
     // Não atualizar webhookEventDbId aqui — o chamador (execute) fará isso
     return true;
   }
