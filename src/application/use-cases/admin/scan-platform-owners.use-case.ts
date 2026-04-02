@@ -216,7 +216,7 @@ export class ScanPlatformOwnersUseCase {
    * Acrescenta ao mapa totais vindos da DOM; ignora transações já representadas no Prisma com CPF_DONO.
    */
   private async mergeDomTransactionsIntoOwnerMap(
-    ownerMap: Map<string, { cpf: string; platform: string; totalNet: number }>,
+    ownerMap: Map<string, { cpf: string; platform: string; totalNet: number; nomeDono: string | null }>,
     syncedDomKeySet: Set<string>,
   ): Promise<number> {
     const token =
