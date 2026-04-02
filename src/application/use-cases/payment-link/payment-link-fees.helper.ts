@@ -1,4 +1,6 @@
 import type { PaymentLink } from '@prisma/client';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 /**
  * Taxas da DOM por número de parcelas (cobradas do COMPRADOR sobre o valor com juros).
@@ -26,10 +28,23 @@ function getDomFixedFee(installments: number): number {
 }
 
 /**
- * Taxa do vendedor (Cliente A): sempre 6,99% + R$4,00, independente das parcelas.
+ * Taxa do vendedor (casa): configurável via GLOBAL → plataforma.
+ * Padrão: 6,99% + R$4,00
  */
-const SELLER_FEE_PERCENTAGE = 0.0699;
-const SELLER_FEE_FIXED = 4.0;
+function getSellerFeePercentage(platformTag?: string): number {
+  return getPlatformTaxaEffective(
+    platformTag ?? 'GLOBAL',
+    'TAXA_LINK_PERCENT',
+    PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT,
+  );
+}
+function getSellerFeeFixed(platformTag?: string): number {
+  return getPlatformTaxaEffective(
+    platformTag ?? 'GLOBAL',
+    'TAXA_LINK_FIXA',
+    PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA,
+  );
+}
 
 /**
  * Retorna a taxa de juros da plataforma (platformFee) configurada no link para o
@@ -76,6 +91,7 @@ export function getPlatformFeeRate(link: PaymentLink, installments: number): num
 export function calculatePaymentLinkFees(
   link: PaymentLink,
   installments: number,
+  platformTag?: string,
 ): {
   baseAmount: number;
   platformFeeRate: number;
@@ -108,8 +124,8 @@ export function calculatePaymentLinkFees(
   const installmentAmount = totalAmount / n;
 
   // 4. Líquido do VENDEDOR (calculado sobre o valor BASE, independente de parcelas)
-  const cashbackFee = (link as any).cashbackFee ?? 3.0;
-  const sellerFee = baseAmount * SELLER_FEE_PERCENTAGE + SELLER_FEE_FIXED;
+  const cashbackFee = (link as any).cashbackFee ?? getPlatformTaxaEffective(platformTag ?? 'GLOBAL', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+  const sellerFee = baseAmount * getSellerFeePercentage(platformTag) + getSellerFeeFixed(platformTag);
   const netAmount = baseAmount - sellerFee - cashbackFee;
 
   return {

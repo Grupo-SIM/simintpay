@@ -25,6 +25,7 @@ export function stripInternalTags(value: string | null | undefined): string | nu
   if (!value) return null;
   const cleaned = INTERNAL_TAGS.reduce((acc, tag) => acc.replaceAll(tag, ''), value)
     .replace(/\s*\[CPF_DONO:[^\]]+\]/gi, '')
+    .replace(/\s*\[NOME_DONO:[^\]]+\]/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
   return cleaned.length > 0 ? cleaned : null;

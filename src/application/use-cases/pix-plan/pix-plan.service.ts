@@ -17,6 +17,8 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import type { PixPlanCheckoutDto } from '../../dtos/pix-plan/pix-plan-checkout.dto';
 import type { PixPlanCheckoutByCodeDto } from '../../dtos/pix-plan/pix-plan-checkout-by-code.dto';
 import type { CreatePixCreditPlanDto } from '../../dtos/pix-plan/create-pix-credit-plan.dto';
+import { PagaTGConfig } from '../../../modules/pagatg/pagatg.config';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 
 @Injectable()
 export class PixPlanService {
@@ -136,6 +138,7 @@ export class PixPlanService {
     let effectiveUserId = userId;
     let planTenantTag: string | null = null;
     let planOwnerCpf: string | null = null;
+    let planOwnerName: string | null = null;
     if (body.pixCreditPlanId) {
       const planRow = await this.repo.findPixCreditPlanById(body.pixCreditPlanId);
       if (planRow) {
@@ -143,6 +146,18 @@ export class PixPlanService {
         const tagMatch = (planRow.description ?? '').match(/\|([A-Z0-9]+)\]/i);
         if (tagMatch) planTenantTag = tagMatch[1].toUpperCase();
         planOwnerCpf = this.extractOwnerDocumentDigitsFromPlanDescription(planRow.description);
+        // 1º: nome da tag [NOME_DONO:] gravada na descrição do plano (planos novos via api-pagatg)
+        const nomeDonoMatch = (planRow.description ?? '').match(/\[NOME_DONO:([^\]]+)\]/i);
+        planOwnerName = nomeDonoMatch ? nomeDonoMatch[1].trim() : null;
+        // 2º fallback: nome da conta Simpay vinculada (quando o merchant já tem conta)
+        if (!planOwnerName) {
+          const ownerUser = await this.prisma.user.findUnique({
+            where: { id: effectiveUserId },
+            select: { name: true, email: true },
+          });
+          const isShadow = (ownerUser?.email ?? '').toLowerCase().endsWith('@auto.simpay.com');
+          if (!isShadow) planOwnerName = ownerUser?.name?.trim() || null;
+        }
       }
     }
 
@@ -163,9 +178,13 @@ export class PixPlanService {
     }
 
     const amount = body.price;
-    const netAmount = parseFloat((amount * 0.91).toFixed(2));
-    const totalFee = parseFloat((amount * 0.09).toFixed(2));
-    const domFee = parseFloat((amount * 0.0098).toFixed(2));
+    // Usa taxas configuradas para o tenant do plano; fallback para PAGATG se não identificado
+    const tenantTag = planTenantTag ?? 'PAGATG';
+    const liquidez = getPlatformTaxaEffective(tenantTag, 'LIQUIDEZ', 0.91);
+    const mdrPix = getPlatformTaxaEffective(tenantTag, 'MDR_PIX', 0.0098);
+    const netAmount = parseFloat((amount * liquidez).toFixed(2));
+    const totalFee = parseFloat((amount * (1 - liquidez)).toFixed(2));
+    const domFee = parseFloat((amount * mdrPix).toFixed(2));
     const platformFee = parseFloat((totalFee - domFee).toFixed(2));
 
     const transaction = await this.prisma.transaction.create({
@@ -178,7 +197,7 @@ export class PixPlanService {
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFee),
         platformFee: new Prisma.Decimal(platformFee),
-        description: `${body.description ?? `PIX_PLAN:${body.planType}`}${planTenantTag ? ` [TENANT:${planTenantTag}]` : ''}${planOwnerCpf ? ` [CPF_DONO:${planOwnerCpf}]` : ''}`,
+        description: `${body.description ?? `PIX_PLAN:${body.planType}`}${planTenantTag ? ` [TENANT:${planTenantTag}]` : ''}${planOwnerCpf ? ` [CPF_DONO:${planOwnerCpf}]` : ''}${planOwnerName ? ` [NOME_DONO:${planOwnerName}]` : ''}`,
         customerName: body.name,
         customerEmail: body.email,
         customerDocument: body.document.replace(/[.-]/g, ''),

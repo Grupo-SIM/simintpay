@@ -9,6 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { PagaTGConfig } from '../../modules/pagatg/pagatg.config';
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
@@ -33,45 +34,93 @@ export class InternalPagatgFinanceController {
     return [cpf, cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
   }
 
-  private async resolveUserIdsByCpf(cpf: string): Promise<string[]> {
+  /**
+   * Retorna os userIds associados ao CPF na tabela User do simpay.
+   * Se o usuário não tem conta no simpay, retorna array vazio.
+   */
+  private async resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
+    const ids = new Set<string>();
+
     const variants = this.cpfVariants(cpf);
-    if (variants.length === 0) return [];
-    const users = await this.prisma.user.findMany({
-      where: { cpf: { in: variants } },
-      select: { id: true },
-    });
-    return [...new Set(users.map((u) => u.id))];
+    if (variants.length > 0) {
+      const users = await this.prisma.user.findMany({
+        where: { cpf: { in: variants } },
+        select: { id: true },
+      });
+      users.forEach((u) => ids.add(u.id));
+    }
+
+    // userId direto (mesmo UUID compartilhado entre pagatg DB e simpay DB)
+    if (directUserId?.trim()) {
+      ids.add(directUserId.trim());
+    }
+
+    return [...ids];
+  }
+
+  /**
+   * Constrói o filtro OR para encontrar transações do vendedor pagatg mesmo
+   * quando ele não tem conta no simpay: busca por userId resolvido OU pela
+   * tag [CPF_DONO:{cpf}] gravada na descrição no momento da criação.
+   */
+  private buildOwnerFilter(cpf: string, userIds: string[]): any {
+    const cpfClean = this.normalizeCpf(cpf);
+    const conditions: any[] = [];
+
+    if (userIds.length > 0) {
+      conditions.push({ userId: { in: userIds } });
+    }
+
+    // Transações criadas quando o vendedor ainda não tinha conta no simpay
+    // — o CPF do dono fica gravado como [CPF_DONO:{cpf}] na descrição
+    if (cpfClean.length === 11) {
+      conditions.push({ description: { contains: `[CPF_DONO:${cpfClean}]`, mode: 'insensitive' } });
+    }
+
+    if (conditions.length === 0) return null;
+    if (conditions.length === 1) return conditions[0];
+    return { OR: conditions };
   }
 
   @Get('summary')
   async summary(
     @Query('cpf') cpf: string,
+    @Query('userId') userId?: string,
     @Headers('x-internal-token') internalToken?: string,
   ) {
     this.ensureInternalToken(internalToken);
-    const userIds = await this.resolveUserIdsByCpf(cpf);
-    if (userIds.length === 0) {
+    const userIds = await this.resolveUserIdsByCpf(cpf, userId);
+    const ownerFilter = this.buildOwnerFilter(cpf, userIds);
+    if (!ownerFilter) {
       return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0 };
     }
 
     const txCompleted = await this.prisma.transaction.aggregate({
       where: {
-        userId: { in: userIds },
-        status: 'COMPLETED',
-        description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' },
+        AND: [
+          ownerFilter,
+          { status: 'COMPLETED' },
+          { description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' } },
+        ],
       },
       _sum: { netAmount: true, amount: true },
     });
 
-    const wdCompleted = await this.prisma.withdrawRequest.aggregate({
-      where: { userId: { in: userIds }, status: { in: ['APPROVED', 'COMPLETED'] } },
-      _sum: { amount: true },
-    });
+    const wdFilter = userIds.length > 0 ? { userId: { in: userIds } } : null;
 
-    const wdPending = await this.prisma.withdrawRequest.aggregate({
-      where: { userId: { in: userIds }, status: 'PENDING' },
-      _sum: { amount: true, grossAmount: true },
-    });
+    const wdCompleted = wdFilter
+      ? await this.prisma.withdrawRequest.aggregate({
+          where: { ...wdFilter, status: { in: ['APPROVED', 'COMPLETED'] } },
+          _sum: { amount: true },
+        })
+      : { _sum: { amount: null } };
+
+    const wdPending = wdFilter
+      ? await this.prisma.withdrawRequest.aggregate({
+          where: { ...wdFilter, status: 'PENDING' },
+          _sum: { amount: true, grossAmount: true },
+        })
+      : { _sum: { amount: null, grossAmount: null } };
 
     const totalReceived = Number(txCompleted._sum.netAmount ?? txCompleted._sum.amount ?? 0);
     const totalCompletedWithdraw = Number(wdCompleted._sum.amount ?? 0);
@@ -88,6 +137,7 @@ export class InternalPagatgFinanceController {
   @Get('transactions')
   async transactions(
     @Query('cpf') cpf: string,
+    @Query('userId') userId?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '10',
     @Query('startDate') startDate?: string,
@@ -97,34 +147,37 @@ export class InternalPagatgFinanceController {
     @Headers('x-internal-token') internalToken?: string,
   ) {
     this.ensureInternalToken(internalToken);
-    const userIds = await this.resolveUserIdsByCpf(cpf);
-    if (userIds.length === 0) {
+    const userIds = await this.resolveUserIdsByCpf(cpf, userId);
+    const ownerFilter = this.buildOwnerFilter(cpf, userIds);
+    if (!ownerFilter) {
       return { transactions: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
     }
 
     const pageNum = Math.max(1, Number(page || 1));
     const size = Math.min(Math.max(1, Number(limit || 10)), 5000);
-    const where: any = {
-      userId: { in: userIds },
-      description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' },
-    };
 
-    if (status && status !== 'ALL') {
-      where.status = String(status).toUpperCase() as TxStatus;
+    const andConditions: any[] = [
+      ownerFilter,
+      { description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' } },
+    ];
+
+    const statusUpper = status ? String(status).toUpperCase() : '';
+    if (statusUpper && statusUpper !== 'ALL') {
+      andConditions.push({ status: statusUpper as TxStatus });
     }
+
     if (description && description !== 'ALL') {
-      where.description = {
-        AND: [
-          { contains: '[TENANT:PAGATG]', mode: 'insensitive' },
-          { contains: description, mode: 'insensitive' },
-        ],
-      } as any;
+      andConditions.push({ description: { contains: description, mode: 'insensitive' } });
     }
+
     if (startDate || endDate) {
-      where.createdAt = {};
-      if (startDate) where.createdAt.gte = new Date(`${startDate}T00:00:00.000Z`);
-      if (endDate) where.createdAt.lte = new Date(`${endDate}T23:59:59.999Z`);
+      const createdAt: any = {};
+      if (startDate) createdAt.gte = new Date(`${startDate}T00:00:00.000Z`);
+      if (endDate) createdAt.lte = new Date(`${endDate}T23:59:59.999Z`);
+      andConditions.push({ createdAt });
     }
+
+    const where = { AND: andConditions };
 
     const [totalItems, items] = await Promise.all([
       this.prisma.transaction.count({ where }),
@@ -167,12 +220,13 @@ export class InternalPagatgFinanceController {
   @Get('withdrawals')
   async withdrawals(
     @Query('cpf') cpf: string,
+    @Query('userId') userId?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '10',
     @Headers('x-internal-token') internalToken?: string,
   ) {
     this.ensureInternalToken(internalToken);
-    const userIds = await this.resolveUserIdsByCpf(cpf);
+    const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     if (userIds.length === 0) {
       return { withdrawals: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
     }
@@ -211,22 +265,23 @@ export class InternalPagatgFinanceController {
 
   @Post('withdraw')
   async requestWithdraw(
-    @Body() body: { cpf: string; amount: number; pixKey: string },
+    @Body() body: { cpf: string; userId?: string; amount: number; pixKey: string },
     @Headers('x-internal-token') internalToken?: string,
   ) {
     this.ensureInternalToken(internalToken);
-    const userIds = await this.resolveUserIdsByCpf(body.cpf);
+    const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
     if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF');
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
     if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
 
+    const taxaSaque = PagaTGConfig.saque.calcularTaxa(amount);
     const created = await this.prisma.withdrawRequest.create({
       data: {
         userId: userIds[0],
         amount,
-        grossAmount: amount + 2,
-        fee: 2,
+        grossAmount: parseFloat((amount + taxaSaque).toFixed(2)),
+        fee: parseFloat(taxaSaque.toFixed(2)),
         status: 'PENDING',
         pixKey: body.pixKey.trim(),
       },

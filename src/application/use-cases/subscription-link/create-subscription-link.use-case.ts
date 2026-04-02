@@ -9,6 +9,8 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import type { CreateSubscriptionLinkDto, FrequencyTypeDto } from '../../dtos/subscription-link/create-subscription-link.dto';
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { CommunityManagementService } from '../../services/community-management.service';
 
 function mapFrequency(f: FrequencyTypeDto): {
@@ -79,7 +81,7 @@ export class CreateSubscriptionLinkUseCase {
       amount: input.dto.valor,
       frequencyType: planType,
       isStandalone,
-      platformFee: input.dto.platformFee ?? 9.0,
+      platformFee: input.dto.platformFee ?? getPlatformTaxaEffective('GLOBAL', 'TAXA_ASSINATURA', PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA),
       redirectUrl: input.dto.redirectUrl ?? null,
       webhookUrl: input.dto.webhookUrl ?? null,
       maxUses: input.dto.maxUses ?? null,

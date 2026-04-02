@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { BosqueConfig } from '../bosque.config';
 import { CheckoutPixDto } from '../dtos/checkout-pix.dto';
 import { CheckoutCreditCardDto } from '../dtos/checkout-credit-card.dto';
 import { TransactionStatus, PaymentMethod } from '@prisma/client';
@@ -55,8 +56,12 @@ export class BosquePaymentService {
         throw new BadRequestException('Nome deve ter pelo menos 2 caracteres');
 
       const price = body.price;
-      const domFee = price * 0.09;
-      const netAmount = price * 0.91;
+      const liquidez = BosqueConfig.saque.fatorLiquidez;
+      const mdrPix = BosqueConfig.mdr.pix;
+      const netAmount = parseFloat((price * liquidez).toFixed(2));
+      const totalFee = parseFloat((price * (1 - liquidez)).toFixed(2));
+      const domFee = parseFloat((price * mdrPix).toFixed(2));
+      const platformFee = parseFloat((totalFee - domFee).toFixed(2));
 
       const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
       if (!wallet) throw new BadRequestException('Carteira não encontrada');
@@ -68,9 +73,9 @@ export class BosquePaymentService {
           amount: price,
           status: TransactionStatus.DRAFT,
           netAmount,
-          totalFee: domFee,
+          totalFee,
           domFee,
-          platformFee: domFee,
+          platformFee,
           paymentMethod: PaymentMethod.PIX,
           description: internalDescription,
           customerName: body.name,
@@ -147,14 +152,13 @@ export class BosquePaymentService {
         throw new BadRequestException('Preço deve ser maior que zero');
 
       const price = body.price;
-      const installmentRates: Record<number, number> = {
-        1: 0.0399, 2: 0.0830, 3: 0.0968, 4: 0.1104, 5: 0.1237,
-        6: 0.1367, 7: 0.1495, 8: 0.1621, 9: 0.1744, 10: 0.1864,
-        11: 0.1983, 12: 0.2099,
-      };
-      const rate = installmentRates[body.installments] ?? 0.0399;
-      const domFee = price * 0.09;
-      const netAmount = price * 0.91;
+      const installments = body.installments ?? 1;
+      const rate = BosqueConfig.mdr.cartao[installments] ?? BosqueConfig.mdr.cartao[1];
+      const liquidezCC = BosqueConfig.saque.fatorLiquidez;
+      const netAmount = parseFloat((price * liquidezCC).toFixed(2));
+      const totalFeeCC = parseFloat((price * (1 - liquidezCC)).toFixed(2));
+      const domFeeCC = parseFloat((price * rate).toFixed(2));
+      const platformFeeCC = parseFloat((totalFeeCC - domFeeCC).toFixed(2));
 
       const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
       if (!wallet) throw new BadRequestException('Carteira não encontrada');
@@ -166,9 +170,9 @@ export class BosquePaymentService {
           amount: price,
           status: TransactionStatus.DRAFT,
           netAmount,
-          totalFee: domFee,
-          domFee,
-          platformFee: domFee,
+          totalFee: totalFeeCC,
+          domFee: domFeeCC,
+          platformFee: platformFeeCC,
           paymentMethod: PaymentMethod.CREDIT_CARD,
           description: internalDescription,
           customerName: body.name,
@@ -239,7 +243,7 @@ export class BosquePaymentService {
         status: 'PENDING',
         fee_details: {
           installment_amount: installmentAmount,
-          total_fee: domFee,
+          total_fee: domFeeCC,
           total_amount: price,
           net_amount_seller: netAmount,
         },

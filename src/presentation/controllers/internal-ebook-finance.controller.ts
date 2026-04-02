@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY, type DomTransactionItem, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
+import { EbookSimConfig } from '../../modules/ebooksim/ebooksim.config';
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
@@ -299,6 +300,7 @@ export class InternalEbookFinanceController {
       orderNumber: string;
       amount: number;
       ownerCpf?: string;
+      ownerName?: string;
       paymentMethod?: string;
       buyerName?: string;
       buyerEmail?: string;
@@ -320,14 +322,19 @@ export class InternalEbookFinanceController {
     if (existing) return { success: true, id: existing.id, created: false };
 
     let userId = 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
+    let ownerName: string | null = body.ownerName?.trim() || null;
     if (body.ownerCpf) {
       const cpf = body.ownerCpf.replace(/\D/g, '');
       const cpfFmt = cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
       const author = await this.prisma.user.findFirst({
         where: { cpf: { in: [cpf, cpfFmt] } },
-        select: { id: true },
+        select: { id: true, name: true },
       });
-      if (author) userId = author.id;
+      if (author) {
+        userId = author.id;
+        // Preferir o nome vindo do back-ebook (fonte primária); fallback para o nome da conta Simpay
+        if (!ownerName) ownerName = author.name?.trim() || null;
+      }
     }
 
     await this.prisma.user.upsert({
@@ -343,8 +350,10 @@ export class InternalEbookFinanceController {
     });
 
     const cpfTag = body.ownerCpf ? ` [CPF_DONO:${body.ownerCpf.replace(/\D/g, '')}]` : '';
-    const description = `${body.orderNumber.trim()} [TENANT:EBOOK]${cpfTag}`;
-    const netAmount = Number((amount * 0.91).toFixed(2));
+    const nomeTag = ownerName ? ` [NOME_DONO:${ownerName}]` : '';
+    const description = `${body.orderNumber.trim()} [TENANT:EBOOK]${cpfTag}${nomeTag}`;
+    const liquidez = EbookSimConfig.saque.fatorLiquidez;
+    const netAmount = Number((amount * liquidez).toFixed(2));
     const method = (body.paymentMethod || 'PIX').toUpperCase();
 
     const tx = await this.prisma.transaction.create({
@@ -377,12 +386,13 @@ export class InternalEbookFinanceController {
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
     if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
 
+    const taxaSaque = EbookSimConfig.saque.calcularTaxa(amount);
     const created = await this.prisma.withdrawRequest.create({
       data: {
         userId: userIds[0],
         amount,
-        grossAmount: amount + 2,
-        fee: 2,
+        grossAmount: parseFloat((amount + taxaSaque).toFixed(2)),
+        fee: parseFloat(taxaSaque.toFixed(2)),
         status: 'PENDING',
         pixKey: body.pixKey.trim(),
       },

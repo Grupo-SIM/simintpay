@@ -1178,7 +1178,7 @@ export class AdminController {
       data: items.map((u) => ({
         id: u.id,
         cpf: u.cpf,
-        name: u.name,
+        name: u.user?.name?.trim() || u.name,
         platform: u.platform,
         balance: Number(u.wallet?.balance ?? 0),
         lockedBalance: Number(u.wallet?.lockedBalance ?? 0),

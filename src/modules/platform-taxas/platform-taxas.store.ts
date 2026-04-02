@@ -48,21 +48,60 @@ export function getPlatformTaxaEffective(
   fallback: number,
 ): number {
   const canonical = canonicalPlatformTaxaTag(listOrModuleTag);
-  const row = readOverridesRaw()[canonical];
-  const o = row?.[keySuffix];
-  if (o !== undefined && Number.isFinite(Number(o))) return Number(o);
+  const overrides = readOverridesRaw();
+
+  // 1º: override específico da plataforma
+  const platformRow = overrides[canonical];
+  const platformOverride = platformRow?.[keySuffix];
+  if (platformOverride !== undefined && Number.isFinite(Number(platformOverride))) {
+    return Number(platformOverride);
+  }
+
+  // 2º: variável de ambiente específica da plataforma
   const envTag = envPrefixForCanonical(canonical);
   const envKey = `${envTag}_${keySuffix}`;
-  return parseEnvNumber(process.env[envKey], fallback);
+  const envVal = process.env[envKey];
+  if (envVal !== undefined && envVal !== '') {
+    const n = parseEnvNumber(envVal, NaN);
+    if (Number.isFinite(n)) return n;
+  }
+
+  // 3º: override global (tag GLOBAL)
+  if (canonical !== 'GLOBAL') {
+    const globalRow = overrides['GLOBAL'];
+    const globalOverride = globalRow?.[keySuffix];
+    if (globalOverride !== undefined && Number.isFinite(Number(globalOverride))) {
+      return Number(globalOverride);
+    }
+  }
+
+  // 4º: fallback (default do código)
+  return parseEnvNumber(undefined, fallback);
 }
 
 export function getPlatformTaxaSource(
   listOrModuleTag: string,
   keySuffix: string,
-): 'override' | 'env' {
+): 'override' | 'global' | 'env' {
   const canonical = canonicalPlatformTaxaTag(listOrModuleTag);
-  const row = readOverridesRaw()[canonical];
-  if (row && Object.prototype.hasOwnProperty.call(row, keySuffix)) return 'override';
+  const overrides = readOverridesRaw();
+
+  const platformRow = overrides[canonical];
+  if (platformRow && Object.prototype.hasOwnProperty.call(platformRow, keySuffix)) {
+    return 'override';
+  }
+
+  const envTag = envPrefixForCanonical(canonical);
+  const envKey = `${envTag}_${keySuffix}`;
+  if (process.env[envKey] !== undefined && process.env[envKey] !== '') return 'env';
+
+  if (canonical !== 'GLOBAL') {
+    const globalRow = overrides['GLOBAL'];
+    if (globalRow && Object.prototype.hasOwnProperty.call(globalRow, keySuffix)) {
+      return 'global';
+    }
+  }
+
   return 'env';
 }
 

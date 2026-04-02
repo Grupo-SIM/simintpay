@@ -14,6 +14,7 @@ import {
 } from '../../modules/platform-taxas/platform-taxas.keys';
 
 const KNOWN_CANONICAL_TAGS = [
+  'GLOBAL',
   'RENOVADA',
   'REVALIDA',
   'BOSQUE',
@@ -24,7 +25,7 @@ const KNOWN_CANONICAL_TAGS = [
 
 export type PlataformaTaxaSourceMap = Record<
   string,
-  Partial<Record<PlataformaTaxaKey, 'env' | 'override'>>
+  Partial<Record<PlataformaTaxaKey, 'env' | 'override' | 'global'>>
 >;
 
 @Injectable()
@@ -43,7 +44,7 @@ export class PlatformTaxasService {
 
     for (const tag of [...set].sort()) {
       const row: Partial<Record<PlataformaTaxaKey, number>> = {};
-      const srcRow: Partial<Record<PlataformaTaxaKey, 'env' | 'override'>> = {};
+      const srcRow: Partial<Record<PlataformaTaxaKey, 'env' | 'override' | 'global'>> = {};
       for (const key of PLATAFORMA_TAXA_KEYS) {
         const fb = defaultTaxaValue(key);
         row[key] = getPlatformTaxaEffective(tag, key, fb);

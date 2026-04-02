@@ -72,6 +72,8 @@ services:
       # Integração PagaTG (api-machine → api-pagatg notifica pix-credit após confirmação DOM)
       - API_PAGATG_URL=https://api-bot.jbmidia.com
       - PAGATG_INTERNAL_TOKEN=f7d82b3a9c1e4d5f8a2b6c0e7d9f1a3b5c7e9d1f0a2b4c6e8d0f2a4b6c8e0d1f
+    volumes:
+      - simpay_storage:/app/storage
     networks:
       - externa
       - interna
@@ -102,3 +104,7 @@ networks:
     external: true
   interna:
     external: true
+
+volumes:
+  simpay_storage:
+    driver: local

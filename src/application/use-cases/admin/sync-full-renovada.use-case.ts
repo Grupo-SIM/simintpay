@@ -7,6 +7,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import dayjs from 'dayjs';
 import { appendInternalTags, TENANT_RENOVADA_TAG } from '../../utils/internal-tags.util';
+import { RenovadaConfig } from '../../../modules/renovada/renovada.config';
 
 @Injectable()
 export class SyncFullRenovadaUseCase {
@@ -146,14 +147,13 @@ export class SyncFullRenovadaUseCase {
             const mappedStatus = this.mapTransactionStatus(tx.status);
             const amount = new Prisma.Decimal(tx.amount || 0);
             
-            // Força o lucro líquido em 0.91 conforme regra da Renovada
-            const netAmountVal = Number(tx.amount || 0) * 0.91;
+            const liquidez = RenovadaConfig.saque.fatorLiquidez;
+            const netAmountVal = Number(tx.amount || 0) * liquidez;
             const netAmount = new Prisma.Decimal(netAmountVal);
-            
+
             const totalFeeVal = Number(tx.amount || 0) - netAmountVal;
             const totalFee = new Prisma.Decimal(totalFeeVal);
-            
-            // Estimativa de divisao de taxas
+
             const domFeeVal = Math.min(totalFeeVal, Number(tx.dom_fee || totalFeeVal * 0.4));
             const domFee = new Prisma.Decimal(domFeeVal);
             const platformFee = new Prisma.Decimal(Math.max(0, totalFeeVal - domFeeVal));

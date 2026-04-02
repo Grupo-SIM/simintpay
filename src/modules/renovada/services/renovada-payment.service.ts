@@ -4,6 +4,7 @@ import { CheckoutPixDto } from '../dtos/checkout-pix.dto';
 import { CheckoutCreditCardDto } from '../dtos/checkout-credit-card.dto';
 import { TransactionStatus, PaymentMethod } from '@prisma/client';
 import dayjs from 'dayjs';
+import { RenovadaConfig } from '../renovada.config';
 
 interface DomPagamentosResponse {
   id: string;
@@ -117,13 +118,13 @@ export class RenovadaPaymentService {
 
       const price = body.price;
 
-      // Calcular taxas (9% total)
-      const domFeeRate = 0.09; // 9%
-      const domFee = price * domFeeRate;
-      
-      // amountWithoutAllFee deve ser 91% do valor original
-      const amountWithoutAllFee = price * 0.91;
-      const totalFees = domFee;
+      // Calcular taxas via configuração da plataforma
+      const liquidez = RenovadaConfig.saque.fatorLiquidez;
+      const mdrPix = RenovadaConfig.mdr.pix;
+      const amountWithoutAllFee = parseFloat((price * liquidez).toFixed(2));
+      const totalFees = parseFloat((price * (1 - liquidez)).toFixed(2));
+      const domFee = parseFloat((price * mdrPix).toFixed(2));
+      const platformFeeCalc = parseFloat((totalFees - domFee).toFixed(2));
 
       // Buscar a wallet do usuário
       const wallet = await this.prisma.wallet.findUnique({
@@ -145,7 +146,7 @@ export class RenovadaPaymentService {
           netAmount: amountWithoutAllFee,
           totalFee: totalFees,
           domFee,
-          platformFee: totalFees,
+          platformFee: platformFeeCalc,
           paymentMethod: PaymentMethod.PIX,
           description: internalDescription,
           customerName: body?.name,
@@ -267,13 +268,13 @@ export class RenovadaPaymentService {
       const fixedFee = 1.00;
       const totalFee = price * installmentRate + fixedFee;
 
-      // DOM fee (9%)
-      const domFeeRate = 0.09;
-      const domFee = price * domFeeRate;
-
-      // amountWithoutAllFee deve ser 91% do valor original
-      const amountWithoutAllFee = price * 0.91;
-      const totalFeesFinal = domFee;
+      // DOM fee via configuração da plataforma
+      const liquidezCC = RenovadaConfig.saque.fatorLiquidez;
+      const mdrCC = RenovadaConfig.mdr.cartao[body.installments] ?? RenovadaConfig.mdr.cartao[1];
+      const amountWithoutAllFee = parseFloat((price * liquidezCC).toFixed(2));
+      const totalFeesFinal = parseFloat((price * (1 - liquidezCC)).toFixed(2));
+      const domFee = parseFloat((price * mdrCC).toFixed(2));
+      const platformFeeCC = parseFloat((totalFeesFinal - domFee).toFixed(2));
 
       // Buscar a wallet do usuário
       const wallet = await this.prisma.wallet.findUnique({
@@ -295,7 +296,7 @@ export class RenovadaPaymentService {
           netAmount: amountWithoutAllFee,
           totalFee: totalFeesFinal,
           domFee,
-          platformFee: totalFeesFinal,
+          platformFee: platformFeeCC,
           paymentMethod: PaymentMethod.CREDIT_CARD,
           description: internalDescription,
           customerName: body?.name,
