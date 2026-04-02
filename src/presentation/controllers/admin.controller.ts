@@ -199,12 +199,15 @@ async function expandUserIdsByCpf(
 const EBOOK_CONSOLIDADO_USER_ID =
   process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
 
+const REVALIDA_CONSOLIDADO_USER_ID =
+  process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
+
 /** Contas plataforma usadas no consolidado e no cálculo do Lucro Simpay (inclui Ebook). */
 const CONSOLIDADO_PLATFORMS: ReadonlyArray<{ tag: string; id: string }> = [
   { tag: 'RENOVADA', id: 'ba2b57d6-e3bf-4395-af31-58454f27207a' },
   { tag: 'PAGATG', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5d' },
   { tag: 'BOSQUE', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c' },
-  { tag: 'REVALIDA', id: '7929df01-a980-45e3-b3c7-1a8b8eb7850f' },
+  { tag: 'REVALIDA', id: REVALIDA_CONSOLIDADO_USER_ID },
   { tag: 'EBOOK', id: EBOOK_CONSOLIDADO_USER_ID },
 ];
 
