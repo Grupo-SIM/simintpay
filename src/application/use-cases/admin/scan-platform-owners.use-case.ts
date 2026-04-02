@@ -21,9 +21,10 @@ const TENANT_TO_PLATFORM: Record<string, string> = {
   FRENDZ: 'frendz',
 };
 
-// Regex para extrair [TENANT:XXX] e [CPF_DONO:YYY] da descrição
+// Regex para extrair [TENANT:XXX], [CPF_DONO:YYY] e [NOME_DONO:ZZZ] da descrição
 const TENANT_REGEX = /\[TENANT:([A-Z0-9_]+)\]/i;
 const CPF_DONO_REGEX = /\[CPF_DONO:(\d{11})\]/i;
+const NOME_DONO_REGEX = /\[NOME_DONO:([^\]]+)\]/i;
 
 function formatDateYmd(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -63,7 +64,7 @@ export class ScanPlatformOwnersUseCase {
 
     const ownerMap = new Map<
       string,
-      { cpf: string; platform: string; totalNet: number }
+      { cpf: string; platform: string; totalNet: number; nomeDono: string | null }
     >();
 
     // ── 1) Transações locais (webhook / interno) com tags na description
@@ -95,8 +96,14 @@ export class ScanPlatformOwnersUseCase {
 
       if (!platform) continue;
 
+      const nomeDonoMatch = NOME_DONO_REGEX.exec(desc);
+      const nomeDono = nomeDonoMatch ? nomeDonoMatch[1].trim() : null;
+
       const key = `${cpf}::${platform}`;
-      const current = ownerMap.get(key) ?? { cpf, platform, totalNet: 0 };
+      const current = ownerMap.get(key) ?? { cpf, platform, totalNet: 0, nomeDono: null };
+
+      // Manter o primeiro nome encontrado (ou qualquer nome não-nulo)
+      if (nomeDono && !current.nomeDono) current.nomeDono = nomeDono;
 
       if (tx.status === 'COMPLETED') {
         current.totalNet += Number(tx.netAmount ?? tx.amount ?? 0);
@@ -125,7 +132,7 @@ export class ScanPlatformOwnersUseCase {
     );
 
     // Processa cada owner encontrado
-    for (const { cpf, platform, totalNet } of ownerMap.values()) {
+    for (const { cpf, platform, totalNet, nomeDono } of ownerMap.values()) {
       try {
         const existing = await this.prisma.externalPlatformUser.findUnique({
           where: { cpf_platform: { cpf, platform } },
@@ -138,12 +145,18 @@ export class ScanPlatformOwnersUseCase {
         });
 
         if (existing) {
-          if (simpayUser && !existing.userId) {
+          // Atualizar userId e/ou nome se ainda está no fallback
+          const resolvedName = simpayUser?.name?.trim() || nomeDono || null;
+          const nameNeedsUpdate = resolvedName && existing.name.startsWith('CPF ');
+          if ((simpayUser && !existing.userId) || nameNeedsUpdate) {
             await this.prisma.externalPlatformUser.update({
               where: { id: existing.id },
-              data: { userId: simpayUser.id },
+              data: {
+                ...(simpayUser && !existing.userId ? { userId: simpayUser.id } : {}),
+                ...(nameNeedsUpdate ? { name: resolvedName! } : {}),
+              },
             });
-            linked++;
+            if (simpayUser && !existing.userId) linked++;
           }
 
           if (existing.wallet) {
@@ -159,7 +172,8 @@ export class ScanPlatformOwnersUseCase {
             walletsUpdated++;
           }
         } else {
-          let name = simpayUser?.name ?? null;
+          // Prioridade: simpayUser (match por CPF) > nome da tag [NOME_DONO:] > cpfLookup > fallback
+          let name = simpayUser?.name?.trim() || nomeDono || null;
           if (!name) {
             name = await this.cpfLookup.lookupName(cpf);
           }
@@ -277,8 +291,12 @@ export class ScanPlatformOwnersUseCase {
           const net = Number(tx.liquid_amount ?? tx.amount ?? 0);
           if (!Number.isFinite(net) || net <= 0) continue;
 
+          const nomeDonoMatch = NOME_DONO_REGEX.exec(text);
+          const nomeDono = nomeDonoMatch ? nomeDonoMatch[1].trim() : null;
+
           const key = `${cpf}::${platform}`;
-          const current = ownerMap.get(key) ?? { cpf, platform, totalNet: 0 };
+          const current = ownerMap.get(key) ?? { cpf, platform, totalNet: 0, nomeDono: null };
+          if (nomeDono && !current.nomeDono) current.nomeDono = nomeDono;
           current.totalNet += net;
           ownerMap.set(key, current);
           domMatched++;

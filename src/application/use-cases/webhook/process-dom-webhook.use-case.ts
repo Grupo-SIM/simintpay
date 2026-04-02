@@ -592,14 +592,16 @@ export class ProcessDomWebhookUseCase {
         `[DomWebhook][ebook] back-ebook HTTP ${res.status} OK ref=${orderNumber} domPaymentId=${data.id}`,
       );
 
-      // Extrair ownerCpf da resposta do back-ebook para vincular a transaction ao autor correto
+      // Extrair ownerCpf e ownerName da resposta do back-ebook para vincular a transaction ao autor correto
       let ownerCpf: string | null = null;
+      let ownerName: string | null = null;
       try {
         const parsed = JSON.parse(text);
         ownerCpf = typeof parsed?.ownerCpf === 'string' ? parsed.ownerCpf : null;
+        ownerName = typeof parsed?.ownerName === 'string' ? parsed.ownerName.trim() || null : null;
       } catch { /* resposta não-JSON, ignorar */ }
 
-      void this.upsertEbookTransaction(data, orderNumber, ownerCpf);
+      void this.upsertEbookTransaction(data, orderNumber, ownerCpf, ownerName);
 
       return true;
     } catch (e) {
@@ -613,7 +615,7 @@ export class ProcessDomWebhookUseCase {
 
   /** Cria ou garante que existe uma Transaction local para o pedido ebook,
    *  permitindo que /admin/plataformas/ebook/transacoes e /internal/ebook/finance/* funcionem. */
-  private async upsertEbookTransaction(data: RawDomData, orderNumber: string, ownerCpf: string | null): Promise<void> {
+  private async upsertEbookTransaction(data: RawDomData, orderNumber: string, ownerCpf: string | null, ownerNameFromBack?: string | null): Promise<void> {
     try {
       const existing = await this.prisma.transaction.findFirst({
         where: { domPaymentId: data.id },
@@ -668,14 +670,16 @@ export class ProcessDomWebhookUseCase {
 
       // Resolve o userId do autor pelo CPF, se disponível
       let ebookUserId: string | null = null;
+      let ownerNameFromSimpay: string | null = null;
       if (ownerCpf) {
         const cpfClean = ownerCpf.replace(/\D/g, '');
         const cpfFormatted = cpfClean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
         const author = await this.prisma.user.findFirst({
           where: { cpf: { in: [cpfClean, cpfFormatted] } },
-          select: { id: true },
+          select: { id: true, name: true },
         });
         ebookUserId = author?.id ?? null;
+        ownerNameFromSimpay = author?.name?.trim() || null;
         if (ebookUserId) {
           this.logger.log(`[DomWebhook][ebook] CPF ${cpfClean} → userId=${ebookUserId}`);
         } else {
@@ -712,9 +716,12 @@ export class ProcessDomWebhookUseCase {
         data.liquid_amount != null ? data.liquid_amount / 100 : null,
       );
 
-      // CPF do dono na description garante reconhecimento quando ele criar conta no simpay
+      // CPF e nome do dono na description garantem reconhecimento quando ele criar conta no simpay
+      // Prioridade: nome vindo do back-ebook (fonte primária) > nome da conta Simpay
+      const resolvedOwnerName = ownerNameFromBack?.trim() || ownerNameFromSimpay || null;
       const cpfTag = ownerCpf ? ` [CPF_DONO:${ownerCpf.replace(/\D/g, '')}]` : '';
-      const description = appendInternalTags(orderNumber, [TENANT_EBOOK_TAG]) + cpfTag;
+      const nomeTag = resolvedOwnerName ? ` [NOME_DONO:${resolvedOwnerName}]` : '';
+      const description = appendInternalTags(orderNumber, [TENANT_EBOOK_TAG]) + cpfTag + nomeTag;
 
       await this.prisma.$transaction(async (p) => {
         const tx = await p.transaction.create({
