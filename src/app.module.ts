@@ -23,6 +23,7 @@ import { RevalidaModule } from './modules/revalida/revalida.module';
 import { BosqueModule } from './modules/bosque/bosque.module';
 import { PagatgModule } from './modules/pagatg/pagatg.module';
 import { MasterModule } from './modules/master/master.module';
+import { AtlasModule } from './modules/atlas/atlas.module';
 import { PixPlanModule } from './presentation/pix-plan.module';
 import { SubscriptionLinkModule } from './presentation/subscription-link.module';
 import { CheckoutModule } from './presentation/checkout.module';
@@ -63,6 +64,7 @@ import { CheckoutModule } from './presentation/checkout.module';
     BosqueModule,
     PagatgModule,
     MasterModule,
+    AtlasModule,
   ],
   providers: [
     {
