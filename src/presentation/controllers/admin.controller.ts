@@ -223,6 +223,17 @@ async function resolveAtlasConsolidadoUserId(prisma: PrismaService): Promise<str
   return u?.id ?? '';
 }
 
+/** Alinha listagem /plataformas ao consolidado (env → e-mail técnico → UUID padrão). */
+async function resolveRevalidaConsolidadoUserId(prisma: PrismaService): Promise<string> {
+  const envId = process.env.REVALIDA_USER_ID?.trim();
+  if (envId) return envId;
+  const u = await prisma.user.findFirst({
+    where: { email: 'revalida@jbmidia.com.br' },
+    select: { id: true },
+  });
+  return u?.id ?? REVALIDA_CONSOLIDADO_USER_ID;
+}
+
 function mergeConsolidadoPlatforms(atlasUserId: string): ConsolidadoPlatformEntry[] {
   const id = atlasUserId?.trim();
   return id
@@ -3302,6 +3313,28 @@ export class AdminController {
         planRows: [{ userId: atlasConsolidadoId, description: 'Plataforma Atlas' }],
         plansCount: 0,
         firstSeen: firstAtlasTx?.createdAt ?? new Date(),
+      });
+    }
+
+    // Garante que REVALIDA apareça (conta técnica / consolidado, como Atlas)
+    const revalidaConsolidadoId = await resolveRevalidaConsolidadoUserId(this.prisma);
+    if (!map.has('REVALIDA')) {
+      const firstRevalidaTx = await this.prisma.transaction.findFirst({
+        where: {
+          OR: [
+            { userId: revalidaConsolidadoId },
+            { description: { contains: '[TENANT:REVALIDA]', mode: 'insensitive' } },
+          ],
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      map.set('REVALIDA', {
+        tag: 'REVALIDA',
+        cpf: '',
+        planRows: [{ userId: revalidaConsolidadoId, description: 'Plataforma Revalida' }],
+        plansCount: 0,
+        firstSeen: firstRevalidaTx?.createdAt ?? new Date(),
       });
     }
 
