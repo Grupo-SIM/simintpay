@@ -65,6 +65,7 @@ export class UpdatePlanUseCase {
       type: input.dto.tipo ? mapTipo(input.dto.tipo) : existing.type,
       webhookUrl: input.dto.webhookUrl ?? existing.webhookUrl,
       redirectUrl: input.dto.redirectUrl ?? existing.redirectUrl,
+      ...(input.dto.code !== undefined && { code: input.dto.code }),
     });
 
     return {

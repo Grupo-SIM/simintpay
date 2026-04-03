@@ -3859,13 +3859,9 @@ export class AdminController {
       include: { pixPlanOrder: { select: { pixCreditPlanId: true, customerDocument: true } } },
     });
 
-    const liquidityKey = `${upperTag}_LIQUIDEZ`;
-    const fixedFeeKey = `${upperTag}_TAXA_FIXA_TRANSACAO`;
-    const cashbackKey = `${upperTag}_TAXA_CASHBACK`;
-
-    const liquidityFactor = Number(process.env[liquidityKey] || process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
-    const fixedFee = Number(process.env[fixedFeeKey] || 0);
-    const cashbackFee = Number(process.env[cashbackKey] || 0);
+    const liquidityFactor = getPlatformTaxaEffective(upperTag, 'LIQUIDEZ', 0.91);
+    const fixedFee = getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', 0.0);
+    const cashbackFee = getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', 0.0);
 
     const adminMargin = 1 - liquidityFactor;
 
@@ -3914,9 +3910,10 @@ export class AdminController {
       const valorBruto = Number(t.amount);
       const isCompleted = t.status === 'COMPLETED';
 
-      const lucroAdmin = isCompleted ? Number((valorBruto * adminMargin - fixedFee - cashbackFee).toFixed(2)) : 0;
+      const cashbackDeduction = valorBruto * (cashbackFee / 100);
+      const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
+      const lucroAdmin = isCompleted ? Number((valorBruto * adminMargin - fixedFee - cashbackDeduction).toFixed(2)) : 0;
       const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
-      const fallbackNet = Number((valorBruto * liquidityFactor).toFixed(2));
       // Alguns registros antigos/com erro ficaram COMPLETED com netAmount=0.
       // Nesses casos, exibimos o líquido calculado pela liquidez da plataforma.
       const valorLiquido = isCompleted && (netFromDb == null || netFromDb <= 0)
@@ -3953,9 +3950,13 @@ export class AdminController {
         valorLiquido: valorLiquido,
         lucroAdmin: lucroAdmin,
         calculos: {
-          valorLiquido: `${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)} = ${valorLiquido.toFixed(2)}`,
+          valorLiquido: (t.netAmount != null && Number(t.netAmount) > 0)
+            ? `Salvo no BD: R$ ${valorLiquido.toFixed(2)}`
+            : `(${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)}) - Fixo ${fixedFee.toFixed(2)} - Cb ${cashbackFee.toFixed(2)}% = ${valorLiquido.toFixed(2)}`,
           lucroAdmin: isCompleted
-            ? `(${valorBruto.toFixed(2)} * ${(1 - liquidityFactor).toFixed(2)}) - ${fixedFee.toFixed(2)} - ${cashbackFee.toFixed(2)} = ${lucroAdmin.toFixed(2)}`
+            ? (t.netAmount != null && Number(t.netAmount) > 0)
+              ? `Histórico Bruto(${valorBruto.toFixed(2)}) - Histórico Líquido(${valorLiquido.toFixed(2)}) = ${(valorBruto - valorLiquido).toFixed(2)}`
+              : `(${valorBruto.toFixed(2)} * ${(1 - liquidityFactor).toFixed(2)}) - Fixo ${fixedFee.toFixed(2)} - Cb ${cashbackFee.toFixed(2)}% = ${lucroAdmin.toFixed(2)}`
             : "Aguardando confirmação do pagamento"
         },
         status: t.status,

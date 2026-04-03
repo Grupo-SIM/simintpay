@@ -13,6 +13,8 @@ import {
   TENANT_EBOOK_TAG,
   TENANT_RENOVADA_TAG,
 } from '../../utils/internal-tags.util';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -192,10 +194,18 @@ export class ProcessDomWebhookUseCase {
     }
   }
 
-  private calcNet(amountReais: number, liquidAmountReais?: number | null): Prisma.Decimal {
-    const factor = parseFloat(process.env.RENOVADA_LIQUIDEZ ?? '0.91');
-    const liq = liquidAmountReais != null ? liquidAmountReais : amountReais * factor;
+  private calcNet(amountReais: number, liquidAmountReais?: number | null, tenantTag?: string): Prisma.Decimal {
+    const liq = liquidAmountReais != null
+      ? liquidAmountReais
+      : amountReais * this.getLiquidezFactorByTag(tenantTag);
     return new Prisma.Decimal(liq);
+  }
+
+  private getLiquidezFactorByTag(tenantTag?: string): number {
+    if (!tenantTag) {
+      return parseFloat(process.env.RENOVADA_LIQUIDEZ ?? '0.91');
+    }
+    return getPlatformTaxaEffective(tenantTag.toUpperCase(), 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ ?? 0.91);
   }
 
   private calcPaymentMethod(method?: string): PaymentMethod {
@@ -641,7 +651,7 @@ export class ProcessDomWebhookUseCase {
       if (pendingTx) {
         this.logger.log(`[DomWebhook][ebook] atualizando tx PENDING → COMPLETED id=${pendingTx.id}`);
         const amountDec = new Prisma.Decimal(data.amount / 100);
-        const netDec = this.calcNet(data.amount / 100, data.liquid_amount != null ? data.liquid_amount / 100 : null);
+        const netDec = this.calcNet(data.amount / 100, data.liquid_amount != null ? data.liquid_amount / 100 : null, 'EBOOK');
         const custName = (data as any).customer_name || data.customer?.name || null;
         const custEmail = (data as any).customer_email || data.customer?.email || null;
         const custDoc = ((data as any).customer_document || data.customer?.document || '').replace(/\D/g, '') || null;
@@ -715,6 +725,7 @@ export class ProcessDomWebhookUseCase {
       const netDec = this.calcNet(
         data.amount / 100,
         data.liquid_amount != null ? data.liquid_amount / 100 : null,
+        'EBOOK',
       );
 
       // CPF e nome do dono na description garantem reconhecimento quando ele criar conta no simpay

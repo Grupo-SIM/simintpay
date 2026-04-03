@@ -12,6 +12,8 @@ export type CreatePlanData = {
   webhookUrl?: string | null;
   redirectUrl?: string | null;
   domPlanId?: string | null;
+  code?: string | null;
+  paymentMethods?: string | null;
 };
 
 export interface IPlanRepository {
@@ -20,6 +22,7 @@ export interface IPlanRepository {
   findAll(): Promise<Plan[]>;
   findById(id: string): Promise<Plan | null>;
   findByIdForUser(input: { id: string; userId: string }): Promise<Plan | null>;
+  findByCode(code: string): Promise<Plan | null>;
   update(id: string, data: Partial<Omit<CreatePlanData, 'userId'>>): Promise<Plan>;
   delete(id: string): Promise<void>;
 }

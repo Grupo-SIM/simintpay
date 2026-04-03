@@ -58,8 +58,15 @@ export class BosquePaymentService {
       const price = body.price;
       const liquidez = BosqueConfig.saque.fatorLiquidez;
       const mdrPix = BosqueConfig.mdr.pix;
-      const netAmount = parseFloat((price * liquidez).toFixed(2));
-      const totalFee = parseFloat((price * (1 - liquidez)).toFixed(2));
+      const taxaFixa = BosqueConfig.mdr.taxaFixaPorTransacao;
+      const cashbackRate = BosqueConfig.mdr.taxaCashback ?? 0;
+
+      const calcLiquidez = price * liquidez;
+      const calcCashback = price * (cashbackRate / 100);
+      let netAmount = parseFloat((calcLiquidez - taxaFixa - calcCashback).toFixed(2));
+      if (netAmount < 0) netAmount = 0;
+
+      const totalFee = parseFloat((price - netAmount).toFixed(2));
       const domFee = parseFloat((price * mdrPix).toFixed(2));
       const platformFee = parseFloat((totalFee - domFee).toFixed(2));
 
@@ -155,8 +162,15 @@ export class BosquePaymentService {
       const installments = body.installments ?? 1;
       const rate = BosqueConfig.mdr.cartao[installments] ?? BosqueConfig.mdr.cartao[1];
       const liquidezCC = BosqueConfig.saque.fatorLiquidez;
-      const netAmount = parseFloat((price * liquidezCC).toFixed(2));
-      const totalFeeCC = parseFloat((price * (1 - liquidezCC)).toFixed(2));
+      const taxaFixa = BosqueConfig.mdr.taxaFixaPorTransacao;
+      const cashbackRate = BosqueConfig.mdr.taxaCashback ?? 0;
+
+      const calcLiquidezCC = price * liquidezCC;
+      const calcCashbackCC = price * (cashbackRate / 100);
+      let netAmount = parseFloat((calcLiquidezCC - taxaFixa - calcCashbackCC).toFixed(2));
+      if (netAmount < 0) netAmount = 0;
+
+      const totalFeeCC = parseFloat((price - netAmount).toFixed(2));
       const domFeeCC = parseFloat((price * rate).toFixed(2));
       const platformFeeCC = parseFloat((totalFeeCC - domFeeCC).toFixed(2));
 

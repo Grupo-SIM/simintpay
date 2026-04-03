@@ -346,8 +346,10 @@ model Plan {
   isActive      Boolean        @default(true)
   webhookUrl    String?
   redirectUrl   String?
-  domPlanId     String?        @unique
-  createdAt     DateTime       @default(now())
+  domPlanId      String?        @unique
+  code           String?        @unique
+  paymentMethods String?        @default("BOTH")
+  createdAt      DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   user          User           @relation(fields: [userId], references: [id])
   subscriptions Subscription[]
@@ -637,4 +639,16 @@ model CustomerPlanAccess {
   @@index([userId])
   @@index([customerEmail])
   @@index([pixPlanId])
+}
+
+model PlatformTaxaOverride {
+  id        String   @id @default(uuid())
+  tag       String
+  key       String
+  value     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tag, key])
+  @@index([tag])
 }

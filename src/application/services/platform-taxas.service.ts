@@ -23,6 +23,7 @@ const KNOWN_CANONICAL_TAGS = [
   'AREAFLIX',
   'FRENDZ',
   'ATLAS',
+  'COMUNIDADE',
 ] as const;
 
 export type PlataformaTaxaSourceMap = Record<
@@ -56,9 +57,25 @@ export class PlatformTaxasService {
       sources[tag] = srcRow;
     }
 
+    // Taxas DOM fixas para links de pagamento (cobradas do comprador, não configuráveis)
+    const DOM_LINK_RATES: Record<string, number> = {
+      DOM_LINK_1X:  0.0000,
+      DOM_LINK_2X:  0.0451,
+      DOM_LINK_3X:  0.0604,
+      DOM_LINK_4X:  0.0759,
+      DOM_LINK_5X:  0.0915,
+      DOM_LINK_6X:  0.1072,
+      DOM_LINK_7X:  0.1231,
+      DOM_LINK_8X:  0.1392,
+      DOM_LINK_9X:  0.1554,
+      DOM_LINK_10X: 0.1717,
+      DOM_LINK_11X: 0.1882,
+      DOM_LINK_12X: 0.2048,
+    };
+
     return {
       data,
-      meta: { sources },
+      meta: { sources, domLinkRates: DOM_LINK_RATES },
     };
   }
 

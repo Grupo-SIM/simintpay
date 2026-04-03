@@ -1,7 +1,10 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
+import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentLinkRepository } from '../../../core/repositories/payment-link.repository.interface';
+import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import { calculatePaymentLinkFees } from './payment-link-fees.helper';
+import { MODULE_REGISTRY } from '../../../modules/module.registry';
 
 type InstallmentOption = {
   parcelas: number;
@@ -11,15 +14,41 @@ type InstallmentOption = {
   valorTaxaDom: number;
   valorTotal: number;
   valorParcela: number;
-  // para exibição no checkout
   temJuros: boolean;
 };
+
+/**
+ * Tenta extrair a platformTag a partir da descrição do link.
+ * Suporta dois formatos:
+ *   1. Tag estruturada: [CPF:...|REVALIDA]
+ *   2. Texto livre: qualquer palavra que bata com um slug registrado (ex: "Acesso Revalida Class")
+ */
+function resolvePlatformTagFromDescription(description: string | null | undefined): string | null {
+  const text = description ?? '';
+
+  // Formato estruturado legado: [CPF:xxx|REVALIDA]
+  const tagMatch = text.match(/\[CPF:[^\]|]*\|([^\]]+)\]/);
+  if (tagMatch) return tagMatch[1].toUpperCase();
+
+  // Texto livre: procura qualquer slug conhecido (case-insensitive)
+  const slugs = Object.keys(MODULE_REGISTRY);
+  const lower = text.toLowerCase();
+  for (const slug of slugs) {
+    if (lower.includes(slug.toLowerCase())) {
+      return slug.toUpperCase();
+    }
+  }
+
+  return null;
+}
 
 @Injectable()
 export class GetPublicPaymentLinkUseCase {
   constructor(
     @Inject(PAYMENT_LINK_REPOSITORY)
     private readonly links: IPaymentLinkRepository,
+    @Inject(USER_REPOSITORY)
+    private readonly users: IUserRepository,
   ) {}
 
   async execute(id: string): Promise<{
@@ -44,11 +73,24 @@ export class GetPublicPaymentLinkUseCase {
       throw new NotFoundException('Link de pagamento não encontrado ou inativo');
     }
 
+    // 1º tenta extrair da descrição (formato legado ou texto livre)
+    // 2º fallback: módulo do dono do link
+    // 3º fallback final: GLOBAL
+    const tagFromDescription = resolvePlatformTagFromDescription(link.description);
+    let platformTag: string;
+
+    if (tagFromDescription) {
+      platformTag = tagFromDescription;
+    } else {
+      const owner = await this.users.findById(link.userId);
+      platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+    }
+
     const maxInstallments = link.maxInstallments;
     const opcoesParcelas: InstallmentOption[] = [];
 
     for (let i = 1; i <= maxInstallments; i++) {
-      const f = calculatePaymentLinkFees(link, i);
+      const f = calculatePaymentLinkFees(link, i, platformTag);
       opcoesParcelas.push({
         parcelas: i,
         taxaJurosPlatforma: f.platformFeeRate,
@@ -61,8 +103,7 @@ export class GetPublicPaymentLinkUseCase {
       });
     }
 
-    // PIX é sempre 1 parcela com juros conforme isStandalone
-    const pixCalc = calculatePaymentLinkFees(link, 1);
+    const pixCalc = calculatePaymentLinkFees(link, 1, platformTag);
 
     return {
       id: link.id,

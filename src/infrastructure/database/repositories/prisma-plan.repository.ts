@@ -17,6 +17,8 @@ export class PrismaPlanRepository implements IPlanRepository {
     webhookUrl?: string | null;
     redirectUrl?: string | null;
     domPlanId?: string | null;
+    code?: string | null;
+    paymentMethods?: string | null;
   }): Promise<Plan> {
     return this.prisma.plan.create({
       data: {
@@ -29,6 +31,8 @@ export class PrismaPlanRepository implements IPlanRepository {
         webhookUrl: data.webhookUrl ?? undefined,
         redirectUrl: data.redirectUrl ?? undefined,
         domPlanId: data.domPlanId ?? undefined,
+        code: data.code ?? undefined,
+        paymentMethods: data.paymentMethods ?? undefined,
       },
     });
   }
@@ -60,6 +64,10 @@ export class PrismaPlanRepository implements IPlanRepository {
     });
   }
 
+  async findByCode(code: string): Promise<Plan | null> {
+    return this.prisma.plan.findUnique({ where: { code } });
+  }
+
   async update(
     id: string,
     data: Partial<{
@@ -71,6 +79,8 @@ export class PrismaPlanRepository implements IPlanRepository {
       webhookUrl?: string | null;
       redirectUrl?: string | null;
       domPlanId?: string | null;
+      code?: string | null;
+      paymentMethods?: string | null;
     }>,
   ): Promise<Plan> {
     return this.prisma.plan.update({
@@ -84,6 +94,8 @@ export class PrismaPlanRepository implements IPlanRepository {
         webhookUrl: data.webhookUrl ?? undefined,
         redirectUrl: data.redirectUrl ?? undefined,
         domPlanId: data.domPlanId ?? undefined,
+        code: data.code ?? undefined,
+        paymentMethods: data.paymentMethods ?? undefined,
       },
     });
   }

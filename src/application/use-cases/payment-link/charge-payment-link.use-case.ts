@@ -129,7 +129,8 @@ export class ChargePaymentLinkUseCase {
     }
 
     const installments = input.installments ?? 1;
-    const fees = calculatePaymentLinkFees(link, installments);
+    const platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+    const fees = calculatePaymentLinkFees(link, installments, platformTag);
     const { totalAmount, interestAmount, platformFeeRate, cashbackFee, netAmount, domFeeAmount } = fees;
 
     const result = await this.gateway.chargePaymentLink(domToken, {

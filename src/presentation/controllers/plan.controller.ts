@@ -17,6 +17,7 @@ import { GetPlanByIdUseCase } from '../../application/use-cases/plan/get-plan-by
 import { UpdatePlanUseCase } from '../../application/use-cases/plan/update-plan.use-case';
 import { DeletePlanUseCase } from '../../application/use-cases/plan/delete-plan.use-case';
 import { GetPublicPlanUseCase } from '../../application/use-cases/plan/get-public-plan.use-case';
+import { GetPublicPlanByCodeUseCase } from '../../application/use-cases/plan/get-public-plan-by-code.use-case';
 import { CreatePublicSubscriptionUseCase, CreatePublicSubscriptionInput } from '../../application/use-cases/plan/create-public-subscription.use-case';
 import {
   ApiBearerAuth,
@@ -36,10 +37,19 @@ export class PlanController {
     private readonly update: UpdatePlanUseCase,
     private readonly del: DeletePlanUseCase,
     private readonly getPublic: GetPublicPlanUseCase,
+    private readonly getPublicByCode: GetPublicPlanByCodeUseCase,
     private readonly createPublicSub: CreatePublicSubscriptionUseCase,
   ) {}
 
   // ── Rotas públicas (sem autenticação) ──────────────────────────────────────
+
+  @Get('public/by-code/:code')
+  @ApiOperation({ summary: 'Detalhes públicos de um plano por código (checkout)' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 404 })
+  async getPublicPlanByCodeRoute(@Param('code') code: string) {
+    return this.getPublicByCode.execute(code);
+  }
 
   @Get('public/:id')
   @ApiOperation({ summary: 'Detalhes públicos de um plano (checkout)' })

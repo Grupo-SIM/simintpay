@@ -374,6 +374,15 @@ export class InternalEbookFinanceController {
     return { success: true, id: tx.id, created: true };
   }
 
+  @Get('config')
+  getConfig(@Headers('x-internal-token') internalToken?: string) {
+    this.ensureInternalToken(internalToken);
+    return {
+      liquidez: EbookSimConfig.saque.fatorLiquidez,
+      mdrPix: EbookSimConfig.mdr.pix,
+    };
+  }
+
   @Post('withdraw')
   async requestWithdraw(
     @Body() body: { cpf: string; amount: number; pixKey: string },

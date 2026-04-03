@@ -7,6 +7,7 @@ import { GetPlanByIdUseCase } from '../application/use-cases/plan/get-plan-by-id
 import { UpdatePlanUseCase } from '../application/use-cases/plan/update-plan.use-case';
 import { DeletePlanUseCase } from '../application/use-cases/plan/delete-plan.use-case';
 import { GetPublicPlanUseCase } from '../application/use-cases/plan/get-public-plan.use-case';
+import { GetPublicPlanByCodeUseCase } from '../application/use-cases/plan/get-public-plan-by-code.use-case';
 import { CreatePublicSubscriptionUseCase } from '../application/use-cases/plan/create-public-subscription.use-case';
 import { PLAN_REPOSITORY } from '../core/repositories/plan.repository.interface';
 import { SUBSCRIPTION_REPOSITORY } from '../core/repositories/subscription.repository.interface';
@@ -25,6 +26,7 @@ import { PrismaUserRepository } from '../infrastructure/database/repositories/pr
     UpdatePlanUseCase,
     DeletePlanUseCase,
     GetPublicPlanUseCase,
+    GetPublicPlanByCodeUseCase,
     CreatePublicSubscriptionUseCase,
     { provide: PLAN_REPOSITORY, useClass: PrismaPlanRepository },
     { provide: SUBSCRIPTION_REPOSITORY, useClass: PrismaSubscriptionRepository },

@@ -65,6 +65,7 @@ export class CreatePlanUseCase {
       webhookUrl: input.dto.webhookUrl ?? null,
       redirectUrl: input.dto.redirectUrl ?? null,
       domPlanId: dom.id,
+      code: input.dto.code ?? null,
     });
 
     return {

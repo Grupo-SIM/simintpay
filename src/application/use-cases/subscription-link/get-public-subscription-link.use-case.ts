@@ -1,7 +1,11 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
+import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { ISubscriptionLinkRepository } from '../../../core/repositories/subscription-link.repository.interface';
+import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
+import { getPlatformTaxaEffective, getPlatformTaxaSource } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 function mapFrequencyLabel(t: PlanType): string {
   switch (t) {
@@ -16,6 +20,7 @@ function mapFrequencyLabel(t: PlanType): string {
 export class GetPublicSubscriptionLinkUseCase {
   constructor(
     @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
+    @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
   ) { }
 
   async execute(code: string) {
@@ -27,11 +32,23 @@ export class GetPublicSubscriptionLinkUseCase {
       throw new NotFoundException('Limite de assinaturas atingido');
     }
 
-    // Valor que o comprador pagará (com ou sem platformFee)
+    // Valor que o comprador pagará (com ou sem taxa de assinatura da plataforma)
     const base = Number(link.amount);
+    let effectivePlatformFee = link.platformFee; // fallback: valor gravado no link
+
+    if (!link.isStandalone) {
+      const owner = await this.users.findById(link.userId);
+      const platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+      const source = getPlatformTaxaSource(platformTag, 'TAXA_ASSINATURA');
+      if (source === 'override' || source === 'env') {
+        // TAXA_ASSINATURA está em % direto (ex: 9.0 = 9%)
+        effectivePlatformFee = getPlatformTaxaEffective(platformTag, 'TAXA_ASSINATURA', PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA);
+      }
+    }
+
     const valorComJuros = link.isStandalone
       ? base
-      : Math.round(base * (1 + link.platformFee / 100) * 100) / 100;
+      : Math.round(base * (1 + effectivePlatformFee / 100) * 100) / 100;
 
     return {
       id: link.id,
@@ -40,7 +57,7 @@ export class GetPublicSubscriptionLinkUseCase {
       descricao: link.description ?? null,
       valor: base,
       valorComJuros,
-      platformFee: link.platformFee,
+      platformFee: effectivePlatformFee,
       isStandalone: link.isStandalone,
       frequencia: mapFrequencyLabel(link.frequencyType),
       ativo: link.isActive,

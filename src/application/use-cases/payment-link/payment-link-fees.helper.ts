@@ -1,6 +1,6 @@
 import type { PaymentLink } from '@prisma/client';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { getPlatformTaxaEffective, getPlatformTaxaSource } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 /**
  * Taxas da DOM por número de parcelas (cobradas do COMPRADOR sobre o valor com juros).
@@ -47,36 +47,42 @@ function getSellerFeeFixed(platformTag?: string): number {
 }
 
 /**
- * Retorna a taxa de juros da plataforma (platformFee) configurada no link para o
- * número de parcelas dado.
+ * Retorna a taxa de juros da plataforma (master) para um link de pagamento por
+ * número de parcelas. Usa MDR_LINK_NX configurado por plataforma; fallback para
+ * o campo platformFeeNx gravado no link (legado) se a taxa de plataforma for 0.
  *
  * Regra:
- * - isStandalone=true (Avulso): 1x sem juros, 2x+ com juros
- * - isStandalone=false (Plataforma): sempre com juros, incluindo 1x e PIX
+ * - isStandalone=true (Avulso): 1x sem juros (só DOM), 2x+ com juros da plataforma
+ * - isStandalone=false (Plataforma): sempre com juros, incluindo 1x
  */
-export function getPlatformFeeRate(link: PaymentLink, installments: number): number {
+export function getPlatformFeeRate(link: PaymentLink, installments: number, platformTag?: string): number {
   const isStandalone = (link as any).isStandalone ?? true;
   const shouldApply = isStandalone ? installments > 1 : true;
   if (!shouldApply) return 0;
 
-  const map: Record<number, string> = {
-    1: 'platformFee1x',
-    2: 'platformFee2x',
-    3: 'platformFee3x',
-    4: 'platformFee4x',
-    5: 'platformFee5x',
-    6: 'platformFee6x',
-    7: 'platformFee7x',
-    8: 'platformFee8x',
-    9: 'platformFee9x',
-    10: 'platformFee10x',
-    11: 'platformFee11x',
-    12: 'platformFee12x',
-  };
+  const n = Math.min(Math.max(installments, 1), 12);
+  const tag = platformTag ?? (link as any).platformTag ?? 'GLOBAL';
+  const mdrKey = `MDR_LINK_${n}X` as PlataformaTaxaKey;
 
-  const field = map[Math.min(Math.max(installments, 1), 12)];
-  return Number((link as any)[field] ?? 0);
+  // Usa MDR_LINK_NX somente se houver override explícito (env var ou storage).
+  // Sem override, respeita o platformFeeNx gravado no link (legado / produção existente).
+  const source = getPlatformTaxaSource(tag, mdrKey);
+  if (source === 'override' || source === 'env') {
+    const platformRate = getPlatformTaxaEffective(tag, mdrKey, PLATFORM_TAXA_DEFAULTS[mdrKey]);
+    return platformRate * 100; // decimal → % (o caller divide por 100)
+  }
+
+  // Comportamento original: campo platformFeeNx gravado diretamente no link
+  const legacyMap: Record<number, string> = {
+    1: 'platformFee1x', 2: 'platformFee2x', 3: 'platformFee3x',
+    4: 'platformFee4x', 5: 'platformFee5x', 6: 'platformFee6x',
+    7: 'platformFee7x', 8: 'platformFee8x', 9: 'platformFee9x',
+    10: 'platformFee10x', 11: 'platformFee11x', 12: 'platformFee12x',
+  };
+  return Number((link as any)[legacyMap[n]] ?? 0);
 }
+
+
 
 /**
  * Calcula o breakdown completo de taxas para um link de pagamento, espelhando
@@ -110,7 +116,7 @@ export function calculatePaymentLinkFees(
   const baseAmount = Number(link.amount);
 
   // 1. Juros da plataforma sobre o valor base
-  const platformFeeRate = getPlatformFeeRate(link, n);
+  const platformFeeRate = getPlatformFeeRate(link, n, platformTag);
   const interestAmount = (baseAmount * platformFeeRate) / 100;
   const valueWithInterest = baseAmount + interestAmount;
 

@@ -32,6 +32,7 @@ export interface ModuleConfig {
       [parcelas: number]: number;  // ex: { 1: 0.0399, 2: 0.083, ... }
     };
     taxaFixaPorTransacao: number;  // R$ fixo por transação (ex: 1.00)
+    taxaCashback?: number;         // Taxa de cashback em percentual (ex: 3.0 = 3%)
   };
 
   /** Limites gerais */

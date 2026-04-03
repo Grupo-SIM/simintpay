@@ -1,22 +1,24 @@
 import type { ModuleConfig } from './module-config.interface';
-import { RevalidaConfig }  from './revalida/revalida.config';
-import { RenovadaConfig }  from './renovada/renovada.config';
-import { BosqueConfig }    from './bosque/bosque.config';
-import { PagaTGConfig }    from './pagatg/pagatg.config';
-import { EbookSimConfig }  from './ebooksim/ebooksim.config';
-import { FrendzConfig }    from './frendz/frendz.config';
-import { AtlasConfig }     from './atlas/atlas.config';
+import { RevalidaConfig }    from './revalida/revalida.config';
+import { RenovadaConfig }    from './renovada/renovada.config';
+import { BosqueConfig }      from './bosque/bosque.config';
+import { PagaTGConfig }      from './pagatg/pagatg.config';
+import { EbookSimConfig }    from './ebooksim/ebooksim.config';
+import { FrendzConfig }      from './frendz/frendz.config';
+import { AtlasConfig }       from './atlas/atlas.config';
+import { ComunidadeConfig }  from './comunidade/comunidade.config';
 
 /** Registro de todos os módulos indexados pelo slug */
 const REGISTRY: Record<string, ModuleConfig> = {
-  revalida:  RevalidaConfig,
-  renovada:  RenovadaConfig,
-  bosque:    BosqueConfig,
-  pagatg:    PagaTGConfig,
-  ebooksim:  EbookSimConfig,
-  ebook:     EbookSimConfig,
-  frendz:    FrendzConfig,
-  atlas:     AtlasConfig,
+  revalida:   RevalidaConfig,
+  renovada:   RenovadaConfig,
+  bosque:     BosqueConfig,
+  pagatg:     PagaTGConfig,
+  ebooksim:   EbookSimConfig,
+  ebook:      EbookSimConfig,
+  frendz:     FrendzConfig,
+  atlas:      AtlasConfig,
+  comunidade: ComunidadeConfig,
 };
 
 /**

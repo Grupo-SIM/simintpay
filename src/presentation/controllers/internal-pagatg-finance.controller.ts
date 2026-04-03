@@ -8,8 +8,11 @@ import {
   Query,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PagaTGConfig } from '../../modules/pagatg/pagatg.config';
+
+const TENANT_PAGATG_TAG = '[TENANT:PAGATG]';
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
@@ -288,5 +291,169 @@ export class InternalPagatgFinanceController {
     });
 
     return { success: true, id: created.id };
+  }
+
+  /**
+   * Cria ou atualiza um plano no api-machine espelhando o plano criado no api-pagatg.
+   * Chamado automaticamente pelo api-pagatg após criar o plano no DOM.
+   * O campo `code` recebe o código gerado pelo api-pagatg (ex: "3f8f67274"),
+   * permitindo que o checkout encontre o plano via GET /planos/public/by-code/:code.
+   */
+  @Post('plans')
+  async upsertPlan(
+    @Body() body: {
+      cpf: string;
+      userId?: string;
+      code: string;
+      name: string;
+      price: number;
+      type: 'MENSAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+      domPlanId: string;
+      redirectUrl?: string | null;
+      webhookUrl?: string | null;
+      paymentMethods?: string | null;
+    },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+
+    if (!body.code?.trim()) throw new BadRequestException('code é obrigatório');
+    if (!body.domPlanId?.trim()) throw new BadRequestException('domPlanId é obrigatório');
+    if (!body.name?.trim()) throw new BadRequestException('name é obrigatório');
+    const price = Number(body.price);
+    if (!Number.isFinite(price) || price <= 0) throw new BadRequestException('price inválido');
+
+    const typeMap: Record<string, string> = {
+      MENSAL: 'MONTHLY',
+      TRIMESTRAL: 'TRIMESTRAL',
+      SEMESTRAL: 'SEMESTRAL',
+      ANUAL: 'ANUAL',
+    };
+    const planType = (typeMap[body.type] ?? 'MONTHLY') as any;
+
+    // Resolver userId pelo CPF — o dono do plano no api-machine
+    const userIds = await this.resolveUserIdsByCpf(body.cpf ?? '', body.userId);
+    if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF/userId');
+    const userId = userIds[0];
+
+    // Upsert: se já existe um plano com esse code, atualiza; senão cria
+    const existing = await this.prisma.plan.findUnique({ where: { code: body.code.trim() } });
+
+    const pmValue = body.paymentMethods?.trim() || 'CREDIT_CARD';
+
+    if (existing) {
+      const updated = await this.prisma.plan.update({
+        where: { code: body.code.trim() },
+        data: {
+          name: body.name.trim(),
+          price,
+          type: planType,
+          domPlanId: body.domPlanId.trim(),
+          redirectUrl: body.redirectUrl ?? undefined,
+          webhookUrl: body.webhookUrl ?? undefined,
+          isActive: true,
+          paymentMethods: pmValue,
+        },
+      });
+      return { success: true, id: updated.id, created: false };
+    }
+
+    const created = await this.prisma.plan.create({
+      data: {
+        userId,
+        code: body.code.trim(),
+        name: body.name.trim(),
+        price,
+        type: planType,
+        domPlanId: body.domPlanId.trim(),
+        redirectUrl: body.redirectUrl ?? undefined,
+        webhookUrl: body.webhookUrl ?? undefined,
+        isActive: true,
+        paymentMethods: pmValue,
+      },
+    });
+    return { success: true, id: created.id, created: true };
+  }
+
+  /**
+   * Registra uma transação de assinatura pagatg no simpay.
+   * Chamado pelo api-pagatg quando recebe SIGNATURE-CREATED ou SIGNATURE-INVOICE-PAID.
+   * O netAmount é calculado pela taxa LIQUIDEZ do tenant PAGATG se não for fornecido.
+   */
+  @Post('record-transaction')
+  async recordTransaction(
+    @Body() body: {
+      cpf: string;
+      userId?: string;
+      domPaymentId: string;
+      domSubscriptionId?: string;
+      amount: number;
+      netAmount?: number;
+      planDescription: string;
+      customerName?: string;
+      customerEmail?: string;
+      customerDocument?: string;
+      paymentMethod?: string;
+    },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+
+    if (!body.domPaymentId?.trim()) throw new BadRequestException('domPaymentId é obrigatório');
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('amount inválido');
+
+    // Idempotência: não duplicar se já existe
+    const existing = await this.prisma.transaction.findFirst({
+      where: { domPaymentId: body.domPaymentId.trim() },
+    });
+    if (existing) {
+      return { success: true, id: existing.id, created: false };
+    }
+
+    const userIds = await this.resolveUserIdsByCpf(body.cpf ?? '', body.userId);
+    if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF/userId');
+    const userId = userIds[0];
+
+    // Calcular netAmount: valor fornecido ou aplicar fatorLiquidez (LIQUIDEZ configurado no admin)
+    const netAmount = body.netAmount != null
+      ? Number(body.netAmount)
+      : parseFloat((amount * PagaTGConfig.saque.fatorLiquidez).toFixed(2));
+
+    const amountDec = new Prisma.Decimal(amount);
+    const netDec = new Prisma.Decimal(netAmount);
+    const cpfClean = this.normalizeCpf(body.cpf ?? '');
+    const cpfTag = cpfClean.length === 11 ? ` [CPF_DONO:${cpfClean}]` : '';
+    const description = `${body.planDescription} ${TENANT_PAGATG_TAG}${cpfTag}`;
+
+    const tx = await this.prisma.$transaction(async (p) => {
+      const newTx = await p.transaction.create({
+        data: {
+          userId,
+          domPaymentId: body.domPaymentId.trim(),
+          domTransactionId: body.domSubscriptionId?.trim() ?? null,
+          amount: amountDec,
+          netAmount: netDec,
+          totalFee: amountDec.sub(netDec),
+          status: 'COMPLETED',
+          paymentMethod: body.paymentMethod === 'PIX' ? 'PIX' : 'CREDIT_CARD',
+          description,
+          customerName: body.customerName ?? '',
+          customerEmail: body.customerEmail ?? '',
+          customerDocument: (body.customerDocument ?? '').replace(/\D/g, ''),
+        },
+      });
+
+      // Atualizar saldo da wallet
+      await p.wallet.upsert({
+        where: { userId },
+        update: { balance: { increment: netDec }, updatedAt: new Date() },
+        create: { userId, balance: netDec, lockedBalance: 0 },
+      });
+
+      return newTx;
+    });
+
+    return { success: true, id: tx.id, created: true };
   }
 }

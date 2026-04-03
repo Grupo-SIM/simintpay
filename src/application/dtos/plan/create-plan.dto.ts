@@ -43,4 +43,8 @@ export class CreatePlanDto {
   @IsUrl()
   @IsOptional()
   redirectUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  code?: string;
 }
