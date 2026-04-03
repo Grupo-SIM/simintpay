@@ -20,6 +20,7 @@ const KNOWN_CANONICAL_TAGS = [
   'BOSQUE',
   'PAGATG',
   'EBOOK',
+  'AREAFLIX',
   'FRENDZ',
   'ATLAS',
 ] as const;

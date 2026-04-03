@@ -77,6 +77,7 @@ import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
+import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG } from '../../application/utils/internal-tags.util';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -86,7 +87,6 @@ function extractTerminal(description: string | null | undefined): string {
 }
 
 const PLAN_PLATFORM_CPF_REGEX = /\[CPF:([^\]|]*)\|([^\]]+)\]/;
-const TENANT_EBOOK_TAG = '[TENANT:EBOOK]';
 
 function normalizePlatformTag(tag: string): string {
   const upper = String(tag || '').toUpperCase();
@@ -202,6 +202,9 @@ const EBOOK_CONSOLIDADO_USER_ID =
 const REVALIDA_CONSOLIDADO_USER_ID =
   process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
 
+/** UUID sintético só para metadados do consolidado quando não há `AREAFLIX_USER_ID` / módulo. */
+const AREAFLIX_CONSOLIDADO_FALLBACK_ID = 'f0000000-0000-4000-8000-000000000af1';
+
 type ConsolidadoPlatformEntry = { tag: string; id: string };
 
 /** Núcleo do consolidado; Atlas é acrescentado em runtime (env ou usuário tenant atlas). */
@@ -221,6 +224,16 @@ async function resolveAtlasConsolidadoUserId(prisma: PrismaService): Promise<str
     select: { id: true },
   });
   return u?.id ?? '';
+}
+
+async function resolveAreaflixConsolidadoUserId(prisma: PrismaService): Promise<string> {
+  const envId = process.env.AREAFLIX_USER_ID?.trim();
+  if (envId) return envId;
+  const u = await prisma.user.findFirst({
+    where: { tenantModule: { slug: { contains: 'areaflix', mode: 'insensitive' } } },
+    select: { id: true },
+  });
+  return u?.id ?? AREAFLIX_CONSOLIDADO_FALLBACK_ID;
 }
 
 /** Alinha listagem /plataformas ao consolidado (env → e-mail técnico → UUID padrão). */
@@ -248,14 +261,19 @@ async function resolveBosqueConsolidadoUserId(prisma: PrismaService): Promise<st
   return u?.id ?? BOSQUE_CONSOLIDADO_DEFAULT_ID;
 }
 
-function mergeConsolidadoPlatforms(atlasUserId: string): ConsolidadoPlatformEntry[] {
-  const id = atlasUserId?.trim();
-  return id
-    ? [...CONSOLIDADO_PLATFORMS_CORE, { tag: 'ATLAS', id }]
+function mergeConsolidadoPlatforms(
+  atlasUserId: string,
+  areaflixUserId: string,
+): ConsolidadoPlatformEntry[] {
+  const af = areaflixUserId?.trim();
+  const withAreaflix = af
+    ? [...CONSOLIDADO_PLATFORMS_CORE, { tag: 'AREAFLIX', id: af }]
     : [...CONSOLIDADO_PLATFORMS_CORE];
+  const id = atlasUserId?.trim();
+  return id ? [...withAreaflix, { tag: 'ATLAS', id }] : withAreaflix;
 }
 
-/** Escopo do consolidado: contas plataforma OU transações Bosque pela descrição/tag. */
+/** Escopo do consolidado: contas plataforma OU transações Bosque / Areaflix pela descrição/tag. */
 function buildConsolidadoScopeOr(platformIds: string[]): Prisma.TransactionWhereInput {
   return {
     OR: [
@@ -266,6 +284,7 @@ function buildConsolidadoScopeOr(platformIds: string[]): Prisma.TransactionWhere
           { description: { contains: 'bosque', mode: 'insensitive' } },
         ],
       },
+      { description: { contains: TENANT_AREAFLIX_TAG, mode: 'insensitive' } },
     ],
   };
 }
@@ -277,11 +296,17 @@ function transacaoAtribuiBosquePorDescricao(description: string | null | undefin
   return description.toLowerCase().includes('bosque');
 }
 
+function transacaoAtribuiAreaflixPorDescricao(description: string | null | undefined): boolean {
+  if (!description) return false;
+  return /\[\s*TENANT\s*:\s*AREAFLIX\s*\]/i.test(description);
+}
+
 function consolidadoTagParaTransacao(
   tx: { userId: string; description: string | null },
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): string {
   if (transacaoAtribuiBosquePorDescricao(tx.description)) return 'BOSQUE';
+  if (transacaoAtribuiAreaflixPorDescricao(tx.description)) return 'AREAFLIX';
   const platform = platforms.find((p) => p.id === tx.userId);
   return platform?.tag ?? 'RENOVADA';
 }
@@ -1415,8 +1440,11 @@ export class AdminController {
     @Query('paymentLink') paymentLink?: string,
     @Query('planName') planName?: string,
   ) {
-    const atlasId = await resolveAtlasConsolidadoUserId(this.prisma);
-    const platforms = mergeConsolidadoPlatforms(atlasId);
+    const [atlasId, areaflixId] = await Promise.all([
+      resolveAtlasConsolidadoUserId(this.prisma),
+      resolveAreaflixConsolidadoUserId(this.prisma),
+    ]);
+    const platforms = mergeConsolidadoPlatforms(atlasId, areaflixId);
     const where = buildConsolidadoTransactionWhere(
       {
         dataInicio,
@@ -1504,8 +1532,11 @@ export class AdminController {
     @Query('detalharLucro') detalharLucro?: string,
     @Query('detalharLucroSoloResumo') detalharLucroSoloResumo?: string,
   ) {
-    const atlasId = await resolveAtlasConsolidadoUserId(this.prisma);
-    const platforms = mergeConsolidadoPlatforms(atlasId);
+    const [atlasId, areaflixId] = await Promise.all([
+      resolveAtlasConsolidadoUserId(this.prisma),
+      resolveAreaflixConsolidadoUserId(this.prisma),
+    ]);
+    const platforms = mergeConsolidadoPlatforms(atlasId, areaflixId);
     const platformIds = platforms.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
 
@@ -1830,8 +1861,11 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const atlasId = await resolveAtlasConsolidadoUserId(this.prisma);
-    const platforms = mergeConsolidadoPlatforms(atlasId);
+    const [atlasId, areaflixId] = await Promise.all([
+      resolveAtlasConsolidadoUserId(this.prisma),
+      resolveAreaflixConsolidadoUserId(this.prisma),
+    ]);
+    const platforms = mergeConsolidadoPlatforms(atlasId, areaflixId);
     const platformIds = platforms.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
 
@@ -3188,7 +3222,7 @@ export class AdminController {
     >();
 
     // Plataformas conhecidas para detecção por texto livre (fallback sem formato padrão)
-    const KNOWN_TAGS = ['PAGATG', 'RENOVADA', 'REVALIDA', 'BOSQUE', 'FRENDZ', 'EBOOKSIM', 'EBOOK', 'ATLAS'];
+    const KNOWN_TAGS = ['PAGATG', 'RENOVADA', 'REVALIDA', 'BOSQUE', 'FRENDZ', 'EBOOKSIM', 'EBOOK', 'ATLAS', 'AREAFLIX'];
 
     for (const p of plans) {
       const desc = p.description ?? '';

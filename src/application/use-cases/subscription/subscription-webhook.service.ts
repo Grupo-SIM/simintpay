@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, TransactionStatus, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
 import {
   BALANCE_LOG_REPOSITORY,
 } from '../../../core/repositories/balance-log.repository.interface';
@@ -277,6 +278,36 @@ export class SubscriptionWebhookService {
     }
 
     this.logger.log(`[SubscriptionLinkRenewal] Renovação processada para ${linkOrder.customerEmail}, orderId=${newOrder.id}, source=${source}`);
+
+    // Consolidado / relatórios: assinatura por link não criava Transaction (só Order + wallet).
+    const wh = (link.webhookUrl ?? '').toLowerCase();
+    if (wh.includes('areaflix')) {
+      const payId = domTransactionId?.trim() || `AREAFLIX_SL_${newOrder.id}`;
+      const dup = await this.prisma.transaction.findFirst({
+        where: { domPaymentId: payId },
+        select: { id: true },
+      });
+      if (!dup) {
+        await this.prisma.transaction.create({
+          data: {
+            userId: link.userId,
+            amount: amount.toNumber(),
+            netAmount: netAmount.toNumber(),
+            status: TransactionStatus.COMPLETED,
+            paymentMethod: PaymentMethod.CREDIT_CARD,
+            totalFee: domFee.toNumber(),
+            domFee: domFee.toNumber(),
+            platformFee: platformFeeAmount,
+            description: `Assinatura link ${link.name} ${TENANT_AREAFLIX_TAG} order=${newOrder.id}`,
+            domPaymentId: payId,
+            customerName: linkOrder.customerName ?? undefined,
+            customerEmail: linkOrder.customerEmail ?? undefined,
+            customerDocument: linkOrder.customerDocument ?? undefined,
+            customerPhone: linkOrder.customerPhone ?? undefined,
+          },
+        });
+      }
+    }
   }
 
   private async handleCancelled(payload: Record<string, unknown>): Promise<void> {

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { Prisma, TransactionStatus } from '@prisma/client';
+import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { TRANSACTION_REPOSITORY } from '../../../core/repositories/transaction.repository.interface';
 import { WEBHOOK_EVENT_REPOSITORY } from '../../../core/repositories/webhook-event.repository.interface';
 import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.repository.interface';
@@ -8,6 +8,7 @@ import { RenovadaEventsService } from '../../../modules/renovada/events/renovada
 import { PixPlanService } from '../pix-plan/pix-plan.service';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
+import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
 
 import type { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
 import type { IWebhookEventRepository } from '../../../core/repositories/webhook-event.repository.interface';
@@ -443,6 +444,36 @@ export class ProcessWebhookUseCase {
         this.logger.log(`[WEBHOOK] Access email sent to ${order.customerEmail} for order ${order.id}`);
       } catch (err: unknown) {
         this.logger.error(`[WEBHOOK] Error sending email for order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`);
+      }
+    }
+
+    const whAf = (order.subscriptionLink.webhookUrl ?? '').toLowerCase();
+    if (whAf.includes('areaflix') && order.domPixPaymentId) {
+      const exists = await this.prisma.transaction.findFirst({
+        where: { domPaymentId: order.domPixPaymentId },
+        select: { id: true },
+      });
+      if (!exists) {
+        const gross = Number(order.amountCharged);
+        const pf = Number(order.platformFeeAmount);
+        await this.prisma.transaction.create({
+          data: {
+            userId: order.userId,
+            amount: gross,
+            netAmount: gross - pf,
+            status: TransactionStatus.COMPLETED,
+            paymentMethod: PaymentMethod.PIX,
+            totalFee: 0,
+            domFee: 0,
+            platformFee: pf,
+            description: `${order.subscriptionLink.name} ${TENANT_AREAFLIX_TAG} subOrder=${order.id}`,
+            domPaymentId: order.domPixPaymentId,
+            customerName: order.customerName,
+            customerEmail: order.customerEmail,
+            customerDocument: order.customerDocument,
+            customerPhone: order.customerPhone ?? undefined,
+          },
+        });
       }
     }
 

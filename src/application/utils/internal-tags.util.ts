@@ -1,9 +1,17 @@
 export const TENANT_RENOVADA_TAG = '[TENANT:RENOVADA]';
 export const TENANT_BOSQUE_TAG = '[TENANT:BOSQUE]';
 export const TENANT_EBOOK_TAG = '[TENANT:EBOOK]';
+/** Links de assinatura com webhook Areaflix — entram no consolidado / relatórios. */
+export const TENANT_AREAFLIX_TAG = '[TENANT:AREAFLIX]';
 export const ORIGEM_MAQUINETA_TAG = '[ORIGEM:MAQUINETA]';
 
-const INTERNAL_TAGS = [TENANT_RENOVADA_TAG, TENANT_BOSQUE_TAG, TENANT_EBOOK_TAG, ORIGEM_MAQUINETA_TAG];
+const INTERNAL_TAGS = [
+  TENANT_RENOVADA_TAG,
+  TENANT_BOSQUE_TAG,
+  TENANT_EBOOK_TAG,
+  TENANT_AREAFLIX_TAG,
+  ORIGEM_MAQUINETA_TAG,
+];
 
 export function appendInternalTags(
   value: string | null | undefined,

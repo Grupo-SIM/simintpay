@@ -8,6 +8,7 @@ import { EmailService } from '../../../infrastructure/email/email.service';
 import {
   appendInternalTags,
   ORIGEM_MAQUINETA_TAG,
+  TENANT_AREAFLIX_TAG,
   TENANT_BOSQUE_TAG,
   TENANT_EBOOK_TAG,
   TENANT_RENOVADA_TAG,
@@ -1015,6 +1016,36 @@ export class ProcessDomWebhookUseCase {
       }).catch((err: unknown) => {
         this.logger.warn(`[DomWebhook] Falha ao notificar webhookUrl ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`);
       });
+    }
+
+    const whAf = (order.subscriptionLink.webhookUrl ?? '').toLowerCase();
+    if (whAf.includes('areaflix') && order.domPixPaymentId) {
+      const exists = await this.prisma.transaction.findFirst({
+        where: { domPaymentId: order.domPixPaymentId },
+        select: { id: true },
+      });
+      if (!exists) {
+        const gross = Number(order.amountCharged);
+        const pf = Number(order.platformFeeAmount);
+        await this.prisma.transaction.create({
+          data: {
+            userId: order.userId,
+            amount: gross,
+            netAmount: gross - pf,
+            status: TransactionStatus.COMPLETED,
+            paymentMethod: PaymentMethod.PIX,
+            totalFee: 0,
+            domFee: 0,
+            platformFee: pf,
+            description: `${order.subscriptionLink.name} ${TENANT_AREAFLIX_TAG} subOrder=${order.id}`,
+            domPaymentId: order.domPixPaymentId,
+            customerName: order.customerName,
+            customerEmail: order.customerEmail,
+            customerDocument: order.customerDocument,
+            customerPhone: order.customerPhone ?? undefined,
+          },
+        });
+      }
     }
 
     // Não atualizar webhookEventDbId aqui — o chamador (execute) fará isso
