@@ -436,6 +436,108 @@ function buildConsolidadoResumoWhere(
   return where;
 }
 
+/** Linha usada no resumo do consolidado (DB + sintéticas Areaflix). */
+type ConsolidadoResumoTxRow = {
+  id: string;
+  userId: string;
+  amount: unknown;
+  netAmount: unknown | null;
+  createdAt: Date;
+  description: string | null;
+  domPaymentId?: string | null;
+};
+
+function extractAreaflixLinkedOrderIdFromDescription(description: string | null | undefined): string | null {
+  if (!description || !transacaoAtribuiAreaflixPorDescricao(description)) return null;
+  const sub = description.match(/subOrder=([a-f0-9-]{36})/i);
+  if (sub) return sub[1];
+  const ord = description.match(/order=([a-f0-9-]{36})/i);
+  return ord ? ord[1] : null;
+}
+
+function buildAreaflixConsolidadoDedupSets(rows: ConsolidadoResumoTxRow[]): {
+  domPaymentIds: Set<string>;
+  subscriptionLinkOrderIds: Set<string>;
+} {
+  const domPaymentIds = new Set<string>();
+  const subscriptionLinkOrderIds = new Set<string>();
+  for (const t of rows) {
+    if (t.domPaymentId) domPaymentIds.add(t.domPaymentId);
+    const oid = extractAreaflixLinkedOrderIdFromDescription(t.description);
+    if (oid) subscriptionLinkOrderIds.add(oid);
+  }
+  return { domPaymentIds, subscriptionLinkOrderIds };
+}
+
+/**
+ * Pedidos de link Areaflix (webhookUrl) pagos em SubscriptionLinkOrder sem Transaction no Simpay
+ * — ex.: webhook antigo ou falha ao criar Transaction. Alinha consolidado a /plataformas/areaflix.
+ */
+async function fetchAreaflixSyntheticResumoRows(
+  prisma: PrismaService,
+  dataInicio: string | undefined,
+  dataFim: string | undefined,
+  dedup: { domPaymentIds: Set<string>; subscriptionLinkOrderIds: Set<string> },
+): Promise<ConsolidadoResumoTxRow[]> {
+  const links = await prisma.subscriptionLink.findMany({
+    where: { webhookUrl: { contains: 'areaflix', mode: 'insensitive' } },
+    select: { id: true },
+  });
+  const linkIds = links.map((l) => l.id);
+  if (linkIds.length === 0) return [];
+
+  const orderWhere: Prisma.SubscriptionLinkOrderWhereInput = {
+    subscriptionLinkId: { in: linkIds },
+    status: { in: ['paid', 'active', 'approved'] },
+  };
+  if (dataInicio?.trim() || dataFim?.trim()) {
+    const updatedAt: Prisma.DateTimeFilter = {};
+    if (dataInicio?.trim()) {
+      const d = dayjs.tz(dataInicio.trim(), TZ).startOf('day');
+      if (d.isValid()) updatedAt.gte = d.toDate();
+    }
+    if (dataFim?.trim()) {
+      const d = dayjs.tz(dataFim.trim(), TZ).endOf('day');
+      if (d.isValid()) updatedAt.lte = d.toDate();
+    }
+    if (Object.keys(updatedAt).length > 0) orderWhere.updatedAt = updatedAt;
+  }
+
+  const orders = await prisma.subscriptionLinkOrder.findMany({
+    where: orderWhere,
+    include: { subscriptionLink: { select: { name: true } } },
+  });
+
+  const out: ConsolidadoResumoTxRow[] = [];
+  for (const o of orders) {
+    if (dedup.subscriptionLinkOrderIds.has(o.id)) continue;
+    if (o.domPixPaymentId && dedup.domPaymentIds.has(o.domPixPaymentId)) continue;
+
+    const gross = Number(o.amountCharged);
+    const pf = Number(o.platformFeeAmount);
+    const name = o.subscriptionLink.name ?? 'Areaflix';
+    const description = `${name} ${TENANT_AREAFLIX_TAG} subOrder=${o.id}`;
+
+    out.push({
+      id: `areaflix-sl-${o.id}`,
+      userId: o.userId,
+      amount: gross,
+      netAmount: gross - pf,
+      createdAt: o.updatedAt,
+      description,
+      domPaymentId: o.domPixPaymentId ?? null,
+    });
+  }
+  return out;
+}
+
+function mergeAndSortConsolidadoResumoRows(
+  db: ConsolidadoResumoTxRow[],
+  synthetic: ConsolidadoResumoTxRow[],
+): ConsolidadoResumoTxRow[] {
+  return [...db, ...synthetic].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+}
+
 /**
  * Mesma regra que o front (`mapDomStatusToInternal` em transacoes.service.ts).
  * Garante que os cards de distribuição batam com a listagem admin (API DOM).
@@ -1540,7 +1642,7 @@ export class AdminController {
     const platformIds = platforms.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
 
-    const txRowsTodas = await this.prisma.transaction.findMany({
+    const txRowsDb = await this.prisma.transaction.findMany({
       where: whereResumo,
       select: {
         id: true,
@@ -1549,9 +1651,19 @@ export class AdminController {
         netAmount: true,
         createdAt: true,
         description: true,
+        domPaymentId: true,
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    const dedupAf = buildAreaflixConsolidadoDedupSets(txRowsDb);
+    const areaflixSynthetic = await fetchAreaflixSyntheticResumoRows(
+      this.prisma,
+      dataInicio,
+      dataFim,
+      dedupAf,
+    );
+    const txRowsTodas = mergeAndSortConsolidadoResumoRows(txRowsDb, areaflixSynthetic);
 
     const txRowsLucro = txRowsTodas.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
@@ -1869,7 +1981,7 @@ export class AdminController {
     const platformIds = platforms.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
 
-    const txRowsTodas = await this.prisma.transaction.findMany({
+    const txRowsDb = await this.prisma.transaction.findMany({
       where: whereResumo,
       select: {
         id: true,
@@ -1878,9 +1990,19 @@ export class AdminController {
         netAmount: true,
         createdAt: true,
         description: true,
+        domPaymentId: true,
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    const dedupAfRepasse = buildAreaflixConsolidadoDedupSets(txRowsDb);
+    const areaflixSyntheticRepasse = await fetchAreaflixSyntheticResumoRows(
+      this.prisma,
+      dataInicio,
+      dataFim,
+      dedupAfRepasse,
+    );
+    const txRowsTodas = mergeAndSortConsolidadoResumoRows(txRowsDb, areaflixSyntheticRepasse);
 
     const txRowsLucro = txRowsTodas.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
