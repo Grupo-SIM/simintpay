@@ -69,29 +69,16 @@ export class GetMeUseCase {
     };
 
     if (useRenovadaWalletLedger) {
-      const fatorRenovada =
-        getModuleConfig('renovada')?.saque?.fatorLiquidez ??
-        Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
-      const storedGross = Number(wallet.balance);
+      // wallet.balance armazena o valor líquido diretamente (netAmount já descontado das taxas)
+      const storedNet = Number(wallet.balance);
       const pendingAggr = await this.prisma.withdrawRequest.aggregate({
         where: { userId: user.id, status: 'PENDING' },
         _sum: { grossAmount: true },
       });
       const pendingBruto = Number(pendingAggr._sum.grossAmount || 0);
-      const debitedAggr = await this.prisma.withdrawRequest.aggregate({
-        where: {
-          userId: user.id,
-          status: { in: ['APPROVED', 'COMPLETED'] },
-        },
-        _sum: { grossAmount: true },
-      });
-      const debitedBruto = Number(debitedAggr._sum.grossAmount || 0);
-      const rawDisplayTotalNet =
-        storedGross * fatorRenovada + debitedBruto * (fatorRenovada - 1);
-      const displayTotalNet = Math.max(0, rawDisplayTotalNet);
       const r2 = (n: number) => Number(n.toFixed(2));
       walletResp = {
-        balance: r2(displayTotalNet),
+        balance: r2(storedNet),
         lockedBalance: r2(pendingBruto),
         availableBalance: r2(netBalance),
         netBalance: r2(netBalance),

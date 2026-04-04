@@ -22,27 +22,14 @@ export async function computeUserNetBalance(
   const useRenovadaWalletLedger = slug === 'renovada' || userId === renovadaId;
 
   if (useRenovadaWalletLedger) {
-    const fatorRenovada =
-      getModuleConfig('renovada')?.saque?.fatorLiquidez ??
-      Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
-    const storedGross = Number(wallet.balance);
-    const debitedAggr = await prisma.withdrawRequest.aggregate({
-      where: {
-        userId,
-        status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
-      },
-      _sum: { grossAmount: true },
-    });
-    const debitedBruto = Number(debitedAggr._sum.grossAmount || 0);
+    // wallet.balance armazena o valor líquido diretamente (netAmount já descontado das taxas)
+    const storedNet = Number(wallet.balance);
     const pendingAggr = await prisma.withdrawRequest.aggregate({
       where: { userId, status: WithdrawStatus.PENDING },
       _sum: { grossAmount: true },
     });
     const pendingBruto = Number(pendingAggr._sum.grossAmount || 0);
-    const rawDisplayTotalNet =
-      storedGross * fatorRenovada + debitedBruto * (fatorRenovada - 1);
-    const displayTotalNet = Math.max(0, rawDisplayTotalNet);
-    const availableNet = Math.max(0, displayTotalNet - pendingBruto);
+    const availableNet = Math.max(0, storedNet - pendingBruto);
     return Number(availableNet.toFixed(2));
   }
 

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { ScanPlatformOwnersCron } from '../infrastructure/cron/scan-platform-owners.cron';
 import { ScanPlatformOwnersUseCase } from '../application/use-cases/admin/scan-platform-owners.use-case';
+import { GetWalletCompositionUseCase } from '../application/use-cases/admin/get-wallet-composition.use-case';
 import { LinkExternalPlatformUserService } from '../application/services/link-external-platform-user.service';
 import { CpfLookupService } from '../infrastructure/http/cpf-lookup.service';
 import { SyncDomTransactionsCron } from '../infrastructure/cron/sync-dom-transactions.cron';
@@ -65,6 +66,7 @@ import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
     RolesGuard,
     ScanPlatformOwnersCron,
     ScanPlatformOwnersUseCase,
+    GetWalletCompositionUseCase,
     LinkExternalPlatformUserService,
     CpfLookupService,
     { provide: LEAD_REPOSITORY, useClass: PrismaLeadRepository },

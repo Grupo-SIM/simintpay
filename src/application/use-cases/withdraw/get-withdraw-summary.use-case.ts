@@ -60,23 +60,12 @@ export class GetWithdrawSummaryUseCase {
     const lockedBalanceNet = activeWithdraws.reduce((s, r) => s + Number(r.amount), 0);
 
     if (isRenovadaWallet) {
-      const fatorRenovada = configResp.fatorLiquidez;
-      const storedGross = Number(wallet.balance);
-      const debitedAggr = await this.prisma.withdrawRequest.aggregate({
-        where: {
-          userId,
-          status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
-        },
-        _sum: { grossAmount: true },
-      });
-      const debitedBruto = Number(debitedAggr._sum.grossAmount || 0);
+      // wallet.balance armazena o valor líquido diretamente (netAmount já descontado das taxas)
+      const storedNet = Number(wallet.balance);
       const pendingOnly = activeWithdraws.filter((w) => w.status === WithdrawStatus.PENDING);
       const pendingBruto = pendingOnly.reduce((s, r) => s + Number(r.grossAmount), 0);
       const pendingNetSum = pendingOnly.reduce((s, r) => s + Number(r.amount), 0);
-      const rawDisplayTotalNet =
-        storedGross * fatorRenovada + debitedBruto * (fatorRenovada - 1);
-      const displayTotalNet = Math.max(0, rawDisplayTotalNet);
-      const availableNet = Math.max(0, displayTotalNet - pendingBruto);
+      const availableNet = Math.max(0, storedNet - pendingBruto);
       const r2 = (n: number) => Number(n.toFixed(2));
 
       return {

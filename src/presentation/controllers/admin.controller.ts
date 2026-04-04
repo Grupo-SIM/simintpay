@@ -77,7 +77,8 @@ import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
-import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG } from '../../application/utils/internal-tags.util';
+import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
+import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG } from '../../application/utils/internal-tags.util';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -434,108 +435,6 @@ function buildConsolidadoResumoWhere(
     }
   }
   return where;
-}
-
-/** Linha usada no resumo do consolidado (DB + sintéticas Areaflix). */
-type ConsolidadoResumoTxRow = {
-  id: string;
-  userId: string;
-  amount: unknown;
-  netAmount: unknown | null;
-  createdAt: Date;
-  description: string | null;
-  domPaymentId?: string | null;
-};
-
-function extractAreaflixLinkedOrderIdFromDescription(description: string | null | undefined): string | null {
-  if (!description || !transacaoAtribuiAreaflixPorDescricao(description)) return null;
-  const sub = description.match(/subOrder=([a-f0-9-]{36})/i);
-  if (sub) return sub[1];
-  const ord = description.match(/order=([a-f0-9-]{36})/i);
-  return ord ? ord[1] : null;
-}
-
-function buildAreaflixConsolidadoDedupSets(rows: ConsolidadoResumoTxRow[]): {
-  domPaymentIds: Set<string>;
-  subscriptionLinkOrderIds: Set<string>;
-} {
-  const domPaymentIds = new Set<string>();
-  const subscriptionLinkOrderIds = new Set<string>();
-  for (const t of rows) {
-    if (t.domPaymentId) domPaymentIds.add(t.domPaymentId);
-    const oid = extractAreaflixLinkedOrderIdFromDescription(t.description);
-    if (oid) subscriptionLinkOrderIds.add(oid);
-  }
-  return { domPaymentIds, subscriptionLinkOrderIds };
-}
-
-/**
- * Pedidos de link Areaflix (webhookUrl) pagos em SubscriptionLinkOrder sem Transaction no Simpay
- * — ex.: webhook antigo ou falha ao criar Transaction. Alinha consolidado a /plataformas/areaflix.
- */
-async function fetchAreaflixSyntheticResumoRows(
-  prisma: PrismaService,
-  dataInicio: string | undefined,
-  dataFim: string | undefined,
-  dedup: { domPaymentIds: Set<string>; subscriptionLinkOrderIds: Set<string> },
-): Promise<ConsolidadoResumoTxRow[]> {
-  const links = await prisma.subscriptionLink.findMany({
-    where: { webhookUrl: { contains: 'areaflix', mode: 'insensitive' } },
-    select: { id: true },
-  });
-  const linkIds = links.map((l) => l.id);
-  if (linkIds.length === 0) return [];
-
-  const orderWhere: Prisma.SubscriptionLinkOrderWhereInput = {
-    subscriptionLinkId: { in: linkIds },
-    status: { in: ['paid', 'active', 'approved'] },
-  };
-  if (dataInicio?.trim() || dataFim?.trim()) {
-    const updatedAt: Prisma.DateTimeFilter = {};
-    if (dataInicio?.trim()) {
-      const d = dayjs.tz(dataInicio.trim(), TZ).startOf('day');
-      if (d.isValid()) updatedAt.gte = d.toDate();
-    }
-    if (dataFim?.trim()) {
-      const d = dayjs.tz(dataFim.trim(), TZ).endOf('day');
-      if (d.isValid()) updatedAt.lte = d.toDate();
-    }
-    if (Object.keys(updatedAt).length > 0) orderWhere.updatedAt = updatedAt;
-  }
-
-  const orders = await prisma.subscriptionLinkOrder.findMany({
-    where: orderWhere,
-    include: { subscriptionLink: { select: { name: true } } },
-  });
-
-  const out: ConsolidadoResumoTxRow[] = [];
-  for (const o of orders) {
-    if (dedup.subscriptionLinkOrderIds.has(o.id)) continue;
-    if (o.domPixPaymentId && dedup.domPaymentIds.has(o.domPixPaymentId)) continue;
-
-    const gross = Number(o.amountCharged);
-    const pf = Number(o.platformFeeAmount);
-    const name = o.subscriptionLink.name ?? 'Areaflix';
-    const description = `${name} ${TENANT_AREAFLIX_TAG} subOrder=${o.id}`;
-
-    out.push({
-      id: `areaflix-sl-${o.id}`,
-      userId: o.userId,
-      amount: gross,
-      netAmount: gross - pf,
-      createdAt: o.updatedAt,
-      description,
-      domPaymentId: o.domPixPaymentId ?? null,
-    });
-  }
-  return out;
-}
-
-function mergeAndSortConsolidadoResumoRows(
-  db: ConsolidadoResumoTxRow[],
-  synthetic: ConsolidadoResumoTxRow[],
-): ConsolidadoResumoTxRow[] {
-  return [...db, ...synthetic].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 }
 
 /**
@@ -1209,6 +1108,7 @@ export class AdminController {
     private readonly platformTaxas: PlatformTaxasService,
     private readonly linkExternal: LinkExternalPlatformUserService,
     private readonly scanPlatformOwners: ScanPlatformOwnersUseCase,
+    private readonly getWalletComposition: GetWalletCompositionUseCase,
   ) { }
 
   /**
@@ -1642,7 +1542,7 @@ export class AdminController {
     const platformIds = platforms.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
 
-    const txRowsDb = await this.prisma.transaction.findMany({
+    const txRowsTodas = await this.prisma.transaction.findMany({
       where: whereResumo,
       select: {
         id: true,
@@ -1651,19 +1551,9 @@ export class AdminController {
         netAmount: true,
         createdAt: true,
         description: true,
-        domPaymentId: true,
       },
       orderBy: { createdAt: 'asc' },
     });
-
-    const dedupAf = buildAreaflixConsolidadoDedupSets(txRowsDb);
-    const areaflixSynthetic = await fetchAreaflixSyntheticResumoRows(
-      this.prisma,
-      dataInicio,
-      dataFim,
-      dedupAf,
-    );
-    const txRowsTodas = mergeAndSortConsolidadoResumoRows(txRowsDb, areaflixSynthetic);
 
     const txRowsLucro = txRowsTodas.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
@@ -1981,7 +1871,7 @@ export class AdminController {
     const platformIds = platforms.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
 
-    const txRowsDb = await this.prisma.transaction.findMany({
+    const txRowsTodas = await this.prisma.transaction.findMany({
       where: whereResumo,
       select: {
         id: true,
@@ -1990,19 +1880,9 @@ export class AdminController {
         netAmount: true,
         createdAt: true,
         description: true,
-        domPaymentId: true,
       },
       orderBy: { createdAt: 'asc' },
     });
-
-    const dedupAfRepasse = buildAreaflixConsolidadoDedupSets(txRowsDb);
-    const areaflixSyntheticRepasse = await fetchAreaflixSyntheticResumoRows(
-      this.prisma,
-      dataInicio,
-      dataFim,
-      dedupAfRepasse,
-    );
-    const txRowsTodas = mergeAndSortConsolidadoResumoRows(txRowsDb, areaflixSyntheticRepasse);
 
     const txRowsLucro = txRowsTodas.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
@@ -2968,6 +2848,28 @@ export class AdminController {
     };
   }
 
+  @Get('wallet-composicao')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Composição do saldo líquido (netBalance): transações COMPLETED, saques e fórmula (Renovada vs padrão)',
+  })
+  @ApiQuery({
+    name: 'email',
+    required: false,
+    description: 'E-mail exato do usuário no Simpay',
+    example: 'contato@renovada.com.br',
+  })
+  @ApiQuery({ name: 'userId', required: false, description: 'UUID do usuário' })
+  async walletComposicao(
+    @Query('email') email?: string,
+    @Query('userId') userId?: string,
+  ) {
+    return this.getWalletComposition.execute({ email, userId });
+  }
+
   // ──────────── MAQUINETAS ────────────
 
   @Post('sync/maquinetas')
@@ -3226,6 +3128,110 @@ export class AdminController {
     await this.prisma.transaction.delete({ where: { id } });
 
     return { success: true, message: 'Transação deletada com sucesso' };
+  }
+
+  // ──────────── RENOVADA: RECALCULAR SALDO A PARTIR DE UMA DATA ────────────
+
+  @Post('renovada/recalcular-saldo-por-data')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Recalcula o saldo da Renovada a partir de uma data e adiciona ao saldo atual',
+    description:
+      'Soma netAmount das transações COMPLETED (regulares + maquinetas) a partir da dataInicio informada, desconta saques aprovados/completos após essa data, e incrementa o saldo atual da wallet com esse delta.',
+  })
+  @ApiQuery({ name: 'dataInicio', required: true, description: 'Data de início no formato YYYY-MM-DD', example: '2026-01-01' })
+  async recalcularSaldoRenovadaPorData(@Query('dataInicio') dataInicio: string) {
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+
+    if (!dataInicio) {
+      return { success: false, error: 'Parâmetro dataInicio obrigatório (formato YYYY-MM-DD)' };
+    }
+
+    const fromDate = new Date(`${dataInicio}T00:00:00.000Z`);
+    if (isNaN(fromDate.getTime())) {
+      return { success: false, error: 'dataInicio inválida. Use o formato YYYY-MM-DD' };
+    }
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
+    if (!wallet) {
+      return { success: false, error: 'Wallet da Renovada não encontrada' };
+    }
+
+    // 1. Soma netAmount de transações regulares COMPLETED da Renovada a partir da dataInicio
+    const renovadaKeywords = [
+      { description: { contains: 'dizimo', mode: 'insensitive' as const } },
+      { description: { contains: 'dízimo', mode: 'insensitive' as const } },
+      { description: { contains: 'primicia', mode: 'insensitive' as const } },
+      { description: { contains: 'primícia', mode: 'insensitive' as const } },
+      { description: { contains: 'oferta', mode: 'insensitive' as const } },
+      { description: { contains: 'fundacao', mode: 'insensitive' as const } },
+      { description: { contains: 'fundação', mode: 'insensitive' as const } },
+      { description: { contains: TENANT_RENOVADA_TAG, mode: 'insensitive' as const } },
+    ];
+
+    const txsAgg = await this.prisma.transaction.aggregate({
+      where: {
+        userId: RENOVADA_ID,
+        status: TransactionStatus.COMPLETED,
+        createdAt: { gte: fromDate },
+        OR: renovadaKeywords,
+      },
+      _sum: { netAmount: true },
+      _count: true,
+    });
+
+    // 2. Soma netAmount de maquinetas COMPLETED a partir da dataInicio
+    const maquinetaKeywords = [
+      { description: { contains: 'maquineta', mode: 'insensitive' as const } },
+      { description: { contains: 'terminal', mode: 'insensitive' as const } },
+    ];
+
+    const maquinetaAgg = await this.prisma.transaction.aggregate({
+      where: {
+        userId: RENOVADA_ID,
+        status: TransactionStatus.COMPLETED,
+        createdAt: { gte: fromDate },
+        OR: maquinetaKeywords,
+      },
+      _sum: { netAmount: true },
+      _count: true,
+    });
+
+    const totalTxs = Number(txsAgg._sum.netAmount ?? 0);
+    const totalMaquinetas = Number(maquinetaAgg._sum.netAmount ?? 0);
+    const newBalance = totalTxs + totalMaquinetas;
+
+    const oldBalance = Number(wallet.balance);
+
+    await this.prisma.wallet.update({
+      where: { userId: RENOVADA_ID },
+      data: { balance: new Prisma.Decimal(newBalance), version: { increment: 1 } },
+    });
+
+    await this.prisma.balanceLog.create({
+      data: {
+        userId: RENOVADA_ID,
+        action: 'WALLET_RECALCULATE',
+        amount: newBalance - oldBalance,
+        balanceBefore: oldBalance,
+        balanceAfter: newBalance,
+        lockedBefore: Number(wallet.lockedBalance),
+        lockedAfter: Number(wallet.lockedBalance),
+        source: 'ADMIN_RECALC',
+        description: `Recálculo desde ${dataInicio}: txs=${totalTxs.toFixed(2)}, maquinetas=${totalMaquinetas.toFixed(2)}, saldoNovo=${newBalance.toFixed(2)}`,
+      },
+    });
+
+    return {
+      success: true,
+      dataInicio,
+      detalhes: {
+        transacoesRegulares: { count: txsAgg._count, netAmount: totalTxs.toFixed(2) },
+        maquinetas: { count: maquinetaAgg._count, netAmount: totalMaquinetas.toFixed(2) },
+        saldoAntes: oldBalance.toFixed(2),
+        saldoNovo: newBalance.toFixed(2),
+      },
+    };
   }
 
   // ──────────── RENOVADA: LIMPAR TRANSAÇÕES + RECALCULAR SALDO ────────────
