@@ -302,6 +302,15 @@ export class PlatformDashboardService {
       isBosque,
     );
 
+    const selectedRange = await this.getChartSeriesForSelectedRange(
+      start,
+      end,
+      chartPlatformId,
+      chartTenant,
+      chartDescContains,
+      isBosque,
+    );
+
     const isFiltered = !!(dataInicio || dataFim);
     const mainProfit = isFiltered ? profitSelected : profitTotal;
 
@@ -329,6 +338,7 @@ export class PlatformDashboardService {
         charts: {
           last30Days,
           annualByMonth,
+          selectedRange,
         }
       },
       estornos: {
@@ -344,6 +354,110 @@ export class PlatformDashboardService {
         selected: countWD(start, end),
       },
     };
+  }
+
+  /**
+   * Gráfico do período filtrado (painel): um ponto por dia, ou 24 pontos por hora se dataInicio/dataFim forem o mesmo dia.
+   */
+  private async getChartSeriesForSelectedRange(
+    rangeStart: Date,
+    rangeEnd: Date,
+    platformId: string | null,
+    tenantTag: string | null,
+    descriptionContains: string | null,
+    useBosqueDescriptionOr: boolean,
+  ): Promise<{ label: string; value: number; maquinetas: number; offers: number }[]> {
+    const renovadaKeywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];
+    const baseWhere: any = useBosqueDescriptionOr
+      ? {
+          status: TransactionStatus.COMPLETED,
+          OR: [
+            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' as const } },
+            { description: { contains: 'bosque', mode: 'insensitive' as const } },
+          ],
+        }
+      : descriptionContains
+        ? {
+            status: TransactionStatus.COMPLETED,
+            description: { contains: descriptionContains, mode: 'insensitive' as const },
+          }
+        : tenantTag
+          ? {
+              status: TransactionStatus.COMPLETED,
+              description: { contains: `[TENANT:${tenantTag}]`, mode: 'insensitive' as const },
+            }
+          : {
+              userId: platformId,
+              status: TransactionStatus.COMPLETED,
+              OR: renovadaKeywords.map((k) => ({ description: { contains: k, mode: 'insensitive' as const } })),
+            };
+
+    const txs = await this.prisma.transaction.findMany({
+      where: {
+        ...baseWhere,
+        createdAt: { gte: rangeStart, lte: rangeEnd },
+      },
+      select: { netAmount: true, description: true, createdAt: true },
+    });
+
+    const zStart = dayjs(rangeStart).tz(TZ).startOf('day');
+    const zEndDay = dayjs(rangeEnd).tz(TZ).startOf('day');
+    const sameCalendarDay = zStart.isSame(zEndDay, 'day');
+
+    const pushPoint = (label: string, maquinetas: number, offers: number) => ({
+      label,
+      value: Number((maquinetas + offers).toFixed(2)),
+      maquinetas: Number(maquinetas.toFixed(2)),
+      offers: Number(offers.toFixed(2)),
+    });
+
+    if (sameCalendarDay) {
+      const buckets = Array.from({ length: 24 }, () => ({ maquinetas: 0, offers: 0 }));
+      for (const tx of txs) {
+        const h = dayjs(tx.createdAt).tz(TZ).hour();
+        const net = Number(tx.netAmount || 0);
+        const desc = (tx.description || '').toLowerCase();
+        const slot = buckets[h]!;
+        if (desc.includes('maquineta') || desc.includes('terminal')) {
+          slot.maquinetas += net;
+        } else {
+          slot.offers += net;
+        }
+      }
+      return buckets.map((b, h) => pushPoint(`${String(h).padStart(2, '0')}h`, b.maquinetas, b.offers));
+    }
+
+    const dayKeys: string[] = [];
+    let cursor = zStart;
+    const last = zEndDay;
+    while (!cursor.isAfter(last, 'day')) {
+      dayKeys.push(cursor.format('YYYY-MM-DD'));
+      cursor = cursor.add(1, 'day');
+    }
+
+    const byDay = new Map<string, { maquinetas: number; offers: number }>();
+    for (const k of dayKeys) {
+      byDay.set(k, { maquinetas: 0, offers: 0 });
+    }
+
+    for (const tx of txs) {
+      const k = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
+      const slot = byDay.get(k);
+      if (!slot) continue;
+      const net = Number(tx.netAmount || 0);
+      const desc = (tx.description || '').toLowerCase();
+      if (desc.includes('maquineta') || desc.includes('terminal')) {
+        slot.maquinetas += net;
+      } else {
+        slot.offers += net;
+      }
+    }
+
+    return dayKeys.map((k) => {
+      const b = byDay.get(k)!;
+      const [, m, d] = k.split('-');
+      return pushPoint(`${d}/${m}`, b.maquinetas, b.offers);
+    });
   }
 
   private async getChartData(

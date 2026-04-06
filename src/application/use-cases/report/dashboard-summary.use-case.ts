@@ -101,25 +101,48 @@ export class DashboardSummaryUseCase {
     const onlineAmount = paidOnline.reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
     const physicalAmount = paidPhysical.reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
 
-    // 7. Dados do Gráfico (Últimas 24h ou conforme período)
+    // 7. Gráfico: por hora só em hoje/ontem; vários dias = um ponto por dia no intervalo [start, end]
     const chartData: any[] = [];
-    const chartPoints = (period === 'hoje' || period === 'ontem') ? 24 : 7;
-    const chartUnit = (period === 'hoje' || period === 'ontem') ? 'hour' : 'day';
-    
-    for (let i = chartPoints - 1; i >= 0; i--) {
-      const d = dayjs(end).subtract(i, chartUnit as any);
-      const dStart = d.startOf(chartUnit as any).toDate();
-      const dEnd = d.endOf(chartUnit as any).toDate();
-      
-      const pointTxs = txsInPeriod.filter(t => t.status === TransactionStatus.COMPLETED && t.createdAt >= dStart && t.createdAt <= dEnd);
-      const online = pointTxs.filter(t => !t.description?.includes('Terminal:')).reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
-      const physical = pointTxs.filter(t => t.description?.includes('Terminal:')).reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
-      
-      chartData.push({
-        label: chartUnit === 'hour' ? d.format('HH:00') : d.format('DD/MM'),
-        online,
-        physical,
-      });
+    const useHourly = period === 'hoje' || period === 'ontem';
+
+    if (useHourly) {
+      const dayAnchor = dayjs(start).startOf('day');
+      for (let h = 0; h < 24; h++) {
+        const dStart = dayAnchor.add(h, 'hour').toDate();
+        const dEnd = dayAnchor.add(h, 'hour').endOf('hour').toDate();
+        const pointTxs = paidTxs.filter((t) => t.createdAt >= dStart && t.createdAt <= dEnd);
+        const online = pointTxs
+          .filter((t) => !t.description?.includes('Terminal:'))
+          .reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+        const physical = pointTxs
+          .filter((t) => t.description?.includes('Terminal:'))
+          .reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+        chartData.push({
+          label: dayAnchor.add(h, 'hour').format('HH:00'),
+          online,
+          physical,
+        });
+      }
+    } else {
+      let cur = dayjs(start).startOf('day');
+      const lastDay = dayjs(end).startOf('day');
+      while (!cur.isAfter(lastDay, 'day')) {
+        const dStart = cur.startOf('day').toDate();
+        const dEnd = cur.endOf('day').toDate();
+        const pointTxs = paidTxs.filter((t) => t.createdAt >= dStart && t.createdAt <= dEnd);
+        const online = pointTxs
+          .filter((t) => !t.description?.includes('Terminal:'))
+          .reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+        const physical = pointTxs
+          .filter((t) => t.description?.includes('Terminal:'))
+          .reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+        chartData.push({
+          label: cur.format('DD/MM'),
+          online,
+          physical,
+        });
+        cur = cur.add(1, 'day');
+      }
     }
 
     // 8. Chargebacks (Simplificado para o dash)
