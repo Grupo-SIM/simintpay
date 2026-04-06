@@ -150,6 +150,56 @@ export function calculatePaymentLinkFees(
   };
 }
 
+/**
+ * Taxa da DOM para débito: 3,49% + R$1,00 (fixa).
+ */
+const DOM_DEBIT_FEE_PERCENT = 3.49;
+const DOM_DEBIT_FEE_FIXED = 1.00;
+
+/**
+ * Calcula o breakdown de taxas para pagamento com CARTÃO DE DÉBITO.
+ *
+ * Regra de negócio:
+ * - O COMPRADOR paga exatamente o valor base (link.amount) — sem acréscimo.
+ * - O VENDEDOR arca com: DOM (3,49% + R$1,00) + Taxa plataforma (debitFeePercent% + R$debitFeeFixed).
+ * - Ambas as taxas são configuráveis por link; os defaults globais são 2% + R$2,00.
+ */
+export function calculateDebitFees(
+  link: PaymentLink,
+): {
+  baseAmount: number;
+  domFeePercent: number;
+  domFeeFixed: number;
+  domFeeAmount: number;
+  platformFeePercent: number;
+  platformFeeFixed: number;
+  platformFeeAmount: number;
+  totalFeeAmount: number;
+  netAmount: number;
+} {
+  const baseAmount = Number(link.amount);
+  const domFeeAmount = baseAmount * (DOM_DEBIT_FEE_PERCENT / 100) + DOM_DEBIT_FEE_FIXED;
+
+  const platformFeePercent: number = (link as any).debitFeePercent ?? 2.0;
+  const platformFeeFixed: number = (link as any).debitFeeFixed ?? 2.0;
+  const platformFeeAmount = baseAmount * (platformFeePercent / 100) + platformFeeFixed;
+
+  const totalFeeAmount = domFeeAmount + platformFeeAmount;
+  const netAmount = baseAmount - totalFeeAmount;
+
+  return {
+    baseAmount,
+    domFeePercent: DOM_DEBIT_FEE_PERCENT,
+    domFeeFixed: DOM_DEBIT_FEE_FIXED,
+    domFeeAmount: round2(domFeeAmount),
+    platformFeePercent,
+    platformFeeFixed,
+    platformFeeAmount: round2(platformFeeAmount),
+    totalFeeAmount: round2(totalFeeAmount),
+    netAmount: round2(netAmount),
+  };
+}
+
 function round2(v: number): number {
   return Math.round(v * 100) / 100;
 }

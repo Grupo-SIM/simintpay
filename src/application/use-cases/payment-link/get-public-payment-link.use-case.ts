@@ -3,7 +3,7 @@ import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentLinkRepository } from '../../../core/repositories/payment-link.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
-import { calculatePaymentLinkFees } from './payment-link-fees.helper';
+import { calculatePaymentLinkFees, calculateDebitFees } from './payment-link-fees.helper';
 import { MODULE_REGISTRY } from '../../../modules/module.registry';
 
 type InstallmentOption = {
@@ -58,12 +58,19 @@ export class GetPublicPaymentLinkUseCase {
     valor: number;
     parcelasMax: number;
     aceitaCartao: boolean;
+    aceitaDebito: boolean;
     aceitaPix: boolean;
     ativo: boolean;
     isStandalone: boolean;
     dataExpiracao: string | null;
     opcoesParcelas: InstallmentOption[];
     valorPix: number;
+    debitFeePercent: number;
+    debitFeeFixed: number;
+    debitTaxaDomPercent: number;
+    debitTaxaDomFixed: number;
+    debitTotalFee: number;
+    debitNetAmount: number;
   }> {
     const link = await this.links.findById(id);
     const isExpired =
@@ -104,6 +111,7 @@ export class GetPublicPaymentLinkUseCase {
     }
 
     const pixCalc = calculatePaymentLinkFees(link, 1, platformTag);
+    const debitCalc = calculateDebitFees(link);
 
     return {
       id: link.id,
@@ -112,12 +120,19 @@ export class GetPublicPaymentLinkUseCase {
       valor: Number(link.amount),
       parcelasMax: maxInstallments,
       aceitaCartao: (link as any).aceitaCartao ?? true,
+      aceitaDebito: (link as any).aceitaDebito ?? true,
       aceitaPix: (link as any).aceitaPix ?? true,
       ativo: link.isActive,
       isStandalone: (link as any).isStandalone ?? true,
       dataExpiracao: (link as any).expiresAt ? (link as any).expiresAt.toISOString() : null,
       opcoesParcelas,
       valorPix: pixCalc.totalAmount,
+      debitFeePercent: debitCalc.platformFeePercent,
+      debitFeeFixed: debitCalc.platformFeeFixed,
+      debitTaxaDomPercent: debitCalc.domFeePercent,
+      debitTaxaDomFixed: debitCalc.domFeeFixed,
+      debitTotalFee: debitCalc.totalFeeAmount,
+      debitNetAmount: debitCalc.netAmount,
     };
   }
 }

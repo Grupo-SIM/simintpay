@@ -34,6 +34,10 @@ export class CreatePaymentLinkDto {
 
   @IsBoolean()
   @IsOptional()
+  aceitaDebito?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
   aceitaPix?: boolean;
 
   /** true = Avulso (1x sem juros, 2x+ com juros); false = Plataforma (sempre com juros) */
@@ -92,6 +96,16 @@ export class CreatePaymentLinkDto {
   @IsNumber()
   @IsOptional()
   cashbackFee?: number;
+
+  /** Taxa percentual da plataforma para débito (default 2%). Cobrada do vendedor. */
+  @IsNumber()
+  @IsOptional()
+  debitFeePercent?: number;
+
+  /** Taxa fixa da plataforma para débito em R$ (default R$2,00). Cobrada do vendedor. */
+  @IsNumber()
+  @IsOptional()
+  debitFeeFixed?: number;
 
   @IsString()
   @IsOptional()

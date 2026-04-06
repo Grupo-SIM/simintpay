@@ -10,6 +10,7 @@ export type CreatePaymentLinkData = {
   expiresAt?: Date | null;
   maxInstallments: number;
   aceitaCartao?: boolean;
+  aceitaDebito?: boolean;
   aceitaPix?: boolean;
   isActive?: boolean;
   isStandalone?: boolean;
@@ -26,6 +27,8 @@ export type CreatePaymentLinkData = {
   platformFee11x?: number;
   platformFee12x?: number;
   cashbackFee?: number;
+  debitFeePercent?: number;
+  debitFeeFixed?: number;
   webhookUrl?: string | null;
   maxUses?: number | null;
   domPaymentLinkId?: string | null;

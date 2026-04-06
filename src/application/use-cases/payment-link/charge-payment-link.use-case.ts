@@ -8,7 +8,7 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { calculatePaymentLinkFees } from './payment-link-fees.helper';
+import { calculatePaymentLinkFees, calculateDebitFees } from './payment-link-fees.helper';
 
 export type ChargePaymentLinkInput = {
   linkId: string;
@@ -130,7 +130,23 @@ export class ChargePaymentLinkUseCase {
 
     const installments = input.installments ?? 1;
     const platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
-    const fees = calculatePaymentLinkFees(link, installments, platformTag);
+    const isDebit = input.paymentMethod === 'debit_card';
+
+    // Para débito: comprador paga valor base; taxas (DOM 3,49%+R$1 + plataforma) saem do líquido do vendedor.
+    // Para crédito/PIX: cálculo normal com juros repassados ao comprador.
+    const fees = isDebit
+      ? (() => {
+          const d = calculateDebitFees(link);
+          return {
+            totalAmount: d.baseAmount,       // comprador paga o valor base
+            interestAmount: 0,
+            platformFeeRate: 0,
+            cashbackFee: 0,
+            netAmount: d.netAmount,
+            domFeeAmount: d.domFeeAmount + d.platformFeeAmount, // total de taxas sobre o vendedor
+          };
+        })()
+      : calculatePaymentLinkFees(link, installments, platformTag);
     const { totalAmount, interestAmount, platformFeeRate, cashbackFee, netAmount, domFeeAmount } = fees;
 
     const result = await this.gateway.chargePaymentLink(domToken, {

@@ -36,6 +36,10 @@ export class UpdatePaymentLinkDto {
 
   @IsBoolean()
   @IsOptional()
+  aceitaDebito?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
   isStandalone?: boolean;
 
   @IsNumber()
@@ -89,6 +93,16 @@ export class UpdatePaymentLinkDto {
   @IsNumber()
   @IsOptional()
   cashbackFee?: number;
+
+  /** Taxa percentual da plataforma para débito (default 2%). Cobrada do vendedor. */
+  @IsNumber()
+  @IsOptional()
+  debitFeePercent?: number;
+
+  /** Taxa fixa da plataforma para débito em R$ (default R$2,00). Cobrada do vendedor. */
+  @IsNumber()
+  @IsOptional()
+  debitFeeFixed?: number;
 
   @IsString()
   @IsOptional()

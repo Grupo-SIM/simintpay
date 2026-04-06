@@ -48,6 +48,7 @@ export class CreatePaymentLinkUseCase {
     }
 
     const aceitaCartao = input.dto.aceitaCartao ?? true;
+    const aceitaDebito = input.dto.aceitaDebito ?? true;
     const aceitaPix = input.dto.aceitaPix ?? true;
     const maxInstallments = aceitaCartao ? (input.dto.parcelasMax ?? 1) : 1;
     const isStandalone = input.dto.isStandalone ?? true;
@@ -86,6 +87,7 @@ export class CreatePaymentLinkUseCase {
       expiresAt: input.dto.dataExpiracao ? new Date(input.dto.dataExpiracao) : null,
       maxInstallments,
       aceitaCartao,
+      aceitaDebito,
       aceitaPix,
       isActive: true,
       isStandalone,
@@ -102,6 +104,8 @@ export class CreatePaymentLinkUseCase {
       platformFee11x: input.dto.platformFee11x,
       platformFee12x: input.dto.platformFee12x,
       cashbackFee: input.dto.cashbackFee,
+      debitFeePercent: input.dto.debitFeePercent,
+      debitFeeFixed: input.dto.debitFeeFixed,
       webhookUrl: input.dto.webhookUrl ?? null,
       maxUses: input.dto.maxUses ?? null,
       domPaymentLinkId: created.id,

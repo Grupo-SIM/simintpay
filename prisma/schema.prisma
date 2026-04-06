@@ -172,6 +172,7 @@ model PaymentLink {
   expiresAt        DateTime?
   maxInstallments  Int           @default(1)
   aceitaCartao     Boolean       @default(true)
+  aceitaDebito     Boolean       @default(true)
   aceitaPix        Boolean       @default(true)
   isActive         Boolean       @default(true)
   isStandalone     Boolean       @default(true)
@@ -188,6 +189,8 @@ model PaymentLink {
   platformFee11x   Float         @default(24.83)
   platformFee12x   Float         @default(25.99)
   cashbackFee      Float         @default(3.00)
+  debitFeePercent  Float         @default(2.00)
+  debitFeeFixed    Float         @default(2.00)
   webhookUrl       String?
   maxUses          Int?
   currentUses      Int           @default(0)

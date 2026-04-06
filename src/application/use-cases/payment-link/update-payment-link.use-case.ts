@@ -56,6 +56,7 @@ export class UpdatePaymentLinkUseCase {
       expiresAt: input.dto.dataExpiracao ? new Date(input.dto.dataExpiracao) : (existing as any).expiresAt ?? null,
       maxInstallments: input.dto.parcelasMax ?? existing.maxInstallments,
       isActive: input.dto.isActive ?? existing.isActive,
+      aceitaDebito: input.dto.aceitaDebito ?? (existing as any).aceitaDebito,
       isStandalone: input.dto.isStandalone ?? (existing as any).isStandalone,
       platformFee1x: input.dto.platformFee1x ?? (existing as any).platformFee1x,
       platformFee2x: input.dto.platformFee2x ?? (existing as any).platformFee2x,
@@ -70,6 +71,8 @@ export class UpdatePaymentLinkUseCase {
       platformFee11x: input.dto.platformFee11x ?? (existing as any).platformFee11x,
       platformFee12x: input.dto.platformFee12x ?? (existing as any).platformFee12x,
       cashbackFee: input.dto.cashbackFee ?? (existing as any).cashbackFee,
+      debitFeePercent: input.dto.debitFeePercent ?? (existing as any).debitFeePercent,
+      debitFeeFixed: input.dto.debitFeeFixed ?? (existing as any).debitFeeFixed,
       webhookUrl: input.dto.webhookUrl ?? (existing as any).webhookUrl,
       maxUses: input.dto.maxUses ?? (existing as any).maxUses,
     });
