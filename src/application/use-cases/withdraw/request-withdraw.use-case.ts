@@ -84,9 +84,9 @@ export class RequestWithdrawUseCase {
       );
     }
 
-    // Apenas um saque ativo por vez (PENDING ou APPROVED)
+    // Apenas um saque ativo por vez (somente PENDING bloqueia — APPROVED já foi processado)
     const activeWithdrawal = await this.prisma.withdrawRequest.findFirst({
-      where: { userId, status: { in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED] } },
+      where: { userId, status: WithdrawStatus.PENDING },
       orderBy: { createdAt: 'desc' },
     });
     if (activeWithdrawal) {

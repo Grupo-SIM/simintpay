@@ -334,6 +334,25 @@ export class ListTransactionsUseCase {
                   { description: { contains: RENOVADA_HIDDEN_TAG, mode: Prisma.QueryMode.insensitive } },
                 ],
               },
+              // Excluir maquinetas/terminais (têm rota própria /maquinetas)
+              {
+                NOT: {
+                  OR: [
+                    { description: { contains: 'maquineta', mode: Prisma.QueryMode.insensitive } },
+                    { description: { contains: 'terminal:', mode: Prisma.QueryMode.insensitive } },
+                  ],
+                },
+              },
+              // Excluir ajustes administrativos/sincronizações de saldo
+              {
+                NOT: {
+                  OR: [
+                    { description: { contains: 'Sincronização de Saldo', mode: Prisma.QueryMode.insensitive } },
+                    { description: { contains: 'Ajuste Administrativo', mode: Prisma.QueryMode.insensitive } },
+                    { description: { contains: 'balance sync', mode: Prisma.QueryMode.insensitive } },
+                  ],
+                },
+              },
             ]
           : []),
       ];

@@ -3304,6 +3304,202 @@ export class AdminController {
     };
   }
 
+  // ──────────── RENOVADA: CORRIGIR SALDO WALLET (ofertas + maquinetas, sem ajustes) ────────────
+
+  @Post('renovada/fix-wallet-balance')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Recalcula o saldo da wallet da Renovada: ofertas/dízimos (31/03-06/04) usando amount + maquinetas (05/04-06/04) usando netAmount, excluindo ajustes',
+  })
+  async fixRenovadaWalletBalance() {
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+
+    const periodoOfertasInicio = new Date('2026-03-31T00:00:00-03:00');
+    const periodoFim           = new Date('2026-04-06T23:59:59-03:00');
+    const periodoMaquinetasInicio = new Date('2026-04-05T00:00:00-03:00');
+
+    const AJUSTES_NOT = {
+      OR: [
+        { description: { contains: 'sincronizacao de saldo', mode: 'insensitive' as const } },
+        { description: { contains: 'sincronização de saldo', mode: 'insensitive' as const } },
+        { description: { contains: 'ajuste administrativo', mode: 'insensitive' as const } },
+        { description: { contains: 'balance sync', mode: 'insensitive' as const } },
+      ],
+    };
+
+    // 1. Ofertas/dízimos/primícias/fundação (31/03–06/04) — soma netAmount (líquido)
+    const ofertasAgg = await this.prisma.transaction.aggregate({
+      where: {
+        userId: RENOVADA_ID,
+        status: TransactionStatus.COMPLETED,
+        createdAt: { gte: periodoOfertasInicio, lte: periodoFim },
+        OR: [
+          { description: { contains: 'dizimo', mode: 'insensitive' } },
+          { description: { contains: 'dízimo', mode: 'insensitive' } },
+          { description: { contains: 'primicia', mode: 'insensitive' } },
+          { description: { contains: 'primícia', mode: 'insensitive' } },
+          { description: { contains: 'oferta', mode: 'insensitive' } },
+          { description: { contains: 'fundacao', mode: 'insensitive' } },
+          { description: { contains: 'fundação', mode: 'insensitive' } },
+        ],
+        NOT: [
+          AJUSTES_NOT,
+          { OR: [
+            { description: { contains: 'maquineta', mode: 'insensitive' } },
+            { description: { contains: 'terminal:', mode: 'insensitive' } },
+          ]},
+        ],
+      },
+      _sum: { netAmount: true },
+      _count: { id: true },
+    });
+
+    // 2. Maquinetas (05/04–06/04) — soma netAmount (líquido), igual ao sync-maquinetas
+    const maquinetasAgg = await this.prisma.transaction.aggregate({
+      where: {
+        userId: RENOVADA_ID,
+        status: TransactionStatus.COMPLETED,
+        createdAt: { gte: periodoMaquinetasInicio, lte: periodoFim },
+        OR: [
+          { description: { contains: 'maquineta', mode: 'insensitive' } },
+          { description: { contains: 'terminal:', mode: 'insensitive' } },
+        ],
+        NOT: AJUSTES_NOT,
+      },
+      _sum: { netAmount: true },
+      _count: { id: true },
+    });
+
+    const totalOfertas   = Number(ofertasAgg._sum.netAmount ?? 0);
+    const totalMaquinetas = Number(maquinetasAgg._sum.netAmount ?? 0);
+
+    const completedWithdraws = await this.prisma.withdrawRequest.aggregate({
+      where: {
+        userId: RENOVADA_ID,
+        status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
+        createdAt: { gte: periodoOfertasInicio, lte: periodoFim },
+      },
+      _sum: { amount: true },
+    });
+
+    const totalSacado = Number(completedWithdraws._sum.amount ?? 0);
+    const novoBalance = Math.max(0, totalOfertas + totalMaquinetas - totalSacado);
+
+    const walletAntes = await this.prisma.wallet.findUnique({
+      where: { userId: RENOVADA_ID },
+      select: { balance: true, lockedBalance: true },
+    });
+    const balanceAntes = Number(walletAntes?.balance || 0);
+    const lockedAntes = Number(walletAntes?.lockedBalance || 0);
+
+    await this.prisma.wallet.update({
+      where: { userId: RENOVADA_ID },
+      data: { balance: novoBalance, version: { increment: 1 } },
+    });
+
+    await this.prisma.balanceLog.create({
+      data: {
+        userId: RENOVADA_ID,
+        amount: novoBalance - balanceAntes,
+        balanceBefore: balanceAntes,
+        balanceAfter: novoBalance,
+        lockedBefore: lockedAntes,
+        lockedAfter: lockedAntes,
+        action: 'WALLET_RECALCULATE',
+        source: 'ADMIN_FIX_WALLET',
+        description: `fix-wallet-balance 31/03-06/04/2026: ofertas=${totalOfertas.toFixed(2)} (${ofertasAgg._count.id}tx), maquinetas=${totalMaquinetas.toFixed(2)} (${maquinetasAgg._count.id}tx), saques=${totalSacado.toFixed(2)}`,
+      },
+    });
+
+    return {
+      message: 'Saldo da wallet da Renovada corrigido com sucesso',
+      balanceAntes: Number(balanceAntes.toFixed(2)),
+      novoBalance: Number(novoBalance.toFixed(2)),
+      totalOfertas: Number(totalOfertas.toFixed(2)),
+      totalMaquinetas: Number(totalMaquinetas.toFixed(2)),
+      totalSacado: Number(totalSacado.toFixed(2)),
+      transacoesOfertas: ofertasAgg._count.id,
+      transacoesMaquinetas: maquinetasAgg._count.id,
+    };
+  }
+
+  // ──────────── RENOVADA: REGISTRAR LOGS DE SAQUE RETROATIVAMENTE ────────────
+
+  @Post('renovada/fix-withdraw-logs')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Registra retroativamente os logs de taxa e lucro de saque para um withdrawId já aprovado' })
+  async fixWithdrawLogs(@Query('withdrawId') withdrawId: string) {
+    if (!withdrawId?.trim()) {
+      throw new BadRequestException('withdrawId é obrigatório');
+    }
+
+    const withdraw = await this.prisma.withdrawRequest.findUnique({
+      where: { id: withdrawId },
+      select: { id: true, userId: true, status: true, updatedAt: true },
+    });
+
+    if (!withdraw) {
+      throw new NotFoundException(`Saque ${withdrawId} não encontrado`);
+    }
+
+    // Verifica se já existem logs para esse saque (evitar duplicar)
+    const existing = await this.prisma.balanceLog.findFirst({
+      where: {
+        source: 'MASTER_ADMIN_CONTROL',
+        action: { in: ['ADMIN_WITHDRAW_FEE_INC', 'ADMIN_WITHDRAW_PROFIT_INC'] },
+        metadata: { path: ['withdrawId'], equals: withdrawId },
+      },
+    });
+
+    if (existing) {
+      return { message: 'Logs já existem para este saque, nada foi alterado.', withdrawId };
+    }
+
+    const logDate = withdraw.updatedAt; // data da aprovação
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.balanceLog.create({
+        data: {
+          userId: withdraw.userId,
+          action: 'ADMIN_WITHDRAW_FEE_INC',
+          amount: new Prisma.Decimal(1),
+          balanceBefore: 0,
+          balanceAfter: 0,
+          lockedBefore: 0,
+          lockedAfter: 0,
+          source: 'MASTER_ADMIN_CONTROL',
+          description: `Taxa de saque (retroativo)`,
+          metadata: { withdrawId },
+          createdAt: logDate,
+        },
+      });
+
+      await tx.balanceLog.create({
+        data: {
+          userId: withdraw.userId,
+          action: 'ADMIN_WITHDRAW_PROFIT_INC',
+          amount: new Prisma.Decimal(2),
+          balanceBefore: 0,
+          balanceAfter: 0,
+          lockedBefore: 0,
+          lockedAfter: 0,
+          source: 'MASTER_ADMIN_CONTROL',
+          description: `Lucro de saque (retroativo)`,
+          metadata: { withdrawId },
+          createdAt: logDate,
+        },
+      });
+    });
+
+    return {
+      message: 'Logs de taxa e lucro de saque registrados com sucesso',
+      withdrawId,
+      dataRegistrada: logDate.toISOString(),
+      taxaSaque: 1,
+      lucroSaque: 2,
+    };
+  }
+
   // ──────────── PLATAFORMAS ────────────
 
   @Get('plataformas/taxas')
