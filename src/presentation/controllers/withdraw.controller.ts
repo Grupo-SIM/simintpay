@@ -4,8 +4,10 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   Query,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
@@ -17,6 +19,7 @@ import { ListWithdrawalsUseCase } from '../../application/use-cases/withdraw/lis
 import { RequestWithdrawUseCase } from '../../application/use-cases/withdraw/request-withdraw.use-case';
 import { CheckPendingWithdrawUseCase } from '../../application/use-cases/withdraw/check-pending-withdraw.use-case';
 import { GetWithdrawSummaryUseCase } from '../../application/use-cases/withdraw/get-withdraw-summary.use-case';
+import { GetWithdrawReceiptUseCase } from '../../application/use-cases/withdraw/get-withdraw-receipt.use-case';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -35,6 +38,7 @@ export class WithdrawController {
     private readonly listWithdrawals: ListWithdrawalsUseCase,
     private readonly checkPending: CheckPendingWithdrawUseCase,
     private readonly getSummary: GetWithdrawSummaryUseCase,
+    private readonly getWithdrawReceipt: GetWithdrawReceiptUseCase,
   ) {}
 
   @Get()
@@ -103,5 +107,30 @@ export class WithdrawController {
   ): Promise<{ data: unknown }> {
     const out = await this.getSummary.execute(user?.sub ?? '');
     return { data: out };
+  }
+
+  @Get(':id/comprovante')
+  @ApiOperation({
+    summary: 'Baixar ou visualizar comprovante do saque',
+    description:
+      'Retorna o arquivo (imagem/PDF). Autenticado: dono do saque ou ADMIN. Usa credenciais Storj no servidor se o bucket não for público.',
+  })
+  @ApiResponse({ status: 200, description: 'Stream do arquivo' })
+  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
+  @ApiResponse({ status: 403, schema: { example: { statusCode: 403, message: 'Forbidden' } } })
+  @ApiResponse({ status: 404, schema: { example: { statusCode: 404, message: 'Not Found' } } })
+  async comprovante(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload | undefined,
+  ): Promise<StreamableFile> {
+    const out = await this.getWithdrawReceipt.execute({
+      withdrawId: id,
+      requesterId: user?.sub ?? '',
+      requesterRole: user?.role ?? 'USER',
+    });
+    return new StreamableFile(out.buffer, {
+      type: out.contentType,
+      disposition: 'inline; filename="comprovante"',
+    });
   }
 }

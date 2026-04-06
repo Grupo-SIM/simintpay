@@ -9,6 +9,7 @@ import { RequestWithdrawUseCase } from '../application/use-cases/withdraw/reques
 import { ListWithdrawalsUseCase } from '../application/use-cases/withdraw/list-withdrawals.use-case';
 import { CheckPendingWithdrawUseCase } from '../application/use-cases/withdraw/check-pending-withdraw.use-case';
 import { GetWithdrawSummaryUseCase } from '../application/use-cases/withdraw/get-withdraw-summary.use-case';
+import { GetWithdrawReceiptUseCase } from '../application/use-cases/withdraw/get-withdraw-receipt.use-case';
 import { CACHE_SERVICE } from '../core/services/cache.interface';
 import { NoopCacheService } from '../infrastructure/cache/noop-cache.service';
 import { AuthModule } from './auth.module';
@@ -24,6 +25,7 @@ import { ModuleRealtimeModule } from '../infrastructure/realtime/module-realtime
     ListWithdrawalsUseCase,
     CheckPendingWithdrawUseCase,
     GetWithdrawSummaryUseCase,
+    GetWithdrawReceiptUseCase,
     { provide: WITHDRAW_REPOSITORY, useClass: PrismaWithdrawRepository },
     { provide: BALANCE_LOG_REPOSITORY, useClass: PrismaBalanceLogRepository },
     { provide: CACHE_SERVICE, useClass: NoopCacheService },
