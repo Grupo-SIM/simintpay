@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IPaymentLinkRepository } from '../../../core/repositories/payment-link.repository.interface';
@@ -7,6 +7,8 @@ import type { UpdatePaymentLinkDto } from '../../dtos/payment-link/update-paymen
 
 @Injectable()
 export class UpdatePaymentLinkUseCase {
+  private readonly logger = new Logger(UpdatePaymentLinkUseCase.name);
+
   constructor(
     @Inject(PAYMENT_LINK_REPOSITORY)
     private readonly links: IPaymentLinkRepository,
@@ -25,16 +27,26 @@ export class UpdatePaymentLinkUseCase {
     if (!existing) throw new NotFoundException('Link não encontrado');
 
     const domToken = process.env.DOM_TOKEN;
-    if (!domToken) throw new InternalServerErrorException('DOM_TOKEN não configurado');
 
-    if (existing.domPaymentLinkId) {
-      await this.gateway.updatePaymentLink(domToken, existing.domPaymentLinkId, {
-        title: input.dto.titulo,
-        description: input.dto.descricao ?? undefined,
-        amount: input.dto.valor,
-        maxInstallments: input.dto.parcelasMax,
-        isActive: input.dto.isActive,
-      });
+    // Sincronizar com DOM apenas os campos que o gateway reconhece.
+    // isStandalone e platformFeeNx são locais — o DOM não os conhece.
+    // Se o DOM rejeitar (valor mínimo, link inexistente, etc.) a atualização
+    // local continua normalmente para não bloquear campos como isStandalone.
+    if (domToken && existing.domPaymentLinkId) {
+      try {
+        await this.gateway.updatePaymentLink(domToken, existing.domPaymentLinkId, {
+          title: input.dto.titulo,
+          description: input.dto.descricao ?? undefined,
+          amount: input.dto.valor,
+          maxInstallments: input.dto.parcelasMax,
+          isActive: input.dto.isActive,
+        });
+      } catch (err: unknown) {
+        // Falha no DOM não bloqueia a atualização local
+        this.logger.warn(
+          `DOM updatePaymentLink falhou para ${existing.domPaymentLinkId}: ${(err as Error)?.message ?? err}`,
+        );
+      }
     }
 
     const updated = await this.links.update(existing.id, {
