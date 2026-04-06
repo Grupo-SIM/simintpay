@@ -11,7 +11,7 @@ export class AuthTokensService {
     email: string;
     role: Role;
   }): Promise<{ token: string; expiresIn: number }> {
-    const expiresIn = 15 * 60;
+    const expiresIn = 24 * 60 * 60; // 1 dia (segundos, padrão jsonwebtoken)
     const token = await this.jwt.signAsync(payload, { expiresIn });
     return { token, expiresIn };
   }
