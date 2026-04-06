@@ -53,7 +53,7 @@ export class GetMeUseCase {
     const slug = (user.tenantModule?.slug || '').toLowerCase();
     const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
     const useRenovadaWalletLedger =
-      slug === 'renovada' || user.id === renovadaId;
+      slug === 'renovada' || slug === 'bosque' || user.id === renovadaId;
 
     const netBalance = await computeUserNetBalance(
       this.prisma,
@@ -87,8 +87,23 @@ export class GetMeUseCase {
       const fatorLiquidez =
         getModuleConfig(user.tenantModule?.slug)?.saque?.fatorLiquidez ??
         Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
+      const isBosqueWallet = slug === 'bosque';
       const txRows = await this.prisma.transaction.findMany({
-        where: { userId: user.id, status: 'COMPLETED', amount: { gt: 0 } },
+        where: {
+          userId: user.id,
+          status: 'COMPLETED',
+          amount: { gt: 0 },
+          ...(isBosqueWallet ? {
+            NOT: {
+              OR: [
+                { description: { contains: 'Sincronização Bosque', mode: 'insensitive' } },
+                { description: { contains: 'Sincronizacao Bosque', mode: 'insensitive' } },
+                { description: { contains: 'Ajuste Administrativo', mode: 'insensitive' } },
+                { description: { contains: 'balance sync', mode: 'insensitive' } },
+              ],
+            },
+          } : {}),
+        },
         select: { amount: true, netAmount: true },
       });
       const totalLiquidProfit = txRows.reduce(

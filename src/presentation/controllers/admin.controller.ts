@@ -3500,6 +3500,87 @@ export class AdminController {
     };
   }
 
+  // ──────────── BOSQUE: CORRIGIR SALDO WALLET (sem sincronizações, sem ajustes) ────────────
+
+  @Post('bosque/fix-wallet-balance')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Recalcula o saldo da wallet do Bosque somando netAmount das transações reais (15/03–06/04/2026), excluindo sincronizações e ajustes',
+  })
+  async fixBosqueWalletBalance() {
+    const BOSQUE_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+
+    const periodoInicio = new Date('2026-03-15T00:00:00-03:00');
+    const periodoFim    = new Date('2026-04-06T23:59:59-03:00');
+
+    const txsAgg = await this.prisma.transaction.aggregate({
+      where: {
+        userId: BOSQUE_ID,
+        status: TransactionStatus.COMPLETED,
+        createdAt: { gte: periodoInicio, lte: periodoFim },
+        NOT: {
+          OR: [
+            { description: { contains: 'Sincronização Bosque', mode: 'insensitive' } },
+            { description: { contains: 'Sincronizacao Bosque', mode: 'insensitive' } },
+            { description: { contains: 'Ajuste Administrativo', mode: 'insensitive' } },
+            { description: { contains: 'balance sync', mode: 'insensitive' } },
+          ],
+        },
+      },
+      _sum: { netAmount: true },
+      _count: { id: true },
+    });
+
+    const totalRecebido = Number(txsAgg._sum.netAmount ?? 0);
+
+    const completedWithdraws = await this.prisma.withdrawRequest.aggregate({
+      where: {
+        userId: BOSQUE_ID,
+        status: { in: [WithdrawStatus.COMPLETED, WithdrawStatus.APPROVED] },
+        createdAt: { gte: periodoInicio, lte: periodoFim },
+      },
+      _sum: { amount: true },
+    });
+
+    const totalSacado = Number(completedWithdraws._sum.amount ?? 0);
+    const novoBalance = Math.max(0, totalRecebido - totalSacado);
+
+    const walletAntes = await this.prisma.wallet.findUnique({
+      where: { userId: BOSQUE_ID },
+      select: { balance: true, lockedBalance: true },
+    });
+    const balanceAntes = Number(walletAntes?.balance ?? 0);
+    const lockedAntes  = Number(walletAntes?.lockedBalance ?? 0);
+
+    await this.prisma.wallet.update({
+      where: { userId: BOSQUE_ID },
+      data: { balance: novoBalance, version: { increment: 1 } },
+    });
+
+    await this.prisma.balanceLog.create({
+      data: {
+        userId: BOSQUE_ID,
+        amount: novoBalance - balanceAntes,
+        balanceBefore: balanceAntes,
+        balanceAfter: novoBalance,
+        lockedBefore: lockedAntes,
+        lockedAfter: lockedAntes,
+        action: 'WALLET_RECALCULATE',
+        source: 'ADMIN_FIX_WALLET',
+        description: `fix-wallet-balance Bosque 15/03-06/04/2026: recebido=${totalRecebido.toFixed(2)}, saques=${totalSacado.toFixed(2)}, txs=${txsAgg._count.id} (sem sincronizações/ajustes)`,
+      },
+    });
+
+    return {
+      message: 'Saldo da wallet do Bosque corrigido com sucesso',
+      balanceAntes: Number(balanceAntes.toFixed(2)),
+      novoBalance: Number(novoBalance.toFixed(2)),
+      totalRecebido: Number(totalRecebido.toFixed(2)),
+      totalSacado: Number(totalSacado.toFixed(2)),
+      transacoesConsideradas: txsAgg._count.id,
+    };
+  }
+
   // ──────────── PLATAFORMAS ────────────
 
   @Get('plataformas/taxas')

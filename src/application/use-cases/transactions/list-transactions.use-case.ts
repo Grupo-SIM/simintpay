@@ -318,6 +318,7 @@ export class ListTransactionsUseCase {
       ];
     } else {
       const filterPlanTransactions = moduleSlug === 'renovada';
+      const isBosque = moduleSlug === 'bosque';
       and = [
         { userId: input.userId },
         ...(filterPlanTransactions
@@ -348,6 +349,20 @@ export class ListTransactionsUseCase {
                 NOT: {
                   OR: [
                     { description: { contains: 'Sincronização de Saldo', mode: Prisma.QueryMode.insensitive } },
+                    { description: { contains: 'Ajuste Administrativo', mode: Prisma.QueryMode.insensitive } },
+                    { description: { contains: 'balance sync', mode: Prisma.QueryMode.insensitive } },
+                  ],
+                },
+              },
+            ]
+          : isBosque
+          ? [
+              // Excluir transações de sincronização/ajuste do Bosque
+              {
+                NOT: {
+                  OR: [
+                    { description: { contains: 'Sincronização Bosque', mode: Prisma.QueryMode.insensitive } },
+                    { description: { contains: 'Sincronizacao Bosque', mode: Prisma.QueryMode.insensitive } },
                     { description: { contains: 'Ajuste Administrativo', mode: Prisma.QueryMode.insensitive } },
                     { description: { contains: 'balance sync', mode: Prisma.QueryMode.insensitive } },
                   ],

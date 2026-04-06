@@ -27,7 +27,7 @@ export class GetWithdrawSummaryUseCase {
 
     const moduleSlug = (user.tenantModule?.slug || '').toLowerCase();
     const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-    const isRenovadaWallet = moduleSlug === 'renovada' || userId === renovadaId;
+    const isRenovadaWallet = moduleSlug === 'renovada' || moduleSlug === 'bosque' || userId === renovadaId;
 
     const defaultSaque = {
       minValor: Number(process.env.SAQUE_MIN_VALOR || 100),
@@ -91,8 +91,23 @@ export class GetWithdrawSummaryUseCase {
     let availableBalanceGross = 0;
 
     // 2. Busca transações para ver se calculamos via Ledger ou via Wallet Fixa
+    const isBosqueWallet = moduleSlug === 'bosque';
     const txRows = await this.prisma.transaction.findMany({
-      where: { userId, status: TransactionStatus.COMPLETED, amount: { gt: 0 } },
+      where: {
+        userId,
+        status: TransactionStatus.COMPLETED,
+        amount: { gt: 0 },
+        ...(isBosqueWallet ? {
+          NOT: {
+            OR: [
+              { description: { contains: 'Sincronização Bosque', mode: 'insensitive' } },
+              { description: { contains: 'Sincronizacao Bosque', mode: 'insensitive' } },
+              { description: { contains: 'Ajuste Administrativo', mode: 'insensitive' } },
+              { description: { contains: 'balance sync', mode: 'insensitive' } },
+            ],
+          },
+        } : {}),
+      },
       select: { amount: true, netAmount: true },
     });
 

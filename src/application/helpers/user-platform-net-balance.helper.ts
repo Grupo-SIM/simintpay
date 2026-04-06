@@ -19,7 +19,7 @@ export async function computeUserNetBalance(
 
   const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
   const slug = (tenantSlug || '').toLowerCase();
-  const useRenovadaWalletLedger = slug === 'renovada' || userId === renovadaId;
+  const useRenovadaWalletLedger = slug === 'renovada' || slug === 'bosque' || userId === renovadaId;
 
   if (useRenovadaWalletLedger) {
     // wallet.balance armazena o valor líquido diretamente (netAmount já descontado das taxas)
@@ -33,8 +33,23 @@ export async function computeUserNetBalance(
     return Number(availableNet.toFixed(2));
   }
 
+  const isBosqueWallet = slug === 'bosque';
   const txRows = await prisma.transaction.findMany({
-    where: { userId, status: 'COMPLETED', amount: { gt: 0 } },
+    where: {
+      userId,
+      status: 'COMPLETED',
+      amount: { gt: 0 },
+      ...(isBosqueWallet ? {
+        NOT: {
+          OR: [
+            { description: { contains: 'Sincronização Bosque', mode: 'insensitive' } },
+            { description: { contains: 'Sincronizacao Bosque', mode: 'insensitive' } },
+            { description: { contains: 'Ajuste Administrativo', mode: 'insensitive' } },
+            { description: { contains: 'balance sync', mode: 'insensitive' } },
+          ],
+        },
+      } : {}),
+    },
     select: { amount: true, netAmount: true },
   });
 
