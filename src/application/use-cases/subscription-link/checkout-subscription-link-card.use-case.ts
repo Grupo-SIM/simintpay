@@ -9,7 +9,7 @@ import type { CheckoutSubscriptionLinkCardDto } from '../../dtos/subscription-li
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
-import { getPlatformTaxaEffective, getPlatformTaxaSource } from '../../../modules/platform-taxas/platform-taxas.store';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR'; frequency: number } {
@@ -66,17 +66,19 @@ export class CheckoutSubscriptionLinkCardUseCase {
 
     const base = Number(link.amount);
 
-    // Taxa de assinatura: usa override da plataforma se configurado, senão cai no valor gravado no link
+    // Taxa de assinatura: hierarquia completa — override da plataforma → env var → GLOBAL → valor gravado no link
     let platformFeeRate: number;
     if (!link.isStandalone) {
       const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
       const platformTag = slugTag ?? (isAreaflix ? 'AREAFLIX' : 'COMUNIDADE');
-      const source = getPlatformTaxaSource(platformTag, 'TAXA_ASSINATURA');
-      // TAXA_ASSINATURA está em % direto (ex: 9.0 = 9%). Converter para decimal antes de multiplicar.
-      const taxaAssinaturaPercent = (source === 'override' || source === 'env')
-        ? getPlatformTaxaEffective(platformTag, 'TAXA_ASSINATURA', PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA)
-        : (link.platformFee ?? PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA);
+      // Passa link.platformFee como fallback final: se nada estiver configurado no admin,
+      // usa o valor que estava gravado no link. Se GLOBAL estiver configurado, GLOBAL prevalece.
+      const taxaAssinaturaPercent = getPlatformTaxaEffective(
+        platformTag,
+        'TAXA_ASSINATURA',
+        link.platformFee ?? PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA,
+      );
       platformFeeRate = taxaAssinaturaPercent / 100;
     } else {
       platformFeeRate = 0;

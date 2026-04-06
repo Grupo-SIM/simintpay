@@ -5,6 +5,7 @@ import { USER_REPOSITORY } from '../core/repositories/user.repository.interface'
 import { PrismaSubscriptionLinkRepository } from '../infrastructure/database/repositories/prisma-subscription-link.repository';
 import { PrismaUserRepository } from '../infrastructure/database/repositories/prisma-user.repository';
 import { SubscriptionLinkController } from './controllers/subscription-link.controller';
+import { SubscriptionLinkEnController } from './controllers/subscription-link-en.controller';
 import { CreateSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/create-subscription-link.use-case';
 import { ListSubscriptionLinksUseCase } from '../application/use-cases/subscription-link/list-subscription-links.use-case';
 import { GetSubscriptionLinkUseCase } from '../application/use-cases/subscription-link/get-subscription-link.use-case';
@@ -20,7 +21,7 @@ import { EmailService } from '../infrastructure/email/email.service';
 
 @Module({
   imports: [ApiDomModule],
-  controllers: [SubscriptionLinkController],
+  controllers: [SubscriptionLinkController, SubscriptionLinkEnController],
   providers: [
     { provide: SUBSCRIPTION_LINK_REPOSITORY, useClass: PrismaSubscriptionLinkRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },

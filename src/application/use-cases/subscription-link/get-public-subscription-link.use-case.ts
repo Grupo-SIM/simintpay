@@ -4,7 +4,7 @@ import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscri
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { ISubscriptionLinkRepository } from '../../../core/repositories/subscription-link.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
-import { getPlatformTaxaEffective, getPlatformTaxaSource } from '../../../modules/platform-taxas/platform-taxas.store';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 function mapFrequencyLabel(t: PlanType): string {
@@ -38,12 +38,19 @@ export class GetPublicSubscriptionLinkUseCase {
 
     if (!link.isStandalone) {
       const owner = await this.users.findById(link.userId);
-      const platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
-      const source = getPlatformTaxaSource(platformTag, 'TAXA_ASSINATURA');
-      if (source === 'override' || source === 'env') {
-        // TAXA_ASSINATURA está em % direto (ex: 9.0 = 9%)
-        effectivePlatformFee = getPlatformTaxaEffective(platformTag, 'TAXA_ASSINATURA', PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA);
-      }
+      // Mesma lógica de detecção de plataforma dos use cases de checkout:
+      // 1º slugTag do tenantModule; 2º AREAFLIX se webhookUrl contiver 'areaflix'; 3º COMUNIDADE
+      const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
+      const slugTag = owner?.tenantModule?.slug?.toUpperCase();
+      const platformTag = slugTag ?? (isAreaflix ? 'AREAFLIX' : 'COMUNIDADE');
+      // Mesma hierarquia dos use cases de checkout: plataforma → env var → GLOBAL → valor gravado no link.
+      // Passar link.platformFee como fallback garante que, sem nenhuma configuração no admin,
+      // o valor original do link é exibido. Com GLOBAL configurado, o GLOBAL prevalece.
+      effectivePlatformFee = getPlatformTaxaEffective(
+        platformTag,
+        'TAXA_ASSINATURA',
+        link.platformFee ?? PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA,
+      );
     }
 
     const valorComJuros = link.isStandalone
