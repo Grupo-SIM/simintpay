@@ -26,6 +26,7 @@ export class UpdateSubscriptionLinkUseCase {
       redirectUrl: input.dto.redirectUrl ?? existing.redirectUrl,
       webhookUrl: input.dto.webhookUrl ?? existing.webhookUrl,
       maxUses: input.dto.maxUses ?? existing.maxUses,
+      platformTag: input.dto.platformTag !== undefined ? input.dto.platformTag : (existing as any).platformTag,
     });
 
     return {

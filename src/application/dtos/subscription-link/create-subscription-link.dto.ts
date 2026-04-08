@@ -91,4 +91,12 @@ export class CreateSubscriptionLinkDto {
   @IsEnum(['PIX', 'CREDIT_CARD', 'BOTH'])
   @IsOptional()
   paymentMethods?: 'PIX' | 'CREDIT_CARD' | 'BOTH';
+
+  /**
+   * Tag de plataforma para resolução de taxa (ex: AREAFLIX, COMUNIDADE, GLOBAL).
+   * Sobrepõe a detecção automática por tenantModule ou webhookUrl.
+   */
+  @IsString()
+  @IsOptional()
+  platformTag?: string;
 }

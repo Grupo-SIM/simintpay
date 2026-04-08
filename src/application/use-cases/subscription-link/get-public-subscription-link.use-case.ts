@@ -35,17 +35,21 @@ export class GetPublicSubscriptionLinkUseCase {
     // Valor que o comprador pagará (com ou sem taxa de assinatura da plataforma)
     const base = Number(link.amount);
     let effectivePlatformFee = link.platformFee; // fallback: valor gravado no link
+    let platformTag = (link as any).platformTag?.toUpperCase?.() ?? 'COMUNIDADE';
 
     if (!link.isStandalone) {
       const owner = await this.users.findById(link.userId);
-      // Mesma lógica de detecção de plataforma dos use cases de checkout:
-      // 1º slugTag do tenantModule; 2º AREAFLIX se webhookUrl contiver 'areaflix'; 3º COMUNIDADE
+      // Hierarquia de detecção de plataforma:
+      // 1º platformTag gravado diretamente no link (campo explícito)
+      // 2º slugTag do tenantModule do dono
+      // 3º AREAFLIX se webhookUrl contiver 'areaflix'
+      // 4º COMUNIDADE (fallback)
+      const linkPlatformTag = (link as any).platformTag?.toUpperCase?.();
       const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
-      const platformTag = slugTag ?? (isAreaflix ? 'AREAFLIX' : 'COMUNIDADE');
-      // Mesma hierarquia dos use cases de checkout: plataforma → env var → GLOBAL → valor gravado no link.
-      // Passar link.platformFee como fallback garante que, sem nenhuma configuração no admin,
-      // o valor original do link é exibido. Com GLOBAL configurado, o GLOBAL prevalece.
+      platformTag = linkPlatformTag ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'COMUNIDADE');
+
+      // Hierarquia de taxa: plataforma → env var → GLOBAL → valor gravado no link.
       effectivePlatformFee = getPlatformTaxaEffective(
         platformTag,
         'TAXA_ASSINATURA',
@@ -69,6 +73,7 @@ export class GetPublicSubscriptionLinkUseCase {
       frequencia: mapFrequencyLabel(link.frequencyType),
       ativo: link.isActive,
       redirectUrl: link.redirectUrl ?? null,
+      platformTag: platformTag,
       paymentMethods: (link.paymentMethods as string | undefined) ?? 'BOTH',
       aceitaCartao: ((link.paymentMethods as string | undefined) ?? 'BOTH') !== 'PIX',
       aceitaPix: ((link.paymentMethods as string | undefined) ?? 'BOTH') !== 'CREDIT_CARD',

@@ -24,6 +24,7 @@ export class CheckoutSubscriptionLinkCardDto {
   @IsString() @IsNotEmpty() customerEmail!: string;
   @IsString() @IsNotEmpty() customerDocument!: string;
   @IsString() @IsOptional() customerPhone?: string;
+  @IsString() @IsOptional() voucherCode?: string;
 
   @IsObject()
   @ValidateNested()
@@ -36,4 +37,5 @@ export class CheckoutSubscriptionLinkPixDto {
   @IsString() @IsNotEmpty() customerEmail!: string;
   @IsString() @IsNotEmpty() customerDocument!: string;
   @IsString() @IsOptional() customerPhone?: string;
+  @IsString() @IsOptional() voucherCode?: string;
 }

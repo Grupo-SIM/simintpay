@@ -365,4 +365,22 @@ export interface IPaymentGateway {
     pixExpire: string | null;
     amount: number;
   }>;
+  validateVoucher(
+    domToken: string,
+    input: {
+      code: string;
+      amount: number;
+      userId: string;
+      channel?: string;
+      groupPageId?: string;
+    },
+  ): Promise<{
+    valid: boolean;
+    discountAmount: number;
+    finalAmount: number;
+    voucherId: string;
+    discountType: 'PERCENTAGE' | 'FIXED';
+    discountValue: number;
+    message: string;
+  }>;
 }

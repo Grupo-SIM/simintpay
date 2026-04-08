@@ -16,6 +16,7 @@ export type CreateSubscriptionLinkData = {
   maxUses?: number | null;
   domPlanId?: string | null;
   paymentMethods?: string;
+  platformTag?: string | null;
 };
 
 export type CreateSubscriptionLinkOrderData = {

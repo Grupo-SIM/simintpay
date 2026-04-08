@@ -84,7 +84,25 @@ export class CheckoutSubscriptionLinkCardUseCase {
       platformFeeRate = 0;
     }
     const platformFeeAmount = Math.round(base * platformFeeRate * 100) / 100;
-    const amountCharged = base + platformFeeAmount;
+    const initialAmountCharged = base + platformFeeAmount;
+
+    let amountCharged = initialAmountCharged;
+
+    if (input.dto.voucherCode) {
+      const bridge = await this.gateway.validateVoucher(domToken, {
+        code: input.dto.voucherCode,
+        amount: initialAmountCharged,
+        userId: owner?.domUserId ?? '',
+        channel: 'PAGATG',
+        groupPageId: '', // machine doesn't have groupPageId relation yet
+      });
+
+      if (bridge && bridge.valid) {
+        amountCharged = bridge.finalAmount;
+      } else {
+        throw new BadRequestException(bridge?.message || 'Cupom inválido ou expirado');
+      }
+    }
 
     const cleanDoc = input.dto.customerDocument.replace(/\D/g, '');
     const cleanPhone = (input.dto.customerPhone ?? '').replace(/\D/g, '');

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body, Controller, Delete, Get, NotFoundException, Param, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -11,6 +12,7 @@ import {
   CheckoutSubscriptionLinkCardDto,
   CheckoutSubscriptionLinkPixDto,
 } from '../../application/dtos/subscription-link/checkout-subscription-link.dto';
+import { getModuleDomToken } from '../../modules/module.registry';
 import { CreateSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/create-subscription-link.use-case';
 import { ListSubscriptionLinksUseCase } from '../../application/use-cases/subscription-link/list-subscription-links.use-case';
 import { GetSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/get-subscription-link.use-case';
@@ -64,6 +66,36 @@ export class SubscriptionLinkController {
     @Body() dto: CheckoutSubscriptionLinkPixDto,
   ) {
     return this.checkoutPixUC.execute({ code, dto });
+  }
+
+  @Post('public/:code/validate-voucher')
+  @ApiOperation({ summary: 'Validar voucher para checkout (público)' })
+  async validateVoucher(
+    @Param('code') code: string,
+    @Body() body: { voucherCode: string; amount: number },
+  ) {
+    const link = await this.prisma.subscriptionLink.findUnique({ where: { code } });
+    if (!link) throw new NotFoundException('Link não encontrado');
+    const owner = await this.prisma.user.findUnique({ where: { id: link.userId } });
+    let domToken = owner?.domToken;
+    if (!domToken && owner?.tenantModuleId) {
+      const tm = await this.prisma.tenantModule.findUnique({ where: { id: owner.tenantModuleId } });
+      if (tm?.slug) domToken = getModuleDomToken(tm.slug);
+    }
+    if (!domToken) domToken = process.env.DOM_TOKEN;
+
+    if (!domToken) {
+      throw new BadRequestException('Configuração de pagamento incompleta para este link');
+    }
+
+    const res = await this.checkoutPixUC['gateway'].validateVoucher(domToken, {
+      code: body.voucherCode,
+      amount: body.amount,
+      userId: owner?.domUserId ?? '',
+      channel: 'PAGATG',
+      groupPageId: '',
+    });
+    return res;
   }
 
   @Get('orders/:orderId/status')

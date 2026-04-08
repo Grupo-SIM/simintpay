@@ -249,7 +249,7 @@ export class CheckoutController {
     if (!Number.isFinite(price) || price <= 0) throw new BadRequestException('Valor inválido');
 
     const store = String(body.store || 'ebook').toUpperCase();
-    const tenantTag = store === 'EBOOKSIM' ? 'EBOOKSIM' : store === 'PAGATG' ? 'PAGATG' : 'EBOOK';
+    const tenantTag = ['EBOOKSIM', 'PAGATG', 'CARDMACHINE'].includes(store) ? store : 'EBOOK';
     const max = Math.min(Math.max(Number(body.maxInstallments) || 1, 1), 12);
 
     const options = [];
@@ -314,7 +314,7 @@ export class CheckoutController {
 
     const n = Math.min(Math.max(Number(body.installments) || 1, 1), 12);
     const store = String(body.store || 'ebook').toUpperCase();
-    const tenantTag = store === 'EBOOKSIM' ? 'EBOOKSIM' : 'EBOOK';
+    const tenantTag = ['EBOOKSIM', 'PAGATG', 'CARDMACHINE'].includes(store) ? store : 'EBOOK';
     const orderNumber = body.orderNumber ? String(body.orderNumber).trim() : null;
     const description = String(body.description ?? '').trim() || 'Pedido ebook';
     const documentType = body.document_type ?? (body.document.replace(/\D/g, '').length <= 11 ? 'CPF' : 'CNPJ');

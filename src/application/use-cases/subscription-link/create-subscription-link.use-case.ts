@@ -87,6 +87,7 @@ export class CreateSubscriptionLinkUseCase {
       maxUses: input.dto.maxUses ?? null,
       domPlanId: domPlan.id,
       paymentMethods: input.dto.paymentMethods ?? 'BOTH',
+      platformTag: input.dto.platformTag ?? null,
     });
 
     // Regra de negócio: link de assinatura NUNCA cria comunidade automaticamente.

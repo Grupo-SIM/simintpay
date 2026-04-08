@@ -10,6 +10,8 @@ export const PLATAFORMA_TAXA_KEYS = [
   'TAXA_LINK_PERCENT',   // Taxa % da casa sobre links de pagamento (padrão 6.99%)
   'TAXA_LINK_FIXA',      // Taxa fixa da casa sobre links de pagamento (padrão R$ 4.00)
   'TAXA_ASSINATURA',     // Taxa % da casa sobre links de assinatura (padrão 9.0%)
+  'TAXA_DEBITO_PERCENT', // Taxa % da plataforma sobre débito (padrão 2%)
+  'TAXA_DEBITO_FIXA',    // Taxa fixa R$ da plataforma sobre débito (padrão R$2,00)
   // Taxa DOM para cartão (crédito direto / pix-plan / assinatura) — read-only
   'MDR_CC_1X',
   'MDR_CC_2X',
@@ -65,6 +67,8 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   TAXA_LINK_PERCENT: 0.0699,
   TAXA_LINK_FIXA: 4.0,
   TAXA_ASSINATURA: 9.0,
+  TAXA_DEBITO_PERCENT: 0.02,   // 2%
+  TAXA_DEBITO_FIXA: 2.0,       // R$2,00
   // DOM: taxa cobrada do comprador pelo gateway para cartão direto/pix-plan
   MDR_CC_1X: 0.0399,
   MDR_CC_2X: 0.083,

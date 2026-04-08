@@ -110,8 +110,11 @@ export class GetPublicPaymentLinkUseCase {
       });
     }
 
-    const pixCalc = calculatePaymentLinkFees(link, 1, platformTag);
-    const debitCalc = calculateDebitFees(link);
+    const debitCalc = calculateDebitFees(link, platformTag);
+
+    // Para PIX, o cliente paga o valor base sem acréscimo de taxa de crédito.
+    // A taxa de processamento PIX (MDR_PIX) fica do lado do vendedor, igual ao débito.
+    const valorPix = Number(link.amount);
 
     return {
       id: link.id,
@@ -126,7 +129,7 @@ export class GetPublicPaymentLinkUseCase {
       isStandalone: (link as any).isStandalone ?? true,
       dataExpiracao: (link as any).expiresAt ? (link as any).expiresAt.toISOString() : null,
       opcoesParcelas,
-      valorPix: pixCalc.totalAmount,
+      valorPix,
       debitFeePercent: debitCalc.platformFeePercent,
       debitFeeFixed: debitCalc.platformFeeFixed,
       debitTaxaDomPercent: debitCalc.domFeePercent,

@@ -227,6 +227,8 @@ model SubscriptionLink {
   domPlanId       String?   @unique
   /// Métodos aceitos: PIX, CREDIT_CARD ou BOTH (padrão)
   paymentMethods  String    @default("BOTH")
+  /// Tag de plataforma para resolução de taxa (ex: AREAFLIX, COMUNIDADE, GLOBAL)
+  platformTag     String?
   createdAt       DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   user          User      @relation(fields: [userId], references: [id])

@@ -26,6 +26,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         webhookUrl: data.webhookUrl ?? undefined,
         maxUses: data.maxUses ?? undefined,
         domPlanId: data.domPlanId ?? undefined,
+        platformTag: data.platformTag ?? undefined,
       },
     });
   }
@@ -91,6 +92,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         maxUses: data.maxUses ?? undefined,
         currentUses: data.currentUses,
         domPlanId: data.domPlanId ?? undefined,
+        platformTag: data.platformTag ?? undefined,
       },
     });
   }

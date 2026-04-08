@@ -104,6 +104,9 @@ export class InternalEbookFinanceController {
       availableBalance: Math.max(0, Number((totalReceived - totalCompletedWithdraw - pendingAmount).toFixed(2))),
       pendingWithdraws: Number(pendingAmount.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
+      minimumWithdrawalAmount: EbookSimConfig.saque.minValor,
+      withdrawalFeeBrl: EbookSimConfig.saque.taxaFixa,
+      accountExists: userIds.length > 0,
     };
   }
 
@@ -393,6 +396,7 @@ export class InternalEbookFinanceController {
     if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF');
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
+    if (amount < EbookSimConfig.saque.minValor) throw new BadRequestException(`Valor mínimo para saque é de R$ ${EbookSimConfig.saque.minValor}`);
     if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
 
     const taxaSaque = EbookSimConfig.saque.calcularTaxa(amount);

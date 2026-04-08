@@ -134,6 +134,9 @@ export class InternalPagatgFinanceController {
       availableBalance: Math.max(0, Number((totalReceived - totalCompletedWithdraw - pendingAmount).toFixed(2))),
       pendingWithdraws: Number(pendingAmount.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
+      minimumWithdrawalAmount: PagaTGConfig.saque.minValor,
+      withdrawalFeeBrl: PagaTGConfig.saque.taxaFixa,
+      accountExists: userIds.length > 0,
     };
   }
 
@@ -276,6 +279,7 @@ export class InternalPagatgFinanceController {
     if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF');
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
+    if (amount < PagaTGConfig.saque.minValor) throw new BadRequestException(`Valor mínimo para saque é de R$ ${PagaTGConfig.saque.minValor}`);
     if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
 
     const taxaSaque = PagaTGConfig.saque.calcularTaxa(amount);

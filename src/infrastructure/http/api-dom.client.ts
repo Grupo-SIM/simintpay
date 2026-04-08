@@ -1115,4 +1115,35 @@ export class ApiDomClient implements IPaymentGateway {
       amount: input.amount,
     };
   }
+
+  async validateVoucher(
+    domToken: string,
+    input: {
+      code: string;
+      amount: number;
+      userId: string;
+      channel?: string;
+      groupPageId?: string;
+    },
+  ): Promise<{
+    valid: boolean;
+    discountAmount: number;
+    finalAmount: number;
+    voucherId: string;
+    discountType: 'PERCENTAGE' | 'FIXED';
+    discountValue: number;
+    message: string;
+  }> {
+    const url = `${this.baseUrl}/voucher/validate`;
+    const res = await firstValueFrom(
+      this.http.post<any>(url, input, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          'x-access-token': domToken,
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+    return res.data;
+  }
 }

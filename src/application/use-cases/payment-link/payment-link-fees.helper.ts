@@ -161,11 +161,12 @@ const DOM_DEBIT_FEE_FIXED = 1.00;
  *
  * Regra de negócio:
  * - O COMPRADOR paga exatamente o valor base (link.amount) — sem acréscimo.
- * - O VENDEDOR arca com: DOM (3,49% + R$1,00) + Taxa plataforma (debitFeePercent% + R$debitFeeFixed).
- * - Ambas as taxas são configuráveis por link; os defaults globais são 2% + R$2,00.
+ * - O VENDEDOR arca com: DOM (3,49% + R$1,00) + Taxa plataforma (TAXA_DEBITO_PERCENT + TAXA_DEBITO_FIXA).
+ * - As taxas de plataforma são configuradas por plataforma em /admin/taxas; defaults: 2% + R$2,00.
  */
 export function calculateDebitFees(
   link: PaymentLink,
+  platformTag?: string,
 ): {
   baseAmount: number;
   domFeePercent: number;
@@ -180,9 +181,11 @@ export function calculateDebitFees(
   const baseAmount = Number(link.amount);
   const domFeeAmount = baseAmount * (DOM_DEBIT_FEE_PERCENT / 100) + DOM_DEBIT_FEE_FIXED;
 
-  const platformFeePercent: number = (link as any).debitFeePercent ?? 2.0;
-  const platformFeeFixed: number = (link as any).debitFeeFixed ?? 2.0;
-  const platformFeeAmount = baseAmount * (platformFeePercent / 100) + platformFeeFixed;
+  const tag = platformTag ?? 'GLOBAL';
+  const platformFeeDecimal = getPlatformTaxaEffective(tag, 'TAXA_DEBITO_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_PERCENT);
+  const platformFeeFixed = getPlatformTaxaEffective(tag, 'TAXA_DEBITO_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_FIXA);
+  const platformFeePercent = platformFeeDecimal * 100;
+  const platformFeeAmount = baseAmount * platformFeeDecimal + platformFeeFixed;
 
   const totalFeeAmount = domFeeAmount + platformFeeAmount;
   const netAmount = baseAmount - totalFeeAmount;
