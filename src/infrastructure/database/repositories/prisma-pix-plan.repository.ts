@@ -128,6 +128,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     planType: string;
     daysCredited: number;
     pixCreditPlanId?: string | null;
+    customerId?: string;
     paid?: boolean;
   }) {
     return (this.prisma as any).pixPlanOrder.create({
@@ -139,6 +140,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
         planType: data.planType,
         daysCredited: data.daysCredited,
         pixCreditPlanId: data.pixCreditPlanId || null,
+        customerId: data.customerId || null,
         paid: data.paid ?? false,
       },
     });

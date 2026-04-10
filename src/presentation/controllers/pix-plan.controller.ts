@@ -3,12 +3,17 @@ import {
   Controller,
   Delete,
   Get,
+  MessageEvent,
   Param,
   Post,
   Query,
+  Sse,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
+import { PixPlanEventsService } from '../../application/services/pix-plan-events.service';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -206,7 +211,10 @@ export class PixPlanController {
 @Controller('public')
 @ApiTags('Public PIX Plan')
 export class PublicPixPlanController {
-  constructor(private readonly pixPlanService: PixPlanService) {}
+  constructor(
+    private readonly pixPlanService: PixPlanService,
+    private readonly pixPlanEvents: PixPlanEventsService,
+  ) {}
 
   @Get('pix-plan-access')
   @ApiOperation({ summary: 'Listar acessos ativos aos planos PIX (Endpoint Público)' })
@@ -245,6 +253,19 @@ export class PublicPixPlanController {
   async getPurchaseDetails(@Param('transactionId') transactionId: string) {
     if (!transactionId) throw new BadRequestException('transactionId é obrigatório');
     return this.pixPlanService.getPurchaseDetails(transactionId);
+  }
+
+  @Sse('pix-plan/status/sse/:transactionId')
+  @ApiOperation({ summary: 'SSE: receber confirmação de pagamento PIX-PLAN em tempo real' })
+  @ApiParam({ name: 'transactionId', required: true, type: String })
+  ssePaymentStatus(@Param('transactionId') transactionId: string): Observable<MessageEvent> {
+    return this.pixPlanEvents.getStream(transactionId).pipe(
+      map((event) => ({
+        data: event,
+        id: event.transactionId,
+        type: 'payment-status',
+      }) as MessageEvent),
+    );
   }
 }
 

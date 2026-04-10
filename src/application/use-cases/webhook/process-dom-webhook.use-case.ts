@@ -5,6 +5,8 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
+import { PixPlanService } from '../pix-plan/pix-plan.service';
+import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import {
   appendInternalTags,
   ORIGEM_MAQUINETA_TAG,
@@ -80,6 +82,8 @@ export class ProcessDomWebhookUseCase {
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
     @Optional() @Inject(PAYMENT_GATEWAY) private readonly paymentGateway?: IPaymentGateway,
+    @Optional() private readonly pixPlanService?: PixPlanService,
+    @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
   ) { }
 
   async execute(payload: unknown): Promise<void> {
@@ -341,6 +345,24 @@ export class ProcessDomWebhookUseCase {
           `[DomWebhook][ebook] tx local ${existing.id} → COMPLETED; tentando notificar back-ebook domPaymentId=${data.id}`,
         );
         void this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
+
+        // PIX-PLAN: creditar dias se a transação tiver um PixPlanOrder
+        if (this.pixPlanService) {
+          try {
+            await this.pixPlanService.handlePixPlanWebhook(existing.id, {
+              name: data.customer?.name ?? '',
+              email: data.customer?.email ?? '',
+              document: data.customer?.document ?? '',
+              document_type: 'CPF',
+              mobile_phone: data.customer?.mobile_phone,
+            });
+          } catch (pixPlanError: any) {
+            this.logger.error(`[DomWebhook] Erro ao processar PIX-PLAN para tx ${existing.id}: ${pixPlanError.message}`);
+          }
+        }
+
+        // SSE: notificar checkout em tempo real
+        this.pixPlanEvents?.emit({ transactionId: existing.id, status: 'COMPLETED' });
       }
     } else {
       const amountReais = Number(data.amount) / 100;

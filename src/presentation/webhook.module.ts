@@ -16,6 +16,7 @@ import { EmailService } from '../infrastructure/email/email.service';
 
 import { RenovadaModule } from '../modules/renovada/renovada.module';
 import { PixPlanModule } from './pix-plan.module';
+import { PixPlanEventsService } from '../application/services/pix-plan-events.service';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 
 @Module({

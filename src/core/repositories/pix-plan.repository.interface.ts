@@ -45,6 +45,7 @@ export interface IPixPlanRepository {
     planType: string;
     daysCredited: number;
     pixCreditPlanId?: string | null;
+    customerId?: string;
     paid?: boolean;
   }): Promise<any>;
 

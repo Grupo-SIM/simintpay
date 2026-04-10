@@ -223,12 +223,32 @@ export class PixPlanService {
       });
 
       const days = this.getDaysForPlan(body.planType);
+      const doc = body.document.replace(/[.-]/g, '');
+
+      // Garantir que o Customer existe para vincular ao PixPlanOrder imediatamente
+      let customer = await this.prisma.customer.findFirst({
+        where: { userId: effectiveUserId, document: doc },
+      });
+
+      if (!customer) {
+        customer = await this.prisma.customer.create({
+          data: {
+            userId: effectiveUserId,
+            name: body.name,
+            email: body.email,
+            document: doc,
+            documentType: body.document_type,
+            phone: body.mobile_phone,
+          },
+        });
+      }
 
       await this.repo.createPixPlanOrder({
         transactionId: transaction.id,
         userId: effectiveUserId,
+        customerId: customer.id, // Vínculo imediato com o ID oficial
         customerEmail: body.email,
-        customerDocument: body.document.replace(/[.-]/g, ''),
+        customerDocument: doc,
         planType: body.planType,
         daysCredited: days,
         pixCreditPlanId: body.pixCreditPlanId || null,
@@ -677,12 +697,31 @@ export class PixPlanService {
   // ── GET /public/purchase/:transactionId ──────────────────────────────────
 
   async getPurchaseDetails(transactionId: string) {
-    const transaction = await this.prisma.transaction.findUnique({
+    let transaction = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       include: {
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true, email: true, domToken: true } },
       },
     });
+
+    // Se ainda PENDING, consulta DOM diretamente para status em tempo real
+    if (transaction?.status === 'PENDING' && transaction.domPaymentId && transaction.user?.domToken) {
+      try {
+        const domTx = await this.gateway.getDomTransactionDetail(transaction.user.domToken, transaction.domPaymentId);
+        const domStatus: string = domTx?.status ?? '';
+        const isPaid = ['paid', 'approved', 'completed', 'revision_paid', 'capture'].includes(domStatus.toLowerCase());
+        if (isPaid) {
+          await this.prisma.transaction.update({
+            where: { id: transaction.id },
+            data: { status: 'COMPLETED' },
+          });
+          transaction = { ...transaction, status: 'COMPLETED' as any };
+          this.logger.log(`[getPurchaseDetails] tx ${transaction.id} marcada COMPLETED via consulta direta DOM`);
+        }
+      } catch {
+        // ignora erro — retorna status local
+      }
+    }
 
     if (!transaction) {
       const subscription = await this.prisma.subscription.findFirst({

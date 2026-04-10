@@ -192,18 +192,21 @@ export class InternalPagatgFinanceController {
         orderBy: { createdAt: 'desc' },
         skip: (pageNum - 1) * size,
         take: size,
+        include: { pixPlanOrder: { select: { customerId: true } } },
       }),
     ]);
 
     return {
-      transactions: items.map((t) => ({
+      transactions: items.map((t: any) => ({
         id: t.id,
         userId: t.userId,
+        customerId: t.pixPlanOrder?.customerId ?? null,
         amount: Number(t.amount),
         name: t.customerName ?? null,
         email: t.customerEmail ?? null,
         status: t.status,
         description: t.description ?? null,
+        pixCode: (t.description ?? '').split(':')[1]?.split(' ')[0] ?? null,
         appliedGlobalFee: false,
         fee: Number(t.platformFee ?? 0),
         dom_fee: Number(t.domFee ?? 0),

@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
+import dayjs from 'dayjs';
+import timezone from 'dayjs/plugin/timezone';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 @Injectable()
 export class EmailService {
@@ -122,7 +128,70 @@ export class EmailService {
       });
     } catch (err) {
       this.logger.error(`Falha ao enviar e-mail de boas-vindas para ${input.to}: ${String(err)}`);
-      // Don't throw — email failure shouldn't roll back the approval
+    }
+  }
+
+  async sendExpirationReminder(input: {
+    to: string;
+    customerName: string;
+    vendedorName?: string;
+    planName: string;
+    expiresAt: Date;
+    daysRemaining: number;
+    renewUrl?: string;
+  }): Promise<void> {
+    const transport = this.createTransport();
+    const from = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
+
+    const isExpired = input.daysRemaining <= 0;
+    const subject = isExpired
+      ? `Atenção: Seu plano ${input.planName} expirou`
+      : `Lembrete: Seu plano ${input.planName} vence em ${input.daysRemaining} ${input.daysRemaining === 1 ? 'dia' : 'dias'}`;
+
+    const dateStr = dayjs(input.expiresAt).tz('America/Sao_Paulo').format('DD/MM/YYYY [às] HH:mm');
+    const vendedorInfo = input.vendedorName ? ` de <strong>${input.vendedorName}</strong>` : '';
+
+    const message = isExpired
+      ? `Seu acesso ao plano <strong>${input.planName}</strong>${vendedorInfo} expirou hoje (${dateStr}). Para continuar aproveitando os benefícios, realize a renovação.`
+      : `O seu acesso ao plano <strong>${input.planName}</strong>${vendedorInfo} está chegando ao fim. Ele vencerá em <strong>${dateStr}</strong>.`;
+
+    const renewButton = input.renewUrl
+      ? `<div style="margin-top: 24px;">
+           <a href="${input.renewUrl}"
+              style="display: inline-block; background: #6d28d9; color: #fff; text-decoration: none;
+                     padding: 12px 28px; border-radius: 8px; font-weight: bold;">
+             Renovar Plano
+           </a>
+         </div>`
+      : '';
+
+    try {
+      await transport.sendMail({
+        from: `"SimPay" <${from}>`,
+        to: input.to,
+        subject: subject,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
+            <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SimPay</h1>
+            </div>
+            <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
+              <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.customerName}</strong>!</p>
+              <p>${message}</p>
+              ${renewButton}
+              <hr style="border: none; border-top: 1px solid #e5e3ff; margin: 24px 0;" />
+              <p style="font-size: 11px; color: #6b7280;">
+                Se você já realizou a renovação, desconsidere este e-mail.
+              </p>
+            </div>
+            <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
+              SimPay · JB Mídia
+            </p>
+          </div>
+        `,
+      });
+    } catch (err) {
+      this.logger.error(`Falha ao enviar e-mail de lembrete de expiração para ${input.to}: ${String(err)}`);
     }
   }
 }
