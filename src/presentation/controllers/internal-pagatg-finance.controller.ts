@@ -260,6 +260,7 @@ export class InternalPagatgFinanceController {
         amount: Number(w.amount),
         status: w.status,
         pixKey: w.pixKey,
+        rejectionReason: w.rejectionReason ?? null,
         createdAt: w.createdAt,
         user: { name: w.user?.name ?? '-', email: w.user?.email ?? '-' },
       })),

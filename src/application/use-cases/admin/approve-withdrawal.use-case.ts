@@ -67,7 +67,33 @@ export class ApproveWithdrawalUseCase {
         },
       });
 
-      // 3. Registra log financeiro da operação
+      // 3. Deduz também da carteira externa (se houver/vincular via tenant)
+      const userWithExt = await tx.user.findUnique({
+        where: { id: withdraw.userId },
+        include: { 
+          tenantModule: true,
+          externalPlatformUsers: { include: { wallet: true } }
+        }
+      });
+
+      if (userWithExt?.externalPlatformUsers.length) {
+        const slug = userWithExt.tenantModule?.slug?.toLowerCase();
+        const extUser = slug 
+          ? userWithExt.externalPlatformUsers.find(u => u.platform.toLowerCase() === slug)
+          : userWithExt.externalPlatformUsers[0];
+          
+        if (extUser?.wallet) {
+          await tx.externalPlatformWallet.update({
+            where: { id: extUser.wallet.id },
+            data: {
+              balance: { decrement: withdraw.grossAmount },
+              updatedAt: new Date(),
+            }
+          });
+        }
+      }
+
+      // 4. Registra log financeiro da operação
       await tx.balanceLog.create({
         data: {
           userId: withdraw.userId,

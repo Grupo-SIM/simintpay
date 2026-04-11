@@ -62,6 +62,9 @@ export class ListWithdrawalsAdminUseCase {
               name: true,
               email: true,
               tenantModule: { select: { name: true, slug: true } },
+              externalPlatformUsers: {
+                include: { wallet: true },
+              },
             },
           },
         },
@@ -90,6 +93,13 @@ export class ListWithdrawalsAdminUseCase {
           modulo: w.user.tenantModule
             ? { nome: w.user.tenantModule.name, slug: w.user.tenantModule.slug }
             : null,
+          saldoAtual: (() => {
+            const slug = w.user.tenantModule?.slug?.toLowerCase();
+            const extUser = slug 
+              ? w.user.externalPlatformUsers.find(u => u.platform.toLowerCase() === slug)
+              : w.user.externalPlatformUsers[0];
+            return Number(extUser?.wallet?.balance ?? 0);
+          })(),
         },
         criadoEm: w.createdAt.toISOString(),
         atualizadoEm: w.updatedAt.toISOString(),

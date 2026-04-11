@@ -132,6 +132,17 @@ export class ScanPlatformOwnersUseCase {
       syncedDomKeySet,
     );
 
+    // ── 3) Subtrair saques aprovados/concluídos do saldo das carteiras externas
+    const withdraws = await this.prisma.withdrawRequest.findMany({
+      where: { status: { in: ['APPROVED', 'COMPLETED'] } },
+      select: { userId: true, grossAmount: true },
+    });
+
+    const userWithdrawalMap = new Map<string, number>();
+    for (const w of withdraws) {
+      userWithdrawalMap.set(w.userId, (userWithdrawalMap.get(w.userId) ?? 0) + Number(w.grossAmount));
+    }
+
     // Processa cada owner encontrado
     for (const { cpf, platform, totalNet, nomeDono } of ownerMap.values()) {
       try {
@@ -144,6 +155,9 @@ export class ScanPlatformOwnersUseCase {
           where: { cpf },
           select: { id: true, name: true },
         });
+
+        const userWithdrawals = simpayUser ? (userWithdrawalMap.get(simpayUser.id) ?? 0) : 0;
+        const finalBalance = Math.max(0, totalNet - userWithdrawals);
 
         if (existing) {
           // Atualizar userId e/ou nome se ainda está no fallback
@@ -163,12 +177,12 @@ export class ScanPlatformOwnersUseCase {
           if (existing.wallet) {
             await this.prisma.externalPlatformWallet.update({
               where: { externalUserId: existing.id },
-              data: { balance: totalNet },
+              data: { balance: finalBalance },
             });
             walletsUpdated++;
           } else {
             await this.prisma.externalPlatformWallet.create({
-              data: { externalUserId: existing.id, balance: totalNet },
+              data: { externalUserId: existing.id, balance: finalBalance },
             });
             walletsUpdated++;
           }
@@ -192,7 +206,7 @@ export class ScanPlatformOwnersUseCase {
           });
 
           await this.prisma.externalPlatformWallet.create({
-            data: { externalUserId: newExtUser.id, balance: totalNet },
+            data: { externalUserId: newExtUser.id, balance: finalBalance },
           });
 
           created++;
