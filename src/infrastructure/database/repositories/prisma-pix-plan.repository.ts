@@ -32,6 +32,13 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     });
   }
 
+  async updatePixCreditPlanStatus(id: string, status: 'ACTIVE' | 'INACTIVE') {
+    await (this.prisma as any).pixCreditPlan.update({
+      where: { id },
+      data: { status },
+    });
+  }
+
   async findPixCreditPlansByUserId(userId: string) {
     return (this.prisma as any).pixCreditPlan.findMany({
       where: { userId },
@@ -241,7 +248,12 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
 
   async updateCustomerPlanAccessById(
     id: string,
-    data: { isActive?: boolean; expiresAt?: Date },
+    data: {
+      isActive?: boolean;
+      expiresAt?: Date;
+      totalDaysCredited?: number;
+      createdAt?: Date;
+    },
   ) {
     await (this.prisma as any).customerPlanAccess.update({
       where: { id },
@@ -313,6 +325,12 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
       include: {
         user: { select: { name: true, email: true } },
       },
+    });
+  }
+
+  async findCustomerPlanAccessByPlanId(planId: string) {
+    return (this.prisma as any).customerPlanAccess.findMany({
+      where: { pixPlanId: planId },
     });
   }
 }

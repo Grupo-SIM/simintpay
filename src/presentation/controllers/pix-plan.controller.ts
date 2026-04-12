@@ -6,6 +6,7 @@ import {
   MessageEvent,
   Param,
   Post,
+  Patch,
   Query,
   Sse,
   UseGuards,
@@ -288,5 +289,24 @@ export class BotPixPlanController {
     @Param('id') id: string,
   ) {
     return this.pixPlanService.deletePixCreditPlan(user?.sub ?? '', id, user?.role);
+  }
+
+  @Patch('pix-plan/:id/status')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Ativar/Desativar plano PIX (e suspender acessos)' })
+  async togglePixPlanStatus(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.pixPlanService.togglePixCreditPlanStatus(user?.sub ?? '', id, user?.role);
+  }
+
+  @Patch('plan-access/:id/status')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Suspender/Reativar acesso ao plano por PIX' })
+  async togglePlanAccessStatus(@Param('id') id: string) {
+    return this.pixPlanService.toggleCustomerPlanAccessStatus(id);
   }
 }

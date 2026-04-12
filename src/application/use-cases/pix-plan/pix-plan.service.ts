@@ -486,6 +486,38 @@ export class PixPlanService {
     return { success: true, message: 'Plano PIX deletado com sucesso' };
   }
 
+  async togglePixCreditPlanStatus(userId: string, planId: string, role?: string) {
+    const plan = await this.repo.findPixCreditPlanById(planId);
+    if (!plan) throw new NotFoundException('Plano não encontrado');
+
+    if (role !== 'ADMIN' && plan.userId !== userId) {
+      throw new BadRequestException('Você não tem permissão para alterar este plano');
+    }
+
+    const newStatus = plan.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    await this.repo.updatePixCreditPlanStatus(planId, newStatus);
+
+    // Agora buscamos todos os acessos associados a este plano para suspender/reativar
+    const associatedAccesses = await this.repo.findCustomerPlanAccessByPlanId(planId);
+
+    const results = [];
+    for (const access of associatedAccesses) {
+      try {
+        const toggleResult = await this.toggleCustomerPlanAccessStatus(access.id);
+        results.push({ accessId: access.id, ...toggleResult });
+      } catch (error) {
+        results.push({ accessId: access.id, success: false, error: (error as any).message });
+      }
+    }
+
+    return {
+      success: true,
+      newStatus,
+      affectedAccesses: results.length,
+      accessResults: results,
+    };
+  }
+
   // ── POST /payments/pix-plan ──────────────────────────────────────────────
 
   async createPixCreditPlanFromPublicDto(
@@ -662,6 +694,55 @@ export class PixPlanService {
       }
     }
     return results;
+  }
+
+  async toggleCustomerPlanAccessStatus(id: string, requesterRole?: string) {
+    const access = await this.repo.findCustomerPlanAccessById(id);
+    if (!access) throw new NotFoundException('Acesso ao plano não encontrado');
+
+    const now = new Date();
+    const isCurrentlyActive = access.isActive && new Date(access.expiresAt) > now;
+
+    if (isCurrentlyActive) {
+      // SUSPENDER
+      const expiresAt = new Date(access.expiresAt);
+      const diffTime = expiresAt.getTime() - now.getTime();
+      const remainingDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+
+      await this.repo.updateCustomerPlanAccessById(id, {
+        isActive: false,
+        expiresAt: now, // Jacques passa a ver 0 dias imediatamente
+        totalDaysCredited: remainingDays, // Guardamos os dias restantes aqui
+        createdAt: now, // Resetamos o checkpoint
+      });
+
+      return {
+        success: true,
+        message: 'Acesso ao plano suspenso com sucesso',
+        remainingDaysSuspended: remainingDays,
+      };
+    } else {
+      // REATIVAR
+      const daysToReturn = access.totalDaysCredited;
+      if (daysToReturn <= 0) {
+        throw new BadRequestException('Não há dias restantes para reativar este acesso');
+      }
+
+      const newExpiresAt = new Date(now.getTime() + daysToReturn * 24 * 60 * 60 * 1000);
+
+      await this.repo.updateCustomerPlanAccessById(id, {
+        isActive: true,
+        expiresAt: newExpiresAt,
+        createdAt: now,
+      });
+
+      return {
+        success: true,
+        message: 'Acesso ao plano reativado com sucesso',
+        newExpiresAt,
+        daysReturned: daysToReturn,
+      };
+    }
   }
 
   async decrementPlanDays(access: any) {

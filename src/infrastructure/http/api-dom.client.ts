@@ -323,22 +323,34 @@ export class ApiDomClient implements IPaymentGateway {
   private mapSubscription(obj: Record<string, unknown> | null): DomSubscriptionOutput | null {
     const id = this.pickString(obj, 'id');
     if (!id) return null;
-    const active = obj?.active;
+
+    const activeRaw = obj?.active ?? obj?.actived ?? obj?.is_active ?? obj?.isActive;
+    const active = activeRaw === true || activeRaw === 1 || activeRaw === 'true' || activeRaw === '1' || activeRaw === 'active';
+    const statusRaw = obj?.status ?? obj?.active_status ?? obj?.status_type;
+    const status = typeof statusRaw === 'string' ? statusRaw.toLowerCase() : statusRaw != null ? String(statusRaw).toLowerCase() : null;
+
+    const isActuallyActive = active || status === 'active' || status === '1' || status === 'true';
+
     return {
       id,
-      status: active === true ? 'active' : active === false ? 'inactive' : undefined,
-      expiresAt: this.pickString(obj, 'next_date_invoice'),
-      planId: this.pickString(obj, 'plan_id') ?? undefined,
-      name: this.pickString(obj, 'customer_name'),
-      description: this.pickString(obj, 'description'),
-      amount: this.pickNumber(obj, 'value'),
-      frequency: this.pickString(obj, 'frequency_type'),
-      interval: 1,
-      cycle: this.pickNumber(obj, 'repetitions'),
-      paymentMethod: this.pickString(obj, 'payment_method'),
-      firstBillingDate: this.pickString(obj, 'start_date_invoice'),
-      customer: undefined,
-      createdAt: this.pickString(obj, 'created_at') ?? undefined,
+      status: isActuallyActive ? 'active' : 'inactive',
+      expiresAt: this.pickString(obj, 'next_date_invoice') ?? this.pickString(obj, 'expires_at') ?? this.pickString(obj, 'end_date_invoice'),
+      planId: this.pickString(obj, 'plan_id') ?? this.pickString(obj, 'dom_plan_id') ?? this.pickString(obj, 'plano_id'),
+      name: this.pickString(obj, 'customer_name') ?? this.pickString(obj, 'name'),
+      description: this.pickString(obj, 'description') ?? this.pickString(obj, 'plan_name'),
+      amount: this.pickNumber(obj, 'value') ?? this.pickNumber(obj, 'amount') ?? this.pickNumber(obj, 'price'),
+      frequency: this.pickString(obj, 'frequency_type') ?? this.pickString(obj, 'interval_type') ?? this.pickString(obj, 'period'),
+      interval: this.pickNumber(obj, 'interval') ?? this.pickNumber(obj, 'intervals') ?? 1,
+      cycle: this.pickNumber(obj, 'current_cycle') ?? this.pickNumber(obj, 'repetitions') ?? this.pickNumber(obj, 'ciclo') ?? 0,
+      paymentMethod: this.pickString(obj, 'payment_method') ?? this.pickString(obj, 'type_payment') ?? 'credit_card',
+      firstBillingDate: this.pickString(obj, 'start_date_invoice') ?? this.pickString(obj, 'created_at') ?? this.pickString(obj, 'create_date'),
+      customer: {
+        name: this.pickString(obj, 'customer_name') ?? this.pickString(obj, 'name') ?? '',
+        email: this.pickString(obj, 'customer_email') ?? this.pickString(obj, 'email') ?? '',
+        document: this.pickString(obj, 'customer_document') ?? this.pickString(obj, 'customer_cpf') ?? this.pickString(obj, 'document') ?? '',
+        phone: this.pickString(obj, 'customer_phone') ?? this.pickString(obj, 'phone') ?? '',
+      },
+      createdAt: this.pickString(obj, 'created_at') ?? this.pickString(obj, 'create_date') ?? this.pickString(obj, 'createdAt') ?? undefined,
     };
   }
 
@@ -673,22 +685,54 @@ export class ApiDomClient implements IPaymentGateway {
   }
 
   async listSubscriptions(domToken: string, input: { page?: number; pageSize?: number }): Promise<{ items: DomSubscriptionOutput[]; total?: number }> {
-    const url = `${this.domRealApiUrl}/recurrence/subscriptions`;
-    const params: any = {};
-    if (input.page) params.page = input.page;
-    if (input.pageSize) params.limit = input.pageSize;
-    const res = await firstValueFrom(this.http.get<any>(url, {
-      headers: { 'Authorization': `Bearer ${domToken}`, 'Accept': 'application/json' },
-      params,
-    }));
-    const root = res.data;
-    this.logger.log(`[DOM Subscriptions RAW] ${JSON.stringify(root).substring(0, 500)}`);
-    const arr = this.getArray(root?.data ?? root?.items ?? root) ?? [];
-    if (arr.length > 0) {
-      this.logger.log(`[DOM Subscriptions FIRST ITEM] ${JSON.stringify(arr[0])}`);
+    // DomPagamentos ignora o parâmetro `limit` e sempre retorna ~100 itens por página DOM.
+    // O admin-card-machine usa pageSize=20, então precisamos mapear a paginação do admin
+    // para a paginação real do DOM (que retorna blocos de 100).
+    const adminPage = input.page ?? 1;
+    const requestedCount = input.pageSize ?? 21; // use-case passa pageSize+1 para detectar hasNextPage
+
+    const DOM_PER_PAGE = 100;
+    const globalStart = (adminPage - 1) * requestedCount;
+    const globalEnd = globalStart + requestedCount;
+
+    const domPageStart = Math.floor(globalStart / DOM_PER_PAGE) + 1;
+    const domPageEnd = Math.floor(Math.max(globalEnd - 1, 0) / DOM_PER_PAGE) + 1;
+
+    this.logger.log(`[Subscriptions] adminPage=${adminPage} requestedCount=${requestedCount} globalStart=${globalStart} domPages=${domPageStart}-${domPageEnd}`);
+
+    let allItems: unknown[] = [];
+    let total: number | undefined;
+
+    for (let domPage = domPageStart; domPage <= domPageEnd; domPage++) {
+      this.logger.log(`[Subscriptions] Buscando DOM page=${domPage} token=${domToken.substring(0, 8)}...`);
+      const res = await firstValueFrom(this.http.get<any>(
+        `${this.domRealApiUrl}/recurrence/subscriptions`,
+        {
+          headers: { 'Authorization': `Bearer ${domToken}`, 'Accept': 'application/json' },
+          params: { page: domPage },
+        },
+      ));
+      const root = res.data;
+      if (domPage === domPageStart) {
+        total = this.pickNumber(this.getObject(root), 'total_results') ?? this.pickNumber(this.getObject(root), 'total') ?? undefined;
+      }
+      const arr = this.getArray(root?.subscriptions ?? root?.data ?? root?.items ?? root) ?? [];
+      this.logger.log(`[Subscriptions] DOM page=${domPage} retornou ${arr.length} itens (total_results=${total ?? 'N/A'})`);
+      allItems = allItems.concat(arr);
+      if (arr.length < DOM_PER_PAGE) break;
     }
-    const items = arr.map(x => this.mapSubscription(this.getObject(x))).filter((x): x is DomSubscriptionOutput => !!x);
-    return { items, total: this.pickNumber(this.getObject(root), 'total') ?? items.length };
+
+    const localStart = globalStart - (domPageStart - 1) * DOM_PER_PAGE;
+    const pageSlice = allItems.slice(localStart, localStart + requestedCount);
+
+    const items = pageSlice
+      .map(x => this.mapSubscription(this.getObject(x)))
+      .filter((x): x is DomSubscriptionOutput => !!x);
+
+    const activeCount = items.filter(i => i.status === 'active').length;
+    this.logger.log(`[Subscriptions] Retornando ${items.length} itens (ativos=${activeCount} inativos=${items.length - activeCount}) localStart=${localStart}`);
+
+    return { items, total: total ?? items.length };
   }
 
   async getSubscription(domToken: string, id: string): Promise<unknown> {

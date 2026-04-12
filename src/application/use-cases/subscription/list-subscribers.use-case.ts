@@ -22,6 +22,7 @@ export class ListSubscribersUseCase {
     data: unknown;
     page: number;
     pageSize: number;
+    hasNextPage: boolean;
     total: number;
   }> {
     const page = input.query.page ?? 1;
@@ -32,23 +33,27 @@ export class ListSubscribersUseCase {
 
     if (!domToken) {
       this.logger.warn(`[ListSubscribers] Sem domToken para userId=${input.userId} role=${input.role}`);
-      return { data: [], page, pageSize, total: 0 };
+      return { data: [], page, pageSize, hasNextPage: false, total: 0 };
     }
 
     try {
+      // Fetch one extra item to detect if a next page exists (DOM's total field is unreliable)
       const result = await this.gateway.listSubscriptions(domToken, {
         page,
-        pageSize,
+        pageSize: pageSize + 1,
       });
 
+      const hasNextPage = result.items.length > pageSize;
+      const pageItems = result.items.slice(0, pageSize);
+
       // Resolve platform label for each subscription via SubscriptionLink.domPlanId
-      const planIds = result.items
+      const planIds = pageItems
         .map((s: DomSubscriptionOutput) => s.planId)
         .filter((id): id is string => !!id);
 
       const linksByPlanId = await this.resolveSubscriptionLinks(planIds);
 
-      const mapped = result.items.map((s: DomSubscriptionOutput) => {
+      const mapped = pageItems.map((s: DomSubscriptionOutput) => {
         const link = s.planId ? linksByPlanId.get(s.planId) : undefined;
         return {
           id: s.id,
@@ -74,11 +79,12 @@ export class ListSubscribersUseCase {
         data: mapped,
         page,
         pageSize,
-        total: result.total ?? mapped.length,
+        hasNextPage,
+        total: result.total ?? (page - 1) * pageSize + mapped.length,
       };
     } catch (err: any) {
       this.logger.error(`[ListSubscribers] Erro ao buscar da DOM: ${err.message}`, err.stack);
-      return { data: [], page, pageSize, total: 0 };
+      return { data: [], page, pageSize, hasNextPage: false, total: 0 };
     }
   }
 

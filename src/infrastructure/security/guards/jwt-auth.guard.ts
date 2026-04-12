@@ -1,22 +1,28 @@
-import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ExecutionContext, UnauthorizedException, Logger } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { PrismaService } from '../../database/prisma/prisma.service';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
+  private readonly logger = new Logger(JwtAuthGuard.name);
+
   constructor(private readonly prisma: PrismaService) {
     super();
   }
 
   override async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
+    this.logger.log(`[Auth] ${request.method} ${request.url} — verificando token`);
 
     // 1) Tenta JWT padrão (Bearer token)
     try {
       const result = await (super.canActivate(context) as Promise<boolean>);
-      if (result) return true;
-    } catch {
-      // JWT falhou — continua para fallback
+      if (result) {
+        this.logger.log(`[Auth] JWT válido para ${request.url}`);
+        return true;
+      }
+    } catch (jwtErr: any) {
+      this.logger.warn(`[Auth] JWT inválido para ${request.url}: ${jwtErr?.message ?? 'erro desconhecido'}`);
     }
 
     // 2) Fallback: x-access-token (domToken) para integrações de plataforma (ex: pagatg)
@@ -41,10 +47,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         user = created;
       }
 
+      this.logger.log(`[Auth] domToken válido para ${request.url} user=${user.id}`);
       request.user = { sub: user.id, email: user.email, role: user.role };
       return true;
     }
 
+    this.logger.warn(`[Auth] Acesso negado (401) para ${request.url} — sem token válido`);
     throw new UnauthorizedException();
   }
 

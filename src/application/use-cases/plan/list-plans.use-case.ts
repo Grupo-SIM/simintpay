@@ -1,8 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
-import { PLAN_REPOSITORY } from '../../../core/repositories/plan.repository.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import type { IPlanRepository } from '../../../core/repositories/plan.repository.interface';
 
 function mapPlanTypeToPt(
   tipo: PlanType,
@@ -20,6 +18,19 @@ function mapPlanTypeToPt(
   }
 }
 
+function extractPlatformFromName(name: string): string | null {
+  const n = name.toLowerCase();
+  if (n.includes('pagatg') || n.includes('paga tg')) return 'PagaTG';
+  if (n.includes('areaflix') || n.includes('área flix') || n.includes('area flix')) return 'Areaflix';
+  if (n.includes('ebook') || n.includes('e-book')) return 'Ebook';
+  if (n.includes('renovada')) return 'Renovada';
+  if (n.includes('bosque') || n.includes('ibb')) return 'Bosque';
+  if (n.includes('marketing raiz') || n.includes('marketing-raiz')) return 'Marketing Raiz';
+  if (n.includes('revalida') || n.includes('révali')) return 'Revalida';
+  if (n.includes('comunidade') || n.includes('community')) return 'Comunidade';
+  return null;
+}
+
 function formatCpf(cpf: string | null | undefined): string | null {
   if (!cpf) return null;
   const digits = cpf.replace(/\D/g, '');
@@ -31,24 +42,23 @@ function formatCpf(cpf: string | null | undefined): string | null {
 
 @Injectable()
 export class ListPlansUseCase {
-  constructor(
-    @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async execute(input: { userId: string; role: string }): Promise<{ data: unknown }> {
     let items: any[];
 
+    const userSelect = { select: { cpf: true, name: true, email: true } };
+
     if (input.role === 'ADMIN') {
       items = await this.prisma.plan.findMany({
         orderBy: { createdAt: 'desc' },
-        include: { user: { select: { cpf: true } } },
+        include: { user: userSelect },
       });
     } else {
       items = await this.prisma.plan.findMany({
         where: { userId: input.userId },
         orderBy: { createdAt: 'desc' },
-        include: { user: { select: { cpf: true } } },
+        include: { user: userSelect },
       });
     }
 
@@ -64,6 +74,9 @@ export class ListPlansUseCase {
         redirectUrl: p.redirectUrl ?? null,
         criadoEm: p.createdAt.toISOString(),
         cpfDono: formatCpf(p.user?.cpf),
+        donoNome: p.user?.name ?? null,
+        donoEmail: p.user?.email ?? null,
+        plataforma: extractPlatformFromName(p.name),
       })),
     };
   }

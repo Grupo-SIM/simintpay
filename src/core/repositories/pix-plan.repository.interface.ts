@@ -13,6 +13,8 @@ export interface IPixPlanRepository {
 
   findPixCreditPlanById(id: string): Promise<any>;
 
+  updatePixCreditPlanStatus(id: string, status: 'ACTIVE' | 'INACTIVE'): Promise<void>;
+
   findPixCreditPlansByUserId(userId: string): Promise<any[]>;
   findPixCreditPlansByUserIdPaginated(params: {
     userId?: string;
@@ -98,6 +100,8 @@ export interface IPixPlanRepository {
   updateCustomerPlanAccessById(id: string, data: {
     isActive?: boolean;
     expiresAt?: Date;
+    totalDaysCredited?: number;
+    createdAt?: Date;
   }): Promise<void>;
 
   findCustomerPlanAccessById(id: string): Promise<any>;
@@ -110,4 +114,6 @@ export interface IPixPlanRepository {
   }): Promise<{ items: any[]; total: number }>;
 
   findAllActiveCustomerPlanAccess(): Promise<any[]>;
+
+  findCustomerPlanAccessByPlanId(planId: string): Promise<any[]>;
 }
