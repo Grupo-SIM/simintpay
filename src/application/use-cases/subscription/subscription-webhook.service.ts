@@ -321,6 +321,17 @@ export class SubscriptionWebhookService {
       return;
     }
 
+    // Se esta assinatura foi pausada pelo admin, o cancelamento na DOM foi
+    // intencional — não sobrescrever o estado de pausa com 'cancelled'.
+    const isPaused = await this.prisma.subscriptionPause.findUnique({
+      where: { domSubscriptionId: subscriberId },
+      select: { id: true },
+    });
+    if (isPaused) {
+      this.logger.log(`[handleCancelled] ${subscriberId} está pausada — webhook de cancelamento ignorado`);
+      return;
+    }
+
     // Verificar se é uma SubscriptionLinkOrder
     const linkOrder = await this.prisma.subscriptionLinkOrder.findFirst({
       where: { domSubscriptionId: subscriberId },

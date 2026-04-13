@@ -37,6 +37,7 @@ export class ListSubscriptionLinksUseCase {
         usos: l.currentUses,
         maxUsos: l.maxUses ?? null,
         criadoEm: l.createdAt.toISOString(),
+        plataformas: (l as any).plataformas ?? [],
       })),
       total: result.total,
       page,

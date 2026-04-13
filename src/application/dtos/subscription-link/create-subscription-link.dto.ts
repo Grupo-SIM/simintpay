@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsEmail,
   IsEnum,
@@ -99,4 +100,9 @@ export class CreateSubscriptionLinkDto {
   @IsString()
   @IsOptional()
   platformTag?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  plataformas?: string[];
 }

@@ -73,6 +73,7 @@ export class ListPaymentLinksUseCase {
         ativo: l.isActive,
         criadoEm: l.createdAt.toISOString(),
         cpfDono: formatCpf(l.user?.cpf),
+        plataformas: l.plataformas ?? [],
       })),
       page,
       pageSize,

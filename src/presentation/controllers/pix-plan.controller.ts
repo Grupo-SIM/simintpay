@@ -176,12 +176,14 @@ export class PixPlanController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'userId', required: false, type: String })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean })
+  @ApiQuery({ name: 'pixPlanId', required: false, type: String })
   @ApiResponse({ status: 200 })
   async listAllPixPlanAccess(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('userId') userId?: string,
     @Query('isActive') isActive?: string,
+    @Query('pixPlanId') pixPlanId?: string,
   ) {
     let isActiveBoolean: boolean | undefined;
     if (isActive !== undefined) isActiveBoolean = isActive === 'true';
@@ -194,6 +196,7 @@ export class PixPlanController {
       limit: limitNumber,
       userId,
       isActive: isActiveBoolean,
+      pixPlanId,
     });
   }
 

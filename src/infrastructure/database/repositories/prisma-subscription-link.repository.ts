@@ -27,6 +27,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         maxUses: data.maxUses ?? undefined,
         domPlanId: data.domPlanId ?? undefined,
         platformTag: data.platformTag ?? undefined,
+        plataformas: data.plataformas ?? [],
       },
     });
   }
@@ -93,6 +94,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         currentUses: data.currentUses,
         domPlanId: data.domPlanId ?? undefined,
         platformTag: data.platformTag ?? undefined,
+        ...(data.plataformas !== undefined && { plataformas: data.plataformas }),
       },
     });
   }

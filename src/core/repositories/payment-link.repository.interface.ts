@@ -32,6 +32,7 @@ export type CreatePaymentLinkData = {
   webhookUrl?: string | null;
   maxUses?: number | null;
   domPaymentLinkId?: string | null;
+  plataformas?: string[];
 };
 
 export interface IPaymentLinkRepository {

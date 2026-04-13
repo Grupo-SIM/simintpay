@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
   IsInt,
@@ -128,4 +129,9 @@ export class CreatePaymentLinkDto {
   @IsString()
   @IsOptional()
   email?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  plataformas?: string[];
 }

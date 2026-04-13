@@ -324,12 +324,12 @@ export class ApiDomClient implements IPaymentGateway {
     const id = this.pickString(obj, 'id');
     if (!id) return null;
 
-    const activeRaw = obj?.active ?? obj?.actived ?? obj?.is_active ?? obj?.isActive;
+    const activeRaw = obj?.active ?? obj?.actived ?? obj?.activated ?? obj?.is_active ?? obj?.isActive;
     const active = activeRaw === true || activeRaw === 1 || activeRaw === 'true' || activeRaw === '1' || activeRaw === 'active';
     const statusRaw = obj?.status ?? obj?.active_status ?? obj?.status_type;
     const status = typeof statusRaw === 'string' ? statusRaw.toLowerCase() : statusRaw != null ? String(statusRaw).toLowerCase() : null;
 
-    const isActuallyActive = active || status === 'active' || status === '1' || status === 'true';
+    const isActuallyActive = active || status === 'active' || status === 'actived' || status === 'activated' || status === '1' || status === 'true';
 
     return {
       id,

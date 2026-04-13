@@ -66,6 +66,7 @@ export class UpdatePlanUseCase {
       webhookUrl: input.dto.webhookUrl ?? existing.webhookUrl,
       redirectUrl: input.dto.redirectUrl ?? existing.redirectUrl,
       ...(input.dto.code !== undefined && { code: input.dto.code }),
+      ...(input.dto.plataformas !== undefined && { plataformas: input.dto.plataformas }),
     });
 
     return {

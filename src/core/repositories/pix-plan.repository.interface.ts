@@ -111,6 +111,7 @@ export interface IPixPlanRepository {
     limit: number;
     userId?: string;
     isActive?: boolean;
+    pixPlanId?: string;
   }): Promise<{ items: any[]; total: number }>;
 
   findAllActiveCustomerPlanAccess(): Promise<any[]>;

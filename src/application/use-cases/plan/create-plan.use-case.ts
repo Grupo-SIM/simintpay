@@ -66,6 +66,7 @@ export class CreatePlanUseCase {
       redirectUrl: input.dto.redirectUrl ?? null,
       domPlanId: dom.id,
       code: input.dto.code ?? null,
+      plataformas: input.dto.plataformas ?? [],
     });
 
     return {

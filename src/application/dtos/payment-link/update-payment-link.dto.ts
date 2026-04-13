@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
   IsInt,
@@ -116,4 +117,9 @@ export class UpdatePaymentLinkDto {
   @IsDateString()
   @IsOptional()
   dataExpiracao?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  plataformas?: string[];
 }

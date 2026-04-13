@@ -77,6 +77,7 @@ export class ListPlansUseCase {
         donoNome: p.user?.name ?? null,
         donoEmail: p.user?.email ?? null,
         plataforma: extractPlatformFromName(p.name),
+        plataformas: p.plataformas ?? [],
       })),
     };
   }

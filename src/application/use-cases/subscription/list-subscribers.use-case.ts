@@ -53,8 +53,14 @@ export class ListSubscribersUseCase {
 
       const linksByPlanId = await this.resolveSubscriptionLinks(planIds);
 
+      const domIds = pageItems.map((s: DomSubscriptionOutput) => s.id).filter((id): id is string => !!id);
+
+      // Buscar pausadas para marcar na listagem (não altera fluxo normal)
+      const pauseMap = await this.resolvePauses(domIds, input.userId, isAdmin);
+
       const mapped = pageItems.map((s: DomSubscriptionOutput) => {
         const link = s.planId ? linksByPlanId.get(s.planId) : undefined;
+        const pause = s.id ? pauseMap.get(s.id) : undefined;
         return {
           id: s.id,
           status: s.status ?? null,
@@ -72,20 +78,87 @@ export class ListSubscribersUseCase {
           cliente: s.customer ?? null,
           criadoEm: s.createdAt ?? null,
           plataforma: this.derivePlatformLabel(link, s),
+          // Campos de pausa — null quando não pausada (fluxo normal inalterado)
+          isPaused: !!pause,
+          remainingDays: pause?.remainingDays ?? null,
+          pausedAt: pause?.pausedAt?.toISOString() ?? null,
         };
       });
 
+      // Adicionar assinaturas pausadas que sumiram da DOM após cancelamento
+      // Só na página 1 para não duplicar ao paginar
+      const pausedRows = page === 1
+        ? await this.buildPausedRows(domIds, input.userId, isAdmin)
+        : [];
+
+      const allData = [...mapped, ...pausedRows];
+
       return {
-        data: mapped,
+        data: allData,
         page,
         pageSize,
         hasNextPage,
-        total: result.total ?? (page - 1) * pageSize + mapped.length,
+        total: (result.total ?? (page - 1) * pageSize + mapped.length) + (page === 1 ? pausedRows.length : 0),
       };
     } catch (err: any) {
       this.logger.error(`[ListSubscribers] Erro ao buscar da DOM: ${err.message}`, err.stack);
       return { data: [], page, pageSize, hasNextPage: false, total: 0 };
     }
+  }
+
+  /** Retorna mapa domSubscriptionId → pausa para as IDs recebidas da DOM */
+  private async resolvePauses(
+    domIds: string[],
+    userId: string,
+    isAdmin: boolean,
+  ): Promise<Map<string, { remainingDays: number; pausedAt: Date }>> {
+    if (domIds.length === 0) return new Map();
+    const where = isAdmin
+      ? { domSubscriptionId: { in: domIds } }
+      : { domSubscriptionId: { in: domIds }, userId };
+    const pauses = await this.prisma.subscriptionPause.findMany({
+      where,
+      select: { domSubscriptionId: true, remainingDays: true, pausedAt: true },
+    });
+    return new Map(pauses.map((p) => [p.domSubscriptionId, p]));
+  }
+
+  /**
+   * Constrói linhas para assinaturas pausadas que já sumiram da listagem da DOM.
+   * Só é chamado na página 1 para não duplicar.
+   */
+  private async buildPausedRows(
+    domIdsAlreadyInList: string[],
+    userId: string,
+    isAdmin: boolean,
+  ): Promise<object[]> {
+    const where = isAdmin
+      ? { domSubscriptionId: { notIn: domIdsAlreadyInList } }
+      : { domSubscriptionId: { notIn: domIdsAlreadyInList }, userId };
+    const pauses = await this.prisma.subscriptionPause.findMany({ where });
+    if (pauses.length === 0) return [];
+
+    return pauses.map((p) => ({
+      id: p.domSubscriptionId,
+      status: 'paused',
+      nome: p.subscriberName ?? null,
+      descricao: p.description ?? null,
+      valor: p.valueBrl ?? null,
+      frequencia: p.frequency ?? null,
+      intervalo: p.interval ?? 1,
+      ciclo: 0,
+      formaPagamento: 'credit_card',
+      primeiraCobranca: p.firstCharge ?? null,
+      proximaCobranca: null,
+      planoId: p.planId ?? null,
+      planNome: p.description ?? null,
+      cliente: null,
+      criadoEm: p.createdAt.toISOString(),
+      plataforma: p.plataforma ?? '—',
+      isPaused: true,
+      remainingDays: p.remainingDays,
+      pausedAt: p.pausedAt.toISOString(),
+    }));
   }
 
   private async resolveSubscriptionLinks(planIds: string[]): Promise<Map<string, {

@@ -272,8 +272,9 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     limit: number;
     userId?: string;
     isActive?: boolean;
+    pixPlanId?: string;
   }) {
-    const { page, limit, userId, isActive } = params;
+    const { page, limit, userId, isActive, pixPlanId } = params;
     const skip = (page - 1) * limit;
     const where: any = {};
 
@@ -290,7 +291,10 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
       }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     if (isActive !== undefined) where.isActive = isActive;
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    if (pixPlanId) where.pixPlanId = pixPlanId;
 
     const [items, total] = await Promise.all([
       (this.prisma as any).customerPlanAccess.findMany({

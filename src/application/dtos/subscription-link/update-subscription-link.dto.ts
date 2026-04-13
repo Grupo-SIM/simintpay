@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsInt,
   IsNotEmpty,
@@ -65,4 +66,9 @@ export class UpdateSubscriptionLinkDto {
   @IsString()
   @IsOptional()
   platformTag?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  plataformas?: string[];
 }

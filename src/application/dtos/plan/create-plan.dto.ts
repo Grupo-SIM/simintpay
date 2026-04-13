@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsEnum,
   IsNotEmpty,
   IsNumber,
@@ -47,4 +48,9 @@ export class CreatePlanDto {
   @IsString()
   @IsOptional()
   code?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  plataformas?: string[];
 }

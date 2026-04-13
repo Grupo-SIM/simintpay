@@ -584,6 +584,7 @@ export class PixPlanService {
     limit: number;
     userId?: string;
     isActive?: boolean;
+    pixPlanId?: string;
   }) {
     try {
       const { page, limit } = params;

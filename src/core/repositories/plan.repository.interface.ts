@@ -14,6 +14,7 @@ export type CreatePlanData = {
   domPlanId?: string | null;
   code?: string | null;
   paymentMethods?: string | null;
+  plataformas?: string[];
 };
 
 export interface IPlanRepository {

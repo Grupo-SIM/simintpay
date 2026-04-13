@@ -75,6 +75,7 @@ export class UpdatePaymentLinkUseCase {
       debitFeeFixed: input.dto.debitFeeFixed ?? (existing as any).debitFeeFixed,
       webhookUrl: input.dto.webhookUrl ?? (existing as any).webhookUrl,
       maxUses: input.dto.maxUses ?? (existing as any).maxUses,
+      ...(input.dto.plataformas !== undefined && { plataformas: input.dto.plataformas }),
     });
 
     return {
