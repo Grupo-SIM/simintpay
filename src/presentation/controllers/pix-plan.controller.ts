@@ -3,12 +3,14 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   MessageEvent,
   Param,
   Post,
   Patch,
   Query,
   Sse,
+  UnauthorizedException,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
@@ -303,6 +305,28 @@ export class BotPixPlanController {
     @Param('id') id: string,
   ) {
     return this.pixPlanService.togglePixCreditPlanStatus(user?.sub ?? '', id, user?.role);
+  }
+
+  /**
+   * Endpoint interno: sincroniza o estado do CustomerPlanAccess pelo customerId.
+   * Chamado por api-pagatg após pausar/retomar um PixCredit.
+   * Protegido por x-pagatg-internal-token.
+   */
+  @Patch('admin/pix-plan-access/force-state-by-customer')
+  @ApiOperation({ summary: '[Interno] Forçar estado do acesso PIX por customerId (api-pagatg → api-machine)' })
+  async forceStateByCustomer(
+    @Headers('x-pagatg-internal-token') internalToken: string,
+    @Body() body: { customerId: string; isActive: boolean; remainingDays: number },
+  ) {
+    const expected = process.env.PAGATG_INTERNAL_TOKEN;
+    if (expected && internalToken !== expected) {
+      throw new UnauthorizedException('Token interno inválido');
+    }
+    return this.pixPlanService.forceSetCustomerPlanAccessStatus(
+      body.customerId,
+      body.isActive,
+      body.remainingDays ?? 0,
+    );
   }
 
   @Patch('plan-access/:id/status')

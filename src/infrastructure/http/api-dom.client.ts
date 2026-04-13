@@ -330,6 +330,10 @@ export class ApiDomClient implements IPaymentGateway {
     const status = typeof statusRaw === 'string' ? statusRaw.toLowerCase() : statusRaw != null ? String(statusRaw).toLowerCase() : null;
 
     const isActuallyActive = active || status === 'active' || status === 'actived' || status === 'activated' || status === '1' || status === 'true';
+    
+    if (!isActuallyActive && activeRaw) {
+      this.logger.warn(`[DOM Mapping] Subscription ${id} mapped as INACTIVE but activeRaw=${activeRaw} status=${status}`);
+    }
 
     return {
       id,

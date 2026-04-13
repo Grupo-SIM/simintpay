@@ -64,10 +64,46 @@ export class ResumeSubscriptionUseCase {
       `[ResumeSubscription] Pausa removida para ${input.domSubscriptionId} — ${pause.remainingDays} dias liberados até ${newExpiresAt.toISOString()}`,
     );
 
-    return {
+    const response = {
       newExpiresAt: newExpiresAt.toISOString(),
       remainingDays: pause.remainingDays,
     };
+
+    // Notificar api-pagatg da retomada (para re-adicionar ao Telegram)
+    try {
+      const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
+      const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+
+      await fetch(`${apiPagatgUrl}/webhook/signature`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+        },
+        body: JSON.stringify({
+          type: 'SIGNATURE-RESUMED',
+          data: {
+            customer: {
+              id: pause.subscriberName || 'RESUME',
+              name: pause.subscriberName,
+              email: pause.customerEmail,
+            },
+            plan: {
+              id: pause.planId,
+              description: pause.description,
+            },
+            subscription: {
+              id: input.domSubscriptionId,
+              status: 'ACTIVE',
+            },
+          },
+        }),
+      });
+    } catch (webhookError: any) {
+      this.logger.error(`Erro ao notificar api-pagatg de retomada CC: ${webhookError.message}`);
+    }
+
+    return response;
   }
 
   constructor(private readonly prisma: PrismaService) {}

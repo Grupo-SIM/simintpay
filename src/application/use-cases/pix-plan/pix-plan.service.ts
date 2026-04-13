@@ -697,6 +697,50 @@ export class PixPlanService {
     return results;
   }
 
+  /**
+   * Força diretamente o estado (isActive) de todos os CustomerPlanAccess de um cliente.
+   * Chamado por api-pagatg após pausar/retomar um PixCredit, para manter sincronismo.
+   */
+  async forceSetCustomerPlanAccessStatus(
+    customerId: string,
+    isActive: boolean,
+    remainingDays: number,
+  ): Promise<{ success: boolean; updated: number }> {
+    const now = new Date();
+
+    if (!isActive) {
+      // SUSPENDER: guardar remainingDays em totalDaysCredited, zerar expiresAt
+      const accesses = await (this.prisma as any).customerPlanAccess.findMany({
+        where: { customerId, isActive: true },
+      });
+      for (const access of accesses) {
+        const expiresAt = new Date(access.expiresAt);
+        const diffTime = expiresAt.getTime() - now.getTime();
+        const days = remainingDays > 0 ? remainingDays : Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+        await (this.prisma as any).customerPlanAccess.update({
+          where: { id: access.id },
+          data: { isActive: false, expiresAt: now, totalDaysCredited: days, createdAt: now },
+        });
+      }
+      return { success: true, updated: accesses.length };
+    } else {
+      // REATIVAR: restaurar dias guardados
+      const accesses = await (this.prisma as any).customerPlanAccess.findMany({
+        where: { customerId, isActive: false },
+      });
+      for (const access of accesses) {
+        const days = remainingDays > 0 ? remainingDays : (access.totalDaysCredited ?? 0);
+        if (days <= 0) continue;
+        const newExpiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+        await (this.prisma as any).customerPlanAccess.update({
+          where: { id: access.id },
+          data: { isActive: true, expiresAt: newExpiresAt, createdAt: now },
+        });
+      }
+      return { success: true, updated: accesses.length };
+    }
+  }
+
   async toggleCustomerPlanAccessStatus(id: string, requesterRole?: string) {
     const access = await this.repo.findCustomerPlanAccessById(id);
     if (!access) throw new NotFoundException('Acesso ao plano não encontrado');
@@ -717,11 +761,35 @@ export class PixPlanService {
         createdAt: now, // Resetamos o checkpoint
       });
 
-      return {
+      const result = {
         success: true,
         message: 'Acesso ao plano suspenso com sucesso',
         remainingDaysSuspended: remainingDays,
       };
+
+      // Notificar api-pagatg da mudança de status
+      try {
+        const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
+        const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+        await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+          },
+          body: JSON.stringify({
+            code: access.pixPlanCode || 'STATUS_UPDATE',
+            email: access.customerEmail,
+            customerId: access.customerId,
+            status: 'SUSPENDED',
+            userId: access.userId,
+          }),
+        });
+      } catch (webhookError: any) {
+        this.logger.error(`Erro ao notificar api-pagatg (SUSPENDED): ${webhookError.message}`);
+      }
+
+      return result;
     } else {
       // REATIVAR
       const daysToReturn = access.totalDaysCredited;
@@ -737,12 +805,36 @@ export class PixPlanService {
         createdAt: now,
       });
 
-      return {
+      const result = {
         success: true,
         message: 'Acesso ao plano reativado com sucesso',
         newExpiresAt,
         daysReturned: daysToReturn,
       };
+
+      // Notificar api-pagatg da mudança de status
+      try {
+        const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
+        const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+        await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+          },
+          body: JSON.stringify({
+            code: access.pixPlanCode || 'STATUS_UPDATE',
+            email: access.customerEmail,
+            customerId: access.customerId, // IDs são sincronizados
+            status: 'ACTIVE',
+            userId: access.userId,
+          }),
+        });
+      } catch (webhookError: any) {
+        this.logger.error(`Erro ao notificar api-pagatg (ACTIVE): ${webhookError.message}`);
+      }
+
+      return result;
     }
   }
 
@@ -750,10 +842,34 @@ export class PixPlanService {
     const now = new Date();
     const expiresAt = new Date(access.expiresAt);
 
-    if (expiresAt <= now) {
+    if (expiresAt <= now && access.isActive) {
       await this.repo.updateCustomerPlanAccessById(access.id, { isActive: false });
+      
+      // Notificar api-pagatg da expiração automática
+      try {
+        const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
+        const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+        await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+          },
+          body: JSON.stringify({
+            code: access.pixPlanCode || 'STATUS_UPDATE',
+            email: access.customerEmail || '',
+            customerId: access.customerId,
+            status: 'SUSPENDED', // Expiração é tratada como suspensão de acesso
+            userId: access.userId,
+          }),
+        });
+      } catch (webhookError: any) {
+        this.logger.error(`Erro ao notificar api-pagatg de expiração (SUSPENDED): ${webhookError.message}`);
+      }
       return;
     }
+
+    if (expiresAt <= now) return;
 
     const createdAt = new Date(access.createdAt);
     const daysSinceCreation = Math.floor(
@@ -761,13 +877,37 @@ export class PixPlanService {
     );
     const remainingDays = Math.max(access.totalDaysCredited - daysSinceCreation, 0);
 
-    if (remainingDays <= 0) {
+    if (remainingDays <= 0 && access.isActive) {
       await this.repo.updateCustomerPlanAccessById(access.id, {
         isActive: false,
         expiresAt: now,
       });
+
+      // Notificar api-pagatg da expiração automática por dias consumidos
+      try {
+        const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
+        const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+        await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+          },
+          body: JSON.stringify({
+            code: access.pixPlanCode || 'STATUS_UPDATE',
+            email: access.customerEmail || '',
+            customerId: access.customerId,
+            status: 'SUSPENDED',
+            userId: access.userId,
+          }),
+        });
+      } catch (webhookError: any) {
+        this.logger.error(`Erro ao notificar api-pagatg de expiração por dias (SUSPENDED): ${webhookError.message}`);
+      }
       return;
     }
+
+    if (remainingDays <= 0) return;
 
     const newExpiresAt = new Date(now.getTime() + remainingDays * 24 * 60 * 60 * 1000);
     await this.repo.updateCustomerPlanAccessById(access.id, {

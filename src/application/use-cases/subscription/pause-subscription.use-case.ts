@@ -99,12 +99,16 @@ export class PauseSubscriptionUseCase {
     this.logger.log(`[PauseSubscription] Cancelando na DOM: ${input.domSubscriptionId}`);
     await this.gateway.cancelSubscription(domToken, input.domSubscriptionId);
 
+    const customerObj = (subData['customer'] ?? {}) as Record<string, unknown>;
+    const planObj = (subData['plan'] ?? {}) as Record<string, unknown>;
+
     // 5. Gravar o estado de pausa na api-machine
     await this.prisma.subscriptionPause.create({
       data: {
         domSubscriptionId: input.domSubscriptionId,
         userId: input.userId,
         subscriberName,
+        customerEmail: this.extractString(customerObj, 'email') ?? this.extractString(subData, 'customer_email'),
         description,
         planId,
         valueBrl,
@@ -127,11 +131,50 @@ export class PauseSubscriptionUseCase {
       `Após isso, o usuário precisará fazer uma NOVA assinatura — a renovação automática não voltará. ` +
       `Informe o usuário sobre isso.`;
 
-    return {
+    const response = {
       remainingDays,
       pausedAt: now.toISOString(),
       warningMessage,
     };
+
+    // Notificar api-pagatg da pausa (para remover do Telegram)
+    try {
+      const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
+      const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+      
+      await fetch(`${apiPagatgUrl}/webhook/signature`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+        },
+        body: JSON.stringify({
+          type: 'SIGNATURE-PAUSED',
+          data: {
+            customer: {
+              id: this.extractString(customerObj, 'id') ?? this.extractString(subData, 'customer_id'),
+              name: this.extractString(customerObj, 'name') ?? this.extractString(subData, 'customer_name'),
+              email: this.extractString(customerObj, 'email') ?? this.extractString(subData, 'customer_email'),
+              document: this.extractString(customerObj, 'document') ?? this.extractString(subData, 'customer_document'),
+            },
+            plan: {
+              id: this.extractString(planObj, 'id') ?? planId,
+              description: this.extractString(planObj, 'description') ?? description,
+              external_reference: this.extractString(planObj, 'external_reference') ?? this.extractString(subData, 'external_reference'),
+            },
+            subscription: {
+              id: input.domSubscriptionId,
+              status: 'PAUSED',
+              external_reference: this.extractString(subData, 'external_reference'),
+            },
+          },
+        }),
+      });
+    } catch (webhookError: any) {
+      this.logger.error(`Erro ao notificar api-pagatg de pausa CC: ${webhookError.message}`);
+    }
+
+    return response;
   }
 
   private extractString(obj: Record<string, unknown> | undefined, key: string): string | null {

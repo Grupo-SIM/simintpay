@@ -398,6 +398,7 @@ model SubscriptionPause {
   userId            String
   /// Snapshot dos dados de exibição (a assinatura some da listagem DOM após cancelamento)
   subscriberName    String?
+  customerEmail     String?
   description       String?
   planId            String?
   valueBrl          Float?
