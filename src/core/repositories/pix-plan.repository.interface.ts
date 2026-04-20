@@ -9,6 +9,7 @@ export interface IPixPlanRepository {
     description?: string;
     redirectUrl?: string;
     webhookUrl?: string;
+    tenantTag?: string | null;
   }): Promise<any>;
 
   findPixCreditPlanById(id: string): Promise<any>;

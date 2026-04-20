@@ -79,7 +79,7 @@ export class PlatformTaxasService {
     };
   }
 
-  patchPlatform(tag: string, body: Record<string, unknown>) {
+  async patchPlatform(tag: string, body: Record<string, unknown>) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Body inválido');
     }
@@ -87,6 +87,9 @@ export class PlatformTaxasService {
     for (const [k, v] of Object.entries(body)) {
       if (!(PLATAFORMA_TAXA_KEYS as readonly string[]).includes(k)) {
         throw new BadRequestException(`Chave não permitida: ${k}`);
+      }
+      if (k === 'TAXA_FIXA_TRANSACAO' || k === 'TAXA_CASHBACK') {
+        throw new BadRequestException(`Chave é fixa e não pode ser alterada: ${k}`);
       }
       const n =
         typeof v === 'number'
@@ -104,7 +107,7 @@ export class PlatformTaxasService {
     }
     try {
       const next = applyPatchToOverrides(tag, patch);
-      writeOverrides(next);
+      await writeOverrides(next);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Falha ao persistir';
       throw new BadRequestException(msg);

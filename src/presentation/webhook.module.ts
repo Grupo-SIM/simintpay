@@ -18,9 +18,11 @@ import { RenovadaModule } from '../modules/renovada/renovada.module';
 import { PixPlanModule } from './pix-plan.module';
 import { PixPlanEventsService } from '../application/services/pix-plan-events.service';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
+import { VoucherModule } from './voucher.module';
+import { CheckoutModule } from './checkout.module';
 
 @Module({
-  imports: [RabbitMqModule, RenovadaModule, forwardRef(() => PixPlanModule), ApiDomModule],
+  imports: [RabbitMqModule, RenovadaModule, VoucherModule, forwardRef(() => PixPlanModule), ApiDomModule, CheckoutModule],
   controllers: [WebhookController],
   providers: [
     ProcessWebhookUseCase,

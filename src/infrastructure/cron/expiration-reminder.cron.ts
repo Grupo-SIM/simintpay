@@ -31,83 +31,78 @@ export class ExpirationReminderCron {
   }
 
   private async processPixPlans() {
-    const nowLocal = dayjs().tz('America/Sao_Paulo');
-    
+    const todayLocal = dayjs().tz('America/Sao_Paulo').startOf('day');
+
     const activePlans = await this.prisma.customerPlanAccess.findMany({
-      where: {
-        isActive: true,
-      },
+      where: { isActive: true },
       include: {
         customer: true,
-        user: true, // Adicionado para pegar o nome do vendedor
-        pixPlan: {
-          include: {
-            linkCodes: true,
-          },
-        },
+        user: true,
+        pixPlan: { include: { linkCodes: true } },
       },
     });
 
     for (const plan of activePlans) {
       if (!plan.customer?.email) continue;
 
-      const expiresAt = dayjs(plan.expiresAt).tz('America/Sao_Paulo');
-      const daysRemaining = Math.ceil(expiresAt.diff(nowLocal, 'day', true));
+      const expiresDay = dayjs(plan.expiresAt).tz('America/Sao_Paulo').startOf('day');
+      const daysRemaining = expiresDay.diff(todayLocal, 'day');
 
-      if (daysRemaining === 2 || daysRemaining === 1 || daysRemaining === 0) {
-        // Buscar o código de checkout para renovação
+      if (daysRemaining === 3 || daysRemaining === 2 || daysRemaining === 1 || daysRemaining === 0) {
         const linkCode = plan.pixPlan?.linkCodes?.[0]?.code;
         const renewUrl = linkCode ? `https://paga-tg.com/checkout/${linkCode}` : undefined;
 
-        await this.email.sendExpirationReminder({
-          to: plan.customer.email,
-          customerName: plan.customer.name || 'Cliente',
-          vendedorName: plan.user?.name || undefined,
-          planName: plan.pixPlan?.description || plan.pixPlanCode || 'Plano PIX',
-          expiresAt: plan.expiresAt,
-          daysRemaining: daysRemaining,
-          renewUrl: renewUrl,
-        });
+        try {
+          await this.email.sendExpirationReminder({
+            to: plan.customer.email,
+            customerName: plan.customer.name || 'Cliente',
+            vendedorName: plan.user?.name || undefined,
+            planName: plan.pixPlan?.description || plan.pixPlanCode || 'Plano PIX',
+            expiresAt: plan.expiresAt,
+            daysRemaining,
+            renewUrl,
+          });
+          this.logger.log(`[ExpirationReminder] Email enviado para ${plan.customer.email} — ${daysRemaining} dia(s) restante(s)`);
+        } catch (err: unknown) {
+          this.logger.error(`[ExpirationReminder] Falha ao enviar email para ${plan.customer.email}: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     }
   }
 
   private async processCcSubscriptions() {
-    const nowLocal = dayjs().tz('America/Sao_Paulo');
+    const todayLocal = dayjs().tz('America/Sao_Paulo').startOf('day');
 
     const subscriptions = await this.prisma.subscription.findMany({
-      where: {
-        status: 'active',
-        expiresAt: { not: null },
-      },
-      include: {
-        customer: true,
-        user: true, // Adicionado para pegar o nome do vendedor
-        plan: true,
-      },
+      where: { status: 'active', expiresAt: { not: null } },
+      include: { customer: true, user: true, plan: true },
     });
 
     for (const sub of subscriptions) {
       if (!sub.customer?.email || !sub.expiresAt) continue;
 
-      const expiresAt = dayjs(sub.expiresAt).tz('America/Sao_Paulo');
-      const daysRemaining = Math.ceil(expiresAt.diff(nowLocal, 'day', true));
+      const expiresDay = dayjs(sub.expiresAt).tz('America/Sao_Paulo').startOf('day');
+      const daysRemaining = expiresDay.diff(todayLocal, 'day');
 
-      if (daysRemaining === 2 || daysRemaining === 1 || daysRemaining === 0) {
-        // Para assinaturas, o Plano tem um campo 'code'
+      if (daysRemaining === 3 || daysRemaining === 2 || daysRemaining === 1 || daysRemaining === 0) {
         const renewUrl = sub.plan?.code
           ? `https://paga-tg.com/checkout-sub/${sub.plan.code}`
           : undefined;
 
-        await this.email.sendExpirationReminder({
-          to: sub.customer.email,
-          customerName: sub.customer.name || 'Assinante',
-          vendedorName: sub.user?.name || undefined,
-          planName: sub.plan?.description || 'Assinatura',
-          expiresAt: sub.expiresAt,
-          daysRemaining: daysRemaining,
-          renewUrl: renewUrl,
-        });
+        try {
+          await this.email.sendExpirationReminder({
+            to: sub.customer.email,
+            customerName: sub.customer.name || 'Assinante',
+            vendedorName: sub.user?.name || undefined,
+            planName: sub.plan?.description || 'Assinatura',
+            expiresAt: sub.expiresAt,
+            daysRemaining,
+            renewUrl,
+          });
+          this.logger.log(`[ExpirationReminder] Email de assinatura enviado para ${sub.customer.email} — ${daysRemaining} dia(s) restante(s)`);
+        } catch (err: unknown) {
+          this.logger.error(`[ExpirationReminder] Falha ao enviar email de assinatura para ${sub.customer.email}: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     }
   }

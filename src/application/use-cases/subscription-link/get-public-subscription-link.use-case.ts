@@ -35,7 +35,7 @@ export class GetPublicSubscriptionLinkUseCase {
     // Valor que o comprador pagará (com ou sem taxa de assinatura da plataforma)
     const base = Number(link.amount);
     let effectivePlatformFee = link.platformFee; // fallback: valor gravado no link
-    let platformTag = (link as any).platformTag?.toUpperCase?.() ?? 'COMUNIDADE';
+    let platformTag = (link as any).platformTag?.toUpperCase?.() ?? 'GLOBAL';
 
     if (!link.isStandalone) {
       const owner = await this.users.findById(link.userId);
@@ -43,18 +43,16 @@ export class GetPublicSubscriptionLinkUseCase {
       // 1º platformTag gravado diretamente no link (campo explícito)
       // 2º slugTag do tenantModule do dono
       // 3º AREAFLIX se webhookUrl contiver 'areaflix'
-      // 4º COMUNIDADE (fallback)
+      // 4º GLOBAL (fallback)
       const linkPlatformTag = (link as any).platformTag?.toUpperCase?.();
       const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
-      platformTag = linkPlatformTag ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'COMUNIDADE');
+      platformTag = linkPlatformTag ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'GLOBAL');
 
-      // Hierarquia de taxa: plataforma → env var → GLOBAL → valor gravado no link.
-      effectivePlatformFee = getPlatformTaxaEffective(
-        platformTag,
-        'TAXA_ASSINATURA',
-        link.platformFee ?? PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA,
-      );
+      // Taxa ao cliente (cartão) = MDR_CC_1X + MDR_CC_MASTER_1X por plataforma
+      const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+      const mdrMaster1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+      effectivePlatformFee = Math.round((mdrDom1x + mdrMaster1x) * 10000) / 100;
     }
 
     const valorComJuros = link.isStandalone

@@ -37,6 +37,7 @@ model User {
   communityAccesses      CommunityAccess[]
   communityEvents        CommunitySubscriptionEvent[]
   externalPlatformUsers  ExternalPlatformUser[]
+  vouchers               Voucher[]
 
   @@index([email])
   @@index([domUserId])
@@ -605,6 +606,8 @@ model PixCreditPlan {
   redirectUrl String?
   webhookUrl  String?
   status      String               @default("ACTIVE")
+  /// Tag da plataforma vinculada (ex: PAGATG, AREAFLIX, RENOVADA)
+  tenantTag   String?
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
   user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -614,6 +617,7 @@ model PixCreditPlan {
 
   @@index([userId])
   @@index([status])
+  @@index([tenantTag])
 }
 
 model PixPlanLinkCode {
@@ -689,4 +693,54 @@ model PlatformTaxaOverride {
 
   @@unique([tag, key])
   @@index([tag])
+}
+
+// ── Vouchers ──────────────────────────────────────────────────────────────────
+
+model Voucher {
+  id               String         @id @default(uuid())
+  userId           String
+  code             String
+  description      String?
+  discountType     DiscountType
+  discountValue    Float
+  maxUsage         Int?
+  maxDiscountValue Float?
+  validFrom        DateTime?
+  validUntil       DateTime?
+  applicablePlans  String[]
+  minOrderValue    Float?
+  allowedChannels  String[]       @default(["PAGATG"])
+  allowedLinkCodes String[]       @default([])
+  isActive         Boolean        @default(true)
+  usageCount       Int            @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  usages           VoucherUsage[]
+
+  @@unique([code])
+  @@index([userId])
+  @@index([code])
+}
+
+model VoucherUsage {
+  id               String   @id @default(uuid())
+  voucherId        String
+  transactionId    String?
+  subscriptionId   String?
+  customerEmail    String
+  customerDocument String
+  originalAmount   Float
+  discountAmount   Float
+  finalAmount      Float
+  createdAt        DateTime @default(now())
+  voucher          Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+
+  @@index([voucherId])
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
 }

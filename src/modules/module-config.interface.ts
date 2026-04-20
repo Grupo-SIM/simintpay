@@ -27,7 +27,7 @@ export interface ModuleConfig {
 
   /** Taxas de processamento (MDR) por método de pagamento */
   mdr: {
-    pix: number;          // ex: 0.0098 = 0.98%
+    pix: number;          // decimal sobre o bruto; padrão em keys (ex.: 0,02 = 2%)
     cartao: {
       [parcelas: number]: number;  // ex: { 1: 0.0399, 2: 0.083, ... }
     };

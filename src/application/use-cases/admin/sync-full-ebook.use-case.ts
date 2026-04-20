@@ -6,6 +6,7 @@ import type { IHashService } from '../../../core/services/hash.interface';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { appendInternalTags, TENANT_EBOOK_TAG } from '../../utils/internal-tags.util';
+import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 
 @Injectable()
 export class SyncFullEbookUseCase {
@@ -100,7 +101,7 @@ export class SyncFullEbookUseCase {
 
               const mappedStatus = this.mapStatus(tx.status);
               const amount = new Prisma.Decimal(tx.amount || 0);
-              const netAmount = new Prisma.Decimal(tx.amountWithoutAllFee ?? Number(tx.amount || 0) * 0.91);
+              const netAmount = calculateSellerNetValue(Number(tx.amount || 0), Number(tx.installments || 1), 'EBOOK', 'pix');
               const totalFee = new Prisma.Decimal(tx.fee || Number(amount) - Number(netAmount));
               const domFee = new Prisma.Decimal(tx.dom_fee || 0);
               const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);

@@ -7,6 +7,8 @@ import { CommunityManagementService } from '../../services/community-management.
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { PixPlanService } from '../pix-plan/pix-plan.service';
 import { PixPlanEventsService } from '../../services/pix-plan-events.service';
+import { CheckoutEventsService } from '../../services/checkout-events.service';
+import { VoucherService } from '../voucher/voucher.service';
 import {
   appendInternalTags,
   ORIGEM_MAQUINETA_TAG,
@@ -17,6 +19,7 @@ import {
 } from '../../utils/internal-tags.util';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -78,12 +81,14 @@ export class ProcessDomWebhookUseCase {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly voucherService: VoucherService,
     @Optional() private readonly renovadaEvents?: RenovadaEventsService,
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
     @Optional() @Inject(PAYMENT_GATEWAY) private readonly paymentGateway?: IPaymentGateway,
     @Optional() private readonly pixPlanService?: PixPlanService,
     @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
+    @Optional() private readonly checkoutEvents?: CheckoutEventsService,
   ) { }
 
   async execute(payload: unknown): Promise<void> {
@@ -198,11 +203,39 @@ export class ProcessDomWebhookUseCase {
     }
   }
 
-  private calcNet(amountReais: number, liquidAmountReais?: number | null, tenantTag?: string): Prisma.Decimal {
-    const liq = liquidAmountReais != null
-      ? liquidAmountReais
-      : amountReais * this.getLiquidezFactorByTag(tenantTag);
-    return new Prisma.Decimal(liq);
+  private calcNet(
+    amountReais: number,
+    installments: number = 1,
+    liquidAmountReais?: number | null,
+    tenantTag?: string,
+    paymentMethod?: string,
+  ): Prisma.Decimal {
+    return calculateSellerNetValue(amountReais, installments, tenantTag || 'GLOBAL', paymentMethod);
+  }
+
+  /**
+   * Resolve o tenantTag de um usuário sem tenantModule:
+   * 1. tenantModule.slug do usuário (existente)
+   * 2. plataformas[0] de qualquer plano ativo do usuário
+   * 3. GLOBAL como fallback
+   */
+  private async resolveTenantTagForUser(userId: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        tenantModule: { select: { slug: true } },
+        plans: {
+          where: { isActive: true },
+          select: { plataformas: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+    if (user?.tenantModule?.slug) return user.tenantModule.slug.toUpperCase();
+    const planTag = (user?.plans?.[0] as any)?.plataformas?.[0];
+    if (planTag) return String(planTag).toUpperCase();
+    return 'GLOBAL';
   }
 
   private getLiquidezFactorByTag(tenantTag?: string): number {
@@ -237,15 +270,6 @@ export class ProcessDomWebhookUseCase {
 
     // DOM Pagamentos envia amount e liquid_amount em CENTAVOS → dividir por 100
     const amountDec = new Prisma.Decimal(data.amount / 100);
-    const netDec = this.calcNet(
-      data.amount / 100,
-      data.liquid_amount != null ? data.liquid_amount / 100 : null,
-    );
-    const totalFee = amountDec.sub(netDec);
-    const domFee = new Prisma.Decimal(data.dom_fee ?? 0);
-    const platformFee = totalFee.greaterThan(domFee)
-      ? totalFee.sub(domFee)
-      : new Prisma.Decimal(0);
 
     const existing = await this.prisma.transaction.findFirst({
       where: { domPaymentId: data.id },
@@ -361,8 +385,37 @@ export class ProcessDomWebhookUseCase {
           }
         }
 
-        // SSE: notificar checkout em tempo real
+        // SSE: notificar checkout de planos PIX em tempo real
         this.pixPlanEvents?.emit({ transactionId: existing.id, status: 'COMPLETED' });
+
+        // SSE: notificar checkout genérico (ebook/pagatg) pelo domPaymentId
+        if (data.id) {
+          this.checkoutEvents?.emit({ domPaymentId: data.id, status: 'COMPLETED' });
+        }
+
+        // VOUCHER: Registrar uso se houver tag [VOUCHER:CODE] na descrição
+        const voucherMatch = (existing.description ?? '').match(/\[VOUCHER:([^\]]+)\]/);
+        if (voucherMatch) {
+          const code = voucherMatch[1];
+          try {
+            const voucher = await this.prisma.voucher.findFirst({
+              where: { userId: existing.userId, code: code.toUpperCase().trim() },
+            });
+            if (voucher) {
+              await this.voucherService.recordUsage({
+                voucherId: voucher.id,
+                transactionId: existing.id,
+                customerEmail: existing.customerEmail ?? '',
+                customerDocument: existing.customerDocument ?? '',
+                originalAmount: Number(existing.amount),
+                discountAmount: Number(existing.amount) - (Number(existing.netAmount) / getPlatformTaxaEffective(existing.description?.includes(TENANT_EBOOK_TAG) ? 'EBOOK' : 'GLOBAL', 'LIQUIDEZ', 0.91)), // Aproximação do desconto
+                finalAmount: Number(existing.amount),
+              });
+            }
+          } catch (vErr) {
+            this.logger.error(`Erro ao registrar uso de voucher ${code}: ${vErr.message}`);
+          }
+        }
       }
     } else {
       const amountReais = Number(data.amount) / 100;
@@ -379,6 +432,10 @@ export class ProcessDomWebhookUseCase {
         this.logger.log(
           `[DomWebhook] domPaymentId=${data.id} tratado como ebook: back-ebook notificado (sem tx prévia na machine).`,
         );
+        // SSE: notificar checkout mesmo sem tx prévia (ebook sem EBOOK_PENDING)
+        if (data.id) {
+          this.checkoutEvents?.emit({ domPaymentId: data.id, status: 'COMPLETED' });
+        }
         return;
       }
 
@@ -673,7 +730,13 @@ export class ProcessDomWebhookUseCase {
       if (pendingTx) {
         this.logger.log(`[DomWebhook][ebook] atualizando tx PENDING → COMPLETED id=${pendingTx.id}`);
         const amountDec = new Prisma.Decimal(data.amount / 100);
-        const netDec = this.calcNet(data.amount / 100, data.liquid_amount != null ? data.liquid_amount / 100 : null, 'EBOOK');
+        const netDec = this.calcNet(
+          data.amount / 100,
+          Number(data.installments ?? 1),
+          data.liquid_amount != null ? data.liquid_amount / 100 : undefined,
+          'EBOOK',
+          data.payment_method,
+        );
         const custName = (data as any).customer_name || data.customer?.name || null;
         const custEmail = (data as any).customer_email || data.customer?.email || null;
         const custDoc = ((data as any).customer_document || data.customer?.document || '').replace(/\D/g, '') || null;
@@ -746,8 +809,10 @@ export class ProcessDomWebhookUseCase {
       const amountDec = new Prisma.Decimal(data.amount / 100);
       const netDec = this.calcNet(
         data.amount / 100,
-        data.liquid_amount != null ? data.liquid_amount / 100 : null,
+        Number(data.installments ?? 1),
+        data.liquid_amount != null ? data.liquid_amount / 100 : undefined,
         'EBOOK',
+        data.payment_method,
       );
 
       // CPF e nome do dono na description garantem reconhecimento quando ele criar conta no simpay
@@ -851,7 +916,10 @@ export class ProcessDomWebhookUseCase {
     const amountDec = new Prisma.Decimal(data.amount / 100);
     const netDec = this.calcNet(
       data.amount / 100,
-      data.liquid_amount != null ? data.liquid_amount / 100 : null,
+      1, // installments
+      data.liquid_amount != null ? data.liquid_amount / 100 : undefined,
+      undefined,
+      data.payment_method,
     );
 
     const tx = await this.prisma.$transaction(async (p) => {
@@ -985,6 +1053,9 @@ export class ProcessDomWebhookUseCase {
       where: { id: order.id },
       data: { status: 'paid' },
     });
+
+    // SSE: notificar checkout de assinatura em tempo real
+    this.checkoutEvents?.emit({ domPaymentId: domPixPaymentId, status: 'COMPLETED' });
 
     // Ativar acesso à comunidade
     if (this.communities) {

@@ -28,6 +28,7 @@ import { PixPlanModule } from './presentation/pix-plan.module';
 import { SubscriptionLinkModule } from './presentation/subscription-link.module';
 import { CheckoutModule } from './presentation/checkout.module';
 import { ClienteModule } from './presentation/cliente.module';
+import { VoucherModule } from './presentation/voucher.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { ClienteModule } from './presentation/cliente.module';
     MasterModule,
     AtlasModule,
     ClienteModule,
+    VoucherModule,
   ],
   providers: [
     {

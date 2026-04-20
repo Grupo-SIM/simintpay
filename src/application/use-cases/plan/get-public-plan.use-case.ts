@@ -26,6 +26,7 @@ export class GetPublicPlanUseCase {
     preco: number;
     tipo: string;
     ativo: boolean;
+    plataformas: string[];
   }> {
     const plan = await this.plans.findById(id);
     if (!plan || !plan.isActive) {
@@ -38,6 +39,7 @@ export class GetPublicPlanUseCase {
       preco: Number(plan.price),
       tipo: mapType(plan.type),
       ativo: plan.isActive,
+      plataformas: (plan as any).plataformas ?? [],
     };
   }
 }

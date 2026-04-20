@@ -6,6 +6,8 @@ import {
   BALANCE_LOG_REPOSITORY,
 } from '../../../core/repositories/balance-log.repository.interface';
 import type { IBalanceLogRepository } from '../../../core/repositories/balance-log.repository.interface';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 @Injectable()
 export class SubscriptionWebhookService {
@@ -66,8 +68,6 @@ export class SubscriptionWebhookService {
     const domFeeRaw = typeof feeDetails?.amount === 'number' ? feeDetails.amount : 0;
     const domFee = new Prisma.Decimal(domFeeRaw).div(100);
 
-    const netAmount = amount.sub(domFee);
-
     const relations = data.relations as Record<string, unknown> | undefined;
     const subscriberId = this.getString(relations?.id_subscriber);
     if (!subscriberId) {
@@ -110,11 +110,21 @@ export class SubscriptionWebhookService {
       return;
     }
 
+    const effectivePlanTag = (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
+    // Taxa do vendedor: TAXA_LINK_PERCENT × base + TAXA_LINK_FIXA, cobrada uma vez por renovação
+    // Se não tiver plataforma definida, usa as taxas do GLOBAL
+    const basePlanPrice = Number((subscription.plan as any)?.price ?? 0) || amount.toNumber();
+    const sellerFeePercent = getPlatformTaxaEffective(effectivePlanTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+    const sellerFeeFixed = getPlatformTaxaEffective(effectivePlanTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+    const platformFeeAmount = new Prisma.Decimal(Math.round((basePlanPrice * sellerFeePercent + sellerFeeFixed) * 100) / 100);
+    const netAmount = amount.sub(domFee).sub(platformFeeAmount);
+
     await this.createTransactionAndCreditWallet({
       subscription,
       amount,
       netAmount,
       domFee,
+      platformFeeAmount,
       domPaymentId: domTransactionId,
       description: this.getString(data.description) ?? subscription.plan?.name ?? '-',
     });
@@ -178,7 +188,6 @@ export class SubscriptionWebhookService {
       return;
     }
 
-    const netAmount = amount.sub(domFee);
     const subscription = await this.prisma.subscription.findFirst({
       where: { domSubscriptionId: subscriberId },
       include: {
@@ -192,11 +201,21 @@ export class SubscriptionWebhookService {
       return;
     }
 
+    const effectivePlanTag = (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
+    // Taxa do vendedor: TAXA_LINK_PERCENT × base + TAXA_LINK_FIXA, cobrada uma vez por renovação
+    // Se não tiver plataforma definida, usa as taxas do GLOBAL
+    const basePlanPrice = Number((subscription.plan as any)?.price ?? 0) || amount.toNumber();
+    const sellerFeePercent = getPlatformTaxaEffective(effectivePlanTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+    const sellerFeeFixed = getPlatformTaxaEffective(effectivePlanTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+    const platformFeeAmount = new Prisma.Decimal(Math.round((basePlanPrice * sellerFeePercent + sellerFeeFixed) * 100) / 100);
+    const netAmount = amount.sub(domFee).sub(platformFeeAmount);
+
     await this.createTransactionAndCreditWallet({
       subscription,
       amount,
       netAmount,
       domFee,
+      platformFeeAmount,
       domPaymentId: domTransactionId,
       description: this.getString(data.product_first) ?? this.getString(data.description) ?? subscription.plan?.name ?? '-',
     });
@@ -210,8 +229,15 @@ export class SubscriptionWebhookService {
     source: string,
   ): Promise<void> {
     const link = linkOrder.subscriptionLink;
-    const platformFeeAmount = link.isStandalone ? 0 : Math.round(amount.toNumber() * (link.platformFee / 100) * 100) / 100;
-    const netAmount = amount.sub(domFee).sub(platformFeeAmount);
+    let platformFeeAmount = 0;
+    if (!link.isStandalone) {
+      const effectivePlatformTag = ((link as any).platformTag ?? (link as any).plataformas?.[0] ?? 'GLOBAL').toString().toUpperCase();
+      const baseLinkPrice = Number(link.amount ?? 0);
+      const sellerFeePercent = getPlatformTaxaEffective(effectivePlatformTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+      const sellerFeeFixed = getPlatformTaxaEffective(effectivePlatformTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+      platformFeeAmount = Math.round((baseLinkPrice * sellerFeePercent + sellerFeeFixed) * 100) / 100;
+    }
+    const netAmount = amount.sub(domFee).sub(new Prisma.Decimal(platformFeeAmount));
 
     // Criar nova ordem para registro da renovação
     const newOrder = await this.prisma.subscriptionLinkOrder.create({
@@ -393,10 +419,11 @@ export class SubscriptionWebhookService {
     amount: Prisma.Decimal;
     netAmount: Prisma.Decimal;
     domFee: Prisma.Decimal;
+    platformFeeAmount: Prisma.Decimal;
     domPaymentId: string | null;
     description: string;
   }): Promise<void> {
-    const { subscription, amount, netAmount, domFee, domPaymentId, description } = input;
+    const { subscription, amount, netAmount, domFee, platformFeeAmount, domPaymentId, description } = input;
 
     if (!subscription.user.wallet) {
       this.logger.error(`[createTransactionAndCreditWallet] Wallet não encontrada para userId=${subscription.userId}`);
@@ -411,8 +438,9 @@ export class SubscriptionWebhookService {
         status: TransactionStatus.COMPLETED,
         paymentMethod: PaymentMethod.CREDIT_CARD,
         description,
-        totalFee: domFee.toNumber(),
+        totalFee: domFee.add(platformFeeAmount).toNumber(),
         domFee: domFee.toNumber(),
+        platformFee: platformFeeAmount.toNumber(),
         domPaymentId: domPaymentId ?? undefined,
         customerName: subscription.customer?.name ?? undefined,
         customerEmail: subscription.customer?.email ?? undefined,

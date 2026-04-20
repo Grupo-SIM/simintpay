@@ -35,8 +35,8 @@ services:
       - DOM_WEBHOOK_SECRET=simpay-webhook-secret-renovada-change-me-in-production
       - URL_APP=https://simpay-back.simintermediacoes.com
       - EBOOKSIM_LIQUIDEZ=0.80
-      - EBOOKSIM_MDR_PIX=0.0098
-      - RENOVADA_MDR_PIX=0.0098
+      - EBOOKSIM_MDR_PIX=0.02
+      - RENOVADA_MDR_PIX=0.02
       - RENOVADA_TAXA_SAQUE_FIXA=2.00
       - RENOVADA_TAXA_SAQUE_PERCENT=0.00
       - RENOVADA_SAQUE_MIN=100.00

@@ -11,6 +11,8 @@ import { USER_REPOSITORY } from '../../../core/repositories/user.repository.inte
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
+import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
+import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 
 @Injectable()
 export class SyncDomTransactionsUseCase {
@@ -120,8 +122,13 @@ export class SyncDomTransactionsUseCase {
           const status = this.mapStatus(tx.status);
           const paymentMethod = this.mapPaymentMethod(tx.payment_method);
           const amount = new Prisma.Decimal(tx.amount);
-          const rawNet = tx.liquid_amount;
-          const netAmount = new Prisma.Decimal(rawNet > 0 ? rawNet : 0);
+          const tenantTag = platformTaxaTagFromText(tx.product_first ?? undefined);
+          const netAmount = calculateSellerNetValue(
+            Number(tx.amount),
+            Number(tx.installments ?? 1),
+            tenantTag,
+            tx.payment_method,
+          );
           const totalFee = amount.sub(netAmount);
           const createdAt = this.parseDate(tx.created_at) ?? new Date();
 

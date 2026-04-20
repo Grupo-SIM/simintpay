@@ -5,9 +5,11 @@ import { InternalPagatgFinanceController } from './controllers/internal-pagatg-f
 import { InternalRenovadaFinanceController } from './controllers/internal-renovada-finance.controller';
 import { InternalBosqueFinanceController } from './controllers/internal-bosque-finance.controller';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
+import { VoucherModule } from './voucher.module';
+import { CheckoutEventsService } from '../application/services/checkout-events.service';
 
 @Module({
-  imports: [ApiDomModule],
+  imports: [ApiDomModule, VoucherModule],
   controllers: [
     CheckoutController,
     InternalEbookFinanceController,
@@ -15,5 +17,7 @@ import { ApiDomModule } from '../infrastructure/http/api-dom.module';
     InternalRenovadaFinanceController,
     InternalBosqueFinanceController,
   ],
+  providers: [CheckoutEventsService],
+  exports: [CheckoutEventsService],
 })
 export class CheckoutModule {}

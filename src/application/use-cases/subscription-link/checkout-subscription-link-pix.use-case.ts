@@ -10,6 +10,7 @@ import { getModuleDomToken } from '../../../modules/module.registry';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { VoucherService } from '../voucher/voucher.service';
 
 function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR'; frequency: number } {
   switch (linkFrequency) {
@@ -31,6 +32,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly communities: CommunityManagementService,
+    private readonly voucherService: VoucherService,
   ) {}
 
   async execute(input: { code: string; dto: CheckoutSubscriptionLinkPixDto }) {
@@ -64,43 +66,33 @@ export class CheckoutSubscriptionLinkPixUseCase {
 
     const base = Number(link.amount);
 
-    // Taxa de assinatura: hierarquia completa — override da plataforma → env var → GLOBAL → valor gravado no link
-    let platformFeeRate: number;
+    // PIX: cliente paga o valor base; MDR_PIX é descontado do repasse ao vendedor (não somado ao cliente)
+    let platformFeeAmount = 0;
     if (!link.isStandalone) {
       const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
-      const platformTag = slugTag ?? (isAreaflix ? 'AREAFLIX' : 'COMUNIDADE');
-      // Passa link.platformFee como fallback final: se nada estiver configurado no admin,
-      // usa o valor que estava gravado no link. Se GLOBAL estiver configurado, GLOBAL prevalece.
-      const taxaAssinaturaPercent = getPlatformTaxaEffective(
-        platformTag,
-        'TAXA_ASSINATURA',
-        link.platformFee ?? PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA,
-      );
-      platformFeeRate = taxaAssinaturaPercent / 100;
-    } else {
-      platformFeeRate = 0;
+      const platformTag = (link as any).platformTag?.toUpperCase() ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'GLOBAL');
+      const mdrPix = getPlatformTaxaEffective(platformTag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
+      platformFeeAmount = Math.round(base * mdrPix * 100) / 100;
     }
-    const platformFeeAmount = Math.round(base * platformFeeRate * 100) / 100;
-    const initialAmountCharged = base + platformFeeAmount;
 
-    let amountCharged = initialAmountCharged;
+    // PIX não soma taxa ao cliente: amountCharged = base sempre
+    let amountCharged = base;
     let appliedVoucherId: string | undefined;
 
     if (input.dto.voucherCode) {
-      const bridge = await this.gateway.validateVoucher(domToken, {
+      const bridge = await this.voucherService.validateVoucher(link.userId, {
         code: input.dto.voucherCode,
-        amount: initialAmountCharged,
-        userId: owner?.domUserId ?? '',
+        amount: base,
         channel: 'PAGATG',
-        groupPageId: '', // machine doesn't have groupPageId relation yet
+        planId: link.id,
       });
 
       if (bridge && bridge.valid) {
         amountCharged = bridge.finalAmount;
         appliedVoucherId = bridge.voucherId;
       } else {
-        throw new BadRequestException(bridge?.message || 'Cupom inválido ou expirado');
+        throw new BadRequestException('Cupom inválido ou expirado');
       }
     }
 
@@ -155,6 +147,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
 
     return {
       id: order.id,
+      domPaymentId: result.id,
       status: order.status,
       pixContent: result.pixContent ?? null,
       qrCode: result.qrCode ?? null,

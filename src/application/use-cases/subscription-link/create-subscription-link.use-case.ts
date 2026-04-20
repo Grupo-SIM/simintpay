@@ -61,9 +61,18 @@ export class CreateSubscriptionLinkUseCase {
     const { planType, domFrequency } = mapFrequency(input.dto.frequencia);
     const isStandalone = input.dto.isStandalone ?? true;
 
+    // Preço que o DOM cobrará do cliente no cartão = base × (1 + MDR_CC_1X + MDR_CC_MASTER_1X)
+    const platformTag = (input.dto.platformTag ?? input.dto.plataformas?.[0] ?? 'GLOBAL').toUpperCase();
+    let domPrice = input.dto.valor;
+    if (!isStandalone) {
+      const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+      const mdrMaster1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+      domPrice = Math.round(input.dto.valor * (1 + mdrDom1x + mdrMaster1x) * 100) / 100;
+    }
+
     // Sempre precisa de plano DOM para checkout (cartão e PIX), inclusive quando isStandalone=true.
     const domPlan = await this.gateway.createPlan(domToken, {
-      price: input.dto.valor,
+      price: domPrice,
       description: input.dto.nome,
       frequency_type: domFrequency,
       frequency: 1,
@@ -81,7 +90,11 @@ export class CreateSubscriptionLinkUseCase {
       amount: input.dto.valor,
       frequencyType: planType,
       isStandalone,
-      platformFee: input.dto.platformFee ?? getPlatformTaxaEffective('GLOBAL', 'TAXA_ASSINATURA', PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA),
+      platformFee: (() => {
+        const m1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+        const mMaster = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+        return isStandalone ? 0 : Math.round((m1x + mMaster) * 10000) / 100;
+      })(),
       redirectUrl: input.dto.redirectUrl ?? null,
       webhookUrl: input.dto.webhookUrl ?? null,
       maxUses: input.dto.maxUses ?? null,

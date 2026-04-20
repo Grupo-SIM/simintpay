@@ -18,6 +18,7 @@ import { ListSubscriptionLinkOrdersUseCase } from '../application/use-cases/subs
 import { SendSubscriptionLinkAccessEmailUseCase } from '../application/use-cases/subscription-link/send-access-email.use-case';
 import { CommunityManagementService } from '../application/services/community-management.service';
 import { EmailService } from '../infrastructure/email/email.service';
+import { VoucherService } from '../application/use-cases/voucher/voucher.service';
 
 @Module({
   imports: [ApiDomModule],
@@ -37,6 +38,7 @@ import { EmailService } from '../infrastructure/email/email.service';
     SendSubscriptionLinkAccessEmailUseCase,
     CommunityManagementService,
     EmailService,
+    VoucherService,
   ],
 })
 export class SubscriptionLinkModule {}

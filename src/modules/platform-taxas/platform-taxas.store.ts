@@ -84,6 +84,18 @@ export function readOverridesRaw(): Overrides {
   return overridesCache;
 }
 
+/** Antigo padrão DOM PIX 0,98% (decimal 0,0098). Overrides/env antigos: mapear para `MDR_PIX` atual das keys. */
+const LEGACY_MDR_PIX_098 = 0.0098;
+
+function finalizeResolvedTaxa(keySuffix: string, value: number): number {
+  if (keySuffix !== 'MDR_PIX') return value;
+  if (!Number.isFinite(value)) return PLATFORM_TAXA_DEFAULTS.MDR_PIX;
+  if (Math.abs(value - LEGACY_MDR_PIX_098) < 1e-9) {
+    return PLATFORM_TAXA_DEFAULTS.MDR_PIX;
+  }
+  return value;
+}
+
 export function getPlatformTaxaEffective(
   listOrModuleTag: string,
   keySuffix: string,
@@ -92,11 +104,18 @@ export function getPlatformTaxaEffective(
   const canonical = canonicalPlatformTaxaTag(listOrModuleTag);
   const overrides = readOverridesRaw();
 
+  // Taxas fixas globais (sempre existem para qualquer transação; não configuráveis)
+  if (keySuffix === 'TAXA_FIXA_TRANSACAO' || keySuffix === 'TAXA_CASHBACK') {
+    const k = keySuffix as keyof typeof PLATFORM_TAXA_DEFAULTS;
+    const d = PLATFORM_TAXA_DEFAULTS[k];
+    return Number.isFinite(d) ? d : fallback;
+  }
+
   // 1º: override específico da plataforma
   const platformRow = overrides[canonical];
   const platformOverride = platformRow?.[keySuffix];
   if (platformOverride !== undefined && Number.isFinite(Number(platformOverride))) {
-    return Number(platformOverride);
+    return finalizeResolvedTaxa(keySuffix, Number(platformOverride));
   }
 
   // 2º: variável de ambiente específica da plataforma
@@ -105,7 +124,7 @@ export function getPlatformTaxaEffective(
   const envVal = process.env[envKey];
   if (envVal !== undefined && envVal !== '') {
     const n = parseEnvNumber(envVal, NaN);
-    if (Number.isFinite(n)) return n;
+    if (Number.isFinite(n)) return finalizeResolvedTaxa(keySuffix, n);
   }
 
   // 3º: override global (tag GLOBAL)
@@ -113,12 +132,12 @@ export function getPlatformTaxaEffective(
     const globalRow = overrides['GLOBAL'];
     const globalOverride = globalRow?.[keySuffix];
     if (globalOverride !== undefined && Number.isFinite(Number(globalOverride))) {
-      return Number(globalOverride);
+      return finalizeResolvedTaxa(keySuffix, Number(globalOverride));
     }
   }
 
   // 4º: fallback (default do código)
-  return parseEnvNumber(undefined, fallback);
+  return finalizeResolvedTaxa(keySuffix, parseEnvNumber(undefined, fallback));
 }
 
 export function getPlatformTaxaSource(
@@ -169,29 +188,22 @@ export function applyPatchToOverrides(
   return all;
 }
 
-export function writeOverrides(data: Overrides): void {
-  // Atualiza cache em memória imediatamente
+export async function writeOverrides(data: Overrides): Promise<void> {
+  const newItems: { tag: string; key: string; value: number }[] = [];
+  for (const [tag, keys] of Object.entries(data)) {
+    for (const [key, value] of Object.entries(keys)) {
+      newItems.push({ tag, key, value });
+    }
+  }
+
+  // Persiste no banco antes de atualizar o cache: se falhar, lança erro para o chamador
+  await getPrisma().$transaction([
+    getPrisma().platformTaxaOverride.deleteMany(),
+    getPrisma().platformTaxaOverride.createMany({ data: newItems }),
+  ]);
+
   overridesCache = JSON.parse(JSON.stringify(data));
   lastCacheUpdate = Date.now();
-
-  // Persiste no banco de dados de forma assíncrona
-  void (async () => {
-    try {
-      const newItems = [];
-      for (const [tag, keys] of Object.entries(data)) {
-        for (const [key, value] of Object.entries(keys)) {
-          newItems.push({ tag, key, value });
-        }
-      }
-
-      await getPrisma().$transaction([
-        getPrisma().platformTaxaOverride.deleteMany(),
-        getPrisma().platformTaxaOverride.createMany({ data: newItems }),
-      ]);
-    } catch (e) {
-      console.error('Failed to write overrides to DB', e);
-    }
-  })();
 }
 
 export function defaultTaxaValue(key: PlataformaTaxaKey): number {

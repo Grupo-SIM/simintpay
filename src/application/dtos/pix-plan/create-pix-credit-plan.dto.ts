@@ -29,4 +29,9 @@ export class CreatePixCreditPlanDto {
   @IsOptional()
   @IsIn(['MONTH', 'QUARTER', 'SEMESTER', 'YEAR'])
   frequency_type?: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR';
+
+  @ApiPropertyOptional({ description: 'Tag da plataforma vinculada (ex: PAGATG, RENOVADA)' })
+  @IsOptional()
+  @IsString()
+  tenantTag?: string;
 }

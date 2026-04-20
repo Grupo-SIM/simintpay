@@ -4,6 +4,9 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { PAYMENT_GATEWAY, type IPaymentGateway, type DomTaxesOutput, type DomTransactionItem } from '../../../core/services/payment-gateway.interface';
 import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-transactions.query.dto';
 import { stripInternalTags } from '../../utils/internal-tags.util';
+import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { estimateDomFeeReais, platformTaxaTagFromText, resolveDomFeeReais } from '../../helpers/dom-fee-estimate.helper';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -14,8 +17,6 @@ dayjs.extend(timezone);
 const BRT = 'America/Sao_Paulo';
 const RENOVADA_HIDDEN_TAG = '[TENANT:RENOVADA]';
 const EBOOK_TAG = '[TENANT:EBOOK]';
-const DEFAULT_LIQUIDITY_FACTOR = Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
-const EBOOK_LIQUIDITY_FACTOR = Number(process.env.EBOOK_LIQUIDEZ || DEFAULT_LIQUIDITY_FACTOR);
 
 function formatDocument(doc: string | null | undefined): string | null {
   if (!doc) return null;
@@ -119,6 +120,15 @@ export class ListTransactionsUseCase {
         dom: number;
         plataforma: number;
       };
+      financeiro: {
+        valor_bruto_venda: number;
+        taxa_dom: number;
+        taxa_vendedor: number;
+        taxa_fixa_transacao: number;
+        taxa_cashback: number;
+        valor_liquido_vendedor: number;
+        lucro_master: number;
+      };
       criadoEm: string;
     }>;
     page: number;
@@ -135,6 +145,11 @@ export class ListTransactionsUseCase {
     // Usuários criados via admin com CPF: transações vêm do pool Renovada filtradas pelo CPF
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const userCpf: string | null | undefined = (user as any).cpf;
+    const tenantModuleSlug = user.tenantModule?.slug?.toLowerCase();
+    const tenantTag = canonicalPlatformTaxaTag((tenantModuleSlug || 'GLOBAL').toUpperCase());
+    const fixedTx = getPlatformTaxaEffective(tenantTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const fixedCashback = getPlatformTaxaEffective(tenantTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const fixedFeesTotal = fixedTx + fixedCashback;
 
     // 2. Resolver o Token (Prioridade: User > Módulo)
     // NÃO usar master token aqui — ele traz transações de TODAS as plataformas.
@@ -198,12 +213,11 @@ export class ListTransactionsUseCase {
 
           // O Gateway agora já retorna os valores em REAIS
           const amount = new Prisma.Decimal(item.amount);
-          const netAmount = new Prisma.Decimal(item.liquid_amount ?? 0);
-          const totalFee = amount.sub(netAmount);
 
-          // Prefer mdr_value from API; fall back to taxes-based calculation
+          // Prefer taxa DOM da API quando > 0; 0/null é comum na listagem DOM — recalcula.
+          const domFromList = Number(item.dom_fee ?? item.mdr_value ?? 0);
           let calcDomFee: Prisma.Decimal | undefined =
-            item.mdr_value != null ? new Prisma.Decimal(item.mdr_value) : undefined;
+            Number.isFinite(domFromList) && domFromList > 0 ? new Prisma.Decimal(domFromList) : undefined;
 
           if (!calcDomFee && domTaxes) {
             const isCard = item.payment_method?.toUpperCase().includes('CARD');
@@ -218,10 +232,27 @@ export class ListTransactionsUseCase {
               if (row) calcDomFee = new Prisma.Decimal(amt * (parseFloat(row.taxaDom) / 100));
             }
           }
+          if (!calcDomFee) {
+            const tag = platformTaxaTagFromText(item.product_first ?? undefined);
+            calcDomFee = new Prisma.Decimal(
+              estimateDomFeeReais({
+                amountReais: item.amount,
+                paymentMethod: item.payment_method,
+                installments: item.installments,
+                tenantTag: tag,
+              }),
+            );
+          }
 
+          // Ajuste fixo de toda transação: R$ 1,00 + R$ 3,00 no back.
+          // Ex.: PIX de R$1,00 com MDR 0,98% => líquido ~ -R$3,01.
+          const netAmount = calcDomFee
+            ? amount.sub(calcDomFee).sub(fixedFeesTotal)
+            : new Prisma.Decimal(item.liquid_amount ?? 0).sub(fixedFeesTotal);
+          const totalFee = amount.sub(netAmount);
           const calcPlatformFee = calcDomFee
-            ? Prisma.Decimal.max(new Prisma.Decimal(0), totalFee.sub(calcDomFee))
-            : undefined;
+            ? totalFee.sub(calcDomFee)
+            : new Prisma.Decimal(fixedFeesTotal);
 
           const parsedDate = item.created_at
             ? new Date(item.created_at.replace(' ', 'T'))
@@ -522,17 +553,60 @@ export class ListTransactionsUseCase {
           }
         }
 
+        const amount = Number(t.amount);
+        const domFeeStored = Number(t.domFee ?? 0);
+        const rowTenantTag = platformTaxaTagFromText(t.description ?? undefined);
+        /** Taxas da plataforma da transação: `[TENANT:X]` na descrição; senão módulo do vendedor. */
+        const feeTag = rowTenantTag !== 'GLOBAL' ? rowTenantTag : tenantTag;
+        const fixedTxRow = getPlatformTaxaEffective(feeTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+        const fixedCashbackRow = getPlatformTaxaEffective(feeTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+        const fixedFeesRow = fixedTxRow + fixedCashbackRow;
+        const pm =
+          t.paymentMethod === PaymentMethod.CREDIT_CARD
+            ? 'credit_card'
+            : t.paymentMethod === PaymentMethod.DEBIT_CARD
+              ? 'debit_card'
+              : 'pix';
+        const domFee = resolveDomFeeReais({
+          amountReais: amount,
+          paymentMethod: pm,
+          installments: t.installments,
+          mdrFromGateway: domFeeStored,
+          domFeeFromGateway: domFeeStored,
+          tenantTag: feeTag,
+        });
+        const LRow = getPlatformTaxaEffective(feeTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+        const isPix = t.paymentMethod === PaymentMethod.PIX;
+        const dom2 = Number(domFee.toFixed(2));
+
+        let effectivePlatformFee: number;
+        let taxaVendedor: number;
+        let totalFee: number;
+        let valorLiquidoVendedor: number;
+
+        if (isPix) {
+          // Margem do master sobre o bruto; Taxa DOM com 2 decimais na soma da linha.
+          taxaVendedor = Number(Math.max(0, amount * (1 - LRow)).toFixed(2));
+          effectivePlatformFee = taxaVendedor + fixedFeesRow;
+          totalFee = Number((dom2 + effectivePlatformFee).toFixed(2));
+          valorLiquidoVendedor = Number((amount - totalFee).toFixed(2));
+        } else {
+          const dbPlatformFee = Number(t.platformFee ?? 0);
+          effectivePlatformFee = Math.max(dbPlatformFee, fixedFeesRow);
+          taxaVendedor = Number(Math.max(0, effectivePlatformFee - fixedFeesRow).toFixed(2));
+          totalFee = Number((dom2 + effectivePlatformFee).toFixed(2));
+          valorLiquidoVendedor = Number((amount - totalFee).toFixed(2));
+        }
+
+        /** P&L do master: Taxa Vendedor (margem da casa) − (DOM + fixa + cashback). */
+        const lucroMaster = Number(
+          (taxaVendedor - dom2 - Number(fixedTxRow.toFixed(2)) - Number(fixedCashbackRow.toFixed(2))).toFixed(2),
+        );
+
         return {
           id: t.id,
-          valor: Number(t.amount),
-          valorLiquido: (() => {
-            const isCompleted = t.status === TransactionStatus.COMPLETED;
-            const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
-            const liquidity = (t.description ?? '').includes(EBOOK_TAG) ? EBOOK_LIQUIDITY_FACTOR : DEFAULT_LIQUIDITY_FACTOR;
-            const fallbackNet = Number((Number(t.amount) * liquidity).toFixed(2));
-            if (isCompleted && (netFromDb == null || netFromDb <= 0)) return fallbackNet;
-            return netFromDb;
-          })(),
+          valor: amount,
+          valorLiquido: valorLiquidoVendedor,
           status: mapInternalStatusToPt(t.status),
           metodo: t.paymentMethod,
           descricao: stripInternalTags(t.description),
@@ -543,9 +617,18 @@ export class ListTransactionsUseCase {
             documento: formatDocument(customerDocument),
           },
           taxas: {
-            total: Number(t.totalFee),
-            dom: Number(t.domFee),
-            plataforma: Number(t.platformFee),
+            total: totalFee,
+            dom: dom2,
+            plataforma: Number(effectivePlatformFee.toFixed(2)),
+          },
+          financeiro: {
+            valor_bruto_venda: Number(amount.toFixed(2)),
+            taxa_dom: dom2,
+            taxa_vendedor: taxaVendedor,
+            taxa_fixa_transacao: Number(fixedTxRow.toFixed(2)),
+            taxa_cashback: Number(fixedCashbackRow.toFixed(2)),
+            valor_liquido_vendedor: valorLiquidoVendedor,
+            lucro_master: lucroMaster,
           },
           criadoEm: t.createdAt.toISOString(),
         };

@@ -11,6 +11,7 @@ import { CommunityManagementService } from '../../services/community-management.
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { VoucherService } from '../voucher/voucher.service';
 
 function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR'; frequency: number } {
   switch (linkFrequency) {
@@ -33,6 +34,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly communities: CommunityManagementService,
     private readonly emailService: EmailService,
+    private readonly voucherService: VoucherService,
   ) { }
 
   async execute(input: { code: string; dto: CheckoutSubscriptionLinkCardDto }) {
@@ -71,15 +73,13 @@ export class CheckoutSubscriptionLinkCardUseCase {
     if (!link.isStandalone) {
       const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
-      const platformTag = slugTag ?? (isAreaflix ? 'AREAFLIX' : 'COMUNIDADE');
+      // Plataforma: usa a selecionada no link (platformTag) → fallback tenantModule → webhook heuristic
+      const platformTag = (link as any).platformTag?.toUpperCase() ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'GLOBAL');
       // Passa link.platformFee como fallback final: se nada estiver configurado no admin,
       // usa o valor que estava gravado no link. Se GLOBAL estiver configurado, GLOBAL prevalece.
-      const taxaAssinaturaPercent = getPlatformTaxaEffective(
-        platformTag,
-        'TAXA_ASSINATURA',
-        link.platformFee ?? PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA,
-      );
-      platformFeeRate = taxaAssinaturaPercent / 100;
+      const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+      const mdrMaster1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+      platformFeeRate = mdrDom1x + mdrMaster1x;
     } else {
       platformFeeRate = 0;
     }
@@ -89,18 +89,17 @@ export class CheckoutSubscriptionLinkCardUseCase {
     let amountCharged = initialAmountCharged;
 
     if (input.dto.voucherCode) {
-      const bridge = await this.gateway.validateVoucher(domToken, {
+      const bridge = await this.voucherService.validateVoucher(link.userId, {
         code: input.dto.voucherCode,
         amount: initialAmountCharged,
-        userId: owner?.domUserId ?? '',
         channel: 'PAGATG',
-        groupPageId: '', // machine doesn't have groupPageId relation yet
+        planId: link.id,
       });
 
       if (bridge && bridge.valid) {
         amountCharged = bridge.finalAmount;
       } else {
-        throw new BadRequestException(bridge?.message || 'Cupom inválido ou expirado');
+        throw new BadRequestException('Cupom inválido ou expirado');
       }
     }
 

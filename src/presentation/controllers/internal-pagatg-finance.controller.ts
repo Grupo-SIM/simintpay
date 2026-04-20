@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  Param,
   Post,
   Query,
   UnauthorizedException,
@@ -11,6 +12,8 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PagaTGConfig } from '../../modules/pagatg/pagatg.config';
+import { VoucherService } from '../../application/use-cases/voucher/voucher.service';
+import { CreateVoucherDto, UpdateVoucherDto, ValidateVoucherDto } from '../../application/dtos/voucher/voucher.dto';
 
 const TENANT_PAGATG_TAG = '[TENANT:PAGATG]';
 
@@ -18,7 +21,10 @@ type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'D
 
 @Controller('internal/pagatg/finance')
 export class InternalPagatgFinanceController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly voucherService: VoucherService,
+  ) {}
 
   private ensureInternalToken(token?: string) {
     const expected = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN;
@@ -320,13 +326,14 @@ export class InternalPagatgFinanceController {
       redirectUrl?: string | null;
       webhookUrl?: string | null;
       paymentMethods?: string | null;
+      isActive?: boolean;
     },
     @Headers('x-internal-token') internalToken?: string,
   ) {
     this.ensureInternalToken(internalToken);
 
     if (!body.code?.trim()) throw new BadRequestException('code é obrigatório');
-    if (!body.domPlanId?.trim()) throw new BadRequestException('domPlanId é obrigatório');
+    // if (!body.domPlanId?.trim()) throw new BadRequestException('domPlanId é obrigatório'); // Desativado para descontinuar api-dom
     if (!body.name?.trim()) throw new BadRequestException('name é obrigatório');
     const price = Number(body.price);
     if (!Number.isFinite(price) || price <= 0) throw new BadRequestException('price inválido');
@@ -348,6 +355,7 @@ export class InternalPagatgFinanceController {
     const existing = await this.prisma.plan.findUnique({ where: { code: body.code.trim() } });
 
     const pmValue = body.paymentMethods?.trim() || 'CREDIT_CARD';
+    const isActive = body.isActive !== undefined ? body.isActive : true;
 
     if (existing) {
       const updated = await this.prisma.plan.update({
@@ -356,10 +364,10 @@ export class InternalPagatgFinanceController {
           name: body.name.trim(),
           price,
           type: planType,
-          domPlanId: body.domPlanId.trim(),
+          domPlanId: body.domPlanId?.trim() ?? null,
           redirectUrl: body.redirectUrl ?? undefined,
           webhookUrl: body.webhookUrl ?? undefined,
-          isActive: true,
+          isActive,
           paymentMethods: pmValue,
         },
       });
@@ -373,10 +381,10 @@ export class InternalPagatgFinanceController {
         name: body.name.trim(),
         price,
         type: planType,
-        domPlanId: body.domPlanId.trim(),
+        domPlanId: body.domPlanId?.trim() ?? null,
         redirectUrl: body.redirectUrl ?? undefined,
         webhookUrl: body.webhookUrl ?? undefined,
-        isActive: true,
+        isActive,
         paymentMethods: pmValue,
       },
     });
@@ -463,5 +471,63 @@ export class InternalPagatgFinanceController {
     });
 
     return { success: true, id: tx.id, created: true };
+  }
+
+  @Get('vouchers')
+  async listVouchers(
+    @Query('cpf') cpf: string,
+    @Query('userId') userId?: string,
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    const userIds = await this.resolveUserIdsByCpf(cpf, userId);
+    if (userIds.length === 0) return [];
+    return this.voucherService.listVouchers(userIds[0], 'USER');
+  }
+
+  @Post('vouchers')
+  async createVoucher(
+    @Body() body: { cpf: string; userId?: string; dto: CreateVoucherDto },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
+    if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
+    return this.voucherService.createVoucher(userIds[0], body.dto);
+  }
+
+  @Post('vouchers/validate')
+  async validateVoucher(
+    @Body() body: { cpf: string; userId?: string; dto: ValidateVoucherDto },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
+    if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
+    return this.voucherService.validateVoucher(userIds[0], body.dto);
+  }
+
+  @Post('vouchers/update/:id')
+  async updateVoucher(
+    @Param('id') id: string,
+    @Body() body: { cpf: string; userId?: string; dto: UpdateVoucherDto },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
+    if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
+    return this.voucherService.updateVoucher(userIds[0], 'USER', id, body.dto);
+  }
+
+  @Post('vouchers/delete/:id')
+  async deleteVoucher(
+    @Param('id') id: string,
+    @Body() body: { cpf: string; userId?: string },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
+    if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
+    return this.voucherService.deleteVoucher(userIds[0], 'USER', id);
   }
 }

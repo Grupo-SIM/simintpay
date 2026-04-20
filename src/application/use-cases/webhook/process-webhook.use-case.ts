@@ -6,6 +6,7 @@ import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.r
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
 import { PixPlanService } from '../pix-plan/pix-plan.service';
+import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
@@ -51,6 +52,7 @@ export class ProcessWebhookUseCase {
     private readonly prisma: PrismaService,
     private readonly renovadaEvents: RenovadaEventsService,
     @Optional() private readonly pixPlanService?: PixPlanService,
+    @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
   ) { }
@@ -332,6 +334,11 @@ export class ProcessWebhookUseCase {
       });
 
       await this.events.markProcessed(event.id);
+
+      // SSE: notificar checkout em tempo real (payment link, PIX plan, etc.)
+      if (nextStatus === TransactionStatus.COMPLETED) {
+        this.pixPlanEvents?.emit({ transactionId: t.id, status: 'COMPLETED' });
+      }
 
       // PIX-PLAN: creditar dias se a transação tiver um PixPlanOrder
       if (nextStatus === TransactionStatus.COMPLETED && this.pixPlanService) {

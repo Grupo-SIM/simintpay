@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body, Controller, Delete, Get, NotFoundException, Param, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
+import { VoucherService } from '../../application/use-cases/voucher/voucher.service';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
@@ -12,7 +13,6 @@ import {
   CheckoutSubscriptionLinkCardDto,
   CheckoutSubscriptionLinkPixDto,
 } from '../../application/dtos/subscription-link/checkout-subscription-link.dto';
-import { getModuleDomToken } from '../../modules/module.registry';
 import { CreateSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/create-subscription-link.use-case';
 import { ListSubscriptionLinksUseCase } from '../../application/use-cases/subscription-link/list-subscription-links.use-case';
 import { GetSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/get-subscription-link.use-case';
@@ -40,6 +40,7 @@ export class SubscriptionLinkController {
     private readonly listOrdersUC: ListSubscriptionLinkOrdersUseCase,
     private readonly sendAccessEmailUC: SendSubscriptionLinkAccessEmailUseCase,
     private readonly prisma: PrismaService,
+    private readonly voucherService: VoucherService,
   ) {}
 
   // ── Rotas públicas ──────────────────────────────────────────────────────────
@@ -68,34 +69,52 @@ export class SubscriptionLinkController {
     return this.checkoutPixUC.execute({ code, dto });
   }
 
-  @Post('public/:code/validate-voucher')
-  @ApiOperation({ summary: 'Validar voucher para checkout (público)' })
-  async validateVoucher(
+  @Get('public/:code/validate-voucher')
+  @ApiOperation({
+    summary: 'Validar voucher para checkout via query param (GET)',
+  })
+  async validateVoucherGet(
     @Param('code') code: string,
-    @Body() body: { voucherCode: string; amount: number },
+    @Query('code') voucherCode: string,
+    @Query('amount') amount?: string,
   ) {
-    const link = await this.prisma.subscriptionLink.findUnique({ where: { code } });
-    if (!link) throw new NotFoundException('Link não encontrado');
-    const owner = await this.prisma.user.findUnique({ where: { id: link.userId } });
-    let domToken = owner?.domToken;
-    if (!domToken && owner?.tenantModuleId) {
-      const tm = await this.prisma.tenantModule.findUnique({ where: { id: owner.tenantModuleId } });
-      if (tm?.slug) domToken = getModuleDomToken(tm.slug);
-    }
-    if (!domToken) domToken = process.env.DOM_TOKEN;
+    return this._validateVoucher(
+      code,
+      voucherCode,
+      amount ? Number(amount) : undefined,
+    );
+  }
 
-    if (!domToken) {
-      throw new BadRequestException('Configuração de pagamento incompleta para este link');
-    }
+  @Post('public/:code/validate-voucher')
+  @ApiOperation({ summary: 'Validar voucher para checkout (POST)' })
+  async validateVoucherPost(
+    @Param('code') code: string,
+    @Body() body: { voucherCode: string; amount?: number },
+  ) {
+    return this._validateVoucher(code, body.voucherCode, body.amount);
+  }
 
-    const res = await this.checkoutPixUC['gateway'].validateVoucher(domToken, {
-      code: body.voucherCode,
-      amount: body.amount,
-      userId: owner?.domUserId ?? '',
-      channel: 'PAGATG',
-      groupPageId: '',
+  private async _validateVoucher(
+    linkCode: string,
+    voucherCode: string,
+    amount?: number,
+  ) {
+    if (!voucherCode) throw new BadRequestException('Código do voucher é obrigatório');
+
+    const link = await this.prisma.subscriptionLink.findUnique({
+      where: { code: linkCode },
     });
-    return res;
+    if (!link) throw new NotFoundException('Link não encontrado');
+
+    const effectiveAmount = amount ?? Number(link.amount);
+
+    return this.voucherService.validateVoucher(link.userId, {
+      code: voucherCode,
+      amount: effectiveAmount,
+      channel: 'PAGATG',
+      linkCode,
+      planId: link.id,
+    });
   }
 
   @Get('orders/:orderId/status')

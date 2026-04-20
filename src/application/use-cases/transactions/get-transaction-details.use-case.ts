@@ -3,6 +3,10 @@ import { Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { stripInternalTags } from '../../utils/internal-tags.util';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { estimateDomFeeReais, platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
+import { isPixLikePayment } from '../../helpers/platform-fee-split.helper';
 
 @Injectable()
 export class GetTransactionDetailsUseCase {
@@ -43,6 +47,78 @@ export class GetTransactionDetailsUseCase {
     return brt.toISOString().replace('T', ' ').slice(0, 19);
   }
 
+  private fixedFees(): { transactionFixedFee: number; cashbackFee: number; total: number } {
+    const fixedTx = getPlatformTaxaEffective('GLOBAL', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const fixedCashback = getPlatformTaxaEffective('GLOBAL', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    return {
+      transactionFixedFee: fixedTx,
+      cashbackFee: fixedCashback,
+      total: fixedTx + fixedCashback,
+    };
+  }
+
+  private applyFixedFeesToOrder(order: any): any {
+    const total = Number(order?.total ?? 0);
+    let mdr = Number(order?.mdr_value ?? 0);
+    const installmentFee = Number(order?.fee_installment_value ?? 0);
+    const itemsFirstName = Array.isArray(order?.items) && order.items.length > 0
+      ? String(order.items[0]?.name ?? '')
+      : '';
+    const tenantTag = platformTaxaTagFromText(itemsFirstName);
+    if (mdr <= 0 && installmentFee <= 0) {
+      mdr = estimateDomFeeReais({
+        amountReais: total,
+        paymentMethod: String(order?.type_payment ?? ''),
+        installments: Number(order?.installments ?? order?.parcelas ?? 1) || 1,
+        tenantTag,
+      });
+    }
+    const { transactionFixedFee, cashbackFee, total: minPlatformFee } = this.fixedFees();
+    const L = getPlatformTaxaEffective(tenantTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+    const typePay = String(order?.type_payment ?? '');
+    const pix = isPixLikePayment(typePay);
+    const domInstallSum = mdr + installmentFee;
+    const dom2 = Number(domInstallSum.toFixed(2));
+
+    let totalFee: number;
+    let totalLiquid: number;
+    let taxaVendedor: number;
+
+    if (pix) {
+      const taxaPlataformaPct = Math.max(0, total * (1 - L));
+      const platformFee = taxaPlataformaPct + minPlatformFee;
+      totalFee = Number((dom2 + platformFee).toFixed(2));
+      totalLiquid = Number((total - totalFee).toFixed(2));
+      taxaVendedor = Number(Math.max(0, taxaPlataformaPct + installmentFee).toFixed(2));
+    } else {
+      const existingTotalFee = Number(order?.fee_total_value ?? 0);
+      const currentPlatformFee = Math.max(0, existingTotalFee - mdr - installmentFee);
+      const platformFee = Math.max(currentPlatformFee, minPlatformFee);
+      totalFee = Number((mdr + installmentFee + platformFee).toFixed(2));
+      totalLiquid = Number((total - totalFee).toFixed(2));
+      taxaVendedor = Number(Math.max(0, installmentFee + platformFee - minPlatformFee).toFixed(2));
+    }
+
+    const taxaDomTotal = dom2;
+    /** P&L do master: Taxa Vendedor − (DOM + taxa fixa + cashback). */
+    const lucroMaster = Number(
+      (taxaVendedor - taxaDomTotal - transactionFixedFee - cashbackFee).toFixed(2),
+    );
+
+    return {
+      ...order,
+      fee_total_value: totalFee,
+      total_liquid: totalLiquid,
+      valor_bruto_venda: Number(total.toFixed(2)),
+      taxa_dom: taxaDomTotal,
+      taxa_vendedor: taxaVendedor,
+      taxa_fixa_transacao: Number(transactionFixedFee.toFixed(2)),
+      taxa_cashback: Number(cashbackFee.toFixed(2)),
+      valor_liquido_vendedor: totalLiquid,
+      lucro_master: lucroMaster,
+    };
+  }
+
   private buildFallbackOrder(tx: any): object {
     const amount = Number(tx.amount ?? 0);
     const netAmount = Number(tx.netAmount ?? 0);
@@ -74,7 +150,7 @@ export class GetTransactionDetailsUseCase {
             : []),
         ];
 
-    return {
+    return this.applyFixedFeesToOrder({
       order_id: tx.domPaymentId ?? tx.id,
       id_transaction: tx.domTransactionId ?? tx.id,
       type: this.mapStatusToType(tx.status),
@@ -95,7 +171,7 @@ export class GetTransactionDetailsUseCase {
       pix_content: tx.pixContent ?? null,
       items: [{ name: stripInternalTags(tx.description) ?? 'Produto', quant: 1, price: amount }],
       historic_status: historicStatus,
-    };
+    });
   }
 
   async execute(input: { userId: string; id: string }) {
@@ -159,6 +235,7 @@ export class GetTransactionDetailsUseCase {
                 name: stripInternalTags(item?.name) ?? item?.name ?? 'Produto',
               }));
             }
+            detail.order = this.applyFixedFeesToOrder(detail.order);
             return detail;
           }
         } catch {
@@ -206,6 +283,7 @@ export class GetTransactionDetailsUseCase {
                       : []),
                   ];
             }
+            detail.order = this.applyFixedFeesToOrder(detail.order);
             return detail;
           }
         } catch {

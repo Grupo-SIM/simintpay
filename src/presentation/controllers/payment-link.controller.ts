@@ -8,7 +8,9 @@ import {
   Put,
   Query,
   UseGuards,
+  NotFoundException,
 } from '@nestjs/common';
+import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
@@ -44,6 +46,7 @@ export class PaymentLinkController {
     private readonly getPublic: GetPublicPaymentLinkUseCase,
     private readonly charge: ChargePaymentLinkUseCase,
     private readonly chargePix: ChargePixPaymentLinkUseCase,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ── Rotas públicas (sem autenticação) ──────────────────────────────────────
@@ -89,6 +92,19 @@ export class PaymentLinkController {
     @Body() body: ChargePixPaymentLinkDto,
   ) {
     return this.chargePix.execute({ ...body, linkId: id });
+  }
+
+  @Get('public/pix-status/:domPaymentId')
+  @ApiOperation({ summary: 'Status de pagamento PIX por DOM payment ID (checkout polling)' })
+  @ApiResponse({ status: 200, schema: { example: { status: 'COMPLETED' } } })
+  @ApiResponse({ status: 404 })
+  async getPixStatusRoute(@Param('domPaymentId') domPaymentId: string) {
+    const tx = await this.prisma.transaction.findFirst({
+      where: { domPaymentId },
+      select: { status: true },
+    });
+    if (!tx) throw new NotFoundException('Transação não encontrada');
+    return { status: tx.status };
   }
 
   @Get()

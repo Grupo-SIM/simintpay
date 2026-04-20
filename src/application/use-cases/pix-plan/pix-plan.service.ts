@@ -19,6 +19,8 @@ import type { PixPlanCheckoutByCodeDto } from '../../dtos/pix-plan/pix-plan-chec
 import type { CreatePixCreditPlanDto } from '../../dtos/pix-plan/create-pix-credit-plan.dto';
 import { PagaTGConfig } from '../../../modules/pagatg/pagatg.config';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 
 @Injectable()
 export class PixPlanService {
@@ -143,8 +145,12 @@ export class PixPlanService {
       const planRow = await this.repo.findPixCreditPlanById(body.pixCreditPlanId);
       if (planRow) {
         effectiveUserId = await this.resolveTransactionUserIdForPixPlan(planRow);
-        const tagMatch = (planRow.description ?? '').match(/\|([A-Z0-9]+)\]/i);
-        if (tagMatch) planTenantTag = tagMatch[1].toUpperCase();
+        if (planRow.tenantTag) {
+          planTenantTag = planRow.tenantTag.toUpperCase();
+        } else {
+          const tagMatch = (planRow.description ?? '').match(/\|([A-Z0-9]+)\]/i);
+          if (tagMatch) planTenantTag = tagMatch[1].toUpperCase();
+        }
         planOwnerCpf = this.extractOwnerDocumentDigitsFromPlanDescription(planRow.description);
         // 1º: nome da tag [NOME_DONO:] gravada na descrição do plano (planos novos via api-pagatg)
         const nomeDonoMatch = (planRow.description ?? '').match(/\[NOME_DONO:([^\]]+)\]/i);
@@ -180,10 +186,9 @@ export class PixPlanService {
     const amount = body.price;
     // Usa taxas configuradas para o tenant do plano; fallback para PAGATG se não identificado
     const tenantTag = planTenantTag ?? 'PAGATG';
-    const liquidez = getPlatformTaxaEffective(tenantTag, 'LIQUIDEZ', 0.91);
-    const mdrPix = getPlatformTaxaEffective(tenantTag, 'MDR_PIX', 0.0098);
-    const netAmount = parseFloat((amount * liquidez).toFixed(2));
-    const totalFee = parseFloat((amount * (1 - liquidez)).toFixed(2));
+    const mdrPix = getPlatformTaxaEffective(tenantTag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
+    const netAmount = Number(calculateSellerNetValue(amount, 1, tenantTag, 'pix').toFixed(2));
+    const totalFee = parseFloat((amount - netAmount).toFixed(2));
     const domFee = parseFloat((amount * mdrPix).toFixed(2));
     const platformFee = parseFloat((totalFee - domFee).toFixed(2));
 
@@ -425,14 +430,31 @@ export class PixPlanService {
       search: params.search,
     });
 
-    const mappedItems = items.map((p: any) => {
+    const mappedItems = await Promise.all(items.map(async (p: any) => {
+      const desc: string = p.description ?? '';
+
       // CPF do dono: extrair da descrição ([CPF:xxx|TAG]) — o userId do plano é conta técnica
       let cpfDono: string | null = null;
-      const descCpf = this.extractOwnerDocumentDigitsFromPlanDescription(p.description);
+      let donoNome: string | null = null;
+      let donoEmail: string | null = null;
+
+      const descCpf = this.extractOwnerDocumentDigitsFromPlanDescription(desc);
       if (descCpf) {
         cpfDono = descCpf.length === 11
           ? descCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
           : descCpf;
+        // Nome extraído de [NOME_DONO:...] na description (formato legado dos planos antigos)
+        const nomeDono = desc.match(/\[NOME_DONO:([^\]]+)\]/i)?.[1]?.trim() ?? null;
+        donoNome = nomeDono;
+        // Email: tentar encontrar o usuário pelo CPF no banco
+        const userByCpf = await (this.prisma as any).user.findUnique({
+          where: { cpf: descCpf },
+          select: { email: true, name: true },
+        }).catch(() => null);
+        if (userByCpf) {
+          donoEmail = userByCpf.email ?? null;
+          if (!donoNome) donoNome = userByCpf.name ?? null;
+        }
       } else {
         // Fallback: CPF do user dono (quando o plano foi criado pelo próprio merchant)
         const cpfRaw: string | null | undefined = p.user?.cpf;
@@ -442,7 +464,10 @@ export class PixPlanService {
             ? digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
             : cpfRaw;
         }
+        donoNome = p.user?.name ?? p.user?.nome ?? null;
+        donoEmail = p.user?.email ?? null;
       }
+
       return {
         id: p.id,
         userId: p.userId,
@@ -456,8 +481,15 @@ export class PixPlanService {
         updatedAt: p.updatedAt,
         linkCode: p.linkCodes?.[0]?.code ?? null,
         cpfDono,
+        donoNome,
+        donoEmail,
+        tenantTag: p.tenantTag
+          ? p.tenantTag.toUpperCase()
+          : (p.description ?? '').match(/\[TENANT:([^\]]+)\]/i)?.[1]?.toUpperCase()
+          ?? (p.description ?? '').match(/\[CPF:[^\]|]*\|([^\]]+)\]/i)?.[1]?.toUpperCase()
+          ?? null,
       };
-    });
+    }));
 
     return {
       items: mappedItems,
@@ -525,6 +557,7 @@ export class PixPlanService {
     body: CreatePixCreditPlanDto,
   ) {
     const type = this.mapFrequencyToType(body.frequency_type);
+    const tag = body.tenantTag ? body.tenantTag.toUpperCase().trim() : null;
     const plan = await this.repo.createPixCreditPlan({
       userId,
       type,
@@ -532,6 +565,7 @@ export class PixPlanService {
       description: body.description,
       redirectUrl: body.redirectUrl,
       webhookUrl: body.webhookUrl,
+      tenantTag: tag,
     });
 
     const code = `PX-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;

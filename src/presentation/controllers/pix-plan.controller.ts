@@ -9,13 +9,15 @@ import {
   Post,
   Patch,
   Query,
+  Res,
   Sse,
   UnauthorizedException,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
+import { Observable, merge, timer, NEVER } from 'rxjs';
 import { map } from 'rxjs/operators';
+import type { Response } from 'express';
 import { PixPlanEventsService } from '../../application/services/pix-plan-events.service';
 import {
   ApiBearerAuth,
@@ -264,14 +266,28 @@ export class PublicPixPlanController {
   @Sse('pix-plan/status/sse/:transactionId')
   @ApiOperation({ summary: 'SSE: receber confirmação de pagamento PIX-PLAN em tempo real' })
   @ApiParam({ name: 'transactionId', required: true, type: String })
-  ssePaymentStatus(@Param('transactionId') transactionId: string): Observable<MessageEvent> {
-    return this.pixPlanEvents.getStream(transactionId).pipe(
+  ssePaymentStatus(
+    @Param('transactionId') transactionId: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Observable<MessageEvent> {
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Cache-Control', 'no-cache, no-store');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    if (!transactionId) return NEVER;
+
+    const heartbeat$ = timer(0, 20000).pipe(
+      map(() => ({ data: { type: 'heartbeat' }, type: 'heartbeat' }) as MessageEvent),
+    );
+    const payment$ = this.pixPlanEvents.getStream(transactionId).pipe(
       map((event) => ({
         data: event,
         id: event.transactionId,
         type: 'payment-status',
       }) as MessageEvent),
     );
+    return merge(heartbeat$, payment$);
   }
 }
 

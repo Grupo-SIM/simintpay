@@ -129,25 +129,24 @@ export class ChargePaymentLinkUseCase {
     }
 
     const installments = input.installments ?? 1;
-    const platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+    // Plataforma: usa a selecionada no link (plataformas[0]) → fallback tenantModule → GLOBAL
+    const linkPlatformTag = (link as any).plataformas?.[0]?.toUpperCase() ?? null;
+    const platformTag = linkPlatformTag ?? owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
     const isDebit = input.paymentMethod === 'debit_card';
 
     // Para débito: comprador paga valor base; taxas (DOM 3,49%+R$1 + plataforma) saem do líquido do vendedor.
     // Para crédito/PIX: cálculo normal com juros repassados ao comprador.
     const fees = isDebit
       ? (() => {
-          const d = calculateDebitFees(link);
+          const d = calculateDebitFees(link, platformTag);
           return {
             totalAmount: d.baseAmount,       // comprador paga o valor base
-            interestAmount: 0,
-            platformFeeRate: 0,
-            cashbackFee: 0,
             netAmount: d.netAmount,
             domFeeAmount: d.domFeeAmount + d.platformFeeAmount, // total de taxas sobre o vendedor
           };
         })()
       : calculatePaymentLinkFees(link, installments, platformTag);
-    const { totalAmount, interestAmount, platformFeeRate, cashbackFee, netAmount, domFeeAmount } = fees;
+    const { totalAmount, netAmount, domFeeAmount } = fees;
 
     const result = await this.gateway.chargePaymentLink(domToken, {
       domLinkId: link.domPaymentLinkId,
@@ -169,8 +168,9 @@ export class ChargePaymentLinkUseCase {
     const customerDocument = input.customerDocument.replace(/\D/g, '');
     const customerPhone = input.customerPhone.replace(/\D/g, '');
 
-    // totalFee = taxaDom + juros da plataforma + cashback (tudo que sai fora do base)
-    const totalFee = domFeeAmount + interestAmount + cashbackFee;
+    // totalFee consolidado sempre considera a diferença entre cobrado e líquido.
+    const totalFee = totalAmount - netAmount;
+    const platformFee = totalFee - domFeeAmount;
 
     await this.prisma.transaction.upsert({
       where: { domPaymentId: result.id },
@@ -181,7 +181,7 @@ export class ChargePaymentLinkUseCase {
         netAmount: new Prisma.Decimal(netAmount),
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFeeAmount),
-        platformFee: new Prisma.Decimal(interestAmount),
+        platformFee: new Prisma.Decimal(platformFee),
         userId: effectiveUserId,
         description: link.description ?? link.title,
         customerName: input.customerName,
@@ -200,7 +200,7 @@ export class ChargePaymentLinkUseCase {
         paymentMethod: this.mapPaymentMethod(input.paymentMethod),
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFeeAmount),
-        platformFee: new Prisma.Decimal(interestAmount),
+        platformFee: new Prisma.Decimal(platformFee),
         domPaymentId: result.id,
         description: link.description ?? link.title,
         customerName: input.customerName,

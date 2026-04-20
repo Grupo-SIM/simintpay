@@ -13,6 +13,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     description?: string;
     redirectUrl?: string;
     webhookUrl?: string;
+    tenantTag?: string | null;
   }) {
     return (this.prisma as any).pixCreditPlan.create({
       data: {
@@ -22,6 +23,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
         description: data.description,
         redirectUrl: data.redirectUrl,
         webhookUrl: data.webhookUrl,
+        tenantTag: data.tenantTag ?? null,
       },
     });
   }
@@ -91,7 +93,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
             orderBy: { createdAt: 'desc' },
             take: 1,
           },
-          user: { select: { cpf: true } },
+          user: { select: { cpf: true, name: true, email: true } },
         },
       }),
       (this.prisma as any).pixCreditPlan.count({ where }),

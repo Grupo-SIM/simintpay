@@ -8,6 +8,8 @@ import type {
   CreatePlanDto,
   PlanTipoDto,
 } from '../../dtos/plan/create-plan.dto';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 function mapTipo(tipo: PlanTipoDto): {
   planType: PlanType;
@@ -44,8 +46,15 @@ export class CreatePlanUseCase {
 
     const { planType, frequency } = mapTipo(input.dto.tipo);
 
+    // Preço que o cliente do cliente paga = base + taxa DOM cartão 1x + taxa Master cartão 1x
+    // O preço base (sem markup) fica salvo no DB para cálculo de taxas do vendedor no webhook
+    const platformTag = (input.dto.plataformas?.[0] ?? 'GLOBAL').toUpperCase();
+    const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+    const mdrMaster1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+    const domPrice = Math.round(input.dto.preco * (1 + mdrDom1x + mdrMaster1x) * 100) / 100;
+
     const dom = await this.gateway.createPlan(domToken, {
-      price: input.dto.preco,
+      price: domPrice,
       description: input.dto.nome,
       frequency_type: frequency,
       frequency: input.dto.frequencia ?? 1,

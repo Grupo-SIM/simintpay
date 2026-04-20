@@ -21,6 +21,7 @@ export type ChargePixPaymentLinkInput = {
 
 export type ChargePixPaymentLinkOutput = {
   id: string;
+  transactionId: string;
   status: string;
   pixContent: string | null;
   qrCode: string | null;
@@ -114,7 +115,7 @@ export class ChargePixPaymentLinkUseCase {
     // PIX é sempre 1 parcela; aplica juros se isStandalone=false
     const platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
     const fees = calculatePaymentLinkFees(link, 1, platformTag);
-    const { totalAmount, interestAmount, platformFeeRate, cashbackFee, netAmount, domFeeAmount } = fees;
+    const { totalAmount, netAmount, domFeeAmount } = fees;
 
     const result = await this.gateway.chargePixForLink(domToken, {
       domLinkId: link.domPaymentLinkId,
@@ -134,9 +135,10 @@ export class ChargePixPaymentLinkUseCase {
       await this.prisma.wallet.create({ data: { userId: effectiveUserId, balance: 0 } });
     }
 
-    const totalFee = domFeeAmount + interestAmount + cashbackFee;
+    const totalFee = totalAmount - netAmount;
+    const platformFee = totalFee - domFeeAmount;
 
-    await this.prisma.transaction.upsert({
+    const savedTx = await this.prisma.transaction.upsert({
       where: { domPaymentId: result.id },
       update: {
         status: TransactionStatus.PENDING,
@@ -145,7 +147,7 @@ export class ChargePixPaymentLinkUseCase {
         netAmount: new Prisma.Decimal(netAmount),
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFeeAmount),
-        platformFee: new Prisma.Decimal(interestAmount),
+        platformFee: new Prisma.Decimal(platformFee),
         userId: effectiveUserId,
         description: link.description ?? link.title,
         customerName: input.customerName,
@@ -163,7 +165,7 @@ export class ChargePixPaymentLinkUseCase {
         paymentMethod: PaymentMethod.PIX,
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFeeAmount),
-        platformFee: new Prisma.Decimal(interestAmount),
+        platformFee: new Prisma.Decimal(platformFee),
         domPaymentId: result.id,
         description: link.description ?? link.title,
         customerName: input.customerName,
@@ -182,6 +184,7 @@ export class ChargePixPaymentLinkUseCase {
 
     return {
       ...result,
+      transactionId: savedTx.id,
       amount: totalAmount,
     };
   }

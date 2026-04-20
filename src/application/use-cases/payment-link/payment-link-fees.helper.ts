@@ -109,6 +109,7 @@ export function calculatePaymentLinkFees(
   totalAmount: number;
   installmentAmount: number;
   sellerFee: number;
+  transactionFixedFee: number;
   cashbackFee: number;
   netAmount: number;
 } {
@@ -129,10 +130,12 @@ export function calculatePaymentLinkFees(
   const totalAmount = valueWithInterest + domFeeAmount;
   const installmentAmount = totalAmount / n;
 
-  // 4. Líquido do VENDEDOR (calculado sobre o valor BASE, independente de parcelas)
-  const cashbackFee = (link as any).cashbackFee ?? getPlatformTaxaEffective(platformTag ?? 'GLOBAL', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+  // 4. Líquido do VENDEDOR (calculado sobre o valor BASE, com taxa fixa multiplicada por parcelas)
+  const tag = platformTag ?? 'GLOBAL';
+  const cashbackFee = (link as any).cashbackFee ?? getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+  const transactionFixedFee = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
   const sellerFee = baseAmount * getSellerFeePercentage(platformTag) + getSellerFeeFixed(platformTag);
-  const netAmount = baseAmount - sellerFee - cashbackFee;
+  const netAmount = baseAmount - sellerFee - cashbackFee - transactionFixedFee;
 
   return {
     baseAmount,
@@ -145,6 +148,7 @@ export function calculatePaymentLinkFees(
     totalAmount: round2(totalAmount),
     installmentAmount: round2(installmentAmount),
     sellerFee: round2(sellerFee),
+    transactionFixedFee: round2(transactionFixedFee),
     cashbackFee,
     netAmount: round2(netAmount),
   };
@@ -175,6 +179,8 @@ export function calculateDebitFees(
   platformFeePercent: number;
   platformFeeFixed: number;
   platformFeeAmount: number;
+  transactionFixedFee: number;
+  cashbackFee: number;
   totalFeeAmount: number;
   netAmount: number;
 } {
@@ -184,10 +190,12 @@ export function calculateDebitFees(
   const tag = platformTag ?? 'GLOBAL';
   const platformFeeDecimal = getPlatformTaxaEffective(tag, 'TAXA_DEBITO_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_PERCENT);
   const platformFeeFixed = getPlatformTaxaEffective(tag, 'TAXA_DEBITO_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_FIXA);
+  const transactionFixedFee = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+  const cashbackFee = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
   const platformFeePercent = platformFeeDecimal * 100;
   const platformFeeAmount = baseAmount * platformFeeDecimal + platformFeeFixed;
 
-  const totalFeeAmount = domFeeAmount + platformFeeAmount;
+  const totalFeeAmount = domFeeAmount + platformFeeAmount + transactionFixedFee + cashbackFee;
   const netAmount = baseAmount - totalFeeAmount;
 
   return {
@@ -198,6 +206,8 @@ export function calculateDebitFees(
     platformFeePercent,
     platformFeeFixed,
     platformFeeAmount: round2(platformFeeAmount),
+    transactionFixedFee: round2(transactionFixedFee),
+    cashbackFee: round2(cashbackFee),
     totalFeeAmount: round2(totalFeeAmount),
     netAmount: round2(netAmount),
   };

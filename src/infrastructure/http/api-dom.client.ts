@@ -22,6 +22,8 @@ import {
   DomListWithdrawsOutput,
   IPaymentGateway,
 } from '../../core/services/payment-gateway.interface';
+import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 
 @Injectable()
 export class ApiDomClient implements IPaymentGateway {
@@ -108,7 +110,9 @@ export class ApiDomClient implements IPaymentGateway {
       1: 0.0399, 2: 0.083, 3: 0.0968, 4: 0.1104, 5: 0.1237, 6: 0.1367,
       7: 0.1495, 8: 0.1621, 9: 0.1744, 10: 0.1864, 11: 0.1983, 12: 0.2099,
     };
-    const mdrRate = isCard ? (CARD_RATES[installments] ?? 0.0399) : 0.0098;
+    const mdrRate = isCard
+      ? (CARD_RATES[installments] ?? 0.0399)
+      : getPlatformTaxaEffective('GLOBAL', 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
     const mdrValue = parseFloat((amount * mdrRate).toFixed(2));
 
     const order: Record<string, unknown> = {

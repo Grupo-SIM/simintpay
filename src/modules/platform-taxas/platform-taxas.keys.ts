@@ -57,11 +57,12 @@ export type PlataformaTaxaKey = (typeof PLATAFORMA_TAXA_KEYS)[number];
 
 /** Fallback quando .env não define a variável (mesmos defaults dos módulos). */
 export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
-  MDR_PIX: 0.0098,
+  /** Taxa DOM sobre PIX (decimal): ex. 0,02 = 2% sobre o valor pago. Sobrescreva por tenant/env. */
+  MDR_PIX: 0.02,
   TAXA_SAQUE_FIXA: 2,
   TAXA_SAQUE_PERCENT: 0,
   SAQUE_MIN: 100,
-  LIQUIDEZ: 0.91,
+  LIQUIDEZ: 0.9301,
   TAXA_FIXA_TRANSACAO: 1.0,
   TAXA_CASHBACK: 3.0,
   TAXA_LINK_PERCENT: 0.0699,

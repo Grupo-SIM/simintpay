@@ -3,6 +3,8 @@ import { WithdrawStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
 import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 @Injectable()
 export class ApproveWithdrawalUseCase {
@@ -110,35 +112,55 @@ export class ApproveWithdrawalUseCase {
 
       // 4. Sempre incrementa taxa e lucro no log administrativo (independente de quem aprova)
       const logUserId = adminUserId ?? withdraw.userId;
-      // Incremento da Taxa de Saque (1 real)
+
+      // Resolve a tag da plataforma do usuário que fez o saque para usar a TAXA_SAQUE_FIXA correta
+      const platformTag = (
+        userWithExt?.tenantModule?.slug ?? 'GLOBAL'
+      ).toUpperCase();
+      const taxaSaqueFixa = getPlatformTaxaEffective(
+        platformTag,
+        'TAXA_SAQUE_FIXA',
+        PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA,
+      );
+      // R$1 fixo vai para a DOM; o restante é lucro Simpay (configurável por plataforma)
+      const DOM_FEE = 1;
+      const lucroSaque = Math.max(0, taxaSaqueFixa - DOM_FEE);
+
+      // Incremento da Taxa de Saque DOM (sempre R$1 fixo)
       await tx.balanceLog.create({
         data: {
           userId: logUserId,
           action: 'ADMIN_WITHDRAW_FEE_INC',
-          amount: new Prisma.Decimal(1),
+          amount: new Prisma.Decimal(DOM_FEE),
           balanceBefore: 0,
           balanceAfter: 0,
           lockedBefore: 0,
           lockedAfter: 0,
           source: 'MASTER_ADMIN_CONTROL',
-          description: `Taxa de saque${isMasterAdmin ? ' (Master)' : ''}`,
-          metadata: { withdrawId },
+          description: `Taxa de saque DOM${isMasterAdmin ? ' (Master)' : ''} — plataforma: ${platformTag}`,
+          metadata: { withdrawId, platformTag, domFee: DOM_FEE },
         },
       });
 
-      // Incremento do Lucro de Saque (2 reais)
+      // Incremento do Lucro de Saque (TAXA_SAQUE_FIXA − R$1 DOM, varia por plataforma)
       await tx.balanceLog.create({
         data: {
           userId: logUserId,
           action: 'ADMIN_WITHDRAW_PROFIT_INC',
-          amount: new Prisma.Decimal(2),
+          amount: new Prisma.Decimal(lucroSaque),
           balanceBefore: 0,
           balanceAfter: 0,
           lockedBefore: 0,
           lockedAfter: 0,
           source: 'MASTER_ADMIN_CONTROL',
-          description: `Lucro de saque${isMasterAdmin ? ' (Master)' : ''}`,
-          metadata: { withdrawId },
+          description: `Lucro de saque${isMasterAdmin ? ' (Master)' : ''} — plataforma: ${platformTag} (taxa ${taxaSaqueFixa} − DOM ${DOM_FEE} = ${lucroSaque})`,
+          metadata: {
+            withdrawId,
+            platformTag,
+            taxaSaqueFixa,
+            domFee: DOM_FEE,
+            lucroSaque,
+          },
         },
       });
     });

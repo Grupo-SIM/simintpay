@@ -65,6 +65,8 @@ export class GetPublicPaymentLinkUseCase {
     dataExpiracao: string | null;
     opcoesParcelas: InstallmentOption[];
     valorPix: number;
+    valorDebito: number;
+    platformTag: string;
     debitFeePercent: number;
     debitFeeFixed: number;
     debitTaxaDomPercent: number;
@@ -80,17 +82,23 @@ export class GetPublicPaymentLinkUseCase {
       throw new NotFoundException('Link de pagamento não encontrado ou inativo');
     }
 
-    // 1º tenta extrair da descrição (formato legado ou texto livre)
-    // 2º fallback: módulo do dono do link
-    // 3º fallback final: GLOBAL
-    const tagFromDescription = resolvePlatformTagFromDescription(link.description);
+    // 1º plataforma explícita salva no link (campo plataformas[0])
+    // 2º formato legado na descrição (compatibilidade)
+    // 3º módulo do dono do link
+    // 4º fallback final: GLOBAL
+    const linkPlataformas = (link as any).plataformas as string[] | undefined;
     let platformTag: string;
 
-    if (tagFromDescription) {
-      platformTag = tagFromDescription;
+    if (linkPlataformas && linkPlataformas.length > 0 && linkPlataformas[0]) {
+      platformTag = linkPlataformas[0].toUpperCase();
     } else {
-      const owner = await this.users.findById(link.userId);
-      platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+      const tagFromDescription = resolvePlatformTagFromDescription(link.description);
+      if (tagFromDescription) {
+        platformTag = tagFromDescription;
+      } else {
+        const owner = await this.users.findById(link.userId);
+        platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+      }
     }
 
     const maxInstallments = link.maxInstallments;
@@ -130,6 +138,8 @@ export class GetPublicPaymentLinkUseCase {
       dataExpiracao: (link as any).expiresAt ? (link as any).expiresAt.toISOString() : null,
       opcoesParcelas,
       valorPix,
+      valorDebito: Number(link.amount),
+      platformTag,
       debitFeePercent: debitCalc.platformFeePercent,
       debitFeeFixed: debitCalc.platformFeeFixed,
       debitTaxaDomPercent: debitCalc.domFeePercent,

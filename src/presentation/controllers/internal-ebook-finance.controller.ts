@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY, type DomTransactionItem, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
 import { EbookSimConfig } from '../../modules/ebooksim/ebooksim.config';
+import { calculateSellerNetValue } from '../../application/helpers/transaction-fee.helper';
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
@@ -87,7 +88,7 @@ export class InternalEbookFinanceController {
 
     const wdCompleted = await this.prisma.withdrawRequest.aggregate({
       where: { userId: { in: userIds }, status: { in: ['APPROVED', 'COMPLETED'] } },
-      _sum: { amount: true },
+      _sum: { amount: true, grossAmount: true },
     });
 
     const wdPending = await this.prisma.withdrawRequest.aggregate({
@@ -96,12 +97,12 @@ export class InternalEbookFinanceController {
     });
 
     const totalReceived = Number(txCompleted._sum.netAmount ?? txCompleted._sum.amount ?? 0);
-    const totalCompletedWithdraw = Number(wdCompleted._sum.amount ?? 0);
+    const totalCompletedWithdraw = Number(wdCompleted._sum.grossAmount ?? wdCompleted._sum.amount ?? 0);
     const pendingAmount = Number(wdPending._sum.amount ?? 0);
     const pendingGross = Number(wdPending._sum.grossAmount ?? pendingAmount);
 
     return {
-      availableBalance: Math.max(0, Number((totalReceived - totalCompletedWithdraw - pendingAmount).toFixed(2))),
+      availableBalance: Math.max(0, Number((totalReceived - totalCompletedWithdraw - pendingGross).toFixed(2))),
       pendingWithdraws: Number(pendingAmount.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
       minimumWithdrawalAmount: EbookSimConfig.saque.minValor,
@@ -309,6 +310,7 @@ export class InternalEbookFinanceController {
       buyerName?: string;
       buyerEmail?: string;
       buyerDocument?: string;
+      installments?: number;
     },
     @Headers('x-internal-token') internalToken?: string,
   ) {
@@ -356,8 +358,8 @@ export class InternalEbookFinanceController {
     const cpfTag = body.ownerCpf ? ` [CPF_DONO:${body.ownerCpf.replace(/\D/g, '')}]` : '';
     const nomeTag = ownerName ? ` [NOME_DONO:${ownerName}]` : '';
     const description = `${body.orderNumber.trim()} [TENANT:EBOOK]${cpfTag}${nomeTag}`;
-    const liquidez = EbookSimConfig.saque.fatorLiquidez;
-    const netAmount = Number((amount * liquidez).toFixed(2));
+    const installments = Number(body.installments || 1);
+    const netAmount = calculateSellerNetValue(amount, installments, 'EBOOK', 'pix');
     const method = (body.paymentMethod || 'PIX').toUpperCase();
 
     const tx = await this.prisma.transaction.create({
@@ -369,6 +371,7 @@ export class InternalEbookFinanceController {
         paymentMethod: method as any,
         description,
         domPaymentId,
+        installments,
         customerName: body.buyerName ?? null,
         customerEmail: body.buyerEmail ?? null,
         customerDocument: body.buyerDocument ? body.buyerDocument.replace(/\D/g, '') : null,
