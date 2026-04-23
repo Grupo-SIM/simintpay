@@ -79,7 +79,7 @@ import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
-import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG } from '../../application/utils/internal-tags.util';
+import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_COMUNIDADE_TAG, TENANT_RENOVADA_TAG } from '../../application/utils/internal-tags.util';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -198,96 +198,117 @@ async function expandUserIdsByCpf(
  * Conta técnica onde ficam as transações do checkout Ebook (`[TENANT:EBOOK]` no webhook/sync).
  * Mesmo default de `EBOOK_ID` nos endpoints de limpeza/sync do ebook.
  */
-const EBOOK_CONSOLIDADO_USER_ID =
-  process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
-
 const REVALIDA_CONSOLIDADO_USER_ID =
   process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
 
-/** UUID sintético só para metadados do consolidado quando não há `AREAFLIX_USER_ID` / módulo. */
 const AREAFLIX_CONSOLIDADO_FALLBACK_ID = 'f0000000-0000-4000-8000-000000000af1';
 
 type ConsolidadoPlatformEntry = { tag: string; id: string };
 
-/** Núcleo do consolidado; Atlas é acrescentado em runtime (env ou usuário tenant atlas). */
-const CONSOLIDADO_PLATFORMS_CORE: ReadonlyArray<ConsolidadoPlatformEntry> = [
-  { tag: 'RENOVADA', id: 'ba2b57d6-e3bf-4395-af31-58454f27207a' },
-  { tag: 'PAGATG', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5d' },
-  { tag: 'BOSQUE', id: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c' },
-  { tag: 'REVALIDA', id: REVALIDA_CONSOLIDADO_USER_ID },
-  { tag: 'EBOOK', id: EBOOK_CONSOLIDADO_USER_ID },
-];
-
-async function resolveAtlasConsolidadoUserId(prisma: PrismaService): Promise<string> {
-  const envId = process.env.ATLAS_USER_ID?.trim();
+async function resolveBySlugOrEnv(
+  prisma: PrismaService,
+  envKey: string,
+  slugs: string[],
+  fallback = '',
+): Promise<string> {
+  const envId = process.env[envKey]?.trim();
   if (envId) return envId;
   const u = await prisma.user.findFirst({
-    where: { tenantModule: { slug: { equals: 'atlas', mode: 'insensitive' } } },
+    where: {
+      OR: slugs.map((s) => ({
+        tenantModule: { slug: { equals: s, mode: 'insensitive' } },
+      })),
+    },
     select: { id: true },
   });
-  return u?.id ?? '';
+  return u?.id ?? fallback;
 }
 
-async function resolveAreaflixConsolidadoUserId(prisma: PrismaService): Promise<string> {
-  const envId = process.env.AREAFLIX_USER_ID?.trim();
-  if (envId) return envId;
-  const u = await prisma.user.findFirst({
-    where: { tenantModule: { slug: { contains: 'areaflix', mode: 'insensitive' } } },
-    select: { id: true },
+/** Resolve todos os user IDs das plataformas do consolidado em paralelo. */
+async function resolveConsolidadoPlatforms(
+  prisma: PrismaService,
+): Promise<ConsolidadoPlatformEntry[]> {
+  const [
+    renovadaId, pagatgId, bosqueId, revalidaId,
+    ebookId, areaflixId, comunidadeId, atlasId, frendzId,
+  ] = await Promise.all([
+    resolveBySlugOrEnv(prisma, 'RENOVADA_USER_ID', ['renovada'], 'ba2b57d6-e3bf-4395-af31-58454f27207a'),
+    resolveBySlugOrEnv(prisma, 'PAGATG_USER_ID', ['pagatg']),
+    resolveBySlugOrEnv(prisma, 'BOSQUE_USER_ID', ['bosque', 'ibb'], 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c'),
+    resolveBySlugOrEnv(prisma, 'REVALIDA_USER_ID', ['revalida'], REVALIDA_CONSOLIDADO_USER_ID),
+    resolveBySlugOrEnv(prisma, 'EBOOK_ID', ['ebooksim', 'ebook']),
+    resolveBySlugOrEnv(prisma, 'AREAFLIX_USER_ID', ['areaflix'], AREAFLIX_CONSOLIDADO_FALLBACK_ID),
+    resolveBySlugOrEnv(prisma, 'COMUNIDADE_USER_ID', ['comunidade']),
+    resolveBySlugOrEnv(prisma, 'ATLAS_USER_ID', ['atlas']),
+    resolveBySlugOrEnv(prisma, 'FRENDZ_USER_ID', ['frendz']),
+  ]);
+
+  const platforms: ConsolidadoPlatformEntry[] = [];
+  const add = (tag: string, id: string) => { if (id) platforms.push({ tag, id }); };
+  add('RENOVADA', renovadaId);
+  add('PAGATG', pagatgId);
+  add('BOSQUE', bosqueId);
+  add('REVALIDA', revalidaId);
+  add('EBOOK', ebookId);
+  add('FRENDZ', frendzId);
+  add('AREAFLIX', areaflixId);
+  add('COMUNIDADE', comunidadeId);
+  add('ATLAS', atlasId);
+  return platforms;
+}
+
+/**
+ * Busca ordens de assinatura de comunidade pagas no período, via CommunityLinkBinding.
+ * Retorna rows no mesmo formato de txRowsLucro para serem mescladas no consolidado.
+ */
+async function getComunidadeOrderRows(
+  prisma: PrismaService,
+  dataInicio?: string,
+  dataFim?: string,
+): Promise<Array<{ id: string; userId: string; amount: unknown; netAmount: unknown; createdAt: Date; description: string; installments: number }>> {
+  const bindings = await prisma.communityLinkBinding.findMany({
+    where: { subscriptionLinkId: { not: null } },
+    select: { subscriptionLinkId: true },
+    distinct: ['subscriptionLinkId'],
   });
-  return u?.id ?? AREAFLIX_CONSOLIDADO_FALLBACK_ID;
-}
+  const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
+  if (linkIds.length === 0) return [];
 
-async function resolveComunidadeConsolidadoUserId(prisma: PrismaService): Promise<string> {
-  const envId = process.env.COMUNIDADE_USER_ID?.trim();
-  if (envId) return envId;
-  const u = await prisma.user.findFirst({
-    where: { tenantModule: { slug: { equals: 'comunidade', mode: 'insensitive' } } },
-    select: { id: true },
+  const createdAt: Prisma.DateTimeFilter = {};
+  if (dataInicio) {
+    const d = dayjs.tz(dataInicio, TZ).startOf('day');
+    if (d.isValid()) createdAt.gte = d.toDate();
+  }
+  if (dataFim) {
+    const d = dayjs.tz(dataFim, TZ).endOf('day');
+    if (d.isValid()) createdAt.lte = d.toDate();
+  }
+
+  const orders = await prisma.subscriptionLinkOrder.findMany({
+    where: {
+      subscriptionLinkId: { in: linkIds },
+      status: 'paid',
+      ...(Object.keys(createdAt).length > 0 ? { createdAt } : {}),
+    },
+    select: {
+      id: true,
+      amountCharged: true,
+      platformFeeAmount: true,
+      createdAt: true,
+      paymentMethod: true,
+      subscriptionLink: { select: { userId: true, name: true } },
+    },
   });
-  return u?.id ?? '';
-}
 
-/** Alinha listagem /plataformas ao consolidado (env → e-mail técnico → UUID padrão). */
-async function resolveRevalidaConsolidadoUserId(prisma: PrismaService): Promise<string> {
-  const envId = process.env.REVALIDA_USER_ID?.trim();
-  if (envId) return envId;
-  const u = await prisma.user.findFirst({
-    where: { email: 'revalida@jbmidia.com.br' },
-    select: { id: true },
-  });
-  return u?.id ?? REVALIDA_CONSOLIDADO_USER_ID;
-}
-
-const BOSQUE_CONSOLIDADO_DEFAULT_ID = 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
-
-/** Env BOSQUE_ID → usuário BOSQUE_EMAIL (padrão contato@bosque.com.br) → UUID fixo do seed/sync. */
-async function resolveBosqueConsolidadoUserId(prisma: PrismaService): Promise<string> {
-  const envId = process.env.BOSQUE_ID?.trim();
-  if (envId) return envId;
-  const email = (process.env.BOSQUE_EMAIL || 'contato@bosque.com.br').trim();
-  const u = await prisma.user.findFirst({
-    where: { email: { equals: email, mode: 'insensitive' } },
-    select: { id: true },
-  });
-  return u?.id ?? BOSQUE_CONSOLIDADO_DEFAULT_ID;
-}
-
-function mergeConsolidadoPlatforms(
-  atlasUserId: string,
-  areaflixUserId: string,
-  comunidadeUserId: string,
-): ConsolidadoPlatformEntry[] {
-  const af = areaflixUserId?.trim();
-  const withAreaflix = af
-    ? [...CONSOLIDADO_PLATFORMS_CORE, { tag: 'AREAFLIX', id: af }]
-    : [...CONSOLIDADO_PLATFORMS_CORE];
-  const com = comunidadeUserId?.trim();
-  const withComunidade = com
-    ? [...withAreaflix, { tag: 'COMUNIDADE', id: com }]
-    : withAreaflix;
-  const id = atlasUserId?.trim();
-  return id ? [...withComunidade, { tag: 'ATLAS', id }] : withComunidade;
+  return orders.map((o) => ({
+    id: `comunidade_order_${o.id}`,
+    userId: o.subscriptionLink.userId,
+    amount: o.amountCharged,
+    netAmount: Number(o.amountCharged) - Number(o.platformFeeAmount),
+    createdAt: o.createdAt,
+    description: `${o.subscriptionLink.name} ${TENANT_COMUNIDADE_TAG}`,
+    installments: 1,
+  }));
 }
 
 /** Escopo do consolidado: contas plataforma OU transações Bosque / Areaflix pela descrição/tag. */
@@ -302,6 +323,8 @@ function buildConsolidadoScopeOr(platformIds: string[]): Prisma.TransactionWhere
         ],
       },
       { description: { contains: TENANT_AREAFLIX_TAG, mode: 'insensitive' } },
+      { description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' } },
+      { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
     ],
   };
 }
@@ -310,12 +333,22 @@ function buildConsolidadoScopeOr(platformIds: string[]): Prisma.TransactionWhere
 function transacaoAtribuiBosquePorDescricao(description: string | null | undefined): boolean {
   if (!description) return false;
   if (/\[\s*TENANT\s*:\s*BOSQUE\s*\]/i.test(description)) return true;
-  return description.toLowerCase().includes('bosque');
+  return description.toLowerCase().includes('bosque') || description.toLowerCase().includes('ibb');
 }
 
 function transacaoAtribuiAreaflixPorDescricao(description: string | null | undefined): boolean {
   if (!description) return false;
   return /\[\s*TENANT\s*:\s*AREAFLIX\s*\]/i.test(description);
+}
+
+function transacaoAtribuiPagatgPorDescricao(description: string | null | undefined): boolean {
+  if (!description) return false;
+  return /\[\s*TENANT\s*:\s*PAGATG\s*\]/i.test(description);
+}
+
+function transacaoAtribuiEbookPorDescricao(description: string | null | undefined): boolean {
+  if (!description) return false;
+  return description.includes(TENANT_EBOOK_TAG);
 }
 
 function consolidadoTagParaTransacao(
@@ -324,6 +357,9 @@ function consolidadoTagParaTransacao(
 ): string {
   if (transacaoAtribuiBosquePorDescricao(tx.description)) return 'BOSQUE';
   if (transacaoAtribuiAreaflixPorDescricao(tx.description)) return 'AREAFLIX';
+  if (transacaoAtribuiPagatgPorDescricao(tx.description)) return 'PAGATG';
+  if (transacaoAtribuiEbookPorDescricao(tx.description)) return 'EBOOK';
+  if (tx.description?.includes(TENANT_COMUNIDADE_TAG)) return 'COMUNIDADE';
   const platform = platforms.find((p) => p.id === tx.userId);
   return platform?.tag ?? 'RENOVADA';
 }
@@ -725,6 +761,8 @@ function buildLucroSimpayDetalhePorPlataforma(
 
   }
 
+  const platformTagsResolvidas = new Set(platforms.map((p) => p.tag));
+
   const plataformas: LucroSimpayPorPlataforma[] = platforms.map(
     (p) => {
       const hit = byTag.get(p.tag);
@@ -777,6 +815,33 @@ function buildLucroSimpayDetalhePorPlataforma(
       };
     },
   );
+
+  // Plataformas identificadas apenas por tag de descrição (sem userId resolvido) — ex.: PAGATG, COMUNIDADE
+  for (const [tag, hit] of byTag.entries()) {
+    if (platformTagsResolvidas.has(tag)) continue;
+    const liquidezKey = `${tag}_LIQUIDEZ`;
+    const fixaKey = `${tag}_TAXA_FIXA_TRANSACAO`;
+    const cbKey = `${tag}_TAXA_CASHBACK`;
+    plataformas.push({
+      tag,
+      userId: hit.userId,
+      envLiquidez: liquidezKey,
+      envTaxaFixa: fixaKey,
+      envTaxaCashback: cbKey,
+      liquidezLojista: hit.liquidezLojista,
+      taxaFixaTransacao: hit.taxaFixa,
+      taxaCashback: hit.taxaCashback,
+      quantidadeTransacoes: hit.transacoes.length,
+      subtotalBruto: Number(hit.subtotalBruto.toFixed(2)),
+      subtotalParteAdminMaster: Number(hit.subtotalParte.toFixed(2)),
+      subtotalDeducaoTaxaFixa: Number((hit.transacoes.length * hit.taxaFixa).toFixed(2)),
+      subtotalDeducaoTaxaCashback: Number((hit.transacoes.length * hit.taxaCashback).toFixed(2)),
+      subtotalLucro: Number(hit.subtotalLucro.toFixed(2)),
+      transacoes: hit.transacoes.sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
+    });
+  }
 
   return {
     totalLucroSimpay: Number(totalLucroSimpay.toFixed(2)),
@@ -1462,12 +1527,7 @@ export class AdminController {
     @Query('paymentLink') paymentLink?: string,
     @Query('planName') planName?: string,
   ) {
-    const [atlasId, areaflixId, comunidadeId] = await Promise.all([
-      resolveAtlasConsolidadoUserId(this.prisma),
-      resolveAreaflixConsolidadoUserId(this.prisma),
-      resolveComunidadeConsolidadoUserId(this.prisma),
-    ]);
-    const platforms = mergeConsolidadoPlatforms(atlasId, areaflixId, comunidadeId);
+    const platforms = await resolveConsolidadoPlatforms(this.prisma);
     const where = buildConsolidadoTransactionWhere(
       {
         dataInicio,
@@ -1555,30 +1615,30 @@ export class AdminController {
     @Query('detalharLucro') detalharLucro?: string,
     @Query('detalharLucroSoloResumo') detalharLucroSoloResumo?: string,
   ) {
-    const [atlasId, areaflixId, comunidadeId] = await Promise.all([
-      resolveAtlasConsolidadoUserId(this.prisma),
-      resolveAreaflixConsolidadoUserId(this.prisma),
-      resolveComunidadeConsolidadoUserId(this.prisma),
-    ]);
-    const platforms = mergeConsolidadoPlatforms(atlasId, areaflixId, comunidadeId);
+    const platforms = await resolveConsolidadoPlatforms(this.prisma);
     const platformIds = platforms.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
 
-    const txRowsTodas = await this.prisma.transaction.findMany({
-      where: whereResumo,
-      select: {
-        id: true,
-        userId: true,
-        amount: true,
-        netAmount: true,
-        createdAt: true,
-        description: true,
-        installments: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const [txRowsTodas, comunidadeRows] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where: whereResumo,
+        select: {
+          id: true,
+          userId: true,
+          amount: true,
+          netAmount: true,
+          createdAt: true,
+          description: true,
+          installments: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      getComunidadeOrderRows(this.prisma, dataInicio, dataFim),
+    ]);
 
-    const txRowsLucro = txRowsTodas.filter((t) =>
+    const txRowsComComunidade = [...txRowsTodas, ...comunidadeRows];
+
+    const txRowsLucro = txRowsComComunidade.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
     );
 
@@ -1949,12 +2009,7 @@ export class AdminController {
   async getRelatorioMensal(@Query('meses') mesesParam?: string) {
     const meses = Math.min(Math.max(Number(mesesParam) || 12, 1), 36);
 
-    const [atlasId, areaflixId, comunidadeId] = await Promise.all([
-      resolveAtlasConsolidadoUserId(this.prisma),
-      resolveAreaflixConsolidadoUserId(this.prisma),
-      resolveComunidadeConsolidadoUserId(this.prisma),
-    ]);
-    const platforms = mergeConsolidadoPlatforms(atlasId, areaflixId, comunidadeId);
+    const platforms = await resolveConsolidadoPlatforms(this.prisma);
 
     const agora = dayjs().tz(TZ);
     const inicioJanela = agora.subtract(meses - 1, 'month').startOf('month');
@@ -1965,18 +2020,23 @@ export class AdminController {
       platforms,
     );
 
-    const txRows = await this.prisma.transaction.findMany({
-      where,
-      select: {
-        userId: true,
-        amount: true,
-        netAmount: true,
-        createdAt: true,
-        description: true,
-        installments: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const [txRowsBase, comunidadeRowsMensal] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where,
+        select: {
+          userId: true,
+          amount: true,
+          netAmount: true,
+          createdAt: true,
+          description: true,
+          installments: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      getComunidadeOrderRows(this.prisma, inicioJanela.format('YYYY-MM-DD'), agora.endOf('month').format('YYYY-MM-DD')),
+    ]);
+
+    const txRows = [...txRowsBase, ...comunidadeRowsMensal];
 
     type MesRow = {
       mes: string;
@@ -2040,30 +2100,29 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const [atlasId, areaflixId, comunidadeId] = await Promise.all([
-      resolveAtlasConsolidadoUserId(this.prisma),
-      resolveAreaflixConsolidadoUserId(this.prisma),
-      resolveComunidadeConsolidadoUserId(this.prisma),
-    ]);
-    const platforms = mergeConsolidadoPlatforms(atlasId, areaflixId, comunidadeId);
+    const platforms = await resolveConsolidadoPlatforms(this.prisma);
     const platformIds = platforms.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
 
-    const txRowsTodas = await this.prisma.transaction.findMany({
-      where: whereResumo,
-      select: {
-        id: true,
-        userId: true,
-        amount: true,
-        netAmount: true,
-        createdAt: true,
-        description: true,
-        installments: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const [txRowsTodas, comunidadeRowsRepasse] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where: whereResumo,
+        select: {
+          id: true,
+          userId: true,
+          amount: true,
+          netAmount: true,
+          createdAt: true,
+          description: true,
+          installments: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      getComunidadeOrderRows(this.prisma, dataInicio, dataFim),
+    ]);
 
-    const txRowsLucro = txRowsTodas.filter((t) =>
+    const txRowsAll = [...txRowsTodas, ...comunidadeRowsRepasse];
+    const txRowsLucro = txRowsAll.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
     );
 
@@ -2592,6 +2651,70 @@ export class AdminController {
   @ApiOperation({ summary: 'Sincronização completa de histórico (Revalida) - puxa da DOM Pagamentos' })
   async syncFullRevalida() {
     return this.revalidaSyncService.syncFull();
+  }
+
+  @Post('sync/backfill-comunidade')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Backfill: cria Transaction com [TENANT:COMUNIDADE] para ordens de assinatura de comunidade sem Transaction correspondente' })
+  async backfillComunidadeTransactions() {
+    const communityLinkIds = await this.prisma.communityLinkBinding.findMany({
+      where: { subscriptionLinkId: { not: null } },
+      select: { subscriptionLinkId: true },
+      distinct: ['subscriptionLinkId'],
+    });
+    const subscriptionLinkIds = communityLinkIds
+      .map((b) => b.subscriptionLinkId!)
+      .filter(Boolean);
+
+    if (subscriptionLinkIds.length === 0) return { created: 0, skipped: 0 };
+
+    const orders = await this.prisma.subscriptionLinkOrder.findMany({
+      where: {
+        subscriptionLinkId: { in: subscriptionLinkIds },
+        status: 'paid',
+      },
+      include: { subscriptionLink: { select: { name: true, userId: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const order of orders) {
+      const payId = order.domPixPaymentId?.trim() || `COMUNIDADE_SL_${order.id}`;
+      const exists = await this.prisma.transaction.findFirst({
+        where: { domPaymentId: payId },
+        select: { id: true },
+      });
+      if (exists) { skipped++; continue; }
+
+      const gross = Number(order.amountCharged);
+      const pf = Number(order.platformFeeAmount);
+      const netAmount = gross - pf;
+
+      await this.prisma.transaction.create({
+        data: {
+          userId: order.subscriptionLink.userId,
+          amount: gross,
+          netAmount,
+          totalFee: pf,
+          domFee: 0,
+          platformFee: pf,
+          status: 'COMPLETED',
+          paymentMethod: order.paymentMethod,
+          description: `${order.subscriptionLink.name} ${TENANT_COMUNIDADE_TAG} subOrder=${order.id}`,
+          domPaymentId: payId,
+          customerName: order.customerName,
+          customerEmail: order.customerEmail,
+          customerDocument: order.customerDocument,
+          customerPhone: order.customerPhone ?? undefined,
+          createdAt: order.createdAt,
+        },
+      });
+      created++;
+    }
+
+    return { created, skipped };
   }
 
   @Post('sync/sync-wallet-renovada')
@@ -3927,7 +4050,7 @@ export class AdminController {
     }
 
     // Garante que ATLAS apareça com o mesmo userId do consolidado (env ou tenant atlas)
-    const atlasConsolidadoId = await resolveAtlasConsolidadoUserId(this.prisma);
+    const atlasConsolidadoId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
     if (!map.has('ATLAS') && atlasConsolidadoId) {
       const firstAtlasTx = await this.prisma.transaction.findFirst({
         where: {
@@ -3949,7 +4072,7 @@ export class AdminController {
     }
 
     // Garante que REVALIDA apareça (conta técnica / consolidado, como Atlas)
-    const revalidaConsolidadoId = await resolveRevalidaConsolidadoUserId(this.prisma);
+    const revalidaConsolidadoId = await resolveBySlugOrEnv(this.prisma, 'REVALIDA_USER_ID', ['revalida'], REVALIDA_CONSOLIDADO_USER_ID);
     if (!map.has('REVALIDA')) {
       const firstRevalidaTx = await this.prisma.transaction.findFirst({
         where: {
@@ -3971,7 +4094,7 @@ export class AdminController {
     }
 
     // Garante que BOSQUE apareça (conta técnica + [TENANT:BOSQUE] / "bosque" na descrição)
-    const bosqueConsolidadoId = await resolveBosqueConsolidadoUserId(this.prisma);
+    const bosqueConsolidadoId = await resolveBySlugOrEnv(this.prisma, 'BOSQUE_USER_ID', ['bosque', 'ibb'], 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c');
     if (!map.has('BOSQUE')) {
       const firstBosqueTx = await this.prisma.transaction.findFirst({
         where: {
@@ -4150,6 +4273,254 @@ export class AdminController {
     return { data: Array.from(communityMap.values()) };
   }
 
+  @Get('plataformas/atlas/breakdown')
+  @ApiOperation({ summary: 'Breakdown de receita Atlas: domínios vs hospedagem, por produto' })
+  @ApiQuery({ name: 'dataInicio', required: false })
+  @ApiQuery({ name: 'dataFim', required: false })
+  async getAtlasBreakdown(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    const atlasId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
+    if (!atlasId) return { clientesUnicos: 0, dominios: { receita: 0, lucro: 0, quantidade: 0, distribuicaoMetodo: [] }, hospedagem: { receita: 0, lucro: 0, quantidade: 0, distribuicaoMetodo: [], porProduto: [] } };
+
+    const where: any = { userId: atlasId, status: 'COMPLETED' };
+    if (dataInicio) where.createdAt = { ...where.createdAt, gte: parseYmdSp(dataInicio).startOf('day').toDate() };
+    if (dataFim) where.createdAt = { ...where.createdAt, lte: parseYmdSp(dataFim).endOf('day').toDate() };
+
+    const txs = await this.prisma.transaction.findMany({
+      where,
+      select: { amount: true, description: true, paymentMethod: true, customerEmail: true },
+    });
+
+    const liquidez = getPlatformTaxaEffective('ATLAS', 'LIQUIDEZ', 0.91);
+    const taxaFixa = getPlatformTaxaEffective('ATLAS', 'TAXA_FIXA_TRANSACAO', 1.0);
+    const taxaCashback = getPlatformTaxaEffective('ATLAS', 'TAXA_CASHBACK', 3.0);
+
+    const isDomain = (desc: string | null | undefined) => {
+      if (!desc) return false;
+      const lower = desc.toLowerCase().trim();
+      if (lower.startsWith('atlas hosting ')) {
+        const ref = lower.slice('atlas hosting '.length).trim();
+        return /\.[a-z]{2,10}$/.test(ref) && !/^[0-9a-f-]{32,}$/.test(ref);
+      }
+      return false;
+    };
+
+    const calcGroup = (group: typeof txs) => {
+      let receita = 0, lucro = 0;
+      const byMethod = new Map<string, { quantidade: number; valor: number }>();
+      for (const t of group) {
+        const bruto = Number(t.amount ?? 0);
+        receita += bruto;
+        lucro += bruto * (1 - liquidez) - taxaFixa - taxaCashback;
+        const method = (t.paymentMethod ?? 'PIX').toUpperCase();
+        const bucket = method === 'PIX' ? 'PIX' : method === 'DEBIT_CARD' ? 'DEBIT_CARD' : 'CREDIT_CARD';
+        const prev = byMethod.get(bucket) ?? { quantidade: 0, valor: 0 };
+        byMethod.set(bucket, { quantidade: prev.quantidade + 1, valor: prev.valor + bruto });
+      }
+      const LABELS: Record<string, string> = { PIX: 'Pix', CREDIT_CARD: 'Crédito', DEBIT_CARD: 'Débito' };
+      const distribuicaoMetodo = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD']
+        .map((c) => { const e = byMethod.get(c) ?? { quantidade: 0, valor: 0 }; return { codigo: c, nome: LABELS[c], quantidade: e.quantidade, valor: Number(e.valor.toFixed(2)), percentual: group.length > 0 ? Number(((e.quantidade / group.length) * 100).toFixed(2)) : 0 }; })
+        .filter((r) => r.quantidade > 0);
+      return { receita: Number(receita.toFixed(2)), lucro: Number(lucro.toFixed(2)), quantidade: group.length, distribuicaoMetodo };
+    };
+
+    const domainTxs = txs.filter((t) => isDomain(t.description));
+    const hostTxs = txs.filter((t) => !isDomain(t.description));
+
+    const byProduct = new Map<string, { receita: number; lucro: number; quantidade: number }>();
+    for (const t of hostTxs) {
+      const nome = (t.description?.trim() || 'Produto Atlas');
+      const e = byProduct.get(nome) ?? { receita: 0, lucro: 0, quantidade: 0 };
+      const bruto = Number(t.amount ?? 0);
+      byProduct.set(nome, { receita: Number((e.receita + bruto).toFixed(2)), lucro: Number((e.lucro + bruto * (1 - liquidez) - taxaFixa - taxaCashback).toFixed(2)), quantidade: e.quantidade + 1 });
+    }
+
+    const uniqueEmails = new Set(txs.map((t) => t.customerEmail).filter(Boolean));
+
+    return {
+      clientesUnicos: uniqueEmails.size,
+      dominios: calcGroup(domainTxs),
+      hospedagem: {
+        ...calcGroup(hostTxs),
+        porProduto: Array.from(byProduct.entries()).map(([nome, s]) => ({ nome, ...s })).sort((a, b) => b.receita - a.receita),
+      },
+    };
+  }
+
+  @Get('plataformas/:tag/distribuicao-metodo')
+  @ApiOperation({ summary: 'Distribuição de pagamentos por método para uma plataforma (COMPLETED)' })
+  @ApiQuery({ name: 'dataInicio', required: false })
+  @ApiQuery({ name: 'dataFim', required: false })
+  async getPlataformaDistribuicaoMetodo(
+    @Param('tag') tag: string,
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    const upperTag = normalizePlatformTag(tag);
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+
+    if (upperTag === 'COMUNIDADE') {
+      const bindings = await this.prisma.communityLinkBinding.findMany({
+        where: { subscriptionLinkId: { not: null } },
+        select: { subscriptionLinkId: true },
+        distinct: ['subscriptionLinkId'],
+      });
+      const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
+      if (linkIds.length === 0) return { total: 0, items: [] };
+
+      const dateFilter: Prisma.DateTimeFilter = {};
+      if (dataInicio) dateFilter.gte = parseYmdSp(dataInicio).startOf('day').toDate();
+      if (dataFim) dateFilter.lte = parseYmdSp(dataFim).endOf('day').toDate();
+
+      const orders = await this.prisma.subscriptionLinkOrder.findMany({
+        where: {
+          subscriptionLinkId: { in: linkIds },
+          status: 'paid',
+          ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
+        },
+        select: { paymentMethod: true, amountCharged: true },
+      });
+
+      const mapCount = new Map<string, { count: number; total: number }>();
+      for (const order of orders) {
+        const method = (order.paymentMethod ?? 'UNKNOWN').toUpperCase();
+        const bucket = method === 'PIX' ? 'PIX' : method === 'DEBIT_CARD' ? 'DEBIT_CARD' : 'CREDIT_CARD';
+        const prev = mapCount.get(bucket) ?? { count: 0, total: 0 };
+        mapCount.set(bucket, { count: prev.count + 1, total: prev.total + Number(order.amountCharged ?? 0) });
+      }
+
+      const total = orders.length;
+      const LABELS: Record<string, string> = { PIX: 'Pix', CREDIT_CARD: 'Crédito', DEBIT_CARD: 'Débito' };
+      const items = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD']
+        .map((codigo) => {
+          const entry = mapCount.get(codigo) ?? { count: 0, total: 0 };
+          return {
+            codigo, nome: LABELS[codigo], quantidade: entry.count,
+            valor: Number(entry.total.toFixed(2)),
+            percentual: total > 0 ? Number(((entry.count / total) * 100).toFixed(2)) : 0,
+          };
+        })
+        .filter((row) => row.quantidade > 0)
+        .sort((a, b) => b.quantidade - a.quantidade);
+
+      return { total, items };
+    }
+
+    let userIds: string[] = [];
+    if (upperTag === 'RENOVADA') {
+      userIds = [RENOVADA_ID];
+    } else if (upperTag === 'REVALIDA') {
+      const rid = process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
+      userIds = [rid];
+    } else if (upperTag === 'EBOOK') {
+      const users = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
+            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
+          ],
+        },
+        select: { id: true },
+      });
+      userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
+    } else if (upperTag === 'ATLAS') {
+      const aid = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
+      userIds = aid ? [aid] : [];
+    } else if (upperTag === 'BOSQUE') {
+      const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+      userIds = [bid];
+    } else if (upperTag !== 'PAGATG') {
+      const plans = await this.prisma.pixCreditPlan.findMany({
+        where: {
+          OR: [
+            { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
+            { description: { contains: upperTag, mode: 'insensitive' } },
+          ],
+        },
+        select: { userId: true, description: true },
+      });
+      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
+    }
+
+    const isTenantTagged = upperTag === 'EBOOK' || upperTag === 'PAGATG';
+    const isBosqueDescScope = upperTag === 'BOSQUE';
+    if (!isTenantTagged && !isBosqueDescScope && userIds.length === 0)
+      return { total: 0, items: [] };
+
+    const baseWhere: any = isTenantTagged
+      ? {
+          OR: [
+            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
+            ...(upperTag === 'EBOOK' && userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+          ],
+        }
+      : isBosqueDescScope
+        ? {
+            OR: [
+              { userId: { in: userIds } },
+              { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+              { description: { contains: 'bosque', mode: 'insensitive' } },
+              { description: { contains: 'ibb', mode: 'insensitive' } },
+            ],
+          }
+        : { userId: { in: userIds } };
+
+    baseWhere.status = 'COMPLETED';
+
+    if (dataInicio || dataFim) {
+      const tz = 'America/Sao_Paulo';
+      if (dataInicio) baseWhere.createdAt = { ...baseWhere.createdAt, gte: parseYmdSp(dataInicio).startOf('day').toDate() };
+      if (dataFim) baseWhere.createdAt = { ...baseWhere.createdAt, lte: parseYmdSp(dataFim).endOf('day').toDate() };
+    }
+
+    if (upperTag === 'RENOVADA') {
+      baseWhere.AND = [{
+        OR: [
+          { description: { contains: 'dizimo', mode: 'insensitive' } },
+          { description: { contains: 'dízimo', mode: 'insensitive' } },
+          { description: { contains: 'primicia', mode: 'insensitive' } },
+          { description: { contains: 'primícia', mode: 'insensitive' } },
+          { description: { contains: 'oferta', mode: 'insensitive' } },
+          { description: { contains: 'maquineta', mode: 'insensitive' } },
+          { description: { contains: 'terminal', mode: 'insensitive' } },
+        ],
+      }];
+    }
+
+    const txs = await this.prisma.transaction.findMany({
+      where: baseWhere,
+      select: { paymentMethod: true, amount: true },
+    });
+
+    const mapCount = new Map<string, { count: number; total: number }>();
+    for (const tx of txs) {
+      const method = (tx.paymentMethod ?? 'UNKNOWN').toUpperCase();
+      const bucket = method === 'PIX' ? 'PIX' : method === 'DEBIT_CARD' ? 'DEBIT_CARD' : 'CREDIT_CARD';
+      const prev = mapCount.get(bucket) ?? { count: 0, total: 0 };
+      mapCount.set(bucket, { count: prev.count + 1, total: prev.total + Number(tx.amount ?? 0) });
+    }
+
+    const total = txs.length;
+    const LABELS: Record<string, string> = { PIX: 'Pix', CREDIT_CARD: 'Crédito', DEBIT_CARD: 'Débito' };
+    const items = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD']
+      .map((codigo) => {
+        const entry = mapCount.get(codigo) ?? { count: 0, total: 0 };
+        return {
+          codigo,
+          nome: LABELS[codigo],
+          quantidade: entry.count,
+          valor: Number(entry.total.toFixed(2)),
+          percentual: total > 0 ? Number(((entry.count / total) * 100).toFixed(2)) : 0,
+        };
+      })
+      .filter((row) => row.quantidade > 0)
+      .sort((a, b) => b.quantidade - a.quantidade);
+
+    return { total, items };
+  }
+
   @Get('plataformas/:tag/transacoes')
   @ApiOperation({ summary: 'Listar transações de uma plataforma (por tag)' })
   @ApiQuery({ name: 'page', required: false })
@@ -4181,10 +4552,98 @@ export class AdminController {
     const upperTag = normalizePlatformTag(tag);
     const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
+    if (upperTag === 'COMUNIDADE') {
+      const pageNum = Math.max(1, Number(page));
+      const size = Math.min(Math.max(1, Number(pageSize)), 100);
+
+      const bindings = await this.prisma.communityLinkBinding.findMany({
+        where: { subscriptionLinkId: { not: null } },
+        select: { subscriptionLinkId: true },
+        distinct: ['subscriptionLinkId'],
+      });
+      const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
+      if (linkIds.length === 0) return { data: [], page: pageNum, pageSize: size, total: 0 };
+
+      const slWhere: any = { subscriptionLinkId: { in: linkIds }, status: 'paid' };
+
+      if (status) {
+        const upper = status.toUpperCase();
+        const statusMap: Record<string, string> = {
+          PENDENTE: 'PENDING', COMPLETADA: 'paid', FALHADA: 'FAILED',
+          REEMBOLSADA: 'REFUNDED', EXPIRADA: 'EXPIRED',
+          APROVADA: 'paid', COMPLETADA2: 'paid', COMPLETED: 'paid',
+        };
+        const mapped = statusMap[upper] ?? upper.toLowerCase();
+        slWhere.status = mapped;
+      }
+
+      if (codigoTransacao) slWhere.id = codigoTransacao;
+      if (compradorNome) slWhere.customerName = { contains: compradorNome, mode: 'insensitive' };
+      if (compradorDocumento) slWhere.customerDocument = { contains: compradorDocumento.replace(/\D/g, '') };
+      if (compradorEmail) slWhere.customerEmail = { contains: compradorEmail, mode: 'insensitive' };
+
+      const dateFilter: any = {};
+      if (dataInicio) {
+        const d = dayjs.tz(`${dataInicio} 00:00:00`, TZ);
+        if (d.isValid()) dateFilter.gte = d.toDate();
+      }
+      if (dataFim) {
+        const d = dayjs.tz(`${dataFim} 23:59:59`, TZ);
+        if (d.isValid()) dateFilter.lte = d.toDate();
+      }
+      if (Object.keys(dateFilter).length > 0) slWhere.createdAt = dateFilter;
+
+      const total = await this.prisma.subscriptionLinkOrder.count({ where: slWhere });
+      const orders = await this.prisma.subscriptionLinkOrder.findMany({
+        where: slWhere,
+        orderBy: { createdAt: 'desc' },
+        skip: (pageNum - 1) * size,
+        take: size,
+        include: { subscriptionLink: { select: { name: true, userId: true } } },
+      });
+
+      const liquidityFactor = getPlatformTaxaEffective('COMUNIDADE', 'LIQUIDEZ', 0.91);
+      const fixedFee = getPlatformTaxaEffective('COMUNIDADE', 'TAXA_FIXA_TRANSACAO', 0.0);
+      const adminMargin = 1 - liquidityFactor;
+
+      const data = orders.map((o) => {
+        const valorBruto = Number(o.amountCharged);
+        const pf = Number(o.platformFeeAmount);
+        const valorLiquido = valorBruto - pf;
+        const lucroAdmin = Number((valorBruto * adminMargin - fixedFee).toFixed(2));
+        return {
+          id: `comunidade_order_${o.id}`,
+          valorBruto,
+          valorLiquido,
+          lucroAdmin,
+          calculos: {
+            valorLiquido: `Salvo no BD: R$ ${valorLiquido.toFixed(2)}`,
+            lucroAdmin: `Bruto(${valorBruto.toFixed(2)}) - Líquido(${valorLiquido.toFixed(2)}) = ${(valorBruto - valorLiquido).toFixed(2)}`,
+          },
+          status: 'COMPLETED',
+          metodoPagamento: o.paymentMethod,
+          descricao: `${o.subscriptionLink.name} [TENANT:COMUNIDADE]`,
+          cliente: {
+            nome: o.customerName ?? null,
+            email: o.customerEmail ?? null,
+            documento: o.customerDocument ?? null,
+          },
+          taxas: { total: pf, dom: 0, plataforma: pf },
+          criadoEm: o.createdAt,
+          atualizadoEm: o.updatedAt,
+        };
+      });
+
+      return { data, page: pageNum, pageSize: size, total };
+    }
+
     let userIds: string[] = [];
 
     if (upperTag === 'RENOVADA') {
       userIds = [RENOVADA_ID];
+    } else if (upperTag === 'REVALIDA') {
+      const rid = process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
+      userIds = [rid];
     } else if (upperTag === 'EBOOK') {
       const users = await this.prisma.user.findMany({
         where: {
@@ -4197,7 +4656,7 @@ export class AdminController {
       });
       userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
     } else if (upperTag === 'ATLAS') {
-      const aid = await resolveAtlasConsolidadoUserId(this.prisma);
+      const aid = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
       userIds = aid ? [aid] : [];
     } else if (upperTag === 'BOSQUE') {
       const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
@@ -4237,6 +4696,7 @@ export class AdminController {
               { userId: { in: userIds } },
               { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
               { description: { contains: 'bosque', mode: 'insensitive' } },
+              { description: { contains: 'ibb', mode: 'insensitive' } },
             ],
           }
           : {

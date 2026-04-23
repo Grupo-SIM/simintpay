@@ -627,4 +627,30 @@ export class CheckoutController {
       } : null,
     };
   }
+
+  @Get('public/cc-rates/:tag')
+  @ApiOperation({ summary: 'Taxas de checkout para o comprador e vendedor de uma plataforma (público)' })
+  getCcRates(@Param('tag') tag: string) {
+    const fb = (k: PlataformaTaxaKey) => PLATFORM_TAXA_DEFAULTS[k] ?? 0;
+
+    // Taxa total que o comprador paga no cartão 1x: DOM (MDR_CC_1X) + plataforma (MDR_CC_MASTER_1X)
+    const domCcRate    = getPlatformTaxaEffective(tag, 'MDR_CC_1X',        fb('MDR_CC_1X'));
+    const masterCcRate = getPlatformTaxaEffective(tag, 'MDR_CC_MASTER_1X', fb('MDR_CC_MASTER_1X'));
+    const buyerCcRate  = domCcRate + masterCcRate;
+
+    // Taxas que o vendedor paga à plataforma por transação
+    const vendorCcPercent  = getPlatformTaxaEffective(tag, 'TAXA_LINK_PERCENT', fb('TAXA_LINK_PERCENT'));
+    const vendorCcFixed    = getPlatformTaxaEffective(tag, 'TAXA_LINK_FIXA',    fb('TAXA_LINK_FIXA'));
+    const vendorPixPercent = getPlatformTaxaEffective(tag, 'LIQUIDEZ',          fb('LIQUIDEZ'));
+
+    return {
+      tag: tag.toUpperCase(),
+      domCcRate,
+      masterCcRate,
+      buyerCcRate,
+      vendorCcPercent,
+      vendorCcFixed,
+      vendorPixPercent,
+    };
+  }
 }

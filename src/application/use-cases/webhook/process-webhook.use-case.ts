@@ -9,7 +9,7 @@ import { PixPlanService } from '../pix-plan/pix-plan.service';
 import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
-import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
+import { TENANT_AREAFLIX_TAG, TENANT_COMUNIDADE_TAG } from '../../utils/internal-tags.util';
 
 import type { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
 import type { IWebhookEventRepository } from '../../../core/repositories/webhook-event.repository.interface';
@@ -481,6 +481,39 @@ export class ProcessWebhookUseCase {
             customerPhone: order.customerPhone ?? undefined,
           },
         });
+      }
+    } else if (order.domPixPaymentId) {
+      const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
+        where: { subscriptionLinkId: order.subscriptionLinkId },
+        select: { id: true },
+      });
+      if (hasCommunity) {
+        const exists = await this.prisma.transaction.findFirst({
+          where: { domPaymentId: order.domPixPaymentId },
+          select: { id: true },
+        });
+        if (!exists) {
+          const gross = Number(order.amountCharged);
+          const pf = Number(order.platformFeeAmount);
+          await this.prisma.transaction.create({
+            data: {
+              userId: order.userId,
+              amount: gross,
+              netAmount: gross - pf,
+              status: TransactionStatus.COMPLETED,
+              paymentMethod: PaymentMethod.PIX,
+              totalFee: 0,
+              domFee: 0,
+              platformFee: pf,
+              description: `${order.subscriptionLink.name} ${TENANT_COMUNIDADE_TAG} subOrder=${order.id}`,
+              domPaymentId: order.domPixPaymentId,
+              customerName: order.customerName,
+              customerEmail: order.customerEmail,
+              customerDocument: order.customerDocument,
+              customerPhone: order.customerPhone ?? undefined,
+            },
+          });
+        }
       }
     }
 

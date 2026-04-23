@@ -14,6 +14,7 @@ import {
   ORIGEM_MAQUINETA_TAG,
   TENANT_AREAFLIX_TAG,
   TENANT_BOSQUE_TAG,
+  TENANT_COMUNIDADE_TAG,
   TENANT_EBOOK_TAG,
   TENANT_RENOVADA_TAG,
 } from '../../utils/internal-tags.util';
@@ -1149,6 +1150,39 @@ export class ProcessDomWebhookUseCase {
             customerPhone: order.customerPhone ?? undefined,
           },
         });
+      }
+    } else if (order.domPixPaymentId) {
+      const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
+        where: { subscriptionLinkId: order.subscriptionLinkId },
+        select: { id: true },
+      });
+      if (hasCommunity) {
+        const exists = await this.prisma.transaction.findFirst({
+          where: { domPaymentId: order.domPixPaymentId },
+          select: { id: true },
+        });
+        if (!exists) {
+          const gross = Number(order.amountCharged);
+          const pf = Number(order.platformFeeAmount);
+          await this.prisma.transaction.create({
+            data: {
+              userId: order.userId,
+              amount: gross,
+              netAmount: gross - pf,
+              status: TransactionStatus.COMPLETED,
+              paymentMethod: PaymentMethod.PIX,
+              totalFee: 0,
+              domFee: 0,
+              platformFee: pf,
+              description: `${order.subscriptionLink.name} ${TENANT_COMUNIDADE_TAG} subOrder=${order.id}`,
+              domPaymentId: order.domPixPaymentId,
+              customerName: order.customerName,
+              customerEmail: order.customerEmail,
+              customerDocument: order.customerDocument,
+              customerPhone: order.customerPhone ?? undefined,
+            },
+          });
+        }
       }
     }
 
