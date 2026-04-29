@@ -53,15 +53,21 @@ export class SyncDomWithdrawalsUseCase {
     return WithdrawStatus.PENDING;
   }
 
-  async execute(input: { userId: string }): Promise<{ created: number; updated: number; total: number }> {
+  async execute(input: { userId: string; domToken?: string }): Promise<{ created: number; updated: number; total: number }> {
     const user = await this.users.findById(input.userId);
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // 1. Prioridade: Token individual do usuário
-    let domToken = (user as any).domToken;
-    let source = 'Individual';
+    // 1. Prioridade: Token passado diretamente no input
+    let domToken = input.domToken;
+    let source = 'Input direto';
 
-    // 2. Fallback: Token do Módulo (Revalida, Renovada, etc)
+    // 2. Token individual do usuário
+    if (!domToken) {
+      domToken = (user as any).domToken;
+      source = 'Individual';
+    }
+
+    // 3. Fallback: Token do Módulo (Revalida, Renovada, etc)
     if (!domToken && (user as any).tenantModuleId) {
       const module = await this.prisma.tenantModule.findUnique({
         where: { id: (user as any).tenantModuleId },
@@ -73,7 +79,7 @@ export class SyncDomWithdrawalsUseCase {
       }
     }
 
-    // 3. Fallback Master (Para o admin principal)
+    // 4. Fallback Master
     if (!domToken) {
        domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
        source = 'Master/BFF';

@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsNumber, IsString, Min } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CheckoutCreditCardDto {
   @IsNumber()
@@ -21,9 +21,11 @@ export class CheckoutCreditCardDto {
   @IsNotEmpty()
   name: string;
 
+  @IsOptional()
   @IsString()
   mobile_phone?: string;
 
+  @IsOptional()
   @IsString()
   description?: string;
 
@@ -47,6 +49,7 @@ export class CheckoutCreditCardDto {
   @Min(1)
   installments: number;
 
+  @IsOptional()
   @IsString()
   store?: string;
 }

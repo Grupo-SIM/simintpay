@@ -13,6 +13,8 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { PAYMENT_GATEWAY, type DomTransactionItem, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
 import { EbookSimConfig } from '../../modules/ebooksim/ebooksim.config';
 import { calculateSellerNetValue } from '../../application/helpers/transaction-fee.helper';
+import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
@@ -77,13 +79,13 @@ export class InternalEbookFinanceController {
       return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0 };
     }
 
-    const txCompleted = await this.prisma.transaction.aggregate({
+    const txCompleted = await this.prisma.transaction.findMany({
       where: {
         userId: { in: userIds },
         status: 'COMPLETED',
         description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' },
       },
-      _sum: { netAmount: true, amount: true },
+      select: { netAmount: true, amount: true },
     });
 
     const wdCompleted = await this.prisma.withdrawRequest.aggregate({
@@ -96,13 +98,19 @@ export class InternalEbookFinanceController {
       _sum: { amount: true, grossAmount: true },
     });
 
-    const totalReceived = Number(txCompleted._sum.netAmount ?? txCompleted._sum.amount ?? 0);
+    const taxaFixaSummary = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const taxaCashbackSummary = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const taxaServicoSummary = taxaFixaSummary + taxaCashbackSummary;
+    const totalReceived = txCompleted.reduce((sum, tx) => {
+      const net = Number(tx.netAmount ?? tx.amount ?? 0);
+      return sum + net - taxaServicoSummary;
+    }, 0);
     const totalCompletedWithdraw = Number(wdCompleted._sum.grossAmount ?? wdCompleted._sum.amount ?? 0);
     const pendingAmount = Number(wdPending._sum.amount ?? 0);
     const pendingGross = Number(wdPending._sum.grossAmount ?? pendingAmount);
 
     return {
-      availableBalance: Math.max(0, Number((totalReceived - totalCompletedWithdraw - pendingGross).toFixed(2))),
+      availableBalance: Number((totalReceived - totalCompletedWithdraw - pendingGross).toFixed(2)),
       pendingWithdraws: Number(pendingAmount.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
       minimumWithdrawalAmount: EbookSimConfig.saque.minValor,
@@ -225,6 +233,11 @@ export class InternalEbookFinanceController {
           email = best.customer_email ?? email;
         }
 
+        const taxaFixa = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+        const taxaCashback = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+        const netBase = Number(t.netAmount ?? t.amount);
+        const taxaServico = taxaFixa + taxaCashback;
+
         return {
           id: t.id,
           userId: t.userId,
@@ -237,7 +250,9 @@ export class InternalEbookFinanceController {
           fee: Number(t.platformFee ?? 0),
           dom_fee: Number(t.domFee ?? 0),
           payment_method: t.paymentMethod,
-          amountWithoutAllFee: Number(t.netAmount ?? t.amount),
+          taxa_fixa_transacao: Number(taxaFixa.toFixed(2)),
+          taxa_cashback: Number(taxaCashback.toFixed(2)),
+          amountWithoutAllFee: Number((netBase - taxaServico).toFixed(2)),
           walletId: null,
           createdAt: t.createdAt,
           paymentId: t.domPaymentId ?? t.domTransactionId ?? null,
@@ -412,10 +427,12 @@ export class InternalEbookFinanceController {
         fee: parseFloat(taxaSaque.toFixed(2)),
         status: 'PENDING',
         pixKey: body.pixKey.trim(),
+        platform: 'ebook',
       },
     });
 
     return { success: true, id: created.id };
   }
+
 }
 

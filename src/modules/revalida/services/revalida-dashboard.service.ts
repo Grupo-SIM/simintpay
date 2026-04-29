@@ -6,6 +6,8 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import 'dayjs/locale/pt-br';
 import { RevalidaConfig } from '../revalida.config';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -172,6 +174,10 @@ export class RevalidaDashboardService {
       this.prisma.transaction.count({ where: { userId } }),
     ]);
 
+    const taxaFixa = getPlatformTaxaEffective('REVALIDA', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const taxaCashback = getPlatformTaxaEffective('REVALIDA', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const taxaServico = taxaFixa + taxaCashback;
+
     return {
       data: transactions.map(tx => ({
         id: tx.id,
@@ -180,7 +186,7 @@ export class RevalidaDashboardService {
         description: tx.description ?? '—',
         createdAt: tx.createdAt,
         valor_transacao_cheia: Number(tx.amount),
-        valor_liquido: Number(tx.netAmount ?? 0),
+        valor_liquido: Number((Number(tx.netAmount ?? 0) - taxaServico).toFixed(2)),
         paymentMethod: tx.paymentMethod,
         installments: tx.installments,
       })),

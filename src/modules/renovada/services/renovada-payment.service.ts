@@ -118,17 +118,10 @@ export class RenovadaPaymentService {
 
       const price = body.price;
 
-      // Calcular taxas via configuração da plataforma
       const liquidez = RenovadaConfig.saque.fatorLiquidez;
       const mdrPix = RenovadaConfig.mdr.pix;
-      const taxaFixa = RenovadaConfig.mdr.taxaFixaPorTransacao;
-      const cashbackRate = RenovadaConfig.mdr.taxaCashback ?? 0;
 
-      const calcLiquidez = price * liquidez;
-      const calcCashback = price * (cashbackRate / 100);
-      let amountWithoutAllFee = parseFloat((calcLiquidez - taxaFixa - calcCashback).toFixed(2));
-      if (amountWithoutAllFee < 0) amountWithoutAllFee = 0;
-
+      const amountWithoutAllFee = parseFloat((price * liquidez).toFixed(2));
       const totalFees = parseFloat((price - amountWithoutAllFee).toFixed(2));
       const domFee = parseFloat((price * mdrPix).toFixed(2));
       const platformFeeCalc = parseFloat((totalFees - domFee).toFixed(2));
@@ -278,13 +271,8 @@ export class RenovadaPaymentService {
       // DOM fee via configuração da plataforma
       const liquidezCC = RenovadaConfig.saque.fatorLiquidez;
       const mdrCC = RenovadaConfig.mdr.cartao[body.installments] ?? RenovadaConfig.mdr.cartao[1];
-      const taxaFixa = RenovadaConfig.mdr.taxaFixaPorTransacao;
-      const cashbackRate = RenovadaConfig.mdr.taxaCashback ?? 0;
 
-      const calcLiquidezCC = price * liquidezCC;
-      const calcCashbackCC = price * (cashbackRate / 100);
-      let amountWithoutAllFee = parseFloat((calcLiquidezCC - taxaFixa - calcCashbackCC).toFixed(2));
-      if (amountWithoutAllFee < 0) amountWithoutAllFee = 0;
+      const amountWithoutAllFee = parseFloat((price * liquidezCC).toFixed(2));
 
       const totalFeesFinal = parseFloat((price - amountWithoutAllFee).toFixed(2));
       const domFee = parseFloat((price * mdrCC).toFixed(2));

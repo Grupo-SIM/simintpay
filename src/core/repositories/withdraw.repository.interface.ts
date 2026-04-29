@@ -22,6 +22,7 @@ export interface IWithdrawRepository {
     fee: number;
     pixKey: string;
     domWithdrawId?: string | null;
+    platform?: string | null;
     amountToLock: number;
     currentWalletVersion: number;
   }): Promise<WithdrawRequest>;

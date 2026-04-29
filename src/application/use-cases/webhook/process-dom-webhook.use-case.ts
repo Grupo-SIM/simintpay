@@ -280,9 +280,20 @@ export class ProcessDomWebhookUseCase {
       if (existing.status === nextStatus) return;
 
       const isRenovada = existing.userId === RENOVADA_USER_ID;
-      // Renovada: wallet.balance é gross → delta = amountDec (bruto)
-      // Outros: wallet.balance = netBalance → delta = netDec
-      const delta = isRenovada ? amountDec : amountDec.mul(this.getLiquidezFactor(existing.userId));
+      const isBosque = existing.userId === BOSQUE_USER_ID;
+      // Renovada/Bosque: wallet.balance é gross → delta = amountDec (bruto)
+      // Outros: wallet.balance = netAmount - taxaFixa - taxaCashback (pode ser negativo)
+      let delta: Prisma.Decimal;
+      if (isRenovada || isBosque) {
+        delta = amountDec;
+      } else {
+        const netAmountDec = existing.netAmount != null
+          ? new Prisma.Decimal(existing.netAmount.toString())
+          : amountDec;
+        const taxaFixa = getPlatformTaxaEffective('GLOBAL', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+        const taxaCashback = getPlatformTaxaEffective('GLOBAL', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+        delta = netAmountDec.sub(taxaFixa + taxaCashback);
+      }
 
       await this.prisma.$transaction(async (p) => {
         await p.transaction.update({
@@ -757,9 +768,12 @@ export class ProcessDomWebhookUseCase {
               updatedAt: new Date(),
             },
           });
+          const taxaFixaPending = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+          const taxaCashbackPending = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+          const walletDeltaPending = netDec.sub(taxaFixaPending + taxaCashbackPending);
           await p.wallet.update({
             where: { userId: pendingTx.userId },
-            data: { balance: { increment: netDec }, updatedAt: new Date() },
+            data: { balance: { increment: walletDeltaPending }, updatedAt: new Date() },
           });
         });
         return;
@@ -854,10 +868,13 @@ export class ProcessDomWebhookUseCase {
         });
 
         // Atualizar saldo da wallet do usuário ebook
+        const taxaFixaEbook = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+        const taxaCashbackEbook = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+        const walletDeltaEbook = netDec.sub(taxaFixaEbook + taxaCashbackEbook);
         for (let attempt = 0; attempt < 3; attempt++) {
           const wallet = await p.wallet.findUnique({ where: { userId: ebookUserId } });
           if (!wallet) break;
-          const newBalance = wallet.balance.add(netDec);
+          const newBalance = wallet.balance.add(walletDeltaEbook);
           const updated = await p.wallet.updateMany({
             where: { id: wallet.id, version: wallet.version },
             data: { balance: newBalance, version: { increment: 1 } },
@@ -868,7 +885,7 @@ export class ProcessDomWebhookUseCase {
                 userId: ebookUserId,
                 action: 'DOM_WEBHOOK_COMPLETED',
                 transactionId: tx.id,
-                amount: netDec,
+                amount: walletDeltaEbook.abs(),
                 balanceBefore: wallet.balance,
                 balanceAfter: newBalance,
                 lockedBefore: wallet.lockedBalance,

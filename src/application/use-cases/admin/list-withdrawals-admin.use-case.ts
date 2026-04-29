@@ -32,21 +32,33 @@ export class ListWithdrawalsAdminUseCase {
   }) {
     const skip = (input.page - 1) * input.pageSize;
 
+    // Each OR group is collected separately to avoid key collision when spreading
+    const andConditions: object[] = [];
+
+    if (input.moduleSlug) {
+      // Match pelo campo platform gravado na criação, ou fallback para tenantModule do usuário
+      andConditions.push({
+        OR: [
+          { platform: { equals: input.moduleSlug, mode: 'insensitive' as const } },
+          { user: { tenantModule: { slug: { equals: input.moduleSlug, mode: 'insensitive' as const } } } },
+        ],
+      });
+    }
+
+    if (input.search) {
+      andConditions.push({
+        OR: [
+          { id: { contains: input.search, mode: 'insensitive' as const } },
+          { user: { name: { contains: input.search, mode: 'insensitive' as const } } },
+          { user: { email: { contains: input.search, mode: 'insensitive' as const } } },
+        ],
+      });
+    }
+
     const where = {
       ...(input.status ? { status: input.status } : {}),
       ...(input.userId ? { userId: input.userId } : {}),
-      ...(input.moduleSlug
-        ? { user: { tenantModule: { slug: input.moduleSlug } } }
-        : {}),
-      ...(input.search
-        ? {
-            OR: [
-              { id: { contains: input.search, mode: 'insensitive' as const } },
-              { user: { name: { contains: input.search, mode: 'insensitive' as const } } },
-              { user: { email: { contains: input.search, mode: 'insensitive' as const } } },
-            ],
-          }
-        : {}),
+      ...(andConditions.length > 0 ? { AND: andConditions } : {}),
     };
 
     const [items, total] = await Promise.all([
@@ -75,8 +87,8 @@ export class ListWithdrawalsAdminUseCase {
     return {
       data: items.map((w) => ({
         id: w.id,
-        valor: Number(w.grossAmount), // Valor Bruto (Total deduzido)
-        valorLiquido: Number(w.amount), // Valor Líquido (Recebido)
+        valor: Number(w.grossAmount),
+        valorLiquido: Number(w.amount),
         status: mapWithdrawStatusToPt(w.status),
         metodo: 'PIX',
         descricao: 'Saque SimPay',
@@ -90,12 +102,19 @@ export class ListWithdrawalsAdminUseCase {
           id: w.user.id,
           nome: w.user.name,
           email: w.user.email,
-          modulo: w.user.tenantModule
-            ? { nome: w.user.tenantModule.name, slug: w.user.tenantModule.slug }
-            : null,
+          modulo: (() => {
+            // Prioridade: campo platform gravado na criação > tenantModule do usuário
+            if (w.platform) {
+              return { nome: w.platform, slug: w.platform.toLowerCase() };
+            }
+            if (w.user.tenantModule) {
+              return { nome: w.user.tenantModule.name, slug: w.user.tenantModule.slug };
+            }
+            return null;
+          })(),
           saldoAtual: (() => {
             const slug = w.user.tenantModule?.slug?.toLowerCase();
-            const extUser = slug 
+            const extUser = slug
               ? w.user.externalPlatformUsers.find(u => u.platform.toLowerCase() === slug)
               : w.user.externalPlatformUsers[0];
             return Number(extUser?.wallet?.balance ?? 0);

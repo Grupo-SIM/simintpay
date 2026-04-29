@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsNumber, IsString, Min } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CheckoutPixDto {
   @IsNumber()
@@ -21,12 +21,15 @@ export class CheckoutPixDto {
   @IsNotEmpty()
   name: string;
 
+  @IsOptional()
   @IsString()
   mobile_phone?: string;
 
+  @IsOptional()
   @IsString()
   description?: string;
 
+  @IsOptional()
   @IsString()
   store?: string;
 }

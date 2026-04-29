@@ -19,7 +19,7 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { LeadStatus, Prisma, Role, TransactionStatus, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import dayjs from 'dayjs';
@@ -61,6 +61,7 @@ import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-tran
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 import { getModuleConfig } from '../../modules/module.registry';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
+import { SyncWithdrawalsDto } from '../../application/dtos/admin/sync-withdrawals.dto';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import { RevalidaSyncService } from '../../modules/revalida/services/revalida-sync.service';
 import { HASH_SERVICE, type IHashService } from '../../core/services/hash.interface';
@@ -849,6 +850,9 @@ function buildLucroSimpayDetalhePorPlataforma(
   };
 }
 
+/** Plataformas cujo "repasse" não vai a lojista externo — o valor fica com a Simintpay. */
+const SEM_REPASSE_TAGS = new Set(['ATLAS', 'AREAFLIX', 'COMUNIDADE']);
+
 /** Lucro Simpay de uma transação (mesma fórmula que buildLucroSimpayDetalhePorPlataforma). */
 function lucroSimpayUmaTransacaoConsolidado(
   tx: {
@@ -1363,20 +1367,105 @@ export class AdminController {
     return { data: result };
   }
 
+  @Get('usuarios/export')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Exporta leads como JSON para geração de CSV no frontend' })
+  @ApiQuery({ name: 'platform', required: false })
+  @ApiQuery({ name: 'period', required: false, description: 'mensal | trimestral | semestral | anual' })
+  async exportExternalUsers(
+    @Query('platform') platform?: string,
+    @Query('period') period?: string,
+  ) {
+    const now = new Date();
+    let dateFrom: Date | undefined;
+    if (period === 'mensal')     dateFrom = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    if (period === 'trimestral') dateFrom = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+    if (period === 'semestral')  dateFrom = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+    if (period === 'anual')      dateFrom = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+
+    const where: any = { isDeleted: false };
+    if (platform) where.platform = platform;
+    if (dateFrom) where.createdAt = { gte: dateFrom };
+
+    const items = await this.prisma.externalPlatformUser.findMany({
+      where,
+      include: {
+        wallet: true,
+        user: { select: { id: true, email: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const sellerUserIds = items.filter((u) => u.userId && u.platform.toUpperCase() !== 'AREAFLIX').map((u) => u.userId!);
+    const areaflixEmails = items.filter((u) => u.platform.toUpperCase() === 'AREAFLIX' && u.user?.email).map((u) => u.user!.email);
+
+    const [activeTxUserIds, activeAreaflixEmails] = await Promise.all([
+      sellerUserIds.length > 0
+        ? this.prisma.transaction.findMany({
+            where: { userId: { in: sellerUserIds }, status: TransactionStatus.COMPLETED, createdAt: { gte: startOfMonth } },
+            select: { userId: true }, distinct: ['userId'],
+          }).then((rows) => new Set(rows.map((r) => r.userId)))
+        : Promise.resolve(new Set<string>()),
+      areaflixEmails.length > 0
+        ? this.prisma.subscriptionLink.findMany({
+            where: { webhookUrl: { contains: 'areaflix', mode: 'insensitive' } }, select: { id: true },
+          }).then((links) => {
+            const ids = links.map((l) => l.id);
+            if (ids.length === 0) return new Set<string>();
+            return this.prisma.subscriptionLinkOrder.findMany({
+              where: { subscriptionLinkId: { in: ids }, customerEmail: { in: areaflixEmails }, status: { in: ['paid', 'active', 'approved'] } },
+              select: { customerEmail: true }, distinct: ['customerEmail'],
+            }).then((rows) => new Set(rows.map((r) => r.customerEmail)));
+          })
+        : Promise.resolve(new Set<string>()),
+    ]);
+
+    return items.map((u) => {
+      let isAtivo: boolean | null = null;
+      if (u.platform.toUpperCase() === 'AREAFLIX') {
+        if (u.user?.email) isAtivo = activeAreaflixEmails.has(u.user.email);
+      } else {
+        if (u.userId) isAtivo = activeTxUserIds.has(u.userId);
+      }
+      return {
+        nome: u.user?.name?.trim() || u.name,
+        cpf: u.cpf,
+        plataforma: u.platform,
+        saldo: Number(u.wallet?.balance ?? 0),
+        saldoBloqueado: Number(u.wallet?.lockedBalance ?? 0),
+        vinculado: !!u.userId,
+        status: isAtivo === null ? 'Não determinado' : isAtivo ? 'Ativo' : 'Inativo',
+        email: u.user?.email ?? '',
+        cadastro: u.createdAt.toISOString().split('T')[0],
+      };
+    });
+  }
+
   @Get('usuarios')
   @ApiOperation({ summary: 'Lista usuários externos por plataforma com saldo líquido' })
   @ApiQuery({ name: 'platform', required: false })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, example: 20 })
+  @ApiQuery({ name: 'deleted', required: false, description: 'true = contas excluídas' })
   async listExternalUsers(
     @Query('platform') platform?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    @Query('deleted') deleted?: string,
   ) {
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
+    const showDeleted = deleted === 'true';
 
-    const where = platform ? { platform } : {};
+    const where = {
+      ...(platform ? { platform } : {}),
+      isDeleted: showDeleted,
+    };
 
     const [total, items] = await Promise.all([
       this.prisma.externalPlatformUser.count({ where }),
@@ -1392,25 +1481,221 @@ export class AdminController {
       }),
     ]);
 
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    // IDs de usuários Simintpay vinculados (plataformas vendedor)
+    const sellerUserIds = items
+      .filter((u) => u.userId && u.platform.toUpperCase() !== 'AREAFLIX')
+      .map((u) => u.userId!);
+
+    // Emails de leads Areaflix vinculados (plataforma de subscrição)
+    const areaflixEmails = items
+      .filter((u) => u.platform.toUpperCase() === 'AREAFLIX' && u.user?.email)
+      .map((u) => u.user!.email);
+
+    // Consultas de atividade em paralelo
+    const [activeTxUserIds, activeAreaflixEmails] = await Promise.all([
+      sellerUserIds.length > 0
+        ? this.prisma.transaction
+            .findMany({
+              where: {
+                userId: { in: sellerUserIds },
+                status: TransactionStatus.COMPLETED,
+                createdAt: { gte: startOfMonth },
+              },
+              select: { userId: true },
+              distinct: ['userId'],
+            })
+            .then((rows) => new Set(rows.map((r) => r.userId)))
+        : Promise.resolve(new Set<string>()),
+
+      areaflixEmails.length > 0
+        ? this.prisma.subscriptionLink
+            .findMany({
+              where: { webhookUrl: { contains: 'areaflix', mode: 'insensitive' } },
+              select: { id: true },
+            })
+            .then((links) => {
+              const ids = links.map((l) => l.id);
+              if (ids.length === 0) return new Set<string>();
+              return this.prisma.subscriptionLinkOrder
+                .findMany({
+                  where: {
+                    subscriptionLinkId: { in: ids },
+                    customerEmail: { in: areaflixEmails },
+                    status: { in: ['paid', 'active', 'approved'] },
+                  },
+                  select: { customerEmail: true },
+                  distinct: ['customerEmail'],
+                })
+                .then((rows) => new Set(rows.map((r) => r.customerEmail)));
+            })
+        : Promise.resolve(new Set<string>()),
+    ]);
+
     return {
-      data: items.map((u) => ({
-        id: u.id,
-        cpf: u.cpf,
-        name: u.user?.name?.trim() || u.name,
-        platform: u.platform,
-        balance: Number(u.wallet?.balance ?? 0),
-        lockedBalance: Number(u.wallet?.lockedBalance ?? 0),
-        vinculado: !!u.userId,
-        simpayUser: u.user
-          ? { id: u.user.id, name: u.user.name, email: u.user.email }
-          : null,
-        createdAt: u.createdAt,
-        updatedAt: u.updatedAt,
-      })),
+      data: items.map((u) => {
+        let isAtivo: boolean | null = null;
+        if (u.platform.toUpperCase() === 'AREAFLIX') {
+          if (u.user?.email) isAtivo = activeAreaflixEmails.has(u.user.email);
+        } else {
+          if (u.userId) isAtivo = activeTxUserIds.has(u.userId);
+        }
+        return {
+          id: u.id,
+          cpf: u.cpf,
+          name: u.user?.name?.trim() || u.name,
+          platform: u.platform,
+          balance: Number(u.wallet?.balance ?? 0),
+          lockedBalance: Number(u.wallet?.lockedBalance ?? 0),
+          vinculado: !!u.userId,
+          isAtivo,
+          isDeleted: u.isDeleted,
+          deletedAt: u.deletedAt,
+          simpayUser: u.user
+            ? { id: u.user.id, name: u.user.name, email: u.user.email }
+            : null,
+          createdAt: u.createdAt,
+          updatedAt: u.updatedAt,
+        };
+      }),
       total,
       page: pageNum,
       pageSize: size,
     };
+  }
+
+  @Patch('usuarios/:id')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Edita dados de um usuário externo e propaga para a plataforma de origem' })
+  async updateExternalUser(
+    @Param('id') id: string,
+    @Body() body: { name?: string; cpf?: string; email?: string },
+    @CurrentUser() authUser?: JwtPayload,
+  ) {
+    if (authUser?.sub) {
+      const requester = await this.prisma.user.findUnique({
+        where: { id: authUser.sub },
+        include: { tenantModule: true },
+      });
+      if (!requester || !isMasterAdminUser(requester)) {
+        throw new ForbiddenException('Somente admin master pode editar leads');
+      }
+    }
+
+    const externalUser = await this.prisma.externalPlatformUser.findUnique({
+      where: { id },
+      include: { user: { select: { id: true, email: true } } },
+    });
+    if (!externalUser) throw new NotFoundException('Usuário não encontrado');
+
+    const oldCpf = externalUser.cpf;
+    const oldEmail = externalUser.user?.email;
+
+    // Atualiza ExternalPlatformUser na api-machine
+    const extData: Record<string, any> = {};
+    if (body.name?.trim()) extData.name = body.name.trim();
+    if (body.cpf) extData.cpf = body.cpf.replace(/\D/g, '');
+    if (Object.keys(extData).length > 0) {
+      await this.prisma.externalPlatformUser.update({ where: { id }, data: extData });
+    }
+
+    // CPF mudou → atualiza também no User vinculado para manter o vínculo íntegro
+    if (body.cpf && externalUser.userId) {
+      const newCpfClean = body.cpf.replace(/\D/g, '');
+      await this.prisma.user.update({
+        where: { id: externalUser.userId },
+        data: { cpf: newCpfClean },
+      });
+    }
+
+    // Edição é restrita ao Simintpay — nenhuma alteração é propagada para a plataforma de origem
+
+    return { success: true };
+  }
+
+  @Delete('usuarios/:id')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Soft-delete de usuário externo — move para contas excluídas e desativa em todas as plataformas' })
+  async deleteExternalUser(
+    @Param('id') id: string,
+    @CurrentUser() authUser?: JwtPayload,
+  ) {
+    if (authUser?.sub) {
+      const requester = await this.prisma.user.findUnique({
+        where: { id: authUser.sub },
+        include: { tenantModule: true },
+      });
+      if (!requester || !isMasterAdminUser(requester)) {
+        throw new ForbiddenException('Somente admin master pode excluir contas');
+      }
+    }
+
+    const externalUser = await this.prisma.externalPlatformUser.findUnique({
+      where: { id },
+      include: { user: { select: { id: true, email: true } } },
+    });
+    if (!externalUser) throw new NotFoundException('Usuário não encontrado');
+    if (externalUser.isDeleted) throw new BadRequestException('Conta já foi excluída');
+
+    await this.prisma.externalPlatformUser.update({
+      where: { id },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
+
+    if (externalUser.userId) {
+      await this.prisma.user.update({
+        where: { id: externalUser.userId },
+        data: { isActive: false },
+      });
+    }
+
+    // Desativa em plataformas externas (falhas não bloqueiam a operação)
+    const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    const headers = { 'x-internal-token': internalToken, 'Content-Type': 'application/json' };
+    const platform = externalUser.platform.toUpperCase();
+    const cpf = externalUser.cpf;
+    const email = externalUser.user?.email;
+
+    const calls: Promise<any>[] = [];
+
+    if (platform === 'EBOOK' || platform === 'EBOOKSIM') {
+      const url = String(process.env.BACK_EBOOK_URL ?? '').replace(/\/+$/, '');
+      if (url) calls.push(
+        fetch(`${url}/internal/users/deactivate`, { method: 'POST', headers, body: JSON.stringify({ cpf }) }).catch(() => null),
+      );
+    }
+
+    if (platform === 'PAGATG') {
+      const url = String(process.env.API_PAGATG_URL ?? '').replace(/\/+$/, '');
+      if (url) calls.push(
+        fetch(`${url}/internal/users/deactivate`, { method: 'POST', headers, body: JSON.stringify({ cpf }) }).catch(() => null),
+      );
+    }
+
+    if (platform === 'AREAFLIX' && email) {
+      const url = String(process.env.AREAFLIX_BACK_URL ?? '').replace(/\/+$/, '');
+      if (url) calls.push(
+        fetch(`${url}/internal/users/deactivate`, { method: 'POST', headers, body: JSON.stringify({ email }) }).catch(() => null),
+      );
+    }
+
+    if (platform === 'ATLAS' && email) {
+      const url = String(process.env.ATLAS_HOSTING_URL ?? '').replace(/\/+$/, '');
+      if (url) calls.push(
+        fetch(`${url}/api/internal/users/deactivate`, { method: 'POST', headers, body: JSON.stringify({ email }) }).catch(() => null),
+      );
+    }
+
+    if (calls.length > 0) await Promise.all(calls);
+
+    return { success: true };
   }
 
   @Get('users')
@@ -1710,9 +1995,29 @@ export class AdminController {
       (lucroSimpayNum + totalLucroSaque - totalTaxaSaque).toFixed(2),
     );
 
+    // Plataformas sem repasse real: o valor de "repasse" fica com a Simintpay (não vai a lojista externo).
+    const plataformasSemRepasse = plataformasLucroDetalhe.filter(
+      (p) => SEM_REPASSE_TAGS.has(p.tag.toUpperCase()),
+    );
+    // Repasse retido dessas plataformas (~91%): bruto − parte do admin (taxa Sim Int bruta)
+    const repasseRetidoSemRepasse = Number(
+      plataformasSemRepasse
+        .reduce((s, p) => s + (p.subtotalBruto - p.subtotalParteAdminMaster), 0)
+        .toFixed(2),
+    );
+    // "Lucro de plataformas": repasse que fica com a Simintpay de Areaflix, Atlas e Comunidades
+    const lucroPlataformasSemRepasse = repasseRetidoSemRepasse;
+    // "Lucro líquido de taxas": lucro de taxa de TODAS as plataformas (taxa Sim Int − DOM)
+    const lucroSimpayConRepasse = lucroSimpayNum;
+    // Repasse real = total de repasse menos o valor retido pelas plataformas sem repasse
+    const totalRepasseReal = Number((totalRepasseConsolidado - repasseRetidoSemRepasse).toFixed(2));
+
     // ── Saques: calcula direto na withdrawRequest para cobrir histórico sem BalanceLog ──
+    // fee > 0: exclui registros importados pelo SyncDomWithdrawalsUseCase (fee=0, histórico DOM)
+    // que não representam saques com taxa Simintpay cobrada.
     const withdrawApprovalFilter: Prisma.WithdrawRequestWhereInput = {
       status: 'APPROVED',
+      fee: { gt: 0 },
       ...(dataInicio || dataFim
         ? {
           updatedAt: {
@@ -1732,26 +2037,54 @@ export class AdminController {
       select: {
         id: true,
         grossAmount: true,
+        updatedAt: true,
+        userId: true,
         user: {
           select: { tenantModule: { select: { slug: true } } },
         },
       },
     });
 
+    const RENOVADA_USER_ID_WD = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const BOSQUE_USER_ID_WD = (process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c').toLowerCase();
+    const EBOOK_USER_ID_WD = (process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001').toLowerCase();
+    const USER_ID_TAG_MAP: Record<string, string> = {
+      [RENOVADA_USER_ID_WD]: 'RENOVADA',
+      [BOSQUE_USER_ID_WD]: 'BOSQUE',
+      [EBOOK_USER_ID_WD]: 'EBOOK',
+    };
+
     const DOM_FEE_SAQUE = 1;
     let lucroSaqueAcum = 0;
+    // saquesPorDia: lucro de saque agregado por dia (updatedAt SP) e tag da plataforma
+    const saquesPorDiaMap = new Map<string, number>(); // key = `${ymd}|${tag}`
     for (const w of withdrawsAprovados) {
-      const platformTag = (
-        w.user?.tenantModule?.slug ?? 'GLOBAL'
-      ).toUpperCase();
+      const tagFromModule = w.user?.tenantModule?.slug;
+      const tagFromUserId = w.userId ? USER_ID_TAG_MAP[w.userId.toLowerCase()] : undefined;
+      // Multi-vendor platforms (EBOOK, PAGATG) tag by tenantModule; single-admin platforms
+      // (RENOVADA, BOSQUE) tag only by userId — their subscribers also carry the module slug
+      // but are not the platform's cash-out account.
+      const moduleLower = (tagFromModule ?? '').toLowerCase();
+      const isMultiVendorModule = moduleLower === 'ebook' || moduleLower === 'ebooksim' || moduleLower === 'pagatg';
+      const platformTag = (tagFromUserId ?? (isMultiVendorModule ? tagFromModule : undefined) ?? 'GLOBAL').toUpperCase();
       const taxaSaqueFixa = getPlatformTaxaEffective(
         platformTag,
         'TAXA_SAQUE_FIXA',
         PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA,
       );
-      lucroSaqueAcum += Math.max(0, taxaSaqueFixa - DOM_FEE_SAQUE);
+      const lucroW = Math.max(0, taxaSaqueFixa - DOM_FEE_SAQUE);
+      lucroSaqueAcum += lucroW;
+      if (lucroW > 0) {
+        const ymd = dayjs(w.updatedAt).tz(TZ).format('YYYY-MM-DD');
+        const key = `${ymd}|${platformTag}`;
+        saquesPorDiaMap.set(key, (saquesPorDiaMap.get(key) ?? 0) + lucroW);
+      }
     }
     const lucroSaque = Number(lucroSaqueAcum.toFixed(2));
+    const saquesPorDia = [...saquesPorDiaMap.entries()].map(([key, lucro]) => {
+      const [ymd, platformTag] = key.split('|') as [string, string];
+      return { ymd, platformTag, lucroSaque: Number(lucro.toFixed(2)) };
+    });
     const taxaSaqueDOM = Number(
       (withdrawsAprovados.length * DOM_FEE_SAQUE).toFixed(2),
     );
@@ -1870,6 +2203,9 @@ export class AdminController {
       taxaDom,
       custoCashback,
       totalRepasseConsolidado,
+      totalRepasseReal,
+      lucroPlataformasSemRepasse,
+      lucroSimpayConRepasse,
       valorLiquido: valorLiquidoPlataformas,
       valorLiquidoCriterio,
       lucroSimpay: lucroSimpayNum,
@@ -1942,6 +2278,7 @@ export class AdminController {
         lucroSimpayTotal: Number(totalLucroSimpay.toFixed(2)),
         plataformas: plats,
         soloResumoPlataforma: soloResumo,
+        saquesPorDia,
       };
     }
 
@@ -2004,19 +2341,35 @@ export class AdminController {
   }
 
   @Get('relatorios/mensal')
-  @ApiOperation({ summary: 'Resultados mensais (últimos N meses)' })
+  @ApiOperation({ summary: 'Resultados mensais (últimos N meses ou intervalo YYYY-MM)' })
   @ApiQuery({ name: 'meses', required: false, example: '12' })
-  async getRelatorioMensal(@Query('meses') mesesParam?: string) {
-    const meses = Math.min(Math.max(Number(mesesParam) || 12, 1), 36);
-
+  @ApiQuery({ name: 'dataInicio', required: false, description: 'Mês inicial no formato YYYY-MM', example: '2026-01' })
+  @ApiQuery({ name: 'dataFim', required: false, description: 'Mês final no formato YYYY-MM', example: '2026-04' })
+  async getRelatorioMensal(
+    @Query('meses') mesesParam?: string,
+    @Query('dataInicio') dataInicioMes?: string,
+    @Query('dataFim') dataFimMes?: string,
+  ) {
     const platforms = await resolveConsolidadoPlatforms(this.prisma);
-
     const agora = dayjs().tz(TZ);
-    const inicioJanela = agora.subtract(meses - 1, 'month').startOf('month');
+
+    let inicioJanela: dayjs.Dayjs;
+    let fimJanela: dayjs.Dayjs;
+    let meses: number;
+
+    if (dataInicioMes?.match(/^\d{4}-\d{2}$/) && dataFimMes?.match(/^\d{4}-\d{2}$/)) {
+      inicioJanela = dayjs.tz(`${dataInicioMes}-01`, TZ).startOf('month');
+      fimJanela = dayjs.tz(`${dataFimMes}-01`, TZ).endOf('month');
+      meses = fimJanela.diff(inicioJanela, 'month') + 1;
+    } else {
+      meses = Math.min(Math.max(Number(mesesParam) || 12, 1), 36);
+      inicioJanela = agora.subtract(meses - 1, 'month').startOf('month');
+      fimJanela = agora.endOf('month');
+    }
 
     const where = buildConsolidadoResumoWhere(
       inicioJanela.format('YYYY-MM-DD'),
-      agora.endOf('month').format('YYYY-MM-DD'),
+      fimJanela.format('YYYY-MM-DD'),
       platforms,
     );
 
@@ -2033,7 +2386,7 @@ export class AdminController {
         },
         orderBy: { createdAt: 'asc' },
       }),
-      getComunidadeOrderRows(this.prisma, inicioJanela.format('YYYY-MM-DD'), agora.endOf('month').format('YYYY-MM-DD')),
+      getComunidadeOrderRows(this.prisma, inicioJanela.format('YYYY-MM-DD'), fimJanela.format('YYYY-MM-DD')),
     ]);
 
     const txRows = [...txRowsBase, ...comunidadeRowsMensal];
@@ -2061,7 +2414,10 @@ export class AdminController {
         { userId: tx.userId, description: tx.description ?? null },
         platforms,
       );
-      const liquido = valorLiquidoTransacaoConsolidado(tx, tag);
+      // Plataformas sem repasse real não contribuem para totalRepassado
+      const liquido = SEM_REPASSE_TAGS.has(tag.toUpperCase())
+        ? 0
+        : valorLiquidoTransacaoConsolidado(tx, tag);
       const prev = byMonth.get(mes) ?? { bruto: 0, lucro: 0, liquido: 0, count: 0 };
       byMonth.set(mes, {
         bruto: prev.bruto + bruto,
@@ -2071,10 +2427,10 @@ export class AdminController {
       });
     }
 
-    // Mês atual no topo (decrescente)
+    // Mais recente primeiro (decrescente)
     const resultado: MesRow[] = [];
-    for (let i = meses - 1; i >= 0; i--) {
-      const mes = agora.subtract(i, 'month').format('YYYY-MM');
+    for (let i = 0; i < meses; i++) {
+      const mes = fimJanela.subtract(i, 'month').format('YYYY-MM');
       const agg = byMonth.get(mes) ?? { bruto: 0, lucro: 0, liquido: 0, count: 0 };
       resultado.push({
         mes,
@@ -2512,8 +2868,13 @@ export class AdminController {
   @Post('sync-withdrawals')
   @HttpCode(200)
   @ApiOperation({ summary: 'Importar saques da conta Dom para o banco local' })
-  async syncWithdrawalsRoute(@CurrentUser() user: JwtPayload | undefined) {
-    const result = await this.syncWithdrawalsUseCase.execute({ userId: user?.sub ?? '' });
+  @ApiBody({ type: SyncWithdrawalsDto })
+  async syncWithdrawalsRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Body() body: SyncWithdrawalsDto,
+  ) {
+    const userId = body?.userId ?? user?.sub ?? '';
+    const result = await this.syncWithdrawalsUseCase.execute({ userId, domToken: body?.domToken });
     return { data: result };
   }
 
@@ -3886,11 +4247,8 @@ export class AdminController {
   // ──────────── PLATAFORMAS ────────────
 
   @Get('plataformas/taxas')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Taxas por plataforma (.env + overrides em storage) — administradores',
+    summary: 'Taxas por plataforma (.env + overrides em storage)',
   })
   async listPlatformTaxas() {
     return this.platformTaxas.getTaxasResponse();
@@ -4605,11 +4963,15 @@ export class AdminController {
       const liquidityFactor = getPlatformTaxaEffective('COMUNIDADE', 'LIQUIDEZ', 0.91);
       const fixedFee = getPlatformTaxaEffective('COMUNIDADE', 'TAXA_FIXA_TRANSACAO', 0.0);
       const adminMargin = 1 - liquidityFactor;
+      const taxaServicoFixaCom = getPlatformTaxaEffective('COMUNIDADE', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+      const taxaServicoCashbackCom = getPlatformTaxaEffective('COMUNIDADE', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
 
+      const taxaServicoCom = taxaServicoFixaCom + taxaServicoCashbackCom;
       const data = orders.map((o) => {
         const valorBruto = Number(o.amountCharged);
         const pf = Number(o.platformFeeAmount);
-        const valorLiquido = valorBruto - pf;
+        const netBasecom = valorBruto - pf;
+        const valorLiquido = Number((netBasecom - taxaServicoCom).toFixed(2));
         const lucroAdmin = Number((valorBruto * adminMargin - fixedFee).toFixed(2));
         return {
           id: `comunidade_order_${o.id}`,
@@ -4787,6 +5149,14 @@ export class AdminController {
 
     const adminMargin = 1 - liquidityFactor;
 
+    const TAXA_SERVICE_EXEMPT = new Set(['RENOVADA', 'BOSQUE']);
+    const taxaServicoFixa = TAXA_SERVICE_EXEMPT.has(upperTag)
+      ? 0
+      : getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const taxaServicoCashback = TAXA_SERVICE_EXEMPT.has(upperTag)
+      ? 0
+      : getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+
     let domByOrderNumber = new Map<string, DomTransactionItem[]>();
     if (upperTag === 'EBOOK' && items.length > 0) {
       const parsedDates = items
@@ -4838,9 +5208,11 @@ export class AdminController {
       const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
       // Alguns registros antigos/com erro ficaram COMPLETED com netAmount=0.
       // Nesses casos, exibimos o líquido calculado pela liquidez da plataforma.
-      const valorLiquido = isCompleted && (netFromDb == null || netFromDb <= 0)
+      const valorLiquidoBase = isCompleted && (netFromDb == null || netFromDb <= 0)
         ? fallbackNet
         : (netFromDb ?? fallbackNet);
+      const taxaServicoTotal = taxaServicoFixa + taxaServicoCashback;
+      const valorLiquido = Number((valorLiquidoBase - taxaServicoTotal).toFixed(2));
 
       let reconciledCustomerName = t.customerName ?? null;
       let reconciledCustomerEmail = t.customerEmail ?? null;

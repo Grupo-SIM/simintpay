@@ -104,13 +104,6 @@ export function getPlatformTaxaEffective(
   const canonical = canonicalPlatformTaxaTag(listOrModuleTag);
   const overrides = readOverridesRaw();
 
-  // Taxas fixas globais (sempre existem para qualquer transação; não configuráveis)
-  if (keySuffix === 'TAXA_FIXA_TRANSACAO' || keySuffix === 'TAXA_CASHBACK') {
-    const k = keySuffix as keyof typeof PLATFORM_TAXA_DEFAULTS;
-    const d = PLATFORM_TAXA_DEFAULTS[k];
-    return Number.isFinite(d) ? d : fallback;
-  }
-
   // 1º: override específico da plataforma
   const platformRow = overrides[canonical];
   const platformOverride = platformRow?.[keySuffix];

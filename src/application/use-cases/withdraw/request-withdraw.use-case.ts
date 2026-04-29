@@ -167,6 +167,7 @@ export class RequestWithdrawUseCase {
         grossAmount: grossToDeduct.toNumber(),
         fee: taxa.toNumber(),
         pixKey: dto.chavePix,
+        platform: moduleSlug,
         amountToLock: grossToDeduct.toNumber(),
         currentWalletVersion: wallet.version,
       });

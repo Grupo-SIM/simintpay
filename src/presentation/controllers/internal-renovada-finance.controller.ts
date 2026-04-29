@@ -78,46 +78,30 @@ export class InternalRenovadaFinanceController {
   ) {
     this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
-    const ownerFilter = this.buildOwnerFilter(cpf, userIds);
-    if (!ownerFilter) {
+
+    if (userIds.length === 0) {
       return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0 };
     }
 
-    const txCompleted = await this.prisma.transaction.aggregate({
-      where: {
-        AND: [
-          ownerFilter,
-          { status: 'COMPLETED' },
-          { description: { contains: '[TENANT:RENOVADA]', mode: 'insensitive' } },
-        ],
-      },
-      _sum: { netAmount: true, amount: true },
+    // wallet.balance é a fonte de verdade: incrementado em cada transação completada
+    // e decrementado em cada saque aprovado via api-machine em tempo real.
+    // Saques históricos importados via sync não tocam no wallet — não devem ser somados aqui.
+    const wallet = await this.prisma.wallet.findFirst({
+      where: { userId: { in: userIds } },
     });
 
-    const wdFilter = userIds.length > 0 ? { userId: { in: userIds } } : null;
+    const storedNet = Number(wallet?.balance ?? 0);
 
-    const wdCompleted = wdFilter
-      ? await this.prisma.withdrawRequest.aggregate({
-          where: { ...wdFilter, status: { in: ['APPROVED', 'COMPLETED'] } },
-          _sum: { amount: true },
-        })
-      : { _sum: { amount: null } };
+    const wdPending = await this.prisma.withdrawRequest.aggregate({
+      where: { userId: { in: userIds }, status: 'PENDING' },
+      _sum: { grossAmount: true, amount: true },
+    });
 
-    const wdPending = wdFilter
-      ? await this.prisma.withdrawRequest.aggregate({
-          where: { ...wdFilter, status: 'PENDING' },
-          _sum: { amount: true, grossAmount: true },
-        })
-      : { _sum: { amount: null, grossAmount: null } };
-
-    const totalReceived = Number(txCompleted._sum.netAmount ?? txCompleted._sum.amount ?? 0);
-    const totalCompletedWithdraw = Number(wdCompleted._sum.amount ?? 0);
-    const pendingAmount = Number(wdPending._sum.amount ?? 0);
-    const pendingGross = Number(wdPending._sum.grossAmount ?? pendingAmount);
+    const pendingGross = Number(wdPending._sum.grossAmount ?? wdPending._sum.amount ?? 0);
 
     return {
-      availableBalance: Math.max(0, Number((totalReceived - totalCompletedWithdraw - pendingAmount).toFixed(2))),
-      pendingWithdraws: Number(pendingAmount.toFixed(2)),
+      availableBalance: Math.max(0, Number((storedNet - pendingGross).toFixed(2))),
+      pendingWithdraws: Number(pendingGross.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
     };
   }
@@ -254,26 +238,47 @@ export class InternalRenovadaFinanceController {
 
   @Post('withdraw')
   async requestWithdraw(
-    @Body() body: { cpf: string; userId?: string; amount: number; pixKey: string },
+    @Body() body: { cpf?: string; userId?: string; amount: number; pixKey: string },
     @Headers('x-internal-token') internalToken?: string,
   ) {
     this.ensureInternalToken(internalToken);
-    const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
-    if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF');
+    const userIds = await this.resolveUserIdsByCpf(body.cpf ?? '', body.userId);
+    if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada');
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
     if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
 
+    const userId = userIds[0];
     const taxaSaque = RenovadaConfig.saque.calcularTaxa(amount);
-    const created = await this.prisma.withdrawRequest.create({
-      data: {
-        userId: userIds[0],
-        amount,
-        grossAmount: parseFloat((amount + taxaSaque).toFixed(2)),
-        fee: parseFloat(taxaSaque.toFixed(2)),
-        status: 'PENDING',
-        pixKey: body.pixKey.trim(),
-      },
+    const grossAmount = parseFloat((amount + taxaSaque).toFixed(2));
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+    if (!wallet) throw new BadRequestException('Carteira não encontrada para este usuário');
+
+    const available = parseFloat((Number(wallet.balance) - Number(wallet.lockedBalance)).toFixed(2));
+    if (available < grossAmount) {
+      throw new BadRequestException(
+        `Saldo insuficiente. Disponível: R$ ${available.toFixed(2)}, solicitado: R$ ${grossAmount.toFixed(2)}`,
+      );
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const wr = await tx.withdrawRequest.create({
+        data: {
+          userId,
+          amount,
+          grossAmount,
+          fee: parseFloat(taxaSaque.toFixed(2)),
+          status: 'PENDING',
+          pixKey: body.pixKey.trim(),
+          platform: 'renovada',
+        },
+      });
+      await tx.wallet.update({
+        where: { id: wallet.id },
+        data: { lockedBalance: { increment: grossAmount }, version: { increment: 1 } },
+      });
+      return wr;
     });
 
     return { success: true, id: created.id };

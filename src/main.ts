@@ -29,7 +29,7 @@ async function bootstrap() {
       callback(null, true); // No bypass real, liberamos geral para o teste passar
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'x-access-token'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'x-access-token', 'x-internal-token'],
     credentials: true,
     maxAge: 86400,
   });

@@ -6,6 +6,7 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import 'dayjs/locale/pt-br';
 import { RenovadaConfig } from '../renovada.config';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -130,14 +131,10 @@ export class PlatformDashboardService {
       },
     });
 
-    // Resolve liquidity and fees based on platform tag
-    const liquidityKey = `${upperTag}_LIQUIDEZ`;
-    const fixedFeeKey = `${upperTag}_TAXA_FIXA_TRANSACAO`;
-    const cashbackKey = `${upperTag}_TAXA_CASHBACK`;
-
-    const liquidityFactor = Number(process.env[liquidityKey] || process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
-    const fixedFee = Number(process.env[fixedFeeKey] || 0);
-    const cashbackFee = Number(process.env[cashbackKey] || 0);
+    // Resolve liquidity and fees via store (env vars + DB overrides), same as consolidado
+    const liquidityFactor = getPlatformTaxaEffective(upperTag, 'LIQUIDEZ', 0.91);
+    const fixedFee = getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', 1.0);
+    const cashbackFee = getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', 3.0);
     const adminMargin = 1 - liquidityFactor;
 
     const getProfit = (txs: any[]) => {
@@ -250,11 +247,18 @@ export class PlatformDashboardService {
           createdAt: { gte: start, lte: end },
           ...(filter.OR ? { OR: filter.OR } : {}),
         };
-    const estornosAgg = await this.prisma.transaction.aggregate({
-      where: estornosWhere,
-      _count: { id: true },
-      _sum: { netAmount: true },
-    });
+    const chargebacksWhere: any = isAtlas
+      ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: 'atlas', mode: 'insensitive' as const } }
+      : isBosque
+      ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, OR: [{ description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' as const } }, { description: { contains: 'bosque', mode: 'insensitive' as const } }] }
+      : isTenantTagged
+      ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const } }
+      : { userId: platformId, status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, ...(filter.OR ? { OR: filter.OR } : {}) };
+
+    const [estornosAgg, chargebacksAgg] = await Promise.all([
+      this.prisma.transaction.aggregate({ where: estornosWhere, _count: { id: true }, _sum: { netAmount: true } }),
+      this.prisma.transaction.aggregate({ where: chargebacksWhere, _count: { id: true }, _sum: { netAmount: true } }),
+    ]);
 
     // 4. Saques — EBOOK/PAGATG não têm saques centralizados (cada autor saca da própria conta)
     const withdrawals = isTenantTagged
@@ -278,6 +282,54 @@ export class PlatformDashboardService {
         const wDate = dayjs(w.createdAt);
         return (wDate.isAfter(startD) || wDate.isSame(startD)) && (wDate.isBefore(endD) || wDate.isSame(endD));
       }).length;
+    };
+
+    // ── Taxas de saque no período selecionado ─────────────────────────────────
+    const DOM_FEE_SAQUE = 1;
+    const taxaSaqueFixa = getPlatformTaxaEffective(upperTag, 'TAXA_SAQUE_FIXA', 2.0);
+    const moduleSlug = upperTag.toLowerCase();
+    const saquesNoPeriodo = isAtlas
+      ? atlasWalletUserId
+        ? await this.prisma.withdrawRequest.findMany({
+            where: {
+              userId: atlasWalletUserId,
+              status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
+              updatedAt: { gte: start, lte: end },
+            },
+            select: { id: true },
+          })
+        : []
+      : isTenantTagged
+        // EBOOK/PAGATG: multi-vendor — count all seller saques tagged by tenantModule
+        ? await this.prisma.withdrawRequest.findMany({
+            where: {
+              user: { tenantModule: { slug: moduleSlug } },
+              status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
+              fee: { gt: 0 },
+              updatedAt: { gte: start, lte: end },
+            },
+            select: { id: true },
+          })
+        // RENOVADA/BOSQUE/single-admin: only the platform account's saques
+        // fee > 0: exclui registros importados pelo SyncDomWithdrawalsUseCase (fee=0)
+        : platformId
+          ? await this.prisma.withdrawRequest.findMany({
+              where: {
+                userId: platformId,
+                status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
+                fee: { gt: 0 },
+                updatedAt: { gte: start, lte: end },
+              },
+              select: { id: true },
+            })
+          : [];
+
+    const qtdSaquesNoPeriodo = saquesNoPeriodo.length;
+    const saqueFees = {
+      quantidade: qtdSaquesNoPeriodo,
+      taxaTotalDOM: Number((qtdSaquesNoPeriodo * DOM_FEE_SAQUE).toFixed(2)),
+      lucroSimpay: Number((qtdSaquesNoPeriodo * Math.max(0, taxaSaqueFixa - DOM_FEE_SAQUE)).toFixed(2)),
+      taxaTotal: Number((qtdSaquesNoPeriodo * taxaSaqueFixa).toFixed(2)),
     };
 
     const chartPlatformId = isTenantTagged || isAtlas || isBosque ? null : platformId;
@@ -345,6 +397,11 @@ export class PlatformDashboardService {
         quantidade: estornosAgg._count.id,
         valorLiquido: Number(Number(estornosAgg._sum.netAmount || 0).toFixed(2)),
       },
+      chargebacks: {
+        quantidade: chargebacksAgg._count.id,
+        valorLiquido: Number(Number(chargebacksAgg._sum.netAmount || 0).toFixed(2)),
+      },
+      saqueFees,
       withdrawals: {
         today: countWD(todayStart),
         sevenDays: countWD(sevenDaysAgo),

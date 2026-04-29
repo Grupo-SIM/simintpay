@@ -14,6 +14,8 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { PagaTGConfig } from '../../modules/pagatg/pagatg.config';
 import { VoucherService } from '../../application/use-cases/voucher/voucher.service';
 import { CreateVoucherDto, UpdateVoucherDto, ValidateVoucherDto } from '../../application/dtos/voucher/voucher.dto';
+import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 
 const TENANT_PAGATG_TAG = '[TENANT:PAGATG]';
 
@@ -104,7 +106,7 @@ export class InternalPagatgFinanceController {
       return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0 };
     }
 
-    const txCompleted = await this.prisma.transaction.aggregate({
+    const txCompleted = await this.prisma.transaction.findMany({
       where: {
         AND: [
           ownerFilter,
@@ -112,7 +114,7 @@ export class InternalPagatgFinanceController {
           { description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' } },
         ],
       },
-      _sum: { netAmount: true, amount: true },
+      select: { netAmount: true, amount: true },
     });
 
     const wdFilter = userIds.length > 0 ? { userId: { in: userIds } } : null;
@@ -131,13 +133,19 @@ export class InternalPagatgFinanceController {
         })
       : { _sum: { amount: null, grossAmount: null } };
 
-    const totalReceived = Number(txCompleted._sum.netAmount ?? txCompleted._sum.amount ?? 0);
+    const taxaFixaSummary = getPlatformTaxaEffective('PAGATG', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const taxaCashbackSummary = getPlatformTaxaEffective('PAGATG', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const taxaServicoSummary = taxaFixaSummary + taxaCashbackSummary;
+    const totalReceived = txCompleted.reduce((sum, tx) => {
+      const net = Number(tx.netAmount ?? tx.amount ?? 0);
+      return sum + net - taxaServicoSummary;
+    }, 0);
     const totalCompletedWithdraw = Number(wdCompleted._sum.amount ?? 0);
     const pendingAmount = Number(wdPending._sum.amount ?? 0);
     const pendingGross = Number(wdPending._sum.grossAmount ?? pendingAmount);
 
     return {
-      availableBalance: Math.max(0, Number((totalReceived - totalCompletedWithdraw - pendingAmount).toFixed(2))),
+      availableBalance: Number((totalReceived - totalCompletedWithdraw - pendingAmount).toFixed(2)),
       pendingWithdraws: Number(pendingAmount.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
       minimumWithdrawalAmount: PagaTGConfig.saque.minValor,
@@ -202,27 +210,36 @@ export class InternalPagatgFinanceController {
       }),
     ]);
 
+    const taxaFixa = getPlatformTaxaEffective('PAGATG', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const taxaCashback = getPlatformTaxaEffective('PAGATG', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const taxaServico = taxaFixa + taxaCashback;
+
     return {
-      transactions: items.map((t: any) => ({
-        id: t.id,
-        userId: t.userId,
-        customerId: t.pixPlanOrder?.customerId ?? null,
-        amount: Number(t.amount),
-        name: t.customerName ?? null,
-        email: t.customerEmail ?? null,
-        status: t.status,
-        description: t.description ?? null,
-        pixCode: (t.description ?? '').split(':')[1]?.split(' ')[0] ?? null,
-        appliedGlobalFee: false,
-        fee: Number(t.platformFee ?? 0),
-        dom_fee: Number(t.domFee ?? 0),
-        payment_method: t.paymentMethod,
-        amountWithoutAllFee: Number(t.netAmount ?? t.amount),
-        walletId: null,
-        createdAt: t.createdAt,
-        paymentId: t.domPaymentId ?? t.domTransactionId ?? null,
-        updatedAt: t.updatedAt,
-      })),
+      transactions: items.map((t: any) => {
+        const netBase = Number(t.netAmount ?? t.amount);
+        return {
+          id: t.id,
+          userId: t.userId,
+          customerId: t.pixPlanOrder?.customerId ?? null,
+          amount: Number(t.amount),
+          name: t.customerName ?? null,
+          email: t.customerEmail ?? null,
+          status: t.status,
+          description: t.description ?? null,
+          pixCode: (t.description ?? '').split(':')[1]?.split(' ')[0] ?? null,
+          appliedGlobalFee: false,
+          fee: Number(t.platformFee ?? 0),
+          dom_fee: Number(t.domFee ?? 0),
+          payment_method: t.paymentMethod,
+          taxa_fixa_transacao: Number(taxaFixa.toFixed(2)),
+          taxa_cashback: Number(taxaCashback.toFixed(2)),
+          amountWithoutAllFee: Number((netBase - taxaServico).toFixed(2)),
+          walletId: null,
+          createdAt: t.createdAt,
+          paymentId: t.domPaymentId ?? t.domTransactionId ?? null,
+          updatedAt: t.updatedAt,
+        };
+      }),
       meta: {
         currentPage: pageNum,
         itemsPerPage: size,
@@ -301,6 +318,7 @@ export class InternalPagatgFinanceController {
         fee: parseFloat(taxaSaque.toFixed(2)),
         status: 'PENDING',
         pixKey: body.pixKey.trim(),
+        platform: 'pagatg',
       },
     });
 
@@ -530,4 +548,5 @@ export class InternalPagatgFinanceController {
     if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
     return this.voucherService.deleteVoucher(userIds[0], 'USER', id);
   }
+
 }
