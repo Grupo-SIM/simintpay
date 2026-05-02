@@ -211,6 +211,10 @@ export class ProcessDomWebhookUseCase {
     tenantTag?: string,
     paymentMethod?: string,
   ): Prisma.Decimal {
+    // Prefer DOM's actual liquid_amount (real net after gateway fees) over formula-based estimate
+    if (liquidAmountReais != null && liquidAmountReais > 0) {
+      return new Prisma.Decimal(liquidAmountReais);
+    }
     return calculateSellerNetValue(amountReais, installments, tenantTag || 'GLOBAL', paymentMethod);
   }
 
@@ -281,11 +285,13 @@ export class ProcessDomWebhookUseCase {
 
       const isRenovada = existing.userId === RENOVADA_USER_ID;
       const isBosque = existing.userId === BOSQUE_USER_ID;
-      // Renovada/Bosque: wallet.balance é gross → delta = amountDec (bruto)
-      // Outros: wallet.balance = netAmount - taxaFixa - taxaCashback (pode ser negativo)
+      // Renovada/Bosque: wallet stores net (DOM liquid_amount). Use liquid from webhook when available,
+      // fall back to stored netAmount, then gross as last resort.
       let delta: Prisma.Decimal;
       if (isRenovada || isBosque) {
-        delta = amountDec;
+        const domLiquid = data.liquid_amount != null ? new Prisma.Decimal(data.liquid_amount / 100) : null;
+        delta = domLiquid
+          ?? (existing.netAmount != null ? new Prisma.Decimal(existing.netAmount.toString()) : amountDec);
       } else {
         const netAmountDec = existing.netAmount != null
           ? new Prisma.Decimal(existing.netAmount.toString())
@@ -980,7 +986,8 @@ export class ProcessDomWebhookUseCase {
         const wallet = await p.wallet.findUnique({ where: { userId } });
         if (!wallet) break;
 
-        const newBalance = wallet.balance.add(amountDec);
+        // Use netDec (DOM liquid_amount) so wallet stores net value, not gross
+        const newBalance = wallet.balance.add(netDec);
 
         const result = await p.wallet.updateMany({
           where: { id: wallet.id, version: wallet.version },
@@ -993,7 +1000,7 @@ export class ProcessDomWebhookUseCase {
               userId,
               action: 'MACHINE_SYNC',
               transactionId: newTx.id,
-              amount: amountDec,
+              amount: netDec,
               balanceBefore: wallet.balance,
               balanceAfter: newBalance,
               lockedBefore: wallet.lockedBalance,

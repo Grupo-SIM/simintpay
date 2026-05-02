@@ -38,6 +38,8 @@ export class PlatformDashboardService {
     const isPagatg = upperTag === 'PAGATG';
     const isAtlas = upperTag === 'ATLAS';
     const isBosque = upperTag === 'BOSQUE';
+    // AREAFLIX usa sistema de ordens próprio (não Transaction table com userId centralizado)
+    const isAreaflix = upperTag === 'AREAFLIX';
     const isTenantTagged = isEbook || isPagatg;
 
     const bosqueTxWhere = {
@@ -64,7 +66,7 @@ export class PlatformDashboardService {
 
     // Prioridade: .env -> Mapa Interno -> ID da Renovada (Legacy Fallback) — não usado para tenant-tagged
     const platIdKey = `${upperTag}_ID`;
-    const platformId = isTenantTagged
+    const platformId = isTenantTagged || isAreaflix
       ? null
       : (process.env[platIdKey] || PLATFORM_IDS[upperTag] || PLATFORM_IDS.RENOVADA);
 
@@ -101,7 +103,7 @@ export class PlatformDashboardService {
 
     this.logger.log(`[Dashboard] Tag: ${upperTag} | Período "${period}": ${dayjs(start).tz(TZ).format('DD/MM/YYYY HH:mm:ss')}`);
 
-    // Atlas: descrição "atlas". Bosque: [TENANT:BOSQUE] ou "bosque" na descrição.
+    // Atlas: descrição "atlas". Bosque: [TENANT:BOSQUE] ou "bosque" na descrição. AREAFLIX: usa sistema de ordens próprio.
     let filter: any = isAtlas
       ? {
           status: TransactionStatus.COMPLETED,
@@ -109,6 +111,11 @@ export class PlatformDashboardService {
         }
       : isBosque
       ? bosqueTxWhere
+      : isAreaflix
+      ? {
+          status: TransactionStatus.COMPLETED,
+          description: { contains: 'areaflix', mode: 'insensitive' as const },
+        }
       : isTenantTagged
       ? {
           status: TransactionStatus.COMPLETED,
@@ -176,9 +183,9 @@ export class PlatformDashboardService {
     const profitSelected = getProfit(txsInPeriod);
     const profitTotal = getProfit(allTransactions);
 
-    // 2. Dados da Wallet — EBOOK/PAGATG multi-vendor; Atlas usa conta técnica; Renovada usa lógica especial
+    // 2. Dados da Wallet — EBOOK/PAGATG multi-vendor; Atlas usa conta técnica; AREAFLIX usa sistema próprio; Renovada usa lógica especial
     const wallet =
-      isTenantTagged
+      isTenantTagged || isAreaflix
         ? null
         : isAtlas
         ? atlasWalletUserId
@@ -191,30 +198,16 @@ export class PlatformDashboardService {
     const lockedVal = Number(wallet?.lockedBalance || 0);
 
     let availableBalanceNet: number;
-    if (isTenantTagged) {
-      availableBalanceNet = 0; // multi-vendor: each author has their own wallet
+    if (isTenantTagged || isAreaflix) {
+      availableBalanceNet = 0; // multi-vendor / AREAFLIX: sem carteira centralizada
     } else if (isAtlas) {
       availableBalanceNet = atlasWalletUserId
         ? Number(((balanceVal - lockedVal) * liquidityFactor).toFixed(3))
         : 0;
     } else if (upperTag === 'RENOVADA') {
-      const debitedAggr = await this.prisma.withdrawRequest.aggregate({
-        where: {
-          userId: platformId!,
-          status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
-        },
-        _sum: { grossAmount: true },
-      });
-      const debitedBruto = Number(debitedAggr._sum.grossAmount || 0);
-      const pendingAggr = await this.prisma.withdrawRequest.aggregate({
-        where: { userId: platformId!, status: WithdrawStatus.PENDING },
-        _sum: { grossAmount: true },
-      });
-      const pendingBruto = Number(pendingAggr._sum.grossAmount || 0);
-      const rawTotalNet =
-        balanceVal * liquidityFactor + debitedBruto * (liquidityFactor - 1);
-      const displayTotalNet = Math.max(0, rawTotalNet);
-      availableBalanceNet = Number(Math.max(0, displayTotalNet - pendingBruto).toFixed(2));
+      // wallet.balance stores net (DOM liquid_amount). Approved withdrawals are already deducted
+      // from wallet.balance at approval time. lockedBalance tracks pending withdrawal gross.
+      availableBalanceNet = Number(Math.max(0, balanceVal - lockedVal).toFixed(2));
     } else {
       availableBalanceNet = Number(((balanceVal - lockedVal) * liquidityFactor).toFixed(3));
     }
@@ -235,6 +228,12 @@ export class PlatformDashboardService {
             { description: { contains: 'bosque', mode: 'insensitive' as const } },
           ],
         }
+      : isAreaflix
+      ? {
+          status: TransactionStatus.REFUNDED,
+          createdAt: { gte: start, lte: end },
+          description: { contains: 'areaflix', mode: 'insensitive' as const },
+        }
       : isTenantTagged
       ? {
           status: TransactionStatus.REFUNDED,
@@ -251,6 +250,8 @@ export class PlatformDashboardService {
       ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: 'atlas', mode: 'insensitive' as const } }
       : isBosque
       ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, OR: [{ description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' as const } }, { description: { contains: 'bosque', mode: 'insensitive' as const } }] }
+      : isAreaflix
+      ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: 'areaflix', mode: 'insensitive' as const } }
       : isTenantTagged
       ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const } }
       : { userId: platformId, status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, ...(filter.OR ? { OR: filter.OR } : {}) };
@@ -260,8 +261,8 @@ export class PlatformDashboardService {
       this.prisma.transaction.aggregate({ where: chargebacksWhere, _count: { id: true }, _sum: { netAmount: true } }),
     ]);
 
-    // 4. Saques — EBOOK/PAGATG não têm saques centralizados (cada autor saca da própria conta)
-    const withdrawals = isTenantTagged
+    // 4. Saques — EBOOK/PAGATG/AREAFLIX não têm saques centralizados
+    const withdrawals = isTenantTagged || isAreaflix
       ? []
       : isAtlas
       ? atlasWalletUserId
@@ -288,7 +289,9 @@ export class PlatformDashboardService {
     const DOM_FEE_SAQUE = 1;
     const taxaSaqueFixa = getPlatformTaxaEffective(upperTag, 'TAXA_SAQUE_FIXA', 2.0);
     const moduleSlug = upperTag.toLowerCase();
-    const saquesNoPeriodo = isAtlas
+    const saquesNoPeriodo = isAreaflix
+      ? []
+      : isAtlas
       ? atlasWalletUserId
         ? await this.prisma.withdrawRequest.findMany({
             where: {
@@ -332,9 +335,9 @@ export class PlatformDashboardService {
       taxaTotal: Number((qtdSaquesNoPeriodo * taxaSaqueFixa).toFixed(2)),
     };
 
-    const chartPlatformId = isTenantTagged || isAtlas || isBosque ? null : platformId;
+    const chartPlatformId = isTenantTagged || isAtlas || isBosque || isAreaflix ? null : platformId;
     const chartTenant = isTenantTagged ? upperTag : null;
-    const chartDescContains = isAtlas ? 'atlas' : null;
+    const chartDescContains = isAtlas ? 'atlas' : isAreaflix ? 'areaflix' : null;
     const last30Days = await this.getChartData(
       chartPlatformId,
       30,

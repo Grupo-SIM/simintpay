@@ -83,26 +83,24 @@ export class InternalRenovadaFinanceController {
       return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0 };
     }
 
-    // wallet.balance é a fonte de verdade: incrementado em cada transação completada
-    // e decrementado em cada saque aprovado via api-machine em tempo real.
-    // Saques históricos importados via sync não tocam no wallet — não devem ser somados aqui.
+    // wallet.balance stores net (DOM liquid_amount). Approved withdrawals are already deducted
+    // from wallet.balance at approval time. lockedBalance tracks pending withdrawal gross.
     const wallet = await this.prisma.wallet.findFirst({
       where: { userId: { in: userIds } },
     });
-
-    const storedNet = Number(wallet?.balance ?? 0);
+    const balanceNet = Number(wallet?.balance ?? 0);
+    const lockedNet = Number(wallet?.lockedBalance ?? 0);
 
     const wdPending = await this.prisma.withdrawRequest.aggregate({
       where: { userId: { in: userIds }, status: 'PENDING' },
       _sum: { grossAmount: true, amount: true },
     });
-
     const pendingGross = Number(wdPending._sum.grossAmount ?? wdPending._sum.amount ?? 0);
 
     return {
-      availableBalance: Math.max(0, Number((storedNet - pendingGross).toFixed(2))),
+      availableBalance: Math.max(0, Number((balanceNet - lockedNet).toFixed(2))),
       pendingWithdraws: Number(pendingGross.toFixed(2)),
-      lockedBalance: Number(pendingGross.toFixed(2)),
+      lockedBalance: Number(lockedNet.toFixed(2)),
     };
   }
 
@@ -249,8 +247,15 @@ export class InternalRenovadaFinanceController {
     if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
 
     const userId = userIds[0];
-    const taxaSaque = RenovadaConfig.saque.calcularTaxa(amount);
-    const grossAmount = parseFloat((amount + taxaSaque).toFixed(2));
+    // Fee is deducted FROM the entered amount (not added on top).
+    // amount = total deducted from balance; user receives amount - fee.
+    const fee = parseFloat(RenovadaConfig.saque.calcularTaxa(amount).toFixed(2));
+    const grossAmount = amount; // amount entered = total locked/deducted
+    const netPayout = parseFloat((amount - fee).toFixed(2));
+
+    if (netPayout <= 0) {
+      throw new BadRequestException(`Valor insuficiente para cobrir a taxa de R$ ${fee.toFixed(2)}`);
+    }
 
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
     if (!wallet) throw new BadRequestException('Carteira não encontrada para este usuário');
@@ -266,9 +271,9 @@ export class InternalRenovadaFinanceController {
       const wr = await tx.withdrawRequest.create({
         data: {
           userId,
-          amount,
+          amount: netPayout,
           grossAmount,
-          fee: parseFloat(taxaSaque.toFixed(2)),
+          fee,
           status: 'PENDING',
           pixKey: body.pixKey.trim(),
           platform: 'renovada',
@@ -281,6 +286,6 @@ export class InternalRenovadaFinanceController {
       return wr;
     });
 
-    return { success: true, id: created.id };
+    return { success: true, id: created.id, netPayout };
   }
 }

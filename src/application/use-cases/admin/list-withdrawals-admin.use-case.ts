@@ -2,6 +2,69 @@ import { Injectable } from '@nestjs/common';
 import { WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
+/** Módulos em que o saque trava saldo na carteira principal (User.wallet), não só em ExternalPlatformWallet. */
+const USE_MAIN_WALLET_FOR_CAPITAL = new Set([
+  'renovada',
+  'bosque',
+  'revalida',
+  'atlas',
+  'frendz',
+  'comunidade',
+]);
+
+type WalletRow = { balance: unknown; lockedBalance: unknown } | null;
+
+/** Saldo já reflete regras da carteira; aqui só expomos disponível = balance − locked (sem fator de liquidez extra). */
+function saldoDisponivel(balance: number, locked: number): number {
+  return Number(Math.max(0, balance - locked).toFixed(2));
+}
+
+/**
+ * Capital atualizado após bloqueios, por plataforma do saque:
+ * - renovada/bosque/…: User.wallet (onde o lock do saque é aplicado);
+ * - ebook/pagatg/…: ExternalPlatformUser + wallet da mesma plataforma do saque, com fallback na carteira principal.
+ */
+function resolveSaldoAtualCliente(input: {
+  platformOnWithdraw: string | null;
+  tenantSlug: string | null;
+  mainWallet: WalletRow;
+  externalPlatformUsers: Array<{
+    platform: string;
+    wallet: WalletRow;
+  }>;
+}): number {
+  const platformSlug = (input.platformOnWithdraw ?? input.tenantSlug ?? null)?.toLowerCase() ?? null;
+  const slugKey = platformSlug ?? '';
+
+  if (platformSlug && USE_MAIN_WALLET_FOR_CAPITAL.has(slugKey) && input.mainWallet) {
+    return saldoDisponivel(
+      Number(input.mainWallet.balance),
+      Number(input.mainWallet.lockedBalance),
+    );
+  }
+
+  if (platformSlug) {
+    const ext = input.externalPlatformUsers.find(
+      (u) => u.platform.toLowerCase() === platformSlug,
+    );
+    if (ext?.wallet) {
+      return saldoDisponivel(
+        Number(ext.wallet.balance),
+        Number(ext.wallet.lockedBalance),
+      );
+    }
+  }
+
+  if (input.mainWallet) {
+    return saldoDisponivel(
+      Number(input.mainWallet.balance),
+      Number(input.mainWallet.lockedBalance),
+    );
+  }
+
+  return 0;
+}
+
 function mapWithdrawStatusToPt(
   status: WithdrawStatus,
 ): 'PENDENTE' | 'APROVADA' | 'RECUSADA' {
@@ -74,6 +137,7 @@ export class ListWithdrawalsAdminUseCase {
               name: true,
               email: true,
               tenantModule: { select: { name: true, slug: true } },
+              wallet: { select: { balance: true, lockedBalance: true } },
               externalPlatformUsers: {
                 include: { wallet: true },
               },
@@ -85,7 +149,10 @@ export class ListWithdrawalsAdminUseCase {
     ]);
 
     return {
-      data: items.map((w) => ({
+      data: items.map((w) => {
+        const platformStored =
+          (w as { platform?: string | null }).platform?.trim() || null;
+        return {
         id: w.id,
         valor: Number(w.grossAmount),
         valorLiquido: Number(w.amount),
@@ -104,25 +171,25 @@ export class ListWithdrawalsAdminUseCase {
           email: w.user.email,
           modulo: (() => {
             // Prioridade: campo platform gravado na criação > tenantModule do usuário
-            if (w.platform) {
-              return { nome: w.platform, slug: w.platform.toLowerCase() };
+            if (platformStored) {
+              return { nome: platformStored, slug: platformStored.toLowerCase() };
             }
             if (w.user.tenantModule) {
               return { nome: w.user.tenantModule.name, slug: w.user.tenantModule.slug };
             }
             return null;
           })(),
-          saldoAtual: (() => {
-            const slug = w.user.tenantModule?.slug?.toLowerCase();
-            const extUser = slug
-              ? w.user.externalPlatformUsers.find(u => u.platform.toLowerCase() === slug)
-              : w.user.externalPlatformUsers[0];
-            return Number(extUser?.wallet?.balance ?? 0);
-          })(),
+          saldoAtual: resolveSaldoAtualCliente({
+            platformOnWithdraw: platformStored,
+            tenantSlug: w.user.tenantModule?.slug ?? null,
+            mainWallet: w.user.wallet ?? null,
+            externalPlatformUsers: w.user.externalPlatformUsers,
+          }),
         },
         criadoEm: w.createdAt.toISOString(),
         atualizadoEm: w.updatedAt.toISOString(),
-      })),
+      };
+      }),
       page: input.page,
       pageSize: input.pageSize,
       total,

@@ -45,6 +45,34 @@ export class PlatformDashboardController {
       return res.json() as Promise<{ totalContas: number; sellersAtivos: number }>;
     }
 
+    if (upperTag === 'COMUNIDADE') {
+      const bindings = await this.prisma.communityLinkBinding.findMany({
+        where: {
+          subscriptionLinkId: { not: null },
+          community: { slug: { not: 'areaflix', mode: 'insensitive' } },
+        },
+        select: { subscriptionLinkId: true },
+        distinct: ['subscriptionLinkId'],
+      });
+      const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
+      if (linkIds.length === 0) return { totalContas: 0, sellersAtivos: 0 };
+
+      const activeStatuses = ['active', 'completed', 'approved', 'paid', 'success', 'trial'];
+
+      const [totalContas, sellersAtivos] = await Promise.all([
+        this.prisma.subscriptionLinkOrder.count({
+          where: { subscriptionLinkId: { in: linkIds } },
+        }),
+        this.prisma.subscriptionLinkOrder.count({
+          where: {
+            subscriptionLinkId: { in: linkIds },
+            status: { in: activeStatuses },
+          },
+        }),
+      ]);
+      return { totalContas, sellersAtivos };
+    }
+
     if (upperTag === 'AREAFLIX') {
       const areaflixLinks = await this.prisma.subscriptionLink.findMany({
         where: { webhookUrl: { contains: 'areaflix', mode: 'insensitive' } },

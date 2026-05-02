@@ -1768,14 +1768,20 @@ export class AdminController {
   ) {
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
+    const baseWhere = { slug: { not: 'areaflix' as const } };
     const where = search.trim()
       ? {
-        OR: [
-          { name: { contains: search.trim(), mode: 'insensitive' as const } },
-          { slug: { contains: search.trim(), mode: 'insensitive' as const } },
+        AND: [
+          baseWhere,
+          {
+            OR: [
+              { name: { contains: search.trim(), mode: 'insensitive' as const } },
+              { slug: { contains: search.trim(), mode: 'insensitive' as const } },
+            ],
+          },
         ],
       }
-      : {};
+      : baseWhere;
 
     const [items, total] = await Promise.all([
       this.prisma.community.findMany({
@@ -4915,7 +4921,10 @@ export class AdminController {
       const size = Math.min(Math.max(1, Number(pageSize)), 100);
 
       const bindings = await this.prisma.communityLinkBinding.findMany({
-        where: { subscriptionLinkId: { not: null } },
+        where: {
+          subscriptionLinkId: { not: null },
+          community: { slug: { not: 'areaflix', mode: 'insensitive' } },
+        },
         select: { subscriptionLinkId: true },
         distinct: ['subscriptionLinkId'],
       });
@@ -5361,6 +5370,60 @@ export class AdminController {
     return {
       success: true,
       message: 'Saldo zerado com sucesso (0,00). Histórico de transações mantido.',
+    };
+  }
+
+  @Post('renovada/set-wallet-balance')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Define manualmente o saldo líquido da carteira Renovada',
+    description:
+      'Permite corrigir o wallet.balance para o valor correto após migração para modelo net. Futuras transações somam DOM liquid_amount ao saldo definido.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['balance'],
+      properties: {
+        balance: { type: 'number', example: 3238.84, description: 'Novo saldo líquido em reais' },
+      },
+    },
+  })
+  async setRenovadaWalletBalance(@Body() body: { balance: number }) {
+    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const newBalance = Number(body.balance);
+    if (!Number.isFinite(newBalance) || newBalance < 0) {
+      throw new BadRequestException('balance deve ser um número positivo');
+    }
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
+    if (!wallet) throw new NotFoundException('Wallet não encontrada para Renovada');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.wallet.update({
+        where: { userId: RENOVADA_ID },
+        data: { balance: newBalance, version: { increment: 1 } },
+      });
+      await tx.balanceLog.create({
+        data: {
+          userId: RENOVADA_ID,
+          action: 'WALLET_MANUAL_SET',
+          amount: newBalance,
+          balanceBefore: wallet.balance,
+          balanceAfter: newBalance,
+          lockedBefore: wallet.lockedBalance,
+          lockedAfter: wallet.lockedBalance,
+          source: 'ADMIN_FORCE',
+          description: `Ajuste manual de saldo: R$ ${newBalance.toFixed(2)}`,
+        },
+      });
+    });
+
+    return {
+      success: true,
+      balanceAnterior: Number(wallet.balance),
+      balanceNovo: newBalance,
+      message: `Saldo definido para R$ ${newBalance.toFixed(2)}`,
     };
   }
 
