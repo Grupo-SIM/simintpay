@@ -52,13 +52,13 @@ export class EmailService {
 
     try {
       await transport.sendMail({
-        from: `"SimPay" <${from}>`,
+        from: `"SIM INT PAY" <${from}>`,
         to: input.to,
         subject: `Acesso liberado: ${input.linkName}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
             <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SimPay</h1>
+              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
             </div>
             <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
               <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.customerName}</strong>!</p>
@@ -68,7 +68,7 @@ export class EmailService {
               <p style="font-size: 12px; color: #9ca3af;">ID da assinatura: ${input.orderId}</p>
             </div>
             <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-              SimPay · JB Mídia
+              SIM INT PAY · JB Mídia
             </p>
           </div>
         `,
@@ -91,17 +91,17 @@ export class EmailService {
 
     try {
       await transport.sendMail({
-        from: `"SimPay" <${from}>`,
+        from: `"SIM INT PAY" <${from}>`,
         to: input.to,
-        subject: 'Bem-vindo ao SimPay — sua conta foi criada',
+        subject: 'Bem-vindo ao SIM INT PAY — sua conta foi criada',
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
             <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SimPay</h1>
+              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
             </div>
             <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
               <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.name}</strong>!</p>
-              <p>Sua solicitação de cadastro foi <strong style="color: #6d28d9;">aprovada</strong>. Seu acesso ao SimPay está pronto.</p>
+              <p>Sua solicitação de cadastro foi <strong style="color: #6d28d9;">aprovada</strong>. Seu acesso ao SIM INT PAY está pronto.</p>
 
               <div style="background: #ffffff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 20px; margin: 24px 0;">
                 <p style="margin: 0 0 8px; font-size: 13px; color: #6b7280;">E-mail de acesso:</p>
@@ -117,11 +117,11 @@ export class EmailService {
               <a href="${input.loginUrl}"
                  style="display: inline-block; background: #6d28d9; color: #fff; text-decoration: none;
                         padding: 12px 28px; border-radius: 8px; font-weight: bold; margin-top: 8px;">
-                Acessar o SimPay
+                Acessar o SIM INT PAY
               </a>
             </div>
             <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-              SimPay · JB Mídia
+              SIM INT PAY · JB Mídia
             </p>
           </div>
         `,
@@ -167,13 +167,13 @@ export class EmailService {
 
     try {
       await transport.sendMail({
-        from: `"SimPay" <${from}>`,
+        from: `"SIM INT PAY" <${from}>`,
         to: input.to,
         subject: subject,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
             <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SimPay</h1>
+              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
             </div>
             <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
               <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.customerName}</strong>!</p>
@@ -185,7 +185,7 @@ export class EmailService {
               </p>
             </div>
             <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-              SimPay · JB Mídia
+              SIM INT PAY · JB Mídia
             </p>
           </div>
         `,
