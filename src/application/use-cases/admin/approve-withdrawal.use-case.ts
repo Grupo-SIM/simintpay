@@ -58,18 +58,20 @@ export class ApproveWithdrawalUseCase {
         },
       });
 
-      // 2. Deduz os valores da wallet (Total e Bloqueado)
-      await tx.wallet.update({
-        where: { id: wallet.id },
-        data: {
-          balance: { decrement: withdraw.grossAmount },
-          lockedBalance: { decrement: withdraw.grossAmount },
-          version: { increment: 1 },
-          updatedAt: new Date(),
-        },
-      });
-
-      // 3. Deduz também da carteira externa (se houver/vincular via tenant)
+      // 2. Deduz os valores da wallet (Total e Bloqueado) - Pula se for Atlas
+      if (withdraw.platform?.toLowerCase() !== 'atlas') {
+        await tx.wallet.update({
+          where: { id: wallet.id },
+          data: {
+            balance: { decrement: withdraw.grossAmount },
+            lockedBalance: { decrement: withdraw.grossAmount },
+            version: { increment: 1 },
+            updatedAt: new Date(),
+          },
+        });
+      }
+  
+      // 3. Deduz também da carteira externa (se houver/vincular via tenant) - Pula se for Atlas
       const userWithExt = await tx.user.findUnique({
         where: { id: withdraw.userId },
         include: { 
@@ -77,13 +79,13 @@ export class ApproveWithdrawalUseCase {
           externalPlatformUsers: { include: { wallet: true } }
         }
       });
-
-      if (userWithExt?.externalPlatformUsers.length) {
+  
+      if (withdraw.platform?.toLowerCase() !== 'atlas' && userWithExt?.externalPlatformUsers.length) {
         const slug = userWithExt.tenantModule?.slug?.toLowerCase();
         const extUser = slug 
           ? userWithExt.externalPlatformUsers.find(u => u.platform.toLowerCase() === slug)
           : userWithExt.externalPlatformUsers[0];
-          
+            
         if (extUser?.wallet) {
           await tx.externalPlatformWallet.update({
             where: { id: extUser.wallet.id },
@@ -94,21 +96,23 @@ export class ApproveWithdrawalUseCase {
           });
         }
       }
-
-      // 4. Registra log financeiro da operação
-      await tx.balanceLog.create({
-        data: {
-          userId: withdraw.userId,
-          action: 'WITHDRAW_APPROVED',
-          amount: new Prisma.Decimal(-withdraw.grossAmount),
-          balanceBefore: wallet.balance,
-          balanceAfter: new Prisma.Decimal(Number(wallet.balance) - Number(withdraw.grossAmount)),
-          lockedBefore: wallet.lockedBalance,
-          lockedAfter: new Prisma.Decimal(Number(wallet.lockedBalance) - Number(withdraw.grossAmount)),
-          source: 'WITHDRAW',
-          description: `Saque aprovado: R$ ${withdraw.grossAmount.toFixed(2)}`,
-        },
-      });
+  
+      // 4. Registra log financeiro da operação - Pula se for Atlas
+      if (withdraw.platform?.toLowerCase() !== 'atlas') {
+        await tx.balanceLog.create({
+          data: {
+            userId: withdraw.userId,
+            action: 'WITHDRAW_APPROVED',
+            amount: new Prisma.Decimal(-withdraw.grossAmount),
+            balanceBefore: wallet.balance,
+            balanceAfter: new Prisma.Decimal(Number(wallet.balance) - Number(withdraw.grossAmount)),
+            lockedBefore: wallet.lockedBalance,
+            lockedAfter: new Prisma.Decimal(Number(wallet.lockedBalance) - Number(withdraw.grossAmount)),
+            source: 'WITHDRAW',
+            description: `Saque aprovado: R$ ${withdraw.grossAmount.toFixed(2)}`,
+          },
+        });
+      }
 
       // 4. Sempre incrementa taxa e lucro no log administrativo (independente de quem aprova)
       const logUserId = adminUserId ?? withdraw.userId;

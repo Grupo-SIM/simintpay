@@ -43,30 +43,34 @@ export class RejectWithdrawalUseCase {
         },
       });
 
-      // 2. Desbloquear saldo (decrementar de lockedBalance, mantendo balance intacto)
-      await tx.wallet.update({
-        where: { id: wallet.id },
-        data: {
-          lockedBalance: { decrement: withdraw.grossAmount },
-          version: { increment: 1 },
-          updatedAt: new Date(),
-        },
-      });
-
-      // 3. Registrar log de desbloqueio
-      await tx.balanceLog.create({
-        data: {
-          userId: withdraw.userId,
-          action: 'WITHDRAW_REJECTED',
-          amount: new Prisma.Decimal(0), // O saldo total não muda, apenas o bloqueado foi liberado
-          balanceBefore: wallet.balance,
-          balanceAfter: wallet.balance,
-          lockedBefore: wallet.lockedBalance,
-          lockedAfter: new Prisma.Decimal(Number(wallet.lockedBalance) - Number(withdraw.grossAmount)),
-          source: 'WITHDRAW',
-          description: `Saque rejeitado: R$ ${withdraw.grossAmount.toFixed(2)}. Motivo: ${reason}`,
-        },
-      });
+      // 2. Desbloquear saldo (decrementar de lockedBalance, mantendo balance intacto) - Pula se for Atlas
+      if (withdraw.platform?.toLowerCase() !== 'atlas') {
+        await tx.wallet.update({
+          where: { id: wallet.id },
+          data: {
+            lockedBalance: { decrement: withdraw.grossAmount },
+            version: { increment: 1 },
+            updatedAt: new Date(),
+          },
+        });
+      }
+  
+      // 3. Registrar log de desbloqueio - Pula se for Atlas
+      if (withdraw.platform?.toLowerCase() !== 'atlas') {
+        await tx.balanceLog.create({
+          data: {
+            userId: withdraw.userId,
+            action: 'WITHDRAW_REJECTED',
+            amount: new Prisma.Decimal(0), // O saldo total não muda, apenas o bloqueado foi liberado
+            balanceBefore: wallet.balance,
+            balanceAfter: wallet.balance,
+            lockedBefore: wallet.lockedBalance,
+            lockedAfter: new Prisma.Decimal(Number(wallet.lockedBalance) - Number(withdraw.grossAmount)),
+            source: 'WITHDRAW',
+            description: `Saque rejeitado: R$ ${withdraw.grossAmount.toFixed(2)}. Motivo: ${reason}`,
+          },
+        });
+      }
     });
 
     await this.realtime.notifyWithdrawal(withdraw.userId, { withdrawId, action: 'rejected' });
