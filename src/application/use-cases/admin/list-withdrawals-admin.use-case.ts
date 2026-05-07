@@ -161,6 +161,7 @@ export class ListWithdrawalsAdminUseCase {
         descricao: 'Saque SimPay',
         chavePix: w.pixKey,
         comprovante: w.receiptImage ?? null,
+        comprovanteVisivel: w.comprovanteVisivel,
         observacao: w.rejectionReason ?? null,
         taxas: {
           total: Number(w.fee),

@@ -112,9 +112,9 @@ export class ChargePixPaymentLinkUseCase {
     const phone = (input.customerPhone ?? '').replace(/\D/g, '');
     const codExternal = `pix-link-${link.id}-${Date.now()}`;
 
-    // PIX é sempre 1 parcela; aplica juros se isStandalone=false
+    // PIX é sempre 1 parcela sem juros — comprador paga exatamente o valor base do link
     const platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
-    const fees = calculatePaymentLinkFees(link, 1, platformTag);
+    const fees = calculatePaymentLinkFees(link, 1, platformTag, true);
     const { totalAmount, netAmount, domFeeAmount } = fees;
 
     const result = await this.gateway.chargePixForLink(domToken, {

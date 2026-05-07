@@ -98,6 +98,7 @@ export function calculatePaymentLinkFees(
   link: PaymentLink,
   installments: number,
   platformTag?: string,
+  isPix = false,
 ): {
   baseAmount: number;
   platformFeeRate: number;
@@ -116,8 +117,8 @@ export function calculatePaymentLinkFees(
   const n = Math.min(Math.max(installments, 1), 12);
   const baseAmount = Number(link.amount);
 
-  // 1. Juros da plataforma sobre o valor base
-  const platformFeeRate = getPlatformFeeRate(link, n, platformTag);
+  // 1. Juros da plataforma sobre o valor base — PIX nunca tem juros para o comprador
+  const platformFeeRate = isPix ? 0 : getPlatformFeeRate(link, n, platformTag);
   const interestAmount = (baseAmount * platformFeeRate) / 100;
   const valueWithInterest = baseAmount + interestAmount;
 

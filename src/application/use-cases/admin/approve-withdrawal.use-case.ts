@@ -122,45 +122,21 @@ export class ApproveWithdrawalUseCase {
         'TAXA_SAQUE_FIXA',
         PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA,
       );
-      // R$1 fixo vai para a DOM; o restante é lucro Simpay (configurável por plataforma)
-      const DOM_FEE = 1;
-      const lucroSaque = Math.max(0, taxaSaqueFixa - DOM_FEE);
 
-      // Incremento da Taxa de Saque DOM (sempre R$1 fixo)
-      await tx.balanceLog.create({
-        data: {
-          userId: logUserId,
-          action: 'ADMIN_WITHDRAW_FEE_INC',
-          amount: new Prisma.Decimal(DOM_FEE),
-          balanceBefore: 0,
-          balanceAfter: 0,
-          lockedBefore: 0,
-          lockedAfter: 0,
-          source: 'MASTER_ADMIN_CONTROL',
-          description: `Taxa de saque DOM${isMasterAdmin ? ' (Master)' : ''} — plataforma: ${platformTag}`,
-          metadata: { withdrawId, platformTag, domFee: DOM_FEE },
-        },
-      });
-
-      // Incremento do Lucro de Saque (TAXA_SAQUE_FIXA − R$1 DOM, varia por plataforma)
+      // Taxa de saque = integral - R$1 fixo DOM (DOM é acumulador independente, registrado manualmente)
+      const lucroSimpay = Math.max(0, taxaSaqueFixa - 1);
       await tx.balanceLog.create({
         data: {
           userId: logUserId,
           action: 'ADMIN_WITHDRAW_PROFIT_INC',
-          amount: new Prisma.Decimal(lucroSaque),
+          amount: new Prisma.Decimal(lucroSimpay),
           balanceBefore: 0,
           balanceAfter: 0,
           lockedBefore: 0,
           lockedAfter: 0,
           source: 'MASTER_ADMIN_CONTROL',
-          description: `Lucro de saque${isMasterAdmin ? ' (Master)' : ''} — plataforma: ${platformTag} (taxa ${taxaSaqueFixa} − DOM ${DOM_FEE} = ${lucroSaque})`,
-          metadata: {
-            withdrawId,
-            platformTag,
-            taxaSaqueFixa,
-            domFee: DOM_FEE,
-            lucroSaque,
-          },
+          description: `Taxa de saque Simintpay${isMasterAdmin ? ' (Master)' : ''} — plataforma: ${platformTag} (${taxaSaqueFixa} − 1 = ${lucroSimpay})`,
+          metadata: { withdrawId, platformTag, taxaSaqueFixa, lucroSimpay },
         },
       });
     });

@@ -14,10 +14,12 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UseGuards,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { LeadStatus, Prisma, Role, TransactionStatus, WithdrawStatus } from '@prisma/client';
@@ -3359,6 +3361,129 @@ export class AdminController {
     @Body() body: RejectWithdrawalDto,
   ) {
     return this.rejectWithdrawal.execute(id, body.motivo);
+  }
+
+  @Get('saques/:id/comprovante')
+  @ApiOperation({ summary: 'Servir arquivo do comprovante via S3 (bucket privado)' })
+  async serveComprovanteSaque(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const withdraw = await this.prisma.withdrawRequest.findUnique({ where: { id } });
+    if (!withdraw?.receiptImage) throw new NotFoundException('Comprovante não encontrado');
+    try {
+      const { buffer, contentType } = await this.storageService.getReceiptBufferByStoredUrl(withdraw.receiptImage);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', 'inline');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.send(buffer);
+    } catch {
+      throw new NotFoundException('Comprovante não disponível');
+    }
+  }
+
+  @Patch('saques/:id/comprovante')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Adicionar ou trocar comprovante de saque (aceita arquivo ou URL)' })
+  async atualizarComprovanteSaque(
+    @Param('id') id: string,
+    @UploadedFile() file?: Express.Multer.File,
+    @Body('receiptImage') receiptImageUrl?: string,
+  ) {
+    const withdraw = await this.prisma.withdrawRequest.findUnique({ where: { id } });
+    if (!withdraw) throw new NotFoundException('Saque não encontrado');
+
+    let finalUrl: string | null = receiptImageUrl ?? withdraw.receiptImage ?? null;
+    if (file) {
+      finalUrl = await this.storageService.uploadFile(file, 'comprovantes-saque');
+    }
+
+    await this.prisma.withdrawRequest.update({
+      where: { id },
+      data: { receiptImage: finalUrl },
+    });
+
+    return { success: true, comprovante: finalUrl };
+  }
+
+  @Patch('saques/:id/visibilidade')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Alternar visibilidade do comprovante para o cliente' })
+  async toggleVisibilidadeSaque(
+    @Param('id') id: string,
+    @Body() body: { comprovanteVisivel: boolean },
+  ) {
+    const withdraw = await this.prisma.withdrawRequest.findUnique({ where: { id } });
+    if (!withdraw) throw new NotFoundException('Saque não encontrado');
+
+    await this.prisma.withdrawRequest.update({
+      where: { id },
+      data: { comprovanteVisivel: body.comprovanteVisivel },
+    });
+
+    return { success: true, comprovanteVisivel: body.comprovanteVisivel };
+  }
+
+  @Post('saques/dom-fee')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Registrar manualmente taxa de saque DOM para uma plataforma (+R$1)' })
+  async applyDomFee(
+    @Body() body: { platformTag: string },
+    @CurrentUser() user: JwtPayload | undefined,
+  ) {
+    const platformTag = (body?.platformTag ?? '').toUpperCase();
+    if (!platformTag) throw new BadRequestException('platformTag obrigatório');
+    const domFee = getPlatformTaxaEffective(platformTag, 'TAXA_SAQUE_DOM', 1);
+    const adminUserId = user?.sub;
+    if (!adminUserId) throw new BadRequestException('Usuário não identificado');
+    await this.prisma.balanceLog.create({
+      data: {
+        userId: adminUserId,
+        action: 'ADMIN_WITHDRAW_FEE_INC',
+        amount: new Prisma.Decimal(domFee),
+        balanceBefore: 0,
+        balanceAfter: 0,
+        lockedBefore: 0,
+        lockedAfter: 0,
+        source: 'MASTER_ADMIN_CONTROL',
+        description: `Taxa DOM manual — plataforma: ${platformTag}`,
+        metadata: { platformTag, domFee, manual: true },
+      },
+    });
+    return { amount: domFee, platformTag };
+  }
+
+  @Post('saques/dom-fee/undo')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Desfazer taxa de saque DOM registrada manualmente (-R$1)' })
+  async undoDomFee(
+    @Body() body: { platformTag: string },
+    @CurrentUser() user: JwtPayload | undefined,
+  ) {
+    const platformTag = (body?.platformTag ?? '').toUpperCase();
+    if (!platformTag) throw new BadRequestException('platformTag obrigatório');
+    const domFee = getPlatformTaxaEffective(platformTag, 'TAXA_SAQUE_DOM', 1);
+    const adminUserId = user?.sub;
+    if (!adminUserId) throw new BadRequestException('Usuário não identificado');
+    await this.prisma.balanceLog.create({
+      data: {
+        userId: adminUserId,
+        action: 'ADMIN_WITHDRAW_FEE_INC',
+        amount: new Prisma.Decimal(-domFee),
+        balanceBefore: 0,
+        balanceAfter: 0,
+        lockedBefore: 0,
+        lockedAfter: 0,
+        source: 'MASTER_ADMIN_CONTROL',
+        description: `Taxa DOM desfeita — plataforma: ${platformTag}`,
+        metadata: { platformTag, domFee: -domFee, manual: true, undo: true },
+      },
+    });
+    return { amount: -domFee, platformTag };
   }
 
   // ──────────── RENOVADA: TRANSAÇÕES & RESUMO ────────────

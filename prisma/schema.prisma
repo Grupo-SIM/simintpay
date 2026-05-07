@@ -151,8 +151,9 @@ model WithdrawRequest {
   fee             Decimal        @default(2.00) @db.Decimal(12, 2)
   status          WithdrawStatus @default(PENDING)
   pixKey          String
-  receiptImage    String?
-  rejectionReason String?
+  receiptImage       String?
+  comprovanteVisivel Boolean  @default(true)
+  rejectionReason    String?
   domWithdrawId   String?        @unique
   platform        String?        @db.VarChar(50)
   createdAt       DateTime       @default(now())

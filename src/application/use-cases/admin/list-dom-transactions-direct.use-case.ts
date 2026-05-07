@@ -107,15 +107,9 @@ export class ListDomTransactionsDirectUseCase {
         const mdr2 = Number(mdr.toFixed(2));
         taxaDom2 = mdr2;
 
-        // netAmount gravado no banco = amount × LIQUIDEZ_na_criação (imutável).
-        // Usar esse valor congela a taxa_vendedor da transação — mudar LIQUIDEZ hoje
-        // não altera transações passadas. Sem DB record: calcula com taxa atual.
-        const storedNet = dbRecord?.netAmount != null ? Number(dbRecord.netAmount) : null;
-        if (storedNet !== null) {
-          taxaVendedor = Number(Math.max(0, amount - storedNet).toFixed(2));
-        } else {
-          taxaVendedor = Number(Math.max(0, amount * (1 - L)).toFixed(2));
-        }
+        // Sempre usa LIQUIDEZ nominal para exibição — o storedNet pode refletir apenas o
+        // liquid_amount do DOM (só MDR 2%), não a margem de plataforma (1 − LIQUIDEZ).
+        taxaVendedor = Number(Math.max(0, amount * (1 - L)).toFixed(2));
 
         const platformFee = taxaVendedor + fixedFees;
         totalFee = Number((mdr2 + platformFee).toFixed(2));

@@ -286,9 +286,11 @@ export class PlatformDashboardService {
     };
 
     // ── Taxas de saque no período selecionado ─────────────────────────────────
-    const DOM_FEE_SAQUE = 1;
     const taxaSaqueFixa = getPlatformTaxaEffective(upperTag, 'TAXA_SAQUE_FIXA', 2.0);
+    // Quando nenhum período explícito é passado, os saques contam desde o dia 1 do mês atual
+    const saqueStart = dataInicio ? start : now.startOf('month').toDate();
     const moduleSlug = upperTag.toLowerCase();
+
     const saquesNoPeriodo = isAreaflix
       ? []
       : isAtlas
@@ -297,42 +299,65 @@ export class PlatformDashboardService {
             where: {
               userId: atlasWalletUserId,
               status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
-              updatedAt: { gte: start, lte: end },
+              updatedAt: { gte: saqueStart, lte: end },
             },
             select: { id: true },
           })
         : []
       : isTenantTagged
-        // EBOOK/PAGATG: multi-vendor — count all seller saques tagged by tenantModule
         ? await this.prisma.withdrawRequest.findMany({
             where: {
               user: { tenantModule: { slug: moduleSlug } },
               status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
               fee: { gt: 0 },
-              updatedAt: { gte: start, lte: end },
+              updatedAt: { gte: saqueStart, lte: end },
             },
             select: { id: true },
           })
-        // RENOVADA/BOSQUE/single-admin: only the platform account's saques
-        // fee > 0: exclui registros importados pelo SyncDomWithdrawalsUseCase (fee=0)
         : platformId
           ? await this.prisma.withdrawRequest.findMany({
               where: {
                 userId: platformId,
                 status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
                 fee: { gt: 0 },
-                updatedAt: { gte: start, lte: end },
+                updatedAt: { gte: saqueStart, lte: end },
               },
               select: { id: true },
             })
           : [];
 
     const qtdSaquesNoPeriodo = saquesNoPeriodo.length;
+
+    // Taxa de Saque — Simintpay: valor total cobrado dos usuários (PROFIT_INC logs no período)
+    const profitLogs = await this.prisma.balanceLog.aggregate({
+      where: {
+        action: 'ADMIN_WITHDRAW_PROFIT_INC',
+        source: 'MASTER_ADMIN_CONTROL',
+        createdAt: { gte: saqueStart, lte: end },
+        metadata: { path: ['platformTag'], equals: upperTag },
+      },
+      _sum: { amount: true },
+    });
+
+    // Taxa de Saque — DOM: soma dos registros manuais de taxa DOM (FEE_INC logs)
+    const domLogs = await this.prisma.balanceLog.aggregate({
+      where: {
+        action: 'ADMIN_WITHDRAW_FEE_INC',
+        source: 'MASTER_ADMIN_CONTROL',
+        createdAt: { gte: saqueStart, lte: end },
+        metadata: { path: ['platformTag'], equals: upperTag },
+      },
+      _sum: { amount: true },
+    });
+
+    const lucroSimpay = Number((Number(profitLogs._sum.amount ?? 0)).toFixed(2));
+    const taxaTotalDOM = Math.max(0, Number((Number(domLogs._sum.amount ?? 0)).toFixed(2)));
+
     const saqueFees = {
       quantidade: qtdSaquesNoPeriodo,
-      taxaTotalDOM: Number((qtdSaquesNoPeriodo * DOM_FEE_SAQUE).toFixed(2)),
-      lucroSimpay: Number((qtdSaquesNoPeriodo * Math.max(0, taxaSaqueFixa - DOM_FEE_SAQUE)).toFixed(2)),
-      taxaTotal: Number((qtdSaquesNoPeriodo * taxaSaqueFixa).toFixed(2)),
+      taxaTotalDOM,
+      lucroSimpay,
+      taxaTotal: Number((lucroSimpay + taxaTotalDOM).toFixed(2)),
     };
 
     const chartPlatformId = isTenantTagged || isAtlas || isBosque || isAreaflix ? null : platformId;

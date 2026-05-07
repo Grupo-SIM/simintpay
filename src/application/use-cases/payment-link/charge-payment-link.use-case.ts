@@ -133,9 +133,11 @@ export class ChargePaymentLinkUseCase {
     const linkPlatformTag = (link as any).plataformas?.[0]?.toUpperCase() ?? null;
     const platformTag = linkPlatformTag ?? owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
     const isDebit = input.paymentMethod === 'debit_card';
+    const isPix = input.paymentMethod === 'pix';
 
     // Para débito: comprador paga valor base; taxas (DOM 3,49%+R$1 + plataforma) saem do líquido do vendedor.
-    // Para crédito/PIX: cálculo normal com juros repassados ao comprador.
+    // Para PIX: comprador paga exatamente o valor base, sem juros de parcelamento.
+    // Para crédito: cálculo normal com juros repassados ao comprador.
     const fees = isDebit
       ? (() => {
           const d = calculateDebitFees(link, platformTag);
@@ -145,7 +147,7 @@ export class ChargePaymentLinkUseCase {
             domFeeAmount: d.domFeeAmount + d.platformFeeAmount, // total de taxas sobre o vendedor
           };
         })()
-      : calculatePaymentLinkFees(link, installments, platformTag);
+      : calculatePaymentLinkFees(link, installments, platformTag, isPix);
     const { totalAmount, netAmount, domFeeAmount } = fees;
 
     const result = await this.gateway.chargePaymentLink(domToken, {
