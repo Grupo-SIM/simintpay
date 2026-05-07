@@ -768,7 +768,7 @@ export class ApiDomClient implements IPaymentGateway {
     domToken: string,
     input: {
       planId: string;
-      customer: { name: string; email: string; document: string; phone: string };
+      customer: { name: string; email: string; document: string; phone: string; documentType: 'CPF' | 'CNPJ' };
       card: {
         token: string;
         brand?: string;
@@ -784,34 +784,44 @@ export class ApiDomClient implements IPaymentGateway {
   ): Promise<{ id: string; status?: string; [key: string]: unknown }> {
     const url = `${this.domRealApiUrl}/recurrence/subscriptions`;
     const appUrl = process.env.URL_APP ?? 'https://simpay-back.simintermediacoes.com';
+    const domCustomerId = await this.getOrCreateDomCustomer(domToken, input.customer);
+
+    if (!input.card.number) {
+       this.logger.warn(`[DOM Create Sub] Subscription attempt without card number for customer ${domCustomerId}`);
+    }
+
+    const cardToken = input.card.number 
+      ? await this.createCardToken(domToken, domCustomerId, {
+          number: input.card.number,
+          cvv: input.card.cvv,
+          exp_month: input.card.exp_month,
+          exp_year: input.card.exp_year,
+          holder_name: input.card.holder_name,
+          holder_document: input.card.holder_document,
+        })
+      : input.card.token;
+
     const body = {
       plan_id: input.planId,
       payment_method: 'credit_card',
-      customer: {
-        name: input.customer.name,
-        email: input.customer.email,
-        document: input.customer.document,
-        phone: input.customer.phone,
-      },
+      customer_id: domCustomerId,
       card: {
-        token: input.card.token,
-        brand: input.card.brand,
-        bin: input.card.bin,
-        exp_month: input.card.exp_month,
-        exp_year: input.card.exp_year,
-        cvv: input.card.cvv,
-        holder_name: input.card.holder_name,
-        holder_document: input.card.holder_document,
+        token: cardToken,
+        installments: 1,
       },
+      external_reference: `sub_${Date.now()}_${input.customer.document.slice(-4)}`,
+      metadata: null,
       cashback_active: false,
       postbackurl: `${appUrl}/subscription/webhook`,
     };
+    this.logger.log(`[DOM Create Sub] POST ${url} Body: ${JSON.stringify(body)}`);
     try {
       const res = await firstValueFrom(
         this.http.post<any>(url, body, {
           headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' },
         }),
       );
+      this.logger.log(`[DOM Create Sub Response] ${JSON.stringify(res.data)}`);
       const data = res.data?.data ?? res.data;
       const obj = this.getObject(data);
       const id = this.pickString(obj, 'id');
@@ -1166,6 +1176,82 @@ export class ApiDomClient implements IPaymentGateway {
       pixExpire,
       amount: input.amount,
     };
+  }
+
+  private async getOrCreateDomCustomer(
+    domToken: string,
+    customer: { name: string; email: string; document: string; phone: string; documentType: 'CPF' | 'CNPJ' },
+  ): Promise<string> {
+    const url = `${this.domRealApiUrl}/customers`;
+    const body = {
+      name: customer.name,
+      email: customer.email,
+      document: customer.document.replace(/\D/g, ''),
+      document_type: customer.documentType,
+      mobile_phone: customer.phone.replace(/\D/g, ''),
+      code_external: `cust_${customer.document.replace(/\D/g, '')}`,
+    };
+
+    try {
+      const res = await firstValueFrom(
+        this.http.post<any>(url, body, {
+          headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' },
+        }),
+      );
+      const id = res.data?.id ?? res.data?.data?.id;
+      if (id) return String(id);
+    } catch (err) {
+      const ax = err as AxiosError<any>;
+      if (ax?.response?.data?.id) {
+        return String(ax.response.data.id);
+      }
+      if (typeof ax?.response?.data?.message === 'string' && ax.response.data.message.includes('E-mail existente')) {
+         // Se o email já existe mas não retornou o ID no erro, poderíamos tentar buscar por email se houvesse endpoint.
+         // No api-dom vemos que ele tenta um GET no ID que vem no erro.
+      }
+      this.logger.error(`[DOM Customer] Error creating customer: ${JSON.stringify(ax?.response?.data ?? err.message)}`);
+      throw err;
+    }
+    throw new Error('Could not create or find DOM customer');
+  }
+
+  private async createCardToken(
+    domToken: string,
+    domCustomerId: string,
+    card: {
+      number: string;
+      cvv: string;
+      exp_month: string;
+      exp_year: string;
+      holder_name: string;
+      holder_document: string;
+    },
+  ): Promise<string> {
+    const url = `${this.domRealApiUrl}/customers/${domCustomerId}/card-token`;
+    const body = {
+      token: '', // API DOM v3 expects an empty token if we are providing full data, or it's a legacy requirement
+      number: card.number.replace(/\s+/g, '').replace(/\D/g, ''),
+      cvv: card.cvv.replace(/\s/g, ''),
+      exp_month: parseInt(card.exp_month),
+      exp_year: parseInt(card.exp_year) < 100 ? parseInt(card.exp_year) + 2000 : parseInt(card.exp_year),
+      holder_name: card.holder_name,
+      holder_document: card.holder_document.replace(/\D/g, ''),
+    };
+
+    try {
+      const res = await firstValueFrom(
+        this.http.post<any>(url, body, {
+          headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' },
+        }),
+      );
+      const token = res.data?.token ?? res.data?.data?.token;
+      if (token) return String(token);
+    } catch (err) {
+      const ax = err as AxiosError<any>;
+      this.logger.error(`[DOM Card Token] Error: ${JSON.stringify(ax?.response?.data ?? err.message)}`);
+      throw new BadRequestException(ax?.response?.data?.message || 'Erro ao processar cartão de crédito.');
+    }
+    throw new Error('Could not generate card token in DOM');
   }
 
   async validateVoucher(

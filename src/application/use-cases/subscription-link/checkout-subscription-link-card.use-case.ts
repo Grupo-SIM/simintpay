@@ -113,6 +113,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
         email: input.dto.customerEmail,
         document: cleanDoc,
         phone: cleanPhone,
+        documentType: cleanDoc.length === 14 ? 'CNPJ' : 'CPF',
       },
       card: input.dto.card,
     });

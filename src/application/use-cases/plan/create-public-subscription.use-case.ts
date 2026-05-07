@@ -103,6 +103,7 @@ export class CreatePublicSubscriptionUseCase {
         email: input.customerEmail,
         document: cleanDoc,
         phone: cleanPhone,
+        documentType: cleanDoc.length === 14 ? 'CNPJ' : 'CPF',
       },
       card: input.card,
     });

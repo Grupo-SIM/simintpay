@@ -317,7 +317,7 @@ export interface IPaymentGateway {
     domToken: string,
     input: {
       planId: string;
-      customer: { name: string; email: string; document: string; phone: string };
+      customer: { name: string; email: string; document: string; phone: string; documentType: 'CPF' | 'CNPJ' };
       card: {
         token: string;
         brand?: string;
