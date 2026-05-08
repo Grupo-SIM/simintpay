@@ -78,6 +78,7 @@ import { computeUserNetBalance } from '../../application/helpers/user-platform-n
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
+import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
@@ -5107,11 +5108,24 @@ export class AdminController {
         const netBasecom = valorBruto - pf;
         const valorLiquido = Number((netBasecom - taxaServicoCom).toFixed(2));
         const lucroAdmin = Number((valorBruto * adminMargin - fixedFee).toFixed(2));
+        const pmStrCom = String(o.paymentMethod ?? 'pix').toLowerCase().includes('debit') ? 'debit_card'
+          : (String(o.paymentMethod ?? 'pix').toLowerCase().includes('card') || String(o.paymentMethod ?? 'pix').toLowerCase().includes('credit')) ? 'credit_card'
+          : 'pix';
+        const taxaDom = Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStrCom, installments: 1, tenantTag: 'COMUNIDADE' }).toFixed(2));
+        const taxaSimIntPay = Number((valorBruto * adminMargin).toFixed(2));
+        const taxaFixa = Number(taxaServicoFixaCom.toFixed(2));
+        const taxaCashback = Number(taxaServicoCashbackCom.toFixed(2));
+        const lucroPrejuizo = Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2));
         return {
           id: `comunidade_order_${o.id}`,
           valorBruto,
           valorLiquido,
           lucroAdmin,
+          taxaDom,
+          taxaSimIntPay,
+          taxaFixa,
+          taxaCashback,
+          lucroPrejuizo,
           calculos: {
             valorLiquido: `Salvo no BD: R$ ${valorLiquido.toFixed(2)}`,
             lucroAdmin: `Bruto(${valorBruto.toFixed(2)}) - Líquido(${valorLiquido.toFixed(2)}) = ${(valorBruto - valorLiquido).toFixed(2)}`,
@@ -5336,6 +5350,13 @@ export class AdminController {
       const valorBruto = Number(t.amount);
       const isCompleted = t.status === 'COMPLETED';
 
+      const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : 'credit_card';
+      const taxaDom = isCompleted ? Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStr, installments: t.installments ?? 1, tenantTag: upperTag }).toFixed(2)) : 0;
+      const taxaSimIntPay = isCompleted ? Number((valorBruto * adminMargin).toFixed(2)) : 0;
+      const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
+      const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
+      const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
+
       const cashbackDeduction = valorBruto * (cashbackFee / 100);
       const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
       const lucroAdmin = isCompleted ? Number((valorBruto * adminMargin - fixedFee - cashbackDeduction).toFixed(2)) : 0;
@@ -5377,6 +5398,11 @@ export class AdminController {
         valorBruto: valorBruto,
         valorLiquido: valorLiquido,
         lucroAdmin: lucroAdmin,
+        taxaDom,
+        taxaSimIntPay,
+        taxaFixa,
+        taxaCashback,
+        lucroPrejuizo,
         calculos: {
           valorLiquido: (t.netAmount != null && Number(t.netAmount) > 0)
             ? `Salvo no BD: R$ ${valorLiquido.toFixed(2)}`
