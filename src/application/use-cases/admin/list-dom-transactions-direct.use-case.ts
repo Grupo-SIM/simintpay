@@ -18,7 +18,23 @@ function platformTagFromKeywords(text: string | undefined | null): string {
   if (t.includes('revalida')) return 'REVALIDA';
   if (t.includes('marketing raiz') || t.includes('marketing-raiz')) return 'MARKETING-RAIZ';
   if (t.includes('comunidade') || t.includes('community')) return 'COMUNIDADE';
+  if (t.includes('controle-motorista') || t.includes('controle motorista') || t.includes('controle de motorista')) return 'CONTROLE-MOTORISTA';
+  if (t.includes('controle-patrimonial') || t.includes('controle patrimonial') || t.includes('controle de patrimonial')) return 'CONTROLE-PATRIMONIAL';
+  if (t.includes('atlas') || t.includes('atlashosting')) return 'ATLAS';
+  if (t.includes('frendz')) return 'FRENDZ';
   return 'GLOBAL';
+}
+
+/** Extrai o subscriptionLinkId de cod_external no padrão sub-link-pix-{uuid}-{timestamp}. */
+function extractSubLinkId(codExternal: string): string | null {
+  const m = codExternal.match(/^sub-link-pix-([0-9a-f-]{36})-\d+$/i);
+  return m ? m[1] : null;
+}
+
+/** Extrai o paymentLinkId de cod_external no padrão pix-link-{uuid}-{timestamp}. */
+function extractPaymentLinkId(codExternal: string): string | null {
+  const m = codExternal.match(/^pix-link-([0-9a-f-]{36})-\d+$/i);
+  return m ? m[1] : null;
 }
 
 export interface ListDomTransactionsDirectInput {
@@ -64,20 +80,84 @@ export class ListDomTransactionsDirectUseCase {
     const dbTxs = codExternals.length > 0 || domIds.length > 0
       ? await this.prisma.transaction.findMany({
           where: { OR: [{ id: { in: codExternals } }, { domPaymentId: { in: domIds } }] },
-          select: { id: true, domPaymentId: true, description: true, netAmount: true },
+          select: { id: true, domPaymentId: true, description: true, netAmount: true, paymentLinkId: true },
         })
       : [];
     const dbByCodExternal = new Map(dbTxs.map((t) => [t.id, t]));
     const dbByDomId = new Map(dbTxs.map((t) => [t.domPaymentId ?? '', t]));
 
+    // Resolve platformTag para payment link PIX via cod_external (pix-link-{linkId}-{ts}) e via Transaction.paymentLinkId
+    const payLinkIdsByCodExternal = new Map<string, string>();
+    for (const ce of codExternals) {
+      const linkId = extractPaymentLinkId(ce);
+      if (linkId) payLinkIdsByCodExternal.set(ce, linkId);
+    }
+    const payLinkTagByCodExternal = new Map<string, string>();
+    const payLinkTagByPaymentLinkId = new Map<string, string>();
+    const allPayLinkIds = [
+      ...new Set([
+        ...[...payLinkIdsByCodExternal.values()],
+        ...dbTxs.map((t) => (t as any).paymentLinkId as string | null).filter(Boolean) as string[],
+      ]),
+    ];
+    if (allPayLinkIds.length > 0) {
+      const payLinks = await this.prisma.paymentLink.findMany({
+        where: { id: { in: allPayLinkIds } },
+        select: { id: true, plataformas: true },
+      });
+      for (const pl of payLinks) {
+        const tag = ((pl.plataformas as string[])?.[0] ?? '').toUpperCase();
+        if (tag && tag !== 'GLOBAL') payLinkTagByPaymentLinkId.set(pl.id, tag);
+      }
+      for (const [ce, linkId] of payLinkIdsByCodExternal) {
+        const tag = payLinkTagByPaymentLinkId.get(linkId);
+        if (tag) payLinkTagByCodExternal.set(ce, tag);
+      }
+    }
+
+    // Resolve platformTag para subscription link PIX via cod_external (sub-link-pix-{linkId}-{ts})
+    const subLinkIdsByCodExternal = new Map<string, string>();
+    for (const ce of codExternals) {
+      const linkId = extractSubLinkId(ce);
+      if (linkId) subLinkIdsByCodExternal.set(ce, linkId);
+    }
+    const subLinkTagByCodExternal = new Map<string, string>();
+    if (subLinkIdsByCodExternal.size > 0) {
+      const linkIds = [...new Set(subLinkIdsByCodExternal.values())];
+      const subLinks = await this.prisma.subscriptionLink.findMany({
+        where: { id: { in: linkIds } },
+        select: { id: true, platformTag: true, plataformas: true },
+      });
+      const tagById = new Map(subLinks.map((l) => [
+        l.id,
+        ((l.platformTag || (l.plataformas as string[])?.[0]) ?? '').toUpperCase() || 'GLOBAL',
+      ]));
+      for (const [ce, linkId] of subLinkIdsByCodExternal) {
+        const tag = tagById.get(linkId);
+        if (tag && tag !== 'GLOBAL') subLinkTagByCodExternal.set(ce, tag);
+      }
+    }
+
     const transactions = rawTxs.map((tx) => {
       const amount = Number(tx.amount ?? 0);
       const dbRecord = dbByCodExternal.get(String(tx.cod_external ?? '')) ?? dbByDomId.get(String(tx.id ?? ''));
 
-      /** Plataforma: prioridade → [TENANT:TAG] no produto → DB description → keywords → GLOBAL. */
+      /** Plataforma: prioridade → [TENANT:TAG] no produto → DB description → SubscriptionLink.platformTag → keywords → GLOBAL. */
       let tenantTag = platformTaxaTagFromText(tx.product_first ?? undefined);
       if (tenantTag === 'GLOBAL' && dbRecord?.description) {
         tenantTag = platformTaxaTagFromText(dbRecord.description);
+      }
+      if (tenantTag === 'GLOBAL') {
+        const subLinkTag = subLinkTagByCodExternal.get(String(tx.cod_external ?? ''));
+        if (subLinkTag) tenantTag = subLinkTag;
+      }
+      if (tenantTag === 'GLOBAL') {
+        const payLinkTagByCe = payLinkTagByCodExternal.get(String(tx.cod_external ?? ''));
+        if (payLinkTagByCe) tenantTag = payLinkTagByCe;
+      }
+      if (tenantTag === 'GLOBAL' && dbRecord && (dbRecord as any).paymentLinkId) {
+        const payLinkTag = payLinkTagByPaymentLinkId.get((dbRecord as any).paymentLinkId);
+        if (payLinkTag) tenantTag = payLinkTag;
       }
       const displayTag = tenantTag !== 'GLOBAL'
         ? tenantTag

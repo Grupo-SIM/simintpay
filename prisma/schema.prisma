@@ -700,6 +700,28 @@ model PlatformTaxaOverride {
   @@index([tag])
 }
 
+// Acesso por assinatura para plataformas SaaS (CONTROLE-MOTORISTA, CONTROLE-PATRIMONIAL)
+model PlatformSubscriberAccess {
+  id                String   @id @default(uuid())
+  platformTag       String   // "CONTROLE-MOTORISTA" | "CONTROLE-PATRIMONIAL"
+  customerEmail     String
+  customerName      String?
+  customerCpf       String?
+  customerPhone     String?
+  isActive          Boolean  @default(true)
+  expiresAt         DateTime
+  frozenDays        Int      @default(0)  // Dias guardados ao pausar
+  totalDaysCredited Int      @default(0)  // Acumulado histórico de dias creditados
+  lastTransactionId String?
+  lastPaymentMethod String?               // "PIX" | "CREDIT_CARD" — método do último pagamento
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([platformTag, customerEmail])
+  @@index([platformTag])
+  @@index([customerEmail])
+}
+
 // ── Vouchers ──────────────────────────────────────────────────────────────────
 
 model Voucher {

@@ -113,7 +113,9 @@ export class ChargePixPaymentLinkUseCase {
     const codExternal = `pix-link-${link.id}-${Date.now()}`;
 
     // PIX é sempre 1 parcela sem juros — comprador paga exatamente o valor base do link
-    const platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+    const platformTag = ((link as any).plataformas?.[0] as string | undefined)?.toUpperCase()
+      || owner?.tenantModule?.slug?.toUpperCase()
+      || 'GLOBAL';
     const fees = calculatePaymentLinkFees(link, 1, platformTag, true);
     const { totalAmount, netAmount, domFeeAmount } = fees;
 
@@ -149,7 +151,7 @@ export class ChargePixPaymentLinkUseCase {
         domFee: new Prisma.Decimal(domFeeAmount),
         platformFee: new Prisma.Decimal(platformFee),
         userId: effectiveUserId,
-        description: link.description ?? link.title,
+        description: platformTag !== 'GLOBAL' ? `${link.description ?? link.title} [TENANT:${platformTag}]` : (link.description ?? link.title),
         customerName: input.customerName,
         customerEmail: input.customerEmail,
         customerDocument: document,
@@ -167,7 +169,7 @@ export class ChargePixPaymentLinkUseCase {
         domFee: new Prisma.Decimal(domFeeAmount),
         platformFee: new Prisma.Decimal(platformFee),
         domPaymentId: result.id,
-        description: link.description ?? link.title,
+        description: platformTag !== 'GLOBAL' ? `${link.description ?? link.title} [TENANT:${platformTag}]` : (link.description ?? link.title),
         customerName: input.customerName,
         customerEmail: input.customerEmail,
         customerDocument: document,

@@ -15,6 +15,8 @@ import {
   TENANT_AREAFLIX_TAG,
   TENANT_BOSQUE_TAG,
   TENANT_COMUNIDADE_TAG,
+  TENANT_CONTROLE_MOTORISTA_TAG,
+  TENANT_CONTROLE_PATRIMONIAL_TAG,
   TENANT_EBOOK_TAG,
   TENANT_RENOVADA_TAG,
 } from '../../utils/internal-tags.util';
@@ -388,6 +390,16 @@ export class ProcessDomWebhookUseCase {
         );
         void this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
 
+        if (existing.description?.includes(TENANT_CONTROLE_MOTORISTA_TAG)) {
+          void this.tryProvisionControleMotoristaUser(data, existing);
+          void this.upsertPlatformSubscriberAccess('CONTROLE-MOTORISTA', existing.id, data, existing);
+        }
+
+        if (existing.description?.includes(TENANT_CONTROLE_PATRIMONIAL_TAG)) {
+          void this.tryProvisionControlePatrimonialUser(data, existing);
+          void this.upsertPlatformSubscriberAccess('CONTROLE-PATRIMONIAL', existing.id, data, existing);
+        }
+
         // PIX-PLAN: creditar dias se a transação tiver um PixPlanOrder
         if (this.pixPlanService) {
           try {
@@ -615,6 +627,153 @@ export class ProcessDomWebhookUseCase {
         `[DomWebhook][ebook] GET DOM transactions/${domPaymentId} falhou: ${e instanceof Error ? e.message : String(e)}`,
       );
       return null;
+    }
+  }
+
+  private async tryProvisionControleMotoristaUser(data: RawDomData, existing: { customerEmail?: string | null; customerName?: string | null }): Promise<void> {
+    const url = String(process.env.CONTROLE_MOTORISTA_URL ?? '').replace(/\/+$/, '');
+    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    if (!url || !token) {
+      this.logger.warn(`[DomWebhook][controle-motorista] CONTROLE_MOTORISTA_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`);
+      return;
+    }
+    const email = data.customer?.email ?? existing.customerEmail ?? '';
+    const name = data.customer?.name ?? existing.customerName ?? '';
+    if (!email || !name) {
+      this.logger.warn(`[DomWebhook][controle-motorista] email ou nome ausente — provisão ignorada domPaymentId=${data.id}`);
+      return;
+    }
+    const endpoint = `${url}/internal/users/provision`;
+    this.logger.log(`[DomWebhook][controle-motorista] POST ${endpoint} email=${email} domPaymentId=${data.id}`);
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-internal-token': token },
+        body: JSON.stringify({
+          email,
+          name,
+          cpf: data.customer?.document,
+          phone: data.customer?.mobile_phone,
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        this.logger.error(`[DomWebhook][controle-motorista] provision HTTP ${res.status}: ${text.slice(0, 300)}`);
+        return;
+      }
+      this.logger.log(`[DomWebhook][controle-motorista] provision OK email=${email} domPaymentId=${data.id}`);
+    } catch (e: any) {
+      this.logger.error(`[DomWebhook][controle-motorista] fetch falhou domPaymentId=${data.id}: ${e?.message}`);
+    }
+  }
+
+  private async tryProvisionControlePatrimonialUser(data: RawDomData, existing: { customerEmail?: string | null; customerName?: string | null }): Promise<void> {
+    const url = String(process.env.CONTROLE_PATRIMONIAL_URL ?? '').replace(/\/+$/, '');
+    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    if (!url || !token) {
+      this.logger.warn(`[DomWebhook][controle-patrimonial] CONTROLE_PATRIMONIAL_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`);
+      return;
+    }
+    const email = data.customer?.email ?? existing.customerEmail ?? '';
+    const name = data.customer?.name ?? existing.customerName ?? '';
+    if (!email || !name) {
+      this.logger.warn(`[DomWebhook][controle-patrimonial] email ou nome ausente — provisão ignorada domPaymentId=${data.id}`);
+      return;
+    }
+    const endpoint = `${url}/internal/users/provision`;
+    this.logger.log(`[DomWebhook][controle-patrimonial] POST ${endpoint} email=${email} domPaymentId=${data.id}`);
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-internal-token': token },
+        body: JSON.stringify({
+          email,
+          name,
+          cpf: data.customer?.document,
+          phone: data.customer?.mobile_phone,
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        this.logger.error(`[DomWebhook][controle-patrimonial] provision HTTP ${res.status}: ${text.slice(0, 300)}`);
+        return;
+      }
+      this.logger.log(`[DomWebhook][controle-patrimonial] provision OK email=${email} domPaymentId=${data.id}`);
+    } catch (e: any) {
+      this.logger.error(`[DomWebhook][controle-patrimonial] fetch falhou domPaymentId=${data.id}: ${e?.message}`);
+    }
+  }
+
+  private async upsertPlatformSubscriberAccess(
+    platformTag: string,
+    transactionId: string,
+    data: RawDomData,
+    existing: { customerEmail?: string | null; customerName?: string | null },
+  ): Promise<void> {
+    const PLAN_DAYS = 30;
+    const email = (data.customer?.email ?? existing.customerEmail ?? '').toLowerCase().trim();
+    if (!email) return;
+    const name = data.customer?.name ?? existing.customerName ?? undefined;
+    const cpf = data.customer?.document ?? undefined;
+    const phone = data.customer?.mobile_phone ?? undefined;
+    const rawMethod = (data.payment_method ?? '').toUpperCase();
+    const lastPaymentMethod = rawMethod.includes('CREDIT') || rawMethod.includes('CARD') ? 'CREDIT_CARD' : 'PIX';
+    const now = new Date();
+
+    try {
+      const current = await (this.prisma as any).platformSubscriberAccess.findUnique({
+        where: { platformTag_customerEmail: { platformTag, customerEmail: email } },
+      });
+
+      if (current) {
+        // Calcula a base para extensão considerando 3 cenários:
+        // 1. Ativo com dias restantes → estende do expiresAt atual
+        // 2. Pausado com dias congelados → devolve os dias congelados + adiciona os novos
+        // 3. Expirado → começa do zero a partir de agora
+        let base: Date;
+        if (current.isActive && current.expiresAt > now) {
+          base = current.expiresAt;
+        } else if (!current.isActive && current.frozenDays > 0) {
+          base = new Date(now.getTime() + current.frozenDays * 24 * 60 * 60 * 1000);
+        } else {
+          base = now;
+        }
+        const newExpiry = new Date(base.getTime() + PLAN_DAYS * 24 * 60 * 60 * 1000);
+        await (this.prisma as any).platformSubscriberAccess.update({
+          where: { platformTag_customerEmail: { platformTag, customerEmail: email } },
+          data: {
+            isActive: true,
+            expiresAt: newExpiry,
+            frozenDays: 0,
+            totalDaysCredited: current.totalDaysCredited + PLAN_DAYS,
+            lastTransactionId: transactionId,
+            lastPaymentMethod,
+            customerName: name ?? current.customerName,
+            customerCpf: cpf ?? current.customerCpf,
+            customerPhone: phone ?? current.customerPhone,
+          },
+        });
+      } else {
+        const newExpiry = new Date(now.getTime() + PLAN_DAYS * 24 * 60 * 60 * 1000);
+        await (this.prisma as any).platformSubscriberAccess.create({
+          data: {
+            platformTag,
+            customerEmail: email,
+            customerName: name ?? null,
+            customerCpf: cpf ?? null,
+            customerPhone: phone ?? null,
+            isActive: true,
+            expiresAt: newExpiry,
+            frozenDays: 0,
+            totalDaysCredited: PLAN_DAYS,
+            lastTransactionId: transactionId,
+            lastPaymentMethod,
+          },
+        });
+      }
+      this.logger.log(`[DomWebhook][${platformTag}] PlatformSubscriberAccess upserted email=${email} +${PLAN_DAYS}d`);
+    } catch (e: any) {
+      this.logger.error(`[DomWebhook][${platformTag}] PlatformSubscriberAccess upsert falhou: ${e?.message}`);
     }
   }
 
@@ -1148,7 +1307,15 @@ export class ProcessDomWebhookUseCase {
     }
 
     const whAf = (order.subscriptionLink.webhookUrl ?? '').toLowerCase();
-    if (whAf.includes('areaflix') && order.domPixPaymentId) {
+    // platformTag explícito tem prioridade; fallback legado: webhookUrl contém 'areaflix'
+    const subPlatformTag = (
+      order.subscriptionLink.platformTag ||
+      (order.subscriptionLink as any).plataformas?.[0] ||
+      (whAf.includes('areaflix') ? 'AREAFLIX' : '')
+    ).toUpperCase();
+
+    if (subPlatformTag && subPlatformTag !== 'GLOBAL' && order.domPixPaymentId) {
+      // Cria transação com [TENANT:{platform}] para QUALQUER plataforma associada ao link
       const exists = await this.prisma.transaction.findFirst({
         where: { domPaymentId: order.domPixPaymentId },
         select: { id: true },
@@ -1166,7 +1333,7 @@ export class ProcessDomWebhookUseCase {
             totalFee: 0,
             domFee: 0,
             platformFee: pf,
-            description: `${order.subscriptionLink.name} ${TENANT_AREAFLIX_TAG} subOrder=${order.id}`,
+            description: `${order.subscriptionLink.name} [TENANT:${subPlatformTag}] subOrder=${order.id}`,
             domPaymentId: order.domPixPaymentId,
             customerName: order.customerName,
             customerEmail: order.customerEmail,
@@ -1175,7 +1342,88 @@ export class ProcessDomWebhookUseCase {
           },
         });
       }
+      // CONTROLE-MOTORISTA: provisionar conta no saas-consumo-back
+      if (subPlatformTag === 'CONTROLE-MOTORISTA') {
+        const url = String(process.env.CONTROLE_MOTORISTA_URL ?? '').replace(/\/+$/, '');
+        const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+        if (!url || !token) {
+          this.logger.warn('[DomWebhook][CONTROLE-MOTORISTA] CONTROLE_MOTORISTA_URL ou token não configurado — provisão e acesso ignorados');
+        } else if (order.customerEmail && order.customerName) {
+          fetch(`${url}/internal/users/provision`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-internal-token': token },
+            body: JSON.stringify({
+              email: order.customerEmail,
+              name: order.customerName,
+              cpf: order.customerDocument,
+              phone: order.customerPhone ?? undefined,
+            }),
+          })
+            .then(async (r) => { const t = await r.text(); this.logger.log(`[DomWebhook][CONTROLE-MOTORISTA] provision HTTP ${r.status} email=${order.customerEmail}: ${t.slice(0, 200)}`); })
+            .catch((err: unknown) => { this.logger.warn(`[DomWebhook][CONTROLE-MOTORISTA] provision falhou: ${err instanceof Error ? err.message : String(err)}`); });
+
+          // Registra/estende acesso no PlatformSubscriberAccess
+          void this.upsertPlatformSubscriberAccess(
+            'CONTROLE-MOTORISTA',
+            order.id,
+            {
+              id: order.domPixPaymentId ?? order.id,
+              amount: Number(order.amountCharged),
+              status: 'approved',
+              payment_method: 'pix',
+              customer: {
+                email: order.customerEmail,
+                name: order.customerName,
+                document: order.customerDocument ?? undefined,
+                mobile_phone: order.customerPhone ?? undefined,
+              },
+            } as any,
+            { customerEmail: order.customerEmail, customerName: order.customerName },
+          );
+        }
+      }
+      // CONTROLE-PATRIMONIAL: provisionar conta no saas-controle-patrimonial-back
+      if (subPlatformTag === 'CONTROLE-PATRIMONIAL') {
+        const url = String(process.env.CONTROLE_PATRIMONIAL_URL ?? '').replace(/\/+$/, '');
+        const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+        if (!url || !token) {
+          this.logger.warn('[DomWebhook][CONTROLE-PATRIMONIAL] CONTROLE_PATRIMONIAL_URL ou token não configurado — provisão e acesso ignorados');
+        } else if (order.customerEmail && order.customerName) {
+          fetch(`${url}/internal/users/provision`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-internal-token': token },
+            body: JSON.stringify({
+              email: order.customerEmail,
+              name: order.customerName,
+              cpf: order.customerDocument,
+              phone: order.customerPhone ?? undefined,
+            }),
+          })
+            .then(async (r) => { const t = await r.text(); this.logger.log(`[DomWebhook][CONTROLE-PATRIMONIAL] provision HTTP ${r.status} email=${order.customerEmail}: ${t.slice(0, 200)}`); })
+            .catch((err: unknown) => { this.logger.warn(`[DomWebhook][CONTROLE-PATRIMONIAL] provision falhou: ${err instanceof Error ? err.message : String(err)}`); });
+
+          // Registra/estende acesso no PlatformSubscriberAccess
+          void this.upsertPlatformSubscriberAccess(
+            'CONTROLE-PATRIMONIAL',
+            order.id,
+            {
+              id: order.domPixPaymentId ?? order.id,
+              amount: Number(order.amountCharged),
+              status: 'approved',
+              payment_method: 'pix',
+              customer: {
+                email: order.customerEmail,
+                name: order.customerName,
+                document: order.customerDocument ?? undefined,
+                mobile_phone: order.customerPhone ?? undefined,
+              },
+            } as any,
+            { customerEmail: order.customerEmail, customerName: order.customerName },
+          );
+        }
+      }
     } else if (order.domPixPaymentId) {
+      // Fallback: link sem plataforma associada → verifica vínculo com comunidade
       const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
         where: { subscriptionLinkId: order.subscriptionLinkId },
         select: { id: true },

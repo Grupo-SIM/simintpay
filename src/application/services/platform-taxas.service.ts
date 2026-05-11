@@ -24,6 +24,8 @@ const KNOWN_CANONICAL_TAGS = [
   'FRENDZ',
   'ATLAS',
   'COMUNIDADE',
+  'CONTROLE-MOTORISTA',
+  'CONTROLE-PATRIMONIAL',
 ] as const;
 
 export type PlataformaTaxaSourceMap = Record<

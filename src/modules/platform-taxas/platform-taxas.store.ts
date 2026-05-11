@@ -58,6 +58,8 @@ function refreshCacheAsync(): void {
 /** Tag canônica na UI (EBOOK); variáveis de ambiente do ebook usam prefixo EBOOKSIM_. */
 const ENV_PREFIX_BY_CANONICAL_TAG: Record<string, string> = {
   EBOOK: 'EBOOKSIM',
+  'CONTROLE-MOTORISTA': 'CONTROLE_MOTORISTA',
+  'CONTROLE-PATRIMONIAL': 'CONTROLE_PATRIMONIAL',
 };
 
 export function canonicalPlatformTaxaTag(tag: string): string {

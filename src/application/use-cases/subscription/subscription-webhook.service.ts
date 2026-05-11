@@ -126,7 +126,7 @@ export class SubscriptionWebhookService {
       domFee,
       platformFeeAmount,
       domPaymentId: domTransactionId,
-      description: this.getString(data.description) ?? subscription.plan?.name ?? '-',
+      description: (() => { const d = this.getString(data.description) ?? subscription.plan?.name ?? '-'; return effectivePlanTag !== 'GLOBAL' ? `${d} [TENANT:${effectivePlanTag}]` : d; })(),
     });
   }
 
@@ -217,7 +217,7 @@ export class SubscriptionWebhookService {
       domFee,
       platformFeeAmount,
       domPaymentId: domTransactionId,
-      description: this.getString(data.product_first) ?? this.getString(data.description) ?? subscription.plan?.name ?? '-',
+      description: (() => { const d = this.getString(data.product_first) ?? this.getString(data.description) ?? subscription.plan?.name ?? '-'; return effectivePlanTag !== 'GLOBAL' ? `${d} [TENANT:${effectivePlanTag}]` : d; })(),
     });
   }
 

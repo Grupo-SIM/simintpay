@@ -7,18 +7,21 @@ import { EbookSimConfig }    from './ebooksim/ebooksim.config';
 import { FrendzConfig }      from './frendz/frendz.config';
 import { AtlasConfig }       from './atlas/atlas.config';
 import { ComunidadeConfig }  from './comunidade/comunidade.config';
+import { ControleMotoristaConfig } from './controle-motorista/controle-motorista.config';
 
 /** Registro de todos os módulos indexados pelo slug */
 const REGISTRY: Record<string, ModuleConfig> = {
-  revalida:   RevalidaConfig,
-  renovada:   RenovadaConfig,
-  bosque:     BosqueConfig,
-  pagatg:     PagaTGConfig,
-  ebooksim:   EbookSimConfig,
-  ebook:      EbookSimConfig,
-  frendz:     FrendzConfig,
-  atlas:      AtlasConfig,
-  comunidade: ComunidadeConfig,
+  revalida:              RevalidaConfig,
+  renovada:              RenovadaConfig,
+  bosque:                BosqueConfig,
+  pagatg:                PagaTGConfig,
+  ebooksim:              EbookSimConfig,
+  ebook:                 EbookSimConfig,
+  frendz:                FrendzConfig,
+  atlas:                 AtlasConfig,
+  comunidade:            ComunidadeConfig,
+  'controle-motorista':  ControleMotoristaConfig,
+  controle_motorista:    ControleMotoristaConfig,
 };
 
 /**

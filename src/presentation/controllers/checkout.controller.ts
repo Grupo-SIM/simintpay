@@ -272,8 +272,8 @@ export class CheckoutController {
       return NEVER;
     }
 
-    // Heartbeat a cada 20s para evitar timeout do nginx/proxy
-    const heartbeat$ = timer(0, 20000).pipe(
+    // Heartbeat a cada 8s para evitar timeout do nginx/proxy
+    const heartbeat$ = timer(0, 8000).pipe(
       map(() => ({ data: { type: 'heartbeat' }, type: 'heartbeat' }) as MessageEvent),
     );
 

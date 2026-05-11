@@ -83,7 +83,7 @@ import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
-import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_COMUNIDADE_TAG, TENANT_RENOVADA_TAG } from '../../application/utils/internal-tags.util';
+import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_COMUNIDADE_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG } from '../../application/utils/internal-tags.util';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -97,6 +97,8 @@ const PLAN_PLATFORM_CPF_REGEX = /\[CPF:([^\]|]*)\|([^\]]+)\]/;
 function normalizePlatformTag(tag: string): string {
   const upper = String(tag || '').toUpperCase();
   if (upper === 'EBOOKSIM' || upper === 'EBOOK') return 'EBOOK';
+  if (upper === 'CONTROLE_MOTORISTA' || upper === 'CONTROLE-MOTORISTA') return 'CONTROLE-MOTORISTA';
+  if (upper === 'CONTROLE_PATRIMONIAL' || upper === 'CONTROLE-PATRIMONIAL') return 'CONTROLE-PATRIMONIAL';
   return upper;
 }
 
@@ -329,6 +331,8 @@ function buildConsolidadoScopeOr(platformIds: string[]): Prisma.TransactionWhere
       { description: { contains: TENANT_AREAFLIX_TAG, mode: 'insensitive' } },
       { description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' } },
       { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
+      { description: { contains: TENANT_CONTROLE_MOTORISTA_TAG, mode: 'insensitive' } },
+      { description: { contains: TENANT_CONTROLE_PATRIMONIAL_TAG, mode: 'insensitive' } },
     ],
   };
 }
@@ -364,6 +368,8 @@ function consolidadoTagParaTransacao(
   if (transacaoAtribuiPagatgPorDescricao(tx.description)) return 'PAGATG';
   if (transacaoAtribuiEbookPorDescricao(tx.description)) return 'EBOOK';
   if (tx.description?.includes(TENANT_COMUNIDADE_TAG)) return 'COMUNIDADE';
+  if (tx.description?.includes(TENANT_CONTROLE_MOTORISTA_TAG)) return 'CONTROLE-MOTORISTA';
+  if (tx.description?.includes(TENANT_CONTROLE_PATRIMONIAL_TAG)) return 'CONTROLE-PATRIMONIAL';
   const platform = platforms.find((p) => p.id === tx.userId);
   return platform?.tag ?? 'RENOVADA';
 }
@@ -990,6 +996,7 @@ type DashboardFinanceHistoricoRow = {
   valorLiquido: number;
   lucroSimpay: number;
   cashback: number;
+  taxaAdquirente: number;
   taxaSaque: number;
   lucroSaque: number;
 };
@@ -1008,11 +1015,13 @@ function accumTxFinancePorDia(
   liquido: Map<string, number>;
   lucro: Map<string, number>;
   cashback: Map<string, number>;
+  taxaAdquirente: Map<string, number>;
 } {
   const bruto = new Map<string, number>();
   const liquido = new Map<string, number>();
   const lucro = new Map<string, number>();
   const cashback = new Map<string, number>();
+  const taxaAdquirente = new Map<string, number>();
   for (const tx of txRowsLucro) {
     const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
     const tag = consolidadoTagParaTransacao(
@@ -1029,8 +1038,10 @@ function accumTxFinancePorDia(
     lucro.set(ymd, (lucro.get(ymd) ?? 0) + l);
     const tc = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
     cashback.set(ymd, (cashback.get(ymd) ?? 0) + tc);
+    const tf = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
+    taxaAdquirente.set(ymd, (taxaAdquirente.get(ymd) ?? 0) + tf + tc);
   }
-  return { bruto, liquido, lucro, cashback };
+  return { bruto, liquido, lucro, cashback, taxaAdquirente };
 }
 
 function accumWithdrawPorDia(
@@ -1064,7 +1075,7 @@ function buildDashboardFinanceHistoricoDiario(
   dataFim: string,
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): DashboardFinanceHistoricoRow[] {
-  const { bruto, liquido, lucro, cashback } = accumTxFinancePorDia(txRowsLucro, platforms);
+  const { bruto, liquido, lucro, cashback, taxaAdquirente } = accumTxFinancePorDia(txRowsLucro, platforms);
   const { fee, profit } = accumWithdrawPorDia(withdrawLogs);
   const dias = listYmdInclusiveSp(dataInicio, dataFim);
   return dias.map((ymd) => ({
@@ -1073,6 +1084,7 @@ function buildDashboardFinanceHistoricoDiario(
     valorLiquido: Number((liquido.get(ymd) ?? 0).toFixed(2)),
     lucroSimpay: Number((lucro.get(ymd) ?? 0).toFixed(2)),
     cashback: Number((cashback.get(ymd) ?? 0).toFixed(2)),
+    taxaAdquirente: Number((taxaAdquirente.get(ymd) ?? 0).toFixed(2)),
     taxaSaque: Number((fee.get(ymd) ?? 0).toFixed(2)),
     lucroSaque: Number((profit.get(ymd) ?? 0).toFixed(2)),
   }));
@@ -1095,6 +1107,7 @@ function buildDashboardFinanceHistoricoPorHora(
   const liquido = new Map<number, number>();
   const lucro = new Map<number, number>();
   const cashback = new Map<number, number>();
+  const taxaAdquirente = new Map<number, number>();
   for (const tx of txRowsLucro) {
     const d = dayjs(tx.createdAt).tz(TZ);
     if (d.format('YYYY-MM-DD') !== ymdTarget) continue;
@@ -1111,6 +1124,8 @@ function buildDashboardFinanceHistoricoPorHora(
     lucro.set(h, (lucro.get(h) ?? 0) + lucroSimpayUmaTransacaoConsolidado(tx, platforms));
     const tc = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
     cashback.set(h, (cashback.get(h) ?? 0) + tc);
+    const tf = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
+    taxaAdquirente.set(h, (taxaAdquirente.get(h) ?? 0) + tf + tc);
   }
   const fee = new Map<number, number>();
   const profit = new Map<number, number>();
@@ -1132,6 +1147,7 @@ function buildDashboardFinanceHistoricoPorHora(
     valorLiquido: Number((liquido.get(h) ?? 0).toFixed(2)),
     lucroSimpay: Number((lucro.get(h) ?? 0).toFixed(2)),
     cashback: Number((cashback.get(h) ?? 0).toFixed(2)),
+    taxaAdquirente: Number((taxaAdquirente.get(h) ?? 0).toFixed(2)),
     taxaSaque: Number((fee.get(h) ?? 0).toFixed(2)),
     lucroSaque: Number((profit.get(h) ?? 0).toFixed(2)),
   }));
@@ -4419,7 +4435,7 @@ export class AdminController {
     >();
 
     // Plataformas conhecidas para detecção por texto livre (fallback sem formato padrão)
-    const KNOWN_TAGS = ['PAGATG', 'RENOVADA', 'REVALIDA', 'BOSQUE', 'FRENDZ', 'EBOOKSIM', 'EBOOK', 'ATLAS', 'AREAFLIX'];
+    const KNOWN_TAGS = ['PAGATG', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL', 'RENOVADA', 'REVALIDA', 'BOSQUE', 'FRENDZ', 'EBOOKSIM', 'EBOOK', 'ATLAS', 'AREAFLIX'];
 
     for (const p of plans) {
       const desc = p.description ?? '';
@@ -4536,6 +4552,38 @@ export class AdminController {
         planRows: [],
         plansCount: 0,
         firstSeen: firstPagatgTx?.createdAt ?? new Date(),
+      });
+    }
+
+    // Garante que CONTROLE-MOTORISTA apareça (plataforma Controle de Motorista)
+    if (!map.has('CONTROLE-MOTORISTA')) {
+      const firstCmTx = await this.prisma.transaction.findFirst({
+        where: { description: { contains: '[TENANT:CONTROLE-MOTORISTA]', mode: 'insensitive' } },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      map.set('CONTROLE-MOTORISTA', {
+        tag: 'CONTROLE-MOTORISTA',
+        cpf: '',
+        planRows: [],
+        plansCount: 0,
+        firstSeen: firstCmTx?.createdAt ?? new Date(),
+      });
+    }
+
+    // Garante que CONTROLE-PATRIMONIAL apareça (plataforma Controle Patrimonial)
+    if (!map.has('CONTROLE-PATRIMONIAL')) {
+      const firstCpTx = await this.prisma.transaction.findFirst({
+        where: { description: { contains: '[TENANT:CONTROLE-PATRIMONIAL]', mode: 'insensitive' } },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      map.set('CONTROLE-PATRIMONIAL', {
+        tag: 'CONTROLE-PATRIMONIAL',
+        cpf: '',
+        planRows: [],
+        plansCount: 0,
+        firstSeen: firstCpTx?.createdAt ?? new Date(),
       });
     }
 
@@ -4915,13 +4963,10 @@ export class AdminController {
         select: { id: true },
       });
       userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
-    } else if (upperTag === 'ATLAS') {
-      const aid = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-      userIds = aid ? [aid] : [];
     } else if (upperTag === 'BOSQUE') {
       const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
       userIds = [bid];
-    } else if (upperTag !== 'PAGATG') {
+    } else if (upperTag !== 'PAGATG' && upperTag !== 'CONTROLE-MOTORISTA' && upperTag !== 'CONTROLE-PATRIMONIAL' && upperTag !== 'ATLAS') {
       const plans = await this.prisma.pixCreditPlan.findMany({
         where: {
           OR: [
@@ -4934,28 +4979,23 @@ export class AdminController {
       userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
     }
 
-    const isTenantTagged = upperTag === 'EBOOK' || upperTag === 'PAGATG';
     const isBosqueDescScope = upperTag === 'BOSQUE';
-    if (!isTenantTagged && !isBosqueDescScope && userIds.length === 0)
-      return { total: 0, items: [] };
 
-    const baseWhere: any = isTenantTagged
+    const baseWhere: any = isBosqueDescScope
       ? {
           OR: [
-            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
-            ...(upperTag === 'EBOOK' && userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+            { userId: { in: userIds } },
+            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+            { description: { contains: 'bosque', mode: 'insensitive' } },
+            { description: { contains: 'ibb', mode: 'insensitive' } },
           ],
         }
-      : isBosqueDescScope
-        ? {
-            OR: [
-              { userId: { in: userIds } },
-              { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-              { description: { contains: 'bosque', mode: 'insensitive' } },
-              { description: { contains: 'ibb', mode: 'insensitive' } },
-            ],
-          }
-        : { userId: { in: userIds } };
+      : {
+          OR: [
+            ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
+          ],
+        };
 
     baseWhere.status = 'COMPLETED';
 
@@ -5165,13 +5205,10 @@ export class AdminController {
         select: { id: true },
       });
       userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
-    } else if (upperTag === 'ATLAS') {
-      const aid = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-      userIds = aid ? [aid] : [];
     } else if (upperTag === 'BOSQUE') {
       const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
       userIds = [bid];
-    } else if (upperTag !== 'PAGATG') {
+    } else if (upperTag !== 'PAGATG' && upperTag !== 'CONTROLE-MOTORISTA' && upperTag !== 'CONTROLE-PATRIMONIAL' && upperTag !== 'ATLAS') {
       const plans = await this.prisma.pixCreditPlan.findMany({
         where: {
           OR: [
@@ -5184,34 +5221,28 @@ export class AdminController {
       userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
     }
 
-    const isTenantTagged = upperTag === 'EBOOK' || upperTag === 'PAGATG';
     const isBosqueDescScope = upperTag === 'BOSQUE';
-    if (!isTenantTagged && !isBosqueDescScope && userIds.length === 0)
-      return { data: [], page: 1, pageSize: 20, total: 0 };
 
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
 
+    // Todas as plataformas: combina userId (sistema legado) + [TENANT:TAG] (payment/subscription links)
     const where: any =
-      isTenantTagged
+      isBosqueDescScope
         ? {
           OR: [
-            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
-            ...(upperTag === 'EBOOK' && userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+            { userId: { in: userIds } },
+            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+            { description: { contains: 'bosque', mode: 'insensitive' } },
+            { description: { contains: 'ibb', mode: 'insensitive' } },
           ],
         }
-        : isBosqueDescScope
-          ? {
-            OR: [
-              { userId: { in: userIds } },
-              { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-              { description: { contains: 'bosque', mode: 'insensitive' } },
-              { description: { contains: 'ibb', mode: 'insensitive' } },
-            ],
-          }
-          : {
-            userId: { in: userIds },
-          };
+        : {
+          OR: [
+            ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
+          ],
+        };
 
     const and: any[] = [];
 
@@ -5634,6 +5665,125 @@ export class AdminController {
       totalRevenue: Number(totalRevenue._sum.amountCharged ?? 0),
       totalFee: Number(totalRevenue._sum.platformFeeAmount ?? 0),
       items,
+    };
+  }
+
+  // ── Gestão de usuários das plataformas SaaS (PlatformSubscriberAccess) ───────
+
+  private getSaasBaseUrl(tag: string): string | null {
+    const upper = tag.toUpperCase();
+    if (upper === 'CONTROLE-PATRIMONIAL') return String(process.env.CONTROLE_PATRIMONIAL_URL ?? '').replace(/\/+$/, '');
+    if (upper === 'CONTROLE-MOTORISTA') return String(process.env.CONTROLE_MOTORISTA_URL ?? '').replace(/\/+$/, '');
+    return null;
+  }
+
+  private calcRemainingDays(expiresAt: Date, frozenDays: number, isActive: boolean): number {
+    if (!isActive) return frozenDays;
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+  }
+
+  @Get('plataformas/:tag/usuarios')
+  @ApiOperation({ summary: 'Listar assinantes de uma plataforma SaaS com dias restantes' })
+  @ApiQuery({ name: 'status', required: false, description: 'all | active | inactive' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  async listPlataformaUsuarios(
+    @Param('tag') tag: string,
+    @Query('status') status = 'all',
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+  ) {
+    const upper = tag.toUpperCase();
+    const validTags = ['CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL'];
+    if (!validTags.includes(upper)) throw new NotFoundException(`Plataforma ${tag} não suporta listagem de usuários`);
+
+    const pageNum = Math.max(1, Number(page));
+    const pageSize = Math.min(Math.max(1, Number(limit)), 100);
+
+    const where: any = { platformTag: upper };
+    if (status === 'active') where.isActive = true;
+    else if (status === 'inactive') where.isActive = false;
+
+    const [records, total] = await Promise.all([
+      this.prisma.platformSubscriberAccess.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (pageNum - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.platformSubscriberAccess.count({ where }),
+    ]);
+
+    const users = records.map((r) => ({
+      id: r.id,
+      email: r.customerEmail,
+      name: r.customerName,
+      cpf: r.customerCpf,
+      phone: r.customerPhone,
+      isActive: r.isActive,
+      expiresAt: r.expiresAt,
+      remainingDays: this.calcRemainingDays(r.expiresAt, r.frozenDays, r.isActive),
+      frozenDays: r.frozenDays,
+      totalDaysCredited: r.totalDaysCredited,
+      lastPaymentMethod: r.lastPaymentMethod ?? null,
+      createdAt: r.createdAt,
+    }));
+
+    return { users, total, page: pageNum, pageSize, totalPages: Math.ceil(total / pageSize) };
+  }
+
+  @Patch('plataformas/:tag/usuarios/:userId/toggle')
+  @ApiOperation({ summary: 'Pausar/retomar acesso de assinante (freeze de dias + notifica SaaS backend)' })
+  async togglePlataformaUsuario(
+    @Param('tag') tag: string,
+    @Param('userId') userId: string,
+  ) {
+    const upper = tag.toUpperCase();
+    const validTags = ['CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL'];
+    if (!validTags.includes(upper)) throw new NotFoundException(`Plataforma ${tag} não suporta toggle de usuários`);
+
+    const record = await this.prisma.platformSubscriberAccess.findUnique({ where: { id: userId } });
+    if (!record) throw new NotFoundException('Assinante não encontrado');
+
+    const now = new Date();
+    let updated: any;
+
+    if (record.isActive) {
+      // ── PAUSAR: congelar os dias restantes ───────────────────────────────────
+      const remainingDays = this.calcRemainingDays(record.expiresAt, record.frozenDays, true);
+      updated = await this.prisma.platformSubscriberAccess.update({
+        where: { id: userId },
+        data: { isActive: false, expiresAt: now, frozenDays: remainingDays },
+      });
+    } else {
+      // ── RETOMAR: devolver os dias congelados ─────────────────────────────────
+      const daysToReturn = record.frozenDays;
+      if (daysToReturn <= 0) throw new Error('Não há dias guardados para retomar');
+      const newExpiry = new Date(now.getTime() + daysToReturn * 24 * 60 * 60 * 1000);
+      updated = await this.prisma.platformSubscriberAccess.update({
+        where: { id: userId },
+        data: { isActive: true, expiresAt: newExpiry, frozenDays: 0 },
+      });
+    }
+
+    // Notifica o SaaS backend para sincronizar isActive do usuário
+    const baseUrl = this.getSaasBaseUrl(upper);
+    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    if (baseUrl && token) {
+      fetch(`${baseUrl}/internal/users/toggle-by-email`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'x-internal-token': token },
+        body: JSON.stringify({ email: record.customerEmail, isActive: updated.isActive }),
+      }).catch(() => { /* não bloquear se o SaaS backend estiver indisponível */ });
+    }
+
+    return {
+      toggled: true,
+      isActive: updated.isActive,
+      remainingDays: this.calcRemainingDays(updated.expiresAt, updated.frozenDays, updated.isActive),
+      frozenDays: updated.frozenDays,
+      expiresAt: updated.expiresAt,
     };
   }
 }
