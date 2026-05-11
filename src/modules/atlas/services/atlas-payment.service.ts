@@ -425,4 +425,24 @@ export class AtlasPaymentService {
       );
     }
   }
+
+  async checkPixStatusDirect(domPaymentId: string): Promise<{ status: string }> {
+    const token = process.env.ATLAS_DOM_TOKEN || process.env.DOM_TOKEN;
+    if (!token) return { status: 'UNKNOWN' };
+    try {
+      const url = `https://apiv3.dompagamentos.com.br/checkout/production/transactions/${domPaymentId}`;
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Origin: process.env.ATLAS_URL_APP || process.env.URL_APP || 'https://api-atlas.jbmidia.com',
+        },
+      });
+      if (!res.ok) return { status: 'UNKNOWN' };
+      const data = await res.json() as { status?: string };
+      return { status: (data.status || 'UNKNOWN').toUpperCase() };
+    } catch {
+      return { status: 'UNKNOWN' };
+    }
+  }
 }

@@ -45,4 +45,10 @@ export class AtlasPaymentController {
     if (!tx) return { paymentId, status: 'NOT_FOUND' };
     return { paymentId: tx.domPaymentId, status: tx.status };
   }
+
+  @Get('pix-status/:domPaymentId')
+  @ApiOperation({ summary: '[ATLAS] Verificar status PIX direto na DOM (sem aguardar webhook)' })
+  async checkPixStatusDirect(@Param('domPaymentId') domPaymentId: string) {
+    return this.paymentService.checkPixStatusDirect(domPaymentId);
+  }
 }
