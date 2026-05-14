@@ -5786,4 +5786,104 @@ export class AdminController {
       expiresAt: updated.expiresAt,
     };
   }
+
+  @Get('relatorios/atlas-consolidado')
+  async getAtlasConsolidado(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const atlasUserId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
+    if (!atlasUserId) {
+      return { error: 'ATLAS_USER_ID not configured' };
+    }
+
+    const where: any = { userId: atlasUserId, status: 'COMPLETED' };
+    if (startDate) {
+      where.createdAt = { ...where.createdAt, gte: parseYmdSp(startDate).startOf('day').toDate() };
+    }
+    if (endDate) {
+      where.createdAt = { ...where.createdAt, lte: parseYmdSp(endDate).endOf('day').toDate() };
+    }
+
+    const txs = await this.prisma.transaction.findMany({
+      where,
+      select: { amount: true },
+    });
+
+    const qtdTransacoes = txs.length;
+    const receitaTotalAtlas = txs.reduce((s, t) => s + Number(t.amount), 0);
+
+    const LIQUIDEZ = parseFloat(process.env.ATLAS_LIQUIDEZ ?? '0.91');
+    const TAXA_FIXA = parseFloat(process.env.ATLAS_TAXA_FIXA_TRANSACAO ?? '1.00');
+    const TAXA_CASHBACK = parseFloat(process.env.ATLAS_TAXA_CASHBACK ?? '3.00');
+    const TAXA_SAQUE_FIXA = parseFloat(process.env.ATLAS_TAXA_SAQUE_FIXA ?? '2.00');
+
+    const taxaSimInt = receitaTotalAtlas * (1 - LIQUIDEZ) + (TAXA_FIXA + TAXA_CASHBACK) * qtdTransacoes;
+    const taxaAdquirente = TAXA_FIXA * qtdTransacoes;
+    const custoCashback = TAXA_CASHBACK * qtdTransacoes;
+
+    const atlasBaseUrl = String(process.env.ATLAS_HOSTING_URL ?? '').replace(/\/+$/, '');
+    const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN ?? '';
+
+    let atlasData: {
+      domains: { totalRevenue: number; totalNamecheapCost: number; count: number };
+      vps: { totalRevenue: number; totalContaboCost: number; count: number };
+      affiliates: { totalAvailable: number; totalWithdrawn: number; commissionGeneratedInPeriod: number };
+      withdrawals: { pendingCount: number; approvedInPeriodCount: number; approvedInPeriodFeeSum: number };
+    } | null = null;
+
+    if (atlasBaseUrl) {
+      const params = new URLSearchParams();
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+
+      const resp = await fetch(`${atlasBaseUrl}/api/internal/report?${params.toString()}`, {
+        headers: { 'x-internal-token': internalToken },
+      }).catch(() => null);
+
+      if (resp?.ok) {
+        atlasData = await resp.json().catch(() => null);
+      }
+    }
+
+    const custoDominio = atlasData?.domains.totalNamecheapCost ?? 0;
+    const custoHospedagem = atlasData?.vps.totalContaboCost ?? 0;
+    const lucroAfiliado = atlasData?.affiliates.totalWithdrawn ?? 0;
+    const totalRepasseAfiliado = atlasData?.affiliates.totalAvailable ?? 0;
+    const custoAfiliadoPeriodo = atlasData?.affiliates.commissionGeneratedInPeriod ?? 0;
+    const saquePendente = atlasData?.withdrawals.pendingCount ?? 0;
+    const qtdSaquesAprovados = atlasData?.withdrawals.approvedInPeriodCount ?? 0;
+    const lucroSimpayDeSaque = qtdSaquesAprovados * TAXA_SAQUE_FIXA;
+
+    const receitaLiquidaSimintpay = taxaSimInt - taxaAdquirente - custoCashback + lucroSimpayDeSaque;
+    const lucroLiquidoDominio = (atlasData?.domains.totalRevenue ?? 0) - custoDominio;
+    const lucroLiquidoVps = custoHospedagem;
+
+    const receitaBrutaAtlas = (atlasData?.domains.totalRevenue ?? 0) + (atlasData?.vps.totalRevenue ?? 0);
+    const receitaLiquidaAtlas = receitaBrutaAtlas - taxaSimInt - custoDominio - custoHospedagem - custoAfiliadoPeriodo;
+
+    const roiSimintpay = receitaTotalAtlas > 0 ? (receitaLiquidaSimintpay / receitaTotalAtlas) * 100 : 0;
+
+    return {
+      taxaSimInt,
+      taxaAdquirente,
+      custoCashback,
+      custoDominio,
+      custoHospedagem,
+      receitaLiquidaSimintpay,
+      lucroLiquidoDominio,
+      lucroLiquidoVps,
+      lucroAfiliado,
+      totalRepasseAfiliado,
+      lucroSimpayDeSaque,
+      receitaLiquidaAtlas,
+      saquePendente,
+      roiSimintpay,
+      receitaTotalAtlas,
+      qtdTransacoes,
+      domainCount: atlasData?.domains.count ?? 0,
+      vpsCount: atlasData?.vps.count ?? 0,
+      atlasApiAvailable: atlasData !== null,
+    };
+  }
 }
