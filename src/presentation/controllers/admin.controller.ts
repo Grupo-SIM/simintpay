@@ -5788,6 +5788,8 @@ export class AdminController {
   }
 
   @Get('relatorios/atlas-consolidado')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   async getAtlasConsolidado(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
@@ -5857,7 +5859,7 @@ export class AdminController {
 
     const receitaLiquidaSimintpay = taxaSimInt - taxaAdquirente - custoCashback + lucroSimpayDeSaque;
     const lucroLiquidoDominio = (atlasData?.domains.totalRevenue ?? 0) - custoDominio;
-    const lucroLiquidoVps = custoHospedagem;
+    const lucroLiquidoVps = (atlasData?.vps.totalRevenue ?? 0) - custoHospedagem;
 
     const receitaBrutaAtlas = (atlasData?.domains.totalRevenue ?? 0) + (atlasData?.vps.totalRevenue ?? 0);
     const receitaLiquidaAtlas = receitaBrutaAtlas - taxaSimInt - custoDominio - custoHospedagem - custoAfiliadoPeriodo;
