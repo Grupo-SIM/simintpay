@@ -5815,10 +5815,10 @@ export class AdminController {
     const qtdTransacoes = txs.length;
     const receitaTotalAtlas = txs.reduce((s, t) => s + Number(t.amount), 0);
 
-    const LIQUIDEZ = parseFloat(process.env.ATLAS_LIQUIDEZ ?? '0.91');
-    const TAXA_FIXA = parseFloat(process.env.ATLAS_TAXA_FIXA_TRANSACAO ?? '1.00');
-    const TAXA_CASHBACK = parseFloat(process.env.ATLAS_TAXA_CASHBACK ?? '3.00');
-    const TAXA_SAQUE_FIXA = parseFloat(process.env.ATLAS_TAXA_SAQUE_FIXA ?? '2.00');
+    const LIQUIDEZ = Number.isFinite(parseFloat(process.env.ATLAS_LIQUIDEZ ?? '')) ? parseFloat(process.env.ATLAS_LIQUIDEZ!) : 0.91;
+    const TAXA_FIXA = Number.isFinite(parseFloat(process.env.ATLAS_TAXA_FIXA_TRANSACAO ?? '')) ? parseFloat(process.env.ATLAS_TAXA_FIXA_TRANSACAO!) : 1.00;
+    const TAXA_CASHBACK = Number.isFinite(parseFloat(process.env.ATLAS_TAXA_CASHBACK ?? '')) ? parseFloat(process.env.ATLAS_TAXA_CASHBACK!) : 3.00;
+    const TAXA_SAQUE_FIXA = Number.isFinite(parseFloat(process.env.ATLAS_TAXA_SAQUE_FIXA ?? '')) ? parseFloat(process.env.ATLAS_TAXA_SAQUE_FIXA!) : 2.00;
 
     const taxaSimInt = receitaTotalAtlas * (1 - LIQUIDEZ) + (TAXA_FIXA + TAXA_CASHBACK) * qtdTransacoes;
     const taxaAdquirente = TAXA_FIXA * qtdTransacoes;
