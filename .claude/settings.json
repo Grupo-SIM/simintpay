@@ -11,7 +11,11 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Read(//c/tmp/**)",
-      "Bash(node_modules/.bin/tsc:*)"
+      "Bash(node_modules/.bin/tsc:*)",
+      "mcp__serena__initial_instructions",
+      "Bash(Get-ChildItem \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\atlas-hosting\\\\src\\\\app\\\\api\" -Recurse -Filter \"route.ts\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "PowerShell(New-Item -ItemType Directory -Force -Path \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\atlas-hosting\\\\src\\\\app\\\\api\\\\internal\\\\report\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\painel\\renovada",
@@ -20,7 +24,10 @@
       "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\admin\\criar-conta",
       "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\components\\ui",
       "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(auth)\\cadastro",
-      "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\features\\admin\\types"
+      "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\features\\admin\\types",
+      "C:\\Users\\breno\\Desktop\\JB\\atlas-hosting\\src\\lib\\db\\schema\\tables",
+      "C:\\Users\\breno\\Desktop\\JB\\atlas-hosting\\src\\app",
+      "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\relatorio"
     ]
   }
 }
