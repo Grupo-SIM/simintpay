@@ -1,6 +1,11 @@
 import { WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { getModuleConfig } from '../../modules/module.registry';
+import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
+import { platformTaxaTagFromText } from './dom-fee-estimate.helper';
+
+const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
 
 /**
  * Replica a lógica de `wallet.netBalance` do GetMeUseCase para uma conta plataforma.
@@ -34,6 +39,7 @@ export async function computeUserNetBalance(
   }
 
   const isBosqueWallet = slug === 'bosque';
+  const fallbackTag = canonicalPlatformTaxaTag(slug.toUpperCase() || 'GLOBAL');
   const txRows = await prisma.transaction.findMany({
     where: {
       userId,
@@ -50,13 +56,19 @@ export async function computeUserNetBalance(
         },
       } : {}),
     },
-    select: { amount: true, netAmount: true },
+    select: { amount: true, description: true },
   });
 
   const totalLiquidProfit = txRows.reduce((s, t) => {
-    const net =
-      t.netAmount != null ? Number(t.netAmount) : Number(t.amount) * fatorLiquidez;
-    return s + net;
+    const rowTag = platformTaxaTagFromText(t.description ?? undefined);
+    const effectiveTag = rowTag !== 'GLOBAL' ? rowTag : fallbackTag;
+    const liqRate = getPlatformTaxaEffective(effectiveTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+    const txFee = getPlatformTaxaEffective(effectiveTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const cbFee = getPlatformTaxaEffective(effectiveTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const svcFee = TAGS_SEM_TAXA_SERVICO.has(effectiveTag)
+      ? 0
+      : getPlatformTaxaEffective(effectiveTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+    return s + Number(t.amount) * liqRate - txFee - cbFee - svcFee;
   }, 0);
 
   const completedAggr = await prisma.withdrawRequest.aggregate({
@@ -75,7 +87,7 @@ export async function computeUserNetBalance(
   const lockedBalanceGross = Number(activeAggr._sum.grossAmount || 0);
 
   const currentNetProfit = totalLiquidProfit - totalCompletedGross;
-  const availableBalance = Math.max(0, currentNetProfit - lockedBalanceGross);
+  const availableBalance = currentNetProfit - lockedBalanceGross;
 
   return Number(availableBalance.toFixed(2));
 }

@@ -2,14 +2,17 @@ import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { WALLET_REPOSITORY } from '../../../core/repositories/wallet.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
-import { getModuleConfig } from '../../../modules/module.registry';
-
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { computeUserNetBalance } from '../../helpers/user-platform-net-balance.helper';
 import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
+import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
+
+const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
 
 @Injectable()
 export class GetMeUseCase {
@@ -84,10 +87,8 @@ export class GetMeUseCase {
         netBalance: r2(netBalance),
       };
     } else {
-      const fatorLiquidez =
-        getModuleConfig(user.tenantModule?.slug)?.saque?.fatorLiquidez ??
-        Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
       const isBosqueWallet = slug === 'bosque';
+      const fallbackTag = canonicalPlatformTaxaTag(slug.toUpperCase() || 'GLOBAL');
       const txRows = await this.prisma.transaction.findMany({
         where: {
           userId: user.id,
@@ -104,16 +105,19 @@ export class GetMeUseCase {
             },
           } : {}),
         },
-        select: { amount: true, netAmount: true },
+        select: { amount: true, description: true },
       });
-      const totalLiquidProfit = txRows.reduce(
-        (s, t) =>
-          s +
-          (t.netAmount != null
-            ? Number(t.netAmount)
-            : Number(t.amount) * fatorLiquidez),
-        0,
-      );
+      const totalLiquidProfit = txRows.reduce((s, t) => {
+        const rowTag = platformTaxaTagFromText(t.description ?? undefined);
+        const effectiveTag = rowTag !== 'GLOBAL' ? rowTag : fallbackTag;
+        const liqRate = getPlatformTaxaEffective(effectiveTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+        const txFee = getPlatformTaxaEffective(effectiveTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+        const cbFee = getPlatformTaxaEffective(effectiveTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+        const svcFee = TAGS_SEM_TAXA_SERVICO.has(effectiveTag)
+          ? 0
+          : getPlatformTaxaEffective(effectiveTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+        return s + Number(t.amount) * liqRate - txFee - cbFee - svcFee;
+      }, 0);
       const completedAggr = await this.prisma.withdrawRequest.aggregate({
         where: { userId: user.id, status: 'COMPLETED' },
         _sum: { grossAmount: true },
