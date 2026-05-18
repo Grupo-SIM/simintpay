@@ -301,7 +301,7 @@ export class PlatformDashboardService {
               status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
               updatedAt: { gte: saqueStart, lte: end },
             },
-            select: { id: true },
+            select: { id: true, fee: true },
           })
         : []
       : isTenantTagged
@@ -312,7 +312,7 @@ export class PlatformDashboardService {
               fee: { gt: 0 },
               updatedAt: { gte: saqueStart, lte: end },
             },
-            select: { id: true },
+            select: { id: true, fee: true },
           })
         : platformId
           ? await this.prisma.withdrawRequest.findMany({
@@ -322,22 +322,17 @@ export class PlatformDashboardService {
                 fee: { gt: 0 },
                 updatedAt: { gte: saqueStart, lte: end },
               },
-              select: { id: true },
+              select: { id: true, fee: true },
             })
           : [];
 
     const qtdSaquesNoPeriodo = saquesNoPeriodo.length;
 
-    // Taxa de Saque — Simintpay: valor total cobrado dos usuários (PROFIT_INC logs no período)
-    const profitLogs = await this.prisma.balanceLog.aggregate({
-      where: {
-        action: 'ADMIN_WITHDRAW_PROFIT_INC',
-        source: 'MASTER_ADMIN_CONTROL',
-        createdAt: { gte: saqueStart, lte: end },
-        metadata: { path: ['platformTag'], equals: upperTag },
-      },
-      _sum: { amount: true },
-    });
+    // lucroSimpay = soma do campo fee de cada saque aprovado (R$2 por padrão).
+    // O DOM usa lançamentos manuais (FEE_INC logs) registrados separadamente.
+    const lucroSimpay = Number(
+      saquesNoPeriodo.reduce((acc, s) => acc + Number(s.fee ?? 0), 0).toFixed(2),
+    );
 
     // Taxa de Saque — DOM: soma dos registros manuais de taxa DOM (FEE_INC logs)
     const domLogs = await this.prisma.balanceLog.aggregate({
@@ -350,7 +345,6 @@ export class PlatformDashboardService {
       _sum: { amount: true },
     });
 
-    const lucroSimpay = Number((Number(profitLogs._sum.amount ?? 0)).toFixed(2));
     const taxaTotalDOM = Math.max(0, Number((Number(domLogs._sum.amount ?? 0)).toFixed(2)));
 
     const saqueFees = {
