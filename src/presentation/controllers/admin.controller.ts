@@ -5384,6 +5384,9 @@ export class AdminController {
     const taxaServicoCashback = TAXA_SERVICE_EXEMPT.has(upperTag)
       ? 0
       : getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const taxaServicoRate = TAXA_SERVICE_EXEMPT.has(upperTag)
+      ? 0
+      : getPlatformTaxaEffective(upperTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
 
     let domByOrderNumber = new Map<string, DomTransactionItem[]>();
     if (upperTag === 'EBOOK' && items.length > 0) {
@@ -5435,6 +5438,9 @@ export class AdminController {
       const taxaSimIntPay = isCompleted ? Number((valorBruto * adminMargin).toFixed(2)) : 0;
       const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
       const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
+      const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE
+        ? Number(taxaServicoRate.toFixed(2))
+        : 0;
       const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
 
       const cashbackDeduction = valorBruto * (cashbackFee / 100);
@@ -5482,6 +5488,7 @@ export class AdminController {
         taxaSimIntPay,
         taxaFixa,
         taxaCashback,
+        taxaServico,
         lucroPrejuizo,
         calculos: {
           valorLiquido: (t.netAmount != null && Number(t.netAmount) > 0)
