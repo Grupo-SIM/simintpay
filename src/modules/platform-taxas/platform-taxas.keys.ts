@@ -8,6 +8,7 @@ export const PLATAFORMA_TAXA_KEYS = [
   'LIQUIDEZ',
   'TAXA_FIXA_TRANSACAO',
   'TAXA_CASHBACK',
+  'TAXA_SERVICO',      // Taxa de Serviço Sim Int Pay (padrão R$ 4.00)
   'TAXA_LINK_PERCENT',   // Taxa % da casa sobre links de pagamento (padrão 6.99%)
   'TAXA_LINK_FIXA',      // Taxa fixa da casa sobre links de pagamento (padrão R$ 4.00)
   'TAXA_ASSINATURA',     // Taxa % da casa sobre links de assinatura (padrão 9.0%)
@@ -67,6 +68,7 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   LIQUIDEZ: 0.9301,
   TAXA_FIXA_TRANSACAO: 1.0,
   TAXA_CASHBACK: 3.0,
+  TAXA_SERVICO: 4.0,
   TAXA_LINK_PERCENT: 0.0699,
   TAXA_LINK_FIXA: 4.0,
   TAXA_ASSINATURA: 9.0,

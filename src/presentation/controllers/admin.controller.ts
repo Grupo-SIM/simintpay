@@ -658,10 +658,13 @@ type LucroSimpayLinhaTx = {
   formulaParteAdmin: string;
   taxaFixaTransacao: number;
   taxaCashback: number;
+  taxaServico: number;
   lucroTransacao: number;
   formulaLucro: string;
   installments: number;
 };
+
+const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
 
 type LucroSimpayPorPlataforma = {
   tag: string;
@@ -669,14 +672,17 @@ type LucroSimpayPorPlataforma = {
   envLiquidez: string;
   envTaxaFixa: string;
   envTaxaCashback: string;
+  envTaxaServico: string;
   liquidezLojista: number;
   taxaFixaTransacao: number;
   taxaCashback: number;
+  taxaServico: number;
   quantidadeTransacoes: number;
   subtotalBruto: number;
   subtotalParteAdminMaster: number;
   subtotalDeducaoTaxaFixa: number;
   subtotalDeducaoTaxaCashback: number;
+  subtotalDeducaoTaxaServico: number;
   subtotalLucro: number;
   transacoes: LucroSimpayLinhaTx[];
 };
@@ -699,9 +705,11 @@ function buildLucroSimpayDetalhePorPlataforma(
       liquidezLojista: number;
       taxaFixa: number;
       taxaCashback: number;
+      taxaServico: number;
       envLiquidez: string;
       envTaxaFixa: string;
       envCashback: string;
+      envServico: string;
       transacoes: LucroSimpayLinhaTx[];
       subtotalBruto: number;
       subtotalParte: number;
@@ -721,14 +729,16 @@ function buildLucroSimpayDetalhePorPlataforma(
     const liquidezKey = `${tag}_LIQUIDEZ`;
     const fixaKey = `${tag}_TAXA_FIXA_TRANSACAO`;
     const cbKey = `${tag}_TAXA_CASHBACK`;
+    const servicoKey = `${tag}_TAXA_SERVICO`;
 
     const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
     const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
     const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
+    const taxaServico = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
 
     const bruto = Number(tx.amount);
     const parteAdmin = bruto * (1 - liquidezLojista);
-    const lucroTx = parteAdmin - taxaFixa - taxaCashback;
+    const lucroTx = parteAdmin - taxaFixa - taxaCashback - taxaServico;
     totalLucroSimpay += lucroTx;
 
     if (!byTag.has(tag)) {
@@ -737,9 +747,11 @@ function buildLucroSimpayDetalhePorPlataforma(
         liquidezLojista,
         taxaFixa,
         taxaCashback,
+        taxaServico,
         envLiquidez: liquidezKey,
         envTaxaFixa: fixaKey,
         envCashback: cbKey,
+        envServico: servicoKey,
         transacoes: [],
         subtotalBruto: 0,
         subtotalParte: 0,
@@ -749,7 +761,9 @@ function buildLucroSimpayDetalhePorPlataforma(
     const agg = byTag.get(tag)!;
 
     const formulaParte = `${bruto.toFixed(2)} × (1 − ${liquidezLojista}) = ${parteAdmin.toFixed(2)}`;
-    const formulaLucro = `${parteAdmin.toFixed(2)} − ${taxaFixa} − ${taxaCashback} = ${lucroTx.toFixed(2)}`;
+    const formulaLucro = taxaServico > 0
+      ? `${parteAdmin.toFixed(2)} − ${taxaFixa} − ${taxaCashback} − ${taxaServico} = ${lucroTx.toFixed(2)}`
+      : `${parteAdmin.toFixed(2)} − ${taxaFixa} − ${taxaCashback} = ${lucroTx.toFixed(2)}`;
 
     agg.transacoes.push({
       id: tx.id,
@@ -761,6 +775,7 @@ function buildLucroSimpayDetalhePorPlataforma(
       formulaParteAdmin: formulaParte,
       taxaFixaTransacao: taxaFixa,
       taxaCashback,
+      taxaServico,
       lucroTransacao: Number(lucroTx.toFixed(2)),
       formulaLucro,
       installments: Number(tx.installments ?? 1),
@@ -779,9 +794,11 @@ function buildLucroSimpayDetalhePorPlataforma(
       const liquidezKey = `${p.tag}_LIQUIDEZ`;
       const fixaKey = `${p.tag}_TAXA_FIXA_TRANSACAO`;
       const cbKey = `${p.tag}_TAXA_CASHBACK`;
+      const servicoKey = `${p.tag}_TAXA_SERVICO`;
       const L = getPlatformTaxaEffective(p.tag, 'LIQUIDEZ', 0.91);
       const tf = getPlatformTaxaEffective(p.tag, 'TAXA_FIXA_TRANSACAO', 1.0);
       const tc = getPlatformTaxaEffective(p.tag, 'TAXA_CASHBACK', 3.0);
+      const ts = TAGS_SEM_TAXA_SERVICO.has(p.tag) ? 0 : getPlatformTaxaEffective(p.tag, 'TAXA_SERVICO', 4.0);
 
       if (!hit) {
         return {
@@ -790,14 +807,17 @@ function buildLucroSimpayDetalhePorPlataforma(
           envLiquidez: liquidezKey,
           envTaxaFixa: fixaKey,
           envTaxaCashback: cbKey,
+          envTaxaServico: servicoKey,
           liquidezLojista: L,
           taxaFixaTransacao: tf,
           taxaCashback: tc,
+          taxaServico: ts,
           quantidadeTransacoes: 0,
           subtotalBruto: 0,
           subtotalParteAdminMaster: 0,
           subtotalDeducaoTaxaFixa: 0,
           subtotalDeducaoTaxaCashback: 0,
+          subtotalDeducaoTaxaServico: 0,
           subtotalLucro: 0,
           transacoes: [],
         };
@@ -809,14 +829,17 @@ function buildLucroSimpayDetalhePorPlataforma(
         envLiquidez: liquidezKey,
         envTaxaFixa: fixaKey,
         envTaxaCashback: cbKey,
+        envTaxaServico: servicoKey,
         liquidezLojista: hit.liquidezLojista,
         taxaFixaTransacao: hit.taxaFixa,
         taxaCashback: hit.taxaCashback,
+        taxaServico: hit.taxaServico,
         quantidadeTransacoes: hit.transacoes.length,
         subtotalBruto: Number(hit.subtotalBruto.toFixed(2)),
         subtotalParteAdminMaster: Number(hit.subtotalParte.toFixed(2)),
         subtotalDeducaoTaxaFixa: Number((hit.transacoes.length * hit.taxaFixa).toFixed(2)),
         subtotalDeducaoTaxaCashback: Number((hit.transacoes.length * hit.taxaCashback).toFixed(2)),
+        subtotalDeducaoTaxaServico: Number((hit.transacoes.length * hit.taxaServico).toFixed(2)),
         subtotalLucro: Number(hit.subtotalLucro.toFixed(2)),
         transacoes: hit.transacoes.sort(
           (a, b) =>
@@ -832,20 +855,24 @@ function buildLucroSimpayDetalhePorPlataforma(
     const liquidezKey = `${tag}_LIQUIDEZ`;
     const fixaKey = `${tag}_TAXA_FIXA_TRANSACAO`;
     const cbKey = `${tag}_TAXA_CASHBACK`;
+    const servicoKey = `${tag}_TAXA_SERVICO`;
     plataformas.push({
       tag,
       userId: hit.userId,
       envLiquidez: liquidezKey,
       envTaxaFixa: fixaKey,
       envTaxaCashback: cbKey,
+      envTaxaServico: servicoKey,
       liquidezLojista: hit.liquidezLojista,
       taxaFixaTransacao: hit.taxaFixa,
       taxaCashback: hit.taxaCashback,
+      taxaServico: hit.taxaServico,
       quantidadeTransacoes: hit.transacoes.length,
       subtotalBruto: Number(hit.subtotalBruto.toFixed(2)),
       subtotalParteAdminMaster: Number(hit.subtotalParte.toFixed(2)),
       subtotalDeducaoTaxaFixa: Number((hit.transacoes.length * hit.taxaFixa).toFixed(2)),
       subtotalDeducaoTaxaCashback: Number((hit.transacoes.length * hit.taxaCashback).toFixed(2)),
+      subtotalDeducaoTaxaServico: Number((hit.transacoes.length * hit.taxaServico).toFixed(2)),
       subtotalLucro: Number(hit.subtotalLucro.toFixed(2)),
       transacoes: hit.transacoes.sort(
         (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
