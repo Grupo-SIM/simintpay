@@ -8,6 +8,8 @@ import type { IWalletRepository } from '../../../core/repositories/wallet.reposi
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus, WithdrawStatus } from '@prisma/client';
+import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 @Injectable()
 export class GetWithdrawSummaryUseCase {
@@ -112,10 +114,17 @@ export class GetWithdrawSummaryUseCase {
     });
 
     if (txRows.length > 0) {
-      // Cálculo baseado no Ledger (Lucro Líquido - Saques Brutos)
-      // O usuário quer tratar esse lucro líquido (118.20) como o "Bolo" de onde ele tira o saque bruto.
+      // Cálculo baseado no Ledger (Lucro Líquido - Saques Brutos).
+      // Net = amount × LIQUIDEZ - taxasFixas (R$4 para não-isentos, R$0 para Renovada/Bosque).
+      const platformTag = canonicalPlatformTaxaTag(moduleSlug.toUpperCase() || 'GLOBAL');
+      const liquidezRate = getPlatformTaxaEffective(platformTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+      const fixedTxFee = getPlatformTaxaEffective(platformTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+      const fixedCashbackFee = getPlatformTaxaEffective(platformTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+      const fixedFeesPerTx = fixedTxFee + fixedCashbackFee;
+
       const totalLiquidProfit = txRows.reduce((s, t) => {
-        const net = t.netAmount != null ? Number(t.netAmount) : Number(t.amount) * configResp.fatorLiquidez;
+        const gross = Number(t.amount);
+        const net = gross * liquidezRate - fixedFeesPerTx;
         return s + net;
       }, 0);
       
