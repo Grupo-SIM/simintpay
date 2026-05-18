@@ -126,6 +126,7 @@ export class ListTransactionsUseCase {
         taxa_vendedor: number;
         taxa_fixa_transacao: number;
         taxa_cashback: number;
+        taxa_servico: number;
         valor_liquido_vendedor: number;
         lucro_master: number;
       };
@@ -148,9 +149,11 @@ export class ListTransactionsUseCase {
     const userCpf: string | null | undefined = (user as any).cpf;
     const tenantModuleSlug = user.tenantModule?.slug?.toLowerCase();
     const tenantTag = canonicalPlatformTaxaTag((tenantModuleSlug || 'GLOBAL').toUpperCase());
+    const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
     const fixedTx = getPlatformTaxaEffective(tenantTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
     const fixedCashback = getPlatformTaxaEffective(tenantTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-    const fixedFeesTotal = fixedTx + fixedCashback;
+    const fixedServico = TAGS_SEM_TAXA_SERVICO.has(tenantTag) ? 0 : getPlatformTaxaEffective(tenantTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+    const fixedFeesTotal = fixedTx + fixedCashback + fixedServico;
 
     // 2. Resolver o Token (Prioridade: User > Módulo)
     // NÃO usar master token aqui — ele traz transações de TODAS as plataformas.
@@ -559,10 +562,11 @@ export class ListTransactionsUseCase {
         const feeTag = rowTenantTag !== 'GLOBAL' ? rowTenantTag : tenantTag;
         const LRow = getPlatformTaxaEffective(feeTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
 
-        // Perspectiva do vendedor: apenas a margem de LIQUIDEZ é descontada do valor bruto.
-        // Taxa DOM e R$4 (fixa + cashback) são custos operacionais do master, não do vendedor.
         const taxaVendedor = Number(Math.max(0, amount * (1 - LRow)).toFixed(2));
-        const valorLiquidoVendedor = Number((amount - taxaVendedor).toFixed(2));
+        const rowServico = TAGS_SEM_TAXA_SERVICO.has(feeTag)
+          ? 0
+          : getPlatformTaxaEffective(feeTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+        const valorLiquidoVendedor = Number((amount - taxaVendedor - rowServico).toFixed(2));
 
         return {
           id: t.id,
@@ -578,9 +582,9 @@ export class ListTransactionsUseCase {
             documento: formatDocument(customerDocument),
           },
           taxas: {
-            total: taxaVendedor,
+            total: Number((taxaVendedor + rowServico).toFixed(2)),
             dom: 0,
-            plataforma: taxaVendedor,
+            plataforma: Number((taxaVendedor + rowServico).toFixed(2)),
           },
           financeiro: {
             valor_bruto_venda: Number(amount.toFixed(2)),
@@ -588,6 +592,7 @@ export class ListTransactionsUseCase {
             taxa_vendedor: taxaVendedor,
             taxa_fixa_transacao: 0,
             taxa_cashback: 0,
+            taxa_servico: rowServico,
             valor_liquido_vendedor: valorLiquidoVendedor,
             lucro_master: 0,
           },
