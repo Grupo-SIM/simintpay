@@ -197,18 +197,14 @@ export class ListDomTransactionsDirectUseCase {
       } else {
         const mdr2 = Number(mdr.toFixed(2));
         taxaDom2 = mdr2;
-        const baseFeeFromPayload =
-          tx.fee_total != null
-            ? Number(tx.fee_total)
-            : Number.isFinite(Number(tx.liquid_amount))
-              ? Math.max(0, amount - Number(tx.liquid_amount))
-              : 0;
 
-        const platformFeeAlreadyInPayload = Math.max(0, baseFeeFromPayload - mdr2);
-        const platformFee = Math.max(platformFeeAlreadyInPayload, fixedFees);
+        // CC: DOM reports only its own MDR in fee_total — Simintpay's LIQUIDEZ margin
+        // is not included. Apply same LIQUIDEZ-based formula as PIX.
+        taxaVendedor = Number(Math.max(0, amount * (1 - L)).toFixed(2));
+
+        const platformFee = taxaVendedor + fixedFees;
         totalFee = Number((mdr2 + platformFee).toFixed(2));
         liquidAmount = Number((amount - totalFee).toFixed(2));
-        taxaVendedor = Number(Math.max(0, platformFee - fixedFees).toFixed(2));
       }
 
       /** P&L do master: lucro da Taxa Vendedor menos custos DOM (MDR + fixas + cashback). */

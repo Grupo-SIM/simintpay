@@ -1471,19 +1471,34 @@ export class AdminController {
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, example: 20 })
   @ApiQuery({ name: 'deleted', required: false, description: 'true = contas excluídas' })
+  @ApiQuery({ name: 'search', required: false, description: 'Buscar por nome, CPF ou e-mail Simintpay' })
   async listExternalUsers(
     @Query('platform') platform?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
     @Query('deleted') deleted?: string,
+    @Query('search') search?: string,
   ) {
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
     const showDeleted = deleted === 'true';
+    const searchTerm = search?.trim() ?? '';
+    const cpfDigits = searchTerm.replace(/\D/g, '');
+
+    const searchFilter = searchTerm
+      ? {
+          OR: [
+            { name: { contains: searchTerm, mode: 'insensitive' as const } },
+            ...(cpfDigits.length > 0 ? [{ cpf: { contains: cpfDigits } }] : []),
+            { user: { email: { contains: searchTerm, mode: 'insensitive' as const } } },
+          ],
+        }
+      : {};
 
     const where = {
       ...(platform ? { platform } : {}),
       isDeleted: showDeleted,
+      ...searchFilter,
     };
 
     const [total, items] = await Promise.all([
