@@ -120,7 +120,9 @@ export class GetWithdrawSummaryUseCase {
       const liquidezRate = getPlatformTaxaEffective(platformTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
       const fixedTxFee = getPlatformTaxaEffective(platformTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
       const fixedCashbackFee = getPlatformTaxaEffective(platformTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-      const fixedFeesPerTx = fixedTxFee + fixedCashbackFee;
+      const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
+      const servicoFee = TAGS_SEM_TAXA_SERVICO.has(platformTag) ? 0 : getPlatformTaxaEffective(platformTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+      const fixedFeesPerTx = fixedTxFee + fixedCashbackFee + servicoFee;
 
       const totalLiquidProfit = txRows.reduce((s, t) => {
         const gross = Number(t.amount);

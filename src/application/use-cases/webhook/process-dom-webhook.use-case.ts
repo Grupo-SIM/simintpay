@@ -300,7 +300,8 @@ export class ProcessDomWebhookUseCase {
           : amountDec;
         const taxaFixa = getPlatformTaxaEffective('GLOBAL', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
         const taxaCashback = getPlatformTaxaEffective('GLOBAL', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-        delta = netAmountDec.sub(taxaFixa + taxaCashback);
+        const taxaServico = getPlatformTaxaEffective('GLOBAL', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+        delta = netAmountDec.sub(taxaFixa + taxaCashback + taxaServico);
       }
 
       await this.prisma.$transaction(async (p) => {
@@ -935,7 +936,8 @@ export class ProcessDomWebhookUseCase {
           });
           const taxaFixaPending = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
           const taxaCashbackPending = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-          const walletDeltaPending = netDec.sub(taxaFixaPending + taxaCashbackPending);
+          const taxaServicoPending = getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+          const walletDeltaPending = netDec.sub(taxaFixaPending + taxaCashbackPending + taxaServicoPending);
           await p.wallet.update({
             where: { userId: pendingTx.userId },
             data: { balance: { increment: walletDeltaPending }, updatedAt: new Date() },
@@ -1035,7 +1037,8 @@ export class ProcessDomWebhookUseCase {
         // Atualizar saldo da wallet do usuário ebook
         const taxaFixaEbook = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
         const taxaCashbackEbook = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-        const walletDeltaEbook = netDec.sub(taxaFixaEbook + taxaCashbackEbook);
+        const taxaServicoEbook = getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+        const walletDeltaEbook = netDec.sub(taxaFixaEbook + taxaCashbackEbook + taxaServicoEbook);
         for (let attempt = 0; attempt < 3; attempt++) {
           const wallet = await p.wallet.findUnique({ where: { userId: ebookUserId } });
           if (!wallet) break;
