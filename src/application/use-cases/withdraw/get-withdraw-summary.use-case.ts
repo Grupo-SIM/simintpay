@@ -13,6 +13,7 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 
 const TAGS_SEM_TAXA_SERVICO_SUMMARY = new Set(['RENOVADA', 'BOSQUE']);
+const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z');
 
 @Injectable()
 export class GetWithdrawSummaryUseCase {
@@ -113,7 +114,7 @@ export class GetWithdrawSummaryUseCase {
           },
         } : {}),
       },
-      select: { amount: true, description: true },
+      select: { amount: true, description: true, createdAt: true },
     });
 
     if (txRows.length > 0) {
@@ -123,12 +124,11 @@ export class GetWithdrawSummaryUseCase {
         const rowTag = platformTaxaTagFromText(t.description ?? undefined);
         const effectiveTag = rowTag !== 'GLOBAL' ? rowTag : fallbackTag;
         const liqRate = getPlatformTaxaEffective(effectiveTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
-        const txFee = getPlatformTaxaEffective(effectiveTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-        const cbFee = getPlatformTaxaEffective(effectiveTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-        const svcFee = TAGS_SEM_TAXA_SERVICO_SUMMARY.has(effectiveTag)
+        const svcRate = TAGS_SEM_TAXA_SERVICO_SUMMARY.has(effectiveTag)
           ? 0
           : getPlatformTaxaEffective(effectiveTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-        return s + Number(t.amount) * liqRate - txFee - cbFee - svcFee;
+        const svcFee = svcRate > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? svcRate : 0;
+        return s + Number(t.amount) * liqRate - svcFee;
       }, 0);
       
       const completedAggr = await this.prisma.withdrawRequest.aggregate({

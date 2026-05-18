@@ -665,6 +665,8 @@ type LucroSimpayLinhaTx = {
 };
 
 const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
+/** Transações anteriores a esta data não são cobradas a TAXA_SERVICO (fee retroativo não aplicado). */
+const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z'); // 2026-05-18 meia-noite BRT
 
 type LucroSimpayPorPlataforma = {
   tag: string;
@@ -714,6 +716,7 @@ function buildLucroSimpayDetalhePorPlataforma(
       subtotalBruto: number;
       subtotalParte: number;
       subtotalLucro: number;
+      subtotalTaxaServico: number;
     }
   >();
 
@@ -734,7 +737,8 @@ function buildLucroSimpayDetalhePorPlataforma(
     const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
     const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
     const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
-    const taxaServico = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
+    const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
+    const taxaServico = taxaServicoRate > 0 && tx.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? taxaServicoRate : 0;
 
     const bruto = Number(tx.amount);
     const parteAdmin = bruto * (1 - liquidezLojista);
@@ -747,7 +751,7 @@ function buildLucroSimpayDetalhePorPlataforma(
         liquidezLojista,
         taxaFixa,
         taxaCashback,
-        taxaServico,
+        taxaServico: taxaServicoRate,
         envLiquidez: liquidezKey,
         envTaxaFixa: fixaKey,
         envCashback: cbKey,
@@ -756,6 +760,7 @@ function buildLucroSimpayDetalhePorPlataforma(
         subtotalBruto: 0,
         subtotalParte: 0,
         subtotalLucro: 0,
+        subtotalTaxaServico: 0,
       });
     }
     const agg = byTag.get(tag)!;
@@ -783,6 +788,7 @@ function buildLucroSimpayDetalhePorPlataforma(
     agg.subtotalBruto += bruto;
     agg.subtotalParte += parteAdmin;
     agg.subtotalLucro += lucroTx;
+    agg.subtotalTaxaServico += taxaServico;
 
   }
 
@@ -839,7 +845,7 @@ function buildLucroSimpayDetalhePorPlataforma(
         subtotalParteAdminMaster: Number(hit.subtotalParte.toFixed(2)),
         subtotalDeducaoTaxaFixa: Number((hit.transacoes.length * hit.taxaFixa).toFixed(2)),
         subtotalDeducaoTaxaCashback: Number((hit.transacoes.length * hit.taxaCashback).toFixed(2)),
-        subtotalDeducaoTaxaServico: Number((hit.transacoes.length * hit.taxaServico).toFixed(2)),
+        subtotalDeducaoTaxaServico: Number(hit.subtotalTaxaServico.toFixed(2)),
         subtotalLucro: Number(hit.subtotalLucro.toFixed(2)),
         transacoes: hit.transacoes.sort(
           (a, b) =>
@@ -896,6 +902,7 @@ function lucroSimpayUmaTransacaoConsolidado(
     amount: unknown;
     description?: string | null;
     installments?: number | null;
+    createdAt?: Date;
   },
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): number {
@@ -906,9 +913,13 @@ function lucroSimpayUmaTransacaoConsolidado(
   const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
   const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
   const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
+  const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
+  const taxaServico = taxaServicoRate > 0 && tx.createdAt != null && tx.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE
+    ? taxaServicoRate
+    : 0;
   const bruto = Number(tx.amount);
   const parteAdmin = bruto * (1 - liquidezLojista);
-  return parteAdmin - taxaFixa - taxaCashback;
+  return parteAdmin - taxaFixa - taxaCashback - taxaServico;
 }
 
 function listYmdInclusiveSp(dataInicio: string, dataFim: string): string[] {
