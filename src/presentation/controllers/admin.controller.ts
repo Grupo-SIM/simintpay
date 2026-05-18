@@ -5809,11 +5809,32 @@ export class AdminController {
 
     const txs = await this.prisma.transaction.findMany({
       where,
-      select: { amount: true },
+      select: { amount: true, paymentMethod: true, installments: true, cardBrand: true },
     });
 
     const qtdTransacoes = txs.length;
     const receitaTotalAtlas = txs.reduce((s, t) => s + Number(t.amount), 0);
+
+    const getAtlasMDR = (method: string, installments: number, cardBrand: string | null): number => {
+      if (method === 'PIX') {
+        const v = parseFloat(process.env.ATLAS_MDR_PIX ?? '');
+        return Number.isFinite(v) ? v : (parseFloat(process.env.GLOBAL_MDR_PIX ?? '') || 0.0098);
+      }
+      const n = Math.min(Math.max(installments || 1, 1), 12);
+      const isMaster = /master/i.test(cardBrand ?? '');
+      if (isMaster) {
+        const v = parseFloat(process.env[`ATLAS_MDR_CC_MASTER_${n}X`] ?? '');
+        if (Number.isFinite(v)) return v;
+      }
+      const v = parseFloat(process.env[`ATLAS_MDR_CC_${n}X`] ?? '');
+      if (Number.isFinite(v)) return v;
+      const v2 = parseFloat(process.env[`ATLAS_MDR_CC_MASTER_${n}X`] ?? '');
+      if (Number.isFinite(v2)) return v2;
+      const v3 = parseFloat(process.env[`ATLAS_MDR_LINK_${n}X`] ?? '');
+      return Number.isFinite(v3) ? v3 : 0;
+    };
+
+    const taxaMDRDom = txs.reduce((s, t) => s + Number(t.amount) * getAtlasMDR(t.paymentMethod, t.installments, t.cardBrand), 0);
 
     const LIQUIDEZ = Number.isFinite(parseFloat(process.env.ATLAS_LIQUIDEZ ?? '')) ? parseFloat(process.env.ATLAS_LIQUIDEZ!) : 0.91;
     const TAXA_FIXA = Number.isFinite(parseFloat(process.env.ATLAS_TAXA_FIXA_TRANSACAO ?? '')) ? parseFloat(process.env.ATLAS_TAXA_FIXA_TRANSACAO!) : 1.00;
@@ -5857,7 +5878,7 @@ export class AdminController {
     const qtdSaquesAprovados = atlasData?.withdrawals.approvedInPeriodCount ?? 0;
     const lucroSimpayDeSaque = qtdSaquesAprovados * TAXA_SAQUE_FIXA;
 
-    const receitaLiquidaSimintpay = taxaSimInt - taxaAdquirente - custoCashback + lucroSimpayDeSaque;
+    const receitaLiquidaSimintpay = taxaSimInt - taxaAdquirente - custoCashback + lucroSimpayDeSaque - taxaMDRDom;
     const lucroLiquidoDominio = (atlasData?.domains.totalRevenue ?? 0) - custoDominio;
     const lucroLiquidoVps = (atlasData?.vps.totalRevenue ?? 0) - custoHospedagem;
 
@@ -5869,6 +5890,7 @@ export class AdminController {
     return {
       taxaSimInt,
       taxaAdquirente,
+      taxaMDRDom,
       custoCashback,
       custoDominio,
       custoHospedagem,
