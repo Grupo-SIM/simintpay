@@ -5824,32 +5824,25 @@ export class AdminController {
 
     const txs = await this.prisma.transaction.findMany({
       where,
-      select: { amount: true, paymentMethod: true, installments: true, cardBrand: true },
+      select: { amount: true, paymentMethod: true, installments: true },
     });
 
     const qtdTransacoes = txs.length;
     const receitaTotalAtlas = txs.reduce((s, t) => s + Number(t.amount), 0);
 
-    const getAtlasMDR = (method: string, installments: number, cardBrand: string | null): number => {
+    const getAtlasMDR = (method: string, installments: number): number => {
       if (method === 'PIX') {
         const v = parseFloat(process.env.ATLAS_MDR_PIX ?? '');
         return Number.isFinite(v) ? v : (parseFloat(process.env.GLOBAL_MDR_PIX ?? '') || 0.0098);
       }
       const n = Math.min(Math.max(installments || 1, 1), 12);
-      const isMaster = /master/i.test(cardBrand ?? '');
-      if (isMaster) {
-        const v = parseFloat(process.env[`ATLAS_MDR_CC_MASTER_${n}X`] ?? '');
-        if (Number.isFinite(v)) return v;
-      }
       const v = parseFloat(process.env[`ATLAS_MDR_CC_${n}X`] ?? '');
       if (Number.isFinite(v)) return v;
-      const v2 = parseFloat(process.env[`ATLAS_MDR_CC_MASTER_${n}X`] ?? '');
-      if (Number.isFinite(v2)) return v2;
-      const v3 = parseFloat(process.env[`ATLAS_MDR_LINK_${n}X`] ?? '');
-      return Number.isFinite(v3) ? v3 : 0;
+      const v2 = parseFloat(process.env[`ATLAS_MDR_LINK_${n}X`] ?? '');
+      return Number.isFinite(v2) ? v2 : 0;
     };
 
-    const taxaMDRDom = txs.reduce((s, t) => s + Number(t.amount) * getAtlasMDR(t.paymentMethod, t.installments, t.cardBrand), 0);
+    const taxaMDRDom = txs.reduce((s, t) => s + Number(t.amount) * getAtlasMDR(t.paymentMethod, t.installments), 0);
 
     const LIQUIDEZ = Number.isFinite(parseFloat(process.env.ATLAS_LIQUIDEZ ?? '')) ? parseFloat(process.env.ATLAS_LIQUIDEZ!) : 0.91;
     const TAXA_FIXA = Number.isFinite(parseFloat(process.env.ATLAS_TAXA_FIXA_TRANSACAO ?? '')) ? parseFloat(process.env.ATLAS_TAXA_FIXA_TRANSACAO!) : 1.00;
@@ -5901,6 +5894,22 @@ export class AdminController {
     const receitaLiquidaAtlas = receitaBrutaAtlas - taxaSimInt - custoDominio - custoHospedagem - custoAfiliadoPeriodo;
 
     const roiSimintpay = receitaTotalAtlas > 0 ? (receitaLiquidaSimintpay / receitaTotalAtlas) * 100 : 0;
+    const roiDominios = (atlasData?.domains.totalRevenue ?? 0) > 0 ? (lucroLiquidoDominio / atlasData!.domains.totalRevenue) * 100 : 0;
+    const roiHospedagem = (atlasData?.vps.totalRevenue ?? 0) > 0 ? (lucroLiquidoVps / atlasData!.vps.totalRevenue) * 100 : 0;
+    const roiAtlas = receitaBrutaAtlas > 0 ? (receitaLiquidaAtlas / receitaBrutaAtlas) * 100 : 0;
+
+    const dateWhere: any = {};
+    if (startDate) dateWhere.gte = parseYmdSp(startDate).startOf('day').toDate();
+    if (endDate) dateWhere.lte = parseYmdSp(endDate).endOf('day').toDate();
+
+    const [estornoCount, chargebackCount] = await Promise.all([
+      this.prisma.transaction.count({
+        where: { userId: atlasUserId, status: 'REFUNDED', ...(Object.keys(dateWhere).length ? { createdAt: dateWhere } : {}) },
+      }),
+      this.prisma.transaction.count({
+        where: { userId: atlasUserId, status: 'CHARGEBACK', ...(Object.keys(dateWhere).length ? { createdAt: dateWhere } : {}) },
+      }),
+    ]);
 
     return {
       taxaSimInt,
@@ -5918,6 +5927,11 @@ export class AdminController {
       receitaLiquidaAtlas,
       saquePendente,
       roiSimintpay,
+      roiDominios,
+      roiHospedagem,
+      roiAtlas,
+      estornoCount,
+      chargebackCount,
       receitaTotalAtlas,
       qtdTransacoes,
       domainCount: atlasData?.domains.count ?? 0,
