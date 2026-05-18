@@ -10,6 +10,9 @@ import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { TENANT_AREAFLIX_TAG, TENANT_COMUNIDADE_TAG } from '../../utils/internal-tags.util';
+import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
+import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 import type { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
 import type { IWebhookEventRepository } from '../../../core/repositories/webhook-event.repository.interface';
@@ -226,6 +229,19 @@ export class ProcessWebhookUseCase {
         parsed.data.amountWithoutAllFee,
       );
 
+      // Determina a plataforma da transação para calcular taxas fixas corretas.
+      // Renovada e Bosque são isentos (taxaFixa=0, taxaCashback=0); demais pagam R$4.
+      const user = await this.prisma.user.findUnique({
+        where: { id: t.userId },
+        select: { tenantModule: { select: { slug: true } } },
+      });
+      const tenantSlug = user?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+      const rowTag = platformTaxaTagFromText(t.description ?? undefined);
+      const feeTag = rowTag !== 'GLOBAL' ? rowTag : canonicalPlatformTaxaTag(tenantSlug);
+      const fixedTx = getPlatformTaxaEffective(feeTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+      const fixedCashback = getPlatformTaxaEffective(feeTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+      const creditAmount = amountWithoutAllFee.sub(new Prisma.Decimal(fixedTx + fixedCashback));
+
       const status = parsed.data.status;
 
       await this.prisma.$transaction(async (p) => {
@@ -263,12 +279,12 @@ export class ProcessWebhookUseCase {
             let lockedAfter = lockedBefore;
 
             if (status === 'paid') {
-              balanceAfter = balanceBefore.add(amountWithoutAllFee);
+              balanceAfter = balanceBefore.add(creditAmount);
             } else if (status === 'refunded' || status === 'chargeback') {
-              balanceAfter = balanceBefore.sub(amountWithoutAllFee);
+              balanceAfter = balanceBefore.sub(creditAmount);
             } else if (status === 'in_mediation') {
-              balanceAfter = balanceBefore.sub(amountWithoutAllFee);
-              lockedAfter = lockedBefore.add(amountWithoutAllFee);
+              balanceAfter = balanceBefore.sub(creditAmount);
+              lockedAfter = lockedBefore.add(creditAmount);
             }
 
             walletUpdates.balance = balanceAfter;
@@ -321,7 +337,7 @@ export class ProcessWebhookUseCase {
               userId: t.userId,
               action: `WEBHOOK_${eventType}`,
               transactionId: t.id,
-              amount: amountWithoutAllFee,
+              amount: creditAmount,
               balanceBefore: walletBeforeBalance,
               balanceAfter: walletAfterBalance,
               lockedBefore: walletBeforeLocked,
