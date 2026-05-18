@@ -6,7 +6,7 @@ import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-tran
 import { stripInternalTags } from '../../utils/internal-tags.util';
 import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
-import { estimateDomFeeReais, platformTaxaTagFromText, resolveDomFeeReais } from '../../helpers/dom-fee-estimate.helper';
+import { estimateDomFeeReais, platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -554,54 +554,14 @@ export class ListTransactionsUseCase {
         }
 
         const amount = Number(t.amount);
-        const domFeeStored = Number(t.domFee ?? 0);
         const rowTenantTag = platformTaxaTagFromText(t.description ?? undefined);
-        /** Taxas da plataforma da transação: `[TENANT:X]` na descrição; senão módulo do vendedor. */
         const feeTag = rowTenantTag !== 'GLOBAL' ? rowTenantTag : tenantTag;
-        const fixedTxRow = getPlatformTaxaEffective(feeTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-        const fixedCashbackRow = getPlatformTaxaEffective(feeTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-        const fixedFeesRow = fixedTxRow + fixedCashbackRow;
-        const pm =
-          t.paymentMethod === PaymentMethod.CREDIT_CARD
-            ? 'credit_card'
-            : t.paymentMethod === PaymentMethod.DEBIT_CARD
-              ? 'debit_card'
-              : 'pix';
-        const domFee = resolveDomFeeReais({
-          amountReais: amount,
-          paymentMethod: pm,
-          installments: t.installments,
-          mdrFromGateway: domFeeStored,
-          domFeeFromGateway: domFeeStored,
-          tenantTag: feeTag,
-        });
         const LRow = getPlatformTaxaEffective(feeTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
-        const isPix = t.paymentMethod === PaymentMethod.PIX;
-        const dom2 = Number(domFee.toFixed(2));
 
-        let effectivePlatformFee: number;
-        let taxaVendedor: number;
-        let totalFee: number;
-        let valorLiquidoVendedor: number;
-
-        if (isPix) {
-          // Margem do master sobre o bruto; Taxa DOM com 2 decimais na soma da linha.
-          taxaVendedor = Number(Math.max(0, amount * (1 - LRow)).toFixed(2));
-          effectivePlatformFee = taxaVendedor + fixedFeesRow;
-          totalFee = Number((dom2 + effectivePlatformFee).toFixed(2));
-          valorLiquidoVendedor = Number((amount - totalFee).toFixed(2));
-        } else {
-          const dbPlatformFee = Number(t.platformFee ?? 0);
-          effectivePlatformFee = Math.max(dbPlatformFee, fixedFeesRow);
-          taxaVendedor = Number(Math.max(0, effectivePlatformFee - fixedFeesRow).toFixed(2));
-          totalFee = Number((dom2 + effectivePlatformFee).toFixed(2));
-          valorLiquidoVendedor = Number((amount - totalFee).toFixed(2));
-        }
-
-        /** P&L do master: Taxa Vendedor (margem da casa) − (DOM + fixa + cashback). */
-        const lucroMaster = Number(
-          (taxaVendedor - dom2 - Number(fixedTxRow.toFixed(2)) - Number(fixedCashbackRow.toFixed(2))).toFixed(2),
-        );
+        // Perspectiva do vendedor: apenas a margem de LIQUIDEZ é descontada do valor bruto.
+        // Taxa DOM e R$4 (fixa + cashback) são custos operacionais do master, não do vendedor.
+        const taxaVendedor = Number(Math.max(0, amount * (1 - LRow)).toFixed(2));
+        const valorLiquidoVendedor = Number((amount - taxaVendedor).toFixed(2));
 
         return {
           id: t.id,
@@ -617,18 +577,18 @@ export class ListTransactionsUseCase {
             documento: formatDocument(customerDocument),
           },
           taxas: {
-            total: totalFee,
-            dom: dom2,
-            plataforma: Number(effectivePlatformFee.toFixed(2)),
+            total: taxaVendedor,
+            dom: 0,
+            plataforma: taxaVendedor,
           },
           financeiro: {
             valor_bruto_venda: Number(amount.toFixed(2)),
-            taxa_dom: dom2,
+            taxa_dom: 0,
             taxa_vendedor: taxaVendedor,
-            taxa_fixa_transacao: Number(fixedTxRow.toFixed(2)),
-            taxa_cashback: Number(fixedCashbackRow.toFixed(2)),
+            taxa_fixa_transacao: 0,
+            taxa_cashback: 0,
             valor_liquido_vendedor: valorLiquidoVendedor,
-            lucro_master: lucroMaster,
+            lucro_master: 0,
           },
           criadoEm: t.createdAt.toISOString(),
         };
