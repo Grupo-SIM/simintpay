@@ -2152,9 +2152,7 @@ export class AdminController {
       const [ymd, platformTag] = key.split('|') as [string, string];
       return { ymd, platformTag, lucroSaque: Number(lucro.toFixed(2)) };
     });
-    const taxaSaqueDOM = Number(
-      (withdrawsAprovados.length * DOM_FEE_SAQUE).toFixed(2),
-    );
+    const taxaSaqueDOM = Number(totalTaxaSaque.toFixed(2));
     const saquesAprovadosQtd = withdrawsAprovados.length;
     const saquesAprovadosValor = Number(
       withdrawsAprovados
@@ -3489,11 +3487,10 @@ export class AdminController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Registrar manualmente taxa de saque DOM para uma plataforma (+R$1)' })
   async applyDomFee(
-    @Body() body: { platformTag: string },
+    @Body() body: { platformTag?: string },
     @CurrentUser() user: JwtPayload | undefined,
   ) {
-    const platformTag = (body?.platformTag ?? '').toUpperCase();
-    if (!platformTag) throw new BadRequestException('platformTag obrigatório');
+    const platformTag = ((body?.platformTag ?? '') || 'GLOBAL').toUpperCase();
     const domFee = getPlatformTaxaEffective(platformTag, 'TAXA_SAQUE_DOM', 1);
     const adminUserId = user?.sub;
     if (!adminUserId) throw new BadRequestException('Usuário não identificado');
@@ -3520,11 +3517,10 @@ export class AdminController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Desfazer taxa de saque DOM registrada manualmente (-R$1)' })
   async undoDomFee(
-    @Body() body: { platformTag: string },
+    @Body() body: { platformTag?: string },
     @CurrentUser() user: JwtPayload | undefined,
   ) {
-    const platformTag = (body?.platformTag ?? '').toUpperCase();
-    if (!platformTag) throw new BadRequestException('platformTag obrigatório');
+    const platformTag = ((body?.platformTag ?? '') || 'GLOBAL').toUpperCase();
     const domFee = getPlatformTaxaEffective(platformTag, 'TAXA_SAQUE_DOM', 1);
     const adminUserId = user?.sub;
     if (!adminUserId) throw new BadRequestException('Usuário não identificado');
