@@ -10,6 +10,9 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { TransactionStatus, WithdrawStatus } from '@prisma/client';
 import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
+
+const TAGS_SEM_TAXA_SERVICO_SUMMARY = new Set(['RENOVADA', 'BOSQUE']);
 
 @Injectable()
 export class GetWithdrawSummaryUseCase {
@@ -110,24 +113,22 @@ export class GetWithdrawSummaryUseCase {
           },
         } : {}),
       },
-      select: { amount: true, netAmount: true },
+      select: { amount: true, description: true },
     });
 
     if (txRows.length > 0) {
-      // Cálculo baseado no Ledger (Lucro Líquido - Saques Brutos).
-      // Net = amount × LIQUIDEZ - taxasFixas (R$4 para não-isentos, R$0 para Renovada/Bosque).
-      const platformTag = canonicalPlatformTaxaTag(moduleSlug.toUpperCase() || 'GLOBAL');
-      const liquidezRate = getPlatformTaxaEffective(platformTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
-      const fixedTxFee = getPlatformTaxaEffective(platformTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-      const fixedCashbackFee = getPlatformTaxaEffective(platformTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-      const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
-      const servicoFee = TAGS_SEM_TAXA_SERVICO.has(platformTag) ? 0 : getPlatformTaxaEffective(platformTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-      const fixedFeesPerTx = fixedTxFee + fixedCashbackFee + servicoFee;
+      const fallbackTag = canonicalPlatformTaxaTag(moduleSlug.toUpperCase() || 'GLOBAL');
 
       const totalLiquidProfit = txRows.reduce((s, t) => {
-        const gross = Number(t.amount);
-        const net = gross * liquidezRate - fixedFeesPerTx;
-        return s + net;
+        const rowTag = platformTaxaTagFromText(t.description ?? undefined);
+        const effectiveTag = rowTag !== 'GLOBAL' ? rowTag : fallbackTag;
+        const liqRate = getPlatformTaxaEffective(effectiveTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+        const txFee = getPlatformTaxaEffective(effectiveTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+        const cbFee = getPlatformTaxaEffective(effectiveTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+        const svcFee = TAGS_SEM_TAXA_SERVICO_SUMMARY.has(effectiveTag)
+          ? 0
+          : getPlatformTaxaEffective(effectiveTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+        return s + Number(t.amount) * liqRate - txFee - cbFee - svcFee;
       }, 0);
       
       const completedAggr = await this.prisma.withdrawRequest.aggregate({
@@ -143,8 +144,7 @@ export class GetWithdrawSummaryUseCase {
       availableBalanceGross = Math.max(0, storedBalance - lockedBalanceGross);
     }
 
-    // Regra do Usuário: netBalance = availableBalance - taxaFixa
-    const netBalance = Math.max(0, availableBalanceGross - configResp.taxaFixa);
+    const netBalance = availableBalanceGross - configResp.taxaFixa;
 
     return {
       availableBalance: availableBalanceGross,
