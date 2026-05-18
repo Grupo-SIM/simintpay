@@ -15,7 +15,8 @@
       "mcp__serena__initial_instructions",
       "Bash(Get-ChildItem \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\atlas-hosting\\\\src\\\\app\\\\api\" -Recurse -Filter \"route.ts\")",
       "Bash(Select-Object -ExpandProperty FullName)",
-      "PowerShell(New-Item -ItemType Directory -Force -Path \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\atlas-hosting\\\\src\\\\app\\\\api\\\\internal\\\\report\")"
+      "PowerShell(New-Item -ItemType Directory -Force -Path \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\atlas-hosting\\\\src\\\\app\\\\api\\\\internal\\\\report\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\front-simpay\\\\src\\\\app\" -Recurse -Filter \"*taxa*\" -ErrorAction SilentlyContinue)"
     ],
     "additionalDirectories": [
       "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\painel\\renovada",
@@ -27,7 +28,8 @@
       "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\features\\admin\\types",
       "C:\\Users\\breno\\Desktop\\JB\\atlas-hosting\\src\\lib\\db\\schema\\tables",
       "C:\\Users\\breno\\Desktop\\JB\\atlas-hosting\\src\\app",
-      "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\relatorio"
+      "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\relatorio",
+      "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\admin\\taxa-saque-dom"
     ]
   }
 }
