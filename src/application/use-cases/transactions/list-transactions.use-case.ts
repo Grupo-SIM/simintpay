@@ -130,6 +130,7 @@ export class ListTransactionsUseCase {
         lucro_master: number;
       };
       criadoEm: string;
+      plataforma: string | null;
     }>;
     page: number;
     pageSize: number;
@@ -591,6 +592,7 @@ export class ListTransactionsUseCase {
             lucro_master: 0,
           },
           criadoEm: t.createdAt.toISOString(),
+          plataforma: feeTag !== 'GLOBAL' ? feeTag : null,
         };
       }),
       page,
