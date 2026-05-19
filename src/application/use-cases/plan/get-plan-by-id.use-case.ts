@@ -51,6 +51,7 @@ export class GetPlanByIdUseCase {
         redirectUrl: plan.redirectUrl ?? null,
         webhookUrl: plan.webhookUrl ?? null,
         ativo: plan.isActive,
+        plataformas: plan.plataformas ?? [],
         criadoEm: plan.createdAt.toISOString(),
       },
     };
