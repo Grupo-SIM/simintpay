@@ -56,6 +56,8 @@ export class GetSubscriptionLinkUseCase {
         redirectUrl: link.redirectUrl ?? null,
         webhookUrl: link.webhookUrl ?? null,
         communityId: binding?.communityId ?? null,
+        platformTag: link.platformTag ?? null,
+        plataformas: link.plataformas ?? [],
         criadoEm: link.createdAt.toISOString(),
       },
     };
