@@ -1563,7 +1563,7 @@ export class AdminController {
   }
 
   @Get('usuarios')
-  @ApiOperation({ summary: 'Lista usuários externos por plataforma com saldo líquido' })
+  @ApiOperation({ summary: 'Lista usuários externos agrupados por CPF com todas as plataformas' })
   @ApiQuery({ name: 'platform', required: false })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, example: 20 })
@@ -1592,41 +1592,65 @@ export class AdminController {
         }
       : {};
 
-    const where = {
+    // matchWhere: filtra quais CPFs entram na página (respeita platform + search)
+    const matchWhere = {
       ...(platform ? { platform } : {}),
       isDeleted: showDeleted,
       ...searchFilter,
     };
 
-    const [total, items] = await Promise.all([
-      this.prisma.externalPlatformUser.count({ where }),
-      this.prisma.externalPlatformUser.findMany({
-        where,
-        include: {
-          wallet: true,
-          user: { select: { id: true, name: true, email: true } },
-        },
-        orderBy: { createdAt: 'desc' },
+    // 1. Total de CPFs distintos + CPFs da página atual (queries paralelas)
+    const [allCpfGroups, pagedGroups] = await Promise.all([
+      this.prisma.externalPlatformUser.groupBy({
+        by: ['cpf'],
+        where: matchWhere,
+      }),
+      this.prisma.externalPlatformUser.groupBy({
+        by: ['cpf'],
+        where: matchWhere,
+        _max: { createdAt: true },
+        orderBy: { _max: { createdAt: 'desc' } },
         skip: (pageNum - 1) * size,
         take: size,
       }),
     ]);
+    const total = allCpfGroups.length;
+    const pagedCpfs = pagedGroups.map((g) => g.cpf);
 
+    if (pagedCpfs.length === 0) {
+      return { data: [], total, page: pageNum, pageSize: size };
+    }
+
+    // 2. Busca TODOS os registros desses CPFs em TODAS as plataformas
+    const allRecords = await this.prisma.externalPlatformUser.findMany({
+      where: { cpf: { in: pagedCpfs }, isDeleted: showDeleted },
+      include: {
+        wallet: true,
+        user: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // 3. Agrupa por CPF
+    const byCpf = new Map<string, typeof allRecords>();
+    for (const r of allRecords) {
+      if (!byCpf.has(r.cpf)) byCpf.set(r.cpf, []);
+      byCpf.get(r.cpf)!.push(r);
+    }
+
+    // 4. Calcula atividade (mesmo critério anterior, mas sobre todos os registros da página)
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    // IDs de usuários Simintpay vinculados (plataformas vendedor)
-    const sellerUserIds = items
+    const sellerUserIds = allRecords
       .filter((u) => u.userId && u.platform.toUpperCase() !== 'AREAFLIX')
       .map((u) => u.userId!);
 
-    // Emails de leads Areaflix vinculados (plataforma de subscrição)
-    const areaflixEmails = items
+    const areaflixEmails = allRecords
       .filter((u) => u.platform.toUpperCase() === 'AREAFLIX' && u.user?.email)
       .map((u) => u.user!.email);
 
-    // Consultas de atividade em paralelo
     const [activeTxUserIds, activeAreaflixEmails] = await Promise.all([
       sellerUserIds.length > 0
         ? this.prisma.transaction
@@ -1666,36 +1690,69 @@ export class AdminController {
         : Promise.resolve(new Set<string>()),
     ]);
 
-    return {
-      data: items.map((u) => {
-        let isAtivo: boolean | null = null;
-        if (u.platform.toUpperCase() === 'AREAFLIX') {
-          if (u.user?.email) isAtivo = activeAreaflixEmails.has(u.user.email);
+    // 5. Monta resposta na ordem da página
+    const data = pagedCpfs.map((cpf) => {
+      const records = byCpf.get(cpf) ?? [];
+      // Prefere o registro com userId vinculado; senão usa o mais recente
+      const primary = records.find((r) => !!r.userId) ?? records[records.length - 1];
+      const simpayUser = primary?.user ?? null;
+
+      const totalBalance = records.reduce((s, r) => s + Number(r.wallet?.balance ?? 0), 0);
+      const totalLocked = records.reduce((s, r) => s + Number(r.wallet?.lockedBalance ?? 0), 0);
+
+      // isAtivo: ativo em QUALQUER plataforma desse CPF
+      let isAtivo: boolean | null = null;
+      for (const r of records) {
+        if (r.platform.toUpperCase() === 'AREAFLIX') {
+          if (r.user?.email) {
+            const active = activeAreaflixEmails.has(r.user.email);
+            if (active) { isAtivo = true; break; }
+            if (isAtivo === null) isAtivo = false;
+          }
         } else {
-          if (u.userId) isAtivo = activeTxUserIds.has(u.userId);
+          if (r.userId) {
+            const active = activeTxUserIds.has(r.userId);
+            if (active) { isAtivo = true; break; }
+            if (isAtivo === null) isAtivo = false;
+          }
         }
-        return {
-          id: u.id,
-          cpf: u.cpf,
-          name: u.user?.name?.trim() || u.name,
-          platform: u.platform,
-          balance: Number(u.wallet?.balance ?? 0),
-          lockedBalance: Number(u.wallet?.lockedBalance ?? 0),
-          vinculado: !!u.userId,
-          isAtivo,
-          isDeleted: u.isDeleted,
-          deletedAt: u.deletedAt,
-          simpayUser: u.user
-            ? { id: u.user.id, name: u.user.name, email: u.user.email }
-            : null,
-          createdAt: u.createdAt,
-          updatedAt: u.updatedAt,
-        };
-      }),
-      total,
-      page: pageNum,
-      pageSize: size,
-    };
+      }
+
+      const earliestCreatedAt = records.reduce(
+        (min, r) => (r.createdAt < min ? r.createdAt : min),
+        records[0].createdAt,
+      );
+      const latestUpdatedAt = records.reduce(
+        (max, r) => (r.updatedAt > max ? r.updatedAt : max),
+        records[0].updatedAt,
+      );
+
+      return {
+        id: primary.id,
+        cpf,
+        name: simpayUser?.name?.trim() || primary.name,
+        // Todas as plataformas onde esse CPF tem conta
+        platformEntries: records.map((r) => ({
+          id: r.id,
+          platform: r.platform,
+          name: r.name,
+          email: r.user?.email ?? null,
+        })),
+        balance: totalBalance,
+        lockedBalance: totalLocked,
+        vinculado: records.some((r) => !!r.userId),
+        isAtivo,
+        isDeleted: records.every((r) => r.isDeleted),
+        deletedAt: primary.deletedAt,
+        simpayUser: simpayUser
+          ? { id: simpayUser.id, name: simpayUser.name, email: simpayUser.email }
+          : null,
+        createdAt: earliestCreatedAt,
+        updatedAt: latestUpdatedAt,
+      };
+    });
+
+    return { data, total, page: pageNum, pageSize: size };
   }
 
   @Patch('usuarios/:id')
