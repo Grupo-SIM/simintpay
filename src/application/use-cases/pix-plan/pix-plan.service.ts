@@ -480,6 +480,7 @@ export class PixPlanService {
         createdAt: p.createdAt,
         updatedAt: p.updatedAt,
         linkCode: p.linkCodes?.[0]?.code ?? null,
+        subscriberCount: (p._count?.accesses ?? 0) as number,
         cpfDono,
         donoNome,
         donoEmail,

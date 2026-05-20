@@ -94,6 +94,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
             take: 1,
           },
           user: { select: { cpf: true, name: true, email: true } },
+          _count: { select: { accesses: true } },
         },
       }),
       (this.prisma as any).pixCreditPlan.count({ where }),
