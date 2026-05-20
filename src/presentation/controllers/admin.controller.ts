@@ -1593,29 +1593,33 @@ export class AdminController {
       : {};
 
     // matchWhere: filtra quais CPFs entram na página (respeita platform + search)
+    // platform comparado case-insensitive para tolerância a casing no DB
     const matchWhere = {
-      ...(platform ? { platform } : {}),
+      ...(platform
+        ? { platform: { equals: platform, mode: 'insensitive' as const } }
+        : {}),
       isDeleted: showDeleted,
       ...searchFilter,
     };
 
     // 1. Total de CPFs distintos + CPFs da página atual (queries paralelas)
-    const [allCpfGroups, pagedGroups] = await Promise.all([
+    //    findMany+distinct é mais confiável que groupBy+_max+orderBy+skip/take em Prisma
+    const [countGroups, pagedRows] = await Promise.all([
       this.prisma.externalPlatformUser.groupBy({
         by: ['cpf'],
         where: matchWhere,
       }),
-      this.prisma.externalPlatformUser.groupBy({
-        by: ['cpf'],
+      this.prisma.externalPlatformUser.findMany({
         where: matchWhere,
-        _max: { createdAt: true },
-        orderBy: { _max: { createdAt: 'desc' } },
+        select: { cpf: true, createdAt: true },
+        distinct: ['cpf'],
+        orderBy: { createdAt: 'desc' },
         skip: (pageNum - 1) * size,
         take: size,
       }),
     ]);
-    const total = allCpfGroups.length;
-    const pagedCpfs = pagedGroups.map((g) => g.cpf);
+    const total = countGroups.length;
+    const pagedCpfs = pagedRows.map((r) => r.cpf);
 
     if (pagedCpfs.length === 0) {
       return { data: [], total, page: pageNum, pageSize: size };
