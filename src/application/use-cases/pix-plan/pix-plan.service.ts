@@ -688,6 +688,9 @@ export class PixPlanService {
     userId?: string;
     isActive?: boolean;
     pixPlanId?: string;
+    search?: string;
+    dateFrom?: Date;
+    dateTo?: Date;
   }) {
     try {
       const { page, limit } = params;
@@ -724,6 +727,7 @@ export class PixPlanService {
             userId: access.userId,
             seller: access.user,
             customer: access.customer,
+            customerName: access.customer?.name ?? null,
             customerEmail: access.customerEmail,
             customerDocument: access.customerDocument,
             isActive: access.isActive && expiresAtMs > now,

@@ -74,8 +74,9 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   TAXA_ASSINATURA: 9.0,
   TAXA_DEBITO_PERCENT: 0.02,   // 2%
   TAXA_DEBITO_FIXA: 2.0,       // R$2,00
-  // DOM: taxa cobrada do comprador pelo gateway para cartão direto/pix-plan
-  MDR_CC_1X: 0.0399,
+  // DOM: taxa cobrada pelo gateway para cartão direto/pix-plan/assinatura
+  // 1x = 0% (igual ao link de pagamento — custo real DOM ~3,99% é absorvido pelo master e visível nos relatórios)
+  MDR_CC_1X: 0,
   MDR_CC_2X: 0.083,
   MDR_CC_3X: 0.0968,
   MDR_CC_4X: 0.1104,

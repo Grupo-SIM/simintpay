@@ -210,6 +210,9 @@ export class PixPlanController {
   @ApiQuery({ name: 'userId', required: false, type: String })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean })
   @ApiQuery({ name: 'pixPlanId', required: false, type: String })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'dateFrom', required: false, type: String })
+  @ApiQuery({ name: 'dateTo', required: false, type: String })
   @ApiResponse({ status: 200 })
   async listAllPixPlanAccess(
     @Query('page') page?: string,
@@ -217,6 +220,9 @@ export class PixPlanController {
     @Query('userId') userId?: string,
     @Query('isActive') isActive?: string,
     @Query('pixPlanId') pixPlanId?: string,
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     let isActiveBoolean: boolean | undefined;
     if (isActive !== undefined) isActiveBoolean = isActive === 'true';
@@ -230,6 +236,9 @@ export class PixPlanController {
       userId,
       isActive: isActiveBoolean,
       pixPlanId,
+      search: search?.trim() || undefined,
+      dateFrom: dateFrom ? new Date(dateFrom) : undefined,
+      dateTo: dateTo ? new Date(dateTo) : undefined,
     });
   }
 

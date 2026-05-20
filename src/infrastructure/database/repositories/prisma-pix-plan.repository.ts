@@ -276,8 +276,11 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     userId?: string;
     isActive?: boolean;
     pixPlanId?: string;
+    search?: string;
+    dateFrom?: Date;
+    dateTo?: Date;
   }) {
-    const { page, limit, userId, isActive, pixPlanId } = params;
+    const { page, limit, userId, isActive, pixPlanId, search, dateFrom, dateTo } = params;
     const skip = (page - 1) * limit;
     const where: any = {};
 
@@ -294,10 +297,25 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
       }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     if (isActive !== undefined) where.isActive = isActive;
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     if (pixPlanId) where.pixPlanId = pixPlanId;
+
+    if (search?.trim()) {
+      const s = search.trim();
+      where.OR = [
+        { customerEmail: { contains: s, mode: 'insensitive' } },
+        { customerDocument: { contains: s, mode: 'insensitive' } },
+        { customer: { name: { contains: s, mode: 'insensitive' } } },
+        { customer: { email: { contains: s, mode: 'insensitive' } } },
+      ];
+    }
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {
+        ...(dateFrom && { gte: dateFrom }),
+        ...(dateTo && { lte: new Date(dateTo.getTime() + 86399999) }),
+      };
+    }
 
     const [items, total] = await Promise.all([
       (this.prisma as any).customerPlanAccess.findMany({
