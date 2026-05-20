@@ -525,7 +525,11 @@ export class PixPlanService {
         redirectUrl: plan.redirectUrl ?? null,
         webhookUrl: plan.webhookUrl ?? null,
         status: plan.status,
-        tenantTag: plan.tenantTag ? plan.tenantTag.toUpperCase() : null,
+        tenantTag: plan.tenantTag
+          ? plan.tenantTag.toUpperCase()
+          : (plan.description ?? '').match(/\[TENANT:([^\]]+)\]/i)?.[1]?.toUpperCase()
+          ?? (plan.description ?? '').match(/\[CPF:[^\]|]*\|([^\]]+)\]/i)?.[1]?.toUpperCase()
+          ?? null,
         linkCode: linkCode?.code ?? null,
         createdAt: plan.createdAt,
       },
