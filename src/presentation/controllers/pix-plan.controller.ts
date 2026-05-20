@@ -134,6 +134,35 @@ export class PixPlanController {
     return this.pixPlanService.createPixCreditPlanFromPublicDto(user?.sub ?? '', body);
   }
 
+  @Get('pix-plan/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Detalhe de um plano PIX de crédito' })
+  @ApiParam({ name: 'id', description: 'ID do plano PIX' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 404 })
+  async getPixCreditPlanById(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.pixPlanService.getPixCreditPlanById(user?.sub ?? '', id, user?.role);
+  }
+
+  @Patch('pix-plan/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Atualizar plano PIX de crédito' })
+  @ApiParam({ name: 'id', description: 'ID do plano PIX' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 404 })
+  async updatePixCreditPlan(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+    @Body() body: Partial<CreatePixCreditPlanDto>,
+  ) {
+    return this.pixPlanService.updatePixCreditPlan(user?.sub ?? '', id, body, user?.role);
+  }
+
   @Delete('pix-plan/:id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
