@@ -502,6 +502,70 @@ export class PixPlanService {
     };
   }
 
+  // ── GET /payments/pix-plan/:id ──────────────────────────────────────────
+
+  async getPixCreditPlanById(userId: string, planId: string, role?: string) {
+    const plan = await this.repo.findPixCreditPlanById(planId);
+    if (!plan) throw new NotFoundException('Plano PIX não encontrado');
+    if (role !== 'ADMIN' && plan.userId !== userId)
+      throw new BadRequestException('Plano não pertence a este usuário');
+
+    const linkCode = await this.prisma.pixPlanLinkCode.findFirst({
+      where: { pixCreditPlanId: planId, isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      data: {
+        id: plan.id,
+        description: plan.description ?? null,
+        price: plan.price,
+        frequency_type: plan.type,
+        redirectUrl: plan.redirectUrl ?? null,
+        webhookUrl: plan.webhookUrl ?? null,
+        status: plan.status,
+        tenantTag: plan.tenantTag ? plan.tenantTag.toUpperCase() : null,
+        linkCode: linkCode?.code ?? null,
+        createdAt: plan.createdAt,
+      },
+    };
+  }
+
+  // ── PATCH /payments/pix-plan/:id ─────────────────────────────────────────
+
+  async updatePixCreditPlan(
+    userId: string,
+    planId: string,
+    body: {
+      description?: string;
+      price?: number;
+      frequency_type?: string;
+      redirectUrl?: string | null;
+      webhookUrl?: string | null;
+      tenantTag?: string | null;
+    },
+    role?: string,
+  ) {
+    const plan = await this.repo.findPixCreditPlanById(planId);
+    if (!plan) throw new NotFoundException('Plano PIX não encontrado');
+    if (role !== 'ADMIN' && plan.userId !== userId)
+      throw new BadRequestException('Plano não pertence a este usuário');
+
+    const updated = await this.prisma.pixCreditPlan.update({
+      where: { id: planId },
+      data: {
+        ...(body.description !== undefined && { description: body.description }),
+        ...(body.price !== undefined && { price: body.price }),
+        ...(body.frequency_type !== undefined && { type: this.mapFrequencyToType(body.frequency_type as 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR') }),
+        ...(body.redirectUrl !== undefined && { redirectUrl: body.redirectUrl || null }),
+        ...(body.webhookUrl !== undefined && { webhookUrl: body.webhookUrl || null }),
+        ...(body.tenantTag !== undefined && { tenantTag: body.tenantTag ? body.tenantTag.toUpperCase() : null }),
+      },
+    });
+
+    return { data: { id: updated.id, tenantTag: updated.tenantTag } };
+  }
+
   // ── DELETE /payments/pix-plan/:id ────────────────────────────────────────
 
   async deletePixCreditPlan(userId: string, pixPlanId: string, role?: string) {

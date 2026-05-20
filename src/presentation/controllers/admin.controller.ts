@@ -697,6 +697,7 @@ function buildLucroSimpayDetalhePorPlataforma(
     createdAt: Date;
     description: string | null;
     installments: number | null;
+    paymentMethod?: string | null;
   }[],
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): { totalLucroSimpay: number; plataformas: LucroSimpayPorPlataforma[] } {
@@ -742,7 +743,11 @@ function buildLucroSimpayDetalhePorPlataforma(
 
     const bruto = Number(tx.amount);
     const parteAdmin = bruto * (1 - liquidezLojista);
-    const lucroTx = parteAdmin - taxaFixa - taxaCashback - taxaServico;
+    const pm = String(tx.paymentMethod ?? 'PIX');
+    const inst = Number(tx.installments ?? 1);
+    const taxaMdr = mdrDomPct(pm, inst, bruto, tag);
+    // taxaServico é receita (cobrado do vendedor); taxaFixa, taxaCashback e taxaMdr são custos DOM.
+    const lucroTx = parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback;
     totalLucroSimpay += lucroTx;
 
     if (!byTag.has(tag)) {
@@ -766,9 +771,10 @@ function buildLucroSimpayDetalhePorPlataforma(
     const agg = byTag.get(tag)!;
 
     const formulaParte = `${bruto.toFixed(2)} × (1 − ${liquidezLojista}) = ${parteAdmin.toFixed(2)}`;
+    const mdrLabel = taxaMdr > 0 ? ` − ${taxaMdr.toFixed(4)}(MDR)` : '';
     const formulaLucro = taxaServico > 0
-      ? `${parteAdmin.toFixed(2)} − ${taxaFixa} − ${taxaCashback} − ${taxaServico} = ${lucroTx.toFixed(2)}`
-      : `${parteAdmin.toFixed(2)} − ${taxaFixa} − ${taxaCashback} = ${lucroTx.toFixed(2)}`;
+      ? `${parteAdmin.toFixed(2)} + ${taxaServico}(serv)${mdrLabel} − ${taxaFixa} − ${taxaCashback} = ${lucroTx.toFixed(2)}`
+      : `${parteAdmin.toFixed(2)}${mdrLabel} − ${taxaFixa} − ${taxaCashback} = ${lucroTx.toFixed(2)}`;
 
     agg.transacoes.push({
       id: tx.id,
@@ -903,6 +909,7 @@ function lucroSimpayUmaTransacaoConsolidado(
     description?: string | null;
     installments?: number | null;
     createdAt?: Date;
+    paymentMethod?: string | null;
   },
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): number {
@@ -919,7 +926,11 @@ function lucroSimpayUmaTransacaoConsolidado(
     : 0;
   const bruto = Number(tx.amount);
   const parteAdmin = bruto * (1 - liquidezLojista);
-  return parteAdmin - taxaFixa - taxaCashback - taxaServico;
+  const pm = String(tx.paymentMethod ?? 'PIX');
+  const inst = Number(tx.installments ?? 1);
+  const taxaMdr = mdrDomPct(pm, inst, bruto, tag);
+  // taxaServico é receita (cobrado do vendedor); taxaFixa, taxaCashback e taxaMdr são custos DOM.
+  return parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback;
 }
 
 function listYmdInclusiveSp(dataInicio: string, dataFim: string): string[] {
@@ -1037,7 +1048,24 @@ type DashboardFinanceHistoricoRow = {
   taxaAdquirente: number;
   taxaSaque: number;
   lucroSaque: number;
+  taxaServico: number;
+  taxaSaqueDom: number;
 };
+
+const DOM_CC_RATE_BY_INSTALLMENT_ADM: Record<number, number> = {
+  1: 0.0399, 2: 0.083, 3: 0.0968, 4: 0.1104, 5: 0.1237,
+  6: 0.1367, 7: 0.1495, 8: 0.1621, 9: 0.1744, 10: 0.1864,
+  11: 0.1983, 12: 0.2099,
+};
+
+/** Taxa MDR que a DOM cobra (somente a parte percentual, sem taxas fixas). */
+function mdrDomPct(paymentMethod: string, installments: number, amount: number, tag: string): number {
+  const inst = Math.min(Math.max(installments || 1, 1), 12);
+  if (paymentMethod === 'DEBIT_CARD') return amount * 0.0349;
+  if (paymentMethod === 'CREDIT_CARD') return amount * (DOM_CC_RATE_BY_INSTALLMENT_ADM[inst] ?? 0.0399);
+  const mdrPix = getPlatformTaxaEffective(tag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
+  return amount * mdrPix;
+}
 
 function accumTxFinancePorDia(
   txRowsLucro: {
@@ -1046,6 +1074,8 @@ function accumTxFinancePorDia(
     netAmount: unknown | null;
     createdAt: Date;
     description?: string | null;
+    paymentMethod?: string | null;
+    installments?: number | null;
   }[],
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): {
@@ -1054,12 +1084,14 @@ function accumTxFinancePorDia(
   lucro: Map<string, number>;
   cashback: Map<string, number>;
   taxaAdquirente: Map<string, number>;
+  taxaServico: Map<string, number>;
 } {
   const bruto = new Map<string, number>();
   const liquido = new Map<string, number>();
   const lucro = new Map<string, number>();
   const cashback = new Map<string, number>();
   const taxaAdquirente = new Map<string, number>();
+  const taxaServico = new Map<string, number>();
   for (const tx of txRowsLucro) {
     const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
     const tag = consolidadoTagParaTransacao(
@@ -1078,8 +1110,14 @@ function accumTxFinancePorDia(
     cashback.set(ymd, (cashback.get(ymd) ?? 0) + tc);
     const tf = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
     taxaAdquirente.set(ymd, (taxaAdquirente.get(ymd) ?? 0) + tf + tc);
+    const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag)
+      ? 0
+      : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
+    const taxaServicoTx =
+      taxaServicoRate > 0 && tx.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? taxaServicoRate : 0;
+    taxaServico.set(ymd, (taxaServico.get(ymd) ?? 0) + taxaServicoTx);
   }
-  return { bruto, liquido, lucro, cashback, taxaAdquirente };
+  return { bruto, liquido, lucro, cashback, taxaAdquirente, taxaServico };
 }
 
 function accumWithdrawPorDia(
@@ -1107,25 +1145,32 @@ function buildDashboardFinanceHistoricoDiario(
     netAmount: unknown | null;
     createdAt: Date;
     description?: string | null;
+    paymentMethod?: string | null;
+    installments?: number | null;
   }[],
   withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
   dataInicio: string,
   dataFim: string,
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): DashboardFinanceHistoricoRow[] {
-  const { bruto, liquido, lucro, cashback, taxaAdquirente } = accumTxFinancePorDia(txRowsLucro, platforms);
+  const { bruto, liquido, lucro, cashback, taxaAdquirente, taxaServico } = accumTxFinancePorDia(txRowsLucro, platforms);
   const { fee, profit } = accumWithdrawPorDia(withdrawLogs);
   const dias = listYmdInclusiveSp(dataInicio, dataFim);
-  return dias.map((ymd) => ({
-    label: dayjs.tz(ymd, TZ).format('DD/MM'),
-    valorBruto: Number((bruto.get(ymd) ?? 0).toFixed(2)),
-    valorLiquido: Number((liquido.get(ymd) ?? 0).toFixed(2)),
-    lucroSimpay: Number((lucro.get(ymd) ?? 0).toFixed(2)),
-    cashback: Number((cashback.get(ymd) ?? 0).toFixed(2)),
-    taxaAdquirente: Number((taxaAdquirente.get(ymd) ?? 0).toFixed(2)),
-    taxaSaque: Number((fee.get(ymd) ?? 0).toFixed(2)),
-    lucroSaque: Number((profit.get(ymd) ?? 0).toFixed(2)),
-  }));
+  return dias.map((ymd) => {
+    const taxaSaqueVal = Number((fee.get(ymd) ?? 0).toFixed(2));
+    return {
+      label: dayjs.tz(ymd, TZ).format('DD/MM'),
+      valorBruto: Number((bruto.get(ymd) ?? 0).toFixed(2)),
+      valorLiquido: Number((liquido.get(ymd) ?? 0).toFixed(2)),
+      lucroSimpay: Number((lucro.get(ymd) ?? 0).toFixed(2)),
+      cashback: Number((cashback.get(ymd) ?? 0).toFixed(2)),
+      taxaAdquirente: Number((taxaAdquirente.get(ymd) ?? 0).toFixed(2)),
+      taxaSaque: taxaSaqueVal,
+      lucroSaque: Number((profit.get(ymd) ?? 0).toFixed(2)),
+      taxaServico: Number((taxaServico.get(ymd) ?? 0).toFixed(2)),
+      taxaSaqueDom: taxaSaqueVal,
+    };
+  });
 }
 
 function buildDashboardFinanceHistoricoPorHora(
@@ -1135,6 +1180,8 @@ function buildDashboardFinanceHistoricoPorHora(
     netAmount: unknown | null;
     createdAt: Date;
     description?: string | null;
+    paymentMethod?: string | null;
+    installments?: number | null;
   }[],
   withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
   dataInicio: string,
@@ -1146,6 +1193,7 @@ function buildDashboardFinanceHistoricoPorHora(
   const lucro = new Map<number, number>();
   const cashback = new Map<number, number>();
   const taxaAdquirente = new Map<number, number>();
+  const taxaServico = new Map<number, number>();
   for (const tx of txRowsLucro) {
     const d = dayjs(tx.createdAt).tz(TZ);
     if (d.format('YYYY-MM-DD') !== ymdTarget) continue;
@@ -1164,6 +1212,12 @@ function buildDashboardFinanceHistoricoPorHora(
     cashback.set(h, (cashback.get(h) ?? 0) + tc);
     const tf = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
     taxaAdquirente.set(h, (taxaAdquirente.get(h) ?? 0) + tf + tc);
+    const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag)
+      ? 0
+      : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
+    const taxaServicoTx =
+      taxaServicoRate > 0 && tx.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? taxaServicoRate : 0;
+    taxaServico.set(h, (taxaServico.get(h) ?? 0) + taxaServicoTx);
   }
   const fee = new Map<number, number>();
   const profit = new Map<number, number>();
@@ -1179,16 +1233,21 @@ function buildDashboardFinanceHistoricoPorHora(
       profit.set(h, (profit.get(h) ?? 0) + amt);
     }
   }
-  return Array.from({ length: 24 }, (_, h) => ({
-    label: `${String(h).padStart(2, '0')}h`,
-    valorBruto: Number((bruto.get(h) ?? 0).toFixed(2)),
-    valorLiquido: Number((liquido.get(h) ?? 0).toFixed(2)),
-    lucroSimpay: Number((lucro.get(h) ?? 0).toFixed(2)),
-    cashback: Number((cashback.get(h) ?? 0).toFixed(2)),
-    taxaAdquirente: Number((taxaAdquirente.get(h) ?? 0).toFixed(2)),
-    taxaSaque: Number((fee.get(h) ?? 0).toFixed(2)),
-    lucroSaque: Number((profit.get(h) ?? 0).toFixed(2)),
-  }));
+  return Array.from({ length: 24 }, (_, h) => {
+    const taxaSaqueVal = Number((fee.get(h) ?? 0).toFixed(2));
+    return {
+      label: `${String(h).padStart(2, '0')}h`,
+      valorBruto: Number((bruto.get(h) ?? 0).toFixed(2)),
+      valorLiquido: Number((liquido.get(h) ?? 0).toFixed(2)),
+      lucroSimpay: Number((lucro.get(h) ?? 0).toFixed(2)),
+      cashback: Number((cashback.get(h) ?? 0).toFixed(2)),
+      taxaAdquirente: Number((taxaAdquirente.get(h) ?? 0).toFixed(2)),
+      taxaSaque: taxaSaqueVal,
+      lucroSaque: Number((profit.get(h) ?? 0).toFixed(2)),
+      taxaServico: Number((taxaServico.get(h) ?? 0).toFixed(2)),
+      taxaSaqueDom: taxaSaqueVal,
+    };
+  });
 }
 
 function mapConsolidadoTxStatusToPt(
@@ -1993,6 +2052,7 @@ export class AdminController {
           createdAt: true,
           description: true,
           installments: true,
+          paymentMethod: true,
         },
         orderBy: { createdAt: 'asc' },
       }),
@@ -2037,6 +2097,28 @@ export class AdminController {
       plataformasLucroDetalhe
         .reduce((s, p) => s + p.subtotalDeducaoTaxaCashback, 0)
         .toFixed(2),
+    );
+    // taxaServico = TAXA_SERVICO × N transações elegíveis (exclui BOSQUE/RENOVADA; apenas após 2026-05-18)
+    const taxaServicoConsolidado = Number(
+      plataformasLucroDetalhe
+        .reduce((s, p) => s + p.subtotalDeducaoTaxaServico, 0)
+        .toFixed(2),
+    );
+    // taxaDomMdr = soma da taxa MDR (percentual) cobrada pela DOM por transação
+    const taxaDomMdr = Number(
+      txRowsLucro
+        .reduce((sum, tx) => {
+          const amount = Number(tx.amount);
+          if (!Number.isFinite(amount) || amount <= 0) return sum;
+          const tag = consolidadoTagParaTransacao(
+            { userId: tx.userId, description: tx.description ?? null },
+            platforms,
+          );
+          const pm = String((tx as { paymentMethod?: string }).paymentMethod ?? 'PIX');
+          const inst = Number((tx as { installments?: number }).installments ?? 1);
+          return sum + mdrDomPct(pm, inst, amount, tag);
+        }, 0)
+        .toFixed(4),
     );
     // Total de repasse = tudo que sobra após a retirada da taxa sim int (= valorBruto − taxaSimInt)
     const totalRepasseConsolidado = Number((brutoTotal - taxaSimInt).toFixed(2));
@@ -2277,6 +2359,8 @@ export class AdminController {
       valorBruto: brutoTotal,
       taxaSimInt,
       taxaDom,
+      taxaDomMdr,
+      taxaServico: taxaServicoConsolidado,
       custoCashback,
       totalRepasseConsolidado,
       totalRepasseReal,
@@ -2324,7 +2408,7 @@ export class AdminController {
 
       payload.lucroSimpayDetalhe = {
         formula:
-          'Por transação: lucro = bruto × (1 − LIQUIDEZ_LOJISTA) − TAXA_FIXA_TRANSACAO − TAXA_CASHBACK. LIQUIDEZ_LOJISTA vem do .env (*_LIQUIDEZ, ex. 0,91 → 9% do bruto para o master).',
+          'Por transação: lucro = bruto × (1 − LIQUIDEZ_LOJISTA) + TAXA_SERVICO − TAXA_FIXA_TRANSACAO − TAXA_CASHBACK. TAXA_SERVICO é receita da Sim Int Pay cobrada do vendedor (R$4 padrão; 0 para BOSQUE/RENOVADA e antes de 2026-05-18). LIQUIDEZ_LOJISTA vem do .env (*_LIQUIDEZ, ex. 0,91 → 9% do bruto para o master).',
         exclusoesDoCalculo: {
           regra:
             'Não entram: bruto ≤ 0; ou descrição contendo "Sincronização de Saldo", "Ajuste Administrativo" ou "balance sync" (ajustes internos, não venda).',
