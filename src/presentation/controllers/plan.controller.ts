@@ -127,6 +127,20 @@ export class PlanController {
     return this.getById.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
   }
 
+  @Post(':id/desativar')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Desativar plano' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 404 })
+  @ApiResponse({ status: 401 })
+  async deactivateRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+  ): Promise<{ data: unknown }> {
+    return this.update.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id, dto: { isActive: false } });
+  }
+
   @Post(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

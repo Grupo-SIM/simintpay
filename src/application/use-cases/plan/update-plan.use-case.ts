@@ -44,7 +44,7 @@ export class UpdatePlanUseCase {
     userId: string;
     role: string;
     id: string;
-    dto: Partial<CreatePlanDto>;
+    dto: Partial<CreatePlanDto> & { isActive?: boolean };
   }): Promise<{ data: unknown }> {
     const existing = input.role === 'ADMIN'
       ? await this.plans.findById(input.id)
@@ -65,6 +65,7 @@ export class UpdatePlanUseCase {
       type: input.dto.tipo ? mapTipo(input.dto.tipo) : existing.type,
       webhookUrl: input.dto.webhookUrl ?? existing.webhookUrl,
       redirectUrl: input.dto.redirectUrl ?? existing.redirectUrl,
+      ...(input.dto.isActive !== undefined && { isActive: input.dto.isActive }),
       ...(input.dto.code !== undefined && { code: input.dto.code }),
       ...(input.dto.plataformas !== undefined && { plataformas: input.dto.plataformas }),
     });
