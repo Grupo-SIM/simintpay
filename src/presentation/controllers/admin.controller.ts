@@ -6050,28 +6050,34 @@ export class AdminController {
     const qtdTransacoes = txs.length;
     const receitaTotalAtlas = txs.reduce((s, t) => s + Number(t.amount), 0);
 
-    const getAtlasMDR = (method: string, installments: number): number => {
-      if (method === 'PIX') {
-        const v = parseFloat(process.env.ATLAS_MDR_PIX ?? '');
-        return Number.isFinite(v) ? v : (parseFloat(process.env.GLOBAL_MDR_PIX ?? '') || 0.0098);
-      }
-      const n = Math.min(Math.max(installments || 1, 1), 12);
-      const v = parseFloat(process.env[`ATLAS_MDR_CC_${n}X`] ?? '');
-      if (Number.isFinite(v)) return v;
-      const v2 = parseFloat(process.env[`ATLAS_MDR_LINK_${n}X`] ?? '');
-      return Number.isFinite(v2) ? v2 : 0;
-    };
+    const LIQUIDEZ        = getPlatformTaxaEffective('ATLAS', 'LIQUIDEZ',           PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+    const TAXA_LINK_PCT   = getPlatformTaxaEffective('ATLAS', 'TAXA_LINK_PERCENT',   PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+    const TAXA_LINK_FIXA  = getPlatformTaxaEffective('ATLAS', 'TAXA_LINK_FIXA',      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+    const TAXA_FIXA       = getPlatformTaxaEffective('ATLAS', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const TAXA_CASHBACK   = getPlatformTaxaEffective('ATLAS', 'TAXA_CASHBACK',       PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const TAXA_SAQUE_FIXA = getPlatformTaxaEffective('ATLAS', 'TAXA_SAQUE_FIXA',     PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA);
 
-    const taxaMDRDom = txs.reduce((s, t) => s + Number(t.amount) * getAtlasMDR(t.paymentMethod, t.installments), 0);
+    const isCardPm = (pm: string) => { const p = String(pm ?? '').toUpperCase(); return p.includes('CARD') || p.includes('CREDIT') || p.includes('DEBIT'); };
 
-    const LIQUIDEZ = Number.isFinite(parseFloat(process.env.ATLAS_LIQUIDEZ ?? '')) ? parseFloat(process.env.ATLAS_LIQUIDEZ!) : 0.91;
-    const TAXA_FIXA = Number.isFinite(parseFloat(process.env.ATLAS_TAXA_FIXA_TRANSACAO ?? '')) ? parseFloat(process.env.ATLAS_TAXA_FIXA_TRANSACAO!) : 1.00;
-    const TAXA_CASHBACK = Number.isFinite(parseFloat(process.env.ATLAS_TAXA_CASHBACK ?? '')) ? parseFloat(process.env.ATLAS_TAXA_CASHBACK!) : 3.00;
-    const TAXA_SAQUE_FIXA = Number.isFinite(parseFloat(process.env.ATLAS_TAXA_SAQUE_FIXA ?? '')) ? parseFloat(process.env.ATLAS_TAXA_SAQUE_FIXA!) : 2.00;
+    // PIX: cobrado pelo % de liquidez + taxa fixa+cashback.
+    // Cartão: vendedor paga TAXA_LINK_PERCENT+TAXA_LINK_FIXA (1x sem acréscimo ao comprador;
+    //         para 2x+ o comprador absorve o custo de parcelas via surcharge configurado).
+    const taxaSimInt = txs.reduce((s, t) => {
+      const amount = Number(t.amount);
+      return s + (isCardPm(t.paymentMethod)
+        ? amount * TAXA_LINK_PCT + TAXA_LINK_FIXA
+        : amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK);
+    }, 0);
 
-    const taxaSimInt = receitaTotalAtlas * (1 - LIQUIDEZ) + (TAXA_FIXA + TAXA_CASHBACK) * qtdTransacoes;
+    const taxaMDRDom = txs.reduce((s, t) => s + estimateDomFeeReais({
+      amountReais: Number(t.amount),
+      paymentMethod: t.paymentMethod,
+      installments: t.installments,
+      tenantTag: 'ATLAS',
+    }), 0);
+
     const taxaAdquirente = TAXA_FIXA * qtdTransacoes;
-    const custoCashback = TAXA_CASHBACK * qtdTransacoes;
+    const custoCashback  = TAXA_CASHBACK * qtdTransacoes;
 
     const atlasBaseUrl = String(process.env.ATLAS_HOSTING_URL ?? '').replace(/\/+$/, '');
     const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN ?? '';
