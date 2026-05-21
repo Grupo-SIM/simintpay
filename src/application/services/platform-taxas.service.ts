@@ -85,13 +85,18 @@ export class PlatformTaxasService {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Body inválido');
     }
-    const patch: Record<string, number> = {};
+    const patch: Record<string, number | null> = {};
     for (const [k, v] of Object.entries(body)) {
       if (!(PLATAFORMA_TAXA_KEYS as readonly string[]).includes(k)) {
         throw new BadRequestException(`Chave não permitida: ${k}`);
       }
       if (k === 'TAXA_FIXA_TRANSACAO' || k === 'TAXA_CASHBACK') {
         throw new BadRequestException(`Chave é fixa e não pode ser alterada: ${k}`);
+      }
+      // null means "remove this platform override, fall back to global/default"
+      if (v === null) {
+        patch[k] = null;
+        continue;
       }
       const n =
         typeof v === 'number'

@@ -77,7 +77,7 @@ import { CommunityManagementService } from '../../application/services/community
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
+import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
 import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
@@ -5577,10 +5577,41 @@ export class AdminController {
     const data = items.map(t => {
       const valorBruto = Number(t.amount);
       const isCompleted = t.status === 'COMPLETED';
+      const installments = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
 
       const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : 'credit_card';
-      const taxaDom = isCompleted ? Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStr, installments: t.installments ?? 1, tenantTag: upperTag }).toFixed(2)) : 0;
-      const taxaSimIntPay = isCompleted ? Number((valorBruto * adminMargin).toFixed(2)) : 0;
+      const taxaDom = isCompleted ? Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStr, installments, tenantTag: upperTag }).toFixed(2)) : 0;
+
+      // taxaSimIntPay: calculada por método de pagamento (não mais pela LIQUIDEZ genérica)
+      let taxaSimIntPay = 0;
+      if (isCompleted) {
+        if (pmStr === 'credit_card') {
+          // Parcela do vendedor (independente de parcelas): (TAXA_LINK_PERCENT - MDR_CC_1X) + (TAXA_LINK_FIXA - TAXA_FIXA_TRANSACAO)
+          const linkPct  = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+          const linkFixo = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_FIXA',    PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+          const domPct1x = getPlatformTaxaEffective(upperTag, 'MDR_CC_1X',         PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+          const domFixo  = getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+          const simSellerPct   = Math.max(0, linkPct  - domPct1x);
+          const simSellerFixed = Math.max(0, linkFixo - domFixo);
+
+          // Parcela do comprador (varia por N parcelas): MDR_CC_MASTER_{N}X
+          const masterKey = `MDR_CC_MASTER_${installments}X` as PlataformaTaxaKey;
+          const simBuyerPct = getPlatformTaxaEffective(
+            upperTag, masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0,
+          );
+
+          taxaSimIntPay = Number((valorBruto * (simSellerPct + simBuyerPct) + simSellerFixed).toFixed(2));
+        } else if (pmStr === 'debit_card') {
+          // Débito: TAXA_DEBITO_PERCENT + TAXA_DEBITO_FIXA (parcela SimIntPay)
+          const debPct  = getPlatformTaxaEffective(upperTag, 'TAXA_DEBITO_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_PERCENT);
+          const debFixo = getPlatformTaxaEffective(upperTag, 'TAXA_DEBITO_FIXA',    PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_FIXA);
+          taxaSimIntPay = Number((valorBruto * debPct + debFixo).toFixed(2));
+        } else {
+          // PIX: usa adminMargin (LIQUIDEZ)
+          taxaSimIntPay = Number((valorBruto * adminMargin).toFixed(2));
+        }
+      }
+
       const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
       const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
       const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE
@@ -5590,7 +5621,8 @@ export class AdminController {
 
       const cashbackDeduction = valorBruto * (cashbackFee / 100);
       const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
-      const lucroAdmin = isCompleted ? Number((valorBruto * adminMargin - fixedFee - cashbackDeduction).toFixed(2)) : 0;
+      // lucroAdmin = taxaSimIntPay (receita SimIntPay) - custo DOM fixo - cashback repassado
+      const lucroAdmin = isCompleted ? Number((taxaSimIntPay - fixedFee - cashbackDeduction).toFixed(2)) : 0;
       const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
       // Alguns registros antigos/com erro ficaram COMPLETED com netAmount=0.
       // Nesses casos, exibimos o líquido calculado pela liquidez da plataforma.
@@ -5640,9 +5672,11 @@ export class AdminController {
             ? `Salvo no BD: R$ ${valorLiquido.toFixed(2)}`
             : `(${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)}) - Fixo ${fixedFee.toFixed(2)} - Cb ${cashbackFee.toFixed(2)}% = ${valorLiquido.toFixed(2)}`,
           lucroAdmin: isCompleted
-            ? (t.netAmount != null && Number(t.netAmount) > 0)
-              ? `Histórico Bruto(${valorBruto.toFixed(2)}) - Histórico Líquido(${valorLiquido.toFixed(2)}) = ${(valorBruto - valorLiquido).toFixed(2)}`
-              : `(${valorBruto.toFixed(2)} * ${(1 - liquidityFactor).toFixed(2)}) - Fixo ${fixedFee.toFixed(2)} - Cb ${cashbackFee.toFixed(2)}% = ${lucroAdmin.toFixed(2)}`
+            ? pmStr === 'credit_card'
+              ? `CC SimIntPay(${taxaSimIntPay.toFixed(2)}) - DOM fixo(${fixedFee.toFixed(2)}) - Cb(${cashbackDeduction.toFixed(2)}) = ${lucroAdmin.toFixed(2)}`
+              : pmStr === 'debit_card'
+              ? `Débito SimIntPay(${taxaSimIntPay.toFixed(2)}) - Fixo(${fixedFee.toFixed(2)}) - Cb(${cashbackDeduction.toFixed(2)}) = ${lucroAdmin.toFixed(2)}`
+              : `PIX(${valorBruto.toFixed(2)} × ${(1 - liquidityFactor).toFixed(4)}) - Fixo(${fixedFee.toFixed(2)}) - Cb(${cashbackDeduction.toFixed(2)}) = ${lucroAdmin.toFixed(2)}`
             : "Aguardando confirmação do pagamento"
         },
         status: t.status,

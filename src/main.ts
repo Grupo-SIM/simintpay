@@ -6,7 +6,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { correlationIdMiddleware } from './presentation/middlewares/correlation-id.middleware';
 import { AllExceptionsFilter } from './presentation/filters/all-exceptions.filter';
-import { initializePlatformTaxasCache } from './modules/platform-taxas/platform-taxas.store';
+import { initializePlatformTaxasCache, cleanupStaleOverrides } from './modules/platform-taxas/platform-taxas.store';
 
 async function bootstrap() {
   // Validate required env vars early
@@ -66,6 +66,7 @@ async function bootstrap() {
   // Pre-fetch platform taxas to ensure synchronous getters don't return initial empty state
   logger.log('Inicializando cache de taxas de plataforma (banco de dados)...');
   await initializePlatformTaxasCache();
+  await cleanupStaleOverrides();
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);

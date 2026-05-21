@@ -47,6 +47,32 @@ export async function initializePlatformTaxasCache(): Promise<void> {
   }
 }
 
+/**
+ * Remove stale per-platform overrides that were superseded by a new global default.
+ * Currently cleans up ATLAS.MDR_CC_1X = 0.0399 (old DOM rate, now absorbed — global default is 0).
+ */
+export async function cleanupStaleOverrides(): Promise<void> {
+  try {
+    const STALE: Array<{ tag: string; key: string; staleValue: number }> = [
+      { tag: 'ATLAS', key: 'MDR_CC_1X', staleValue: 0.0399 },
+    ];
+    let changed = false;
+    for (const { tag, key, staleValue } of STALE) {
+      const record = await getPrisma().platformTaxaOverride.findUnique({
+        where: { tag_key: { tag, key } },
+      });
+      if (record && Math.abs(record.value - staleValue) < 1e-6) {
+        await getPrisma().platformTaxaOverride.delete({ where: { tag_key: { tag, key } } });
+        console.log(`[platform-taxas] Removed stale override ${tag}.${key} = ${staleValue}`);
+        changed = true;
+      }
+    }
+    if (changed) lastCacheUpdate = 0;
+  } catch (err: unknown) {
+    console.error('[platform-taxas] cleanupStaleOverrides failed', err);
+  }
+}
+
 function refreshCacheAsync(): void {
   if (isFetching) return;
   isFetching = true;
@@ -167,13 +193,17 @@ function isAllowedKey(k: string): k is PlataformaTaxaKey {
 
 export function applyPatchToOverrides(
   tagParam: string,
-  patch: Record<string, number>,
+  patch: Record<string, number | null>,
 ): Overrides {
   const canonical = canonicalPlatformTaxaTag(tagParam);
   const all: Overrides = { ...readOverridesRaw() };
   const prev = { ...(all[canonical] ?? {}) };
   for (const [k, v] of Object.entries(patch)) {
     if (!isAllowedKey(k)) continue;
+    if (v === null) {
+      delete prev[k];
+      continue;
+    }
     if (typeof v !== 'number' || !Number.isFinite(v)) {
       throw new Error(`Valor inválido para ${k}`);
     }
