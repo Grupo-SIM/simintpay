@@ -271,7 +271,7 @@ async function getComunidadeOrderRows(
   prisma: PrismaService,
   dataInicio?: string,
   dataFim?: string,
-): Promise<Array<{ id: string; userId: string; amount: unknown; netAmount: unknown; createdAt: Date; description: string; installments: number }>> {
+): Promise<Array<{ id: string; userId: string; amount: unknown; netAmount: unknown; createdAt: Date; description: string; installments: number; paymentMethod: string | null }>> {
   const bindings = await prisma.communityLinkBinding.findMany({
     where: { subscriptionLinkId: { not: null } },
     select: {
@@ -324,6 +324,7 @@ async function getComunidadeOrderRows(
       createdAt: o.createdAt,
       description: `${o.subscriptionLink.name} [TENANT:${tag}]`,
       installments: 1,
+      paymentMethod: o.paymentMethod ?? null,
     };
   });
 }

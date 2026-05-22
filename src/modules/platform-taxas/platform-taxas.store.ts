@@ -58,6 +58,24 @@ export async function initializePlatformTaxasCache(): Promise<void> {
         toInsert.push({ tag, key, value });
       }
     }
+    // Inject MDR_CC_1X = 0.0399 for every active community slug that has no explicit override
+    try {
+      const communityRows = await getPrisma().community.findMany({
+        where: { isActive: true },
+        select: { slug: true },
+      });
+      for (const { slug } of communityRows) {
+        const tag = slug.toUpperCase();
+        if (newCache[tag]?.['MDR_CC_1X'] === undefined) {
+          if (!newCache[tag]) newCache[tag] = {};
+          newCache[tag]['MDR_CC_1X'] = 0.0399;
+          toInsert.push({ tag, key: 'MDR_CC_1X', value: 0.0399 });
+        }
+      }
+    } catch {
+      // non-fatal: community slugs will fall back to global default
+    }
+
     if (toInsert.length > 0) {
       await Promise.all(
         toInsert.map(({ tag, key, value }) =>
