@@ -6375,6 +6375,20 @@ export class AdminController {
     const taxaSimIntFixa    = TAXA_LINK_FIXA * qtdTransacoes;
     const totalTaxasSimInt  = taxaSimInt - taxaMDRDom;
 
+    let atlasParcelamentoBruto = 0;
+    let atlasParcelamentoSimIntPay = 0;
+    for (const t of txs) {
+      const pm = String(t.paymentMethod ?? '').toLowerCase();
+      if (!pm.includes('card') && !pm.includes('credit')) continue;
+      const amount = Number(t.amount);
+      const inst = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
+      const domFee = estimateDomFeeReais({ amountReais: amount, paymentMethod: t.paymentMethod, installments: inst, tenantTag: 'ATLAS' });
+      const masterKey = `MDR_CC_MASTER_${inst}X` as PlataformaTaxaKey;
+      const masterRate = getPlatformTaxaEffective('ATLAS', masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0);
+      atlasParcelamentoBruto += domFee + amount * masterRate;
+      atlasParcelamentoSimIntPay += amount * masterRate;
+    }
+
     return {
       taxaDomPct: taxaMDRDom,
       taxaDomFixa: taxaAdquirente,
@@ -6383,6 +6397,8 @@ export class AdminController {
       taxaSimIntPctNet,
       taxaSimIntFixa,
       totalTaxasSimInt,
+      taxaParcelamentoBruto: Math.round(atlasParcelamentoBruto * 100) / 100,
+      taxaParcelamentoSimIntPay: Math.round(atlasParcelamentoSimIntPay * 100) / 100,
       taxaSimInt,
       taxaAdquirente,
       taxaMDRDom,
@@ -6469,6 +6485,22 @@ export class AdminController {
       const taxaSimIntPctNet = isExempt ? taxaSimInt : (taxaSimInt - TAXA_LINK_FIXA * qtd) - taxaMDRDom;
       const taxaSimIntFixa   = TAXA_LINK_FIXA * qtd;
       const totalTaxasSimInt = isExempt ? taxaSimInt : taxaSimInt - taxaMDRDom;
+
+      // Parcelamento: apenas transações de crédito
+      let taxaParcelamentoBruto = 0;
+      let taxaParcelamentoSimIntPay = 0;
+      for (const t of txs) {
+        const pm = String(t.paymentMethod ?? '').toLowerCase();
+        if (!pm.includes('card') && !pm.includes('credit')) continue;
+        const amount = Number(t.amount);
+        const inst = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
+        const domFee = estimateDomFeeReais({ amountReais: amount, paymentMethod: t.paymentMethod, installments: inst, tenantTag: tag });
+        const masterKey = `MDR_CC_MASTER_${inst}X` as PlataformaTaxaKey;
+        const masterRate = getPlatformTaxaEffective(tag, masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0);
+        taxaParcelamentoBruto += domFee + amount * masterRate;
+        taxaParcelamentoSimIntPay += amount * masterRate;
+      }
+
       return {
         taxaDomPct: Math.round(taxaMDRDom * 100) / 100,
         taxaDomFixa: Math.round(taxaAdquirente * 100) / 100,
@@ -6477,6 +6509,8 @@ export class AdminController {
         taxaSimIntPctNet: Math.round(taxaSimIntPctNet * 100) / 100,
         taxaSimIntFixa: Math.round(taxaSimIntFixa * 100) / 100,
         totalTaxasSimInt: Math.round(totalTaxasSimInt * 100) / 100,
+        taxaParcelamentoBruto: Math.round(taxaParcelamentoBruto * 100) / 100,
+        taxaParcelamentoSimIntPay: Math.round(taxaParcelamentoSimIntPay * 100) / 100,
         qtdTransacoes: qtd,
       };
     };
