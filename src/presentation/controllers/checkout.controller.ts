@@ -633,10 +633,19 @@ export class CheckoutController {
   getCcRates(@Param('tag') tag: string) {
     const fb = (k: PlataformaTaxaKey) => PLATFORM_TAXA_DEFAULTS[k] ?? 0;
 
-    // Taxa total que o comprador paga no cartão 1x: DOM (MDR_CC_1X) + plataforma (MDR_CC_MASTER_1X)
     const domCcRate    = getPlatformTaxaEffective(tag, 'MDR_CC_1X',        fb('MDR_CC_1X'));
     const masterCcRate = getPlatformTaxaEffective(tag, 'MDR_CC_MASTER_1X', fb('MDR_CC_MASTER_1X'));
-    const buyerCcRate  = domCcRate + masterCcRate;
+    // 1x: comprador não paga DOM (absorvido pela SimIntPay); só paga masterCcRate (0% para ATLAS 1x)
+    const buyerCcRate  = masterCcRate;
+
+    const installments = ([1,2,3,4,5,6,7,8,9,10,11,12] as const).map((n) => {
+      const domKey    = `MDR_CC_${n}X`        as PlataformaTaxaKey;
+      const masterKey = `MDR_CC_MASTER_${n}X` as PlataformaTaxaKey;
+      const domRate    = getPlatformTaxaEffective(tag, domKey,    fb(domKey));
+      const masterRate = getPlatformTaxaEffective(tag, masterKey, fb(masterKey));
+      // 1x: grátis ao comprador. 2x+: DOM + master + R$1 fixo
+      return { n, domRate, masterRate, buyerRate: n === 1 ? 0 : domRate + masterRate, fixedFee: n === 1 ? 0 : 1 };
+    });
 
     // Taxas que o vendedor paga à plataforma por transação
     const vendorCcPercent  = getPlatformTaxaEffective(tag, 'TAXA_LINK_PERCENT', fb('TAXA_LINK_PERCENT'));
@@ -648,6 +657,7 @@ export class CheckoutController {
       domCcRate,
       masterCcRate,
       buyerCcRate,
+      installments,
       vendorCcPercent,
       vendorCcFixed,
       vendorPixPercent,
