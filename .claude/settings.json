@@ -25,7 +25,8 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\front-simpay\\\\src\\\\app\\\\\\(dashboard\\)\\\\relatorio\" -Recurse)",
       "Bash(Select-Object FullName)",
       "Bash(not exist *)",
-      "PowerShell(head -50)"
+      "PowerShell(head -50)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\back-ebook\" -Recurse -Directory)"
     ],
     "additionalDirectories": [
       "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\painel\\renovada",
@@ -40,7 +41,8 @@
       "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\relatorio",
       "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\admin\\taxa-saque-dom",
       "C:\\Users\\breno\\Desktop\\JB\\atlas-hosting\\src\\components\\checkout",
-      "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\docs\\superpowers"
+      "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\docs\\superpowers",
+      "C:\\Users\\breno\\Desktop\\JB\\back-ebook\\src\\internal"
     ]
   }
 }

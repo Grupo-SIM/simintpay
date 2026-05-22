@@ -164,6 +164,64 @@ export class PlatformDashboardController {
       };
     }
 
+    // ── EBOOK / EBOOKSIM ──────────────────────────────────────────────────────
+    if (upperTag === 'EBOOK' || upperTag === 'EBOOKSIM') {
+      const backEbookUrl = String(process.env.BACK_EBOOK_URL ?? '').replace(/\/+$/, '');
+      console.log(`[getActiveSellers] EBOOK: backEbookUrl="${backEbookUrl}"`);
+      if (!backEbookUrl) {
+        console.error('[getActiveSellers] EBOOK: BACK_EBOOK_URL not set, returning empty');
+        return empty;
+      }
+      const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+      const qs = new URLSearchParams({ page: String(pageNum), pageSize: String(size) });
+      const fetchUrl = `${backEbookUrl}/internal/users/list?${qs}`;
+      console.log(`[getActiveSellers] EBOOK: fetching ${fetchUrl}`);
+      const res = await fetch(fetchUrl, { headers: { 'x-internal-token': token } });
+      console.log(`[getActiveSellers] EBOOK: response status=${res.status}`);
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        console.error(`[getActiveSellers] EBOOK: /internal/users/list failed: ${res.status} body=${body}`);
+        return empty;
+      }
+      const rawJson = await res.json() as { data: any[]; total: number };
+      const { data: ebookUsers, total } = rawJson;
+      console.log(`[getActiveSellers] EBOOK: total=${total} users, data.length=${ebookUsers?.length ?? 'null'}`);
+      if (ebookUsers?.length) {
+        console.log(`[getActiveSellers] EBOOK: sample user[0]=`, JSON.stringify(ebookUsers[0]));
+      }
+
+      const cpfs = ebookUsers.map((u: any) => u.cpf).filter(Boolean) as string[];
+      console.log(`[getActiveSellers] EBOOK: ${cpfs.length} CPFs extracted (of ${ebookUsers.length} users)`);
+      const epuRecords = cpfs.length > 0
+        ? await this.prisma.externalPlatformUser.findMany({
+            where: { cpf: { in: cpfs }, platform: { equals: 'ebook', mode: 'insensitive' }, isDeleted: false },
+            include: { wallet: true },
+          })
+        : [];
+      console.log(`[getActiveSellers] EBOOK: ${epuRecords.length} EPU wallet records found`);
+      if (epuRecords.length === 0 && cpfs.length > 0) {
+        // Check if any EPU records exist for this platform at all
+        const epuCount = await this.prisma.externalPlatformUser.count({ where: { platform: { equals: 'ebook', mode: 'insensitive' } } });
+        console.log(`[getActiveSellers] EBOOK: total EPU records with platform=ebook: ${epuCount}`);
+      }
+
+      const walletMap = new Map(epuRecords.map((e) => [e.cpf, e.wallet]));
+
+      return {
+        data: ebookUsers.map((u: any) => ({
+          name: u.name ?? '',
+          email: u.email ?? '',
+          cpf: u.cpf ?? '',
+          balance: Number(walletMap.get(u.cpf)?.balance ?? 0),
+          lockedBalance: Number(walletMap.get(u.cpf)?.lockedBalance ?? 0),
+          createdAt: u.createdAt,
+        })),
+        total,
+        page: pageNum,
+        pageSize: size,
+      };
+    }
+
     // ── Community (slug-identified) ───────────────────────────────────────────
     const community = await this.prisma.community.findUnique({
       where: { slug: tagLower },
