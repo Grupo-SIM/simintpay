@@ -6373,11 +6373,12 @@ export class AdminController {
     const taxaSimIntFixa    = TAXA_LINK_FIXA * qtdTransacoes;
     const totalTaxasSimInt  = taxaSimInt - taxaMDRDom;
 
+    // Parcelamento: apenas transações de cartão de crédito (exclui débito e PIX)
     let atlasParcelamentoBruto = 0;
     let atlasParcelamentoSimIntPay = 0;
     for (const t of txs) {
       const pm = String(t.paymentMethod ?? '').toLowerCase();
-      if (!pm.includes('card') && !pm.includes('credit')) continue;
+      if (!pm.includes('credit')) continue;
       const amount = Number(t.amount);
       const inst = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
       const domFee = estimateDomFeeReais({ amountReais: amount, paymentMethod: t.paymentMethod, installments: inst, tenantTag: 'ATLAS' });
@@ -6485,12 +6486,12 @@ export class AdminController {
       const taxaSimIntFixa   = TAXA_LINK_FIXA * qtd;
       const totalTaxasSimInt = isExempt ? taxaSimInt : taxaSimInt - taxaMDRDom;
 
-      // Parcelamento: apenas transações de crédito
+      // Parcelamento: apenas transações de cartão de crédito (exclui débito e PIX)
       let taxaParcelamentoBruto = 0;
       let taxaParcelamentoSimIntPay = 0;
       for (const t of txs) {
         const pm = String(t.paymentMethod ?? '').toLowerCase();
-        if (!pm.includes('card') && !pm.includes('credit')) continue;
+        if (!pm.includes('credit')) continue;
         const amount = Number(t.amount);
         const inst = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
         const domFee = estimateDomFeeReais({ amountReais: amount, paymentMethod: t.paymentMethod, installments: inst, tenantTag: tag });
