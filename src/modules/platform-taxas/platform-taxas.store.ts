@@ -30,6 +30,13 @@ let lastCacheUpdate = 0;
 const CACHE_TTL = 30 * 1000;
 let isFetching = false;
 
+// Overrides that must exist for these platforms but may be missing due to prior misconfiguration.
+const REQUIRED_OVERRIDES: Array<{ tag: string; key: string; value: number }> = [
+  { tag: 'AREAFLIX',   key: 'MDR_CC_1X', value: 0.0399 },
+  { tag: 'PAGATG',     key: 'MDR_CC_1X', value: 0.0399 },
+  { tag: 'COMUNIDADE', key: 'MDR_CC_1X', value: 0.0399 },
+];
+
 export async function initializePlatformTaxasCache(): Promise<void> {
   try {
     const records = await getPrisma().platformTaxaOverride.findMany();
@@ -40,6 +47,29 @@ export async function initializePlatformTaxasCache(): Promise<void> {
       }
       newCache[req.tag][req.key] = req.value;
     }
+
+    // Ensure required overrides exist in both cache and DB.
+    // Only inserts if the platform has no explicit value for that key.
+    const toInsert: Array<{ tag: string; key: string; value: number }> = [];
+    for (const { tag, key, value } of REQUIRED_OVERRIDES) {
+      if (newCache[tag]?.[key] === undefined) {
+        if (!newCache[tag]) newCache[tag] = {};
+        newCache[tag][key] = value;
+        toInsert.push({ tag, key, value });
+      }
+    }
+    if (toInsert.length > 0) {
+      await Promise.all(
+        toInsert.map(({ tag, key, value }) =>
+          getPrisma().platformTaxaOverride.upsert({
+            where: { tag_key: { tag, key } },
+            update: { value },
+            create: { tag, key, value },
+          }),
+        ),
+      );
+    }
+
     overridesCache = newCache;
     lastCacheUpdate = Date.now();
   } catch (err: unknown) {
