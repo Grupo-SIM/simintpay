@@ -103,17 +103,19 @@ export class PlatformDashboardController {
   }
 
   @Get(':tag/sellers-ativos')
-  @ApiOperation({ summary: 'Lista paginada de usuários/assinantes ativos com saldo da carteira' })
+  @ApiOperation({ summary: 'Lista paginada de usuários/assinantes com saldo da carteira. apenasAtivos=false retorna todos.' })
   async getActiveSellers(
     @Param('tag') tag: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    @Query('apenasAtivos') apenasAtivos = 'true',
   ) {
     const upperTag = tag.toUpperCase();
     const tagLower = tag.toLowerCase();
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
     const skip = (pageNum - 1) * size;
+    const somenteAtivos = apenasAtivos !== 'false';
 
     const empty = { data: [], total: 0, page: pageNum, pageSize: size };
 
@@ -126,15 +128,19 @@ export class PlatformDashboardController {
       const linkIds = links.map((l) => l.id);
       if (!linkIds.length) return empty;
 
-      const activeOrders = await this.prisma.subscriptionLinkOrder.findMany({
-        where: { subscriptionLinkId: { in: linkIds }, status: { in: ['paid', 'active', 'approved'] } },
+      const statusFilter = somenteAtivos
+        ? { in: ['paid', 'active', 'approved'] }
+        : { notIn: ['pending', 'cancelled', 'expired', 'failed'] };
+
+      const allOrders = await this.prisma.subscriptionLinkOrder.findMany({
+        where: { subscriptionLinkId: { in: linkIds }, status: statusFilter },
         select: { customerEmail: true, customerName: true, customerDocument: true, createdAt: true },
         distinct: ['customerEmail'],
         orderBy: { createdAt: 'desc' },
       });
 
-      const total = activeOrders.length;
-      const paged = activeOrders.slice(skip, skip + size);
+      const total = allOrders.length;
+      const paged = allOrders.slice(skip, skip + size);
       const emails = paged.map((o) => o.customerEmail);
 
       const extUsers = await this.prisma.externalPlatformUser.findMany({
@@ -173,15 +179,18 @@ export class PlatformDashboardController {
       if (!linkIds.length) return empty;
 
       const activeStatuses = ['active', 'completed', 'approved', 'paid', 'success', 'trial'];
-      const activeOrders = await this.prisma.subscriptionLinkOrder.findMany({
-        where: { subscriptionLinkId: { in: linkIds }, status: { in: activeStatuses } },
+      const allOrders = await this.prisma.subscriptionLinkOrder.findMany({
+        where: {
+          subscriptionLinkId: { in: linkIds },
+          ...(somenteAtivos ? { status: { in: activeStatuses } } : {}),
+        },
         select: { customerEmail: true, customerName: true, customerDocument: true, createdAt: true },
         distinct: ['customerEmail'],
         orderBy: { createdAt: 'desc' },
       });
 
-      const total = activeOrders.length;
-      const paged = activeOrders.slice(skip, skip + size);
+      const total = allOrders.length;
+      const paged = allOrders.slice(skip, skip + size);
 
       return {
         data: paged.map((o) => ({
@@ -198,44 +207,29 @@ export class PlatformDashboardController {
       };
     }
 
-    // ── External platforms (EBOOK, EBOOKSIM, PAGATG) ─────────────────────────
-    // Active = completed transaction this month on the platform
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
+    // ── External platforms (EBOOK, EBOOKSIM, PAGATG, ATLAS, etc.) ────────────
+    // Query ExternalPlatformUser directly — active = linked (userId set), all = any non-deleted
+    const epuWhere = {
+      platform: { equals: tagLower, mode: 'insensitive' as const },
+      isDeleted: false,
+      ...(somenteAtivos ? { userId: { not: null } } : {}),
+    };
 
-    const activeTxRows = await this.prisma.transaction.findMany({
-      where: {
-        status: 'COMPLETED' as any,
-        createdAt: { gte: startOfMonth },
-        user: {
-          externalPlatformUsers: {
-            some: { platform: { equals: tagLower, mode: 'insensitive' }, isDeleted: false },
-          },
+    const [total, extUsers] = await Promise.all([
+      this.prisma.externalPlatformUser.count({ where: epuWhere }),
+      this.prisma.externalPlatformUser.findMany({
+        where: epuWhere,
+        include: {
+          wallet: true,
+          user: { select: { name: true, email: true, cpf: true, createdAt: true } },
         },
-      },
-      select: { userId: true },
-      distinct: ['userId'],
-    });
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: size,
+      }),
+    ]);
 
-    const activeUserIds = activeTxRows.map((r) => r.userId!).filter(Boolean);
-    if (!activeUserIds.length) return empty;
-
-    const total = activeUserIds.length;
-    const pagedIds = activeUserIds.slice(skip, skip + size);
-
-    const extUsers = await this.prisma.externalPlatformUser.findMany({
-      where: {
-        userId: { in: pagedIds },
-        platform: { equals: tagLower, mode: 'insensitive' },
-        isDeleted: false,
-      },
-      include: {
-        wallet: true,
-        user: { select: { name: true, email: true, cpf: true, createdAt: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    if (!total) return empty;
 
     return {
       data: extUsers.map((u) => ({
