@@ -1643,6 +1643,25 @@ export class AdminController {
       tenantModule: { slug: string } | null;
     };
 
+    // Known platform master accounts identified by env var or fallback UUID.
+    // These users may not have tenantModuleId set (sync never assigns it) so the
+    // tenantModule relation query alone won't find them.
+    const KNOWN_PLATFORM_IDS: Record<string, string> = {
+      renovada: (process.env.RENOVADA_USER_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a').trim(),
+      bosque:   (process.env.BOSQUE_USER_ID   || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c').trim(),
+      revalida: (process.env.REVALIDA_USER_ID  || '27598c29-0ace-4b5d-ad49-f5d399910854').trim(),
+      ebook:    (process.env.EBOOK_ID          || '').trim(),
+      atlas:    (process.env.ATLAS_USER_ID     || '').trim(),
+      pagatg:   (process.env.PAGATG_USER_ID    || '').trim(),
+    };
+
+    // Map knownId → platformSlug so we can label entries found via this path.
+    const knownIdToPlatform = new Map<string, string>(
+      Object.entries(KNOWN_PLATFORM_IDS)
+        .filter(([, id]) => id)
+        .map(([slug, id]) => [id, slug]),
+    );
+
     let moduleUsers: ModuleUser[] = [];
     if (!showDeleted) {
       const moduleSearchFilter = searchTerm
@@ -1655,12 +1674,27 @@ export class AdminController {
           }
         : undefined;
 
+      // IDs to include via the known-platform fallback path
+      const knownIds = platformLower
+        ? [KNOWN_PLATFORM_IDS[platformLower]].filter(Boolean)
+        : [...knownIdToPlatform.keys()];
+
       const moduleWhere: any = {
-        tenantModule: platformLower
-          ? { slug: { equals: platformLower, mode: 'insensitive' } }
-          : { isNot: null },
-        ...(linkedUserIds.size > 0 ? { id: { notIn: [...linkedUserIds] } } : {}),
-        ...(moduleSearchFilter ? { AND: [moduleSearchFilter] } : {}),
+        AND: [
+          // tenantModule-linked users OR known platform accounts (without tenantModuleId)
+          {
+            OR: [
+              {
+                tenantModule: platformLower
+                  ? { slug: { equals: platformLower, mode: 'insensitive' } }
+                  : { isNot: null },
+              },
+              ...(knownIds.length > 0 ? [{ id: { in: knownIds } }] : []),
+            ],
+          },
+          ...(linkedUserIds.size > 0 ? [{ id: { notIn: [...linkedUserIds] } }] : []),
+          ...(moduleSearchFilter ? [moduleSearchFilter] : []),
+        ],
       };
 
       moduleUsers = (await this.prisma.user.findMany({
@@ -1834,7 +1868,10 @@ export class AdminController {
           // Module user (tenantModule-based)
           const u = moduleUserMap.get(identity.userId);
           if (!u) return null;
-          const moduleSlug = u.tenantModule?.slug?.toLowerCase() ?? platformLower ?? 'unknown';
+          const moduleSlug = u.tenantModule?.slug?.toLowerCase()
+            ?? knownIdToPlatform.get(u.id)
+            ?? platformLower
+            ?? 'unknown';
           return {
             id: u.id,
             cpf: u.cpf ?? '',
