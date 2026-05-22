@@ -6137,7 +6137,19 @@ export class AdminController {
       }),
     ]);
 
+    const totalTaxasDom     = taxaMDRDom + taxaAdquirente + custoCashback;
+    const taxaSimIntPctNet  = (taxaSimInt - TAXA_LINK_FIXA * qtdTransacoes) - taxaMDRDom;
+    const taxaSimIntFixa    = TAXA_LINK_FIXA * qtdTransacoes;
+    const totalTaxasSimInt  = taxaSimInt - taxaMDRDom;
+
     return {
+      taxaDomPct: taxaMDRDom,
+      taxaDomFixa: taxaAdquirente,
+      taxaDomCashback: custoCashback,
+      totalTaxasDom,
+      taxaSimIntPctNet,
+      taxaSimIntFixa,
+      totalTaxasSimInt,
       taxaSimInt,
       taxaAdquirente,
       taxaMDRDom,
