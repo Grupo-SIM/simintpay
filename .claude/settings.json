@@ -17,7 +17,11 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "PowerShell(New-Item -ItemType Directory -Force -Path \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\atlas-hosting\\\\src\\\\app\\\\api\\\\internal\\\\report\")",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\front-simpay\\\\src\\\\app\" -Recurse -Filter \"*taxa*\" -ErrorAction SilentlyContinue)",
-      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\back-simpay\" -Recurse -Directory -ErrorAction SilentlyContinue)"
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\back-simpay\" -Recurse -Directory -ErrorAction SilentlyContinue)",
+      "Bash(cd /mnt/c/Users/breno/Desktop/JB/front-simpay && npx tsc --noEmit 2>&1 | tail -30)",
+      "Read(//mnt/c/Users/breno/Desktop/JB/**)",
+      "PowerShell(& npx tsc --noEmit --project \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\front-simpay\\\\tsconfig.json\" 2>&1)",
+      "PowerShell(& npx tsc --noEmit --project \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\back-simpay\\\\tsconfig.json\" 2>&1)"
     ],
     "additionalDirectories": [
       "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\painel\\renovada",

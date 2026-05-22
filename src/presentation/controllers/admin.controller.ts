@@ -6177,4 +6177,173 @@ export class AdminController {
       atlasApiAvailable: atlasData !== null,
     };
   }
+
+  @Get('relatorios/plataforma-consolidado')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Breakdown DOM/SimIntPay de uma plataforma (exceto ATLAS)' })
+  @ApiQuery({ name: 'tag', required: true })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  async getPlataformaConsolidado(
+    @Query('tag') tagParam?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const tag = normalizePlatformTag(tagParam ?? '');
+    if (!tag || tag === 'ATLAS') {
+      return { error: 'Use /admin/relatorios/atlas-consolidado for ATLAS' };
+    }
+
+    const dateFilter: Prisma.DateTimeFilter = {};
+    if (startDate) dateFilter.gte = parseYmdSp(startDate).startOf('day').toDate();
+    if (endDate) dateFilter.lte = parseYmdSp(endDate).endOf('day').toDate();
+    const hasDate = Object.keys(dateFilter).length > 0;
+
+    // RENOVADA and BOSQUE have no fixed fee or cashback per transaction
+    const TAXA_SERVICE_EXEMPT_SET = new Set(['RENOVADA', 'BOSQUE']);
+    const isExempt = TAXA_SERVICE_EXEMPT_SET.has(tag);
+
+    const TAXA_LINK_PCT  = getPlatformTaxaEffective(tag, 'TAXA_LINK_PERCENT',   PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+    const TAXA_LINK_FIXA = isExempt ? 0 : getPlatformTaxaEffective(tag, 'TAXA_LINK_FIXA',      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+    const TAXA_FIXA      = isExempt ? 0 : getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const TAXA_CASHBACK  = isExempt ? 0 : getPlatformTaxaEffective(tag, 'TAXA_CASHBACK',       PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const LIQUIDEZ       = getPlatformTaxaEffective(tag, 'LIQUIDEZ',            PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+
+    const isCardPm = (pm: string) => {
+      const p = String(pm ?? '').toUpperCase();
+      return p.includes('CARD') || p.includes('CREDIT') || p.includes('DEBIT');
+    };
+
+    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number }[]) => {
+      const qtd = txs.length;
+      const taxaSimInt = txs.reduce((s, t) => {
+        const amount = Number(t.amount);
+        return s + (isCardPm(t.paymentMethod)
+          ? amount * TAXA_LINK_PCT + TAXA_LINK_FIXA
+          : amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK);
+      }, 0);
+      const taxaMDRDom = txs.reduce((s, t) => s + estimateDomFeeReais({
+        amountReais: Number(t.amount),
+        paymentMethod: t.paymentMethod,
+        installments: t.installments,
+        tenantTag: tag,
+      }), 0);
+      const taxaAdquirente = TAXA_FIXA * qtd;
+      const custoCashback  = TAXA_CASHBACK * qtd;
+      const totalTaxasDom    = taxaMDRDom + taxaAdquirente + custoCashback;
+      // Renovada/Bosque: SimIntPay % = só a margem de liquidez (1-LIQUIDEZ), sem descontar MDR DOM
+      const taxaSimIntPctNet = isExempt ? taxaSimInt : (taxaSimInt - TAXA_LINK_FIXA * qtd) - taxaMDRDom;
+      const taxaSimIntFixa   = TAXA_LINK_FIXA * qtd;
+      const totalTaxasSimInt = isExempt ? taxaSimInt : taxaSimInt - taxaMDRDom;
+      return {
+        taxaDomPct: Math.round(taxaMDRDom * 100) / 100,
+        taxaDomFixa: Math.round(taxaAdquirente * 100) / 100,
+        taxaDomCashback: Math.round(custoCashback * 100) / 100,
+        totalTaxasDom: Math.round(totalTaxasDom * 100) / 100,
+        taxaSimIntPctNet: Math.round(taxaSimIntPctNet * 100) / 100,
+        taxaSimIntFixa: Math.round(taxaSimIntFixa * 100) / 100,
+        totalTaxasSimInt: Math.round(totalTaxasSimInt * 100) / 100,
+        qtdTransacoes: qtd,
+      };
+    };
+
+    // COMUNIDADE: data lives in subscriptionLinkOrder, not transaction table
+    if (tag === 'COMUNIDADE') {
+      const bindings = await this.prisma.communityLinkBinding.findMany({
+        where: { subscriptionLinkId: { not: null }, community: { slug: { not: 'areaflix', mode: 'insensitive' } } },
+        select: { subscriptionLinkId: true },
+        distinct: ['subscriptionLinkId'],
+      });
+      const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
+      if (linkIds.length === 0) return computeBreakdown([]);
+
+      const orders = await this.prisma.subscriptionLinkOrder.findMany({
+        where: {
+          subscriptionLinkId: { in: linkIds },
+          status: 'paid',
+          ...(hasDate ? { createdAt: dateFilter } : {}),
+        },
+        select: { amountCharged: true, paymentMethod: true },
+      });
+
+      const txs = orders.map((o) => ({
+        amount: o.amountCharged,
+        paymentMethod: isCardPm(o.paymentMethod ?? '') ? 'CREDIT_CARD' : 'PIX',
+        installments: 1,
+      }));
+      return computeBreakdown(txs);
+    }
+
+    // All other platforms: query transaction table
+    let userIds: string[] = [];
+    let extraAnd: any[] = [];
+
+    if (tag === 'RENOVADA') {
+      const rid = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+      userIds = [rid];
+      extraAnd.push({
+        OR: [
+          { description: { contains: 'dizimo', mode: 'insensitive' } },
+          { description: { contains: 'dízimo', mode: 'insensitive' } },
+          { description: { contains: 'primicia', mode: 'insensitive' } },
+          { description: { contains: 'primícia', mode: 'insensitive' } },
+          { description: { contains: 'oferta', mode: 'insensitive' } },
+          { description: { contains: 'maquineta', mode: 'insensitive' } },
+          { description: { contains: 'terminal', mode: 'insensitive' } },
+        ],
+      });
+    } else if (tag === 'BOSQUE') {
+      const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+      userIds = [bid];
+    } else if (tag === 'REVALIDA') {
+      const rid = await resolveBySlugOrEnv(this.prisma, 'REVALIDA_USER_ID', ['revalida'], REVALIDA_CONSOLIDADO_USER_ID);
+      if (rid) userIds = [rid];
+    } else if (tag === 'EBOOK' || tag === 'EBOOKSIM') {
+      const users = await this.prisma.user.findMany({
+        where: { OR: [{ tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } }, { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } }] },
+        select: { id: true },
+      });
+      userIds = users.map((u) => u.id);
+    } else if (tag === 'AREAFLIX') {
+      const aid = await resolveBySlugOrEnv(this.prisma, 'AREAFLIX_USER_ID', ['areaflix'], AREAFLIX_CONSOLIDADO_FALLBACK_ID);
+      if (aid) userIds = [aid];
+    } else if (tag === 'PAGATG') {
+      const pid = await resolveBySlugOrEnv(this.prisma, 'PAGATG_USER_ID', ['pagatg']);
+      if (pid) userIds = [pid];
+    } else {
+      // BETAI, CONTROLE-MOTORISTA, CONTROLE-PATRIMONIAL, and future platforms
+      const users = await this.prisma.user.findMany({
+        where: { tenantModule: { slug: { equals: tag.toLowerCase(), mode: 'insensitive' } } },
+        select: { id: true },
+      });
+      userIds = users.map((u) => u.id);
+    }
+
+    const orScope = tag === 'BOSQUE'
+      ? [
+          ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+          { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+          { description: { contains: 'bosque', mode: 'insensitive' } },
+          { description: { contains: 'ibb', mode: 'insensitive' } },
+        ]
+      : [
+          ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
+          { description: { contains: `[TENANT:${tag}]`, mode: 'insensitive' } },
+        ];
+
+    const where: any = {
+      status: 'COMPLETED',
+      OR: orScope,
+      ...(hasDate ? { createdAt: dateFilter } : {}),
+      ...(extraAnd.length > 0 ? { AND: extraAnd } : {}),
+    };
+
+    const txs = await this.prisma.transaction.findMany({
+      where,
+      select: { amount: true, paymentMethod: true, installments: true },
+    });
+
+    return computeBreakdown(txs);
+  }
 }
