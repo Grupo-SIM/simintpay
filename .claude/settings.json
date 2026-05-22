@@ -21,7 +21,11 @@
       "Bash(cd /mnt/c/Users/breno/Desktop/JB/front-simpay && npx tsc --noEmit 2>&1 | tail -30)",
       "Read(//mnt/c/Users/breno/Desktop/JB/**)",
       "PowerShell(& npx tsc --noEmit --project \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\front-simpay\\\\tsconfig.json\" 2>&1)",
-      "PowerShell(& npx tsc --noEmit --project \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\back-simpay\\\\tsconfig.json\" 2>&1)"
+      "PowerShell(& npx tsc --noEmit --project \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\back-simpay\\\\tsconfig.json\" 2>&1)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\breno\\\\Desktop\\\\JB\\\\front-simpay\\\\src\\\\app\\\\\\(dashboard\\)\\\\relatorio\" -Recurse)",
+      "Bash(Select-Object FullName)",
+      "Bash(not exist *)",
+      "PowerShell(head -50)"
     ],
     "additionalDirectories": [
       "c:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\painel\\renovada",
@@ -35,7 +39,8 @@
       "C:\\Users\\breno\\Desktop\\JB\\atlas-hosting\\src\\app",
       "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\relatorio",
       "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\src\\app\\(dashboard)\\admin\\taxa-saque-dom",
-      "C:\\Users\\breno\\Desktop\\JB\\atlas-hosting\\src\\components\\checkout"
+      "C:\\Users\\breno\\Desktop\\JB\\atlas-hosting\\src\\components\\checkout",
+      "C:\\Users\\breno\\Desktop\\JB\\front-simpay\\docs\\superpowers"
     ]
   }
 }

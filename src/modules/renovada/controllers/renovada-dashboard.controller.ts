@@ -207,10 +207,23 @@ export class PlatformDashboardController {
       };
     }
 
-    // ── External platforms (EBOOK, EBOOKSIM, PAGATG, ATLAS, etc.) ────────────
+    // ── Atlas Hosting ─────────────────────────────────────────────────────────
+    if (upperTag === 'ATLAS') {
+      const atlasUrl = String(process.env.ATLAS_HOSTING_URL ?? '').replace(/\/+$/, '');
+      if (!atlasUrl) return empty;
+      const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+      const qs = new URLSearchParams({ page: String(pageNum), pageSize: String(size) });
+      const res = await fetch(`${atlasUrl}/api/internal/users?${qs}`, { headers: { 'x-internal-token': token } });
+      if (!res.ok) return empty;
+      return res.json() as Promise<{ data: any[]; total: number; page: number; pageSize: number }>;
+    }
+
+    // ── External platforms (EBOOK, EBOOKSIM, PAGATG, etc.) ───────────────────
+    // EBOOK and EBOOKSIM share the same platform key 'ebook' in ExternalPlatformUser
+    const platformKey = (upperTag === 'EBOOK' || upperTag === 'EBOOKSIM') ? 'ebook' : tagLower;
     // Query ExternalPlatformUser directly — active = linked (userId set), all = any non-deleted
     const epuWhere = {
-      platform: { equals: tagLower, mode: 'insensitive' as const },
+      platform: { equals: platformKey, mode: 'insensitive' as const },
       isDeleted: false,
       ...(somenteAtivos ? { userId: { not: null } } : {}),
     };
