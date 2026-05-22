@@ -9,7 +9,7 @@ import { PixPlanService } from '../pix-plan/pix-plan.service';
 import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
-import { TENANT_AREAFLIX_TAG, TENANT_COMUNIDADE_TAG } from '../../utils/internal-tags.util';
+import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
@@ -501,9 +501,10 @@ export class ProcessWebhookUseCase {
     } else if (order.domPixPaymentId) {
       const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
         where: { subscriptionLinkId: order.subscriptionLinkId },
-        select: { id: true },
+        select: { id: true, community: { select: { slug: true } } },
       });
       if (hasCommunity) {
+        const communityTag = hasCommunity.community.slug.toUpperCase();
         const exists = await this.prisma.transaction.findFirst({
           where: { domPaymentId: order.domPixPaymentId },
           select: { id: true },
@@ -521,7 +522,7 @@ export class ProcessWebhookUseCase {
               totalFee: 0,
               domFee: 0,
               platformFee: pf,
-              description: `${order.subscriptionLink.name} ${TENANT_COMUNIDADE_TAG} subOrder=${order.id}`,
+              description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
               domPaymentId: order.domPixPaymentId,
               customerName: order.customerName,
               customerEmail: order.customerEmail,

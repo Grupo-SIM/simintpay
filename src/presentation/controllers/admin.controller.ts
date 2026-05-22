@@ -83,7 +83,7 @@ import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
-import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_COMUNIDADE_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG } from '../../application/utils/internal-tags.util';
+import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG } from '../../application/utils/internal-tags.util';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -236,7 +236,7 @@ async function resolveConsolidadoPlatforms(
 ): Promise<ConsolidadoPlatformEntry[]> {
   const [
     renovadaId, pagatgId, bosqueId, revalidaId,
-    ebookId, areaflixId, comunidadeId, atlasId, frendzId,
+    ebookId, areaflixId, atlasId, frendzId,
   ] = await Promise.all([
     resolveBySlugOrEnv(prisma, 'RENOVADA_USER_ID', ['renovada'], 'ba2b57d6-e3bf-4395-af31-58454f27207a'),
     resolveBySlugOrEnv(prisma, 'PAGATG_USER_ID', ['pagatg']),
@@ -244,7 +244,6 @@ async function resolveConsolidadoPlatforms(
     resolveBySlugOrEnv(prisma, 'REVALIDA_USER_ID', ['revalida'], REVALIDA_CONSOLIDADO_USER_ID),
     resolveBySlugOrEnv(prisma, 'EBOOK_ID', ['ebooksim', 'ebook']),
     resolveBySlugOrEnv(prisma, 'AREAFLIX_USER_ID', ['areaflix'], AREAFLIX_CONSOLIDADO_FALLBACK_ID),
-    resolveBySlugOrEnv(prisma, 'COMUNIDADE_USER_ID', ['comunidade']),
     resolveBySlugOrEnv(prisma, 'ATLAS_USER_ID', ['atlas']),
     resolveBySlugOrEnv(prisma, 'FRENDZ_USER_ID', ['frendz']),
   ]);
@@ -258,7 +257,6 @@ async function resolveConsolidadoPlatforms(
   add('EBOOK', ebookId);
   add('FRENDZ', frendzId);
   add('AREAFLIX', areaflixId);
-  add('COMUNIDADE', comunidadeId);
   add('ATLAS', atlasId);
   return platforms;
 }
@@ -314,9 +312,10 @@ async function getComunidadeOrderRows(
     },
   });
 
-  return orders.map((o) => {
-    const tag = linkIdToTag.get(o.subscriptionLinkId ?? '') ?? 'COMUNIDADE';
-    return {
+  return orders.flatMap((o) => {
+    const tag = linkIdToTag.get(o.subscriptionLinkId ?? '');
+    if (!tag) return [];
+    return [{
       id: `comunidade_order_${o.id}`,
       userId: o.subscriptionLink.userId,
       amount: o.amountCharged,
@@ -325,7 +324,7 @@ async function getComunidadeOrderRows(
       description: `${o.subscriptionLink.name} [TENANT:${tag}]`,
       installments: 1,
       paymentMethod: o.paymentMethod ?? null,
-    };
+    }];
   });
 }
 
@@ -374,7 +373,7 @@ function transacaoAtribuiEbookPorDescricao(description: string | null | undefine
 /** Tags de plataformas fixas — qualquer [TENANT:X] fora deste conjunto é uma comunidade individual. */
 const FIXED_PLATFORM_TAGS = new Set([
   'RENOVADA', 'BOSQUE', 'AREAFLIX', 'PAGATG', 'EBOOK', 'EBOOKSIM',
-  'ATLAS', 'COMUNIDADE', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
+  'ATLAS', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
   'REVALIDA', 'FRENDZ', 'BETAI', 'GLOBAL',
 ]);
 
@@ -386,7 +385,6 @@ function consolidadoTagParaTransacao(
   if (transacaoAtribuiAreaflixPorDescricao(tx.description)) return 'AREAFLIX';
   if (transacaoAtribuiPagatgPorDescricao(tx.description)) return 'PAGATG';
   if (transacaoAtribuiEbookPorDescricao(tx.description)) return 'EBOOK';
-  if (tx.description?.includes(TENANT_COMUNIDADE_TAG)) return 'COMUNIDADE';
   if (tx.description?.includes(TENANT_CONTROLE_MOTORISTA_TAG)) return 'CONTROLE-MOTORISTA';
   if (tx.description?.includes(TENANT_CONTROLE_PATRIMONIAL_TAG)) return 'CONTROLE-PATRIMONIAL';
   // Dynamic community tags: [TENANT:SLUG] where SLUG is not a fixed platform
@@ -925,7 +923,7 @@ function buildLucroSimpayDetalhePorPlataforma(
 }
 
 /** Plataformas cujo "repasse" não vai a lojista externo — o valor fica com a Simintpay. */
-const SEM_REPASSE_TAGS = new Set(['ATLAS', 'AREAFLIX', 'COMUNIDADE']);
+const SEM_REPASSE_TAGS = new Set(['ATLAS', 'AREAFLIX']);
 
 /** Lucro Simpay de uma transação (mesma fórmula que buildLucroSimpayDetalhePorPlataforma). */
 function lucroSimpayUmaTransacaoConsolidado(
@@ -3263,16 +3261,17 @@ export class AdminController {
 
   @Post('sync/backfill-comunidade')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Backfill: cria Transaction com [TENANT:COMUNIDADE] para ordens de assinatura de comunidade sem Transaction correspondente' })
+  @ApiOperation({ summary: 'Backfill: cria Transaction com [TENANT:SLUG] para ordens de assinatura de comunidade sem Transaction correspondente' })
   async backfillComunidadeTransactions() {
     const communityLinkIds = await this.prisma.communityLinkBinding.findMany({
       where: { subscriptionLinkId: { not: null } },
-      select: { subscriptionLinkId: true },
+      select: { subscriptionLinkId: true, community: { select: { slug: true } } },
       distinct: ['subscriptionLinkId'],
     });
-    const subscriptionLinkIds = communityLinkIds
-      .map((b) => b.subscriptionLinkId!)
-      .filter(Boolean);
+    const linkToSlug = new Map(
+      communityLinkIds.map((b) => [b.subscriptionLinkId!, b.community.slug.toUpperCase()])
+    );
+    const subscriptionLinkIds = [...linkToSlug.keys()].filter(Boolean);
 
     if (subscriptionLinkIds.length === 0) return { created: 0, skipped: 0 };
 
@@ -3289,7 +3288,8 @@ export class AdminController {
     let skipped = 0;
 
     for (const order of orders) {
-      const payId = order.domPixPaymentId?.trim() || `COMUNIDADE_SL_${order.id}`;
+      const communityTag = linkToSlug.get(order.subscriptionLinkId ?? '') ?? 'UNKNOWN';
+      const payId = order.domPixPaymentId?.trim() || `SL_${communityTag}_${order.id}`;
       const exists = await this.prisma.transaction.findFirst({
         where: { domPaymentId: payId },
         select: { id: true },
@@ -3310,7 +3310,7 @@ export class AdminController {
           platformFee: pf,
           status: 'COMPLETED',
           paymentMethod: order.paymentMethod,
-          description: `${order.subscriptionLink.name} ${TENANT_COMUNIDADE_TAG} subOrder=${order.id}`,
+          description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
           domPaymentId: payId,
           customerName: order.customerName,
           customerEmail: order.customerEmail,
@@ -5124,53 +5124,6 @@ export class AdminController {
     const upperTag = normalizePlatformTag(tag);
     const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
-    if (upperTag === 'COMUNIDADE') {
-      const bindings = await this.prisma.communityLinkBinding.findMany({
-        where: { subscriptionLinkId: { not: null } },
-        select: { subscriptionLinkId: true },
-        distinct: ['subscriptionLinkId'],
-      });
-      const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
-      if (linkIds.length === 0) return { total: 0, items: [] };
-
-      const dateFilter: Prisma.DateTimeFilter = {};
-      if (dataInicio) dateFilter.gte = parseYmdSp(dataInicio).startOf('day').toDate();
-      if (dataFim) dateFilter.lte = parseYmdSp(dataFim).endOf('day').toDate();
-
-      const orders = await this.prisma.subscriptionLinkOrder.findMany({
-        where: {
-          subscriptionLinkId: { in: linkIds },
-          status: 'paid',
-          ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
-        },
-        select: { paymentMethod: true, amountCharged: true },
-      });
-
-      const mapCount = new Map<string, { count: number; total: number }>();
-      for (const order of orders) {
-        const method = (order.paymentMethod ?? 'UNKNOWN').toUpperCase();
-        const bucket = method === 'PIX' ? 'PIX' : method === 'DEBIT_CARD' ? 'DEBIT_CARD' : 'CREDIT_CARD';
-        const prev = mapCount.get(bucket) ?? { count: 0, total: 0 };
-        mapCount.set(bucket, { count: prev.count + 1, total: prev.total + Number(order.amountCharged ?? 0) });
-      }
-
-      const total = orders.length;
-      const LABELS: Record<string, string> = { PIX: 'Pix', CREDIT_CARD: 'Crédito', DEBIT_CARD: 'Débito' };
-      const items = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD']
-        .map((codigo) => {
-          const entry = mapCount.get(codigo) ?? { count: 0, total: 0 };
-          return {
-            codigo, nome: LABELS[codigo], quantidade: entry.count,
-            valor: Number(entry.total.toFixed(2)),
-            percentual: total > 0 ? Number(((entry.count / total) * 100).toFixed(2)) : 0,
-          };
-        })
-        .filter((row) => row.quantidade > 0)
-        .sort((a, b) => b.quantidade - a.quantidade);
-
-      return { total, items };
-    }
-
     // Community-specific tag: find by slug, return distribution from SubscriptionLinkOrder
     if (!FIXED_PLATFORM_TAGS.has(upperTag)) {
       const commDist = await this.prisma.community.findUnique({
@@ -5361,112 +5314,7 @@ export class AdminController {
     const upperTag = normalizePlatformTag(tag);
     const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
-    if (upperTag === 'COMUNIDADE') {
-      const pageNum = Math.max(1, Number(page));
-      const size = Math.min(Math.max(1, Number(pageSize)), 100);
-
-      const bindings = await this.prisma.communityLinkBinding.findMany({
-        where: {
-          subscriptionLinkId: { not: null },
-          community: { slug: { not: 'areaflix', mode: 'insensitive' } },
-        },
-        select: { subscriptionLinkId: true },
-        distinct: ['subscriptionLinkId'],
-      });
-      const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
-      if (linkIds.length === 0) return { data: [], page: pageNum, pageSize: size, total: 0 };
-
-      const slWhere: any = { subscriptionLinkId: { in: linkIds }, status: 'paid' };
-
-      if (status) {
-        const upper = status.toUpperCase();
-        const statusMap: Record<string, string> = {
-          PENDENTE: 'PENDING', COMPLETADA: 'paid', FALHADA: 'FAILED',
-          REEMBOLSADA: 'REFUNDED', EXPIRADA: 'EXPIRED',
-          APROVADA: 'paid', COMPLETADA2: 'paid', COMPLETED: 'paid',
-        };
-        const mapped = statusMap[upper] ?? upper.toLowerCase();
-        slWhere.status = mapped;
-      }
-
-      if (codigoTransacao) slWhere.id = codigoTransacao;
-      if (compradorNome) slWhere.customerName = { contains: compradorNome, mode: 'insensitive' };
-      if (compradorDocumento) slWhere.customerDocument = { contains: compradorDocumento.replace(/\D/g, '') };
-      if (compradorEmail) slWhere.customerEmail = { contains: compradorEmail, mode: 'insensitive' };
-
-      const dateFilter: any = {};
-      if (dataInicio) {
-        const d = dayjs.tz(`${dataInicio} 00:00:00`, TZ);
-        if (d.isValid()) dateFilter.gte = d.toDate();
-      }
-      if (dataFim) {
-        const d = dayjs.tz(`${dataFim} 23:59:59`, TZ);
-        if (d.isValid()) dateFilter.lte = d.toDate();
-      }
-      if (Object.keys(dateFilter).length > 0) slWhere.createdAt = dateFilter;
-
-      const total = await this.prisma.subscriptionLinkOrder.count({ where: slWhere });
-      const orders = await this.prisma.subscriptionLinkOrder.findMany({
-        where: slWhere,
-        orderBy: { createdAt: 'desc' },
-        skip: (pageNum - 1) * size,
-        take: size,
-        include: { subscriptionLink: { select: { name: true, userId: true } } },
-      });
-
-      const liquidityFactor = getPlatformTaxaEffective('COMUNIDADE', 'LIQUIDEZ', 0.91);
-      const fixedFee = getPlatformTaxaEffective('COMUNIDADE', 'TAXA_FIXA_TRANSACAO', 0.0);
-      const adminMargin = 1 - liquidityFactor;
-      const taxaServicoFixaCom = getPlatformTaxaEffective('COMUNIDADE', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-      const taxaServicoCashbackCom = getPlatformTaxaEffective('COMUNIDADE', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-
-      const taxaServicoCom = taxaServicoFixaCom + taxaServicoCashbackCom;
-      const data = orders.map((o) => {
-        const valorBruto = Number(o.amountCharged);
-        const pf = Number(o.platformFeeAmount);
-        const netBasecom = valorBruto - pf;
-        const valorLiquido = Number((netBasecom - taxaServicoCom).toFixed(2));
-        const lucroAdmin = Number((valorBruto * adminMargin - fixedFee).toFixed(2));
-        const pmStrCom = String(o.paymentMethod ?? 'pix').toLowerCase().includes('debit') ? 'debit_card'
-          : (String(o.paymentMethod ?? 'pix').toLowerCase().includes('card') || String(o.paymentMethod ?? 'pix').toLowerCase().includes('credit')) ? 'credit_card'
-          : 'pix';
-        const taxaDom = Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStrCom, installments: 1, tenantTag: 'COMUNIDADE' }).toFixed(2));
-        const taxaSimIntPay = Number((valorBruto * adminMargin).toFixed(2));
-        const taxaFixa = Number(taxaServicoFixaCom.toFixed(2));
-        const taxaCashback = Number(taxaServicoCashbackCom.toFixed(2));
-        const lucroPrejuizo = Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2));
-        return {
-          id: `comunidade_order_${o.id}`,
-          valorBruto,
-          valorLiquido,
-          lucroAdmin,
-          taxaDom,
-          taxaSimIntPay,
-          taxaFixa,
-          taxaCashback,
-          lucroPrejuizo,
-          calculos: {
-            valorLiquido: `Salvo no BD: R$ ${valorLiquido.toFixed(2)}`,
-            lucroAdmin: `Bruto(${valorBruto.toFixed(2)}) - Líquido(${valorLiquido.toFixed(2)}) = ${(valorBruto - valorLiquido).toFixed(2)}`,
-          },
-          status: 'COMPLETED',
-          metodoPagamento: o.paymentMethod,
-          descricao: `${o.subscriptionLink.name} [TENANT:COMUNIDADE]`,
-          cliente: {
-            nome: o.customerName ?? null,
-            email: o.customerEmail ?? null,
-            documento: o.customerDocument ?? null,
-          },
-          taxas: { total: pf, dom: 0, plataforma: pf },
-          criadoEm: o.createdAt,
-          atualizadoEm: o.updatedAt,
-        };
-      });
-
-      return { data, page: pageNum, pageSize: size, total };
-    }
-
-    // Community-specific tag: find by slug and return its subscription link orders
+    // Community-specific tag: find by slug and return subscription link orders + tagged transactions
     if (!FIXED_PLATFORM_TAGS.has(upperTag)) {
       const community = await this.prisma.community.findUnique({
         where: { slug: upperTag.toLowerCase() },
@@ -5476,16 +5324,32 @@ export class AdminController {
         const pageNum = Math.max(1, Number(page));
         const size = Math.min(Math.max(1, Number(pageSize)), 100);
 
+        const liquidityFactor = getPlatformTaxaEffective(upperTag, 'LIQUIDEZ', 0.91);
+        const fixedFee = getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', 0.0);
+        const adminMargin = 1 - liquidityFactor;
+        const taxaServicoFixa = getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+        const taxaServicoCashback = getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+        const taxaServicoRate = getPlatformTaxaEffective(upperTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+
+        const dateFilter: any = {};
+        if (dataInicio) {
+          const d = dayjs.tz(`${dataInicio} 00:00:00`, TZ);
+          if (d.isValid()) dateFilter.gte = d.toDate();
+        }
+        if (dataFim) {
+          const d = dayjs.tz(`${dataFim} 23:59:59`, TZ);
+          if (d.isValid()) dateFilter.lte = d.toDate();
+        }
+
+        // ── Subscription link orders ─────────────────────────────────────────
         const bindings = await this.prisma.communityLinkBinding.findMany({
           where: { communityId: community.id, subscriptionLinkId: { not: null } },
           select: { subscriptionLinkId: true },
           distinct: ['subscriptionLinkId'],
         });
         const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
-        if (linkIds.length === 0) return { data: [], page: pageNum, pageSize: size, total: 0 };
 
-        const slWhere: any = { subscriptionLinkId: { in: linkIds }, status: 'paid' };
-
+        const slWhere: any = { subscriptionLinkId: { in: linkIds.length > 0 ? linkIds : ['__none__'] }, status: 'paid' };
         if (status) {
           const upper = status.toUpperCase();
           const statusMap: Record<string, string> = {
@@ -5499,34 +5363,52 @@ export class AdminController {
         if (compradorNome) slWhere.customerName = { contains: compradorNome, mode: 'insensitive' };
         if (compradorDocumento) slWhere.customerDocument = { contains: compradorDocumento.replace(/\D/g, '') };
         if (compradorEmail) slWhere.customerEmail = { contains: compradorEmail, mode: 'insensitive' };
-
-        const dateFilter: any = {};
-        if (dataInicio) {
-          const d = dayjs.tz(`${dataInicio} 00:00:00`, TZ);
-          if (d.isValid()) dateFilter.gte = d.toDate();
-        }
-        if (dataFim) {
-          const d = dayjs.tz(`${dataFim} 23:59:59`, TZ);
-          if (d.isValid()) dateFilter.lte = d.toDate();
-        }
         if (Object.keys(dateFilter).length > 0) slWhere.createdAt = dateFilter;
 
-        const total = await this.prisma.subscriptionLinkOrder.count({ where: slWhere });
-        const orders = await this.prisma.subscriptionLinkOrder.findMany({
+        const slOrders = await this.prisma.subscriptionLinkOrder.findMany({
           where: slWhere,
           orderBy: { createdAt: 'desc' },
-          skip: (pageNum - 1) * size,
-          take: size,
+          take: 500,
           include: { subscriptionLink: { select: { name: true, userId: true } } },
         });
 
-        const liquidityFactor = getPlatformTaxaEffective(upperTag, 'LIQUIDEZ', 0.91);
-        const fixedFee = getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', 0.0);
-        const adminMargin = 1 - liquidityFactor;
-        const taxaServicoFixa = getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-        const taxaServicoCashback = getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+        // ── Transaction rows tagged [TENANT:SLUG] (pix-plans, payment links) ─
+        const txWhere: any = {
+          description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' },
+        };
+        if (Object.keys(dateFilter).length > 0) txWhere.createdAt = dateFilter;
+        if (codigoTransacao) txWhere.id = codigoTransacao;
+        if (compradorNome) txWhere.customerName = { contains: compradorNome, mode: 'insensitive' };
+        if (compradorDocumento) txWhere.customerDocument = { contains: compradorDocumento.replace(/\D/g, '') };
+        if (compradorEmail) txWhere.customerEmail = { contains: compradorEmail, mode: 'insensitive' };
+        if (status) {
+          const upper = status.toUpperCase();
+          const txStatusMap: Record<string, string> = {
+            PENDENTE: 'PENDING', COMPLETADA: 'COMPLETED', FALHADA: 'FAILED',
+            REEMBOLSADA: 'REFUNDED', EXPIRADA: 'EXPIRED',
+            APROVADA: 'COMPLETED', COMPLETED: 'COMPLETED',
+          };
+          txWhere.status = txStatusMap[upper] ?? upper;
+        }
 
-        const data = orders.map((o) => {
+        const txRows = await this.prisma.transaction.findMany({
+          where: txWhere,
+          orderBy: { createdAt: 'desc' },
+          take: 500,
+        });
+
+        // ── Normalize and merge ──────────────────────────────────────────────
+        type CommunityRow = {
+          id: string; valorBruto: number; valorLiquido: number; lucroAdmin: number;
+          taxaDom: number; taxaSimIntPay: number; taxaFixa: number; taxaCashback: number;
+          taxaServico: number; lucroPrejuizo: number; status: string;
+          metodoPagamento: string | null; descricao: string;
+          cliente: { nome: string | null; email: string | null; documento: string | null };
+          taxas: { total: number; dom: number; plataforma: number };
+          criadoEm: Date; atualizadoEm: Date;
+        };
+
+        const slFormatted: CommunityRow[] = slOrders.map((o) => {
           const valorBruto = Number(o.amountCharged);
           const pf = Number(o.platformFeeAmount);
           const taxaServicoTotal = taxaServicoFixa + taxaServicoCashback;
@@ -5535,6 +5417,7 @@ export class AdminController {
           const pmStr = String(o.paymentMethod ?? 'pix').toLowerCase();
           const pmStrNorm = pmStr.includes('debit') ? 'debit_card' : pmStr.includes('card') || pmStr.includes('credit') ? 'credit_card' : 'pix';
           const taxaDom = Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStrNorm, installments: 1, tenantTag: upperTag }).toFixed(2));
+          const taxaServico = taxaServicoRate > 0 && o.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? Number(taxaServicoRate.toFixed(2)) : 0;
           const lucroPrejuizo = Number((taxaSimIntPay - taxaDom - taxaServicoFixa - taxaServicoCashback).toFixed(2));
           return {
             id: `comunidade_order_${o.id}`,
@@ -5545,9 +5428,10 @@ export class AdminController {
             taxaSimIntPay,
             taxaFixa: taxaServicoFixa,
             taxaCashback: taxaServicoCashback,
+            taxaServico,
             lucroPrejuizo,
             status: 'COMPLETED',
-            metodoPagamento: o.paymentMethod,
+            metodoPagamento: o.paymentMethod ?? null,
             descricao: `${o.subscriptionLink.name} [TENANT:${upperTag}]`,
             cliente: { nome: o.customerName ?? null, email: o.customerEmail ?? null, documento: o.customerDocument ?? null },
             taxas: { total: pf, dom: 0, plataforma: pf },
@@ -5555,6 +5439,65 @@ export class AdminController {
             atualizadoEm: o.updatedAt,
           };
         });
+
+        const txFormatted: CommunityRow[] = txRows.map((t) => {
+          const valorBruto = Number(t.amount);
+          const isCompleted = t.status === 'COMPLETED';
+          const installments = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
+          const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : 'credit_card';
+          const taxaDom = isCompleted ? Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStr, installments, tenantTag: upperTag }).toFixed(2)) : 0;
+          let taxaSimIntPay = 0;
+          if (isCompleted) {
+            if (pmStr === 'credit_card') {
+              const linkPct = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+              const linkFixo = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+              const domPct1x = getPlatformTaxaEffective(upperTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+              const domFixo = getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+              const masterKey = `MDR_CC_MASTER_${installments}X` as PlataformaTaxaKey;
+              const simBuyerPct = getPlatformTaxaEffective(upperTag, masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0);
+              taxaSimIntPay = Number((valorBruto * (Math.max(0, linkPct - domPct1x) + simBuyerPct) + Math.max(0, linkFixo - domFixo)).toFixed(2));
+            } else if (pmStr === 'debit_card') {
+              const debPct = getPlatformTaxaEffective(upperTag, 'TAXA_DEBITO_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_PERCENT);
+              const debFixo = getPlatformTaxaEffective(upperTag, 'TAXA_DEBITO_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_FIXA);
+              taxaSimIntPay = Number((valorBruto * debPct + debFixo).toFixed(2));
+            } else {
+              taxaSimIntPay = Number((valorBruto * adminMargin).toFixed(2));
+            }
+          }
+          const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
+          const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
+          const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? Number(taxaServicoRate.toFixed(2)) : 0;
+          const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
+          const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
+          const cashbackDeduction = valorBruto * ((getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', 0)) / 100);
+          const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
+          const valorLiquidoBase = isCompleted && (netFromDb == null || netFromDb <= 0) ? fallbackNet : (netFromDb ?? fallbackNet);
+          const valorLiquido = Number((valorLiquidoBase - taxaServicoFixa - taxaServicoCashback).toFixed(2));
+          return {
+            id: t.id,
+            valorBruto,
+            valorLiquido,
+            lucroAdmin: isCompleted ? Number((taxaSimIntPay - fixedFee - cashbackDeduction).toFixed(2)) : 0,
+            taxaDom,
+            taxaSimIntPay,
+            taxaFixa,
+            taxaCashback,
+            taxaServico,
+            lucroPrejuizo,
+            status: t.status,
+            metodoPagamento: t.paymentMethod ?? null,
+            descricao: (t.description ?? '').replace(/\s*\[TENANT:[^\]]+\]/gi, '').trim(),
+            cliente: { nome: t.customerName ?? null, email: t.customerEmail ?? null, documento: t.customerDocument ?? null },
+            taxas: { total: Number(t.totalFee), dom: Number(t.domFee), plataforma: Number(t.platformFee) },
+            criadoEm: t.createdAt,
+            atualizadoEm: t.updatedAt,
+          };
+        });
+
+        const combined = [...slFormatted, ...txFormatted]
+          .sort((a, b) => b.criadoEm.getTime() - a.criadoEm.getTime());
+        const total = combined.length;
+        const data = combined.slice((pageNum - 1) * size, pageNum * size);
 
         return { data, page: pageNum, pageSize: size, total };
       }
@@ -6426,33 +6369,6 @@ export class AdminController {
         qtdTransacoes: qtd,
       };
     };
-
-    // COMUNIDADE: data lives in subscriptionLinkOrder, not transaction table
-    if (tag === 'COMUNIDADE') {
-      const bindings = await this.prisma.communityLinkBinding.findMany({
-        where: { subscriptionLinkId: { not: null }, community: { slug: { not: 'areaflix', mode: 'insensitive' } } },
-        select: { subscriptionLinkId: true },
-        distinct: ['subscriptionLinkId'],
-      });
-      const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
-      if (linkIds.length === 0) return computeBreakdown([]);
-
-      const orders = await this.prisma.subscriptionLinkOrder.findMany({
-        where: {
-          subscriptionLinkId: { in: linkIds },
-          status: 'paid',
-          ...(hasDate ? { createdAt: dateFilter } : {}),
-        },
-        select: { amountCharged: true, paymentMethod: true },
-      });
-
-      const txs = orders.map((o) => ({
-        amount: o.amountCharged,
-        paymentMethod: isCardPm(o.paymentMethod ?? '') ? 'CREDIT_CARD' : 'PIX',
-        installments: 1,
-      }));
-      return computeBreakdown(txs);
-    }
 
     // All other platforms: query transaction table
     let userIds: string[] = [];

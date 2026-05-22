@@ -17,7 +17,6 @@ function platformTagFromKeywords(text: string | undefined | null): string {
   if (t.includes('bosque') || t.includes('ibb')) return 'BOSQUE';
   if (t.includes('revalida')) return 'REVALIDA';
   if (t.includes('marketing raiz') || t.includes('marketing-raiz')) return 'MARKETING-RAIZ';
-  if (t.includes('comunidade') || t.includes('community')) return 'COMUNIDADE';
   if (t.includes('controle-motorista') || t.includes('controle motorista') || t.includes('controle de motorista')) return 'CONTROLE-MOTORISTA';
   if (t.includes('controle-patrimonial') || t.includes('controle patrimonial') || t.includes('controle de patrimonial')) return 'CONTROLE-PATRIMONIAL';
   if (t.includes('atlas') || t.includes('atlashosting')) return 'ATLAS';

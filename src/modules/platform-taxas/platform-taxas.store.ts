@@ -32,9 +32,8 @@ let isFetching = false;
 
 // Overrides that must exist for these platforms but may be missing due to prior misconfiguration.
 const REQUIRED_OVERRIDES: Array<{ tag: string; key: string; value: number }> = [
-  { tag: 'AREAFLIX',   key: 'MDR_CC_1X', value: 0.0399 },
-  { tag: 'PAGATG',     key: 'MDR_CC_1X', value: 0.0399 },
-  { tag: 'COMUNIDADE', key: 'MDR_CC_1X', value: 0.0399 },
+  { tag: 'AREAFLIX', key: 'MDR_CC_1X', value: 0.0399 },
+  { tag: 'PAGATG',   key: 'MDR_CC_1X', value: 0.0399 },
 ];
 
 export async function initializePlatformTaxasCache(): Promise<void> {

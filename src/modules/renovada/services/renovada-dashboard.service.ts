@@ -44,7 +44,7 @@ export class PlatformDashboardService {
     // since community revenue is tracked via SubscriptionLinkOrder, not Transaction.
     const isKnownFixedTag = [
       'RENOVADA', 'PAGATG', 'BOSQUE', 'REVALIDA', 'EBOOK', 'EBOOKSIM',
-      'AREAFLIX', 'ATLAS', 'COMUNIDADE', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
+      'AREAFLIX', 'ATLAS', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
       'FRENDZ', 'BETAI', 'GLOBAL',
     ].includes(upperTag);
     const isTenantTagged = isEbook || isPagatg || !isKnownFixedTag;

@@ -3,8 +3,6 @@ export const TENANT_BOSQUE_TAG = '[TENANT:BOSQUE]';
 export const TENANT_EBOOK_TAG = '[TENANT:EBOOK]';
 /** Links de assinatura com webhook Areaflix — entram no consolidado / relatórios. */
 export const TENANT_AREAFLIX_TAG = '[TENANT:AREAFLIX]';
-/** Assinaturas de comunidades (não-Areaflix) — entram no consolidado / relatórios. */
-export const TENANT_COMUNIDADE_TAG = '[TENANT:COMUNIDADE]';
 export const TENANT_CONTROLE_MOTORISTA_TAG = '[TENANT:CONTROLE-MOTORISTA]';
 export const TENANT_CONTROLE_PATRIMONIAL_TAG = '[TENANT:CONTROLE-PATRIMONIAL]';
 export const ORIGEM_MAQUINETA_TAG = '[ORIGEM:MAQUINETA]';
@@ -14,7 +12,6 @@ const INTERNAL_TAGS = [
   TENANT_BOSQUE_TAG,
   TENANT_EBOOK_TAG,
   TENANT_AREAFLIX_TAG,
-  TENANT_COMUNIDADE_TAG,
   TENANT_CONTROLE_MOTORISTA_TAG,
   TENANT_CONTROLE_PATRIMONIAL_TAG,
   ORIGEM_MAQUINETA_TAG,

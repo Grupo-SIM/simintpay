@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, TransactionStatus, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { TENANT_AREAFLIX_TAG, TENANT_COMUNIDADE_TAG } from '../../utils/internal-tags.util';
+import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
 import {
   BALANCE_LOG_REPOSITORY,
 } from '../../../core/repositories/balance-log.repository.interface';
@@ -336,10 +336,11 @@ export class SubscriptionWebhookService {
     } else {
       const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
         where: { subscriptionLinkId: link.id },
-        select: { id: true },
+        select: { id: true, community: { select: { slug: true } } },
       });
       if (hasCommunity) {
-        const payId = domTransactionId?.trim() || `COMUNIDADE_SL_${newOrder.id}`;
+        const communityTag = hasCommunity.community.slug.toUpperCase();
+        const payId = domTransactionId?.trim() || `SL_${communityTag}_${newOrder.id}`;
         const dup = await this.prisma.transaction.findFirst({
           where: { domPaymentId: payId },
           select: { id: true },
@@ -355,7 +356,7 @@ export class SubscriptionWebhookService {
               totalFee: domFee.toNumber(),
               domFee: domFee.toNumber(),
               platformFee: platformFeeAmount,
-              description: `Assinatura link ${link.name} ${TENANT_COMUNIDADE_TAG} order=${newOrder.id}`,
+              description: `Assinatura link ${link.name} [TENANT:${communityTag}] order=${newOrder.id}`,
               domPaymentId: payId,
               customerName: linkOrder.customerName ?? undefined,
               customerEmail: linkOrder.customerEmail ?? undefined,

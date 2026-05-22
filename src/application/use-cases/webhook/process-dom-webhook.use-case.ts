@@ -14,7 +14,6 @@ import {
   ORIGEM_MAQUINETA_TAG,
   TENANT_AREAFLIX_TAG,
   TENANT_BOSQUE_TAG,
-  TENANT_COMUNIDADE_TAG,
   TENANT_CONTROLE_MOTORISTA_TAG,
   TENANT_CONTROLE_PATRIMONIAL_TAG,
   TENANT_EBOOK_TAG,
@@ -1429,9 +1428,10 @@ export class ProcessDomWebhookUseCase {
       // Fallback: link sem plataforma associada → verifica vínculo com comunidade
       const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
         where: { subscriptionLinkId: order.subscriptionLinkId },
-        select: { id: true },
+        select: { id: true, community: { select: { slug: true } } },
       });
       if (hasCommunity) {
+        const communityTag = hasCommunity.community.slug.toUpperCase();
         const exists = await this.prisma.transaction.findFirst({
           where: { domPaymentId: order.domPixPaymentId },
           select: { id: true },
@@ -1449,7 +1449,7 @@ export class ProcessDomWebhookUseCase {
               totalFee: 0,
               domFee: 0,
               platformFee: pf,
-              description: `${order.subscriptionLink.name} ${TENANT_COMUNIDADE_TAG} subOrder=${order.id}`,
+              description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
               domPaymentId: order.domPixPaymentId,
               customerName: order.customerName,
               customerEmail: order.customerEmail,
