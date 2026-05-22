@@ -6267,12 +6267,11 @@ export class AdminController {
       return { error: 'ATLAS_USER_ID not configured' };
     }
 
+    const effectiveStart = startDate ?? dayjs().tz(TZ).startOf('month').format('YYYY-MM-DD');
     const where: any = { userId: atlasUserId, status: 'COMPLETED' };
-    if (startDate) {
-      where.createdAt = { ...where.createdAt, gte: parseYmdSp(startDate).startOf('day').toDate() };
-    }
+    where.createdAt = { gte: parseYmdSp(effectiveStart).startOf('day').toDate() };
     if (endDate) {
-      where.createdAt = { ...where.createdAt, lte: parseYmdSp(endDate).endOf('day').toDate() };
+      where.createdAt.lte = parseYmdSp(endDate).endOf('day').toDate();
     }
 
     const txs = await this.prisma.transaction.findMany({
@@ -6357,16 +6356,15 @@ export class AdminController {
     const roiHospedagem = (atlasData?.vps.totalRevenue ?? 0) > 0 ? (lucroLiquidoVps / atlasData!.vps.totalRevenue) * 100 : 0;
     const roiAtlas = receitaBrutaAtlas > 0 ? (receitaLiquidaAtlas / receitaBrutaAtlas) * 100 : 0;
 
-    const dateWhere: any = {};
-    if (startDate) dateWhere.gte = parseYmdSp(startDate).startOf('day').toDate();
+    const dateWhere: any = { gte: parseYmdSp(effectiveStart).startOf('day').toDate() };
     if (endDate) dateWhere.lte = parseYmdSp(endDate).endOf('day').toDate();
 
     const [estornoCount, chargebackCount] = await Promise.all([
       this.prisma.transaction.count({
-        where: { userId: atlasUserId, status: 'REFUNDED', ...(Object.keys(dateWhere).length ? { createdAt: dateWhere } : {}) },
+        where: { userId: atlasUserId, status: 'REFUNDED', createdAt: dateWhere },
       }),
       this.prisma.transaction.count({
-        where: { userId: atlasUserId, status: 'CHARGEBACK', ...(Object.keys(dateWhere).length ? { createdAt: dateWhere } : {}) },
+        where: { userId: atlasUserId, status: 'CHARGEBACK', createdAt: dateWhere },
       }),
     ]);
 
@@ -6444,10 +6442,11 @@ export class AdminController {
       return { error: 'Use /admin/relatorios/atlas-consolidado for ATLAS' };
     }
 
+    const effectiveStart = startDate ?? dayjs().tz(TZ).startOf('month').format('YYYY-MM-DD');
     const dateFilter: Prisma.DateTimeFilter = {};
-    if (startDate) dateFilter.gte = parseYmdSp(startDate).startOf('day').toDate();
+    dateFilter.gte = parseYmdSp(effectiveStart).startOf('day').toDate();
     if (endDate) dateFilter.lte = parseYmdSp(endDate).endOf('day').toDate();
-    const hasDate = Object.keys(dateFilter).length > 0;
+    const hasDate = true;
 
     // RENOVADA and BOSQUE have no fixed fee or cashback per transaction
     const TAXA_SERVICE_EXEMPT_SET = new Set(['RENOVADA', 'BOSQUE']);
