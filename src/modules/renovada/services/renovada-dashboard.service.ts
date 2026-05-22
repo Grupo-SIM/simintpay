@@ -40,7 +40,14 @@ export class PlatformDashboardService {
     const isBosque = upperTag === 'BOSQUE';
     // AREAFLIX usa sistema de ordens próprio (não Transaction table com userId centralizado)
     const isAreaflix = upperTag === 'AREAFLIX';
-    const isTenantTagged = isEbook || isPagatg;
+    // Unknown tags (community slugs) → use [TENANT:SLUG] filter; returns 0 from Transaction table
+    // since community revenue is tracked via SubscriptionLinkOrder, not Transaction.
+    const isKnownFixedTag = [
+      'RENOVADA', 'PAGATG', 'BOSQUE', 'REVALIDA', 'EBOOK', 'EBOOKSIM',
+      'AREAFLIX', 'ATLAS', 'COMUNIDADE', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
+      'FRENDZ', 'BETAI', 'GLOBAL',
+    ].includes(upperTag);
+    const isTenantTagged = isEbook || isPagatg || !isKnownFixedTag;
 
     const bosqueTxWhere = {
       status: TransactionStatus.COMPLETED,

@@ -103,6 +103,30 @@ export class PlatformDashboardController {
       return { totalContas: clientesTotais.length, sellersAtivos: assinantesAtivos.length };
     }
 
+    // Community-specific tag: find by slug
+    const community = await this.prisma.community.findUnique({
+      where: { slug: upperTag.toLowerCase() },
+      select: { id: true },
+    });
+    if (community) {
+      const bindings = await this.prisma.communityLinkBinding.findMany({
+        where: { communityId: community.id, subscriptionLinkId: { not: null } },
+        select: { subscriptionLinkId: true },
+        distinct: ['subscriptionLinkId'],
+      });
+      const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
+      if (linkIds.length === 0) return { totalContas: 0, sellersAtivos: 0 };
+
+      const activeStatuses = ['active', 'completed', 'approved', 'paid', 'success', 'trial'];
+      const [totalContas, sellersAtivos] = await Promise.all([
+        this.prisma.subscriptionLinkOrder.count({ where: { subscriptionLinkId: { in: linkIds } } }),
+        this.prisma.subscriptionLinkOrder.count({
+          where: { subscriptionLinkId: { in: linkIds }, status: { in: activeStatuses } },
+        }),
+      ]);
+      return { totalContas, sellersAtivos };
+    }
+
     return { totalContas: 0, sellersAtivos: 0 };
   }
 }
