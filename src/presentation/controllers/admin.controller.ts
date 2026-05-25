@@ -2550,6 +2550,26 @@ export class AdminController {
       }
     }
 
+    // Parcelamento global: apenas transações de cartão de crédito (exclui débito e PIX)
+    let totalParcelamentoBruto = 0;
+    let totalParcelamentoSimIntPay = 0;
+    for (const tx of txRowsLucro) {
+      const pm = String((tx as { paymentMethod?: string }).paymentMethod ?? '').toLowerCase();
+      if (!pm.includes('credit')) continue;
+      const amount = Number(tx.amount);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      const inst = Math.min(Math.max(Number((tx as { installments?: number }).installments ?? 1) || 1, 1), 12);
+      const tag = consolidadoTagParaTransacao(
+        { userId: tx.userId, description: tx.description ?? null },
+        platforms,
+      );
+      const domFee = estimateDomFeeReais({ amountReais: amount, paymentMethod: (tx as { paymentMethod?: string }).paymentMethod, installments: inst, tenantTag: tag });
+      const masterKey = `MDR_CC_MASTER_${inst}X` as PlataformaTaxaKey;
+      const masterRate = getPlatformTaxaEffective(tag, masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0);
+      totalParcelamentoBruto += domFee + amount * masterRate;
+      totalParcelamentoSimIntPay += amount * masterRate;
+    }
+
     const payload: Record<string, unknown> = {
       totalTransacoes,
       valorBruto: brutoTotal,
@@ -2558,6 +2578,8 @@ export class AdminController {
       taxaDomMdr,
       taxaServico: taxaServicoConsolidado,
       custoCashback,
+      taxaParcelamentoBruto: Math.round(totalParcelamentoBruto * 100) / 100,
+      taxaParcelamentoSimIntPay: Math.round(totalParcelamentoSimIntPay * 100) / 100,
       totalRepasseConsolidado,
       totalRepasseReal,
       lucroPlataformasSemRepasse,
