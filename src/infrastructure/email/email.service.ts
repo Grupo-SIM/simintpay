@@ -194,4 +194,56 @@ export class EmailService {
       this.logger.error(`Falha ao enviar e-mail de lembrete de expiração para ${input.to}: ${String(err)}`);
     }
   }
+
+  async sendPaymentLinkFiles(input: {
+    to: string;
+    customerName: string;
+    linkTitle: string;
+    attachments: { filename: string; content: Buffer }[];
+  }): Promise<void> {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+      throw new Error('SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)');
+    }
+
+    const transport = this.createTransport();
+    const from = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
+
+    const fileList = input.attachments
+      .map((a) => `<li style="margin: 4px 0; color: #4c1d95;">${a.filename}</li>`)
+      .join('');
+
+    try {
+      await transport.sendMail({
+        from: `"SIM INT PAY" <${from}>`,
+        to: input.to,
+        subject: `Seus arquivos — ${input.linkTitle}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
+            <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+            </div>
+            <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
+              <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.customerName}</strong>!</p>
+              <p>Seu pagamento de <strong style="color: #6d28d9;">${input.linkTitle}</strong> foi confirmado.</p>
+              <p>Seguem em anexo os seus arquivos:</p>
+              <ul style="padding-left: 20px;">${fileList}</ul>
+              <hr style="border: none; border-top: 1px solid #e5e3ff; margin: 24px 0;" />
+              <p style="font-size: 12px; color: #9ca3af;">Se você não realizou este pagamento, entre em contato conosco.</p>
+            </div>
+            <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
+              SIM INT PAY · JB Mídia
+            </p>
+          </div>
+        `,
+        attachments: input.attachments.map((a) => ({
+          filename: a.filename,
+          content: a.content,
+          contentType: 'application/pdf',
+        })),
+      });
+    } catch (err) {
+      this.logger.error(`Falha ao enviar e-mail com PDFs para ${input.to}: ${String(err)}`);
+      throw err;
+    }
+  }
 }
