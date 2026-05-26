@@ -115,6 +115,8 @@ export class InternalEbookFinanceController {
       lockedBalance: Number(pendingGross.toFixed(2)),
       minimumWithdrawalAmount: EbookSimConfig.saque.minValor,
       withdrawalFeeBrl: EbookSimConfig.saque.taxaFixa,
+      pixFeePercent: EbookSimConfig.mdr.pix,
+      transactionFeeBrl: EbookSimConfig.mdr.taxaFixaPorTransacao,
       accountExists: userIds.length > 0,
     };
   }
