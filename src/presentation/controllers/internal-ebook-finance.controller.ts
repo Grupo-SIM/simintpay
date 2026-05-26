@@ -115,8 +115,8 @@ export class InternalEbookFinanceController {
       lockedBalance: Number(pendingGross.toFixed(2)),
       minimumWithdrawalAmount: EbookSimConfig.saque.minValor,
       withdrawalFeeBrl: EbookSimConfig.saque.taxaFixa,
-      pixFeePercent: EbookSimConfig.mdr.pix,
-      transactionFeeBrl: EbookSimConfig.mdr.taxaFixaPorTransacao,
+      pixFeePercent: Number(((1 - EbookSimConfig.saque.fatorLiquidez) * 100).toFixed(2)),
+      transactionFeeBrl: getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO),
       accountExists: userIds.length > 0,
     };
   }
