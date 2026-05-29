@@ -12,8 +12,9 @@ import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../mod
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 
-const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
+const TAGS_SEM_TAXA_SERVICO = new Set(['BOSQUE']);
 const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z');
+const RENOVADA_TAXA_SERVICO_DATE = new Date('2026-05-29T20:40:00.000Z');
 
 @Injectable()
 export class GetMeUseCase {
@@ -115,7 +116,8 @@ export class GetMeUseCase {
         const svcRate = TAGS_SEM_TAXA_SERVICO.has(effectiveTag)
           ? 0
           : getPlatformTaxaEffective(effectiveTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-        const svcFee = svcRate > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? svcRate : 0;
+        const svcEffDate = effectiveTag === 'RENOVADA' ? RENOVADA_TAXA_SERVICO_DATE : TAXA_SERVICO_EFFECTIVE_DATE;
+        const svcFee = svcRate > 0 && t.createdAt >= svcEffDate ? svcRate : 0;
         return s + Number(t.amount) * liqRate - svcFee;
       }, 0);
       const completedAggr = await this.prisma.withdrawRequest.aggregate({

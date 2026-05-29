@@ -10,10 +10,6 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { BosqueConfig } from '../../modules/bosque/bosque.config';
-import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
-
-const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z');
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
@@ -165,12 +161,11 @@ export class InternalBosqueFinanceController {
       }),
     ]);
 
-    const svcRaw = getPlatformTaxaEffective('BOSQUE', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-
     return {
       transactions: items.map((t) => {
         const netBase = Number(t.netAmount ?? t.amount);
-        const taxaServico = svcRaw > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? svcRaw : 0;
+        // BOSQUE is exempt from taxa_servico (see TAGS_SEM_TAXA_SERVICO in get-me.use-case.ts)
+        const taxaServico = 0;
         return {
           id: t.id,
           userId: t.userId,

@@ -149,7 +149,9 @@ export class ListTransactionsUseCase {
     const userCpf: string | null | undefined = (user as any).cpf;
     const tenantModuleSlug = user.tenantModule?.slug?.toLowerCase();
     const tenantTag = canonicalPlatformTaxaTag((tenantModuleSlug || 'GLOBAL').toUpperCase());
-    const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
+    const TAGS_SEM_TAXA_SERVICO = new Set(['BOSQUE']);
+    const RENOVADA_TAXA_SERVICO_DATE = new Date('2026-05-29T20:40:00.000Z');
+    const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z');
     const fixedTx = getPlatformTaxaEffective(tenantTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
     const fixedCashback = getPlatformTaxaEffective(tenantTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
     const fixedServico = TAGS_SEM_TAXA_SERVICO.has(tenantTag) ? 0 : getPlatformTaxaEffective(tenantTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
@@ -563,9 +565,11 @@ export class ListTransactionsUseCase {
         const LRow = getPlatformTaxaEffective(feeTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
 
         const taxaVendedor = Number(Math.max(0, amount * (1 - LRow)).toFixed(2));
-        const rowServico = TAGS_SEM_TAXA_SERVICO.has(feeTag)
+        const rowServicoRate = TAGS_SEM_TAXA_SERVICO.has(feeTag)
           ? 0
           : getPlatformTaxaEffective(feeTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+        const rowServicoEffDate = feeTag === 'RENOVADA' ? RENOVADA_TAXA_SERVICO_DATE : TAXA_SERVICO_EFFECTIVE_DATE;
+        const rowServico = rowServicoRate > 0 && t.createdAt >= rowServicoEffDate ? rowServicoRate : 0;
         const valorLiquidoVendedor = Number((amount - taxaVendedor - rowServico).toFixed(2));
 
         return {

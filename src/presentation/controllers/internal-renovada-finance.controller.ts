@@ -13,7 +13,7 @@ import { RenovadaConfig } from '../../modules/renovada/renovada.config';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 
-const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z');
+const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-29T20:40:00.000Z');
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
