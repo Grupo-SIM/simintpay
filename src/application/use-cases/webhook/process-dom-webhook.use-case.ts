@@ -22,6 +22,7 @@ import {
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
+import { StorageService } from '../../../infrastructure/storage/storage.service';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,7 @@ export class ProcessDomWebhookUseCase {
     @Optional() private readonly pixPlanService?: PixPlanService,
     @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
     @Optional() private readonly checkoutEvents?: CheckoutEventsService,
+    @Optional() private readonly storage?: StorageService,
   ) { }
 
   async execute(payload: unknown): Promise<void> {
@@ -457,6 +459,11 @@ export class ProcessDomWebhookUseCase {
           } catch (vErr) {
             this.logger.error(`Erro ao registrar uso de voucher ${code}: ${vErr.message}`);
           }
+        }
+
+        // PDF delivery: enviar arquivos do link de pagamento ao comprador
+        if (existing.paymentLinkId && this.emailService && this.storage) {
+          void this.sendPaymentLinkFilesToCustomer(existing);
         }
       }
     } else {
@@ -1480,5 +1487,41 @@ export class ProcessDomWebhookUseCase {
 
     // Não atualizar webhookEventDbId aqui — o chamador (execute) fará isso
     return true;
+  }
+
+  private async sendPaymentLinkFilesToCustomer(tx: {
+    id: string;
+    paymentLinkId: string | null;
+    customerEmail: string | null;
+    customerName: string | null;
+  }): Promise<void> {
+    if (!tx.paymentLinkId || !tx.customerEmail) return;
+
+    try {
+      const link = await this.prisma.paymentLink.findUnique({
+        where: { id: tx.paymentLinkId },
+        include: { files: true },
+      });
+      if (!link || link.files.length === 0) return;
+
+      const attachments = await Promise.all(
+        link.files.map(async (f) => {
+          const { buffer } = await this.storage!.getReceiptBufferByStoredUrl(f.fileUrl);
+          return { filename: f.fileName, content: buffer };
+        }),
+      );
+
+      await this.emailService!.sendPaymentLinkFiles({
+        to: tx.customerEmail,
+        customerName: tx.customerName ?? 'Cliente',
+        linkTitle: link.title,
+        attachments,
+      });
+
+      this.logger.log(`[DomWebhook] PDFs enviados para ${tx.customerEmail} (tx=${tx.id}, link=${tx.paymentLinkId})`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[DomWebhook] Falha ao enviar PDFs do link ${tx.paymentLinkId} para ${tx.customerEmail}: ${msg}`);
+    }
   }
 }

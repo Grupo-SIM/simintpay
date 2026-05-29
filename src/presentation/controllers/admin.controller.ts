@@ -2095,7 +2095,7 @@ export class AdminController {
   ) {
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
-    const baseWhere = { slug: { not: 'areaflix' as const } };
+    const baseWhere = {};
     const where = search.trim()
       ? {
         AND: [

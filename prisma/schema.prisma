@@ -206,9 +206,22 @@ model PaymentLink {
   user             User          @relation(fields: [userId], references: [id])
   transactions     Transaction[]
   communityBindings CommunityLinkBinding[]
+  files            PaymentLinkFile[]
 
   @@index([userId])
   @@index([code])
+}
+
+model PaymentLinkFile {
+  id            String      @id @default(uuid())
+  paymentLinkId String
+  paymentLink   PaymentLink @relation(fields: [paymentLinkId], references: [id], onDelete: Cascade)
+  fileName      String
+  fileUrl       String
+  fileSize      Int
+  createdAt     DateTime    @default(now())
+
+  @@index([paymentLinkId])
 }
 
 // ── Subscription Link (link de assinatura com recorrência) ───────────────────

@@ -7,9 +7,13 @@ import {
   Post,
   Put,
   Query,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
   NotFoundException,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
@@ -26,6 +30,7 @@ import { GetPublicPaymentLinkUseCase } from '../../application/use-cases/payment
 import { ChargePaymentLinkUseCase, ChargePaymentLinkInput } from '../../application/use-cases/payment-link/charge-payment-link.use-case';
 import { ChargePixPaymentLinkUseCase } from '../../application/use-cases/payment-link/charge-pix-payment-link.use-case';
 import { ChargePixPaymentLinkDto } from '../../application/dtos/payment-link/charge-pix-payment-link.dto';
+import { ManagePaymentLinkFilesUseCase } from '../../application/use-cases/payment-link/manage-payment-link-files.use-case';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -47,6 +52,7 @@ export class PaymentLinkController {
     private readonly charge: ChargePaymentLinkUseCase,
     private readonly chargePix: ChargePixPaymentLinkUseCase,
     private readonly prisma: PrismaService,
+    private readonly manageFiles: ManagePaymentLinkFilesUseCase,
   ) {}
 
   // ── Rotas públicas (sem autenticação) ──────────────────────────────────────
@@ -175,17 +181,20 @@ export class PaymentLinkController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Buscar link de pagamento por id' })
-  @ApiResponse({
-    status: 200,
-    schema: { example: { data: { id: 'uuid-link-1', title: 'Plano Mensal', amount: 9900 } } },
-  })
+  @ApiResponse({ status: 200 })
   @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
   @ApiResponse({ status: 404, schema: { example: { statusCode: 404, message: 'Link não encontrado' } } })
   async getRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ data: unknown }> {
-    return this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    const result = await this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    const files = await this.prisma.paymentLinkFile.findMany({
+      where: { paymentLinkId: id },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, fileName: true, fileUrl: true, fileSize: true, createdAt: true },
+    });
+    return { data: { ...(result.data as object), files } };
   }
 
   @Put(':id')
@@ -229,6 +238,47 @@ export class PaymentLinkController {
     @Param('id') id: string,
   ): Promise<{ deleted: true }> {
     await this.del.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    return { deleted: true };
+  }
+
+  @Post(':id/files')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Upload de PDFs para um link de pagamento' })
+  @UseInterceptors(
+    FilesInterceptor('files', 10, {
+      storage: memoryStorage(),
+      limits: { fileSize: 25 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (file.mimetype === 'application/pdf') {
+          cb(null, true);
+        } else {
+          cb(new Error('Apenas arquivos PDF são permitidos'), false);
+        }
+      },
+    }),
+  )
+  async uploadFilesRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    if (!files || files.length === 0) {
+      return { files: [] };
+    }
+    return this.manageFiles.uploadFiles({ userId: user?.sub ?? '', linkId: id, files });
+  }
+
+  @Delete(':id/files/:fileId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remover PDF de um link de pagamento' })
+  async deleteFileRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+  ): Promise<{ deleted: true }> {
+    await this.manageFiles.deleteFile({ userId: user?.sub ?? '', linkId: id, fileId });
     return { deleted: true };
   }
 }

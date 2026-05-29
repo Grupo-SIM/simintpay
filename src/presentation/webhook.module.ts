@@ -13,6 +13,7 @@ import { BALANCE_LOG_REPOSITORY } from '../core/repositories/balance-log.reposit
 import { PrismaBalanceLogRepository } from '../infrastructure/database/repositories/prisma-balance-log.repository';
 import { CommunityManagementService } from '../application/services/community-management.service';
 import { EmailService } from '../infrastructure/email/email.service';
+import { StorageService } from '../infrastructure/storage/storage.service';
 
 import { RenovadaModule } from '../modules/renovada/renovada.module';
 import { PixPlanModule } from './pix-plan.module';
@@ -31,6 +32,7 @@ import { CheckoutModule } from './checkout.module';
     DomWebhookConsumer,
     CommunityManagementService,
     EmailService,
+    StorageService,
     {
       provide: WEBHOOK_EVENT_REPOSITORY,
       useClass: PrismaWebhookEventRepository,

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { GetObjectCommand, S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -72,6 +72,21 @@ export class StorageService {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Error uploading file to Storj: ${message}`);
       throw new Error(`Falha ao fazer upload do arquivo: ${message}`);
+    }
+  }
+
+  async deleteFile(fileUrl: string): Promise<void> {
+    const key = this.tryExtractObjectKeyFromStoredUrl(fileUrl);
+    if (!key) {
+      this.logger.warn(`deleteFile: URL não pertence ao bucket configurado — ${fileUrl}`);
+      return;
+    }
+    try {
+      await this.s3Client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Erro ao deletar arquivo do Storj (key=${key}): ${message}`);
+      throw new Error(`Falha ao deletar arquivo: ${message}`);
     }
   }
 
