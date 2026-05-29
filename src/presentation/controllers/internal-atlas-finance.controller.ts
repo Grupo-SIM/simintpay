@@ -31,14 +31,8 @@ export class InternalAtlasFinanceController {
     }
   }
 
-  private normalizeCpf(raw: string): string {
+  private normalizeDoc(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
-  }
-
-  private cpfVariants(raw: string): string[] {
-    const cpf = this.normalizeCpf(raw);
-    if (!cpf || cpf.length !== 11) return [];
-    return [cpf, cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
   }
 
   private async resolveUserIds(input: { cpf?: string; email?: string; userId?: string }): Promise<string[]> {
@@ -52,8 +46,16 @@ export class InternalAtlasFinanceController {
       if (user) ids.add(user.id);
     }
 
-    const variants = this.cpfVariants(input.cpf ?? '');
-    if (variants.length > 0) {
+    const clean = this.normalizeDoc(input.cpf ?? '');
+    if (clean.length === 14) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const users = await (this.prisma.user as any).findMany({
+        where: { cnpj: clean },
+        select: { id: true },
+      });
+      (users as any[]).forEach((u: any) => ids.add(u.id));
+    } else if (clean.length === 11) {
+      const variants = [clean, clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
       const users = await this.prisma.user.findMany({
         where: { cpf: { in: variants } },
         select: { id: true },

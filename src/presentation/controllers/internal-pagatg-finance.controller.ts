@@ -35,25 +35,26 @@ export class InternalPagatgFinanceController {
     }
   }
 
-  private normalizeCpf(raw: string): string {
+  private normalizeDoc(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
   }
 
-  private cpfVariants(raw: string): string[] {
-    const cpf = this.normalizeCpf(raw);
-    if (!cpf || cpf.length !== 11) return [];
-    return [cpf, cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
-  }
-
   /**
-   * Retorna os userIds associados ao CPF na tabela User do simpay.
-   * Se o usuário não tem conta no simpay, retorna array vazio.
+   * Retorna os userIds associados ao CPF ou CNPJ na tabela User do simpay.
    */
   private async resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
     const ids = new Set<string>();
+    const clean = this.normalizeDoc(cpf);
 
-    const variants = this.cpfVariants(cpf);
-    if (variants.length > 0) {
+    if (clean.length === 14) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const users = await (this.prisma.user as any).findMany({
+        where: { cnpj: clean },
+        select: { id: true },
+      });
+      (users as any[]).forEach((u: any) => ids.add(u.id));
+    } else if (clean.length === 11) {
+      const variants = [clean, clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
       const users = await this.prisma.user.findMany({
         where: { cpf: { in: variants } },
         select: { id: true },
@@ -61,7 +62,6 @@ export class InternalPagatgFinanceController {
       users.forEach((u) => ids.add(u.id));
     }
 
-    // userId direto (mesmo UUID compartilhado entre pagatg DB e simpay DB)
     if (directUserId?.trim()) {
       ids.add(directUserId.trim());
     }
@@ -72,20 +72,20 @@ export class InternalPagatgFinanceController {
   /**
    * Constrói o filtro OR para encontrar transações do vendedor pagatg mesmo
    * quando ele não tem conta no simpay: busca por userId resolvido OU pela
-   * tag [CPF_DONO:{cpf}] gravada na descrição no momento da criação.
+   * tag [CPF_DONO:{cpf}] / [CNPJ_DONO:{cnpj}] na descrição.
    */
   private buildOwnerFilter(cpf: string, userIds: string[]): any {
-    const cpfClean = this.normalizeCpf(cpf);
+    const clean = this.normalizeDoc(cpf);
     const conditions: any[] = [];
 
     if (userIds.length > 0) {
       conditions.push({ userId: { in: userIds } });
     }
 
-    // Transações criadas quando o vendedor ainda não tinha conta no simpay
-    // — o CPF do dono fica gravado como [CPF_DONO:{cpf}] na descrição
-    if (cpfClean.length === 11) {
-      conditions.push({ description: { contains: `[CPF_DONO:${cpfClean}]`, mode: 'insensitive' } });
+    if (clean.length === 14) {
+      conditions.push({ description: { contains: `[CNPJ_DONO:${clean}]`, mode: 'insensitive' } });
+    } else if (clean.length === 11) {
+      conditions.push({ description: { contains: `[CPF_DONO:${clean}]`, mode: 'insensitive' } });
     }
 
     if (conditions.length === 0) return null;

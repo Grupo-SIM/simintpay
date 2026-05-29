@@ -1020,10 +1020,15 @@ export class ProcessDomWebhookUseCase {
         data.payment_method,
       );
 
-      // CPF e nome do dono na description garantem reconhecimento quando ele criar conta no simpay
+      // Documento do dono na description garante reconhecimento quando ele criar conta no simpay
       // Prioridade: nome vindo do back-ebook (fonte primária) > nome da conta Simpay
       const resolvedOwnerName = ownerNameFromBack?.trim() || ownerNameFromSimpay || null;
-      const cpfTag = ownerCpf ? ` [CPF_DONO:${ownerCpf.replace(/\D/g, '')}]` : '';
+      const ownerDocClean = ownerCpf ? ownerCpf.replace(/\D/g, '') : '';
+      const cpfTag = ownerDocClean.length === 14
+        ? ` [CNPJ_DONO:${ownerDocClean}]`
+        : ownerDocClean.length === 11
+          ? ` [CPF_DONO:${ownerDocClean}]`
+          : '';
       const nomeTag = resolvedOwnerName ? ` [NOME_DONO:${resolvedOwnerName}]` : '';
       const description = appendInternalTags(orderNumber, [TENANT_EBOOK_TAG]) + cpfTag + nomeTag;
 

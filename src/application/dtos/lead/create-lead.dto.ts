@@ -1,5 +1,6 @@
-import { IsString, IsEmail, IsOptional, IsEnum, Matches, IsNotEmpty } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsEnum, IsNotEmpty, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsDocument } from '../../validators/is-document.validator';
 
 export enum Faturamento {
   ATE_10K = 'ATE_10K',
@@ -59,10 +60,10 @@ export class CreateLeadDto {
   @Matches(/^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/, { message: 'CNPJ inválido' })
   cnpj: string;
 
-  @ApiProperty({ example: '123.456.789-09' })
+  @ApiProperty({ example: '123.456.789-09 ou 12.345.678/0001-90' })
   @IsString()
   @IsNotEmpty()
-  @Matches(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/, { message: 'CPF inválido' })
+  @IsDocument({ message: 'CPF ou CNPJ inválido' })
   cpf: string;
 
   @ApiProperty({ enum: Faturamento, example: Faturamento.DE_50K_A_100K })

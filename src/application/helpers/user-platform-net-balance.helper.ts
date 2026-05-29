@@ -5,7 +5,7 @@ import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../module
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 import { platformTaxaTagFromText } from './dom-fee-estimate.helper';
 
-const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
+const TAGS_SEM_TAXA_SERVICO = new Set<string>();
 const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z');
 
 /**

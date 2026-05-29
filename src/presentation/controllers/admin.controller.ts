@@ -76,7 +76,7 @@ import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositori
 import { CommunityManagementService } from '../../application/services/community-management.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
-import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import { getPlatformTaxaEffective, invalidatePlatformTaxaCache } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
 import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
@@ -1436,25 +1436,37 @@ export class AdminController {
 
   @Post('criar-conta')
   @HttpCode(201)
-  @ApiOperation({ summary: 'Criar conta diretamente (admin master) — vincula ao módulo renovada e filtra transações pelo CPF' })
+  @ApiOperation({ summary: 'Criar conta diretamente (admin master) — suporta CPF ou CNPJ' })
   async criarConta(
-    @Body() body: { email: string; password: string; cpf: string },
+    @Body() body: { email: string; password: string; cpf?: string; cnpj?: string },
   ) {
-    const { email, password, cpf } = body;
+    const { email, password, cpf, cnpj } = body;
+
+    if (!cpf && !cnpj) {
+      throw new BadRequestException('Informe CPF ou CNPJ');
+    }
 
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new ConflictException('Já existe um usuário com este e-mail');
     }
 
-    const cpfClean = cpf.replace(/\D/g, '');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const existingCpf = await (this.prisma.user as any).findFirst({ where: { cpf: cpfClean } });
-    if (existingCpf) {
-      throw new ConflictException('Já existe um usuário com este CPF');
-    }
-
     const hashed = await this.hashService.hash(password);
+
+    let cpfClean: string | undefined;
+    let cnpjClean: string | undefined;
+
+    if (cpf) {
+      cpfClean = cpf.replace(/\D/g, '');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const existingCpf = await (this.prisma.user as any).findFirst({ where: { cpf: cpfClean } });
+      if (existingCpf) throw new ConflictException('Já existe um usuário com este CPF');
+    } else if (cnpj) {
+      cnpjClean = cnpj.replace(/\D/g, '');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const existingCnpj = await (this.prisma.user as any).findFirst({ where: { cnpj: cnpjClean } });
+      if (existingCnpj) throw new ConflictException('Já existe um usuário com este CNPJ');
+    }
 
     // Tentar registrar na DOM (falha silenciosa)
     let domUserId: string | null = null;
@@ -1475,7 +1487,8 @@ export class AdminController {
         name: email.split('@')[0],
         email,
         password: hashed,
-        cpf: cpfClean,
+        ...(cpfClean ? { cpf: cpfClean } : {}),
+        ...(cnpjClean ? { cnpj: cnpjClean } : {}),
         domUserId: domUserId ?? undefined,
         domToken: domToken ?? undefined,
       },
@@ -1483,14 +1496,19 @@ export class AdminController {
 
     await this.walletRepository.createForUser(user.id);
 
-    // Vincula ExternalPlatformUser se o CPF já foi identificado em transações
-    await this.linkExternal.linkByCpf(user.id, cpfClean);
+    // Vincula ExternalPlatformUser pelo documento identificador
+    if (cpfClean) {
+      await this.linkExternal.linkByCpf(user.id, cpfClean);
+    } else if (cnpjClean) {
+      await this.linkExternal.linkByCnpj(user.id, cnpjClean);
+    }
 
     return {
       data: {
         userId: user.id,
         email: user.email,
-        cpf: cpfClean,
+        cpf: cpfClean ?? null,
+        cnpj: cnpjClean ?? null,
         modulo: null,
       },
       message: 'Conta do cliente criada com sucesso (Conta Avulsa)',
@@ -3037,7 +3055,12 @@ export class AdminController {
   async deleteComunidade(@Param('id') id: string) {
     const existing = await this.prisma.community.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Comunidade não encontrada');
-    await this.prisma.community.delete({ where: { id } });
+    const tag = existing.slug.toUpperCase();
+    await this.prisma.$transaction([
+      this.prisma.platformTaxaOverride.deleteMany({ where: { tag } }),
+      this.prisma.community.delete({ where: { id } }),
+    ]);
+    invalidatePlatformTaxaCache();
     return { success: true };
   }
 

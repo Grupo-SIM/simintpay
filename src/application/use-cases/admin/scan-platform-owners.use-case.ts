@@ -22,9 +22,10 @@ const TENANT_TO_PLATFORM: Record<string, string> = {
   ATLAS: 'atlas',
 };
 
-// Regex para extrair [TENANT:XXX], [CPF_DONO:YYY] e [NOME_DONO:ZZZ] da descrição
+// Regex para extrair [TENANT:XXX], [CPF_DONO:YYY], [CNPJ_DONO:ZZZ] e [NOME_DONO:WWW]
 const TENANT_REGEX = /\[TENANT:([A-Z0-9_]+)\]/i;
 const CPF_DONO_REGEX = /\[CPF_DONO:(\d{11})\]/i;
+const CNPJ_DONO_REGEX = /\[CNPJ_DONO:(\d{14})\]/i;
 const NOME_DONO_REGEX = /\[NOME_DONO:([^\]]+)\]/i;
 
 function formatDateYmd(d: Date): string {
@@ -65,13 +66,16 @@ export class ScanPlatformOwnersUseCase {
 
     const ownerMap = new Map<
       string,
-      { cpf: string; platform: string; totalNet: number; nomeDono: string | null }
+      { document: string; platform: string; totalNet: number; nomeDono: string | null }
     >();
 
     // ── 1) Transações locais (webhook / interno) com tags na description
     const transactions = await this.prisma.transaction.findMany({
       where: {
-        description: { contains: 'CPF_DONO', mode: 'insensitive' },
+        OR: [
+          { description: { contains: 'CPF_DONO', mode: 'insensitive' } },
+          { description: { contains: 'CNPJ_DONO', mode: 'insensitive' } },
+        ],
       },
       select: {
         id: true,
@@ -87,11 +91,12 @@ export class ScanPlatformOwnersUseCase {
     for (const tx of transactions) {
       const desc = tx.description ?? '';
       const cpfMatch = CPF_DONO_REGEX.exec(desc);
+      const cnpjMatch = CNPJ_DONO_REGEX.exec(desc);
       const tenantMatch = TENANT_REGEX.exec(desc);
 
-      if (!cpfMatch || !tenantMatch) continue;
+      const document = cpfMatch?.[1] ?? cnpjMatch?.[1] ?? null;
+      if (!document || !tenantMatch) continue;
 
-      const cpf = cpfMatch[1];
       const tenantTag = tenantMatch[1].toUpperCase();
       const platform = TENANT_TO_PLATFORM[tenantTag];
 
@@ -100,10 +105,9 @@ export class ScanPlatformOwnersUseCase {
       const nomeDonoMatch = NOME_DONO_REGEX.exec(desc);
       const nomeDono = nomeDonoMatch ? nomeDonoMatch[1].trim() : null;
 
-      const key = `${cpf}::${platform}`;
-      const current = ownerMap.get(key) ?? { cpf, platform, totalNet: 0, nomeDono: null };
+      const key = `${document}::${platform}`;
+      const current = ownerMap.get(key) ?? { document, platform, totalNet: 0, nomeDono: null };
 
-      // Manter o primeiro nome encontrado (ou qualquer nome não-nulo)
       if (nomeDono && !current.nomeDono) current.nomeDono = nomeDono;
 
       if (tx.status === 'COMPLETED') {
@@ -113,11 +117,14 @@ export class ScanPlatformOwnersUseCase {
       ownerMap.set(key, current);
     }
 
-    // Chaves DOM já refletidas no banco com CPF_DONO (evita somar 2x com a API)
+    // Chaves DOM já refletidas no banco com CPF_DONO ou CNPJ_DONO (evita somar 2x com a API)
     const syncedDomKeySet = new Set<string>();
     const domTaggedRows = await this.prisma.transaction.findMany({
       where: {
-        description: { contains: 'CPF_DONO', mode: 'insensitive' },
+        OR: [
+          { description: { contains: 'CPF_DONO', mode: 'insensitive' } },
+          { description: { contains: 'CNPJ_DONO', mode: 'insensitive' } },
+        ],
       },
       select: { domPaymentId: true, domTransactionId: true },
     });
@@ -143,26 +150,39 @@ export class ScanPlatformOwnersUseCase {
       userWithdrawalMap.set(w.userId, (userWithdrawalMap.get(w.userId) ?? 0) + Number(w.grossAmount));
     }
 
-    // Processa cada owner encontrado
-    for (const { cpf, platform, totalNet, nomeDono } of ownerMap.values()) {
+    // Processa cada owner encontrado (CPF 11 dígitos ou CNPJ 14 dígitos)
+    for (const { document, platform, totalNet, nomeDono } of ownerMap.values()) {
+      const isCnpj = document.length === 14;
       try {
-        const existing = await this.prisma.externalPlatformUser.findUnique({
-          where: { cpf_platform: { cpf, platform } },
-          include: { wallet: true },
-        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const existing = isCnpj
+          ? await (this.prisma.externalPlatformUser as any).findUnique({
+              where: { cnpj_platform: { cnpj: document, platform } },
+              include: { wallet: true },
+            })
+          : await this.prisma.externalPlatformUser.findUnique({
+              where: { cpf_platform: { cpf: document, platform } },
+              include: { wallet: true },
+            });
 
-        const simpayUser = await this.prisma.user.findUnique({
-          where: { cpf },
-          select: { id: true, name: true },
-        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const simpayUser = isCnpj
+          ? await (this.prisma.user as any).findFirst({
+              where: { cnpj: document },
+              select: { id: true, name: true },
+            })
+          : await this.prisma.user.findUnique({
+              where: { cpf: document },
+              select: { id: true, name: true },
+            });
 
         const userWithdrawals = simpayUser ? (userWithdrawalMap.get(simpayUser.id) ?? 0) : 0;
         const finalBalance = Math.max(0, totalNet - userWithdrawals);
+        const docLabel = isCnpj ? 'CNPJ' : 'CPF';
 
         if (existing) {
-          // Atualizar userId e/ou nome se ainda está no fallback
           const resolvedName = simpayUser?.name?.trim() || nomeDono || null;
-          const nameNeedsUpdate = resolvedName && existing.name.startsWith('CPF ');
+          const nameNeedsUpdate = resolvedName && (existing.name.startsWith('CPF ') || existing.name.startsWith('CNPJ '));
           if ((simpayUser && !existing.userId) || nameNeedsUpdate) {
             await this.prisma.externalPlatformUser.update({
               where: { id: existing.id },
@@ -187,18 +207,18 @@ export class ScanPlatformOwnersUseCase {
             walletsUpdated++;
           }
         } else {
-          // Prioridade: simpayUser (match por CPF) > nome da tag [NOME_DONO:] > cpfLookup > fallback
+          // Prioridade: simpayUser > nome da tag [NOME_DONO:] > cpfLookup (só CPF) > fallback
           let name = simpayUser?.name?.trim() || nomeDono || null;
-          if (!name) {
-            name = await this.cpfLookup.lookupName(cpf);
+          if (!name && !isCnpj) {
+            name = await this.cpfLookup.lookupName(document);
           }
           if (!name) {
-            name = `CPF ${cpf}`;
+            name = `${docLabel} ${document}`;
           }
 
           const newExtUser = await this.prisma.externalPlatformUser.create({
             data: {
-              cpf,
+              ...(isCnpj ? { cnpj: document } : { cpf: document }),
               name,
               platform,
               userId: simpayUser?.id ?? null,
@@ -215,7 +235,7 @@ export class ScanPlatformOwnersUseCase {
         }
       } catch (err: any) {
         this.logger.error(
-          `Erro ao processar owner CPF=${cpf} plataforma=${platform}: ${err.message}`,
+          `Erro ao processar owner ${isCnpj ? 'CNPJ' : 'CPF'}=${document} plataforma=${platform}: ${err.message}`,
         );
       }
     }
@@ -228,10 +248,10 @@ export class ScanPlatformOwnersUseCase {
   }
 
   /**
-   * Acrescenta ao mapa totais vindos da DOM; ignora transações já representadas no Prisma com CPF_DONO.
+   * Acrescenta ao mapa totais vindos da DOM; ignora transações já representadas no Prisma com CPF_DONO / CNPJ_DONO.
    */
   private async mergeDomTransactionsIntoOwnerMap(
-    ownerMap: Map<string, { cpf: string; platform: string; totalNet: number; nomeDono: string | null }>,
+    ownerMap: Map<string, { document: string; platform: string; totalNet: number; nomeDono: string | null }>,
     syncedDomKeySet: Set<string>,
   ): Promise<number> {
     const token =
@@ -287,11 +307,12 @@ export class ScanPlatformOwnersUseCase {
         for (const tx of batch) {
           const text = tx.product_first ?? '';
           const cpfMatch = CPF_DONO_REGEX.exec(text);
+          const cnpjMatch = CNPJ_DONO_REGEX.exec(text);
           const tenantMatch = TENANT_REGEX.exec(text);
 
-          if (!cpfMatch || !tenantMatch) continue;
+          const document = cpfMatch?.[1] ?? cnpjMatch?.[1] ?? null;
+          if (!document || !tenantMatch) continue;
 
-          const cpf = cpfMatch[1];
           const tenantTag = tenantMatch[1].toUpperCase();
           const platform = TENANT_TO_PLATFORM[tenantTag];
           if (!platform) continue;
@@ -309,8 +330,8 @@ export class ScanPlatformOwnersUseCase {
           const nomeDonoMatch = NOME_DONO_REGEX.exec(text);
           const nomeDono = nomeDonoMatch ? nomeDonoMatch[1].trim() : null;
 
-          const key = `${cpf}::${platform}`;
-          const current = ownerMap.get(key) ?? { cpf, platform, totalNet: 0, nomeDono: null };
+          const key = `${document}::${platform}`;
+          const current = ownerMap.get(key) ?? { document, platform, totalNet: 0, nomeDono: null };
           if (nomeDono && !current.nomeDono) current.nomeDono = nomeDono;
           current.totalNet += net;
           ownerMap.set(key, current);

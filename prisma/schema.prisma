@@ -17,6 +17,7 @@ model User {
   domToken             String?
   tenantModuleId       String?
   cpf                  String?              @unique
+  cnpj                 String?              @unique
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
   balanceLogs          BalanceLog[]
@@ -582,11 +583,12 @@ enum LeadStatus {
 }
 
 // ── External Platform Users (donos de plataformas externas, ex: ebook) ────────
-// Representa usuários identificados via CPF nas descrições de transações.
-// Quando o usuário se cadastra na Simpay com o mesmo CPF, é feita a vinculação.
+// Representa usuários identificados via CPF ou CNPJ nas descrições de transações.
+// Quando o usuário se cadastra na Simpay com o mesmo documento, é feita a vinculação.
 model ExternalPlatformUser {
   id          String                   @id @default(uuid())
-  cpf         String
+  cpf         String?
+  cnpj        String?
   name        String
   platform    String                   // slug da plataforma ex: "ebook"
   userId      String?                  // vinculado ao User da Simpay quando se cadastra
@@ -598,7 +600,9 @@ model ExternalPlatformUser {
   user        User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@unique([cpf, platform])
+  @@unique([cnpj, platform])
   @@index([cpf])
+  @@index([cnpj])
   @@index([platform])
   @@index([userId])
 }

@@ -10,6 +10,10 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { RenovadaConfig } from '../../modules/renovada/renovada.config';
+import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
+
+const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z');
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
@@ -159,25 +163,31 @@ export class InternalRenovadaFinanceController {
       }),
     ]);
 
+    const svcRaw = getPlatformTaxaEffective('RENOVADA', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+
     return {
-      transactions: items.map((t) => ({
-        id: t.id,
-        userId: t.userId,
-        amount: Number(t.amount),
-        name: t.customerName ?? null,
-        email: t.customerEmail ?? null,
-        status: t.status,
-        description: t.description ?? null,
-        appliedGlobalFee: false,
-        fee: Number(t.platformFee ?? 0),
-        dom_fee: Number(t.domFee ?? 0),
-        payment_method: t.paymentMethod,
-        amountWithoutAllFee: Number(t.netAmount ?? t.amount),
-        walletId: null,
-        createdAt: t.createdAt,
-        paymentId: t.domPaymentId ?? t.domTransactionId ?? null,
-        updatedAt: t.updatedAt,
-      })),
+      transactions: items.map((t) => {
+        const netBase = Number(t.netAmount ?? t.amount);
+        const taxaServico = svcRaw > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? svcRaw : 0;
+        return {
+          id: t.id,
+          userId: t.userId,
+          amount: Number(t.amount),
+          name: t.customerName ?? null,
+          email: t.customerEmail ?? null,
+          status: t.status,
+          description: t.description ?? null,
+          appliedGlobalFee: false,
+          fee: Number(t.platformFee ?? 0),
+          dom_fee: Number(t.domFee ?? 0),
+          payment_method: t.paymentMethod,
+          amountWithoutAllFee: Number((netBase - taxaServico).toFixed(2)),
+          walletId: null,
+          createdAt: t.createdAt,
+          paymentId: t.domPaymentId ?? t.domTransactionId ?? null,
+          updatedAt: t.updatedAt,
+        };
+      }),
       meta: {
         currentPage: pageNum,
         itemsPerPage: size,

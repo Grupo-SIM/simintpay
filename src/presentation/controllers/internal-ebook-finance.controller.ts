@@ -32,24 +32,34 @@ export class InternalEbookFinanceController {
     }
   }
 
-  private normalizeCpf(raw: string): string {
+  private normalizeDoc(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
   }
 
-  private cpfVariants(raw: string): string[] {
-    const cpf = this.normalizeCpf(raw);
-    if (!cpf || cpf.length !== 11) return [];
-    return [cpf, cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
-  }
-
-  private async resolveUserIdsByCpf(cpf: string): Promise<string[]> {
-    const variants = this.cpfVariants(cpf);
-    if (variants.length === 0) return [];
+  private async resolveUserIdsByDocument(doc: string): Promise<string[]> {
+    const clean = this.normalizeDoc(doc);
+    if (!clean) return [];
+    const isCnpj = clean.length === 14;
+    if (isCnpj) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const users = await (this.prisma.user as any).findMany({
+        where: { cnpj: clean },
+        select: { id: true },
+      });
+      return [...new Set((users as any[]).map((u: any) => u.id as string))];
+    }
+    if (clean.length !== 11) return [];
+    const variants = [clean, clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
     const users = await this.prisma.user.findMany({
       where: { cpf: { in: variants } },
       select: { id: true },
     });
     return [...new Set(users.map((u) => u.id))];
+  }
+
+  /** @deprecated use resolveUserIdsByDocument */
+  private async resolveUserIdsByCpf(cpf: string): Promise<string[]> {
+    return this.resolveUserIdsByDocument(cpf);
   }
 
   private extractOrderNumberFromText(value: string | null | undefined): string | null {

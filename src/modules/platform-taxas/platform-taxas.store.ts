@@ -281,3 +281,8 @@ export async function writeOverrides(data: Overrides): Promise<void> {
 export function defaultTaxaValue(key: PlataformaTaxaKey): number {
   return PLATFORM_TAXA_DEFAULTS[key];
 }
+
+/** Força recarga do cache na próxima leitura (use após deletar overrides direto no banco). */
+export function invalidatePlatformTaxaCache(): void {
+  lastCacheUpdate = 0;
+}
