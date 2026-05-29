@@ -1642,15 +1642,23 @@ export class AdminController {
       ...extSearchFilter,
     };
 
-    const extAllRows = await this.prisma.externalPlatformUser.findMany({
+    const extAllRowsRaw = await this.prisma.externalPlatformUser.findMany({
       where: extMatchWhere,
-      select: { cpf: true, createdAt: true, userId: true },
-      distinct: ['cpf'],
+      select: { cpf: true, cnpj: true, createdAt: true, userId: true },
       orderBy: { createdAt: 'desc' },
     });
 
     // userIds already represented in ExternalPlatformUser (skip them in module query)
-    const linkedUserIds = new Set(extAllRows.filter((r) => r.userId).map((r) => r.userId!));
+    const linkedUserIds = new Set(extAllRowsRaw.filter((r) => r.userId).map((r) => r.userId!));
+
+    // Deduplicate by document (cpf ?? cnpj) — keep latest createdAt row per owner
+    const extDocSeen = new Set<string>();
+    const extAllRows = extAllRowsRaw.filter((r) => {
+      const doc = r.cpf ?? r.cnpj ?? '';
+      if (!doc || extDocSeen.has(doc)) return false;
+      extDocSeen.add(doc);
+      return true;
+    });
 
     // ── 2. Module users (tenantModule-based platforms: renovada, bosque, etc.) ─
     // Included when NOT on the "deleted" tab, since User records have no isDeleted concept.
@@ -1730,12 +1738,14 @@ export class AdminController {
     const moduleUserMap = new Map(moduleUsers.map((u) => [u.id, u]));
 
     // ── 3. Merge and sort by createdAt desc, then paginate ────────────────────
-    type ExtId = { source: 'ext'; cpf: string; createdAt: Date };
+    type ExtId = { source: 'ext'; document: string; createdAt: Date };
     type ModId = { source: 'mod'; userId: string; createdAt: Date };
     type Identity = ExtId | ModId;
 
     const allIdentities: Identity[] = [
-      ...extAllRows.map((e) => ({ source: 'ext' as const, cpf: e.cpf, createdAt: e.createdAt })),
+      ...extAllRows
+        .map((e) => ({ source: 'ext' as const, document: e.cpf ?? e.cnpj ?? '', createdAt: e.createdAt }))
+        .filter((e) => e.document !== ''),
       ...moduleUsers.map((u) => ({ source: 'mod' as const, userId: u.id, createdAt: u.createdAt })),
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
@@ -1746,18 +1756,27 @@ export class AdminController {
       return { data: [], total: combinedTotal, page: pageNum, pageSize: size };
     }
 
-    // ── 4. Fetch full ExternalPlatformUser records for paged CPFs ─────────────
-    const pagedExtCpfs = pagedIdentities
+    // ── 4. Fetch full ExternalPlatformUser records for paged documents ────────
+    const pagedExtDocs = pagedIdentities
       .filter((i): i is ExtId => i.source === 'ext')
-      .map((i) => i.cpf);
+      .map((i) => i.document);
 
     const pagedModUserIds = pagedIdentities
       .filter((i): i is ModId => i.source === 'mod')
       .map((i) => i.userId);
 
-    const allExtRecords = pagedExtCpfs.length > 0
+    const pagedExtCpfs = pagedExtDocs.filter((d) => d.length === 11);
+    const pagedExtCnpjs = pagedExtDocs.filter((d) => d.length === 14);
+
+    const allExtRecords = pagedExtDocs.length > 0
       ? await this.prisma.externalPlatformUser.findMany({
-          where: { cpf: { in: pagedExtCpfs }, isDeleted: showDeleted },
+          where: {
+            OR: [
+              ...(pagedExtCpfs.length > 0 ? [{ cpf: { in: pagedExtCpfs } }] : []),
+              ...(pagedExtCnpjs.length > 0 ? [{ cnpj: { in: pagedExtCnpjs } }] : []),
+            ],
+            isDeleted: showDeleted,
+          },
           include: {
             wallet: true,
             user: { select: { id: true, name: true, email: true } },
@@ -1766,10 +1785,12 @@ export class AdminController {
         })
       : [];
 
-    const byCpf = new Map<string, typeof allExtRecords>();
+    const byDoc = new Map<string, typeof allExtRecords>();
     for (const r of allExtRecords) {
-      if (!byCpf.has(r.cpf)) byCpf.set(r.cpf, []);
-      byCpf.get(r.cpf)!.push(r);
+      const key = r.cpf ?? r.cnpj ?? '';
+      if (!key) continue;
+      if (!byDoc.has(key)) byDoc.set(key, []);
+      byDoc.get(key)!.push(r);
     }
 
     // ── 5. Activity check ─────────────────────────────────────────────────────
@@ -1831,7 +1852,7 @@ export class AdminController {
     const data = pagedIdentities
       .map((identity) => {
         if (identity.source === 'ext') {
-          const records = byCpf.get(identity.cpf) ?? [];
+          const records = byDoc.get(identity.document) ?? [];
           if (records.length === 0) return null;
           const primary = records.find((r) => !!r.userId) ?? records[records.length - 1];
           const simpayUser = primary?.user ?? null;
@@ -1856,7 +1877,7 @@ export class AdminController {
 
           return {
             id: primary.id,
-            cpf: identity.cpf,
+            cpf: identity.document,
             name: simpayUser?.name?.trim() || primary.name,
             platformEntries: records.map((r) => ({
               id: r.id,

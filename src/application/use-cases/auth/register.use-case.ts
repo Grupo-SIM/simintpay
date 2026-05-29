@@ -8,6 +8,7 @@ import { WALLET_REPOSITORY } from '../../../core/repositories/wallet.repository.
 import { HASH_SERVICE } from '../../../core/services/hash.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import { AuthTokensService } from './auth-tokens.service';
+import { LinkExternalPlatformUserService } from '../../services/link-external-platform-user.service';
 
 import type { ISessionRepository } from '../../../core/repositories/session.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
@@ -24,6 +25,7 @@ export class RegisterUseCase {
     @Inject(HASH_SERVICE) private readonly hash: IHashService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly tokens: AuthTokensService,
+    private readonly linkExternal: LinkExternalPlatformUserService,
   ) {}
 
   async execute(input: {
@@ -43,15 +45,26 @@ export class RegisterUseCase {
     const domReg = await this.gateway.register({ name, email, password });
     const domTok = await this.gateway.generateToken(email, password);
 
+    // Detecta se o campo `document` é CPF (11) ou CNPJ (14)
+    const docDigits = (input.dto.document ?? '').replace(/\D/g, '');
+    const isCnpj = docDigits.length === 14;
+    const isCpf = docDigits.length === 11;
+
     const user = await this.users.create({
       name,
       email,
       password: hashed,
       domUserId: domReg.domUserId,
       domToken: domTok.domToken,
+      cpf: isCpf ? docDigits : undefined,
+      cnpj: isCnpj ? docDigits : undefined,
     });
 
     await this.wallets.createForUser(user.id);
+
+    // Vincula ExternalPlatformUser pelo documento, se disponível
+    if (isCpf) void this.linkExternal.linkByCpf(user.id, docDigits);
+    else if (isCnpj) void this.linkExternal.linkByCnpj(user.id, docDigits);
 
     const { token: accessToken, expiresIn } = await this.tokens.signAccessToken(
       {

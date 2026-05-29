@@ -83,9 +83,11 @@ export class ApproveLeadUseCase {
 
     await this.leads.approve(input.leadId, user.id);
 
-    // Vincula ExternalPlatformUser se o CPF já foi identificado em transações
+    // Vincula ExternalPlatformUser pelo documento identificador do lead
     if (lead.cpf) {
       await this.linkExternal.linkByCpf(user.id, lead.cpf);
+    } else if ((lead as any).cnpj) {
+      await this.linkExternal.linkByCnpj(user.id, (lead as any).cnpj);
     }
 
     // Send welcome email (non-blocking — failure doesn't roll back)

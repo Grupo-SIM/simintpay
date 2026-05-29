@@ -456,8 +456,8 @@ export class InternalPagatgFinanceController {
 
     const amountDec = new Prisma.Decimal(amount);
     const netDec = new Prisma.Decimal(netAmount);
-    const cpfClean = this.normalizeCpf(body.cpf ?? '');
-    const cpfTag = cpfClean.length === 11 ? ` [CPF_DONO:${cpfClean}]` : '';
+    const cpfClean = this.normalizeDoc(body.cpf ?? '');
+    const cpfTag = cpfClean.length === 14 ? ` [CNPJ_DONO:${cpfClean}]` : cpfClean.length === 11 ? ` [CPF_DONO:${cpfClean}]` : '';
     const description = `${body.planDescription} ${TENANT_PAGATG_TAG}${cpfTag}`;
 
     const tx = await this.prisma.$transaction(async (p) => {

@@ -11,6 +11,7 @@ export type CreateUserData = {
   domUserId?: string | null;
   domToken?: string | null;
   cpf?: string | null;
+  cnpj?: string | null;
   tenantModuleId?: string | null;
 };
 

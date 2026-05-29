@@ -22,7 +22,7 @@ export class PrismaUserRepository implements IUserRepository {
   }
 
   async create(data: CreateUserData): Promise<User> {
-    return this.prisma.user.create({
+    return (this.prisma.user as any).create({
       data: {
         name: data.name,
         email: data.email,
@@ -32,6 +32,7 @@ export class PrismaUserRepository implements IUserRepository {
         domUserId: data.domUserId ?? undefined,
         domToken: data.domToken ?? undefined,
         cpf: data.cpf ?? undefined,
+        cnpj: data.cnpj ?? undefined,
         tenantModuleId: data.tenantModuleId ?? undefined,
       },
     });

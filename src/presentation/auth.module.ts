@@ -6,6 +6,7 @@ import { AuthController } from './controllers/auth.controller';
 import { HealthController } from './controllers/health.controller';
 import { LoginUseCase } from '../application/use-cases/auth/login.use-case';
 import { RegisterUseCase } from '../application/use-cases/auth/register.use-case';
+import { LinkExternalPlatformUserService } from '../application/services/link-external-platform-user.service';
 import { RefreshTokenUseCase } from '../application/use-cases/auth/refresh-token.use-case';
 import { LogoutUseCase } from '../application/use-cases/auth/logout.use-case';
 import { GetMeUseCase } from '../application/use-cases/auth/get-me.use-case';
@@ -43,6 +44,7 @@ import { PrismaWalletRepository } from '../infrastructure/database/repositories/
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: SESSION_REPOSITORY, useClass: PrismaSessionRepository },
     { provide: WALLET_REPOSITORY, useClass: PrismaWalletRepository },
+    LinkExternalPlatformUserService,
   ],
   exports: [USER_REPOSITORY, WALLET_REPOSITORY],
 })
