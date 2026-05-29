@@ -18,6 +18,10 @@ import type { ITransactionRepository } from '../../../core/repositories/transact
 import type { IWebhookEventRepository } from '../../../core/repositories/webhook-event.repository.interface';
 import type { IBalanceLogRepository } from '../../../core/repositories/balance-log.repository.interface';
 
+function documentType(raw: string | null | undefined): 'CPF' | 'CNPJ' {
+  return (raw ?? '').replace(/\D/g, '').length === 14 ? 'CNPJ' : 'CPF';
+}
+
 type WebhookPayload = Record<string, unknown>;
 
 type DomWebhookPayload = {
@@ -364,7 +368,7 @@ export class ProcessWebhookUseCase {
             name: customer?.name ?? '',
             email: customer?.email ?? '',
             document: customer?.document ?? '',
-            document_type: 'CPF',
+            document_type: documentType(customer?.document),
             mobile_phone: customer?.mobile_phone,
           });
         } catch (pixPlanError: any) {

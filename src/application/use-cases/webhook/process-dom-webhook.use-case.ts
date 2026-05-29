@@ -23,6 +23,18 @@ import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platfo
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function documentType(raw: string | null | undefined): 'CPF' | 'CNPJ' {
+  return (raw ?? '').replace(/\D/g, '').length === 14 ? 'CNPJ' : 'CPF';
+}
+
+function provisionDocPayload(raw: string | null | undefined): { cpf?: string } | { cnpj?: string } {
+  const digits = (raw ?? '').replace(/\D/g, '');
+  if (!digits) return {};
+  return digits.length === 14 ? { cnpj: digits } : { cpf: digits };
+}
+
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
 const RENOVADA_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
@@ -407,7 +419,7 @@ export class ProcessDomWebhookUseCase {
               name: data.customer?.name ?? '',
               email: data.customer?.email ?? '',
               document: data.customer?.document ?? '',
-              document_type: 'CPF',
+              document_type: documentType(data.customer?.document),
               mobile_phone: data.customer?.mobile_phone,
             });
           } catch (pixPlanError: any) {
@@ -652,7 +664,7 @@ export class ProcessDomWebhookUseCase {
         body: JSON.stringify({
           email,
           name,
-          cpf: data.customer?.document,
+          ...provisionDocPayload(data.customer?.document),
           phone: data.customer?.mobile_phone,
         }),
       });
@@ -689,7 +701,7 @@ export class ProcessDomWebhookUseCase {
         body: JSON.stringify({
           email,
           name,
-          cpf: data.customer?.document,
+          ...provisionDocPayload(data.customer?.document),
           phone: data.customer?.mobile_phone,
         }),
       });
@@ -945,22 +957,27 @@ export class ProcessDomWebhookUseCase {
         return;
       }
 
-      // Resolve o userId do autor pelo CPF, se disponível
+      // Resolve o userId do autor pelo documento (CPF ou CNPJ), se disponível
       let ebookUserId: string | null = null;
       let ownerNameFromSimpay: string | null = null;
       if (ownerCpf) {
-        const cpfClean = ownerCpf.replace(/\D/g, '');
-        const cpfFormatted = cpfClean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-        const author = await this.prisma.user.findFirst({
-          where: { cpf: { in: [cpfClean, cpfFormatted] } },
-          select: { id: true, name: true },
-        });
+        const docClean = ownerCpf.replace(/\D/g, '');
+        const isCnpj = docClean.length === 14;
+        const author = isCnpj
+          ? await this.prisma.user.findFirst({
+              where: { cnpj: docClean },
+              select: { id: true, name: true },
+            })
+          : await this.prisma.user.findFirst({
+              where: { cpf: { in: [docClean, docClean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')] } },
+              select: { id: true, name: true },
+            });
         ebookUserId = author?.id ?? null;
         ownerNameFromSimpay = author?.name?.trim() || null;
         if (ebookUserId) {
-          this.logger.log(`[DomWebhook][ebook] CPF ${cpfClean} → userId=${ebookUserId}`);
+          this.logger.log(`[DomWebhook][ebook] ${isCnpj ? 'CNPJ' : 'CPF'} ${docClean} → userId=${ebookUserId}`);
         } else {
-          this.logger.log(`[DomWebhook][ebook] CPF ${cpfClean} sem conta na api-machine — usando conta genérica ebook`);
+          this.logger.log(`[DomWebhook][ebook] ${isCnpj ? 'CNPJ' : 'CPF'} ${docClean} sem conta na api-machine — usando conta genérica ebook`);
         }
       }
 
@@ -1357,7 +1374,7 @@ export class ProcessDomWebhookUseCase {
             body: JSON.stringify({
               email: order.customerEmail,
               name: order.customerName,
-              cpf: order.customerDocument,
+              ...provisionDocPayload(order.customerDocument),
               phone: order.customerPhone ?? undefined,
             }),
           })
@@ -1397,7 +1414,7 @@ export class ProcessDomWebhookUseCase {
             body: JSON.stringify({
               email: order.customerEmail,
               name: order.customerName,
-              cpf: order.customerDocument,
+              ...provisionDocPayload(order.customerDocument),
               phone: order.customerPhone ?? undefined,
             }),
           })
