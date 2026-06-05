@@ -54,4 +54,8 @@ export class ListTransactionsQueryDto {
   @IsOptional()
   @IsIn(['PIX', 'CREDIT_CARD'])
   metodo?: 'PIX' | 'CREDIT_CARD';
+
+  @IsOptional()
+  @IsIn(['maquinetas', 'online'])
+  tipoTransacao?: 'maquinetas' | 'online';
 }

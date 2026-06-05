@@ -463,6 +463,24 @@ export class ListTransactionsUseCase {
       and.push({ domTransactionId: { contains: input.query.domTransactionId, mode: 'insensitive' } });
     }
 
+    if (input.query.tipoTransacao === 'maquinetas') {
+      and.push({
+        OR: [
+          { description: { contains: 'maquineta', mode: Prisma.QueryMode.insensitive } },
+          { description: { contains: 'terminal', mode: Prisma.QueryMode.insensitive } },
+        ],
+      });
+    } else if (input.query.tipoTransacao === 'online') {
+      and.push({
+        NOT: {
+          OR: [
+            { description: { contains: 'maquineta', mode: Prisma.QueryMode.insensitive } },
+            { description: { contains: 'terminal', mode: Prisma.QueryMode.insensitive } },
+          ],
+        },
+      });
+    }
+
     if (input.query.dataInicio || input.query.dataFim) {
       const createdAt: Prisma.DateTimeFilter = {};
       if (input.query.dataInicio) {

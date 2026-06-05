@@ -242,13 +242,21 @@ export class PlatformDashboardController {
           subscriptionLinkId: { in: linkIds },
           ...(somenteAtivos ? { status: { in: activeStatuses } } : {}),
         },
-        select: { customerEmail: true, customerName: true, customerDocument: true, createdAt: true },
-        distinct: ['customerEmail'],
+        select: { customerEmail: true, customerName: true, customerDocument: true, createdAt: true, status: true },
         orderBy: { createdAt: 'desc' },
       });
 
       const total = allOrders.length;
       const paged = allOrders.slice(skip, skip + size);
+
+      const pagedEmails = paged.map((o) => o.customerEmail).filter(Boolean);
+      const registeredUsers = pagedEmails.length > 0
+        ? await this.prisma.user.findMany({
+            where: { email: { in: pagedEmails } },
+            select: { email: true },
+          })
+        : [];
+      const registeredEmailSet = new Set(registeredUsers.map((u) => u.email));
 
       return {
         data: paged.map((o) => ({
@@ -258,6 +266,8 @@ export class PlatformDashboardController {
           balance: 0,
           lockedBalance: 0,
           createdAt: o.createdAt,
+          status: o.status,
+          isRegisteredInSimIntPay: registeredEmailSet.has(o.customerEmail),
         })),
         total,
         page: pageNum,

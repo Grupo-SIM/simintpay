@@ -688,9 +688,16 @@ type LucroSimpayLinhaTx = {
   installments: number;
 };
 
-const TAGS_SEM_TAXA_SERVICO = new Set(['RENOVADA', 'BOSQUE']);
+/** BOSQUE ainda isento; RENOVADA migrou para TAXA_SERVICO em 2026-05-29 (data abaixo). */
+const TAGS_SEM_TAXA_SERVICO = new Set(['BOSQUE']);
 /** Transações anteriores a esta data não são cobradas a TAXA_SERVICO (fee retroativo não aplicado). */
 const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z'); // 2026-05-18 meia-noite BRT
+/** RENOVADA: início do TAXA_SERVICO — mesma data do internal-renovada-finance.controller.ts. */
+const TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA = new Date('2026-05-29T20:40:00.000Z');
+/** Retorna a data efetiva do TAXA_SERVICO para a plataforma, respeitando migração de RENOVADA. */
+function getTaxaServicoEffectiveDate(tag: string): Date {
+  return tag === 'RENOVADA' ? TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA : TAXA_SERVICO_EFFECTIVE_DATE;
+}
 
 type LucroSimpayPorPlataforma = {
   tag: string;
@@ -763,7 +770,7 @@ function buildLucroSimpayDetalhePorPlataforma(
     const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
     const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
     const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
-    const taxaServico = taxaServicoRate > 0 && tx.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? taxaServicoRate : 0;
+    const taxaServico = taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag) ? taxaServicoRate : 0;
 
     const bruto = Number(tx.amount);
     const parteAdmin = bruto * (1 - liquidezLojista);
@@ -945,7 +952,7 @@ function lucroSimpayUmaTransacaoConsolidado(
   const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
   const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
   const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
-  const taxaServico = taxaServicoRate > 0 && tx.createdAt != null && tx.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE
+  const taxaServico = taxaServicoRate > 0 && tx.createdAt != null && tx.createdAt >= getTaxaServicoEffectiveDate(tag)
     ? taxaServicoRate
     : 0;
   const bruto = Number(tx.amount);
@@ -1138,7 +1145,7 @@ function accumTxFinancePorDia(
       ? 0
       : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
     const taxaServicoTx =
-      taxaServicoRate > 0 && tx.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? taxaServicoRate : 0;
+      taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag) ? taxaServicoRate : 0;
     taxaServico.set(ymd, (taxaServico.get(ymd) ?? 0) + taxaServicoTx);
   }
   return { bruto, liquido, lucro, cashback, taxaAdquirente, taxaServico };
@@ -1240,7 +1247,7 @@ function buildDashboardFinanceHistoricoPorHora(
       ? 0
       : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
     const taxaServicoTx =
-      taxaServicoRate > 0 && tx.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? taxaServicoRate : 0;
+      taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag) ? taxaServicoRate : 0;
     taxaServico.set(h, (taxaServico.get(h) ?? 0) + taxaServicoTx);
   }
   const fee = new Map<number, number>();
@@ -2533,6 +2540,22 @@ export class AdminController {
       dataFim,
     );
 
+    const chargebackDateWhere: Prisma.DateTimeFilter = {};
+    if (dataInicio) chargebackDateWhere.gte = dayjs.tz(dataInicio, TZ).startOf('day').toDate();
+    if (dataFim) chargebackDateWhere.lte = dayjs.tz(dataFim, TZ).endOf('day').toDate();
+    const chargebackTxs = await this.prisma.transaction.findMany({
+      where: {
+        status: TransactionStatus.CHARGEBACK,
+        ...buildConsolidadoScopeOr(platformIds),
+        ...(Object.keys(chargebackDateWhere).length > 0 ? { createdAt: chargebackDateWhere } : {}),
+      },
+      select: { amount: true },
+    });
+    const chargebacks = {
+      quantidade: chargebackTxs.length,
+      valor: Math.round(chargebackTxs.reduce((acc, t) => acc + Number(t.amount ?? 0), 0) * 100) / 100,
+    };
+
     let lucroTotalMasterHistorico: Array<{ label: string; valor: number }> = [];
     let lucroTotalMasterHistoricoCriterio =
       'Com dataInicio/dataFim: um ponto por dia no fuso America/Sao_Paulo. valor = soma do lucro Simpay das transações COMPLETED elegíveis daquele dia + soma ADMIN_WITHDRAW_PROFIT_INC − soma ADMIN_WITHDRAW_FEE_INC nos logs daquele dia (mesma base do lucroTotalMaster agregado).';
@@ -2642,6 +2665,10 @@ export class AdminController {
       estornos: {
         quantidade: estornos.quantidade,
         valor: estornos.valor,
+      },
+      chargebacks: {
+        quantidade: chargebacks.quantidade,
+        valor: chargebacks.valor,
       },
       ...(dashboardFinanceHistorico && dashboardFinanceHistorico.length > 0
         ? {
@@ -5594,7 +5621,7 @@ export class AdminController {
           const pmStr = String(o.paymentMethod ?? 'pix').toLowerCase();
           const pmStrNorm = pmStr.includes('debit') ? 'debit_card' : pmStr.includes('card') || pmStr.includes('credit') ? 'credit_card' : 'pix';
           const taxaDom = Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStrNorm, installments: 1, tenantTag: upperTag }).toFixed(2));
-          const taxaServico = taxaServicoRate > 0 && o.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? Number(taxaServicoRate.toFixed(2)) : 0;
+          const taxaServico = taxaServicoRate > 0 && o.createdAt >= getTaxaServicoEffectiveDate(upperTag) ? Number(taxaServicoRate.toFixed(2)) : 0;
           const lucroPrejuizo = Number((taxaSimIntPay - taxaDom - taxaServicoFixa - taxaServicoCashback).toFixed(2));
           return {
             id: `comunidade_order_${o.id}`,
@@ -5643,7 +5670,7 @@ export class AdminController {
           }
           const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
           const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
-          const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? Number(taxaServicoRate.toFixed(2)) : 0;
+          const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag) ? Number(taxaServicoRate.toFixed(2)) : 0;
           const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
           const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
           const cashbackDeduction = valorBruto * ((getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', 0)) / 100);
@@ -5821,14 +5848,17 @@ export class AdminController {
 
     const adminMargin = 1 - liquidityFactor;
 
-    const TAXA_SERVICE_EXEMPT = new Set(['RENOVADA', 'BOSQUE']);
-    const taxaServicoFixa = TAXA_SERVICE_EXEMPT.has(upperTag)
+    // DOM fee deductions (R$1+R$3) continuam isentos para RENOVADA/BOSQUE — net amount já os desconta.
+    const TAXA_DOM_FEE_EXEMPT = new Set(['RENOVADA', 'BOSQUE']);
+    // TAXA_SERVICO (R$4 Sim Int Pay): RENOVADA passou a cobrar em 2026-05-29; BOSQUE ainda isento.
+    const TAXA_SERVICO_RATE_EXEMPT = new Set(['BOSQUE']);
+    const taxaServicoFixa = TAXA_DOM_FEE_EXEMPT.has(upperTag)
       ? 0
       : getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-    const taxaServicoCashback = TAXA_SERVICE_EXEMPT.has(upperTag)
+    const taxaServicoCashback = TAXA_DOM_FEE_EXEMPT.has(upperTag)
       ? 0
       : getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-    const taxaServicoRate = TAXA_SERVICE_EXEMPT.has(upperTag)
+    const taxaServicoRate = TAXA_SERVICO_RATE_EXEMPT.has(upperTag)
       ? 0
       : getPlatformTaxaEffective(upperTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
 
@@ -5913,7 +5943,7 @@ export class AdminController {
 
       const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
       const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
-      const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE
+      const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
         ? Number(taxaServicoRate.toFixed(2))
         : 0;
       const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
@@ -6515,9 +6545,9 @@ export class AdminController {
     if (endDate) dateFilter.lte = parseYmdSp(endDate).endOf('day').toDate();
     const hasDate = true;
 
-    // RENOVADA and BOSQUE have no fixed fee or cashback per transaction
-    const TAXA_SERVICE_EXEMPT_SET = new Set(['RENOVADA', 'BOSQUE']);
-    const isExempt = TAXA_SERVICE_EXEMPT_SET.has(tag);
+    // Only BOSQUE is exempt from all per-transaction fees.
+    // RENOVADA charges DOM per-transaction fees (R$1 fixo + R$3 cashback) and SimInt R$4/tx since 2026-05-29.
+    const isExempt = tag === 'BOSQUE';
 
     const TAXA_LINK_PCT  = getPlatformTaxaEffective(tag, 'TAXA_LINK_PERCENT',   PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
     const TAXA_LINK_FIXA = isExempt ? 0 : getPlatformTaxaEffective(tag, 'TAXA_LINK_FIXA',      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
@@ -6547,9 +6577,11 @@ export class AdminController {
       const taxaAdquirente = TAXA_FIXA * qtd;
       const custoCashback  = TAXA_CASHBACK * qtd;
       const totalTaxasDom    = taxaMDRDom + taxaAdquirente + custoCashback;
-      // Renovada/Bosque: SimIntPay % = só a margem de liquidez (1-LIQUIDEZ), sem descontar MDR DOM
-      const taxaSimIntPctNet = isExempt ? taxaSimInt : (taxaSimInt - TAXA_LINK_FIXA * qtd) - taxaMDRDom;
-      const taxaSimIntFixa   = TAXA_LINK_FIXA * qtd;
+      // taxaSimIntFixa = per-tx fee que SimInt repassa à DOM (R$1 fixo + R$3 cashback por transação).
+      // Sempre igual a taxaDomFixa + taxaDomCashback, independente do método de pagamento.
+      const taxaSimIntFixa = (TAXA_FIXA + TAXA_CASHBACK) * qtd;
+      // Bosque: SimIntPay % = só a margem de liquidez (isExempt). Para demais: desconta MDR DOM e fee fixo.
+      const taxaSimIntPctNet = isExempt ? taxaSimInt : (taxaSimInt - taxaSimIntFixa) - taxaMDRDom;
       const totalTaxasSimInt = isExempt ? taxaSimInt : taxaSimInt - taxaMDRDom;
 
       // Parcelamento: apenas transações de cartão de crédito (exclui débito e PIX)
@@ -6647,9 +6679,11 @@ export class AdminController {
 
     const txs = await this.prisma.transaction.findMany({
       where,
-      select: { amount: true, paymentMethod: true, installments: true },
+      select: { amount: true, paymentMethod: true, installments: true, createdAt: true },
     });
 
-    return computeBreakdown(txs);
+    const breakdown = computeBreakdown(txs);
+
+    return breakdown;
   }
 }

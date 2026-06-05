@@ -100,7 +100,12 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
   }
 
   async delete(id: string): Promise<void> {
-    await this.prisma.subscriptionLink.delete({ where: { id } });
+    // Orders têm FK sem cascade — apaga os orders dependentes antes do link.
+    // (CommunityLinkBinding tem onDelete: Cascade e CommunitySubscriptionEvent tem SetNull.)
+    await this.prisma.$transaction([
+      this.prisma.subscriptionLinkOrder.deleteMany({ where: { subscriptionLinkId: id } }),
+      this.prisma.subscriptionLink.delete({ where: { id } }),
+    ]);
   }
 
   async createOrder(data: CreateSubscriptionLinkOrderData): Promise<SubscriptionLinkOrder> {

@@ -33,8 +33,8 @@ export class PlatformDashboardService {
     let start: Date;
     let end: Date = now.toDate();
 
-    // Para EBOOK/PAGATG: usa filtro por tag na descrição (multi-vendor), não por userId único
-    const isEbook = upperTag === 'EBOOK';
+    // Para EBOOK/EBOOKSIM/PAGATG: usa filtro por tag na descrição (multi-vendor), não por userId único
+    const isEbook = upperTag === 'EBOOK' || upperTag === 'EBOOKSIM';
     const isPagatg = upperTag === 'PAGATG';
     const isAtlas = upperTag === 'ATLAS';
     const isBosque = upperTag === 'BOSQUE';
@@ -71,11 +71,11 @@ export class PlatformDashboardService {
       }
     }
 
-    // Prioridade: .env -> Mapa Interno -> ID da Renovada (Legacy Fallback) — não usado para tenant-tagged
+    // Prioridade: .env -> Mapa Interno -> null (sem fallback para Renovada para evitar vazamento de dados)
     const platIdKey = `${upperTag}_ID`;
     const platformId = isTenantTagged || isAreaflix
       ? null
-      : (process.env[platIdKey] || PLATFORM_IDS[upperTag] || PLATFORM_IDS.RENOVADA);
+      : (process.env[platIdKey] || PLATFORM_IDS[upperTag] || null);
 
     if (dataInicio || dataFim) {
       start = dataInicio ? dayjs(dataInicio).startOf('day').toDate() : now.subtract(10, 'year').toDate();
