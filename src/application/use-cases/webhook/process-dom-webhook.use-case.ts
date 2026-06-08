@@ -23,18 +23,7 @@ import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platfo
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import { StorageService } from '../../../infrastructure/storage/storage.service';
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function documentType(raw: string | null | undefined): 'CPF' | 'CNPJ' {
-  return (raw ?? '').replace(/\D/g, '').length === 14 ? 'CNPJ' : 'CPF';
-}
-
-function provisionDocPayload(raw: string | null | undefined): { cpf?: string } | { cnpj?: string } {
-  const digits = (raw ?? '').replace(/\D/g, '');
-  if (!digits) return {};
-  return digits.length === 14 ? { cnpj: digits } : { cpf: digits };
-}
+import { documentType, splitDocument as provisionDocPayload } from '../../utils/document.util';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -1331,6 +1320,8 @@ export class ProcessDomWebhookUseCase {
           frequencyType: order.subscriptionLink.frequencyType,
           amountCharged: Number(order.amountCharged),
           orderId: order.id,
+          ...provisionDocPayload(order.customerDocument),
+          phone: order.customerPhone ?? undefined,
         }),
       }).catch((err: unknown) => {
         this.logger.warn(`[DomWebhook] Falha ao notificar webhookUrl ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`);

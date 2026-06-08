@@ -8,6 +8,7 @@ import {
 import type { IBalanceLogRepository } from '../../../core/repositories/balance-log.repository.interface';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { splitDocument } from '../../utils/document.util';
 
 @Injectable()
 export class SubscriptionWebhookService {
@@ -297,6 +298,8 @@ export class SubscriptionWebhookService {
           frequencyType: link.frequencyType,
           amountCharged: amount.toNumber(),
           orderId: newOrder.id,
+          ...splitDocument(linkOrder.customerDocument),
+          phone: linkOrder.customerPhone ?? undefined,
         }),
       }).catch((err: unknown) => {
         this.logger.warn(`[SubscriptionLinkRenewal] Falha ao notificar ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`);

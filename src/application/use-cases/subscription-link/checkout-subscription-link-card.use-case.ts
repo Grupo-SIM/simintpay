@@ -12,6 +12,7 @@ import { EmailService } from '../../../infrastructure/email/email.service';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { VoucherService } from '../voucher/voucher.service';
+import { splitDocument } from '../../utils/document.util';
 
 function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR'; frequency: number } {
   switch (linkFrequency) {
@@ -184,6 +185,8 @@ export class CheckoutSubscriptionLinkCardUseCase {
       frequencyType: link.frequencyType,
       amountCharged,
       orderId: order.id,
+      ...splitDocument(cleanDoc),
+      phone: cleanPhone || undefined,
     });
 
     return {
