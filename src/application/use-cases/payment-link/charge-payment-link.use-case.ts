@@ -9,6 +9,7 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { calculatePaymentLinkFees, calculateDebitFees } from './payment-link-fees.helper';
+import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 
 export type ChargePaymentLinkInput = {
   linkId: string;
@@ -132,6 +133,11 @@ export class ChargePaymentLinkUseCase {
     // Plataforma: usa a selecionada no link (plataformas[0]) → fallback tenantModule → GLOBAL
     const linkPlatformTag = (link as any).plataformas?.[0]?.toUpperCase() ?? null;
     const platformTag = linkPlatformTag ?? owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+    // Taxa personalizada por cliente: na SIM INT PAY (GLOBAL), usa a tag CLIENT:<email>
+    // para o cálculo (cai no GLOBAL quando o cliente não tem taxa própria).
+    const taxaTag = platformTag === 'GLOBAL' && input.customerEmail?.trim()
+      ? buildClientTaxaTag(input.customerEmail)
+      : platformTag;
     const isDebit = input.paymentMethod === 'debit_card';
     const isPix = input.paymentMethod === 'pix';
 
@@ -140,14 +146,14 @@ export class ChargePaymentLinkUseCase {
     // Para crédito: cálculo normal com juros repassados ao comprador.
     const fees = isDebit
       ? (() => {
-          const d = calculateDebitFees(link, platformTag);
+          const d = calculateDebitFees(link, taxaTag);
           return {
             totalAmount: d.baseAmount,       // comprador paga o valor base
             netAmount: d.netAmount,
             domFeeAmount: d.domFeeAmount + d.platformFeeAmount, // total de taxas sobre o vendedor
           };
         })()
-      : calculatePaymentLinkFees(link, installments, platformTag, isPix);
+      : calculatePaymentLinkFees(link, installments, taxaTag, isPix);
     const { totalAmount, netAmount, domFeeAmount } = fees;
 
     const result = await this.gateway.chargePaymentLink(domToken, {
@@ -224,7 +230,7 @@ export class ChargePaymentLinkUseCase {
       id: result.id,
       status: result.status ?? 'pending',
       pixContent: result.pixContent ?? null,
-      redirectUrl: null,
+      redirectUrl: (link as any).redirectUrl ?? null,
     };
   }
 }

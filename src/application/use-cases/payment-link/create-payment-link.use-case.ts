@@ -107,6 +107,7 @@ export class CreatePaymentLinkUseCase {
       debitFeePercent: input.dto.debitFeePercent,
       debitFeeFixed: input.dto.debitFeeFixed,
       webhookUrl: input.dto.webhookUrl ?? null,
+      redirectUrl: input.dto.redirectUrl ?? null,
       maxUses: input.dto.maxUses ?? null,
       domPaymentLinkId: created.id,
       emailBody: input.dto.emailBody ?? null,

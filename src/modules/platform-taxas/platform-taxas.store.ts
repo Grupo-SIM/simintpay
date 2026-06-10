@@ -141,6 +141,19 @@ export function canonicalPlatformTaxaTag(tag: string): string {
   return u;
 }
 
+/** Prefixo de tag para taxa personalizada por cliente (e-mail) na SIM INT PAY (GLOBAL). */
+export const CLIENT_TAXA_TAG_PREFIX = 'CLIENT:';
+
+/** Monta a tag canônica de um cliente personalizado a partir do e-mail (ex.: CLIENT:JOAO@X.COM). */
+export function buildClientTaxaTag(email: string): string {
+  return `${CLIENT_TAXA_TAG_PREFIX}${String(email || '').trim().toUpperCase()}`;
+}
+
+/** True se a tag representa um cliente personalizado (CLIENT:<email>). */
+export function isClientTaxaTag(tag: string): boolean {
+  return String(tag || '').toUpperCase().startsWith(CLIENT_TAXA_TAG_PREFIX);
+}
+
 function envPrefixForCanonical(canonical: string): string {
   return ENV_PREFIX_BY_CANONICAL_TAG[canonical] ?? canonical;
 }
@@ -176,6 +189,17 @@ export function getPlatformTaxaEffective(
   keySuffix: string,
   fallback: number,
 ): number {
+  // Cliente personalizado (SIM INT PAY): usa o override do cliente; se não houver
+  // para esta chave, herda TODA a resolução do GLOBAL (override + env + default).
+  if (isClientTaxaTag(listOrModuleTag)) {
+    const clientTag = canonicalPlatformTaxaTag(listOrModuleTag);
+    const clientOverride = readOverridesRaw()[clientTag]?.[keySuffix];
+    if (clientOverride !== undefined && Number.isFinite(Number(clientOverride))) {
+      return finalizeResolvedTaxa(keySuffix, Number(clientOverride));
+    }
+    return getPlatformTaxaEffective('GLOBAL', keySuffix, fallback);
+  }
+
   const canonical = canonicalPlatformTaxaTag(listOrModuleTag);
   const overrides = readOverridesRaw();
 
@@ -212,6 +236,16 @@ export function getPlatformTaxaSource(
   listOrModuleTag: string,
   keySuffix: string,
 ): 'override' | 'global' | 'env' {
+  // Cliente personalizado: 'override' se ele tem valor próprio; senão, a fonte é o GLOBAL.
+  if (isClientTaxaTag(listOrModuleTag)) {
+    const clientTag = canonicalPlatformTaxaTag(listOrModuleTag);
+    const clientRow = readOverridesRaw()[clientTag];
+    if (clientRow && Object.prototype.hasOwnProperty.call(clientRow, keySuffix)) {
+      return 'override';
+    }
+    return getPlatformTaxaSource('GLOBAL', keySuffix);
+  }
+
   const canonical = canonicalPlatformTaxaTag(listOrModuleTag);
   const overrides = readOverridesRaw();
 

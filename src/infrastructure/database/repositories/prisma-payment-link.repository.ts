@@ -34,6 +34,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
         platformFee12x: data.platformFee12x ?? 25.99,
         cashbackFee: data.cashbackFee ?? 3.00,
         webhookUrl: data.webhookUrl ?? undefined,
+        redirectUrl: data.redirectUrl ?? undefined,
         maxUses: data.maxUses ?? undefined,
         domPaymentLinkId: data.domPaymentLinkId ?? undefined,
         emailBody: data.emailBody ?? undefined,
@@ -117,6 +118,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
       platformFee12x: number;
       cashbackFee: number;
       webhookUrl?: string | null;
+      redirectUrl?: string | null;
       maxUses?: number | null;
       currentUses: number;
       domPaymentLinkId?: string | null;
@@ -148,6 +150,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
         platformFee12x: data.platformFee12x,
         cashbackFee: data.cashbackFee,
         webhookUrl: data.webhookUrl ?? undefined,
+        redirectUrl: data.redirectUrl ?? undefined,
         maxUses: data.maxUses ?? undefined,
         currentUses: data.currentUses,
         domPaymentLinkId: data.domPaymentLinkId ?? undefined,

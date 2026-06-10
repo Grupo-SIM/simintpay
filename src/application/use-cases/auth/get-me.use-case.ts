@@ -29,6 +29,8 @@ export class GetMeUseCase {
     id: string;
     name: string;
     email: string;
+    cpf: string | null;
+    cnpj: string | null;
     role: string;
     isAdmin: boolean;
     /** Admin master (taxas globais, etc.) — derivado de role + tenant slug/nome. */
@@ -158,6 +160,8 @@ export class GetMeUseCase {
             id: user.id,
             name: domMe.name ?? user.name,
             email: domMe.email ?? user.email,
+            cpf: user.cpf ?? null,
+            cnpj: user.cnpj ?? null,
             role: user.role,
             isAdmin: user.role === 'ADMIN',
             isMasterAdmin: master,
@@ -175,6 +179,8 @@ export class GetMeUseCase {
       id: user.id,
       name: user.name,
       email: user.email,
+      cpf: user.cpf ?? null,
+      cnpj: user.cnpj ?? null,
       role: user.role,
       isAdmin: user.role === 'ADMIN',
       isMasterAdmin: master,

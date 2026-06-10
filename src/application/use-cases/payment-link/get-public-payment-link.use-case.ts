@@ -63,6 +63,7 @@ export class GetPublicPaymentLinkUseCase {
     ativo: boolean;
     isStandalone: boolean;
     dataExpiracao: string | null;
+    redirectUrl: string | null;
     opcoesParcelas: InstallmentOption[];
     valorPix: number;
     valorDebito: number;
@@ -136,6 +137,7 @@ export class GetPublicPaymentLinkUseCase {
       ativo: link.isActive,
       isStandalone: (link as any).isStandalone ?? true,
       dataExpiracao: (link as any).expiresAt ? (link as any).expiresAt.toISOString() : null,
+      redirectUrl: (link as any).redirectUrl ?? null,
       opcoesParcelas,
       valorPix,
       valorDebito: Number(link.amount),

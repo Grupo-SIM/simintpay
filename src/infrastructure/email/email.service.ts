@@ -302,11 +302,25 @@ export class EmailService {
     }
   }
 
+  /** Botão de redirecionamento pós-pagamento (aparece só quando há redirectUrl). */
+  private redirectButtonHtml(redirectUrl?: string | null): string {
+    if (!redirectUrl?.trim()) return '';
+    return `
+      <div style="margin: 24px 0 8px;">
+        <a href="${redirectUrl}"
+           style="display: inline-block; background: #6d28d9; color: #fff; text-decoration: none;
+                  padding: 12px 28px; border-radius: 8px; font-weight: bold;">
+          Continuar
+        </a>
+      </div>`;
+  }
+
   async sendPaymentLinkFiles(input: {
     to: string;
     customerName: string;
     linkTitle: string;
     attachments: { filename: string; content: Buffer }[];
+    redirectUrl?: string | null;
   }): Promise<void> {
     if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
       throw new Error('SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)');
@@ -334,6 +348,7 @@ export class EmailService {
               <p>Seu pagamento de <strong style="color: #6d28d9;">${input.linkTitle}</strong> foi confirmado.</p>
               <p>Seguem em anexo os seus arquivos:</p>
               <ul style="padding-left: 20px;">${fileList}</ul>
+              ${this.redirectButtonHtml(input.redirectUrl)}
               <hr style="border: none; border-top: 1px solid #e5e3ff; margin: 24px 0;" />
               <p style="font-size: 12px; color: #9ca3af;">Se você não realizou este pagamento, entre em contato conosco.</p>
             </div>
@@ -350,6 +365,94 @@ export class EmailService {
       });
     } catch (err) {
       this.logger.error(`Falha ao enviar e-mail com PDFs para ${input.to}: ${String(err)}`);
+      throw err;
+    }
+  }
+
+  /** E-mail de redefinição de senha com link contendo o token de reset. */
+  async sendPasswordReset(input: {
+    to: string;
+    name: string;
+    resetUrl: string;
+  }): Promise<void> {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+      throw new Error('SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)');
+    }
+    const transport = this.createTransport();
+    const from = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
+
+    try {
+      await transport.sendMail({
+        from: `"SIM INT PAY" <${from}>`,
+        to: input.to,
+        subject: 'Redefinição de senha — SIM INT PAY',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
+            <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+            </div>
+            <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
+              <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.name}</strong>!</p>
+              <p>Recebemos um pedido para redefinir a senha da sua conta. Clique no botão abaixo para criar uma nova senha:</p>
+              <div style="margin: 24px 0;">
+                <a href="${input.resetUrl}"
+                   style="display: inline-block; background: #6d28d9; color: #fff; text-decoration: none;
+                          padding: 12px 28px; border-radius: 8px; font-weight: bold;">
+                  Redefinir minha senha
+                </a>
+              </div>
+              <p style="font-size: 13px; color: #6b7280;">Este link expira em 1 hora. Se você não solicitou a redefinição, ignore este e-mail — sua senha continua a mesma.</p>
+            </div>
+            <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
+              SIM INT PAY · JB Mídia
+            </p>
+          </div>
+        `,
+      });
+    } catch (err) {
+      this.logger.error(`Falha ao enviar e-mail de redefinição para ${input.to}: ${String(err)}`);
+      throw err;
+    }
+  }
+
+  /** E-mail simples de pagamento confirmado com botão de redirecionamento. */
+  async sendPaymentLinkConfirmation(input: {
+    to: string;
+    customerName: string;
+    linkTitle: string;
+    redirectUrl: string;
+  }): Promise<void> {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+      throw new Error('SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)');
+    }
+    const transport = this.createTransport();
+    const from = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
+
+    try {
+      await transport.sendMail({
+        from: `"SIM INT PAY" <${from}>`,
+        to: input.to,
+        subject: `Pagamento confirmado — ${input.linkTitle}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
+            <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+            </div>
+            <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
+              <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.customerName}</strong>!</p>
+              <p>Seu pagamento de <strong style="color: #6d28d9;">${input.linkTitle}</strong> foi confirmado. Clique no botão abaixo para continuar:</p>
+              ${this.redirectButtonHtml(input.redirectUrl)}
+              <hr style="border: none; border-top: 1px solid #e5e3ff; margin: 24px 0;" />
+              <p style="font-size: 12px; color: #9ca3af;">Se você não realizou este pagamento, entre em contato conosco.</p>
+            </div>
+            <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
+              SIM INT PAY · JB Mídia
+            </p>
+          </div>
+        `,
+      });
+    } catch (err) {
+      this.logger.error(`Falha ao enviar e-mail de confirmação para ${input.to}: ${String(err)}`);
       throw err;
     }
   }

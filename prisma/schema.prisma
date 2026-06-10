@@ -197,6 +197,8 @@ model PaymentLink {
   debitFeePercent  Float         @default(2.00)
   debitFeeFixed    Float         @default(2.00)
   webhookUrl       String?
+  /// URL aberta em nova aba quando o pagamento é aprovado (redirecionamento pós-checkout)
+  redirectUrl      String?
   maxUses          Int?
   currentUses      Int           @default(0)
   domPaymentLinkId String?       @unique

@@ -18,7 +18,7 @@ import type { PixPlanCheckoutDto } from '../../dtos/pix-plan/pix-plan-checkout.d
 import type { PixPlanCheckoutByCodeDto } from '../../dtos/pix-plan/pix-plan-checkout-by-code.dto';
 import type { CreatePixCreditPlanDto } from '../../dtos/pix-plan/create-pix-credit-plan.dto';
 import { PagaTGConfig } from '../../../modules/pagatg/pagatg.config';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import { EmailService } from '../../../infrastructure/email/email.service';
@@ -190,8 +190,12 @@ export class PixPlanService {
     const amount = body.price;
     // Usa taxas configuradas para o tenant do plano; fallback para PAGATG se não identificado
     const tenantTag = planTenantTag ?? 'PAGATG';
-    const mdrPix = getPlatformTaxaEffective(tenantTag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
-    const netAmount = Number(calculateSellerNetValue(amount, 1, tenantTag, 'pix').toFixed(2));
+    // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
+    const taxaTag = tenantTag === 'GLOBAL' && body.email?.trim()
+      ? buildClientTaxaTag(body.email)
+      : tenantTag;
+    const mdrPix = getPlatformTaxaEffective(taxaTag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
+    const netAmount = Number(calculateSellerNetValue(amount, 1, taxaTag, 'pix').toFixed(2));
     const totalFee = parseFloat((amount - netAmount).toFixed(2));
     const domFee = parseFloat((amount * mdrPix).toFixed(2));
     const platformFee = parseFloat((totalFee - domFee).toFixed(2));

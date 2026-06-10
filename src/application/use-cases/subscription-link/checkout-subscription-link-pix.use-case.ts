@@ -8,7 +8,7 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import type { CheckoutSubscriptionLinkPixDto } from '../../dtos/subscription-link/checkout-subscription-link.dto';
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { CommunityManagementService } from '../../services/community-management.service';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { VoucherService } from '../voucher/voucher.service';
 
@@ -72,7 +72,11 @@ export class CheckoutSubscriptionLinkPixUseCase {
       const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
       const platformTag = (link as any).platformTag?.toUpperCase() ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'GLOBAL');
-      const mdrPix = getPlatformTaxaEffective(platformTag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
+      // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
+      const taxaTag = platformTag === 'GLOBAL' && input.dto.customerEmail?.trim()
+        ? buildClientTaxaTag(input.dto.customerEmail)
+        : platformTag;
+      const mdrPix = getPlatformTaxaEffective(taxaTag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
       platformFeeAmount = Math.round(base * mdrPix * 100) / 100;
     }
 

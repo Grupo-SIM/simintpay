@@ -30,6 +30,7 @@ export type CreatePaymentLinkData = {
   debitFeePercent?: number;
   debitFeeFixed?: number;
   webhookUrl?: string | null;
+  redirectUrl?: string | null;
   maxUses?: number | null;
   domPaymentLinkId?: string | null;
   emailBody?: string | null;

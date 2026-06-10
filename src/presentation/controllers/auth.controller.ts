@@ -14,11 +14,15 @@ import { LoginDto } from '../../application/dtos/auth/login.dto';
 import { RegisterDto } from '../../application/dtos/auth/register.dto';
 import { RefreshTokenDto } from '../../application/dtos/auth/refresh-token.dto';
 import { LogoutDto } from '../../application/dtos/auth/logout.dto';
+import { ForgotPasswordDto } from '../../application/dtos/auth/forgot-password.dto';
+import { ResetPasswordDto } from '../../application/dtos/auth/reset-password.dto';
 import { LoginUseCase } from '../../application/use-cases/auth/login.use-case';
 import { RegisterUseCase } from '../../application/use-cases/auth/register.use-case';
 import { RefreshTokenUseCase } from '../../application/use-cases/auth/refresh-token.use-case';
 import { LogoutUseCase } from '../../application/use-cases/auth/logout.use-case';
 import { GetMeUseCase } from '../../application/use-cases/auth/get-me.use-case';
+import { ForgotPasswordUseCase } from '../../application/use-cases/auth/forgot-password.use-case';
+import { ResetPasswordUseCase } from '../../application/use-cases/auth/reset-password.use-case';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
@@ -41,6 +45,8 @@ export class AuthController {
     private readonly refresh: RefreshTokenUseCase,
     private readonly logout: LogoutUseCase,
     private readonly me: GetMeUseCase,
+    private readonly forgotPassword: ForgotPasswordUseCase,
+    private readonly resetPassword: ResetPasswordUseCase,
   ) {}
 
   @Post('login')
@@ -201,6 +207,27 @@ export class AuthController {
   })
   async logoutRoute(@Body() dto: LogoutDto): Promise<void> {
     await this.logout.execute({ refreshToken: dto.refreshToken });
+  }
+
+  @Post('forgot-password')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Solicitar redefinição de senha (envia e-mail com link)' })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiResponse({ status: 200, schema: { example: { data: { sent: true } } } })
+  async forgotPasswordRoute(@Body() dto: ForgotPasswordDto): Promise<{ data: unknown }> {
+    const out = await this.forgotPassword.execute({ email: dto.email });
+    return out;
+  }
+
+  @Post('reset-password')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Redefinir senha usando o token recebido por e-mail' })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiResponse({ status: 200, schema: { example: { data: { updated: true } } } })
+  @ApiResponse({ status: 400, schema: { example: { statusCode: 400, message: 'Link de redefinição inválido ou expirado. Solicite um novo.' } } })
+  async resetPasswordRoute(@Body() dto: ResetPasswordDto): Promise<{ data: unknown }> {
+    const out = await this.resetPassword.execute({ token: dto.token, newPassword: dto.newPassword });
+    return out;
   }
 
   @Get('me')

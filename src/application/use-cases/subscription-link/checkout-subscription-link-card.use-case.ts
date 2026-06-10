@@ -9,7 +9,7 @@ import type { CheckoutSubscriptionLinkCardDto } from '../../dtos/subscription-li
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { VoucherService } from '../voucher/voucher.service';
 import { splitDocument } from '../../utils/document.util';
@@ -77,10 +77,14 @@ export class CheckoutSubscriptionLinkCardUseCase {
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
       // Plataforma: usa a selecionada no link (platformTag) → fallback tenantModule → webhook heuristic
       const platformTag = (link as any).platformTag?.toUpperCase() ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'GLOBAL');
+      // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
+      const taxaTag = platformTag === 'GLOBAL' && input.dto.customerEmail?.trim()
+        ? buildClientTaxaTag(input.dto.customerEmail)
+        : platformTag;
       // Passa link.platformFee como fallback final: se nada estiver configurado no admin,
       // usa o valor que estava gravado no link. Se GLOBAL estiver configurado, GLOBAL prevalece.
-      const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
-      const mdrMaster1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+      const mdrDom1x = getPlatformTaxaEffective(taxaTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+      const mdrMaster1x = getPlatformTaxaEffective(taxaTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
       platformFeeRate = mdrDom1x + mdrMaster1x;
     } else {
       platformFeeRate = 0;

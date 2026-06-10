@@ -6,7 +6,7 @@ import {
   BALANCE_LOG_REPOSITORY,
 } from '../../../core/repositories/balance-log.repository.interface';
 import type { IBalanceLogRepository } from '../../../core/repositories/balance-log.repository.interface';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { splitDocument } from '../../utils/document.util';
 
@@ -112,11 +112,15 @@ export class SubscriptionWebhookService {
     }
 
     const effectivePlanTag = (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
+    // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
+    const taxaTag = effectivePlanTag === 'GLOBAL' && subscription.customer?.email?.trim()
+      ? buildClientTaxaTag(subscription.customer.email)
+      : effectivePlanTag;
     // Taxa do vendedor: TAXA_LINK_PERCENT × base + TAXA_LINK_FIXA, cobrada uma vez por renovação
     // Se não tiver plataforma definida, usa as taxas do GLOBAL
     const basePlanPrice = Number((subscription.plan as any)?.price ?? 0) || amount.toNumber();
-    const sellerFeePercent = getPlatformTaxaEffective(effectivePlanTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-    const sellerFeeFixed = getPlatformTaxaEffective(effectivePlanTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+    const sellerFeePercent = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+    const sellerFeeFixed = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
     const platformFeeAmount = new Prisma.Decimal(Math.round((basePlanPrice * sellerFeePercent + sellerFeeFixed) * 100) / 100);
     const netAmount = amount.sub(domFee).sub(platformFeeAmount);
 
@@ -203,11 +207,15 @@ export class SubscriptionWebhookService {
     }
 
     const effectivePlanTag = (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
+    // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
+    const taxaTag = effectivePlanTag === 'GLOBAL' && subscription.customer?.email?.trim()
+      ? buildClientTaxaTag(subscription.customer.email)
+      : effectivePlanTag;
     // Taxa do vendedor: TAXA_LINK_PERCENT × base + TAXA_LINK_FIXA, cobrada uma vez por renovação
     // Se não tiver plataforma definida, usa as taxas do GLOBAL
     const basePlanPrice = Number((subscription.plan as any)?.price ?? 0) || amount.toNumber();
-    const sellerFeePercent = getPlatformTaxaEffective(effectivePlanTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-    const sellerFeeFixed = getPlatformTaxaEffective(effectivePlanTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+    const sellerFeePercent = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+    const sellerFeeFixed = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
     const platformFeeAmount = new Prisma.Decimal(Math.round((basePlanPrice * sellerFeePercent + sellerFeeFixed) * 100) / 100);
     const netAmount = amount.sub(domFee).sub(platformFeeAmount);
 
@@ -233,9 +241,13 @@ export class SubscriptionWebhookService {
     let platformFeeAmount = 0;
     if (!link.isStandalone) {
       const effectivePlatformTag = ((link as any).platformTag ?? (link as any).plataformas?.[0] ?? 'GLOBAL').toString().toUpperCase();
+      // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
+      const taxaTag = effectivePlatformTag === 'GLOBAL' && linkOrder.customerEmail?.trim()
+        ? buildClientTaxaTag(linkOrder.customerEmail)
+        : effectivePlatformTag;
       const baseLinkPrice = Number(link.amount ?? 0);
-      const sellerFeePercent = getPlatformTaxaEffective(effectivePlatformTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-      const sellerFeeFixed = getPlatformTaxaEffective(effectivePlatformTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+      const sellerFeePercent = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+      const sellerFeeFixed = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
       platformFeeAmount = Math.round((baseLinkPrice * sellerFeePercent + sellerFeeFixed) * 100) / 100;
     }
     const netAmount = amount.sub(domFee).sub(new Prisma.Decimal(platformFeeAmount));

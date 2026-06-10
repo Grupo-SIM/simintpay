@@ -4867,6 +4867,61 @@ export class AdminController {
     return this.platformTaxas.patchPlatform(tag, body);
   }
 
+  @Get('plataformas/simintpay-clientes')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Buscar clientes (e-mail/nome) para taxa personalizada SIM INT PAY' })
+  async listSimIntPayClientes(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const term = (search ?? '').trim();
+    const pageNum = Math.max(1, Number(page) || 1);
+    const size = Math.min(Math.max(1, Number(pageSize) || 10), 50);
+    const skip = (pageNum - 1) * size;
+
+    const where: Prisma.TransactionWhereInput = {
+      customerEmail: { not: null },
+      ...(term
+        ? {
+            OR: [
+              { customerEmail: { contains: term, mode: 'insensitive' } },
+              { customerName: { contains: term, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    // Distintos por e-mail (groupBy), ordenados pela transação mais recente.
+    const grouped = await this.prisma.transaction.groupBy({
+      by: ['customerEmail'],
+      where,
+      _max: { customerName: true, createdAt: true },
+      orderBy: { _max: { createdAt: 'desc' } },
+      skip,
+      take: size + 1, // +1 para saber se há próxima página
+    });
+
+    const hasMore = grouped.length > size;
+    const data = grouped.slice(0, size).map((g) => ({
+      email: (g.customerEmail ?? '').toLowerCase(),
+      name: g._max.customerName ?? null,
+    }));
+
+    return { data, page: pageNum, pageSize: size, hasMore };
+  }
+
+  @Get('plataformas/taxas/:tag')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Taxas resolvidas de uma única tag (inclui clientes CLIENT:<email>)' })
+  async getPlatformTaxasByTag(@Param('tag') tag: string) {
+    return this.platformTaxas.getTaxasResponse([tag]);
+  }
+
   @Get('plataformas')
   @ApiOperation({ summary: 'Listar plataformas detectadas (via tag [CPF:xxx|TAG] nos planos)' })
   async listPlataformas() {

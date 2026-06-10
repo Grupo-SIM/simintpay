@@ -1516,9 +1516,10 @@ export class ProcessDomWebhookUseCase {
 
       const isEbook = hasEbookPlatform(link.plataformas);
       const hasCustomBody = Boolean(link.emailBody?.trim());
+      const redirectUrl = (link as any).redirectUrl?.trim() ? (link as any).redirectUrl as string : null;
 
-      // Sem corpo personalizado e sem arquivos: nada a enviar.
-      if (!hasCustomBody && link.files.length === 0) return;
+      // Sem corpo personalizado, sem arquivos e sem redirect: nada a enviar.
+      if (!hasCustomBody && link.files.length === 0 && !redirectUrl) return;
 
       // Anexos (PDFs) — só busca do storage quando há storage configurado e arquivos.
       const attachments =
@@ -1538,22 +1539,36 @@ export class ProcessDomWebhookUseCase {
           customerName: tx.customerName ?? 'Cliente',
           title: link.title,
           body: link.emailBody as string,
+          redirectUrl,
           attachments,
         });
         this.logger.log(`[DomWebhook] E-mail de ebook enviado para ${tx.customerEmail} (tx=${tx.id}, link=${tx.paymentLinkId})`);
         return;
       }
 
-      // Fluxo padrão: entrega de PDFs (somente quando há arquivos).
-      if (attachments.length === 0) return;
-      await this.emailService!.sendPaymentLinkFiles({
-        to: tx.customerEmail,
-        customerName: tx.customerName ?? 'Cliente',
-        linkTitle: link.title,
-        attachments,
-      });
+      // Entrega de PDFs (quando há arquivos) — inclui botão de redirect se configurado.
+      if (attachments.length > 0) {
+        await this.emailService!.sendPaymentLinkFiles({
+          to: tx.customerEmail,
+          customerName: tx.customerName ?? 'Cliente',
+          linkTitle: link.title,
+          attachments,
+          redirectUrl,
+        });
+        this.logger.log(`[DomWebhook] PDFs enviados para ${tx.customerEmail} (tx=${tx.id}, link=${tx.paymentLinkId})`);
+        return;
+      }
 
-      this.logger.log(`[DomWebhook] PDFs enviados para ${tx.customerEmail} (tx=${tx.id}, link=${tx.paymentLinkId})`);
+      // Apenas redirect (sem corpo/arquivos): confirmação simples com botão de redirecionamento.
+      if (redirectUrl) {
+        await this.emailService!.sendPaymentLinkConfirmation({
+          to: tx.customerEmail,
+          customerName: tx.customerName ?? 'Cliente',
+          linkTitle: link.title,
+          redirectUrl,
+        });
+        this.logger.log(`[DomWebhook] E-mail de confirmação (redirect) enviado para ${tx.customerEmail} (tx=${tx.id}, link=${tx.paymentLinkId})`);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`[DomWebhook] Falha ao enviar PDFs do link ${tx.paymentLinkId} para ${tx.customerEmail}: ${msg}`);

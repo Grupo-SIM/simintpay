@@ -9,6 +9,7 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { calculatePaymentLinkFees } from './payment-link-fees.helper';
+import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 
 export type ChargePixPaymentLinkInput = {
   linkId: string;
@@ -116,7 +117,11 @@ export class ChargePixPaymentLinkUseCase {
     const platformTag = ((link as any).plataformas?.[0] as string | undefined)?.toUpperCase()
       || owner?.tenantModule?.slug?.toUpperCase()
       || 'GLOBAL';
-    const fees = calculatePaymentLinkFees(link, 1, platformTag, true);
+    // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
+    const taxaTag = platformTag === 'GLOBAL' && input.customerEmail?.trim()
+      ? buildClientTaxaTag(input.customerEmail)
+      : platformTag;
+    const fees = calculatePaymentLinkFees(link, 1, taxaTag, true);
     const { totalAmount, netAmount, domFeeAmount } = fees;
 
     const result = await this.gateway.chargePixForLink(domToken, {

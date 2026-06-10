@@ -10,6 +10,9 @@ import { LinkExternalPlatformUserService } from '../application/services/link-ex
 import { RefreshTokenUseCase } from '../application/use-cases/auth/refresh-token.use-case';
 import { LogoutUseCase } from '../application/use-cases/auth/logout.use-case';
 import { GetMeUseCase } from '../application/use-cases/auth/get-me.use-case';
+import { ForgotPasswordUseCase } from '../application/use-cases/auth/forgot-password.use-case';
+import { ResetPasswordUseCase } from '../application/use-cases/auth/reset-password.use-case';
+import { EmailService } from '../infrastructure/email/email.service';
 import { AuthTokensService } from '../application/use-cases/auth/auth-tokens.service';
 import { JwtStrategy } from '../infrastructure/security/strategies/jwt.strategy';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
@@ -40,6 +43,9 @@ import { PrismaWalletRepository } from '../infrastructure/database/repositories/
     RefreshTokenUseCase,
     LogoutUseCase,
     GetMeUseCase,
+    ForgotPasswordUseCase,
+    ResetPasswordUseCase,
+    EmailService,
     { provide: HASH_SERVICE, useClass: BcryptService },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: SESSION_REPOSITORY, useClass: PrismaSessionRepository },
