@@ -109,6 +109,7 @@ export class CreatePaymentLinkUseCase {
       webhookUrl: input.dto.webhookUrl ?? null,
       maxUses: input.dto.maxUses ?? null,
       domPaymentLinkId: created.id,
+      emailBody: input.dto.emailBody ?? null,
       plataformas: input.dto.plataformas ?? [],
     });
 

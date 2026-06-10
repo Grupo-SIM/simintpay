@@ -36,6 +36,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
         webhookUrl: data.webhookUrl ?? undefined,
         maxUses: data.maxUses ?? undefined,
         domPaymentLinkId: data.domPaymentLinkId ?? undefined,
+        emailBody: data.emailBody ?? undefined,
         plataformas: data.plataformas ?? [],
       },
     });
@@ -119,6 +120,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
       maxUses?: number | null;
       currentUses: number;
       domPaymentLinkId?: string | null;
+      emailBody?: string | null;
       plataformas?: string[];
     }>,
   ): Promise<PaymentLink> {
@@ -149,6 +151,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
         maxUses: data.maxUses ?? undefined,
         currentUses: data.currentUses,
         domPaymentLinkId: data.domPaymentLinkId ?? undefined,
+        ...(data.emailBody !== undefined && { emailBody: data.emailBody }),
         ...(data.plataformas !== undefined && { plataformas: data.plataformas }),
       },
     });

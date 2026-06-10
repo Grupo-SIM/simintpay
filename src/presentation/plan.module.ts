@@ -15,11 +15,13 @@ import { USER_REPOSITORY } from '../core/repositories/user.repository.interface'
 import { PrismaPlanRepository } from '../infrastructure/database/repositories/prisma-plan.repository';
 import { PrismaSubscriptionRepository } from '../infrastructure/database/repositories/prisma-subscription.repository';
 import { PrismaUserRepository } from '../infrastructure/database/repositories/prisma-user.repository';
+import { EmailService } from '../infrastructure/email/email.service';
 
 @Module({
   imports: [ApiDomModule],
   controllers: [PlanController],
   providers: [
+    EmailService,
     CreatePlanUseCase,
     ListPlansUseCase,
     GetPlanByIdUseCase,

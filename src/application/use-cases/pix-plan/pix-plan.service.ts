@@ -21,6 +21,9 @@ import { PagaTGConfig } from '../../../modules/pagatg/pagatg.config';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
+import { EmailService } from '../../../infrastructure/email/email.service';
+import { isEbookPlatformTag } from '../../utils/internal-tags.util';
+import { Optional } from '@nestjs/common';
 
 @Injectable()
 export class PixPlanService {
@@ -30,6 +33,7 @@ export class PixPlanService {
     @Inject(PIX_PLAN_REPOSITORY) private readonly repo: IPixPlanRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
+    @Optional() private readonly emailService?: EmailService,
   ) { }
 
   private getDaysForPlan(planType: string): number {
@@ -525,6 +529,7 @@ export class PixPlanService {
         redirectUrl: plan.redirectUrl ?? null,
         webhookUrl: plan.webhookUrl ?? null,
         status: plan.status,
+        emailBody: plan.emailBody ?? null,
         tenantTag: plan.tenantTag
           ? plan.tenantTag.toUpperCase()
           : (plan.description ?? '').match(/\[TENANT:([^\]]+)\]/i)?.[1]?.toUpperCase()
@@ -548,6 +553,7 @@ export class PixPlanService {
       redirectUrl?: string | null;
       webhookUrl?: string | null;
       tenantTag?: string | null;
+      emailBody?: string | null;
     },
     role?: string,
   ) {
@@ -565,6 +571,7 @@ export class PixPlanService {
         ...(body.redirectUrl !== undefined && { redirectUrl: body.redirectUrl || null }),
         ...(body.webhookUrl !== undefined && { webhookUrl: body.webhookUrl || null }),
         ...(body.tenantTag !== undefined && { tenantTag: body.tenantTag ? body.tenantTag.toUpperCase() : null }),
+        ...(body.emailBody !== undefined && { emailBody: body.emailBody || null }),
       },
     });
 
@@ -635,6 +642,7 @@ export class PixPlanService {
       redirectUrl: body.redirectUrl,
       webhookUrl: body.webhookUrl,
       tenantTag: tag,
+      emailBody: body.emailBody ?? null,
     });
 
     const code = `PX-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
@@ -1320,6 +1328,24 @@ export class PixPlanService {
       }
     } catch (webhookError: any) {
       this.logger.error('Erro ao notificar api-pagatg:', webhookError.message);
+    }
+
+    // E-mail de acesso personalizado (apenas planos PIX de ebook com corpo definido)
+    if (this.emailService && pixOrder.pixCreditPlanId) {
+      try {
+        const plan = await this.repo.findPixCreditPlanById(pixOrder.pixCreditPlanId);
+        if (plan && isEbookPlatformTag(plan.tenantTag) && plan.emailBody?.trim()) {
+          await this.emailService.sendEbookAccessEmail({
+            to: pixOrder.customerEmail,
+            customerName: customerData.name || 'Cliente',
+            title: plan.description || 'Seu acesso',
+            body: plan.emailBody,
+            redirectUrl: plan.redirectUrl ?? null,
+          });
+        }
+      } catch (emailErr: any) {
+        this.logger.error(`PIX-PLAN: falha ao enviar e-mail de ebook: ${emailErr?.message ?? emailErr}`);
+      }
     }
 
     this.logger.log('PIX-PLAN: Crédito de dias concluído com sucesso!');

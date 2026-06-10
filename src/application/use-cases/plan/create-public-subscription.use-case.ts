@@ -15,6 +15,9 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { getModuleDomToken } from '../../../modules/module.registry';
+import { EmailService } from '../../../infrastructure/email/email.service';
+import { hasEbookPlatform } from '../../utils/internal-tags.util';
+import { Optional } from '@nestjs/common';
 
 export type CreatePublicSubscriptionInput = {
   planId: string;
@@ -45,6 +48,7 @@ export class CreatePublicSubscriptionUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
+    @Optional() private readonly emailService?: EmailService,
   ) {}
 
   async execute(input: CreatePublicSubscriptionInput): Promise<{
@@ -115,6 +119,8 @@ export class CreatePublicSubscriptionUseCase {
       );
     }
     const VALID = ['active', 'pending', 'trial'];
+    // Só enviamos o e-mail de acesso quando a cobrança foi efetivada (cartão aprovado)
+    const VALID_PAID = ['active'];
     if (!VALID.includes(statusLower)) {
       throw new BadRequestException(
         `Assinatura recusada pelo gateway${domResult.status ? `: ${domResult.status}` : ''}.`,
@@ -132,6 +138,26 @@ export class CreatePublicSubscriptionUseCase {
     this.logger.log(
       `Assinatura criada: subId=${saved.id}, domSubId=${domResult.id}, planId=${plan.id}`,
     );
+
+    // E-mail de acesso personalizado (apenas planos de ebook com corpo definido)
+    if (
+      this.emailService &&
+      plan.emailBody?.trim() &&
+      hasEbookPlatform(plan.plataformas) &&
+      VALID_PAID.includes(statusLower)
+    ) {
+      try {
+        await this.emailService.sendEbookAccessEmail({
+          to: input.customerEmail,
+          customerName: input.customerName,
+          title: plan.name,
+          body: plan.emailBody,
+          redirectUrl: plan.redirectUrl ?? null,
+        });
+      } catch (err) {
+        this.logger.error(`Falha ao enviar e-mail de ebook (plano ${plan.id}): ${String(err)}`);
+      }
+    }
 
     return {
       id: saved.id,

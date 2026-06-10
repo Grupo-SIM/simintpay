@@ -101,6 +101,7 @@ export class CreateSubscriptionLinkUseCase {
       domPlanId: domPlan.id,
       paymentMethods: input.dto.paymentMethods ?? 'BOTH',
       platformTag: input.dto.platformTag ?? null,
+      emailBody: input.dto.emailBody ?? null,
       plataformas: input.dto.plataformas ?? [],
     });
 

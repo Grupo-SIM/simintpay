@@ -17,6 +17,7 @@ export type CreateSubscriptionLinkData = {
   domPlanId?: string | null;
   paymentMethods?: string;
   platformTag?: string | null;
+  emailBody?: string | null;
   plataformas?: string[];
 };
 

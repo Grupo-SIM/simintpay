@@ -33,6 +33,21 @@ export function appendInternalTags(
   return out.trim();
 }
 
+/**
+ * Identifica qualquer plataforma de ebook pelo nome.
+ * Normaliza (remove hífens/pontuação) e verifica se contém "EBOOK".
+ * Cobre EBOOK, EBOOKSIM, EBOOK-LP, E-BOOKS-LP, etc.
+ */
+export function isEbookPlatformTag(tag: string | null | undefined): boolean {
+  const t = (tag ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return t.includes('EBOOK');
+}
+
+/** true se a lista de plataformas contém a plataforma de ebook. */
+export function hasEbookPlatform(plataformas: string[] | null | undefined): boolean {
+  return (plataformas ?? []).some(isEbookPlatformTag);
+}
+
 export function stripInternalTags(value: string | null | undefined): string | null {
   if (!value) return null;
   const cleaned = INTERNAL_TAGS.reduce((acc, tag) => acc.replaceAll(tag, ''), value)

@@ -49,6 +49,10 @@ export class CreatePlanDto {
   @IsOptional()
   code?: string;
 
+  @IsString()
+  @IsOptional()
+  emailBody?: string;
+
   @IsArray()
   @IsString({ each: true })
   @IsOptional()

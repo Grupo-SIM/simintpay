@@ -64,7 +64,9 @@ import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 import { getModuleConfig } from '../../modules/module.registry';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
 import { SyncWithdrawalsDto } from '../../application/dtos/admin/sync-withdrawals.dto';
+import { TestEbookEmailDto } from '../../application/dtos/admin/test-ebook-email.dto';
 import { StorageService } from '../../infrastructure/storage/storage.service';
+import { EmailService } from '../../infrastructure/email/email.service';
 import { RevalidaSyncService } from '../../modules/revalida/services/revalida-sync.service';
 import { HASH_SERVICE, type IHashService } from '../../core/services/hash.interface';
 import {
@@ -1337,6 +1339,7 @@ export class AdminController {
     private readonly revalidaSyncService: RevalidaSyncService,
     private readonly communities: CommunityManagementService,
     private readonly storageService: StorageService,
+    private readonly emailService: EmailService,
     private readonly prisma: PrismaService,
     @Inject(HASH_SERVICE) private readonly hashService: IHashService,
     @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway,
@@ -3895,6 +3898,25 @@ export class AdminController {
       },
     });
     return { amount: domFee, platformTag };
+  }
+
+  @Post('test-ebook-email')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiBody({ type: TestEbookEmailDto })
+  @ApiOperation({ summary: 'Testar o envio do e-mail de ebook personalizado (admin)' })
+  async testEbookEmail(@Body() body: TestEbookEmailDto) {
+    if (!body?.to?.trim()) throw new BadRequestException('Informe "to" (e-mail de destino)');
+    if (!body?.body?.trim()) throw new BadRequestException('Informe "body" (corpo do e-mail)');
+    await this.emailService.sendEbookAccessEmail({
+      to: body.to.trim(),
+      customerName: body.customerName?.trim() || 'Cliente',
+      title: body.title?.trim() || 'Teste de e-mail',
+      body: body.body,
+      redirectUrl: body.redirectUrl?.trim() || null,
+    });
+    return { ok: true, sentTo: body.to.trim() };
   }
 
   @Post('saques/dom-fee/undo')

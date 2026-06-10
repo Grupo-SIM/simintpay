@@ -34,4 +34,9 @@ export class CreatePixCreditPlanDto {
   @IsOptional()
   @IsString()
   tenantTag?: string;
+
+  @ApiPropertyOptional({ description: 'Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook)' })
+  @IsOptional()
+  @IsString()
+  emailBody?: string;
 }

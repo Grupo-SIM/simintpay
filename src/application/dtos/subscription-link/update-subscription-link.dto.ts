@@ -67,6 +67,11 @@ export class UpdateSubscriptionLinkDto {
   @IsOptional()
   platformTag?: string;
 
+  /** Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook) */
+  @IsString()
+  @IsOptional()
+  emailBody?: string;
+
   @IsArray()
   @IsString({ each: true })
   @IsOptional()

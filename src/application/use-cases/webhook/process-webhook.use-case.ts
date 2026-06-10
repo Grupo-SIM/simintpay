@@ -9,7 +9,7 @@ import { PixPlanService } from '../pix-plan/pix-plan.service';
 import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
-import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
+import { TENANT_AREAFLIX_TAG, hasEbookPlatform } from '../../utils/internal-tags.util';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
@@ -461,13 +461,26 @@ export class ProcessWebhookUseCase {
     // Send access email
     if (this.emailService) {
       try {
-        await this.emailService.sendSubscriptionAccess({
-          to: order.customerEmail,
-          customerName: order.customerName,
-          linkName: order.subscriptionLink.name,
-          redirectUrl: order.subscriptionLink.redirectUrl ?? null,
-          orderId: order.id,
-        });
+        if (
+          hasEbookPlatform(order.subscriptionLink.plataformas) &&
+          order.subscriptionLink.emailBody?.trim()
+        ) {
+          await this.emailService.sendEbookAccessEmail({
+            to: order.customerEmail,
+            customerName: order.customerName,
+            title: order.subscriptionLink.name,
+            body: order.subscriptionLink.emailBody,
+            redirectUrl: order.subscriptionLink.redirectUrl ?? null,
+          });
+        } else {
+          await this.emailService.sendSubscriptionAccess({
+            to: order.customerEmail,
+            customerName: order.customerName,
+            linkName: order.subscriptionLink.name,
+            redirectUrl: order.subscriptionLink.redirectUrl ?? null,
+            orderId: order.id,
+          });
+        }
         this.logger.log(`[WEBHOOK] Access email sent to ${order.customerEmail} for order ${order.id}`);
       } catch (err: unknown) {
         this.logger.error(`[WEBHOOK] Error sending email for order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`);

@@ -31,6 +31,7 @@ export class GetPaymentLinkUseCase {
         ativo: link.isActive,
         isStandalone: link.isStandalone,
         aceitaDebito: link.aceitaDebito,
+        emailBody: (link as any).emailBody ?? null,
         plataformas: (link as any).plataformas ?? [],
         platformFee1x: link.platformFee1x,
         platformFee2x: link.platformFee2x,

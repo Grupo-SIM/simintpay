@@ -13,6 +13,7 @@ import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platfo
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { VoucherService } from '../voucher/voucher.service';
 import { splitDocument } from '../../utils/document.util';
+import { hasEbookPlatform } from '../../utils/internal-tags.util';
 
 function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR'; frequency: number } {
   switch (linkFrequency) {
@@ -164,13 +165,23 @@ export class CheckoutSubscriptionLinkCardUseCase {
     }
 
     try {
-      await this.emailService.sendSubscriptionAccess({
-        to: input.dto.customerEmail,
-        customerName: input.dto.customerName,
-        linkName: link.name,
-        redirectUrl: link.redirectUrl ?? null,
-        orderId: order.id,
-      });
+      if (hasEbookPlatform(link.plataformas) && link.emailBody?.trim()) {
+        await this.emailService.sendEbookAccessEmail({
+          to: input.dto.customerEmail,
+          customerName: input.dto.customerName,
+          title: link.name,
+          body: link.emailBody,
+          redirectUrl: link.redirectUrl ?? null,
+        });
+      } else {
+        await this.emailService.sendSubscriptionAccess({
+          to: input.dto.customerEmail,
+          customerName: input.dto.customerName,
+          linkName: link.name,
+          redirectUrl: link.redirectUrl ?? null,
+          orderId: order.id,
+        });
+      }
     } catch {
       // Email failure must not block the checkout response
     }

@@ -43,6 +43,7 @@ export class UpdateSubscriptionLinkUseCase {
       webhookUrl: input.dto.webhookUrl ?? existing.webhookUrl,
       maxUses: input.dto.maxUses ?? existing.maxUses,
       platformTag: input.dto.platformTag !== undefined ? input.dto.platformTag : (existing as any).platformTag,
+      ...(input.dto.emailBody !== undefined && { emailBody: input.dto.emailBody }),
       ...(input.dto.plataformas !== undefined && { plataformas: input.dto.plataformas }),
     });
 

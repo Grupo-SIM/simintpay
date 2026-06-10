@@ -67,6 +67,7 @@ export class UpdatePlanUseCase {
       redirectUrl: input.dto.redirectUrl ?? existing.redirectUrl,
       ...(input.dto.isActive !== undefined && { isActive: input.dto.isActive }),
       ...(input.dto.code !== undefined && { code: input.dto.code }),
+      ...(input.dto.emailBody !== undefined && { emailBody: input.dto.emailBody }),
       ...(input.dto.plataformas !== undefined && { plataformas: input.dto.plataformas }),
     });
 

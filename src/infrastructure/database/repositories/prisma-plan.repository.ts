@@ -19,6 +19,7 @@ export class PrismaPlanRepository implements IPlanRepository {
     domPlanId?: string | null;
     code?: string | null;
     paymentMethods?: string | null;
+    emailBody?: string | null;
     plataformas?: string[];
   }): Promise<Plan> {
     return this.prisma.plan.create({
@@ -34,6 +35,7 @@ export class PrismaPlanRepository implements IPlanRepository {
         domPlanId: data.domPlanId ?? undefined,
         code: data.code ?? undefined,
         paymentMethods: data.paymentMethods ?? undefined,
+        emailBody: data.emailBody ?? undefined,
         plataformas: data.plataformas ?? [],
       },
     });
@@ -83,6 +85,7 @@ export class PrismaPlanRepository implements IPlanRepository {
       domPlanId?: string | null;
       code?: string | null;
       paymentMethods?: string | null;
+      emailBody?: string | null;
       plataformas?: string[];
     }>,
   ): Promise<Plan> {
@@ -99,6 +102,7 @@ export class PrismaPlanRepository implements IPlanRepository {
         domPlanId: data.domPlanId ?? undefined,
         code: data.code ?? undefined,
         paymentMethods: data.paymentMethods ?? undefined,
+        ...(data.emailBody !== undefined && { emailBody: data.emailBody }),
         ...(data.plataformas !== undefined && { plataformas: data.plataformas }),
       },
     });

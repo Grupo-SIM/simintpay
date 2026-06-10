@@ -200,6 +200,8 @@ model PaymentLink {
   maxUses          Int?
   currentUses      Int           @default(0)
   domPaymentLinkId String?       @unique
+  /// Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook)
+  emailBody        String?
   /// Plataformas associadas a este link de pagamento (ex: ["AREAFLIX", "PAGATG"])
   plataformas      String[]      @default([])
   createdAt        DateTime      @default(now())
@@ -245,6 +247,8 @@ model SubscriptionLink {
   maxUses         Int?
   currentUses     Int       @default(0)
   domPlanId       String?   @unique
+  /// Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook)
+  emailBody       String?
   /// Métodos aceitos: PIX, CREDIT_CARD ou BOTH (padrão)
   paymentMethods  String    @default("BOTH")
   /// Tag de plataforma para resolução de taxa (ex: AREAFLIX, COMUNIDADE, GLOBAL)
@@ -376,6 +380,8 @@ model Plan {
   domPlanId      String?        @unique
   code           String?        @unique
   paymentMethods String?        @default("BOTH")
+  /// Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook)
+  emailBody      String?
   /// Plataformas associadas a este plano (ex: ["AREAFLIX", "PAGATG"])
   plataformas    String[]       @default([])
   createdAt      DateTime       @default(now())
@@ -628,6 +634,8 @@ model PixCreditPlan {
   redirectUrl String?
   webhookUrl  String?
   status      String               @default("ACTIVE")
+  /// Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook)
+  emailBody   String?
   /// Tag da plataforma vinculada (ex: PAGATG, AREAFLIX, RENOVADA)
   tenantTag   String?
   createdAt   DateTime             @default(now())

@@ -14,6 +14,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     redirectUrl?: string;
     webhookUrl?: string;
     tenantTag?: string | null;
+    emailBody?: string | null;
   }) {
     return (this.prisma as any).pixCreditPlan.create({
       data: {
@@ -24,6 +25,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
         redirectUrl: data.redirectUrl,
         webhookUrl: data.webhookUrl,
         tenantTag: data.tenantTag ?? null,
+        emailBody: data.emailBody ?? null,
       },
     });
   }

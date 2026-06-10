@@ -32,6 +32,7 @@ export type CreatePaymentLinkData = {
   webhookUrl?: string | null;
   maxUses?: number | null;
   domPaymentLinkId?: string | null;
+  emailBody?: string | null;
   plataformas?: string[];
 };
 

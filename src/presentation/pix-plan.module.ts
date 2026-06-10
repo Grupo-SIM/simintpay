@@ -9,6 +9,7 @@ import { PixPlanService } from '../application/use-cases/pix-plan/pix-plan.servi
 import { PixPlanEventsService } from '../application/services/pix-plan-events.service';
 import { PIX_PLAN_REPOSITORY } from '../core/repositories/pix-plan.repository.interface';
 import { PrismaPixPlanRepository } from '../infrastructure/database/repositories/prisma-pix-plan.repository';
+import { EmailService } from '../infrastructure/email/email.service';
 
 @Module({
   imports: [ApiDomModule],
@@ -16,6 +17,7 @@ import { PrismaPixPlanRepository } from '../infrastructure/database/repositories
   providers: [
     PixPlanService,
     PixPlanEventsService,
+    EmailService,
     { provide: PIX_PLAN_REPOSITORY, useClass: PrismaPixPlanRepository },
   ],
   exports: [PixPlanService, PixPlanEventsService],

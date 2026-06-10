@@ -11,6 +11,7 @@ import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { VoucherService } from '../voucher/voucher.service';
 import {
   appendInternalTags,
+  hasEbookPlatform,
   ORIGEM_MAQUINETA_TAG,
   TENANT_AREAFLIX_TAG,
   TENANT_BOSQUE_TAG,
@@ -450,8 +451,8 @@ export class ProcessDomWebhookUseCase {
           }
         }
 
-        // PDF delivery: enviar arquivos do link de pagamento ao comprador
-        if (existing.paymentLinkId && this.emailService && this.storage) {
+        // PDF delivery / e-mail de ebook personalizado do link de pagamento
+        if (existing.paymentLinkId && this.emailService) {
           void this.sendPaymentLinkFilesToCustomer(existing);
         }
       }
@@ -1289,13 +1290,26 @@ export class ProcessDomWebhookUseCase {
     // Enviar email de acesso
     if (this.emailService) {
       try {
-        await this.emailService.sendSubscriptionAccess({
-          to: order.customerEmail,
-          customerName: order.customerName,
-          linkName: order.subscriptionLink.name,
-          redirectUrl: order.subscriptionLink.redirectUrl ?? null,
-          orderId: order.id,
-        });
+        if (
+          hasEbookPlatform(order.subscriptionLink.plataformas) &&
+          order.subscriptionLink.emailBody?.trim()
+        ) {
+          await this.emailService.sendEbookAccessEmail({
+            to: order.customerEmail,
+            customerName: order.customerName,
+            title: order.subscriptionLink.name,
+            body: order.subscriptionLink.emailBody,
+            redirectUrl: order.subscriptionLink.redirectUrl ?? null,
+          });
+        } else {
+          await this.emailService.sendSubscriptionAccess({
+            to: order.customerEmail,
+            customerName: order.customerName,
+            linkName: order.subscriptionLink.name,
+            redirectUrl: order.subscriptionLink.redirectUrl ?? null,
+            orderId: order.id,
+          });
+        }
         this.logger.log(`[DomWebhook] Email de acesso enviado para ${order.customerEmail}`);
       } catch (err: unknown) {
         this.logger.error(
@@ -1498,15 +1512,40 @@ export class ProcessDomWebhookUseCase {
         where: { id: tx.paymentLinkId },
         include: { files: true },
       });
-      if (!link || link.files.length === 0) return;
+      if (!link) return;
 
-      const attachments = await Promise.all(
-        link.files.map(async (f) => {
-          const { buffer } = await this.storage!.getReceiptBufferByStoredUrl(f.fileUrl);
-          return { filename: f.fileName, content: buffer };
-        }),
-      );
+      const isEbook = hasEbookPlatform(link.plataformas);
+      const hasCustomBody = Boolean(link.emailBody?.trim());
 
+      // Sem corpo personalizado e sem arquivos: nada a enviar.
+      if (!hasCustomBody && link.files.length === 0) return;
+
+      // Anexos (PDFs) — só busca do storage quando há storage configurado e arquivos.
+      const attachments =
+        link.files.length > 0 && this.storage
+          ? await Promise.all(
+              link.files.map(async (f) => {
+                const { buffer } = await this.storage!.getReceiptBufferByStoredUrl(f.fileUrl);
+                return { filename: f.fileName, content: buffer };
+              }),
+            )
+          : [];
+
+      // Ebook com corpo personalizado: e-mail com a mensagem do vendedor (+ anexos, se houver).
+      if (isEbook && hasCustomBody) {
+        await this.emailService!.sendEbookAccessEmail({
+          to: tx.customerEmail,
+          customerName: tx.customerName ?? 'Cliente',
+          title: link.title,
+          body: link.emailBody as string,
+          attachments,
+        });
+        this.logger.log(`[DomWebhook] E-mail de ebook enviado para ${tx.customerEmail} (tx=${tx.id}, link=${tx.paymentLinkId})`);
+        return;
+      }
+
+      // Fluxo padrão: entrega de PDFs (somente quando há arquivos).
+      if (attachments.length === 0) return;
       await this.emailService!.sendPaymentLinkFiles({
         to: tx.customerEmail,
         customerName: tx.customerName ?? 'Cliente',
