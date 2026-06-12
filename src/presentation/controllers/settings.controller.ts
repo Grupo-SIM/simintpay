@@ -11,6 +11,7 @@ import { UpdateEmailSettingsUseCase } from '../../application/use-cases/settings
 import { GetTaxesUseCase } from '../../application/use-cases/settings/get-taxes.use-case';
 import { ChangePasswordUseCase } from '../../application/use-cases/settings/change-password.use-case';
 import { ChangePasswordDto } from '../../application/dtos/settings/change-password.dto';
+import { UpdateDocumentUseCase } from '../../application/use-cases/settings/update-document.use-case';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -31,6 +32,7 @@ export class SettingsController {
     private readonly updateEmail: UpdateEmailSettingsUseCase,
     private readonly taxes: GetTaxesUseCase,
     private readonly changePassword: ChangePasswordUseCase,
+    private readonly updateDocument: UpdateDocumentUseCase,
   ) {}
 
   @Get('perfil')
@@ -59,6 +61,24 @@ export class SettingsController {
     @Body() dto: UpdateProfileDto,
   ): Promise<{ data: unknown }> {
     return this.updateProfile.execute({ userId: user?.sub ?? '', dto });
+  }
+
+  @Put('documento')
+  @ApiOperation({ summary: 'Cadastrar CPF/CNPJ da conta (apenas quando ainda não definido)' })
+  @ApiBody({
+    schema: { example: { documento: '000.000.000-00' } },
+  })
+  @ApiResponse({ status: 200, schema: { example: { data: { cpf: '00000000000' }, message: 'CPF cadastrado com sucesso' } } })
+  @ApiResponse({ status: 400, schema: { example: { statusCode: 400, message: 'Sua conta já possui um documento cadastrado' } } })
+  @ApiResponse({ status: 409, schema: { example: { statusCode: 409, message: 'Já existe uma conta com este CPF' } } })
+  async updateDocumentRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Body() body: { documento: string },
+  ): Promise<unknown> {
+    return this.updateDocument.execute({
+      userId: user?.sub ?? '',
+      documento: body?.documento ?? '',
+    });
   }
 
   @Get('taxas')
