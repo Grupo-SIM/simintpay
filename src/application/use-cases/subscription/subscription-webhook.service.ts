@@ -9,6 +9,7 @@ import type { IBalanceLogRepository } from '../../../core/repositories/balance-l
 import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { splitDocument } from '../../utils/document.util';
+import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 import { PlatformAccessService } from '../../services/platform-access.service';
 
 @Injectable()
@@ -313,8 +314,14 @@ export class SubscriptionWebhookService {
       });
     }
 
+    const isAfLink = isAreaflixLink({
+      webhookUrl: link.webhookUrl,
+      platformTag: (link as any).platformTag,
+      plataformas: (link as any).plataformas,
+    });
+
     let platformFeeAmount = 0;
-    if (!link.isStandalone) {
+    if (!link.isStandalone && !isAfLink) {
       const effectivePlatformTag = ((link as any).platformTag ?? (link as any).plataformas?.[0] ?? 'GLOBAL').toString().toUpperCase();
       // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
       const taxaTag = effectivePlatformTag === 'GLOBAL' && linkOrder.customerEmail?.trim()
@@ -325,7 +332,14 @@ export class SubscriptionWebhookService {
       const sellerFeeFixed = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
       platformFeeAmount = Math.round((baseLinkPrice * sellerFeePercent + sellerFeeFixed) * 100) / 100;
     }
-    const netAmount = amount.sub(domFee).sub(new Prisma.Decimal(platformFeeAmount));
+
+    // AREAFLIX: líquido do vendedor = valor − % do método − taxa fixa (taxas do painel).
+    // Renovação de assinatura é cobrada no cartão (1x).
+    const netAmount = isAfLink
+      ? new Prisma.Decimal(
+          calculateAreaflixSellerNet(amount.toNumber(), 'CREDIT_CARD', 1).toFixed(2),
+        )
+      : amount.sub(domFee).sub(new Prisma.Decimal(platformFeeAmount));
 
     // Criar nova ordem para registro da renovação
     const newOrder = await this.prisma.subscriptionLinkOrder.create({

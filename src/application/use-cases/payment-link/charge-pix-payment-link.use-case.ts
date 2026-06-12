@@ -10,6 +10,7 @@ import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { calculatePaymentLinkFees } from './payment-link-fees.helper';
 import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 
 export type ChargePixPaymentLinkInput = {
   linkId: string;
@@ -122,7 +123,18 @@ export class ChargePixPaymentLinkUseCase {
       ? buildClientTaxaTag(input.customerEmail)
       : platformTag;
     const fees = calculatePaymentLinkFees(link, 1, taxaTag, true);
-    const { totalAmount, netAmount, domFeeAmount } = fees;
+    const { totalAmount, domFeeAmount } = fees;
+    let { netAmount } = fees;
+
+    // AREAFLIX: líquido do vendedor = valor − % PIX − taxa fixa (taxas do painel)
+    if (
+      isAreaflixLink({
+        webhookUrl: (link as any).webhookUrl,
+        plataformas: (link as any).plataformas,
+      })
+    ) {
+      netAmount = calculateAreaflixSellerNet(totalAmount, 'PIX');
+    }
 
     const result = await this.gateway.chargePixForLink(domToken, {
       domLinkId: link.domPaymentLinkId,

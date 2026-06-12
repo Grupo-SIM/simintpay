@@ -13,6 +13,7 @@ import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/p
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { VoucherService } from '../voucher/voucher.service';
 import { splitDocument } from '../../utils/document.util';
+import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 import { hasEbookPlatform } from '../../utils/internal-tags.util';
 
 function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR'; frequency: number } {
@@ -199,7 +200,13 @@ export class CheckoutSubscriptionLinkCardUseCase {
       paymentMethod: 'CREDIT_CARD',
       frequencyType: link.frequencyType,
       amountCharged,
-      netAmount: Number((amountCharged - platformFeeAmount).toFixed(2)),
+      netAmount: isAreaflixLink({
+        webhookUrl: link.webhookUrl,
+        platformTag: (link as any).platformTag,
+        plataformas: (link as any).plataformas,
+      })
+        ? calculateAreaflixSellerNet(amountCharged, 'CREDIT_CARD', 1)
+        : Number((amountCharged - platformFeeAmount).toFixed(2)),
       orderId: order.id,
       linkId: link.id,
       ...splitDocument(cleanDoc),

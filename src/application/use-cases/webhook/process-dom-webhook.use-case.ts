@@ -25,6 +25,7 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import { StorageService } from '../../../infrastructure/storage/storage.service';
 import { documentType, splitDocument as provisionDocPayload } from '../../utils/document.util';
+import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -297,6 +298,12 @@ export class ProcessDomWebhookUseCase {
         const domLiquid = data.liquid_amount != null ? new Prisma.Decimal(data.liquid_amount / 100) : null;
         delta = domLiquid
           ?? (existing.netAmount != null ? new Prisma.Decimal(existing.netAmount.toString()) : amountDec);
+      } else if (existing.description?.includes('[TENANT:AREAFLIX]')) {
+        // AREAFLIX: netAmount já é o líquido final do vendedor (% método + fixa
+        // descontados na criação da transação) — sem taxas extras aqui.
+        delta = existing.netAmount != null
+          ? new Prisma.Decimal(existing.netAmount.toString())
+          : amountDec;
       } else {
         const netAmountDec = existing.netAmount != null
           ? new Prisma.Decimal(existing.netAmount.toString())
@@ -1351,6 +1358,16 @@ export class ProcessDomWebhookUseCase {
       }
     }
 
+    // AREAFLIX: líquido do vendedor = valor − % do método − taxa fixa (taxas do painel)
+    const isAfSubLink = isAreaflixLink({
+      webhookUrl: order.subscriptionLink.webhookUrl,
+      platformTag: (order.subscriptionLink as any).platformTag,
+      plataformas: (order.subscriptionLink as any).plataformas,
+    });
+    const afSubNet = isAfSubLink
+      ? calculateAreaflixSellerNet(Number(order.amountCharged), 'PIX')
+      : null;
+
     // Notificar webhook externo configurado no link (ex: saas-netflix-back para atualizar plano)
     const webhookUrl = order.subscriptionLink.webhookUrl ?? null;
     if (webhookUrl) {
@@ -1366,9 +1383,11 @@ export class ProcessDomWebhookUseCase {
           paymentMethod: 'PIX',
           frequencyType: order.subscriptionLink.frequencyType,
           amountCharged: Number(order.amountCharged),
-          netAmount: Number(
-            (Number(order.amountCharged) - Number(order.platformFeeAmount ?? 0)).toFixed(2),
-          ),
+          netAmount:
+            afSubNet ??
+            Number(
+              (Number(order.amountCharged) - Number(order.platformFeeAmount ?? 0)).toFixed(2),
+            ),
           orderId: order.id,
           linkId: order.subscriptionLinkId,
           ...provisionDocPayload(order.customerDocument),
@@ -1396,16 +1415,17 @@ export class ProcessDomWebhookUseCase {
       if (!exists) {
         const gross = Number(order.amountCharged);
         const pf = Number(order.platformFeeAmount);
-        await this.prisma.transaction.create({
+        const netForSeller = afSubNet ?? gross - pf;
+        const newTx = await this.prisma.transaction.create({
           data: {
             userId: order.userId,
             amount: gross,
-            netAmount: gross - pf,
+            netAmount: netForSeller,
             status: TransactionStatus.COMPLETED,
             paymentMethod: PaymentMethod.PIX,
-            totalFee: 0,
+            totalFee: afSubNet != null ? gross - netForSeller : 0,
             domFee: 0,
-            platformFee: pf,
+            platformFee: afSubNet != null ? gross - netForSeller : pf,
             description: `${order.subscriptionLink.name} [TENANT:${subPlatformTag}] subOrder=${order.id}`,
             domPaymentId: order.domPixPaymentId,
             customerName: order.customerName,
@@ -1414,6 +1434,41 @@ export class ProcessDomWebhookUseCase {
             customerPhone: order.customerPhone ?? undefined,
           },
         });
+
+        // AREAFLIX: creditar a carteira do dono do link com o líquido
+        // (ativação PIX não passava por nenhum crédito de carteira)
+        if (afSubNet != null) {
+          const netDec = new Prisma.Decimal(afSubNet.toFixed(2));
+          try {
+            const wallet = await this.prisma.wallet.upsert({
+              where: { userId: order.userId },
+              update: {},
+              create: { userId: order.userId, balance: 0, lockedBalance: 0 },
+            });
+            const after = await this.prisma.wallet.update({
+              where: { userId: order.userId },
+              data: { balance: { increment: netDec }, version: { increment: 1 } },
+            });
+            await this.prisma.balanceLog.create({
+              data: {
+                userId: order.userId,
+                action: 'SUBSCRIPTION_LINK_PIX',
+                transactionId: newTx.id,
+                amount: netDec,
+                balanceBefore: wallet.balance,
+                balanceAfter: after.balance,
+                lockedBefore: wallet.lockedBalance,
+                lockedAfter: wallet.lockedBalance,
+                source: 'SUBSCRIPTION_LINK',
+                description: `Assinatura areaflix ${order.subscriptionLink.name} subOrder=${order.id}`,
+              },
+            });
+          } catch (err: unknown) {
+            this.logger.error(
+              `[DomWebhook] Falha ao creditar carteira areaflix (order ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
       }
       // CONTROLE-MOTORISTA: provisionar conta no saas-consumo-back
       if (subPlatformTag === 'CONTROLE-MOTORISTA') {
