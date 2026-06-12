@@ -38,6 +38,7 @@ import { ModuleRealtimeModule } from '../infrastructure/realtime/module-realtime
 import { RevalidaModule } from '../modules/revalida/revalida.module';
 import { CommunityManagementService } from '../application/services/community-management.service';
 import { PlatformTaxasService } from '../application/services/platform-taxas.service';
+import { PlatformAccessService } from '../application/services/platform-access.service';
 import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
 
 @Module({
@@ -65,6 +66,7 @@ import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
     EmailService,
     CommunityManagementService,
     PlatformTaxasService,
+    PlatformAccessService,
     RolesGuard,
     ScanPlatformOwnersCron,
     ScanPlatformOwnersUseCase,

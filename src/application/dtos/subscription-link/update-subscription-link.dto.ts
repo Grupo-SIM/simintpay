@@ -40,6 +40,18 @@ export class UpdateSubscriptionLinkDto {
 
   @IsNumber()
   @IsOptional()
+  valor?: number;
+
+  @IsString()
+  @IsOptional()
+  frequencia?: string;
+
+  @IsString()
+  @IsOptional()
+  paymentMethods?: string;
+
+  @IsNumber()
+  @IsOptional()
   platformFee?: number;
 
   @IsString()

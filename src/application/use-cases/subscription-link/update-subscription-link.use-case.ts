@@ -1,10 +1,23 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { PlanType } from '@prisma/client';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
 import type { ISubscriptionLinkRepository } from '../../../core/repositories/subscription-link.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { UpdateSubscriptionLinkDto } from '../../dtos/subscription-link/update-subscription-link.dto';
 import { CommunityManagementService } from '../../services/community-management.service';
+
+/** Converte a frequência do form (MENSAL/TRIMESTRAL/...) para o enum PlanType. */
+function frequenciaToPlanType(f: string): PlanType {
+  switch (f.toUpperCase()) {
+    case 'TRIMESTRAL': return PlanType.TRIMESTRAL;
+    case 'SEMESTRAL': return PlanType.SEMESTRAL;
+    case 'ANUAL': return PlanType.ANUAL;
+    case 'MONTHLY':
+    case 'MENSAL':
+    default: return PlanType.MONTHLY;
+  }
+}
 
 @Injectable()
 export class UpdateSubscriptionLinkUseCase {
@@ -36,6 +49,9 @@ export class UpdateSubscriptionLinkUseCase {
     const updated = await this.repo.update(existing.id, {
       name: input.dto.nome ?? existing.name,
       description: input.dto.descricao ?? existing.description,
+      amount: input.dto.valor ?? Number(existing.amount),
+      frequencyType: input.dto.frequencia ? frequenciaToPlanType(input.dto.frequencia) : (existing as any).frequencyType,
+      paymentMethods: input.dto.paymentMethods ?? (existing as any).paymentMethods,
       isActive: nextIsActive,
       isStandalone: input.dto.isStandalone ?? existing.isStandalone,
       platformFee: input.dto.platformFee ?? existing.platformFee,

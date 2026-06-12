@@ -86,6 +86,8 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         name: data.name,
         description: data.description ?? undefined,
         amount: data.amount != null ? new Prisma.Decimal(data.amount) : undefined,
+        frequencyType: data.frequencyType != null ? (data.frequencyType as any) : undefined,
+        paymentMethods: data.paymentMethods ?? undefined,
         isStandalone: data.isStandalone,
         platformFee: data.platformFee,
         isActive: data.isActive,
