@@ -197,15 +197,22 @@ export class InternalAreaflixFinanceController {
       retroactiveAmount?: number;
       /** Email da conta de serviço da areaflix (dona original dos links/saldo). */
       serviceAccountEmail?: string;
+      /** Nome do admin areaflix — exibido na tela de donos por CPF (Leads). */
+      adminName?: string;
     },
     @Headers('x-internal-token') internalToken?: string,
   ) {
     this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByDoc(body.cpf);
-    if (userIds.length === 0) {
+    const targetUserId = userIds[0] ?? null;
+
+    // Registrar o dono na tela de "Leads" (donos por CPF/plataforma) — vinculado
+    // quando a conta simpay existe, sem vínculo caso contrário.
+    await this.upsertAreaflixOwner(body.cpf, body.adminName ?? null, targetUserId);
+
+    if (!targetUserId) {
       return { claimed: false, reason: 'Nenhuma conta simpay para este CPF/CNPJ' };
     }
-    const targetUserId = userIds[0];
 
     const paymentLinkIds = (body.paymentLinkIds ?? []).filter(Boolean);
     const subscriptionLinkIds = (body.subscriptionLinkIds ?? []).filter(Boolean);
@@ -213,6 +220,7 @@ export class InternalAreaflixFinanceController {
     let paymentLinks = 0;
     let subscriptionLinks = 0;
     let orders = 0;
+    let transactions = 0;
 
     if (paymentLinkIds.length > 0) {
       const result = await this.prisma.paymentLink.updateMany({
@@ -220,6 +228,13 @@ export class InternalAreaflixFinanceController {
         data: { userId: targetUserId },
       });
       paymentLinks = result.count;
+
+      // Transações passadas dos links avulsos → aparecem na conta do admin
+      const txResult = await this.prisma.transaction.updateMany({
+        where: { paymentLinkId: { in: paymentLinkIds }, userId: { not: targetUserId } },
+        data: { userId: targetUserId },
+      });
+      transactions += txResult.count;
     }
 
     if (subscriptionLinkIds.length > 0) {
@@ -230,6 +245,10 @@ export class InternalAreaflixFinanceController {
       subscriptionLinks = result.count;
 
       // Ordens existentes também — renovações futuras creditam o novo dono
+      const linkOrders = await this.prisma.subscriptionLinkOrder.findMany({
+        where: { subscriptionLinkId: { in: subscriptionLinkIds } },
+        select: { id: true, domPixPaymentId: true },
+      });
       const ordersResult = await this.prisma.subscriptionLinkOrder.updateMany({
         where: {
           subscriptionLinkId: { in: subscriptionLinkIds },
@@ -238,6 +257,20 @@ export class InternalAreaflixFinanceController {
         data: { userId: targetUserId },
       });
       orders = ordersResult.count;
+
+      // Transações passadas das assinaturas (ativação PIX e renovações registradas
+      // com AREAFLIX_SL_{orderId}) → aparecem na conta do admin
+      const payIds = [
+        ...linkOrders.map((o) => o.domPixPaymentId).filter((v): v is string => Boolean(v)),
+        ...linkOrders.map((o) => `AREAFLIX_SL_${o.id}`),
+      ];
+      if (payIds.length > 0) {
+        const txResult = await this.prisma.transaction.updateMany({
+          where: { domPaymentId: { in: payIds }, userId: { not: targetUserId } },
+          data: { userId: targetUserId },
+        });
+        transactions += txResult.count;
+      }
     }
 
     // Transferência retroativa do saldo (uma única vez por admin):
@@ -314,9 +347,55 @@ export class InternalAreaflixFinanceController {
     return {
       claimed: true,
       targetUserId,
-      transferred: { paymentLinks, subscriptionLinks, orders },
+      transferred: { paymentLinks, subscriptionLinks, orders, transactions },
       retroactiveTransferred,
     };
+  }
+
+  /**
+   * Mantém o registro do dono areaflix na tela de donos por CPF ("Leads"):
+   * cria/atualiza ExternalPlatformUser (platform areaflix), vinculando ao User
+   * simpay quando a conta existe.
+   */
+  private async upsertAreaflixOwner(
+    doc: string,
+    name: string | null,
+    targetUserId: string | null,
+  ): Promise<void> {
+    const clean = this.normalizeDoc(doc);
+    if (clean.length !== 11 && clean.length !== 14) return;
+
+    try {
+      const where =
+        clean.length === 11
+          ? { platform: 'areaflix', cpf: clean }
+          : { platform: 'areaflix', cnpj: clean };
+
+      const existing = await this.prisma.externalPlatformUser.findFirst({ where });
+
+      if (existing) {
+        await this.prisma.externalPlatformUser.update({
+          where: { id: existing.id },
+          data: {
+            name: name ?? existing.name,
+            userId: targetUserId ?? existing.userId,
+            isDeleted: false,
+            deletedAt: null,
+          },
+        });
+      } else {
+        await this.prisma.externalPlatformUser.create({
+          data: {
+            ...(clean.length === 11 ? { cpf: clean } : { cnpj: clean }),
+            name: name ?? 'Admin Areaflix',
+            platform: 'areaflix',
+            userId: targetUserId,
+          },
+        });
+      }
+    } catch {
+      // registro na tela de donos é cosmético — não pode quebrar o claim
+    }
   }
 
   /** Cria solicitação de saque — entra na fila do painel admin do simpay (platform: areaflix). */
