@@ -46,11 +46,24 @@ export class UpdateSubscriptionLinkUseCase {
       }
     }
 
+    const newAmount = input.dto.valor ?? Number(existing.amount);
+    const newFrequency = input.dto.frequencia
+      ? frequenciaToPlanType(input.dto.frequencia)
+      : (existing as any).frequencyType;
+
+    // Se valor ou frequência mudaram, o plano gravado na DOM (domPlanId) fica desatualizado:
+    // o checkout de CARTÃO recriaria a assinatura usando o preço/ciclo ANTIGOS. Zeramos o
+    // domPlanId para que o próximo checkout de cartão recrie o plano na DOM com os valores
+    // novos. (Assinantes atuais continuam no plano antigo; novos assinam pelo plano novo.)
+    const planChanged =
+      (input.dto.valor !== undefined && newAmount !== Number(existing.amount)) ||
+      (input.dto.frequencia !== undefined && newFrequency !== (existing as any).frequencyType);
+
     const updated = await this.repo.update(existing.id, {
       name: input.dto.nome ?? existing.name,
       description: input.dto.descricao ?? existing.description,
-      amount: input.dto.valor ?? Number(existing.amount),
-      frequencyType: input.dto.frequencia ? frequenciaToPlanType(input.dto.frequencia) : (existing as any).frequencyType,
+      amount: newAmount,
+      frequencyType: newFrequency,
       paymentMethods: input.dto.paymentMethods ?? (existing as any).paymentMethods,
       isActive: nextIsActive,
       isStandalone: input.dto.isStandalone ?? existing.isStandalone,
@@ -59,6 +72,7 @@ export class UpdateSubscriptionLinkUseCase {
       webhookUrl: input.dto.webhookUrl ?? existing.webhookUrl,
       maxUses: input.dto.maxUses ?? existing.maxUses,
       platformTag: input.dto.platformTag !== undefined ? input.dto.platformTag : (existing as any).platformTag,
+      ...(planChanged && (existing as any).domPlanId ? { domPlanId: null } : {}),
       ...(input.dto.emailBody !== undefined && { emailBody: input.dto.emailBody }),
       ...(input.dto.plataformas !== undefined && { plataformas: input.dto.plataformas }),
     });

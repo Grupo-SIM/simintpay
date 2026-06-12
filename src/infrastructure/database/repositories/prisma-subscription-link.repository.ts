@@ -95,7 +95,9 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         webhookUrl: data.webhookUrl ?? undefined,
         maxUses: data.maxUses ?? undefined,
         currentUses: data.currentUses,
-        domPlanId: data.domPlanId ?? undefined,
+        // null explícito limpa o domPlanId (força recriação do plano na DOM no próximo
+        // checkout de cartão); undefined mantém o valor atual.
+        domPlanId: data.domPlanId === null ? null : (data.domPlanId ?? undefined),
         platformTag: data.platformTag ?? undefined,
         ...(data.emailBody !== undefined && { emailBody: data.emailBody }),
         ...(data.plataformas !== undefined && { plataformas: data.plataformas }),
