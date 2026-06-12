@@ -38,19 +38,25 @@ export class UpdateDocumentUseCase {
       );
     }
 
-    // Unicidade: nenhum outro usuário pode ter o mesmo documento
+    // Unicidade: nenhuma outra conta ATIVA pode ter o mesmo documento.
+    // Contas desativadas (excluídas pelo admin) liberam o documento — o CPF/CNPJ
+    // é removido delas ao ser reutilizado, para não ambiguar os fluxos por documento.
     if (digits.length === 11) {
       const variants = [
         digits,
         digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'),
       ];
       const duplicate = await this.prisma.user.findFirst({
-        where: { cpf: { in: variants }, id: { not: user.id } },
+        where: { cpf: { in: variants }, id: { not: user.id }, isActive: true },
         select: { id: true },
       });
       if (duplicate) {
         throw new ConflictException('Já existe uma conta com este CPF');
       }
+      await this.prisma.user.updateMany({
+        where: { cpf: { in: variants }, id: { not: user.id }, isActive: false },
+        data: { cpf: null },
+      });
       await this.prisma.user.update({
         where: { id: user.id },
         data: { cpf: digits },
@@ -60,12 +66,17 @@ export class UpdateDocumentUseCase {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const duplicateCnpj = await (this.prisma.user as any).findFirst({
-      where: { cnpj: digits, id: { not: user.id } },
+      where: { cnpj: digits, id: { not: user.id }, isActive: true },
       select: { id: true },
     });
     if (duplicateCnpj) {
       throw new ConflictException('Já existe uma conta com este CNPJ');
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (this.prisma.user as any).updateMany({
+      where: { cnpj: digits, id: { not: user.id }, isActive: false },
+      data: { cnpj: null },
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (this.prisma.user as any).update({
       where: { id: user.id },

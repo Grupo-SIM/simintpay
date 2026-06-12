@@ -40,10 +40,12 @@ export class InternalAreaflixFinanceController {
     const ids = new Set<string>();
     const clean = this.normalizeDoc(doc);
 
+    // Somente contas ativas — conta desativada (excluída pelo admin) não recebe
+    // créditos, links nem saques.
     if (clean.length === 14) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const users = await (this.prisma.user as any).findMany({
-        where: { cnpj: clean },
+        where: { cnpj: clean, isActive: true },
         select: { id: true },
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -51,7 +53,7 @@ export class InternalAreaflixFinanceController {
     } else if (clean.length === 11) {
       const variants = [clean, clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
       const users = await this.prisma.user.findMany({
-        where: { cpf: { in: variants } },
+        where: { cpf: { in: variants }, isActive: true },
         select: { id: true },
       });
       users.forEach((u) => ids.add(u.id));
