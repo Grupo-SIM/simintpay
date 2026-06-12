@@ -1348,6 +1348,9 @@ export class ProcessDomWebhookUseCase {
           paymentMethod: 'PIX',
           frequencyType: order.subscriptionLink.frequencyType,
           amountCharged: Number(order.amountCharged),
+          netAmount: Number(
+            (Number(order.amountCharged) - Number(order.platformFeeAmount ?? 0)).toFixed(2),
+          ),
           orderId: order.id,
           linkId: order.subscriptionLinkId,
           ...provisionDocPayload(order.customerDocument),
@@ -1604,6 +1607,7 @@ export class ProcessDomWebhookUseCase {
       customerDocument: string | null;
       customerPhone: string | null;
       amount: Prisma.Decimal;
+      netAmount: Prisma.Decimal | null;
       paymentMethod: PaymentMethod;
     },
     event: 'purchase_approved' | 'purchase_refunded',
@@ -1628,6 +1632,7 @@ export class ProcessDomWebhookUseCase {
           planName: link.title,
           paymentMethod: String(tx.paymentMethod),
           amountCharged: Number(tx.amount),
+          netAmount: Number(Number(tx.netAmount ?? tx.amount).toFixed(2)),
           orderId: tx.id,
           linkId: link.id,
           ...provisionDocPayload(tx.customerDocument ?? undefined),

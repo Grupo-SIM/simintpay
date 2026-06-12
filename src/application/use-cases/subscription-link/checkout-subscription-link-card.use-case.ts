@@ -199,6 +199,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
       paymentMethod: 'CREDIT_CARD',
       frequencyType: link.frequencyType,
       amountCharged,
+      netAmount: Number((amountCharged - platformFeeAmount).toFixed(2)),
       orderId: order.id,
       linkId: link.id,
       ...splitDocument(cleanDoc),

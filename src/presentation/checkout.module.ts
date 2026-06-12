@@ -5,6 +5,7 @@ import { InternalPagatgFinanceController } from './controllers/internal-pagatg-f
 import { InternalRenovadaFinanceController } from './controllers/internal-renovada-finance.controller';
 import { InternalBosqueFinanceController } from './controllers/internal-bosque-finance.controller';
 import { InternalAtlasFinanceController } from './controllers/internal-atlas-finance.controller';
+import { InternalAreaflixFinanceController } from './controllers/internal-areaflix-finance.controller';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { VoucherModule } from './voucher.module';
 import { CheckoutEventsService } from '../application/services/checkout-events.service';
@@ -18,6 +19,7 @@ import { CheckoutEventsService } from '../application/services/checkout-events.s
     InternalRenovadaFinanceController,
     InternalBosqueFinanceController,
     InternalAtlasFinanceController,
+    InternalAreaflixFinanceController,
   ],
   providers: [CheckoutEventsService],
   exports: [CheckoutEventsService],

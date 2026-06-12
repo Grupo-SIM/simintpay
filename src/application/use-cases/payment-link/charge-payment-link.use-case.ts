@@ -241,6 +241,7 @@ export class ChargePaymentLinkUseCase {
         planName: link.title,
         paymentMethod: String(this.mapPaymentMethod(input.paymentMethod)),
         amountCharged: totalAmount,
+        netAmount: Number(netAmount.toFixed(2)),
         orderId: tx.id,
         linkId: link.id,
         ...splitDocument(input.customerDocument),
