@@ -32,6 +32,7 @@ export class GetPaymentLinkUseCase {
         isStandalone: link.isStandalone,
         aceitaDebito: link.aceitaDebito,
         redirectUrl: (link as any).redirectUrl ?? null,
+        webhookUrl: (link as any).webhookUrl ?? null,
         emailBody: (link as any).emailBody ?? null,
         plataformas: (link as any).plataformas ?? [],
         platformFee1x: link.platformFee1x,

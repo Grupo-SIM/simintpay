@@ -455,6 +455,21 @@ export class ProcessDomWebhookUseCase {
         if (existing.paymentLinkId && this.emailService) {
           void this.sendPaymentLinkFilesToCustomer(existing);
         }
+
+        // Notificar webhook externo configurado no link de pagamento (ex: areaflix)
+        if (existing.paymentLinkId) {
+          void this.notifyPaymentLinkExternalWebhook(existing, 'purchase_approved');
+        }
+      }
+
+      // Reembolso/chargeback de link de pagamento: notificar webhook externo para revogar acesso
+      if (
+        (nextStatus === TransactionStatus.REFUNDED ||
+          nextStatus === TransactionStatus.CHARGEBACK) &&
+        existing.status === TransactionStatus.COMPLETED &&
+        existing.paymentLinkId
+      ) {
+        void this.notifyPaymentLinkExternalWebhook(existing, 'purchase_refunded');
       }
     } else {
       const amountReais = Number(data.amount) / 100;
@@ -1352,6 +1367,7 @@ export class ProcessDomWebhookUseCase {
           frequencyType: order.subscriptionLink.frequencyType,
           amountCharged: Number(order.amountCharged),
           orderId: order.id,
+          linkId: order.subscriptionLinkId,
           ...provisionDocPayload(order.customerDocument),
           phone: order.customerPhone ?? undefined,
         }),
@@ -1592,6 +1608,59 @@ export class ProcessDomWebhookUseCase {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`[DomWebhook] Falha ao enviar PDFs do link ${tx.paymentLinkId} para ${tx.customerEmail}: ${msg}`);
+    }
+  }
+
+  /**
+   * Notifica o webhook externo configurado no link de pagamento avulso (ex: areaflix)
+   * com purchase_approved / purchase_refunded.
+   */
+  private async notifyPaymentLinkExternalWebhook(
+    tx: {
+      id: string;
+      paymentLinkId: string | null;
+      customerEmail: string | null;
+      customerName: string | null;
+      customerDocument: string | null;
+      customerPhone: string | null;
+      amount: Prisma.Decimal;
+      paymentMethod: PaymentMethod;
+    },
+    event: 'purchase_approved' | 'purchase_refunded',
+  ): Promise<void> {
+    if (!tx.paymentLinkId) return;
+
+    try {
+      const link = await this.prisma.paymentLink.findUnique({
+        where: { id: tx.paymentLinkId },
+        select: { id: true, title: true, webhookUrl: true },
+      });
+      if (!link?.webhookUrl) return;
+
+      const simpayToken = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+      await fetch(link.webhookUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-simpay-token': simpayToken },
+        body: JSON.stringify({
+          event,
+          customerEmail: tx.customerEmail,
+          customerName: tx.customerName,
+          planName: link.title,
+          paymentMethod: String(tx.paymentMethod),
+          amountCharged: Number(tx.amount),
+          orderId: tx.id,
+          linkId: link.id,
+          ...provisionDocPayload(tx.customerDocument ?? undefined),
+          phone: tx.customerPhone ?? undefined,
+        }),
+      });
+      this.logger.log(
+        `[DomWebhook] Webhook externo (${event}) notificado para link ${link.id}, tx=${tx.id}`,
+      );
+    } catch (err: unknown) {
+      this.logger.warn(
+        `[DomWebhook] Falha ao notificar webhook externo do link ${tx.paymentLinkId} (${event}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }

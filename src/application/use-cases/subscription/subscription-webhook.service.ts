@@ -385,6 +385,7 @@ export class SubscriptionWebhookService {
           frequencyType: link.frequencyType,
           amountCharged: amount.toNumber(),
           orderId: newOrder.id,
+          linkId: link.id,
           ...splitDocument(linkOrder.customerDocument),
           phone: linkOrder.customerPhone ?? undefined,
         }),
@@ -516,6 +517,7 @@ export class SubscriptionWebhookService {
             frequencyType: linkOrder.subscriptionLink.frequencyType,
             amountCharged: 0,
             orderId: linkOrder.id,
+            linkId: linkOrder.subscriptionLinkId,
           }),
         }).catch((err: unknown) => {
           this.logger.warn(`[handleCancelled] Falha ao notificar ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`);
