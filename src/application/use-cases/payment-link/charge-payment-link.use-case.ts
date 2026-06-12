@@ -10,6 +10,7 @@ import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { calculatePaymentLinkFees, calculateDebitFees } from './payment-link-fees.helper';
 import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { splitDocument } from '../../utils/document.util';
 
 export type ChargePaymentLinkInput = {
   linkId: string;
@@ -180,7 +181,7 @@ export class ChargePaymentLinkUseCase {
     const totalFee = totalAmount - netAmount;
     const platformFee = totalFee - domFeeAmount;
 
-    await this.prisma.transaction.upsert({
+    const tx = await this.prisma.transaction.upsert({
       where: { domPaymentId: result.id },
       update: {
         status: this.mapGatewayStatusToTxStatus(result.status),
@@ -226,11 +227,48 @@ export class ChargePaymentLinkUseCase {
       currentUses: ((link as any).currentUses ?? 0) + 1,
     });
 
+    // Cartão aprovado na hora não gera transição de status no webhook DOM —
+    // notificar o webhook externo do link (ex: areaflix) aqui. Dedup no
+    // receptor via orderId (tx.id).
+    if (
+      this.mapGatewayStatusToTxStatus(result.status) === TransactionStatus.COMPLETED &&
+      (link as any).webhookUrl
+    ) {
+      void this.notifyExternalWebhook((link as any).webhookUrl as string, {
+        event: 'purchase_approved',
+        customerEmail: input.customerEmail,
+        customerName: input.customerName,
+        planName: link.title,
+        paymentMethod: String(this.mapPaymentMethod(input.paymentMethod)),
+        amountCharged: totalAmount,
+        orderId: tx.id,
+        linkId: link.id,
+        ...splitDocument(input.customerDocument),
+        phone: customerPhone || undefined,
+      });
+    }
+
     return {
       id: result.id,
       status: result.status ?? 'pending',
       pixContent: result.pixContent ?? null,
       redirectUrl: (link as any).redirectUrl ?? null,
     };
+  }
+
+  private async notifyExternalWebhook(
+    webhookUrl: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const token = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+    try {
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-simpay-token': token },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      // Falha no webhook externo não pode bloquear a resposta do checkout
+    }
   }
 }
