@@ -1334,6 +1334,7 @@ export class ProcessDomWebhookUseCase {
           frequencyType: order.subscriptionLink.frequencyType,
           amountCharged: Number(order.amountCharged),
           orderId: order.id,
+          linkId: order.subscriptionLinkId,
           ...provisionDocPayload(order.customerDocument),
           phone: order.customerPhone ?? undefined,
         }),

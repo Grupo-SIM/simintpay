@@ -200,6 +200,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
       frequencyType: link.frequencyType,
       amountCharged,
       orderId: order.id,
+      linkId: link.id,
       ...splitDocument(cleanDoc),
       phone: cleanPhone || undefined,
     });
