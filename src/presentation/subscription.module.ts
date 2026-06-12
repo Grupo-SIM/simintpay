@@ -9,6 +9,7 @@ import { GetSubscriptionDetailUseCase } from '../application/use-cases/subscript
 import { SubscriptionWebhookService } from '../application/use-cases/subscription/subscription-webhook.service';
 import { BALANCE_LOG_REPOSITORY } from '../core/repositories/balance-log.repository.interface';
 import { PrismaBalanceLogRepository } from '../infrastructure/database/repositories/prisma-balance-log.repository';
+import { PlatformAccessService } from '../application/services/platform-access.service';
 
 @Module({
   imports: [ApiDomModule],
@@ -20,6 +21,7 @@ import { PrismaBalanceLogRepository } from '../infrastructure/database/repositor
     ResumeSubscriptionUseCase,
     GetSubscriptionDetailUseCase,
     SubscriptionWebhookService,
+    PlatformAccessService,
     { provide: BALANCE_LOG_REPOSITORY, useClass: PrismaBalanceLogRepository },
   ],
 })

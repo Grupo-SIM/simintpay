@@ -728,13 +728,31 @@ export class ProcessDomWebhookUseCase {
     }
   }
 
+  /** Dias de acesso por ciclo conforme a frequência do plano/link (default mensal=30). */
+  private planDaysForFrequency(freq?: string | null): number {
+    switch (String(freq ?? '').toUpperCase()) {
+      case 'ANUAL':
+      case 'YEAR':
+        return 365;
+      case 'SEMESTRAL':
+      case 'SEMESTER':
+        return 180;
+      case 'TRIMESTRAL':
+      case 'QUARTER':
+        return 90;
+      default:
+        return 30;
+    }
+  }
+
   private async upsertPlatformSubscriberAccess(
     platformTag: string,
     transactionId: string,
     data: RawDomData,
     existing: { customerEmail?: string | null; customerName?: string | null },
+    planDays = 30,
   ): Promise<void> {
-    const PLAN_DAYS = 30;
+    const PLAN_DAYS = planDays > 0 ? planDays : 30;
     const email = (data.customer?.email ?? existing.customerEmail ?? '').toLowerCase().trim();
     if (!email) return;
     const name = data.customer?.name ?? existing.customerName ?? undefined;
@@ -1434,6 +1452,7 @@ export class ProcessDomWebhookUseCase {
               },
             } as any,
             { customerEmail: order.customerEmail, customerName: order.customerName },
+            this.planDaysForFrequency(order.subscriptionLink?.frequencyType),
           );
         }
       }
@@ -1474,6 +1493,7 @@ export class ProcessDomWebhookUseCase {
               },
             } as any,
             { customerEmail: order.customerEmail, customerName: order.customerName },
+            this.planDaysForFrequency(order.subscriptionLink?.frequencyType),
           );
         }
       }
