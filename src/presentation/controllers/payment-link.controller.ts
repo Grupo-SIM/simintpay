@@ -39,6 +39,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+/** Máximo de PDFs anexáveis a um link de pagamento (por envio). */
+const MAX_PDF_FILES = 20;
+
 @Controller('links-pagamento')
 @ApiTags('Links de Pagamento')
 export class PaymentLinkController {
@@ -246,7 +249,7 @@ export class PaymentLinkController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Upload de PDFs para um link de pagamento' })
   @UseInterceptors(
-    FilesInterceptor('files', 10, {
+    FilesInterceptor('files', MAX_PDF_FILES, {
       storage: memoryStorage(),
       limits: { fileSize: 25 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {

@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  MaxLength,
 } from 'class-validator';
 
 export type PlanTipoDto = 'MENSAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
@@ -51,6 +52,7 @@ export class CreatePlanDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   emailBody?: string;
 
   @IsArray()

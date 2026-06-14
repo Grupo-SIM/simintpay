@@ -22,7 +22,6 @@ import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/p
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import { EmailService } from '../../../infrastructure/email/email.service';
-import { isEbookPlatformTag } from '../../utils/internal-tags.util';
 import { Optional } from '@nestjs/common';
 
 @Injectable()
@@ -1334,11 +1333,11 @@ export class PixPlanService {
       this.logger.error('Erro ao notificar api-pagatg:', webhookError.message);
     }
 
-    // E-mail de acesso personalizado (apenas planos PIX de ebook com corpo definido)
+    // E-mail de acesso personalizado (qualquer plataforma com corpo definido)
     if (this.emailService && pixOrder.pixCreditPlanId) {
       try {
         const plan = await this.repo.findPixCreditPlanById(pixOrder.pixCreditPlanId);
-        if (plan && isEbookPlatformTag(plan.tenantTag) && plan.emailBody?.trim()) {
+        if (plan && plan.emailBody?.trim()) {
           await this.emailService.sendEbookAccessEmail({
             to: pixOrder.customerEmail,
             customerName: customerData.name || 'Cliente',

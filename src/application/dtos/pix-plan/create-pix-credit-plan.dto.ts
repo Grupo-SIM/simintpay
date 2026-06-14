@@ -3,6 +3,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -38,5 +39,6 @@ export class CreatePixCreditPlanDto {
   @ApiPropertyOptional({ description: 'Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook)' })
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   emailBody?: string;
 }

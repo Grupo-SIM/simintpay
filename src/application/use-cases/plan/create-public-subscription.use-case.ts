@@ -16,7 +16,6 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { getModuleDomToken } from '../../../modules/module.registry';
 import { EmailService } from '../../../infrastructure/email/email.service';
-import { hasEbookPlatform } from '../../utils/internal-tags.util';
 import { Optional } from '@nestjs/common';
 
 export type CreatePublicSubscriptionInput = {
@@ -139,11 +138,10 @@ export class CreatePublicSubscriptionUseCase {
       `Assinatura criada: subId=${saved.id}, domSubId=${domResult.id}, planId=${plan.id}`,
     );
 
-    // E-mail de acesso personalizado (apenas planos de ebook com corpo definido)
+    // E-mail de acesso personalizado (qualquer plataforma com corpo definido)
     if (
       this.emailService &&
       plan.emailBody?.trim() &&
-      hasEbookPlatform(plan.plataformas) &&
       VALID_PAID.includes(statusLower)
     ) {
       try {

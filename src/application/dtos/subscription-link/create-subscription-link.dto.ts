@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
@@ -104,6 +105,7 @@ export class CreateSubscriptionLinkDto {
   /** Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook) */
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   emailBody?: string;
 
   @IsArray()

@@ -14,7 +14,6 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform
 import { VoucherService } from '../voucher/voucher.service';
 import { splitDocument } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
-import { hasEbookPlatform } from '../../utils/internal-tags.util';
 
 function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR'; frequency: number } {
   switch (linkFrequency) {
@@ -170,7 +169,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
     }
 
     try {
-      if (hasEbookPlatform(link.plataformas) && link.emailBody?.trim()) {
+      if (link.emailBody?.trim()) {
         await this.emailService.sendEbookAccessEmail({
           to: input.dto.customerEmail,
           customerName: input.dto.customerName,

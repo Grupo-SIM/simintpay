@@ -11,7 +11,6 @@ import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { VoucherService } from '../voucher/voucher.service';
 import {
   appendInternalTags,
-  hasEbookPlatform,
   ORIGEM_MAQUINETA_TAG,
   TENANT_AREAFLIX_TAG,
   TENANT_BOSQUE_TAG,
@@ -1330,10 +1329,7 @@ export class ProcessDomWebhookUseCase {
     // Enviar email de acesso
     if (this.emailService) {
       try {
-        if (
-          hasEbookPlatform(order.subscriptionLink.plataformas) &&
-          order.subscriptionLink.emailBody?.trim()
-        ) {
+        if (order.subscriptionLink.emailBody?.trim()) {
           await this.emailService.sendEbookAccessEmail({
             to: order.customerEmail,
             customerName: order.customerName,
@@ -1608,7 +1604,6 @@ export class ProcessDomWebhookUseCase {
       });
       if (!link) return;
 
-      const isEbook = hasEbookPlatform(link.plataformas);
       const hasCustomBody = Boolean(link.emailBody?.trim());
       const redirectUrl = (link as any).redirectUrl?.trim() ? (link as any).redirectUrl as string : null;
 
@@ -1626,8 +1621,8 @@ export class ProcessDomWebhookUseCase {
             )
           : [];
 
-      // Ebook com corpo personalizado: e-mail com a mensagem do vendedor (+ anexos, se houver).
-      if (isEbook && hasCustomBody) {
+      // Corpo personalizado: e-mail com a mensagem do vendedor (+ anexos, se houver).
+      if (hasCustomBody) {
         await this.emailService!.sendEbookAccessEmail({
           to: tx.customerEmail,
           customerName: tx.customerName ?? 'Cliente',

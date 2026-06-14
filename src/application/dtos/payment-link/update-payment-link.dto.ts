@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -121,6 +122,7 @@ export class UpdatePaymentLinkDto {
   /** Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook) */
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   emailBody?: string;
 
   @IsArray()
