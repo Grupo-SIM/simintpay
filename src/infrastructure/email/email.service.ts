@@ -38,7 +38,7 @@ export class EmailService {
           .split('\n')
           .map((line) => linkify(escapeHtml(line)))
           .join('<br />');
-        return `<p style="margin: 0 0 14px; font-size: 15px; line-height: 1.55;">${inner}</p>`;
+        return `<p style="margin: 0 0 14px; font-size: 15px; line-height: 1.55; overflow-wrap: break-word; word-break: break-word;">${inner}</p>`;
       })
       .join('');
   }
