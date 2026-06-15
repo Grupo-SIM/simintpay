@@ -42,7 +42,12 @@ export class CheckoutSubscriptionLinkPixUseCase {
       throw new BadRequestException('Limite de assinaturas atingido');
     }
     const owner = await this.users.findById(link.userId);
-    let domToken: string | null | undefined = owner?.domToken;
+    // Areaflix usa o usuário admin (adminljl) como dono do link; o domToken dele
+    // no banco pode estar expirado e causa 401 na DOM. Força o master key do env.
+    const isAreaflixLink = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
+    let domToken: string | null | undefined = isAreaflixLink
+      ? process.env.DOM_TOKEN
+      : owner?.domToken;
     if (!domToken && owner?.tenantModule?.slug) domToken = getModuleDomToken(owner.tenantModule.slug);
     if (!domToken) domToken = process.env.DOM_TOKEN;
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
@@ -69,9 +74,8 @@ export class CheckoutSubscriptionLinkPixUseCase {
     // PIX: cliente paga o valor base; MDR_PIX é descontado do repasse ao vendedor (não somado ao cliente)
     let platformFeeAmount = 0;
     if (!link.isStandalone) {
-      const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
-      const platformTag = (link as any).platformTag?.toUpperCase() ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'GLOBAL');
+      const platformTag = (link as any).platformTag?.toUpperCase() ?? slugTag ?? (isAreaflixLink ? 'AREAFLIX' : 'GLOBAL');
       // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
       const taxaTag = platformTag === 'GLOBAL' && input.dto.customerEmail?.trim()
         ? buildClientTaxaTag(input.dto.customerEmail)

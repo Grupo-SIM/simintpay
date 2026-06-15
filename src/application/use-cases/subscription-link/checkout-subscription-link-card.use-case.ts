@@ -46,7 +46,12 @@ export class CheckoutSubscriptionLinkCardUseCase {
       throw new BadRequestException('Limite de assinaturas atingido');
     }
     const owner = await this.users.findById(link.userId);
-    let domToken: string | null | undefined = owner?.domToken;
+    // Areaflix usa o usuário admin (adminljl) como dono do link; o domToken dele
+    // no banco pode estar expirado e causa 401 na DOM. Força o master key do env.
+    const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
+    let domToken: string | null | undefined = isAreaflix
+      ? process.env.DOM_TOKEN
+      : owner?.domToken;
     if (!domToken && owner?.tenantModule?.slug) domToken = getModuleDomToken(owner.tenantModule.slug);
     if (!domToken) domToken = process.env.DOM_TOKEN;
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
@@ -73,7 +78,6 @@ export class CheckoutSubscriptionLinkCardUseCase {
     // Taxa de assinatura: hierarquia completa — override da plataforma → env var → GLOBAL → valor gravado no link
     let platformFeeRate: number;
     if (!link.isStandalone) {
-      const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
       // Plataforma: usa a selecionada no link (platformTag) → fallback tenantModule → webhook heuristic
       const platformTag = (link as any).platformTag?.toUpperCase() ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'GLOBAL');

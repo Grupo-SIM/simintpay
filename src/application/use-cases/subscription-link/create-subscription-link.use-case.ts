@@ -53,7 +53,15 @@ export class CreateSubscriptionLinkUseCase {
     }
 
     const owner = await this.users.findById(targetUserId);
-    let domToken: string | null | undefined = owner?.domToken;
+    // Areaflix usa o usuário admin (adminljl) como dono do link; o domToken dele
+    // no banco pode estar expirado e causa 401 na DOM. Força o master key do env.
+    const isAreaflixLink =
+      (input.dto.webhookUrl ?? '').toLowerCase().includes('areaflix') ||
+      input.dto.platformTag?.toUpperCase() === 'AREAFLIX' ||
+      (input.dto.plataformas ?? []).some((p) => p?.toUpperCase() === 'AREAFLIX');
+    let domToken: string | null | undefined = isAreaflixLink
+      ? process.env.DOM_TOKEN
+      : owner?.domToken;
     if (!domToken && owner?.tenantModule?.slug) domToken = getModuleDomToken(owner.tenantModule.slug);
     if (!domToken) domToken = process.env.DOM_TOKEN;
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
