@@ -97,7 +97,18 @@ export class ChargePixPaymentLinkUseCase {
     }
 
     const owner = await this.users.findById(link.userId);
-    let domToken: string | null | undefined = owner?.domToken;
+
+    const isAreaflix = isAreaflixLink({
+      webhookUrl: (link as any).webhookUrl,
+      plataformas: (link as any).plataformas,
+    });
+
+    // Areaflix usa o usuário admin (adminljl) como dono do link; o domToken
+    // dele no banco pode estar expirado e causa 401 na DOM. Força o master key
+    // do env, igual ao fluxo de checkout normal.
+    let domToken: string | null | undefined = isAreaflix
+      ? process.env.DOM_TOKEN
+      : owner?.domToken;
 
     if (!domToken && owner?.tenantModule?.slug) {
       domToken = getModuleDomToken(owner.tenantModule.slug);
@@ -127,12 +138,7 @@ export class ChargePixPaymentLinkUseCase {
     let { netAmount } = fees;
 
     // AREAFLIX: líquido do vendedor = valor − % PIX − taxa fixa (taxas do painel)
-    if (
-      isAreaflixLink({
-        webhookUrl: (link as any).webhookUrl,
-        plataformas: (link as any).plataformas,
-      })
-    ) {
+    if (isAreaflix) {
       netAmount = calculateAreaflixSellerNet(totalAmount, 'PIX');
     }
 
