@@ -53,6 +53,34 @@ export class InternalBosqueFinanceController {
     return [...ids];
   }
 
+  /**
+   * Resolve a conta única do Bosque (IBB). O módulo é só de gestão (sem CPF de
+   * vendedor), então a ordem é: userId → email → cpf → fallback BOSQUE_ID do ambiente.
+   */
+  private async resolveBosqueUserId(opts: { userId?: string; email?: string; cpf?: string }): Promise<string | null> {
+    if (opts.userId?.trim()) return opts.userId.trim();
+
+    if (opts.email?.trim()) {
+      const u = await this.prisma.user.findFirst({
+        where: { email: opts.email.trim() },
+        select: { id: true },
+      });
+      if (u) return u.id;
+    }
+
+    const variants = this.cpfVariants(opts.cpf ?? '');
+    if (variants.length > 0) {
+      const u = await this.prisma.user.findFirst({
+        where: { cpf: { in: variants } },
+        select: { id: true },
+      });
+      if (u) return u.id;
+    }
+
+    const envId = process.env.BOSQUE_ID?.trim();
+    return envId || null;
+  }
+
   private buildOwnerFilter(cpf: string, userIds: string[]): any {
     const cpfClean = this.normalizeCpf(cpf);
     const conditions: any[] = [];
@@ -287,5 +315,134 @@ export class InternalBosqueFinanceController {
     });
 
     return { success: true, id: created.id };
+  }
+
+  /**
+   * Inspeciona a carteira do Bosque (saldo bruto, travado e disponível).
+   * Útil para conferir antes de corrigir.
+   */
+  @Get('wallet')
+  async inspectWallet(
+    @Query('userId') userId?: string,
+    @Query('email') email?: string,
+    @Query('cpf') cpf?: string,
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    const resolvedId = await this.resolveBosqueUserId({ userId, email, cpf });
+    if (!resolvedId) {
+      return { accountExists: false, balance: 0, lockedBalance: 0, availableBalance: 0 };
+    }
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId: resolvedId } });
+    const balance = Number(wallet?.balance ?? 0);
+    const locked = Number(wallet?.lockedBalance ?? 0);
+    return {
+      accountExists: !!wallet,
+      userId: resolvedId,
+      balance: Number(balance.toFixed(2)),
+      lockedBalance: Number(locked.toFixed(2)),
+      availableBalance: Number(Math.max(0, balance - locked).toFixed(2)),
+    };
+  }
+
+  /**
+   * Corrige manualmente o saldo da carteira do Bosque (IBB).
+   * - `balance`: define o saldo exato (ex.: 0 depois de sacar tudo).
+   * - `delta`: alternativa — soma/subtrai do saldo atual.
+   * - `lockedBalance` (opcional): corrige o valor travado preso por um saque.
+   * Tudo fica registrado no BalanceLog (before/after) para auditoria.
+   */
+  @Post('fix-balance')
+  async fixBalance(
+    @Body() body: {
+      userId?: string;
+      email?: string;
+      cpf?: string;
+      balance?: number;
+      delta?: number;
+      lockedBalance?: number;
+      reason?: string;
+    },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+
+    const hasBalance = body.balance !== undefined && body.balance !== null;
+    const hasDelta = body.delta !== undefined && body.delta !== null;
+    const hasLocked = body.lockedBalance !== undefined && body.lockedBalance !== null;
+
+    if (!hasBalance && !hasDelta && !hasLocked) {
+      throw new BadRequestException('Informe "balance" (definir), "delta" (somar/subtrair) ou "lockedBalance".');
+    }
+    if (hasBalance && hasDelta) {
+      throw new BadRequestException('Use apenas um: "balance" (definir) OU "delta" (somar/subtrair).');
+    }
+
+    const resolvedId = await this.resolveBosqueUserId(body);
+    if (!resolvedId) {
+      throw new BadRequestException('Conta do Bosque não encontrada. Informe userId, email ou cpf.');
+    }
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId: resolvedId } });
+    if (!wallet) {
+      throw new BadRequestException('Carteira não encontrada para esta conta.');
+    }
+
+    const balanceBefore = Number(wallet.balance);
+    const lockedBefore = Number(wallet.lockedBalance);
+
+    let balanceAfter = balanceBefore;
+    if (hasBalance) balanceAfter = Number(body.balance);
+    else if (hasDelta) balanceAfter = balanceBefore + Number(body.delta);
+    balanceAfter = Math.max(0, Number(balanceAfter.toFixed(2)));
+
+    let lockedAfter = lockedBefore;
+    if (hasLocked) lockedAfter = Math.max(0, Number(Number(body.lockedBalance).toFixed(2)));
+
+    if (!Number.isFinite(balanceAfter) || !Number.isFinite(lockedAfter)) {
+      throw new BadRequestException('Valores inválidos.');
+    }
+
+    const reason = body.reason?.trim() || 'Correção manual de saldo (Bosque/IBB)';
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.wallet.update({
+        where: { id: wallet.id },
+        data: {
+          balance: balanceAfter,
+          lockedBalance: lockedAfter,
+          version: { increment: 1 },
+        },
+      });
+      await tx.balanceLog.create({
+        data: {
+          userId: resolvedId,
+          action: 'ADMIN_BALANCE_FIX',
+          amount: Number((balanceAfter - balanceBefore).toFixed(2)),
+          balanceBefore,
+          balanceAfter,
+          lockedBefore,
+          lockedAfter,
+          source: 'MASTER_ADMIN_CONTROL',
+          description: reason,
+          metadata: { platform: 'bosque', via: 'internal/bosque/finance/fix-balance' },
+        },
+      });
+    });
+
+    return {
+      success: true,
+      userId: resolvedId,
+      before: {
+        balance: Number(balanceBefore.toFixed(2)),
+        lockedBalance: Number(lockedBefore.toFixed(2)),
+        availableBalance: Number(Math.max(0, balanceBefore - lockedBefore).toFixed(2)),
+      },
+      after: {
+        balance: Number(balanceAfter.toFixed(2)),
+        lockedBalance: Number(lockedAfter.toFixed(2)),
+        availableBalance: Number(Math.max(0, balanceAfter - lockedAfter).toFixed(2)),
+      },
+    };
   }
 }
