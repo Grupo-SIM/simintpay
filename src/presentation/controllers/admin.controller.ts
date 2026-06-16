@@ -78,7 +78,7 @@ import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositori
 import { CommunityManagementService } from '../../application/services/community-management.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
-import { getPlatformTaxaEffective, invalidatePlatformTaxaCache } from '../../modules/platform-taxas/platform-taxas.store';
+import { getPlatformTaxaEffective, invalidatePlatformTaxaCache, buildClientTaxaTag, canonicalPlatformTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
 import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
@@ -4920,6 +4920,36 @@ export class AdminController {
   @ApiOperation({ summary: 'Taxas resolvidas de uma única tag (inclui clientes CLIENT:<email>)' })
   async getPlatformTaxasByTag(@Param('tag') tag: string) {
     return this.platformTaxas.getTaxasResponse([tag]);
+  }
+
+  @Get('plataformas/minhas-taxas')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Taxas resolvidas do cliente logado (somente leitura)' })
+  async getMinhasTaxas(@CurrentUser() user: JwtPayload | undefined) {
+    if (!user?.sub) throw new BadRequestException('Usuário não autenticado');
+
+    const u = await this.prisma.user.findUnique({
+      where: { id: user.sub },
+      include: { tenantModule: true },
+    });
+    if (!u) throw new BadRequestException('Usuário não encontrado');
+
+    // Plataforma (renovada/bosque/...) usa a tag do módulo; cliente SIM INT PAY
+    // (sem módulo) usa CLIENT:<email>, que herda o GLOBAL e reflete o que o master
+    // personalizou para ele na página de Taxas.
+    const slug = u.tenantModule?.slug?.trim();
+    const tag = slug ? canonicalPlatformTaxaTag(slug.toUpperCase()) : buildClientTaxaTag(u.email);
+
+    const resolved = this.platformTaxas.getResolvedTaxaForTag(tag);
+
+    // Não expomos isPersonalized/sources: o cliente não precisa saber se a taxa
+    // é padrão ou personalizada — apenas o valor aplicado.
+    return {
+      email: u.email,
+      platform: slug ? slug.toUpperCase() : 'SIM INT PAY',
+      data: resolved.data,
+    };
   }
 
   @Get('plataformas')
