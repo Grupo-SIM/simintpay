@@ -127,11 +127,13 @@ export class InternalBosqueFinanceController {
     });
 
     const pendingGross = Number(wdPending._sum.grossAmount ?? wdPending._sum.amount ?? 0);
+    const pendingNet = Number(wdPending._sum.amount ?? 0);
 
     return {
       availableBalance: Math.max(0, Number((storedNet - pendingGross).toFixed(2))),
       pendingWithdraws: Number(pendingGross.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
+      netLockedBalance: Number(pendingNet.toFixed(2)),
     };
   }
 
@@ -283,8 +285,18 @@ export class InternalBosqueFinanceController {
     if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
 
     const userId = userIds[0];
+    // amount = valor bruto solicitado (o que sai do saldo). A taxa sai de DENTRO dele;
+    // líquido (PIX) = bruto − taxa. Consistente com BosqueConfig.calcularTaxa(valorBruto),
+    // com wallet.balance (bruto) e com o use-case canônico de saque.
     const taxaSaque = BosqueConfig.saque.calcularTaxa(amount);
-    const grossAmount = parseFloat((amount + taxaSaque).toFixed(2));
+    const grossAmount = parseFloat(amount.toFixed(2));
+    const netAmount = parseFloat((amount - taxaSaque).toFixed(2));
+
+    if (netAmount <= 0) {
+      throw new BadRequestException(
+        `O valor solicitado é insuficiente para cobrir a taxa (taxa: R$ ${taxaSaque.toFixed(2)})`,
+      );
+    }
 
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
     if (!wallet) throw new BadRequestException('Carteira não encontrada para este usuário');
@@ -300,7 +312,7 @@ export class InternalBosqueFinanceController {
       const wr = await tx.withdrawRequest.create({
         data: {
           userId,
-          amount,
+          amount: netAmount,
           grossAmount,
           fee: parseFloat(taxaSaque.toFixed(2)),
           status: 'PENDING',
