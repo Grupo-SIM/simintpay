@@ -107,6 +107,14 @@ model Transaction {
   platformFee      Decimal                    @default(0) @db.Decimal(12, 2)
   domTransactionId String?                    @unique
   domPaymentId     String?                    @unique
+  // ── Múltiplas adquirentes ──
+  // `acquirer` identifica quem processou (default DOM p/ retrocompat). Os campos
+  // `external*` são os IDs neutros da adquirente — para a DOM espelham os `dom*`
+  // acima; para a Frendz guardam o `hash` da transação. O webhook localiza a
+  // transação por (acquirer, externalPaymentId).
+  acquirer              Acquirer @default(DOM)
+  externalTransactionId String?
+  externalPaymentId     String?
   pixQrCode        String?
   pixContent       String?
   pixExpire        DateTime?
@@ -130,6 +138,8 @@ model Transaction {
   @@index([domPaymentId])
   @@index([createdAt])
   @@index([paymentMethod])
+  @@index([acquirer])
+  @@index([acquirer, externalPaymentId])
 }
 
 model TransactionStatusHistory {
@@ -157,6 +167,11 @@ model WithdrawRequest {
   rejectionReason    String?
   domWithdrawId   String?        @unique
   platform        String?        @db.VarChar(50)
+  // ── Múltiplas adquirentes ──
+  // `acquirer` indica por onde o saque é processado (default DOM). `externalWithdrawId`
+  // é o ID neutro do saque na adquirente (para a Frendz, o `transferHash`).
+  acquirer           Acquirer @default(DOM)
+  externalWithdrawId String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   user            User           @relation(fields: [userId], references: [id])
@@ -165,6 +180,7 @@ model WithdrawRequest {
   @@index([status])
   @@index([createdAt])
   @@index([platform])
+  @@index([acquirer])
 }
 
 model PaymentLink {
@@ -543,6 +559,13 @@ enum PaymentMethod {
   PIX
   CREDIT_CARD
   DEBIT_CARD
+}
+
+/// Adquirente que processou a transação/saque.
+/// DOM é o padrão histórico — registros antigos assumem DOM via @default.
+enum Acquirer {
+  DOM
+  FRENDZ
 }
 
 enum WithdrawStatus {

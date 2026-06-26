@@ -1,5 +1,30 @@
 export const PAYMENT_GATEWAY = Symbol('PAYMENT_GATEWAY');
 
+/**
+ * Tokens de injeção por adquirente. `PAYMENT_GATEWAY` (acima) continua sendo a
+ * DOM, para retrocompatibilidade com os ~40 pontos que já o injetam. Os tokens
+ * abaixo dão acesso explícito a uma implementação específica — usados pelo
+ * PaymentGatewayResolver para rotear por loja.
+ */
+export const PAYMENT_GATEWAY_DOM = Symbol('PAYMENT_GATEWAY_DOM');
+export const PAYMENT_GATEWAY_FRENDZ = Symbol('PAYMENT_GATEWAY_FRENDZ');
+
+/**
+ * ──────────────────────────────────────────────────────────────────────────
+ * NOTA DE ARQUITETURA — múltiplas adquirentes
+ *
+ * Os tipos abaixo nasceram com o prefixo `Dom*` por terem sido modelados sobre
+ * a API da DOM Pagamentos, a primeira adquirente. Com a entrada da Frendz como
+ * segunda adquirente, esta interface passou a ser o CONTRATO NEUTRO que toda
+ * adquirente implementa (DOM e Frendz hoje; outras no futuro).
+ *
+ * Para não quebrar os ~40 arquivos que já importam os nomes `Dom*`, mantemos
+ * esses nomes como estão e expomos ALIASES neutros no final do arquivo
+ * (`PaymentLinkInput`, `ChargePixInput`, ...). Código novo deve preferir os
+ * aliases neutros; os `Dom*` permanecem válidos como sinônimos.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+
 export type DomRegisterInput = {
   name: string;
   email: string;
@@ -384,3 +409,46 @@ export interface IPaymentGateway {
     message: string;
   }>;
 }
+
+/**
+ * ──────────────────────────────────────────────────────────────────────────
+ * ALIASES NEUTROS (preferir em código novo)
+ *
+ * Sinônimos sem o prefixo `Dom*`, para que o contrato leia como agnóstico de
+ * adquirente. Cada implementação (ApiDomClient, FrendzClient, ...) traduz
+ * destes tipos para o formato específico da sua API.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+export type PaymentLinkInput = DomPaymentLinkInput;
+export type PaymentLinkOutput = DomPaymentLinkOutput;
+export type CreatePlanInput = DomCreatePlanInput;
+export type PlanOutput = DomPlanOutput;
+export type SubscriptionOutput = DomSubscriptionOutput;
+export type TransactionItem = DomTransactionItem;
+export type ListTransactionsOutput = DomListTransactionsOutput;
+export type RequestWithdrawOutput = DomRequestWithdrawOutput;
+export type ListWithdrawsOutput = DomListWithdrawsOutput;
+export type TaxesOutput = DomTaxesOutput;
+export type MonthlyRevenueOutput = DomMonthlyRevenueOutput;
+
+/** Resultado neutro de uma cobrança PIX (criar transação / checkout PIX). */
+export type PixChargeResult = {
+  id: string;
+  status: string;
+  pixContent: string | null;
+  qrCode: string | null;
+  pixExpire: string | null;
+  amount: number;
+};
+
+/** Dados do cliente numa cobrança — comum a todas as adquirentes. */
+export type PaymentCustomer = {
+  name: string;
+  email: string;
+  document: string;
+  phone: string;
+  documentType: 'CPF' | 'CNPJ';
+};
+
+/** Contrato neutro do gateway (mesma forma de `IPaymentGateway`). */
+export type IAcquirerGateway = IPaymentGateway;

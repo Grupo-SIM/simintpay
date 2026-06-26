@@ -21,6 +21,9 @@ import {
   PAYMENT_GATEWAY,
   type IPaymentGateway,
 } from '../../core/services/payment-gateway.interface';
+import { PaymentGatewayResolver } from '../../infrastructure/http/payment-gateway.resolver';
+import { Acquirer } from '../../core/services/acquirer.enum';
+import { getFrendzApiToken } from '../../modules/frendz/frendz.config';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
 import { Prisma } from '@prisma/client';
@@ -72,6 +75,7 @@ export class CheckoutController {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly gatewayResolver: PaymentGatewayResolver,
     private readonly voucherService: VoucherService,
     @Optional() private readonly checkoutEvents?: CheckoutEventsService,
   ) {}
@@ -140,6 +144,10 @@ export class CheckoutController {
     const description = String(body.description ?? '').trim() || `Pedido ebook`;
     const orderNumber = body.orderNumber ? String(body.orderNumber).trim() : null;
 
+    // Loja/tenant desta cobrança — também decide a adquirente (DOM por padrão).
+    const storeSlug = String(body.store || 'ebook').toLowerCase();
+    const acquirer = this.gatewayResolver.acquirerForSlug(storeSlug);
+
     // Busca a transação criada pelo back-ebook via notifyPendingTransaction
     let transaction: { id: string } | null = null;
     if (orderNumber) {
@@ -198,7 +206,12 @@ export class CheckoutController {
       });
     }
 
-    const payment = await this.gateway.createPixCheckout(domToken, {
+    // Roteia para a adquirente da loja. Token: api_token p/ Frendz, DOM_TOKEN p/ DOM.
+    const gateway = this.gatewayResolver.byAcquirer(acquirer);
+    const gatewayToken =
+      acquirer === Acquirer.FRENDZ ? (getFrendzApiToken(storeSlug) ?? '') : domToken;
+
+    const payment = await gateway.createPixCheckout(gatewayToken, {
       codExternal: transaction.id,
       amount: price,
       description,
@@ -209,9 +222,18 @@ export class CheckoutController {
       documentType,
     });
 
+    // Persiste a adquirente e o id externo. Para a DOM, mantém domPaymentId
+    // (consumido pelo webhook/sync atuais). Para a Frendz, o webhook localiza
+    // por (acquirer, externalPaymentId) — não escreve em domPaymentId, que é
+    // @unique e exclusivo do fluxo DOM.
     await this.prisma.transaction.update({
       where: { id: transaction.id },
-      data: { status: 'PENDING', domPaymentId: payment.id },
+      data: {
+        status: 'PENDING',
+        acquirer,
+        externalPaymentId: payment.id,
+        ...(acquirer === Acquirer.DOM ? { domPaymentId: payment.id } : {}),
+      },
     });
 
     return {
