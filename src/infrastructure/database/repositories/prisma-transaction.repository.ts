@@ -35,7 +35,14 @@ export class PrismaTransactionRepository implements ITransactionRepository {
   }
 
   async findByDomPaymentId(domPaymentId: string): Promise<Transaction | null> {
-    return this.prisma.transaction.findFirst({ where: { domPaymentId } });
+    // Busca pelo id de pagamento da DOM (campo histórico). Como fallback,
+    // procura também por `externalPaymentId` — campo neutro preenchido por
+    // adquirentes novas (ex.: Frendz, que guarda aí o hash da transação).
+    // Mantém o webhook DOM funcionando idêntico e permite o webhook Frendz
+    // reusar o mesmo ProcessWebhookUseCase.
+    return this.prisma.transaction.findFirst({
+      where: { OR: [{ domPaymentId }, { externalPaymentId: domPaymentId }] },
+    });
   }
 
   async updateStatus(
