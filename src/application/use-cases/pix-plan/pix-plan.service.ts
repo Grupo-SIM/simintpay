@@ -21,6 +21,7 @@ import { PagaTGConfig } from '../../../modules/pagatg/pagatg.config';
 import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
+import { assertClientCanCreate, clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { Optional } from '@nestjs/common';
 
@@ -635,8 +636,13 @@ export class PixPlanService {
     userId: string,
     body: CreatePixCreditPlanDto,
   ) {
+    // Cliente SimintPay: bloqueia não-aprovado, exige mínimo, e força a tag CLIENT:<email>.
+    const owner = await this.prisma.user.findUnique({ where: { id: userId } });
+    assertClientCanCreate(owner, body.price);
+    const clientTag = clientTaxaTagFor(owner);
+
     const type = this.mapFrequencyToType(body.frequency_type);
-    const tag = body.tenantTag ? body.tenantTag.toUpperCase().trim() : null;
+    const tag = clientTag ?? (body.tenantTag ? body.tenantTag.toUpperCase().trim() : null);
     const plan = await this.repo.createPixCreditPlan({
       userId,
       type,

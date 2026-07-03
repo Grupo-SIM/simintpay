@@ -102,12 +102,12 @@ export class BosqueSyncService implements OnModuleInit {
                 updated++;
                 this.events.emitTransaction({ ...existing, status: mappedStatus });
 
-                // wallet.balance é bruto — usa amount, não netAmount (igual à Renovada)
+                // wallet.balance recebe o LÍQUIDO (netAmount) — igual ao "Valor Recebido" da listagem.
                 if (existing.status !== TransactionStatus.COMPLETED && mappedStatus === TransactionStatus.COMPLETED) {
-                  completedDelta = completedDelta.add(amount);
+                  completedDelta = completedDelta.add(netAmount);
                 }
                 if (existing.status === TransactionStatus.COMPLETED && mappedStatus !== TransactionStatus.COMPLETED) {
-                  completedDelta = completedDelta.sub(new Prisma.Decimal(existing.amount ?? 0));
+                  completedDelta = completedDelta.sub(new Prisma.Decimal(existing.netAmount ?? existing.amount ?? 0));
                 }
               }
               continue;
@@ -139,9 +139,9 @@ export class BosqueSyncService implements OnModuleInit {
             created++;
             this.events.emitTransaction(newTx);
 
-            // wallet.balance é bruto — usa amount, não netAmount (igual à Renovada)
+            // wallet.balance recebe o LÍQUIDO (netAmount) — igual ao "Valor Recebido" da listagem.
             if (mappedStatus === TransactionStatus.COMPLETED) {
-              completedDelta = completedDelta.add(amount);
+              completedDelta = completedDelta.add(netAmount);
             }
           } catch (err: any) {
             if (err.code !== 'P2002') this.logger.warn(`[BOSQUE] Erro tx: ${err.message}`);

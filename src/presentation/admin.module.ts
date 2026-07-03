@@ -10,6 +10,7 @@ import { SyncMaquinetasCron } from '../infrastructure/cron/sync-maquinetas.cron'
 import { CommunityAccessCron } from '../infrastructure/cron/community-access.cron';
 import { ExpirationReminderCron } from '../infrastructure/cron/expiration-reminder.cron';
 import { AdminController } from './controllers/admin.controller';
+import { AdminClientesController } from './controllers/admin-clientes.controller';
 import { ListLeadsUseCase } from '../application/use-cases/admin/list-leads.use-case';
 import { ApproveLeadUseCase } from '../application/use-cases/admin/approve-lead.use-case';
 import { RejectLeadUseCase } from '../application/use-cases/admin/reject-lead.use-case';
@@ -43,7 +44,7 @@ import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
 
 @Module({
   imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule],
-  controllers: [AdminController],
+  controllers: [AdminController, AdminClientesController],
   providers: [
     SyncDomTransactionsCron,
     SyncMaquinetasCron,

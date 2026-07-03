@@ -12,6 +12,7 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { CommunityManagementService } from '../../services/community-management.service';
+import { assertClientCanCreate, clientTaxaTagFor } from '../../helpers/client-rules.helper';
 
 function mapFrequency(f: FrequencyTypeDto): {
   planType: PlanType;
@@ -53,24 +54,32 @@ export class CreateSubscriptionLinkUseCase {
     }
 
     const owner = await this.users.findById(targetUserId);
+
+    // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
+    assertClientCanCreate(owner, input.dto.valor);
+    const clientTag = clientTaxaTagFor(owner);
+
     // Areaflix usa o usuário admin (adminljl) como dono do link; o domToken dele
     // no banco pode estar expirado e causa 401 na DOM. Força o master key do env.
     const isAreaflixLink =
       (input.dto.webhookUrl ?? '').toLowerCase().includes('areaflix') ||
       input.dto.platformTag?.toUpperCase() === 'AREAFLIX' ||
       (input.dto.plataformas ?? []).some((p) => p?.toUpperCase() === 'AREAFLIX');
-    let domToken: string | null | undefined = isAreaflixLink
+    // Cliente SimintPay SEMPRE usa o token mestre (SimintPay), ignorando token pessoal.
+    let domToken: string | null | undefined = (clientTag || isAreaflixLink)
       ? process.env.DOM_TOKEN
       : owner?.domToken;
-    if (!domToken && owner?.tenantModule?.slug) domToken = getModuleDomToken(owner.tenantModule.slug);
+    if (!domToken && !clientTag && owner?.tenantModule?.slug) domToken = getModuleDomToken(owner.tenantModule.slug);
     if (!domToken) domToken = process.env.DOM_TOKEN;
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
 
     const { planType, domFrequency } = mapFrequency(input.dto.frequencia);
-    const isStandalone = input.dto.isStandalone ?? true;
+    // Cliente: a taxa do cliente sempre incide → isStandalone=false (não-standalone aplica fee).
+    const isStandalone = clientTag ? false : (input.dto.isStandalone ?? true);
 
     // Preço que o DOM cobrará do cliente no cartão = base × (1 + MDR_CC_1X + MDR_CC_MASTER_1X)
-    const platformTag = (input.dto.platformTag ?? input.dto.plataformas?.[0] ?? 'GLOBAL').toUpperCase();
+    // Cliente: resolve a taxa pela tag CLIENT:<email> (herda do GLOBAL).
+    const platformTag = clientTag ?? (input.dto.platformTag ?? input.dto.plataformas?.[0] ?? 'GLOBAL').toUpperCase();
     let domPrice = input.dto.valor;
     if (!isStandalone) {
       const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
@@ -108,9 +117,9 @@ export class CreateSubscriptionLinkUseCase {
       maxUses: input.dto.maxUses ?? null,
       domPlanId: domPlan.id,
       paymentMethods: input.dto.paymentMethods ?? 'BOTH',
-      platformTag: input.dto.platformTag ?? null,
+      platformTag: clientTag ?? input.dto.platformTag ?? null,
       emailBody: input.dto.emailBody ?? null,
-      plataformas: input.dto.plataformas ?? [],
+      plataformas: clientTag ? [] : (input.dto.plataformas ?? []),
     });
 
     // Regra de negócio: link de assinatura NUNCA cria comunidade automaticamente.

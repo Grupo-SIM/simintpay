@@ -10,6 +10,7 @@ import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { calculatePaymentLinkFees } from './payment-link-fees.helper';
 import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 
 export type ChargePixPaymentLinkInput = {
@@ -97,20 +98,19 @@ export class ChargePixPaymentLinkUseCase {
     }
 
     const owner = await this.users.findById(link.userId);
+    const ownerClientTag = clientTaxaTagFor(owner);
 
     const isAreaflix = isAreaflixLink({
       webhookUrl: (link as any).webhookUrl,
       plataformas: (link as any).plataformas,
     });
 
-    // Areaflix usa o usuário admin (adminljl) como dono do link; o domToken
-    // dele no banco pode estar expirado e causa 401 na DOM. Força o master key
-    // do env, igual ao fluxo de checkout normal.
-    let domToken: string | null | undefined = isAreaflix
+    // Cliente SimintPay e Areaflix usam o token mestre (SimintPay) sempre.
+    let domToken: string | null | undefined = (ownerClientTag || isAreaflix)
       ? process.env.DOM_TOKEN
       : owner?.domToken;
 
-    if (!domToken && owner?.tenantModule?.slug) {
+    if (!domToken && !ownerClientTag && owner?.tenantModule?.slug) {
       domToken = getModuleDomToken(owner.tenantModule.slug);
     }
 
@@ -129,10 +129,11 @@ export class ChargePixPaymentLinkUseCase {
     const platformTag = ((link as any).plataformas?.[0] as string | undefined)?.toUpperCase()
       || owner?.tenantModule?.slug?.toUpperCase()
       || 'GLOBAL';
-    // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-    const taxaTag = platformTag === 'GLOBAL' && input.customerEmail?.trim()
-      ? buildClientTaxaTag(input.customerEmail)
-      : platformTag;
+    // Taxa: dono cliente SimintPay → tag do dono (CLIENT:<owner>); senão regra antiga por comprador.
+    const taxaTag = ownerClientTag
+      ?? (platformTag === 'GLOBAL' && input.customerEmail?.trim()
+        ? buildClientTaxaTag(input.customerEmail)
+        : platformTag);
     const fees = calculatePaymentLinkFees(link, 1, taxaTag, true);
     const { totalAmount, domFeeAmount } = fees;
     let { netAmount } = fees;

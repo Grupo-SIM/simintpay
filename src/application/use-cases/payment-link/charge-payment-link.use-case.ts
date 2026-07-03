@@ -10,6 +10,7 @@ import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { calculatePaymentLinkFees, calculateDebitFees } from './payment-link-fees.helper';
 import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { splitDocument } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 
@@ -115,11 +116,12 @@ export class ChargePaymentLinkUseCase {
       throw new BadRequestException('Link ainda não sincronizado com o gateway');
     }
 
-    // Resolve domToken: usuário individual > módulo > DOM_TOKEN global
+    // Resolve domToken: cliente SimintPay SEMPRE usa o token mestre; senão usuário > módulo > global.
     const owner = await this.users.findById(link.userId);
-    let domToken: string | null | undefined = owner?.domToken;
+    const ownerClientTag = clientTaxaTagFor(owner);
+    let domToken: string | null | undefined = ownerClientTag ? process.env.DOM_TOKEN : owner?.domToken;
 
-    if (!domToken && owner?.tenantModule?.slug) {
+    if (!domToken && !ownerClientTag && owner?.tenantModule?.slug) {
       domToken = getModuleDomToken(owner.tenantModule.slug);
     }
 
@@ -135,11 +137,12 @@ export class ChargePaymentLinkUseCase {
     // Plataforma: usa a selecionada no link (plataformas[0]) → fallback tenantModule → GLOBAL
     const linkPlatformTag = (link as any).plataformas?.[0]?.toUpperCase() ?? null;
     const platformTag = linkPlatformTag ?? owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
-    // Taxa personalizada por cliente: na SIM INT PAY (GLOBAL), usa a tag CLIENT:<email>
-    // para o cálculo (cai no GLOBAL quando o cliente não tem taxa própria).
-    const taxaTag = platformTag === 'GLOBAL' && input.customerEmail?.trim()
-      ? buildClientTaxaTag(input.customerEmail)
-      : platformTag;
+    // Taxa: se o DONO do link é cliente SimintPay, usa a tag do dono (CLIENT:<owner>).
+    // Senão, mantém a regra antiga (GLOBAL + email do comprador para taxa personalizada por comprador).
+    const taxaTag = ownerClientTag
+      ?? (platformTag === 'GLOBAL' && input.customerEmail?.trim()
+        ? buildClientTaxaTag(input.customerEmail)
+        : platformTag);
     const isDebit = input.paymentMethod === 'debit_card';
     const isPix = input.paymentMethod === 'pix';
 

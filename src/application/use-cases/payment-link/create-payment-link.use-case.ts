@@ -7,6 +7,7 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { CreatePaymentLinkDto } from '../../dtos/payment-link/create-payment-link.dto';
 import { getModuleDomToken } from '../../../modules/module.registry';
+import { assertClientCanCreate, clientTaxaTagFor } from '../../helpers/client-rules.helper';
 
 @Injectable()
 export class CreatePaymentLinkUseCase {
@@ -31,11 +32,15 @@ export class CreatePaymentLinkUseCase {
       criadoEm: string;
     };
   }> {
-    // Resolve domToken: usuário individual > módulo > variável global DOM_TOKEN
+    // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
     const user = await this.users.findById(input.userId);
-    let domToken: string | null | undefined = user?.domToken;
+    assertClientCanCreate(user, input.dto.valor);
+    const clientTag = clientTaxaTagFor(user);
 
-    if (!domToken && user?.tenantModule?.slug) {
+    // Resolve domToken: cliente SimintPay SEMPRE usa o token mestre; senão usuário > módulo > global.
+    let domToken: string | null | undefined = clientTag ? process.env.DOM_TOKEN : user?.domToken;
+
+    if (!domToken && !clientTag && user?.tenantModule?.slug) {
       domToken = getModuleDomToken(user.tenantModule.slug);
     }
 
@@ -111,7 +116,7 @@ export class CreatePaymentLinkUseCase {
       maxUses: input.dto.maxUses ?? null,
       domPaymentLinkId: created.id,
       emailBody: input.dto.emailBody ?? null,
-      plataformas: input.dto.plataformas ?? [],
+      plataformas: clientTag ? [] : (input.dto.plataformas ?? []),
     });
 
     return {

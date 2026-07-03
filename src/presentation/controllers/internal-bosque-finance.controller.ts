@@ -11,6 +11,12 @@ import {
 import { ApiBody, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { BosqueConfig } from '../../modules/bosque/bosque.config';
+import { computeBosqueAvailableSinceLastWithdrawal } from '../../application/helpers/bosque-available.helper';
+import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
+
+/** BOSQUE passou a cobrar TAXA_SERVICO (R$4 Sim Int Pay) a partir de 2026-05-29 — mesma data da Renovada. */
+const BOSQUE_TAXA_SERVICO_DATE = new Date('2026-05-29T20:40:00.000Z');
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
@@ -99,6 +105,14 @@ export class InternalBosqueFinanceController {
     return { OR: conditions };
   }
 
+  /**
+   * Saldo disponível canônico do Bosque — delega ao helper compartilhado, reutilizado
+   * também pelo relatório master (/admin/plataformas/saldos-resumo) para bater com este painel.
+   */
+  private computeAvailableSinceLastWithdrawal(userIds: string[]): Promise<number> {
+    return computeBosqueAvailableSinceLastWithdrawal(this.prisma, userIds);
+  }
+
   @Get('summary')
   async summary(
     @Query('cpf') cpf: string,
@@ -109,28 +123,22 @@ export class InternalBosqueFinanceController {
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
 
     if (userIds.length === 0) {
-      return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0 };
+      return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0, netLockedBalance: 0 };
     }
 
-    // wallet.balance é a fonte de verdade: incrementado em cada transação completada
-    // e decrementado em cada saque aprovado via api-machine em tempo real.
-    // Saques históricos importados via sync não tocam no wallet — não devem ser somados aqui.
-    const wallet = await this.prisma.wallet.findFirst({
-      where: { userId: { in: userIds } },
-    });
+    // Saldo disponível = líquido recebido desde o último saque (fonte canônica).
+    const availableBalance = await this.computeAvailableSinceLastWithdrawal(userIds);
 
-    const storedNet = Number(wallet?.balance ?? 0);
-
+    // Saque pendente (info para os cards "Saque em processo" / "Em processamento").
     const wdPending = await this.prisma.withdrawRequest.aggregate({
       where: { userId: { in: userIds }, status: 'PENDING' },
       _sum: { grossAmount: true, amount: true },
     });
-
     const pendingGross = Number(wdPending._sum.grossAmount ?? wdPending._sum.amount ?? 0);
     const pendingNet = Number(wdPending._sum.amount ?? 0);
 
     return {
-      availableBalance: Math.max(0, Number((storedNet - pendingGross).toFixed(2))),
+      availableBalance,
       pendingWithdraws: Number(pendingGross.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
       netLockedBalance: Number(pendingNet.toFixed(2)),
@@ -195,8 +203,9 @@ export class InternalBosqueFinanceController {
     return {
       transactions: items.map((t) => {
         const netBase = Number(t.netAmount ?? t.amount);
-        // BOSQUE is exempt from taxa_servico (see TAGS_SEM_TAXA_SERVICO in get-me.use-case.ts)
-        const taxaServico = 0;
+        // TAXA_SERVICO (R$4 Sim Int Pay) — BOSQUE cobra a partir de 2026-05-29, igual à Renovada.
+        const svcRaw = getPlatformTaxaEffective('BOSQUE', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+        const taxaServico = svcRaw > 0 && t.createdAt >= BOSQUE_TAXA_SERVICO_DATE ? svcRaw : 0;
         return {
           id: t.id,
           userId: t.userId,
@@ -301,7 +310,9 @@ export class InternalBosqueFinanceController {
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
     if (!wallet) throw new BadRequestException('Carteira não encontrada para este usuário');
 
-    const available = parseFloat((Number(wallet.balance) - Number(wallet.lockedBalance)).toFixed(2));
+    // Valida contra o disponível canônico (líquido desde o último saque), mesma
+    // regra exibida no summary — evita sacar mais do que entrou de fato.
+    const available = await this.computeAvailableSinceLastWithdrawal(userIds);
     if (available < grossAmount) {
       throw new BadRequestException(
         `Saldo insuficiente. Disponível: R$ ${available.toFixed(2)}, solicitado: R$ ${grossAmount.toFixed(2)}`,
