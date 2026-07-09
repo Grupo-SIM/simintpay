@@ -4,6 +4,7 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 const PLATFORM_LABELS: Record<string, string> = {
   'CONTROLE-MOTORISTA': 'Controle de Motorista',
   'CONTROLE-PATRIMONIAL': 'Controle Patrimonial',
+  'BETAI': 'BetAi',
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -49,6 +50,7 @@ export class PlatformAccessService {
     const t = platformTag.toUpperCase();
     if (t === 'CONTROLE-PATRIMONIAL') return String(process.env.CONTROLE_PATRIMONIAL_URL ?? '').replace(/\/+$/, '');
     if (t === 'CONTROLE-MOTORISTA') return String(process.env.CONTROLE_MOTORISTA_URL ?? '').replace(/\/+$/, '');
+    if (t === 'BETAI') return String(process.env.BETAI_URL ?? '').replace(/\/+$/, '');
     return null;
   }
 

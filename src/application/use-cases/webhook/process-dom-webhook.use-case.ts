@@ -1548,6 +1548,47 @@ export class ProcessDomWebhookUseCase {
           );
         }
       }
+      // BETAI: provisionar conta no betai (investidor) após pagamento
+      if (subPlatformTag === 'BETAI') {
+        const url = String(process.env.BETAI_URL ?? '').replace(/\/+$/, '');
+        const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+        if (!url || !token) {
+          this.logger.warn('[DomWebhook][BETAI] BETAI_URL ou token não configurado — provisão e acesso ignorados');
+        } else if (order.customerEmail && order.customerName) {
+          fetch(`${url}/internal/users/provision`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-internal-token': token },
+            body: JSON.stringify({
+              email: order.customerEmail,
+              name: order.customerName,
+              ...provisionDocPayload(order.customerDocument),
+              phone: order.customerPhone ?? undefined,
+            }),
+          })
+            .then(async (r) => { const t = await r.text(); this.logger.log(`[DomWebhook][BETAI] provision HTTP ${r.status} email=${order.customerEmail}: ${t.slice(0, 200)}`); })
+            .catch((err: unknown) => { this.logger.warn(`[DomWebhook][BETAI] provision falhou: ${err instanceof Error ? err.message : String(err)}`); });
+
+          // Registra/estende acesso no PlatformSubscriberAccess
+          void this.upsertPlatformSubscriberAccess(
+            'BETAI',
+            order.id,
+            {
+              id: order.domPixPaymentId ?? order.id,
+              amount: Number(order.amountCharged),
+              status: 'approved',
+              payment_method: 'pix',
+              customer: {
+                email: order.customerEmail,
+                name: order.customerName,
+                document: order.customerDocument ?? undefined,
+                mobile_phone: order.customerPhone ?? undefined,
+              },
+            } as any,
+            { customerEmail: order.customerEmail, customerName: order.customerName },
+            this.planDaysForFrequency(order.subscriptionLink?.frequencyType),
+          );
+        }
+      }
     } else if (order.domPixPaymentId) {
       // Fallback: link sem plataforma associada → verifica vínculo com comunidade
       const hasCommunity = await this.prisma.communityLinkBinding.findFirst({

@@ -250,6 +250,8 @@ export class SubscriptionWebhookService {
       url = String(process.env.CONTROLE_MOTORISTA_URL ?? '').replace(/\/+$/, '');
     } else if (tag === 'CONTROLE-PATRIMONIAL') {
       url = String(process.env.CONTROLE_PATRIMONIAL_URL ?? '').replace(/\/+$/, '');
+    } else if (tag === 'BETAI') {
+      url = String(process.env.BETAI_URL ?? '').replace(/\/+$/, '');
     } else {
       return; // plataforma sem provisionamento de conta automática
     }
@@ -301,7 +303,7 @@ export class SubscriptionWebhookService {
     // o PIX fazia isso. Sem esta janela o cron de expiração não teria como avisar/bloquear o
     // cartão. Dias conforme a frequência do link (MENSAL 30 … ANUAL 365).
     const accessTag = ((link?.platformTag ?? link?.plataformas?.[0] ?? '') as string).toUpperCase();
-    if (accessTag === 'CONTROLE-MOTORISTA' || accessTag === 'CONTROLE-PATRIMONIAL') {
+    if (accessTag === 'CONTROLE-MOTORISTA' || accessTag === 'CONTROLE-PATRIMONIAL' || accessTag === 'BETAI') {
       void this.platformAccess.creditAccess({
         platformTag: accessTag,
         email: linkOrder.customerEmail,
@@ -446,7 +448,7 @@ export class SubscriptionWebhookService {
       // (evita crédito de wallet e provisão de conta em duplicidade quando o DOM reenvia o webhook).
       const linkTag = ((link as any).platformTag ?? (link as any).plataformas?.[0] ?? '').toString().toUpperCase();
       let tenantTag: string | null = null;
-      if (linkTag === 'CONTROLE-MOTORISTA' || linkTag === 'CONTROLE-PATRIMONIAL') {
+      if (linkTag === 'CONTROLE-MOTORISTA' || linkTag === 'CONTROLE-PATRIMONIAL' || linkTag === 'BETAI') {
         tenantTag = linkTag;
       } else {
         const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
