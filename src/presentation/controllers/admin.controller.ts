@@ -1746,6 +1746,56 @@ export class AdminController {
       })) as ModuleUser[];
     }
 
+    // ── 2b. Clientes diretos (contas avulsas / auto-cadastro, sem plataforma) ──
+    // Users role=USER criados em "Criar Conta" ou auto-cadastro que NÃO são
+    // vendedores de plataforma externa nem contas operadoras de plataforma.
+    // (A migration de backfill define "cliente direto" exatamente como role=USER.)
+    // Rotulados como plataforma virtual "simintpay". Aparecem apenas na aba ativa
+    // e quando não há filtro por plataforma externa (eles não têm plataforma) —
+    // ou quando o filtro é justamente "simintpay".
+    const clientUserIds = new Set<string>();
+    if (!showDeleted && (!platformLower || platformLower === 'simintpay')) {
+      const clientSearchFilter = searchTerm
+        ? {
+            OR: [
+              { name: { contains: searchTerm, mode: 'insensitive' as const } },
+              ...(cpfDigits.length > 0 ? [{ cpf: { contains: cpfDigits } }] : []),
+              { email: { contains: searchTerm, mode: 'insensitive' as const } },
+            ],
+          }
+        : undefined;
+
+      // Ids já representados pelas outras fontes (vendedores externos + plataformas)
+      const excludeIds = [
+        ...linkedUserIds,
+        ...moduleUsers.map((u) => u.id),
+        ...knownIdToPlatform.keys(),
+      ];
+
+      const clientWhere: any = {
+        AND: [
+          { role: 'USER' },
+          { tenantModuleId: null },
+          ...(excludeIds.length > 0 ? [{ id: { notIn: excludeIds } }] : []),
+          ...(clientSearchFilter ? [clientSearchFilter] : []),
+        ],
+      };
+
+      const clientUsers = (await this.prisma.user.findMany({
+        where: clientWhere,
+        select: {
+          id: true, name: true, cpf: true, email: true,
+          createdAt: true, updatedAt: true,
+          wallet: { select: { balance: true, lockedBalance: true } },
+          tenantModule: { select: { slug: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      })) as ModuleUser[];
+
+      for (const u of clientUsers) clientUserIds.add(u.id);
+      moduleUsers = [...moduleUsers, ...clientUsers];
+    }
+
     const moduleUserMap = new Map(moduleUsers.map((u) => [u.id, u]));
 
     // ── 3. Merge and sort by createdAt desc, then paginate ────────────────────
@@ -1920,8 +1970,7 @@ export class AdminController {
           if (!u) return null;
           const moduleSlug = u.tenantModule?.slug?.toLowerCase()
             ?? knownIdToPlatform.get(u.id)
-            ?? platformLower
-            ?? 'unknown';
+            ?? (clientUserIds.has(u.id) ? 'simintpay' : (platformLower ?? 'unknown'));
           return {
             id: u.id,
             cpf: u.cpf ?? '',
