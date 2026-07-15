@@ -12,7 +12,7 @@ import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../mod
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 
-const TAGS_SEM_TAXA_SERVICO = new Set(['BOSQUE']);
+const TAGS_SEM_TAXA_SERVICO = new Set<string>([]);
 const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z');
 const RENOVADA_TAXA_SERVICO_DATE = new Date('2026-05-29T20:40:00.000Z');
 
@@ -35,6 +35,9 @@ export class GetMeUseCase {
     isAdmin: boolean;
     /** Admin master (taxas globais, etc.) — derivado de role + tenant slug/nome. */
     isMasterAdmin: boolean;
+    /** Cliente SimintPay (auto-cadastrado). */
+    isClient: boolean;
+    clientStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | null;
     tenantModule: { slug: string; name: string } | null;
     wallet: {
       balance: number;
@@ -118,7 +121,7 @@ export class GetMeUseCase {
         const svcRate = TAGS_SEM_TAXA_SERVICO.has(effectiveTag)
           ? 0
           : getPlatformTaxaEffective(effectiveTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-        const svcEffDate = effectiveTag === 'RENOVADA' ? RENOVADA_TAXA_SERVICO_DATE : TAXA_SERVICO_EFFECTIVE_DATE;
+        const svcEffDate = effectiveTag === 'RENOVADA' || effectiveTag === 'BOSQUE' ? RENOVADA_TAXA_SERVICO_DATE : TAXA_SERVICO_EFFECTIVE_DATE;
         const svcFee = svcRate > 0 && t.createdAt >= svcEffDate ? svcRate : 0;
         return s + Number(t.amount) * liqRate - svcFee;
       }, 0);
@@ -165,6 +168,8 @@ export class GetMeUseCase {
             role: user.role,
             isAdmin: user.role === 'ADMIN',
             isMasterAdmin: master,
+            isClient: user.clientStatus != null,
+            clientStatus: (user.clientStatus ?? null) as 'PENDING' | 'APPROVED' | 'REJECTED' | null,
             tenantModule: tenant,
             wallet: walletResp,
             createdAt: user.createdAt.toISOString(),
@@ -184,6 +189,8 @@ export class GetMeUseCase {
       role: user.role,
       isAdmin: user.role === 'ADMIN',
       isMasterAdmin: master,
+      isClient: user.clientStatus != null,
+      clientStatus: (user.clientStatus ?? null) as 'PENDING' | 'APPROVED' | 'REJECTED' | null,
       tenantModule: tenant,
       wallet: walletResp,
       createdAt: user.createdAt.toISOString(),

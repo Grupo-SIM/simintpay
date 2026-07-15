@@ -8,8 +8,15 @@ import {
   Query,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ApiBody, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { BosqueConfig } from '../../modules/bosque/bosque.config';
+import { computeBosqueAvailableSinceLastWithdrawal } from '../../application/helpers/bosque-available.helper';
+import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
+
+/** BOSQUE passou a cobrar TAXA_SERVICO (R$4 Sim Int Pay) a partir de 2026-05-29 — mesma data da Renovada. */
+const BOSQUE_TAXA_SERVICO_DATE = new Date('2026-05-29T20:40:00.000Z');
 
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
@@ -98,6 +105,14 @@ export class InternalBosqueFinanceController {
     return { OR: conditions };
   }
 
+  /**
+   * Saldo disponível canônico do Bosque — delega ao helper compartilhado, reutilizado
+   * também pelo relatório master (/admin/plataformas/saldos-resumo) para bater com este painel.
+   */
+  private computeAvailableSinceLastWithdrawal(userIds: string[]): Promise<number> {
+    return computeBosqueAvailableSinceLastWithdrawal(this.prisma, userIds);
+  }
+
   @Get('summary')
   async summary(
     @Query('cpf') cpf: string,
@@ -108,29 +123,25 @@ export class InternalBosqueFinanceController {
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
 
     if (userIds.length === 0) {
-      return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0 };
+      return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0, netLockedBalance: 0 };
     }
 
-    // wallet.balance é a fonte de verdade: incrementado em cada transação completada
-    // e decrementado em cada saque aprovado via api-machine em tempo real.
-    // Saques históricos importados via sync não tocam no wallet — não devem ser somados aqui.
-    const wallet = await this.prisma.wallet.findFirst({
-      where: { userId: { in: userIds } },
-    });
+    // Saldo disponível = líquido recebido desde o último saque (fonte canônica).
+    const availableBalance = await this.computeAvailableSinceLastWithdrawal(userIds);
 
-    const storedNet = Number(wallet?.balance ?? 0);
-
+    // Saque pendente (info para os cards "Saque em processo" / "Em processamento").
     const wdPending = await this.prisma.withdrawRequest.aggregate({
       where: { userId: { in: userIds }, status: 'PENDING' },
       _sum: { grossAmount: true, amount: true },
     });
-
     const pendingGross = Number(wdPending._sum.grossAmount ?? wdPending._sum.amount ?? 0);
+    const pendingNet = Number(wdPending._sum.amount ?? 0);
 
     return {
-      availableBalance: Math.max(0, Number((storedNet - pendingGross).toFixed(2))),
+      availableBalance,
       pendingWithdraws: Number(pendingGross.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
+      netLockedBalance: Number(pendingNet.toFixed(2)),
     };
   }
 
@@ -192,8 +203,9 @@ export class InternalBosqueFinanceController {
     return {
       transactions: items.map((t) => {
         const netBase = Number(t.netAmount ?? t.amount);
-        // BOSQUE is exempt from taxa_servico (see TAGS_SEM_TAXA_SERVICO in get-me.use-case.ts)
-        const taxaServico = 0;
+        // TAXA_SERVICO (R$4 Sim Int Pay) — BOSQUE cobra a partir de 2026-05-29, igual à Renovada.
+        const svcRaw = getPlatformTaxaEffective('BOSQUE', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+        const taxaServico = svcRaw > 0 && t.createdAt >= BOSQUE_TAXA_SERVICO_DATE ? svcRaw : 0;
         return {
           id: t.id,
           userId: t.userId,
@@ -282,13 +294,25 @@ export class InternalBosqueFinanceController {
     if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
 
     const userId = userIds[0];
+    // amount = valor bruto solicitado (o que sai do saldo). A taxa sai de DENTRO dele;
+    // líquido (PIX) = bruto − taxa. Consistente com BosqueConfig.calcularTaxa(valorBruto),
+    // com wallet.balance (bruto) e com o use-case canônico de saque.
     const taxaSaque = BosqueConfig.saque.calcularTaxa(amount);
-    const grossAmount = parseFloat((amount + taxaSaque).toFixed(2));
+    const grossAmount = parseFloat(amount.toFixed(2));
+    const netAmount = parseFloat((amount - taxaSaque).toFixed(2));
+
+    if (netAmount <= 0) {
+      throw new BadRequestException(
+        `O valor solicitado é insuficiente para cobrir a taxa (taxa: R$ ${taxaSaque.toFixed(2)})`,
+      );
+    }
 
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
     if (!wallet) throw new BadRequestException('Carteira não encontrada para este usuário');
 
-    const available = parseFloat((Number(wallet.balance) - Number(wallet.lockedBalance)).toFixed(2));
+    // Valida contra o disponível canônico (líquido desde o último saque), mesma
+    // regra exibida no summary — evita sacar mais do que entrou de fato.
+    const available = await this.computeAvailableSinceLastWithdrawal(userIds);
     if (available < grossAmount) {
       throw new BadRequestException(
         `Saldo insuficiente. Disponível: R$ ${available.toFixed(2)}, solicitado: R$ ${grossAmount.toFixed(2)}`,
@@ -299,7 +323,7 @@ export class InternalBosqueFinanceController {
       const wr = await tx.withdrawRequest.create({
         data: {
           userId,
-          amount,
+          amount: netAmount,
           grossAmount,
           fee: parseFloat(taxaSaque.toFixed(2)),
           status: 'PENDING',
@@ -353,6 +377,29 @@ export class InternalBosqueFinanceController {
    * Tudo fica registrado no BalanceLog (before/after) para auditoria.
    */
   @Post('fix-balance')
+  @ApiOperation({ summary: 'Corrige manualmente o saldo da carteira do Bosque (IBB)' })
+  @ApiBody({
+    required: true,
+    schema: {
+      type: 'object',
+      properties: {
+        userId: {
+          type: 'string',
+          example: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c',
+          description: 'ID da conta do Bosque. Se omitido, usa o BOSQUE_ID do ambiente.',
+        },
+        email: { type: 'string', example: 'contato@bosque.com.br' },
+        balance: {
+          type: 'number',
+          example: 0,
+          description: 'Define o saldo EXATO (R$). Use este campo para inserir o valor correto.',
+        },
+        delta: { type: 'number', description: 'Alternativa ao balance: soma (+) / subtrai (-) do saldo atual.' },
+        lockedBalance: { type: 'number', description: 'Opcional: corrige o valor travado por saque pendente.' },
+        reason: { type: 'string', example: 'Correção manual após troca de API' },
+      },
+    },
+  })
   async fixBalance(
     @Body() body: {
       userId?: string;
@@ -362,13 +409,14 @@ export class InternalBosqueFinanceController {
       delta?: number;
       lockedBalance?: number;
       reason?: string;
-    },
+    } = {},
     @Headers('x-internal-token') internalToken?: string,
   ) {
     this.ensureInternalToken(internalToken);
 
     const hasBalance = body.balance !== undefined && body.balance !== null;
-    const hasDelta = body.delta !== undefined && body.delta !== null;
+    // delta = 0 é no-op (vem assim no exemplo do Swagger) — trata como "não informado".
+    const hasDelta = body.delta !== undefined && body.delta !== null && Number(body.delta) !== 0;
     const hasLocked = body.lockedBalance !== undefined && body.lockedBalance !== null;
 
     if (!hasBalance && !hasDelta && !hasLocked) {
@@ -443,6 +491,96 @@ export class InternalBosqueFinanceController {
         lockedBalance: Number(lockedAfter.toFixed(2)),
         availableBalance: Number(Math.max(0, balanceAfter - lockedAfter).toFixed(2)),
       },
+    };
+  }
+
+  /**
+   * SOMENTE LEITURA. Recalcula qual deveria ser o saldo do Bosque a partir das
+   * fontes canônicas — transações BOSQUE concluídas (crédito) e saques aprovados
+   * (débito) — e mostra o resultado em base BRUTA e LÍQUIDA, comparado ao saldo
+   * atual. Não altera nada: use o POST /fix-balance para aplicar o valor escolhido.
+   *
+   * Obs.: hoje o sync/webhook creditam o saldo pelo valor BRUTO (amount). Se o
+   * correto for o líquido (amount × liquidez), o resíduo acumulado das taxas é o
+   * que infla o saldo — compare `suggested.net` com o `current`.
+   */
+  @Get('reconcile')
+  async reconcile(
+    @Query('userId') userId?: string,
+    @Query('email') email?: string,
+    @Query('cpf') cpf?: string,
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    const resolvedId = await this.resolveBosqueUserId({ userId, email, cpf });
+    if (!resolvedId) {
+      throw new BadRequestException('Conta do Bosque não encontrada. Informe userId, email ou cpf.');
+    }
+
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId: resolvedId } });
+    const balanceNow = Number(wallet?.balance ?? 0);
+    const lockedNow = Number(wallet?.lockedBalance ?? 0);
+
+    const completedWhere: any = {
+      userId: resolvedId,
+      status: 'COMPLETED',
+      description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' },
+    };
+
+    const [creditsAgg, completedCount, nullNetCount, wdApproved, wdPending] = await Promise.all([
+      this.prisma.transaction.aggregate({ where: completedWhere, _sum: { amount: true, netAmount: true } }),
+      this.prisma.transaction.count({ where: completedWhere }),
+      this.prisma.transaction.count({ where: { ...completedWhere, netAmount: null } }),
+      this.prisma.withdrawRequest.aggregate({
+        where: { userId: resolvedId, status: { in: ['APPROVED', 'COMPLETED'] } },
+        _sum: { grossAmount: true },
+      }),
+      this.prisma.withdrawRequest.aggregate({
+        where: { userId: resolvedId, status: 'PENDING' },
+        _sum: { grossAmount: true },
+      }),
+    ]);
+
+    const round = (n: number) => Number(n.toFixed(2));
+    const grossCredits = Number(creditsAgg._sum.amount ?? 0);
+    const netCredits = Number(creditsAgg._sum.netAmount ?? 0);
+    const withdrawnApproved = Number(wdApproved._sum.grossAmount ?? 0);
+    const pendingGross = Number(wdPending._sum.grossAmount ?? 0);
+
+    const suggestedBalanceNet = round(netCredits - withdrawnApproved);
+    const suggestedBalanceGross = round(grossCredits - withdrawnApproved);
+
+    return {
+      userId: resolvedId,
+      walletExists: !!wallet,
+      current: {
+        balance: round(balanceNow),
+        lockedBalance: round(lockedNow),
+        availableBalance: round(Math.max(0, balanceNow - lockedNow)),
+      },
+      credits: {
+        completedCount,
+        transactionsWithoutNetAmount: nullNetCount,
+        grossCredits: round(grossCredits),
+        netCredits: round(netCredits),
+      },
+      withdrawals: {
+        approvedGross: round(withdrawnApproved),
+        pendingGross: round(pendingGross),
+      },
+      suggested: {
+        net: {
+          balance: suggestedBalanceNet,
+          availableBalance: round(Math.max(0, suggestedBalanceNet - pendingGross)),
+        },
+        gross: {
+          balance: suggestedBalanceGross,
+          availableBalance: round(Math.max(0, suggestedBalanceGross - pendingGross)),
+        },
+      },
+      note:
+        'Somente leitura. Saldo atual é creditado BRUTO no sync/webhook. ' +
+        'Se o correto for líquido, aplique suggested.net via POST /internal/bosque/finance/fix-balance.',
     };
   }
 }

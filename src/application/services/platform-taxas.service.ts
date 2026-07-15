@@ -80,6 +80,30 @@ export class PlatformTaxasService {
     };
   }
 
+  /**
+   * Taxas resolvidas de UMA tag (plataforma ou CLIENT:<email>), para a tela
+   * somente-leitura do cliente. `isPersonalized` = o master definiu algum
+   * override específico para este cliente (fonte 'override').
+   */
+  getResolvedTaxaForTag(tag: string) {
+    const data: Partial<Record<PlataformaTaxaKey, number>> = {};
+    const sources: Partial<Record<PlataformaTaxaKey, 'env' | 'override' | 'global'>> = {};
+
+    for (const key of PLATAFORMA_TAXA_KEYS) {
+      data[key] = getPlatformTaxaEffective(tag, key, defaultTaxaValue(key));
+      sources[key] = getPlatformTaxaSource(tag, key);
+    }
+
+    const isPersonalized = Object.values(sources).some((s) => s === 'override');
+
+    return {
+      tag: canonicalPlatformTaxaTag(tag),
+      isPersonalized,
+      data,
+      sources,
+    };
+  }
+
   async patchPlatform(tag: string, body: Record<string, unknown>) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Body inválido');

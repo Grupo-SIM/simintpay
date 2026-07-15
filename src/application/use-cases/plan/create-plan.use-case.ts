@@ -10,6 +10,9 @@ import type {
 } from '../../dtos/plan/create-plan.dto';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
+import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
+import { assertClientCanCreate, clientTaxaTagFor } from '../../helpers/client-rules.helper';
 
 function mapTipo(tipo: PlanTipoDto): {
   planType: PlanType;
@@ -33,6 +36,7 @@ export class CreatePlanUseCase {
   constructor(
     @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
   ) {}
 
   async execute(input: {
@@ -44,11 +48,17 @@ export class CreatePlanUseCase {
       throw new UnauthorizedException('DOM_TOKEN não configurado');
     }
 
+    // Cliente SimintPay: bloqueia não-aprovado, exige mínimo, e usa a taxa do dono (CLIENT:<email>).
+    const owner = await this.users.findById(input.userId);
+    assertClientCanCreate(owner, input.dto.preco);
+    const clientTag = clientTaxaTagFor(owner);
+
     const { planType, frequency } = mapTipo(input.dto.tipo);
 
     // Preço que o cliente do cliente paga = base + taxa DOM cartão 1x + taxa Master cartão 1x
     // O preço base (sem markup) fica salvo no DB para cálculo de taxas do vendedor no webhook
-    const platformTag = (input.dto.plataformas?.[0] ?? 'GLOBAL').toUpperCase();
+    // Cliente: ignora plataforma enviada e resolve pela tag CLIENT:<email> (herda do GLOBAL).
+    const platformTag = clientTag ?? (input.dto.plataformas?.[0] ?? 'GLOBAL').toUpperCase();
     const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
     const mdrMaster1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
     const domPrice = Math.round(input.dto.preco * (1 + mdrDom1x + mdrMaster1x) * 100) / 100;
@@ -76,7 +86,7 @@ export class CreatePlanUseCase {
       domPlanId: dom.id,
       code: input.dto.code ?? null,
       emailBody: input.dto.emailBody ?? null,
-      plataformas: input.dto.plataformas ?? [],
+      plataformas: clientTag ? [] : (input.dto.plataformas ?? []),
     });
 
     return {

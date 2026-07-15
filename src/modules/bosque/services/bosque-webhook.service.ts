@@ -115,8 +115,10 @@ export class BosqueWebhookService {
           },
         });
 
-        // wallet.balance é bruto — usa amount, não netAmount (igual à Renovada)
-        const balanceIncrement = new Prisma.Decimal(transaction.amount || 0);
+        // wallet.balance recebe o LÍQUIDO (netAmount) — exatamente o "Valor Recebido"
+        // exibido na listagem (netAmount ?? amount). Antes creditava o BRUTO (amount),
+        // o que inflava o saldo disponível com as taxas DOM/plataforma já descontadas.
+        const balanceIncrement = new Prisma.Decimal(transaction.netAmount ?? transaction.amount ?? 0);
 
         if (newStatus === TransactionStatus.COMPLETED && transaction.status !== TransactionStatus.COMPLETED) {
           const wallet = await prisma.wallet.findUnique({

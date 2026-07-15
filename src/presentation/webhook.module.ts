@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { WebhookController } from './controllers/webhook.controller';
+import { FrendzWebhookController } from './controllers/frendz-webhook.controller';
 import { RabbitMqModule } from '../infrastructure/queue/rabbitmq.module';
 import { WebhookConsumer } from '../infrastructure/queue/consumers/webhook.consumer';
 import { DomWebhookConsumer } from '../infrastructure/queue/consumers/dom-webhook.consumer';
@@ -24,7 +25,7 @@ import { CheckoutModule } from './checkout.module';
 
 @Module({
   imports: [RabbitMqModule, RenovadaModule, VoucherModule, forwardRef(() => PixPlanModule), ApiDomModule, CheckoutModule],
-  controllers: [WebhookController],
+  controllers: [WebhookController, FrendzWebhookController],
   providers: [
     ProcessWebhookUseCase,
     ProcessDomWebhookUseCase,

@@ -1,4 +1,4 @@
-import { Role, User } from '@prisma/client';
+import { ClientStatus, Role, User } from '@prisma/client';
 
 export const USER_REPOSITORY = Symbol('USER_REPOSITORY');
 
@@ -13,6 +13,7 @@ export type CreateUserData = {
   cpf?: string | null;
   cnpj?: string | null;
   tenantModuleId?: string | null;
+  clientStatus?: ClientStatus | null;
 };
 
 export interface IUserRepository {

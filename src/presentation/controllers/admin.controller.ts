@@ -77,8 +77,9 @@ import {
 import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositories/wallet.repository.interface';
 import { CommunityManagementService } from '../../application/services/community-management.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
+import { computeBosqueAvailableSinceLastWithdrawal } from '../../application/helpers/bosque-available.helper';
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
-import { getPlatformTaxaEffective, invalidatePlatformTaxaCache } from '../../modules/platform-taxas/platform-taxas.store';
+import { getPlatformTaxaEffective, invalidatePlatformTaxaCache, buildClientTaxaTag, canonicalPlatformTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
 import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
@@ -690,15 +691,15 @@ type LucroSimpayLinhaTx = {
   installments: number;
 };
 
-/** BOSQUE ainda isento; RENOVADA migrou para TAXA_SERVICO em 2026-05-29 (data abaixo). */
-const TAGS_SEM_TAXA_SERVICO = new Set(['BOSQUE']);
+/** Nenhuma plataforma isenta; RENOVADA e BOSQUE migraram para TAXA_SERVICO em 2026-05-29 (data abaixo). */
+const TAGS_SEM_TAXA_SERVICO = new Set<string>([]);
 /** Transações anteriores a esta data não são cobradas a TAXA_SERVICO (fee retroativo não aplicado). */
 const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z'); // 2026-05-18 meia-noite BRT
-/** RENOVADA: início do TAXA_SERVICO — mesma data do internal-renovada-finance.controller.ts. */
+/** RENOVADA e BOSQUE: início do TAXA_SERVICO — mesma data dos internal-*-finance.controller.ts. */
 const TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA = new Date('2026-05-29T20:40:00.000Z');
-/** Retorna a data efetiva do TAXA_SERVICO para a plataforma, respeitando migração de RENOVADA. */
+/** Retorna a data efetiva do TAXA_SERVICO por plataforma (RENOVADA/BOSQUE migraram em 2026-05-29). */
 function getTaxaServicoEffectiveDate(tag: string): Date {
-  return tag === 'RENOVADA' ? TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA : TAXA_SERVICO_EFFECTIVE_DATE;
+  return tag === 'RENOVADA' || tag === 'BOSQUE' ? TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA : TAXA_SERVICO_EFFECTIVE_DATE;
 }
 
 type LucroSimpayPorPlataforma = {
@@ -1745,6 +1746,56 @@ export class AdminController {
       })) as ModuleUser[];
     }
 
+    // ── 2b. Clientes diretos (contas avulsas / auto-cadastro, sem plataforma) ──
+    // Users role=USER criados em "Criar Conta" ou auto-cadastro que NÃO são
+    // vendedores de plataforma externa nem contas operadoras de plataforma.
+    // (A migration de backfill define "cliente direto" exatamente como role=USER.)
+    // Rotulados como plataforma virtual "simintpay". Aparecem apenas na aba ativa
+    // e quando não há filtro por plataforma externa (eles não têm plataforma) —
+    // ou quando o filtro é justamente "simintpay".
+    const clientUserIds = new Set<string>();
+    if (!showDeleted && (!platformLower || platformLower === 'simintpay')) {
+      const clientSearchFilter = searchTerm
+        ? {
+            OR: [
+              { name: { contains: searchTerm, mode: 'insensitive' as const } },
+              ...(cpfDigits.length > 0 ? [{ cpf: { contains: cpfDigits } }] : []),
+              { email: { contains: searchTerm, mode: 'insensitive' as const } },
+            ],
+          }
+        : undefined;
+
+      // Ids já representados pelas outras fontes (vendedores externos + plataformas)
+      const excludeIds = [
+        ...linkedUserIds,
+        ...moduleUsers.map((u) => u.id),
+        ...knownIdToPlatform.keys(),
+      ];
+
+      const clientWhere: any = {
+        AND: [
+          { role: 'USER' },
+          { tenantModuleId: null },
+          ...(excludeIds.length > 0 ? [{ id: { notIn: excludeIds } }] : []),
+          ...(clientSearchFilter ? [clientSearchFilter] : []),
+        ],
+      };
+
+      const clientUsers = (await this.prisma.user.findMany({
+        where: clientWhere,
+        select: {
+          id: true, name: true, cpf: true, email: true,
+          createdAt: true, updatedAt: true,
+          wallet: { select: { balance: true, lockedBalance: true } },
+          tenantModule: { select: { slug: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      })) as ModuleUser[];
+
+      for (const u of clientUsers) clientUserIds.add(u.id);
+      moduleUsers = [...moduleUsers, ...clientUsers];
+    }
+
     const moduleUserMap = new Map(moduleUsers.map((u) => [u.id, u]));
 
     // ── 3. Merge and sort by createdAt desc, then paginate ────────────────────
@@ -1919,8 +1970,7 @@ export class AdminController {
           if (!u) return null;
           const moduleSlug = u.tenantModule?.slug?.toLowerCase()
             ?? knownIdToPlatform.get(u.id)
-            ?? platformLower
-            ?? 'unknown';
+            ?? (clientUserIds.has(u.id) ? 'simintpay' : (platformLower ?? 'unknown'));
           return {
             id: u.id,
             cpf: u.cpf ?? '',
@@ -2978,6 +3028,97 @@ export class AdminController {
       totalRepasseCriterio:
         'totalRepasse = valorLiquido − lucroSimpay. Transações: COMPLETED das contas do consolidado; lucro exclui ajustes/sincronização (mesma regra do consolidado).',
     };
+  }
+
+  @Get('plataformas/saldos-resumo')
+  @ApiOperation({
+    summary: 'Saldo disponível (ao vivo) por plataforma — cards de "Saldos por Plataforma".',
+  })
+  async getPlataformasSaldosResumo() {
+    // Cada TIPO de plataforma tem seu próprio modelo de "saldo disponível":
+    // - bosque: líquido desde o último saque (bate com o painel admin-ibb)
+    // - renovada/revalida/pagatg/frendz: computeUserNetBalance (ledger do dono)
+    // - atlas/ebook/areaflix: soma das carteiras de vendedores externos
+    // - comunidades: net das ordens pagas (valores que passaram pela comunidade)
+    const AVAILABLE_SOURCE: Record<string, 'bosque' | 'owner' | 'sellers'> = {
+      BOSQUE: 'bosque',
+      RENOVADA: 'owner',
+      REVALIDA: 'owner',
+      PAGATG: 'owner',
+      FRENDZ: 'owner',
+      ATLAS: 'sellers',
+      EBOOK: 'sellers',
+      AREAFLIX: 'sellers',
+    };
+
+    const platforms = await resolveConsolidadoPlatforms(this.prisma);
+
+    // Carteiras de vendedores externos agregadas por plataforma (fonte 'sellers').
+    const epuRows = await this.prisma.externalPlatformUser.findMany({
+      where: { isDeleted: false },
+      select: { platform: true, wallet: { select: { balance: true, lockedBalance: true } } },
+    });
+    const sellersMap = new Map<string, { total: number; bloqueado: number; contas: number }>();
+    for (const r of epuRows) {
+      const key = (r.platform ?? '').toLowerCase();
+      if (!key) continue;
+      const cur = sellersMap.get(key) ?? { total: 0, bloqueado: 0, contas: 0 };
+      cur.total += Number(r.wallet?.balance ?? 0);
+      cur.bloqueado += Number(r.wallet?.lockedBalance ?? 0);
+      cur.contas += 1;
+      sellersMap.set(key, cur);
+    }
+
+    const moduleResumo = await Promise.all(
+      platforms.map(async (p) => {
+        const slug = p.tag.toLowerCase();
+        const source = AVAILABLE_SOURCE[p.tag] ?? 'owner';
+        let totalDisponivel = 0;
+        let totalBloqueado = 0;
+        let contas = 1;
+        if (source === 'sellers') {
+          const s = sellersMap.get(slug);
+          totalDisponivel = s?.total ?? 0;
+          totalBloqueado = s?.bloqueado ?? 0;
+          contas = s?.contas ?? 0;
+        } else if (source === 'bosque') {
+          totalDisponivel = await computeBosqueAvailableSinceLastWithdrawal(this.prisma, [p.id]);
+        } else {
+          totalDisponivel = await computeUserNetBalance(this.prisma, p.id, slug);
+        }
+        return {
+          platform: slug,
+          totalDisponivel: Number(Math.max(0, totalDisponivel).toFixed(2)),
+          totalBloqueado: Number(Math.max(0, totalBloqueado).toFixed(2)),
+          contas,
+        };
+      }),
+    );
+
+    // Comunidades individuais (Marketing raiz etc.): net das ordens pagas, por comunidade.
+    const comunidadeRows = await getComunidadeOrderRows(this.prisma);
+    const comMap = new Map<string, { total: number; contas: number }>();
+    for (const r of comunidadeRows) {
+      const m = /\[TENANT:([^\]]+)\]/i.exec(r.description);
+      const tag = (m?.[1] ?? '').toUpperCase();
+      if (!tag || FIXED_PLATFORM_TAGS.has(tag)) continue;
+      const key = tag.toLowerCase();
+      const cur = comMap.get(key) ?? { total: 0, contas: 0 };
+      cur.total += Number(r.netAmount ?? 0);
+      cur.contas += 1;
+      comMap.set(key, cur);
+    }
+    const comunidadeResumo = [...comMap.entries()].map(([platform, v]) => ({
+      platform,
+      totalDisponivel: Number(Math.max(0, v.total).toFixed(2)),
+      totalBloqueado: 0,
+      contas: v.contas,
+    }));
+
+    const resumo = [...moduleResumo, ...comunidadeResumo].sort(
+      (a, b) => b.totalDisponivel - a.totalDisponivel,
+    );
+    return { resumo };
   }
 
   @Get('relatorios/transacoes-por-status')
@@ -4882,35 +5023,291 @@ export class AdminController {
     const size = Math.min(Math.max(1, Number(pageSize) || 10), 50);
     const skip = (pageNum - 1) * size;
 
-    const where: Prisma.TransactionWhereInput = {
-      customerEmail: { not: null },
+    // Clientes = CONTAS (vendedores/lojistas) que transacionam pela SIM INT PAY,
+    // identificadas pelo e-mail da CONTA (User.email) — e NÃO pelo e-mail do
+    // comprador da transação (customerEmail). É user.email que a taxa personalizada
+    // usa como chave (CLIENT:<user.email>) e com o qual o cliente faz login; por isso
+    // a lista antiga (comprador) mostrava e-mails que não batiam com a conta.
+    const userWhere: Prisma.UserWhereInput = {
+      transactions: { some: {} },
       ...(term
         ? {
             OR: [
-              { customerEmail: { contains: term, mode: 'insensitive' } },
-              { customerName: { contains: term, mode: 'insensitive' } },
+              { email: { contains: term, mode: 'insensitive' } },
+              { name: { contains: term, mode: 'insensitive' } },
             ],
           }
         : {}),
     };
 
-    // Distintos por e-mail (groupBy), ordenados pela transação mais recente.
-    const grouped = await this.prisma.transaction.groupBy({
-      by: ['customerEmail'],
-      where,
-      _max: { customerName: true, createdAt: true },
-      orderBy: { _max: { createdAt: 'desc' } },
+    const users = await this.prisma.user.findMany({
+      where: userWhere,
+      select: { email: true, name: true },
+      orderBy: { createdAt: 'desc' },
       skip,
       take: size + 1, // +1 para saber se há próxima página
     });
 
-    const hasMore = grouped.length > size;
-    const data = grouped.slice(0, size).map((g) => ({
-      email: (g.customerEmail ?? '').toLowerCase(),
-      name: g._max.customerName ?? null,
+    const hasMore = users.length > size;
+    const data = users.slice(0, size).map((u) => ({
+      email: u.email.toLowerCase(),
+      name: u.name ?? null,
     }));
 
     return { data, page: pageNum, pageSize: size, hasMore };
+  }
+
+  // ──────────── COBRANÇAS (Master cobra clientes) ────────────
+
+  @Get('cobrancas/clientes')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lista contas (clientes) com saldo disponível para a tela de Cobranças' })
+  async listCobrancaClientes(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const term = (search ?? '').trim();
+    const pageNum = Math.max(1, Number(page) || 1);
+    const size = Math.min(Math.max(1, Number(pageSize) || 20), 100);
+
+    const where: Prisma.UserWhereInput = {
+      wallet: { isNot: null },
+      ...(term
+        ? {
+            OR: [
+              { name: { contains: term, mode: 'insensitive' } },
+              { email: { contains: term, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const [total, users] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.findMany({
+        where,
+        select: { id: true, name: true, email: true, wallet: { select: { balance: true, lockedBalance: true } } },
+        orderBy: { name: 'asc' },
+        skip: (pageNum - 1) * size,
+        take: size,
+      }),
+    ]);
+
+    return {
+      data: users.map((u) => {
+        const bal = Number(u.wallet?.balance ?? 0);
+        const locked = Number(u.wallet?.lockedBalance ?? 0);
+        return { id: u.id, name: u.name, email: u.email, saldoDisponivel: Number((bal - locked).toFixed(2)) };
+      }),
+      page: pageNum,
+      pageSize: size,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / size)),
+    };
+  }
+
+  @Post('cobrancas/debitar')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Debita do saldo dos clientes selecionados (modo cobrança por débito). Permite saldo negativo.' })
+  async debitarCobrancas(
+    @Body() body: { itens?: { userId: string; amount: number }[]; descricao?: string },
+    @CurrentUser() master?: JwtPayload,
+  ) {
+    const masterId = master?.sub ?? '';
+    const itens = (body?.itens ?? []).filter(
+      (i) => i?.userId && Number.isFinite(Number(i.amount)) && Number(i.amount) > 0,
+    );
+    if (itens.length === 0) throw new BadRequestException('Nenhum item de cobrança válido.');
+
+    const descricao = body?.descricao?.trim() || 'Cobrança (débito do saldo)';
+    const resultados: Array<{ userId: string; ok: boolean; amount: number; saldoDepois?: number; ficouNegativo?: boolean; erro?: string }> = [];
+
+    for (const item of itens) {
+      const amount = Number(Number(item.amount).toFixed(2));
+      try {
+        const res = await this.prisma.$transaction(async (tx) => {
+          const wallet = await tx.wallet.findUnique({ where: { userId: item.userId } });
+          if (!wallet) throw new Error('Carteira não encontrada');
+          const locked = Number(wallet.lockedBalance);
+          const after = Number((Number(wallet.balance) - amount).toFixed(2));
+          const ficouNegativo = after - locked < 0;
+          const updated = await tx.wallet.update({
+            where: { id: wallet.id, version: wallet.version },
+            data: { balance: after, version: { increment: 1 } },
+          });
+          await tx.balanceLog.create({
+            data: {
+              userId: item.userId,
+              action: 'COBRANCA_DEBIT',
+              amount: new Prisma.Decimal(-amount),
+              balanceBefore: wallet.balance,
+              balanceAfter: updated.balance,
+              lockedBefore: wallet.lockedBalance,
+              lockedAfter: updated.lockedBalance,
+              source: 'MASTER_COBRANCA',
+              description: descricao,
+              metadata: { via: 'admin/cobrancas/debitar', masterId },
+            },
+          });
+          await tx.cobranca.create({
+            data: {
+              userId: item.userId,
+              amount,
+              description: descricao,
+              mode: 'DEBIT',
+              status: 'APPLIED',
+              createdByUserId: masterId,
+              saldoAntes: wallet.balance,
+              saldoDepois: updated.balance,
+              ficouNegativo,
+            },
+          });
+          return { after, ficouNegativo };
+        });
+        resultados.push({ userId: item.userId, ok: true, amount, saldoDepois: res.after, ficouNegativo: res.ficouNegativo });
+      } catch (e) {
+        resultados.push({ userId: item.userId, ok: false, amount, erro: e instanceof Error ? e.message : 'Falha' });
+      }
+    }
+
+    return {
+      total: itens.length,
+      sucesso: resultados.filter((r) => r.ok).length,
+      negativos: resultados.filter((r) => r.ok && r.ficouNegativo).length,
+      resultados,
+    };
+  }
+
+  @Get('cobrancas')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Histórico de cobranças lançadas pelo Master' })
+  async listCobrancas(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const pageNum = Math.max(1, Number(page) || 1);
+    const size = Math.min(Math.max(1, Number(pageSize) || 20), 100);
+
+    const [total, items] = await Promise.all([
+      this.prisma.cobranca.count(),
+      this.prisma.cobranca.findMany({
+        include: { user: { select: { name: true, email: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip: (pageNum - 1) * size,
+        take: size,
+      }),
+    ]);
+
+    return {
+      data: items.map((c) => ({
+        id: c.id,
+        nome: c.user?.name ?? '-',
+        email: c.user?.email ?? '-',
+        amount: Number(c.amount),
+        description: c.description,
+        mode: c.mode,
+        status: c.status,
+        ficouNegativo: c.ficouNegativo,
+        saldoDepois: c.saldoDepois != null ? Number(c.saldoDepois) : null,
+        dueDate: c.dueDate,
+        paidAt: c.paidAt,
+        createdAt: c.createdAt,
+      })),
+      page: pageNum,
+      pageSize: size,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / size)),
+    };
+  }
+
+  @Post('cobrancas/gerar')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Gera cobranças a pagar (PIX/cartão) para os clientes selecionados, com prazo (Fase 2).' })
+  async gerarCobrancas(
+    @Body() body: { itens?: { userId: string; amount: number }[]; descricao?: string; dueDate?: string },
+    @CurrentUser() master?: JwtPayload,
+  ) {
+    const masterId = master?.sub ?? '';
+    const itens = (body?.itens ?? []).filter(
+      (i) => i?.userId && Number.isFinite(Number(i.amount)) && Number(i.amount) > 0,
+    );
+    if (itens.length === 0) throw new BadRequestException('Nenhum item de cobrança válido.');
+    const descricao = body?.descricao?.trim() || 'Cobrança';
+    const dueDate = body?.dueDate ? new Date(body.dueDate) : null;
+
+    const criadas = await this.prisma.$transaction(
+      itens.map((item) =>
+        this.prisma.cobranca.create({
+          data: {
+            userId: item.userId,
+            amount: Number(Number(item.amount).toFixed(2)),
+            description: descricao,
+            mode: 'PAYABLE',
+            status: 'PENDING',
+            createdByUserId: masterId,
+            dueDate,
+          },
+          select: { id: true },
+        }),
+      ),
+    );
+    return { total: itens.length, criadas: criadas.length };
+  }
+
+  @Get('cobrancas/minhas')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cobranças a pagar do cliente logado (painel do cliente)' })
+  async minhasCobrancas(@CurrentUser() user?: JwtPayload) {
+    if (!user?.sub) throw new BadRequestException('Não autenticado');
+    const items = await this.prisma.cobranca.findMany({
+      where: { userId: user.sub, mode: 'PAYABLE' },
+      orderBy: { createdAt: 'desc' },
+    });
+    return {
+      data: items.map((c) => ({
+        id: c.id,
+        amount: Number(c.amount),
+        description: c.description,
+        status: c.status,
+        dueDate: c.dueDate,
+        paidAt: c.paidAt,
+        createdAt: c.createdAt,
+      })),
+    };
+  }
+
+  @Post('cobrancas/:id/status')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Atualiza status de uma cobrança a pagar (marcar paga / cancelar)' })
+  async atualizarStatusCobranca(
+    @Param('id') id: string,
+    @Body() body: { status?: 'PAID' | 'CANCELED' },
+  ) {
+    const status = body?.status;
+    if (status !== 'PAID' && status !== 'CANCELED') {
+      throw new BadRequestException('Status inválido (use PAID ou CANCELED).');
+    }
+    const cob = await this.prisma.cobranca.update({
+      where: { id },
+      data: { status, paidAt: status === 'PAID' ? new Date() : null },
+      select: { id: true, status: true, paidAt: true },
+    });
+    return cob;
   }
 
   @Get('plataformas/taxas/:tag')
@@ -4920,6 +5317,36 @@ export class AdminController {
   @ApiOperation({ summary: 'Taxas resolvidas de uma única tag (inclui clientes CLIENT:<email>)' })
   async getPlatformTaxasByTag(@Param('tag') tag: string) {
     return this.platformTaxas.getTaxasResponse([tag]);
+  }
+
+  @Get('plataformas/minhas-taxas')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Taxas resolvidas do cliente logado (somente leitura)' })
+  async getMinhasTaxas(@CurrentUser() user: JwtPayload | undefined) {
+    if (!user?.sub) throw new BadRequestException('Usuário não autenticado');
+
+    const u = await this.prisma.user.findUnique({
+      where: { id: user.sub },
+      include: { tenantModule: true },
+    });
+    if (!u) throw new BadRequestException('Usuário não encontrado');
+
+    // Plataforma (renovada/bosque/...) usa a tag do módulo; cliente SIM INT PAY
+    // (sem módulo) usa CLIENT:<email>, que herda o GLOBAL e reflete o que o master
+    // personalizou para ele na página de Taxas.
+    const slug = u.tenantModule?.slug?.trim();
+    const tag = slug ? canonicalPlatformTaxaTag(slug.toUpperCase()) : buildClientTaxaTag(u.email);
+
+    const resolved = this.platformTaxas.getResolvedTaxaForTag(tag);
+
+    // Não expomos isPersonalized/sources: o cliente não precisa saber se a taxa
+    // é padrão ou personalizada — apenas o valor aplicado.
+    return {
+      email: u.email,
+      platform: slug ? slug.toUpperCase() : 'SIM INT PAY',
+      data: resolved.data,
+    };
   }
 
   @Get('plataformas')
@@ -5927,8 +6354,8 @@ export class AdminController {
 
     // DOM fee deductions (R$1+R$3) continuam isentos para RENOVADA/BOSQUE — net amount já os desconta.
     const TAXA_DOM_FEE_EXEMPT = new Set(['RENOVADA', 'BOSQUE']);
-    // TAXA_SERVICO (R$4 Sim Int Pay): RENOVADA passou a cobrar em 2026-05-29; BOSQUE ainda isento.
-    const TAXA_SERVICO_RATE_EXEMPT = new Set(['BOSQUE']);
+    // TAXA_SERVICO (R$4 Sim Int Pay): RENOVADA e BOSQUE cobram a partir de 2026-05-29 (trava por getTaxaServicoEffectiveDate).
+    const TAXA_SERVICO_RATE_EXEMPT = new Set<string>([]);
     const taxaServicoFixa = TAXA_DOM_FEE_EXEMPT.has(upperTag)
       ? 0
       : getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
