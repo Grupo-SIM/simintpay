@@ -24,6 +24,7 @@ import { BosqueModule } from './modules/bosque/bosque.module';
 import { PagatgModule } from './modules/pagatg/pagatg.module';
 import { MasterModule } from './modules/master/master.module';
 import { AtlasModule } from './modules/atlas/atlas.module';
+import { ZeroGrauModule } from './modules/zero-grau/zero-grau.module';
 import { PixPlanModule } from './presentation/pix-plan.module';
 import { SubscriptionLinkModule } from './presentation/subscription-link.module';
 import { CheckoutModule } from './presentation/checkout.module';
@@ -67,6 +68,7 @@ import { VoucherModule } from './presentation/voucher.module';
     PagatgModule,
     MasterModule,
     AtlasModule,
+    ZeroGrauModule,
     ClienteModule,
     VoucherModule,
   ],
