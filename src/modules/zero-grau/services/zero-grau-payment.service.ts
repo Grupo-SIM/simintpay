@@ -96,12 +96,19 @@ export class ZeroGrauPaymentService {
     return `${base} ${ZERO_GRAU_HIDDEN_TAG}`;
   }
 
+  /** Reads the `[Unidade - x]` tag the Zero Grau backend embeds in the description. */
+  private extractUnit(description: string | null | undefined): string | null {
+    const match = (description ?? '').match(/\[Unidade - ([^\]]+)\]/i);
+    return match ? match[1].trim() : null;
+  }
+
   async createPaymentPix(userId: string, body: CheckoutPixDto): Promise<any> {
     try {
       this.logger.log(`📱 [ZERO_GRAU] Criando pagamento PIX para usuário ${userId}`, {
         price: body.price,
         document: body.document,
         email: body.email,
+        unit: this.extractUnit(body.description),
       });
 
       if (!body.document || !body.document_type) {
@@ -217,6 +224,7 @@ export class ZeroGrauPaymentService {
         price: body.price,
         installments: body.installments,
         email: body.email,
+        unit: this.extractUnit(body.description),
       });
 
       if (!body.document || !body.document_type) {
