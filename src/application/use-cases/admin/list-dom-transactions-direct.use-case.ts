@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import dayjs from 'dayjs';
-import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import type { IPaymentGateway, DomTransactionItem } from '../../../core/services/payment-gateway.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
@@ -62,15 +62,37 @@ export class ListDomTransactionsDirectUseCase {
     const end_date   = input.end_date   ?? dayjs().format('YYYY-MM-DD');
     const begin_date = input.begin_date ?? dayjs().subtract(90, 'day').format('YYYY-MM-DD');
 
-    const result = await this.gateway.listDomTransactions(domToken, {
-      page: input.page ?? 1,
-      limit: input.limit ?? 50,
-      status: input.status,
-      begin_date,
-      end_date,
-    });
+    // A API DOM ignora o `limit` e pagina em blocos de ~100 (mesmo comportamento
+    // documentado em `listSubscriptions`). O admin usa páginas de `limit` (ex.: 20),
+    // então mapeamos a paginação do admin para os blocos de 100 do DOM — senão a
+    // página 2 do admin pedia a página 2 do DOM (registros 100-199) e vinha vazia,
+    // mesmo com `total` indicando mais páginas.
+    const DOM_PER_PAGE = 100;
+    const adminPage = Math.max(1, input.page ?? 1);
+    const requestedCount = Math.max(1, input.limit ?? 50);
+    const globalStart = (adminPage - 1) * requestedCount;
+    const globalEnd = globalStart + requestedCount;
+    const domPageStart = Math.floor(globalStart / DOM_PER_PAGE) + 1;
+    const domPageEnd = Math.floor(Math.max(globalEnd - 1, 0) / DOM_PER_PAGE) + 1;
 
-    const rawTxs = result.transactions ?? [];
+    let allRaw: DomTransactionItem[] = [];
+    let total: number | undefined;
+    for (let domPage = domPageStart; domPage <= domPageEnd; domPage++) {
+      const res = await this.gateway.listDomTransactions(domToken, {
+        page: domPage,
+        limit: DOM_PER_PAGE,
+        status: input.status,
+        begin_date,
+        end_date,
+      });
+      if (domPage === domPageStart) total = res.total;
+      const arr = res.transactions ?? [];
+      allRaw = allRaw.concat(arr);
+      if (arr.length < DOM_PER_PAGE) break; // fim dos dados — evita buscar páginas vazias
+    }
+
+    const localStart = globalStart - (domPageStart - 1) * DOM_PER_PAGE;
+    const rawTxs = allRaw.slice(localStart, localStart + requestedCount);
 
     // Enriquece pelo banco: cod_external = Transaction.id (pix-plan) ou domPaymentId (outros).
     // netAmount é gravado na criação (amount × LIQUIDEZ) e nunca muda — snapshot imutável.
@@ -227,8 +249,8 @@ export class ListDomTransactionsDirectUseCase {
     });
 
     return {
-      ...result,
       transactions,
+      total: total ?? transactions.length,
     };
   }
 }
