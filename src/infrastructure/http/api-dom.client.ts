@@ -184,7 +184,7 @@ export class ApiDomClient implements IPaymentGateway {
   }
 
   async generateToken(email: string, password: string): Promise<DomGenerateTokenOutput> {
-    const url = `${this.baseUrl}/generate-token`;
+    const url = `${this.baseUrl}/auth/generate-token`;
     try {
       const res = await firstValueFrom(this.http.post<any>(url, { email, password }));
       const root = this.getObject(res.data);
