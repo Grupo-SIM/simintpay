@@ -6,9 +6,11 @@ import {
   NotFoundException,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/security/guards/roles.guard';
@@ -29,6 +31,7 @@ type TaxaBody = { taxaCartao?: number; taxaPix?: number; taxaAssinatura?: number
 
 /** Módulo master: gestão e auditoria dos clientes SimintPay (vendedores auto-cadastrados). */
 @Controller('admin/clientes')
+@ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
 export class AdminClientesController {
@@ -55,6 +58,87 @@ export class AdminClientesController {
     if (Object.keys(patch).length === 0) return;
     const next = applyPatchToOverrides(tag, patch);
     await writeOverrides(next);
+  }
+
+  // ── Backfill: plataforma SIMINTPAY em links/planos de clientes ─────────────
+  @Post('backfill-plataforma-simintpay')
+  @ApiOperation({
+    summary: 'Backfill: atribui plataforma SIMINTPAY aos links/planos de clientes sem plataforma',
+    description:
+      'Só exibição/agrupamento — NÃO altera taxa (a taxa continua por CLIENT:<email> → SIM INT PAY/GLOBAL). ' +
+      'Padrão é dry-run (só conta, não grava). Para aplicar de fato, use dry=false.',
+  })
+  @ApiQuery({ name: 'dry', required: false, description: "'true' (padrão) só simula/conta; 'false' aplica de fato", example: 'true' })
+  @ApiQuery({ name: 'includeSubscriptions', required: false, description: "'true' inclui links de assinatura (SubscriptionLink)", example: 'false' })
+  async backfillPlataformaSimintpay(
+    @CurrentUser() authUser: JwtPayload,
+    @Query('dry') dry = 'true',
+    @Query('includeSubscriptions') includeSubscriptions = 'false',
+  ) {
+    await this.assertMaster(authUser);
+
+    const apply = String(dry).toLowerCase() === 'false';
+    const withSubs = String(includeSubscriptions).toLowerCase() === 'true';
+    const TAG = 'SIMINTPAY';
+
+    // Donos que são clientes SimintPay (auto-cadastrados, qualquer status).
+    const clients = await this.prisma.user.findMany({
+      where: { clientStatus: { not: null } },
+      select: { id: true },
+    });
+    const clientIds = clients.map((c) => c.id);
+    if (clientIds.length === 0) {
+      return { dryRun: !apply, clientes: 0, message: 'Nenhum cliente SimintPay encontrado.' };
+    }
+
+    // Alvo: link/plano de cliente SEM plataforma atribuída.
+    const where = { userId: { in: clientIds }, plataformas: { isEmpty: true } };
+
+    const [paymentLinks, plans, subscriptionLinks] = await Promise.all([
+      this.prisma.paymentLink.count({ where }),
+      this.prisma.plan.count({ where }),
+      withSubs ? this.prisma.subscriptionLink.count({ where }) : Promise.resolve(0),
+    ]);
+
+    // Amostra (até 10) de links pra você conferir antes de aplicar.
+    const amostraPaymentLinks = await this.prisma.paymentLink.findMany({
+      where,
+      select: { id: true, title: true, userId: true },
+      take: 10,
+    });
+
+    if (!apply) {
+      return {
+        dryRun: true,
+        clientes: clientIds.length,
+        afetados: {
+          paymentLinks,
+          plans,
+          subscriptionLinks: withSubs ? subscriptionLinks : 'ignorado (use includeSubscriptions=true)',
+        },
+        amostraPaymentLinks,
+        comoAplicar: 'Rode de novo com dry=false para gravar.',
+      };
+    }
+
+    const [linksRes, plansRes, subsRes] = await Promise.all([
+      this.prisma.paymentLink.updateMany({ where, data: { plataformas: [TAG] } }),
+      this.prisma.plan.updateMany({ where, data: { plataformas: [TAG] } }),
+      withSubs
+        ? this.prisma.subscriptionLink.updateMany({ where, data: { plataformas: [TAG] } })
+        : Promise.resolve({ count: 0 }),
+    ]);
+
+    return {
+      dryRun: false,
+      tag: TAG,
+      clientes: clientIds.length,
+      atualizados: {
+        paymentLinks: linksRes.count,
+        plans: plansRes.count,
+        subscriptionLinks: withSubs ? subsRes.count : 'ignorado (use includeSubscriptions=true)',
+      },
+    };
   }
 
   // ── Gestão / aprovação ────────────────────────────────────────────────────

@@ -77,6 +77,8 @@ export class ListDomTransactionsDirectUseCase {
 
     let allRaw: DomTransactionItem[] = [];
     let total: number | undefined;
+    let reachedEnd = false;
+    let lastDomPageFetched = domPageStart;
     for (let domPage = domPageStart; domPage <= domPageEnd; domPage++) {
       const res = await this.gateway.listDomTransactions(domToken, {
         page: domPage,
@@ -88,7 +90,25 @@ export class ListDomTransactionsDirectUseCase {
       if (domPage === domPageStart) total = res.total;
       const arr = res.transactions ?? [];
       allRaw = allRaw.concat(arr);
-      if (arr.length < DOM_PER_PAGE) break; // fim dos dados — evita buscar páginas vazias
+      lastDomPageFetched = domPage;
+      if (arr.length < DOM_PER_PAGE) {
+        reachedEnd = true;
+        break; // fim dos dados — evita buscar páginas vazias
+      }
+    }
+
+    // A API DOM às vezes devolve um `total` inflado (maior que os registros reais do
+    // período), gerando "páginas fantasmas": ex. "página 2 de 4" com a página 2 vazia.
+    // Quando alcançamos o fim do dataset (um bloco veio incompleto), sabemos o total EXATO:
+    // (páginas cheias anteriores × 100) + itens do último bloco. Só reduzimos o total
+    // (nunca inflamos além do que a DOM reportou) — corrige a contagem de páginas.
+    if (reachedEnd) {
+      const fullPagesBeforeLast = lastDomPageFetched - domPageStart;
+      const lastBlockCount = allRaw.length - fullPagesBeforeLast * DOM_PER_PAGE;
+      const exactTotal = (lastDomPageFetched - 1) * DOM_PER_PAGE + Math.max(0, lastBlockCount);
+      if (typeof total !== 'number' || exactTotal < total) {
+        total = exactTotal;
+      }
     }
 
     const localStart = globalStart - (domPageStart - 1) * DOM_PER_PAGE;

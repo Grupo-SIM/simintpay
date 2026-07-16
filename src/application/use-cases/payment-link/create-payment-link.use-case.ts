@@ -116,7 +116,10 @@ export class CreatePaymentLinkUseCase {
       maxUses: input.dto.maxUses ?? null,
       domPaymentLinkId: created.id,
       emailBody: input.dto.emailBody ?? null,
-      plataformas: clientTag ? [] : (input.dto.plataformas ?? []),
+      // Cliente SimintPay: atribui a plataforma "SIMINTPAY" (exibição/agrupamento) para o
+      // link não ficar sem plataforma. A taxa continua resolvendo pela tag do dono
+      // (CLIENT:<email> → herda da SIM INT PAY/GLOBAL) — este campo não altera a cobrança.
+      plataformas: clientTag ? ['SIMINTPAY'] : (input.dto.plataformas ?? []),
     });
 
     return {

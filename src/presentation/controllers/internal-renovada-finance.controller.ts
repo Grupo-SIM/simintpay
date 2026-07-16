@@ -12,6 +12,7 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { RenovadaConfig } from '../../modules/renovada/renovada.config';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
+import { ORIGEM_MAQUINETA_TAG } from '../../application/utils/internal-tags.util';
 
 const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-29T20:40:00.000Z');
 
@@ -133,6 +134,9 @@ export class InternalRenovadaFinanceController {
     const andConditions: any[] = [
       ownerFilter,
       { description: { contains: '[TENANT:RENOVADA]', mode: 'insensitive' } },
+      // Transações de maquineta têm página própria (/admin/machines); não devem
+      // aparecer na listagem de Ofertas App, mesmo estando sincronizadas na carteira.
+      { NOT: { description: { contains: ORIGEM_MAQUINETA_TAG, mode: 'insensitive' } } },
     ];
 
     const statusUpper = status ? String(status).toUpperCase() : '';

@@ -86,7 +86,10 @@ export class CreatePlanUseCase {
       domPlanId: dom.id,
       code: input.dto.code ?? null,
       emailBody: input.dto.emailBody ?? null,
-      plataformas: clientTag ? [] : (input.dto.plataformas ?? []),
+      // Cliente SimintPay: atribui a plataforma "SIMINTPAY" (exibição/agrupamento) para o
+      // plano não ficar sem plataforma. A taxa segue resolvendo por CLIENT:<email>
+      // (herda da SIM INT PAY/GLOBAL) — este campo não altera a cobrança.
+      plataformas: clientTag ? ['SIMINTPAY'] : (input.dto.plataformas ?? []),
     });
 
     return {
