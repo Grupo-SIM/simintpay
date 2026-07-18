@@ -670,8 +670,13 @@ model ExternalPlatformUser {
   name        String
   platform    String                   // slug da plataforma ex: "ebook"
   userId      String?                  // vinculado ao User da Simpay quando se cadastra
-  isDeleted   Boolean                  @default(false)
+  isDeleted   Boolean                  @default(false)  // inativado (reversível)
   deletedAt   DateTime?
+  // Exclusão permanente (irreversível): estado final, o saldo foi absorvido pelo master.
+  // Não apagamos a linha — apagar mudaria o histórico/relatórios retroativamente.
+  isPurged    Boolean                  @default(false)
+  purgedAt    DateTime?
+  purgedAmount Decimal?                @db.Decimal(12, 2)  // saldo absorvido no momento da exclusão
   createdAt   DateTime                 @default(now())
   updatedAt   DateTime                 @updatedAt
   wallet      ExternalPlatformWallet?

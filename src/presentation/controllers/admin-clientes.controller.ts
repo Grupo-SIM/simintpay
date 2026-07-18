@@ -11,7 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { RolesGuard } from '../../infrastructure/security/guards/roles.guard';
 import { Roles } from '../../infrastructure/security/decorators/roles.decorator';
@@ -58,6 +58,112 @@ export class AdminClientesController {
     if (Object.keys(patch).length === 0) return;
     const next = applyPatchToOverrides(tag, patch);
     await writeOverrides(next);
+  }
+
+  // ── Backfill: marca contas avulsas como cliente (clientStatus) ─────────────
+  @Post('backfill-client-status')
+  @ApiOperation({
+    summary: 'Backfill: marca contas avulsas (cliente direto) sem clientStatus como cliente APROVADO',
+    description:
+      'Sem clientStatus a conta NÃO é reconhecida como cliente: a taxa individual (CLIENT:<email>) ' +
+      'que o master configura nunca é aplicada na cobrança. Alvo: role=USER, sem plataforma/módulo e ' +
+      'SEM vínculo de vendedor de plataforma externa (marcar esses mudaria a taxa deles de plataforma → CLIENT). ' +
+      'Padrão é dry-run (só conta). Use dry=false para aplicar. Opcional: email=<conta> para marcar só uma.',
+  })
+  @ApiQuery({ name: 'dry', required: false, description: "'true' (padrão) só simula/conta; 'false' aplica", example: 'true' })
+  @ApiQuery({ name: 'email', required: false, description: 'Marca apenas esta conta (ex.: tz@lucasebarbara.tzviagens.com.br)' })
+  async backfillClientStatus(
+    @CurrentUser() authUser: JwtPayload,
+    @Query('dry') dry = 'true',
+    @Query('email') email?: string,
+  ) {
+    await this.assertMaster(authUser);
+
+    const apply = String(dry).toLowerCase() === 'false';
+    const alvoEmail = email?.trim().toLowerCase();
+
+    // Contas "master" de plataforma (Renovada, Bosque, …) têm role=USER e
+    // tenantModuleId = null — o sync nunca atribui o módulo — então casariam no
+    // filtro. Marcá-las como cliente mudaria a taxa delas (tag da plataforma →
+    // CLIENT:<email>), marcaria os links como SIMINTPAY e aplicaria o mínimo de
+    // cliente. NUNCA podem entrar no backfill.
+    const PLATFORM_ACCOUNT_IDS = [
+      process.env.RENOVADA_USER_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a',
+      process.env.BOSQUE_USER_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c',
+      process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854',
+      process.env.EBOOK_ID || '',
+      process.env.ATLAS_USER_ID || '',
+      process.env.PAGATG_USER_ID || '',
+      process.env.ZERO_GRAU_USER_ID || '',
+    ]
+      .map((s) => String(s).trim())
+      .filter(Boolean);
+
+    const where: Prisma.UserWhereInput = {
+      role: Role.USER,
+      tenantModuleId: null,
+      clientStatus: null,
+      id: { notIn: PLATFORM_ACCOUNT_IDS },
+      // Cliente de verdade tem documento. Conta sem cpf E sem cnpj é quase sempre
+      // conta operadora de plataforma — fora do backfill por segurança.
+      OR: [{ cpf: { not: null } }, { cnpj: { not: null } }],
+      // Não marca vendedor de plataforma externa: virar "cliente" faria a cobrança
+      // resolver a taxa por CLIENT:<email> em vez da tag da plataforma dele.
+      externalPlatformUsers: { none: {} },
+      ...(alvoEmail ? { email: { equals: alvoEmail, mode: 'insensitive' } } : {}),
+    };
+
+    const afetados = await this.prisma.user.count({ where });
+
+    if (!apply) {
+      const amostra = await this.prisma.user.findMany({
+        where,
+        select: { id: true, name: true, email: true, cpf: true, cnpj: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      });
+
+      // Diagnóstico: quando foi pedido um e-mail específico e nada casou, explica
+      // qual condição barrou — evita ficar no escuro com "afetados: 0".
+      let diagnostico: unknown;
+      if (alvoEmail && afetados === 0) {
+        const u = await this.prisma.user.findFirst({
+          where: { email: { equals: alvoEmail, mode: 'insensitive' } },
+          select: {
+            id: true, email: true, name: true, role: true, cpf: true, cnpj: true,
+            clientStatus: true, tenantModuleId: true,
+            _count: { select: { externalPlatformUsers: true } },
+          },
+        });
+        if (!u) {
+          diagnostico = { encontrado: false, motivos: ['Nenhuma conta com esse e-mail.'] };
+        } else {
+          const motivos: string[] = [];
+          if (u.role !== Role.USER) motivos.push(`role é ${u.role} (o alvo é USER)`);
+          if (u.tenantModuleId) motivos.push('conta pertence a uma plataforma/módulo (tenantModuleId preenchido)');
+          if (u.clientStatus !== null) motivos.push(`clientStatus já é ${u.clientStatus} — nada a fazer, já é cliente`);
+          if (u._count.externalPlatformUsers > 0) {
+            motivos.push('conta tem vínculo de vendedor de plataforma externa (excluída de propósito: marcar mudaria a taxa dela de plataforma para CLIENT)');
+          }
+          diagnostico = { encontrado: true, conta: u, motivos };
+        }
+      }
+
+      return {
+        dryRun: true,
+        afetados,
+        amostra,
+        ...(diagnostico ? { diagnostico } : {}),
+        comoAplicar: 'Rode de novo com dry=false para gravar (clientStatus=APPROVED).',
+      };
+    }
+
+    const res = await this.prisma.user.updateMany({
+      where,
+      data: { clientStatus: 'APPROVED', clientApprovedAt: new Date() },
+    });
+
+    return { dryRun: false, atualizados: res.count, clientStatus: 'APPROVED' };
   }
 
   // ── Backfill: plataforma SIMINTPAY em links/planos de clientes ─────────────

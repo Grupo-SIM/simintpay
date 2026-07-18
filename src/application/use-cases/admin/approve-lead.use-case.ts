@@ -47,12 +47,20 @@ export class ApproveLeadUseCase {
     const tempPassword = randomBytes(12).toString('base64').slice(0, 16);
     const hashed = await this.hash.hash(tempPassword);
 
-    // Create local user record (with CPF from lead for transaction filtering)
+    // Create local user record (com CPF **e** CNPJ do lead, para filtro por documento).
+    // Antes só o cpf era gravado: lead PJ virava conta sem documento nenhum e ficava
+    // invisível nas buscas/listagens que filtram por documento.
     const user = await this.users.create({
       name: lead.name,
       email: lead.email,
       password: hashed,
       cpf: lead.cpf ?? null,
+      cnpj: (lead as any).cnpj ?? null,
+      // O master ACABOU de aceitar a solicitação — a conta nasce cliente aprovado.
+      // Sem isso ela ficava com clientStatus null: não era reconhecida como cliente
+      // (taxa individual nunca aplicava) e nem aparecia na tela de Clientes.
+      clientStatus: 'APPROVED',
+      clientApprovedAt: new Date(),
     });
 
     await this.wallets.createForUser(user.id);

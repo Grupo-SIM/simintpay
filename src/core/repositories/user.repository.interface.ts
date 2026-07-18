@@ -14,6 +14,7 @@ export type CreateUserData = {
   cnpj?: string | null;
   tenantModuleId?: string | null;
   clientStatus?: ClientStatus | null;
+  clientApprovedAt?: Date | null;
 };
 
 export interface IUserRepository {

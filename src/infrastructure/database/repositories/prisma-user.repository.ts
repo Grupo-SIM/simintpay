@@ -35,6 +35,7 @@ export class PrismaUserRepository implements IUserRepository {
         cnpj: data.cnpj ?? undefined,
         tenantModuleId: data.tenantModuleId ?? undefined,
         clientStatus: data.clientStatus ?? undefined,
+        clientApprovedAt: data.clientApprovedAt ?? undefined,
       },
     });
   }

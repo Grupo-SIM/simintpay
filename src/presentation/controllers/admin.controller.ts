@@ -1502,6 +1502,11 @@ export class AdminController {
         ...(cnpjClean ? { cnpj: cnpjClean } : {}),
         domUserId: domUserId ?? undefined,
         domToken: domToken ?? undefined,
+        // Conta criada pelo master já nasce cliente SimintPay APROVADO. Sem isso
+        // (clientStatus null) a conta não é reconhecida como cliente e a taxa
+        // individual (CLIENT:<email>) nunca é aplicada na cobrança.
+        clientStatus: 'APPROVED',
+        clientApprovedAt: new Date(),
       },
     });
 
@@ -1620,18 +1625,22 @@ export class AdminController {
   @ApiQuery({ name: 'platform', required: false })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, example: 20 })
-  @ApiQuery({ name: 'deleted', required: false, description: 'true = contas excluídas' })
+  @ApiQuery({ name: 'deleted', required: false, description: 'true = contas inativas' })
+  @ApiQuery({ name: 'purged', required: false, description: 'true = contas excluídas permanentemente' })
   @ApiQuery({ name: 'search', required: false, description: 'Buscar por nome, CPF ou e-mail Simintpay' })
   async listExternalUsers(
     @Query('platform') platform?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
     @Query('deleted') deleted?: string,
+    @Query('purged') purged?: string,
     @Query('search') search?: string,
   ) {
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
-    const showDeleted = deleted === 'true';
+    // 3 abas: ativas | inativas (deleted, não purgadas) | excluídas permanentemente (purged).
+    const showPurged = purged === 'true';
+    const showDeleted = deleted === 'true' && !showPurged;
     const searchTerm = search?.trim() ?? '';
     const cpfDigits = searchTerm.replace(/\D/g, '');
     const platformLower = platform?.trim().toLowerCase();
@@ -1641,7 +1650,11 @@ export class AdminController {
       ? {
           OR: [
             { name: { contains: searchTerm, mode: 'insensitive' as const } },
-            ...(cpfDigits.length > 0 ? [{ cpf: { contains: cpfDigits } }] : []),
+            // Documento: casa CPF **e** CNPJ — contas PJ só têm cnpj preenchido,
+            // e olhar só cpf as tornava invisíveis na busca.
+            ...(cpfDigits.length > 0
+              ? [{ cpf: { contains: cpfDigits } }, { cnpj: { contains: cpfDigits } }]
+              : []),
             { user: { email: { contains: searchTerm, mode: 'insensitive' as const } } },
           ],
         }
@@ -1649,7 +1662,10 @@ export class AdminController {
 
     const extMatchWhere = {
       ...(platformLower ? { platform: { equals: platformLower, mode: 'insensitive' as const } } : {}),
-      isDeleted: showDeleted,
+      // Purgadas: aba própria. Inativas: isDeleted mas NÃO purgadas. Ativas: nenhum dos dois.
+      ...(showPurged
+        ? { isPurged: true }
+        : { isDeleted: showDeleted, isPurged: false }),
       ...extSearchFilter,
     };
 
@@ -1674,7 +1690,8 @@ export class AdminController {
     // ── 2. Module users (tenantModule-based platforms: renovada, bosque, etc.) ─
     // Included when NOT on the "deleted" tab, since User records have no isDeleted concept.
     type ModuleUser = {
-      id: string; name: string; cpf: string | null; email: string;
+      id: string; name: string; cpf: string | null; cnpj: string | null; email: string;
+      isActive: boolean;
       createdAt: Date; updatedAt: Date;
       wallet: { balance: any; lockedBalance: any } | null;
       tenantModule: { slug: string } | null;
@@ -1699,13 +1716,18 @@ export class AdminController {
         .map(([slug, id]) => [id, slug]),
     );
 
+    // Contas de módulo/plataforma (Renovada, Bosque…) só na aba de ativas —
+    // elas não têm inativação por plataforma nem exclusão permanente.
     let moduleUsers: ModuleUser[] = [];
-    if (!showDeleted) {
+    if (!showDeleted && !showPurged) {
       const moduleSearchFilter = searchTerm
         ? {
             OR: [
               { name: { contains: searchTerm, mode: 'insensitive' as const } },
-              ...(cpfDigits.length > 0 ? [{ cpf: { contains: cpfDigits } }] : []),
+              // Documento: casa CPF **e** CNPJ (contas PJ só têm cnpj preenchido).
+              ...(cpfDigits.length > 0
+                ? [{ cpf: { contains: cpfDigits } }, { cnpj: { contains: cpfDigits } }]
+                : []),
               { email: { contains: searchTerm, mode: 'insensitive' as const } },
             ],
           }
@@ -1737,7 +1759,8 @@ export class AdminController {
       moduleUsers = (await this.prisma.user.findMany({
         where: moduleWhere,
         select: {
-          id: true, name: true, cpf: true, email: true,
+          id: true, name: true, cpf: true, cnpj: true, email: true,
+          isActive: true,
           createdAt: true, updatedAt: true,
           wallet: { select: { balance: true, lockedBalance: true } },
           tenantModule: { select: { slug: true } },
@@ -1753,13 +1776,22 @@ export class AdminController {
     // Rotulados como plataforma virtual "simintpay". Aparecem apenas na aba ativa
     // e quando não há filtro por plataforma externa (eles não têm plataforma) —
     // ou quando o filtro é justamente "simintpay".
+    // Cliente direto não tem `ExternalPlatformUser`, então não tem `isDeleted`: o que
+    // marca ativo/inativo nele é o `User.isActive`. Por isso ele entra nas DUAS abas
+    // (ativa e excluídas), filtrado por isActive — senão, ao inativar, ele sumiria
+    // sem aparecer em "excluídas" e não teria como ser reativado.
+    // Cliente direto usa User.isActive (ativas/inativas). Nunca é "purgado" — a exclusão
+    // permanente é só de conta de plataforma externa; por isso fica fora da aba de purgadas.
     const clientUserIds = new Set<string>();
-    if (!showDeleted && (!platformLower || platformLower === 'simintpay')) {
+    if (!showPurged && (!platformLower || platformLower === 'simintpay')) {
       const clientSearchFilter = searchTerm
         ? {
             OR: [
               { name: { contains: searchTerm, mode: 'insensitive' as const } },
-              ...(cpfDigits.length > 0 ? [{ cpf: { contains: cpfDigits } }] : []),
+              // Documento: casa CPF **e** CNPJ (contas PJ só têm cnpj preenchido).
+              ...(cpfDigits.length > 0
+                ? [{ cpf: { contains: cpfDigits } }, { cnpj: { contains: cpfDigits } }]
+                : []),
               { email: { contains: searchTerm, mode: 'insensitive' as const } },
             ],
           }
@@ -1776,6 +1808,8 @@ export class AdminController {
         AND: [
           { role: 'USER' },
           { tenantModuleId: null },
+          // Aba "excluídas" mostra os inativos; a aba normal, os ativos.
+          { isActive: !showDeleted },
           ...(excludeIds.length > 0 ? [{ id: { notIn: excludeIds } }] : []),
           ...(clientSearchFilter ? [clientSearchFilter] : []),
         ],
@@ -1784,7 +1818,8 @@ export class AdminController {
       const clientUsers = (await this.prisma.user.findMany({
         where: clientWhere,
         select: {
-          id: true, name: true, cpf: true, email: true,
+          id: true, name: true, cpf: true, cnpj: true, email: true,
+          isActive: true,
           createdAt: true, updatedAt: true,
           wallet: { select: { balance: true, lockedBalance: true } },
           tenantModule: { select: { slug: true } },
@@ -1836,7 +1871,9 @@ export class AdminController {
               ...(pagedExtCpfs.length > 0 ? [{ cpf: { in: pagedExtCpfs } }] : []),
               ...(pagedExtCnpjs.length > 0 ? [{ cnpj: { in: pagedExtCnpjs } }] : []),
             ],
-            isDeleted: showDeleted,
+            ...(showPurged
+              ? { isPurged: true }
+              : { isDeleted: showDeleted, isPurged: false }),
           },
           include: {
             wallet: true,
@@ -1938,7 +1975,8 @@ export class AdminController {
 
           return {
             id: primary.id,
-            cpf: identity.document,
+            cpf: primary.cpf ?? (identity.document ?? ''),
+            cnpj: primary.cnpj ?? '',
             name: simpayUser?.name?.trim() || primary.name,
             platformEntries: records.map((r) => ({
               id: r.id,
@@ -1974,13 +2012,15 @@ export class AdminController {
           return {
             id: u.id,
             cpf: u.cpf ?? '',
+            cnpj: u.cnpj ?? '',
             name: u.name,
             platformEntries: [{ id: u.id, platform: moduleSlug, name: u.name, email: u.email }],
             balance: Number(u.wallet?.balance ?? 0),
             lockedBalance: Number(u.wallet?.lockedBalance ?? 0),
             vinculado: true,
             isAtivo: activeTxUserIds.has(u.id) ? true : (null as boolean | null),
-            isDeleted: false,
+            // Cliente direto não tem isDeleted próprio — quem marca é o User.isActive.
+            isDeleted: !u.isActive,
             deletedAt: null,
             simpayUser: { id: u.id, name: u.name, email: u.email },
             createdAt: u.createdAt,
@@ -2048,9 +2088,12 @@ export class AdminController {
   @HttpCode(200)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Soft-delete de usuário externo — move para contas excluídas e desativa em todas as plataformas' })
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Inativa uma conta — nesta plataforma ou em todas do mesmo CPF/CNPJ (reversível; não toca no saldo)' })
+  @ApiQuery({ name: 'escopo', required: false, description: "'plataforma' (padrão) ou 'todas'", example: 'plataforma' })
   async deleteExternalUser(
     @Param('id') id: string,
+    @Query('escopo') escopo = 'plataforma',
     @CurrentUser() authUser?: JwtPayload,
   ) {
     if (authUser?.sub) {
@@ -2067,61 +2110,292 @@ export class AdminController {
       where: { id },
       include: { user: { select: { id: true, email: true } } },
     });
-    if (!externalUser) throw new NotFoundException('Usuário não encontrado');
-    if (externalUser.isDeleted) throw new BadRequestException('Conta já foi excluída');
 
-    await this.prisma.externalPlatformUser.update({
-      where: { id },
+    // Cliente direto (avulso) não tem entrada de plataforma — a listagem devolve o
+    // User.id nessas linhas. Aí "inativar" age direto no acesso da conta.
+    if (!externalUser) {
+      await this.setContaDiretaAtiva(id, false);
+      return { success: true, escopo: 'conta', inativadas: [], loginDesativado: true };
+    }
+
+    const alvos = await this.resolveEscopoEntries(externalUser, escopo, false);
+    if (alvos.length === 0) throw new BadRequestException('Conta já está inativa neste escopo');
+
+    await this.prisma.externalPlatformUser.updateMany({
+      where: { id: { in: alvos.map((a) => a.id) } },
       data: { isDeleted: true, deletedAt: new Date() },
     });
 
-    if (externalUser.userId) {
-      await this.prisma.user.update({
-        where: { id: externalUser.userId },
-        data: { isActive: false },
+    // O login (User.isActive) só cai quando NENHUMA plataforma do usuário restar ativa.
+    // Antes, inativar UMA plataforma derrubava o acesso a todas.
+    const loginDesativado = await this.syncLoginAtivo(externalUser.userId);
+
+    await Promise.all(alvos.map((a) => this.setPlatformUserState(a, 'deactivate')));
+
+    return {
+      success: true,
+      escopo: alvos.length > 1 ? 'todas' : 'plataforma',
+      inativadas: alvos.map((a) => a.platform),
+      loginDesativado,
+    };
+  }
+
+  @Post('usuarios/:id/reativar')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Reativa uma conta inativa — nesta plataforma ou em todas do mesmo CPF/CNPJ' })
+  @ApiQuery({ name: 'escopo', required: false, description: "'plataforma' (padrão) ou 'todas'", example: 'plataforma' })
+  async reactivateExternalUser(
+    @Param('id') id: string,
+    @Query('escopo') escopo = 'plataforma',
+    @CurrentUser() authUser?: JwtPayload,
+  ) {
+    if (authUser?.sub) {
+      const requester = await this.prisma.user.findUnique({
+        where: { id: authUser.sub },
+        include: { tenantModule: true },
       });
+      if (!requester || !isMasterAdminUser(requester)) {
+        throw new ForbiddenException('Somente admin master pode reativar contas');
+      }
     }
 
-    // Desativa em plataformas externas (falhas não bloqueiam a operação)
+    const externalUser = await this.prisma.externalPlatformUser.findUnique({
+      where: { id },
+      include: { user: { select: { id: true, email: true } } },
+    });
+
+    // Cliente direto (avulso): sem entrada de plataforma — reativa o acesso da conta.
+    if (!externalUser) {
+      await this.setContaDiretaAtiva(id, true);
+      return { success: true, escopo: 'conta', reativadas: [], loginAtivo: true };
+    }
+
+    const alvos = await this.resolveEscopoEntries(externalUser, escopo, true);
+    if (alvos.length === 0) throw new BadRequestException('Conta já está ativa neste escopo');
+
+    await this.prisma.externalPlatformUser.updateMany({
+      where: { id: { in: alvos.map((a) => a.id) } },
+      data: { isDeleted: false, deletedAt: null },
+    });
+
+    // Voltou a ter plataforma ativa → o login volta. O saldo nunca foi tocado.
+    const loginDesativado = await this.syncLoginAtivo(externalUser.userId);
+
+    await Promise.all(alvos.map((a) => this.setPlatformUserState(a, 'activate')));
+
+    return {
+      success: true,
+      escopo: alvos.length > 1 ? 'todas' : 'plataforma',
+      reativadas: alvos.map((a) => a.platform),
+      loginAtivo: !loginDesativado,
+    };
+  }
+
+  @Delete('usuarios/:id/permanente')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Exclui permanentemente (irreversível) — nesta plataforma ou em todas. O saldo é absorvido pelo master.',
+  })
+  @ApiQuery({ name: 'escopo', required: false, description: "'plataforma' (padrão) ou 'todas'", example: 'plataforma' })
+  async purgeExternalUser(
+    @Param('id') id: string,
+    @Query('escopo') escopo = 'plataforma',
+    @CurrentUser() authUser?: JwtPayload,
+  ) {
+    let requesterId: string | undefined;
+    if (authUser?.sub) {
+      const requester = await this.prisma.user.findUnique({
+        where: { id: authUser.sub },
+        include: { tenantModule: true },
+      });
+      if (!requester || !isMasterAdminUser(requester)) {
+        throw new ForbiddenException('Somente admin master pode excluir contas permanentemente');
+      }
+      requesterId = requester.id;
+    }
+
+    const externalUser = await this.prisma.externalPlatformUser.findUnique({
+      where: { id },
+      include: { user: { select: { id: true, email: true } }, wallet: true },
+    });
+    if (!externalUser) {
+      throw new BadRequestException('Exclusão permanente só se aplica a contas de plataforma externa');
+    }
+
+    // Alvo: as entradas do escopo que já estão inativas e ainda não foram purgadas.
+    const todas = String(escopo ?? '').toLowerCase() === 'todas';
+    const docOr: Prisma.ExternalPlatformUserWhereInput[] = [];
+    if (todas && externalUser.cpf) docOr.push({ cpf: externalUser.cpf });
+    if (todas && externalUser.cnpj) docOr.push({ cnpj: externalUser.cnpj });
+    const alvos = todas && docOr.length > 0
+      ? await this.prisma.externalPlatformUser.findMany({
+          where: { OR: docOr, isPurged: false },
+          include: { user: { select: { id: true, email: true } }, wallet: true },
+        })
+      : [externalUser];
+
+    let totalAbsorvido = 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const alvo of alvos) {
+        const saldo = Number(alvo.wallet?.balance ?? 0);
+        totalAbsorvido += saldo;
+
+        // Zera a carteira (o valor vai para o master) e registra em BalanceLog para auditoria.
+        if (alvo.wallet && saldo !== 0) {
+          await tx.externalPlatformWallet.update({
+            where: { id: alvo.wallet.id },
+            data: { balance: 0, lockedBalance: 0 },
+          });
+          if (alvo.userId) {
+            await tx.balanceLog.create({
+              data: {
+                userId: alvo.userId,
+                action: 'PURGE_ABSORB',
+                amount: saldo,
+                balanceBefore: saldo,
+                balanceAfter: 0,
+                lockedBefore: Number(alvo.wallet.lockedBalance ?? 0),
+                lockedAfter: 0,
+                source: 'MASTER_ADMIN_CONTROL',
+                description: `Saldo absorvido pelo master ao excluir permanentemente a conta na plataforma ${alvo.platform}`,
+                metadata: { platform: alvo.platform, externalUserId: alvo.id, purgedBy: requesterId ?? null },
+              },
+            });
+          }
+        }
+
+        await tx.externalPlatformUser.update({
+          where: { id: alvo.id },
+          data: {
+            isPurged: true,
+            purgedAt: new Date(),
+            purgedAmount: saldo,
+            isDeleted: true,
+            deletedAt: alvo.deletedAt ?? new Date(),
+          },
+        });
+      }
+    });
+
+    // Purgar é um caso de inativação — reavalia o login.
+    const loginDesativado = await this.syncLoginAtivo(externalUser.userId);
+    await Promise.all(alvos.map((a) => this.setPlatformUserState(a, 'deactivate')));
+
+    return {
+      success: true,
+      escopo: todas ? 'todas' : 'plataforma',
+      purgadas: alvos.map((a) => a.platform),
+      saldoAbsorvido: Number(totalAbsorvido.toFixed(2)),
+      loginDesativado,
+    };
+  }
+
+  /**
+   * Resolve quais entradas de plataforma a ação atinge.
+   * - escopo `plataforma` (padrão): só a entrada clicada.
+   * - escopo `todas`: todas as entradas do mesmo CPF/CNPJ.
+   * `alvoDeletado` filtra pelo estado atual (inativar pega as ativas; reativar, as inativas).
+   */
+  private async resolveEscopoEntries(
+    base: { id: string; cpf: string | null; cnpj: string | null; isDeleted: boolean },
+    escopo: string,
+    alvoDeletado: boolean,
+  ) {
+    const todas = String(escopo ?? '').toLowerCase() === 'todas';
+
+    if (!todas) {
+      const entry = await this.prisma.externalPlatformUser.findUnique({
+        where: { id: base.id },
+        include: { user: { select: { id: true, email: true } } },
+      });
+      return entry && entry.isDeleted === alvoDeletado ? [entry] : [];
+    }
+
+    const doc: Prisma.ExternalPlatformUserWhereInput[] = [];
+    if (base.cpf) doc.push({ cpf: base.cpf });
+    if (base.cnpj) doc.push({ cnpj: base.cnpj });
+    if (doc.length === 0) doc.push({ id: base.id });
+
+    return this.prisma.externalPlatformUser.findMany({
+      where: { OR: doc, isDeleted: alvoDeletado },
+      include: { user: { select: { id: true, email: true } } },
+    });
+  }
+
+  /**
+   * Cliente direto (conta avulsa) não tem `ExternalPlatformUser` — a listagem devolve
+   * o `User.id` nessas linhas. Para ele, inativar/reativar age direto no `isActive`.
+   */
+  private async setContaDiretaAtiva(userId: string, ativa: boolean) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    if (user.isActive === ativa) {
+      throw new BadRequestException(ativa ? 'Conta já está ativa' : 'Conta já está inativa');
+    }
+    await this.prisma.user.update({ where: { id: userId }, data: { isActive: ativa } });
+    return user;
+  }
+
+  /**
+   * Mantém o login coerente: ativo enquanto houver ao menos uma plataforma ativa.
+   * Retorna true se o login ficou desativado.
+   */
+  private async syncLoginAtivo(userId: string | null): Promise<boolean> {
+    if (!userId) return false;
+    const ativas = await this.prisma.externalPlatformUser.count({
+      where: { userId, isDeleted: false },
+    });
+    const desativar = ativas === 0;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { isActive: !desativar },
+    });
+    return desativar;
+  }
+
+  /** Chama o endpoint interno da plataforma para ativar/desativar (falha não bloqueia). */
+  private async setPlatformUserState(
+    extUser: { platform: string; cpf: string | null; user?: { email: string | null } | null },
+    state: 'activate' | 'deactivate',
+  ): Promise<void> {
     const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
     const headers = { 'x-internal-token': internalToken, 'Content-Type': 'application/json' };
-    const platform = externalUser.platform.toUpperCase();
-    const cpf = externalUser.cpf;
-    const email = externalUser.user?.email;
+    const platform = extUser.platform.toUpperCase();
+    const cpf = extUser.cpf;
+    const email = extUser.user?.email;
 
-    const calls: Promise<any>[] = [];
+    const call = (base: string | undefined, path: string, body: unknown) => {
+      const url = String(base ?? '').replace(/\/+$/, '');
+      if (!url) return null;
+      return fetch(`${url}${path}/${state}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      }).catch(() => null);
+    };
 
-    if (platform === 'EBOOK' || platform === 'EBOOKSIM') {
-      const url = String(process.env.BACK_EBOOK_URL ?? '').replace(/\/+$/, '');
-      if (url) calls.push(
-        fetch(`${url}/internal/users/deactivate`, { method: 'POST', headers, body: JSON.stringify({ cpf }) }).catch(() => null),
-      );
+    const calls: (Promise<unknown> | null)[] = [];
+    if ((platform === 'EBOOK' || platform === 'EBOOKSIM') && cpf) {
+      calls.push(call(process.env.BACK_EBOOK_URL, '/internal/users', { cpf }));
     }
-
-    if (platform === 'PAGATG') {
-      const url = String(process.env.API_PAGATG_URL ?? '').replace(/\/+$/, '');
-      if (url) calls.push(
-        fetch(`${url}/internal/users/deactivate`, { method: 'POST', headers, body: JSON.stringify({ cpf }) }).catch(() => null),
-      );
+    if (platform === 'PAGATG' && cpf) {
+      calls.push(call(process.env.API_PAGATG_URL, '/internal/users', { cpf }));
     }
-
     if (platform === 'AREAFLIX' && email) {
-      const url = String(process.env.AREAFLIX_BACK_URL ?? '').replace(/\/+$/, '');
-      if (url) calls.push(
-        fetch(`${url}/internal/users/deactivate`, { method: 'POST', headers, body: JSON.stringify({ email }) }).catch(() => null),
-      );
+      calls.push(call(process.env.AREAFLIX_BACK_URL, '/internal/users', { email }));
     }
-
     if (platform === 'ATLAS' && email) {
-      const url = String(process.env.ATLAS_HOSTING_URL ?? '').replace(/\/+$/, '');
-      if (url) calls.push(
-        fetch(`${url}/api/internal/users/deactivate`, { method: 'POST', headers, body: JSON.stringify({ email }) }).catch(() => null),
-      );
+      calls.push(call(process.env.ATLAS_HOSTING_URL, '/api/internal/users', { email }));
     }
 
-    if (calls.length > 0) await Promise.all(calls);
-
-    return { success: true };
+    await Promise.all(calls.filter(Boolean));
   }
 
   @Get('users')
@@ -5028,13 +5302,27 @@ export class AdminController {
     // comprador da transação (customerEmail). É user.email que a taxa personalizada
     // usa como chave (CLIENT:<user.email>) e com o qual o cliente faz login; por isso
     // a lista antiga (comprador) mostrava e-mails que não batiam com a conta.
+    // Clientes SIM INT PAY = contas avulsas (role USER, sem plataforma/módulo),
+    // mesmo critério de "cliente direto" da tela de Leads. NÃO exige transação —
+    // assim contas recém-criadas (manual/master ou auto-cadastro), que ainda não
+    // transacionaram, já aparecem aqui pra receber taxa personalizada.
+    // A busca aceita e-mail, nome e documento — CPF **e** CNPJ (contas PJ só têm
+    // cnpj preenchido; olhar só cpf as tornava invisíveis).
+    const termDigits = term.replace(/\D/g, '');
     const userWhere: Prisma.UserWhereInput = {
-      transactions: { some: {} },
+      role: Role.USER,
+      tenantModuleId: null,
       ...(term
         ? {
             OR: [
               { email: { contains: term, mode: 'insensitive' } },
               { name: { contains: term, mode: 'insensitive' } },
+              ...(termDigits.length >= 3
+                ? [
+                    { cpf: { contains: termDigits } },
+                    { cnpj: { contains: termDigits } },
+                  ]
+                : []),
             ],
           }
         : {}),
