@@ -1,8 +1,9 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus, Prisma } from '@prisma/client';
 import { createHmac } from 'crypto';
 import { BosqueEventsService } from '../events/bosque-events.service';
+import { CheckoutEventsService } from '../../../application/services/checkout-events.service';
 
 interface WebhookEvent {
   event: string;
@@ -49,6 +50,7 @@ export class BosqueWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: BosqueEventsService,
+    @Optional() private readonly checkoutEvents?: CheckoutEventsService,
   ) {}
 
   async processWebhook(event: WebhookEvent): Promise<void> {
@@ -121,6 +123,8 @@ export class BosqueWebhookService {
         const balanceIncrement = new Prisma.Decimal(transaction.netAmount ?? transaction.amount ?? 0);
 
         if (newStatus === TransactionStatus.COMPLETED && transaction.status !== TransactionStatus.COMPLETED) {
+          // SSE: confirma o pagamento no app em tempo real (checkout/pix/:paymentId/sse)
+          this.checkoutEvents?.emit({ domPaymentId: event.data.id, status: 'COMPLETED' });
           const wallet = await prisma.wallet.findUnique({
             where: { userId: transaction.userId },
           });

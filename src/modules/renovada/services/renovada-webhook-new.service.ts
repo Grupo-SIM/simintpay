@@ -1,7 +1,8 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus, PaymentMethod } from '@prisma/client';
 import { createHmac } from 'crypto';
+import { CheckoutEventsService } from '../../../application/services/checkout-events.service';
 
 interface WebhookEvent {
   event: string;
@@ -61,7 +62,10 @@ const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
 export class RenovadaWebhookNewService {
   private readonly logger = new Logger(RenovadaWebhookNewService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly checkoutEvents?: CheckoutEventsService,
+  ) {}
 
   async processWebhook(event: WebhookEvent): Promise<void> {
     this.logger.log('🔔 [RENOVADA] WEBHOOK RECEBIDO - Processando webhook', {
@@ -141,6 +145,8 @@ export class RenovadaWebhookNewService {
 
         // Se status for COMPLETED, atualiza o saldo da wallet
         if (newStatus === TransactionStatus.COMPLETED) {
+          // SSE: confirma o pagamento no app em tempo real (checkout/pix/:paymentId/sse)
+          this.checkoutEvents?.emit({ domPaymentId: event.data.id, status: 'COMPLETED' });
           const wallet = await prisma.wallet.findUnique({
             where: { userId: transaction.userId },
           });

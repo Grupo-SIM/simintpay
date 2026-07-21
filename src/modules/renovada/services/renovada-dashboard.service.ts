@@ -128,7 +128,20 @@ export class PlatformDashboardService {
           status: TransactionStatus.COMPLETED,
           description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const },
         }
-      : { userId: platformId, status: TransactionStatus.COMPLETED };
+      : upperTag === 'RENOVADA'
+      // RENOVADA mantém userId puro — o bloco abaixo adiciona filter.OR com keywords
+      // (dizimo/oferta/...) e um OR de escopo aqui seria sobrescrito por ele.
+      ? { userId: platformId, status: TransactionStatus.COMPLETED }
+      // Demais fixas (REVALIDA, BETAI, CONTROLE-*…): userId OU [TENANT:tag] — só userId
+      // deixava de fora vendas marcadas com a tag feitas por outras contas (mesmo bug
+      // dos cards do Atlas/EbookSim: listagem mostrava e cards ficavam zerados).
+      : {
+          status: TransactionStatus.COMPLETED,
+          OR: [
+            ...(platformId ? [{ userId: platformId }] : []),
+            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const } },
+          ],
+        };
 
     if (upperTag === 'RENOVADA') {
       const keywords = ['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'maquineta', 'terminal'];

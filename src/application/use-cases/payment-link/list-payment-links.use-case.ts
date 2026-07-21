@@ -45,7 +45,7 @@ export class ListPaymentLinksUseCase {
           orderBy: { createdAt: 'desc' },
           skip,
           take: pageSize,
-          include: { user: { select: { cpf: true } } },
+          include: { user: { select: { cpf: true, name: true, email: true } } },
         }),
       ]);
     } else {
@@ -56,7 +56,7 @@ export class ListPaymentLinksUseCase {
           orderBy: { createdAt: 'desc' },
           skip,
           take: pageSize,
-          include: { user: { select: { cpf: true } } },
+          include: { user: { select: { cpf: true, name: true, email: true } } },
         }),
       ]);
     }
@@ -73,6 +73,9 @@ export class ListPaymentLinksUseCase {
         ativo: l.isActive,
         criadoEm: l.createdAt.toISOString(),
         cpfDono: formatCpf(l.user?.cpf),
+        // Quem criou o link (cliente ou master) — para a coluna "Criado por".
+        donoNome: l.user?.name ?? null,
+        donoEmail: l.user?.email ?? null,
         plataformas: l.plataformas ?? [],
       })),
       page,

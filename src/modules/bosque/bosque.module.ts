@@ -8,8 +8,11 @@ import { BosquePaymentController } from './controllers/bosque-payment.controller
 import { BosqueWebhookController } from './controllers/bosque-webhook.controller';
 import { BosqueRealtimeController } from './controllers/bosque-realtime.controller';
 import { PrismaModule } from '../../infrastructure/database/prisma/prisma.module';
+import { CheckoutModule } from '../../presentation/checkout.module';
 @Module({
-  imports: [PrismaModule, HttpModule],
+  // CheckoutModule: CheckoutEventsService (SSE) — o webhook do Bosque emite a
+  // confirmação em tempo real para o app (checkout/pix/:paymentId/sse).
+  imports: [PrismaModule, HttpModule, CheckoutModule],
   controllers: [
     BosquePaymentController,
     BosqueWebhookController,

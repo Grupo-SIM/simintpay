@@ -331,22 +331,19 @@ async function getComunidadeOrderRows(
   });
 }
 
-/** Escopo do consolidado: contas plataforma OU transações Bosque / Areaflix pela descrição/tag. */
+/**
+ * Escopo do consolidado: contas plataforma OU qualquer transação com tag de tenant.
+ * A lista fixa de tags deixava de fora [TENANT:ATLAS]/[TENANT:REVALIDA]/[TENANT:BETAI]/
+ * [TENANT:ZERO_GRAU]/[TENANT:SIMINTPAY]/comunidades quando o userId não era de conta
+ * plataforma — as vendas apareciam na listagem do produto mas não nos cards/consolidado.
+ */
 function buildConsolidadoScopeOr(platformIds: string[]): Prisma.TransactionWhereInput {
   return {
     OR: [
       { userId: { in: platformIds } },
-      {
-        OR: [
-          { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-          { description: { contains: 'bosque', mode: 'insensitive' } },
-        ],
-      },
-      { description: { contains: TENANT_AREAFLIX_TAG, mode: 'insensitive' } },
-      { description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' } },
-      { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
-      { description: { contains: TENANT_CONTROLE_MOTORISTA_TAG, mode: 'insensitive' } },
-      { description: { contains: TENANT_CONTROLE_PATRIMONIAL_TAG, mode: 'insensitive' } },
+      { description: { contains: '[TENANT:', mode: 'insensitive' } },
+      // Bosque legado: transações antigas sem tag, marcadas só pela palavra na descrição.
+      { description: { contains: 'bosque', mode: 'insensitive' } },
     ],
   };
 }
@@ -380,25 +377,35 @@ const FIXED_PLATFORM_TAGS = new Set([
   'REVALIDA', 'FRENDZ', 'BETAI', 'GLOBAL',
 ]);
 
+/** Tag sentinela para transações sem plataforma/produto atribuível — nada fica de fora do relatório. */
+const TAG_NAO_IDENTIFICADA = 'NAO-IDENTIFICADA';
+
 function consolidadoTagParaTransacao(
   tx: { userId: string; description: string | null },
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): string {
+  // Tag explícita [TENANT:X] é a fonte mais precisa e vale para QUALQUER plataforma
+  // (fixa ou dinâmica). Antes só as dinâmicas eram reconhecidas aqui: transação de
+  // plataforma fixa (ATLAS, REVALIDA, BETAI…) com userId de outra conta caía no
+  // fallback RENOVADA — sumia dos cards do produto e inflava a Renovada.
+  if (tx.description) {
+    const m = tx.description.match(/\[TENANT:([A-Z0-9_-]+)\]/i);
+    if (m) {
+      const t = m[1].toUpperCase();
+      if (t !== 'GLOBAL') return t === 'EBOOKSIM' ? 'EBOOK' : t;
+    }
+  }
   if (transacaoAtribuiBosquePorDescricao(tx.description)) return 'BOSQUE';
   if (transacaoAtribuiAreaflixPorDescricao(tx.description)) return 'AREAFLIX';
   if (transacaoAtribuiPagatgPorDescricao(tx.description)) return 'PAGATG';
   if (transacaoAtribuiEbookPorDescricao(tx.description)) return 'EBOOK';
   if (tx.description?.includes(TENANT_CONTROLE_MOTORISTA_TAG)) return 'CONTROLE-MOTORISTA';
   if (tx.description?.includes(TENANT_CONTROLE_PATRIMONIAL_TAG)) return 'CONTROLE-PATRIMONIAL';
-  // Dynamic community tags: [TENANT:SLUG] where SLUG is not a fixed platform
-  if (tx.description) {
-    const m = tx.description.match(/\[TENANT:([A-Z0-9_-]+)\]/i);
-    if (m && !FIXED_PLATFORM_TAGS.has(m[1].toUpperCase())) {
-      return m[1].toUpperCase();
-    }
-  }
   const platform = platforms.find((p) => p.id === tx.userId);
-  return platform?.tag ?? 'RENOVADA';
+  // Sem tag, sem keyword e sem conta conhecida → NÃO IDENTIFICADA. Antes o fallback
+  // era 'RENOVADA', que inflava a Renovada e escondia transações órfãs — agora elas
+  // aparecem no card "Transações não identificadas" do relatório para serem tratadas.
+  return platform?.tag ?? TAG_NAO_IDENTIFICADA;
 }
 
 type ConsolidadoListQuery = {
@@ -2997,6 +3004,15 @@ export class AdminController {
         quantidade: chargebacks.quantidade,
         valor: chargebacks.valor,
       },
+      // Transações sem plataforma/produto atribuível (tag NAO-IDENTIFICADA) — sempre
+      // presente (0 quando tudo identificado), para o card do relatório nunca "esconder" nada.
+      naoIdentificadas: (() => {
+        const ni = plataformasLucroDetalhe.find((p) => p.tag === TAG_NAO_IDENTIFICADA);
+        return {
+          quantidade: ni?.quantidadeTransacoes ?? 0,
+          valor: Number((ni?.subtotalBruto ?? 0).toFixed(2)),
+        };
+      })(),
       ...(dashboardFinanceHistorico && dashboardFinanceHistorico.length > 0
         ? {
           dashboardFinanceHistorico,
@@ -5477,16 +5493,69 @@ export class AdminController {
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Histórico de cobranças lançadas pelo Master' })
+  @ApiQuery({ name: 'search', required: false, description: 'Nome ou e-mail do cliente' })
+  @ApiQuery({ name: 'status', required: false, description: 'PENDING | VENCIDA | PAID | CANCELED | APPLIED' })
+  @ApiQuery({ name: 'dataInicio', required: false, description: 'YYYY-MM-DD' })
+  @ApiQuery({ name: 'dataFim', required: false, description: 'YYYY-MM-DD' })
   async listCobrancas(
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
   ) {
     const pageNum = Math.max(1, Number(page) || 1);
     const size = Math.min(Math.max(1, Number(pageSize) || 20), 100);
 
+    // Garante link de pagamento nas antigas + reflete pagamentos do checkout.
+    await this.ensureCobrancaPaymentLinks();
+    await this.reconcileCobrancasPagas();
+
+    const term = search?.trim() ?? '';
+    const statusUpper = (status ?? '').trim().toUpperCase();
+    const and: Prisma.CobrancaWhereInput[] = [];
+
+    if (term) {
+      and.push({
+        user: {
+          OR: [
+            { name: { contains: term, mode: 'insensitive' } },
+            { email: { contains: term, mode: 'insensitive' } },
+          ],
+        },
+      });
+    }
+
+    // "VENCIDA" é derivado: pendente com vencimento no passado. "PENDING" puro
+    // exclui as vencidas para os dois filtros não se misturarem.
+    if (statusUpper === 'VENCIDA') {
+      and.push({ status: 'PENDING', dueDate: { lt: new Date() } });
+    } else if (statusUpper === 'PENDING') {
+      and.push({ status: 'PENDING', OR: [{ dueDate: null }, { dueDate: { gte: new Date() } }] });
+    } else if (statusUpper === 'PAID' || statusUpper === 'CANCELED' || statusUpper === 'APPLIED') {
+      and.push({ status: statusUpper as any });
+    }
+
+    if (dataInicio || dataFim) {
+      const createdAt: Prisma.DateTimeFilter = {};
+      if (dataInicio) {
+        const d = new Date(`${dataInicio}T00:00:00.000-03:00`);
+        if (!Number.isNaN(d.getTime())) createdAt.gte = d;
+      }
+      if (dataFim) {
+        const d = new Date(`${dataFim}T23:59:59.999-03:00`);
+        if (!Number.isNaN(d.getTime())) createdAt.lte = d;
+      }
+      if (Object.keys(createdAt).length > 0) and.push({ createdAt });
+    }
+
+    const where: Prisma.CobrancaWhereInput = and.length > 0 ? { AND: and } : {};
+
     const [total, items] = await Promise.all([
-      this.prisma.cobranca.count(),
+      this.prisma.cobranca.count({ where }),
       this.prisma.cobranca.findMany({
+        where,
         include: { user: { select: { name: true, email: true } } },
         orderBy: { createdAt: 'desc' },
         skip: (pageNum - 1) * size,
@@ -5503,11 +5572,15 @@ export class AdminController {
         description: c.description,
         mode: c.mode,
         status: c.status,
+        // Pendente com vencimento passado → exibida como "Vencida".
+        vencida: this.cobrancaVencida(c),
         ficouNegativo: c.ficouNegativo,
         saldoDepois: c.saldoDepois != null ? Number(c.saldoDepois) : null,
         dueDate: c.dueDate,
         paidAt: c.paidAt,
         createdAt: c.createdAt,
+        // id do PaymentLink → checkout: /?simLinkCode=<paymentRef>
+        paymentRef: c.paymentRef,
       })),
       page: pageNum,
       pageSize: size,
@@ -5521,7 +5594,11 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Gera cobranças a pagar (PIX/cartão) para os clientes selecionados, com prazo (Fase 2).' })
+  @ApiOperation({
+    summary:
+      'Gera cobranças a pagar (PIX/cartão) para os clientes selecionados. ' +
+      'Cria automaticamente um link de pagamento (checkout) por cliente, dono = master, plataforma SIMINTPAY.',
+  })
   async gerarCobrancas(
     @Body() body: { itens?: { userId: string; amount: number }[]; descricao?: string; dueDate?: string },
     @CurrentUser() master?: JwtPayload,
@@ -5532,25 +5609,190 @@ export class AdminController {
     );
     if (itens.length === 0) throw new BadRequestException('Nenhum item de cobrança válido.');
     const descricao = body?.descricao?.trim() || 'Cobrança';
+    // Vencimento é obrigatório: é ele que define quando a cobrança vira "Vencida".
     const dueDate = body?.dueDate ? new Date(body.dueDate) : null;
+    if (!dueDate || Number.isNaN(dueDate.getTime())) {
+      throw new BadRequestException('Informe a data de vencimento da cobrança.');
+    }
 
-    const criadas = await this.prisma.$transaction(
-      itens.map((item) =>
-        this.prisma.cobranca.create({
+    // Nome/e-mail do cliente para o título do link (descrição sai correta no checkout).
+    const clientesRows = await this.prisma.user.findMany({
+      where: { id: { in: itens.map((i) => i.userId) } },
+      select: { id: true, name: true, email: true },
+    });
+    const clienteById = new Map(clientesRows.map((c) => [c.id, c]));
+    const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY || '';
+
+    const cobrancas: Array<{
+      userId: string;
+      cliente: string | null;
+      cobrancaId: string;
+      paymentLinkId: string;
+      amount: number;
+    }> = [];
+
+    for (const item of itens) {
+      const cliente = clienteById.get(item.userId);
+      const amount = Number(Number(item.amount).toFixed(2));
+      const titulo = `${descricao} — ${cliente?.name || cliente?.email || item.userId}`;
+
+      // Registra o link na DOM (cartão). Falha não bloqueia: o checkout PIX usa o link local.
+      let domPaymentLinkId: string | null = null;
+      if (domToken) {
+        try {
+          const created = await this.paymentGateway.createPaymentLink(domToken, {
+            title: titulo,
+            description: titulo,
+            amount,
+            maxInstallments: 12,
+            interestRateInstallment: 0,
+            aceitaCartao: true,
+            aceitaPix: true,
+          });
+          domPaymentLinkId = created?.id ?? null;
+        } catch {
+          // segue sem registro DOM
+        }
+      }
+
+      // Link de pagamento automático: dono = MASTER (o valor pago cai para o master),
+      // plataforma SIMINTPAY (agrupamento/relatórios), um link por cliente.
+      const link = await this.prisma.paymentLink.create({
+        data: {
+          userId: masterId,
+          title: titulo,
+          description: titulo,
+          amount,
+          maxInstallments: 12,
+          plataformas: ['SIMINTPAY'],
+          domPaymentLinkId,
+        },
+        select: { id: true },
+      });
+
+      const cob = await this.prisma.cobranca.create({
+        data: {
+          userId: item.userId,
+          amount,
+          description: descricao,
+          mode: 'PAYABLE',
+          status: 'PENDING',
+          createdByUserId: masterId,
+          dueDate,
+          // paymentRef = id do PaymentLink → checkout: /?simLinkCode=<paymentRef>
+          paymentRef: link.id,
+        },
+        select: { id: true },
+      });
+
+      cobrancas.push({
+        userId: item.userId,
+        cliente: cliente?.name ?? cliente?.email ?? null,
+        cobrancaId: cob.id,
+        paymentLinkId: link.id,
+        amount,
+      });
+    }
+
+    return { total: itens.length, criadas: cobrancas.length, cobrancas };
+  }
+
+  /**
+   * Garante o link de pagamento das cobranças PAYABLE pendentes que ainda não têm
+   * (ex.: geradas antes do link automático existir). Cria o PaymentLink com dono =
+   * master que lançou a cobrança, plataforma SIMINTPAY, e grava o paymentRef.
+   */
+  private async ensureCobrancaPaymentLinks(where: Prisma.CobrancaWhereInput = {}) {
+    const semLink = await this.prisma.cobranca.findMany({
+      where: { ...where, mode: 'PAYABLE', status: 'PENDING', paymentRef: null },
+      include: { user: { select: { id: true, name: true, email: true } } },
+      take: 20,
+    });
+    if (semLink.length === 0) return;
+
+    const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY || '';
+
+    for (const cob of semLink) {
+      const amount = Number(cob.amount);
+      const titulo = `${cob.description || 'Cobrança'} — ${cob.user?.name || cob.user?.email || cob.userId}`;
+
+      let domPaymentLinkId: string | null = null;
+      if (domToken) {
+        try {
+          const created = await this.paymentGateway.createPaymentLink(domToken, {
+            title: titulo,
+            description: titulo,
+            amount,
+            maxInstallments: 12,
+            interestRateInstallment: 0,
+            aceitaCartao: true,
+            aceitaPix: true,
+          });
+          domPaymentLinkId = created?.id ?? null;
+        } catch {
+          // segue sem registro DOM — o checkout PIX usa o link local
+        }
+      }
+
+      try {
+        const link = await this.prisma.paymentLink.create({
           data: {
-            userId: item.userId,
-            amount: Number(Number(item.amount).toFixed(2)),
-            description: descricao,
-            mode: 'PAYABLE',
-            status: 'PENDING',
-            createdByUserId: masterId,
-            dueDate,
+            userId: cob.createdByUserId,
+            title: titulo,
+            description: titulo,
+            amount,
+            maxInstallments: 12,
+            plataformas: ['SIMINTPAY'],
+            domPaymentLinkId,
           },
           select: { id: true },
+        });
+        await this.prisma.cobranca.update({
+          where: { id: cob.id },
+          data: { paymentRef: link.id },
+        });
+      } catch {
+        // não bloqueia a listagem — tenta de novo na próxima carga
+      }
+    }
+  }
+
+  /** true se a cobrança pendente já passou do vencimento (exibida como "Vencida"). */
+  private cobrancaVencida(c: { status: string; dueDate: Date | null }): boolean {
+    return c.status === 'PENDING' && !!c.dueDate && c.dueDate.getTime() < Date.now();
+  }
+
+  /**
+   * Baixa automática: marca como PAID as cobranças PAYABLE pendentes cujo link de
+   * pagamento (paymentRef) já tem transação COMPLETED. Chamada nas listagens —
+   * o pagamento do checkout reflete sem precisar de baixa manual.
+   */
+  private async reconcileCobrancasPagas(where: Prisma.CobrancaWhereInput = {}) {
+    const pendentes = await this.prisma.cobranca.findMany({
+      where: { ...where, mode: 'PAYABLE', status: 'PENDING', paymentRef: { not: null } },
+      select: { id: true, paymentRef: true },
+    });
+    if (pendentes.length === 0) return;
+
+    const refs = pendentes.map((p) => p.paymentRef!) ;
+    const pagas = await this.prisma.transaction.findMany({
+      where: { paymentLinkId: { in: refs }, status: 'COMPLETED' },
+      select: { paymentLinkId: true, createdAt: true },
+    });
+    if (pagas.length === 0) return;
+
+    const pagoEm = new Map(pagas.map((t) => [t.paymentLinkId!, t.createdAt]));
+    const quitadas = pendentes.filter((p) => pagoEm.has(p.paymentRef!));
+    if (quitadas.length === 0) return;
+
+    await this.prisma.$transaction(
+      quitadas.map((p) =>
+        this.prisma.cobranca.update({
+          where: { id: p.id },
+          data: { status: 'PAID', paidAt: pagoEm.get(p.paymentRef!) ?? new Date() },
         }),
       ),
     );
-    return { total: itens.length, criadas: criadas.length };
   }
 
   @Get('cobrancas/minhas')
@@ -5559,6 +5801,9 @@ export class AdminController {
   @ApiOperation({ summary: 'Cobranças a pagar do cliente logado (painel do cliente)' })
   async minhasCobrancas(@CurrentUser() user?: JwtPayload) {
     if (!user?.sub) throw new BadRequestException('Não autenticado');
+    // Garante link de pagamento nas antigas + reflete pagamentos do checkout.
+    await this.ensureCobrancaPaymentLinks({ userId: user.sub });
+    await this.reconcileCobrancasPagas({ userId: user.sub });
     const items = await this.prisma.cobranca.findMany({
       where: { userId: user.sub, mode: 'PAYABLE' },
       orderBy: { createdAt: 'desc' },
@@ -5569,9 +5814,13 @@ export class AdminController {
         amount: Number(c.amount),
         description: c.description,
         status: c.status,
+        // Pendente com vencimento passado → exibida como "Vencida".
+        vencida: this.cobrancaVencida(c),
         dueDate: c.dueDate,
         paidAt: c.paidAt,
         createdAt: c.createdAt,
+        // id do PaymentLink → checkout: /?simLinkCode=<paymentRef>
+        paymentRef: c.paymentRef,
       })),
     };
   }
@@ -6041,9 +6290,16 @@ export class AdminController {
     @Query('dataFim') dataFim?: string,
   ) {
     const atlasId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-    if (!atlasId) return { clientesUnicos: 0, dominios: { receita: 0, lucro: 0, quantidade: 0, distribuicaoMetodo: [] }, hospedagem: { receita: 0, lucro: 0, quantidade: 0, distribuicaoMetodo: [], porProduto: [] } };
 
-    const where: any = { userId: atlasId, status: 'COMPLETED' };
+    // Mesmo escopo da listagem: userId OU [TENANT:ATLAS] — só userId deixava vendas
+    // marcadas com a tag (criadas por outras contas) fora do breakdown.
+    const where: any = {
+      status: 'COMPLETED',
+      OR: [
+        ...(atlasId ? [{ userId: atlasId }] : []),
+        { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
+      ],
+    };
     if (dataInicio) where.createdAt = { ...where.createdAt, gte: parseYmdSp(dataInicio).startOf('day').toDate() };
     if (dataFim) where.createdAt = { ...where.createdAt, lte: parseYmdSp(dataFim).endOf('day').toDate() };
 
@@ -7151,12 +7407,18 @@ export class AdminController {
     @Query('endDate') endDate?: string,
   ) {
     const atlasUserId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-    if (!atlasUserId) {
-      return { error: 'ATLAS_USER_ID not configured' };
-    }
 
     const effectiveStart = startDate ?? dayjs().tz(TZ).startOf('month').format('YYYY-MM-DD');
-    const where: any = { userId: atlasUserId, status: 'COMPLETED' };
+    // Mesmo escopo da listagem (/plataformas/atlas/transacoes): userId OU [TENANT:ATLAS].
+    // Só userId deixava de fora vendas marcadas com a tag feitas por outras contas —
+    // a listagem mostrava as transações e os cards ficavam zerados.
+    const where: any = {
+      status: 'COMPLETED',
+      OR: [
+        ...(atlasUserId ? [{ userId: atlasUserId }] : []),
+        { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
+      ],
+    };
     where.createdAt = { gte: parseYmdSp(effectiveStart).startOf('day').toDate() };
     if (endDate) {
       where.createdAt.lte = parseYmdSp(endDate).endOf('day').toDate();
