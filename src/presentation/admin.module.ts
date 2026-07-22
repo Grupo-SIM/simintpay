@@ -41,9 +41,10 @@ import { CommunityManagementService } from '../application/services/community-ma
 import { PlatformTaxasService } from '../application/services/platform-taxas.service';
 import { PlatformAccessService } from '../application/services/platform-access.service';
 import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
+import { WebhookModule } from './webhook.module';
 
 @Module({
-  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule],
+  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule, WebhookModule],
   controllers: [AdminController, AdminClientesController],
   providers: [
     SyncDomTransactionsCron,

@@ -1,11 +1,13 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { WebhookController } from './controllers/webhook.controller';
 import { FrendzWebhookController } from './controllers/frendz-webhook.controller';
+import { InternalReconcileController } from './controllers/internal-reconcile.controller';
 import { RabbitMqModule } from '../infrastructure/queue/rabbitmq.module';
 import { WebhookConsumer } from '../infrastructure/queue/consumers/webhook.consumer';
 import { DomWebhookConsumer } from '../infrastructure/queue/consumers/dom-webhook.consumer';
 import { ProcessWebhookUseCase } from '../application/use-cases/webhook/process-webhook.use-case';
 import { ProcessDomWebhookUseCase } from '../application/use-cases/webhook/process-dom-webhook.use-case';
+import { ReconcilePendingTransactionsUseCase } from '../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { WEBHOOK_EVENT_REPOSITORY } from '../core/repositories/webhook-event.repository.interface';
 import { PrismaWebhookEventRepository } from '../infrastructure/database/repositories/prisma-webhook-event.repository';
 import { TRANSACTION_REPOSITORY } from '../core/repositories/transaction.repository.interface';
@@ -25,10 +27,11 @@ import { CheckoutModule } from './checkout.module';
 
 @Module({
   imports: [RabbitMqModule, RenovadaModule, VoucherModule, forwardRef(() => PixPlanModule), ApiDomModule, CheckoutModule],
-  controllers: [WebhookController, FrendzWebhookController],
+  controllers: [WebhookController, FrendzWebhookController, InternalReconcileController],
   providers: [
     ProcessWebhookUseCase,
     ProcessDomWebhookUseCase,
+    ReconcilePendingTransactionsUseCase,
     WebhookConsumer,
     DomWebhookConsumer,
     CommunityManagementService,
@@ -41,5 +44,6 @@ import { CheckoutModule } from './checkout.module';
     { provide: TRANSACTION_REPOSITORY, useClass: PrismaTransactionRepository },
     { provide: BALANCE_LOG_REPOSITORY, useClass: PrismaBalanceLogRepository },
   ],
+  exports: [ReconcilePendingTransactionsUseCase],
 })
 export class WebhookModule {}

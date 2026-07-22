@@ -49,6 +49,7 @@ import { ListLeadsUseCase } from '../../application/use-cases/admin/list-leads.u
 import { ApproveLeadUseCase } from '../../application/use-cases/admin/approve-lead.use-case';
 import { RejectLeadUseCase } from '../../application/use-cases/admin/reject-lead.use-case';
 import { SyncDomTransactionsUseCase } from '../../application/use-cases/admin/sync-dom-transactions.use-case';
+import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { ListWithdrawalsAdminUseCase } from '../../application/use-cases/admin/list-withdrawals-admin.use-case';
 import { ApproveWithdrawalUseCase } from '../../application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../../application/use-cases/admin/reject-withdrawal.use-case';
@@ -1333,6 +1334,7 @@ export class AdminController {
     private readonly approveLead: ApproveLeadUseCase,
     private readonly rejectLead: RejectLeadUseCase,
     private readonly syncTransactions: SyncDomTransactionsUseCase,
+    private readonly reconcilePendingTransactions: ReconcilePendingTransactionsUseCase,
     private readonly listWithdrawalsAdmin: ListWithdrawalsAdminUseCase,
     private readonly approveWithdrawal: ApproveWithdrawalUseCase,
     private readonly rejectWithdrawal: RejectWithdrawalUseCase,
@@ -3745,6 +3747,18 @@ export class AdminController {
   @ApiOperation({ summary: 'Importar transações da conta Dom para o banco local' })
   async syncTransactionsRoute(@CurrentUser() user: JwtPayload | undefined) {
     const result = await this.syncTransactions.execute({ userId: user?.sub ?? '' });
+    return { data: result };
+  }
+
+  @Post('reconciliar-pendentes')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'Reconcilia transações PENDING contra a DOM (fonte da verdade): completa as que a DOM já aprovou (webhook perdido), creditando a carteira. Idempotente.',
+  })
+  async reconciliarPendentesRoute(@Query('horas') horas?: string) {
+    const sinceHours = horas ? Math.max(1, Number(horas)) : undefined;
+    const result = await this.reconcilePendingTransactions.execute({ sinceHours });
     return { data: result };
   }
 
