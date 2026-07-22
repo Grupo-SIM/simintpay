@@ -45,7 +45,7 @@ export class ListPaymentLinksUseCase {
           orderBy: { createdAt: 'desc' },
           skip,
           take: pageSize,
-          include: { user: { select: { cpf: true, name: true, email: true } } },
+          include: { user: { select: { cpf: true, name: true, email: true, clientStatus: true } } },
         }),
       ]);
     } else {
@@ -56,7 +56,7 @@ export class ListPaymentLinksUseCase {
           orderBy: { createdAt: 'desc' },
           skip,
           take: pageSize,
-          include: { user: { select: { cpf: true, name: true, email: true } } },
+          include: { user: { select: { cpf: true, name: true, email: true, clientStatus: true } } },
         }),
       ]);
     }
@@ -76,7 +76,8 @@ export class ListPaymentLinksUseCase {
         // Quem criou o link (cliente ou master) — para a coluna "Criado por".
         donoNome: l.user?.name ?? null,
         donoEmail: l.user?.email ?? null,
-        plataformas: l.plataformas ?? [],
+        // Link de cliente SimintPay → exibe SIMINTPAY (links antigos podem ter GLOBAL/vazio gravado).
+        plataformas: l.user?.clientStatus != null ? ['SIMINTPAY'] : (l.plataformas ?? []),
       })),
       page,
       pageSize,

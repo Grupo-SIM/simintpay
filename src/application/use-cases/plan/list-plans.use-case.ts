@@ -47,7 +47,7 @@ export class ListPlansUseCase {
   async execute(input: { userId: string; role: string }): Promise<{ data: unknown }> {
     let items: any[];
 
-    const userSelect = { select: { cpf: true, name: true, email: true } };
+    const userSelect = { select: { cpf: true, name: true, email: true, clientStatus: true } };
 
     if (input.role === 'ADMIN') {
       items = await this.prisma.plan.findMany({
@@ -77,7 +77,8 @@ export class ListPlansUseCase {
         donoNome: p.user?.name ?? null,
         donoEmail: p.user?.email ?? null,
         plataforma: extractPlatformFromName(p.name),
-        plataformas: p.plataformas ?? [],
+        // Plano de cliente SimintPay → exibe SIMINTPAY (planos antigos podem ter GLOBAL/vazio).
+        plataformas: p.user?.clientStatus != null ? ['SIMINTPAY'] : (p.plataformas ?? []),
       })),
     };
   }

@@ -492,11 +492,16 @@ export class PixPlanService {
         cpfDono,
         donoNome,
         donoEmail,
-        tenantTag: p.tenantTag
-          ? p.tenantTag.toUpperCase()
-          : (p.description ?? '').match(/\[TENANT:([^\]]+)\]/i)?.[1]?.toUpperCase()
-          ?? (p.description ?? '').match(/\[CPF:[^\]|]*\|([^\]]+)\]/i)?.[1]?.toUpperCase()
-          ?? null,
+        tenantTag: (() => {
+          const raw = p.tenantTag
+            ? p.tenantTag.toUpperCase()
+            : (p.description ?? '').match(/\[TENANT:([^\]]+)\]/i)?.[1]?.toUpperCase()
+            ?? (p.description ?? '').match(/\[CPF:[^\]|]*\|([^\]]+)\]/i)?.[1]?.toUpperCase()
+            ?? null;
+          // Plano de cliente SimintPay (tag CLIENT:<email>) ou GLOBAL → exibe SIMINTPAY (GLOBAL = SimintPay).
+          if (raw?.startsWith('CLIENT:') || raw === 'GLOBAL') return 'SIMINTPAY';
+          return raw;
+        })(),
       };
     }));
 

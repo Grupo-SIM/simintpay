@@ -24,24 +24,29 @@ export class ListSubscriptionLinksUseCase {
       : await this.repo.findManyByUserId({ userId: input.userId, page, pageSize });
 
     return {
-      data: result.items.map((l) => ({
-        id: l.id,
-        codigo: l.code,
-        nome: l.name,
-        descricao: l.description ?? null,
-        valor: Number(l.amount),
-        frequencia: mapFreq(l.frequencyType),
-        isStandalone: l.isStandalone,
-        platformFee: l.platformFee,
-        ativo: l.isActive,
-        usos: l.currentUses,
-        maxUsos: l.maxUses ?? null,
-        criadoEm: l.createdAt.toISOString(),
-        // Quem criou o link (cliente ou master) — para a coluna "Criado por".
-        donoNome: (l as any).user?.name ?? null,
-        donoEmail: (l as any).user?.email ?? null,
-        plataformas: (l as any).plataformas ?? [],
-      })),
+      data: result.items.map((l) => {
+        // Link de cliente SimintPay → exibe a plataforma SIMINTPAY (independe do valor gravado,
+        // que em links antigos pode estar GLOBAL/vazio). O master aplica a taxa via CLIENT:<email>.
+        const isCliente = (l as any).user?.clientStatus != null;
+        return {
+          id: l.id,
+          codigo: l.code,
+          nome: l.name,
+          descricao: l.description ?? null,
+          valor: Number(l.amount),
+          frequencia: mapFreq(l.frequencyType),
+          isStandalone: l.isStandalone,
+          platformFee: l.platformFee,
+          ativo: l.isActive,
+          usos: l.currentUses,
+          maxUsos: l.maxUses ?? null,
+          criadoEm: l.createdAt.toISOString(),
+          // Quem criou o link (cliente ou master) — para a coluna "Criado por".
+          donoNome: (l as any).user?.name ?? null,
+          donoEmail: (l as any).user?.email ?? null,
+          plataformas: isCliente ? ['SIMINTPAY'] : ((l as any).plataformas ?? []),
+        };
+      }),
       total: result.total,
       page,
       pageSize,

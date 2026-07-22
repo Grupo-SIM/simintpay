@@ -59,7 +59,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         orderBy: { createdAt: 'desc' },
         skip: (input.page - 1) * input.pageSize,
         take: input.pageSize,
-        include: { user: { select: { name: true, email: true, cpf: true } } },
+        include: { user: { select: { name: true, email: true, cpf: true, clientStatus: true } } },
       }),
     ]);
     return { total, items };
@@ -72,7 +72,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         orderBy: { createdAt: 'desc' },
         skip: (input.page - 1) * input.pageSize,
         take: input.pageSize,
-        include: { user: { select: { name: true, email: true, cpf: true } } },
+        include: { user: { select: { name: true, email: true, cpf: true, clientStatus: true } } },
       }),
     ]);
     return { total, items };
