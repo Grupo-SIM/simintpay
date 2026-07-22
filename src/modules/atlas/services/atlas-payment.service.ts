@@ -293,6 +293,28 @@ export class AtlasPaymentService {
         status: payment.status,
       });
 
+      // Cartão é síncrono na DOM: 'paid' = aprovado; 'not_authorized'/'error'/
+      // 'failed' = recusado. Nunca reportar recusa como pagamento em andamento —
+      // o Atlas usa este status para liberar (ou não) o produto ao cliente.
+      const domStatus = String(payment.status || '').toLowerCase();
+      const declinedStatuses = ['not_authorized', 'error', 'failed', 'refused', 'canceled', 'expired'];
+
+      if (declinedStatuses.includes(domStatus)) {
+        await this.prisma.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: TransactionStatus.FAILED,
+            domPaymentId: payment.id,
+          },
+        });
+        this.logger.warn(
+          `🚫 [ATLAS] Pagamento RECUSADO pela DOM (status=${domStatus}) — transação ${transaction.id} marcada como FAILED`,
+        );
+        throw new BadRequestException(
+          'O pagamento não foi autorizado pela operadora do cartão. Verifique os dados do cartão ou tente outro método de pagamento.',
+        );
+      }
+
       await this.prisma.transaction.update({
         where: { id: transaction.id },
         data: {
@@ -301,13 +323,19 @@ export class AtlasPaymentService {
         },
       });
 
-      this.logger.log(`✅ [ATLAS] Transação ${transaction.id} atualizada para PENDING`);
+      // 'paid' síncrono: informa aprovação ao Atlas. O crédito na carteira
+      // continua acontecendo apenas via webhook (PENDING → COMPLETED).
+      const responseStatus = domStatus === 'paid' ? 'COMPLETED' : 'PENDING';
+
+      this.logger.log(
+        `✅ [ATLAS] Transação ${transaction.id} atualizada para PENDING (DOM: ${domStatus} → resposta: ${responseStatus})`,
+      );
 
       return {
         ...payment,
         transactionId: transaction.id,
         paymentId: payment.id,
-        status: 'PENDING',
+        status: responseStatus,
         fee_details: {
           installment_amount: installmentAmount,
           total_fee: totalFeesFinal,
