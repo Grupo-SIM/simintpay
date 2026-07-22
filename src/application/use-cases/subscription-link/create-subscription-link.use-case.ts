@@ -119,7 +119,9 @@ export class CreateSubscriptionLinkUseCase {
       paymentMethods: input.dto.paymentMethods ?? 'BOTH',
       platformTag: clientTag ?? input.dto.platformTag ?? null,
       emailBody: input.dto.emailBody ?? null,
-      plataformas: clientTag ? [] : (input.dto.plataformas ?? []),
+      // Cliente SimintPay: atribui a plataforma "SIMINTPAY" (exibição/agrupamento) para o
+      // master aplicar taxas via CLIENT:<email>. Mesmo padrão do link de pagamento e plano.
+      plataformas: clientTag ? ['SIMINTPAY'] : (input.dto.plataformas ?? []),
     });
 
     // Regra de negócio: link de assinatura NUNCA cria comunidade automaticamente.

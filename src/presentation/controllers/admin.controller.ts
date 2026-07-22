@@ -7426,11 +7426,20 @@ export class AdminController {
 
     const txs = await this.prisma.transaction.findMany({
       where,
-      select: { amount: true, paymentMethod: true, installments: true },
+      select: { amount: true, paymentMethod: true, installments: true, netAmount: true, createdAt: true },
     });
 
     const qtdTransacoes = txs.length;
     const receitaTotalAtlas = txs.reduce((s, t) => s + Number(t.amount), 0);
+
+    // Repasse direto (igual aos demais painéis): Σ (netAmount − taxa de serviço). Atlas não tem maquineta.
+    const ATLAS_SVC_RATE = TAGS_SEM_TAXA_SERVICO.has('ATLAS') ? 0 : getPlatformTaxaEffective('ATLAS', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+    const ATLAS_SVC_DATE = getTaxaServicoEffectiveDate('ATLAS');
+    const totalRepasse = txs.reduce((s, t) => {
+      const netBase = Number(t.netAmount ?? t.amount);
+      const svc = ATLAS_SVC_RATE > 0 && t.createdAt != null && t.createdAt >= ATLAS_SVC_DATE ? ATLAS_SVC_RATE : 0;
+      return s + (netBase - svc);
+    }, 0);
 
     const LIQUIDEZ        = getPlatformTaxaEffective('ATLAS', 'LIQUIDEZ',           PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
     const TAXA_LINK_PCT   = getPlatformTaxaEffective('ATLAS', 'TAXA_LINK_PERCENT',   PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
@@ -7569,6 +7578,8 @@ export class AdminController {
       estornoCount,
       chargebackCount,
       receitaTotalAtlas,
+      // Repasse correto (soma direta do líquido de cada tx) — o front deve usar ESTE campo.
+      totalRepasse: Math.round(totalRepasse * 100) / 100,
       qtdTransacoes,
       domainCount: atlasData?.domains.count ?? 0,
       vpsCount: atlasData?.vps.count ?? 0,
@@ -7608,40 +7619,82 @@ export class AdminController {
     const TAXA_FIXA      = isExempt ? 0 : getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
     const TAXA_CASHBACK  = isExempt ? 0 : getPlatformTaxaEffective(tag, 'TAXA_CASHBACK',       PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
     const LIQUIDEZ       = getPlatformTaxaEffective(tag, 'LIQUIDEZ',            PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+    // Taxa de serviço (R$4/tx) — usada no repasse direto (app: netAmount − taxaServico = amountWithoutAllFee).
+    const TAXA_SERVICO_RATE = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+    const TAXA_SERVICO_DATE = getTaxaServicoEffectiveDate(tag);
 
     const isCardPm = (pm: string) => {
       const p = String(pm ?? '').toUpperCase();
       return p.includes('CARD') || p.includes('CREDIT') || p.includes('DEBIT');
     };
 
-    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number }[]) => {
+    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; createdAt?: Date | null }[]) => {
       const qtd = txs.length;
-      const taxaSimInt = txs.reduce((s, t) => {
+      // Maquineta liquida por modelo próprio (netAmount = líquido pós-MDR × 0,91; 9% TAXA_MAQUINETA).
+      // Recalcular como cartão-link infla o repasse ~9% (a maquineta aparecia quase pelo bruto cheio).
+      // Solução: usar o netAmount REAL dessas transações — o mesmo que a carteira, a página de Máquinas
+      // e o admin-renovada já usam. Assim o "Total de Repasse" bate com o admin.
+      // Maquineta nem sempre tem a tag [ORIGEM:MAQUINETA] — a maioria é gravada só com "Terminal: XXX"
+      // (sync-maquinetas, webhooks). Detecção canônica do resto do código: "Terminal:" ou "Maquineta".
+      const isMaq = (t: { description?: string | null }) => {
+        const d = String(t.description ?? '').toLowerCase();
+        return d.includes('terminal:') || d.includes('maquineta');
+      };
+      const normalTxs = txs.filter((t) => !isMaq(t));
+      const maqTxs = txs.filter(isMaq);
+      const qtdNormal = normalTxs.length;
+
+      // ── REPASSE DIRETO — soma o líquido real de cada transação, igual ao admin. ──
+      // Evita a fórmula frágil "bruto − totalTaxasSimInt", que devolvia o MDR da DOM ao repasse.
+      //   app/link : netAmount − taxa de serviço  (= amountWithoutAllFee do internal-renovada-finance)
+      //   maquineta: netAmount                     (= profit_minus_tax da página de Máquinas)
+      const totalRepasse = txs.reduce((s, t) => {
+        if (isMaq(t)) return s + Number(t.netAmount ?? 0);
+        const netBase = Number(t.netAmount ?? t.amount);
+        const svc = TAXA_SERVICO_RATE > 0 && t.createdAt != null && t.createdAt >= TAXA_SERVICO_DATE ? TAXA_SERVICO_RATE : 0;
+        return s + (netBase - svc);
+      }, 0);
+
+      // ── Transações normais (app/link): fórmula por método de pagamento ──
+      const taxaSimInt = normalTxs.reduce((s, t) => {
         const amount = Number(t.amount);
         return s + (isCardPm(t.paymentMethod)
           ? amount * TAXA_LINK_PCT + TAXA_LINK_FIXA
           : amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK);
       }, 0);
-      const taxaMDRDom = txs.reduce((s, t) => s + estimateDomFeeReais({
+      const taxaMDRDomNormal = normalTxs.reduce((s, t) => s + estimateDomFeeReais({
         amountReais: Number(t.amount),
         paymentMethod: t.paymentMethod,
         installments: t.installments,
         tenantTag: tag,
       }), 0);
-      const taxaAdquirente = TAXA_FIXA * qtd;
-      const custoCashback  = TAXA_CASHBACK * qtd;
-      const totalTaxasDom    = taxaMDRDom + taxaAdquirente + custoCashback;
+      const taxaAdquirente = TAXA_FIXA * qtdNormal;
+      const custoCashback  = TAXA_CASHBACK * qtdNormal;
       // taxaSimIntFixa = per-tx fee que SimInt repassa à DOM (R$1 fixo + R$3 cashback por transação).
-      // Sempre igual a taxaDomFixa + taxaDomCashback, independente do método de pagamento.
-      const taxaSimIntFixa = (TAXA_FIXA + TAXA_CASHBACK) * qtd;
+      // Só para transações normais — maquineta não tem esse fee fixo.
+      const taxaSimIntFixa = (TAXA_FIXA + TAXA_CASHBACK) * qtdNormal;
       // Bosque: SimIntPay % = só a margem de liquidez (isExempt). Para demais: desconta MDR DOM e fee fixo.
-      const taxaSimIntPctNet = isExempt ? taxaSimInt : (taxaSimInt - taxaSimIntFixa) - taxaMDRDom;
-      const totalTaxasSimInt = isExempt ? taxaSimInt : taxaSimInt - taxaMDRDom;
+      const taxaSimIntPctNetNormal = isExempt ? taxaSimInt : (taxaSimInt - taxaSimIntFixa) - taxaMDRDomNormal;
+      const totalTaxasSimIntNormal = isExempt ? taxaSimInt : taxaSimInt - taxaMDRDomNormal;
 
-      // Parcelamento: apenas transações de cartão de crédito (exclui débito e PIX)
+      // ── Maquineta: repasse = netAmount real; SimInt fica com 9% do líquido; MDR é custo DOM. ──
+      // totalTaxasSimInt_maq = bruto − netAmount garante repasse = netAmount (na fórmula bruto − totalTaxasSimInt).
+      const maqBruto = maqTxs.reduce((s, t) => s + Number(t.amount), 0);
+      const maqNet   = maqTxs.reduce((s, t) => s + Number(t.netAmount ?? 0), 0);
+      const maqDom   = maqTxs.reduce((s, t) => s + Number(t.domFee ?? 0), 0);
+      const totalTaxasSimIntMaq = maqBruto - maqNet;          // inclui MDR p/ o repasse casar com o netAmount
+      const taxaSimIntPctNetMaq = maqBruto - maqNet - maqDom; // parte SimInt real (≈9% do líquido)
+
+      // ── Combinado (normais + maquineta) ──
+      const taxaMDRDom       = taxaMDRDomNormal + maqDom;
+      const totalTaxasDom    = taxaMDRDom + taxaAdquirente + custoCashback;
+      const taxaSimIntPctNet = taxaSimIntPctNetNormal + taxaSimIntPctNetMaq;
+      const totalTaxasSimInt = totalTaxasSimIntNormal + totalTaxasSimIntMaq;
+
+      // Parcelamento: apenas cartão de crédito não-maquineta (exclui débito, PIX e maquineta)
       let taxaParcelamentoBruto = 0;
       let taxaParcelamentoSimIntPay = 0;
-      for (const t of txs) {
+      for (const t of normalTxs) {
         const pm = String(t.paymentMethod ?? '').toLowerCase();
         if (!pm.includes('credit')) continue;
         const amount = Number(t.amount);
@@ -7664,6 +7717,13 @@ export class AdminController {
         taxaParcelamentoBruto: Math.round(taxaParcelamentoBruto * 100) / 100,
         taxaParcelamentoSimIntPay: Math.round(taxaParcelamentoSimIntPay * 100) / 100,
         qtdTransacoes: qtd,
+        // Repasse correto (soma direta do líquido de cada tx) — o front deve usar ESTE campo.
+        totalRepasse: Math.round(totalRepasse * 100) / 100,
+        // ── Diagnóstico (temporário) — confirma qual código está rodando e se a maquineta é detectada ──
+        _v: 'repasse-direto-v3',
+        qtdMaquineta: maqTxs.length,
+        maqBruto: Math.round(maqBruto * 100) / 100,
+        maqNet: Math.round(maqNet * 100) / 100,
       };
     };
 
@@ -7733,7 +7793,7 @@ export class AdminController {
 
     const txs = await this.prisma.transaction.findMany({
       where,
-      select: { amount: true, paymentMethod: true, installments: true, createdAt: true },
+      select: { amount: true, paymentMethod: true, installments: true, createdAt: true, description: true, netAmount: true, domFee: true },
     });
 
     const breakdown = computeBreakdown(txs);

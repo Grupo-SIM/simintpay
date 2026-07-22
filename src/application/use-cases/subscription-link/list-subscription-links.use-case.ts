@@ -37,6 +37,9 @@ export class ListSubscriptionLinksUseCase {
         usos: l.currentUses,
         maxUsos: l.maxUses ?? null,
         criadoEm: l.createdAt.toISOString(),
+        // Quem criou o link (cliente ou master) — para a coluna "Criado por".
+        donoNome: (l as any).user?.name ?? null,
+        donoEmail: (l as any).user?.email ?? null,
         plataformas: (l as any).plataformas ?? [],
       })),
       total: result.total,
