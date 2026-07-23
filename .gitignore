@@ -50,6 +50,9 @@ lerna-debug.log*
 .temp
 .tmp
 
+# Git worktrees (isolated workspaces for implementation work)
+.worktrees/
+
 # Runtime data
 pids
 *.pid
