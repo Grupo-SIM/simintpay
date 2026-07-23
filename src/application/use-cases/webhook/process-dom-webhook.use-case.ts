@@ -9,6 +9,7 @@ import { PixPlanService } from '../pix-plan/pix-plan.service';
 import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { VoucherService } from '../voucher/voucher.service';
+import { AffiliateCommissionService } from '../../services/affiliate-commission.service';
 import {
   appendInternalTags,
   ORIGEM_MAQUINETA_TAG,
@@ -87,6 +88,7 @@ export class ProcessDomWebhookUseCase {
   constructor(
     private readonly prisma: PrismaService,
     private readonly voucherService: VoucherService,
+    private readonly affiliateCommission: AffiliateCommissionService,
     @Optional() private readonly renovadaEvents?: RenovadaEventsService,
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
@@ -384,6 +386,22 @@ export class ProcessDomWebhookUseCase {
           if (attempt === 2) {
             throw new Error('Wallet version conflict after 3 retries');
           }
+        }
+
+        if (
+          nextStatus === TransactionStatus.COMPLETED &&
+          existing.status !== TransactionStatus.COMPLETED
+        ) {
+          await this.affiliateCommission.applyForTransaction(p, {
+            transactionId: existing.id,
+            referredUserId: existing.userId,
+            platformFee: existing.platformFee,
+          });
+        } else if (
+          (nextStatus === TransactionStatus.REFUNDED || nextStatus === TransactionStatus.CHARGEBACK) &&
+          existing.status === TransactionStatus.COMPLETED
+        ) {
+          await this.affiliateCommission.reverseForTransaction(p, existing.id);
         }
       });
 

@@ -15,6 +15,7 @@ import { PrismaTransactionRepository } from '../infrastructure/database/reposito
 import { BALANCE_LOG_REPOSITORY } from '../core/repositories/balance-log.repository.interface';
 import { PrismaBalanceLogRepository } from '../infrastructure/database/repositories/prisma-balance-log.repository';
 import { CommunityManagementService } from '../application/services/community-management.service';
+import { AffiliateCommissionService } from '../application/services/affiliate-commission.service';
 import { EmailService } from '../infrastructure/email/email.service';
 import { StorageService } from '../infrastructure/storage/storage.service';
 
@@ -35,6 +36,7 @@ import { CheckoutModule } from './checkout.module';
     WebhookConsumer,
     DomWebhookConsumer,
     CommunityManagementService,
+    AffiliateCommissionService,
     EmailService,
     StorageService,
     {
