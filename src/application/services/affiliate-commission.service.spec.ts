@@ -17,6 +17,7 @@ function buildPrismaMock(overrides: any = {}) {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     ...overrides,
   };
@@ -145,6 +146,103 @@ describe('AffiliateCommissionService.applyForTransaction', () => {
 
     expect(p.wallet.findUnique).not.toHaveBeenCalled();
   });
+
+  it('tenta de novo em caso de conflito de versão (optimistic lock) e credita na 2ª tentativa', async () => {
+    const walletFindUnique = jest
+      .fn()
+      // Cada tentativa relê a wallet; simula outro writer incrementando a
+      // version entre a 1ª tentativa (falha) e a 2ª (sucesso).
+      .mockResolvedValueOnce({
+        id: 'wallet-aff1',
+        userId: 'aff1',
+        balance: new Prisma.Decimal(100),
+        lockedBalance: new Prisma.Decimal(0),
+        version: 3,
+      })
+      .mockResolvedValueOnce({
+        id: 'wallet-aff1',
+        userId: 'aff1',
+        balance: new Prisma.Decimal(105),
+        lockedBalance: new Prisma.Decimal(0),
+        version: 4,
+      });
+    const walletUpdateMany = jest
+      .fn()
+      .mockResolvedValueOnce({ count: 0 }) // 1ª tentativa perde a corrida
+      .mockResolvedValueOnce({ count: 1 }); // 2ª tentativa ganha
+
+    const p = buildPrismaMock({
+      user: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ referredByUserId: 'aff1' })
+          .mockResolvedValueOnce({
+            isAffiliate: true,
+            affiliateCommissionPercent: new Prisma.Decimal(20),
+          }),
+      },
+      wallet: { findUnique: walletFindUnique, updateMany: walletUpdateMany },
+      affiliateCommission: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+      },
+    });
+
+    await svc.applyForTransaction(p, {
+      transactionId: 'tx1',
+      referredUserId: 'referred1',
+      platformFee: new Prisma.Decimal(10),
+    });
+
+    expect(walletFindUnique).toHaveBeenCalledTimes(2);
+    expect(walletUpdateMany).toHaveBeenCalledTimes(2);
+    expect(walletUpdateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: 'wallet-aff1', version: 4 },
+      data: { balance: new Prisma.Decimal(107), version: { increment: 1 } },
+    });
+    expect(p.affiliateCommission.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ status: 'CREDITED' }),
+    });
+  });
+
+  it('lança erro após esgotar as 3 tentativas por conflito de versão', async () => {
+    const p = buildPrismaMock({
+      user: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ referredByUserId: 'aff1' })
+          .mockResolvedValueOnce({
+            isAffiliate: true,
+            affiliateCommissionPercent: new Prisma.Decimal(20),
+          }),
+      },
+      wallet: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'wallet-aff1',
+          userId: 'aff1',
+          balance: new Prisma.Decimal(100),
+          lockedBalance: new Prisma.Decimal(0),
+          version: 3,
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      affiliateCommission: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+      },
+    });
+
+    await expect(
+      svc.applyForTransaction(p, {
+        transactionId: 'tx1',
+        referredUserId: 'referred1',
+        platformFee: new Prisma.Decimal(10),
+      }),
+    ).rejects.toThrow(/version conflict/i);
+
+    expect(p.wallet.updateMany).toHaveBeenCalledTimes(3);
+    expect(p.affiliateCommission.create).not.toHaveBeenCalled();
+  });
 });
 
 describe('AffiliateCommissionService.reverseForTransaction', () => {
@@ -169,7 +267,7 @@ describe('AffiliateCommissionService.reverseForTransaction', () => {
           commissionAmount: new Prisma.Decimal(2),
           status: 'CREDITED',
         }),
-        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       wallet: {
         findUnique: jest.fn().mockResolvedValue({
@@ -185,13 +283,44 @@ describe('AffiliateCommissionService.reverseForTransaction', () => {
 
     await svc.reverseForTransaction(p, 'tx1');
 
+    // Claims the reversal (guarded on status: 'CREDITED') before touching the wallet.
+    expect(p.affiliateCommission.updateMany).toHaveBeenCalledWith({
+      where: { id: 'comm1', status: 'CREDITED' },
+      data: { status: 'REVERSED', reversedAt: expect.any(Date) },
+    });
     expect(p.wallet.updateMany).toHaveBeenCalledWith({
       where: { id: 'wallet-aff1', version: 4 },
       data: { balance: new Prisma.Decimal(100), version: { increment: 1 } },
     });
-    expect(p.affiliateCommission.update).toHaveBeenCalledWith({
-      where: { id: 'comm1' },
-      data: { status: 'REVERSED', reversedAt: expect.any(Date) },
+    expect(p.balanceLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'aff1',
+        transactionId: 'tx1',
+        amount: new Prisma.Decimal(2),
+        source: 'AFFILIATE_COMMISSION',
+      }),
     });
+  });
+
+  it('não debita a wallet se a reversão já foi reivindicada por uma chamada concorrente (race guard)', async () => {
+    const p = buildPrismaMock({
+      affiliateCommission: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'comm1',
+          affiliateUserId: 'aff1',
+          commissionAmount: new Prisma.Decimal(2),
+          status: 'CREDITED',
+        }),
+        // Simula uma segunda chamada concorrente perdendo a corrida: a linha
+        // já não está mais em status CREDITED quando o updateMany roda.
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    });
+
+    await svc.reverseForTransaction(p, 'tx1');
+
+    expect(p.wallet.findUnique).not.toHaveBeenCalled();
+    expect(p.wallet.updateMany).not.toHaveBeenCalled();
+    expect(p.balanceLog.create).not.toHaveBeenCalled();
   });
 });
