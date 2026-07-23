@@ -20,6 +20,10 @@ model User {
   tenantModuleId       String?
   cpf                  String?              @unique
   cnpj                 String?              @unique
+  isAffiliate          Boolean              @default(false)
+  affiliateCommissionPercent Decimal?       @db.Decimal(5, 2)
+  affiliateCode        String?              @unique
+  referredByUserId     String?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
   balanceLogs          BalanceLog[]
@@ -42,11 +46,17 @@ model User {
   externalPlatformUsers  ExternalPlatformUser[]
   vouchers               Voucher[]
   cobrancas              Cobranca[]
+  referredBy             User?                @relation("AffiliateReferrals", fields: [referredByUserId], references: [id])
+  referrals              User[]               @relation("AffiliateReferrals")
+  affiliateCommissionsEarned AffiliateCommission[] @relation("AffiliateCommissionsEarned")
+  affiliateCommissionsGenerated AffiliateCommission[] @relation("AffiliateCommissionsGenerated")
 
   @@index([email])
   @@index([domUserId])
   @@index([tenantModuleId])
   @@index([clientStatus])
+  @@index([referredByUserId])
+  @@index([affiliateCode])
 }
 
 model Session {
@@ -568,6 +578,7 @@ model Lead {
   modeloOperacao  String?
   cargo           String
   comoConheceu    String?
+  referredByCode  String?
   status          LeadStatus @default(PENDING)
   rejectionReason String?
   approvedUserId  String?    @unique
@@ -872,4 +883,30 @@ model VoucherUsage {
 enum DiscountType {
   PERCENTAGE
   FIXED
+}
+
+// ── Programa de Afiliados ───────────────────────────────────────────────────
+
+model AffiliateCommission {
+  id               String                    @id @default(uuid())
+  affiliateUserId  String
+  referredUserId   String
+  transactionId    String                    @unique
+  percentApplied   Decimal                   @db.Decimal(5, 2)
+  grossPlatformFee Decimal                   @db.Decimal(12, 2)
+  commissionAmount Decimal                   @db.Decimal(12, 2)
+  status           AffiliateCommissionStatus @default(CREDITED)
+  createdAt        DateTime                  @default(now())
+  reversedAt       DateTime?
+  affiliate        User                      @relation("AffiliateCommissionsEarned", fields: [affiliateUserId], references: [id])
+  referredUser     User                      @relation("AffiliateCommissionsGenerated", fields: [referredUserId], references: [id])
+
+  @@index([affiliateUserId])
+  @@index([referredUserId])
+  @@index([status])
+}
+
+enum AffiliateCommissionStatus {
+  CREDITED
+  REVERSED
 }
