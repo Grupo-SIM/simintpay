@@ -131,4 +131,41 @@ describe('AdminAfiliadosController', () => {
       invoke('setReferredBy', prisma, 'u2', { referredByUserId: 'u2' }, masterUser),
     ).rejects.toThrow(ConflictException);
   });
+
+  describe('search (buscar)', () => {
+    it('inclui referredByUserId e referredBy no select, para não zerar vínculo existente ao editar', async () => {
+      const prisma = buildPrisma({
+        user: {
+          findUnique: jest.fn().mockResolvedValue(masterUser),
+          findMany: jest.fn().mockResolvedValue([
+            {
+              id: 'u3',
+              name: 'Ciclano',
+              email: 'ciclano@x.com',
+              isAffiliate: false,
+              referredByUserId: 'aff1',
+              referredBy: { id: 'aff1', name: 'Fulano', email: 'fulano@x.com' },
+            },
+          ]),
+        },
+      });
+
+      const res = await invoke('search', prisma, 'ciclano', masterUser);
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: expect.objectContaining({
+            referredByUserId: true,
+            referredBy: { select: { id: true, name: true, email: true } },
+          }),
+        }),
+      );
+
+      expect(res.data[0]).toMatchObject({
+        id: 'u3',
+        referredByUserId: 'aff1',
+        referredBy: { id: 'aff1', name: 'Fulano', email: 'fulano@x.com' },
+      });
+    });
+  });
 });

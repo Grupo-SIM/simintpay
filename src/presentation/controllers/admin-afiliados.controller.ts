@@ -109,7 +109,14 @@ export class AdminAfiliadosController {
         ],
       },
       take: 20,
-      select: { id: true, name: true, email: true, isAffiliate: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        isAffiliate: true,
+        referredByUserId: true,
+        referredBy: { select: { id: true, name: true, email: true } },
+      },
     });
 
     return { data: users };
