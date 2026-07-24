@@ -23,7 +23,7 @@ function normalizeOptionalUrl(value: unknown): unknown {
   return trimmed;
 }
 
-export type FrequencyTypeDto = 'MENSAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+export type FrequencyTypeDto = 'SEMANAL' | 'MENSAL' | 'ANUAL';
 
 export class CreateSubscriptionLinkDto {
   @IsString()
@@ -37,7 +37,7 @@ export class CreateSubscriptionLinkDto {
   @IsNumber()
   valor!: number;
 
-  @IsEnum(['MENSAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
+  @IsEnum(['SEMANAL', 'MENSAL', 'ANUAL'])
   frequencia!: FrequencyTypeDto;
 
   /**

@@ -14,20 +14,19 @@ import { USER_REPOSITORY } from '../../../core/repositories/user.repository.inte
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import { assertClientCanCreate, clientTaxaTagFor } from '../../helpers/client-rules.helper';
 
+// Frequências suportadas: apenas Semanal (WEEK), Mensal (MONTH) e Anual (YEAR) — os 3 tipos da DOM.
 function mapTipo(tipo: PlanTipoDto): {
   planType: PlanType;
-  frequency: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR';
+  frequency: 'WEEK' | 'MONTH' | 'YEAR';
 } {
   switch (tipo) {
-    case 'MENSAL':
-      return { planType: PlanType.MONTHLY, frequency: 'MONTH' };
-    case 'TRIMESTRAL':
-      return { planType: PlanType.TRIMESTRAL, frequency: 'QUARTER' };
-    case 'SEMESTRAL':
-      return { planType: PlanType.SEMESTRAL, frequency: 'SEMESTER' };
+    case 'SEMANAL':
+      return { planType: PlanType.WEEKLY, frequency: 'WEEK' };
     case 'ANUAL':
-    default:
       return { planType: PlanType.ANUAL, frequency: 'YEAR' };
+    case 'MENSAL':
+    default:
+      return { planType: PlanType.MONTHLY, frequency: 'MONTH' };
   }
 }
 
@@ -67,7 +66,8 @@ export class CreatePlanUseCase {
       price: domPrice,
       description: input.dto.nome,
       frequency_type: frequency,
-      frequency: input.dto.frequencia ?? 1,
+      // Multiplicador: "a cada N semanas/meses/anos". Padrão 1 (dto.frequencia sobrescreve se > 1).
+      frequency: input.dto.frequencia && input.dto.frequencia > 1 ? input.dto.frequencia : 1,
       repetitions: input.dto.repeticoes ?? 0,
       retry_days: input.dto.diasRetentativa ?? 3,
       webhookUrl: input.dto.webhookUrl,

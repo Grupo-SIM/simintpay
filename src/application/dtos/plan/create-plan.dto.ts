@@ -9,7 +9,7 @@ import {
   MaxLength,
 } from 'class-validator';
 
-export type PlanTipoDto = 'MENSAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+export type PlanTipoDto = 'SEMANAL' | 'MENSAL' | 'ANUAL';
 
 export class CreatePlanDto {
   @IsString()
@@ -23,7 +23,7 @@ export class CreatePlanDto {
   @IsNumber()
   preco!: number;
 
-  @IsEnum(['MENSAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
+  @IsEnum(['SEMANAL', 'MENSAL', 'ANUAL'])
   tipo!: PlanTipoDto;
 
   @IsNumber()

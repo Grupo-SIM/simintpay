@@ -110,7 +110,8 @@ export type DomRequestWithdrawOutput = {
   message?: string;
 };
 
-export type DomPlanFrequencyType = 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR';
+/** Valores aceitos pela DOM em /recurrence/plan (doc: DAY, WEEK, MONTH, YEAR). */
+export type DomPlanFrequencyType = 'DAY' | 'WEEK' | 'MONTH' | 'YEAR';
 
 export type DomCreatePlanInput = {
   price: number;

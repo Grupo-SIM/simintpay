@@ -6,6 +6,7 @@ import { PlanType } from '@prisma/client';
 
 function mapFreq(t: PlanType): string {
   const m: Record<PlanType, string> = {
+    WEEKLY: 'SEMANAL',
     MONTHLY: 'MENSAL',
     TRIMESTRAL: 'TRIMESTRAL',
     SEMESTRAL: 'SEMESTRAL',

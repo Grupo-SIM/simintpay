@@ -14,15 +14,16 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform
 import { CommunityManagementService } from '../../services/community-management.service';
 import { assertClientCanCreate, clientTaxaTagFor } from '../../helpers/client-rules.helper';
 
+// Frequências suportadas: apenas Semanal (WEEK), Mensal (MONTH) e Anual (YEAR) — os 3 tipos da DOM.
 function mapFrequency(f: FrequencyTypeDto): {
   planType: PlanType;
-  domFrequency: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR';
+  domFrequency: 'WEEK' | 'MONTH' | 'YEAR';
 } {
   switch (f) {
-    case 'TRIMESTRAL': return { planType: PlanType.TRIMESTRAL, domFrequency: 'QUARTER' };
-    case 'SEMESTRAL':  return { planType: PlanType.SEMESTRAL,  domFrequency: 'SEMESTER' };
-    case 'ANUAL':      return { planType: PlanType.ANUAL,      domFrequency: 'YEAR' };
-    default:           return { planType: PlanType.MONTHLY,    domFrequency: 'MONTH' };
+    case 'SEMANAL': return { planType: PlanType.WEEKLY, domFrequency: 'WEEK' };
+    case 'ANUAL':   return { planType: PlanType.ANUAL,  domFrequency: 'YEAR' };
+    case 'MENSAL':
+    default:        return { planType: PlanType.MONTHLY, domFrequency: 'MONTH' };
   }
 }
 

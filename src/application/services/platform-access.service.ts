@@ -35,6 +35,10 @@ export class PlatformAccessService {
       case 'TRIMESTRAL':
       case 'QUARTER':
         return 90;
+      case 'SEMANAL':
+      case 'WEEKLY':
+      case 'WEEK':
+        return 7;
       default:
         return 30; // MONTHLY / MENSAL
     }

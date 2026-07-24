@@ -4,8 +4,10 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 
 function mapPlanTypeToPt(
   tipo: PlanType,
-): 'MENSAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' {
+): 'SEMANAL' | 'MENSAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' {
   switch (tipo) {
+    case PlanType.WEEKLY:
+      return 'SEMANAL';
     case PlanType.MONTHLY:
       return 'MENSAL';
     case PlanType.TRIMESTRAL:

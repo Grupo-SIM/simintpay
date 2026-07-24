@@ -34,6 +34,7 @@ export class CommunityManagementService {
 
   private frequencyDays(planType: PlanType): number {
     switch (planType) {
+      case 'WEEKLY': return 7;
       case 'TRIMESTRAL': return 90;
       case 'SEMESTRAL': return 180;
       case 'ANUAL': return 365;

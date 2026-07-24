@@ -5,7 +5,7 @@ import type { ISubscriptionLinkRepository } from '../../../core/repositories/sub
 
 function mapFreq(t: PlanType): string {
   const m: Record<PlanType, string> = {
-    MONTHLY: 'MENSAL', TRIMESTRAL: 'TRIMESTRAL', SEMESTRAL: 'SEMESTRAL', ANUAL: 'ANUAL',
+    WEEKLY: 'SEMANAL', MONTHLY: 'MENSAL', TRIMESTRAL: 'TRIMESTRAL', SEMESTRAL: 'SEMESTRAL', ANUAL: 'ANUAL',
   };
   return m[t] ?? 'MENSAL';
 }

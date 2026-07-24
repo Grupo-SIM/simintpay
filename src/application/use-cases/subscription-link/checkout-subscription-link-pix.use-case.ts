@@ -12,13 +12,14 @@ import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/p
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { VoucherService } from '../voucher/voucher.service';
 
-function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR'; frequency: number } {
+function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'WEEK' | 'MONTH' | 'YEAR'; frequency: number } {
+  // Frequências suportadas: Semanal (WEEK), Mensal (MONTH), Anual (YEAR) — os 3 tipos da DOM.
   switch (linkFrequency) {
-    case 'TRIMESTRAL':
-      return { frequency_type: 'QUARTER', frequency: 1 };
-    case 'SEMESTRAL':
-      return { frequency_type: 'SEMESTER', frequency: 1 };
+    case 'WEEKLY':
+    case 'SEMANAL':
+      return { frequency_type: 'WEEK', frequency: 1 };
     case 'ANUAL':
+    case 'YEAR':
       return { frequency_type: 'YEAR', frequency: 1 };
     default:
       return { frequency_type: 'MONTH', frequency: 1 };

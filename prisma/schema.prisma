@@ -627,6 +627,7 @@ enum PlanType {
   TRIMESTRAL
   SEMESTRAL
   ANUAL
+  WEEKLY
 }
 
 enum CommunitySource {
