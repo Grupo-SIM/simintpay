@@ -6,6 +6,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { correlationIdMiddleware } from './presentation/middlewares/correlation-id.middleware';
 import { AllExceptionsFilter } from './presentation/filters/all-exceptions.filter';
+import { ptbrValidationExceptionFactory } from './infrastructure/validation/ptbr-validation.factory';
 import { initializePlatformTaxasCache, cleanupStaleOverrides } from './modules/platform-taxas/platform-taxas.store';
 
 async function bootstrap() {
@@ -50,6 +51,8 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      // Mensagens de validação em PT-BR (padrão do class-validator é em inglês).
+      exceptionFactory: ptbrValidationExceptionFactory,
     }),
   );
 
