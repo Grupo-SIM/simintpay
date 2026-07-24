@@ -1483,6 +1483,21 @@ export class ProcessDomWebhookUseCase {
             );
           }
         }
+
+        // Comissão de afiliado (baseada no platformFee, independente da plataforma/tenant)
+        try {
+          await this.prisma.$transaction((p) =>
+            this.affiliateCommission.applyForTransaction(p, {
+              transactionId: newTx.id,
+              referredUserId: order.userId,
+              platformFee: newTx.platformFee,
+            }),
+          );
+        } catch (err: unknown) {
+          this.logger.error(
+            `[DomWebhook] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
       // CONTROLE-MOTORISTA: provisionar conta no saas-consumo-back
       if (subPlatformTag === 'CONTROLE-MOTORISTA') {
@@ -1622,7 +1637,7 @@ export class ProcessDomWebhookUseCase {
         if (!exists) {
           const gross = Number(order.amountCharged);
           const pf = Number(order.platformFeeAmount);
-          await this.prisma.transaction.create({
+          const communityTx = await this.prisma.transaction.create({
             data: {
               userId: order.userId,
               amount: gross,
@@ -1640,6 +1655,20 @@ export class ProcessDomWebhookUseCase {
               customerPhone: order.customerPhone ?? undefined,
             },
           });
+
+          try {
+            await this.prisma.$transaction((p) =>
+              this.affiliateCommission.applyForTransaction(p, {
+                transactionId: communityTx.id,
+                referredUserId: order.userId,
+                platformFee: communityTx.platformFee,
+              }),
+            );
+          } catch (err: unknown) {
+            this.logger.error(
+              `[DomWebhook] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
       }
     }

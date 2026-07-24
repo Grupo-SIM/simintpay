@@ -505,7 +505,7 @@ export class ProcessWebhookUseCase {
       if (!exists) {
         const gross = Number(order.amountCharged);
         const pf = Number(order.platformFeeAmount);
-        await this.prisma.transaction.create({
+        const areaflixTx = await this.prisma.transaction.create({
           data: {
             userId: order.userId,
             amount: gross,
@@ -523,6 +523,20 @@ export class ProcessWebhookUseCase {
             customerPhone: order.customerPhone ?? undefined,
           },
         });
+
+        try {
+          await this.prisma.$transaction((p) =>
+            this.affiliateCommission.applyForTransaction(p, {
+              transactionId: areaflixTx.id,
+              referredUserId: order.userId,
+              platformFee: areaflixTx.platformFee,
+            }),
+          );
+        } catch (err: unknown) {
+          this.logger.error(
+            `[WEBHOOK] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
     } else if (order.domPixPaymentId) {
       const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
@@ -538,7 +552,7 @@ export class ProcessWebhookUseCase {
         if (!exists) {
           const gross = Number(order.amountCharged);
           const pf = Number(order.platformFeeAmount);
-          await this.prisma.transaction.create({
+          const communityTx = await this.prisma.transaction.create({
             data: {
               userId: order.userId,
               amount: gross,
@@ -556,6 +570,20 @@ export class ProcessWebhookUseCase {
               customerPhone: order.customerPhone ?? undefined,
             },
           });
+
+          try {
+            await this.prisma.$transaction((p) =>
+              this.affiliateCommission.applyForTransaction(p, {
+                transactionId: communityTx.id,
+                referredUserId: order.userId,
+                platformFee: communityTx.platformFee,
+              }),
+            );
+          } catch (err: unknown) {
+            this.logger.error(
+              `[WEBHOOK] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
       }
     }
