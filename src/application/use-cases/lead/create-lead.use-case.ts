@@ -29,6 +29,7 @@ export class CreateLeadUseCase {
       modeloOperacao: dto.modeloOperacao,
       cargo: dto.cargo,
       comoConheceu: dto.comoConheceu,
+      referredByCode: dto.referredByCode,
     });
 
     return {
