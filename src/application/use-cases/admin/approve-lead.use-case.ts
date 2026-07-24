@@ -91,6 +91,20 @@ export class ApproveLeadUseCase {
 
     await this.leads.approve(input.leadId, user.id);
 
+    // Vínculo automático de afiliado via link de indicação (?ref=CODE no cadastro)
+    if ((lead as any).referredByCode) {
+      const affiliate = await this.users.findByAffiliateCode(
+        (lead as any).referredByCode,
+      );
+      if (affiliate) {
+        await this.users.setReferredBy(user.id, affiliate.id);
+      } else {
+        this.logger.warn(
+          `[ApproveLead] referredByCode "${(lead as any).referredByCode}" do lead ${lead.id} não bate com nenhum afiliado — ignorando`,
+        );
+      }
+    }
+
     // Vincula ExternalPlatformUser pelo documento identificador do lead
     if (lead.cpf) {
       await this.linkExternal.linkByCpf(user.id, lead.cpf);
