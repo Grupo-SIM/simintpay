@@ -132,3 +132,10 @@ Somente leitura — afiliado não vê % de outros afiliados nem edita nada.
 - Comissão sobre taxa de saque ou outras fontes de receita além de `Transaction.platformFee`.
 - Retenção em `lockedBalance` com liberação manual — cai direto em `balance`.
 - Qualquer forma de auto-cadastro como afiliado (sempre curadoria do master).
+- Comissão retroativa em transações criadas por ferramentas de backfill/sync em lote do
+  admin (`backfill-comunidade`, `sync-full-bosque/ebook/renovada`, `sync-maquinetas`).
+  Essas rotas lidam com dados históricos — gerar comissão de afiliado sobre uma
+  transação que já aconteceu antes do vínculo existir não faz sentido de negócio.
+  A comissão só é gerada no caminho ao vivo (webhook), coberto pelos hooks em
+  `process-dom-webhook.use-case.ts` e `process-webhook.use-case.ts` (incluindo o
+  caminho de `SubscriptionLinkOrder`, fechado na Task 9 do plano de implementação).
