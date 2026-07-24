@@ -13,6 +13,7 @@ import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { AffiliateCommissionService } from '../../services/affiliate-commission.service';
 
 import type { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
 import type { IWebhookEventRepository } from '../../../core/repositories/webhook-event.repository.interface';
@@ -58,6 +59,7 @@ export class ProcessWebhookUseCase {
     private readonly balanceLogs: IBalanceLogRepository,
     private readonly prisma: PrismaService,
     private readonly renovadaEvents: RenovadaEventsService,
+    private readonly affiliateCommission: AffiliateCommissionService,
     @Optional() private readonly pixPlanService?: PixPlanService,
     @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
     @Optional() private readonly communities?: CommunityManagementService,
@@ -350,6 +352,16 @@ export class ProcessWebhookUseCase {
               metadata: input.payload as never,
             },
           });
+        }
+
+        if (nextStatus === TransactionStatus.COMPLETED) {
+          await this.affiliateCommission.applyForTransaction(p, {
+            transactionId: t.id,
+            referredUserId: t.userId,
+            platformFee: t.platformFee,
+          });
+        } else if (nextStatus === TransactionStatus.REFUNDED || nextStatus === TransactionStatus.CHARGEBACK) {
+          await this.affiliateCommission.reverseForTransaction(p, t.id);
         }
       });
 
