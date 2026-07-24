@@ -30,4 +30,6 @@ export interface IUserRepository {
     data: { domUserId?: string | null; domToken?: string | null },
   ): Promise<User>;
   updatePassword(id: string, hashedPassword: string): Promise<void>;
+  findByAffiliateCode(code: string): Promise<User | null>;
+  setReferredBy(userId: string, referredByUserId: string | null): Promise<void>;
 }

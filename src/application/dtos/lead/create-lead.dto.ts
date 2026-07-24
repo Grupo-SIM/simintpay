@@ -87,4 +87,9 @@ export class CreateLeadDto {
   @IsOptional()
   @IsString()
   comoConheceu?: string;
+
+  @ApiPropertyOptional({ example: 'ABC123', description: 'Código de indicação do afiliado (query ?ref= do link público)' })
+  @IsOptional()
+  @IsString()
+  referredByCode?: string;
 }

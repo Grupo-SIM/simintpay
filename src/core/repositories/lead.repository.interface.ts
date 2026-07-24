@@ -14,6 +14,7 @@ export type CreateLeadData = {
   modeloOperacao?: string;
   cargo: string;
   comoConheceu?: string;
+  referredByCode?: string;
 };
 
 export interface ILeadRepository {

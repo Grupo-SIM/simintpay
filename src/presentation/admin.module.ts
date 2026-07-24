@@ -11,6 +11,7 @@ import { CommunityAccessCron } from '../infrastructure/cron/community-access.cro
 import { ExpirationReminderCron } from '../infrastructure/cron/expiration-reminder.cron';
 import { AdminController } from './controllers/admin.controller';
 import { AdminClientesController } from './controllers/admin-clientes.controller';
+import { AdminAfiliadosController } from './controllers/admin-afiliados.controller';
 import { ListLeadsUseCase } from '../application/use-cases/admin/list-leads.use-case';
 import { ApproveLeadUseCase } from '../application/use-cases/admin/approve-lead.use-case';
 import { RejectLeadUseCase } from '../application/use-cases/admin/reject-lead.use-case';
@@ -45,7 +46,7 @@ import { WebhookModule } from './webhook.module';
 
 @Module({
   imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule, WebhookModule],
-  controllers: [AdminController, AdminClientesController],
+  controllers: [AdminController, AdminClientesController, AdminAfiliadosController],
   providers: [
     SyncDomTransactionsCron,
     SyncMaquinetasCron,

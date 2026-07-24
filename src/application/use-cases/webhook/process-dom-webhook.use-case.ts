@@ -9,6 +9,7 @@ import { PixPlanService } from '../pix-plan/pix-plan.service';
 import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { VoucherService } from '../voucher/voucher.service';
+import { AffiliateCommissionService } from '../../services/affiliate-commission.service';
 import {
   appendInternalTags,
   ORIGEM_MAQUINETA_TAG,
@@ -87,6 +88,7 @@ export class ProcessDomWebhookUseCase {
   constructor(
     private readonly prisma: PrismaService,
     private readonly voucherService: VoucherService,
+    private readonly affiliateCommission: AffiliateCommissionService,
     @Optional() private readonly renovadaEvents?: RenovadaEventsService,
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
@@ -384,6 +386,22 @@ export class ProcessDomWebhookUseCase {
           if (attempt === 2) {
             throw new Error('Wallet version conflict after 3 retries');
           }
+        }
+
+        if (
+          nextStatus === TransactionStatus.COMPLETED &&
+          existing.status !== TransactionStatus.COMPLETED
+        ) {
+          await this.affiliateCommission.applyForTransaction(p, {
+            transactionId: existing.id,
+            referredUserId: existing.userId,
+            platformFee: existing.platformFee,
+          });
+        } else if (
+          (nextStatus === TransactionStatus.REFUNDED || nextStatus === TransactionStatus.CHARGEBACK) &&
+          existing.status === TransactionStatus.COMPLETED
+        ) {
+          await this.affiliateCommission.reverseForTransaction(p, existing.id);
         }
       });
 
@@ -1469,6 +1487,21 @@ export class ProcessDomWebhookUseCase {
             );
           }
         }
+
+        // Comissão de afiliado (baseada no platformFee, independente da plataforma/tenant)
+        try {
+          await this.prisma.$transaction((p) =>
+            this.affiliateCommission.applyForTransaction(p, {
+              transactionId: newTx.id,
+              referredUserId: order.userId,
+              platformFee: newTx.platformFee,
+            }),
+          );
+        } catch (err: unknown) {
+          this.logger.error(
+            `[DomWebhook] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
       // CONTROLE-MOTORISTA: provisionar conta no saas-consumo-back
       if (subPlatformTag === 'CONTROLE-MOTORISTA') {
@@ -1608,7 +1641,7 @@ export class ProcessDomWebhookUseCase {
         if (!exists) {
           const gross = Number(order.amountCharged);
           const pf = Number(order.platformFeeAmount);
-          await this.prisma.transaction.create({
+          const communityTx = await this.prisma.transaction.create({
             data: {
               userId: order.userId,
               amount: gross,
@@ -1626,6 +1659,20 @@ export class ProcessDomWebhookUseCase {
               customerPhone: order.customerPhone ?? undefined,
             },
           });
+
+          try {
+            await this.prisma.$transaction((p) =>
+              this.affiliateCommission.applyForTransaction(p, {
+                transactionId: communityTx.id,
+                referredUserId: order.userId,
+                platformFee: communityTx.platformFee,
+              }),
+            );
+          } catch (err: unknown) {
+            this.logger.error(
+              `[DomWebhook] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
       }
     }

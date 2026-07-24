@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { SettingsController } from './controllers/settings.controller';
+import { AfiliadosController } from './controllers/afiliados.controller';
 import { GetProfileUseCase } from '../application/use-cases/settings/get-profile.use-case';
 import { UpdateProfileUseCase } from '../application/use-cases/settings/update-profile.use-case';
 import { GetEmailSettingsUseCase } from '../application/use-cases/settings/get-email-settings.use-case';
@@ -15,7 +16,7 @@ import { BcryptService } from '../infrastructure/security/bcrypt.service';
 
 @Module({
   imports: [ApiDomModule],
-  controllers: [SettingsController],
+  controllers: [SettingsController, AfiliadosController],
   providers: [
     GetProfileUseCase,
     UpdateProfileUseCase,

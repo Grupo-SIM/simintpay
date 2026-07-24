@@ -13,6 +13,7 @@ import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { AffiliateCommissionService } from '../../services/affiliate-commission.service';
 
 import type { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
 import type { IWebhookEventRepository } from '../../../core/repositories/webhook-event.repository.interface';
@@ -58,6 +59,7 @@ export class ProcessWebhookUseCase {
     private readonly balanceLogs: IBalanceLogRepository,
     private readonly prisma: PrismaService,
     private readonly renovadaEvents: RenovadaEventsService,
+    private readonly affiliateCommission: AffiliateCommissionService,
     @Optional() private readonly pixPlanService?: PixPlanService,
     @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
     @Optional() private readonly communities?: CommunityManagementService,
@@ -351,6 +353,16 @@ export class ProcessWebhookUseCase {
             },
           });
         }
+
+        if (nextStatus === TransactionStatus.COMPLETED) {
+          await this.affiliateCommission.applyForTransaction(p, {
+            transactionId: t.id,
+            referredUserId: t.userId,
+            platformFee: t.platformFee,
+          });
+        } else if (nextStatus === TransactionStatus.REFUNDED || nextStatus === TransactionStatus.CHARGEBACK) {
+          await this.affiliateCommission.reverseForTransaction(p, t.id);
+        }
       });
 
       await this.events.markProcessed(event.id);
@@ -493,7 +505,7 @@ export class ProcessWebhookUseCase {
       if (!exists) {
         const gross = Number(order.amountCharged);
         const pf = Number(order.platformFeeAmount);
-        await this.prisma.transaction.create({
+        const areaflixTx = await this.prisma.transaction.create({
           data: {
             userId: order.userId,
             amount: gross,
@@ -511,6 +523,20 @@ export class ProcessWebhookUseCase {
             customerPhone: order.customerPhone ?? undefined,
           },
         });
+
+        try {
+          await this.prisma.$transaction((p) =>
+            this.affiliateCommission.applyForTransaction(p, {
+              transactionId: areaflixTx.id,
+              referredUserId: order.userId,
+              platformFee: areaflixTx.platformFee,
+            }),
+          );
+        } catch (err: unknown) {
+          this.logger.error(
+            `[WEBHOOK] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
     } else if (order.domPixPaymentId) {
       const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
@@ -526,7 +552,7 @@ export class ProcessWebhookUseCase {
         if (!exists) {
           const gross = Number(order.amountCharged);
           const pf = Number(order.platformFeeAmount);
-          await this.prisma.transaction.create({
+          const communityTx = await this.prisma.transaction.create({
             data: {
               userId: order.userId,
               amount: gross,
@@ -544,6 +570,20 @@ export class ProcessWebhookUseCase {
               customerPhone: order.customerPhone ?? undefined,
             },
           });
+
+          try {
+            await this.prisma.$transaction((p) =>
+              this.affiliateCommission.applyForTransaction(p, {
+                transactionId: communityTx.id,
+                referredUserId: order.userId,
+                platformFee: communityTx.platformFee,
+              }),
+            );
+          } catch (err: unknown) {
+            this.logger.error(
+              `[WEBHOOK] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
       }
     }

@@ -72,4 +72,18 @@ export class PrismaUserRepository implements IUserRepository {
       data: { password: hashedPassword },
     });
   }
+
+  async findByAffiliateCode(code: string): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { affiliateCode: code } });
+  }
+
+  async setReferredBy(
+    userId: string,
+    referredByUserId: string | null,
+  ): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { referredByUserId },
+    });
+  }
 }

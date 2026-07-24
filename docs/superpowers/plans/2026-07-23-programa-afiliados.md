@@ -1747,3 +1747,197 @@ EOF
 - Migração e todos os testes rodam contra o banco local configurado em `.env` — confirmar `DATABASE_URL` antes da Task 1.
 - A Task 8 depende de identificar corretamente onde `SettingsController` está registrado (Step 4) — se não houver um módulo óbvio, criar `src/presentation/afiliados.module.ts` mínimo (`controllers: [AfiliadosController]`) e importá-lo em `app.module.ts`, seguindo o padrão dos outros módulos de presentation.
 - Fora de escopo (confirmado no spec): comissão multinível, comissão sobre taxa de saque/outras fontes, retenção em `lockedBalance`.
+
+---
+
+## Task 9: Comissão em transações criadas via `SubscriptionLinkOrder` (gap achado na revisão final)
+
+**Contexto do gap:** as Tasks 3/4 hookaram `AffiliateCommissionService` só no branch `handleTransaction`/fluxo regular de cada webhook. Só que `execute()` dos dois arquivos tenta `handleSubscriptionLinkPix` **antes** desse branch — se o `domPaymentId` bate com um `SubscriptionLinkOrder` (assinaturas Areaflix, vínculo de comunidade, CONTROLE-MOTORISTA, CONTROLE-PATRIMONIAL, BETAI), a função cria a `Transaction` **já `COMPLETED`, com `platformFee` não-zero**, direto ali dentro — e o fluxo regular (com o hook) nunca roda pra essa transação. Resultado: nenhuma comissão é gerada pra essa categoria inteira de transação, mesmo o design doc citando "Areaflix subcontas" nominalmente como caso coberto.
+
+**Abordagem:** não reestruturar essas funções (são grandes, com múltiplos efeitos colaterais — fetch externo, e-mail, provisionamento). Só adicionar a chamada de comissão logo depois de cada `transaction.create(...)` que grava `status: COMPLETED`, dentro do já-existente `if (!exists) { ... }` que evita duplicata — seguindo o mesmo padrão não-atômico-mas-logado (try/catch próprio) que o crédito de wallet Areaflix já usa nessa mesma função.
+
+**Files:**
+- Modify: `src/application/use-cases/webhook/process-dom-webhook.use-case.ts` (2 pontos, dentro de `handleSubscriptionLinkPix`)
+- Modify: `src/application/use-cases/webhook/process-webhook.use-case.ts` (2 pontos, dentro de `handleSubscriptionLinkPix`)
+- Test: `src/application/use-cases/webhook/process-dom-webhook.subscription-affiliate.spec.ts`
+- Test: `src/application/use-cases/webhook/process-webhook.subscription-affiliate.spec.ts`
+
+### `process-dom-webhook.use-case.ts`
+
+**Ponto 1** — bloco `subPlatformTag` (dentro de `if (subPlatformTag && subPlatformTag !== 'GLOBAL' && order.domPixPaymentId) { if (!exists) { ... } }`), a `Transaction` criada já é capturada em `const newTx = await this.prisma.transaction.create({...})`. Logo depois do bloco `if (afSubNet != null) { try { ... } catch (err) { ... } }` que credita a wallet Areaflix (fecha por volta da linha 1485, antes do comentário `// CONTROLE-MOTORISTA:`), adicionar:
+
+```typescript
+        // Comissão de afiliado (baseada no platformFee, independente da plataforma/tenant)
+        try {
+          await this.prisma.$transaction((p) =>
+            this.affiliateCommission.applyForTransaction(p, {
+              transactionId: newTx.id,
+              referredUserId: order.userId,
+              platformFee: newTx.platformFee,
+            }),
+          );
+        } catch (err: unknown) {
+          this.logger.error(
+            `[DomWebhook] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+```
+
+**Ponto 2** — bloco fallback de comunidade (`else if (order.domPixPaymentId) { if (hasCommunity) { if (!exists) { await this.prisma.transaction.create({...}); } } }`, por volta da linha 1625-1642). Esse `create` hoje **não** captura o retorno — trocar:
+
+```typescript
+          await this.prisma.transaction.create({
+            data: {
+              userId: order.userId,
+              amount: gross,
+              netAmount: gross - pf,
+              status: TransactionStatus.COMPLETED,
+              paymentMethod: PaymentMethod.PIX,
+              totalFee: 0,
+              domFee: 0,
+              platformFee: pf,
+              description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
+              domPaymentId: order.domPixPaymentId,
+              customerName: order.customerName,
+              customerEmail: order.customerEmail,
+              customerDocument: order.customerDocument,
+              customerPhone: order.customerPhone ?? undefined,
+            },
+          });
+```
+
+por:
+
+```typescript
+          const communityTx = await this.prisma.transaction.create({
+            data: {
+              userId: order.userId,
+              amount: gross,
+              netAmount: gross - pf,
+              status: TransactionStatus.COMPLETED,
+              paymentMethod: PaymentMethod.PIX,
+              totalFee: 0,
+              domFee: 0,
+              platformFee: pf,
+              description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
+              domPaymentId: order.domPixPaymentId,
+              customerName: order.customerName,
+              customerEmail: order.customerEmail,
+              customerDocument: order.customerDocument,
+              customerPhone: order.customerPhone ?? undefined,
+            },
+          });
+
+          try {
+            await this.prisma.$transaction((p) =>
+              this.affiliateCommission.applyForTransaction(p, {
+                transactionId: communityTx.id,
+                referredUserId: order.userId,
+                platformFee: communityTx.platformFee,
+              }),
+            );
+          } catch (err: unknown) {
+            this.logger.error(
+              `[DomWebhook] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+```
+
+### `process-webhook.use-case.ts`
+
+Mesmo padrão, dois blocos dentro de `handleSubscriptionLinkPix`, nenhum dos dois hoje captura o retorno de `create`.
+
+**Ponto 1** — branch `whAf.includes('areaflix')` (por volta da linha 500-526). Trocar:
+
+```typescript
+      if (!exists) {
+        const gross = Number(order.amountCharged);
+        const pf = Number(order.platformFeeAmount);
+        await this.prisma.transaction.create({
+          data: {
+            userId: order.userId,
+            amount: gross,
+            netAmount: gross - pf,
+            status: TransactionStatus.COMPLETED,
+            paymentMethod: PaymentMethod.PIX,
+            totalFee: 0,
+            domFee: 0,
+            platformFee: pf,
+            description: `${order.subscriptionLink.name} ${TENANT_AREAFLIX_TAG} subOrder=${order.id}`,
+            domPaymentId: order.domPixPaymentId,
+            customerName: order.customerName,
+            customerEmail: order.customerEmail,
+            customerDocument: order.customerDocument,
+            customerPhone: order.customerPhone ?? undefined,
+          },
+        });
+      }
+```
+
+por:
+
+```typescript
+      if (!exists) {
+        const gross = Number(order.amountCharged);
+        const pf = Number(order.platformFeeAmount);
+        const areaflixTx = await this.prisma.transaction.create({
+          data: {
+            userId: order.userId,
+            amount: gross,
+            netAmount: gross - pf,
+            status: TransactionStatus.COMPLETED,
+            paymentMethod: PaymentMethod.PIX,
+            totalFee: 0,
+            domFee: 0,
+            platformFee: pf,
+            description: `${order.subscriptionLink.name} ${TENANT_AREAFLIX_TAG} subOrder=${order.id}`,
+            domPaymentId: order.domPixPaymentId,
+            customerName: order.customerName,
+            customerEmail: order.customerEmail,
+            customerDocument: order.customerDocument,
+            customerPhone: order.customerPhone ?? undefined,
+          },
+        });
+
+        try {
+          await this.prisma.$transaction((p) =>
+            this.affiliateCommission.applyForTransaction(p, {
+              transactionId: areaflixTx.id,
+              referredUserId: order.userId,
+              platformFee: areaflixTx.platformFee,
+            }),
+          );
+        } catch (err: unknown) {
+          this.logger.error(
+            `[WEBHOOK] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+```
+
+**Ponto 2** — branch `hasCommunity` (por volta da linha 538-559). Mesmo tratamento: capturar o retorno em `const communityTx = await this.prisma.transaction.create({...})` e logo depois adicionar o mesmo bloco `try { await this.prisma.$transaction((p) => this.affiliateCommission.applyForTransaction(p, { transactionId: communityTx.id, referredUserId: order.userId, platformFee: communityTx.platformFee })); } catch (err: unknown) { this.logger.error(...) }`.
+
+### Testes
+
+Cada spec novo deve cobrir, pro respectivo arquivo: (a) `handleSubscriptionLinkPix` com uma `SubscriptionLinkOrder` cujo link é Areaflix (ou tem `platformTag`) → `applyForTransaction` é chamado com o `transactionId` da transação recém-criada, `referredUserId: order.userId` e o `platformFee` correto; (b) idem pro branch de fallback/comunidade. Siga o mesmo estilo de mock usado em `process-dom-webhook.affiliate.spec.ts`/`process-webhook.affiliate.spec.ts` (Tasks 3/4): monkey-patch `(uc as any).affiliateCommission = { applyForTransaction: jest.fn()... }` depois de construir a instância, mocke `this.prisma.subscriptionLinkOrder.findFirst` pra retornar uma order de teste, `this.prisma.transaction.findFirst` retornando `null` (não existe ainda), `this.prisma.transaction.create` retornando um objeto com `id`/`platformFee`, e `this.prisma.$transaction` executando o callback recebido (`jest.fn().mockImplementation((cb) => cb(mockTxClient))`). Não precisa testar o resto dos efeitos colaterais dessas funções (e-mail, comunidade, fetch externo) — já não são escopo desta task.
+
+- [ ] **Step 1:** Escrever os testes (2 arquivos, ~2-3 casos cada) seguindo a descrição acima.
+- [ ] **Step 2:** Rodar e confirmar que falham (o hook ainda não existe nesses pontos).
+- [ ] **Step 3:** Implementar as 4 mudanças descritas acima (2 por arquivo).
+- [ ] **Step 4:** Rodar os specs novos e confirmar que passam.
+- [ ] **Step 5:** Rodar `npx jest process-dom-webhook` e `npx jest process-webhook.use-case` completos — confirmar que nada quebrou (specs das Tasks 3/4 continuam passando).
+- [ ] **Step 6:** Rodar `npx jest` (suíte completa) — confirmar só as 2 falhas pré-existentes já conhecidas (não relacionadas a afiliados).
+- [ ] **Step 7:** Commit:
+
+```bash
+git add src/application/use-cases/webhook/process-dom-webhook.use-case.ts src/application/use-cases/webhook/process-webhook.use-case.ts src/application/use-cases/webhook/process-dom-webhook.subscription-affiliate.spec.ts src/application/use-cases/webhook/process-webhook.subscription-affiliate.spec.ts
+git commit -m "$(cat <<'EOF'
+fix: credit affiliate commission on SubscriptionLinkOrder-based transactions
+
+handleSubscriptionLinkPix creates Transaction rows already COMPLETED,
+bypassing the regular handleTransaction/execute hook from Tasks 3/4.
+Covers Areaflix subaccounts and community-bound subscription links in
+both webhook paths, closing a gap found in final branch review.
+EOF
+)"
+```
