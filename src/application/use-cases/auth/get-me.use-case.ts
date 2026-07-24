@@ -38,6 +38,8 @@ export class GetMeUseCase {
     /** Cliente SimintPay (auto-cadastrado). */
     isClient: boolean;
     clientStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | null;
+    isAffiliate: boolean;
+    affiliateCode: string | null;
     tenantModule: { slug: string; name: string } | null;
     wallet: {
       balance: number;
@@ -170,6 +172,8 @@ export class GetMeUseCase {
             isMasterAdmin: master,
             isClient: user.clientStatus != null,
             clientStatus: (user.clientStatus ?? null) as 'PENDING' | 'APPROVED' | 'REJECTED' | null,
+            isAffiliate: user.isAffiliate ?? false,
+            affiliateCode: user.affiliateCode ?? null,
             tenantModule: tenant,
             wallet: walletResp,
             createdAt: user.createdAt.toISOString(),
@@ -191,6 +195,8 @@ export class GetMeUseCase {
       isMasterAdmin: master,
       isClient: user.clientStatus != null,
       clientStatus: (user.clientStatus ?? null) as 'PENDING' | 'APPROVED' | 'REJECTED' | null,
+      isAffiliate: user.isAffiliate ?? false,
+      affiliateCode: user.affiliateCode ?? null,
       tenantModule: tenant,
       wallet: walletResp,
       createdAt: user.createdAt.toISOString(),
