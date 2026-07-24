@@ -4,33 +4,28 @@ import { PLAN_REPOSITORY } from '../../../core/repositories/plan.repository.inte
 import type { IPlanRepository } from '../../../core/repositories/plan.repository.interface';
 import type { CreatePlanDto, PlanTipoDto } from '../../dtos/plan/create-plan.dto';
 
+// Frequências suportadas: apenas Semanal (WEEKLY), Mensal (MONTHLY) e Anual (ANUAL).
 function mapTipo(tipo: PlanTipoDto): PlanType {
   switch (tipo) {
-    case 'MENSAL':
-      return PlanType.MONTHLY;
-    case 'TRIMESTRAL':
-      return PlanType.TRIMESTRAL;
-    case 'SEMESTRAL':
-      return PlanType.SEMESTRAL;
+    case 'SEMANAL':
+      return PlanType.WEEKLY;
     case 'ANUAL':
-    default:
       return PlanType.ANUAL;
+    case 'MENSAL':
+    default:
+      return PlanType.MONTHLY;
   }
 }
 
-function mapPlanTypeToPt(
-  tipo: PlanType,
-): 'MENSAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' {
+function mapPlanTypeToPt(tipo: PlanType): 'SEMANAL' | 'MENSAL' | 'ANUAL' {
   switch (tipo) {
-    case PlanType.MONTHLY:
-      return 'MENSAL';
-    case PlanType.TRIMESTRAL:
-      return 'TRIMESTRAL';
-    case PlanType.SEMESTRAL:
-      return 'SEMESTRAL';
+    case PlanType.WEEKLY:
+      return 'SEMANAL';
     case PlanType.ANUAL:
-    default:
       return 'ANUAL';
+    default:
+      // MONTHLY (+ legado TRIMESTRAL/SEMESTRAL, que não são mais oferecidos)
+      return 'MENSAL';
   }
 }
 
