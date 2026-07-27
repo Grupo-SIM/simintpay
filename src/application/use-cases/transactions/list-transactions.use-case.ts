@@ -107,7 +107,7 @@ export class ListTransactionsUseCase {
       valor: number;
       valorLiquido: number | null;
       status: 'PENDENTE' | 'APROVADA' | 'RECUSADA' | 'ESTORNADA';
-      metodo: 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD';
+      metodo: 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
       descricao: string | null;
       parcelas: number;
       cliente: {

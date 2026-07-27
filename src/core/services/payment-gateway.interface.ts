@@ -58,6 +58,10 @@ export type DomPaymentLinkInput = {
   interestRateInstallment?: number;
   aceitaCartao?: boolean;
   aceitaPix?: boolean;
+  /** Habilita boleto no link (paymentConfig.boleto na DOM). */
+  aceitaBoleto?: boolean;
+  /** Dias até o vencimento do boleto (paymentConfig.boletoExpireDay na DOM). */
+  boletoExpireDay?: number;
 };
 
 export type DomPaymentLinkOutput = {
@@ -268,6 +272,38 @@ export interface IPaymentGateway {
     pixContent: string | null;
     qrCode: string | null;
     pixExpire: string | null;
+    amount: number;
+  }>;
+
+  chargeBoletoForLink(
+    domToken: string,
+    input: {
+      amount: number;
+      description: string;
+      customerName: string;
+      customerEmail: string;
+      customerDocument: string;
+      customerPhone: string;
+      documentType: 'CPF' | 'CNPJ';
+      codExternal: string;
+      expireDays: number;
+      address: {
+        street: string;
+        number: string;
+        neighborhood: string;
+        zipCode: string;
+        city: string;
+        uf: string;
+        complement?: string;
+      };
+    },
+  ): Promise<{
+    id: string;
+    status: string;
+    boletoUrl: string | null;
+    barcode: string | null;
+    digitableLine: string | null;
+    dueDate: string | null;
     amount: number;
   }>;
 

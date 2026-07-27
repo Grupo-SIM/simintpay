@@ -18,6 +18,13 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-ta
 /** BOSQUE passou a cobrar TAXA_SERVICO (R$4 Sim Int Pay) a partir de 2026-05-29 — mesma data da Renovada. */
 const BOSQUE_TAXA_SERVICO_DATE = new Date('2026-05-29T20:40:00.000Z');
 
+/**
+ * pixKey usado no registro de "baseline" (POST /zerar-disponivel) — um saque sintético
+ * que representa vendas antigas já liquidadas por fora, zerando o disponível a partir de
+ * agora. É contado pelo cálculo do disponível (para zerar), mas escondido do histórico.
+ */
+const BASELINE_PIXKEY = 'BASELINE_SALDO';
+
 type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
 
 @Controller('internal/bosque/finance')
@@ -251,9 +258,9 @@ export class InternalBosqueFinanceController {
     const size = Math.min(Math.max(1, Number(limit || 10)), 200);
 
     const [totalItems, items] = await Promise.all([
-      this.prisma.withdrawRequest.count({ where: { userId: { in: userIds } } }),
+      this.prisma.withdrawRequest.count({ where: { userId: { in: userIds }, pixKey: { not: BASELINE_PIXKEY } } }),
       this.prisma.withdrawRequest.findMany({
-        where: { userId: { in: userIds } },
+        where: { userId: { in: userIds }, pixKey: { not: BASELINE_PIXKEY } },
         include: { user: { select: { name: true, email: true } } },
         orderBy: { createdAt: 'desc' },
         skip: (pageNum - 1) * size,
@@ -339,6 +346,71 @@ export class InternalBosqueFinanceController {
     });
 
     return { success: true, id: created.id };
+  }
+
+  /**
+   * Zera o saldo DISPONÍVEL do Bosque AGORA (baseline), sem apagar histórico e sem
+   * afetar vendas futuras. Cria um "saque" sintético (COMPLETED, pixKey=BASELINE_SALDO)
+   * do valor disponível atual — o cálculo do disponível subtrai esse valor e passa a 0,
+   * enquanto novas vendas continuam somando normalmente. O registro fica escondido do
+   * histórico e é reversível (basta excluí-lo).
+   *
+   * Use quando o disponível mostra um resíduo de vendas antigas já pagas por fora
+   * (sem solicitação de saque registrada).
+   */
+  @Post('zerar-disponivel')
+  @ApiOperation({ summary: 'Zera (ou abate um valor de) o disponível do Bosque agora (baseline), mantendo vendas futuras' })
+  async zerarDisponivel(
+    @Body() body: { userId?: string; email?: string; cpf?: string; reason?: string; valor?: number } = {},
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    const resolvedId = await this.resolveBosqueUserId(body);
+    if (!resolvedId) {
+      throw new BadRequestException('Conta do Bosque não encontrada. Informe userId, email ou cpf.');
+    }
+
+    const available = await this.computeAvailableSinceLastWithdrawal([resolvedId]);
+    if (available <= 0.005) {
+      return { success: true, message: 'O disponível já está zerado.', antes: Number(available.toFixed(2)), depois: 0 };
+    }
+
+    // valor opcional: abate só uma parte (o resto continua disponível). Sem valor, zera tudo.
+    const abate = body.valor != null && Number.isFinite(Number(body.valor)) && Number(body.valor) > 0
+      ? Math.min(Number(body.valor), available)
+      : available;
+    const valor = Number(abate.toFixed(2));
+    const depois = Number((available - valor).toFixed(2));
+    const created = await this.prisma.$transaction(async (tx) => {
+      const wr = await tx.withdrawRequest.create({
+        data: {
+          userId: resolvedId,
+          amount: valor,
+          grossAmount: valor,
+          fee: 0,
+          status: 'COMPLETED',
+          pixKey: BASELINE_PIXKEY,
+          platform: 'bosque-baseline',
+        },
+      });
+      await tx.balanceLog.create({
+        data: {
+          userId: resolvedId,
+          action: 'BOSQUE_BASELINE_ZERO',
+          amount: -valor,
+          balanceBefore: 0,
+          balanceAfter: 0,
+          lockedBefore: 0,
+          lockedAfter: 0,
+          source: 'MASTER_ADMIN_CONTROL',
+          description: body.reason?.trim() || 'Baseline: zera o disponível do Bosque (vendas anteriores já liquidadas por fora).',
+          metadata: { platform: 'bosque', via: 'internal/bosque/finance/zerar-disponivel', valorZerado: valor, baselineId: 'pending' },
+        },
+      });
+      return wr;
+    });
+
+    return { success: true, baselineWithdrawId: created.id, antes: Number(available.toFixed(2)), abatido: valor, depois };
   }
 
   /**

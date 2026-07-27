@@ -14,6 +14,11 @@ export const PLATAFORMA_TAXA_KEYS = [
   'TAXA_ASSINATURA',     // Taxa % da casa sobre links de assinatura (padrão 9.0%)
   'TAXA_DEBITO_PERCENT', // Taxa % da plataforma sobre débito (padrão 2%)
   'TAXA_DEBITO_FIXA',    // Taxa fixa R$ da plataforma sobre débito (padrão R$2,00)
+  // Boleto — taxa fixa por boleto pago. SimIntPay (editável) inclui o custo DOM (desmembrado).
+  'TAXA_BOLETO_FIXA',        // Taxa fixa da casa (SimIntPay) por boleto (padrão R$7,00)
+  'TAXA_BOLETO_TRANSACAO',   // Taxa fixa por transação da casa no boleto (padrão R$2,00)
+  'TAXA_BOLETO_DOM',         // Taxa DOM por boleto — read-only (padrão R$3,49)
+  'TAXA_BOLETO_DOM_FIXA',    // Taxa fixa DOM por boleto — read-only (padrão R$1,00)
   // Taxa DOM para cartão (crédito direto / pix-plan / assinatura) — read-only
   'MDR_CC_1X',
   'MDR_CC_2X',
@@ -74,6 +79,11 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   TAXA_ASSINATURA: 9.0,
   TAXA_DEBITO_PERCENT: 0.02,   // 2%
   TAXA_DEBITO_FIXA: 2.0,       // R$2,00
+  // Boleto (valores fixos em R$ por boleto pago)
+  TAXA_BOLETO_FIXA: 7.0,       // SimIntPay: R$7,00
+  TAXA_BOLETO_TRANSACAO: 2.0,  // SimIntPay: R$2,00 por transação
+  TAXA_BOLETO_DOM: 3.49,       // DOM: R$3,49 (read-only)
+  TAXA_BOLETO_DOM_FIXA: 1.0,   // DOM: R$1,00 por transação (read-only)
   // DOM: taxa cobrada pelo gateway para cartão direto/pix-plan/assinatura
   // 1x = 0% (igual ao link de pagamento — custo real DOM ~3,99% é absorvido pelo master e visível nos relatórios)
   MDR_CC_1X: 0,

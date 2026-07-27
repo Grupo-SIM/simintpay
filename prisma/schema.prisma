@@ -29,6 +29,7 @@ model User {
   balanceLogs          BalanceLog[]
   customers            Customer[]
   paymentLinks         PaymentLink[]
+  boletos              Boleto[]
   plans                Plan[]
   sessions             Session[]
   subscriptions        Subscription[]
@@ -279,6 +280,36 @@ model PaymentLink {
   transactions     Transaction[]
   communityBindings CommunityLinkBinding[]
   files            PaymentLinkFile[]
+
+  @@index([userId])
+  @@index([code])
+}
+
+/// Cobrança por boleto — espelha o Link de Pagamento, mas cobra via boleto (à vista, sem parcelas).
+/// Criado na DOM Pagamentos via set-payment-link com paymentConfig.boleto = true.
+model Boleto {
+  id               String   @id @default(uuid())
+  userId           String
+  code             String   @unique @default(uuid())
+  title            String
+  description      String?
+  amount           Decimal  @db.Decimal(12, 2)
+  expiresAt        DateTime?
+  /// Dias até o vencimento do boleto (boletoExpireDay na DOM)
+  vencimentoDias   Int      @default(3)
+  isActive         Boolean  @default(true)
+  webhookUrl       String?
+  redirectUrl      String?
+  maxUses          Int?
+  currentUses      Int      @default(0)
+  domPaymentLinkId String?  @unique
+  /// Link hospedado da DOM (checkout do boleto)
+  domLink          String?
+  /// Plataformas associadas (ex.: ["SIMINTPAY", "AREAFLIX"])
+  plataformas      String[] @default([])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([code])
@@ -617,6 +648,7 @@ enum PaymentMethod {
   PIX
   CREDIT_CARD
   DEBIT_CARD
+  BOLETO
 }
 
 /// Adquirente que processou a transação/saque.

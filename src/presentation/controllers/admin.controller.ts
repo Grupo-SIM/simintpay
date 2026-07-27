@@ -333,6 +333,31 @@ async function getComunidadeOrderRows(
 }
 
 /**
+ * Remove as ordens de comunidade sintéticas (`comunidade_order_<X>`) que JÁ possuem uma
+ * transação real correspondente (descrição contém `subOrder=<X>`, criada pelo webhook).
+ * Sem isso, o mesmo pagamento de comunidade entra duas vezes no consolidado (uma como
+ * transação, outra como ordem) e infla bruto/líquido/lucro/contagem. Mantém a transação
+ * (fonte da verdade) e descarta a ordem sintética. Ordens sem transação correspondente
+ * (legado/edge) permanecem, para não perder pagamentos.
+ */
+function dedupeComunidadeRows<T extends { id: string }>(
+  txRows: ReadonlyArray<{ description: string | null }>,
+  comunidadeRows: ReadonlyArray<T>,
+): T[] {
+  const subOrderIds = new Set<string>();
+  for (const t of txRows) {
+    const m = (t.description ?? '').match(/subOrder=([^\s\]]+)/i);
+    if (m) subOrderIds.add(m[1]);
+  }
+  if (subOrderIds.size === 0) return [...comunidadeRows];
+  const PREFIX = 'comunidade_order_';
+  return comunidadeRows.filter((r) => {
+    if (!r.id.startsWith(PREFIX)) return true;
+    return !subOrderIds.has(r.id.slice(PREFIX.length));
+  });
+}
+
+/**
  * Escopo do consolidado: contas plataforma OU qualquer transação com tag de tenant.
  * A lista fixa de tags deixava de fora [TENANT:ATLAS]/[TENANT:REVALIDA]/[TENANT:BETAI]/
  * [TENANT:ZERO_GRAU]/[TENANT:SIMINTPAY]/comunidades quando o userId não era de conta
@@ -2637,7 +2662,7 @@ export class AdminController {
       getComunidadeOrderRows(this.prisma, dataInicio, dataFim),
     ]);
 
-    const txRowsComComunidade = [...txRowsTodas, ...comunidadeRows];
+    const txRowsComComunidade = [...txRowsTodas, ...dedupeComunidadeRows(txRowsTodas, comunidadeRows)];
 
     const txRowsLucro = txRowsComComunidade.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
@@ -3178,7 +3203,7 @@ export class AdminController {
       getComunidadeOrderRows(this.prisma, inicioJanela.format('YYYY-MM-DD'), fimJanela.format('YYYY-MM-DD')),
     ]);
 
-    const txRows = [...txRowsBase, ...comunidadeRowsMensal];
+    const txRows = [...txRowsBase, ...dedupeComunidadeRows(txRowsBase, comunidadeRowsMensal)];
 
     type MesRow = {
       mes: string;
@@ -3266,7 +3291,7 @@ export class AdminController {
       getComunidadeOrderRows(this.prisma, dataInicio, dataFim),
     ]);
 
-    const txRowsAll = [...txRowsTodas, ...comunidadeRowsRepasse];
+    const txRowsAll = [...txRowsTodas, ...dedupeComunidadeRows(txRowsTodas, comunidadeRowsRepasse)];
     const txRowsLucro = txRowsAll.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
     );
@@ -6663,6 +6688,17 @@ export class AdminController {
           take: 500,
         });
 
+        // ── Dedup: um pedido de comunidade pago gera TANTO um SubscriptionLinkOrder
+        // (id X) QUANTO uma Transaction real (descrição "... subOrder=X", criada pelo
+        // webhook). Sem tratar isso, ambos entram na lista e a transação aparece
+        // duplicada. Quando existe a transação real, descartamos o pedido sintético
+        // (comunidade_order_X) e mantemos apenas a transação (fonte da verdade).
+        const subOrderIdsComTransacao = new Set<string>();
+        for (const t of txRows) {
+          const m = (t.description ?? '').match(/subOrder=([^\s\]]+)/i);
+          if (m) subOrderIdsComTransacao.add(m[1]);
+        }
+
         // ── Normalize and merge ──────────────────────────────────────────────
         type CommunityRow = {
           id: string; valorBruto: number; valorLiquido: number; lucroAdmin: number;
@@ -6674,7 +6710,9 @@ export class AdminController {
           criadoEm: Date; atualizadoEm: Date;
         };
 
-        const slFormatted: CommunityRow[] = slOrders.map((o) => {
+        const slFormatted: CommunityRow[] = slOrders
+          .filter((o) => !subOrderIdsComTransacao.has(o.id))
+          .map((o) => {
           const valorBruto = Number(o.amountCharged);
           const pf = Number(o.platformFeeAmount);
           const taxaServicoTotal = taxaServicoFixa + taxaServicoCashback;

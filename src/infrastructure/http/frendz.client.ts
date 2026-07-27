@@ -335,6 +335,20 @@ export class FrendzClient implements IPaymentGateway {
   }> {
     return this.notYet('chargePixForLink');
   }
+  chargeBoletoForLink(
+    _t: string,
+    _i: any,
+  ): Promise<{
+    id: string;
+    status: string;
+    boletoUrl: string | null;
+    barcode: string | null;
+    digitableLine: string | null;
+    dueDate: string | null;
+    amount: number;
+  }> {
+    return this.notYet('chargeBoletoForLink');
+  }
   chargePaymentLink(
     _t: string,
     _i: any,

@@ -375,9 +375,9 @@ export class ApiDomClient implements IPaymentGateway {
       paymentConfig: {
         pix: input.aceitaPix ?? true,
         credit: input.aceitaCartao ?? true,
-        boleto: false,
+        boleto: input.aceitaBoleto ?? false,
         installments: input.maxInstallments ?? 1,
-        boletoExpireDay: 0,
+        boletoExpireDay: input.boletoExpireDay ?? 0,
         interest_rate_installment: input.interestRateInstallment ?? 0,
       },
     };
@@ -575,6 +575,125 @@ export class ApiDomClient implements IPaymentGateway {
       pixContent,
       qrCode,
       pixExpire,
+      amount: input.amount,
+    };
+  }
+
+  async chargeBoletoForLink(
+    domToken: string,
+    input: {
+      amount: number;
+      description: string;
+      customerName: string;
+      customerEmail: string;
+      customerDocument: string;
+      customerPhone: string;
+      documentType: 'CPF' | 'CNPJ';
+      codExternal: string;
+      expireDays: number;
+      address: {
+        street: string;
+        number: string;
+        neighborhood: string;
+        zipCode: string;
+        city: string;
+        uf: string;
+        complement?: string;
+      };
+    },
+  ): Promise<{
+    id: string;
+    status: string;
+    boletoUrl: string | null;
+    barcode: string | null;
+    digitableLine: string | null;
+    dueDate: string | null;
+    amount: number;
+  }> {
+    // DOM: cria transação de boleto direto em /transactions (payment_method=boleto)
+    const url = `${this.domRealApiUrl}/transactions`;
+
+    const due = new Date();
+    due.setDate(due.getDate() + Math.max(1, input.expireDays || 3));
+    const dueDate = due.toISOString().slice(0, 10); // YYYY-MM-DD
+
+    const body = {
+      cod_external: input.codExternal,
+      customer: {
+        name: input.customerName,
+        email: input.customerEmail,
+        document: input.customerDocument.replace(/\D/g, ''),
+        document_type: input.documentType,
+        mobile_phone: input.customerPhone.replace(/\D/g, ''),
+        // Endereço é OBRIGATÓRIO para boleto na DOM. street limitado a 40 chars.
+        address: {
+          street: (input.address.street ?? '').trim().slice(0, 40),
+          number: (input.address.number ?? '').trim().slice(0, 10) || 'S/N',
+          neighborhood: (input.address.neighborhood ?? '').trim().slice(0, 40),
+          zip_code: (input.address.zipCode ?? '').replace(/\D/g, ''),
+          city: (input.address.city ?? '').trim().slice(0, 40),
+          state: (input.address.uf ?? '').trim().toUpperCase(),
+          uf: (input.address.uf ?? '').trim().toUpperCase(),
+          complement: (input.address.complement ?? '').trim().slice(0, 40),
+        },
+      },
+      items: {
+        description: input.description,
+        price: input.amount,
+        quantity: 1,
+      },
+      payment: {
+        // DOM: dias até o vencimento do boleto (campo correto = boleto_due_days).
+        boleto: { boleto_due_days: Math.max(1, input.expireDays || 3) },
+        payment_method: 'boleto',
+        total: input.amount,
+      },
+    };
+
+    this.logger.log(`[DOM Boleto] POST ${url} amount=${input.amount} due=${dueDate}`);
+
+    const res = await firstValueFrom(
+      this.http.post<any>(url, body, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      }),
+    );
+
+    this.logger.log(`[DOM Boleto RAW] ${JSON.stringify(res.data)}`);
+
+    const root = this.getObject(res.data?.data ?? res.data);
+    // Alguns campos podem vir aninhados em root.boleto — busca nos dois lugares.
+    const boletoObj = this.getObject((root as any)?.boleto);
+    const pick = (k: string): string | null =>
+      this.pickString(root, k) ?? (boletoObj ? this.pickString(boletoObj, k) : null);
+
+    const id = pick('id') ?? pick('transaction_id');
+    if (!id) throw new Error('DOM Boleto: resposta sem id de transação');
+
+    const boletoUrl =
+      pick('boleto_url') ?? pick('boletoUrl') ?? pick('url') ?? pick('pdf') ?? null;
+    // DOM usa boleto_digitable_line (linha digitável); não há barcode separado.
+    const digitableLine =
+      pick('boleto_digitable_line') ??
+      pick('digitable_line') ??
+      pick('linha_digitavel') ??
+      pick('boleto_line') ??
+      null;
+    const barcode =
+      pick('barcode') ?? pick('bar_code') ?? pick('boleto_barcode') ?? null;
+    const respDueDate =
+      pick('due_date') ?? pick('boleto_due_date') ?? pick('expire_at') ?? pick('boleto_expire') ?? dueDate;
+
+    return {
+      id,
+      status: pick('status') ?? 'waiting',
+      boletoUrl,
+      barcode,
+      digitableLine,
+      dueDate: respDueDate,
       amount: input.amount,
     };
   }
