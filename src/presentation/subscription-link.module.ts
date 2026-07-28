@@ -40,5 +40,6 @@ import { VoucherService } from '../application/use-cases/voucher/voucher.service
     EmailService,
     VoucherService,
   ],
+  exports: [CreateSubscriptionLinkUseCase],
 })
 export class SubscriptionLinkModule {}

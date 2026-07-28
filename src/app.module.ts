@@ -10,6 +10,7 @@ import { RabbitMqModule } from './infrastructure/queue/rabbitmq.module';
 import { TransactionsModule } from './presentation/transactions.module';
 import { PaymentLinkModule } from './presentation/payment-link.module';
 import { BoletoModule } from './presentation/boleto.module';
+import { InternalBetaiModule } from './presentation/internal-betai.module';
 import { PlanModule } from './presentation/plan.module';
 import { SubscriptionModule } from './presentation/subscription.module';
 import { ReportModule } from './presentation/report.module';
@@ -53,6 +54,7 @@ import { VoucherModule } from './presentation/voucher.module';
     TransactionsModule,
     PaymentLinkModule,
     BoletoModule,
+    InternalBetaiModule,
     PlanModule,
     PixPlanModule,
     SubscriptionLinkModule,

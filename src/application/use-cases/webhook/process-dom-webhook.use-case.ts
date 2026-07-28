@@ -484,6 +484,12 @@ export class ProcessDomWebhookUseCase {
         if (existing.paymentLinkId) {
           void this.notifyPaymentLinkExternalWebhook(existing, 'purchase_approved');
         }
+
+        // BETAI: pagamento do link de ENTRADA (R$249,99, pagamento único) → provisiona
+        // a conta no Betai (cria conta + envia senha por e-mail). Gated pelo id do link.
+        if (existing.paymentLinkId && existing.paymentLinkId === String(process.env.BETAI_ENTRY_LINK_ID ?? '').trim()) {
+          void this.tryProvisionBetaiUser(data, existing);
+        }
       }
 
       // Reembolso/chargeback de link de pagamento: notificar webhook externo para revogar acesso
@@ -675,6 +681,43 @@ export class ProcessDomWebhookUseCase {
         `[DomWebhook][ebook] GET DOM transactions/${domPaymentId} falhou: ${e instanceof Error ? e.message : String(e)}`,
       );
       return null;
+    }
+  }
+
+  private async tryProvisionBetaiUser(data: RawDomData, existing: { customerEmail?: string | null; customerName?: string | null }): Promise<void> {
+    const url = String(process.env.BETAI_URL ?? '').replace(/\/+$/, '');
+    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    if (!url || !token) {
+      this.logger.warn(`[DomWebhook][betai] BETAI_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`);
+      return;
+    }
+    const email = data.customer?.email ?? existing.customerEmail ?? '';
+    const name = data.customer?.name ?? existing.customerName ?? '';
+    if (!email || !name) {
+      this.logger.warn(`[DomWebhook][betai] email ou nome ausente — provisão ignorada domPaymentId=${data.id}`);
+      return;
+    }
+    const endpoint = `${url}/internal/users/provision`;
+    this.logger.log(`[DomWebhook][betai] POST ${endpoint} email=${email} domPaymentId=${data.id}`);
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-internal-token': token },
+        body: JSON.stringify({
+          email,
+          name,
+          ...provisionDocPayload(data.customer?.document),
+          phone: data.customer?.mobile_phone,
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        this.logger.error(`[DomWebhook][betai] provision HTTP ${res.status}: ${text.slice(0, 300)}`);
+        return;
+      }
+      this.logger.log(`[DomWebhook][betai] provision OK email=${email} domPaymentId=${data.id}`);
+    } catch (e: any) {
+      this.logger.error(`[DomWebhook][betai] fetch falhou domPaymentId=${data.id}: ${e?.message}`);
     }
   }
 
