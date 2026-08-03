@@ -83,6 +83,7 @@ import { PlatformTaxasService } from '../../application/services/platform-taxas.
 import { getPlatformTaxaEffective, invalidatePlatformTaxaCache, buildClientTaxaTag, canonicalPlatformTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
 import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
+import { calculateBoletoFees } from '../../application/use-cases/boleto/boleto-fees.helper';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
@@ -584,10 +585,11 @@ const DOM_DIST_STATUS_LABEL: Record<DomStatusBucket, string> = {
   FAILED: 'Recusado',
 };
 
-type DomMethodBucket = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD';
+type DomMethodBucket = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
 
 function domPaymentMethodToBucket(method: string | undefined | null): DomMethodBucket {
   const m = String(method ?? 'pix').toLowerCase();
+  if (m.includes('boleto') || m.includes('ticket') || m.includes('bank_slip') || m.includes('bankslip')) return 'BOLETO';
   if (m.includes('debit')) return 'DEBIT_CARD';
   if (m.includes('credit') || m.includes('cartao') || m.includes('card')) return 'CREDIT_CARD';
   return 'PIX';
@@ -597,6 +599,7 @@ const DOM_DIST_METHOD_LABEL: Record<DomMethodBucket, string> = {
   PIX: 'PIX',
   CREDIT_CARD: 'Cartão de Crédito',
   DEBIT_CARD: 'Débito',
+  BOLETO: 'Boleto',
 };
 
 /** Mesmo padrão de datas que o hook admin em `use-transacoes` (listTransacoesAdmin). */
@@ -1128,6 +1131,10 @@ const DOM_CC_RATE_BY_INSTALLMENT_ADM: Record<number, number> = {
 /** Taxa MDR que a DOM cobra (somente a parte percentual, sem taxas fixas). */
 function mdrDomPct(paymentMethod: string, installments: number, amount: number, tag: string): number {
   const inst = Math.min(Math.max(installments || 1, 1), 12);
+  if (String(paymentMethod).toUpperCase().includes('BOLETO')) {
+    // Boleto: custo DOM é FIXO por boleto (TAXA_BOLETO_DOM + TAXA_BOLETO_DOM_FIXA), não % do valor.
+    return calculateBoletoFees(amount, tag).domFeeAmount;
+  }
   if (paymentMethod === 'DEBIT_CARD') return amount * 0.0349;
   if (paymentMethod === 'CREDIT_CARD') return amount * (DOM_CC_RATE_BY_INSTALLMENT_ADM[inst] ?? 0.0399);
   const mdrPix = getPlatformTaxaEffective(tag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
@@ -2993,12 +3000,37 @@ export class AdminController {
       totalParcelamentoSimIntPay += amount * masterRate;
     }
 
+    // Recorte só de boleto para os cards do relatório (quantidade, bruto, DOM, SimIntPay, lucro).
+    const boletoRows = txRowsLucro.filter((tx) =>
+      String((tx as { paymentMethod?: string | null }).paymentMethod ?? '').toUpperCase().includes('BOLETO'),
+    );
+    let boletoBruto = 0;
+    let boletoDom = 0;
+    let boletoSimIntPay = 0;
+    for (const tx of boletoRows) {
+      const amount = Number(tx.amount) || 0;
+      if (amount <= 0) continue;
+      const tag = consolidadoTagParaTransacao({ userId: tx.userId, description: tx.description ?? null }, platforms);
+      const f = calculateBoletoFees(amount, tag);
+      boletoBruto += amount;
+      boletoDom += f.domFeeAmount;
+      boletoSimIntPay += f.platformFeeTotal;
+    }
+    const boleto = {
+      quantidade: boletoRows.length,
+      valorBruto: Number(boletoBruto.toFixed(2)),
+      taxaDom: Number(boletoDom.toFixed(2)),
+      taxaSimIntPay: Number(boletoSimIntPay.toFixed(2)),
+      lucro: Number((boletoSimIntPay - boletoDom).toFixed(2)),
+    };
+
     const payload: Record<string, unknown> = {
       totalTransacoes,
       valorBruto: brutoTotal,
       taxaSimInt,
       taxaDom,
       taxaDomMdr,
+      boleto,
       taxaServico: taxaServicoConsolidado,
       custoCashback,
       taxaParcelamentoBruto: Math.round(totalParcelamentoBruto * 100) / 100,
@@ -3494,7 +3526,7 @@ export class AdminController {
       mapCount.set(bucket, (mapCount.get(bucket) ?? 0) + 1);
     }
     const total = txs.length;
-    const buckets: DomMethodBucket[] = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD'];
+    const buckets: DomMethodBucket[] = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'];
     const items = buckets
       .map((codigo) => {
         const quantidade = mapCount.get(codigo) ?? 0;
@@ -6369,12 +6401,12 @@ export class AdminController {
         receita += bruto;
         lucro += bruto * (1 - liquidez) - taxaFixa - taxaCashback;
         const method = (t.paymentMethod ?? 'PIX').toUpperCase();
-        const bucket = method === 'PIX' ? 'PIX' : method === 'DEBIT_CARD' ? 'DEBIT_CARD' : 'CREDIT_CARD';
+        const bucket = method === 'PIX' ? 'PIX' : method === 'DEBIT_CARD' ? 'DEBIT_CARD' : method === 'BOLETO' ? 'BOLETO' : 'CREDIT_CARD';
         const prev = byMethod.get(bucket) ?? { quantidade: 0, valor: 0 };
         byMethod.set(bucket, { quantidade: prev.quantidade + 1, valor: prev.valor + bruto });
       }
-      const LABELS: Record<string, string> = { PIX: 'Pix', CREDIT_CARD: 'Crédito', DEBIT_CARD: 'Débito' };
-      const distribuicaoMetodo = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD']
+      const LABELS: Record<string, string> = { PIX: 'Pix', CREDIT_CARD: 'Crédito', DEBIT_CARD: 'Débito', BOLETO: 'Boleto' };
+      const distribuicaoMetodo = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO']
         .map((c) => { const e = byMethod.get(c) ?? { quantidade: 0, valor: 0 }; return { codigo: c, nome: LABELS[c], quantidade: e.quantidade, valor: Number(e.valor.toFixed(2)), percentual: group.length > 0 ? Number(((e.quantidade / group.length) * 100).toFixed(2)) : 0 }; })
         .filter((r) => r.quantidade > 0);
       return { receita: Number(receita.toFixed(2)), lucro: Number(lucro.toFixed(2)), quantidade: group.length, distribuicaoMetodo };
@@ -6748,11 +6780,13 @@ export class AdminController {
           const valorBruto = Number(t.amount);
           const isCompleted = t.status === 'COMPLETED';
           const installments = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
-          const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : 'credit_card';
+          const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : t.paymentMethod === 'BOLETO' ? 'boleto' : 'credit_card';
           const taxaDom = isCompleted ? Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStr, installments, tenantTag: upperTag }).toFixed(2)) : 0;
           let taxaSimIntPay = 0;
           if (isCompleted) {
-            if (pmStr === 'credit_card') {
+            if (pmStr === 'boleto') {
+              taxaSimIntPay = Number(calculateBoletoFees(valorBruto, upperTag).platformFeeTotal.toFixed(2));
+            } else if (pmStr === 'credit_card') {
               const linkPct = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
               const linkFixo = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
               const domPct1x = getPlatformTaxaEffective(upperTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
@@ -6781,7 +6815,7 @@ export class AdminController {
             id: t.id,
             valorBruto,
             valorLiquido,
-            lucroAdmin: isCompleted ? Number((taxaSimIntPay - fixedFee - cashbackDeduction).toFixed(2)) : 0,
+            lucroAdmin: isCompleted ? Number((taxaSimIntPay - (pmStr === 'boleto' ? taxaDom : fixedFee) - cashbackDeduction).toFixed(2)) : 0,
             taxaDom,
             taxaSimIntPay,
             taxaFixa,
@@ -7008,13 +7042,16 @@ export class AdminController {
       const isCompleted = t.status === 'COMPLETED';
       const installments = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
 
-      const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : 'credit_card';
+      const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : t.paymentMethod === 'BOLETO' ? 'boleto' : 'credit_card';
       const taxaDom = isCompleted ? Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStr, installments, tenantTag: upperTag }).toFixed(2)) : 0;
 
       // taxaSimIntPay: calculada por método de pagamento (não mais pela LIQUIDEZ genérica)
       let taxaSimIntPay = 0;
       if (isCompleted) {
-        if (pmStr === 'credit_card') {
+        if (pmStr === 'boleto') {
+          // Boleto: taxa SimIntPay = TAXA_BOLETO_FIXA + TAXA_BOLETO_TRANSACAO (fixa por boleto). DOM já sai no taxaDom.
+          taxaSimIntPay = Number(calculateBoletoFees(valorBruto, upperTag).platformFeeTotal.toFixed(2));
+        } else if (pmStr === 'credit_card') {
           // Parcela do vendedor (independente de parcelas): (TAXA_LINK_PERCENT - MDR_CC_1X) + (TAXA_LINK_FIXA - TAXA_FIXA_TRANSACAO)
           const linkPct  = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
           const linkFixo = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_FIXA',    PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
@@ -7050,8 +7087,10 @@ export class AdminController {
 
       const cashbackDeduction = valorBruto * (cashbackFee / 100);
       const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
-      // lucroAdmin = taxaSimIntPay (receita SimIntPay) - custo DOM fixo - cashback repassado
-      const lucroAdmin = isCompleted ? Number((taxaSimIntPay - fixedFee - cashbackDeduction).toFixed(2)) : 0;
+      // lucroAdmin = taxaSimIntPay (receita SimIntPay) - custo DOM - cashback repassado.
+      // No boleto o custo DOM é o taxaDom (3,49+1), não o fixo do PIX.
+      const custoDomLucro = pmStr === 'boleto' ? taxaDom : fixedFee;
+      const lucroAdmin = isCompleted ? Number((taxaSimIntPay - custoDomLucro - cashbackDeduction).toFixed(2)) : 0;
       const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
       // Alguns registros antigos/com erro ficaram COMPLETED com netAmount=0.
       // Nesses casos, exibimos o líquido calculado pela liquidez da plataforma.
@@ -7101,7 +7140,9 @@ export class AdminController {
             ? `Salvo no BD: R$ ${valorLiquido.toFixed(2)}`
             : `(${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)}) - Fixo ${fixedFee.toFixed(2)} - Cb ${cashbackFee.toFixed(2)}% = ${valorLiquido.toFixed(2)}`,
           lucroAdmin: isCompleted
-            ? pmStr === 'credit_card'
+            ? pmStr === 'boleto'
+              ? `Boleto SimIntPay(${taxaSimIntPay.toFixed(2)}) - DOM(${taxaDom.toFixed(2)}) - Cb(${cashbackDeduction.toFixed(2)}) = ${lucroAdmin.toFixed(2)}`
+              : pmStr === 'credit_card'
               ? `CC SimIntPay(${taxaSimIntPay.toFixed(2)}) - DOM fixo(${fixedFee.toFixed(2)}) - Cb(${cashbackDeduction.toFixed(2)}) = ${lucroAdmin.toFixed(2)}`
               : pmStr === 'debit_card'
               ? `Débito SimIntPay(${taxaSimIntPay.toFixed(2)}) - Fixo(${fixedFee.toFixed(2)}) - Cb(${cashbackDeduction.toFixed(2)}) = ${lucroAdmin.toFixed(2)}`

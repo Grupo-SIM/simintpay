@@ -47,6 +47,12 @@ export function estimateDomFeeReais(input: {
   const pm = String(input.paymentMethod ?? 'pix').toLowerCase();
   const inst = Math.min(Math.max(Number(input.installments ?? 1) || 1, 1), 12);
 
+  if (pm.includes('boleto')) {
+    // Boleto: custo DOM fixo por boleto pago = TAXA_BOLETO_DOM + TAXA_BOLETO_DOM_FIXA (padrão 3,49 + 1,00).
+    const domFixa = getPlatformTaxaEffective(tag, 'TAXA_BOLETO_DOM', PLATFORM_TAXA_DEFAULTS.TAXA_BOLETO_DOM);
+    const domTransacao = getPlatformTaxaEffective(tag, 'TAXA_BOLETO_DOM_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_BOLETO_DOM_FIXA);
+    return round2(domFixa + domTransacao);
+  }
   if (pm.includes('debit')) {
     return round2(amount * 0.0349 + 1.0);
   }
