@@ -416,11 +416,16 @@ export class ListTransactionsUseCase {
     }
 
     if (input.query.metodo) {
+      const m = String(input.query.metodo).toUpperCase();
       and.push({
         paymentMethod:
-          input.query.metodo === 'PIX'
+          m === 'PIX'
             ? PaymentMethod.PIX
-            : PaymentMethod.CREDIT_CARD,
+            : m === 'BOLETO'
+              ? PaymentMethod.BOLETO
+              : m === 'DEBIT_CARD'
+                ? PaymentMethod.DEBIT_CARD
+                : PaymentMethod.CREDIT_CARD,
       });
     }
 
