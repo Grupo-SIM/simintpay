@@ -6948,8 +6948,10 @@ export class AdminController {
 
     const adminMargin = 1 - liquidityFactor;
 
-    // DOM fee deductions (R$1+R$3) continuam isentos para RENOVADA/BOSQUE — net amount já os desconta.
-    const TAXA_DOM_FEE_EXEMPT = new Set(['RENOVADA', 'BOSQUE']);
+    // DOM fee deductions (R$1+R$3): só BOSQUE é isento, alinhado ao `isExempt` de
+    // /relatorios/plataforma-consolidado. RENOVADA paga os fees por transação — mantê-la
+    // isenta aqui zerava as colunas Cashback/Taxa Fixa e inflava o Lucro/Prejuízo em R$4/tx.
+    const TAXA_DOM_FEE_EXEMPT = new Set(['BOSQUE']);
     // TAXA_SERVICO (R$4 Sim Int Pay): RENOVADA e BOSQUE cobram a partir de 2026-05-29 (trava por getTaxaServicoEffectiveDate).
     const TAXA_SERVICO_RATE_EXEMPT = new Set<string>([]);
     const taxaServicoFixa = TAXA_DOM_FEE_EXEMPT.has(upperTag)
