@@ -6982,10 +6982,10 @@ export class AdminController {
 
     const adminMargin = 1 - liquidityFactor;
 
-    // DOM fee deductions (R$1+R$3): só BOSQUE é isento, alinhado ao `isExempt` de
-    // /relatorios/plataforma-consolidado. RENOVADA paga os fees por transação — mantê-la
-    // isenta aqui zerava as colunas Cashback/Taxa Fixa e inflava o Lucro/Prejuízo em R$4/tx.
-    const TAXA_DOM_FEE_EXEMPT = new Set(['BOSQUE']);
+    // DOM fee deductions (R$1+R$3): nenhuma plataforma é isenta, alinhado a
+    // /relatorios/plataforma-consolidado. BOSQUE era isenta aqui, o que zerava as colunas
+    // Cashback/Taxa Transação - DOM e inflava o Lucro/Prejuízo em R$4/tx — agora segue a RENOVADA.
+    const TAXA_DOM_FEE_EXEMPT = new Set<string>([]);
     // TAXA_SERVICO (R$4 Sim Int Pay): RENOVADA e BOSQUE cobram a partir de 2026-05-29 (trava por getTaxaServicoEffectiveDate).
     const TAXA_SERVICO_RATE_EXEMPT = new Set<string>([]);
     const taxaServicoFixa = TAXA_DOM_FEE_EXEMPT.has(upperTag)
@@ -7705,14 +7705,14 @@ export class AdminController {
     if (endDate) dateFilter.lte = parseYmdSp(endDate).endOf('day').toDate();
     const hasDate = true;
 
-    // Only BOSQUE is exempt from all per-transaction fees.
-    // RENOVADA charges DOM per-transaction fees (R$1 fixo + R$3 cashback) and SimInt R$4/tx since 2026-05-29.
-    const isExempt = tag === 'BOSQUE';
-
+    // Nenhuma plataforma é isenta dos fees por transação. BOSQUE era isenta aqui, o que zerava
+    // "Taxa por Transação - DOM", "Taxa Cashback - DOM" e deixava "Taxa - Sim Int Pay (%)" sem
+    // descontar o MDR da DOM. Agora BOSQUE segue exatamente a mesma conta da RENOVADA:
+    // DOM cobra R$1 fixo + R$3 cashback por transação e a SimInt repassa esses mesmos R$4.
     const TAXA_LINK_PCT  = getPlatformTaxaEffective(tag, 'TAXA_LINK_PERCENT',   PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-    const TAXA_LINK_FIXA = isExempt ? 0 : getPlatformTaxaEffective(tag, 'TAXA_LINK_FIXA',      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
-    const TAXA_FIXA      = isExempt ? 0 : getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-    const TAXA_CASHBACK  = isExempt ? 0 : getPlatformTaxaEffective(tag, 'TAXA_CASHBACK',       PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const TAXA_LINK_FIXA = getPlatformTaxaEffective(tag, 'TAXA_LINK_FIXA',      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
+    const TAXA_FIXA      = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const TAXA_CASHBACK  = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK',       PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
     const LIQUIDEZ       = getPlatformTaxaEffective(tag, 'LIQUIDEZ',            PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
     // Taxa de serviço (R$4/tx) — usada no repasse direto (app: netAmount − taxaServico = amountWithoutAllFee).
     const TAXA_SERVICO_RATE = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
@@ -7768,9 +7768,9 @@ export class AdminController {
       // taxaSimIntFixa = per-tx fee que SimInt repassa à DOM (R$1 fixo + R$3 cashback por transação).
       // Só para transações normais — maquineta não tem esse fee fixo.
       const taxaSimIntFixa = (TAXA_FIXA + TAXA_CASHBACK) * qtdNormal;
-      // Bosque: SimIntPay % = só a margem de liquidez (isExempt). Para demais: desconta MDR DOM e fee fixo.
-      const taxaSimIntPctNetNormal = isExempt ? taxaSimInt : (taxaSimInt - taxaSimIntFixa) - taxaMDRDomNormal;
-      const totalTaxasSimIntNormal = isExempt ? taxaSimInt : taxaSimInt - taxaMDRDomNormal;
+      // SimIntPay % = margem de liquidez líquida: desconta o fee fixo repassado à DOM e o MDR DOM.
+      const taxaSimIntPctNetNormal = (taxaSimInt - taxaSimIntFixa) - taxaMDRDomNormal;
+      const totalTaxasSimIntNormal = taxaSimInt - taxaMDRDomNormal;
 
       // ── Maquineta: repasse = netAmount real; SimInt fica com 9% do líquido; MDR é custo DOM. ──
       // totalTaxasSimInt_maq = bruto − netAmount garante repasse = netAmount (na fórmula bruto − totalTaxasSimInt).
