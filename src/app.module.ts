@@ -33,6 +33,7 @@ import { CheckoutModule } from './presentation/checkout.module';
 import { ClienteModule } from './presentation/cliente.module';
 import { ClienteDashboardModule } from './modules/cliente/cliente-dashboard.module';
 import { VoucherModule } from './presentation/voucher.module';
+import { ReturnBetModule } from './modules/return-bet/return-bet.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { VoucherModule } from './presentation/voucher.module';
     ClienteModule,
     ClienteDashboardModule,
     VoucherModule,
+    ReturnBetModule,
   ],
   providers: [
     {
