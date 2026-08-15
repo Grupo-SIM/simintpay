@@ -24,6 +24,10 @@ import {
   DomRequestWithdrawOutput,
   DomListTransactionsOutput,
   DomListWithdrawsOutput,
+  StoredPaymentChargeInput,
+  StoredPaymentChargeOutput,
+  SubscriptionBillingSnapshot,
+  SubscriptionPlanChangeOutput,
 } from '../../core/services/payment-gateway.interface';
 import {
   FRENDZ_API_BASE_URL,
@@ -372,6 +376,30 @@ export class FrendzClient implements IPaymentGateway {
   }
   getSubscription(_t: string, _id: string): Promise<unknown> {
     return this.notYet('getSubscription');
+  }
+  getSubscriptionBillingSnapshot(
+    _t: string,
+    _id: string,
+  ): Promise<SubscriptionBillingSnapshot> {
+    void _t;
+    void _id;
+    return this.notYet('getSubscriptionBillingSnapshot');
+  }
+  chargeSubscriptionPaymentMethod(
+    _t: string,
+    _input: StoredPaymentChargeInput,
+  ): Promise<StoredPaymentChargeOutput> {
+    void _t;
+    void _input;
+    return this.notYet('chargeSubscriptionPaymentMethod');
+  }
+  changeSubscriptionPlan(
+    _t: string,
+    _input: { subscriptionId: string; planId: string },
+  ): Promise<SubscriptionPlanChangeOutput> {
+    void _t;
+    void _input;
+    return this.notYet('changeSubscriptionPlan');
   }
   cancelSubscription(_t: string, _id: string): Promise<void> {
     return this.notYet('cancelSubscription');

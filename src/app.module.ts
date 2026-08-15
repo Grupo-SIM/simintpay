@@ -34,6 +34,7 @@ import { ClienteModule } from './presentation/cliente.module';
 import { ClienteDashboardModule } from './modules/cliente/cliente-dashboard.module';
 import { VoucherModule } from './presentation/voucher.module';
 import { ReturnBetModule } from './modules/return-bet/return-bet.module';
+import { BillingModule } from './presentation/billing.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { ReturnBetModule } from './modules/return-bet/return-bet.module';
     ClienteDashboardModule,
     VoucherModule,
     ReturnBetModule,
+    BillingModule,
   ],
   providers: [
     {

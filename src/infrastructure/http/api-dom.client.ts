@@ -21,6 +21,10 @@ import {
   DomWithdrawItem,
   DomListWithdrawsOutput,
   IPaymentGateway,
+  StoredPaymentChargeInput,
+  StoredPaymentChargeOutput,
+  SubscriptionBillingSnapshot,
+  SubscriptionPlanChangeOutput,
 } from '../../core/services/payment-gateway.interface';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
@@ -877,6 +881,136 @@ export class ApiDomClient implements IPaymentGateway {
       return root.data;
     }
     return res.data;
+  }
+
+  async getSubscriptionBillingSnapshot(
+    domToken: string,
+    id: string,
+  ): Promise<SubscriptionBillingSnapshot> {
+    const raw = this.getObject(await this.getSubscription(domToken, id));
+    if (!raw) throw new BadRequestException('Assinatura inválida na DOM');
+
+    const recurring = this.getObject(raw.auto_recurring);
+    const card = this.getObject(raw.card);
+    const cardToken = this.pickString(card, 'token');
+    if (!cardToken) {
+      throw new BadRequestException(
+        'A assinatura não possui token de cartão disponível para cobrança avulsa',
+      );
+    }
+
+    const recurringAmount = this.pickNumber(recurring, 'value');
+    if (recurringAmount == null || recurringAmount < 0) {
+      throw new BadRequestException(
+        'A assinatura não possui valor recorrente válido',
+      );
+    }
+
+    return {
+      id: this.pickString(raw, 'id') ?? id,
+      status: this.pickString(raw, 'status') ?? 'unknown',
+      planId: this.pickString(raw, 'plan_id'),
+      customerId: this.pickString(raw, 'customer_id'),
+      cardToken,
+      recurringAmount,
+      frequencyType: this.pickString(recurring, 'frequency_type') ?? 'MONTH',
+      frequency: Math.max(
+        1,
+        Math.round(this.pickNumber(recurring, 'frequency') ?? 1),
+      ),
+      nextInvoiceAt: this.pickString(raw, 'next_date_invoice'),
+    };
+  }
+
+  async chargeSubscriptionPaymentMethod(
+    domToken: string,
+    input: StoredPaymentChargeInput,
+  ): Promise<StoredPaymentChargeOutput> {
+    const subscription = await this.getSubscriptionBillingSnapshot(
+      domToken,
+      input.subscriptionId,
+    );
+    const url = `${this.domRealApiUrl}/transactions`;
+    const body = {
+      cod_external: input.codExternal,
+      items: [
+        { description: input.description, price: input.amount, quantity: 1 },
+      ],
+      payment: {
+        total: input.amount,
+        payment_method: 'credit_card',
+        credit_card: {
+          installments: 1,
+          token: subscription.cardToken,
+          upsell: true,
+        },
+      },
+      ...(input.postbackUrl ? { postbackUrl: input.postbackUrl } : {}),
+      metadata: JSON.stringify({
+        billing: true,
+        subscriptionId: input.subscriptionId,
+      }),
+    };
+
+    const res = await firstValueFrom(
+      this.http.post<unknown>(url, body, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': input.idempotencyKey,
+        },
+      }),
+    );
+    const response = this.getObject(res.data);
+    const root = this.getObject(response?.data) ?? response;
+    const paymentId = this.pickString(root, 'id');
+    if (!paymentId) throw new BadRequestException('Cobrança DOM retornou sem id');
+
+    const liquidCents = this.pickNumber(root, 'liquid_amount');
+    return {
+      id: paymentId,
+      status: this.pickString(root, 'status') ?? 'pending',
+      amount: input.amount,
+      netAmount: liquidCents == null ? null : liquidCents / 100,
+    };
+  }
+
+  async changeSubscriptionPlan(
+    domToken: string,
+    input: { subscriptionId: string; planId: string },
+  ): Promise<SubscriptionPlanChangeOutput> {
+    const url = `${this.domRealApiUrl}/recurrence/subscriptions/${input.subscriptionId}/change-plan`;
+    const res = await firstValueFrom(
+      this.http.post<unknown>(
+        url,
+        { plan_id: input.planId },
+        {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
+    const response = this.getObject(res.data);
+    const root = this.getObject(response?.data) ?? response;
+    const newSubscriptionId =
+      this.pickString(root, 'id') ??
+      this.pickString(root, 'subscription_id') ??
+      this.pickString(root, 'subscriber_id');
+    if (!newSubscriptionId) {
+      throw new BadRequestException(
+        'Migração de plano DOM não retornou o novo id da assinatura',
+      );
+    }
+
+    return {
+      subscriptionId: newSubscriptionId,
+      planId: input.planId,
+      status: this.pickString(root, 'status') ?? undefined,
+    };
   }
 
   async cancelSubscription(domToken: string, id: string): Promise<void> {

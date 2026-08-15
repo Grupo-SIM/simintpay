@@ -165,6 +165,40 @@ export type DomSubscriptionOutput = {
   createdAt?: string;
 };
 
+/** Snapshot neutro necessário para reajustar uma recorrência existente. */
+export type SubscriptionBillingSnapshot = {
+  id: string;
+  status: string;
+  planId: string | null;
+  customerId: string | null;
+  cardToken: string;
+  recurringAmount: number;
+  frequencyType: string;
+  frequency: number;
+  nextInvoiceAt: string | null;
+};
+
+export type StoredPaymentChargeInput = {
+  subscriptionId: string;
+  amount: number;
+  description: string;
+  codExternal: string;
+  idempotencyKey: string;
+  postbackUrl?: string;
+};
+
+export type StoredPaymentChargeOutput = {
+  id: string;
+  status: string;
+  amount: number;
+  netAmount?: number | null;
+};
+
+export type SubscriptionPlanChangeOutput = {
+  subscriptionId: string;
+  planId: string;
+  status?: string;
+};
 
 export type DomTransactionItem = {
   id: string;
@@ -344,6 +378,18 @@ export interface IPaymentGateway {
   ): Promise<{ items: DomSubscriptionOutput[]; total?: number }>;
   /** Detalhe bruto da assinatura na API DOM (recurrence/subscriptions/:id). */
   getSubscription(domToken: string, id: string): Promise<unknown>;
+  getSubscriptionBillingSnapshot(
+    domToken: string,
+    id: string,
+  ): Promise<SubscriptionBillingSnapshot>;
+  chargeSubscriptionPaymentMethod(
+    domToken: string,
+    input: StoredPaymentChargeInput,
+  ): Promise<StoredPaymentChargeOutput>;
+  changeSubscriptionPlan(
+    domToken: string,
+    input: { subscriptionId: string; planId: string },
+  ): Promise<SubscriptionPlanChangeOutput>;
   cancelSubscription(domToken: string, id: string): Promise<void>;
   getDomSummary(domToken: string): Promise<any>;
   getSpecificMachineTransactions(domToken: string): Promise<any>;
@@ -357,7 +403,13 @@ export interface IPaymentGateway {
 
   listDomTransactions(
     domToken: string,
-    input: { page: number; limit: number; status?: string; begin_date?: string; end_date?: string },
+    input: {
+      page: number;
+      limit: number;
+      status?: string;
+      begin_date?: string;
+      end_date?: string;
+    },
   ): Promise<DomListTransactionsOutput>;
 
   listAllTransactionsDirectlyFromDom(params: {
@@ -379,7 +431,13 @@ export interface IPaymentGateway {
     domToken: string,
     input: {
       planId: string;
-      customer: { name: string; email: string; document: string; phone: string; documentType: 'CPF' | 'CNPJ' };
+      customer: {
+        name: string;
+        email: string;
+        document: string;
+        phone: string;
+        documentType: 'CPF' | 'CNPJ';
+      };
       card: {
         token: string;
         brand?: string;
