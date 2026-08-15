@@ -6,11 +6,19 @@ const baseDto: any = { nome: 'P', preco: 20, tipo: 'MENSAL' };
 function build(owner: any) {
   const plans = {
     create: jest.fn().mockResolvedValue({
-      id: 'p1', name: 'P', description: null, price: 20, isActive: true,
-      webhookUrl: null, redirectUrl: null, createdAt: new Date(),
+      id: 'p1',
+      name: 'P',
+      description: null,
+      price: 20,
+      isActive: true,
+      webhookUrl: null,
+      redirectUrl: null,
+      createdAt: new Date(),
     }),
   } as any;
-  const gateway = { createPlan: jest.fn().mockResolvedValue({ id: 'dom1' }) } as any;
+  const gateway = {
+    createPlan: jest.fn().mockResolvedValue({ id: 'dom1' }),
+  } as any;
   const users = { findById: jest.fn().mockResolvedValue(owner) } as any;
   process.env.DOM_TOKEN = 'tok';
   return { uc: new CreatePlanUseCase(plans, gateway, users), plans, gateway };
@@ -18,24 +26,54 @@ function build(owner: any) {
 
 describe('CreatePlanUseCase (cliente)', () => {
   it('bloqueia cliente PENDING', async () => {
-    const { uc } = build({ id: 'u1', email: 'v@v.com', clientStatus: 'PENDING' });
-    await expect(uc.execute({ userId: 'u1', dto: baseDto })).rejects.toThrow(ForbiddenException);
+    const { uc } = build({
+      id: 'u1',
+      email: 'v@v.com',
+      clientStatus: 'PENDING',
+    });
+    await expect(uc.execute({ userId: 'u1', dto: baseDto })).rejects.toThrow(
+      ForbiddenException,
+    );
   });
 
   it('bloqueia valor < 14,99 para cliente APPROVED', async () => {
-    const { uc } = build({ id: 'u1', email: 'v@v.com', clientStatus: 'APPROVED' });
-    await expect(uc.execute({ userId: 'u1', dto: { ...baseDto, preco: 10 } })).rejects.toThrow(BadRequestException);
+    const { uc } = build({
+      id: 'u1',
+      email: 'v@v.com',
+      clientStatus: 'APPROVED',
+    });
+    await expect(
+      uc.execute({ userId: 'u1', dto: { ...baseDto, preco: 10 } }),
+    ).rejects.toThrow(BadRequestException);
   });
 
-  it('cria para cliente APPROVED ignorando plataforma enviada (plataformas vazias)', async () => {
-    const { uc, plans } = build({ id: 'u1', email: 'v@v.com', clientStatus: 'APPROVED' });
-    await uc.execute({ userId: 'u1', dto: { ...baseDto, plataformas: ['RENOVADA'] } });
-    expect(plans.create).toHaveBeenCalledWith(expect.objectContaining({ plataformas: [] }));
+  it('cria para cliente APPROVED ignorando plataforma enviada e agrupando em SIMINTPAY', async () => {
+    const { uc, plans } = build({
+      id: 'u1',
+      email: 'v@v.com',
+      clientStatus: 'APPROVED',
+    });
+    await uc.execute({
+      userId: 'u1',
+      dto: { ...baseDto, plataformas: ['RENOVADA'] },
+    });
+    expect(plans.create).toHaveBeenCalledWith(
+      expect.objectContaining({ plataformas: ['SIMINTPAY'] }),
+    );
   });
 
   it('conta não-cliente mantém comportamento atual (usa plataforma enviada)', async () => {
-    const { uc, plans } = build({ id: 'u1', email: 'v@v.com', clientStatus: null });
-    await uc.execute({ userId: 'u1', dto: { ...baseDto, plataformas: ['RENOVADA'] } });
-    expect(plans.create).toHaveBeenCalledWith(expect.objectContaining({ plataformas: ['RENOVADA'] }));
+    const { uc, plans } = build({
+      id: 'u1',
+      email: 'v@v.com',
+      clientStatus: null,
+    });
+    await uc.execute({
+      userId: 'u1',
+      dto: { ...baseDto, plataformas: ['RENOVADA'] },
+    });
+    expect(plans.create).toHaveBeenCalledWith(
+      expect.objectContaining({ plataformas: ['RENOVADA'] }),
+    );
   });
 });

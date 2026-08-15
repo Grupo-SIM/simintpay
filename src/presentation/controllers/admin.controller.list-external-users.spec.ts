@@ -1,6 +1,11 @@
 // `uuid` (v13) é ESM-only e o jest não o transforma por padrão; como este teste não
 // exercita nada que use uuid, mockamos para destravar a cadeia de imports do controller.
-jest.mock('uuid', () => ({ v4: () => 'test-uuid', v5: () => 'test-uuid', MAX: '', NIL: '' }));
+jest.mock('uuid', () => ({
+  v4: () => 'test-uuid',
+  v5: () => 'test-uuid',
+  MAX: '',
+  NIL: '',
+}));
 
 import { AdminController } from './admin.controller';
 
@@ -27,13 +32,18 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
 
   // A query de clientes diretos é a única com um filtro { role: 'USER' } dentro do AND.
   const isClientQuery = (arg: any): boolean =>
-    Array.isArray(arg?.where?.AND) && arg.where.AND.some((c: any) => c && c.role === 'USER');
+    Array.isArray(arg?.where?.AND) &&
+    arg.where.AND.some((c: any) => c && c.role === 'USER');
 
   function makeMockPrisma(clientUsers: any[]) {
     return {
       externalPlatformUser: { findMany: jest.fn().mockResolvedValue([]) },
       user: {
-        findMany: jest.fn().mockImplementation(async (arg: any) => (isClientQuery(arg) ? clientUsers : [])),
+        findMany: jest
+          .fn()
+          .mockImplementation(async (arg: any) =>
+            isClientQuery(arg) ? clientUsers : [],
+          ),
       },
       transaction: { findMany: jest.fn().mockResolvedValue([]) },
       subscriptionLink: { findMany: jest.fn().mockResolvedValue([]) },
@@ -43,7 +53,13 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
 
   function invoke(
     prisma: any,
-    args: { platform?: string; page?: string; pageSize?: string; deleted?: string; search?: string } = {},
+    args: {
+      platform?: string;
+      page?: string;
+      pageSize?: string;
+      deleted?: string;
+      search?: string;
+    } = {},
   ) {
     const ctx = { prisma } as any;
     return (AdminController.prototype as any).listExternalUsers.call(
@@ -68,7 +84,10 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
     expect(row.vinculado).toBe(true);
     expect(row.simpayUser?.email).toBe('tz@lucasebarbara.tzviagens.com.br');
     expect(row.platformEntries).toEqual([
-      expect.objectContaining({ platform: 'simintpay', email: 'tz@lucasebarbara.tzviagens.com.br' }),
+      expect.objectContaining({
+        platform: 'simintpay',
+        email: 'tz@lucasebarbara.tzviagens.com.br',
+      }),
     ]);
   });
 
@@ -78,21 +97,29 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
 
     expect(res.data).toHaveLength(1);
     expect(res.data[0].id).toBe('user-tz-1');
-    expect(prisma.user.findMany.mock.calls.some(([a]: any[]) => isClientQuery(a))).toBe(true);
+    expect(
+      prisma.user.findMany.mock.calls.some(([a]: any[]) => isClientQuery(a)),
+    ).toBe(true);
   });
 
   it('NÃO busca clientes diretos ao filtrar por plataforma externa', async () => {
     const prisma = makeMockPrisma([directClient]);
     const res = await invoke(prisma, { platform: 'pagatg' });
 
-    expect(prisma.user.findMany.mock.calls.some(([a]: any[]) => isClientQuery(a))).toBe(false);
+    expect(
+      prisma.user.findMany.mock.calls.some(([a]: any[]) => isClientQuery(a)),
+    ).toBe(false);
     expect(res.data).toHaveLength(0);
   });
 
-  it('NÃO busca clientes diretos na aba de contas excluídas', async () => {
+  it('busca clientes diretos inativos na aba de contas excluídas', async () => {
     const prisma = makeMockPrisma([directClient]);
     await invoke(prisma, { deleted: 'true' });
 
-    expect(prisma.user.findMany.mock.calls.some(([a]: any[]) => isClientQuery(a))).toBe(false);
+    const clientCall = prisma.user.findMany.mock.calls.find(([arg]: any[]) =>
+      isClientQuery(arg),
+    );
+    expect(clientCall).toBeDefined();
+    expect(clientCall?.[0]?.where?.AND).toContainEqual({ isActive: false });
   });
 });
