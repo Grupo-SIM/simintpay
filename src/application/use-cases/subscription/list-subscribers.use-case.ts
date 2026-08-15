@@ -46,12 +46,12 @@ export class ListSubscribersUseCase {
       const hasNextPage = result.items.length > pageSize;
       const pageItems = result.items.slice(0, pageSize);
 
-      // Resolve platform label for each subscription via SubscriptionLink.domPlanId
+      // Resolve platform metadata for each subscription via its DOM plan ID.
       const planIds = pageItems
         .map((s: DomSubscriptionOutput) => s.planId)
         .filter((id): id is string => !!id);
 
-      const linksByPlanId = await this.resolveSubscriptionLinks(planIds);
+      const sourcesByPlanId = await this.resolveSubscriptionSources(planIds);
 
       const domIds = pageItems.map((s: DomSubscriptionOutput) => s.id).filter((id): id is string => !!id);
 
@@ -59,7 +59,7 @@ export class ListSubscribersUseCase {
       const pauseMap = await this.resolvePauses(domIds, input.userId, isAdmin);
 
       const mapped = pageItems.map((s: DomSubscriptionOutput) => {
-        const link = s.planId ? linksByPlanId.get(s.planId) : undefined;
+        const source = s.planId ? sourcesByPlanId.get(s.planId) : undefined;
         const pause = s.id ? pauseMap.get(s.id) : undefined;
         return {
           id: s.id,
@@ -77,7 +77,8 @@ export class ListSubscribersUseCase {
           planNome: s.description ?? null,
           cliente: s.customer ?? null,
           criadoEm: s.createdAt ?? null,
-          plataforma: this.derivePlatformLabel(link, s),
+          plataforma: this.derivePlatformLabel(source, s),
+          plataformas: source?.plataformas ?? [],
           // Campos de pausa — null quando não pausada (fluxo normal inalterado)
           isPaused: !!pause,
           remainingDays: pause?.remainingDays ?? null,
@@ -161,48 +162,89 @@ export class ListSubscribersUseCase {
     }));
   }
 
-  private async resolveSubscriptionLinks(planIds: string[]): Promise<Map<string, {
+  private async resolveSubscriptionSources(planIds: string[]): Promise<Map<string, {
     platformTag: string | null;
     name: string;
     communityName: string | null;
+    plataformas: string[];
+    isPlan: boolean;
   }>> {
     if (planIds.length === 0) return new Map();
 
-    const links = await this.prisma.subscriptionLink.findMany({
-      where: { domPlanId: { in: planIds } },
-      select: {
-        domPlanId: true,
-        name: true,
-        platformTag: true,
-        communityBindings: {
-          select: { community: { select: { name: true } } },
-          take: 1,
+    const [links, plans] = await Promise.all([
+      this.prisma.subscriptionLink.findMany({
+        where: { domPlanId: { in: planIds } },
+        select: {
+          domPlanId: true,
+          name: true,
+          platformTag: true,
+          plataformas: true,
+          communityBindings: {
+            select: { community: { select: { name: true } } },
+            take: 1,
+          },
         },
-      },
-    });
+      }),
+      this.prisma.plan.findMany({
+        where: { domPlanId: { in: planIds } },
+        select: {
+          domPlanId: true,
+          name: true,
+          plataformas: true,
+          user: { select: { clientStatus: true } },
+        },
+      }),
+    ]);
 
-    const map = new Map<string, { platformTag: string | null; name: string; communityName: string | null }>();
+    const map = new Map<string, {
+      platformTag: string | null;
+      name: string;
+      communityName: string | null;
+      plataformas: string[];
+      isPlan: boolean;
+    }>();
     for (const link of links) {
       if (!link.domPlanId) continue;
+      const plataformas = link.plataformas ?? [];
       map.set(link.domPlanId, {
-        platformTag: link.platformTag ?? null,
+        platformTag: link.platformTag ?? plataformas[0] ?? null,
         name: link.name,
         communityName: link.communityBindings?.[0]?.community?.name ?? null,
+        plataformas,
+        isPlan: false,
+      });
+    }
+    for (const plan of plans) {
+      if (!plan.domPlanId || map.has(plan.domPlanId)) continue;
+      const plataformas = plan.user?.clientStatus != null ? ['SIMINTPAY'] : (plan.plataformas ?? []);
+      map.set(plan.domPlanId, {
+        platformTag: plataformas[0] ?? null,
+        name: plan.name,
+        communityName: null,
+        plataformas,
+        isPlan: true,
       });
     }
     return map;
   }
 
   private derivePlatformLabel(
-    link: { platformTag: string | null; name: string; communityName: string | null } | undefined,
+    source: {
+      platformTag: string | null;
+      name: string;
+      communityName: string | null;
+      plataformas: string[];
+      isPlan: boolean;
+    } | undefined,
     sub: DomSubscriptionOutput,
   ): string {
-    if (link) {
-      const tag = (link.platformTag ?? '').toUpperCase();
-      if (tag === 'COMUNIDADE') return link.communityName ?? link.name;
+    if (source) {
+      const tag = (source.platformTag ?? '').toUpperCase();
+      if (tag === 'COMUNIDADE') return source.communityName ?? source.name;
       if (tag === 'AREAFLIX') return 'Areaflix';
-      if (tag === 'GLOBAL') return link.name || 'Plataforma';
-      return link.name || '—';
+      if (tag === 'GLOBAL') return source.name || 'Plataforma';
+      if (source.isPlan) return (source.platformTag ?? source.name) || '—';
+      return source.name || '—';
     }
 
     // Sem link no DB — tenta extrair plataforma a partir da description da DOM
