@@ -42,6 +42,7 @@ export class BillingController {
   })
   async createWorkspaceSubscription(
     @Headers('x-internal-token') internalToken: string | undefined,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body()
     body: {
       billingOwnerId: string;
@@ -70,6 +71,20 @@ export class BillingController {
     },
   ) {
     this.assertInternalToken(internalToken);
+    const existing = await this.prisma.billingContract.findUnique({
+      where: { resourceType_resourceId: { resourceType: 'WORKSPACE', resourceId: body.resourceId } },
+    });
+    if (existing) {
+      if (idempotencyKey === `workspace:${body.resourceId}`) {
+        return {
+          contractId: existing.id,
+          externalSubscriptionId: existing.externalSubscriptionId,
+          currentPeriodStart: existing.currentPeriodStart.toISOString(),
+          currentPeriodEnd: existing.currentPeriodEnd.toISOString(),
+        };
+      }
+      throw new BadRequestException('Já existe cobrança para este workspace');
+    }
     if (!Number.isInteger(body.quantity) || body.quantity < 1) {
       throw new BadRequestException(
         'quantity deve ser um inteiro maior que zero',
@@ -227,6 +242,32 @@ export class BillingController {
   ) {
     this.assertInternalToken(internalToken);
     return this.billing.getContract(contractId);
+  }
+
+  @Post('contracts/:contractId/recover')
+  async recoverWorkspaceSubscription(
+    @Headers('x-internal-token') internalToken: string | undefined,
+    @Param('contractId') contractId: string,
+    @Body() body: { card: { number: string; exp_month: string; exp_year: string; cvv: string; holder_name: string; holder_document: string } },
+  ) {
+    this.assertInternalToken(internalToken);
+    if (!body.card?.number || !body.card?.cvv) throw new BadRequestException('Dados do cartão incompletos');
+    const contract = await this.billing.getContract(contractId);
+    const recover = this.gateway.recoverSubscriptionCard;
+    if (!recover) throw new BadRequestException('Adquirente não suporta recuperação de cartão');
+    const domToken = await this.billing.getDomWebhookToken(contract.externalSubscriptionId);
+    if (!domToken) throw new BadRequestException('Token DOM não encontrado');
+    const result = await recover.call(this.gateway, domToken, {
+      subscriptionId: contract.externalSubscriptionId,
+      card: body.card,
+    });
+    const paid = ['paid', 'approved', 'completed', 'ok'].includes((result.status ?? '').toLowerCase());
+    await this.billing.applyWorkspacePaymentEvent({
+      subscriptionId: contract.externalSubscriptionId,
+      eventKey: `recovery:${result.paymentId ?? `${contractId}:${Date.now()}`}`,
+      event: paid ? 'PAID' : 'FAILED', paymentId: result.paymentId,
+    });
+    return { status: paid ? 'paid' : 'failed', paymentId: result.paymentId ?? null };
   }
 
   @Post('contracts/:contractId/quantity-changes')

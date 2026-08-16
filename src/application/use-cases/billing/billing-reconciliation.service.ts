@@ -15,6 +15,7 @@ export class BillingReconciliationService {
     this.running = true;
     try {
       await this.billing.reconcilePendingChanges();
+      await this.billing.reconcileDunning();
     } catch (error) {
       this.logger.error(
         `Falha no ciclo de reconciliação de billing: ${String(error)}`,

@@ -452,6 +452,11 @@ export interface IPaymentGateway {
     },
   ): Promise<{ id: string; status?: string; [key: string]: unknown }>;
 
+  recoverSubscriptionCard?(domToken: string, input: {
+    subscriptionId: string;
+    card: { number: string; exp_month: string; exp_year: string; cvv: string; holder_name: string; holder_document: string };
+  }): Promise<{ paymentId?: string; status?: string }>;
+
   createLead(data: {
     name: string;
     phone: string;

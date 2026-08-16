@@ -535,6 +535,10 @@ model BillingContract {
   currentPeriodStart     DateTime
   currentPeriodEnd       DateTime
   status                 BillingContractStatus @default(ACTIVE)
+  pastDueAt              DateTime?
+  graceEndsAt            DateTime?
+  suspendedAt            DateTime?
+  accessEndsAt           DateTime?
   version                Int                   @default(1)
   acquirer               Acquirer              @default(DOM)
   externalPlanId         String?
@@ -545,11 +549,27 @@ model BillingContract {
   updatedAt              DateTime               @updatedAt
   user                   User                   @relation(fields: [userId], references: [id])
   changes                BillingQuantityChange[]
+  events                 BillingContractEvent[]
 
   @@unique([resourceType, resourceId])
   @@index([userId])
   @@index([status])
   @@index([currentPeriodEnd])
+}
+
+model BillingContractEvent {
+  id          String   @id @default(uuid())
+  contractId  String
+  eventKey    String   @unique @db.VarChar(191)
+  type        String   @db.VarChar(80)
+  payload     Json
+  deliveredAt DateTime?
+  attempts    Int      @default(0)
+  lastError   String?
+  createdAt   DateTime @default(now())
+  contract    BillingContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId, deliveredAt])
 }
 
 /// Operação idempotente e auditável de mudança de quantidade recorrente.
@@ -743,6 +763,8 @@ enum BillingIntervalType {
 
 enum BillingContractStatus {
   ACTIVE
+  PAST_DUE
+  SUSPENDED
   INACTIVE
   CANCELLED
 }

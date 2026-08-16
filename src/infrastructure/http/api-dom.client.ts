@@ -1108,6 +1108,32 @@ export class ApiDomClient implements IPaymentGateway {
     }
   }
 
+  async recoverSubscriptionCard(
+    domToken: string,
+    input: {
+      subscriptionId: string;
+      card: { number: string; exp_month: string; exp_year: string; cvv: string; holder_name: string; holder_document: string };
+    },
+  ): Promise<{ paymentId?: string; status?: string }> {
+    const snapshot = await this.getSubscriptionBillingSnapshot(domToken, input.subscriptionId);
+    if (!snapshot.customerId) throw new BadRequestException('Assinatura sem cliente DOM');
+    const cardToken = await this.createCardToken(domToken, snapshot.customerId, input.card);
+    await firstValueFrom(this.http.post(
+      `${this.domRealApiUrl}/recurrence/subscriptions/${input.subscriptionId}`,
+      { customer_id: snapshot.customerId, payment_method: 'credit_card', card: { token: cardToken, installments: 1 } },
+      { headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' } },
+    ));
+    const charge = await firstValueFrom(this.http.put<any>(
+      `${this.domRealApiUrl}/recurrence/subscriptions/${input.subscriptionId}/force-charge`,
+      {}, { headers: { Authorization: `Bearer ${domToken}` } },
+    ));
+    const transaction = (charge.data?.transaction ?? charge.data?.data?.transaction ?? {}) as Record<string, unknown>;
+    return {
+      paymentId: this.pickString(transaction, 'id') ?? undefined,
+      status: this.pickString(transaction, 'status') ?? this.pickString(charge.data, 'status') ?? undefined,
+    };
+  }
+
 
   async getMonthlyRevenue(domToken: string): Promise<DomMonthlyRevenueOutput> {
     const url = `${this.baseUrl}/payments/monthly-revenue`;

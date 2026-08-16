@@ -10,9 +10,10 @@ import { SubscriptionWebhookService } from '../application/use-cases/subscriptio
 import { BALANCE_LOG_REPOSITORY } from '../core/repositories/balance-log.repository.interface';
 import { PrismaBalanceLogRepository } from '../infrastructure/database/repositories/prisma-balance-log.repository';
 import { PlatformAccessService } from '../application/services/platform-access.service';
+import { BillingModule } from './billing.module';
 
 @Module({
-  imports: [ApiDomModule],
+  imports: [ApiDomModule, BillingModule],
   controllers: [SubscriptionController],
   providers: [
     ListSubscribersUseCase,

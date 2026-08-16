@@ -15,7 +15,7 @@ import {
   Prisma,
   TransactionStatus,
 } from '@prisma/client';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import {
   PAYMENT_GATEWAY_DOM,
@@ -190,6 +190,115 @@ export class BillingService {
         updatedAt: new Date(),
       },
     });
+  }
+
+  /** DOM webhook signing key. Caller must verify signature before processing. */
+  async getDomWebhookToken(subscriptionId: string): Promise<string | null> {
+    const contract = await this.prisma.billingContract.findUnique({
+      where: { externalSubscriptionId: subscriptionId },
+      select: { userId: true },
+    });
+    return contract ? this.resolveDomToken(contract.userId) : null;
+  }
+
+  /** Applies one normalized DOM event. Transaction id makes repeated events harmless. */
+  async applyWorkspacePaymentEvent(input: {
+    subscriptionId: string;
+    eventKey: string;
+    event: 'PAID' | 'FAILED' | 'CANCELLED';
+    paymentId?: string | null;
+    amount?: number | null;
+  }): Promise<boolean> {
+    const contract = await this.prisma.billingContract.findUnique({
+      where: { externalSubscriptionId: input.subscriptionId },
+    });
+    if (!contract) return false;
+
+    const existing = await this.prisma.billingContractEvent.findUnique({ where: { eventKey: input.eventKey } });
+    if (existing) return true;
+    const now = new Date();
+    const amount = new Prisma.Decimal(input.amount ?? contract.baseAmount.plus(contract.unitAmount.times(contract.quantity)));
+    await this.prisma.$transaction(async (tx) => {
+      await tx.billingContractEvent.create({
+        data: { contractId: contract.id, eventKey: input.eventKey, type: input.event, payload: { paymentId: input.paymentId ?? null } },
+      });
+      if (input.paymentId) {
+        await tx.transaction.upsert({
+          where: { domPaymentId: input.paymentId },
+          update: { status: input.event === 'PAID' ? TransactionStatus.COMPLETED : TransactionStatus.FAILED },
+          create: {
+            userId: contract.userId, amount, netAmount: amount,
+            status: input.event === 'PAID' ? TransactionStatus.COMPLETED : TransactionStatus.FAILED,
+            paymentMethod: PaymentMethod.CREDIT_CARD, description: contract.description,
+            domPaymentId: input.paymentId, externalPaymentId: input.paymentId, acquirer: Acquirer.DOM,
+          },
+        });
+      }
+      if (input.event === 'PAID') {
+        const start = now > contract.currentPeriodEnd ? now : contract.currentPeriodStart;
+        const end = advanceBillingPeriod(start, contract.intervalType, contract.intervalCount);
+        await tx.billingContract.update({ where: { id: contract.id }, data: {
+          status: BillingContractStatus.ACTIVE, currentPeriodStart: start, currentPeriodEnd: end,
+          pastDueAt: null, graceEndsAt: null, suspendedAt: null, accessEndsAt: null,
+        } });
+      } else if (input.event === 'FAILED') {
+        await tx.billingContract.update({ where: { id: contract.id }, data: {
+          status: BillingContractStatus.PAST_DUE, pastDueAt: now,
+          graceEndsAt: new Date(now.getTime() + 72 * 60 * 60 * 1000),
+        } });
+      } else {
+        await tx.billingContract.update({ where: { id: contract.id }, data: {
+          status: BillingContractStatus.CANCELLED, accessEndsAt: contract.currentPeriodEnd,
+        } });
+      }
+    });
+    return true;
+  }
+
+  async reconcileDunning(): Promise<void> {
+    const now = new Date();
+    const overdue = await this.prisma.billingContract.findMany({
+      where: { status: BillingContractStatus.PAST_DUE, graceEndsAt: { lte: now } },
+      select: { id: true },
+    });
+    for (const contract of overdue) {
+      await this.prisma.$transaction([
+        this.prisma.billingContract.update({ where: { id: contract.id }, data: { status: BillingContractStatus.SUSPENDED, suspendedAt: now } }),
+        this.prisma.billingContractEvent.create({ data: {
+          contractId: contract.id, eventKey: `dunning:suspended:${contract.id}`, type: 'SUSPENDED', payload: {},
+        } }),
+      ]);
+    }
+    await this.deliverTeronEvents();
+  }
+
+  private async deliverTeronEvents(): Promise<void> {
+    const url = process.env.TERON_BILLING_WEBHOOK_URL;
+    const secret = process.env.TERON_BILLING_WEBHOOK_SECRET;
+    if (!url || !secret) return;
+    const events = await this.prisma.billingContractEvent.findMany({
+      where: { deliveredAt: null }, include: { contract: true }, take: 50, orderBy: { createdAt: 'asc' },
+    });
+    for (const event of events) {
+      const c = event.contract;
+      const meta = (c.metadata ?? {}) as { teronAccountId?: string; workspaceId?: string };
+      if (c.resourceType !== 'WORKSPACE' || !meta.workspaceId || !meta.teronAccountId) continue;
+      const status = c.status === BillingContractStatus.PAST_DUE ? 'past_due'
+        : c.status === BillingContractStatus.SUSPENDED ? 'paused'
+          : c.status === BillingContractStatus.CANCELLED && c.accessEndsAt && c.accessEndsAt <= new Date() ? 'expired' : 'active';
+      const body = JSON.stringify({ eventId: event.id, workspaceId: meta.workspaceId, accountId: meta.teronAccountId,
+        providerSubscriptionId: c.externalSubscriptionId, contractId: c.id, status,
+        periodStart: c.currentPeriodStart.toISOString(), periodEnd: c.currentPeriodEnd.toISOString(),
+        willCancelAt: c.accessEndsAt?.toISOString() ?? null, quantity: c.quantity });
+      try {
+        const signature = createHmac('sha256', secret).update(body).digest('hex');
+        const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-simintpay-signature': signature }, body });
+        if (!response.ok) throw new Error(`Teron respondeu ${response.status}`);
+        await this.prisma.billingContractEvent.update({ where: { id: event.id }, data: { deliveredAt: new Date(), attempts: { increment: 1 }, lastError: null } });
+      } catch (error) {
+        await this.prisma.billingContractEvent.update({ where: { id: event.id }, data: { attempts: { increment: 1 }, lastError: this.errorMessage(error) } });
+      }
+    }
   }
 
   async findByResource(resourceType: string, resourceId: string) {
