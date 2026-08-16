@@ -140,6 +140,58 @@ export class BillingService {
     return this.serializeContract(contract);
   }
 
+  /**
+   * Registra uma tentativa antes de chamar a adquirente. Assim recusas, timeout
+   * e respostas sem identificador externo continuam auditáveis na Simintpay.
+   * Dados brutos do cartão nunca entram neste registro.
+   */
+  async startWorkspacePaymentAttempt(input: {
+    userId: string;
+    amount: number;
+    description: string;
+    customer: { name: string; email: string; document: string; phone: string };
+  }) {
+    return this.prisma.transaction.create({
+      data: {
+        userId: input.userId,
+        amount: new Prisma.Decimal(input.amount),
+        status: TransactionStatus.PENDING,
+        paymentMethod: PaymentMethod.CREDIT_CARD,
+        description: input.description,
+        customerName: input.customer.name,
+        customerEmail: input.customer.email,
+        customerDocument: input.customer.document,
+        customerPhone: input.customer.phone,
+      },
+    });
+  }
+
+  async resolveWorkspacePaymentAttempt(input: {
+    transactionId: string;
+    externalSubscriptionId: string;
+    status: TransactionStatus;
+  }) {
+    return this.prisma.transaction.update({
+      where: { id: input.transactionId },
+      data: {
+        status: input.status,
+        externalPaymentId: input.externalSubscriptionId,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  async failWorkspacePaymentAttempt(transactionId: string) {
+    return this.prisma.transaction.update({
+      where: { id: transactionId },
+      data: {
+        previousStatus: TransactionStatus.PENDING,
+        status: TransactionStatus.FAILED,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
   async findByResource(resourceType: string, resourceId: string) {
     const contract = await this.prisma.billingContract.findUnique({
       where: {

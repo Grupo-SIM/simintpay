@@ -19,6 +19,7 @@ import {
 import { getModuleDomToken } from '../../modules/module.registry';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { Inject } from '@nestjs/common';
+import { TransactionStatus } from '@prisma/client';
 
 @Controller('internal/billing')
 @ApiTags('Billing interno')
@@ -107,66 +108,92 @@ export class BillingController {
     if (!Number.isFinite(recurringAmount) || recurringAmount <= 0) {
       throw new BadRequestException('Preço recorrente inválido');
     }
-
-    const plan = await this.gateway.createPlan(domToken, {
-      price: recurringAmount,
-      description: `Teron workspace (${body.quantity} integrantes) [TENANT:TERON]`,
-      frequency_type: 'MONTH',
-      frequency: 1,
-      repetitions: 0,
-      retry_days: 3,
-    });
     const document = body.customer.document.replace(/\D/g, '');
-    const subscription = await this.gateway.createSubscriptionFromCheckout(
-      domToken,
-      {
-        planId: plan.id,
-        customer: {
-          name: body.customer.name,
-          email: body.customer.email,
-          document,
-          phone: body.customer.phone.replace(/\D/g, ''),
-          documentType: document.length === 14 ? 'CNPJ' : 'CPF',
-        },
-        card: { ...body.card, token: body.card.token ?? '' },
-      },
-    );
-    const snapshot = await this.gateway.getSubscriptionBillingSnapshot(
-      domToken,
-      subscription.id,
-    );
-    if (snapshot.status.toLowerCase() !== 'active' || !snapshot.nextInvoiceAt) {
-      throw new BadRequestException(
-        'O pagamento ainda não foi aprovado pelo gateway',
-      );
-    }
-
-    const now = new Date();
-    const contract = await this.billing.createContract({
-      userId: body.billingOwnerId,
-      resourceType: 'WORKSPACE',
-      resourceId: body.resourceId,
-      externalSubscriptionId: subscription.id,
-      baseAmount: body.baseAmount,
-      unitAmount: body.unitAmount,
-      quantity: body.quantity,
-      minimumQuantity: 1,
-      currentPeriodStart: now.toISOString(),
-      currentPeriodEnd: snapshot.nextInvoiceAt,
-      priceKey: 'TERON_WORKSPACE',
-      pricingVersion: 1,
-      description: `Teron workspace (${body.quantity} integrantes)`,
-      metadata: {
-        teronAccountId: body.accountId,
-        workspaceId: body.resourceId,
-      },
-    });
-    return {
-      contractId: contract.id,
-      externalSubscriptionId: contract.externalSubscriptionId,
-      currentPeriodStart: contract.currentPeriodStart,
-      currentPeriodEnd: contract.currentPeriodEnd,
+    const customer = {
+      name: body.customer.name,
+      email: body.customer.email,
+      document,
+      phone: body.customer.phone.replace(/\D/g, ''),
     };
+    const description = `Teron workspace (${body.quantity} integrantes) [TENANT:TERON]`;
+    const attempt = await this.billing.startWorkspacePaymentAttempt({
+      userId: body.billingOwnerId,
+      amount: recurringAmount,
+      description,
+      customer,
+    });
+
+    try {
+      const plan = await this.gateway.createPlan(domToken, {
+        price: recurringAmount,
+        description,
+        frequency_type: 'MONTH',
+        frequency: 1,
+        repetitions: 0,
+        retry_days: 3,
+      });
+      const subscription = await this.gateway.createSubscriptionFromCheckout(
+        domToken,
+        {
+          planId: plan.id,
+          customer: {
+            ...customer,
+            documentType: document.length === 14 ? 'CNPJ' : 'CPF',
+          },
+          card: { ...body.card, token: body.card.token ?? '' },
+        },
+      );
+      const snapshot = await this.gateway.getSubscriptionBillingSnapshot(
+        domToken,
+        subscription.id,
+      );
+      if (snapshot.status.toLowerCase() !== 'active' || !snapshot.nextInvoiceAt) {
+        await this.billing.resolveWorkspacePaymentAttempt({
+          transactionId: attempt.id,
+          externalSubscriptionId: subscription.id,
+          status: TransactionStatus.FAILED,
+        });
+        throw new BadRequestException(
+          'O pagamento ainda não foi aprovado pelo gateway',
+        );
+      }
+
+      const now = new Date();
+      const contract = await this.billing.createContract({
+        userId: body.billingOwnerId,
+        resourceType: 'WORKSPACE',
+        resourceId: body.resourceId,
+        externalSubscriptionId: subscription.id,
+        baseAmount: body.baseAmount,
+        unitAmount: body.unitAmount,
+        quantity: body.quantity,
+        minimumQuantity: 1,
+        currentPeriodStart: now.toISOString(),
+        currentPeriodEnd: snapshot.nextInvoiceAt,
+        priceKey: 'TERON_WORKSPACE',
+        pricingVersion: 1,
+        description: `Teron workspace (${body.quantity} integrantes)`,
+        metadata: {
+          platformTag: 'TERON',
+          teronAccountId: body.accountId,
+          workspaceId: body.resourceId,
+        },
+      });
+      await this.billing.resolveWorkspacePaymentAttempt({
+        transactionId: attempt.id,
+        externalSubscriptionId: subscription.id,
+        status: TransactionStatus.COMPLETED,
+      });
+      return {
+        contractId: contract.id,
+        externalSubscriptionId: contract.externalSubscriptionId,
+        currentPeriodStart: contract.currentPeriodStart,
+        currentPeriodEnd: contract.currentPeriodEnd,
+      };
+    } catch (error) {
+      await this.billing.failWorkspacePaymentAttempt(attempt.id);
+      throw error;
+    }
   }
 
   @Post('contracts')

@@ -196,6 +196,17 @@ export class SubscriptionWebhookService {
       return;
     }
 
+    if (await this.recordBillingContractCharge({
+      subscriberId,
+      domPaymentId: domTransactionId,
+      chargeStatus,
+      amount,
+      domFee,
+      data,
+    })) {
+      return;
+    }
+
     const subscription = await this.prisma.subscription.findFirst({
       where: { domSubscriptionId: subscriberId },
       include: {
@@ -231,6 +242,107 @@ export class SubscriptionWebhookService {
       domPaymentId: domTransactionId,
       description: (() => { const d = this.getString(data.product_first) ?? this.getString(data.description) ?? subscription.plan?.name ?? '-'; return effectivePlanTag !== 'GLOBAL' ? `${d} [TENANT:${effectivePlanTag}]` : d; })(),
     });
+  }
+
+  /**
+   * Workspace e outros recursos faturáveis não são SubscriptionLinks. Mantemos
+   * cada cobrança recorrente no ledger próprio da Simintpay, sem crédito de
+   * carteira e sem depender de descrição ou de identificadores específicos da DOM.
+   */
+  private async recordBillingContractCharge(input: {
+    subscriberId: string;
+    domPaymentId: string;
+    chargeStatus: string | null;
+    amount: Prisma.Decimal;
+    domFee: Prisma.Decimal;
+    data: Record<string, unknown>;
+  }): Promise<boolean> {
+    const contract = await this.prisma.billingContract.findUnique({
+      where: { externalSubscriptionId: input.subscriberId },
+      select: {
+        userId: true,
+        baseAmount: true,
+        description: true,
+        metadata: true,
+        quantity: true,
+        unitAmount: true,
+      },
+    });
+    if (!contract) return false;
+
+    const status = ['not_authorized', 'failed', 'expired', 'refused', 'error']
+      .includes((input.chargeStatus ?? '').toLowerCase())
+      ? TransactionStatus.FAILED
+      : TransactionStatus.COMPLETED;
+    const amount = input.amount.isPositive()
+      ? input.amount
+      : new Prisma.Decimal(contract.baseAmount).plus(
+        new Prisma.Decimal(contract.unitAmount).times(contract.quantity),
+      );
+    const metadata = contract.metadata as { platformTag?: unknown } | null;
+    const platformTag = typeof metadata?.platformTag === 'string'
+      ? metadata.platformTag.toUpperCase()
+      : 'GLOBAL';
+    const description = platformTag === 'GLOBAL'
+      ? contract.description
+      : `${contract.description ?? 'Cobrança recorrente'} [TENANT:${platformTag}]`;
+    const existing = await this.prisma.transaction.findFirst({
+      where: { domPaymentId: input.domPaymentId },
+      select: { id: true, status: true },
+    });
+    const initialAttempt = existing
+      ? null
+      : await this.prisma.transaction.findFirst({
+        where: {
+          externalPaymentId: input.subscriberId,
+          domPaymentId: null,
+          status: {
+            in: [
+              TransactionStatus.PENDING,
+              TransactionStatus.COMPLETED,
+              TransactionStatus.FAILED,
+            ],
+          },
+        },
+        select: { id: true, status: true },
+      });
+    const customer = input.data.customer as Record<string, unknown> | undefined;
+    const values = {
+      amount,
+      netAmount: amount.sub(input.domFee),
+      status,
+      paymentMethod: PaymentMethod.CREDIT_CARD,
+      totalFee: input.domFee,
+      domFee: input.domFee,
+      platformFee: new Prisma.Decimal(0),
+      description,
+      customerName: this.getString(customer?.name) ?? this.getString(input.data.customer_name),
+      customerEmail: this.getString(customer?.email) ?? this.getString(input.data.customer_email),
+      customerDocument: this.getString(customer?.document) ?? this.getString(input.data.customer_document),
+      customerPhone: this.getString(customer?.phone) ?? this.getString(input.data.customer_phone),
+      updatedAt: new Date(),
+    };
+    const matchingTransaction = existing ?? initialAttempt;
+    if (matchingTransaction) {
+      await this.prisma.transaction.update({
+        where: { id: matchingTransaction.id },
+        data: {
+          ...values,
+          previousStatus: matchingTransaction.status,
+          domPaymentId: input.domPaymentId,
+        },
+      });
+      return true;
+    }
+    await this.prisma.transaction.create({
+      data: {
+        userId: contract.userId,
+        ...values,
+        domPaymentId: input.domPaymentId,
+        externalPaymentId: input.domPaymentId,
+      },
+    });
+    return true;
   }
 
   /**
