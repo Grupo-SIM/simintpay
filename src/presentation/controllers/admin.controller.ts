@@ -4209,15 +4209,19 @@ export class AdminController {
     @Query('status') status?: string,
     @Query('payment_method') payment_method?: string,
   ) {
-    const result = await this.listDomTransactionsDirect.execute({
-      page: Number(page),
-      limit: Number(limit),
-      begin_date,
-      end_date,
-      status,
-      payment_method,
-    });
-    return { data: result };
+    const where: Prisma.TransactionWhereInput = {
+      acquirer: 'DOM',
+      ...(status ? { status: status === 'not_authorized' || status === 'failed' ? TransactionStatus.FAILED : status.toUpperCase() as TransactionStatus } : {}),
+      ...(payment_method ? { paymentMethod: payment_method === 'credit_card' ? 'CREDIT_CARD' : 'PIX' } : {}),
+      ...((begin_date || end_date) ? { createdAt: { ...(begin_date ? { gte: parseYmdSp(begin_date).startOf('day').toDate() } : {}), ...(end_date ? { lte: parseYmdSp(end_date).endOf('day').toDate() } : {}) } } : {}),
+    };
+    const take = Math.min(Math.max(Number(limit) || 50, 1), 100);
+    const skip = (Math.max(Number(page) || 1, 1) - 1) * take;
+    const [transactions, total] = await Promise.all([
+      this.prisma.transaction.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
+      this.prisma.transaction.count({ where }),
+    ]);
+    return { data: { transactions, total } };
   }
 
   @Post('sync/test-cron')
