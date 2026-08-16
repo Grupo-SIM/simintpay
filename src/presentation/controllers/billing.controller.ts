@@ -110,7 +110,7 @@ export class BillingController {
 
     const plan = await this.gateway.createPlan(domToken, {
       price: recurringAmount,
-      description: `Teron workspace (${body.quantity} integrantes)`,
+      description: `Teron workspace (${body.quantity} integrantes) [TENANT:TERON]`,
       frequency_type: 'MONTH',
       frequency: 1,
       repetitions: 0,

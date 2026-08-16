@@ -91,6 +91,13 @@ function parseDomDate(raw: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function tagTeronWorkspaceTransaction(description: string | null | undefined): string | null | undefined {
+  if (!description || !/^Teron workspace \(/i.test(description) || /\[TENANT:/i.test(description)) {
+    return description;
+  }
+  return `${description} [TENANT:TERON]`;
+}
+
 @Injectable()
 export class ListTransactionsUseCase {
   constructor(
@@ -279,6 +286,7 @@ export class ListTransactionsUseCase {
             customerEmail: item.customer_email,
             customerDocument: item.customer_document,
             customerPhone: item.customer_phone,
+            description: tagTeronWorkspaceTransaction(item.product_first),
             updatedAt: new Date(),
           };
 
@@ -308,7 +316,6 @@ export class ListTransactionsUseCase {
                   paymentMethod: item.payment_method?.toUpperCase().includes('CARD') ? PaymentMethod.CREDIT_CARD : PaymentMethod.PIX,
                   domTransactionId: item.id,
                   domPaymentId,
-                  description: item.product_first,
                   createdAt,
                 },
               });
