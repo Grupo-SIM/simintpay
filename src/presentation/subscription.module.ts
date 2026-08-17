@@ -11,9 +11,10 @@ import { BALANCE_LOG_REPOSITORY } from '../core/repositories/balance-log.reposit
 import { PrismaBalanceLogRepository } from '../infrastructure/database/repositories/prisma-balance-log.repository';
 import { PlatformAccessService } from '../application/services/platform-access.service';
 import { BillingModule } from './billing.module';
+import { AuthModule } from './auth.module';
 
 @Module({
-  imports: [ApiDomModule, BillingModule],
+  imports: [ApiDomModule, AuthModule, BillingModule],
   controllers: [SubscriptionController],
   providers: [
     ListSubscribersUseCase,

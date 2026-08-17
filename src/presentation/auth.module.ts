@@ -52,6 +52,6 @@ import { PrismaWalletRepository } from '../infrastructure/database/repositories/
     { provide: WALLET_REPOSITORY, useClass: PrismaWalletRepository },
     LinkExternalPlatformUserService,
   ],
-  exports: [USER_REPOSITORY, WALLET_REPOSITORY],
+  exports: [JwtModule, USER_REPOSITORY, WALLET_REPOSITORY],
 })
 export class AuthModule { }
