@@ -1,5 +1,6 @@
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Acquirer, PaymentMethod, TransactionStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class ListTransactionsQueryDto {
   @IsOptional()
@@ -12,12 +13,20 @@ export class ListTransactionsQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(1000)
-  pageSize?: number = 20;
+  @Max(100)
+  limit?: number = 20;
 
   @IsOptional()
-  @IsIn(['PENDENTE', 'APROVADA', 'RECUSADA', 'ESTORNADA'])
-  status?: 'PENDENTE' | 'APROVADA' | 'RECUSADA' | 'ESTORNADA';
+  @IsEnum(TransactionStatus)
+  status?: TransactionStatus;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  payment_method?: PaymentMethod;
+
+  @IsOptional()
+  @IsEnum(Acquirer)
+  acquirer?: Acquirer;
 
   @IsOptional()
   @IsString()
@@ -25,37 +34,9 @@ export class ListTransactionsQueryDto {
 
   @IsOptional()
   @IsString()
-  id?: string;
+  begin_date?: string;
 
   @IsOptional()
   @IsString()
-  domTransactionId?: string;
-
-  @IsOptional()
-  @IsString()
-  customerName?: string;
-
-  @IsOptional()
-  @IsString()
-  customerEmail?: string;
-
-  @IsOptional()
-  @IsString()
-  customerDocument?: string;
-
-  @IsOptional()
-  @IsString()
-  dataInicio?: string;
-
-  @IsOptional()
-  @IsString()
-  dataFim?: string;
-
-  @IsOptional()
-  @IsIn(['PIX', 'CREDIT_CARD'])
-  metodo?: 'PIX' | 'CREDIT_CARD';
-
-  @IsOptional()
-  @IsIn(['maquinetas', 'online'])
-  tipoTransacao?: 'maquinetas' | 'online';
+  end_date?: string;
 }

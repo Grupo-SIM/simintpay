@@ -23,14 +23,13 @@ export class TransactionsController {
     status: 200,
     schema: {
       example: {
-        data: [{ id: 'uuid-trx-1', status: 'APROVADA', metodo: 'PIX', valor: 100 }],
+        data: { transactions: [{ id: 'uuid-trx-1', status: 'COMPLETED', paymentMethod: 'PIX', amount: '100.00', acquirer: 'DOM' }], total: 1 },
         page: 1,
-        pageSize: 20,
-        total: 1,
+        limit: 20,
       },
     },
   })
-  @ApiResponse({ status: 400, schema: { example: { statusCode: 400, message: ['pageSize must not be greater than 100'] } } })
+  @ApiResponse({ status: 400, schema: { example: { statusCode: 400, message: ['limit must not be greater than 100'] } } })
   @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
   async listRoute(
     @CurrentUser() user: JwtPayload | undefined,
@@ -38,10 +37,9 @@ export class TransactionsController {
   ): Promise<{
     data: unknown;
     page: number;
-    pageSize: number;
-    total: number;
+    limit: number;
   }> {
-    const out = await this.list.execute({ userId: user?.sub ?? '', query });
+    const out = await this.list.execute({ userId: user?.sub ?? '', role: user?.role ?? '', query });
     return out;
   }
 

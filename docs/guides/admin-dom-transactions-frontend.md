@@ -1,20 +1,20 @@
-# Adaptação do frontend: listagem de transações DOM
+# Listagem de transações no ledger multiadquirente
 
 ## Resumo da mudança
 
-`GET /admin/transacoes-dom` deixou de consultar a API da DOM durante a requisição. Desde o commit `37c557c` (`fix(admin): read DOM transactions from ledger`), a rota consulta o ledger local (`Transaction`) sincronizado previamente.
+`GET /transacoes` é a fonte da tela de transações. A rota consulta somente o ledger local (`Transaction`), sincronizado previamente por cron e webhooks; ela nunca chama uma adquirente durante a listagem.
 
 Consequências para a tela:
 
-- a lista contém somente registros locais com `acquirer = DOM`;
-- uma transação recém-criada ou alterada na DOM aparece depois da sincronização do ledger, não imediatamente;
+- a lista contém registros locais de todas as adquirentes;
+- uma transação recém-criada ou alterada aparece depois da sincronização do ledger, não imediatamente;
 - paginação e `total` são calculados no banco local e permanecem consistentes entre páginas;
 - o item não tem mais o formato da resposta da DOM. Agora usa os campos camelCase e os enums internos da entidade `Transaction`.
 
 ## Requisição
 
 ```http
-GET /admin/transacoes-dom?page=1&limit=50&begin_date=2026-08-01&end_date=2026-08-17&status=COMPLETED&payment_method=credit_card
+GET /transacoes?page=1&limit=50&begin_date=2026-08-01&end_date=2026-08-17&status=COMPLETED&payment_method=CREDIT_CARD&acquirer=DOM
 ```
 
 | Parâmetro | Regra atual |
@@ -24,17 +24,15 @@ GET /admin/transacoes-dom?page=1&limit=50&begin_date=2026-08-01&end_date=2026-08
 | `begin_date` | Opcional. `YYYY-MM-DD`; inclui o início do dia no fuso `America/Sao_Paulo`. |
 | `end_date` | Opcional. `YYYY-MM-DD`; inclui o fim do dia no fuso `America/Sao_Paulo`. |
 | `status` | Opcional. Envie o enum interno em maiúsculas: `DRAFT`, `PENDING`, `COMPLETED`, `FAILED`, `REFUNDED`, `EXPIRED`, `IN_MEDIATION`, `CHARGEBACK` ou `PENDING_REFUND`. |
-| `payment_method` | Opcional. Use somente `pix` ou `credit_card`. |
+| `payment_method` | Opcional. Enum interno: `PIX`, `CREDIT_CARD`, `DEBIT_CARD` ou `BOLETO`. |
+| `acquirer` | Opcional. Enum interno: `DOM` ou `FRENDZ`. |
+| `q` | Opcional. Busca ID, IDs externos e descrição. |
 
 Sem intervalo de datas, a rota lista todo o histórico presente no ledger. Isto substitui o comportamento anterior, que solicitava os últimos 90 dias à DOM.
 
-### Normalização aplicada pelo backend
+Admin recebe todo o ledger; usuário comum recebe somente as próprias transações e o escopo de tenant já atribuído a ele.
 
-O backend converte `status` para maiúsculas. Há dois aliases legados: `failed` e `not_authorized` resultam em `FAILED`.
-
-Não envie `paid`: embora fosse um status da resposta antiga da DOM, `PAID` não é um status local válido. Para transações pagas, envie `COMPLETED`.
-
-Para método de pagamento, somente `credit_card` resulta em `CREDIT_CARD`; qualquer outro valor informado resulta em filtro `PIX`. Portanto, a UI deve oferecer apenas PIX e cartão de crédito até a API expor filtros explícitos para débito e boleto.
+`GET /admin/transacoes-dom` permanece como endpoint legado para consumidores DOM específicos. Ele filtra `acquirer = DOM`; fluxos novos devem usar `/transacoes?acquirer=DOM`.
 
 ## Resposta
 
@@ -120,7 +118,7 @@ type TransactionStatus =
 
 type PaymentMethod = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
 
-interface AdminDomTransaction {
+interface Transaction {
   id: string;
   amount: string;
   netAmount: string | null;
@@ -138,9 +136,9 @@ interface AdminDomTransaction {
   updatedAt: string;
 }
 
-interface AdminDomTransactionsResponse {
+interface TransactionsResponse {
   data: {
-    transactions: AdminDomTransaction[];
+    transactions: Transaction[];
     total: number;
   };
 }
@@ -150,7 +148,7 @@ Inclua os campos de cartão, PIX e taxas no tipo caso a tela os exiba. O tipo ac
 
 ## Checklist de implementação
 
-1. Atualizar leitura para `response.data.transactions` e total para `response.data.total`.
+1. Usar `GET /transacoes`; atualizar leitura para `response.data.transactions` e total para `response.data.total`.
 2. Calcular paginação com o `limit` enviado e `total`; não usar total da DOM.
 3. Trocar todas as chaves snake_case pelas chaves camelCase da tabela acima.
 4. Substituir o filtro/label `paid` por `COMPLETED`.
@@ -161,7 +159,7 @@ Inclua os campos de cartão, PIX e taxas no tipo caso a tela os exiba. O tipo ac
 ## Validação manual
 
 ```bash
-curl -sS 'http://localhost:3001/admin/transacoes-dom?page=1&limit=20&status=COMPLETED&payment_method=pix'
+curl -sS 'http://localhost:3001/transacoes?page=1&limit=20&status=COMPLETED&payment_method=PIX&acquirer=DOM'
 ```
 
 Confirmar antes da entrega da tela:
