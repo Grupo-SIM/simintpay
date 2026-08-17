@@ -24,12 +24,17 @@ export class SyncDomTransactionsCron implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    this.logger.log('SyncDomTransactionsCron initialized (status-update only mode)');
+    const enabled = process.env.ENABLE_DOM_PENDING_STATUS_SYNC === 'true';
+    this.logger.log(
+      `SyncDomTransactionsCron initialized (status-update only mode; ${enabled ? 'enabled' : 'disabled'})`,
+    );
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async handleSync() {
-    if (process.env.DISABLE_DOM_SYNC === 'true') {
+    // Webhooks persist new transactions locally. Keep polling opt-in only for
+    // installations that explicitly need a fallback for missed DOM webhooks.
+    if (process.env.ENABLE_DOM_PENDING_STATUS_SYNC !== 'true') {
       return;
     }
 

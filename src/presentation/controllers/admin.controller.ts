@@ -3801,9 +3801,13 @@ export class AdminController {
 
   @Post('sync-transactions')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Importar transações da conta Dom para o banco local' })
+  @ApiOperation({ summary: 'Importar transações DOM do mês atual para o banco local' })
   async syncTransactionsRoute(@CurrentUser() user: JwtPayload | undefined) {
-    const result = await this.syncTransactions.execute({ userId: user?.sub ?? '' });
+    const result = await this.syncTransactions.execute({
+      userId: user?.sub ?? '',
+      beginDate: dayjs().startOf('month').format('YYYY-MM-DD'),
+      endDate: dayjs().format('YYYY-MM-DD'),
+    });
     return { data: result };
   }
 

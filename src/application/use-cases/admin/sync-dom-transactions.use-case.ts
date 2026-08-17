@@ -63,6 +63,8 @@ export class SyncDomTransactionsUseCase {
 
   async execute(input: {
     userId: string;
+    beginDate?: string;
+    endDate?: string;
   }): Promise<{ created: number; updated: number; total: number }> {
     const user = await this.users.findById(input.userId);
     if (!user) throw new NotFoundException('Usuário não encontrado');
@@ -97,28 +99,54 @@ export class SyncDomTransactionsUseCase {
 
     this.logger.log(`Usando Token ${source} para sincronizar transações...`);
 
-    let page = 1;
     const limit = 50;
     let created = 0;
     let updated = 0;
     let total = 0;
+    const beginDate = input.beginDate ?? '2000-01-01';
+    const endDate = input.endDate ?? new Date().toISOString().slice(0, 10);
+    const rangeEnd = new Date(`${endDate}T00:00:00.000Z`);
+    let rangeStart = new Date(`${beginDate}T00:00:00.000Z`);
+    if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime()) || rangeStart > rangeEnd) {
+      throw new BadRequestException('Intervalo de replicação inválido');
+    }
 
-    while (true) {
-      const result = await this.gateway.listDomTransactions(domToken, {
-        page,
-        limit,
-      });
-      const { transactions } = result;
+    // DOM rejects a historical interval before the account's available data with
+    // HTTP 500. Start from the most recent period: it imports current failures
+    // first and stops only when DOM no longer accepts older history.
+    let windowEnd = rangeEnd;
+    let completedWindows = 0;
+    while (windowEnd >= rangeStart) {
+      const windowStartDate = new Date(windowEnd);
+      windowStartDate.setUTCMonth(windowStartDate.getUTCMonth() - 3);
+      windowStartDate.setUTCDate(windowStartDate.getUTCDate() + 1);
+      const windowStart = (windowStartDate < rangeStart ? rangeStart : windowStartDate)
+        .toISOString()
+        .slice(0, 10);
+      const windowEndText = windowEnd.toISOString().slice(0, 10);
+      let page = 1;
+      let windowReceived = 0;
 
-      if (!transactions.length) break;
+      try {
+        while (true) {
+          const result = await this.gateway.listDomTransactions(domToken, {
+            page,
+            limit,
+            begin_date: windowStart,
+            end_date: windowEndText,
+          });
+        const { transactions } = result;
 
-      total += transactions.length;
-      this.logger.log(
-        `Página ${page}: ${transactions.length} transações recebidas`,
-      );
+        if (!transactions.length) break;
 
-      for (const tx of transactions) {
-        try {
+        total += transactions.length;
+        windowReceived += transactions.length;
+        this.logger.log(`Janela ${windowStart}–${windowEndText}, página ${page}: ${transactions.length} transações recebidas`);
+
+        for (let index = 0; index < transactions.length; index += 10) {
+          const batch = transactions.slice(index, index + 10);
+          await Promise.all(batch.map(async (tx) => {
+            try {
           const status = this.mapStatus(tx.status);
           const paymentMethod = this.mapPaymentMethod(tx.payment_method);
           const amount = new Prisma.Decimal(tx.amount);
@@ -178,15 +206,37 @@ export class SyncDomTransactionsUseCase {
             });
             created++;
           }
-        } catch (err) {
-          this.logger.warn(
-            `Erro ao processar transação ${tx.id}: ${err instanceof Error ? err.message : String(err)}`,
-          );
+            } catch (err) {
+              this.logger.warn(
+                `Erro ao processar transação ${tx.id}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }));
         }
+
+          // DOM currently caps pages at 100 and may ignore a smaller `limit`.
+          // `total` falls back to current page size when metadata is absent.
+          if (
+            transactions.length < limit ||
+            windowReceived >= (result.total ?? transactions.length)
+          ) break;
+          page++;
+        }
+      } catch (error) {
+        const status = (error as { response?: { status?: number } }).response?.status;
+        if (status === 500 && completedWindows > 0) {
+          this.logger.warn(
+            `DOM recusou histórico anterior a ${windowStart}; importação concluída até ${windowEndText}. Use DOM_REPLICATION_BEGIN_DATE para definir início suportado.`,
+          );
+          break;
+        }
+        throw error;
       }
 
-      if (transactions.length < limit) break;
-      page++;
+      completedWindows++;
+      const previousWindowEnd = new Date(windowStart);
+      previousWindowEnd.setUTCDate(previousWindowEnd.getUTCDate() - 1);
+      windowEnd = previousWindowEnd;
     }
 
     this.logger.log(

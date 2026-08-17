@@ -1,13 +1,13 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
 
 @Injectable()
 export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  private readonly logger = new Logger(PrismaService.name);
   constructor() {
     const connectionString = process.env.DATABASE_URL;
 
@@ -15,8 +15,7 @@ export class PrismaService
       throw new Error('DATABASE_URL não está definida nas variáveis de ambiente');
     }
 
-    const pool = new Pool({ connectionString });
-    const adapter = new PrismaPg(pool);
+    const adapter = new PrismaPg({ connectionString });
 
     super({
       adapter,
@@ -25,7 +24,18 @@ export class PrismaService
   }
 
   async onModuleInit(): Promise<void> {
-    await this.$connect();
+    const attempts = 5;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        await this.$connect();
+        return;
+      } catch (error) {
+        if (attempt === attempts) throw error;
+        const delay = attempt * 1000;
+        this.logger.warn(`Conexão PostgreSQL falhou (${attempt}/${attempts}); repetindo em ${delay}ms.`);
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      }
+    }
   }
 
   async onModuleDestroy(): Promise<void> {

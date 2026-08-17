@@ -29,8 +29,10 @@ export class RevalidaSyncService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    this.logger.log('[REVALIDA] Sync service initialized (DOM API v3 mode)');
-    await this.resolveRevalidaUserId();
+    const enabled = process.env.ENABLE_REVALIDA_DOM_SYNC === 'true';
+    this.logger.log(
+      `[REVALIDA] Sync service initialized (DOM API v3 mode; ${enabled ? 'enabled' : 'disabled'})`,
+    );
   }
 
   private async resolveRevalidaUserId(): Promise<string | null> {
@@ -42,10 +44,16 @@ export class RevalidaSyncService implements OnModuleInit {
       return envId;
     }
 
-    const user = await this.prisma.user.findFirst({
-      where: { email: 'revalida@jbmidia.com.br' },
-      select: { id: true },
-    });
+    let user: { id: string } | null;
+    try {
+      user = await this.prisma.user.findFirst({
+        where: { email: 'revalida@jbmidia.com.br' },
+        select: { id: true },
+      });
+    } catch (error) {
+      this.logger.error('[REVALIDA] Banco indisponível ao resolver usuário; nova tentativa no próximo ciclo.', error);
+      return null;
+    }
 
     if (user) {
       this.revalidaUserId = user.id;
@@ -59,7 +67,7 @@ export class RevalidaSyncService implements OnModuleInit {
 
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSync() {
-    if (process.env.DISABLE_REVALIDA_SYNC === 'true') return;
+    if (process.env.ENABLE_REVALIDA_DOM_SYNC !== 'true') return;
 
     const rawToken = process.env.REVALIDA_DOM_TOKEN || process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
     if (!rawToken) {
@@ -68,10 +76,9 @@ export class RevalidaSyncService implements OnModuleInit {
     }
     const token = rawToken.trim();
 
-    const userId = await this.resolveRevalidaUserId();
-    if (!userId) return;
-
     try {
+      const userId = await this.resolveRevalidaUserId();
+      if (!userId) return;
       let created = 0;
       let updated = 0;
       let completedDelta = new Prisma.Decimal(0);
