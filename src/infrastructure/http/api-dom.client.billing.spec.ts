@@ -13,9 +13,10 @@ describe('ApiDomClient billing', () => {
       value: 300,
       frequency_type: 'MONTH',
       frequency: 1,
+      next_date_invoice: '2026-09-01',
     },
     card: { token: 'wallet-token' },
-    next_date_invoice: '2026-09-01',
+    status_transaction_prepaid: 'approved',
   };
 
   function build() {
@@ -40,6 +41,8 @@ describe('ApiDomClient billing', () => {
       frequencyType: 'MONTH',
       frequency: 1,
       nextInvoiceAt: '2026-09-01',
+      initialPaymentStatus: 'approved',
+      initialPaymentMessage: null,
     });
   });
 

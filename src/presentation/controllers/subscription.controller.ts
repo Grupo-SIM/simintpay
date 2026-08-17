@@ -43,7 +43,12 @@ export class SubscriptionController {
   ): Promise<{ status: string }> {
     const data = body.data as Record<string, unknown> | undefined;
     const relations = data?.relations as Record<string, unknown> | undefined;
-    const subscriptionId = typeof relations?.id_subscriber === 'string' ? relations.id_subscriber : undefined;
+    const event = String(body.event ?? '').replace(/\s+/g, '').toUpperCase();
+    const subscriptionId = typeof relations?.id_subscriber === 'string'
+      ? relations.id_subscriber
+      : event.startsWith('SIGNATURE-') && typeof data?.id === 'string'
+        ? data.id
+        : undefined;
     const signature = typeof body.signature === 'string' ? body.signature : undefined;
     if (!subscriptionId || !signature) throw new UnauthorizedException('Webhook DOM inválido');
     const token = await this.billing.getDomWebhookToken(subscriptionId) ?? process.env.DOM_TOKEN;
@@ -53,7 +58,6 @@ export class SubscriptionController {
     } catch {
       throw new UnauthorizedException('Assinatura DOM inválida');
     }
-    const event = String(body.event ?? '').replace(/\s+/g, '').toUpperCase();
     const paymentId = typeof data?.id === 'string' ? data.id : undefined;
     const amount = typeof data?.amount === 'number' ? data.amount / 100 : undefined;
     const mapped = event.includes('INVOICE-PAID') || event === 'CHARGE-APPROVED'

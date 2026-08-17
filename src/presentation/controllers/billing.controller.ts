@@ -158,11 +158,21 @@ export class BillingController {
           card: { ...body.card, token: body.card.token ?? '' },
         },
       );
+      await this.billing.attachWorkspacePaymentAttempt(attempt.id, subscription.id);
       const snapshot = await this.gateway.getSubscriptionBillingSnapshot(
         domToken,
         subscription.id,
       );
-      if (snapshot.status.toLowerCase() !== 'active' || !snapshot.nextInvoiceAt) {
+      const createdPrepaidStatus = typeof subscription.status_transaction_prepaid === 'string'
+        ? subscription.status_transaction_prepaid
+        : undefined;
+      const initialPaymentFailed = [createdPrepaidStatus, snapshot.initialPaymentStatus]
+        .some(status => status?.toLowerCase() === 'failed');
+      if (
+        snapshot.status.toLowerCase() !== 'active' ||
+        !snapshot.nextInvoiceAt ||
+        initialPaymentFailed
+      ) {
         await this.billing.resolveWorkspacePaymentAttempt({
           transactionId: attempt.id,
           externalSubscriptionId: subscription.id,

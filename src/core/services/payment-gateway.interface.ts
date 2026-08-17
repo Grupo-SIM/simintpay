@@ -176,6 +176,9 @@ export type SubscriptionBillingSnapshot = {
   frequencyType: string;
   frequency: number;
   nextInvoiceAt: string | null;
+  /** Resultado da cobrança inicial de uma assinatura pré-paga, quando informado pela adquirente. */
+  initialPaymentStatus?: string | null;
+  initialPaymentMessage?: string | null;
 };
 
 export type StoredPaymentChargeInput = {

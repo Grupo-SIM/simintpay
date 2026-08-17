@@ -181,6 +181,17 @@ export class BillingService {
     });
   }
 
+  /** Associa a tentativa pendente à assinatura antes do primeiro webhook DOM. */
+  async attachWorkspacePaymentAttempt(
+    transactionId: string,
+    externalSubscriptionId: string,
+  ) {
+    return this.prisma.transaction.update({
+      where: { id: transactionId },
+      data: { externalPaymentId: externalSubscriptionId, updatedAt: new Date() },
+    });
+  }
+
   async failWorkspacePaymentAttempt(transactionId: string) {
     return this.prisma.transaction.update({
       where: { id: transactionId },
@@ -198,7 +209,20 @@ export class BillingService {
       where: { externalSubscriptionId: subscriptionId },
       select: { userId: true },
     });
-    return contract ? this.resolveDomToken(contract.userId) : null;
+    if (contract) return this.resolveDomToken(contract.userId);
+
+    // O postback da criação chega antes do contrato existir. A tentativa
+    // pendente já possui o dono da assinatura e permite validar esse JWT com
+    // o mesmo token DOM usado na criação.
+    const attempt = await this.prisma.transaction.findFirst({
+      where: {
+        externalPaymentId: subscriptionId,
+        description: { startsWith: 'Teron workspace (' },
+      },
+      select: { userId: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return attempt ? this.resolveDomToken(attempt.userId) : null;
   }
 
   /** Applies one normalized DOM event. Transaction id makes repeated events harmless. */

@@ -918,7 +918,13 @@ export class ApiDomClient implements IPaymentGateway {
         1,
         Math.round(this.pickNumber(recurring, 'frequency') ?? 1),
       ),
-      nextInvoiceAt: this.pickString(raw, 'next_date_invoice'),
+      // A DOM devolve as datas no objeto de recorrência. Alguns retornos
+      // legados as trazem na raiz, então preservamos este fallback.
+      nextInvoiceAt:
+        this.pickString(recurring, 'next_date_invoice') ??
+        this.pickString(raw, 'next_date_invoice'),
+      initialPaymentStatus: this.pickString(raw, 'status_transaction_prepaid'),
+      initialPaymentMessage: this.pickString(raw, 'msg_transaction_prepaid'),
     };
   }
 
