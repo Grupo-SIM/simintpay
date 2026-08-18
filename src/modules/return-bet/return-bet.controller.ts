@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Headers,
+  Param,
   Post,
   Query,
   UnauthorizedException,
@@ -11,6 +12,10 @@ import {
   ReturnBetCommunityStatusService,
   CommunityStatusResult,
 } from './return-bet-community-status.service';
+import {
+  ReturnBetWithdrawalService,
+  type ReturnBetWithdrawalInput,
+} from './return-bet-withdrawal.service';
 
 interface BatchCheckItem {
   id: string;
@@ -20,7 +25,10 @@ interface BatchCheckItem {
 
 @Controller('internal/return-bet')
 export class ReturnBetController {
-  constructor(private readonly communityStatus: ReturnBetCommunityStatusService) {}
+  constructor(
+    private readonly communityStatus: ReturnBetCommunityStatusService,
+    private readonly withdrawals: ReturnBetWithdrawalService,
+  ) {}
 
   private ensureInternalToken(token?: string) {
     const expected = process.env.RETURN_BET_INTERNAL_TOKEN;
@@ -53,5 +61,51 @@ export class ReturnBetController {
       })),
     );
     return { results };
+  }
+
+  @Post('withdrawals')
+  requestWithdrawal(
+    @Body() body: ReturnBetWithdrawalInput,
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    return this.withdrawals.request(body);
+  }
+
+  @Post('withdrawals/status/batch')
+  async withdrawalStatusBatch(
+    @Body() body: { requestIds?: string[] },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    return {
+      results: await this.withdrawals.listStatus(
+        Array.isArray(body?.requestIds) ? body.requestIds : [],
+      ),
+    };
+  }
+
+  @Post('withdrawals/:requestId/approve')
+  approveWithdrawal(
+    @Param('requestId') requestId: string,
+    @Body() body: { receiptImage: string; actorReference?: string },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    return this.withdrawals.approve(requestId, body.receiptImage, {
+      actorReference: body.actorReference,
+    });
+  }
+
+  @Post('withdrawals/:requestId/reject')
+  rejectWithdrawal(
+    @Param('requestId') requestId: string,
+    @Body() body: { reason: string; actorReference?: string },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    return this.withdrawals.reject(requestId, body.reason, {
+      actorReference: body.actorReference,
+    });
   }
 }

@@ -14,6 +14,7 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform
 import { VoucherService } from '../voucher/voucher.service';
 import { splitDocument } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
+import { advanceSubscriptionPeriod } from '../../helpers/subscription-period.helper';
 
 function mapPlanFrequencyToDom(linkFrequency: string): { frequency_type: 'WEEK' | 'MONTH' | 'YEAR'; frequency: number } {
   // Frequências suportadas: Semanal (WEEK), Mensal (MONTH), Anual (YEAR) — os 3 tipos da DOM.
@@ -157,6 +158,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
       domSubscriptionId: domResult.id,
       amountCharged,
       platformFeeAmount,
+      currentPeriodEndsAt: advanceSubscriptionPeriod(new Date(), link.frequencyType),
     });
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });

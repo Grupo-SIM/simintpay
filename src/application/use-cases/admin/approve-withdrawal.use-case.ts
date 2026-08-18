@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { WithdrawStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
@@ -21,6 +21,10 @@ export class ApproveWithdrawalUseCase {
 
     if (!withdraw) {
       throw new NotFoundException('Saque não encontrado');
+    }
+
+    if (withdraw.status === WithdrawStatus.APPROVED || withdraw.status === WithdrawStatus.COMPLETED) {
+      return { message: 'Saque já aprovado' };
     }
 
     if (withdraw.status !== WithdrawStatus.PENDING) {
@@ -49,14 +53,20 @@ export class ApproveWithdrawalUseCase {
     // Executa tudo dentro de uma transação do Prisma
     await this.prisma.$transaction(async (tx) => {
       // 1. Atualiza o status da solicitação
-      await tx.withdrawRequest.update({
-        where: { id: withdrawId },
+      const claimed = await tx.withdrawRequest.updateMany({
+        where: { id: withdrawId, status: WithdrawStatus.PENDING },
         data: {
           status: WithdrawStatus.APPROVED,
           receiptImage: receiptImage ?? undefined,
+          reviewedAt: new Date(),
+          reviewSource: 'SIMPAY_ADMIN',
+          reviewedByReference: adminUserId ?? null,
           updatedAt: new Date(),
         },
       });
+      if (claimed.count !== 1) {
+        throw new ConflictException('Saque alterado por outro administrador.');
+      }
 
       // 2. Deduz os valores da wallet (Total e Bloqueado) - Pula se for Atlas
       if (withdraw.platform?.toLowerCase() !== 'atlas') {

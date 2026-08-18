@@ -10,6 +10,7 @@ const USE_MAIN_WALLET_FOR_CAPITAL = new Set([
   'atlas',
   'frendz',
   'comunidade',
+  'return-bet',
 ]);
 
 type WalletRow = { balance: unknown; lockedBalance: unknown } | null;
@@ -114,6 +115,9 @@ export class ListWithdrawalsAdminUseCase {
           { id: { contains: input.search, mode: 'insensitive' as const } },
           { user: { name: { contains: input.search, mode: 'insensitive' as const } } },
           { user: { email: { contains: input.search, mode: 'insensitive' as const } } },
+          { user: { returnBetAccount: { name: { contains: input.search, mode: 'insensitive' as const } } } },
+          { user: { returnBetAccount: { email: { contains: input.search, mode: 'insensitive' as const } } } },
+          { user: { returnBetAccount: { document: { contains: input.search } } } },
         ],
       });
     }
@@ -140,6 +144,9 @@ export class ListWithdrawalsAdminUseCase {
               wallet: { select: { balance: true, lockedBalance: true } },
               externalPlatformUsers: {
                 include: { wallet: true },
+              },
+              returnBetAccount: {
+                select: { name: true, email: true },
               },
             },
           },
@@ -168,8 +175,8 @@ export class ListWithdrawalsAdminUseCase {
         },
         cliente: {
           id: w.user.id,
-          nome: w.user.name,
-          email: w.user.email,
+          nome: w.user.returnBetAccount?.name ?? w.user.name,
+          email: w.user.returnBetAccount?.email ?? w.user.email,
           modulo: (() => {
             // Prioridade: campo platform gravado na criação > tenantModule do usuário
             if (platformStored) {

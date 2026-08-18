@@ -133,6 +133,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         pixExpire: data.pixExpire ?? undefined,
         amountCharged: new Prisma.Decimal(data.amountCharged),
         platformFeeAmount: new Prisma.Decimal(data.platformFeeAmount),
+        currentPeriodEndsAt: data.currentPeriodEndsAt ?? undefined,
       },
     });
   }

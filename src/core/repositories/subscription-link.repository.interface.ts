@@ -36,6 +36,7 @@ export type CreateSubscriptionLinkOrderData = {
   pixExpire?: Date | null;
   amountCharged: number;
   platformFeeAmount: number;
+  currentPeriodEndsAt?: Date | null;
 };
 
 export interface ISubscriptionLinkRepository {

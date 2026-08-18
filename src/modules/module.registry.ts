@@ -9,6 +9,7 @@ import { FrendzConfig }      from './frendz/frendz.config';
 import { AtlasConfig }       from './atlas/atlas.config';
 import { ComunidadeConfig }  from './comunidade/comunidade.config';
 import { ControleMotoristaConfig } from './controle-motorista/controle-motorista.config';
+import { ReturnBetConfig } from './return-bet/return-bet.config';
 
 /** Registro de todos os módulos indexados pelo slug */
 const REGISTRY: Record<string, ModuleConfig> = {
@@ -23,6 +24,7 @@ const REGISTRY: Record<string, ModuleConfig> = {
   comunidade:            ComunidadeConfig,
   'controle-motorista':  ControleMotoristaConfig,
   controle_motorista:    ControleMotoristaConfig,
+  'return-bet':          ReturnBetConfig,
 };
 
 /**

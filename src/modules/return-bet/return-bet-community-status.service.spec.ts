@@ -1,75 +1,100 @@
 import { ReturnBetCommunityStatusService } from './return-bet-community-status.service';
 
-function makePrismaMock(order: any) {
+const NOW = new Date('2026-08-18T12:00:00.000Z');
+
+function makeOrder(overrides: Record<string, unknown> = {}) {
+  return {
+    status: 'active',
+    createdAt: new Date('2026-08-01T12:00:00.000Z'),
+    updatedAt: new Date('2026-08-01T12:00:00.000Z'),
+    currentPeriodEndsAt: new Date('2026-09-01T12:00:00.000Z'),
+    issueStartedAt: null,
+    cancelledAt: null,
+    domSubscriptionId: 'sub-1',
+    ...overrides,
+  };
+}
+
+function makePrismaMock(orders: ReturnType<typeof makeOrder>[]) {
   return {
     subscriptionLink: {
-      findFirst: jest.fn().mockResolvedValue({ id: 'link-1' }),
+      findFirst: jest.fn().mockResolvedValue({ id: 'link-1', frequencyType: 'MONTHLY' }),
     },
     subscriptionLinkOrder: {
-      findFirst: jest.fn().mockResolvedValue(order),
+      findMany: jest.fn().mockResolvedValue(orders),
     },
   } as any;
 }
 
 describe('ReturnBetCommunityStatusService', () => {
-  it('returns isActive=true when the most recent order for the CPF has status active', async () => {
-    const prisma = makePrismaMock({ status: 'active' });
-    const service = new ReturnBetCommunityStatusService(prisma);
+  beforeEach(() => jest.useFakeTimers().setSystemTime(NOW));
+  afterEach(() => jest.useRealTimers());
 
-    const result = await service.checkOne({ cpf: '11122233344' });
+  it('returns active membership with its period end', async () => {
+    const service = new ReturnBetCommunityStatusService(makePrismaMock([makeOrder()]));
 
-    expect(result).toEqual({ isActive: true, expiresAt: null });
-    expect(prisma.subscriptionLinkOrder.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          subscriptionLinkId: 'link-1',
-          customerDocument: '11122233344',
+    await expect(service.checkOne({ cpf: '111.222.333-44' })).resolves.toEqual({
+      isActive: true,
+      expiresAt: '2026-09-01T12:00:00.000Z',
+      membershipStatus: 'ACTIVE',
+      periodEndsAt: '2026-09-01T12:00:00.000Z',
+      issueStartedAt: null,
+    });
+  });
+
+  it('preserves the paid period when cancelled', async () => {
+    const service = new ReturnBetCommunityStatusService(
+      makePrismaMock([
+        makeOrder({
+          status: 'cancelled',
+          cancelledAt: new Date('2026-08-15T12:00:00.000Z'),
         }),
-      }),
+      ]),
     );
+
+    const result = await service.checkOne({ cpf: '11122233344' });
+
+    expect(result.membershipStatus).toBe('CANCELLED');
+    expect(result.periodEndsAt).toBe('2026-09-01T12:00:00.000Z');
+    expect(result.issueStartedAt).toBe('2026-08-15T12:00:00.000Z');
   });
 
-  it('returns isActive=false when no order matches', async () => {
-    const prisma = makePrismaMock(null);
-    const service = new ReturnBetCommunityStatusService(prisma);
+  it('reports payment failure and its grace start', async () => {
+    const issueStartedAt = new Date('2026-08-17T12:00:00.000Z');
+    const service = new ReturnBetCommunityStatusService(
+      makePrismaMock([makeOrder({ status: 'payment_failed', issueStartedAt })]),
+    );
 
-    const result = await service.checkOne({ cpf: '00000000000' });
+    const result = await service.checkOne({ email: 'user@example.com' });
 
-    expect(result).toEqual({ isActive: false, expiresAt: null });
+    expect(result.membershipStatus).toBe('PAYMENT_FAILED');
+    expect(result.issueStartedAt).toBe(issueStartedAt.toISOString());
   });
 
-  it('is case-insensitive on the status value', async () => {
-    const prisma = makePrismaMock({ status: 'ACTIVE' });
+  it('marks an active-looking subscription expired after period end', async () => {
+    const service = new ReturnBetCommunityStatusService(
+      makePrismaMock([
+        makeOrder({ currentPeriodEndsAt: new Date('2026-08-10T12:00:00.000Z') }),
+      ]),
+    );
+
+    expect((await service.checkOne({ cpf: '11122233344' })).membershipStatus).toBe('EXPIRED');
+  });
+
+  it('returns not found when no matching order exists', async () => {
+    const service = new ReturnBetCommunityStatusService(makePrismaMock([]));
+
+    expect((await service.checkOne({ cpf: '00000000000' })).membershipStatus).toBe('NOT_FOUND');
+  });
+
+  it('returns not found when the Vivendo de Bet link does not exist', async () => {
+    const prisma = makePrismaMock([]);
+    prisma.subscriptionLink.findFirst.mockResolvedValue(null);
     const service = new ReturnBetCommunityStatusService(prisma);
 
     const result = await service.checkOne({ cpf: '11122233344' });
 
-    expect(result.isActive).toBe(true);
-  });
-
-  it('falls back to email when cpf is not provided', async () => {
-    const prisma = makePrismaMock({ status: 'active' });
-    const service = new ReturnBetCommunityStatusService(prisma);
-
-    await service.checkOne({ email: 'user@example.com' });
-
-    expect(prisma.subscriptionLinkOrder.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ customerEmail: 'user@example.com' }),
-      }),
-    );
-  });
-
-  it('returns isActive=false when the SubscriptionLink itself is not found', async () => {
-    const prisma = {
-      subscriptionLink: { findFirst: jest.fn().mockResolvedValue(null) },
-      subscriptionLinkOrder: { findFirst: jest.fn() },
-    } as any;
-    const service = new ReturnBetCommunityStatusService(prisma);
-
-    const result = await service.checkOne({ cpf: '11122233344' });
-
-    expect(result).toEqual({ isActive: false, expiresAt: null });
-    expect(prisma.subscriptionLinkOrder.findFirst).not.toHaveBeenCalled();
+    expect(result.membershipStatus).toBe('NOT_FOUND');
+    expect(prisma.subscriptionLinkOrder.findMany).not.toHaveBeenCalled();
   });
 });

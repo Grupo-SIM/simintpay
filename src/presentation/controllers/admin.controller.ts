@@ -4315,8 +4315,9 @@ export class AdminController {
   async rejeitarSaque(
     @Param('id') id: string,
     @Body() body: RejectWithdrawalDto,
+    @CurrentUser() user?: JwtPayload,
   ) {
-    return this.rejectWithdrawal.execute(id, body.motivo);
+    return this.rejectWithdrawal.execute(id, body.motivo, user?.sub);
   }
 
   @Get('saques/:id/comprovante')

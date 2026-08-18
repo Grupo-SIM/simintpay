@@ -11,6 +11,7 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform
 import { splitDocument } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 import { PlatformAccessService } from '../../services/platform-access.service';
+import { advanceSubscriptionPeriod } from '../../helpers/subscription-period.helper';
 
 @Injectable()
 export class SubscriptionWebhookService {
@@ -166,6 +167,24 @@ export class SubscriptionWebhookService {
     }
 
     if (chargeStatus === 'not_authorized' || chargeStatus === 'failed' || chargeStatus === 'expired') {
+      const failedLinkOrder = await this.prisma.subscriptionLinkOrder.findFirst({
+        where: { domSubscriptionId: subscriberId },
+        select: { id: true, issueStartedAt: true },
+      });
+      if (failedLinkOrder) {
+        await this.prisma.subscriptionLinkOrder.update({
+          where: { id: failedLinkOrder.id },
+          data: {
+            status: 'payment_failed',
+            issueStartedAt: failedLinkOrder.issueStartedAt ?? new Date(),
+          },
+        });
+        this.logger.warn(
+          `[handleChargeApproved] Pagamento negado (${chargeStatus}), SubscriptionLinkOrder ${failedLinkOrder.id} -> payment_failed`,
+        );
+        return;
+      }
+
       const failedSub = await this.prisma.subscription.findFirst({
         where: { domSubscriptionId: subscriberId },
         select: { id: true },
@@ -404,6 +423,22 @@ export class SubscriptionWebhookService {
     source: string,
   ): Promise<void> {
     const link = linkOrder.subscriptionLink;
+    const now = new Date();
+    const periodBase =
+      linkOrder.currentPeriodEndsAt && linkOrder.currentPeriodEndsAt > now
+        ? linkOrder.currentPeriodEndsAt
+        : now;
+    const currentPeriodEndsAt = advanceSubscriptionPeriod(periodBase, link.frequencyType);
+
+    await this.prisma.subscriptionLinkOrder.update({
+      where: { id: linkOrder.id },
+      data: {
+        status: 'active',
+        currentPeriodEndsAt,
+        issueStartedAt: null,
+        cancelledAt: null,
+      },
+    });
 
     // Cartão recorrente: provisiona/garante a conta do cliente na plataforma SaaS
     // (motorista/patrimonial) e dispara o email com login + senha (conta nova) ou de renovação.
@@ -468,6 +503,7 @@ export class SubscriptionWebhookService {
         status: 'paid',
         amountCharged: amount.toNumber(),
         platformFeeAmount,
+        currentPeriodEndsAt,
       },
     });
 
@@ -627,9 +663,16 @@ export class SubscriptionWebhookService {
       include: { subscriptionLink: true },
     });
     if (linkOrder) {
+      const now = new Date();
       await this.prisma.subscriptionLinkOrder.update({
         where: { id: linkOrder.id },
-        data: { status: 'cancelled' },
+        data: {
+          status: 'cancelled',
+          cancelledAt: now,
+          currentPeriodEndsAt:
+            linkOrder.currentPeriodEndsAt ??
+            advanceSubscriptionPeriod(linkOrder.createdAt, linkOrder.subscriptionLink.frequencyType),
+        },
       });
       const webhookUrl = linkOrder.subscriptionLink?.webhookUrl ?? null;
       if (webhookUrl) {
