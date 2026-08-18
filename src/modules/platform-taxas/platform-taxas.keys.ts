@@ -67,7 +67,7 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   /** Taxa DOM sobre PIX (decimal): 0,98% sobre o valor pago. Sobrescreva por tenant/env. */
   MDR_PIX: 0.0098,
   TAXA_SAQUE_FIXA: 2,
-  TAXA_SAQUE_DOM: 1,
+  TAXA_SAQUE_DOM: 3.5,
   TAXA_SAQUE_PERCENT: 0,
   SAQUE_MIN: 100,
   LIQUIDEZ: 0.9301,

@@ -4390,7 +4390,7 @@ export class AdminController {
     @CurrentUser() user: JwtPayload | undefined,
   ) {
     const platformTag = ((body?.platformTag ?? '') || 'GLOBAL').toUpperCase();
-    const domFee = getPlatformTaxaEffective(platformTag, 'TAXA_SAQUE_DOM', 1);
+    const domFee = getPlatformTaxaEffective(platformTag, 'TAXA_SAQUE_DOM', 3.5);
     const adminUserId = user?.sub;
     if (!adminUserId) throw new BadRequestException('Usuário não identificado');
     await this.prisma.balanceLog.create({
@@ -4439,7 +4439,7 @@ export class AdminController {
     @CurrentUser() user: JwtPayload | undefined,
   ) {
     const platformTag = ((body?.platformTag ?? '') || 'GLOBAL').toUpperCase();
-    const domFee = getPlatformTaxaEffective(platformTag, 'TAXA_SAQUE_DOM', 1);
+    const domFee = getPlatformTaxaEffective(platformTag, 'TAXA_SAQUE_DOM', 3.5);
     const adminUserId = user?.sub;
     if (!adminUserId) throw new BadRequestException('Usuário não identificado');
     await this.prisma.balanceLog.create({
