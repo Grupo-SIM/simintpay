@@ -68,10 +68,25 @@ function makePrisma() {
   return prisma;
 }
 
+function makePolicy(overrides: Record<string, unknown> = {}) {
+  return {
+    get: jest.fn().mockResolvedValue({
+      minimumGrossAmount: 100,
+      fixedWithdrawalFee: 2,
+      withdrawalWindowDays: 30,
+      ...overrides,
+    }),
+  } as any;
+}
+
+function makeService(prisma = makePrisma(), policy = makePolicy()) {
+  return new ReturnBetWithdrawalService(prisma, policy);
+}
+
 describe('ReturnBetWithdrawalService', () => {
   it('creates an idempotent pending request and applies the R$2 fee', async () => {
     const prisma = makePrisma();
-    const service = new ReturnBetWithdrawalService(prisma);
+    const service = makeService(prisma);
 
     const result = await service.request(input);
 
@@ -94,7 +109,7 @@ describe('ReturnBetWithdrawalService', () => {
   it('returns the existing record for the same request id', async () => {
     const prisma = makePrisma();
     prisma.withdrawRequest.findUnique.mockResolvedValue(withdrawal());
-    const service = new ReturnBetWithdrawalService(prisma);
+    const service = makeService(prisma);
 
     const result = await service.request(input);
 
@@ -103,7 +118,7 @@ describe('ReturnBetWithdrawalService', () => {
   });
 
   it('rejects amount below R$100 or above the source balance', async () => {
-    const service = new ReturnBetWithdrawalService(makePrisma());
+    const service = makeService();
 
     await expect(service.request({ ...input, amount: 99 })).rejects.toBeInstanceOf(
       UnprocessableEntityException,
@@ -118,7 +133,7 @@ describe('ReturnBetWithdrawalService', () => {
     prisma.withdrawRequest.findFirst
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(withdrawal({ status: 'APPROVED' }));
-    const service = new ReturnBetWithdrawalService(prisma);
+    const service = makeService(prisma);
 
     await expect(service.request(input)).rejects.toBeInstanceOf(ConflictException);
   });
@@ -128,7 +143,7 @@ describe('ReturnBetWithdrawalService', () => {
     prisma.withdrawRequest.findFirstOrThrow
       .mockResolvedValueOnce(withdrawal())
       .mockResolvedValueOnce(withdrawal({ status: 'APPROVED' }));
-    const service = new ReturnBetWithdrawalService(prisma);
+    const service = makeService(prisma);
 
     const result = await service.approve(input.requestId, 'https://receipt.test/file', {
       actorReference: 'admin-1',
@@ -151,10 +166,29 @@ describe('ReturnBetWithdrawalService', () => {
   it('rejects a conflicting terminal transition', async () => {
     const prisma = makePrisma();
     prisma.withdrawRequest.findFirstOrThrow.mockResolvedValue(withdrawal({ status: 'APPROVED' }));
-    const service = new ReturnBetWithdrawalService(prisma);
+    const service = makeService(prisma);
 
     await expect(
       service.reject(input.requestId, 'Dados inválidos', { actorReference: 'admin-2' }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('uses the configured fee and rolling window for new requests', async () => {
+    const prisma = makePrisma();
+    const policy = makePolicy({ minimumGrossAmount: 80, fixedWithdrawalFee: 5, withdrawalWindowDays: 14 });
+    const service = makeService(prisma, policy);
+
+    await service.request({ ...input, amount: 90 });
+
+    expect(prisma.withdrawRequest.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ fee: 5, amount: 85 }) }),
+    );
+    expect(prisma.withdrawRequest.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          createdAt: expect.objectContaining({ gte: expect.any(Date) }),
+        }),
+      }),
+    );
   });
 });

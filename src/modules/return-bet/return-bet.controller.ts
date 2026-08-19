@@ -5,6 +5,7 @@ import {
   Headers,
   Param,
   Post,
+  Put,
   Query,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -16,6 +17,10 @@ import {
   ReturnBetWithdrawalService,
   type ReturnBetWithdrawalInput,
 } from './return-bet-withdrawal.service';
+import {
+  ReturnBetWithdrawalPolicyService,
+  type ReturnBetWithdrawalPolicyInput,
+} from './return-bet-withdrawal-policy.service';
 
 interface BatchCheckItem {
   id: string;
@@ -28,6 +33,7 @@ export class ReturnBetController {
   constructor(
     private readonly communityStatus: ReturnBetCommunityStatusService,
     private readonly withdrawals: ReturnBetWithdrawalService,
+    private readonly withdrawalPolicy: ReturnBetWithdrawalPolicyService,
   ) {}
 
   private ensureInternalToken(token?: string) {
@@ -35,6 +41,21 @@ export class ReturnBetController {
     if (!expected || token !== expected) {
       throw new UnauthorizedException('Token interno inválido');
     }
+  }
+
+  @Get('withdrawal-policy')
+  getWithdrawalPolicy(@Headers('x-internal-token') internalToken?: string) {
+    this.ensureInternalToken(internalToken);
+    return this.withdrawalPolicy.get();
+  }
+
+  @Put('withdrawal-policy')
+  setWithdrawalPolicy(
+    @Body() body: ReturnBetWithdrawalPolicyInput,
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    return this.withdrawalPolicy.set(body);
   }
 
   @Get('community-status')

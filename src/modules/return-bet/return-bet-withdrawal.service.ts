@@ -10,8 +10,10 @@ import * as bcrypt from 'bcryptjs';
 import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { ReturnBetConfig } from './return-bet.config';
-
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+import {
+  ReturnBetWithdrawalPolicyService,
+  type ReturnBetWithdrawalPolicy,
+} from './return-bet-withdrawal-policy.service';
 
 export interface ReturnBetWithdrawalInput {
   requestId: string;
@@ -30,10 +32,14 @@ interface ReviewInput {
 
 @Injectable()
 export class ReturnBetWithdrawalService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly policyService: ReturnBetWithdrawalPolicyService,
+  ) {}
 
   async request(input: ReturnBetWithdrawalInput) {
-    this.validateRequest(input);
+    const policy = await this.policyService.get();
+    this.validateRequest(input, policy);
 
     const existing = await this.prisma.withdrawRequest.findUnique({
       where: { integrationRequestId: input.requestId },
@@ -41,7 +47,7 @@ export class ReturnBetWithdrawalService {
     if (existing) return this.serialize(existing);
 
     const account = await this.ensureAccount(input);
-    const fee = Number(ReturnBetConfig.saque.calcularTaxa(input.amount).toFixed(2));
+    const fee = Number(policy.fixedWithdrawalFee.toFixed(2));
     const netAmount = Number((input.amount - fee).toFixed(2));
     if (netAmount <= 0) {
       throw new UnprocessableEntityException('Valor insuficiente para cobrir a taxa de saque.');
@@ -77,7 +83,9 @@ export class ReturnBetWithdrawalService {
             status: {
               in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED],
             },
-            createdAt: { gte: new Date(Date.now() - THIRTY_DAYS_MS) },
+            createdAt: {
+              gte: new Date(Date.now() - policy.withdrawalWindowDays * 24 * 60 * 60 * 1000),
+            },
           },
         });
         if (recent) {
@@ -209,7 +217,7 @@ export class ReturnBetWithdrawalService {
     return this.serialize(await this.findByRequestId(requestId));
   }
 
-  private validateRequest(input: ReturnBetWithdrawalInput) {
+  private validateRequest(input: ReturnBetWithdrawalInput, policy: ReturnBetWithdrawalPolicy) {
     if (!input.requestId?.trim() || !input.externalUserId?.trim()) {
       throw new BadRequestException('Identificadores do saque são obrigatórios.');
     }
@@ -217,8 +225,10 @@ export class ReturnBetWithdrawalService {
       throw new BadRequestException('Dados do beneficiário são obrigatórios.');
     }
     if (!input.pixKey?.trim()) throw new BadRequestException('Chave Pix é obrigatória.');
-    if (!Number.isFinite(input.amount) || input.amount < ReturnBetConfig.saque.minValor) {
-      throw new UnprocessableEntityException('O valor mínimo para saque é de R$ 100,00.');
+    if (!Number.isFinite(input.amount) || input.amount < policy.minimumGrossAmount) {
+      throw new UnprocessableEntityException(
+        `O valor mínimo para saque é de R$ ${policy.minimumGrossAmount.toFixed(2).replace('.', ',')}.`,
+      );
     }
     if (!Number.isFinite(input.availableBalance) || input.availableBalance < input.amount) {
       throw new UnprocessableEntityException('Saldo disponível insuficiente para este saque.');

@@ -421,6 +421,17 @@ model ReturnBetAccount {
   @@index([email])
 }
 
+/// Política financeira exclusiva do Return Bet. Uma única linha, mantida pelo
+/// admin Return Bet via integração interna autenticada.
+model ReturnBetWithdrawalPolicy {
+  id                 String   @id
+  minimumGrossAmount Decimal  @default(100) @db.Decimal(12, 2)
+  fixedWithdrawalFee Decimal  @default(2) @db.Decimal(12, 2)
+  withdrawalWindowDays Int    @default(30)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
 model Community {
   id          String                @id @default(uuid())
   slug        String                @unique
