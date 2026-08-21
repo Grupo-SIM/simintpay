@@ -184,7 +184,7 @@ describe('BillingService.cancelContract', () => {
       data: { status: BillingContractStatus.CANCELLED, accessEndsAt: periodEnd },
     });
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ eventKey: 'cancel:contract-1', type: 'CANCELLED' }),
+      data: expect.objectContaining({ eventKey: expect.stringMatching(/^cancel:contract-1:/), type: 'CANCELLED' }),
     }));
     expect(result.currentPeriodEnd).toBe(periodEnd.toISOString());
   });
@@ -217,9 +217,43 @@ describe('BillingService.cancelContract', () => {
       data: { status: BillingContractStatus.ACTIVE, accessEndsAt: null },
     });
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ eventKey: 'reactivate:contract-1', type: 'REACTIVATED' }),
+      data: expect.objectContaining({ eventKey: expect.stringMatching(/^reactivate:contract-1:/), type: 'REACTIVATED' }),
     }));
     expect(result.status).toBe(BillingContractStatus.ACTIVE);
+  });
+
+  it('emite um novo evento ao cancelar após reativar', async () => {
+    const current = contract();
+    const update = jest.fn(({ data }) => Object.assign(current, data));
+    const create = jest.fn();
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, tenantModule: null }),
+      },
+      billingContract: { findUnique: jest.fn().mockImplementation(() => current) },
+      $transaction: jest.fn().mockImplementation((callback) => callback({
+        billingContract: { update },
+        billingContractEvent: { create },
+      })),
+    } as any;
+    const gateway = {
+      cancelSubscription: jest.fn().mockResolvedValue(undefined),
+      reactivateSubscription: jest.fn().mockResolvedValue(undefined),
+    } as any;
+    const service = new BillingService(prisma, gateway);
+
+    await service.cancelContract('contract-1');
+    await service.reactivateContract('contract-1');
+    await service.cancelContract('contract-1');
+
+    const eventKeys = create.mock.calls.map(([{ data }]) => data.eventKey);
+    expect(eventKeys).toHaveLength(3);
+    expect(new Set(eventKeys).size).toBe(3);
+    expect(create.mock.calls.map(([{ data }]) => data.type)).toEqual([
+      'CANCELLED',
+      'REACTIVATED',
+      'CANCELLED',
+    ]);
   });
 });
 

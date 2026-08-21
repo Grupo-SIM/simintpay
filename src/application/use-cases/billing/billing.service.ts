@@ -15,7 +15,7 @@ import {
   Prisma,
   TransactionStatus,
 } from '@prisma/client';
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import {
   PAYMENT_GATEWAY_DOM,
@@ -372,7 +372,10 @@ export class BillingService {
       await tx.billingContractEvent.create({
         data: {
           contractId: contract.id,
-          eventKey: `cancel:${contract.id}`,
+          // A contract may be cancelled again after reactivation. Each state
+          // transition needs a distinct outbox event, while repeats in the
+          // same state return before this transaction.
+          eventKey: `cancel:${contract.id}:${randomUUID()}`,
           type: 'CANCELLED',
           payload: { source: 'workspace' },
         },
@@ -407,7 +410,7 @@ export class BillingService {
       await tx.billingContractEvent.create({
         data: {
           contractId: contract.id,
-          eventKey: `reactivate:${contract.id}`,
+          eventKey: `reactivate:${contract.id}:${randomUUID()}`,
           type: 'REACTIVATED',
           payload: { source: 'workspace' },
         },
