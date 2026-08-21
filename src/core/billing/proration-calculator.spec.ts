@@ -18,8 +18,23 @@ describe('calculateProration', () => {
 
     expect(result.previousRecurringAmount.toFixed(2)).toBe('300.00');
     expect(result.nextRecurringAmount.toFixed(2)).toBe('360.00');
-    expect(result.remainingRatio.toFixed(10)).toBe('0.5322580645');
-    expect(result.prorationAmount.toFixed(2)).toBe('31.94');
+    expect(result.remainingRatio.toFixed(10)).toBe('0.5161290323');
+    expect(result.prorationAmount.toFixed(2)).toBe('30.97');
+  });
+
+  it('cobra apenas os dias restantes depois de quatro dias iniciados', () => {
+    const result = calculateProration({
+      baseAmount: 0,
+      unitAmount: 1,
+      previousQuantity: 1,
+      targetQuantity: 2,
+      periodStart: new Date('2026-08-16T21:00:00.000Z'),
+      periodEnd: new Date('2026-09-15T21:00:00.000Z'),
+      effectiveAt: new Date('2026-08-20T20:00:00.000Z'),
+    });
+
+    expect(result.remainingRatio.toFixed(10)).toBe('0.8666666667');
+    expect(result.prorationAmount.toFixed(2)).toBe('0.87');
   });
 
   it('limita a fração a um no início e zero no fim', () => {

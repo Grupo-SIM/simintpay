@@ -19,6 +19,7 @@ export type ProrationResult = {
 
 const ZERO = new Prisma.Decimal(0);
 const ONE = new Prisma.Decimal(1);
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function assertQuantity(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
@@ -27,8 +28,8 @@ function assertQuantity(value: number, name: string): void {
 }
 
 /**
- * Calcula o ajuste temporal usando a duração real do período em milissegundos.
- * A função é pura: não consulta relógio, banco, gateway ou domínio consumidor.
+ * Calcula o ajuste por dias iniciados. Uma fração de dia já consumida conta
+ * como um dia completo, evitando cobrar novamente esse dia na pró-rata.
  */
 export function calculateProration(input: ProrationInput): ProrationResult {
   assertQuantity(input.previousQuantity, 'previousQuantity');
@@ -57,11 +58,13 @@ export function calculateProration(input: ProrationInput): ProrationResult {
     .plus(unit.times(input.targetQuantity))
     .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
-  const remainingMs = Math.max(
-    0,
-    Math.min(endMs - startMs, endMs - effectiveMs),
+  const durationMs = endMs - startMs;
+  const elapsedMs = Math.max(0, Math.min(durationMs, effectiveMs - startMs));
+  const totalDays = Math.max(1, Math.ceil(durationMs / DAY_MS));
+  const elapsedDays = Math.min(totalDays, Math.ceil(elapsedMs / DAY_MS));
+  let remainingRatio = new Prisma.Decimal(totalDays - elapsedDays).div(
+    totalDays,
   );
-  let remainingRatio = new Prisma.Decimal(remainingMs).div(endMs - startMs);
   if (remainingRatio.lessThan(ZERO)) remainingRatio = ZERO;
   if (remainingRatio.greaterThan(ONE)) remainingRatio = ONE;
   remainingRatio = remainingRatio.toDecimalPlaces(
