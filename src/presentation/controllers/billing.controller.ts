@@ -254,6 +254,26 @@ export class BillingController {
     return this.billing.getContract(contractId);
   }
 
+  @Post('contracts/:contractId/cancel')
+  @ApiOperation({ summary: 'Cancelar renovação de contrato faturável' })
+  cancelContract(
+    @Headers('x-internal-token') internalToken: string | undefined,
+    @Param('contractId') contractId: string,
+  ) {
+    this.assertInternalToken(internalToken);
+    return this.billing.cancelContract(contractId);
+  }
+
+  @Post('contracts/:contractId/uncancel')
+  @ApiOperation({ summary: 'Reativar contrato faturável cancelado' })
+  reactivateContract(
+    @Headers('x-internal-token') internalToken: string | undefined,
+    @Param('contractId') contractId: string,
+  ) {
+    this.assertInternalToken(internalToken);
+    return this.billing.reactivateContract(contractId);
+  }
+
   @Post('contracts/:contractId/recover')
   async recoverWorkspaceSubscription(
     @Headers('x-internal-token') internalToken: string | undefined,

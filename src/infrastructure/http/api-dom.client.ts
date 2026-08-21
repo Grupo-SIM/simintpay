@@ -1023,6 +1023,14 @@ export class ApiDomClient implements IPaymentGateway {
     await firstValueFrom(this.http.delete(`${this.domRealApiUrl}/recurrence/subscriptions/${id}`, { headers: { 'Authorization': `Bearer ${domToken}` } }));
   }
 
+  async reactivateSubscription(domToken: string, id: string): Promise<void> {
+    await firstValueFrom(this.http.put(
+      `${this.domRealApiUrl}/recurrence/subscriptions/active/${id}`,
+      { reason: 'Solicitado pelo cliente' },
+      { headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' } }
+    ));
+  }
+
   async createSubscriptionFromCheckout(
     domToken: string,
     input: {

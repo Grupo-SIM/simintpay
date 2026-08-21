@@ -394,6 +394,7 @@ export interface IPaymentGateway {
     input: { subscriptionId: string; planId: string },
   ): Promise<SubscriptionPlanChangeOutput>;
   cancelSubscription(domToken: string, id: string): Promise<void>;
+  reactivateSubscription(domToken: string, id: string): Promise<void>;
   getDomSummary(domToken: string): Promise<any>;
   getSpecificMachineTransactions(domToken: string): Promise<any>;
   getMonthlyRevenue(domToken: string): Promise<DomMonthlyRevenueOutput>;

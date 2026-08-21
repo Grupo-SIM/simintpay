@@ -158,6 +158,71 @@ describe('BillingService.requestQuantityChange', () => {
   });
 });
 
+describe('BillingService.cancelContract', () => {
+  it('cancela a recorrência e mantém acesso até o fim do período atual', async () => {
+    const current = contract();
+    const update = jest.fn().mockImplementation(({ data }) => ({ ...current, ...data }));
+    const create = jest.fn();
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, tenantModule: null }),
+      },
+      billingContract: { findUnique: jest.fn().mockResolvedValue(current) },
+      $transaction: jest.fn().mockImplementation((callback) => callback({
+        billingContract: { update },
+        billingContractEvent: { create },
+      })),
+    } as any;
+    const gateway = { cancelSubscription: jest.fn().mockResolvedValue(undefined) } as any;
+    const service = new BillingService(prisma, gateway);
+
+    const result = await service.cancelContract('contract-1');
+
+    expect(gateway.cancelSubscription).toHaveBeenCalledWith('dom-token', 'sub-1');
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'contract-1' },
+      data: { status: BillingContractStatus.CANCELLED, accessEndsAt: periodEnd },
+    });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ eventKey: 'cancel:contract-1', type: 'CANCELLED' }),
+    }));
+    expect(result.currentPeriodEnd).toBe(periodEnd.toISOString());
+  });
+
+  it('reativa uma recorrência cancelada', async () => {
+    const current = contract({
+      status: BillingContractStatus.CANCELLED,
+      accessEndsAt: periodEnd,
+    });
+    const update = jest.fn().mockImplementation(({ data }) => ({ ...current, ...data }));
+    const create = jest.fn();
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, tenantModule: null }),
+      },
+      billingContract: { findUnique: jest.fn().mockResolvedValue(current) },
+      $transaction: jest.fn().mockImplementation((callback) => callback({
+        billingContract: { update },
+        billingContractEvent: { create },
+      })),
+    } as any;
+    const gateway = { reactivateSubscription: jest.fn().mockResolvedValue(undefined) } as any;
+    const service = new BillingService(prisma, gateway);
+
+    const result = await service.reactivateContract('contract-1');
+
+    expect(gateway.reactivateSubscription).toHaveBeenCalledWith('dom-token', 'sub-1');
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'contract-1' },
+      data: { status: BillingContractStatus.ACTIVE, accessEndsAt: null },
+    });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ eventKey: 'reactivate:contract-1', type: 'REACTIVATED' }),
+    }));
+    expect(result.status).toBe(BillingContractStatus.ACTIVE);
+  });
+});
+
 describe('BillingService period refresh', () => {
   it('avança um período vencido somente após validar o valor recorrente na DOM', async () => {
     const stale = contract({

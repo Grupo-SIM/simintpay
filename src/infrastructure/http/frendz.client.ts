@@ -404,6 +404,9 @@ export class FrendzClient implements IPaymentGateway {
   cancelSubscription(_t: string, _id: string): Promise<void> {
     return this.notYet('cancelSubscription');
   }
+  reactivateSubscription(_t: string, _id: string): Promise<void> {
+    return this.notYet('reactivateSubscription');
+  }
   getSpecificMachineTransactions(_t: string): Promise<any> {
     return this.notYet('getSpecificMachineTransactions');
   }

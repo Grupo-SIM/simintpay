@@ -348,6 +348,76 @@ export class BillingService {
     return this.serializeContract(contract);
   }
 
+  async cancelContract(id: string) {
+    const contract = await this.prisma.billingContract.findUnique({
+      where: { id },
+    });
+    if (!contract)
+      throw new NotFoundException('Contrato de cobrança não encontrado');
+    if (contract.status === BillingContractStatus.CANCELLED) {
+      return this.serializeContract(contract);
+    }
+
+    const domToken = await this.resolveDomToken(contract.userId);
+    await this.gateway.cancelSubscription(domToken, contract.externalSubscriptionId);
+
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.billingContract.update({
+        where: { id: contract.id },
+        data: {
+          status: BillingContractStatus.CANCELLED,
+          accessEndsAt: contract.currentPeriodEnd,
+        },
+      });
+      await tx.billingContractEvent.create({
+        data: {
+          contractId: contract.id,
+          eventKey: `cancel:${contract.id}`,
+          type: 'CANCELLED',
+          payload: { source: 'workspace' },
+        },
+      });
+      return updated;
+    });
+    await this.deliverTeronEvents();
+    return this.serializeContract(cancelled);
+  }
+
+  async reactivateContract(id: string) {
+    const contract = await this.prisma.billingContract.findUnique({
+      where: { id },
+    });
+    if (!contract)
+      throw new NotFoundException('Contrato de cobrança não encontrado');
+    if (contract.status === BillingContractStatus.ACTIVE) {
+      return this.serializeContract(contract);
+    }
+
+    const domToken = await this.resolveDomToken(contract.userId);
+    await this.gateway.reactivateSubscription(domToken, contract.externalSubscriptionId);
+
+    const reactivated = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.billingContract.update({
+        where: { id: contract.id },
+        data: {
+          status: BillingContractStatus.ACTIVE,
+          accessEndsAt: null,
+        },
+      });
+      await tx.billingContractEvent.create({
+        data: {
+          contractId: contract.id,
+          eventKey: `reactivate:${contract.id}`,
+          type: 'REACTIVATED',
+          payload: { source: 'workspace' },
+        },
+      });
+      return updated;
+    });
+    await this.deliverTeronEvents();
+    return this.serializeContract(reactivated);
+  }
+
   async getChange(contractId: string, changeId: string) {
     const change = await this.prisma.billingQuantityChange.findFirst({
       where: { id: changeId, contractId },
