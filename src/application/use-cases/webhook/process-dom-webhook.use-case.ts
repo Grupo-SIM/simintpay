@@ -577,7 +577,11 @@ export class ProcessDomWebhookUseCase {
     if (/["']store["']\s*:\s*["']ebook/.test(s) || /["']store["']\s*:\s*["']ebooksim/.test(s)) {
       return true;
     }
-    if (s.includes('checkout.jbmidia.com') && (s.includes('ebook') || s.includes('ebooksim'))) {
+    const checkoutDomain = process.env.SIMPAY_CHECKOUT_URL
+      ?.replace(/^https?:\/\//i, '')
+      .split(/[/?#]/)[0]
+      .toLowerCase();
+    if (checkoutDomain && s.includes(checkoutDomain) && (s.includes('ebook') || s.includes('ebooksim'))) {
       return true;
     }
     if (s.includes('back.ebooksim.com')) return true;

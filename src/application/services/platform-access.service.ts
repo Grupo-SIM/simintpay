@@ -163,6 +163,6 @@ export class PlatformAccessService {
       select: { subscriptionLink: { select: { code: true } } },
     });
     const code = order?.subscriptionLink?.code;
-    return code ? `https://checkout.jbmidia.com/?subscriptionLinkCode=${code}` : undefined;
+    return code ? `${process.env.SIMPAY_CHECKOUT_URL}/?subscriptionLinkCode=${code}` : undefined;
   }
 }

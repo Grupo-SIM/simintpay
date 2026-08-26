@@ -101,7 +101,7 @@ export class CheckoutController {
       throw new BadRequestException('Descrição é obrigatória');
     }
 
-    const baseUrl = (process.env.SIMPAY_CHECKOUT_URL || 'https://checkout.jbmidia.com').replace(/\/+$/, '');
+    const baseUrl = process.env.SIMPAY_CHECKOUT_URL?.replace(/\/+$/, '');
     const store = String(body?.store || 'ebook');
 
     let checkoutUrl = `${baseUrl}/?value=${valueNum}&description=${encodeURIComponent(description)}&store=${encodeURIComponent(store)}`;

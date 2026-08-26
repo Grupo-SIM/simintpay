@@ -119,7 +119,7 @@ export class InternalBetaiController {
 
     return {
       linkCode: link.id,
-      checkoutUrl: `https://checkout.jbmidia.com/?simLinkCode=${link.id}`,
+      checkoutUrl: `${process.env.SIMPAY_CHECKOUT_URL}/?simLinkCode=${link.id}`,
     };
   }
 
@@ -152,7 +152,7 @@ export class InternalBetaiController {
     if (!code) throw new BadRequestException('Falha ao criar plano de assinatura');
     return {
       code,
-      checkoutUrl: `https://checkout.jbmidia.com/?subscriptionLinkCode=${code}`,
+      checkoutUrl: `${process.env.SIMPAY_CHECKOUT_URL}/?subscriptionLinkCode=${code}`,
     };
   }
 

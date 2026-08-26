@@ -126,7 +126,7 @@ export class SubscriptionLinkController {
     });
     if (!order) throw new NotFoundException('Pedido não encontrado');
     const fallbackCheckoutUrl = order.subscriptionLink?.code
-      ? `https://checkout.jbmidia.com/?subscriptionLinkCode=${encodeURIComponent(order.subscriptionLink.code)}`
+      ? `${process.env.SIMPAY_CHECKOUT_URL}/?subscriptionLinkCode=${encodeURIComponent(order.subscriptionLink.code)}`
       : null;
     const accessUrl = order.subscriptionLink?.redirectUrl ?? fallbackCheckoutUrl;
     return {
