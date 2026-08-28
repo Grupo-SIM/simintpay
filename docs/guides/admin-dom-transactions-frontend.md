@@ -34,6 +34,14 @@ Admin recebe todo o ledger; usuário comum recebe somente as próprias transaç�
 
 `GET /admin/transacoes-dom` permanece como endpoint legado para consumidores DOM específicos. Ele filtra `acquirer = DOM`; fluxos novos devem usar `/transacoes?acquirer=DOM`.
 
+## Detalhe
+
+```http
+GET /transacoes/{id}
+```
+
+`id` aceita exclusivamente o UUID interno do ledger (`Transaction.id`). A rota localiza o registro primeiro e só então usa os identificadores externos persistidos para consultar a adquirente correspondente. Não passe `domTransactionId`, `domPaymentId` nem qualquer ID da adquirente na URL.
+
 ## Resposta
 
 ```json

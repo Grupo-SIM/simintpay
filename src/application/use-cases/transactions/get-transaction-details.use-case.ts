@@ -1,18 +1,19 @@
-import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { stripInternalTags } from '../../utils/internal-tags.util';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { estimateDomFeeReais, platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 import { isPixLikePayment } from '../../helpers/platform-fee-split.helper';
+import { PaymentGatewayResolver } from '../../../infrastructure/http/payment-gateway.resolver';
+import { toAcquirer } from '../../../core/services/acquirer.enum';
 
 @Injectable()
 export class GetTransactionDetailsUseCase {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
+    private readonly gatewayResolver: PaymentGatewayResolver,
   ) {}
 
   private mapStatusToLabel(status: TransactionStatus): string {
@@ -178,11 +179,8 @@ export class GetTransactionDetailsUseCase {
     // 1. Find local transaction
     const tx = await this.prisma.transaction.findFirst({
       where: {
-        OR: [
-          { id: input.id, userId: input.userId },
-          { domPaymentId: input.id, userId: input.userId },
-          { domTransactionId: input.id, userId: input.userId },
-        ],
+        id: input.id,
+        userId: input.userId,
       },
       include: {
         statusHistory: { orderBy: { createdAt: 'asc' } },
@@ -190,59 +188,7 @@ export class GetTransactionDetailsUseCase {
       },
     });
 
-    // 2. Se não achou no banco, tenta direto na DOM API com token master (fluxo admin sem persistência)
     if (!tx) {
-      const user = await this.prisma.user.findUnique({
-        where: { id: input.userId },
-        select: { role: true },
-      });
-
-      const masterToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
-      if (user?.role === 'ADMIN' && masterToken) {
-        try {
-          const detail = await this.gateway.getDomTransactionDetail(masterToken, input.id);
-          if (detail?.order) {
-            // A API DOM não retorna historic_status — injeta histórico sintético baseado no status/datas
-            if (!detail.order.historic_status?.length) {
-              const order = detail.order;
-              const history: any[] = [
-                {
-                  status: 'Pendente',
-                  type: 'pending',
-                  date: order.date_register ?? new Date().toISOString(),
-                  color: '#3fa0e5',
-                },
-              ];
-              if (order.type === 'approved' || order.type === 'paid') {
-                history.push({
-                  status: 'Aprovado',
-                  type: 'approved',
-                  date: order.paid_date ?? order.date_register,
-                  color: '#40a083',
-                });
-              } else if (order.type === 'refunded') {
-                history.push({ status: 'Estornado', type: 'refunded', date: order.paid_date ?? order.date_register, color: '#f59e0b' });
-              } else if (order.type === 'failed' || order.type === 'not_authorized') {
-                history.push({ status: 'Recusado', type: 'failed', date: order.date_register, color: '#ef4444' });
-              } else if (order.type === 'expired') {
-                history.push({ status: 'Expirado', type: 'expired', date: order.date_register, color: '#6b7280' });
-              }
-              detail.order.historic_status = history;
-            }
-            if (Array.isArray(detail.order?.items)) {
-              detail.order.items = detail.order.items.map((item: any) => ({
-                ...item,
-                name: stripInternalTags(item?.name) ?? item?.name ?? 'Produto',
-              }));
-            }
-            detail.order = this.applyFixedFeesToOrder(detail.order);
-            return detail;
-          }
-        } catch {
-          // ignora e lança o 404 abaixo
-        }
-      }
-
       throw new NotFoundException(`Transação ${input.id} não encontrada.`);
     }
 
@@ -254,9 +200,10 @@ export class GetTransactionDetailsUseCase {
     ].filter(Boolean) as string[];
 
     if (domToken && domIdsToTry.length > 0) {
+      const gateway = this.gatewayResolver.byAcquirer(toAcquirer(tx.acquirer));
       for (const domId of domIdsToTry) {
         try {
-          const detail = await this.gateway.getDomTransactionDetail(domToken, domId);
+          const detail = await gateway.getDomTransactionDetail(domToken, domId);
           // DOM /front-store/transaction retorna { order: {...}, reasons: [...] } sem status: 'OK'
           if (detail?.order) {
             // Cache mdr_value in domFee column for future fallbacks
