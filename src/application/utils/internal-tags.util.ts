@@ -48,6 +48,22 @@ export function hasEbookPlatform(plataformas: string[] | null | undefined): bool
   return (plataformas ?? []).some(isEbookPlatformTag);
 }
 
+/**
+ * Identifica venda FÍSICA (maquineta / POS) pela descrição da transação.
+ *
+ * Nem toda maquineta tem a tag [ORIGEM:MAQUINETA] — a maioria das linhas antigas
+ * foi gravada só com "Maquineta - Terminal: XXX" (sync-maquinetas, webhooks).
+ * Fonte única de verdade para o relatório e para a estimativa de taxa DOM física.
+ */
+export function isMaquinetaDescription(description: string | null | undefined): boolean {
+  const d = String(description ?? '').toLowerCase();
+  return (
+    d.includes(ORIGEM_MAQUINETA_TAG.toLowerCase()) ||
+    d.includes('terminal:') ||
+    d.includes('maquineta')
+  );
+}
+
 export function stripInternalTags(value: string | null | undefined): string | null {
   if (!value) return null;
   const cleaned = INTERNAL_TAGS.reduce((acc, tag) => acc.replaceAll(tag, ''), value)

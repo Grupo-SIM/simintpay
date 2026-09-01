@@ -3,6 +3,19 @@ import { Prisma, PaymentMethod, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../events/renovada-events.service';
 import { RenovadaConfig } from '../renovada.config';
+import { calculateMaquinetaFees } from '../../../application/helpers/maquineta-fee.helper';
+import {
+  appendInternalTags,
+  ORIGEM_MAQUINETA_TAG,
+  TENANT_RENOVADA_TAG,
+} from '../../../application/utils/internal-tags.util';
+
+/** Dono das maquinetas → tag de taxas usada para resolver as chaves POS_*. */
+const RENOVADA_MACHINE_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+const MACHINE_PLATFORM_TAG_BY_USER: Record<string, string> = {
+  [RENOVADA_MACHINE_USER_ID]: 'RENOVADA',
+  '8b63ba8f-3622-4ecc-ad9a-35389eaeded6': 'BOSQUE',
+};
 
 interface RawDomData {
   id: string;
@@ -20,6 +33,8 @@ interface RawDomData {
   };
   liquid_amount?: number;
   dom_fee?: number;
+  /** Bandeira do cartão — no POS é o que distingue débito de crédito. */
+  card_brand?: string;
 }
 
 interface RawDomWebhook {
@@ -354,9 +369,22 @@ export class RenovadaWebhookService {
       return;
     }
 
-    // DOM Pagamentos envia amount e liquid_amount em CENTAVOS → dividir por 100
-    const amountDec = new Prisma.Decimal(data.amount / 100);
-    const netDec = this.calcNet(data.amount / 100, data.liquid_amount != null ? data.liquid_amount / 100 : undefined);
+    // DOM Pagamentos envia amount e liquid_amount em CENTAVOS → dividir por 100.
+    // Venda FÍSICA (maquineta): o lojista perde apenas a taxa Sim Int Pay configurada
+    // em /admin/taxas (POS_TAXA_*); o custo da DOM sai da margem da casa. O
+    // `liquid_amount` da DOM é só referência do custo dela.
+    // Mesmo modelo do sync-maquinetas — todos os caminhos precisam gravar igual.
+    const amountReais = data.amount / 100;
+    const platformTag = MACHINE_PLATFORM_TAG_BY_USER[userId] ?? 'GLOBAL';
+    const fees = calculateMaquinetaFees(
+      platformTag,
+      amountReais,
+      data.payment_method,
+      Number(data.installments ?? 1),
+      data.card_brand,
+    );
+    const amountDec = new Prisma.Decimal(amountReais);
+    const netDec = new Prisma.Decimal(fees.netAmount);
 
     const tx = await this.prisma.$transaction(async (p) => {
       const newTx = await p.transaction.create({
@@ -365,10 +393,18 @@ export class RenovadaWebhookService {
           domPaymentId: data.id,
           amount: amountDec,
           netAmount: netDec,
-          totalFee: amountDec.sub(netDec),
+          totalFee: new Prisma.Decimal(fees.domFeeAmt + fees.platformFeeAmt),
+          domFee: new Prisma.Decimal(fees.domFeeAmt),
+          platformFee: new Prisma.Decimal(fees.platformFeeAmt),
           status: TransactionStatus.COMPLETED,
           paymentMethod: this.calcPaymentMethod(data.payment_method),
-          description: `Sincronização Automática - Terminal: ${serial}`,
+          description: appendInternalTags(
+            `Sincronização Automática - Terminal: ${serial}`,
+            [
+              ...(userId === RENOVADA_MACHINE_USER_ID ? [TENANT_RENOVADA_TAG] : []),
+              ORIGEM_MAQUINETA_TAG,
+            ],
+          ),
           installments: Number(data.installments ?? 1),
           customerName: data.customer?.name ?? 'Cliente POS',
           customerEmail: data.customer?.email ?? '',
@@ -389,7 +425,10 @@ export class RenovadaWebhookService {
 
       const wallet = await p.wallet.findUnique({ where: { userId } });
       if (wallet) {
-        const newBalance = wallet.balance.add(amountDec);
+        // Carteira recebe o líquido do lojista (bruto − taxa Sim Int Pay), igual ao
+        // netAmount da transação. Antes creditava o BRUTO, divergindo da transação
+        // e devolvendo ao lojista dinheiro que a DOM já tinha retido.
+        const newBalance = wallet.balance.add(netDec);
         await p.wallet.updateMany({
           where: { id: wallet.id, version: wallet.version },
           data: { balance: newBalance, version: { increment: 1 } },
@@ -399,7 +438,7 @@ export class RenovadaWebhookService {
             userId,
             action: 'MACHINE_SYNC',
             transactionId: newTx.id,
-            amount: amountDec,
+            amount: netDec,
             balanceBefore: wallet.balance,
             balanceAfter: newBalance,
             lockedBefore: wallet.lockedBalance,

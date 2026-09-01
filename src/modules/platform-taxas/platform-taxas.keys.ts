@@ -58,6 +58,45 @@ export const PLATAFORMA_TAXA_KEYS = [
   'MDR_CC_MASTER_10X',
   'MDR_CC_MASTER_11X',
   'MDR_CC_MASTER_12X',
+  // ── Vendas FÍSICAS (maquineta / POS) ──────────────────────────────────────
+  // Taxas DOM em venda física — read-only (diferentes das online).
+  'POS_MDR_PIX',        // PIX físico: 1% (sem taxa fixa)
+  'POS_MDR_DEBITO',     // Débito físico: 3,49% + POS_TAXA_DOM_FIXA
+  'POS_TAXA_DOM_FIXA',  // R$1,00 por transação física (débito e crédito; PIX não paga)
+  'POS_MDR_CC_1X',
+  'POS_MDR_CC_2X',
+  'POS_MDR_CC_3X',
+  'POS_MDR_CC_4X',
+  'POS_MDR_CC_5X',
+  'POS_MDR_CC_6X',
+  'POS_MDR_CC_7X',
+  'POS_MDR_CC_8X',
+  'POS_MDR_CC_9X',
+  'POS_MDR_CC_10X',
+  'POS_MDR_CC_11X',
+  'POS_MDR_CC_12X',
+  // Taxa Sim Int Pay em venda física — editável, por método.
+  // O cliente só perde esta taxa; o custo DOM sai da margem Sim Int Pay.
+  'POS_TAXA_PIX_PERCENT',
+  'POS_TAXA_DEBITO_PERCENT',
+  // Crédito físico: taxa da casa por parcela (mesmo padrão do MDR_CC_MASTER online),
+  // porque o custo DOM cresce com o parcelamento e uma taxa única daria prejuízo.
+  'POS_TAXA_CREDITO_1X',
+  'POS_TAXA_CREDITO_2X',
+  'POS_TAXA_CREDITO_3X',
+  'POS_TAXA_CREDITO_4X',
+  'POS_TAXA_CREDITO_5X',
+  'POS_TAXA_CREDITO_6X',
+  'POS_TAXA_CREDITO_7X',
+  'POS_TAXA_CREDITO_8X',
+  'POS_TAXA_CREDITO_9X',
+  'POS_TAXA_CREDITO_10X',
+  'POS_TAXA_CREDITO_11X',
+  'POS_TAXA_CREDITO_12X',
+  // Toggle: 1 = custo DOM sai da margem Sim Int Pay (padrão, comportamento atual).
+  // 0 = custo DOM é descontado do repasse ao lojista (netAmount da venda física).
+  // Só afeta transações NOVAS a partir do momento em que é alternado.
+  'POS_ABSORVER_TAXAS',
 ] as const;
 
 export type PlataformaTaxaKey = (typeof PLATAFORMA_TAXA_KEYS)[number];
@@ -125,4 +164,42 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   MDR_CC_MASTER_10X: 0.1290,
   MDR_CC_MASTER_11X: 0.1483,
   MDR_CC_MASTER_12X: 0.1556,
+  // ── Vendas FÍSICAS (maquineta / POS) — tabela oficial DOM ─────────────────
+  // Mastercard/Visa e demais bandeiras têm as mesmas taxas (não separar por bandeira).
+  // Não há cobrança de cashback (R$3) em venda física — confirmado pelo suporte DOM.
+  POS_MDR_PIX: 0.01,        // 1% (sem taxa fixa)
+  POS_MDR_DEBITO: 0.0349,   // 3,49% + R$1
+  POS_TAXA_DOM_FIXA: 1.0,   // R$1,00 por transação (débito e crédito)
+  POS_MDR_CC_1X: 0.0349,
+  POS_MDR_CC_2X: 0.062,
+  POS_MDR_CC_3X: 0.0695,
+  POS_MDR_CC_4X: 0.0767,
+  POS_MDR_CC_5X: 0.0838,
+  POS_MDR_CC_6X: 0.0995,
+  POS_MDR_CC_7X: 0.1061,
+  POS_MDR_CC_8X: 0.1126,
+  POS_MDR_CC_9X: 0.1181,
+  POS_MDR_CC_10X: 0.1251,
+  POS_MDR_CC_11X: 0.131,
+  POS_MDR_CC_12X: 0.1369,
+  // Taxa Sim Int Pay em venda física (antes: TAXA_MAQUINETA hardcoded 9% para tudo)
+  POS_TAXA_PIX_PERCENT: 0.09,
+  POS_TAXA_DEBITO_PERCENT: 0.09,
+  // Crédito físico por parcela = custo DOM da parcela + 5,51 p.p.
+  // Os 5,51 p.p. preservam a margem líquida de hoje (R$4,51 por R$100 em 1x, já
+  // descontada a taxa fixa de R$1 da DOM). 1x continua exatamente 9%, como antes.
+  POS_TAXA_CREDITO_1X: 0.09,
+  POS_TAXA_CREDITO_2X: 0.1171,
+  POS_TAXA_CREDITO_3X: 0.1246,
+  POS_TAXA_CREDITO_4X: 0.1318,
+  POS_TAXA_CREDITO_5X: 0.1389,
+  POS_TAXA_CREDITO_6X: 0.1546,
+  POS_TAXA_CREDITO_7X: 0.1612,
+  POS_TAXA_CREDITO_8X: 0.1677,
+  POS_TAXA_CREDITO_9X: 0.1732,
+  POS_TAXA_CREDITO_10X: 0.1802,
+  POS_TAXA_CREDITO_11X: 0.1861,
+  POS_TAXA_CREDITO_12X: 0.192,
+  // 1 = ligado (absorve, comportamento atual/default). 0 = desligado (repassa).
+  POS_ABSORVER_TAXAS: 1,
 };

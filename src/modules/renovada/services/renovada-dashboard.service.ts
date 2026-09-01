@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { TransactionStatus, WithdrawStatus } from '@prisma/client';
+import { Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -21,11 +21,135 @@ const PLATFORM_IDS: Record<string, string> = {
   REVALIDA: '7929df01-a980-45e3-b3c7-1a8b8eb7850f',
 };
 
+/**
+ * Filtro dos saques que entram na "Taxa de Saque — Simintpay" de uma plataforma.
+ * Fonte única: usado tanto no card do dashboard quanto na listagem detalhada.
+ * Retorna null quando a plataforma não tem saque centralizado (Areaflix, ou sem userId).
+ */
+function buildSaqueWhere(params: {
+  isAreaflix: boolean;
+  isAtlas: boolean;
+  isTenantTagged: boolean;
+  atlasWalletUserId: string | null;
+  platformId: string | null;
+  moduleSlug: string;
+  saqueStart: Date;
+  end: Date;
+}): Prisma.WithdrawRequestWhereInput | null {
+  const periodo = {
+    status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
+    updatedAt: { gte: params.saqueStart, lte: params.end },
+  };
+
+  if (params.isAreaflix) return null;
+  if (params.isAtlas) {
+    // Atlas: conta técnica própria, sem filtro de fee (lançamentos podem vir zerados).
+    return params.atlasWalletUserId ? { userId: params.atlasWalletUserId, ...periodo } : null;
+  }
+  if (params.isTenantTagged) {
+    return { user: { tenantModule: { slug: params.moduleSlug } }, fee: { gt: 0 }, ...periodo };
+  }
+  return params.platformId ? { userId: params.platformId, fee: { gt: 0 }, ...periodo } : null;
+}
+
 @Injectable()
 export class PlatformDashboardService {
   private readonly logger = new Logger(PlatformDashboardService.name);
 
   constructor(private readonly prisma: PrismaService) { }
+
+  /**
+   * Saques aprovados da plataforma no período, um a um, com a taxa que foi cobrada
+   * em cada um (campo `fee`, gravado no momento do saque — não recalculado com a
+   * taxa atual). A soma de `fee` bate com o card "Taxa de Saque — Simintpay".
+   */
+  async getSaquesDetalhados(tag: string, dataInicio?: string, dataFim?: string) {
+    const upperTag = (tag || 'renovada').toUpperCase();
+    const now = dayjs().tz(TZ);
+
+    const isAtlas = upperTag === 'ATLAS';
+    const isAreaflix = upperTag === 'AREAFLIX';
+    const isKnownFixedTag = [
+      'RENOVADA', 'PAGATG', 'BOSQUE', 'REVALIDA', 'EBOOK', 'EBOOKSIM',
+      'AREAFLIX', 'ATLAS', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
+      'FRENDZ', 'BETAI', 'GLOBAL',
+    ].includes(upperTag);
+    const isTenantTagged = upperTag === 'EBOOK' || upperTag === 'EBOOKSIM' || upperTag === 'PAGATG' || !isKnownFixedTag;
+
+    let atlasWalletUserId: string | null = null;
+    if (isAtlas) {
+      const envAtlas = process.env.ATLAS_USER_ID?.trim();
+      if (envAtlas) atlasWalletUserId = envAtlas;
+      else {
+        const u = await this.prisma.user.findFirst({
+          where: { email: 'atlas@jbmidia.com.br' },
+          select: { id: true },
+        });
+        atlasWalletUserId = u?.id ?? null;
+      }
+    }
+
+    const platIdKey = `${upperTag}_ID`;
+    const platformId = isTenantTagged || isAreaflix
+      ? null
+      : (process.env[platIdKey] || PLATFORM_IDS[upperTag] || null);
+
+    // Mesma janela do card: sem período explícito, conta a partir do dia 1 do mês atual.
+    const saqueStart = dataInicio ? dayjs(dataInicio).startOf('day').toDate() : now.startOf('month').toDate();
+    const end = dataFim ? dayjs(dataFim).endOf('day').toDate() : now.toDate();
+
+    const where = buildSaqueWhere({
+      isAreaflix,
+      isAtlas,
+      isTenantTagged,
+      atlasWalletUserId,
+      platformId,
+      moduleSlug: upperTag.toLowerCase(),
+      saqueStart,
+      end,
+    });
+
+    if (!where) {
+      return { data: [], quantidade: 0, totalFee: 0, periodo: { inicio: saqueStart, fim: end } };
+    }
+
+    const saques = await this.prisma.withdrawRequest.findMany({
+      where,
+      select: {
+        id: true,
+        grossAmount: true,
+        amount: true,
+        fee: true,
+        status: true,
+        pixKey: true,
+        createdAt: true,
+        updatedAt: true,
+        user: { select: { name: true, email: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const data = saques.map((s) => ({
+      id: s.id,
+      solicitadoEm: s.createdAt,
+      aprovadoEm: s.updatedAt,
+      usuario: s.user?.name ?? s.user?.email ?? '—',
+      email: s.user?.email ?? '',
+      chavePix: s.pixKey,
+      valorBruto: Number(s.grossAmount ?? 0),
+      valorLiquido: Number(s.amount ?? 0),
+      // Taxa gravada no saque — é a que estava vigente naquele momento, não a atual.
+      taxaCobrada: Number(s.fee ?? 0),
+      status: s.status,
+    }));
+
+    return {
+      data,
+      quantidade: data.length,
+      totalFee: Number(data.reduce((acc, d) => acc + d.taxaCobrada, 0).toFixed(2)),
+      periodo: { inicio: saqueStart, fim: end },
+    };
+  }
 
   async getDashboardData(tag: string, period: string = 'hoje', dataInicio?: string, dataFim?: string) {
     const upperTag = (tag || 'renovada').toUpperCase();
@@ -311,40 +435,24 @@ export class PlatformDashboardService {
     const saqueStart = dataInicio ? start : now.startOf('month').toDate();
     const moduleSlug = upperTag.toLowerCase();
 
-    const saquesNoPeriodo = isAreaflix
-      ? []
-      : isAtlas
-      ? atlasWalletUserId
-        ? await this.prisma.withdrawRequest.findMany({
-            where: {
-              userId: atlasWalletUserId,
-              status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
-              updatedAt: { gte: saqueStart, lte: end },
-            },
-            select: { id: true, fee: true },
-          })
-        : []
-      : isTenantTagged
-        ? await this.prisma.withdrawRequest.findMany({
-            where: {
-              user: { tenantModule: { slug: moduleSlug } },
-              status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
-              fee: { gt: 0 },
-              updatedAt: { gte: saqueStart, lte: end },
-            },
-            select: { id: true, fee: true },
-          })
-        : platformId
-          ? await this.prisma.withdrawRequest.findMany({
-              where: {
-                userId: platformId,
-                status: { in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
-                fee: { gt: 0 },
-                updatedAt: { gte: saqueStart, lte: end },
-              },
-              select: { id: true, fee: true },
-            })
-          : [];
+    // Filtro compartilhado com getSaquesDetalhados: o modal precisa listar exatamente
+    // os mesmos saques que somam o valor deste card.
+    const saqueWhere = buildSaqueWhere({
+      isAreaflix,
+      isAtlas,
+      isTenantTagged,
+      atlasWalletUserId,
+      platformId,
+      moduleSlug,
+      saqueStart,
+      end,
+    });
+    const saquesNoPeriodo = saqueWhere
+      ? await this.prisma.withdrawRequest.findMany({
+          where: saqueWhere,
+          select: { id: true, fee: true },
+        })
+      : [];
 
     const qtdSaquesNoPeriodo = saquesNoPeriodo.length;
 

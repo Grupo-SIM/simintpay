@@ -82,13 +82,13 @@ import { computeBosqueAvailableSinceLastWithdrawal } from '../../application/hel
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
 import { getPlatformTaxaEffective, invalidatePlatformTaxaCache, buildClientTaxaTag, canonicalPlatformTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
-import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
+import { estimateDomFeeReais, estimatePhysicalDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
 import { calculateBoletoFees } from '../../application/use-cases/boleto/boleto-fees.helper';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
-import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG } from '../../application/utils/internal-tags.util';
+import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG, isMaquinetaDescription } from '../../application/utils/internal-tags.util';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -2636,6 +2636,7 @@ export class AdminController {
     description:
       'Com detalharLucro: se true, omite a lista de transações e mantém só subtotais por plataforma.',
   })
+  @ApiQuery({ name: 'metodoPagamento', required: false, description: 'PIX | CREDIT_CARD | DEBIT_CARD' })
   async getConsolidado(
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
@@ -2646,10 +2647,12 @@ export class AdminController {
     @Query('planName') planName?: string,
     @Query('detalharLucro') detalharLucro?: string,
     @Query('detalharLucroSoloResumo') detalharLucroSoloResumo?: string,
+    @Query('metodoPagamento') metodoPagamento?: string,
   ) {
     const platforms = await resolveConsolidadoPlatforms(this.prisma);
     const platformIds = platforms.map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
+    if (metodoPagamento) whereResumo.paymentMethod = metodoPagamento as Prisma.TransactionWhereInput['paymentMethod'];
 
     const [txRowsTodas, comunidadeRows] = await Promise.all([
       this.prisma.transaction.findMany({
@@ -2666,7 +2669,10 @@ export class AdminController {
         },
         orderBy: { createdAt: 'asc' },
       }),
-      getComunidadeOrderRows(this.prisma, dataInicio, dataFim),
+      // Comunidades: sem filtro de método aplicável (subscriptionLinkOrder não expõe
+      // o mesmo campo paymentMethod usado aqui); omitidas do filtro quando ativo, para
+      // não misturar dados não filtrados com os filtrados.
+      metodoPagamento ? Promise.resolve([]) : getComunidadeOrderRows(this.prisma, dataInicio, dataFim),
     ]);
 
     const txRowsComComunidade = [...txRowsTodas, ...dedupeComunidadeRows(txRowsTodas, comunidadeRows)];
@@ -6628,6 +6634,7 @@ export class AdminController {
   @ApiQuery({ name: 'compradorDocumento', required: false })
   @ApiQuery({ name: 'compradorEmail', required: false })
   @ApiQuery({ name: 'periodType', required: false })
+  @ApiQuery({ name: 'metodoPagamento', required: false, description: 'PIX | CREDIT_CARD | DEBIT_CARD' })
   async listPlataformaTransacoes(
     @Param('tag') tag: string,
     @Query('page') page = '1',
@@ -6642,6 +6649,7 @@ export class AdminController {
     @Query('compradorEmail') compradorEmail?: string,
     @Query('periodType') periodType?: string,
     @Query('tipoTransacao') tipoTransacao?: string,
+    @Query('metodoPagamento') metodoPagamento?: string,
   ) {
     const upperTag = normalizePlatformTag(tag);
     const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
@@ -6713,6 +6721,7 @@ export class AdminController {
         if (compradorNome) txWhere.customerName = { contains: compradorNome, mode: 'insensitive' };
         if (compradorDocumento) txWhere.customerDocument = { contains: compradorDocumento.replace(/\D/g, '') };
         if (compradorEmail) txWhere.customerEmail = { contains: compradorEmail, mode: 'insensitive' };
+        if (metodoPagamento) txWhere.paymentMethod = metodoPagamento;
         if (status) {
           const upper = status.toUpperCase();
           const txStatusMap: Record<string, string> = {
@@ -6938,6 +6947,7 @@ export class AdminController {
     if (compradorNome) where.customerName = { contains: compradorNome, mode: 'insensitive' };
     if (compradorDocumento) where.customerDocument = { contains: compradorDocumento.replace(/\D/g, '') };
     if (compradorEmail) where.customerEmail = { contains: compradorEmail, mode: 'insensitive' };
+    if (metodoPagamento) where.paymentMethod = metodoPagamento;
 
     if (tipoTransacao === 'maquinetas') {
       and.push({
@@ -7698,10 +7708,12 @@ export class AdminController {
   @ApiQuery({ name: 'tag', required: true })
   @ApiQuery({ name: 'startDate', required: false })
   @ApiQuery({ name: 'endDate', required: false })
+  @ApiQuery({ name: 'metodoPagamento', required: false, description: 'PIX | CREDIT_CARD | DEBIT_CARD' })
   async getPlataformaConsolidado(
     @Query('tag') tagParam?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('metodoPagamento') metodoPagamento?: string,
   ) {
     const tag = normalizePlatformTag(tagParam ?? '');
     if (!tag || tag === 'ATLAS') {
@@ -7732,18 +7744,15 @@ export class AdminController {
       return p.includes('CARD') || p.includes('CREDIT') || p.includes('DEBIT');
     };
 
-    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; createdAt?: Date | null }[]) => {
+    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; createdAt?: Date | null; cardBrand?: string | null }[]) => {
       const qtd = txs.length;
       // Maquineta liquida por modelo próprio (netAmount = líquido pós-MDR × 0,91; 9% TAXA_MAQUINETA).
       // Recalcular como cartão-link infla o repasse ~9% (a maquineta aparecia quase pelo bruto cheio).
       // Solução: usar o netAmount REAL dessas transações — o mesmo que a carteira, a página de Máquinas
       // e o admin-renovada já usam. Assim o "Total de Repasse" bate com o admin.
       // Maquineta nem sempre tem a tag [ORIGEM:MAQUINETA] — a maioria é gravada só com "Terminal: XXX"
-      // (sync-maquinetas, webhooks). Detecção canônica do resto do código: "Terminal:" ou "Maquineta".
-      const isMaq = (t: { description?: string | null }) => {
-        const d = String(t.description ?? '').toLowerCase();
-        return d.includes('terminal:') || d.includes('maquineta');
-      };
+      // (sync-maquinetas, webhooks). Detecção canônica: isMaquinetaDescription (internal-tags.util).
+      const isMaq = (t: { description?: string | null }) => isMaquinetaDescription(t.description);
       const normalTxs = txs.filter((t) => !isMaq(t));
       const maqTxs = txs.filter(isMaq);
       const qtdNormal = normalTxs.length;
@@ -7772,7 +7781,8 @@ export class AdminController {
         installments: t.installments,
         tenantTag: tag,
       }), 0);
-      const taxaAdquirente = TAXA_FIXA * qtdNormal;
+      // Cashback (R$3): a DOM NÃO cobra em maquineta (o cliente não consegue registrar os dados
+      // pra receber o bônus nesse fluxo) — só entra nas transações normais.
       const custoCashback  = TAXA_CASHBACK * qtdNormal;
       // taxaSimIntFixa = per-tx fee que SimInt repassa à DOM (R$1 fixo + R$3 cashback por transação).
       // Só para transações normais — maquineta não tem esse fee fixo.
@@ -7781,28 +7791,61 @@ export class AdminController {
       const taxaSimIntPctNetNormal = (taxaSimInt - taxaSimIntFixa) - taxaMDRDomNormal;
       const totalTaxasSimIntNormal = taxaSimInt - taxaMDRDomNormal;
 
-      // ── Maquineta: repasse = netAmount real; SimInt fica com 9% do líquido; MDR é custo DOM. ──
-      // totalTaxasSimInt_maq = bruto − netAmount garante repasse = netAmount (na fórmula bruto − totalTaxasSimInt).
+      // ── Maquineta (venda física / POS) ────────────────────────────────────────────────
+      // Modelo: o cliente só perde a taxa Sim Int Pay; o custo DOM sai da margem da casa.
+      //   repasse            = netAmount real  (= bruto − taxa Sim Int Pay nas transações novas)
+      //   taxa Sim Int Pay   = bruto − netAmount  (exatamente o que o cliente pagou)
+      //   custo DOM          = tabela POS (POS_MDR_*, + R$1 em débito/crédito; PIX físico não paga)
+      //   lucro Sim Int Pay  = taxa Sim Int Pay − custo DOM
       const maqBruto = maqTxs.reduce((s, t) => s + Number(t.amount), 0);
       const maqNet   = maqTxs.reduce((s, t) => s + Number(t.netAmount ?? 0), 0);
-      const maqDom   = maqTxs.reduce((s, t) => s + Number(t.domFee ?? 0), 0);
-      const totalTaxasSimIntMaq = maqBruto - maqNet;          // inclui MDR p/ o repasse casar com o netAmount
-      const taxaSimIntPctNetMaq = maqBruto - maqNet - maqDom; // parte SimInt real (≈9% do líquido)
+      // Custo DOM da maquineta pela tabela FÍSICA, separado em % e fixo (R$1/transação),
+      // para os cards de Taxas DOM. A tabela física é diferente da online (PIX 1%,
+      // crédito 1x 3,49% etc.) e não cobra cashback.
+      const maqDomSplit = maqTxs.reduce((acc, t) => {
+        const f = estimatePhysicalDomFeeReais({
+          amountReais: Number(t.amount),
+          paymentMethod: t.paymentMethod,
+          installments: t.installments,
+          tenantTag: tag,
+          // No POS a DOM manda payment_method='credit_card' também no débito;
+          // a bandeira é o que distingue (VISA DEBITO, ELO DEBITO, MAESTRO…).
+          cardBrand: t.cardBrand,
+        });
+        return { pct: acc.pct + f.pct, fixa: acc.fixa + f.fixa };
+      }, { pct: 0, fixa: 0 });
+      const maqDom = maqDomSplit.pct + maqDomSplit.fixa;
+      const totalTaxasSimIntMaq = maqBruto - maqNet;
+      const taxaSimIntPctNetMaq = totalTaxasSimIntMaq - maqDom;
 
       // ── Combinado (normais + maquineta) ──
-      const taxaMDRDom       = taxaMDRDomNormal + maqDom;
+      // taxaAdquirente = R$1 por transação: nas normais é TAXA_FIXA; na maquineta vem da
+      // tabela física (POS_TAXA_DOM_FIXA, cobrado só em débito/crédito — PIX físico não paga).
+      const taxaAdquirente   = TAXA_FIXA * qtdNormal + maqDomSplit.fixa;
+      const taxaMDRDom       = taxaMDRDomNormal + maqDomSplit.pct;
       const totalTaxasDom    = taxaMDRDom + taxaAdquirente + custoCashback;
       const taxaSimIntPctNet = taxaSimIntPctNetNormal + taxaSimIntPctNetMaq;
       const totalTaxasSimInt = totalTaxasSimIntNormal + totalTaxasSimIntMaq;
 
-      // Parcelamento: apenas cartão de crédito não-maquineta (exclui débito, PIX e maquineta)
+      // Parcelamento: cartão de crédito não-maquineta EM 2x OU MAIS (1x é à vista,
+      // não é parcelamento — fica de fora desta seção mesmo tendo margem própria).
       let taxaParcelamentoBruto = 0;
       let taxaParcelamentoSimIntPay = 0;
+      // Bruto e repasse das mesmas transações, para a seção "Parcelamento" fechar a conta.
+      let parcBruto = 0;
+      let parcRepasse = 0;
       for (const t of normalTxs) {
         const pm = String(t.paymentMethod ?? '').toLowerCase();
         if (!pm.includes('credit')) continue;
-        const amount = Number(t.amount);
         const inst = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
+        if (inst < 2) continue;
+        const amount = Number(t.amount);
+        parcBruto += amount;
+        {
+          const netBase = Number(t.netAmount ?? amount);
+          const svc = TAXA_SERVICO_RATE > 0 && t.createdAt != null && t.createdAt >= TAXA_SERVICO_DATE ? TAXA_SERVICO_RATE : 0;
+          parcRepasse += netBase - svc;
+        }
         const domFee = estimateDomFeeReais({ amountReais: amount, paymentMethod: t.paymentMethod, installments: inst, tenantTag: tag });
         const masterKey = `MDR_CC_MASTER_${inst}X` as PlataformaTaxaKey;
         const masterRate = getPlatformTaxaEffective(tag, masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0);
@@ -7820,14 +7863,24 @@ export class AdminController {
         totalTaxasSimInt: Math.round(totalTaxasSimInt * 100) / 100,
         taxaParcelamentoBruto: Math.round(taxaParcelamentoBruto * 100) / 100,
         taxaParcelamentoSimIntPay: Math.round(taxaParcelamentoSimIntPay * 100) / 100,
+        /** Bruto das vendas no crédito (base do parcelamento). */
+        parcBruto: Math.round(parcBruto * 100) / 100,
+        /** Repasse ao cliente nessas mesmas vendas. */
+        parcRepasse: Math.round(parcRepasse * 100) / 100,
         qtdTransacoes: qtd,
         // Repasse correto (soma direta do líquido de cada tx) — o front deve usar ESTE campo.
         totalRepasse: Math.round(totalRepasse * 100) / 100,
-        // ── Diagnóstico (temporário) — confirma qual código está rodando e se a maquineta é detectada ──
-        _v: 'repasse-direto-v3',
+        // ── Maquineta (venda física) — alimenta a seção "Maquinetas" do relatório ──
+        _v: 'repasse-direto-v4-pos',
         qtdMaquineta: maqTxs.length,
+        /** Bruto que passou nas maquinetas. */
         maqBruto: Math.round(maqBruto * 100) / 100,
+        /** Repasse ao cliente (netAmount real das transações de maquineta). */
         maqNet: Math.round(maqNet * 100) / 100,
+        /** Custo DOM da venda física (tabela POS: MDR + R$1 em débito/crédito). */
+        maqDom: Math.round(maqDom * 100) / 100,
+        /** Taxa Sim Int Pay cobrada do cliente na maquineta (bruto − repasse). */
+        maqSimInt: Math.round(totalTaxasSimIntMaq * 100) / 100,
       };
     };
 
@@ -7893,11 +7946,12 @@ export class AdminController {
       OR: orScope,
       ...(hasDate ? { createdAt: dateFilter } : {}),
       ...(extraAnd.length > 0 ? { AND: extraAnd } : {}),
+      ...(metodoPagamento ? { paymentMethod: metodoPagamento } : {}),
     };
 
     const txs = await this.prisma.transaction.findMany({
       where,
-      select: { amount: true, paymentMethod: true, installments: true, createdAt: true, description: true, netAmount: true, domFee: true },
+      select: { amount: true, paymentMethod: true, installments: true, createdAt: true, description: true, netAmount: true, domFee: true, cardBrand: true },
     });
 
     const breakdown = computeBreakdown(txs);

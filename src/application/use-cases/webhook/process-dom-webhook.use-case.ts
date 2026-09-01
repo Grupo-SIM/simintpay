@@ -23,6 +23,7 @@ import {
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
+import { calculateMaquinetaFees } from '../../helpers/maquineta-fee.helper';
 import { StorageService } from '../../../infrastructure/storage/storage.service';
 import { documentType, splitDocument as provisionDocPayload } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
@@ -70,6 +71,8 @@ interface RawDomData {
   };
   liquid_amount?: number | null;
   dom_fee?: number;
+  /** Bandeira do cartão — no POS é o que distingue débito de crédito. */
+  card_brand?: string | null;
   [k: string]: unknown;
 }
 
@@ -1225,14 +1228,26 @@ export class ProcessDomWebhookUseCase {
       return;
     }
 
-    const amountDec = new Prisma.Decimal(data.amount / 100);
-    const netDec = this.calcNet(
-      data.amount / 100,
-      1, // installments
-      data.liquid_amount != null ? data.liquid_amount / 100 : undefined,
-      undefined,
+    // Venda FÍSICA (maquineta): o lojista perde apenas a taxa Sim Int Pay configurada
+    // em /admin/taxas (POS_TAXA_*); o custo da DOM sai da margem da casa. O
+    // `liquid_amount` que a DOM devolve serve só de referência do custo dela.
+    // Mesmo modelo do sync-maquinetas — os dois caminhos precisam gravar igual.
+    const amountReais = data.amount / 100;
+    const platformTag =
+      userId === RENOVADA_USER_ID
+        ? 'RENOVADA'
+        : userId === BOSQUE_USER_ID
+          ? 'BOSQUE'
+          : await this.resolveTenantTagForUser(userId);
+    const fees = calculateMaquinetaFees(
+      platformTag,
+      amountReais,
       data.payment_method,
+      Number(data.installments ?? 1),
+      data.card_brand,
     );
+    const amountDec = new Prisma.Decimal(amountReais);
+    const netDec = new Prisma.Decimal(fees.netAmount);
 
     const tx = await this.prisma.$transaction(async (p) => {
       const newTx = await p.transaction.create({
@@ -1241,7 +1256,9 @@ export class ProcessDomWebhookUseCase {
           domPaymentId: data.id,
           amount: amountDec,
           netAmount: netDec,
-          totalFee: amountDec.sub(netDec),
+          totalFee: new Prisma.Decimal(fees.domFeeAmt + fees.platformFeeAmt),
+          domFee: new Prisma.Decimal(fees.domFeeAmt),
+          platformFee: new Prisma.Decimal(fees.platformFeeAmt),
           status: TransactionStatus.COMPLETED,
           paymentMethod: this.calcPaymentMethod(data.payment_method),
           description: appendInternalTags(
@@ -1274,7 +1291,7 @@ export class ProcessDomWebhookUseCase {
         const wallet = await p.wallet.findUnique({ where: { userId } });
         if (!wallet) break;
 
-        // Use netDec (DOM liquid_amount) so wallet stores net value, not gross
+        // Carteira recebe o líquido do lojista = bruto − taxa Sim Int Pay
         const newBalance = wallet.balance.add(netDec);
 
         const result = await p.wallet.updateMany({
