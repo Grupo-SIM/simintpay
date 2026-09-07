@@ -14,11 +14,12 @@ import { PrismaModule } from '../../infrastructure/database/prisma/prisma.module
 import { CheckoutModule } from '../../presentation/checkout.module';
 import { PlatformDashboardService } from './services/renovada-dashboard.service';
 import { PlatformDashboardController } from './controllers/renovada-dashboard.controller';
+import { PlatformReportingModule } from '../../application/services/platform-reporting.module';
 
 @Module({
   // CheckoutModule: fornece o CheckoutEventsService (SSE) — o webhook da Renovada
   // emite a confirmação em tempo real para o app (checkout/pix/:paymentId/sse).
-  imports: [ApiDomModule, PrismaModule, HttpModule, CheckoutModule],
+  imports: [ApiDomModule, PrismaModule, HttpModule, CheckoutModule, PlatformReportingModule],
   controllers: [
     RenovadaRealtimeController,
     RenovadaWebhookController,

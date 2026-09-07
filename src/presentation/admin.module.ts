@@ -43,9 +43,10 @@ import { PlatformTaxasService } from '../application/services/platform-taxas.ser
 import { PlatformAccessService } from '../application/services/platform-access.service';
 import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
 import { WebhookModule } from './webhook.module';
+import { PlatformReportingModule } from '../application/services/platform-reporting.module';
 
 @Module({
-  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule, WebhookModule],
+  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule, WebhookModule, PlatformReportingModule],
   controllers: [AdminController, AdminClientesController, AdminAfiliadosController],
   providers: [
     SyncDomTransactionsCron,

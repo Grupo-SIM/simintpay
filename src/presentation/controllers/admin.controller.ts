@@ -90,6 +90,7 @@ import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/sca
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
 import { summarizeRefunds } from '../../application/helpers/refund-report.helper';
 import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG, isMaquinetaDescription } from '../../application/utils/internal-tags.util';
+import { PlatformReportingService } from '../../application/services/platform-reporting.service';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -1342,6 +1343,7 @@ export class AdminController {
     private readonly linkExternal: LinkExternalPlatformUserService,
     private readonly scanPlatformOwners: ScanPlatformOwnersUseCase,
     private readonly getWalletComposition: GetWalletCompositionUseCase,
+    private readonly platformReporting: PlatformReportingService,
   ) { }
 
   /**
@@ -6420,50 +6422,18 @@ export class AdminController {
         select: { id: true },
       });
       if (commDist) {
-        const bindings = await this.prisma.communityLinkBinding.findMany({
-          where: { communityId: commDist.id, subscriptionLinkId: { not: null } },
-          select: { subscriptionLinkId: true },
-          distinct: ['subscriptionLinkId'],
-        });
-        const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
-        if (linkIds.length === 0) return { total: 0, items: [] };
-
-        const dateFilter: Prisma.DateTimeFilter = {};
-        if (dataInicio) dateFilter.gte = parseYmdSp(dataInicio).startOf('day').toDate();
-        if (dataFim) dateFilter.lte = parseYmdSp(dataFim).endOf('day').toDate();
-
-        const orders = await this.prisma.subscriptionLinkOrder.findMany({
-          where: {
-            subscriptionLinkId: { in: linkIds },
-            status: 'paid',
-            ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
+        return this.platformReporting.getCommunityPaymentDistribution(
+          upperTag,
+          commDist.id,
+          {
+            start: dataInicio
+              ? parseYmdSp(dataInicio).startOf('day').toDate()
+              : undefined,
+            end: dataFim
+              ? parseYmdSp(dataFim).endOf('day').toDate()
+              : undefined,
           },
-          select: { paymentMethod: true, amountCharged: true },
-        });
-
-        const mapCount = new Map<string, { count: number; total: number }>();
-        for (const order of orders) {
-          const method = (order.paymentMethod ?? 'UNKNOWN').toUpperCase();
-          const bucket = method === 'PIX' ? 'PIX' : method === 'DEBIT_CARD' ? 'DEBIT_CARD' : 'CREDIT_CARD';
-          const prev = mapCount.get(bucket) ?? { count: 0, total: 0 };
-          mapCount.set(bucket, { count: prev.count + 1, total: prev.total + Number(order.amountCharged ?? 0) });
-        }
-
-        const total = orders.length;
-        const LABELS: Record<string, string> = { PIX: 'Pix', CREDIT_CARD: 'Crédito', DEBIT_CARD: 'Débito' };
-        const items = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD']
-          .map((codigo) => {
-            const entry = mapCount.get(codigo) ?? { count: 0, total: 0 };
-            return {
-              codigo, nome: LABELS[codigo], quantidade: entry.count,
-              valor: Number(entry.total.toFixed(2)),
-              percentual: total > 0 ? Number(((entry.count / total) * 100).toFixed(2)) : 0,
-            };
-          })
-          .filter((row) => row.quantidade > 0)
-          .sort((a, b) => b.quantidade - a.quantidade);
-
-        return { total, items };
+        );
       }
     }
 

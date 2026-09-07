@@ -11,6 +11,14 @@ import { BillingService } from './billing.service';
 const periodStart = new Date('2026-08-01T00:00:00.000Z');
 const periodEnd = new Date('2026-09-01T00:00:00.000Z');
 
+beforeAll(() => {
+  jest.useFakeTimers().setSystemTime(new Date('2026-08-15T12:00:00.000Z'));
+});
+
+afterAll(() => {
+  jest.useRealTimers();
+});
+
 function contract(overrides: Record<string, unknown> = {}) {
   return {
     id: 'contract-1',
@@ -254,6 +262,44 @@ describe('BillingService.cancelContract', () => {
       'REACTIVATED',
       'CANCELLED',
     ]);
+  });
+});
+
+describe('BillingService.applyWorkspacePaymentEvent', () => {
+  it('etiqueta a transação com a plataforma do contrato', async () => {
+    const current = contract({ metadata: { platformTag: 'TERON' } });
+    const upsert = jest.fn();
+    const prisma = {
+      billingContract: { findUnique: jest.fn().mockResolvedValue(current) },
+      billingContractEvent: { findUnique: jest.fn().mockResolvedValue(null) },
+      $transaction: jest.fn().mockImplementation((callback) =>
+        callback({
+          billingContractEvent: { create: jest.fn() },
+          transaction: { upsert },
+          billingContract: { update: jest.fn() },
+        }),
+      ),
+    } as any;
+    const service = new BillingService(prisma, {} as any);
+
+    await service.applyWorkspacePaymentEvent({
+      subscriptionId: 'sub-1',
+      eventKey: 'payment:1',
+      event: 'PAID',
+      paymentId: 'payment-1',
+      amount: 300,
+    });
+
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          description: 'Contrato teste [TENANT:TERON]',
+        }),
+        create: expect.objectContaining({
+          description: 'Contrato teste [TENANT:TERON]',
+        }),
+      }),
+    );
   });
 });
 
