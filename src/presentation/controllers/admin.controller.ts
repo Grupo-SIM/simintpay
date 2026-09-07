@@ -88,6 +88,7 @@ import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
+import { summarizeRefunds } from '../../application/helpers/refund-report.helper';
 import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG, isMaquinetaDescription } from '../../application/utils/internal-tags.util';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
@@ -629,86 +630,37 @@ function masterLogDateFilter(
   return Object.keys(createdAt).length > 0 ? createdAt : undefined;
 }
 
-function domStatusIsEstorno(status: string): boolean {
-  const s = status.toLowerCase();
-  return (
-    s.includes('refund') ||
-    s.includes('chargeback') ||
-    s.includes('dispute') ||
-    s.includes('med') ||
-    s.includes('contest')
-  );
-}
-
 /**
- * Estornos na API DOM Pagamentos (DOM_REAL_API_URL / apiv3.dompagamentos.com.br), não api-dom.
- * Usa o domToken de cada conta plataforma; deduplica por id da transação; fallback no token master do .env.
+ * Estornos registrados no produto. O período considera quando a transação virou
+ * REFUNDED; sincronizações legadas sem histórico usam updatedAt como fallback.
  */
-async function aggregateEstornosDomPagamentos(
+async function aggregateProductRefunds(
   prisma: PrismaService,
-  gateway: IPaymentGateway,
   platformUserIds: string[],
   dataInicio?: string,
   dataFim?: string,
 ): Promise<{ quantidade: number; valor: number }> {
-  const end = dataFim
-    ? dayjs.tz(dataFim, TZ).format('YYYY-MM-DD')
-    : dayjs().tz(TZ).format('YYYY-MM-DD');
-  const begin = dataInicio
-    ? dayjs.tz(dataInicio, TZ).format('YYYY-MM-DD')
-    : dayjs().tz(TZ).subtract(365, 'day').format('YYYY-MM-DD');
-
-  const users = await prisma.user.findMany({
-    where: { id: { in: platformUserIds } },
-    select: { domToken: true },
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      status: TransactionStatus.REFUNDED,
+      ...buildConsolidadoScopeOr(platformUserIds),
+    },
+    select: {
+      amount: true,
+      updatedAt: true,
+      statusHistory: {
+        where: { toStatus: TransactionStatus.REFUNDED },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { createdAt: true },
+      },
+    },
   });
-  const tokens = [
-    ...new Set(
-      users
-        .map((u) => u.domToken)
-        .filter((t): t is string => Boolean(t && String(t).trim())),
-    ),
-  ];
-  const master = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
-  if (tokens.length === 0 && master) tokens.push(String(master));
 
-  if (tokens.length === 0) return { quantidade: 0, valor: 0 };
-
-  const seenIds = new Set<string>();
-  let quantidade = 0;
-  let valor = 0;
-  const limit = 100;
-  const maxPages = 200;
-
-  try {
-    for (const domToken of tokens) {
-      let page = 1;
-      while (page <= maxPages) {
-        const res = await gateway.listDomTransactions(domToken, {
-          page,
-          limit,
-          begin_date: begin,
-          end_date: end,
-        });
-        const txs = res.transactions ?? [];
-        if (txs.length === 0) break;
-        for (const tx of txs) {
-          if (!tx.id || seenIds.has(tx.id)) continue;
-          if (domStatusIsEstorno(tx.status)) {
-            seenIds.add(tx.id);
-            quantidade += 1;
-            valor += Number(tx.amount ?? 0);
-          }
-        }
-        if (txs.length < limit) break;
-        page += 1;
-      }
-    }
-  } catch {
-    return { quantidade: 0, valor: 0 };
-  }
-
-  return { quantidade, valor: Number(valor.toFixed(2)) };
+  return summarizeRefunds(transactions, {
+    start: dataInicio ? parseYmdSp(dataInicio).startOf('day').toDate() : undefined,
+    end: dataFim ? parseYmdSp(dataFim).endOf('day').toDate() : undefined,
+  });
 }
 
 type LucroSimpayLinhaTx = {
@@ -2906,9 +2858,8 @@ export class AdminController {
         'Sem dataInicio/dataFim: soma dos saldos líquidos atuais (netBalance) das contas plataforma no Simpay — não é soma de transações.';
     }
 
-    const estornos = await aggregateEstornosDomPagamentos(
+    const estornos = await aggregateProductRefunds(
       this.prisma,
-      this.paymentGateway,
       platformIds,
       dataInicio,
       dataFim,
