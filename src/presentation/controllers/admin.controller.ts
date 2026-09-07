@@ -248,7 +248,9 @@ async function resolveConsolidadoPlatforms(
     resolveBySlugOrEnv(prisma, 'RENOVADA_USER_ID', ['renovada'], 'ba2b57d6-e3bf-4395-af31-58454f27207a'),
     resolveBySlugOrEnv(prisma, 'PAGATG_USER_ID', ['pagatg']),
     resolveBySlugOrEnv(prisma, 'BOSQUE_USER_ID', ['bosque', 'ibb'], 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c'),
-    resolveBySlugOrEnv(prisma, 'REVALIDA_USER_ID', ['revalida'], REVALIDA_CONSOLIDADO_USER_ID),
+    // Revalida tem conta técnica canônica. Resolver pelo primeiro usuário do módulo
+    // incluía outra conta sem tag nos cards, enquanto tabela usa este mesmo ID.
+    REVALIDA_CONSOLIDADO_USER_ID,
     resolveBySlugOrEnv(prisma, 'EBOOK_ID', ['ebooksim', 'ebook']),
     resolveBySlugOrEnv(prisma, 'AREAFLIX_USER_ID', ['areaflix'], AREAFLIX_CONSOLIDADO_FALLBACK_ID),
     resolveBySlugOrEnv(prisma, 'ATLAS_USER_ID', ['atlas']),
@@ -6119,7 +6121,7 @@ export class AdminController {
     }
 
     // Garante que REVALIDA apareça (conta técnica / consolidado, como Atlas)
-    const revalidaConsolidadoId = await resolveBySlugOrEnv(this.prisma, 'REVALIDA_USER_ID', ['revalida'], REVALIDA_CONSOLIDADO_USER_ID);
+    const revalidaConsolidadoId = REVALIDA_CONSOLIDADO_USER_ID;
     if (!map.has('REVALIDA')) {
       const firstRevalidaTx = await this.prisma.transaction.findFirst({
         where: {
@@ -6990,7 +6992,13 @@ export class AdminController {
       // taxaSimIntPay: calculada por método de pagamento (não mais pela LIQUIDEZ genérica)
       let taxaSimIntPay = 0;
       if (isCompleted) {
-        if (pmStr === 'boleto') {
+        // Revalida é uma conta/carteira de plataforma. A taxa da Sim Int Pay
+        // já é persistida em `platformFee` pelo sync como fee_total − dom_fee.
+        // Não recalcular por regras de checkout/link: isso misturava MDR e uma
+        // taxa fixa inexistente na coluna percentual.
+        if (upperTag === 'REVALIDA') {
+          taxaSimIntPay = Number(t.platformFee ?? 0);
+        } else if (pmStr === 'boleto') {
           // Boleto: taxa SimIntPay = TAXA_BOLETO_FIXA + TAXA_BOLETO_TRANSACAO (fixa por boleto). DOM já sai no taxaDom.
           taxaSimIntPay = Number(calculateBoletoFees(valorBruto, upperTag).platformFeeTotal.toFixed(2));
         } else if (pmStr === 'credit_card') {
@@ -7665,8 +7673,9 @@ export class AdminController {
       return p.includes('CARD') || p.includes('CREDIT') || p.includes('DEBIT');
     };
 
-    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; createdAt?: Date | null; cardBrand?: string | null }[]) => {
+    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; platformFee?: unknown; createdAt?: Date | null; cardBrand?: string | null }[]) => {
       const qtd = txs.length;
+      const isRevalida = tag === 'REVALIDA';
       // Maquineta liquida por modelo próprio (netAmount = líquido pós-MDR × 0,91; 9% TAXA_MAQUINETA).
       // Recalcular como cartão-link infla o repasse ~9% (a maquineta aparecia quase pelo bruto cheio).
       // Solução: usar o netAmount REAL dessas transações — o mesmo que a carteira, a página de Máquinas
@@ -7684,6 +7693,10 @@ export class AdminController {
       //   maquineta: netAmount                     (= profit_minus_tax da página de Máquinas)
       const totalRepasse = txs.reduce((s, t) => {
         if (isMaq(t)) return s + Number(t.netAmount ?? 0);
+        // Revalida repassa ao usuário-carteira o bruto menos a taxa Sim Int
+        // Pay registrada. Custos da DOM compõem o lucro da Sim Int Pay e não
+        // são uma segunda dedução do repasse da Revalida.
+        if (isRevalida) return s + Number(t.amount) - Number(t.platformFee ?? 0);
         const netBase = Number(t.netAmount ?? t.amount);
         const svc = TAXA_SERVICO_RATE > 0 && t.createdAt != null && t.createdAt >= TAXA_SERVICO_DATE ? TAXA_SERVICO_RATE : 0;
         return s + (netBase - svc);
@@ -7692,6 +7705,10 @@ export class AdminController {
       // ── Transações normais (app/link): fórmula por método de pagamento ──
       const taxaSimInt = normalTxs.reduce((s, t) => {
         const amount = Number(t.amount);
+        // Revalida registra na própria transação a parte da taxa cobrada pela
+        // Sim Int Pay. Esta é a fonte financeira da plataforma: já exclui o
+        // MDR DOM e não contém taxa fixa por transação.
+        if (isRevalida) return s + Number(t.platformFee ?? 0);
         return s + (isCardPm(t.paymentMethod)
           ? amount * TAXA_LINK_PCT + TAXA_LINK_FIXA
           : amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK);
@@ -7705,12 +7722,12 @@ export class AdminController {
       // Cashback (R$3): a DOM NÃO cobra em maquineta (o cliente não consegue registrar os dados
       // pra receber o bônus nesse fluxo) — só entra nas transações normais.
       const custoCashback  = TAXA_CASHBACK * qtdNormal;
-      // taxaSimIntFixa = per-tx fee que SimInt repassa à DOM (R$1 fixo + R$3 cashback por transação).
-      // Só para transações normais — maquineta não tem esse fee fixo.
-      const taxaSimIntFixa = (TAXA_FIXA + TAXA_CASHBACK) * qtdNormal;
-      // SimIntPay % = margem de liquidez líquida: desconta o fee fixo repassado à DOM e o MDR DOM.
+      // Revalida não cobra taxa fixa Sim Int Pay. R$1 + R$3 são custos DOM.
+      const taxaSimIntFixa = isRevalida ? 0 : (TAXA_FIXA + TAXA_CASHBACK) * qtdNormal;
       const taxaSimIntPctNetNormal = (taxaSimInt - taxaSimIntFixa) - taxaMDRDomNormal;
-      const totalTaxasSimIntNormal = taxaSimInt - taxaMDRDomNormal;
+      const totalTaxasSimIntNormal = isRevalida
+        ? taxaSimInt
+        : taxaSimInt - taxaMDRDomNormal;
 
       // ── Maquineta (venda física / POS) ────────────────────────────────────────────────
       // Modelo: o cliente só perde a taxa Sim Int Pay; o custo DOM sai da margem da casa.
@@ -7745,8 +7762,13 @@ export class AdminController {
       const taxaAdquirente   = TAXA_FIXA * qtdNormal + maqDomSplit.fixa;
       const taxaMDRDom       = taxaMDRDomNormal + maqDomSplit.pct;
       const totalTaxasDom    = taxaMDRDom + taxaAdquirente + custoCashback;
-      const taxaSimIntPctNet = taxaSimIntPctNetNormal + taxaSimIntPctNetMaq;
+      const taxaSimIntPctBruta = isRevalida
+        ? taxaSimInt + totalTaxasSimIntMaq
+        : undefined;
       const totalTaxasSimInt = totalTaxasSimIntNormal + totalTaxasSimIntMaq;
+      const taxaSimIntPctNet = isRevalida
+        ? totalTaxasSimInt - totalTaxasDom
+        : taxaSimIntPctNetNormal + taxaSimIntPctNetMaq;
 
       // Parcelamento: cartão de crédito não-maquineta EM 2x OU MAIS (1x é à vista,
       // não é parcelamento — fica de fora desta seção mesmo tendo margem própria).
@@ -7779,6 +7801,9 @@ export class AdminController {
         taxaDomFixa: Math.round(taxaAdquirente * 100) / 100,
         taxaDomCashback: Math.round(custoCashback * 100) / 100,
         totalTaxasDom: Math.round(totalTaxasDom * 100) / 100,
+        ...(taxaSimIntPctBruta !== undefined
+          ? { taxaSimIntPctBruta: Math.round(taxaSimIntPctBruta * 100) / 100 }
+          : {}),
         taxaSimIntPctNet: Math.round(taxaSimIntPctNet * 100) / 100,
         taxaSimIntFixa: Math.round(taxaSimIntFixa * 100) / 100,
         totalTaxasSimInt: Math.round(totalTaxasSimInt * 100) / 100,
@@ -7792,7 +7817,9 @@ export class AdminController {
         // Repasse correto (soma direta do líquido de cada tx) — o front deve usar ESTE campo.
         totalRepasse: Math.round(totalRepasse * 100) / 100,
         // ── Maquineta (venda física) — alimenta a seção "Maquinetas" do relatório ──
-        _v: 'repasse-direto-v4-pos',
+        // Identifica a versão do cálculo no payload para distinguir processos
+        // ainda rodando código anterior após a atualização do backend.
+        _v: isRevalida ? 'repasse-direto-v6-revalida-recorded-fees' : 'repasse-direto-v4-pos',
         qtdMaquineta: maqTxs.length,
         /** Bruto que passou nas maquinetas. */
         maqBruto: Math.round(maqBruto * 100) / 100,
@@ -7827,8 +7854,7 @@ export class AdminController {
       const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
       userIds = [bid];
     } else if (tag === 'REVALIDA') {
-      const rid = await resolveBySlugOrEnv(this.prisma, 'REVALIDA_USER_ID', ['revalida'], REVALIDA_CONSOLIDADO_USER_ID);
-      if (rid) userIds = [rid];
+      userIds = [REVALIDA_CONSOLIDADO_USER_ID];
     } else if (tag === 'EBOOK' || tag === 'EBOOKSIM') {
       const users = await this.prisma.user.findMany({
         where: { OR: [{ tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } }, { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } }] },
@@ -7872,7 +7898,7 @@ export class AdminController {
 
     const txs = await this.prisma.transaction.findMany({
       where,
-      select: { amount: true, paymentMethod: true, installments: true, createdAt: true, description: true, netAmount: true, domFee: true, cardBrand: true },
+      select: { amount: true, paymentMethod: true, installments: true, createdAt: true, description: true, netAmount: true, domFee: true, platformFee: true, cardBrand: true },
     });
 
     const breakdown = computeBreakdown(txs);
