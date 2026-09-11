@@ -84,6 +84,7 @@ export class ListDomTransactionsDirectUseCase {
         page: domPage,
         limit: DOM_PER_PAGE,
         status: input.status,
+        payment_method: input.payment_method,
         begin_date,
         end_date,
       });
