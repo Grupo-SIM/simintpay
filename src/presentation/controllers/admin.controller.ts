@@ -7687,38 +7687,38 @@ export class AdminController {
       const maqTxs = txs.filter(isMaq);
       const qtdNormal = normalTxs.length;
 
-      // ── REPASSE DIRETO — soma o líquido real de cada transação, igual ao admin. ──
-      // Evita a fórmula frágil "bruto − totalTaxasSimInt", que devolvia o MDR da DOM ao repasse.
-      //   app/link : netAmount − taxa de serviço  (= amountWithoutAllFee do internal-renovada-finance)
-      //   maquineta: netAmount                     (= profit_minus_tax da página de Máquinas)
-      const totalRepasse = txs.reduce((s, t) => {
-        if (isMaq(t)) return s + Number(t.netAmount ?? 0);
-        // Revalida repassa ao usuário-carteira o bruto menos a taxa Sim Int
-        // Pay registrada. Custos da DOM compõem o lucro da Sim Int Pay e não
-        // são uma segunda dedução do repasse da Revalida.
-        if (isRevalida) return s + Number(t.amount) - Number(t.platformFee ?? 0);
-        const netBase = Number(t.netAmount ?? t.amount);
-        const svc = TAXA_SERVICO_RATE > 0 && t.createdAt != null && t.createdAt >= TAXA_SERVICO_DATE ? TAXA_SERVICO_RATE : 0;
-        return s + (netBase - svc);
-      }, 0);
-
       // ── Transações normais (app/link): fórmula por método de pagamento ──
-      const taxaSimInt = normalTxs.reduce((s, t) => {
+      const taxaSimIntDaTransacao = (t: (typeof normalTxs)[number]) => {
         const amount = Number(t.amount);
         // Revalida registra na própria transação a parte da taxa cobrada pela
         // Sim Int Pay. Esta é a fonte financeira da plataforma: já exclui o
         // MDR DOM e não contém taxa fixa por transação.
-        if (isRevalida) return s + Number(t.platformFee ?? 0);
-        return s + (isCardPm(t.paymentMethod)
+        if (isRevalida) return Number(Number(t.platformFee ?? 0).toFixed(2));
+        return Number((isCardPm(t.paymentMethod)
           ? amount * TAXA_LINK_PCT + TAXA_LINK_FIXA
-          : amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK);
-      }, 0);
-      const taxaMDRDomNormal = normalTxs.reduce((s, t) => s + estimateDomFeeReais({
+          : amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK).toFixed(2));
+      };
+      // A tabela mostra cada taxa em centavos. Esta soma usa o mesmo valor.
+      const taxaSimInt = normalTxs.reduce(
+        (s, t) => s + taxaSimIntDaTransacao(t),
+        0,
+      );
+      // Repasse usa a mesma taxa por transação exibida na tabela. `netAmount`
+      // é um valor de liquidação legado e, nas comunidades, não inclui todos
+      // os custos mostrados nos cards (MDR, fixo e cashback).
+      const totalRepasseNormal = normalTxs.reduce(
+        (s, t) => s + Number(t.amount) - taxaSimIntDaTransacao(t),
+        0,
+      );
+      // Arredonda por transação, antes do acumulado. A tabela também mostra a
+      // taxa de cada transação em centavos; arredondar apenas o total criava
+      // divergência entre a soma visível (ex.: R$ 4,72) e o card (R$ 4,70).
+      const taxaMDRDomNormal = normalTxs.reduce((s, t) => s + Number(estimateDomFeeReais({
         amountReais: Number(t.amount),
         paymentMethod: t.paymentMethod,
         installments: t.installments,
         tenantTag: tag,
-      }), 0);
+      }).toFixed(2)), 0);
       // Cashback (R$3): a DOM NÃO cobra em maquineta (o cliente não consegue registrar os dados
       // pra receber o bônus nesse fluxo) — só entra nas transações normais.
       const custoCashback  = TAXA_CASHBACK * qtdNormal;
@@ -7755,6 +7755,7 @@ export class AdminController {
       const maqDom = maqDomSplit.pct + maqDomSplit.fixa;
       const totalTaxasSimIntMaq = maqBruto - maqNet;
       const taxaSimIntPctNetMaq = totalTaxasSimIntMaq - maqDom;
+      const totalRepasse = totalRepasseNormal + maqNet;
 
       // ── Combinado (normais + maquineta) ──
       // taxaAdquirente = R$1 por transação: nas normais é TAXA_FIXA; na maquineta vem da
@@ -7762,9 +7763,13 @@ export class AdminController {
       const taxaAdquirente   = TAXA_FIXA * qtdNormal + maqDomSplit.fixa;
       const taxaMDRDom       = taxaMDRDomNormal + maqDomSplit.pct;
       const totalTaxasDom    = taxaMDRDom + taxaAdquirente + custoCashback;
+      // Fonte explícita do card "Taxa Percentual". Antes o front tentava
+      // reconstruí-la a partir de bruto e repasse, que vêm de consultas
+      // diferentes nas comunidades. A coluna da tabela usa esta mesma
+      // parcela (sem as taxas fixas por transação).
       const taxaSimIntPctBruta = isRevalida
         ? taxaSimInt + totalTaxasSimIntMaq
-        : undefined;
+        : taxaSimInt - taxaSimIntFixa + totalTaxasSimIntMaq;
       const totalTaxasSimInt = totalTaxasSimIntNormal + totalTaxasSimIntMaq;
       const taxaSimIntPctNet = isRevalida
         ? totalTaxasSimInt - totalTaxasDom
@@ -7801,9 +7806,7 @@ export class AdminController {
         taxaDomFixa: Math.round(taxaAdquirente * 100) / 100,
         taxaDomCashback: Math.round(custoCashback * 100) / 100,
         totalTaxasDom: Math.round(totalTaxasDom * 100) / 100,
-        ...(taxaSimIntPctBruta !== undefined
-          ? { taxaSimIntPctBruta: Math.round(taxaSimIntPctBruta * 100) / 100 }
-          : {}),
+        taxaSimIntPctBruta: Math.round(taxaSimIntPctBruta * 100) / 100,
         taxaSimIntPctNet: Math.round(taxaSimIntPctNet * 100) / 100,
         taxaSimIntFixa: Math.round(taxaSimIntFixa * 100) / 100,
         totalTaxasSimInt: Math.round(totalTaxasSimInt * 100) / 100,
