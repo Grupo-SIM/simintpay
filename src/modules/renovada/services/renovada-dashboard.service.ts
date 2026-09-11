@@ -7,6 +7,7 @@ import timezone from 'dayjs/plugin/timezone';
 import 'dayjs/locale/pt-br';
 import { RenovadaConfig } from '../renovada.config';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { summarizeRefunds } from '../../../application/helpers/refund-report.helper';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -357,16 +358,16 @@ export class PlatformDashboardService {
     }
 
     // 3. Estornos
-    const estornosWhere: any = isAtlas
+    // A data do estorno não é a data de criação da venda. O período é aplicado
+    // abaixo na transição para REFUNDED (ou updatedAt para sincronizações legadas).
+    const estornosWhere: Prisma.TransactionWhereInput = isAtlas
       ? {
           status: TransactionStatus.REFUNDED,
-          createdAt: { gte: start, lte: end },
           description: { contains: 'atlas', mode: 'insensitive' as const },
         }
       : isBosque
       ? {
           status: TransactionStatus.REFUNDED,
-          createdAt: { gte: start, lte: end },
           OR: [
             { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' as const } },
             { description: { contains: 'bosque', mode: 'insensitive' as const } },
@@ -375,19 +376,16 @@ export class PlatformDashboardService {
       : isAreaflix
       ? {
           status: TransactionStatus.REFUNDED,
-          createdAt: { gte: start, lte: end },
           description: { contains: 'areaflix', mode: 'insensitive' as const },
         }
       : isTenantTagged
       ? {
           status: TransactionStatus.REFUNDED,
-          createdAt: { gte: start, lte: end },
           description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const },
         }
       : {
           userId: platformId,
           status: TransactionStatus.REFUNDED,
-          createdAt: { gte: start, lte: end },
           ...(filter.OR ? { OR: filter.OR } : {}),
         };
     const chargebacksWhere: any = isAtlas
@@ -400,10 +398,30 @@ export class PlatformDashboardService {
       ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const } }
       : { userId: platformId, status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, ...(filter.OR ? { OR: filter.OR } : {}) };
 
-    const [estornosAgg, chargebacksAgg] = await Promise.all([
-      this.prisma.transaction.aggregate({ where: estornosWhere, _count: { id: true }, _sum: { netAmount: true } }),
+    const [estornoTransactions, chargebacksAgg] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where: estornosWhere,
+        select: {
+          netAmount: true,
+          updatedAt: true,
+          statusHistory: {
+            where: { toStatus: TransactionStatus.REFUNDED },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { createdAt: true },
+          },
+        },
+      }),
       this.prisma.transaction.aggregate({ where: chargebacksWhere, _count: { id: true }, _sum: { netAmount: true } }),
     ]);
+    const estornos = summarizeRefunds(
+      estornoTransactions.map((transaction) => ({
+        amount: transaction.netAmount,
+        updatedAt: transaction.updatedAt,
+        statusHistory: transaction.statusHistory,
+      })),
+      { start, end },
+    );
 
     // 4. Saques — EBOOK/PAGATG/AREAFLIX não têm saques centralizados
     const withdrawals = isTenantTagged || isAreaflix
@@ -544,8 +562,8 @@ export class PlatformDashboardService {
         }
       },
       estornos: {
-        quantidade: estornosAgg._count.id,
-        valorLiquido: Number(Number(estornosAgg._sum.netAmount || 0).toFixed(2)),
+        quantidade: estornos.quantidade,
+        valorLiquido: estornos.valor,
       },
       chargebacks: {
         quantidade: chargebacksAgg._count.id,
