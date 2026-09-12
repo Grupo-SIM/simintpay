@@ -6,13 +6,28 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
+import dayjs from 'dayjs';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import type { DomTransactionItem, IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
+
+function tenantTagFromDomProduct(product: string | null | undefined): string | null {
+  const explicitTag = platformTaxaTagFromText(product);
+  if (explicitTag !== 'GLOBAL') return explicitTag;
+
+  const text = String(product ?? '').toLowerCase();
+  if (text.includes('controle-patrimonial') || text.includes('controle patrimonial')) {
+    return 'CONTROLE-PATRIMONIAL';
+  }
+  if (text.includes('controle-motorista') || text.includes('controle motorista')) {
+    return 'CONTROLE-MOTORISTA';
+  }
+  return null;
+}
 
 @Injectable()
 export class SyncDomTransactionsUseCase {
@@ -25,7 +40,7 @@ export class SyncDomTransactionsUseCase {
   ) {}
 
   private mapStatus(domStatus: string): TransactionStatus {
-    switch (domStatus) {
+    switch (domStatus.toLowerCase()) {
       case 'paid':
         return TransactionStatus.COMPLETED;
       case 'expired':
@@ -170,13 +185,35 @@ export class SyncDomTransactionsUseCase {
                 ...(tx.id ? [{ domTransactionId: tx.id }] : []),
               ],
             },
-            select: { id: true },
+            select: { id: true, status: true },
           });
 
           if (existing) {
-            await this.prisma.transaction.update({
-              where: { id: existing.id },
-              data: { status, amount, netAmount, totalFee },
+            const statusChangedAt = this.parseDate(tx.updated_at) ?? new Date();
+            await this.prisma.$transaction(async (p) => {
+              await p.transaction.update({
+                where: { id: existing.id },
+                data: {
+                  status,
+                  amount,
+                  netAmount,
+                  totalFee,
+                  ...(existing.status !== status
+                    ? { previousStatus: existing.status, updatedAt: statusChangedAt }
+                    : {}),
+                },
+              });
+              if (existing.status !== status) {
+                await p.transactionStatusHistory.create({
+                  data: {
+                    transactionId: existing.id,
+                    fromStatus: existing.status,
+                    toStatus: status,
+                    metadata: { reason: 'dom-historical-sync' },
+                    createdAt: statusChangedAt,
+                  },
+                });
+              }
             });
             updated++;
           } else {
@@ -243,5 +280,122 @@ export class SyncDomTransactionsUseCase {
       `Sync concluído: ${created} criadas, ${updated} atualizadas, ${total} total`,
     );
     return { created, updated, total };
+  }
+
+  /**
+   * Repara somente o status de réplicas locais já existentes. A rotina não cria
+   * transações sem dono local e não altera saldos/carteiras, logo pode ser
+   * repetida com segurança para reconciliar histórico importado antes dos
+   * webhooks de status.
+   */
+  async repairHistoricalStatuses(input: {
+    beginDate: string;
+    endDate: string;
+  }): Promise<{ scanned: number; matched: number; updated: number; tagged: number; unchanged: number }> {
+    const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+    if (!domToken) throw new BadRequestException('DOM_TOKEN não configurado');
+
+    const begin = dayjs(input.beginDate);
+    const end = dayjs(input.endDate);
+    if (!begin.isValid() || !end.isValid() || begin.isAfter(end, 'day')) {
+      throw new BadRequestException('Intervalo de reparação inválido');
+    }
+
+    const domTransactions: DomTransactionItem[] = [];
+    const limit = 100;
+    for (let page = 1; page <= 400; page += 1) {
+      const result = await this.gateway.listDomTransactions(domToken, {
+        page,
+        limit,
+        begin_date: input.beginDate,
+        end_date: input.endDate,
+      });
+      const batch = result.transactions ?? [];
+      domTransactions.push(...batch);
+      if (batch.length < limit || (typeof result.total === 'number' && page * limit >= result.total)) break;
+    }
+
+    const byExternalId = new Map<string, typeof domTransactions[number]>();
+    const localIds = new Set<string>();
+    for (const transaction of domTransactions) {
+      for (const key of [transaction.id, transaction.order_id, transaction.cod_external]) {
+        if (!key) continue;
+        byExternalId.set(key, transaction);
+        localIds.add(key);
+      }
+    }
+
+    let matched = 0;
+    let updated = 0;
+    let tagged = 0;
+    let unchanged = 0;
+    const ids = [...localIds];
+    for (let offset = 0; offset < ids.length; offset += 500) {
+      const chunk = ids.slice(offset, offset + 500);
+      const localTransactions = await this.prisma.transaction.findMany({
+        where: {
+          OR: [
+            { id: { in: chunk } },
+            { domPaymentId: { in: chunk } },
+            { domTransactionId: { in: chunk } },
+          ],
+        },
+        select: { id: true, status: true, description: true, domPaymentId: true, domTransactionId: true },
+      });
+
+      for (const local of localTransactions) {
+        const domTransaction = [local.domPaymentId, local.domTransactionId, local.id]
+          .map((key) => key ? byExternalId.get(key) : undefined)
+          .find(Boolean);
+        if (!domTransaction) continue;
+        matched++;
+
+        const tenantTag = tenantTagFromDomProduct(domTransaction.product_first);
+        const description = tenantTag && !local.description?.includes(`[TENANT:${tenantTag}]`)
+          ? `[TENANT:${tenantTag}] ${domTransaction.product_first ?? local.description ?? ''}`.trim()
+          : undefined;
+        const nextStatus = this.mapStatus(domTransaction.status);
+        const statusChanged = local.status !== nextStatus;
+        if (!statusChanged && !description) {
+          unchanged++;
+          continue;
+        }
+
+        const statusChangedAt = this.parseDate(domTransaction.updated_at) ?? new Date();
+        await this.prisma.$transaction(async (p) => {
+          await p.transaction.update({
+            where: { id: local.id },
+            data: {
+              ...(statusChanged
+                ? {
+                    status: nextStatus,
+                    previousStatus: local.status,
+                    updatedAt: statusChangedAt,
+                  }
+                : {}),
+              ...(description ? { description } : {}),
+            },
+          });
+          if (statusChanged) {
+            await p.transactionStatusHistory.create({
+              data: {
+                transactionId: local.id,
+                fromStatus: local.status,
+                toStatus: nextStatus,
+                metadata: { reason: 'dom-historical-status-repair' },
+                createdAt: statusChangedAt,
+              },
+            });
+          }
+        });
+        if (statusChanged) updated++;
+        if (description) tagged++;
+      }
+    }
+
+    this.logger.log(
+      `Reparação DOM ${input.beginDate}–${input.endDate}: ${updated} status atualizados de ${matched} réplicas locais.`,
+    );
+    return { scanned: domTransactions.length, matched, updated, tagged, unchanged };
   }
 }

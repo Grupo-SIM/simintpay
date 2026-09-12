@@ -158,9 +158,12 @@ export class PlatformDashboardService {
     let start: Date;
     let end: Date = now.toDate();
 
-    // Para EBOOK/EBOOKSIM/PAGATG: usa filtro por tag na descrição (multi-vendor), não por userId único
+    // Plataformas multi-vendor usam a tag na descrição, não um userId técnico.
     const isEbook = upperTag === 'EBOOK' || upperTag === 'EBOOKSIM';
     const isPagatg = upperTag === 'PAGATG';
+    // Controle Motorista e Controle Patrimonial não têm carteira centralizada.
+    // As transações da tela pertencem ao escopo [TENANT:CONTROLE-*].
+    const isControle = upperTag === 'CONTROLE-MOTORISTA' || upperTag === 'CONTROLE-PATRIMONIAL';
     const isAtlas = upperTag === 'ATLAS';
     const isBosque = upperTag === 'BOSQUE';
     // AREAFLIX usa sistema de ordens próprio (não Transaction table com userId centralizado)
@@ -172,7 +175,7 @@ export class PlatformDashboardService {
       'AREAFLIX', 'ATLAS', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
       'FRENDZ', 'BETAI', 'GLOBAL',
     ].includes(upperTag);
-    const isTenantTagged = isEbook || isPagatg || !isKnownFixedTag;
+    const isTenantTagged = isEbook || isPagatg || isControle || !isKnownFixedTag;
 
     const bosqueTxWhere = {
       status: TransactionStatus.COMPLETED,

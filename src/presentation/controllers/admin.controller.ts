@@ -4224,6 +4224,24 @@ export class AdminController {
     return { data: result };
   }
 
+  @Post('sync/reparar-status-transacoes-dom')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Repara status histórico das réplicas locais usando a listagem DOM' })
+  @ApiQuery({ name: 'dataInicio', required: true, example: '2026-05-01', description: 'yyyy-mm-dd' })
+  @ApiQuery({ name: 'dataFim', required: true, example: '2026-06-30', description: 'yyyy-mm-dd' })
+  async repararStatusTransacoesDom(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    if (!dataInicio || !dataFim) {
+      throw new BadRequestException('dataInicio e dataFim são obrigatórias');
+    }
+    return this.syncTransactions.repairHistoricalStatuses({
+      beginDate: dataInicio,
+      endDate: dataFim,
+    });
+  }
+
   @Post('sync/test-cron')
   @HttpCode(200)
   @ApiOperation({ summary: 'Testar sincronização automática do cron (executa mesma lógica do cron)' })
