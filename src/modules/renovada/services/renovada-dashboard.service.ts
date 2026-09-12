@@ -383,11 +383,13 @@ export class PlatformDashboardService {
           status: TransactionStatus.REFUNDED,
           description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const },
         }
-      : {
+      : platformId
+      ? {
           userId: platformId,
           status: TransactionStatus.REFUNDED,
           ...(filter.OR ? { OR: filter.OR } : {}),
-        };
+        }
+      : { id: '__missing-platform-id__' };
     const chargebacksWhere: any = isAtlas
       ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: 'atlas', mode: 'insensitive' as const } }
       : isBosque
@@ -396,7 +398,9 @@ export class PlatformDashboardService {
       ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: 'areaflix', mode: 'insensitive' as const } }
       : isTenantTagged
       ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const } }
-      : { userId: platformId, status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, ...(filter.OR ? { OR: filter.OR } : {}) };
+      : platformId
+      ? { userId: platformId, status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, ...(filter.OR ? { OR: filter.OR } : {}) }
+      : { id: '__missing-platform-id__' };
 
     const [estornoTransactions, chargebacksAgg] = await Promise.all([
       this.prisma.transaction.findMany({
