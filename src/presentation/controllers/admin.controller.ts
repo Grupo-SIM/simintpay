@@ -7037,21 +7037,11 @@ export class AdminController {
           // Boleto: taxa SimIntPay = TAXA_BOLETO_FIXA + TAXA_BOLETO_TRANSACAO (fixa por boleto). DOM já sai no taxaDom.
           taxaSimIntPay = Number(calculateBoletoFees(valorBruto, upperTag).platformFeeTotal.toFixed(2));
         } else if (pmStr === 'credit_card') {
-          // Parcela do vendedor (independente de parcelas): (TAXA_LINK_PERCENT - MDR_CC_1X) + (TAXA_LINK_FIXA - TAXA_FIXA_TRANSACAO)
+          // Esta é a taxa que a Sim Int Pay cobra do vendedor. O MDR é custo
+          // da DOM e pertence somente às colunas DOM — subtraí-lo aqui reduzia
+          // indevidamente a nossa taxa percentual na tabela.
           const linkPct  = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-          const linkFixo = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_FIXA',    PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
-          const domPct1x = getPlatformTaxaEffective(upperTag, 'MDR_CC_1X',         PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
-          const domFixo  = getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-          const simSellerPct   = Math.max(0, linkPct  - domPct1x);
-          const simSellerFixed = Math.max(0, linkFixo - domFixo);
-
-          // Parcela do comprador (varia por N parcelas): MDR_CC_MASTER_{N}X
-          const masterKey = `MDR_CC_MASTER_${installments}X` as PlataformaTaxaKey;
-          const simBuyerPct = getPlatformTaxaEffective(
-            upperTag, masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0,
-          );
-
-          taxaSimIntPay = Number((valorBruto * (simSellerPct + simBuyerPct) + simSellerFixed).toFixed(2));
+          taxaSimIntPay = Number((valorBruto * linkPct).toFixed(2));
         } else if (pmStr === 'debit_card') {
           // Débito: TAXA_DEBITO_PERCENT + TAXA_DEBITO_FIXA (parcela SimIntPay)
           const debPct  = getPlatformTaxaEffective(upperTag, 'TAXA_DEBITO_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_PERCENT);

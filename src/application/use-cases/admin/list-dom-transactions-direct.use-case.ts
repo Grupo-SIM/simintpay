@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import dayjs from 'dayjs';
 import type { IPaymentGateway, DomTransactionItem } from '../../../core/services/payment-gateway.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { canonicalPlatformTaxaTag, getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { platformTaxaTagFromText, resolveDomFeeReais } from '../../helpers/dom-fee-estimate.helper';
 import { isPixLikePayment } from '../../helpers/platform-fee-split.helper';
@@ -122,7 +122,14 @@ export class ListDomTransactionsDirectUseCase {
     const dbTxs = codExternals.length > 0 || domIds.length > 0
       ? await this.prisma.transaction.findMany({
           where: { OR: [{ id: { in: codExternals } }, { domPaymentId: { in: domIds } }] },
-          select: { id: true, domPaymentId: true, description: true, netAmount: true, paymentLinkId: true },
+          select: {
+            id: true,
+            domPaymentId: true,
+            description: true,
+            netAmount: true,
+            paymentLinkId: true,
+            user: { select: { tenantModule: { select: { slug: true } } } },
+          },
         })
       : [];
     const dbByCodExternal = new Map(dbTxs.map((t) => [t.id, t]));
@@ -188,6 +195,12 @@ export class ListDomTransactionsDirectUseCase {
       let tenantTag = platformTaxaTagFromText(tx.product_first ?? undefined);
       if (tenantTag === 'GLOBAL' && dbRecord?.description) {
         tenantTag = platformTaxaTagFromText(dbRecord.description);
+      }
+      // Vendas legadas podem não trazer [TENANT:*] na descrição da DOM. O
+      // dono registrado localmente ainda identifica a plataforma e impede que
+      // cards ignorem parte das mesmas vendas exibidas na tabela.
+      if (tenantTag === 'GLOBAL' && dbRecord?.user?.tenantModule?.slug) {
+        tenantTag = canonicalPlatformTaxaTag(dbRecord.user.tenantModule.slug);
       }
       if (tenantTag === 'GLOBAL') {
         const subLinkTag = subLinkTagByCodExternal.get(String(tx.cod_external ?? ''));
