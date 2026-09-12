@@ -27,6 +27,7 @@ import { calculateMaquinetaFees } from '../../helpers/maquineta-fee.helper';
 import { StorageService } from '../../../infrastructure/storage/storage.service';
 import { documentType, splitDocument as provisionDocPayload } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
+import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -407,6 +408,17 @@ export class ProcessDomWebhookUseCase {
           await this.affiliateCommission.reverseForTransaction(p, existing.id);
         }
       });
+
+      const zeroGrauUserId = String(process.env.ZERO_GRAU_USER_ID ?? '').trim();
+      if (zeroGrauUserId && existing.userId === zeroGrauUserId) {
+        const webhookResult = await notifyZeroGrauPaymentStatus({
+          paymentId: data.id,
+          status: nextStatus,
+        });
+        if (webhookResult === 'failed') {
+          this.logger.warn(`[DomWebhook][zero-grau] Falha ao notificar pagamento ${data.id}`);
+        }
+      }
 
       if (existing.userId === RENOVADA_USER_ID && this.renovadaEvents) {
         this.renovadaEvents.emitTransaction({ ...existing, status: nextStatus });
