@@ -218,6 +218,18 @@ export class ListDomTransactionsDirectUseCase {
       });
       const L = getPlatformTaxaEffective(tenantTag, 'LIQUIDEZ', 0.91);
       const pix = isPixLikePayment(tx.payment_method);
+      const paymentMethod = String(tx.payment_method ?? '').toLowerCase();
+      const isDebit = paymentMethod.includes('debit');
+      const isCard = !isDebit && (paymentMethod.includes('card') || paymentMethod.includes('credit'));
+
+      // LIQUIDEZ é regra de PIX. Cartão usa as taxas próprias do produto; usar
+      // LIQUIDEZ aqui transforma uma configuração de PIX em uma taxa de cartão
+      // impossível (por exemplo R$ 3,05 sobre uma venda de R$ 1,00).
+      const taxaPercentualSimInt = isCard
+        ? getPlatformTaxaEffective(tenantTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT)
+        : isDebit
+        ? getPlatformTaxaEffective(tenantTag, 'TAXA_DEBITO_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_PERCENT)
+        : 1 - L;
 
       let totalFee: number;
       let liquidAmount: number;
@@ -229,9 +241,7 @@ export class ListDomTransactionsDirectUseCase {
         const mdr2 = Number(mdr.toFixed(2));
         taxaDom2 = mdr2;
 
-        // Sempre usa LIQUIDEZ nominal para exibição — o storedNet pode refletir apenas o
-        // liquid_amount do DOM (só MDR 2%), não a margem de plataforma (1 − LIQUIDEZ).
-        taxaVendedor = Number(Math.max(0, amount * (1 - L)).toFixed(2));
+        taxaVendedor = Number(Math.max(0, amount * taxaPercentualSimInt).toFixed(2));
 
         const platformFee = taxaVendedor + fixedFees;
         totalFee = Number((mdr2 + platformFee).toFixed(2));
@@ -240,9 +250,7 @@ export class ListDomTransactionsDirectUseCase {
         const mdr2 = Number(mdr.toFixed(2));
         taxaDom2 = mdr2;
 
-        // CC: DOM reports only its own MDR in fee_total — Simintpay's LIQUIDEZ margin
-        // is not included. Apply same LIQUIDEZ-based formula as PIX.
-        taxaVendedor = Number(Math.max(0, amount * (1 - L)).toFixed(2));
+        taxaVendedor = Number(Math.max(0, amount * taxaPercentualSimInt).toFixed(2));
 
         const platformFee = taxaVendedor + fixedFees;
         totalFee = Number((mdr2 + platformFee).toFixed(2));
