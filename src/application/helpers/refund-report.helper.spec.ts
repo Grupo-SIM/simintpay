@@ -55,4 +55,24 @@ describe('summarizeRefunds', () => {
 
     expect(result).toEqual({ quantidade: 2, valor: 3.01 });
   });
+
+  it('counts product report refunds using the original transaction date', () => {
+    const result = summarizeRefunds(
+      [
+        {
+          amount: 1,
+          createdAt: new Date('2026-05-09T23:06:00.000Z'),
+          updatedAt: new Date('2026-09-11T12:00:00.000Z'),
+          statusHistory: [{ createdAt: new Date('2026-09-11T12:00:00.000Z') }],
+        },
+      ],
+      {
+        start: new Date('2026-05-01T00:00:00.000Z'),
+        end: new Date('2026-06-30T23:59:59.999Z'),
+        dateBasis: 'transaction',
+      },
+    );
+
+    expect(result).toEqual({ quantidade: 1, valor: 1 });
+  });
 });

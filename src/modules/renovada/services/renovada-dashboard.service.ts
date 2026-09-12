@@ -361,8 +361,9 @@ export class PlatformDashboardService {
     }
 
     // 3. Estornos
-    // A data do estorno não é a data de criação da venda. O período é aplicado
-    // abaixo na transição para REFUNDED (ou updatedAt para sincronizações legadas).
+    // O relatório por produto usa o período da venda, igual à tabela de
+    // transações exibida logo abaixo dos cards. A transição para REFUNDED pode
+    // ocorrer meses depois e não deve retirar a venda do período selecionado.
     const estornosWhere: Prisma.TransactionWhereInput = isAtlas
       ? {
           status: TransactionStatus.REFUNDED,
@@ -410,6 +411,7 @@ export class PlatformDashboardService {
         where: estornosWhere,
         select: {
           netAmount: true,
+          createdAt: true,
           updatedAt: true,
           statusHistory: {
             where: { toStatus: TransactionStatus.REFUNDED },
@@ -424,10 +426,11 @@ export class PlatformDashboardService {
     const estornos = summarizeRefunds(
       estornoTransactions.map((transaction) => ({
         amount: transaction.netAmount,
+        createdAt: transaction.createdAt,
         updatedAt: transaction.updatedAt,
         statusHistory: transaction.statusHistory,
       })),
-      { start, end },
+      { start, end, dateBasis: 'transaction' },
     );
 
     // 4. Saques — EBOOK/PAGATG/AREAFLIX não têm saques centralizados
