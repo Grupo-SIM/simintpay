@@ -91,7 +91,7 @@ import { computeBosqueAvailableSinceLastWithdrawal } from '../../application/hel
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
 import { getPlatformTaxaEffective, invalidatePlatformTaxaCache, buildClientTaxaTag, canonicalPlatformTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
-import { estimateDomFeeReais, estimatePhysicalDomFeeReais, resolveDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
+import { estimateDomFeeReais, estimatePhysicalDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
 import { calculateBoletoFees } from '../../application/use-cases/boleto/boleto-fees.helper';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
@@ -287,6 +287,7 @@ async function getComunidadeOrderRows(
   prisma: PrismaService,
   dataInicio?: string,
   dataFim?: string,
+  metodoPagamento?: string,
 ): Promise<Array<{ id: string; userId: string; amount: unknown; netAmount: unknown; createdAt: Date; description: string; installments: number; paymentMethod: string | null }>> {
   const bindings = await prisma.communityLinkBinding.findMany({
     where: { subscriptionLinkId: { not: null } },
@@ -317,6 +318,7 @@ async function getComunidadeOrderRows(
     where: {
       subscriptionLinkId: { in: linkIds },
       status: 'paid',
+      ...(metodoPagamento ? { paymentMethod: metodoPagamento as any } : {}),
       ...(Object.keys(createdAt).length > 0 ? { createdAt } : {}),
     },
     select: {
@@ -2740,10 +2742,10 @@ export class AdminController {
         },
         orderBy: { createdAt: 'asc' },
       }),
-      // Comunidades: sem filtro de método aplicável (subscriptionLinkOrder não expõe
-      // o mesmo campo paymentMethod usado aqui); omitidas do filtro quando ativo, para
-      // não misturar dados não filtrados com os filtrados.
-      metodoPagamento ? Promise.resolve([]) : getComunidadeOrderRows(this.prisma, dataInicio, dataFim),
+      // Ordens sem réplica Transaction continuam fazendo parte do consolidado.
+      // SubscriptionLinkOrder possui paymentMethod; filtrá-las na origem evita que
+      // o filtro (por exemplo, PIX) transforme 8 linhas da tabela em 7 nos cards.
+      getComunidadeOrderRows(this.prisma, dataInicio, dataFim, metodoPagamento),
     ]);
 
     const txRowsComComunidade = [...txRowsTodas, ...dedupeComunidadeRows(txRowsTodas, comunidadeRows)];
@@ -6761,7 +6763,7 @@ export class AdminController {
           where: slWhere,
           orderBy: { createdAt: 'desc' },
           take: 500,
-          include: { subscriptionLink: { select: { name: true, userId: true } } },
+          include: { subscriptionLink: { select: { name: true, userId: true, isStandalone: true } } },
         });
 
         // ── Transaction rows tagged [TENANT:SLUG] (pix-plans, payment links) ─
@@ -6800,6 +6802,7 @@ export class AdminController {
           const m = (t.description ?? '').match(/subOrder=([^\s\]]+)/i);
           if (m) subOrderIdsComTransacao.add(m[1]);
         }
+        const orderById = new Map(slOrders.map((order) => [order.id, order]));
 
         // ── Normalize and merge ──────────────────────────────────────────────
         type CommunityRow = {
@@ -6817,30 +6820,44 @@ export class AdminController {
           .map((o) => {
           const valorBruto = Number(o.amountCharged);
           const pf = Number(o.platformFeeAmount);
+          const isStandalonePix = o.subscriptionLink.isStandalone && o.paymentMethod === 'PIX';
           const taxaServicoTotal = taxaServicoFixa + taxaServicoCashback;
-          const valorLiquido = Number((valorBruto - pf - taxaServicoTotal).toFixed(2));
-          const taxaSimIntPay = Number((valorBruto * adminMargin).toFixed(2));
           const pmStr = String(o.paymentMethod ?? 'pix').toLowerCase();
           const pmStrNorm = pmStr.includes('debit') ? 'debit_card' : pmStr.includes('card') || pmStr.includes('credit') ? 'credit_card' : 'pix';
           const taxaDom = Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStrNorm, installments: 1, tenantTag: upperTag }).toFixed(2));
-          const taxaServico = taxaServicoRate > 0 && o.createdAt >= getTaxaServicoEffectiveDate(upperTag) ? Number(taxaServicoRate.toFixed(2)) : 0;
-          const lucroPrejuizo = Number((taxaSimIntPay - taxaDom - taxaServicoFixa - taxaServicoCashback).toFixed(2));
+          // Link standalone não cobra taxa Sim Int Pay. A DOM confirmou neste
+          // fluxo PIX líquido = bruto − MDR − R$1 fixo; cashback e taxa de
+          // serviço não foram cobrados e não podem aparecer no relatório.
+          const taxaFixa = Number(taxaServicoFixa.toFixed(2));
+          const taxaCashback = isStandalonePix ? 0 : taxaServicoCashback;
+          const taxaSimIntPay = isStandalonePix ? pf : Number((valorBruto * adminMargin).toFixed(2));
+          const taxaServico = isStandalonePix
+            ? 0
+            : taxaServicoRate > 0 && o.createdAt >= getTaxaServicoEffectiveDate(upperTag)
+              ? Number(taxaServicoRate.toFixed(2))
+              : 0;
+          const valorLiquido = isStandalonePix
+            ? Number((valorBruto - taxaDom - taxaFixa - pf).toFixed(2))
+            : Number((valorBruto - pf - taxaServicoTotal).toFixed(2));
+          const lucroPrejuizo = Number((taxaSimIntPay + taxaServico - taxaDom - taxaFixa - taxaCashback).toFixed(2));
           return {
             id: `comunidade_order_${o.id}`,
             valorBruto,
             valorLiquido,
-            lucroAdmin: Number((valorBruto * adminMargin - fixedFee).toFixed(2)),
+            lucroAdmin: lucroPrejuizo,
             taxaDom,
             taxaSimIntPay,
-            taxaFixa: taxaServicoFixa,
-            taxaCashback: taxaServicoCashback,
+            taxaFixa,
+            taxaCashback,
             taxaServico,
             lucroPrejuizo,
             status: 'COMPLETED',
             metodoPagamento: o.paymentMethod ?? null,
             descricao: `${o.subscriptionLink.name} [TENANT:${upperTag}]`,
             cliente: { nome: o.customerName ?? null, email: o.customerEmail ?? null, documento: o.customerDocument ?? null },
-            taxas: { total: pf, dom: 0, plataforma: pf },
+            taxas: isStandalonePix
+              ? { total: Number((taxaDom + taxaFixa + pf).toFixed(2)), dom: Number((taxaDom + taxaFixa).toFixed(2)), plataforma: pf }
+              : { total: pf, dom: 0, plataforma: pf },
             criadoEm: o.createdAt,
             atualizadoEm: o.updatedAt,
           };
@@ -6849,12 +6866,19 @@ export class AdminController {
         const txFormatted: CommunityRow[] = txRows.map((t) => {
           const valorBruto = Number(t.amount);
           const isCompleted = t.status === 'COMPLETED';
+          const orderId = t.description?.match(/subOrder=([^\s\]]+)/i)?.[1];
+          const isStandalonePix = orderId
+            ? orderById.get(orderId)?.subscriptionLink.isStandalone === true && t.paymentMethod === 'PIX'
+            : false;
+          const orderPlatformFee = orderId ? Number(orderById.get(orderId)?.platformFeeAmount ?? 0) : 0;
           const installments = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
           const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : t.paymentMethod === 'BOLETO' ? 'boleto' : 'credit_card';
           const taxaDom = isCompleted ? Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStr, installments, tenantTag: upperTag }).toFixed(2)) : 0;
           let taxaSimIntPay = 0;
           if (isCompleted) {
-            if (pmStr === 'boleto') {
+            if (isStandalonePix) {
+              taxaSimIntPay = orderPlatformFee;
+            } else if (pmStr === 'boleto') {
               taxaSimIntPay = Number(calculateBoletoFees(valorBruto, upperTag).platformFeeTotal.toFixed(2));
             } else if (pmStr === 'credit_card') {
               const linkPct = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
@@ -6873,19 +6897,23 @@ export class AdminController {
             }
           }
           const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
-          const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
-          const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag) ? Number(taxaServicoRate.toFixed(2)) : 0;
-          const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
+          const taxaCashback = isCompleted && !isStandalonePix ? Number(taxaServicoCashback.toFixed(2)) : 0;
+          const taxaServico = isCompleted && !isStandalonePix && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag) ? Number(taxaServicoRate.toFixed(2)) : 0;
+          const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay + taxaServico - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
           const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
           const cashbackDeduction = valorBruto * ((getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', 0)) / 100);
           const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
           const valorLiquidoBase = isCompleted && (netFromDb == null || netFromDb <= 0) ? fallbackNet : (netFromDb ?? fallbackNet);
-          const valorLiquido = Number((valorLiquidoBase - taxaServicoFixa - taxaServicoCashback).toFixed(2));
+          const valorLiquido = isStandalonePix
+            ? Number((valorBruto - taxaDom - taxaFixa - taxaSimIntPay).toFixed(2))
+            : Number((valorLiquidoBase - taxaServicoFixa - taxaServicoCashback).toFixed(2));
           return {
             id: t.id,
             valorBruto,
             valorLiquido,
-            lucroAdmin: isCompleted ? Number((taxaSimIntPay - (pmStr === 'boleto' ? taxaDom : fixedFee) - cashbackDeduction).toFixed(2)) : 0,
+            lucroAdmin: isStandalonePix
+              ? lucroPrejuizo
+              : isCompleted ? Number((taxaSimIntPay - (pmStr === 'boleto' ? taxaDom : fixedFee) - cashbackDeduction).toFixed(2)) : 0,
             taxaDom,
             taxaSimIntPay,
             taxaFixa,
@@ -6896,7 +6924,13 @@ export class AdminController {
             metodoPagamento: t.paymentMethod ?? null,
             descricao: (t.description ?? '').replace(/\s*\[TENANT:[^\]]+\]/gi, '').trim(),
             cliente: { nome: t.customerName ?? null, email: t.customerEmail ?? null, documento: t.customerDocument ?? null },
-            taxas: { total: Number(t.totalFee), dom: Number(t.domFee), plataforma: Number(t.platformFee) },
+            taxas: isStandalonePix
+              ? {
+                total: Number((taxaDom + taxaFixa + taxaSimIntPay).toFixed(2)),
+                dom: Number((taxaDom + taxaFixa).toFixed(2)),
+                plataforma: taxaSimIntPay,
+              }
+              : { total: Number(t.totalFee), dom: Number(t.domFee), plataforma: Number(t.platformFee) },
             criadoEm: t.createdAt,
             atualizadoEm: t.updatedAt,
           };
@@ -7754,7 +7788,7 @@ export class AdminController {
     const TAXA_SERVICO_RATE = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
     const TAXA_SERVICO_DATE = getTaxaServicoEffectiveDate(tag);
 
-    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; mdrValue?: unknown; platformFee?: unknown; createdAt?: Date | null; cardBrand?: string | null; acquirer?: string }[]) => {
+    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; mdrValue?: unknown; platformFee?: unknown; createdAt?: Date | null; cardBrand?: string | null; acquirer?: string; isStandalone?: boolean }[]) => {
       const qtd = txs.length;
       // Maquineta liquida por modelo próprio (netAmount = líquido pós-MDR × 0,91; 9% TAXA_MAQUINETA).
       // Recalcular como cartão-link infla o repasse ~9% (a maquineta aparecia quase pelo bruto cheio).
@@ -7785,32 +7819,38 @@ export class AdminController {
       // é um valor de liquidação legado e, nas comunidades, não inclui todos
       // os custos mostrados nos cards (MDR, fixo e cashback).
       const totalRepasseNormal = normalTxs.reduce(
-        (s, t) => s + Number(t.amount) - taxaSimIntDaTransacao(t),
+        (s, t) => s + Number(t.amount) - taxaSimIntDaTransacao(t)
+          - (t.isStandalone ? Number(t.domFee ?? 0) + TAXA_FIXA : 0),
         0,
       );
       // Arredonda por transação, antes do acumulado. A tabela também mostra a
       // taxa de cada transação em centavos; arredondar apenas o total criava
       // divergência entre a soma visível (ex.: R$ 4,72) e o card (R$ 4,70).
       const taxaMDRDomNormal = normalTxs.reduce((s, t) => {
-        // domFee é o snapshot da adquirente persistido junto da venda. Não
-        // estime taxa DOM para uma venda Frendz (ou de adquirente futura).
-        const fee = t.acquirer && t.acquirer !== 'DOM'
-          ? Number(t.domFee ?? 0)
-          : resolveDomFeeReais({
-            amountReais: Number(t.amount),
-            paymentMethod: t.paymentMethod,
-            installments: t.installments,
-            tenantTag: tag,
-            mdrFromGateway: Number(t.mdrValue ?? 0),
-            domFeeFromGateway: Number(t.domFee ?? 0),
-          });
-        return s + Number(fee.toFixed(2));
+        // Relatório e tabela devem usar o mesmo snapshot persistido da venda.
+        // Estimar com a taxa atual fazia o card apresentar uma MDR que não
+        // existe na linha (domFee=0), especialmente em transações históricas.
+        return s + Number(Number(t.domFee ?? 0).toFixed(2));
       }, 0);
       // Cashback (R$3): a DOM NÃO cobra em maquineta (o cliente não consegue registrar os dados
       // pra receber o bônus nesse fluxo) — só entra nas transações normais.
-      const custoCashback  = TAXA_CASHBACK * qtdNormal;
-      const taxaSimIntFixa = (TAXA_FIXA + TAXA_CASHBACK) * qtdNormal;
-      const taxaSimIntPctNetNormal = (taxaSimInt - taxaSimIntFixa) - taxaMDRDomNormal;
+      const custoCashback = normalTxs.reduce(
+        (sum, tx) => sum + (tx.isStandalone ? 0 : TAXA_CASHBACK),
+        0,
+      );
+      // A tabela de transações decompõe platformFee em duas parcelas:
+      // percentual = platformFee - (TAXA_FIXA + TAXA_CASHBACK) e taxa por
+      // transação = TAXA_FIXA + TAXA_CASHBACK. O consolidado precisa somar os
+      // mesmos componentes, inclusive quando a parcela percentual é negativa,
+      // para que percentual + fixa feche no total cobrado pela Sim Int Pay.
+      // Os mesmos R$4 também aparecem como custo DOM; receita bruta Sim Int Pay
+      // e custo DOM são lados distintos do resultado, não valores excludentes.
+      const taxaSimIntFixa = normalTxs.reduce(
+        (sum, tx) => sum + (tx.isStandalone ? 0 : TAXA_FIXA + TAXA_CASHBACK),
+        0,
+      );
+      const taxaDomFixaNormal = TAXA_FIXA * qtdNormal;
+      const taxaSimIntPctNetNormal = taxaSimInt - taxaMDRDomNormal - taxaDomFixaNormal - custoCashback;
       const totalTaxasSimIntNormal = taxaSimInt - taxaMDRDomNormal;
 
       // ── Maquineta (venda física / POS) ────────────────────────────────────────────────
@@ -7844,7 +7884,7 @@ export class AdminController {
       // ── Combinado (normais + maquineta) ──
       // taxaAdquirente = R$1 por transação: nas normais é TAXA_FIXA; na maquineta vem da
       // tabela física (POS_TAXA_DOM_FIXA, cobrado só em débito/crédito — PIX físico não paga).
-      const taxaAdquirente   = TAXA_FIXA * qtdNormal + maqDomSplit.fixa;
+      const taxaAdquirente   = taxaDomFixaNormal + maqDomSplit.fixa;
       const taxaMDRDom       = taxaMDRDomNormal + maqDomSplit.pct;
       const totalTaxasDom    = taxaMDRDom + taxaAdquirente + custoCashback;
       // Fonte explícita do card "Taxa Percentual". Antes o front tentava
@@ -7946,7 +7986,7 @@ export class AdminController {
     if (community) {
       const bindings = await this.prisma.communityLinkBinding.findMany({
         where: { communityId: community.id, subscriptionLinkId: { not: null } },
-        select: { subscriptionLinkId: true },
+        select: { subscriptionLinkId: true, subscriptionLink: { select: { isStandalone: true } } },
         distinct: ['subscriptionLinkId'],
       });
       const linkIds = bindings.flatMap((binding) => binding.subscriptionLinkId ? [binding.subscriptionLinkId] : []);
@@ -7962,7 +8002,7 @@ export class AdminController {
             createdAt,
             ...(metodoPagamento ? { paymentMethod: metodoPagamento as any } : {}),
           },
-          select: { id: true, amountCharged: true, paymentMethod: true, createdAt: true },
+          select: { id: true, subscriptionLinkId: true, amountCharged: true, platformFeeAmount: true, paymentMethod: true, createdAt: true },
         })
         : [];
       const replicatedOrderIds = new Set(
@@ -7971,26 +8011,56 @@ export class AdminController {
           return match ? [match[1]] : [];
         }),
       );
+      const standaloneByLinkId = new Map(
+        bindings.flatMap((binding) => binding.subscriptionLinkId
+          ? [[binding.subscriptionLinkId, binding.subscriptionLink?.isStandalone === true] as const]
+          : []),
+      );
+      const orderById = new Map(orders.map((order) => [order.id, order]));
+      for (const tx of txs) {
+        const orderId = tx.description?.match(/subOrder=([^\s\]]+)/i)?.[1];
+        if (!orderId) continue;
+        const order = orderById.get(orderId);
+        if (!order || !standaloneByLinkId.get(order.subscriptionLinkId) || tx.paymentMethod !== 'PIX') continue;
+        const amount = Number(tx.amount);
+        const domFee = Number(estimateDomFeeReais({
+          amountReais: amount,
+          paymentMethod: tx.paymentMethod,
+          installments: tx.installments,
+          tenantTag: tag,
+        }).toFixed(2));
+        tx.isStandalone = true;
+        tx.platformFee = Number(order.platformFeeAmount);
+        tx.domFee = domFee;
+        tx.netAmount = Number((amount - domFee - TAXA_FIXA - Number(order.platformFeeAmount)).toFixed(2));
+      }
       const percentual = 1 - LIQUIDEZ;
       for (const order of orders) {
         if (replicatedOrderIds.has(order.id)) continue;
         const amount = Number(order.amountCharged);
+        const isStandalone = standaloneByLinkId.get(order.subscriptionLinkId) === true && order.paymentMethod === 'PIX';
+        const percentualFee = Number((amount * percentual).toFixed(2));
+        const platformFee = isStandalone
+          ? Number(order.platformFeeAmount)
+          : Number((percentualFee + TAXA_FIXA + TAXA_CASHBACK).toFixed(2));
+        const domFee = Number(estimateDomFeeReais({
+          amountReais: amount,
+          paymentMethod: order.paymentMethod,
+          installments: 1,
+          tenantTag: tag,
+        }).toFixed(2));
         txs.push({
           amount,
           paymentMethod: order.paymentMethod,
           installments: 1,
           createdAt: order.createdAt,
           description: `[TENANT:${tag}] subOrder=${order.id}`,
-          netAmount: amount - (amount * percentual + TAXA_FIXA + TAXA_CASHBACK),
-          domFee: estimateDomFeeReais({
-            amountReais: amount,
-            paymentMethod: order.paymentMethod,
-            installments: 1,
-            tenantTag: tag,
-          }),
-          platformFee: Number((amount * percentual + TAXA_FIXA + TAXA_CASHBACK).toFixed(2)),
+          netAmount: Number((amount - platformFee - (isStandalone ? domFee + TAXA_FIXA : 0)).toFixed(2)),
+          domFee,
+          platformFee,
           cardBrand: null,
           acquirer: 'DOM',
+          isStandalone,
         });
       }
     }
