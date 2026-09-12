@@ -1387,33 +1387,109 @@ export class AdminController {
   }
 
   /**
-   * Linhas calculadas pela mesma rotina de GET /admin/transacoes-dom.
-   * Relatórios não podem recalcular taxa a partir de snapshots locais.
+   * Fonte única dos relatórios por produto: o ledger local.
+   *
+   * A listagem DOM é somente uma integração de adquirente. Usá-la nos cards
+   * fazia a tela perder Frendz e qualquer adquirente futura, além de divergir
+   * da tabela do produto, que já lê Transaction.
    */
-  private async fetchAllDomTransactionRowsForRelatorio(
-    beginDate: string,
+  private async findLocalPlatformReportTransactions(
+    tag: string,
+    startDate: string,
     endDate?: string,
-  ): Promise<DomTransactionReportRow[]> {
-    const limit = 100;
-    const first = await this.listDomTransactionsDirect.execute({
-      page: 1,
-      limit,
-      begin_date: beginDate,
-      end_date: endDate,
-    });
-    const rows = [...first.transactions] as DomTransactionReportRow[];
-    const totalPages = Math.min(Math.ceil(first.total / limit), 400);
-    for (let page = 2; page <= totalPages; page += 1) {
-      const result = await this.listDomTransactionsDirect.execute({
-        page,
-        limit,
-        begin_date: beginDate,
-        end_date: endDate,
+    paymentMethod?: string,
+  ) {
+    let userIds: string[] = [];
+    if (tag === 'RENOVADA') {
+      userIds = [process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a'];
+    } else if (tag === 'REVALIDA') {
+      userIds = [process.env.REVALIDA_USER_ID || REVALIDA_CONSOLIDADO_USER_ID];
+    } else if (tag === 'EBOOK') {
+      const users = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
+            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
+          ],
+        },
+        select: { id: true },
       });
-      rows.push(...result.transactions as DomTransactionReportRow[]);
-      if (result.transactions.length < limit) break;
+      userIds = await expandUserIdsByCpf(this.prisma, users.map((user) => user.id));
+    } else if (tag === 'BOSQUE') {
+      userIds = [process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c'];
+    } else if (!['PAGATG', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL'].includes(tag)) {
+      const plans = await this.prisma.pixCreditPlan.findMany({
+        where: {
+          OR: [
+            { description: { contains: `|${tag}]`, mode: 'insensitive' } },
+            { description: { contains: tag, mode: 'insensitive' } },
+          ],
+        },
+        select: { userId: true, description: true },
+      });
+      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
     }
-    return rows;
+
+    const scope: Prisma.TransactionWhereInput = tag === 'BOSQUE'
+      ? {
+        OR: [
+          { userId: { in: userIds } },
+          { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+          { description: { contains: 'bosque', mode: 'insensitive' } },
+          { description: { contains: 'ibb', mode: 'insensitive' } },
+        ],
+      }
+      : {
+        OR: [
+          ...(userIds.length ? [{ userId: { in: userIds } }] : []),
+          { description: { contains: `[TENANT:${tag}]`, mode: 'insensitive' } },
+        ],
+      };
+
+    const createdAt: Prisma.DateTimeFilter = {
+      gte: parseYmdSp(startDate).startOf('day').toDate(),
+    };
+    if (endDate) createdAt.lte = parseYmdSp(endDate).endOf('day').toDate();
+
+    const and: Prisma.TransactionWhereInput[] = [];
+    if (tag === 'RENOVADA') {
+      and.push({
+        OR: [
+          { description: { contains: 'dizimo', mode: 'insensitive' } },
+          { description: { contains: 'dízimo', mode: 'insensitive' } },
+          { description: { contains: 'primicia', mode: 'insensitive' } },
+          { description: { contains: 'primícia', mode: 'insensitive' } },
+          { description: { contains: 'oferta', mode: 'insensitive' } },
+          { description: { contains: 'maquineta', mode: 'insensitive' } },
+          { description: { contains: 'terminal', mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    return this.prisma.transaction.findMany({
+      where: {
+        AND: [
+          scope,
+          { status: 'COMPLETED' },
+          { createdAt },
+          ...(paymentMethod ? [{ paymentMethod: paymentMethod as any }] : []),
+          ...and,
+        ],
+      },
+      select: {
+        id: true,
+        amount: true,
+        paymentMethod: true,
+        installments: true,
+        description: true,
+        netAmount: true,
+        domFee: true,
+        platformFee: true,
+        cardBrand: true,
+        createdAt: true,
+        acquirer: true,
+      },
+    });
   }
 
   private extractOrderNumberFromText(value: string | null | undefined): string | null {
@@ -7037,42 +7113,15 @@ export class AdminController {
     const data = items.map(t => {
       const valorBruto = Number(t.amount);
       const isCompleted = t.status === 'COMPLETED';
-      const installments = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
-
       const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : t.paymentMethod === 'BOLETO' ? 'boleto' : 'credit_card';
-      const taxaDom = isCompleted ? Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStr, installments, tenantTag: upperTag }).toFixed(2)) : 0;
-
-      // taxaSimIntPay: calculada por método de pagamento (não mais pela LIQUIDEZ genérica)
-      let taxaSimIntPay = 0;
-      if (isCompleted) {
-        // Revalida é uma conta/carteira de plataforma. A taxa da Sim Int Pay
-        // já é persistida em `platformFee` pelo sync como fee_total − dom_fee.
-        // Não recalcular por regras de checkout/link: isso misturava MDR e uma
-        // taxa fixa inexistente na coluna percentual.
-        if (upperTag === 'REVALIDA') {
-          taxaSimIntPay = Number(t.platformFee ?? 0);
-        } else if (pmStr === 'boleto') {
-          // Boleto: taxa SimIntPay = TAXA_BOLETO_FIXA + TAXA_BOLETO_TRANSACAO (fixa por boleto). DOM já sai no taxaDom.
-          taxaSimIntPay = Number(calculateBoletoFees(valorBruto, upperTag).platformFeeTotal.toFixed(2));
-        } else if (pmStr === 'credit_card') {
-          // Esta é a taxa que a Sim Int Pay cobra do vendedor. O MDR é custo
-          // da DOM e pertence somente às colunas DOM — subtraí-lo aqui reduzia
-          // indevidamente a nossa taxa percentual na tabela.
-          const linkPct  = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-          taxaSimIntPay = Number((valorBruto * linkPct).toFixed(2));
-        } else if (pmStr === 'debit_card') {
-          // Débito: TAXA_DEBITO_PERCENT + TAXA_DEBITO_FIXA (parcela SimIntPay)
-          const debPct  = getPlatformTaxaEffective(upperTag, 'TAXA_DEBITO_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_PERCENT);
-          const debFixo = getPlatformTaxaEffective(upperTag, 'TAXA_DEBITO_FIXA',    PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_FIXA);
-          taxaSimIntPay = Number((valorBruto * debPct + debFixo).toFixed(2));
-        } else {
-          // PIX: usa adminMargin (LIQUIDEZ)
-          taxaSimIntPay = Number((valorBruto * adminMargin).toFixed(2));
-        }
-      }
-
       const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
       const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
+      // Snapshot imutável salvo quando a venda foi criada. Recalcular com a
+      // tabela atual alterava linhas históricas e fazia tabela/cards divergirem.
+      const taxaDom = isCompleted ? Number(t.domFee ?? 0) : 0;
+      const taxaSimIntPay = isCompleted
+        ? Number((Number(t.platformFee ?? 0) - taxaFixa - taxaCashback).toFixed(2))
+        : 0;
       const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
         ? Number(taxaServicoRate.toFixed(2))
         : 0;
@@ -7705,7 +7754,7 @@ export class AdminController {
     const TAXA_SERVICO_RATE = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
     const TAXA_SERVICO_DATE = getTaxaServicoEffectiveDate(tag);
 
-    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; mdrValue?: unknown; platformFee?: unknown; createdAt?: Date | null; cardBrand?: string | null }[]) => {
+    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; mdrValue?: unknown; platformFee?: unknown; createdAt?: Date | null; cardBrand?: string | null; acquirer?: string }[]) => {
       const qtd = txs.length;
       // Maquineta liquida por modelo próprio (netAmount = líquido pós-MDR × 0,91; 9% TAXA_MAQUINETA).
       // Recalcular como cartão-link infla o repasse ~9% (a maquineta aparecia quase pelo bruto cheio).
@@ -7742,14 +7791,21 @@ export class AdminController {
       // Arredonda por transação, antes do acumulado. A tabela também mostra a
       // taxa de cada transação em centavos; arredondar apenas o total criava
       // divergência entre a soma visível (ex.: R$ 4,72) e o card (R$ 4,70).
-      const taxaMDRDomNormal = normalTxs.reduce((s, t) => s + Number(resolveDomFeeReais({
-        amountReais: Number(t.amount),
-        paymentMethod: t.paymentMethod,
-        installments: t.installments,
-        tenantTag: tag,
-        mdrFromGateway: Number(t.mdrValue ?? 0),
-        domFeeFromGateway: Number(t.domFee ?? 0),
-      }).toFixed(2)), 0);
+      const taxaMDRDomNormal = normalTxs.reduce((s, t) => {
+        // domFee é o snapshot da adquirente persistido junto da venda. Não
+        // estime taxa DOM para uma venda Frendz (ou de adquirente futura).
+        const fee = t.acquirer && t.acquirer !== 'DOM'
+          ? Number(t.domFee ?? 0)
+          : resolveDomFeeReais({
+            amountReais: Number(t.amount),
+            paymentMethod: t.paymentMethod,
+            installments: t.installments,
+            tenantTag: tag,
+            mdrFromGateway: Number(t.mdrValue ?? 0),
+            domFeeFromGateway: Number(t.domFee ?? 0),
+          });
+        return s + Number(fee.toFixed(2));
+      }, 0);
       // Cashback (R$3): a DOM NÃO cobra em maquineta (o cliente não consegue registrar os dados
       // pra receber o bônus nesse fluxo) — só entra nas transações normais.
       const custoCashback  = TAXA_CASHBACK * qtdNormal;
@@ -7859,24 +7915,85 @@ export class AdminController {
       };
     };
 
-    const domTransactions = await this.fetchAllDomTransactionRowsForRelatorio(effectiveStart, endDate);
-    const txs = domTransactions
-      .filter((tx) => domRawStatusToBucket(tx.status) === 'COMPLETED')
-      .filter((tx) => tx.tenant_tag === tag)
-      .filter((tx) => !metodoPagamento || domPaymentMethodToBucket(tx.payment_method) === metodoPagamento)
-      .map((tx) => ({
-        amount: tx.valor_bruto_venda,
-        paymentMethod: domPaymentMethodToBucket(tx.payment_method),
-        installments: Number(tx.installments ?? 1),
-        createdAt: this.parseDomCreatedAt(tx.created_at),
-        description: tx.product_first,
-        netAmount: tx.liquid_amount,
-        // Valores já resolvidos (da adquirente quando disponíveis; estimativa
-        // configurada somente como fallback), iguais aos exibidos na tabela.
-        domFee: tx.taxa_dom,
-        platformFee: tx.taxa_vendedor + tx.taxa_fixa_transacao + tx.taxa_cashback,
-        cardBrand: tx.card_brand,
-      }));
+    const localTransactions = await this.findLocalPlatformReportTransactions(
+      tag,
+      effectiveStart,
+      endDate,
+      metodoPagamento,
+    );
+    const txs: Parameters<typeof computeBreakdown>[0] = localTransactions.map((tx) => ({
+      amount: tx.amount,
+      paymentMethod: tx.paymentMethod,
+      installments: tx.installments,
+      createdAt: tx.createdAt,
+      description: tx.description,
+      netAmount: tx.netAmount,
+      // Snapshot local imutável. A tabela de transações e os cards passam a
+      // somar a mesma cópia, independente da adquirente de origem.
+      domFee: tx.domFee,
+      platformFee: tx.platformFee,
+      cardBrand: tx.cardBrand,
+      acquirer: tx.acquirer,
+    }));
+
+    // Assinaturas de comunidade anteriores ao webhook possuem somente a ordem
+    // local. Incluí-las até a réplica Transaction existir; quando o webhook já
+    // criou a réplica (subOrder=<id>), ela continua sendo a fonte única.
+    const community = await this.prisma.community.findUnique({
+      where: { slug: tag.toLowerCase() },
+      select: { id: true },
+    });
+    if (community) {
+      const bindings = await this.prisma.communityLinkBinding.findMany({
+        where: { communityId: community.id, subscriptionLinkId: { not: null } },
+        select: { subscriptionLinkId: true },
+        distinct: ['subscriptionLinkId'],
+      });
+      const linkIds = bindings.flatMap((binding) => binding.subscriptionLinkId ? [binding.subscriptionLinkId] : []);
+      const createdAt: Prisma.DateTimeFilter = {
+        gte: parseYmdSp(effectiveStart).startOf('day').toDate(),
+      };
+      if (endDate) createdAt.lte = parseYmdSp(endDate).endOf('day').toDate();
+      const orders = linkIds.length
+        ? await this.prisma.subscriptionLinkOrder.findMany({
+          where: {
+            subscriptionLinkId: { in: linkIds },
+            status: 'paid',
+            createdAt,
+            ...(metodoPagamento ? { paymentMethod: metodoPagamento as any } : {}),
+          },
+          select: { id: true, amountCharged: true, paymentMethod: true, createdAt: true },
+        })
+        : [];
+      const replicatedOrderIds = new Set(
+        localTransactions.flatMap((tx) => {
+          const match = tx.description?.match(/subOrder=([^\s\]]+)/i);
+          return match ? [match[1]] : [];
+        }),
+      );
+      const percentual = 1 - LIQUIDEZ;
+      for (const order of orders) {
+        if (replicatedOrderIds.has(order.id)) continue;
+        const amount = Number(order.amountCharged);
+        txs.push({
+          amount,
+          paymentMethod: order.paymentMethod,
+          installments: 1,
+          createdAt: order.createdAt,
+          description: `[TENANT:${tag}] subOrder=${order.id}`,
+          netAmount: amount - (amount * percentual + TAXA_FIXA + TAXA_CASHBACK),
+          domFee: estimateDomFeeReais({
+            amountReais: amount,
+            paymentMethod: order.paymentMethod,
+            installments: 1,
+            tenantTag: tag,
+          }),
+          platformFee: Number((amount * percentual + TAXA_FIXA + TAXA_CASHBACK).toFixed(2)),
+          cardBrand: null,
+          acquirer: 'DOM',
+        });
+      }
+    }
 
     const breakdown = computeBreakdown(txs);
 
