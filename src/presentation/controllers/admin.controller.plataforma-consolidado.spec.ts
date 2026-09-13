@@ -53,7 +53,7 @@ describe('AdminController.getPlataformaConsolidado', () => {
       taxaSimIntFixa: 4,
       taxaSimIntPctNet: 0.07,
       totalTaxasSimInt: 4.08,
-      totalRepasse: 0.92,
+      totalRepasse: -3.08,
     });
 
     expect(result.taxaSimIntPctBruta + result.taxaSimIntFixa).toBeCloseTo(4.08, 2);

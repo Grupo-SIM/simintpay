@@ -7831,10 +7831,18 @@ export class AdminController {
         (s, t) => s + taxaSimIntDaTransacao(t),
         0,
       );
+      // A taxa fixa da Sim Int Pay precisa ser calculada uma única vez por
+      // transação. Ela alimenta tanto o card de taxas quanto o repasse, para
+      // manter a identidade: repasse = faturamento − taxas Sim Int Pay.
+      const taxaServicoSimIntDaTransacao = (t: (typeof normalTxs)[number]) => (
+        t.isStandalone || TAXA_SERVICO_RATE <= 0 || t.createdAt == null || t.createdAt < TAXA_SERVICO_DATE
+          ? 0
+          : TAXA_SERVICO_RATE
+      );
       // Repasse = receita − taxa Sim Int Pay. Custos DOM (MDR, fixo e
       // cashback) são despesas da plataforma e nunca reduzem o repasse.
       const totalRepasseNormal = normalTxs.reduce(
-        (s, t) => s + Number(t.amount) - taxaSimIntDaTransacao(t),
+        (s, t) => s + Number(t.amount) - taxaSimIntDaTransacao(t) - taxaServicoSimIntDaTransacao(t),
         0,
       );
       // Arredonda por transação, antes do acumulado. A tabela também mostra a
@@ -7868,11 +7876,7 @@ export class AdminController {
       // data de início. Somar R$1 + R$3 como receita Sim Int Pay fazia as
       // linhas e os cards divergirem — sobretudo no histórico.
       const taxaSimIntFixa = normalTxs.reduce(
-        (sum, tx) => sum + (
-          tx.isStandalone || TAXA_SERVICO_RATE <= 0 || tx.createdAt == null || tx.createdAt < TAXA_SERVICO_DATE
-            ? 0
-            : TAXA_SERVICO_RATE
-        ),
+        (sum, tx) => sum + taxaServicoSimIntDaTransacao(tx),
         0,
       );
       const taxaDomFixaNormal = TAXA_FIXA * qtdNormal;
