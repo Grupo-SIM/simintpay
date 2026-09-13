@@ -7146,35 +7146,57 @@ export class AdminController {
     const data = items.map(t => {
       const valorBruto = Number(t.amount);
       const isCompleted = t.status === 'COMPLETED';
+      const isMaquineta = isMaquinetaDescription(t.description);
       const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : t.paymentMethod === 'BOLETO' ? 'boleto' : 'credit_card';
-      const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
-      const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
+      const physicalDom = isCompleted && isMaquineta
+        ? estimatePhysicalDomFeeReais({
+          amountReais: valorBruto,
+          paymentMethod: t.paymentMethod,
+          installments: t.installments,
+          tenantTag: upperTag,
+          cardBrand: t.cardBrand,
+        })
+        : null;
+      // POS não registra cashback. A fixa DOM só existe para cartão/débito,
+      // conforme a tabela POS; PIX físico não paga taxa fixa.
+      const taxaFixa = isCompleted
+        ? physicalDom?.fixa ?? Number(taxaServicoFixa.toFixed(2))
+        : 0;
+      const taxaCashback = isCompleted && !isMaquineta
+        ? Number(taxaServicoCashback.toFixed(2))
+        : 0;
       // Snapshot imutável salvo quando a venda foi criada. Recalcular com a
       // tabela atual alterava linhas históricas e fazia tabela/cards divergirem.
-      const taxaDom = isCompleted ? Number(t.domFee ?? 0) : 0;
+      const taxaDom = isCompleted
+        ? physicalDom ? Number(physicalDom.pct.toFixed(2)) : Number(t.domFee ?? 0)
+        : 0;
       const taxaSimIntPay = isCompleted
         ? Number(t.platformFee ?? 0)
         : 0;
-      const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
+      // Taxa de serviço é venda online. Maquineta já cobra somente a taxa POS
+      // persistida em platformFee.
+      const taxaServico = isCompleted && !isMaquineta && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
         ? Number(taxaServicoRate.toFixed(2))
         : 0;
       const lucroPrejuizo = isCompleted
         ? Number((taxaSimIntPay + taxaServico - taxaDom - taxaFixa - taxaCashback).toFixed(2))
         : 0;
 
-      const cashbackDeduction = valorBruto * (cashbackFee / 100);
+      const cashbackDeduction = isMaquineta ? 0 : valorBruto * (cashbackFee / 100);
       const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
       // lucroAdmin = taxaSimIntPay (receita SimIntPay) - custo DOM - cashback repassado.
       // No boleto o custo DOM é o taxaDom (3,49+1), não o fixo do PIX.
-      const custoDomLucro = pmStr === 'boleto' ? taxaDom : fixedFee;
+      const custoDomLucro = isMaquineta || pmStr === 'boleto' ? taxaDom + taxaFixa : fixedFee;
       const lucroAdmin = isCompleted ? Number((taxaSimIntPay - custoDomLucro - cashbackDeduction).toFixed(2)) : 0;
       const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
       // Alguns registros antigos/com erro ficaram COMPLETED com netAmount=0.
       // Nesses casos, exibimos o líquido calculado pela liquidez da plataforma.
       const valorLiquidoBase = isCompleted && (netFromDb == null || netFromDb <= 0)
-        ? fallbackNet
+        ? isMaquineta
+          ? Number((valorBruto - taxaSimIntPay).toFixed(2))
+          : fallbackNet
         : (netFromDb ?? fallbackNet);
-      const taxaServicoTotal = taxaServicoFixa + taxaServicoCashback;
+      const taxaServicoTotal = isMaquineta ? 0 : taxaServicoFixa + taxaServicoCashback;
       const valorLiquido = Number((valorLiquidoBase - taxaServicoTotal).toFixed(2));
 
       let reconciledCustomerName = t.customerName ?? null;
@@ -7234,11 +7256,17 @@ export class AdminController {
           email: reconciledCustomerEmail,
           documento: reconciledCustomerDocument,
         },
-        taxas: {
-          total: Number(t.totalFee),
-          dom: Number(t.domFee),
-          plataforma: Number(t.platformFee),
-        },
+        taxas: isMaquineta
+          ? {
+            total: Number((taxaDom + taxaFixa + taxaSimIntPay).toFixed(2)),
+            dom: Number((taxaDom + taxaFixa).toFixed(2)),
+            plataforma: taxaSimIntPay,
+          }
+          : {
+            total: Number(t.totalFee),
+            dom: Number(t.domFee),
+            plataforma: Number(t.platformFee),
+          },
         criadoEm: t.createdAt,
         atualizadoEm: t.updatedAt,
       };
@@ -7915,19 +7943,23 @@ export class AdminController {
       // para não misturar filtros/períodos de endpoints distintos.
       const receitaTotal = normalTxs.reduce((sum, tx) => sum + Number(tx.amount), 0) + maqBruto;
 
-      // ── Combinado (normais + maquineta) ──
-      // taxaAdquirente = R$1 por transação: nas normais é TAXA_FIXA; na maquineta vem da
-      // tabela física (POS_TAXA_DOM_FIXA, cobrado só em débito/crédito — PIX físico não paga).
-      const taxaAdquirente   = taxaDomFixaNormal + maqDomSplit.fixa;
-      const taxaMDRDom       = taxaMDRDomNormal + maqDomSplit.pct;
-      const totalTaxasDom    = taxaMDRDom + taxaAdquirente + custoCashback;
-      // Fonte explícita do card "Taxa Percentual". Antes o front tentava
-      // reconstruí-la a partir de bruto e repasse, que vêm de consultas
-      // diferentes nas comunidades. A coluna da tabela usa esta mesma
-      // parcela (sem as taxas fixas por transação).
-      const taxaSimIntPctBruta = taxaSimInt + totalTaxasSimIntMaq;
-      const totalTaxasSimInt = totalTaxasSimIntNormal + totalTaxasSimIntMaq;
-      const taxaSimIntPctNet = taxaSimIntPctNetNormal + taxaSimIntPctNetMaq;
+      // ── Vendas online ────────────────────────────────────────────────────────────────
+      // Os cards de Taxas DOM e Taxas Sim Int Pay representam vendas online.
+      // POS possui seção própria e não pode ser somado aqui: cashback e taxa
+      // fixa têm regras diferentes em venda física.
+      const taxaAdquirente = taxaDomFixaNormal;
+      const taxaMDRDom = taxaMDRDomNormal;
+      const totalTaxasDom = taxaMDRDom + taxaAdquirente + custoCashback;
+      const taxaSimIntPctBruta = taxaSimInt;
+      const totalTaxasSimInt = totalTaxasSimIntNormal;
+      const taxaSimIntPctNet = taxaSimIntPctNetNormal;
+
+      // Totais explícitos para visões que abrangem todos os canais. Receita
+      // total − repasse total deve fechar com estes valores, não apenas com os
+      // cards de vendas online.
+      const taxaSimIntPctGeral = taxaSimInt + totalTaxasSimIntMaq;
+      const totalTaxasSimIntGeral = totalTaxasSimIntNormal + totalTaxasSimIntMaq;
+      const totalTaxasDomGeral = totalTaxasDom + maqDom;
 
       // Parcelamento: cartão de crédito não-maquineta EM 2x OU MAIS (1x é à vista,
       // não é parcelamento — fica de fora desta seção mesmo tendo margem própria).
@@ -7964,6 +7996,11 @@ export class AdminController {
         taxaSimIntPctNet: Math.round(taxaSimIntPctNet * 100) / 100,
         taxaSimIntFixa: Math.round(taxaSimIntFixa * 100) / 100,
         totalTaxasSimInt: Math.round(totalTaxasSimInt * 100) / 100,
+        /** Taxas Sim Int Pay de online + POS; usar em totais financeiros globais. */
+        taxaSimIntPctGeral: Math.round(taxaSimIntPctGeral * 100) / 100,
+        totalTaxasSimIntGeral: Math.round(totalTaxasSimIntGeral * 100) / 100,
+        /** Custos DOM de online + POS; não é o total da seção de vendas online. */
+        totalTaxasDomGeral: Math.round(totalTaxasDomGeral * 100) / 100,
         taxaParcelamentoBruto: Math.round(taxaParcelamentoBruto * 100) / 100,
         taxaParcelamentoSimIntPay: Math.round(taxaParcelamentoSimIntPay * 100) / 100,
         /** Bruto das vendas no crédito (base do parcelamento). */

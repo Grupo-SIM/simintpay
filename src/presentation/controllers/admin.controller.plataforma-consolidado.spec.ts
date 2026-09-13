@@ -59,6 +59,53 @@ describe('AdminController.getPlataformaConsolidado', () => {
     expect(result.taxaSimIntPctBruta + result.taxaSimIntFixa).toBeCloseTo(4.08, 2);
   });
 
+  it('separa POS das taxas online e fecha receita menos repasse com todas as taxas Sim Int Pay', async () => {
+    const createdAt = new Date('2026-09-08T20:00:00Z');
+    const ctx = {
+      findLocalPlatformReportTransactions: jest.fn().mockResolvedValue([
+        { amount: 52, paymentMethod: 'PIX', installments: 1, description: 'dizimo', netAmount: 47.83, domFee: 0.51, platformFee: 4.17, createdAt, cardBrand: null, acquirer: 'DOM' },
+        { amount: 110, paymentMethod: 'PIX', installments: 1, description: 'dizimo', netAmount: 101.18, domFee: 1.08, platformFee: 8.82, createdAt, cardBrand: null, acquirer: 'DOM' },
+        { amount: 55, paymentMethod: 'PIX', installments: 1, description: 'primicia', netAmount: 50.59, domFee: 0.54, platformFee: 4.41, createdAt, cardBrand: null, acquirer: 'DOM' },
+        { amount: 163, paymentMethod: 'PIX', installments: 1, description: 'dizimo', netAmount: 149.93, domFee: 1.6, platformFee: 13.07, createdAt, cardBrand: null, acquirer: 'DOM' },
+        { amount: 28.99, paymentMethod: 'PIX', installments: 1, description: 'Maquineta - Terminal: pix-1', netAmount: 26.38, domFee: 0.29, platformFee: 2.61, createdAt, cardBrand: null, acquirer: 'DOM' },
+        { amount: 20, paymentMethod: 'PIX', installments: 1, description: 'Maquineta - Terminal: pix-2', netAmount: 18.2, domFee: 0.2, platformFee: 1.8, createdAt, cardBrand: null, acquirer: 'DOM' },
+        { amount: 30, paymentMethod: 'CREDIT_CARD', installments: 1, description: 'Maquineta - Terminal: card-1', netAmount: 27.3, domFee: 2.05, platformFee: 2.7, createdAt, cardBrand: 'VISA', acquirer: 'DOM' },
+      ]),
+      prisma: {
+        community: { findUnique: jest.fn().mockResolvedValue(null) },
+      },
+    } as any;
+
+    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+      ctx,
+      'RENOVADA',
+      '2026-09-01',
+      '2026-09-30',
+    );
+
+    expect(result).toMatchObject({
+      // Somente as quatro vendas online.
+      taxaDomPct: 3.73,
+      taxaDomFixa: 4,
+      taxaDomCashback: 12,
+      totalTaxasDom: 19.73,
+      taxaSimIntPctBruta: 30.47,
+      taxaSimIntFixa: 16,
+      totalTaxasSimInt: 46.47,
+      // POS fica integralmente na seção própria.
+      maqBruto: 78.99,
+      maqDom: 2.54,
+      maqSimInt: 7.11,
+      // Receita − repasse = taxas online + POS.
+      receitaTotal: 458.99,
+      totalRepasse: 405.41,
+      taxaSimIntPctGeral: 37.58,
+      totalTaxasSimIntGeral: 53.58,
+      totalTaxasDomGeral: 22.27,
+    });
+    expect(result.receitaTotal - result.totalRepasse).toBeCloseTo(result.totalTaxasSimIntGeral, 2);
+  });
+
   it('não estima MDR atual quando a venda não tem taxa DOM persistida', async () => {
     const ctx = {
       findLocalPlatformReportTransactions: jest.fn().mockResolvedValue([
@@ -349,6 +396,52 @@ describe('AdminController.listPlataformaTransacoes — comunidade standalone', (
       taxaServico: 0,
       lucroPrejuizo: -1.59,
       taxas: { total: 1.59, dom: 1.59, plataforma: 0 },
+    });
+  });
+});
+
+describe('AdminController.listPlataformaTransacoes — maquineta', () => {
+  it('não aplica taxas online nem cashback às linhas POS', async () => {
+    const createdAt = new Date('2026-09-08T20:00:00Z');
+    const transactions = [
+      {
+        id: 'pix-pos', amount: 28.99, netAmount: 26.38, status: 'COMPLETED', paymentMethod: 'PIX', installments: 1,
+        description: 'Maquineta - Terminal: pix-1', totalFee: 0, domFee: 0.29, platformFee: 2.61,
+        cardBrand: null, customerName: null, customerEmail: null, customerDocument: null, createdAt, updatedAt: createdAt,
+      },
+      {
+        id: 'card-pos', amount: 30, netAmount: 27.3, status: 'COMPLETED', paymentMethod: 'CREDIT_CARD', installments: 1,
+        description: 'Maquineta - Terminal: card-1', totalFee: 0, domFee: 2.05, platformFee: 2.7,
+        cardBrand: 'VISA', customerName: null, customerEmail: null, customerDocument: null, createdAt, updatedAt: createdAt,
+      },
+    ];
+    const ctx = {
+      prisma: {
+        transaction: {
+          count: jest.fn().mockResolvedValue(transactions.length),
+          findMany: jest.fn().mockResolvedValue(transactions),
+        },
+      },
+    } as any;
+
+    const result = await (AdminController.prototype as any).listPlataformaTransacoes.call(
+      ctx,
+      'RENOVADA',
+      '1',
+      '20',
+      undefined,
+      '2026-09-01',
+      '2026-09-30',
+    );
+
+    expect(result.data).toHaveLength(2);
+    expect(result.data[0]).toMatchObject({
+      id: 'pix-pos', valorLiquido: 26.38, taxaDom: 0.29, taxaFixa: 0, taxaCashback: 0, taxaServico: 0,
+      taxas: { dom: 0.29, plataforma: 2.61, total: 2.9 },
+    });
+    expect(result.data[1]).toMatchObject({
+      id: 'card-pos', valorLiquido: 27.3, taxaDom: 1.05, taxaFixa: 1, taxaCashback: 0, taxaServico: 0,
+      taxas: { dom: 2.05, plataforma: 2.7, total: 4.75 },
     });
   });
 });
