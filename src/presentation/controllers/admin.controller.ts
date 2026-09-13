@@ -416,7 +416,7 @@ function transacaoAtribuiEbookPorDescricao(description: string | null | undefine
 const FIXED_PLATFORM_TAGS = new Set([
   'RENOVADA', 'BOSQUE', 'AREAFLIX', 'PAGATG', 'EBOOK', 'EBOOKSIM',
   'ATLAS', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
-  'REVALIDA', 'FRENDZ', 'BETAI', 'GLOBAL',
+  'REVALIDA', 'FRENDZ', 'BETAI', 'TERON', 'GLOBAL',
 ]);
 
 /** Tag sentinela para transações sem plataforma/produto atribuível — nada fica de fora do relatório. */
@@ -7783,6 +7783,8 @@ export class AdminController {
     const TAXA_FIXA      = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
     const TAXA_CASHBACK  = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK',       PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
     const LIQUIDEZ       = getPlatformTaxaEffective(tag, 'LIQUIDEZ',            PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+    const TAXA_LINK_PERCENT = getPlatformTaxaEffective(tag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+    const TAXA_LINK_FIXA = getPlatformTaxaEffective(tag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
     // Taxa de serviço (R$4/tx) — usada no repasse direto (app: netAmount − taxaServico = amountWithoutAllFee).
     const TAXA_SERVICO_RATE = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
     const TAXA_SERVICO_DATE = getTaxaServicoEffectiveDate(tag);
@@ -7800,11 +7802,29 @@ export class AdminController {
       const maqTxs = txs.filter(isMaq);
       const qtdNormal = normalTxs.length;
 
+      // A criação de uma assinatura de workspace Teron registra a tentativa
+      // antes da DOM confirmar a cobrança. Esses registros legados têm os
+      // campos de taxas em zero, apesar de a mesma venda aparecer detalhada na
+      // listagem da DOM. Zero é válido em links standalone, por isso este
+      // fallback é limitado ao contrato Teron pago por cartão.
+      const isTeronWorkspaceCardWithoutFeeSnapshot = (t: (typeof normalTxs)[number]) => {
+        const paymentMethod = String(t.paymentMethod ?? '').toLowerCase();
+        const isCard = paymentMethod.includes('card') || paymentMethod.includes('credit');
+        return isCard
+          && /\[TENANT:TERON\]/i.test(t.description ?? '')
+          && Number(t.platformFee ?? 0) === 0;
+      };
+
       // ── Transações normais (app/link): fórmula por método de pagamento ──
       const taxaSimIntDaTransacao = (t: (typeof normalTxs)[number]) => {
         const amount = Number(t.amount);
         const reportedPlatformFee = Number(t.platformFee);
-        if (Number.isFinite(reportedPlatformFee)) return Number(reportedPlatformFee.toFixed(2));
+        if (Number.isFinite(reportedPlatformFee) && !isTeronWorkspaceCardWithoutFeeSnapshot(t)) {
+          return Number(reportedPlatformFee.toFixed(2));
+        }
+        if (isTeronWorkspaceCardWithoutFeeSnapshot(t)) {
+          return Number((amount * TAXA_LINK_PERCENT + TAXA_LINK_FIXA).toFixed(2));
+        }
         // Mesma regra por linha de GET /admin/transacoes-dom. O valor bruto é
         // fornecido pela DOM; LIQUIDEZ é a fonte canônica da parcela percentual.
         return Number((amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK).toFixed(2));
@@ -7827,7 +7847,17 @@ export class AdminController {
         // Relatório e tabela devem usar o mesmo snapshot persistido da venda.
         // Estimar com a taxa atual fazia o card apresentar uma MDR que não
         // existe na linha (domFee=0), especialmente em transações históricas.
-        return s + Number(Number(t.domFee ?? 0).toFixed(2));
+        // A única exceção são cobranças Teron de workspace cujo fluxo antigo
+        // não persistia snapshot algum; a tabela DOM já expõe esse MDR.
+        const domFee = isTeronWorkspaceCardWithoutFeeSnapshot(t)
+          ? estimateDomFeeReais({
+            amountReais: Number(t.amount),
+            paymentMethod: t.paymentMethod,
+            installments: t.installments,
+            tenantTag: tag,
+          })
+          : Number(t.domFee ?? 0);
+        return s + Number(domFee.toFixed(2));
       }, 0);
       // Cashback (R$3): a DOM NÃO cobra em maquineta (o cliente não consegue registrar os dados
       // pra receber o bônus nesse fluxo) — só entra nas transações normais.

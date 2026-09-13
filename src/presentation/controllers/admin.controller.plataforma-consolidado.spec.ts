@@ -90,6 +90,47 @@ describe('AdminController.getPlataformaConsolidado', () => {
     expect(result.taxaDomPct).toBe(0);
   });
 
+  it('reconstitui as taxas do cartão Teron quando a cobrança de workspace não gravou snapshot', async () => {
+    const ctx = {
+      findLocalPlatformReportTransactions: jest.fn().mockResolvedValue([
+        {
+          amount: 1,
+          paymentMethod: 'CREDIT_CARD',
+          installments: 1,
+          createdAt: new Date('2026-08-17T12:00:00Z'),
+          description: 'Teron workspace (1 integrante) [TENANT:TERON]',
+          netAmount: 1,
+          domFee: 0,
+          platformFee: 0,
+          cardBrand: null,
+          acquirer: 'DOM',
+        },
+      ]),
+      prisma: {
+        community: { findUnique: jest.fn().mockResolvedValue(null) },
+      },
+    } as any;
+
+    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+      ctx,
+      'TERON',
+      '2026-08-01',
+      '2026-08-31',
+      'CREDIT_CARD',
+    );
+
+    expect(result).toMatchObject({
+      taxaDomPct: 0.04,
+      taxaDomFixa: 1,
+      taxaDomCashback: 3,
+      totalTaxasDom: 4.04,
+      taxaSimIntPctBruta: 0.07,
+      taxaSimIntFixa: 4,
+      taxaSimIntPctNet: 0.03,
+      totalTaxasSimInt: 4.03,
+    });
+  });
+
   it('usa somente a taxa DOM efetiva no PIX standalone de comunidade', async () => {
     const amount = 59.9;
     // Sete pedidos já possuem réplica Transaction; o oitavo existe somente
