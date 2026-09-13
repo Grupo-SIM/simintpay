@@ -6825,9 +6825,8 @@ export class AdminController {
           const pmStr = String(o.paymentMethod ?? 'pix').toLowerCase();
           const pmStrNorm = pmStr.includes('debit') ? 'debit_card' : pmStr.includes('card') || pmStr.includes('credit') ? 'credit_card' : 'pix';
           const taxaDom = Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStrNorm, installments: 1, tenantTag: upperTag }).toFixed(2));
-          // Link standalone não cobra taxa Sim Int Pay. A DOM confirmou neste
-          // fluxo PIX líquido = bruto − MDR − R$1 fixo; cashback e taxa de
-          // serviço não foram cobrados e não podem aparecer no relatório.
+          // Link standalone não cobra taxa Sim Int Pay. A DOM continua sendo
+          // custo da plataforma, não desconto do repasse ao vendedor.
           const taxaFixa = Number(taxaServicoFixa.toFixed(2));
           const taxaCashback = isStandalonePix ? 0 : taxaServicoCashback;
           const taxaSimIntPay = isStandalonePix ? pf : Number((valorBruto * adminMargin).toFixed(2));
@@ -6837,7 +6836,7 @@ export class AdminController {
               ? Number(taxaServicoRate.toFixed(2))
               : 0;
           const valorLiquido = isStandalonePix
-            ? Number((valorBruto - taxaDom - taxaFixa - pf).toFixed(2))
+            ? Number((valorBruto - pf).toFixed(2))
             : Number((valorBruto - pf - taxaServicoTotal).toFixed(2));
           const lucroPrejuizo = Number((taxaSimIntPay + taxaServico - taxaDom - taxaFixa - taxaCashback).toFixed(2));
           return {
@@ -6905,7 +6904,7 @@ export class AdminController {
           const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
           const valorLiquidoBase = isCompleted && (netFromDb == null || netFromDb <= 0) ? fallbackNet : (netFromDb ?? fallbackNet);
           const valorLiquido = isStandalonePix
-            ? Number((valorBruto - taxaDom - taxaFixa - taxaSimIntPay).toFixed(2))
+            ? Number((valorBruto - taxaSimIntPay).toFixed(2))
             : Number((valorLiquidoBase - taxaServicoFixa - taxaServicoCashback).toFixed(2));
           return {
             id: t.id,
@@ -7815,12 +7814,10 @@ export class AdminController {
         (s, t) => s + taxaSimIntDaTransacao(t),
         0,
       );
-      // Repasse usa a mesma taxa por transação exibida na tabela. `netAmount`
-      // é um valor de liquidação legado e, nas comunidades, não inclui todos
-      // os custos mostrados nos cards (MDR, fixo e cashback).
+      // Repasse = receita − taxa Sim Int Pay. Custos DOM (MDR, fixo e
+      // cashback) são despesas da plataforma e nunca reduzem o repasse.
       const totalRepasseNormal = normalTxs.reduce(
-        (s, t) => s + Number(t.amount) - taxaSimIntDaTransacao(t)
-          - (t.isStandalone ? Number(t.domFee ?? 0) + TAXA_FIXA : 0),
+        (s, t) => s + Number(t.amount) - taxaSimIntDaTransacao(t),
         0,
       );
       // Arredonda por transação, antes do acumulado. A tabela também mostra a
@@ -7880,6 +7877,10 @@ export class AdminController {
       const totalTaxasSimIntMaq = maqBruto - maqNet;
       const taxaSimIntPctNetMaq = totalTaxasSimIntMaq - maqDom;
       const totalRepasse = totalRepasseNormal + maqNet;
+      // Receita e repasse precisam ter exatamente a mesma população de
+      // transações. O frontend usa este valor, em vez do consolidado global,
+      // para não misturar filtros/períodos de endpoints distintos.
+      const receitaTotal = normalTxs.reduce((sum, tx) => sum + Number(tx.amount), 0) + maqBruto;
 
       // ── Combinado (normais + maquineta) ──
       // taxaAdquirente = R$1 por transação: nas normais é TAXA_FIXA; na maquineta vem da
@@ -7937,6 +7938,8 @@ export class AdminController {
         /** Repasse ao cliente nessas mesmas vendas. */
         parcRepasse: Math.round(parcRepasse * 100) / 100,
         qtdTransacoes: qtd,
+        /** Receita bruta da mesma população usada para calcular o repasse. */
+        receitaTotal: Math.round(receitaTotal * 100) / 100,
         // Repasse correto (soma direta do líquido de cada tx) — o front deve usar ESTE campo.
         totalRepasse: Math.round(totalRepasse * 100) / 100,
         // ── Maquineta (venda física) — alimenta a seção "Maquinetas" do relatório ──
@@ -8032,7 +8035,7 @@ export class AdminController {
         tx.isStandalone = true;
         tx.platformFee = Number(order.platformFeeAmount);
         tx.domFee = domFee;
-        tx.netAmount = Number((amount - domFee - TAXA_FIXA - Number(order.platformFeeAmount)).toFixed(2));
+        tx.netAmount = Number((amount - Number(order.platformFeeAmount)).toFixed(2));
       }
       const percentual = 1 - LIQUIDEZ;
       for (const order of orders) {
@@ -8055,7 +8058,7 @@ export class AdminController {
           installments: 1,
           createdAt: order.createdAt,
           description: `[TENANT:${tag}] subOrder=${order.id}`,
-          netAmount: Number((amount - platformFee - (isStandalone ? domFee + TAXA_FIXA : 0)).toFixed(2)),
+          netAmount: Number((amount - platformFee).toFixed(2)),
           domFee,
           platformFee,
           cardBrand: null,

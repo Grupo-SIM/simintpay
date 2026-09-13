@@ -146,12 +146,15 @@ describe('AdminController.getPlataformaConsolidado', () => {
     expect(result.taxaDomFixa).toBe(8);
     expect(result.taxaDomCashback).toBe(0);
     expect(result.totalTaxasDom).toBe(12.72);
-    expect(result.totalRepasse).toBe(466.48);
+    expect(result.receitaTotal).toBe(479.2);
+    // Repasse desconta somente a taxa Sim Int Pay. Com a taxa zerada, a
+    // plataforma absorve os R$12,72 de custos DOM e repassa o bruto integral.
+    expect(result.totalRepasse).toBe(479.2);
   });
 });
 
 describe('AdminController.listPlataformaTransacoes — comunidade standalone', () => {
-  it('mostra somente os R$ 1,59 efetivamente descontados pela DOM', async () => {
+  it('mantém o repasse bruto quando a taxa Sim Int Pay é zero', async () => {
     const createdAt = new Date('2026-08-23T07:02:00Z');
     const order = {
       id: 'order-1',
@@ -206,7 +209,7 @@ describe('AdminController.listPlataformaTransacoes — comunidade standalone', (
     expect(result.data).toHaveLength(1);
     expect(result.data[0]).toMatchObject({
       valorBruto: 59.9,
-      valorLiquido: 58.31,
+      valorLiquido: 59.9,
       taxaDom: 0.59,
       taxaFixa: 1,
       taxaCashback: 0,
