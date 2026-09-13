@@ -16,7 +16,7 @@ jest.mock('../../modules/platform-taxas/platform-taxas.store', () => ({
 import { AdminController } from './admin.controller';
 
 describe('AdminController.getPlataformaConsolidado', () => {
-  it('separa taxa percentual e taxa por transação como na tabela', async () => {
+  it('separa taxa percentual Sim Int Pay da taxa fixa e dos custos DOM', async () => {
     const ctx = {
       findLocalPlatformReportTransactions: jest.fn().mockResolvedValue([
         {
@@ -49,14 +49,14 @@ describe('AdminController.getPlataformaConsolidado', () => {
       taxaDomFixa: 1,
       taxaDomCashback: 3,
       totalTaxasDom: 4.01,
-      taxaSimIntPctBruta: -3.92,
+      taxaSimIntPctBruta: 0.08,
       taxaSimIntFixa: 4,
-      taxaSimIntPctNet: -3.93,
-      totalTaxasSimInt: 0.07,
+      taxaSimIntPctNet: 0.07,
+      totalTaxasSimInt: 4.08,
       totalRepasse: 0.92,
     });
 
-    expect(result.taxaSimIntPctBruta + result.taxaSimIntFixa).toBeCloseTo(0.08, 2);
+    expect(result.taxaSimIntPctBruta + result.taxaSimIntFixa).toBeCloseTo(4.08, 2);
   });
 
   it('não estima MDR atual quando a venda não tem taxa DOM persistida', async () => {
@@ -88,6 +88,97 @@ describe('AdminController.getPlataformaConsolidado', () => {
     );
 
     expect(result.taxaDomPct).toBe(0);
+  });
+
+  it('não transfere R$ 4 da DOM para a taxa por transação da Revalida', async () => {
+    const ctx = {
+      findLocalPlatformReportTransactions: jest.fn().mockResolvedValue([
+        {
+          amount: 1,
+          paymentMethod: 'PIX',
+          installments: 1,
+          createdAt: new Date('2026-04-01T17:13:00Z'),
+          description: 'Revalida',
+          netAmount: -0.05,
+          domFee: 0.01,
+          platformFee: 1.01,
+          cardBrand: null,
+          acquirer: 'DOM',
+        },
+        {
+          amount: 1,
+          paymentMethod: 'PIX',
+          installments: 1,
+          createdAt: new Date('2026-02-26T17:43:00Z'),
+          description: 'Revalida',
+          netAmount: 0,
+          domFee: 0.04,
+          platformFee: 1.04,
+          cardBrand: null,
+          acquirer: 'DOM',
+        },
+      ]),
+      prisma: {
+        community: { findUnique: jest.fn().mockResolvedValue(null) },
+      },
+    } as any;
+
+    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+      ctx,
+      'REVALIDA',
+      '2026-02-01',
+      '2026-04-30',
+      'PIX',
+    );
+
+    expect(result).toMatchObject({
+      taxaDomPct: 0.05,
+      taxaDomFixa: 2,
+      taxaDomCashback: 6,
+      totalTaxasDom: 8.05,
+      taxaSimIntPctBruta: 2.05,
+      taxaSimIntFixa: 0,
+      taxaSimIntPctNet: -6,
+      totalTaxasSimInt: 2.05,
+      totalRepasse: -0.05,
+    });
+  });
+
+  it('não aplica taxa fixa Sim Int Pay antes da vigência da plataforma', async () => {
+    const ctx = {
+      findLocalPlatformReportTransactions: jest.fn().mockResolvedValue([
+        {
+          amount: 1,
+          paymentMethod: 'PIX',
+          installments: 1,
+          createdAt: new Date('2026-04-01T17:13:00Z'),
+          description: '[TENANT:RENOVADA]',
+          netAmount: 0.92,
+          domFee: 0.01,
+          platformFee: 0.08,
+          cardBrand: null,
+          acquirer: 'DOM',
+        },
+      ]),
+      prisma: {
+        community: { findUnique: jest.fn().mockResolvedValue(null) },
+      },
+    } as any;
+
+    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+      ctx,
+      'RENOVADA',
+      '2026-04-01',
+      '2026-04-30',
+      'PIX',
+    );
+
+    expect(result).toMatchObject({
+      taxaSimIntPctBruta: 0.08,
+      taxaSimIntFixa: 0,
+      taxaSimIntPctNet: -3.93,
+      totalTaxasSimInt: 0.08,
+    });
   });
 
   it('reconstitui as taxas do cartão Teron quando a cobrança de workspace não gravou snapshot', async () => {
@@ -124,10 +215,10 @@ describe('AdminController.getPlataformaConsolidado', () => {
       taxaDomFixa: 1,
       taxaDomCashback: 3,
       totalTaxasDom: 4.04,
-      taxaSimIntPctBruta: 0.07,
+      taxaSimIntPctBruta: 4.07,
       taxaSimIntFixa: 4,
-      taxaSimIntPctNet: 0.03,
-      totalTaxasSimInt: 4.03,
+      taxaSimIntPctNet: 4.03,
+      totalTaxasSimInt: 8.07,
     });
   });
 
@@ -259,5 +350,51 @@ describe('AdminController.listPlataformaTransacoes — comunidade standalone', (
       lucroPrejuizo: -1.59,
       taxas: { total: 1.59, dom: 1.59, plataforma: 0 },
     });
+  });
+});
+
+describe('AdminController.getAtlasConsolidado', () => {
+  it('não desconta o MDR da DOM duas vezes do repasse', async () => {
+    const previousAtlasHost = process.env.ATLAS_HOSTING_URL;
+    delete process.env.ATLAS_HOSTING_URL;
+
+    try {
+      const ctx = {
+        prisma: {
+          user: { findFirst: jest.fn().mockResolvedValue({ id: 'atlas-1' }) },
+          transaction: {
+            findMany: jest.fn().mockResolvedValue([
+              {
+                amount: 100,
+                paymentMethod: 'PIX',
+                installments: 1,
+                // Valor líquido persistido já contém o MDR DOM. Ele não pode
+                // definir o repasse porque o card de taxas Sim Int Pay já o
+                // absorve como custo da plataforma.
+                netAmount: 86.99,
+                createdAt: new Date('2026-09-12T12:00:00Z'),
+              },
+            ]),
+            count: jest.fn().mockResolvedValue(0),
+          },
+        },
+      } as any;
+
+      const result = await (AdminController.prototype as any).getAtlasConsolidado.call(
+        ctx,
+        '2026-09-01',
+        '2026-09-30',
+      );
+
+      expect(result).toMatchObject({
+        receitaTotalAtlas: 100,
+        taxaMDRDom: 0.98,
+        totalRepasse: 89.99,
+      });
+      expect(result.totalTaxasSimInt).toBeCloseTo(10.01, 2);
+    } finally {
+      if (previousAtlasHost === undefined) delete process.env.ATLAS_HOSTING_URL;
+      else process.env.ATLAS_HOSTING_URL = previousAtlasHost;
+    }
   });
 });

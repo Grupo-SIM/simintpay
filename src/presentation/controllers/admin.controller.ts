@@ -7153,12 +7153,14 @@ export class AdminController {
       // tabela atual alterava linhas históricas e fazia tabela/cards divergirem.
       const taxaDom = isCompleted ? Number(t.domFee ?? 0) : 0;
       const taxaSimIntPay = isCompleted
-        ? Number((Number(t.platformFee ?? 0) - taxaFixa - taxaCashback).toFixed(2))
+        ? Number(t.platformFee ?? 0)
         : 0;
       const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
         ? Number(taxaServicoRate.toFixed(2))
         : 0;
-      const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
+      const lucroPrejuizo = isCompleted
+        ? Number((taxaSimIntPay + taxaServico - taxaDom - taxaFixa - taxaCashback).toFixed(2))
+        : 0;
 
       const cashbackDeduction = valorBruto * (cashbackFee / 100);
       const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
@@ -7600,15 +7602,6 @@ export class AdminController {
     const qtdTransacoes = txs.length;
     const receitaTotalAtlas = txs.reduce((s, t) => s + Number(t.amount), 0);
 
-    // Repasse direto (igual aos demais painéis): Σ (netAmount − taxa de serviço). Atlas não tem maquineta.
-    const ATLAS_SVC_RATE = TAGS_SEM_TAXA_SERVICO.has('ATLAS') ? 0 : getPlatformTaxaEffective('ATLAS', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-    const ATLAS_SVC_DATE = getTaxaServicoEffectiveDate('ATLAS');
-    const totalRepasse = txs.reduce((s, t) => {
-      const netBase = Number(t.netAmount ?? t.amount);
-      const svc = ATLAS_SVC_RATE > 0 && t.createdAt != null && t.createdAt >= ATLAS_SVC_DATE ? ATLAS_SVC_RATE : 0;
-      return s + (netBase - svc);
-    }, 0);
-
     const LIQUIDEZ        = getPlatformTaxaEffective('ATLAS', 'LIQUIDEZ',           PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
     const TAXA_LINK_PCT   = getPlatformTaxaEffective('ATLAS', 'TAXA_LINK_PERCENT',   PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
     const TAXA_LINK_FIXA  = getPlatformTaxaEffective('ATLAS', 'TAXA_LINK_FIXA',      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
@@ -7699,6 +7692,10 @@ export class AdminController {
     const taxaSimIntPctNet  = (taxaSimInt - TAXA_LINK_FIXA * qtdTransacoes) - taxaMDRDom;
     const taxaSimIntFixa    = TAXA_LINK_FIXA * qtdTransacoes;
     const totalTaxasSimInt  = taxaSimInt - taxaMDRDom;
+    // DOM percentual é custo da Sim Int Pay, já abatido do card "Total de
+    // Taxas — Sim Int Pay". Usar `netAmount` subtraía esse MDR uma segunda vez
+    // do repasse exibido. O repasse deve fechar com receita − total do card.
+    const totalRepasse = receitaTotalAtlas - totalTaxasSimInt;
 
     // Parcelamento: apenas transações de cartão de crédito (exclui débito e PIX)
     let atlasParcelamentoBruto = 0;
@@ -7865,20 +7862,22 @@ export class AdminController {
         (sum, tx) => sum + (tx.isStandalone ? 0 : TAXA_CASHBACK),
         0,
       );
-      // A tabela de transações decompõe platformFee em duas parcelas:
-      // percentual = platformFee - (TAXA_FIXA + TAXA_CASHBACK) e taxa por
-      // transação = TAXA_FIXA + TAXA_CASHBACK. O consolidado precisa somar os
-      // mesmos componentes, inclusive quando a parcela percentual é negativa,
-      // para que percentual + fixa feche no total cobrado pela Sim Int Pay.
-      // Os mesmos R$4 também aparecem como custo DOM; receita bruta Sim Int Pay
-      // e custo DOM são lados distintos do resultado, não valores excludentes.
+      // `platformFee` é a taxa percentual Sim Int Pay persistida na venda.
+      // TAXA_FIXA e TAXA_CASHBACK são custos DOM. A taxa fixa Sim Int Pay é
+      // somente TAXA_SERVICO, configurável por plataforma e válida após sua
+      // data de início. Somar R$1 + R$3 como receita Sim Int Pay fazia as
+      // linhas e os cards divergirem — sobretudo no histórico.
       const taxaSimIntFixa = normalTxs.reduce(
-        (sum, tx) => sum + (tx.isStandalone ? 0 : TAXA_FIXA + TAXA_CASHBACK),
+        (sum, tx) => sum + (
+          tx.isStandalone || TAXA_SERVICO_RATE <= 0 || tx.createdAt == null || tx.createdAt < TAXA_SERVICO_DATE
+            ? 0
+            : TAXA_SERVICO_RATE
+        ),
         0,
       );
       const taxaDomFixaNormal = TAXA_FIXA * qtdNormal;
-      const taxaSimIntPctNetNormal = taxaSimInt - taxaMDRDomNormal - taxaDomFixaNormal - custoCashback;
-      const totalTaxasSimIntNormal = taxaSimInt - taxaMDRDomNormal;
+      const totalTaxasSimIntNormal = taxaSimInt + taxaSimIntFixa;
+      const taxaSimIntPctNetNormal = totalTaxasSimIntNormal - taxaMDRDomNormal - taxaDomFixaNormal - custoCashback;
 
       // ── Maquineta (venda física / POS) ────────────────────────────────────────────────
       // Modelo: o cliente só perde a taxa Sim Int Pay; o custo DOM sai da margem da casa.
@@ -7922,7 +7921,7 @@ export class AdminController {
       // reconstruí-la a partir de bruto e repasse, que vêm de consultas
       // diferentes nas comunidades. A coluna da tabela usa esta mesma
       // parcela (sem as taxas fixas por transação).
-      const taxaSimIntPctBruta = taxaSimInt - taxaSimIntFixa + totalTaxasSimIntMaq;
+      const taxaSimIntPctBruta = taxaSimInt + totalTaxasSimIntMaq;
       const totalTaxasSimInt = totalTaxasSimIntNormal + totalTaxasSimIntMaq;
       const taxaSimIntPctNet = taxaSimIntPctNetNormal + taxaSimIntPctNetMaq;
 
