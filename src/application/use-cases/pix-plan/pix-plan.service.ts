@@ -641,13 +641,17 @@ export class PixPlanService {
     userId: string,
     body: CreatePixCreditPlanDto,
   ) {
-    // Cliente SimintPay: bloqueia não-aprovado, exige mínimo, e força a tag CLIENT:<email>.
+    // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
     const owner = await this.prisma.user.findUnique({ where: { id: userId } });
     assertClientCanCreate(owner, body.price);
     const clientTag = clientTaxaTagFor(owner);
 
     const type = this.mapFrequencyToType(body.frequency_type);
-    const tag = clientTag ?? (body.tenantTag ? body.tenantTag.toUpperCase().trim() : null);
+    // O produto de origem (ex.: PAGATG) sempre manda no tenant do plano — a mesma
+    // conta pode ser cliente SimintPay e também dona de um plano em outro produto.
+    // A tag CLIENT:<email> só se aplica quando o chamador não informou um tenant próprio.
+    const explicitTag = body.tenantTag ? body.tenantTag.toUpperCase().trim() : null;
+    const tag = explicitTag ?? clientTag;
     const plan = await this.repo.createPixCreditPlan({
       userId,
       type,

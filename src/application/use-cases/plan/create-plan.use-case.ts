@@ -47,7 +47,7 @@ export class CreatePlanUseCase {
       throw new UnauthorizedException('DOM_TOKEN não configurado');
     }
 
-    // Cliente SimintPay: bloqueia não-aprovado, exige mínimo, e usa a taxa do dono (CLIENT:<email>).
+    // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
     const owner = await this.users.findById(input.userId);
     assertClientCanCreate(owner, input.dto.preco);
     const clientTag = clientTaxaTagFor(owner);
@@ -56,8 +56,11 @@ export class CreatePlanUseCase {
 
     // Preço que o cliente do cliente paga = base + taxa DOM cartão 1x + taxa Master cartão 1x
     // O preço base (sem markup) fica salvo no DB para cálculo de taxas do vendedor no webhook
-    // Cliente: ignora plataforma enviada e resolve pela tag CLIENT:<email> (herda do GLOBAL).
-    const platformTag = clientTag ?? (input.dto.plataformas?.[0] ?? 'GLOBAL').toUpperCase();
+    // A plataforma de origem (ex.: PAGATG) sempre manda quando informada explicitamente — a
+    // mesma conta pode ser cliente SimintPay e também dona de um plano em outro produto.
+    // Só cai na tag CLIENT:<email> (herda do GLOBAL) quando nenhuma plataforma foi enviada.
+    const explicitPlatformTag = input.dto.plataformas?.[0]?.toUpperCase();
+    const platformTag = explicitPlatformTag ?? clientTag ?? 'GLOBAL';
     const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
     const mdrMaster1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
     const domPrice = Math.round(input.dto.preco * (1 + mdrDom1x + mdrMaster1x) * 100) / 100;
@@ -86,10 +89,10 @@ export class CreatePlanUseCase {
       domPlanId: dom.id,
       code: input.dto.code ?? null,
       emailBody: input.dto.emailBody ?? null,
-      // Cliente SimintPay: atribui a plataforma "SIMINTPAY" (exibição/agrupamento) para o
-      // plano não ficar sem plataforma. A taxa segue resolvendo por CLIENT:<email>
-      // (herda da SIM INT PAY/GLOBAL) — este campo não altera a cobrança.
-      plataformas: clientTag ? ['SIMINTPAY'] : (input.dto.plataformas ?? []),
+      // Plataforma explícita (ex.: PAGATG) sempre prevalece. Só cai em "SIMINTPAY"
+      // (exibição/agrupamento do cliente) quando nenhuma plataforma foi enviada —
+      // a taxa nesse caso segue resolvendo por CLIENT:<email> (herda da SIM INT PAY/GLOBAL).
+      plataformas: input.dto.plataformas?.length ? input.dto.plataformas : (clientTag ? ['SIMINTPAY'] : []),
     });
 
     return {
