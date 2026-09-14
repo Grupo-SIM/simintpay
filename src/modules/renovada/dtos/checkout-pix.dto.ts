@@ -27,6 +27,7 @@ export class CheckoutPixDto {
 
   @IsOptional()
   @IsString()
+  /** Atlas: `DOMAIN <domínio>` ou `HOSTING <referência>`. */
   description?: string;
 
   @IsOptional()

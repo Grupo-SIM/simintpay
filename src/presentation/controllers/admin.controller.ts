@@ -24,6 +24,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { LeadStatus, Prisma, Role, TransactionStatus, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { getAtlasProductType } from '../../modules/atlas/utils/atlas-product-description.util';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -6497,15 +6498,7 @@ export class AdminController {
     const taxaFixa = getPlatformTaxaEffective('ATLAS', 'TAXA_FIXA_TRANSACAO', 1.0);
     const taxaCashback = getPlatformTaxaEffective('ATLAS', 'TAXA_CASHBACK', 3.0);
 
-    const isDomain = (desc: string | null | undefined) => {
-      if (!desc) return false;
-      const lower = desc.toLowerCase().trim();
-      if (lower.startsWith('atlas hosting ')) {
-        const ref = lower.slice('atlas hosting '.length).trim();
-        return /\.[a-z]{2,10}$/.test(ref) && !/^[0-9a-f-]{32,}$/.test(ref);
-      }
-      return false;
-    };
+    const isDomain = (desc: string | null | undefined) => getAtlasProductType(desc) === 'DOMAIN';
 
     const calcGroup = (group: typeof txs) => {
       let receita = 0, lucro = 0;
@@ -6527,7 +6520,8 @@ export class AdminController {
     };
 
     const domainTxs = txs.filter((t) => isDomain(t.description));
-    const hostTxs = txs.filter((t) => !isDomain(t.description));
+    const hostTxs = txs.filter((t) => getAtlasProductType(t.description) === 'HOSTING');
+    const otherTxs = txs.filter((t) => getAtlasProductType(t.description) === null);
 
     const byProduct = new Map<string, { receita: number; lucro: number; quantidade: number }>();
     for (const t of hostTxs) {
@@ -6546,6 +6540,7 @@ export class AdminController {
         ...calcGroup(hostTxs),
         porProduto: Array.from(byProduct.entries()).map(([nome, s]) => ({ nome, ...s })).sort((a, b) => b.receita - a.receita),
       },
+      outros: calcGroup(otherTxs),
     };
   }
 
