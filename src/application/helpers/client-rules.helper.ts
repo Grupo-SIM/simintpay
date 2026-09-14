@@ -1,8 +1,8 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { buildClientTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
 
-/** Valor mínimo (R$) que um cliente SimintPay pode usar ao criar link/plano. */
-export const CLIENT_MIN_AMOUNT = 14.99;
+/** Valor mínimo (R$) que um cliente SimintPay pode usar ao criar link/plano. Configurável via env CLIENT_MIN_AMOUNT. */
+export const CLIENT_MIN_AMOUNT = Number(process.env.CLIENT_MIN_AMOUNT) || 14.99;
 
 type ClientUserLike = { email: string; clientStatus?: string | null };
 
