@@ -467,7 +467,7 @@ describe('AdminController.getAtlasConsolidado', () => {
     });
   });
 
-  it('não desconta o MDR da DOM duas vezes do repasse', async () => {
+  it('reutiliza o cálculo comum dos cards financeiros', async () => {
     const previousAtlasHost = process.env.ATLAS_HOSTING_URL;
     delete process.env.ATLAS_HOSTING_URL;
 
@@ -476,26 +476,21 @@ describe('AdminController.getAtlasConsolidado', () => {
         prisma: {
           user: { findFirst: jest.fn().mockResolvedValue({ id: 'atlas-1' }) },
           transaction: {
-            findMany: jest.fn().mockResolvedValue([
-              {
-                amount: 100,
-                paymentMethod: 'PIX',
-                installments: 1,
-                // Valor líquido persistido já contém o MDR DOM. Ele não pode
-                // definir o repasse porque o card de taxas Sim Int Pay já o
-                // absorve como custo da plataforma.
-                netAmount: 86.99,
-                createdAt: new Date('2026-09-12T12:00:00Z'),
-              },
-            ]),
             count: jest.fn().mockResolvedValue(0),
           },
         },
-        getPlatformTransactionScope: jest.fn().mockResolvedValue({
-          OR: [
-            { userId: { in: ['atlas-1'] } },
-            { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
-          ],
+        getPlataformaConsolidado: jest.fn().mockResolvedValue({
+          taxaDomPct: 0.98,
+          taxaDomFixa: 1,
+          taxaDomCashback: 3,
+          totalTaxasDom: 4.98,
+          taxaSimIntPctBruta: 10.01,
+          taxaSimIntPctNet: 5.03,
+          taxaSimIntFixa: 0,
+          totalTaxasSimInt: 10.01,
+          receitaTotal: 100,
+          totalRepasse: 89.99,
+          qtdTransacoes: 1,
         }),
       } as any;
 
@@ -511,6 +506,13 @@ describe('AdminController.getAtlasConsolidado', () => {
         totalRepasse: 89.99,
       });
       expect(result.totalTaxasSimInt).toBeCloseTo(10.01, 2);
+      expect(ctx.getPlataformaConsolidado).toHaveBeenCalledWith(
+        'ATLAS',
+        '2026-09-01',
+        '2026-09-30',
+        undefined,
+        true,
+      );
     } finally {
       if (previousAtlasHost === undefined) delete process.env.ATLAS_HOSTING_URL;
       else process.env.ATLAS_HOSTING_URL = previousAtlasHost;

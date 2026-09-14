@@ -7515,54 +7515,13 @@ export class AdminController {
     @Query('endDate') endDate?: string,
   ) {
     const atlasUserId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-
     const effectiveStart = startDate ?? dayjs().tz(TZ).startOf('month').format('YYYY-MM-DD');
-    // Mesmo escopo canônico da tabela e dos demais cards Atlas.
-    const where: any = {
-      status: 'COMPLETED',
-      ...(await this.getPlatformTransactionScope('ATLAS')),
-    };
-    where.createdAt = { gte: parseYmdSp(effectiveStart).startOf('day').toDate() };
-    if (endDate) {
-      where.createdAt.lte = parseYmdSp(endDate).endOf('day').toDate();
-    }
+    // Os cards financeiros comuns são calculados pelo mesmo caminho de todas
+    // as plataformas. Este endpoint só acrescenta dados próprios do Atlas.
+    const cards = await this.getPlataformaConsolidado('ATLAS', effectiveStart, endDate, undefined, true);
+    if ('error' in cards) throw new Error(cards.error);
 
-    const txs = await this.prisma.transaction.findMany({
-      where,
-      select: { amount: true, paymentMethod: true, installments: true, netAmount: true, createdAt: true },
-    });
-
-    const qtdTransacoes = txs.length;
-    const receitaTotalAtlas = txs.reduce((s, t) => s + Number(t.amount), 0);
-
-    const LIQUIDEZ        = getPlatformTaxaEffective('ATLAS', 'LIQUIDEZ',           PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
-    const TAXA_LINK_PCT   = getPlatformTaxaEffective('ATLAS', 'TAXA_LINK_PERCENT',   PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-    const TAXA_LINK_FIXA  = getPlatformTaxaEffective('ATLAS', 'TAXA_LINK_FIXA',      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
-    const TAXA_FIXA       = getPlatformTaxaEffective('ATLAS', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-    const TAXA_CASHBACK   = getPlatformTaxaEffective('ATLAS', 'TAXA_CASHBACK',       PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
     const TAXA_SAQUE_FIXA = getPlatformTaxaEffective('ATLAS', 'TAXA_SAQUE_FIXA',     PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA);
-
-    const isCardPm = (pm: string) => { const p = String(pm ?? '').toUpperCase(); return p.includes('CARD') || p.includes('CREDIT') || p.includes('DEBIT'); };
-
-    // PIX: cobrado pelo % de liquidez + taxa fixa+cashback.
-    // Cartão: vendedor paga TAXA_LINK_PERCENT+TAXA_LINK_FIXA (1x sem acréscimo ao comprador;
-    //         para 2x+ o comprador absorve o custo de parcelas via surcharge configurado).
-    const taxaSimInt = txs.reduce((s, t) => {
-      const amount = Number(t.amount);
-      return s + (isCardPm(t.paymentMethod)
-        ? amount * TAXA_LINK_PCT + TAXA_LINK_FIXA
-        : amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK);
-    }, 0);
-
-    const taxaMDRDom = txs.reduce((s, t) => s + estimateDomFeeReais({
-      amountReais: Number(t.amount),
-      paymentMethod: t.paymentMethod,
-      installments: t.installments,
-      tenantTag: 'ATLAS',
-    }), 0);
-
-    const taxaAdquirente = TAXA_FIXA * qtdTransacoes;
-    const custoCashback  = TAXA_CASHBACK * qtdTransacoes;
 
     const atlasBaseUrl = String(process.env.ATLAS_HOSTING_URL ?? '').replace(/\/+$/, '');
     const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN ?? '';
@@ -7597,14 +7556,14 @@ export class AdminController {
     const qtdSaquesAprovados = atlasData?.withdrawals.approvedInPeriodCount ?? 0;
     const lucroSimpayDeSaque = qtdSaquesAprovados * TAXA_SAQUE_FIXA;
 
-    const receitaLiquidaSimintpay = taxaSimInt - taxaAdquirente - custoCashback + lucroSimpayDeSaque - taxaMDRDom;
+    const receitaLiquidaSimintpay = cards.taxaSimIntPctNet + lucroSimpayDeSaque;
     const lucroLiquidoDominio = (atlasData?.domains.totalRevenue ?? 0) - custoDominio;
     const lucroLiquidoVps = (atlasData?.vps.totalRevenue ?? 0) - custoHospedagem;
 
     const receitaBrutaAtlas = (atlasData?.domains.totalRevenue ?? 0) + (atlasData?.vps.totalRevenue ?? 0);
-    const receitaLiquidaAtlas = receitaBrutaAtlas - taxaSimInt - custoDominio - custoHospedagem - custoAfiliadoPeriodo;
+    const receitaLiquidaAtlas = receitaBrutaAtlas - cards.totalTaxasSimInt - custoDominio - custoHospedagem - custoAfiliadoPeriodo;
 
-    const roiSimintpay = receitaTotalAtlas > 0 ? (receitaLiquidaSimintpay / receitaTotalAtlas) * 100 : 0;
+    const roiSimintpay = cards.receitaTotal > 0 ? (receitaLiquidaSimintpay / cards.receitaTotal) * 100 : 0;
     const roiDominios = (atlasData?.domains.totalRevenue ?? 0) > 0 ? (lucroLiquidoDominio / atlasData!.domains.totalRevenue) * 100 : 0;
     const roiHospedagem = (atlasData?.vps.totalRevenue ?? 0) > 0 ? (lucroLiquidoVps / atlasData!.vps.totalRevenue) * 100 : 0;
     const roiAtlas = receitaBrutaAtlas > 0 ? (receitaLiquidaAtlas / receitaBrutaAtlas) * 100 : 0;
@@ -7621,44 +7580,13 @@ export class AdminController {
       }),
     ]);
 
-    const totalTaxasDom     = taxaMDRDom + taxaAdquirente + custoCashback;
-    const taxaSimIntPctNet  = (taxaSimInt - TAXA_LINK_FIXA * qtdTransacoes) - taxaMDRDom;
-    const taxaSimIntFixa    = TAXA_LINK_FIXA * qtdTransacoes;
-    const totalTaxasSimInt  = taxaSimInt - taxaMDRDom;
-    // DOM percentual é custo da Sim Int Pay, já abatido do card "Total de
-    // Taxas — Sim Int Pay". Usar `netAmount` subtraía esse MDR uma segunda vez
-    // do repasse exibido. O repasse deve fechar com receita − total do card.
-    const totalRepasse = receitaTotalAtlas - totalTaxasSimInt;
-
-    // Parcelamento: apenas transações de cartão de crédito (exclui débito e PIX)
-    let atlasParcelamentoBruto = 0;
-    let atlasParcelamentoSimIntPay = 0;
-    for (const t of txs) {
-      const pm = String(t.paymentMethod ?? '').toLowerCase();
-      if (!pm.includes('credit')) continue;
-      const amount = Number(t.amount);
-      const inst = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
-      const domFee = estimateDomFeeReais({ amountReais: amount, paymentMethod: t.paymentMethod, installments: inst, tenantTag: 'ATLAS' });
-      const masterKey = `MDR_CC_MASTER_${inst}X` as PlataformaTaxaKey;
-      const masterRate = getPlatformTaxaEffective('ATLAS', masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0);
-      atlasParcelamentoBruto += domFee + amount * masterRate;
-      atlasParcelamentoSimIntPay += amount * masterRate;
-    }
-
     return {
-      taxaDomPct: taxaMDRDom,
-      taxaDomFixa: taxaAdquirente,
-      taxaDomCashback: custoCashback,
-      totalTaxasDom,
-      taxaSimIntPctNet,
-      taxaSimIntFixa,
-      totalTaxasSimInt,
-      taxaParcelamentoBruto: Math.round(atlasParcelamentoBruto * 100) / 100,
-      taxaParcelamentoSimIntPay: Math.round(atlasParcelamentoSimIntPay * 100) / 100,
-      taxaSimInt,
-      taxaAdquirente,
-      taxaMDRDom,
-      custoCashback,
+      ...cards,
+      // Aliases legados consumidos pelos cards extras do Atlas.
+      taxaSimInt: cards.taxaSimIntPctBruta,
+      taxaAdquirente: cards.taxaDomFixa,
+      taxaMDRDom: cards.taxaDomPct,
+      custoCashback: cards.taxaDomCashback,
       custoDominio,
       custoHospedagem,
       receitaLiquidaSimintpay,
@@ -7675,10 +7603,7 @@ export class AdminController {
       roiAtlas,
       estornoCount,
       chargebackCount,
-      receitaTotalAtlas,
-      // Repasse correto (soma direta do líquido de cada tx) — o front deve usar ESTE campo.
-      totalRepasse: Math.round(totalRepasse * 100) / 100,
-      qtdTransacoes,
+      receitaTotalAtlas: cards.receitaTotal,
       domainCount: atlasData?.domains.count ?? 0,
       vpsCount: atlasData?.vps.count ?? 0,
       atlasApiAvailable: atlasData !== null,
@@ -7698,9 +7623,10 @@ export class AdminController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('metodoPagamento') metodoPagamento?: string,
+    allowAtlasInternally = false,
   ) {
     const tag = normalizePlatformTag(tagParam ?? '');
-    if (!tag || tag === 'ATLAS') {
+    if (!tag || (tag === 'ATLAS' && !allowAtlasInternally)) {
       return { error: 'Use /admin/relatorios/atlas-consolidado for ATLAS' };
     }
 
@@ -7957,10 +7883,14 @@ export class AdminController {
     // Assinaturas de comunidade anteriores ao webhook possuem somente a ordem
     // local. Incluí-las até a réplica Transaction existir; quando o webhook já
     // criou a réplica (subOrder=<id>), ela continua sendo a fonte única.
-    const community = await this.prisma.community.findUnique({
-      where: { slug: tag.toLowerCase() },
-      select: { id: true },
-    });
+    // Atlas não é comunidade. Suas vendas vêm exclusivamente do ledger
+    // transacional compartilhado com a tabela do produto.
+    const community = tag === 'ATLAS'
+      ? null
+      : await this.prisma.community.findUnique({
+        where: { slug: tag.toLowerCase() },
+        select: { id: true },
+      });
     if (community) {
       const bindings = await this.prisma.communityLinkBinding.findMany({
         where: { communityId: community.id, subscriptionLinkId: { not: null } },
