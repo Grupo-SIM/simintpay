@@ -1389,6 +1389,69 @@ export class AdminController {
   }
 
   /**
+   * População canônica de transações de uma plataforma.
+   *
+   * Uma venda pode pertencer à conta técnica da plataforma ou ter sido criada
+   * por outra conta com a tag [TENANT:TAG]. Relatórios, tabelas e breakdowns
+   * devem sempre considerar ambas as origens.
+   */
+  private async getPlatformTransactionScope(tag: string): Promise<Prisma.TransactionWhereInput> {
+    const upperTag = normalizePlatformTag(tag);
+    let userIds: string[] = [];
+
+    if (upperTag === 'RENOVADA') {
+      userIds = [process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a'];
+    } else if (upperTag === 'REVALIDA') {
+      userIds = [process.env.REVALIDA_USER_ID || REVALIDA_CONSOLIDADO_USER_ID];
+    } else if (upperTag === 'EBOOK') {
+      const users = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
+            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
+          ],
+        },
+        select: { id: true },
+      });
+      userIds = await expandUserIdsByCpf(this.prisma, users.map((user) => user.id));
+    } else if (upperTag === 'BOSQUE') {
+      userIds = [process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c'];
+    } else if (upperTag === 'ATLAS') {
+      const atlasUserId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
+      if (atlasUserId) userIds = [atlasUserId];
+    } else if (!['PAGATG', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL'].includes(upperTag)) {
+      const plans = await this.prisma.pixCreditPlan.findMany({
+        where: {
+          OR: [
+            { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
+            { description: { contains: upperTag, mode: 'insensitive' } },
+          ],
+        },
+        select: { userId: true, description: true },
+      });
+      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
+    }
+
+    if (upperTag === 'BOSQUE') {
+      return {
+        OR: [
+          { userId: { in: userIds } },
+          { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+          { description: { contains: 'bosque', mode: 'insensitive' } },
+          { description: { contains: 'ibb', mode: 'insensitive' } },
+        ],
+      };
+    }
+
+    return {
+      OR: [
+        ...(userIds.length ? [{ userId: { in: userIds } }] : []),
+        { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
+      ],
+    };
+  }
+
+  /**
    * Fonte única dos relatórios por produto: o ledger local.
    *
    * A listagem DOM é somente uma integração de adquirente. Usá-la nos cards
@@ -1401,52 +1464,8 @@ export class AdminController {
     endDate?: string,
     paymentMethod?: string,
   ) {
-    let userIds: string[] = [];
-    if (tag === 'RENOVADA') {
-      userIds = [process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a'];
-    } else if (tag === 'REVALIDA') {
-      userIds = [process.env.REVALIDA_USER_ID || REVALIDA_CONSOLIDADO_USER_ID];
-    } else if (tag === 'EBOOK') {
-      const users = await this.prisma.user.findMany({
-        where: {
-          OR: [
-            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
-            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
-          ],
-        },
-        select: { id: true },
-      });
-      userIds = await expandUserIdsByCpf(this.prisma, users.map((user) => user.id));
-    } else if (tag === 'BOSQUE') {
-      userIds = [process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c'];
-    } else if (!['PAGATG', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL'].includes(tag)) {
-      const plans = await this.prisma.pixCreditPlan.findMany({
-        where: {
-          OR: [
-            { description: { contains: `|${tag}]`, mode: 'insensitive' } },
-            { description: { contains: tag, mode: 'insensitive' } },
-          ],
-        },
-        select: { userId: true, description: true },
-      });
-      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
-    }
-
-    const scope: Prisma.TransactionWhereInput = tag === 'BOSQUE'
-      ? {
-        OR: [
-          { userId: { in: userIds } },
-          { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-          { description: { contains: 'bosque', mode: 'insensitive' } },
-          { description: { contains: 'ibb', mode: 'insensitive' } },
-        ],
-      }
-      : {
-        OR: [
-          ...(userIds.length ? [{ userId: { in: userIds } }] : []),
-          { description: { contains: `[TENANT:${tag}]`, mode: 'insensitive' } },
-        ],
-      };
+    const upperTag = normalizePlatformTag(tag);
+    const scope = await this.getPlatformTransactionScope(upperTag);
 
     const createdAt: Prisma.DateTimeFilter = {
       gte: parseYmdSp(startDate).startOf('day').toDate(),
@@ -1454,7 +1473,7 @@ export class AdminController {
     if (endDate) createdAt.lte = parseYmdSp(endDate).endOf('day').toDate();
 
     const and: Prisma.TransactionWhereInput[] = [];
-    if (tag === 'RENOVADA') {
+    if (upperTag === 'RENOVADA') {
       and.push({
         OR: [
           { description: { contains: 'dizimo', mode: 'insensitive' } },
@@ -6461,16 +6480,10 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const atlasId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-
-    // Mesmo escopo da listagem: userId OU [TENANT:ATLAS] — só userId deixava vendas
-    // marcadas com a tag (criadas por outras contas) fora do breakdown.
+    // Mesmo escopo da tabela e do consolidado: conta Atlas OU [TENANT:ATLAS].
     const where: any = {
       status: 'COMPLETED',
-      OR: [
-        ...(atlasId ? [{ userId: atlasId }] : []),
-        { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
-      ],
+      ...(await this.getPlatformTransactionScope('ATLAS')),
     };
     if (dataInicio) where.createdAt = { ...where.createdAt, gte: parseYmdSp(dataInicio).startOf('day').toDate() };
     if (dataFim) where.createdAt = { ...where.createdAt, lte: parseYmdSp(dataFim).endOf('day').toDate() };
@@ -6546,7 +6559,6 @@ export class AdminController {
     @Query('dataFim') dataFim?: string,
   ) {
     const upperTag = normalizePlatformTag(tag);
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
     // Community-specific tag: find by slug, return distribution from SubscriptionLinkOrder
     if (!FIXED_PLATFORM_TAGS.has(upperTag)) {
@@ -6570,56 +6582,7 @@ export class AdminController {
       }
     }
 
-    let userIds: string[] = [];
-    if (upperTag === 'RENOVADA') {
-      userIds = [RENOVADA_ID];
-    } else if (upperTag === 'REVALIDA') {
-      const rid = process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
-      userIds = [rid];
-    } else if (upperTag === 'EBOOK') {
-      const users = await this.prisma.user.findMany({
-        where: {
-          OR: [
-            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
-            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
-          ],
-        },
-        select: { id: true },
-      });
-      userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
-    } else if (upperTag === 'BOSQUE') {
-      const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
-      userIds = [bid];
-    } else if (upperTag !== 'PAGATG' && upperTag !== 'CONTROLE-MOTORISTA' && upperTag !== 'CONTROLE-PATRIMONIAL' && upperTag !== 'ATLAS') {
-      const plans = await this.prisma.pixCreditPlan.findMany({
-        where: {
-          OR: [
-            { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
-            { description: { contains: upperTag, mode: 'insensitive' } },
-          ],
-        },
-        select: { userId: true, description: true },
-      });
-      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
-    }
-
-    const isBosqueDescScope = upperTag === 'BOSQUE';
-
-    const baseWhere: any = isBosqueDescScope
-      ? {
-          OR: [
-            { userId: { in: userIds } },
-            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-            { description: { contains: 'bosque', mode: 'insensitive' } },
-            { description: { contains: 'ibb', mode: 'insensitive' } },
-          ],
-        }
-      : {
-          OR: [
-            ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
-            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
-          ],
-        };
+    const baseWhere: any = await this.getPlatformTransactionScope(upperTag);
 
     baseWhere.status = 'COMPLETED';
 
@@ -6706,7 +6669,6 @@ export class AdminController {
     @Query('metodoPagamento') metodoPagamento?: string,
   ) {
     const upperTag = normalizePlatformTag(tag);
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
     // Community-specific tag: find by slug and return subscription link orders + tagged transactions
     if (!FIXED_PLATFORM_TAGS.has(upperTag)) {
@@ -6944,62 +6906,10 @@ export class AdminController {
       }
     }
 
-    let userIds: string[] = [];
-
-    if (upperTag === 'RENOVADA') {
-      userIds = [RENOVADA_ID];
-    } else if (upperTag === 'REVALIDA') {
-      const rid = process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
-      userIds = [rid];
-    } else if (upperTag === 'EBOOK') {
-      const users = await this.prisma.user.findMany({
-        where: {
-          OR: [
-            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
-            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
-          ],
-        },
-        select: { id: true },
-      });
-      userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
-    } else if (upperTag === 'BOSQUE') {
-      const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
-      userIds = [bid];
-    } else if (upperTag !== 'PAGATG' && upperTag !== 'CONTROLE-MOTORISTA' && upperTag !== 'CONTROLE-PATRIMONIAL' && upperTag !== 'ATLAS') {
-      const plans = await this.prisma.pixCreditPlan.findMany({
-        where: {
-          OR: [
-            { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
-            { description: { contains: upperTag, mode: 'insensitive' } },
-          ],
-        },
-        select: { userId: true, description: true },
-      });
-      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
-    }
-
-    const isBosqueDescScope = upperTag === 'BOSQUE';
-
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
 
-    // Todas as plataformas: combina userId (sistema legado) + [TENANT:TAG] (payment/subscription links)
-    const where: any =
-      isBosqueDescScope
-        ? {
-          OR: [
-            { userId: { in: userIds } },
-            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-            { description: { contains: 'bosque', mode: 'insensitive' } },
-            { description: { contains: 'ibb', mode: 'insensitive' } },
-          ],
-        }
-        : {
-          OR: [
-            ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
-            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
-          ],
-        };
+    const where: any = await this.getPlatformTransactionScope(upperTag);
 
     const and: any[] = [];
 
@@ -7607,15 +7517,10 @@ export class AdminController {
     const atlasUserId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
 
     const effectiveStart = startDate ?? dayjs().tz(TZ).startOf('month').format('YYYY-MM-DD');
-    // Mesmo escopo da listagem (/plataformas/atlas/transacoes): userId OU [TENANT:ATLAS].
-    // Só userId deixava de fora vendas marcadas com a tag feitas por outras contas —
-    // a listagem mostrava as transações e os cards ficavam zerados.
+    // Mesmo escopo canônico da tabela e dos demais cards Atlas.
     const where: any = {
       status: 'COMPLETED',
-      OR: [
-        ...(atlasUserId ? [{ userId: atlasUserId }] : []),
-        { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
-      ],
+      ...(await this.getPlatformTransactionScope('ATLAS')),
     };
     where.createdAt = { gte: parseYmdSp(effectiveStart).startOf('day').toDate() };
     if (endDate) {

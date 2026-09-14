@@ -422,6 +422,9 @@ describe('AdminController.listPlataformaTransacoes — maquineta', () => {
           findMany: jest.fn().mockResolvedValue(transactions),
         },
       },
+      getPlatformTransactionScope: jest.fn().mockResolvedValue({
+        OR: [{ userId: { in: ['renovada-1'] } }],
+      }),
     } as any;
 
     const result = await (AdminController.prototype as any).listPlataformaTransacoes.call(
@@ -447,6 +450,23 @@ describe('AdminController.listPlataformaTransacoes — maquineta', () => {
 });
 
 describe('AdminController.getAtlasConsolidado', () => {
+  it('inclui conta Atlas e TENANT:ATLAS no escopo canônico', async () => {
+    const ctx = {
+      prisma: {
+        user: { findFirst: jest.fn().mockResolvedValue({ id: 'atlas-1' }) },
+      },
+    } as any;
+
+    const scope = await (AdminController.prototype as any).getPlatformTransactionScope.call(ctx, 'ATLAS');
+
+    expect(scope).toEqual({
+      OR: [
+        { userId: { in: ['atlas-1'] } },
+        { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
+      ],
+    });
+  });
+
   it('não desconta o MDR da DOM duas vezes do repasse', async () => {
     const previousAtlasHost = process.env.ATLAS_HOSTING_URL;
     delete process.env.ATLAS_HOSTING_URL;
@@ -471,6 +491,12 @@ describe('AdminController.getAtlasConsolidado', () => {
             count: jest.fn().mockResolvedValue(0),
           },
         },
+        getPlatformTransactionScope: jest.fn().mockResolvedValue({
+          OR: [
+            { userId: { in: ['atlas-1'] } },
+            { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
+          ],
+        }),
       } as any;
 
       const result = await (AdminController.prototype as any).getAtlasConsolidado.call(
