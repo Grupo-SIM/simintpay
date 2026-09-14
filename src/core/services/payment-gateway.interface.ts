@@ -411,6 +411,7 @@ export interface IPaymentGateway {
       page: number;
       limit: number;
       status?: string;
+      payment_method?: string;
       begin_date?: string;
       end_date?: string;
     },

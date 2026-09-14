@@ -4,6 +4,7 @@ import { PlatformDashboardService } from '../services/renovada-dashboard.service
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { computeUserNetBalance } from '../../../application/helpers/user-platform-net-balance.helper';
 import { computeBosqueAvailableSinceLastWithdrawal } from '../../../application/helpers/bosque-available.helper';
+import { PlatformReportingService } from '../../../application/services/platform-reporting.service';
 
 /**
  * Plataformas sem vendedores externos: o saldo pertence à conta do próprio dono.
@@ -26,6 +27,7 @@ export class PlatformDashboardController {
   constructor(
     private readonly dashboardService: PlatformDashboardService,
     private readonly prisma: PrismaService,
+    private readonly platformReporting: PlatformReportingService,
   ) {}
 
   /**
@@ -131,22 +133,10 @@ export class PlatformDashboardController {
       select: { id: true },
     });
     if (community) {
-      const bindings = await this.prisma.communityLinkBinding.findMany({
-        where: { communityId: community.id, subscriptionLinkId: { not: null } },
-        select: { subscriptionLinkId: true },
-        distinct: ['subscriptionLinkId'],
-      });
-      const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
-      if (linkIds.length === 0) return { totalContas: 0, sellersAtivos: 0 };
-
-      const activeStatuses = ['active', 'completed', 'approved', 'paid', 'success', 'trial'];
-      const [totalContas, sellersAtivos] = await Promise.all([
-        this.prisma.subscriptionLinkOrder.count({ where: { subscriptionLinkId: { in: linkIds } } }),
-        this.prisma.subscriptionLinkOrder.count({
-          where: { subscriptionLinkId: { in: linkIds }, status: { in: activeStatuses } },
-        }),
-      ]);
-      return { totalContas, sellersAtivos };
+      return this.platformReporting.getCommunityCustomerStats(
+        upperTag,
+        community.id,
+      );
     }
 
     return { totalContas: 0, sellersAtivos: 0 };
@@ -293,6 +283,13 @@ export class PlatformDashboardController {
       select: { id: true },
     });
     if (community) {
+      if (!usarCarteiras) {
+        return this.platformReporting.listCommunityCustomers(
+          upperTag,
+          community.id,
+          { page: pageNum, pageSize: size, onlyActive: somenteAtivos },
+        );
+      }
       const bindings = await this.prisma.communityLinkBinding.findMany({
         where: { communityId: community.id, subscriptionLinkId: { not: null } },
         select: { subscriptionLinkId: true },
@@ -337,44 +334,6 @@ export class PlatformDashboardController {
           pageSize: size,
         };
       }
-
-      const activeStatuses = ['active', 'completed', 'approved', 'paid', 'success', 'trial'];
-      const allOrders = await this.prisma.subscriptionLinkOrder.findMany({
-        where: {
-          subscriptionLinkId: { in: linkIds },
-          ...(somenteAtivos ? { status: { in: activeStatuses } } : {}),
-        },
-        select: { customerEmail: true, customerName: true, customerDocument: true, createdAt: true, status: true },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const total = allOrders.length;
-      const paged = allOrders.slice(skip, skip + size);
-
-      const pagedEmails = paged.map((o) => o.customerEmail).filter(Boolean);
-      const registeredUsers = pagedEmails.length > 0
-        ? await this.prisma.user.findMany({
-            where: { email: { in: pagedEmails } },
-            select: { email: true },
-          })
-        : [];
-      const registeredEmailSet = new Set(registeredUsers.map((u) => u.email));
-
-      return {
-        data: paged.map((o) => ({
-          name: o.customerName,
-          email: o.customerEmail,
-          cpf: o.customerDocument,
-          balance: 0,
-          lockedBalance: 0,
-          createdAt: o.createdAt,
-          status: o.status,
-          isRegisteredInSimIntPay: registeredEmailSet.has(o.customerEmail),
-        })),
-        total,
-        page: pageNum,
-        pageSize: size,
-      };
     }
 
     // ── Atlas Hosting ─────────────────────────────────────────────────────────

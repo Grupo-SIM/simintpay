@@ -30,6 +30,7 @@ import {
   calculateProration,
   retreatBillingPeriod,
 } from '../../../core/billing/proration-calculator';
+import { buildBillingTransactionDescription } from '../../helpers/billing-transaction-description.helper';
 
 const MUTABLE_CHANGE_STATUSES: BillingQuantityChangeStatus[] = [
   BillingQuantityChangeStatus.PENDING_PAYMENT,
@@ -242,6 +243,10 @@ export class BillingService {
     if (existing) return true;
     const now = new Date();
     const amount = new Prisma.Decimal(input.amount ?? contract.baseAmount.plus(contract.unitAmount.times(contract.quantity)));
+    const transactionDescription = buildBillingTransactionDescription(
+      contract.description,
+      contract.metadata,
+    );
     await this.prisma.$transaction(async (tx) => {
       await tx.billingContractEvent.create({
         data: { contractId: contract.id, eventKey: input.eventKey, type: input.event, payload: { paymentId: input.paymentId ?? null } },
@@ -249,11 +254,15 @@ export class BillingService {
       if (input.paymentId) {
         await tx.transaction.upsert({
           where: { domPaymentId: input.paymentId },
-          update: { status: input.event === 'PAID' ? TransactionStatus.COMPLETED : TransactionStatus.FAILED },
+          update: {
+            status: input.event === 'PAID' ? TransactionStatus.COMPLETED : TransactionStatus.FAILED,
+            description: transactionDescription,
+          },
           create: {
             userId: contract.userId, amount, netAmount: amount,
             status: input.event === 'PAID' ? TransactionStatus.COMPLETED : TransactionStatus.FAILED,
-            paymentMethod: PaymentMethod.CREDIT_CARD, description: contract.description,
+            paymentMethod: PaymentMethod.CREDIT_CARD,
+            description: transactionDescription,
             domPaymentId: input.paymentId, externalPaymentId: input.paymentId, acquirer: Acquirer.DOM,
           },
         });

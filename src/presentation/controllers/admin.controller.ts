@@ -24,6 +24,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { LeadStatus, Prisma, Role, TransactionStatus, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { getAtlasProductType } from '../../modules/atlas/utils/atlas-product-description.util';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -33,6 +34,15 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 dayjs.extend(customParseFormat);
 const TZ = 'America/Sao_Paulo';
+
+type DomTransactionReportRow = DomTransactionItem & {
+  tenant_tag: string;
+  valor_bruto_venda: number;
+  taxa_dom: number;
+  taxa_vendedor: number;
+  taxa_fixa_transacao: number;
+  taxa_cashback: number;
+};
 
 /** dataInicio/dataFim no formato YYYY-MM-DD interpretados no fuso SP. */
 function parseYmdSp(s: string): dayjs.Dayjs {
@@ -88,7 +98,9 @@ import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
+import { summarizeRefunds } from '../../application/helpers/refund-report.helper';
 import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG, isMaquinetaDescription } from '../../application/utils/internal-tags.util';
+import { PlatformReportingService } from '../../application/services/platform-reporting.service';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -246,7 +258,9 @@ async function resolveConsolidadoPlatforms(
     resolveBySlugOrEnv(prisma, 'RENOVADA_USER_ID', ['renovada'], 'ba2b57d6-e3bf-4395-af31-58454f27207a'),
     resolveBySlugOrEnv(prisma, 'PAGATG_USER_ID', ['pagatg']),
     resolveBySlugOrEnv(prisma, 'BOSQUE_USER_ID', ['bosque', 'ibb'], 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c'),
-    resolveBySlugOrEnv(prisma, 'REVALIDA_USER_ID', ['revalida'], REVALIDA_CONSOLIDADO_USER_ID),
+    // Revalida tem conta técnica canônica. Resolver pelo primeiro usuário do módulo
+    // incluía outra conta sem tag nos cards, enquanto tabela usa este mesmo ID.
+    REVALIDA_CONSOLIDADO_USER_ID,
     resolveBySlugOrEnv(prisma, 'EBOOK_ID', ['ebooksim', 'ebook']),
     resolveBySlugOrEnv(prisma, 'AREAFLIX_USER_ID', ['areaflix'], AREAFLIX_CONSOLIDADO_FALLBACK_ID),
     resolveBySlugOrEnv(prisma, 'ATLAS_USER_ID', ['atlas']),
@@ -274,6 +288,7 @@ async function getComunidadeOrderRows(
   prisma: PrismaService,
   dataInicio?: string,
   dataFim?: string,
+  metodoPagamento?: string,
 ): Promise<Array<{ id: string; userId: string; amount: unknown; netAmount: unknown; createdAt: Date; description: string; installments: number; paymentMethod: string | null }>> {
   const bindings = await prisma.communityLinkBinding.findMany({
     where: { subscriptionLinkId: { not: null } },
@@ -304,6 +319,7 @@ async function getComunidadeOrderRows(
     where: {
       subscriptionLinkId: { in: linkIds },
       status: 'paid',
+      ...(metodoPagamento ? { paymentMethod: metodoPagamento as any } : {}),
       ...(Object.keys(createdAt).length > 0 ? { createdAt } : {}),
     },
     select: {
@@ -401,7 +417,7 @@ function transacaoAtribuiEbookPorDescricao(description: string | null | undefine
 const FIXED_PLATFORM_TAGS = new Set([
   'RENOVADA', 'BOSQUE', 'AREAFLIX', 'PAGATG', 'EBOOK', 'EBOOKSIM',
   'ATLAS', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
-  'REVALIDA', 'FRENDZ', 'BETAI', 'GLOBAL',
+  'REVALIDA', 'FRENDZ', 'BETAI', 'TERON', 'GLOBAL',
 ]);
 
 /** Tag sentinela para transações sem plataforma/produto atribuível — nada fica de fora do relatório. */
@@ -629,86 +645,37 @@ function masterLogDateFilter(
   return Object.keys(createdAt).length > 0 ? createdAt : undefined;
 }
 
-function domStatusIsEstorno(status: string): boolean {
-  const s = status.toLowerCase();
-  return (
-    s.includes('refund') ||
-    s.includes('chargeback') ||
-    s.includes('dispute') ||
-    s.includes('med') ||
-    s.includes('contest')
-  );
-}
-
 /**
- * Estornos na API DOM Pagamentos (DOM_REAL_API_URL / apiv3.dompagamentos.com.br), não api-dom.
- * Usa o domToken de cada conta plataforma; deduplica por id da transação; fallback no token master do .env.
+ * Estornos registrados no produto. O período considera quando a transação virou
+ * REFUNDED; sincronizações legadas sem histórico usam updatedAt como fallback.
  */
-async function aggregateEstornosDomPagamentos(
+async function aggregateProductRefunds(
   prisma: PrismaService,
-  gateway: IPaymentGateway,
   platformUserIds: string[],
   dataInicio?: string,
   dataFim?: string,
 ): Promise<{ quantidade: number; valor: number }> {
-  const end = dataFim
-    ? dayjs.tz(dataFim, TZ).format('YYYY-MM-DD')
-    : dayjs().tz(TZ).format('YYYY-MM-DD');
-  const begin = dataInicio
-    ? dayjs.tz(dataInicio, TZ).format('YYYY-MM-DD')
-    : dayjs().tz(TZ).subtract(365, 'day').format('YYYY-MM-DD');
-
-  const users = await prisma.user.findMany({
-    where: { id: { in: platformUserIds } },
-    select: { domToken: true },
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      status: TransactionStatus.REFUNDED,
+      ...buildConsolidadoScopeOr(platformUserIds),
+    },
+    select: {
+      amount: true,
+      updatedAt: true,
+      statusHistory: {
+        where: { toStatus: TransactionStatus.REFUNDED },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { createdAt: true },
+      },
+    },
   });
-  const tokens = [
-    ...new Set(
-      users
-        .map((u) => u.domToken)
-        .filter((t): t is string => Boolean(t && String(t).trim())),
-    ),
-  ];
-  const master = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
-  if (tokens.length === 0 && master) tokens.push(String(master));
 
-  if (tokens.length === 0) return { quantidade: 0, valor: 0 };
-
-  const seenIds = new Set<string>();
-  let quantidade = 0;
-  let valor = 0;
-  const limit = 100;
-  const maxPages = 200;
-
-  try {
-    for (const domToken of tokens) {
-      let page = 1;
-      while (page <= maxPages) {
-        const res = await gateway.listDomTransactions(domToken, {
-          page,
-          limit,
-          begin_date: begin,
-          end_date: end,
-        });
-        const txs = res.transactions ?? [];
-        if (txs.length === 0) break;
-        for (const tx of txs) {
-          if (!tx.id || seenIds.has(tx.id)) continue;
-          if (domStatusIsEstorno(tx.status)) {
-            seenIds.add(tx.id);
-            quantidade += 1;
-            valor += Number(tx.amount ?? 0);
-          }
-        }
-        if (txs.length < limit) break;
-        page += 1;
-      }
-    }
-  } catch {
-    return { quantidade: 0, valor: 0 };
-  }
-
-  return { quantidade, valor: Number(valor.toFixed(2)) };
+  return summarizeRefunds(transactions, {
+    start: dataInicio ? parseYmdSp(dataInicio).startOf('day').toDate() : undefined,
+    end: dataFim ? parseYmdSp(dataFim).endOf('day').toDate() : undefined,
+  });
 }
 
 type LucroSimpayLinhaTx = {
@@ -1402,6 +1369,7 @@ export class AdminController {
     private readonly linkExternal: LinkExternalPlatformUserService,
     private readonly scanPlatformOwners: ScanPlatformOwnersUseCase,
     private readonly getWalletComposition: GetWalletCompositionUseCase,
+    private readonly platformReporting: PlatformReportingService,
   ) { }
 
   /**
@@ -1431,6 +1399,131 @@ export class AdminController {
       if (batch.length < limit) break;
     }
     return all;
+  }
+
+  /**
+   * População canônica de transações de uma plataforma.
+   *
+   * Uma venda pode pertencer à conta técnica da plataforma ou ter sido criada
+   * por outra conta com a tag [TENANT:TAG]. Relatórios, tabelas e breakdowns
+   * devem sempre considerar ambas as origens.
+   */
+  private async getPlatformTransactionScope(tag: string): Promise<Prisma.TransactionWhereInput> {
+    const upperTag = normalizePlatformTag(tag);
+    let userIds: string[] = [];
+
+    if (upperTag === 'RENOVADA') {
+      userIds = [process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a'];
+    } else if (upperTag === 'REVALIDA') {
+      userIds = [process.env.REVALIDA_USER_ID || REVALIDA_CONSOLIDADO_USER_ID];
+    } else if (upperTag === 'EBOOK') {
+      const users = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
+            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
+          ],
+        },
+        select: { id: true },
+      });
+      userIds = await expandUserIdsByCpf(this.prisma, users.map((user) => user.id));
+    } else if (upperTag === 'BOSQUE') {
+      userIds = [process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c'];
+    } else if (upperTag === 'ATLAS') {
+      const atlasUserId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
+      if (atlasUserId) userIds = [atlasUserId];
+    } else if (!['PAGATG', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL'].includes(upperTag)) {
+      const plans = await this.prisma.pixCreditPlan.findMany({
+        where: {
+          OR: [
+            { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
+            { description: { contains: upperTag, mode: 'insensitive' } },
+          ],
+        },
+        select: { userId: true, description: true },
+      });
+      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
+    }
+
+    if (upperTag === 'BOSQUE') {
+      return {
+        OR: [
+          { userId: { in: userIds } },
+          { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+          { description: { contains: 'bosque', mode: 'insensitive' } },
+          { description: { contains: 'ibb', mode: 'insensitive' } },
+        ],
+      };
+    }
+
+    return {
+      OR: [
+        ...(userIds.length ? [{ userId: { in: userIds } }] : []),
+        { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
+      ],
+    };
+  }
+
+  /**
+   * Fonte única dos relatórios por produto: o ledger local.
+   *
+   * A listagem DOM é somente uma integração de adquirente. Usá-la nos cards
+   * fazia a tela perder Frendz e qualquer adquirente futura, além de divergir
+   * da tabela do produto, que já lê Transaction.
+   */
+  private async findLocalPlatformReportTransactions(
+    tag: string,
+    startDate: string,
+    endDate?: string,
+    paymentMethod?: string,
+  ) {
+    const upperTag = normalizePlatformTag(tag);
+    const scope = await this.getPlatformTransactionScope(upperTag);
+
+    const createdAt: Prisma.DateTimeFilter = {
+      gte: parseYmdSp(startDate).startOf('day').toDate(),
+    };
+    if (endDate) createdAt.lte = parseYmdSp(endDate).endOf('day').toDate();
+
+    const and: Prisma.TransactionWhereInput[] = [];
+    if (upperTag === 'RENOVADA') {
+      and.push({
+        OR: [
+          { description: { contains: 'dizimo', mode: 'insensitive' } },
+          { description: { contains: 'dízimo', mode: 'insensitive' } },
+          { description: { contains: 'primicia', mode: 'insensitive' } },
+          { description: { contains: 'primícia', mode: 'insensitive' } },
+          { description: { contains: 'oferta', mode: 'insensitive' } },
+          { description: { contains: 'maquineta', mode: 'insensitive' } },
+          { description: { contains: 'terminal', mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    return this.prisma.transaction.findMany({
+      where: {
+        AND: [
+          scope,
+          { status: 'COMPLETED' },
+          { createdAt },
+          ...(paymentMethod ? [{ paymentMethod: paymentMethod as any }] : []),
+          ...and,
+        ],
+      },
+      select: {
+        id: true,
+        amount: true,
+        paymentMethod: true,
+        installments: true,
+        description: true,
+        netAmount: true,
+        domFee: true,
+        platformFee: true,
+        cardBrand: true,
+        createdAt: true,
+        acquirer: true,
+      },
+    });
   }
 
   private extractOrderNumberFromText(value: string | null | undefined): string | null {
@@ -2681,10 +2774,10 @@ export class AdminController {
         },
         orderBy: { createdAt: 'asc' },
       }),
-      // Comunidades: sem filtro de método aplicável (subscriptionLinkOrder não expõe
-      // o mesmo campo paymentMethod usado aqui); omitidas do filtro quando ativo, para
-      // não misturar dados não filtrados com os filtrados.
-      metodoPagamento ? Promise.resolve([]) : getComunidadeOrderRows(this.prisma, dataInicio, dataFim),
+      // Ordens sem réplica Transaction continuam fazendo parte do consolidado.
+      // SubscriptionLinkOrder possui paymentMethod; filtrá-las na origem evita que
+      // o filtro (por exemplo, PIX) transforme 8 linhas da tabela em 7 nos cards.
+      getComunidadeOrderRows(this.prisma, dataInicio, dataFim, metodoPagamento),
     ]);
 
     const txRowsComComunidade = [...txRowsTodas, ...dedupeComunidadeRows(txRowsTodas, comunidadeRows)];
@@ -2918,9 +3011,8 @@ export class AdminController {
         'Sem dataInicio/dataFim: soma dos saldos líquidos atuais (netBalance) das contas plataforma no Simpay — não é soma de transações.';
     }
 
-    const estornos = await aggregateEstornosDomPagamentos(
+    const estornos = await aggregateProductRefunds(
       this.prisma,
-      this.paymentGateway,
       platformIds,
       dataInicio,
       dataFim,
@@ -4231,19 +4323,33 @@ export class AdminController {
     @Query('status') status?: string,
     @Query('payment_method') payment_method?: string,
   ) {
-    const where: Prisma.TransactionWhereInput = {
-      acquirer: 'DOM',
-      ...(status ? { status: status === 'not_authorized' || status === 'failed' ? TransactionStatus.FAILED : status.toUpperCase() as TransactionStatus } : {}),
-      ...(payment_method ? { paymentMethod: payment_method === 'credit_card' ? 'CREDIT_CARD' : 'PIX' } : {}),
-      ...((begin_date || end_date) ? { createdAt: { ...(begin_date ? { gte: parseYmdSp(begin_date).startOf('day').toDate() } : {}), ...(end_date ? { lte: parseYmdSp(end_date).endOf('day').toDate() } : {}) } } : {}),
-    };
-    const take = Math.min(Math.max(Number(limit) || 50, 1), 100);
-    const skip = (Math.max(Number(page) || 1, 1) - 1) * take;
-    const [transactions, total] = await Promise.all([
-      this.prisma.transaction.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
-      this.prisma.transaction.count({ where }),
-    ]);
-    return { data: { transactions, total } };
+    const result = await this.listDomTransactionsDirect.execute({
+      page: Number(page),
+      limit: Number(limit),
+      begin_date,
+      end_date,
+      status,
+      payment_method,
+    });
+    return { data: result };
+  }
+
+  @Post('sync/reparar-status-transacoes-dom')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Repara status histórico das réplicas locais usando a listagem DOM' })
+  @ApiQuery({ name: 'dataInicio', required: true, example: '2026-05-01', description: 'yyyy-mm-dd' })
+  @ApiQuery({ name: 'dataFim', required: true, example: '2026-06-30', description: 'yyyy-mm-dd' })
+  async repararStatusTransacoesDom(
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    if (!dataInicio || !dataFim) {
+      throw new BadRequestException('dataInicio e dataFim são obrigatórias');
+    }
+    return this.syncTransactions.repairHistoricalStatuses({
+      beginDate: dataInicio,
+      endDate: dataFim,
+    });
   }
 
   @Post('sync/test-cron')
@@ -6178,7 +6284,7 @@ export class AdminController {
     }
 
     // Garante que REVALIDA apareça (conta técnica / consolidado, como Atlas)
-    const revalidaConsolidadoId = await resolveBySlugOrEnv(this.prisma, 'REVALIDA_USER_ID', ['revalida'], REVALIDA_CONSOLIDADO_USER_ID);
+    const revalidaConsolidadoId = REVALIDA_CONSOLIDADO_USER_ID;
     if (!map.has('REVALIDA')) {
       const firstRevalidaTx = await this.prisma.transaction.findFirst({
         where: {
@@ -6387,16 +6493,10 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const atlasId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-
-    // Mesmo escopo da listagem: userId OU [TENANT:ATLAS] — só userId deixava vendas
-    // marcadas com a tag (criadas por outras contas) fora do breakdown.
+    // Mesmo escopo da tabela e do consolidado: conta Atlas OU [TENANT:ATLAS].
     const where: any = {
       status: 'COMPLETED',
-      OR: [
-        ...(atlasId ? [{ userId: atlasId }] : []),
-        { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
-      ],
+      ...(await this.getPlatformTransactionScope('ATLAS')),
     };
     if (dataInicio) where.createdAt = { ...where.createdAt, gte: parseYmdSp(dataInicio).startOf('day').toDate() };
     if (dataFim) where.createdAt = { ...where.createdAt, lte: parseYmdSp(dataFim).endOf('day').toDate() };
@@ -6410,15 +6510,7 @@ export class AdminController {
     const taxaFixa = getPlatformTaxaEffective('ATLAS', 'TAXA_FIXA_TRANSACAO', 1.0);
     const taxaCashback = getPlatformTaxaEffective('ATLAS', 'TAXA_CASHBACK', 3.0);
 
-    const isDomain = (desc: string | null | undefined) => {
-      if (!desc) return false;
-      const lower = desc.toLowerCase().trim();
-      if (lower.startsWith('atlas hosting ')) {
-        const ref = lower.slice('atlas hosting '.length).trim();
-        return /\.[a-z]{2,10}$/.test(ref) && !/^[0-9a-f-]{32,}$/.test(ref);
-      }
-      return false;
-    };
+    const isDomain = (desc: string | null | undefined) => getAtlasProductType(desc) === 'DOMAIN';
 
     const calcGroup = (group: typeof txs) => {
       let receita = 0, lucro = 0;
@@ -6440,7 +6532,8 @@ export class AdminController {
     };
 
     const domainTxs = txs.filter((t) => isDomain(t.description));
-    const hostTxs = txs.filter((t) => !isDomain(t.description));
+    const hostTxs = txs.filter((t) => getAtlasProductType(t.description) === 'HOSTING');
+    const otherTxs = txs.filter((t) => getAtlasProductType(t.description) === null);
 
     const byProduct = new Map<string, { receita: number; lucro: number; quantidade: number }>();
     for (const t of hostTxs) {
@@ -6459,6 +6552,7 @@ export class AdminController {
         ...calcGroup(hostTxs),
         porProduto: Array.from(byProduct.entries()).map(([nome, s]) => ({ nome, ...s })).sort((a, b) => b.receita - a.receita),
       },
+      outros: calcGroup(otherTxs),
     };
   }
 
@@ -6472,7 +6566,6 @@ export class AdminController {
     @Query('dataFim') dataFim?: string,
   ) {
     const upperTag = normalizePlatformTag(tag);
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
     // Community-specific tag: find by slug, return distribution from SubscriptionLinkOrder
     if (!FIXED_PLATFORM_TAGS.has(upperTag)) {
@@ -6481,103 +6574,22 @@ export class AdminController {
         select: { id: true },
       });
       if (commDist) {
-        const bindings = await this.prisma.communityLinkBinding.findMany({
-          where: { communityId: commDist.id, subscriptionLinkId: { not: null } },
-          select: { subscriptionLinkId: true },
-          distinct: ['subscriptionLinkId'],
-        });
-        const linkIds = bindings.map((b) => b.subscriptionLinkId!).filter(Boolean);
-        if (linkIds.length === 0) return { total: 0, items: [] };
-
-        const dateFilter: Prisma.DateTimeFilter = {};
-        if (dataInicio) dateFilter.gte = parseYmdSp(dataInicio).startOf('day').toDate();
-        if (dataFim) dateFilter.lte = parseYmdSp(dataFim).endOf('day').toDate();
-
-        const orders = await this.prisma.subscriptionLinkOrder.findMany({
-          where: {
-            subscriptionLinkId: { in: linkIds },
-            status: 'paid',
-            ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
+        return this.platformReporting.getCommunityPaymentDistribution(
+          upperTag,
+          commDist.id,
+          {
+            start: dataInicio
+              ? parseYmdSp(dataInicio).startOf('day').toDate()
+              : undefined,
+            end: dataFim
+              ? parseYmdSp(dataFim).endOf('day').toDate()
+              : undefined,
           },
-          select: { paymentMethod: true, amountCharged: true },
-        });
-
-        const mapCount = new Map<string, { count: number; total: number }>();
-        for (const order of orders) {
-          const method = (order.paymentMethod ?? 'UNKNOWN').toUpperCase();
-          const bucket = method === 'PIX' ? 'PIX' : method === 'DEBIT_CARD' ? 'DEBIT_CARD' : 'CREDIT_CARD';
-          const prev = mapCount.get(bucket) ?? { count: 0, total: 0 };
-          mapCount.set(bucket, { count: prev.count + 1, total: prev.total + Number(order.amountCharged ?? 0) });
-        }
-
-        const total = orders.length;
-        const LABELS: Record<string, string> = { PIX: 'Pix', CREDIT_CARD: 'Crédito', DEBIT_CARD: 'Débito' };
-        const items = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD']
-          .map((codigo) => {
-            const entry = mapCount.get(codigo) ?? { count: 0, total: 0 };
-            return {
-              codigo, nome: LABELS[codigo], quantidade: entry.count,
-              valor: Number(entry.total.toFixed(2)),
-              percentual: total > 0 ? Number(((entry.count / total) * 100).toFixed(2)) : 0,
-            };
-          })
-          .filter((row) => row.quantidade > 0)
-          .sort((a, b) => b.quantidade - a.quantidade);
-
-        return { total, items };
+        );
       }
     }
 
-    let userIds: string[] = [];
-    if (upperTag === 'RENOVADA') {
-      userIds = [RENOVADA_ID];
-    } else if (upperTag === 'REVALIDA') {
-      const rid = process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
-      userIds = [rid];
-    } else if (upperTag === 'EBOOK') {
-      const users = await this.prisma.user.findMany({
-        where: {
-          OR: [
-            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
-            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
-          ],
-        },
-        select: { id: true },
-      });
-      userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
-    } else if (upperTag === 'BOSQUE') {
-      const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
-      userIds = [bid];
-    } else if (upperTag !== 'PAGATG' && upperTag !== 'CONTROLE-MOTORISTA' && upperTag !== 'CONTROLE-PATRIMONIAL' && upperTag !== 'ATLAS') {
-      const plans = await this.prisma.pixCreditPlan.findMany({
-        where: {
-          OR: [
-            { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
-            { description: { contains: upperTag, mode: 'insensitive' } },
-          ],
-        },
-        select: { userId: true, description: true },
-      });
-      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
-    }
-
-    const isBosqueDescScope = upperTag === 'BOSQUE';
-
-    const baseWhere: any = isBosqueDescScope
-      ? {
-          OR: [
-            { userId: { in: userIds } },
-            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-            { description: { contains: 'bosque', mode: 'insensitive' } },
-            { description: { contains: 'ibb', mode: 'insensitive' } },
-          ],
-        }
-      : {
-          OR: [
-            ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
-            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
-          ],
-        };
+    const baseWhere: any = await this.getPlatformTransactionScope(upperTag);
 
     baseWhere.status = 'COMPLETED';
 
@@ -6664,7 +6676,6 @@ export class AdminController {
     @Query('metodoPagamento') metodoPagamento?: string,
   ) {
     const upperTag = normalizePlatformTag(tag);
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
     // Community-specific tag: find by slug and return subscription link orders + tagged transactions
     if (!FIXED_PLATFORM_TAGS.has(upperTag)) {
@@ -6721,7 +6732,7 @@ export class AdminController {
           where: slWhere,
           orderBy: { createdAt: 'desc' },
           take: 500,
-          include: { subscriptionLink: { select: { name: true, userId: true } } },
+          include: { subscriptionLink: { select: { name: true, userId: true, isStandalone: true } } },
         });
 
         // ── Transaction rows tagged [TENANT:SLUG] (pix-plans, payment links) ─
@@ -6760,6 +6771,7 @@ export class AdminController {
           const m = (t.description ?? '').match(/subOrder=([^\s\]]+)/i);
           if (m) subOrderIdsComTransacao.add(m[1]);
         }
+        const orderById = new Map(slOrders.map((order) => [order.id, order]));
 
         // ── Normalize and merge ──────────────────────────────────────────────
         type CommunityRow = {
@@ -6777,30 +6789,43 @@ export class AdminController {
           .map((o) => {
           const valorBruto = Number(o.amountCharged);
           const pf = Number(o.platformFeeAmount);
+          const isStandalonePix = o.subscriptionLink.isStandalone && o.paymentMethod === 'PIX';
           const taxaServicoTotal = taxaServicoFixa + taxaServicoCashback;
-          const valorLiquido = Number((valorBruto - pf - taxaServicoTotal).toFixed(2));
-          const taxaSimIntPay = Number((valorBruto * adminMargin).toFixed(2));
           const pmStr = String(o.paymentMethod ?? 'pix').toLowerCase();
           const pmStrNorm = pmStr.includes('debit') ? 'debit_card' : pmStr.includes('card') || pmStr.includes('credit') ? 'credit_card' : 'pix';
           const taxaDom = Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStrNorm, installments: 1, tenantTag: upperTag }).toFixed(2));
-          const taxaServico = taxaServicoRate > 0 && o.createdAt >= getTaxaServicoEffectiveDate(upperTag) ? Number(taxaServicoRate.toFixed(2)) : 0;
-          const lucroPrejuizo = Number((taxaSimIntPay - taxaDom - taxaServicoFixa - taxaServicoCashback).toFixed(2));
+          // Link standalone não cobra taxa Sim Int Pay. A DOM continua sendo
+          // custo da plataforma, não desconto do repasse ao vendedor.
+          const taxaFixa = Number(taxaServicoFixa.toFixed(2));
+          const taxaCashback = isStandalonePix ? 0 : taxaServicoCashback;
+          const taxaSimIntPay = isStandalonePix ? pf : Number((valorBruto * adminMargin).toFixed(2));
+          const taxaServico = isStandalonePix
+            ? 0
+            : taxaServicoRate > 0 && o.createdAt >= getTaxaServicoEffectiveDate(upperTag)
+              ? Number(taxaServicoRate.toFixed(2))
+              : 0;
+          const valorLiquido = isStandalonePix
+            ? Number((valorBruto - pf).toFixed(2))
+            : Number((valorBruto - pf - taxaServicoTotal).toFixed(2));
+          const lucroPrejuizo = Number((taxaSimIntPay + taxaServico - taxaDom - taxaFixa - taxaCashback).toFixed(2));
           return {
             id: `comunidade_order_${o.id}`,
             valorBruto,
             valorLiquido,
-            lucroAdmin: Number((valorBruto * adminMargin - fixedFee).toFixed(2)),
+            lucroAdmin: lucroPrejuizo,
             taxaDom,
             taxaSimIntPay,
-            taxaFixa: taxaServicoFixa,
-            taxaCashback: taxaServicoCashback,
+            taxaFixa,
+            taxaCashback,
             taxaServico,
             lucroPrejuizo,
             status: 'COMPLETED',
             metodoPagamento: o.paymentMethod ?? null,
             descricao: `${o.subscriptionLink.name} [TENANT:${upperTag}]`,
             cliente: { nome: o.customerName ?? null, email: o.customerEmail ?? null, documento: o.customerDocument ?? null },
-            taxas: { total: pf, dom: 0, plataforma: pf },
+            taxas: isStandalonePix
+              ? { total: Number((taxaDom + taxaFixa + pf).toFixed(2)), dom: Number((taxaDom + taxaFixa).toFixed(2)), plataforma: pf }
+              : { total: pf, dom: 0, plataforma: pf },
             criadoEm: o.createdAt,
             atualizadoEm: o.updatedAt,
           };
@@ -6809,12 +6834,19 @@ export class AdminController {
         const txFormatted: CommunityRow[] = txRows.map((t) => {
           const valorBruto = Number(t.amount);
           const isCompleted = t.status === 'COMPLETED';
+          const orderId = t.description?.match(/subOrder=([^\s\]]+)/i)?.[1];
+          const isStandalonePix = orderId
+            ? orderById.get(orderId)?.subscriptionLink.isStandalone === true && t.paymentMethod === 'PIX'
+            : false;
+          const orderPlatformFee = orderId ? Number(orderById.get(orderId)?.platformFeeAmount ?? 0) : 0;
           const installments = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
           const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : t.paymentMethod === 'BOLETO' ? 'boleto' : 'credit_card';
           const taxaDom = isCompleted ? Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStr, installments, tenantTag: upperTag }).toFixed(2)) : 0;
           let taxaSimIntPay = 0;
           if (isCompleted) {
-            if (pmStr === 'boleto') {
+            if (isStandalonePix) {
+              taxaSimIntPay = orderPlatformFee;
+            } else if (pmStr === 'boleto') {
               taxaSimIntPay = Number(calculateBoletoFees(valorBruto, upperTag).platformFeeTotal.toFixed(2));
             } else if (pmStr === 'credit_card') {
               const linkPct = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
@@ -6833,19 +6865,23 @@ export class AdminController {
             }
           }
           const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
-          const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
-          const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag) ? Number(taxaServicoRate.toFixed(2)) : 0;
-          const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
+          const taxaCashback = isCompleted && !isStandalonePix ? Number(taxaServicoCashback.toFixed(2)) : 0;
+          const taxaServico = isCompleted && !isStandalonePix && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag) ? Number(taxaServicoRate.toFixed(2)) : 0;
+          const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay + taxaServico - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
           const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
           const cashbackDeduction = valorBruto * ((getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', 0)) / 100);
           const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
           const valorLiquidoBase = isCompleted && (netFromDb == null || netFromDb <= 0) ? fallbackNet : (netFromDb ?? fallbackNet);
-          const valorLiquido = Number((valorLiquidoBase - taxaServicoFixa - taxaServicoCashback).toFixed(2));
+          const valorLiquido = isStandalonePix
+            ? Number((valorBruto - taxaSimIntPay).toFixed(2))
+            : Number((valorLiquidoBase - taxaServicoFixa - taxaServicoCashback).toFixed(2));
           return {
             id: t.id,
             valorBruto,
             valorLiquido,
-            lucroAdmin: isCompleted ? Number((taxaSimIntPay - (pmStr === 'boleto' ? taxaDom : fixedFee) - cashbackDeduction).toFixed(2)) : 0,
+            lucroAdmin: isStandalonePix
+              ? lucroPrejuizo
+              : isCompleted ? Number((taxaSimIntPay - (pmStr === 'boleto' ? taxaDom : fixedFee) - cashbackDeduction).toFixed(2)) : 0,
             taxaDom,
             taxaSimIntPay,
             taxaFixa,
@@ -6856,7 +6892,13 @@ export class AdminController {
             metodoPagamento: t.paymentMethod ?? null,
             descricao: (t.description ?? '').replace(/\s*\[TENANT:[^\]]+\]/gi, '').trim(),
             cliente: { nome: t.customerName ?? null, email: t.customerEmail ?? null, documento: t.customerDocument ?? null },
-            taxas: { total: Number(t.totalFee), dom: Number(t.domFee), plataforma: Number(t.platformFee) },
+            taxas: isStandalonePix
+              ? {
+                total: Number((taxaDom + taxaFixa + taxaSimIntPay).toFixed(2)),
+                dom: Number((taxaDom + taxaFixa).toFixed(2)),
+                plataforma: taxaSimIntPay,
+              }
+              : { total: Number(t.totalFee), dom: Number(t.domFee), plataforma: Number(t.platformFee) },
             criadoEm: t.createdAt,
             atualizadoEm: t.updatedAt,
           };
@@ -6871,62 +6913,10 @@ export class AdminController {
       }
     }
 
-    let userIds: string[] = [];
-
-    if (upperTag === 'RENOVADA') {
-      userIds = [RENOVADA_ID];
-    } else if (upperTag === 'REVALIDA') {
-      const rid = process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
-      userIds = [rid];
-    } else if (upperTag === 'EBOOK') {
-      const users = await this.prisma.user.findMany({
-        where: {
-          OR: [
-            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
-            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
-          ],
-        },
-        select: { id: true },
-      });
-      userIds = await expandUserIdsByCpf(this.prisma, users.map((u) => u.id));
-    } else if (upperTag === 'BOSQUE') {
-      const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
-      userIds = [bid];
-    } else if (upperTag !== 'PAGATG' && upperTag !== 'CONTROLE-MOTORISTA' && upperTag !== 'CONTROLE-PATRIMONIAL' && upperTag !== 'ATLAS') {
-      const plans = await this.prisma.pixCreditPlan.findMany({
-        where: {
-          OR: [
-            { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
-            { description: { contains: upperTag, mode: 'insensitive' } },
-          ],
-        },
-        select: { userId: true, description: true },
-      });
-      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
-    }
-
-    const isBosqueDescScope = upperTag === 'BOSQUE';
-
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
 
-    // Todas as plataformas: combina userId (sistema legado) + [TENANT:TAG] (payment/subscription links)
-    const where: any =
-      isBosqueDescScope
-        ? {
-          OR: [
-            { userId: { in: userIds } },
-            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-            { description: { contains: 'bosque', mode: 'insensitive' } },
-            { description: { contains: 'ibb', mode: 'insensitive' } },
-          ],
-        }
-        : {
-          OR: [
-            ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
-            { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
-          ],
-        };
+    const where: any = await this.getPlatformTransactionScope(upperTag);
 
     const and: any[] = [];
 
@@ -7073,64 +7063,57 @@ export class AdminController {
     const data = items.map(t => {
       const valorBruto = Number(t.amount);
       const isCompleted = t.status === 'COMPLETED';
-      const installments = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
-
+      const isMaquineta = isMaquinetaDescription(t.description);
       const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : t.paymentMethod === 'BOLETO' ? 'boleto' : 'credit_card';
-      const taxaDom = isCompleted ? Number(estimateDomFeeReais({ amountReais: valorBruto, paymentMethod: pmStr, installments, tenantTag: upperTag }).toFixed(2)) : 0;
-
-      // taxaSimIntPay: calculada por método de pagamento (não mais pela LIQUIDEZ genérica)
-      let taxaSimIntPay = 0;
-      if (isCompleted) {
-        if (pmStr === 'boleto') {
-          // Boleto: taxa SimIntPay = TAXA_BOLETO_FIXA + TAXA_BOLETO_TRANSACAO (fixa por boleto). DOM já sai no taxaDom.
-          taxaSimIntPay = Number(calculateBoletoFees(valorBruto, upperTag).platformFeeTotal.toFixed(2));
-        } else if (pmStr === 'credit_card') {
-          // Parcela do vendedor (independente de parcelas): (TAXA_LINK_PERCENT - MDR_CC_1X) + (TAXA_LINK_FIXA - TAXA_FIXA_TRANSACAO)
-          const linkPct  = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-          const linkFixo = getPlatformTaxaEffective(upperTag, 'TAXA_LINK_FIXA',    PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
-          const domPct1x = getPlatformTaxaEffective(upperTag, 'MDR_CC_1X',         PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
-          const domFixo  = getPlatformTaxaEffective(upperTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-          const simSellerPct   = Math.max(0, linkPct  - domPct1x);
-          const simSellerFixed = Math.max(0, linkFixo - domFixo);
-
-          // Parcela do comprador (varia por N parcelas): MDR_CC_MASTER_{N}X
-          const masterKey = `MDR_CC_MASTER_${installments}X` as PlataformaTaxaKey;
-          const simBuyerPct = getPlatformTaxaEffective(
-            upperTag, masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0,
-          );
-
-          taxaSimIntPay = Number((valorBruto * (simSellerPct + simBuyerPct) + simSellerFixed).toFixed(2));
-        } else if (pmStr === 'debit_card') {
-          // Débito: TAXA_DEBITO_PERCENT + TAXA_DEBITO_FIXA (parcela SimIntPay)
-          const debPct  = getPlatformTaxaEffective(upperTag, 'TAXA_DEBITO_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_PERCENT);
-          const debFixo = getPlatformTaxaEffective(upperTag, 'TAXA_DEBITO_FIXA',    PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_FIXA);
-          taxaSimIntPay = Number((valorBruto * debPct + debFixo).toFixed(2));
-        } else {
-          // PIX: usa adminMargin (LIQUIDEZ)
-          taxaSimIntPay = Number((valorBruto * adminMargin).toFixed(2));
-        }
-      }
-
-      const taxaFixa = isCompleted ? Number(taxaServicoFixa.toFixed(2)) : 0;
-      const taxaCashback = isCompleted ? Number(taxaServicoCashback.toFixed(2)) : 0;
-      const taxaServico = isCompleted && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
+      const physicalDom = isCompleted && isMaquineta
+        ? estimatePhysicalDomFeeReais({
+          amountReais: valorBruto,
+          paymentMethod: t.paymentMethod,
+          installments: t.installments,
+          tenantTag: upperTag,
+          cardBrand: t.cardBrand,
+        })
+        : null;
+      // POS não registra cashback. A fixa DOM só existe para cartão/débito,
+      // conforme a tabela POS; PIX físico não paga taxa fixa.
+      const taxaFixa = isCompleted
+        ? physicalDom?.fixa ?? Number(taxaServicoFixa.toFixed(2))
+        : 0;
+      const taxaCashback = isCompleted && !isMaquineta
+        ? Number(taxaServicoCashback.toFixed(2))
+        : 0;
+      // Snapshot imutável salvo quando a venda foi criada. Recalcular com a
+      // tabela atual alterava linhas históricas e fazia tabela/cards divergirem.
+      const taxaDom = isCompleted
+        ? physicalDom ? Number(physicalDom.pct.toFixed(2)) : Number(t.domFee ?? 0)
+        : 0;
+      const taxaSimIntPay = isCompleted
+        ? Number(t.platformFee ?? 0)
+        : 0;
+      // Taxa de serviço é venda online. Maquineta já cobra somente a taxa POS
+      // persistida em platformFee.
+      const taxaServico = isCompleted && !isMaquineta && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
         ? Number(taxaServicoRate.toFixed(2))
         : 0;
-      const lucroPrejuizo = isCompleted ? Number((taxaSimIntPay - taxaDom - taxaFixa - taxaCashback).toFixed(2)) : 0;
+      const lucroPrejuizo = isCompleted
+        ? Number((taxaSimIntPay + taxaServico - taxaDom - taxaFixa - taxaCashback).toFixed(2))
+        : 0;
 
-      const cashbackDeduction = valorBruto * (cashbackFee / 100);
+      const cashbackDeduction = isMaquineta ? 0 : valorBruto * (cashbackFee / 100);
       const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
       // lucroAdmin = taxaSimIntPay (receita SimIntPay) - custo DOM - cashback repassado.
       // No boleto o custo DOM é o taxaDom (3,49+1), não o fixo do PIX.
-      const custoDomLucro = pmStr === 'boleto' ? taxaDom : fixedFee;
+      const custoDomLucro = isMaquineta || pmStr === 'boleto' ? taxaDom + taxaFixa : fixedFee;
       const lucroAdmin = isCompleted ? Number((taxaSimIntPay - custoDomLucro - cashbackDeduction).toFixed(2)) : 0;
       const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
       // Alguns registros antigos/com erro ficaram COMPLETED com netAmount=0.
       // Nesses casos, exibimos o líquido calculado pela liquidez da plataforma.
       const valorLiquidoBase = isCompleted && (netFromDb == null || netFromDb <= 0)
-        ? fallbackNet
+        ? isMaquineta
+          ? Number((valorBruto - taxaSimIntPay).toFixed(2))
+          : fallbackNet
         : (netFromDb ?? fallbackNet);
-      const taxaServicoTotal = taxaServicoFixa + taxaServicoCashback;
+      const taxaServicoTotal = isMaquineta ? 0 : taxaServicoFixa + taxaServicoCashback;
       const valorLiquido = Number((valorLiquidoBase - taxaServicoTotal).toFixed(2));
 
       let reconciledCustomerName = t.customerName ?? null;
@@ -7190,11 +7173,17 @@ export class AdminController {
           email: reconciledCustomerEmail,
           documento: reconciledCustomerDocument,
         },
-        taxas: {
-          total: Number(t.totalFee),
-          dom: Number(t.domFee),
-          plataforma: Number(t.platformFee),
-        },
+        taxas: isMaquineta
+          ? {
+            total: Number((taxaDom + taxaFixa + taxaSimIntPay).toFixed(2)),
+            dom: Number((taxaDom + taxaFixa).toFixed(2)),
+            plataforma: taxaSimIntPay,
+          }
+          : {
+            total: Number(t.totalFee),
+            dom: Number(t.domFee),
+            plataforma: Number(t.platformFee),
+          },
         criadoEm: t.createdAt,
         atualizadoEm: t.updatedAt,
       };
@@ -7533,68 +7522,13 @@ export class AdminController {
     @Query('endDate') endDate?: string,
   ) {
     const atlasUserId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-
     const effectiveStart = startDate ?? dayjs().tz(TZ).startOf('month').format('YYYY-MM-DD');
-    // Mesmo escopo da listagem (/plataformas/atlas/transacoes): userId OU [TENANT:ATLAS].
-    // Só userId deixava de fora vendas marcadas com a tag feitas por outras contas —
-    // a listagem mostrava as transações e os cards ficavam zerados.
-    const where: any = {
-      status: 'COMPLETED',
-      OR: [
-        ...(atlasUserId ? [{ userId: atlasUserId }] : []),
-        { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
-      ],
-    };
-    where.createdAt = { gte: parseYmdSp(effectiveStart).startOf('day').toDate() };
-    if (endDate) {
-      where.createdAt.lte = parseYmdSp(endDate).endOf('day').toDate();
-    }
+    // Os cards financeiros comuns são calculados pelo mesmo caminho de todas
+    // as plataformas. Este endpoint só acrescenta dados próprios do Atlas.
+    const cards = await this.getPlataformaConsolidado('ATLAS', effectiveStart, endDate, undefined, true);
+    if ('error' in cards) throw new Error(cards.error);
 
-    const txs = await this.prisma.transaction.findMany({
-      where,
-      select: { amount: true, paymentMethod: true, installments: true, netAmount: true, createdAt: true },
-    });
-
-    const qtdTransacoes = txs.length;
-    const receitaTotalAtlas = txs.reduce((s, t) => s + Number(t.amount), 0);
-
-    // Repasse direto (igual aos demais painéis): Σ (netAmount − taxa de serviço). Atlas não tem maquineta.
-    const ATLAS_SVC_RATE = TAGS_SEM_TAXA_SERVICO.has('ATLAS') ? 0 : getPlatformTaxaEffective('ATLAS', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-    const ATLAS_SVC_DATE = getTaxaServicoEffectiveDate('ATLAS');
-    const totalRepasse = txs.reduce((s, t) => {
-      const netBase = Number(t.netAmount ?? t.amount);
-      const svc = ATLAS_SVC_RATE > 0 && t.createdAt != null && t.createdAt >= ATLAS_SVC_DATE ? ATLAS_SVC_RATE : 0;
-      return s + (netBase - svc);
-    }, 0);
-
-    const LIQUIDEZ        = getPlatformTaxaEffective('ATLAS', 'LIQUIDEZ',           PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
-    const TAXA_LINK_PCT   = getPlatformTaxaEffective('ATLAS', 'TAXA_LINK_PERCENT',   PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-    const TAXA_LINK_FIXA  = getPlatformTaxaEffective('ATLAS', 'TAXA_LINK_FIXA',      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
-    const TAXA_FIXA       = getPlatformTaxaEffective('ATLAS', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-    const TAXA_CASHBACK   = getPlatformTaxaEffective('ATLAS', 'TAXA_CASHBACK',       PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
     const TAXA_SAQUE_FIXA = getPlatformTaxaEffective('ATLAS', 'TAXA_SAQUE_FIXA',     PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA);
-
-    const isCardPm = (pm: string) => { const p = String(pm ?? '').toUpperCase(); return p.includes('CARD') || p.includes('CREDIT') || p.includes('DEBIT'); };
-
-    // PIX: cobrado pelo % de liquidez + taxa fixa+cashback.
-    // Cartão: vendedor paga TAXA_LINK_PERCENT+TAXA_LINK_FIXA (1x sem acréscimo ao comprador;
-    //         para 2x+ o comprador absorve o custo de parcelas via surcharge configurado).
-    const taxaSimInt = txs.reduce((s, t) => {
-      const amount = Number(t.amount);
-      return s + (isCardPm(t.paymentMethod)
-        ? amount * TAXA_LINK_PCT + TAXA_LINK_FIXA
-        : amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK);
-    }, 0);
-
-    const taxaMDRDom = txs.reduce((s, t) => s + estimateDomFeeReais({
-      amountReais: Number(t.amount),
-      paymentMethod: t.paymentMethod,
-      installments: t.installments,
-      tenantTag: 'ATLAS',
-    }), 0);
-
-    const taxaAdquirente = TAXA_FIXA * qtdTransacoes;
-    const custoCashback  = TAXA_CASHBACK * qtdTransacoes;
 
     const atlasBaseUrl = String(process.env.ATLAS_HOSTING_URL ?? '').replace(/\/+$/, '');
     const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN ?? '';
@@ -7629,14 +7563,14 @@ export class AdminController {
     const qtdSaquesAprovados = atlasData?.withdrawals.approvedInPeriodCount ?? 0;
     const lucroSimpayDeSaque = qtdSaquesAprovados * TAXA_SAQUE_FIXA;
 
-    const receitaLiquidaSimintpay = taxaSimInt - taxaAdquirente - custoCashback + lucroSimpayDeSaque - taxaMDRDom;
+    const receitaLiquidaSimintpay = cards.taxaSimIntPctNet + lucroSimpayDeSaque;
     const lucroLiquidoDominio = (atlasData?.domains.totalRevenue ?? 0) - custoDominio;
     const lucroLiquidoVps = (atlasData?.vps.totalRevenue ?? 0) - custoHospedagem;
 
     const receitaBrutaAtlas = (atlasData?.domains.totalRevenue ?? 0) + (atlasData?.vps.totalRevenue ?? 0);
-    const receitaLiquidaAtlas = receitaBrutaAtlas - taxaSimInt - custoDominio - custoHospedagem - custoAfiliadoPeriodo;
+    const receitaLiquidaAtlas = receitaBrutaAtlas - cards.totalTaxasSimInt - custoDominio - custoHospedagem - custoAfiliadoPeriodo;
 
-    const roiSimintpay = receitaTotalAtlas > 0 ? (receitaLiquidaSimintpay / receitaTotalAtlas) * 100 : 0;
+    const roiSimintpay = cards.receitaTotal > 0 ? (receitaLiquidaSimintpay / cards.receitaTotal) * 100 : 0;
     const roiDominios = (atlasData?.domains.totalRevenue ?? 0) > 0 ? (lucroLiquidoDominio / atlasData!.domains.totalRevenue) * 100 : 0;
     const roiHospedagem = (atlasData?.vps.totalRevenue ?? 0) > 0 ? (lucroLiquidoVps / atlasData!.vps.totalRevenue) * 100 : 0;
     const roiAtlas = receitaBrutaAtlas > 0 ? (receitaLiquidaAtlas / receitaBrutaAtlas) * 100 : 0;
@@ -7653,40 +7587,13 @@ export class AdminController {
       }),
     ]);
 
-    const totalTaxasDom     = taxaMDRDom + taxaAdquirente + custoCashback;
-    const taxaSimIntPctNet  = (taxaSimInt - TAXA_LINK_FIXA * qtdTransacoes) - taxaMDRDom;
-    const taxaSimIntFixa    = TAXA_LINK_FIXA * qtdTransacoes;
-    const totalTaxasSimInt  = taxaSimInt - taxaMDRDom;
-
-    // Parcelamento: apenas transações de cartão de crédito (exclui débito e PIX)
-    let atlasParcelamentoBruto = 0;
-    let atlasParcelamentoSimIntPay = 0;
-    for (const t of txs) {
-      const pm = String(t.paymentMethod ?? '').toLowerCase();
-      if (!pm.includes('credit')) continue;
-      const amount = Number(t.amount);
-      const inst = Math.min(Math.max(Number(t.installments ?? 1) || 1, 1), 12);
-      const domFee = estimateDomFeeReais({ amountReais: amount, paymentMethod: t.paymentMethod, installments: inst, tenantTag: 'ATLAS' });
-      const masterKey = `MDR_CC_MASTER_${inst}X` as PlataformaTaxaKey;
-      const masterRate = getPlatformTaxaEffective('ATLAS', masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0);
-      atlasParcelamentoBruto += domFee + amount * masterRate;
-      atlasParcelamentoSimIntPay += amount * masterRate;
-    }
-
     return {
-      taxaDomPct: taxaMDRDom,
-      taxaDomFixa: taxaAdquirente,
-      taxaDomCashback: custoCashback,
-      totalTaxasDom,
-      taxaSimIntPctNet,
-      taxaSimIntFixa,
-      totalTaxasSimInt,
-      taxaParcelamentoBruto: Math.round(atlasParcelamentoBruto * 100) / 100,
-      taxaParcelamentoSimIntPay: Math.round(atlasParcelamentoSimIntPay * 100) / 100,
-      taxaSimInt,
-      taxaAdquirente,
-      taxaMDRDom,
-      custoCashback,
+      ...cards,
+      // Aliases legados consumidos pelos cards extras do Atlas.
+      taxaSimInt: cards.taxaSimIntPctBruta,
+      taxaAdquirente: cards.taxaDomFixa,
+      taxaMDRDom: cards.taxaDomPct,
+      custoCashback: cards.taxaDomCashback,
       custoDominio,
       custoHospedagem,
       receitaLiquidaSimintpay,
@@ -7703,10 +7610,7 @@ export class AdminController {
       roiAtlas,
       estornoCount,
       chargebackCount,
-      receitaTotalAtlas,
-      // Repasse correto (soma direta do líquido de cada tx) — o front deve usar ESTE campo.
-      totalRepasse: Math.round(totalRepasse * 100) / 100,
-      qtdTransacoes,
+      receitaTotalAtlas: cards.receitaTotal,
       domainCount: atlasData?.domains.count ?? 0,
       vpsCount: atlasData?.vps.count ?? 0,
       atlasApiAvailable: atlasData !== null,
@@ -7726,37 +7630,29 @@ export class AdminController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('metodoPagamento') metodoPagamento?: string,
+    allowAtlasInternally = false,
   ) {
     const tag = normalizePlatformTag(tagParam ?? '');
-    if (!tag || tag === 'ATLAS') {
+    if (!tag || (tag === 'ATLAS' && !allowAtlasInternally)) {
       return { error: 'Use /admin/relatorios/atlas-consolidado for ATLAS' };
     }
 
     const effectiveStart = startDate ?? dayjs().tz(TZ).startOf('month').format('YYYY-MM-DD');
-    const dateFilter: Prisma.DateTimeFilter = {};
-    dateFilter.gte = parseYmdSp(effectiveStart).startOf('day').toDate();
-    if (endDate) dateFilter.lte = parseYmdSp(endDate).endOf('day').toDate();
-    const hasDate = true;
 
     // Nenhuma plataforma é isenta dos fees por transação. BOSQUE era isenta aqui, o que zerava
     // "Taxa por Transação - DOM", "Taxa Cashback - DOM" e deixava "Taxa - Sim Int Pay (%)" sem
     // descontar o MDR da DOM. Agora BOSQUE segue exatamente a mesma conta da RENOVADA:
     // DOM cobra R$1 fixo + R$3 cashback por transação e a SimInt repassa esses mesmos R$4.
-    const TAXA_LINK_PCT  = getPlatformTaxaEffective(tag, 'TAXA_LINK_PERCENT',   PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-    const TAXA_LINK_FIXA = getPlatformTaxaEffective(tag, 'TAXA_LINK_FIXA',      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
     const TAXA_FIXA      = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
     const TAXA_CASHBACK  = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK',       PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
     const LIQUIDEZ       = getPlatformTaxaEffective(tag, 'LIQUIDEZ',            PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+    const TAXA_LINK_PERCENT = getPlatformTaxaEffective(tag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
+    const TAXA_LINK_FIXA = getPlatformTaxaEffective(tag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
     // Taxa de serviço (R$4/tx) — usada no repasse direto (app: netAmount − taxaServico = amountWithoutAllFee).
     const TAXA_SERVICO_RATE = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
     const TAXA_SERVICO_DATE = getTaxaServicoEffectiveDate(tag);
 
-    const isCardPm = (pm: string) => {
-      const p = String(pm ?? '').toUpperCase();
-      return p.includes('CARD') || p.includes('CREDIT') || p.includes('DEBIT');
-    };
-
-    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; createdAt?: Date | null; cardBrand?: string | null }[]) => {
+    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; mdrValue?: unknown; platformFee?: unknown; createdAt?: Date | null; cardBrand?: string | null; acquirer?: string; isStandalone?: boolean }[]) => {
       const qtd = txs.length;
       // Maquineta liquida por modelo próprio (netAmount = líquido pós-MDR × 0,91; 9% TAXA_MAQUINETA).
       // Recalcular como cartão-link infla o repasse ~9% (a maquineta aparecia quase pelo bruto cheio).
@@ -7769,39 +7665,89 @@ export class AdminController {
       const maqTxs = txs.filter(isMaq);
       const qtdNormal = normalTxs.length;
 
-      // ── REPASSE DIRETO — soma o líquido real de cada transação, igual ao admin. ──
-      // Evita a fórmula frágil "bruto − totalTaxasSimInt", que devolvia o MDR da DOM ao repasse.
-      //   app/link : netAmount − taxa de serviço  (= amountWithoutAllFee do internal-renovada-finance)
-      //   maquineta: netAmount                     (= profit_minus_tax da página de Máquinas)
-      const totalRepasse = txs.reduce((s, t) => {
-        if (isMaq(t)) return s + Number(t.netAmount ?? 0);
-        const netBase = Number(t.netAmount ?? t.amount);
-        const svc = TAXA_SERVICO_RATE > 0 && t.createdAt != null && t.createdAt >= TAXA_SERVICO_DATE ? TAXA_SERVICO_RATE : 0;
-        return s + (netBase - svc);
-      }, 0);
+      // A criação de uma assinatura de workspace Teron registra a tentativa
+      // antes da DOM confirmar a cobrança. Esses registros legados têm os
+      // campos de taxas em zero, apesar de a mesma venda aparecer detalhada na
+      // listagem da DOM. Zero é válido em links standalone, por isso este
+      // fallback é limitado ao contrato Teron pago por cartão.
+      const isTeronWorkspaceCardWithoutFeeSnapshot = (t: (typeof normalTxs)[number]) => {
+        const paymentMethod = String(t.paymentMethod ?? '').toLowerCase();
+        const isCard = paymentMethod.includes('card') || paymentMethod.includes('credit');
+        return isCard
+          && /\[TENANT:TERON\]/i.test(t.description ?? '')
+          && Number(t.platformFee ?? 0) === 0;
+      };
 
       // ── Transações normais (app/link): fórmula por método de pagamento ──
-      const taxaSimInt = normalTxs.reduce((s, t) => {
+      const taxaSimIntDaTransacao = (t: (typeof normalTxs)[number]) => {
         const amount = Number(t.amount);
-        return s + (isCardPm(t.paymentMethod)
-          ? amount * TAXA_LINK_PCT + TAXA_LINK_FIXA
-          : amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK);
+        const reportedPlatformFee = Number(t.platformFee);
+        if (Number.isFinite(reportedPlatformFee) && !isTeronWorkspaceCardWithoutFeeSnapshot(t)) {
+          return Number(reportedPlatformFee.toFixed(2));
+        }
+        if (isTeronWorkspaceCardWithoutFeeSnapshot(t)) {
+          return Number((amount * TAXA_LINK_PERCENT + TAXA_LINK_FIXA).toFixed(2));
+        }
+        // Mesma regra por linha de GET /admin/transacoes-dom. O valor bruto é
+        // fornecido pela DOM; LIQUIDEZ é a fonte canônica da parcela percentual.
+        return Number((amount * (1 - LIQUIDEZ) + TAXA_FIXA + TAXA_CASHBACK).toFixed(2));
+      };
+      // A tabela mostra cada taxa em centavos. Esta soma usa o mesmo valor.
+      const taxaSimInt = normalTxs.reduce(
+        (s, t) => s + taxaSimIntDaTransacao(t),
+        0,
+      );
+      // A taxa fixa da Sim Int Pay precisa ser calculada uma única vez por
+      // transação. Ela alimenta tanto o card de taxas quanto o repasse, para
+      // manter a identidade: repasse = faturamento − taxas Sim Int Pay.
+      const taxaServicoSimIntDaTransacao = (t: (typeof normalTxs)[number]) => (
+        t.isStandalone || TAXA_SERVICO_RATE <= 0 || t.createdAt == null || t.createdAt < TAXA_SERVICO_DATE
+          ? 0
+          : TAXA_SERVICO_RATE
+      );
+      // Repasse = receita − taxa Sim Int Pay. Custos DOM (MDR, fixo e
+      // cashback) são despesas da plataforma e nunca reduzem o repasse.
+      const totalRepasseNormal = normalTxs.reduce(
+        (s, t) => s + Number(t.amount) - taxaSimIntDaTransacao(t) - taxaServicoSimIntDaTransacao(t),
+        0,
+      );
+      // Arredonda por transação, antes do acumulado. A tabela também mostra a
+      // taxa de cada transação em centavos; arredondar apenas o total criava
+      // divergência entre a soma visível (ex.: R$ 4,72) e o card (R$ 4,70).
+      const taxaMDRDomNormal = normalTxs.reduce((s, t) => {
+        // Relatório e tabela devem usar o mesmo snapshot persistido da venda.
+        // Estimar com a taxa atual fazia o card apresentar uma MDR que não
+        // existe na linha (domFee=0), especialmente em transações históricas.
+        // A única exceção são cobranças Teron de workspace cujo fluxo antigo
+        // não persistia snapshot algum; a tabela DOM já expõe esse MDR.
+        const domFee = isTeronWorkspaceCardWithoutFeeSnapshot(t)
+          ? estimateDomFeeReais({
+            amountReais: Number(t.amount),
+            paymentMethod: t.paymentMethod,
+            installments: t.installments,
+            tenantTag: tag,
+          })
+          : Number(t.domFee ?? 0);
+        return s + Number(domFee.toFixed(2));
       }, 0);
-      const taxaMDRDomNormal = normalTxs.reduce((s, t) => s + estimateDomFeeReais({
-        amountReais: Number(t.amount),
-        paymentMethod: t.paymentMethod,
-        installments: t.installments,
-        tenantTag: tag,
-      }), 0);
       // Cashback (R$3): a DOM NÃO cobra em maquineta (o cliente não consegue registrar os dados
       // pra receber o bônus nesse fluxo) — só entra nas transações normais.
-      const custoCashback  = TAXA_CASHBACK * qtdNormal;
-      // taxaSimIntFixa = per-tx fee que SimInt repassa à DOM (R$1 fixo + R$3 cashback por transação).
-      // Só para transações normais — maquineta não tem esse fee fixo.
-      const taxaSimIntFixa = (TAXA_FIXA + TAXA_CASHBACK) * qtdNormal;
-      // SimIntPay % = margem de liquidez líquida: desconta o fee fixo repassado à DOM e o MDR DOM.
-      const taxaSimIntPctNetNormal = (taxaSimInt - taxaSimIntFixa) - taxaMDRDomNormal;
-      const totalTaxasSimIntNormal = taxaSimInt - taxaMDRDomNormal;
+      const custoCashback = normalTxs.reduce(
+        (sum, tx) => sum + (tx.isStandalone ? 0 : TAXA_CASHBACK),
+        0,
+      );
+      // `platformFee` é a taxa percentual Sim Int Pay persistida na venda.
+      // TAXA_FIXA e TAXA_CASHBACK são custos DOM. A taxa fixa Sim Int Pay é
+      // somente TAXA_SERVICO, configurável por plataforma e válida após sua
+      // data de início. Somar R$1 + R$3 como receita Sim Int Pay fazia as
+      // linhas e os cards divergirem — sobretudo no histórico.
+      const taxaSimIntFixa = normalTxs.reduce(
+        (sum, tx) => sum + taxaServicoSimIntDaTransacao(tx),
+        0,
+      );
+      const taxaDomFixaNormal = TAXA_FIXA * qtdNormal;
+      const totalTaxasSimIntNormal = taxaSimInt + taxaSimIntFixa;
+      const taxaSimIntPctNetNormal = totalTaxasSimIntNormal - taxaMDRDomNormal - taxaDomFixaNormal - custoCashback;
 
       // ── Maquineta (venda física / POS) ────────────────────────────────────────────────
       // Modelo: o cliente só perde a taxa Sim Int Pay; o custo DOM sai da margem da casa.
@@ -7829,15 +7775,29 @@ export class AdminController {
       const maqDom = maqDomSplit.pct + maqDomSplit.fixa;
       const totalTaxasSimIntMaq = maqBruto - maqNet;
       const taxaSimIntPctNetMaq = totalTaxasSimIntMaq - maqDom;
+      const totalRepasse = totalRepasseNormal + maqNet;
+      // Receita e repasse precisam ter exatamente a mesma população de
+      // transações. O frontend usa este valor, em vez do consolidado global,
+      // para não misturar filtros/períodos de endpoints distintos.
+      const receitaTotal = normalTxs.reduce((sum, tx) => sum + Number(tx.amount), 0) + maqBruto;
 
-      // ── Combinado (normais + maquineta) ──
-      // taxaAdquirente = R$1 por transação: nas normais é TAXA_FIXA; na maquineta vem da
-      // tabela física (POS_TAXA_DOM_FIXA, cobrado só em débito/crédito — PIX físico não paga).
-      const taxaAdquirente   = TAXA_FIXA * qtdNormal + maqDomSplit.fixa;
-      const taxaMDRDom       = taxaMDRDomNormal + maqDomSplit.pct;
-      const totalTaxasDom    = taxaMDRDom + taxaAdquirente + custoCashback;
-      const taxaSimIntPctNet = taxaSimIntPctNetNormal + taxaSimIntPctNetMaq;
-      const totalTaxasSimInt = totalTaxasSimIntNormal + totalTaxasSimIntMaq;
+      // ── Vendas online ────────────────────────────────────────────────────────────────
+      // Os cards de Taxas DOM e Taxas Sim Int Pay representam vendas online.
+      // POS possui seção própria e não pode ser somado aqui: cashback e taxa
+      // fixa têm regras diferentes em venda física.
+      const taxaAdquirente = taxaDomFixaNormal;
+      const taxaMDRDom = taxaMDRDomNormal;
+      const totalTaxasDom = taxaMDRDom + taxaAdquirente + custoCashback;
+      const taxaSimIntPctBruta = taxaSimInt;
+      const totalTaxasSimInt = totalTaxasSimIntNormal;
+      const taxaSimIntPctNet = taxaSimIntPctNetNormal;
+
+      // Totais explícitos para visões que abrangem todos os canais. Receita
+      // total − repasse total deve fechar com estes valores, não apenas com os
+      // cards de vendas online.
+      const taxaSimIntPctGeral = taxaSimInt + totalTaxasSimIntMaq;
+      const totalTaxasSimIntGeral = totalTaxasSimIntNormal + totalTaxasSimIntMaq;
+      const totalTaxasDomGeral = totalTaxasDom + maqDom;
 
       // Parcelamento não existe no app da Renovada nem no da Bosque (só à vista/PIX) —
       // cálculo desativado, cards sempre zerados no front. Código original preservado
@@ -7877,9 +7837,15 @@ export class AdminController {
         taxaDomFixa: Math.round(taxaAdquirente * 100) / 100,
         taxaDomCashback: Math.round(custoCashback * 100) / 100,
         totalTaxasDom: Math.round(totalTaxasDom * 100) / 100,
+        taxaSimIntPctBruta: Math.round(taxaSimIntPctBruta * 100) / 100,
         taxaSimIntPctNet: Math.round(taxaSimIntPctNet * 100) / 100,
         taxaSimIntFixa: Math.round(taxaSimIntFixa * 100) / 100,
         totalTaxasSimInt: Math.round(totalTaxasSimInt * 100) / 100,
+        /** Taxas Sim Int Pay de online + POS; usar em totais financeiros globais. */
+        taxaSimIntPctGeral: Math.round(taxaSimIntPctGeral * 100) / 100,
+        totalTaxasSimIntGeral: Math.round(totalTaxasSimIntGeral * 100) / 100,
+        /** Custos DOM de online + POS; não é o total da seção de vendas online. */
+        totalTaxasDomGeral: Math.round(totalTaxasDomGeral * 100) / 100,
         taxaParcelamentoBruto: Math.round(taxaParcelamentoBruto * 100) / 100,
         taxaParcelamentoSimIntPay: Math.round(taxaParcelamentoSimIntPay * 100) / 100,
         /** Bruto das vendas no crédito (base do parcelamento). */
@@ -7887,10 +7853,14 @@ export class AdminController {
         /** Repasse ao cliente nessas mesmas vendas. */
         parcRepasse: Math.round(parcRepasse * 100) / 100,
         qtdTransacoes: qtd,
+        /** Receita bruta da mesma população usada para calcular o repasse. */
+        receitaTotal: Math.round(receitaTotal * 100) / 100,
         // Repasse correto (soma direta do líquido de cada tx) — o front deve usar ESTE campo.
         totalRepasse: Math.round(totalRepasse * 100) / 100,
         // ── Maquineta (venda física) — alimenta a seção "Maquinetas" do relatório ──
-        _v: 'repasse-direto-v4-pos',
+        // Identifica a versão do cálculo no payload para distinguir processos
+        // ainda rodando código anterior após a atualização do backend.
+        _v: 'dom-direct-v1',
         qtdMaquineta: maqTxs.length,
         /** Bruto que passou nas maquinetas. */
         maqBruto: Math.round(maqBruto * 100) / 100,
@@ -7903,75 +7873,119 @@ export class AdminController {
       };
     };
 
-    // All other platforms: query transaction table
-    let userIds: string[] = [];
-    let extraAnd: any[] = [];
+    const localTransactions = await this.findLocalPlatformReportTransactions(
+      tag,
+      effectiveStart,
+      endDate,
+      metodoPagamento,
+    );
+    const txs: Parameters<typeof computeBreakdown>[0] = localTransactions.map((tx) => ({
+      amount: tx.amount,
+      paymentMethod: tx.paymentMethod,
+      installments: tx.installments,
+      createdAt: tx.createdAt,
+      description: tx.description,
+      netAmount: tx.netAmount,
+      // Snapshot local imutável. A tabela de transações e os cards passam a
+      // somar a mesma cópia, independente da adquirente de origem.
+      domFee: tx.domFee,
+      platformFee: tx.platformFee,
+      cardBrand: tx.cardBrand,
+      acquirer: tx.acquirer,
+    }));
 
-    if (tag === 'RENOVADA') {
-      const rid = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-      userIds = [rid];
-      extraAnd.push({
-        OR: [
-          { description: { contains: 'dizimo', mode: 'insensitive' } },
-          { description: { contains: 'dízimo', mode: 'insensitive' } },
-          { description: { contains: 'primicia', mode: 'insensitive' } },
-          { description: { contains: 'primícia', mode: 'insensitive' } },
-          { description: { contains: 'oferta', mode: 'insensitive' } },
-          { description: { contains: 'maquineta', mode: 'insensitive' } },
-          { description: { contains: 'terminal', mode: 'insensitive' } },
-        ],
-      });
-    } else if (tag === 'BOSQUE') {
-      const bid = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
-      userIds = [bid];
-    } else if (tag === 'REVALIDA') {
-      const rid = await resolveBySlugOrEnv(this.prisma, 'REVALIDA_USER_ID', ['revalida'], REVALIDA_CONSOLIDADO_USER_ID);
-      if (rid) userIds = [rid];
-    } else if (tag === 'EBOOK' || tag === 'EBOOKSIM') {
-      const users = await this.prisma.user.findMany({
-        where: { OR: [{ tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } }, { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } }] },
+    // Assinaturas de comunidade anteriores ao webhook possuem somente a ordem
+    // local. Incluí-las até a réplica Transaction existir; quando o webhook já
+    // criou a réplica (subOrder=<id>), ela continua sendo a fonte única.
+    // Atlas não é comunidade. Suas vendas vêm exclusivamente do ledger
+    // transacional compartilhado com a tabela do produto.
+    const community = tag === 'ATLAS'
+      ? null
+      : await this.prisma.community.findUnique({
+        where: { slug: tag.toLowerCase() },
         select: { id: true },
       });
-      userIds = users.map((u) => u.id);
-    } else if (tag === 'AREAFLIX') {
-      const aid = await resolveBySlugOrEnv(this.prisma, 'AREAFLIX_USER_ID', ['areaflix'], AREAFLIX_CONSOLIDADO_FALLBACK_ID);
-      if (aid) userIds = [aid];
-    } else if (tag === 'PAGATG') {
-      const pid = await resolveBySlugOrEnv(this.prisma, 'PAGATG_USER_ID', ['pagatg']);
-      if (pid) userIds = [pid];
-    } else {
-      // BETAI, CONTROLE-MOTORISTA, CONTROLE-PATRIMONIAL, and future platforms
-      const users = await this.prisma.user.findMany({
-        where: { tenantModule: { slug: { equals: tag.toLowerCase(), mode: 'insensitive' } } },
-        select: { id: true },
+    if (community) {
+      const bindings = await this.prisma.communityLinkBinding.findMany({
+        where: { communityId: community.id, subscriptionLinkId: { not: null } },
+        select: { subscriptionLinkId: true, subscriptionLink: { select: { isStandalone: true } } },
+        distinct: ['subscriptionLinkId'],
       });
-      userIds = users.map((u) => u.id);
+      const linkIds = bindings.flatMap((binding) => binding.subscriptionLinkId ? [binding.subscriptionLinkId] : []);
+      const createdAt: Prisma.DateTimeFilter = {
+        gte: parseYmdSp(effectiveStart).startOf('day').toDate(),
+      };
+      if (endDate) createdAt.lte = parseYmdSp(endDate).endOf('day').toDate();
+      const orders = linkIds.length
+        ? await this.prisma.subscriptionLinkOrder.findMany({
+          where: {
+            subscriptionLinkId: { in: linkIds },
+            status: 'paid',
+            createdAt,
+            ...(metodoPagamento ? { paymentMethod: metodoPagamento as any } : {}),
+          },
+          select: { id: true, subscriptionLinkId: true, amountCharged: true, platformFeeAmount: true, paymentMethod: true, createdAt: true },
+        })
+        : [];
+      const replicatedOrderIds = new Set(
+        localTransactions.flatMap((tx) => {
+          const match = tx.description?.match(/subOrder=([^\s\]]+)/i);
+          return match ? [match[1]] : [];
+        }),
+      );
+      const standaloneByLinkId = new Map(
+        bindings.flatMap((binding) => binding.subscriptionLinkId
+          ? [[binding.subscriptionLinkId, binding.subscriptionLink?.isStandalone === true] as const]
+          : []),
+      );
+      const orderById = new Map(orders.map((order) => [order.id, order]));
+      for (const tx of txs) {
+        const orderId = tx.description?.match(/subOrder=([^\s\]]+)/i)?.[1];
+        if (!orderId) continue;
+        const order = orderById.get(orderId);
+        if (!order || !standaloneByLinkId.get(order.subscriptionLinkId) || tx.paymentMethod !== 'PIX') continue;
+        const amount = Number(tx.amount);
+        const domFee = Number(estimateDomFeeReais({
+          amountReais: amount,
+          paymentMethod: tx.paymentMethod,
+          installments: tx.installments,
+          tenantTag: tag,
+        }).toFixed(2));
+        tx.isStandalone = true;
+        tx.platformFee = Number(order.platformFeeAmount);
+        tx.domFee = domFee;
+        tx.netAmount = Number((amount - Number(order.platformFeeAmount)).toFixed(2));
+      }
+      const percentual = 1 - LIQUIDEZ;
+      for (const order of orders) {
+        if (replicatedOrderIds.has(order.id)) continue;
+        const amount = Number(order.amountCharged);
+        const isStandalone = standaloneByLinkId.get(order.subscriptionLinkId) === true && order.paymentMethod === 'PIX';
+        const percentualFee = Number((amount * percentual).toFixed(2));
+        const platformFee = isStandalone
+          ? Number(order.platformFeeAmount)
+          : Number((percentualFee + TAXA_FIXA + TAXA_CASHBACK).toFixed(2));
+        const domFee = Number(estimateDomFeeReais({
+          amountReais: amount,
+          paymentMethod: order.paymentMethod,
+          installments: 1,
+          tenantTag: tag,
+        }).toFixed(2));
+        txs.push({
+          amount,
+          paymentMethod: order.paymentMethod,
+          installments: 1,
+          createdAt: order.createdAt,
+          description: `[TENANT:${tag}] subOrder=${order.id}`,
+          netAmount: Number((amount - platformFee).toFixed(2)),
+          domFee,
+          platformFee,
+          cardBrand: null,
+          acquirer: 'DOM',
+          isStandalone,
+        });
+      }
     }
-
-    const orScope = tag === 'BOSQUE'
-      ? [
-          ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
-          { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-          { description: { contains: 'bosque', mode: 'insensitive' } },
-          { description: { contains: 'ibb', mode: 'insensitive' } },
-        ]
-      : [
-          ...(userIds.length > 0 ? [{ userId: { in: userIds } }] : []),
-          { description: { contains: `[TENANT:${tag}]`, mode: 'insensitive' } },
-        ];
-
-    const where: any = {
-      status: 'COMPLETED',
-      OR: orScope,
-      ...(hasDate ? { createdAt: dateFilter } : {}),
-      ...(extraAnd.length > 0 ? { AND: extraAnd } : {}),
-      ...(metodoPagamento ? { paymentMethod: metodoPagamento } : {}),
-    };
-
-    const txs = await this.prisma.transaction.findMany({
-      where,
-      select: { amount: true, paymentMethod: true, installments: true, createdAt: true, description: true, netAmount: true, domFee: true, cardBrand: true },
-    });
 
     const breakdown = computeBreakdown(txs);
 

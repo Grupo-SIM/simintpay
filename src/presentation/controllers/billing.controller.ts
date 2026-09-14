@@ -200,6 +200,7 @@ export class BillingController {
         description: `Teron workspace (${body.quantity} integrantes)`,
         metadata: {
           platformTag: 'TERON',
+          reportingCustomerId: body.accountId,
           teronAccountId: body.accountId,
           workspaceId: body.resourceId,
         },

@@ -1185,7 +1185,7 @@ export class ApiDomClient implements IPaymentGateway {
 
   async listDomTransactions(
     domToken: string,
-    input: { page: number; limit: number; status?: string; begin_date?: string; end_date?: string },
+    input: { page: number; limit: number; status?: string; payment_method?: string; begin_date?: string; end_date?: string },
   ): Promise<DomListTransactionsOutput> {
     const url = `${this.domRealApiUrl}/transactions`;
 
@@ -1194,6 +1194,7 @@ export class ApiDomClient implements IPaymentGateway {
       page: input.page,
     };
     if (input.status) params.status = input.status;
+    if (input.payment_method) params.payment_method = input.payment_method;
     if (input.begin_date) params.begin_date = input.begin_date;
     if (input.end_date) {
       params.end_date = input.end_date;

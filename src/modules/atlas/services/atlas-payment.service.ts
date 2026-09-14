@@ -88,6 +88,10 @@ export class AtlasPaymentService {
     return `${base} ${ATLAS_HIDDEN_TAG}`;
   }
 
+  private resolveProductDescription(description: string | null | undefined): string {
+    return description?.trim() || 'HOSTING Compra Atlas Hosting';
+  }
+
   async createPaymentPix(userId: string, body: CheckoutPixDto): Promise<any> {
     try {
       this.logger.log(`📱 [ATLAS] Criando pagamento PIX para usuário ${userId}`, {
@@ -122,7 +126,8 @@ export class AtlasPaymentService {
         throw new BadRequestException('Carteira não encontrada');
       }
 
-      const internalDescription = this.buildInternalDescription(body?.description);
+      const productDescription = this.resolveProductDescription(body?.description);
+      const internalDescription = this.buildInternalDescription(productDescription);
 
       const transaction = await this.prisma.transaction.create({
         data: {
@@ -155,7 +160,7 @@ export class AtlasPaymentService {
           name: body.name,
         },
         items: {
-          description: body.description || 'Compra Atlas Hosting',
+          description: productDescription,
           price: price,
           quantity: 1,
         },
@@ -231,7 +236,8 @@ export class AtlasPaymentService {
         throw new BadRequestException('Carteira não encontrada');
       }
 
-      const internalDescription = this.buildInternalDescription(body?.description);
+      const productDescription = this.resolveProductDescription(body?.description);
+      const internalDescription = this.buildInternalDescription(productDescription);
 
       const transaction = await this.prisma.transaction.create({
         data: {
@@ -268,7 +274,7 @@ export class AtlasPaymentService {
           name: body.name,
         },
         items: {
-          description: body.description || 'Compra Atlas Hosting',
+          description: productDescription,
           price: price,
           quantity: 1,
         },

@@ -12,6 +12,7 @@ import { splitDocument } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 import { PlatformAccessService } from '../../services/platform-access.service';
 import { advanceSubscriptionPeriod } from '../../helpers/subscription-period.helper';
+import { buildBillingTransactionDescription } from '../../helpers/billing-transaction-description.helper';
 
 @Injectable()
 export class SubscriptionWebhookService {
@@ -298,13 +299,10 @@ export class SubscriptionWebhookService {
       : new Prisma.Decimal(contract.baseAmount).plus(
         new Prisma.Decimal(contract.unitAmount).times(contract.quantity),
       );
-    const metadata = contract.metadata as { platformTag?: unknown } | null;
-    const platformTag = typeof metadata?.platformTag === 'string'
-      ? metadata.platformTag.toUpperCase()
-      : 'GLOBAL';
-    const description = platformTag === 'GLOBAL'
-      ? contract.description
-      : `${contract.description ?? 'Cobrança recorrente'} [TENANT:${platformTag}]`;
+    const description = buildBillingTransactionDescription(
+      contract.description,
+      contract.metadata,
+    );
     const existing = await this.prisma.transaction.findFirst({
       where: { domPaymentId: input.domPaymentId },
       select: { id: true, status: true },

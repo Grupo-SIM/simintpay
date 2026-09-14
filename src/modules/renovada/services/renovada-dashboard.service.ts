@@ -7,6 +7,7 @@ import timezone from 'dayjs/plugin/timezone';
 import 'dayjs/locale/pt-br';
 import { RenovadaConfig } from '../renovada.config';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { summarizeRefunds } from '../../../application/helpers/refund-report.helper';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -157,9 +158,12 @@ export class PlatformDashboardService {
     let start: Date;
     let end: Date = now.toDate();
 
-    // Para EBOOK/EBOOKSIM/PAGATG: usa filtro por tag na descrição (multi-vendor), não por userId único
+    // Plataformas multi-vendor usam a tag na descrição, não um userId técnico.
     const isEbook = upperTag === 'EBOOK' || upperTag === 'EBOOKSIM';
     const isPagatg = upperTag === 'PAGATG';
+    // Controle Motorista e Controle Patrimonial não têm carteira centralizada.
+    // As transações da tela pertencem ao escopo [TENANT:CONTROLE-*].
+    const isControle = upperTag === 'CONTROLE-MOTORISTA' || upperTag === 'CONTROLE-PATRIMONIAL';
     const isAtlas = upperTag === 'ATLAS';
     const isBosque = upperTag === 'BOSQUE';
     // AREAFLIX usa sistema de ordens próprio (não Transaction table com userId centralizado)
@@ -171,7 +175,7 @@ export class PlatformDashboardService {
       'AREAFLIX', 'ATLAS', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
       'FRENDZ', 'BETAI', 'GLOBAL',
     ].includes(upperTag);
-    const isTenantTagged = isEbook || isPagatg || !isKnownFixedTag;
+    const isTenantTagged = isEbook || isPagatg || isControle || !isKnownFixedTag;
 
     const bosqueTxWhere = {
       status: TransactionStatus.COMPLETED,
@@ -357,16 +361,17 @@ export class PlatformDashboardService {
     }
 
     // 3. Estornos
-    const estornosWhere: any = isAtlas
+    // O relatório por produto usa o período da venda, igual à tabela de
+    // transações exibida logo abaixo dos cards. A transição para REFUNDED pode
+    // ocorrer meses depois e não deve retirar a venda do período selecionado.
+    const estornosWhere: Prisma.TransactionWhereInput = isAtlas
       ? {
           status: TransactionStatus.REFUNDED,
-          createdAt: { gte: start, lte: end },
           description: { contains: 'atlas', mode: 'insensitive' as const },
         }
       : isBosque
       ? {
           status: TransactionStatus.REFUNDED,
-          createdAt: { gte: start, lte: end },
           OR: [
             { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' as const } },
             { description: { contains: 'bosque', mode: 'insensitive' as const } },
@@ -375,21 +380,20 @@ export class PlatformDashboardService {
       : isAreaflix
       ? {
           status: TransactionStatus.REFUNDED,
-          createdAt: { gte: start, lte: end },
           description: { contains: 'areaflix', mode: 'insensitive' as const },
         }
       : isTenantTagged
       ? {
           status: TransactionStatus.REFUNDED,
-          createdAt: { gte: start, lte: end },
           description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const },
         }
-      : {
+      : platformId
+      ? {
           userId: platformId,
           status: TransactionStatus.REFUNDED,
-          createdAt: { gte: start, lte: end },
           ...(filter.OR ? { OR: filter.OR } : {}),
-        };
+        }
+      : { id: '__missing-platform-id__' };
     const chargebacksWhere: any = isAtlas
       ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: 'atlas', mode: 'insensitive' as const } }
       : isBosque
@@ -398,12 +402,36 @@ export class PlatformDashboardService {
       ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: 'areaflix', mode: 'insensitive' as const } }
       : isTenantTagged
       ? { status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' as const } }
-      : { userId: platformId, status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, ...(filter.OR ? { OR: filter.OR } : {}) };
+      : platformId
+      ? { userId: platformId, status: TransactionStatus.CHARGEBACK, createdAt: { gte: start, lte: end }, ...(filter.OR ? { OR: filter.OR } : {}) }
+      : { id: '__missing-platform-id__' };
 
-    const [estornosAgg, chargebacksAgg] = await Promise.all([
-      this.prisma.transaction.aggregate({ where: estornosWhere, _count: { id: true }, _sum: { netAmount: true } }),
+    const [estornoTransactions, chargebacksAgg] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where: estornosWhere,
+        select: {
+          netAmount: true,
+          createdAt: true,
+          updatedAt: true,
+          statusHistory: {
+            where: { toStatus: TransactionStatus.REFUNDED },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { createdAt: true },
+          },
+        },
+      }),
       this.prisma.transaction.aggregate({ where: chargebacksWhere, _count: { id: true }, _sum: { netAmount: true } }),
     ]);
+    const estornos = summarizeRefunds(
+      estornoTransactions.map((transaction) => ({
+        amount: transaction.netAmount,
+        createdAt: transaction.createdAt,
+        updatedAt: transaction.updatedAt,
+        statusHistory: transaction.statusHistory,
+      })),
+      { start, end, dateBasis: 'transaction' },
+    );
 
     // 4. Saques — EBOOK/PAGATG/AREAFLIX não têm saques centralizados
     const withdrawals = isTenantTagged || isAreaflix
@@ -544,8 +572,8 @@ export class PlatformDashboardService {
         }
       },
       estornos: {
-        quantidade: estornosAgg._count.id,
-        valorLiquido: Number(Number(estornosAgg._sum.netAmount || 0).toFixed(2)),
+        quantidade: estornos.quantidade,
+        valorLiquido: estornos.valor,
       },
       chargebacks: {
         quantidade: chargebacksAgg._count.id,

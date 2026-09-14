@@ -27,6 +27,7 @@ export class CheckoutCreditCardDto {
 
   @IsOptional()
   @IsString()
+  /** Atlas: `DOMAIN <domínio>` ou `HOSTING <referência>`. */
   description?: string;
 
   @IsString()
