@@ -1122,6 +1122,12 @@ type DashboardFinanceHistoricoRow = {
   taxaSaqueDom: number;
 };
 
+/**
+ * Tabela DOM de cartão por parcela. Usada apenas como fallback de `MDR_CC_{n}X`
+ * quando a plataforma não tem override no admin nem variável de ambiente própria —
+ * preserva o custo histórico em vez de cair no default 0 de PLATFORM_TAXA_DEFAULTS,
+ * que zeraria o custo e inflaria o lucro.
+ */
 const DOM_CC_RATE_BY_INSTALLMENT_ADM: Record<number, number> = {
   1: 0.0399, 2: 0.083, 3: 0.0968, 4: 0.1104, 5: 0.1237,
   6: 0.1367, 7: 0.1495, 8: 0.1621, 9: 0.1744, 10: 0.1864,
@@ -1136,7 +1142,13 @@ function mdrDomPct(paymentMethod: string, installments: number, amount: number, 
     return calculateBoletoFees(amount, tag).domFeeAmount;
   }
   if (paymentMethod === 'DEBIT_CARD') return amount * 0.0349;
-  if (paymentMethod === 'CREDIT_CARD') return amount * (DOM_CC_RATE_BY_INSTALLMENT_ADM[inst] ?? 0.0399);
+  if (paymentMethod === 'CREDIT_CARD') {
+    // Respeita a aba de taxas (override do admin → env da plataforma → global);
+    // só cai na tabela fixa acima se nenhuma dessas fontes definir a parcela.
+    const ccKey = `MDR_CC_${inst}X` as PlataformaTaxaKey;
+    const ccFallback = DOM_CC_RATE_BY_INSTALLMENT_ADM[inst] ?? 0.0399;
+    return amount * getPlatformTaxaEffective(tag, ccKey, ccFallback);
+  }
   const mdrPix = getPlatformTaxaEffective(tag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
   return amount * mdrPix;
 }
@@ -7827,8 +7839,14 @@ export class AdminController {
       const taxaSimIntPctNet = taxaSimIntPctNetNormal + taxaSimIntPctNetMaq;
       const totalTaxasSimInt = totalTaxasSimIntNormal + totalTaxasSimIntMaq;
 
-      // Parcelamento: cartão de crédito não-maquineta EM 2x OU MAIS (1x é à vista,
-      // não é parcelamento — fica de fora desta seção mesmo tendo margem própria).
+      // Parcelamento não existe no app da Renovada nem no da Bosque (só à vista/PIX) —
+      // cálculo desativado, cards sempre zerados no front. Código original preservado
+      // comentado abaixo caso o parcelamento seja habilitado nesses apps no futuro.
+      const taxaParcelamentoBruto = 0;
+      const taxaParcelamentoSimIntPay = 0;
+      const parcBruto = 0;
+      const parcRepasse = 0;
+      /*
       let taxaParcelamentoBruto = 0;
       let taxaParcelamentoSimIntPay = 0;
       // Bruto e repasse das mesmas transações, para a seção "Parcelamento" fechar a conta.
@@ -7852,6 +7870,7 @@ export class AdminController {
         taxaParcelamentoBruto += domFee + amount * masterRate;
         taxaParcelamentoSimIntPay += amount * masterRate;
       }
+      */
 
       return {
         taxaDomPct: Math.round(taxaMDRDom * 100) / 100,

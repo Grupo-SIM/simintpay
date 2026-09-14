@@ -1488,7 +1488,11 @@ export class ApiDomClient implements IPaymentGateway {
     try {
       const res = await firstValueFrom(
         this.http.post<any>(url, body, {
-          headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' },
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'x-access-token': domToken,
+            'Content-Type': 'application/json',
+          },
         }),
       );
       const id = res.data?.id ?? res.data?.data?.id;
@@ -1502,7 +1506,7 @@ export class ApiDomClient implements IPaymentGateway {
          // Se o email já existe mas não retornou o ID no erro, poderíamos tentar buscar por email se houvesse endpoint.
          // No api-dom vemos que ele tenta um GET no ID que vem no erro.
       }
-      this.logger.error(`[DOM Customer] Error creating customer: ${JSON.stringify(ax?.response?.data ?? err.message)}`);
+      this.logger.error(`[DOM Customer] Error creating customer: status=${ax?.response?.status} data=${JSON.stringify(ax?.response?.data ?? err.message)}`);
       throw err;
     }
     throw new Error('Could not create or find DOM customer');
