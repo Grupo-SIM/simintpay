@@ -53,6 +53,7 @@ model User {
   affiliateCommissionsGenerated AffiliateCommission[] @relation("AffiliateCommissionsGenerated")
   billingContracts       BillingContract[]
   returnBetAccount       ReturnBetAccount?
+  integrationMerchant    IntegrationMerchant?
 
   @@index([email])
   @@index([domUserId])
@@ -235,12 +236,51 @@ model WithdrawRequest {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   user            User           @relation(fields: [userId], references: [id])
+  integrationWebhookDeliveries IntegrationWebhookDelivery[]
 
   @@index([userId])
   @@index([status])
   @@index([createdAt])
   @@index([platform])
   @@index([acquirer])
+}
+
+/// Merchant provisioned by an authenticated server-to-server integration.
+model IntegrationMerchant {
+  id                 String   @id @default(uuid())
+  integrationKey     String
+  externalMerchantId String
+  legalName          String
+  cnpj               String
+  userId             String   @unique
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  webhookDeliveries  IntegrationWebhookDelivery[]
+
+  @@unique([integrationKey, externalMerchantId])
+  @@unique([integrationKey, cnpj])
+  @@index([integrationKey])
+}
+
+/// Durable callback delivery. Unique status snapshots make retries idempotent.
+model IntegrationWebhookDelivery {
+  id           String   @id @default(uuid())
+  merchantId   String
+  withdrawalId String
+  status       String
+  payload      Json
+  attempts     Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+  deliveredAt  DateTime?
+  lastError    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  merchant     IntegrationMerchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  withdrawal   WithdrawRequest @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+
+  @@unique([withdrawalId, status])
+  @@index([deliveredAt, nextAttemptAt])
 }
 
 model PaymentLink {
