@@ -95,7 +95,7 @@ export class InternalEbookFinanceController {
         status: 'COMPLETED',
         description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' },
       },
-      select: { netAmount: true, amount: true },
+      select: { netAmount: true, amount: true, description: true },
     });
 
     const wdCompleted = await this.prisma.withdrawRequest.aggregate({
@@ -113,7 +113,8 @@ export class InternalEbookFinanceController {
     const taxaServicoSummary = taxaFixaSummary + taxaCashbackSummary;
     const totalReceived = txCompleted.reduce((sum, tx) => {
       const net = Number(tx.netAmount ?? tx.amount ?? 0);
-      return sum + net - taxaServicoSummary;
+      const isAffiliateCommission = /\[AFFILIATE_COMMISSION\]/i.test(tx.description ?? '');
+      return sum + net - (isAffiliateCommission ? 0 : taxaServicoSummary);
     }, 0);
     const totalCompletedWithdraw = Number(wdCompleted._sum.grossAmount ?? wdCompleted._sum.amount ?? 0);
     const pendingAmount = Number(wdPending._sum.amount ?? 0);
@@ -245,10 +246,11 @@ export class InternalEbookFinanceController {
           email = best.customer_email ?? email;
         }
 
+        const isAffiliateCommission = /\[AFFILIATE_COMMISSION\]/i.test(t.description ?? '');
         const taxaFixa = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
         const taxaCashback = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
         const netBase = Number(t.netAmount ?? t.amount);
-        const taxaServico = taxaFixa + taxaCashback;
+        const taxaServico = isAffiliateCommission ? 0 : taxaFixa + taxaCashback;
 
         return {
           id: t.id,
@@ -262,8 +264,8 @@ export class InternalEbookFinanceController {
           fee: Number(t.platformFee ?? 0),
           dom_fee: Number(t.domFee ?? 0),
           payment_method: t.paymentMethod,
-          taxa_fixa_transacao: Number(taxaFixa.toFixed(2)),
-          taxa_cashback: Number(taxaCashback.toFixed(2)),
+          taxa_fixa_transacao: Number((isAffiliateCommission ? 0 : taxaFixa).toFixed(2)),
+          taxa_cashback: Number((isAffiliateCommission ? 0 : taxaCashback).toFixed(2)),
           amountWithoutAllFee: Number((netBase - taxaServico).toFixed(2)),
           walletId: null,
           createdAt: t.createdAt,
@@ -414,7 +416,59 @@ export class InternalEbookFinanceController {
     return {
       liquidez: EbookSimConfig.saque.fatorLiquidez,
       mdrPix: EbookSimConfig.mdr.pix,
+      affiliateCommissionRate: Number(
+        (getPlatformTaxaEffective('EBOOK', 'TAXA_COMISSAO_AFILIADO', PLATFORM_TAXA_DEFAULTS.TAXA_COMISSAO_AFILIADO) * 100).toFixed(2),
+      ),
     };
+  }
+
+  @Post('credit-commission')
+  async creditCommission(
+    @Body() body: {
+      referenceId: string; // ex: `AFF-<orderId>-<bookId>` — usado para idempotência
+      cpf?: string;
+      cnpj?: string;
+      amount: number;
+      description?: string;
+    },
+    @Headers('x-internal-token') internalToken?: string,
+  ) {
+    this.ensureInternalToken(internalToken);
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
+    if (!body.referenceId?.trim()) throw new BadRequestException('referenceId é obrigatório');
+
+    const doc = body.cnpj?.trim() || body.cpf?.trim();
+    if (!doc) throw new BadRequestException('cpf ou cnpj é obrigatório');
+
+    const domPaymentId = `EBOOK_AFFCOMM_${body.referenceId.trim()}`;
+    const existing = await this.prisma.transaction.findFirst({
+      where: { domPaymentId },
+      select: { id: true },
+    });
+    if (existing) return { success: true, id: existing.id, created: false };
+
+    const userIds = await this.resolveUserIdsByDocument(doc);
+    if (userIds.length === 0) {
+      throw new BadRequestException('Nenhuma conta Sim Int Pay encontrada para este CPF/CNPJ');
+    }
+
+    const description = `${body.description?.trim() || 'Comissão de afiliado'} [TENANT:EBOOK][AFFILIATE_COMMISSION]`;
+
+    const tx = await this.prisma.transaction.create({
+      data: {
+        userId: userIds[0],
+        amount,
+        netAmount: amount,
+        status: 'COMPLETED',
+        paymentMethod: 'PIX' as any,
+        description,
+        domPaymentId,
+        installments: 1,
+      },
+    });
+
+    return { success: true, id: tx.id, created: true };
   }
 
   @Post('withdraw')
