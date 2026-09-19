@@ -48,7 +48,11 @@ export class IntegrationFinanceService {
         throw new ConflictException('CNPJ já vinculado a outro merchant nesta integração');
       }
       return this.prisma.$transaction(async tx => {
-        await tx.user.update({ where: { id: existing.userId }, data: { cnpj, name: legalName } });
+        const cnpjOwner = await tx.user.findUnique({ where: { cnpj }, select: { id: true } });
+        await tx.user.update({
+          where: { id: existing.userId },
+          data: { ...(cnpjOwner && cnpjOwner.id !== existing.userId ? {} : { cnpj }), name: legalName },
+        });
         return tx.integrationMerchant.update({
           where: { id: existing.id },
           data: { cnpj, legalName },

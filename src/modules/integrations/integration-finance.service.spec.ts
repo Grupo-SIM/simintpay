@@ -27,6 +27,37 @@ describe('IntegrationFinanceService', () => {
     })).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('reuses a manually linked merchant when a duplicate integration user owns the CNPJ', async () => {
+    const existing = {
+      id: 'merchant-manual',
+      integrationKey: 'sim-delivery_zero-grau',
+      externalMerchantId: 'company-1',
+      userId: 'legacy-user',
+    };
+    const userUpdate = jest.fn().mockResolvedValue({});
+    const merchantUpdate = jest.fn().mockResolvedValue({ ...existing, cnpj: '10802530000107', legalName: 'Zero Grau' });
+    const tx = {
+      integrationMerchant: { update: merchantUpdate },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'duplicate-integration-user' }),
+        update: userUpdate,
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn().mockImplementation((callback) => callback(tx)),
+      integrationMerchant: { findUnique: jest.fn().mockResolvedValue(existing) },
+    };
+    const service = new IntegrationFinanceService(prisma as never);
+
+    await service.provision('sim-delivery_zero-grau', 'company-1', {
+      cnpj: '10.802.530/0001-07',
+      legalName: 'Zero Grau',
+    });
+
+    expect(userUpdate).toHaveBeenCalledWith({ where: { id: 'legacy-user' }, data: { name: 'Zero Grau' } });
+    expect(merchantUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'merchant-manual' } }));
+  });
+
   it('does not partially move reconciliation batches containing conflicts', async () => {
     const transactions = [
       { amount: 100, domPaymentId: 'payment-1', externalPaymentId: null, id: 'transaction-1', netAmount: 90, status: 'COMPLETED', userId: 'legacy-user' },
@@ -48,5 +79,22 @@ describe('IntegrationFinanceService', () => {
       skipped: 0,
     });
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('skips payments already owned by the selected company merchant', async () => {
+    const prisma = {
+      integrationMerchant: { findUnique: jest.fn() },
+      transaction: { findFirst: jest.fn().mockResolvedValue({ userId: 'legacy-user' }) },
+    };
+    const service = new IntegrationFinanceService(prisma as never);
+    jest.spyOn(service, 'merchant').mockResolvedValue({ userId: 'legacy-user' } as never);
+
+    await expect(service.reconcilePayments('sim-delivery_zero-grau', 'company-1', ['payment-1'], false)).resolves.toEqual({
+      attributed: 0,
+      conflicts: [],
+      creditedCents: 0,
+      dryRun: false,
+      skipped: 1,
+    });
   });
 });

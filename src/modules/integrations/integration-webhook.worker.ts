@@ -41,7 +41,7 @@ export class IntegrationWebhookWorker {
   private async deliver(delivery: PendingDelivery): Promise<void> {
     const url = process.env.SIM_DELIVERY_WITHDRAWAL_WEBHOOK_URL?.trim();
     const secret = process.env.SIM_DELIVERY_WEBHOOK_SECRET?.trim();
-    if (!url || !secret || delivery.merchant.integrationKey !== 'sim-delivery') return;
+    if (!url || !secret || !delivery.merchant.integrationKey.startsWith('sim-delivery_')) return;
     try {
       const body = JSON.stringify({ ...delivery.payload as object, externalMerchantId: delivery.merchant.externalMerchantId });
       const signature = createHmac('sha256', secret).update(body).digest('hex');
