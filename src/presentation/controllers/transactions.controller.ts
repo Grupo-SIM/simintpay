@@ -64,7 +64,7 @@ export class TransactionsController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<any> {
-    const out = await this.detail.execute({ userId: user?.sub ?? '', id });
+    const out = await this.detail.execute({ userId: user?.sub ?? '', role: user?.role ?? '', id });
     return out;
   }
 }

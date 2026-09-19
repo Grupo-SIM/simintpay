@@ -175,12 +175,12 @@ export class GetTransactionDetailsUseCase {
     });
   }
 
-  async execute(input: { userId: string; id: string }) {
+  async execute(input: { userId: string; role: string; id: string }) {
     // 1. Find local transaction
     const tx = await this.prisma.transaction.findFirst({
       where: {
         id: input.id,
-        userId: input.userId,
+        ...(input.role === 'ADMIN' ? {} : { userId: input.userId }),
       },
       include: {
         statusHistory: { orderBy: { createdAt: 'asc' } },
