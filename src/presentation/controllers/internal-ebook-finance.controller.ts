@@ -86,7 +86,16 @@ export class InternalEbookFinanceController {
     this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf);
     if (userIds.length === 0) {
-      return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0 };
+      return {
+        availableBalance: 0,
+        pendingWithdraws: 0,
+        lockedBalance: 0,
+        minimumWithdrawalAmount: EbookSimConfig.saque.minValor,
+        withdrawalFeeBrl: EbookSimConfig.saque.taxaFixa,
+        pixFeePercent: Number(((1 - EbookSimConfig.saque.fatorLiquidez) * 100).toFixed(2)),
+        transactionFeeBrl: getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO),
+        accountExists: false,
+      };
     }
 
     const txCompleted = await this.prisma.transaction.findMany({
