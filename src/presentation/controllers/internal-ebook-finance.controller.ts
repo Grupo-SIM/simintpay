@@ -413,9 +413,14 @@ export class InternalEbookFinanceController {
   @Get('config')
   getConfig(@Headers('x-internal-token') internalToken?: string) {
     this.ensureInternalToken(internalToken);
+    const taxaFixaSummary = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+    const taxaCashbackSummary = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
     return {
       liquidez: EbookSimConfig.saque.fatorLiquidez,
       mdrPix: EbookSimConfig.mdr.pix,
+      transactionFeeBrl: getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO),
+      taxaFixaTransacao: taxaFixaSummary,
+      taxaCashback: taxaCashbackSummary,
       affiliateCommissionRate: Number(
         (getPlatformTaxaEffective('EBOOK', 'TAXA_COMISSAO_AFILIADO', PLATFORM_TAXA_DEFAULTS.TAXA_COMISSAO_AFILIADO) * 100).toFixed(2),
       ),
