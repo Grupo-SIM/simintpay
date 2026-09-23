@@ -115,6 +115,20 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
     });
   });
 
+  it('exclui registros externos Platform User sem conta Simintpay vinculada', async () => {
+    const prisma = makeMockPrisma([]);
+    await invoke(prisma);
+
+    const [[externalCall]] = prisma.externalPlatformUser.findMany.mock.calls;
+
+    expect(externalCall.where.NOT).toEqual({
+      AND: [
+        { name: { equals: 'Platform User', mode: 'insensitive' } },
+        { userId: null },
+      ],
+    });
+  });
+
   it('NÃO busca clientes diretos ao filtrar por plataforma externa', async () => {
     const prisma = makeMockPrisma([directClient]);
     const res = await invoke(prisma, { platform: 'pagatg' });

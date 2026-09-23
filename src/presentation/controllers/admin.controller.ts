@@ -1817,12 +1817,24 @@ export class AdminController {
         }
       : {};
 
+    // Entradas externas sem conta Simintpay vinculada cujo nome é o placeholder
+    // "Platform User" são registros técnicos da integração, não donos reais.
+    const externalTechnicalUserFilter: Prisma.ExternalPlatformUserWhereInput = {
+      NOT: {
+        AND: [
+          { name: { equals: 'Platform User', mode: 'insensitive' } },
+          { userId: null },
+        ],
+      },
+    };
+
     const extMatchWhere = {
       ...(platformLower ? { platform: { equals: platformLower, mode: 'insensitive' as const } } : {}),
       // Purgadas: aba própria. Inativas: isDeleted mas NÃO purgadas. Ativas: nenhum dos dois.
       ...(showPurged
         ? { isPurged: true }
         : { isDeleted: showDeleted, isPurged: false }),
+      ...externalTechnicalUserFilter,
       ...extSearchFilter,
     };
 
@@ -2034,6 +2046,7 @@ export class AdminController {
             ...(showPurged
               ? { isPurged: true }
               : { isDeleted: showDeleted, isPurged: false }),
+            ...externalTechnicalUserFilter,
           },
           include: {
             wallet: true,
