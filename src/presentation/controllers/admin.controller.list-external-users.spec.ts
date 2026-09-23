@@ -102,6 +102,19 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
     ).toBe(true);
   });
 
+  it('exclui contas técnicas auto.simpay.com da consulta de clientes diretos', async () => {
+    const prisma = makeMockPrisma([directClient]);
+    await invoke(prisma);
+
+    const clientCall = prisma.user.findMany.mock.calls.find(([arg]: any[]) =>
+      isClientQuery(arg),
+    );
+
+    expect(clientCall?.[0]?.where?.AND).toContainEqual({
+      NOT: { email: { endsWith: '@auto.simpay.com', mode: 'insensitive' } },
+    });
+  });
+
   it('NÃO busca clientes diretos ao filtrar por plataforma externa', async () => {
     const prisma = makeMockPrisma([directClient]);
     const res = await invoke(prisma, { platform: 'pagatg' });

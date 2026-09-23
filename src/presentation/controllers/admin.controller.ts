@@ -1965,6 +1965,9 @@ export class AdminController {
         AND: [
           { role: 'USER' },
           { tenantModuleId: null },
+          // Contas-sombra de integrações são criadas pelo JwtAuthGuard e não
+          // representam clientes reais; mantê-las fora da tela de Leads.
+          { NOT: { email: { endsWith: '@auto.simpay.com', mode: 'insensitive' } } },
           // Aba "excluídas" mostra os inativos; a aba normal, os ativos.
           { isActive: !showDeleted },
           ...(excludeIds.length > 0 ? [{ id: { notIn: excludeIds } }] : []),
