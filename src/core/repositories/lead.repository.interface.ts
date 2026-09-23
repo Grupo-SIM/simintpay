@@ -21,6 +21,7 @@ export interface ILeadRepository {
   create(data: CreateLeadData): Promise<Lead>;
   findByEmailOrCnpj(email: string, cnpj: string): Promise<Lead | null>;
   findById(id: string): Promise<Lead | null>;
+  findByIds(ids: string[]): Promise<Lead[]>;
   list(query: {
     page: number;
     pageSize: number;
@@ -28,4 +29,5 @@ export interface ILeadRepository {
   }): Promise<{ data: Lead[]; total: number }>;
   approve(id: string, approvedUserId: string): Promise<Lead>;
   reject(id: string, reason?: string): Promise<Lead>;
+  deleteMany(ids: string[]): Promise<number>;
 }

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Put, Query, UseGuards, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Post, Put, Query, UseGuards, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { BillingService } from '../../application/use-cases/billing/billing.service';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
@@ -10,6 +10,7 @@ import { CancelSubscriptionUseCase } from '../../application/use-cases/subscript
 import { PauseSubscriptionUseCase } from '../../application/use-cases/subscription/pause-subscription.use-case';
 import { ResumeSubscriptionUseCase } from '../../application/use-cases/subscription/resume-subscription.use-case';
 import { GetSubscriptionDetailUseCase } from '../../application/use-cases/subscription/get-subscription-detail.use-case';
+import { RemoveInactiveSubscriptionHistoryUseCase } from '../../application/use-cases/subscription/remove-inactive-subscription-history.use-case';
 import { SubscriptionWebhookService } from '../../application/use-cases/subscription/subscription-webhook.service';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -26,6 +27,7 @@ export class SubscriptionController {
     private readonly pause: PauseSubscriptionUseCase,
     private readonly resume: ResumeSubscriptionUseCase,
     private readonly getDetail: GetSubscriptionDetailUseCase,
+    private readonly removeInactiveHistory: RemoveInactiveSubscriptionHistoryUseCase,
     private readonly subscriptionWebhook: SubscriptionWebhookService,
     private readonly prisma: PrismaService,
     private readonly billing: BillingService,
@@ -107,6 +109,23 @@ export class SubscriptionController {
     @Param('id') id: string,
   ): Promise<unknown> {
     return this.getDetail.execute({ userId: user?.sub ?? '', role: user?.role, id });
+  }
+
+  @Delete('assinantes/subscription/:id/history')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Ocultar assinatura inativa do histórico (somente admin master)' })
+  @ApiResponse({ status: 200, schema: { example: { removed: true } } })
+  @ApiResponse({ status: 400 })
+  @ApiResponse({ status: 403 })
+  async removeInactiveHistoryRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+  ): Promise<{ removed: true }> {
+    return this.removeInactiveHistory.execute({
+      userId: user?.sub ?? '',
+      domSubscriptionId: id,
+    });
   }
 
   /** Pausa a assinatura CC de um cliente pelo e-mail (usado pelo admin-pagatg).

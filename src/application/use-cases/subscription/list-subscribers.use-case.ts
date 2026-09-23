@@ -37,28 +37,47 @@ export class ListSubscribersUseCase {
     }
 
     try {
-      // Fetch one extra item to detect if a next page exists (DOM's total field is unreliable)
-      const result = await this.gateway.listSubscriptions(domToken, {
-        page,
-        pageSize: pageSize + 1,
+      // A exclusão é local. Para não deixar páginas vazias, busca da DOM até
+      // acumular os itens visíveis necessários para a página solicitada.
+      const sourcePageSize = Math.max(pageSize + 1, 100);
+      const historyExclusions = await this.prisma.subscriptionHistoryExclusion.findMany({
+        select: { domSubscriptionId: true },
       });
+      const excludedIds = new Set(historyExclusions.map((item) => item.domSubscriptionId));
+      let sourcePage = 1;
+      let sourceHasNextPage = true;
+      const visibleItems: DomSubscriptionOutput[] = [];
 
-      const hasNextPage = result.items.length > pageSize;
-      const pageItems = result.items.slice(0, pageSize);
+      while (sourceHasNextPage) {
+        const result = await this.gateway.listSubscriptions(domToken, {
+          page: sourcePage,
+          pageSize: sourcePageSize,
+        });
+        const sourceItems = result.items;
+        visibleItems.push(...sourceItems.filter((item) =>
+          !excludedIds.has(item.id) || this.isActiveSubscription(item),
+        ));
+
+        sourceHasNextPage = sourceItems.length === sourcePageSize;
+        sourcePage += 1;
+      }
+
+      const visiblePageItems = visibleItems.slice((page - 1) * pageSize, page * pageSize);
+      const hasNextPage = visibleItems.length > page * pageSize;
 
       // Resolve platform metadata for each subscription via its DOM plan ID.
-      const planIds = pageItems
+      const planIds = visiblePageItems
         .map((s: DomSubscriptionOutput) => s.planId)
         .filter((id): id is string => !!id);
 
       const sourcesByPlanId = await this.resolveSubscriptionSources(planIds);
 
-      const domIds = pageItems.map((s: DomSubscriptionOutput) => s.id).filter((id): id is string => !!id);
+      const domIds = visiblePageItems.map((s: DomSubscriptionOutput) => s.id).filter((id): id is string => !!id);
 
       // Buscar pausadas para marcar na listagem (não altera fluxo normal)
       const pauseMap = await this.resolvePauses(domIds, input.userId, isAdmin);
 
-      const mapped = pageItems.map((s: DomSubscriptionOutput) => {
+      const mapped = visiblePageItems.map((s: DomSubscriptionOutput) => {
         const source = s.planId ? sourcesByPlanId.get(s.planId) : undefined;
         const pause = s.id ? pauseMap.get(s.id) : undefined;
         return {
@@ -99,7 +118,7 @@ export class ListSubscribersUseCase {
         page,
         pageSize,
         hasNextPage,
-        total: (result.total ?? (page - 1) * pageSize + mapped.length) + (page === 1 ? pausedRows.length : 0),
+        total: visibleItems.length + (page === 1 ? pausedRows.length : 0),
       };
     } catch (err: any) {
       this.logger.error(`[ListSubscribers] Erro ao buscar da DOM: ${err.message}`, err.stack);
@@ -265,6 +284,12 @@ export class ListSubscribersUseCase {
 
     // Última opção: retorna a própria description (é mais informativo que "—")
     return desc.trim() || '—';
+  }
+
+  private isActiveSubscription(subscription: DomSubscriptionOutput): boolean {
+    return ['active', 'actived', 'activated', 'true', '1'].includes(
+      String(subscription.status ?? '').trim().toLowerCase(),
+    );
   }
 
   private async resolveDomToken(userId: string, isAdmin: boolean): Promise<string | null> {

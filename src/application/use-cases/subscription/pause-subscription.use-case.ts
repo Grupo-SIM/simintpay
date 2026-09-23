@@ -53,6 +53,9 @@ export class PauseSubscriptionUseCase {
 
     // A DOM pode retornar a data de expiração em vários campos dependendo do endpoint
     const subData = (rawSub?.['data'] ?? rawSub) as Record<string, unknown>;
+    if (!this.isActiveSubscription(subData)) {
+      throw new BadRequestException('Somente assinaturas ativas podem ser pausadas.');
+    }
     const autoRecurring = (subData['auto_recurring'] ?? undefined) as Record<string, unknown> | undefined;
 
     // next_date_invoice fica dentro de auto_recurring na API de detalhe da DOM
@@ -193,6 +196,18 @@ export class PauseSubscriptionUseCase {
       if (isFinite(n)) return n;
     }
     return null;
+  }
+
+  private isActiveSubscription(data: Record<string, unknown>): boolean {
+    const activeRaw = data.active ?? data.actived ?? data.activated ?? data.is_active ?? data.isActive;
+    if (activeRaw === true || activeRaw === 1) return true;
+    if (typeof activeRaw === 'string' && ['true', '1', 'active'].includes(activeRaw.trim().toLowerCase())) {
+      return true;
+    }
+
+    const statusRaw = data.status ?? data.active_status ?? data.status_type;
+    const status = String(statusRaw ?? '').trim().toLowerCase();
+    return ['active', 'actived', 'activated', 'true', '1'].includes(status);
   }
 
   private async resolveDomToken(userId: string, isAdmin: boolean): Promise<string | null> {

@@ -58,6 +58,8 @@ import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.st
 import { ListLeadsUseCase } from '../../application/use-cases/admin/list-leads.use-case';
 import { ApproveLeadUseCase } from '../../application/use-cases/admin/approve-lead.use-case';
 import { RejectLeadUseCase } from '../../application/use-cases/admin/reject-lead.use-case';
+import { DeleteLeadsUseCase } from '../../application/use-cases/admin/delete-leads.use-case';
+import { DeleteLeadsDto } from '../../application/dtos/admin/delete-leads.dto';
 import { SyncDomTransactionsUseCase } from '../../application/use-cases/admin/sync-dom-transactions.use-case';
 import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { ListWithdrawalsAdminUseCase } from '../../application/use-cases/admin/list-withdrawals-admin.use-case';
@@ -1344,6 +1346,7 @@ export class AdminController {
     private readonly listLeads: ListLeadsUseCase,
     private readonly approveLead: ApproveLeadUseCase,
     private readonly rejectLead: RejectLeadUseCase,
+    private readonly deleteLeads: DeleteLeadsUseCase,
     private readonly syncTransactions: SyncDomTransactionsUseCase,
     private readonly reconcilePendingTransactions: ReconcilePendingTransactionsUseCase,
     private readonly listWithdrawalsAdmin: ListWithdrawalsAdminUseCase,
@@ -1587,6 +1590,14 @@ export class AdminController {
       reason: body.reason,
     });
     return { data: lead };
+  }
+
+  @Delete('leads')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Excluir solicitações de cadastro aprovadas ou rejeitadas' })
+  async deleteLeadsRoute(@Body() body: DeleteLeadsDto) {
+    return this.deleteLeads.execute({ leadIds: body.ids });
   }
 
   // ──────────── CRIAR CONTA ────────────

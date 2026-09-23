@@ -712,6 +712,18 @@ model SubscriptionPause {
   @@index([userId])
 }
 
+/// Assinaturas inativas que o admin master optou por ocultar do histórico.
+/// O registro na DOM não é alterado; a exclusão vale apenas para esta listagem.
+model SubscriptionHistoryExclusion {
+  id                String   @id @default(uuid())
+  domSubscriptionId String   @unique
+  removedByUserId   String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([removedByUserId])
+}
+
 model Customer {
   id                   String               @id @default(uuid())
   userId               String

@@ -24,6 +24,10 @@ export class PrismaLeadRepository implements ILeadRepository {
     return this.prisma.lead.findUnique({ where: { id } });
   }
 
+  async findByIds(ids: string[]): Promise<Lead[]> {
+    return this.prisma.lead.findMany({ where: { id: { in: ids } } });
+  }
+
   async list(query: {
     page: number;
     pageSize: number;
@@ -54,5 +58,12 @@ export class PrismaLeadRepository implements ILeadRepository {
       where: { id },
       data: { status: 'REJECTED', rejectionReason: reason ?? null },
     });
+  }
+
+  async deleteMany(ids: string[]): Promise<number> {
+    const result = await this.prisma.lead.deleteMany({
+      where: { id: { in: ids }, status: { not: 'PENDING' } },
+    });
+    return result.count;
   }
 }

@@ -15,6 +15,7 @@ import { AdminAfiliadosController } from './controllers/admin-afiliados.controll
 import { ListLeadsUseCase } from '../application/use-cases/admin/list-leads.use-case';
 import { ApproveLeadUseCase } from '../application/use-cases/admin/approve-lead.use-case';
 import { RejectLeadUseCase } from '../application/use-cases/admin/reject-lead.use-case';
+import { DeleteLeadsUseCase } from '../application/use-cases/admin/delete-leads.use-case';
 import { SyncDomTransactionsUseCase } from '../application/use-cases/admin/sync-dom-transactions.use-case';
 import { ListWithdrawalsAdminUseCase } from '../application/use-cases/admin/list-withdrawals-admin.use-case';
 import { ApproveWithdrawalUseCase } from '../application/use-cases/admin/approve-withdrawal.use-case';
@@ -56,6 +57,7 @@ import { PlatformReportingModule } from '../application/services/platform-report
     ListLeadsUseCase,
     ApproveLeadUseCase,
     RejectLeadUseCase,
+    DeleteLeadsUseCase,
     SyncDomTransactionsUseCase,
     ListWithdrawalsAdminUseCase,
     ApproveWithdrawalUseCase,

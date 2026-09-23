@@ -14,6 +14,7 @@ describe('SubscriptionController', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
       subscriptionWebhook as any,
       {} as any,
       billing as any,
