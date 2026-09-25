@@ -58,7 +58,6 @@ export class RegisterUseCase {
       domToken: domTok.domToken,
       cpf: isCpf ? docDigits : undefined,
       cnpj: isCnpj ? docDigits : undefined,
-      clientStatus: 'PENDING',
     });
 
     await this.wallets.createForUser(user.id);

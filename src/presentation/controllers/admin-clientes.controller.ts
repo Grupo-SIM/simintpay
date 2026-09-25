@@ -29,6 +29,21 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-ta
 
 type TaxaBody = { taxaCartao?: number; taxaPix?: number; taxaAssinatura?: number };
 
+/**
+ * O painel do PagaTG grava marcações internas de dono/tenant no nome/descrição
+ * de planos (ex.: "teste 12345678901 pagatg", "[CPF:...|TAG]", "[NOME_DONO:...]")
+ * e as remove ao exibir de volta na própria UI dele. A auditoria "Itens criados"
+ * do SimintPay agrega produtos de várias plataformas e não fazia essa limpeza —
+ * mesma regex usada em admin-pagatg/hooks/use-pix-plan-suffix.ts.
+ */
+function stripInternalOwnerTags(text: string | null | undefined): string {
+  if (!text) return text ?? '';
+  let clean = text.replace(/\s+\d{11}\s+pagatg$/i, '');
+  clean = clean.replace(/\s*\[(?:CPF|CPF_DONO|NOME_DONO|TENANT)(?::|:\s*)[^\]]*\]/gi, '');
+  clean = clean.replace(/\s+pagatg$/i, '');
+  return clean.trim();
+}
+
 /** Módulo master: gestão e auditoria dos clientes SimintPay (vendedores auto-cadastrados). */
 @Controller('admin/clientes')
 @ApiBearerAuth()
@@ -252,7 +267,7 @@ export class AdminClientesController {
   @Get()
   async list(@CurrentUser() authUser?: JwtPayload, @Query('status') status = 'all') {
     await this.assertMaster(authUser);
-    const where: { clientStatus: any } = { clientStatus: { not: null } };
+    const where: { isCompany: boolean; clientStatus?: any } = { isCompany: true };
     if (status === 'pending') where.clientStatus = 'PENDING';
     else if (status === 'approved') where.clientStatus = 'APPROVED';
     else if (status === 'rejected') where.clientStatus = 'REJECTED';
@@ -267,6 +282,7 @@ export class AdminClientesController {
         clientStatus: true,
         clientApprovedAt: true,
         isActive: true,
+        isCompany: true,
         createdAt: true,
       },
     });
@@ -352,7 +368,13 @@ export class AdminClientesController {
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
-    return { data: rows.map((r) => this.attach(r)) };
+    // PixCreditPlan não tem campo `name` — só `description`. A UI espera `name`.
+    return {
+      data: rows.map((r) => {
+        const attached = this.attach(r);
+        return { ...attached, name: attached.description || '—' };
+      }),
+    };
   }
 
   @Get('links-pagamento')
@@ -377,9 +399,13 @@ export class AdminClientesController {
     return { data: rows.map((r) => this.attach(r)) };
   }
 
-  private attach<T extends { user: { id: string; name: string; email: string } }>(row: T) {
+  private attach<T extends { user: { id: string; name: string; email: string }; name?: string; description?: string | null }>(
+    row: T,
+  ) {
     return {
       ...row,
+      ...(row.name !== undefined ? { name: stripInternalOwnerTags(row.name) } : {}),
+      ...(row.description !== undefined ? { description: stripInternalOwnerTags(row.description) } : {}),
       clientId: row.user.id,
       clientName: row.user.name,
       clientEmail: row.user.email,

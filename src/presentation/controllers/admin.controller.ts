@@ -1857,10 +1857,12 @@ export class AdminController {
     });
 
     // ── 2. Module users (tenantModule-based platforms: renovada, bosque, etc.) ─
-    // Included when NOT on the "deleted" tab, since User records have no isDeleted concept.
+    // Usuários de módulo usam User.isActive como estado reversível, então seguem a
+    // mesma separação de abas das contas diretas: ativos na principal e inativos
+    // em "Contas inativas".
     type ModuleUser = {
       id: string; name: string; cpf: string | null; cnpj: string | null; email: string;
-      isActive: boolean;
+      isActive: boolean; isCompany: boolean; clientStatus: string | null;
       createdAt: Date; updatedAt: Date;
       wallet: { balance: any; lockedBalance: any } | null;
       tenantModule: { slug: string } | null;
@@ -1885,10 +1887,10 @@ export class AdminController {
         .map(([slug, id]) => [id, slug]),
     );
 
-    // Contas de módulo/plataforma (Renovada, Bosque…) só na aba de ativas —
-    // elas não têm inativação por plataforma nem exclusão permanente.
+    // Contas de módulo/plataforma (Renovada, Bosque…) não têm exclusão
+    // permanente, mas podem ser inativadas/reativadas pela própria conta.
     let moduleUsers: ModuleUser[] = [];
-    if (!showDeleted && !showPurged) {
+    {
       const moduleSearchFilter = searchTerm
         ? {
             OR: [
@@ -1920,6 +1922,8 @@ export class AdminController {
               ...(knownIds.length > 0 ? [{ id: { in: knownIds } }] : []),
             ],
           },
+          // 3 abas: ativa (isActive, não purgada) | inativa (!isActive, não purgada) | purgada.
+          ...(showPurged ? [{ isPurged: true }] : [{ isActive: !showDeleted }, { isPurged: false }]),
           ...(linkedUserIds.size > 0 ? [{ id: { notIn: [...linkedUserIds] } }] : []),
           ...(moduleSearchFilter ? [moduleSearchFilter] : []),
         ],
@@ -1929,7 +1933,7 @@ export class AdminController {
         where: moduleWhere,
         select: {
           id: true, name: true, cpf: true, cnpj: true, email: true,
-          isActive: true,
+          isActive: true, isCompany: true, clientStatus: true,
           createdAt: true, updatedAt: true,
           wallet: { select: { balance: true, lockedBalance: true } },
           tenantModule: { select: { slug: true } },
@@ -1949,10 +1953,10 @@ export class AdminController {
     // marca ativo/inativo nele é o `User.isActive`. Por isso ele entra nas DUAS abas
     // (ativa e excluídas), filtrado por isActive — senão, ao inativar, ele sumiria
     // sem aparecer em "excluídas" e não teria como ser reativado.
-    // Cliente direto usa User.isActive (ativas/inativas). Nunca é "purgado" — a exclusão
-    // permanente é só de conta de plataforma externa; por isso fica fora da aba de purgadas.
+    // Cliente direto usa User.isActive (ativas/inativas) e também pode ser purgado
+    // (isPurged) via exclusão permanente — mesmo tratamento de contas de plataforma externa.
     const clientUserIds = new Set<string>();
-    if (!showPurged && (!platformLower || platformLower === 'simintpay')) {
+    if (!platformLower || platformLower === 'simintpay') {
       const clientSearchFilter = searchTerm
         ? {
             OR: [
@@ -1977,11 +1981,13 @@ export class AdminController {
         AND: [
           { role: 'USER' },
           { tenantModuleId: null },
+          // Marcada como empresa pelo admin master: passa a viver só em /admin/clientes.
+          { isCompany: false },
           // Contas-sombra de integrações são criadas pelo JwtAuthGuard e não
           // representam clientes reais; mantê-las fora da tela de Leads.
           { NOT: { email: { endsWith: '@auto.simpay.com', mode: 'insensitive' } } },
-          // Aba "excluídas" mostra os inativos; a aba normal, os ativos.
-          { isActive: !showDeleted },
+          // 3 abas: ativa (isActive, não purgada) | inativa (!isActive, não purgada) | purgada.
+          ...(showPurged ? [{ isPurged: true }] : [{ isActive: !showDeleted }, { isPurged: false }]),
           ...(excludeIds.length > 0 ? [{ id: { notIn: excludeIds } }] : []),
           ...(clientSearchFilter ? [clientSearchFilter] : []),
         ],
@@ -1991,7 +1997,7 @@ export class AdminController {
         where: clientWhere,
         select: {
           id: true, name: true, cpf: true, cnpj: true, email: true,
-          isActive: true,
+          isActive: true, isCompany: true, clientStatus: true,
           createdAt: true, updatedAt: true,
           wallet: { select: { balance: true, lockedBalance: true } },
           tenantModule: { select: { slug: true } },
@@ -2050,7 +2056,7 @@ export class AdminController {
           },
           include: {
             wallet: true,
-            user: { select: { id: true, name: true, email: true } },
+            user: { select: { id: true, name: true, email: true, isCompany: true, clientStatus: true } },
           },
           orderBy: { createdAt: 'asc' },
         })
@@ -2123,7 +2129,14 @@ export class AdminController {
     const data = pagedIdentities
       .map((identity) => {
         if (identity.source === 'ext') {
-          const records = byDoc.get(identity.document) ?? [];
+          // Uma pessoa pode ter várias platformEntries com status misto (ex.: EbookSim
+          // ativa + PagaTG desativada). A aba "Contas Inativas" deve mostrar só as
+          // entradas que de fato estão no status da aba — não a pessoa inteira com
+          // todas as plataformas, incluindo as que continuam ativas.
+          const allRecords = byDoc.get(identity.document) ?? [];
+          const records = showPurged
+            ? allRecords.filter((r) => r.isPurged)
+            : allRecords.filter((r) => r.isDeleted === showDeleted);
           if (records.length === 0) return null;
           const primary = records.find((r) => !!r.userId) ?? records[records.length - 1];
           const simpayUser = primary?.user ?? null;
@@ -2164,7 +2177,20 @@ export class AdminController {
             isDeleted: records.every((r) => r.isDeleted),
             deletedAt: primary.deletedAt,
             simpayUser: simpayUser
-              ? { id: simpayUser.id, name: simpayUser.name, email: simpayUser.email }
+              ? {
+                  id: simpayUser.id,
+                  name: simpayUser.name,
+                  email: simpayUser.email,
+                  isCompany: simpayUser.isCompany,
+                  clientStatus: simpayUser.clientStatus,
+                  taxaCartao: simpayUser.clientStatus
+                    ? getPlatformTaxaEffective(
+                        buildClientTaxaTag(simpayUser.email),
+                        'MDR_CC_MASTER_1X',
+                        PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X,
+                      )
+                    : null,
+                }
               : null,
             createdAt: records.reduce(
               (min, r) => (r.createdAt < min ? r.createdAt : min),
@@ -2195,7 +2221,20 @@ export class AdminController {
             // Cliente direto não tem isDeleted próprio — quem marca é o User.isActive.
             isDeleted: !u.isActive,
             deletedAt: null,
-            simpayUser: { id: u.id, name: u.name, email: u.email },
+            simpayUser: {
+              id: u.id,
+              name: u.name,
+              email: u.email,
+              isCompany: u.isCompany,
+              clientStatus: u.clientStatus,
+              taxaCartao: u.clientStatus
+                ? getPlatformTaxaEffective(
+                    buildClientTaxaTag(u.email),
+                    'MDR_CC_MASTER_1X',
+                    PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X,
+                  )
+                : null,
+            },
             createdAt: u.createdAt,
             updatedAt: u.updatedAt,
           };
@@ -2203,7 +2242,13 @@ export class AdminController {
       })
       .filter(Boolean);
 
-    return { data, total: combinedTotal, page: pageNum, pageSize: size };
+    // Registros "completos" (CPF preenchido + status de atividade conhecido +
+    // vinculado a uma conta Simintpay) sobem para o topo da página atual.
+    // Ordenação estável: dentro de cada grupo mantém a ordem original (createdAt desc).
+    const isComplete = (row: any) => !!row.cpf && row.isAtivo !== null && row.vinculado === true;
+    const sortedData = [...data].sort((a: any, b: any) => Number(isComplete(b)) - Number(isComplete(a)));
+
+    return { data: sortedData, total: combinedTotal, page: pageNum, pageSize: size };
   }
 
   @Patch('usuarios/:id')
@@ -2255,6 +2300,44 @@ export class AdminController {
     // Edição é restrita ao Simintpay — nenhuma alteração é propagada para a plataforma de origem
 
     return { success: true };
+  }
+
+  @Patch('usuarios/:userId/marcar-empresa')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Marca/desmarca a conta Simintpay (User) como empresa cliente — move entre as listagens de usuários e clientes. Somente admin master.' })
+  async setUserIsCompany(
+    @Param('userId') userId: string,
+    @Body() body: { isCompany: boolean },
+    @CurrentUser() authUser?: JwtPayload,
+  ) {
+    if (authUser?.sub) {
+      const requester = await this.prisma.user.findUnique({
+        where: { id: authUser.sub },
+        include: { tenantModule: true },
+      });
+      if (!requester || !isMasterAdminUser(requester)) {
+        throw new ForbiddenException('Somente admin master pode marcar contas como empresa');
+      }
+    }
+
+    const target = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!target) throw new NotFoundException('Conta Simintpay não encontrada para este usuário');
+
+    const isCompany = !!body.isCompany;
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        isCompany,
+        // Vira empresa → precisa passar pela fila de aprovação/taxa como cliente.
+        // Deixa de ser empresa → mantém histórico de clientStatus (não some da auditoria).
+        ...(isCompany && target.clientStatus == null ? { clientStatus: 'PENDING' as const } : {}),
+      },
+    });
+
+    return { success: true, id: updated.id, isCompany: updated.isCompany, clientStatus: updated.clientStatus };
   }
 
   @Delete('usuarios/:id')
@@ -2398,7 +2481,9 @@ export class AdminController {
       include: { user: { select: { id: true, email: true } }, wallet: true },
     });
     if (!externalUser) {
-      throw new BadRequestException('Exclusão permanente só se aplica a contas de plataforma externa');
+      // Cliente direto (avulso) não tem `ExternalPlatformUser` — a listagem devolve
+      // o `User.id` nessas linhas. Purga direto no `User`.
+      return this.purgeContaDireta(id, requesterId);
     }
 
     // Alvo: as entradas do escopo que já estão inativas e ainda não foram purgadas.
@@ -2514,6 +2599,60 @@ export class AdminController {
     }
     await this.prisma.user.update({ where: { id: userId }, data: { isActive: ativa } });
     return user;
+  }
+
+  /**
+   * Exclusão permanente (irreversível) de uma conta direta (avulsa). Zera a
+   * carteira (saldo absorvido pelo master) e marca `isPurged` — espelha o que
+   * `purgeExternalUser` faz para contas de plataforma externa.
+   */
+  private async purgeContaDireta(userId: string, requesterId?: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, include: { wallet: true } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    if (user.isPurged) throw new BadRequestException('Conta já foi excluída permanentemente');
+
+    const saldo = Number(user.wallet?.balance ?? 0);
+
+    await this.prisma.$transaction(async (tx) => {
+      if (user.wallet && saldo !== 0) {
+        await tx.wallet.update({
+          where: { id: user.wallet.id },
+          data: { balance: 0, lockedBalance: 0 },
+        });
+        await tx.balanceLog.create({
+          data: {
+            userId: user.id,
+            action: 'PURGE_ABSORB',
+            amount: saldo,
+            balanceBefore: saldo,
+            balanceAfter: 0,
+            lockedBefore: Number(user.wallet.lockedBalance ?? 0),
+            lockedAfter: 0,
+            source: 'MASTER_ADMIN_CONTROL',
+            description: 'Saldo absorvido pelo master ao excluir permanentemente a conta direta',
+            metadata: { userId: user.id, purgedBy: requesterId ?? null },
+          },
+        });
+      }
+
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          isPurged: true,
+          purgedAt: new Date(),
+          purgedAmount: saldo,
+          isActive: false,
+        },
+      });
+    });
+
+    return {
+      success: true,
+      escopo: 'conta',
+      purgadas: ['simintpay'],
+      saldoAbsorvido: Number(saldo.toFixed(2)),
+      loginDesativado: true,
+    };
   }
 
   /**
@@ -5609,7 +5748,12 @@ export class AdminController {
     const size = Math.min(Math.max(1, Number(pageSize) || 20), 100);
 
     const where: Prisma.UserWhereInput = {
-      wallet: { isNot: null },
+      // Só clientes (donos de plataforma): mesma marcação do botão "empresa" em /admin/usuarios.
+      isCompany: true,
+      // Só quem tem saldo para cobrar — positivo (débito) ou negativo (já devendo).
+      wallet: { is: { balance: { not: 0 } } },
+      billingExcluded: false,
+      NOT: { email: { endsWith: '@auto.simpay.com', mode: 'insensitive' } },
       ...(term
         ? {
             OR: [
@@ -5644,6 +5788,40 @@ export class AdminController {
     };
   }
 
+  @Delete('cobrancas/clientes/:id')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove uma conta da lista de cobranças sem apagar conta, saldo ou histórico' })
+  async excludeCobrancaCliente(@Param('id') id: string) {
+    await this.prisma.user.update({
+      where: { id },
+      data: { billingExcluded: true },
+    });
+    return { success: true };
+  }
+
+  /**
+   * Cobrança só vale para clientes (donos de plataforma), isto é, contas marcadas
+   * como empresa em /admin/usuarios. Usuários finais das plataformas vivem em
+   * ExternalPlatformUser e nunca chegam aqui; o que bloqueamos são contas pessoais.
+   */
+  private async assertClientesCobraveis(userIds: string[]) {
+    const ids = Array.from(new Set(userIds));
+    const validos = await this.prisma.user.findMany({
+      where: { id: { in: ids }, isCompany: true },
+      select: { id: true },
+    });
+    if (validos.length !== ids.length) {
+      const validSet = new Set(validos.map((u) => u.id));
+      const invalidos = ids.filter((id) => !validSet.has(id));
+      throw new BadRequestException(
+        `Só é possível cobrar clientes marcados como empresa. Contas inválidas: ${invalidos.join(', ')}`,
+      );
+    }
+  }
+
   @Post('cobrancas/debitar')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -5659,6 +5837,8 @@ export class AdminController {
       (i) => i?.userId && Number.isFinite(Number(i.amount)) && Number(i.amount) > 0,
     );
     if (itens.length === 0) throw new BadRequestException('Nenhum item de cobrança válido.');
+
+    await this.assertClientesCobraveis(itens.map((i) => i.userId));
 
     const descricao = body?.descricao?.trim() || 'Cobrança (débito do saldo)';
     const resultados: Array<{ userId: string; ok: boolean; amount: number; saldoDepois?: number; ficouNegativo?: boolean; erro?: string }> = [];
@@ -5845,6 +6025,8 @@ export class AdminController {
     if (!dueDate || Number.isNaN(dueDate.getTime())) {
       throw new BadRequestException('Informe a data de vencimento da cobrança.');
     }
+
+    await this.assertClientesCobraveis(itens.map((i) => i.userId));
 
     // Nome/e-mail do cliente para o título do link (descrição sai correta no checkout).
     const clientesRows = await this.prisma.user.findMany({

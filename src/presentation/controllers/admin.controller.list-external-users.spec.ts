@@ -35,15 +35,24 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
     Array.isArray(arg?.where?.AND) &&
     arg.where.AND.some((c: any) => c && c.role === 'USER');
 
-  function makeMockPrisma(clientUsers: any[]) {
+  const isModuleQuery = (arg: any): boolean =>
+    Array.isArray(arg?.where?.AND) &&
+    arg.where.AND.some((c: any) =>
+      Array.isArray(c?.OR) && c.OR.some((option: any) => option?.tenantModule),
+    );
+
+  function makeMockPrisma(clientUsers: any[], moduleUsers: any[] = []) {
     return {
       externalPlatformUser: { findMany: jest.fn().mockResolvedValue([]) },
       user: {
         findMany: jest
           .fn()
-          .mockImplementation(async (arg: any) =>
-            isClientQuery(arg) ? clientUsers : [],
-          ),
+          .mockImplementation(async (arg: any) => {
+            if (isClientQuery(arg)) return clientUsers;
+            if (!isModuleQuery(arg)) return [];
+            const activeFilter = arg.where.AND.find((c: any) => typeof c?.isActive === 'boolean');
+            return activeFilter ? moduleUsers.filter((u) => u.isActive === activeFilter.isActive) : moduleUsers;
+          }),
       },
       transaction: { findMany: jest.fn().mockResolvedValue([]) },
       subscriptionLink: { findMany: jest.fn().mockResolvedValue([]) },
@@ -148,5 +157,24 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
     );
     expect(clientCall).toBeDefined();
     expect(clientCall?.[0]?.where?.AND).toContainEqual({ isActive: false });
+  });
+
+  it('move conta de módulo inativa da aba ativa para contas inativas', async () => {
+    const inactiveModuleUser = {
+      ...directClient,
+      id: 'revalida-inativa',
+      email: 'inativa@revalida.com',
+      isActive: false,
+      tenantModule: { slug: 'revalida' },
+    };
+    const prisma = makeMockPrisma([], [inactiveModuleUser]);
+
+    const active = await invoke(prisma);
+    const inactive = await invoke(prisma, { deleted: 'true' });
+
+    expect(active.data).toHaveLength(0);
+    expect(inactive.data).toEqual([
+      expect.objectContaining({ id: 'revalida-inativa', isDeleted: true }),
+    ]);
   });
 });
