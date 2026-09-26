@@ -409,7 +409,19 @@ async function main() {
       for (const row of balances) {
         const wallet = await tx.wallet.findUnique({ where: { userId: row.userId } });
         if (wallet?.balance.eq(row.balance) && wallet.lockedBalance.eq(row.lockedBalance)) continue;
-        if (!wallet) throw new Error(`Carteira ausente: ${row.userId}. Rode recuperação sem arquivo de saldos primeiro.`);
+        if (!wallet) {
+          if (row.expectedBalance !== '0.00' || row.expectedLockedBalance !== '0.00')
+            throw new Error(`Carteira ausente com saldo anterior esperado diferente de zero: ${row.userId}`);
+          await tx.wallet.create({ data: { userId: row.userId,
+            balance: new Prisma.Decimal(row.balance), lockedBalance: new Prisma.Decimal(row.lockedBalance) } });
+          counters.walletsCreated++;
+          await tx.balanceLog.create({ data: { userId: row.userId, action: 'RECOVERY_REVIEWED_BALANCE',
+            amount: new Prisma.Decimal(row.balance), balanceBefore: zero,
+            balanceAfter: new Prisma.Decimal(row.balance), lockedBefore: zero,
+            lockedAfter: new Prisma.Decimal(row.lockedBalance), source: 'LOCAL_RECOVERY',
+            description: 'Carteira criada com saldo revisado pelo operador.' } });
+          continue;
+        }
         const changed = await tx.wallet.updateMany({ where: { userId: row.userId,
           version: wallet.version, balance: new Prisma.Decimal(row.expectedBalance),
           lockedBalance: new Prisma.Decimal(row.expectedLockedBalance) },

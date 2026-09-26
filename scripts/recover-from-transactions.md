@@ -69,7 +69,8 @@ saques perdido, ajustes manuais, comissões, expurgos e cobranças impedem recon
 automática confiável. Carteiras existentes e seus bloqueios são preservados.
 Carteiras externas novas também ficam em zero, aguardando conciliação.
 
-Para carteira principal, aplicação opcional de valores **já conciliados**:
+Para carteira principal de um **cliente específico**, obtenha o `User.id` e
+aplique valores **já conciliados**. A lista pode ter uma única conta:
 
 ```json
 [
@@ -88,7 +89,10 @@ bun scripts/recover-from-transactions.ts --database-name=NOME_DO_BANCO --balance
 bun scripts/recover-from-transactions.ts --database-name=NOME_DO_BANCO --balances-file=saldos-revisados.json --apply
 ```
 
-Execute recuperação de cadastros antes, caso carteira não exista. Valores são
+Para carteira inexistente de User já existente, use `expectedBalance` e
+`expectedLockedBalance` iguais a `"0.00"`; script cria carteira com saldos
+revisados e registra BalanceLog. Para carteira existente, valores esperados
+devem corresponder ao estado atual. Valores são
 strings com duas casas decimais. Arquivo contém saldo total e bloqueado, não apenas
 disponível. Revisão deve respeitar convenção financeira específica de cada módulo.
 Todos os saldos do arquivo são aplicados numa transação serializável; conflito de
