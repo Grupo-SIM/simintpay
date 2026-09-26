@@ -1,6 +1,6 @@
 /**
- * Reconstrói apenas dados cuja identidade é comprovada pelas transações locais.
- * Simulação por padrão. Não consulta a DOM nem altera saldos financeiros.
+ * Reconstrói cadastros comprovados por transações, backup User ou lead aprovado.
+ * Simulação por padrão. Consulta DOM só com --dom; não estima saldos financeiros.
  *
  * bun scripts/recover-from-transactions.ts --database-name=simpay
  * bun scripts/recover-from-transactions.ts --database-name=simpay --apply
@@ -9,6 +9,8 @@ import 'dotenv/config';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { readFileSync } from 'node:fs';
+import { hash } from 'bcryptjs';
+import { domPatch, provenUser, readDomDetail, usersFromBackup, type ProvenUser } from './recovery-sources';
 
 const platformByTenant: Record<string, string> = {
   EBOOK: 'ebook', EBOOKSIM: 'ebook', RENOVADA: 'renovada', REVALIDA: 'revalida',
@@ -48,9 +50,13 @@ function parseArgs(argv: string[]) {
   const allowed = new Set(['--apply']);
   let databaseName = '';
   let balancesFile: string | undefined;
+  let backupFile: string | undefined;
+  let useDom = false;
   for (const arg of argv) {
     if (arg.startsWith('--database-name=')) databaseName = arg.slice('--database-name='.length);
     else if (arg.startsWith('--balances-file=')) balancesFile = arg.slice('--balances-file='.length);
+    else if (arg.startsWith('--backup-file=')) backupFile = arg.slice('--backup-file='.length);
+    else if (arg === '--dom') useDom = true;
     else if (!allowed.has(arg)) throw new Error(`Argumento desconhecido: ${arg}`);
   }
   const apply = argv.includes('--apply');
@@ -59,7 +65,9 @@ function parseArgs(argv: string[]) {
   if (!url) throw new Error('DATABASE_URL ausente.');
   const actualName = decodeURIComponent(new URL(url).pathname.slice(1));
   if (actualName !== databaseName) throw new Error(`Banco esperado ${databaseName}; conexão aponta para ${actualName}.`);
-  return { apply, url, databaseName, balancesFile };
+  if (useDom && !(process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY))
+    throw new Error('DOM_TOKEN/API_DOM_MASTER_KEY ausente.');
+  return { apply, url, databaseName, balancesFile, backupFile, useDom };
 }
 
 export function parseBalances(value: unknown): Array<{
@@ -83,8 +91,9 @@ export function parseBalances(value: unknown): Array<{
 }
 
 async function main() {
-  const { apply, url, databaseName, balancesFile } = parseArgs(process.argv.slice(2));
+  const { apply, url, databaseName, balancesFile, backupFile, useDom } = parseArgs(process.argv.slice(2));
   const balances = balancesFile ? parseBalances(JSON.parse(readFileSync(balancesFile, 'utf8'))) : [];
+  const backupUsers = backupFile ? await usersFromBackup(backupFile) : [];
   const endpoint = new URL(url);
   const target = `${endpoint.hostname}:${endpoint.port || '5432'}/${databaseName}`;
   console.log(`Destino PostgreSQL: ${target} (${apply ? 'gravação autorizada por --apply' : 'somente leitura'})`);
@@ -97,7 +106,8 @@ async function main() {
   const counters = { transactions: 0, customersEligible: 0, customersIncomplete: 0,
     ownersEligible: 0, ownerRowsIncomplete: 0, walletsEligible: 0,
     customersCreated: 0, customerConflicts: 0, ownersCreated: 0, ownersLinked: 0,
-    walletsCreated: 0, externalWalletsCreated: 0 };
+    walletsCreated: 0, externalWalletsCreated: 0, usersCreated: 0,
+    domChecked: 0, domEnriched: 0, domErrors: 0 };
   const customers = new Map<string, NonNullable<ReturnType<typeof customerFromTransaction>>>();
   const customerConflicts = new Set<string>();
   const owners = new Map<string, NonNullable<ReturnType<typeof ownerFromDescription>>>();
@@ -113,6 +123,85 @@ async function main() {
         'Confira host/porta de DATABASE_URL, serviço PostgreSQL e acesso à rede/VPN/túnel. ' +
         'Em Docker, use a porta publicada no host ou execute no ambiente com acesso à rede do banco.');
     }
+    const proven = new Map<string, ProvenUser>();
+    for (const user of backupUsers) {
+      if (proven.has(user.id)) throw new Error(`ID duplicado no backup: ${user.id}`);
+      proven.set(user.id, user);
+    }
+    const approvedLeads = await prisma.lead.findMany({
+      where: { status: 'APPROVED', approvedUserId: { not: null } },
+      select: { approvedUserId: true, name: true, email: true, cpf: true, cnpj: true },
+    });
+    for (const lead of approvedLeads) {
+      if (!lead.approvedUserId || proven.has(lead.approvedUserId)) continue;
+      try {
+        proven.set(lead.approvedUserId, provenUser({
+          id: lead.approvedUserId, name: lead.name, email: lead.email,
+          cpf: lead.cpf, cnpj: lead.cnpj, clientStatus: 'APPROVED',
+        }, 'APPROVED_LEAD'));
+      } catch { /* Leave invalid source for manual review. */ }
+    }
+    const newUsers: ProvenUser[] = [];
+    const skippedUsers: Array<{ id: string; reason: string }> = [];
+    for (const candidate of proven.values()) {
+      const existing = await prisma.user.findFirst({ where: { OR: [
+        { id: candidate.id }, { email: { equals: candidate.email, mode: 'insensitive' } },
+        ...(candidate.cpf ? [{ cpf: candidate.cpf }] : []),
+        ...(candidate.cnpj ? [{ cnpj: candidate.cnpj }] : []),
+        ...(candidate.domUserId ? [{ domUserId: candidate.domUserId }] : []),
+      ] }, select: { id: true, email: true } });
+      if (existing) {
+        if (existing.id !== candidate.id || existing.email.toLowerCase() !== candidate.email)
+          skippedUsers.push({ id: candidate.id, reason: 'identidade conflita com conta existente' });
+        continue;
+      }
+      if (candidate.role === 'ADMIN' || !candidate.isActive) {
+        skippedUsers.push({ id: candidate.id, reason: 'conta admin ou inativa exige recuperação individual' });
+        continue;
+      }
+      newUsers.push(candidate);
+    }
+    if (apply && newUsers.length && !process.env.RECOVERY_INITIAL_PASSWORD)
+      throw new Error('RECOVERY_INITIAL_PASSWORD ausente; necessário para recriar contas comprovadas.');
+    const uniqueEmails = new Set<string>();
+    const uniqueDocuments = new Set<string>();
+    for (const candidate of newUsers) {
+      if (uniqueEmails.has(candidate.email)) throw new Error(`E-mail duplicado entre candidatos: ${candidate.email}`);
+      uniqueEmails.add(candidate.email);
+      for (const doc of [candidate.cpf, candidate.cnpj]) if (doc) {
+        if (uniqueDocuments.has(doc)) throw new Error('Documento duplicado entre candidatos.');
+        uniqueDocuments.add(doc);
+      }
+    }
+    for (const candidate of newUsers) userIds.add(candidate.id);
+    const domPatches = new Map<string, Prisma.TransactionUpdateInput>();
+    if (useDom) {
+      const token = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY || '';
+      let domCursor: string | undefined;
+      while (true) {
+        const rows = await prisma.transaction.findMany({
+          take: batchSize, ...(domCursor ? { cursor: { id: domCursor }, skip: 1 } : {}),
+          orderBy: { id: 'asc' }, where: { acquirer: 'DOM',
+            OR: [{ customerName: null }, { customerEmail: null }, { customerDocument: null },
+              { customerPhone: null }, { description: null }, { netAmount: null }] },
+          select: { id: true, domTransactionId: true, domPaymentId: true, amount: true,
+            netAmount: true, description: true, customerName: true, customerEmail: true,
+            customerDocument: true, customerPhone: true },
+        });
+        if (!rows.length) break;
+        for (const row of rows) {
+          const externalId = row.domTransactionId || row.domPaymentId;
+          if (!externalId) continue;
+          counters.domChecked++;
+          try {
+            const patch = domPatch(row, await readDomDetail(externalId, token));
+            if (Object.keys(patch).length) { domPatches.set(row.id, patch); counters.domEnriched++; }
+          } catch { counters.domErrors++; }
+        }
+        domCursor = rows[rows.length - 1].id;
+        if (rows.length < batchSize) break;
+      }
+    }
     // Cursor estável: evita OFFSET em tabelas grandes e não carrega todas as transações em memória.
     let cursor: string | undefined;
     while (true) {
@@ -124,9 +213,19 @@ async function main() {
       });
       if (!rows.length) break;
       for (const row of rows) {
+        const patch = domPatches.get(row.id);
+        const patched = {
+          ...row,
+          customerName: typeof patch?.customerName === 'string' ? patch.customerName : row.customerName,
+          customerEmail: typeof patch?.customerEmail === 'string' ? patch.customerEmail : row.customerEmail,
+          customerDocument: typeof patch?.customerDocument === 'string' ? patch.customerDocument : row.customerDocument,
+          customerPhone: typeof patch?.customerPhone === 'string' ? patch.customerPhone : row.customerPhone,
+          description: typeof patch?.description === 'string' ? patch.description : row.description,
+          netAmount: patch?.netAmount instanceof Prisma.Decimal ? patch.netAmount : row.netAmount,
+        };
         counters.transactions++;
         userIds.add(row.userId);
-        const customer = customerFromTransaction(row);
+        const customer = customerFromTransaction(patched);
         if (customer) {
           const key = `${customer.userId}:${customer.document}`;
           const previous = customers.get(key);
@@ -134,8 +233,8 @@ async function main() {
             customerConflicts.add(key);
           customers.set(key, customer);
           counters.customersEligible++;
-        } else if (row.customerDocument || row.customerName || row.customerEmail) counters.customersIncomplete++;
-        const owner = ownerFromDescription(row.description);
+        } else if (patched.customerDocument || patched.customerName || patched.customerEmail) counters.customersIncomplete++;
+        const owner = ownerFromDescription(patched.description ?? null);
         if (owner) {
           const key = `${owner.platform}:${owner.document}`;
           const previous = owners.get(key);
@@ -144,11 +243,11 @@ async function main() {
           if (row.status === 'COMPLETED') {
             const revenue = ownerRevenue.get(key) ?? { net: zero, missingNet: 0, completed: 0 };
             revenue.completed++;
-            if (row.netAmount == null) revenue.missingNet++;
-            else revenue.net = revenue.net.add(row.netAmount);
+            if (patched.netAmount == null) revenue.missingNet++;
+            else revenue.net = revenue.net.add(patched.netAmount as Prisma.Decimal);
             ownerRevenue.set(key, revenue);
           }
-        } else if (/\[(?:CPF|CNPJ)_DONO:/i.test(row.description ?? '')) counters.ownerRowsIncomplete++;
+        } else if (/\[(?:CPF|CNPJ)_DONO:/i.test(patched.description ?? '')) counters.ownerRowsIncomplete++;
       }
       cursor = rows[rows.length - 1].id;
       if (rows.length < batchSize) break;
@@ -238,12 +337,42 @@ async function main() {
     }
 
     console.log(JSON.stringify({ mode: apply ? 'APPLY' : 'DRY_RUN', databaseName,
-      summary: { ...counters, uniqueCustomers: customers.size, newCustomers: customerCreates.length,
+      summary: { ...counters, provenUsers: proven.size, newUsers: newUsers.length,
+        skippedUsers, uniqueCustomers: customers.size, newCustomers: customerCreates.length,
         uniqueOwners: ownerPlan.length, newOwners: ownerPlan.filter(o => !o.existingId).length,
         newExternalWallets: ownerPlan.filter(o => o.needsWallet && !o.purged).length },
       financial, reviewedBalances: balances }, null, 2));
 
     if (!apply) return;
+    const createdEmails: string[] = [];
+    const passwordHash = newUsers.length ? await hash(process.env.RECOVERY_INITIAL_PASSWORD!, 12) : null;
+    for (const candidate of newUsers) {
+      try {
+        await prisma.user.create({ data: { id: candidate.id, name: candidate.name,
+          email: candidate.email, password: passwordHash!, cpf: candidate.cpf, cnpj: candidate.cnpj,
+          domUserId: candidate.domUserId, role: candidate.role, isActive: candidate.isActive,
+          isCompany: candidate.isCompany, clientStatus: candidate.clientStatus,
+          clientApprovedAt: null } });
+        counters.usersCreated++;
+        createdEmails.push(candidate.email);
+        console.log(JSON.stringify({ createdEmail: candidate.email }));
+      } catch (error) {
+        if ((error as { code?: string }).code === 'P2002') {
+          skippedUsers.push({ id: candidate.id, reason: 'conflito de identidade durante criação' });
+          continue;
+        }
+        throw error;
+      }
+    }
+    for (const [id, patch] of domPatches) {
+      const current = await prisma.transaction.findUnique({ where: { id }, select: {
+        netAmount: true, customerName: true, customerEmail: true, customerDocument: true,
+        customerPhone: true, description: true } });
+      if (!current) continue;
+      const data = Object.fromEntries(Object.entries(patch).filter(([key]) =>
+        current[key as keyof typeof current] == null));
+      if (Object.keys(data).length) await prisma.transaction.update({ where: { id }, data });
+    }
     // Criações idempotentes. Carteiras novas começam em zero: saldo desconhecido
     // nunca é transformado em crédito sacável por uma estimativa incompleta.
     for (let offset = 0; offset < customerCreates.length; offset += batchSize) {
@@ -294,13 +423,13 @@ async function main() {
           description: 'Saldo recuperado de arquivo revisado pelo operador; não inferido de receita parcial.' } });
       }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 60000 });
-    console.log(JSON.stringify({ applied: counters }, null, 2));
+    console.log(JSON.stringify({ applied: counters, createdEmails, skippedUsers }, null, 2));
   } finally {
     await prisma.$disconnect();
   }
 }
 
-if (import.meta.main) main().catch(error => {
+if (process.argv[1]?.endsWith('/recover-from-transactions.ts')) main().catch(error => {
   console.error(error instanceof Error ? error.message : 'Falha inesperada na recuperação.');
   process.exitCode = 1;
 });

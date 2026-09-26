@@ -4,7 +4,8 @@
 
 Use uma cópia local restaurada do banco primeiro. `DATABASE_URL` escolhe a conexão;
 `--database-name` deve coincidir com o nome nessa URL. Não imprime credenciais.
-Nenhuma consulta à DOM, CPF, webhook, e-mail ou outro serviço externo é feita.
+Sem `--dom`, nenhuma consulta externa é feita. Com `--dom`, script faz apenas GET
+em detalhes de transações DOM já importadas. Não importa novas transações.
 
 Script imprime host, porta e banco sem credenciais e valida conexão antes de
 recuperar registros. `ECONNREFUSED` indica conexão recusada nesse endereço:
@@ -15,6 +16,35 @@ confira serviço PostgreSQL, porta publicada, VPN/túnel e `DATABASE_URL`.
 bun scripts/recover-from-transactions.ts --database-name=NOME_DO_BANCO
 bun scripts/recover-from-transactions.ts --database-name=NOME_DO_BANCO --apply
 ```
+
+Para consultar DOM e completar **apenas campos locais vazios** das transações:
+
+```sh
+bun scripts/recover-from-transactions.ts --database-name=NOME_DO_BANCO --dom
+bun scripts/recover-from-transactions.ts --database-name=NOME_DO_BANCO --dom --apply
+```
+
+Requer `DOM_TOKEN` ou `API_DOM_MASTER_KEY`. Compara ID DOM da resposta ao ID
+local; só aceita líquido se bruto da resposta for igual ao bruto local em reais
+ou centavos. Não altera status, bruto nem dados já preenchidos. Falhas DOM são
+contadas em `domErrors`; revise antes de aplicar. Faz uma consulta por transação
+incompleta, o que pode demorar em histórico grande.
+
+Para recuperar contas de cadastro comprovado no `pg_dump` local, ou leads locais
+aprovados vinculados a `approvedUserId`:
+
+```sh
+RECOVERY_INITIAL_PASSWORD='SENHA_ESCOLHIDA' bun scripts/recover-from-transactions.ts --database-name=NOME_DO_BANCO --backup-file=backup.sql
+RECOVERY_INITIAL_PASSWORD='SENHA_ESCOLHIDA' bun scripts/recover-from-transactions.ts --database-name=NOME_DO_BANCO --backup-file=backup.sql --dom --apply
+```
+
+Use a senha fornecida pelo operador na variável de ambiente. Ela é armazenada
+como hash bcrypt, nunca impressa ou enviada à DOM. Backup é **lido como texto**;
+script não executa SQL, não restaura sessões, tokens ou senhas antigas. Contas
+ADMIN e inativas são deixadas para recuperação individual. IDs, e-mails e
+documentos conflitantes são pulados ou abortam a operação. Cada e-mail criado
+é impresso em `createdEmail`; resumo final contém `createdEmails`. A lista aparece
+também em execução interrompida, para as contas criadas até aquele momento.
 
 Sem `--apply`, apenas leitura e relatório JSON. Com `--apply`, cria compradores
 com documento, nome e e-mail completos; donos externos identificados por tags;
@@ -68,7 +98,8 @@ antes desse lote não são revertidos caso aplicação de saldos falhe.
 
 ## Limites
 
-Não cria contas User, módulos TenantModule, links, planos, assinaturas, permissões,
+Não inventa contas User a partir de e-mail de comprador, módulos TenantModule,
+links, planos, assinaturas, permissões,
 histórico fictício de status ou saldos externos por inferência. Transaction não
 contém configuração suficiente para recriar esses registros com segurança.
 Plataforma recuperada significa associação em ExternalPlatformUser, não criação

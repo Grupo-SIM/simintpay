@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'bun:test';
 import { customerFromTransaction, ownerFromDescription, parseBalances } from './recover-from-transactions';
 
 describe('recover-from-transactions', () => {
