@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY, type DomTransactionItem, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
-import { EbookSimConfig } from '../../modules/ebooksim/ebooksim.config';
+import { EbookSimConfig, getEbookTaxaServico } from '../../modules/ebooksim/ebooksim.config';
 import { calculateSellerNetValue } from '../../application/helpers/transaction-fee.helper';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
@@ -117,9 +117,8 @@ export class InternalEbookFinanceController {
       _sum: { amount: true, grossAmount: true },
     });
 
-    const taxaFixaSummary = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-    const taxaCashbackSummary = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-    const taxaServicoSummary = taxaFixaSummary + taxaCashbackSummary;
+    // Taxa fixa por venda = TAXA_SERVICO cadastrada (a mesma de /taxa → transactionFeeBrl)
+    const taxaServicoSummary = getEbookTaxaServico();
     const totalReceived = txCompleted.reduce((sum, tx) => {
       const net = Number(tx.netAmount ?? tx.amount ?? 0);
       const isAffiliateCommission = /\[AFFILIATE_COMMISSION\]/i.test(tx.description ?? '');
@@ -256,10 +255,8 @@ export class InternalEbookFinanceController {
         }
 
         const isAffiliateCommission = /\[AFFILIATE_COMMISSION\]/i.test(t.description ?? '');
-        const taxaFixa = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-        const taxaCashback = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
         const netBase = Number(t.netAmount ?? t.amount);
-        const taxaServico = isAffiliateCommission ? 0 : taxaFixa + taxaCashback;
+        const taxaServico = isAffiliateCommission ? 0 : getEbookTaxaServico();
 
         return {
           id: t.id,
@@ -273,8 +270,8 @@ export class InternalEbookFinanceController {
           fee: Number(t.platformFee ?? 0),
           dom_fee: Number(t.domFee ?? 0),
           payment_method: t.paymentMethod,
-          taxa_fixa_transacao: Number((isAffiliateCommission ? 0 : taxaFixa).toFixed(2)),
-          taxa_cashback: Number((isAffiliateCommission ? 0 : taxaCashback).toFixed(2)),
+          taxa_fixa_transacao: Number(taxaServico.toFixed(2)),
+          taxa_cashback: 0,
           amountWithoutAllFee: Number((netBase - taxaServico).toFixed(2)),
           walletId: null,
           createdAt: t.createdAt,
@@ -370,10 +367,13 @@ export class InternalEbookFinanceController {
     if (body.ownerCpf) {
       const cpf = body.ownerCpf.replace(/\D/g, '');
       const cpfFmt = cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-      const author = await this.prisma.user.findFirst({
-        where: { cpf: { in: [cpf, cpfFmt] } },
-        select: { id: true, name: true },
-      });
+      const author = cpf.length === 14
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ? await (this.prisma.user as any).findFirst({ where: { cnpj: cpf }, select: { id: true, name: true } })
+        : await this.prisma.user.findFirst({
+            where: { cpf: { in: [cpf, cpfFmt] } },
+            select: { id: true, name: true },
+          });
       if (author) {
         userId = author.id;
         // Preferir o nome vindo do back-ebook (fonte primária); fallback para o nome da conta Simpay
@@ -393,7 +393,8 @@ export class InternalEbookFinanceController {
       },
     });
 
-    const cpfTag = body.ownerCpf ? ` [CPF_DONO:${body.ownerCpf.replace(/\D/g, '')}]` : '';
+    const ownerDoc = body.ownerCpf ? body.ownerCpf.replace(/\D/g, '') : '';
+    const cpfTag = ownerDoc ? ` [${ownerDoc.length === 14 ? 'CNPJ' : 'CPF'}_DONO:${ownerDoc}]` : '';
     const nomeTag = ownerName ? ` [NOME_DONO:${ownerName}]` : '';
     const description = `${body.orderNumber.trim()} [TENANT:EBOOK]${cpfTag}${nomeTag}`;
     const installments = Number(body.installments || 1);

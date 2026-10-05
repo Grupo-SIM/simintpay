@@ -5,6 +5,14 @@ import { cartaoMdrProxy } from '../platform-taxas/cartao-mdr-proxy';
 
 const TAG = 'EBOOK';
 
+/**
+ * Taxa fixa por venda do EbookSim (R$), cadastrada pelo admin — a mesma exibida em
+ * admin.ebooksim.com/taxa (transactionFeeBrl). Líquido do vendedor = netAmount (% LIQUIDEZ) − esta taxa.
+ */
+export function getEbookTaxaServico(): number {
+  return getPlatformTaxaEffective(TAG, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+}
+
 export const EbookSimConfig: ModuleConfig = {
   name: 'EbookSim',
   slug: 'ebooksim',

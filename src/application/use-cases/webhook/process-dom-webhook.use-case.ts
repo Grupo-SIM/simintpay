@@ -23,6 +23,7 @@ import {
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
+import { getEbookTaxaServico } from '../../../modules/ebooksim/ebooksim.config';
 import { calculateMaquinetaFees } from '../../helpers/maquineta-fee.helper';
 import { StorageService } from '../../../infrastructure/storage/storage.service';
 import { documentType, splitDocument as provisionDocPayload } from '../../utils/document.util';
@@ -294,6 +295,20 @@ export class ProcessDomWebhookUseCase {
     if (existing) {
       if (existing.status === nextStatus) return;
 
+      // Transação paga não regride para PENDING/FAILED/EXPIRED: essa regressão não estorna o saldo,
+      // e o próximo "paid" creditaria a wallet de novo (crédito duplicado).
+      if (
+        existing.status === TransactionStatus.COMPLETED &&
+        (nextStatus === TransactionStatus.PENDING ||
+          nextStatus === TransactionStatus.FAILED ||
+          nextStatus === TransactionStatus.EXPIRED)
+      ) {
+        this.logger.warn(
+          `[DomWebhook] Ignorando regressão COMPLETED → ${nextStatus} da tx ${existing.id} (domPaymentId=${data.id})`,
+        );
+        return;
+      }
+
       const isRenovada = existing.userId === RENOVADA_USER_ID;
       const isBosque = existing.userId === BOSQUE_USER_ID;
       // Renovada/Bosque: wallet stores net (DOM liquid_amount). Use liquid from webhook when available,
@@ -309,6 +324,12 @@ export class ProcessDomWebhookUseCase {
         delta = existing.netAmount != null
           ? new Prisma.Decimal(existing.netAmount.toString())
           : amountDec;
+      } else if (existing.description?.includes('[TENANT:EBOOK]')) {
+        // EBOOK: líquido = netAmount (% LIQUIDEZ) − TAXA_SERVICO, as taxas cadastradas exibidas em /taxa.
+        const netAmountDec = existing.netAmount != null
+          ? new Prisma.Decimal(existing.netAmount.toString())
+          : amountDec;
+        delta = netAmountDec.sub(getEbookTaxaServico());
       } else {
         const netAmountDec = existing.netAmount != null
           ? new Prisma.Decimal(existing.netAmount.toString())
@@ -320,10 +341,15 @@ export class ProcessDomWebhookUseCase {
       }
 
       await this.prisma.$transaction(async (p) => {
-        await p.transaction.update({
-          where: { id: existing.id },
+        // Só aplica se o status ainda for o lido acima: dois webhooks simultâneos não creditam duas vezes.
+        const statusChange = await p.transaction.updateMany({
+          where: { id: existing.id, status: existing.status },
           data: { previousStatus: existing.status, status: nextStatus, updatedAt: new Date() },
         });
+        if (statusChange.count === 0) {
+          this.logger.warn(`[DomWebhook] Status da tx ${existing.id} já foi alterado por outro webhook – ignorando`);
+          return;
+        }
 
         await p.transactionStatusHistory.create({
           data: {
@@ -1037,12 +1063,17 @@ export class ProcessDomWebhookUseCase {
         },
       });
       if (pendingTx) {
+        if (pendingTx.status === TransactionStatus.COMPLETED) {
+          this.logger.log(`[DomWebhook][ebook] tx ${pendingTx.id} já está COMPLETED – não credita de novo`);
+          return;
+        }
         this.logger.log(`[DomWebhook][ebook] atualizando tx PENDING → COMPLETED id=${pendingTx.id}`);
         const amountDec = new Prisma.Decimal(data.amount / 100);
+        // EBOOK usa só as taxas cadastradas (LIQUIDEZ), não o líquido informado pela DOM
         const netDec = this.calcNet(
           data.amount / 100,
           Number(data.installments ?? 1),
-          data.liquid_amount != null ? data.liquid_amount / 100 : undefined,
+          undefined,
           'EBOOK',
           data.payment_method,
         );
@@ -1050,8 +1081,9 @@ export class ProcessDomWebhookUseCase {
         const custEmail = (data as any).customer_email || data.customer?.email || null;
         const custDoc = ((data as any).customer_document || data.customer?.document || '').replace(/\D/g, '') || null;
         await this.prisma.$transaction(async (p) => {
-          await p.transaction.update({
-            where: { id: pendingTx.id },
+          // Condicional ao status: webhook repetido/simultâneo não conclui (nem credita) duas vezes
+          const completed = await p.transaction.updateMany({
+            where: { id: pendingTx.id, status: { not: TransactionStatus.COMPLETED } },
             data: {
               status: 'COMPLETED',
               domPaymentId: data.id,
@@ -1065,10 +1097,8 @@ export class ProcessDomWebhookUseCase {
               updatedAt: new Date(),
             },
           });
-          const taxaFixaPending = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-          const taxaCashbackPending = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-          const taxaServicoPending = getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-          const walletDeltaPending = netDec.sub(taxaFixaPending + taxaCashbackPending + taxaServicoPending);
+          if (completed.count === 0) return;
+          const walletDeltaPending = netDec.sub(getEbookTaxaServico());
           await p.wallet.update({
             where: { userId: pendingTx.userId },
             data: { balance: { increment: walletDeltaPending }, updatedAt: new Date() },
@@ -1125,10 +1155,11 @@ export class ProcessDomWebhookUseCase {
       });
 
       const amountDec = new Prisma.Decimal(data.amount / 100);
+      // EBOOK usa só as taxas cadastradas (LIQUIDEZ), não o líquido informado pela DOM
       const netDec = this.calcNet(
         data.amount / 100,
         Number(data.installments ?? 1),
-        data.liquid_amount != null ? data.liquid_amount / 100 : undefined,
+        undefined,
         'EBOOK',
         data.payment_method,
       );
@@ -1176,10 +1207,7 @@ export class ProcessDomWebhookUseCase {
         });
 
         // Atualizar saldo da wallet do usuário ebook
-        const taxaFixaEbook = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-        const taxaCashbackEbook = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-        const taxaServicoEbook = getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-        const walletDeltaEbook = netDec.sub(taxaFixaEbook + taxaCashbackEbook + taxaServicoEbook);
+        const walletDeltaEbook = netDec.sub(getEbookTaxaServico());
         for (let attempt = 0; attempt < 3; attempt++) {
           const wallet = await p.wallet.findUnique({ where: { userId: ebookUserId } });
           if (!wallet) break;
