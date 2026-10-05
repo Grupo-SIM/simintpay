@@ -18,6 +18,7 @@ const MODULES = [
   { name: 'PagaTG',    slug: 'pagatg'    },
   { name: 'EbookSim',  slug: 'ebooksim'  },
   { name: 'Frendz',    slug: 'frendz'    },
+  { name: 'Atlas',     slug: 'atlas'     },
 ];
 
 async function seedModules() {
