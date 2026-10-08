@@ -348,6 +348,8 @@ export interface IPaymentGateway {
     domToken: string,
     input: {
       domLinkId: string;
+      amount: number;
+      description: string;
       customerName: string;
       customerEmail: string;
       customerDocument: string;

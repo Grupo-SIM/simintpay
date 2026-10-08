@@ -177,6 +177,8 @@ export class ChargePaymentLinkUseCase {
 
     const result = await this.gateway.chargePaymentLink(domToken, {
       domLinkId: link.domPaymentLinkId,
+      amount: totalAmount,
+      description: link.description ?? link.title,
       customerName: input.customerName,
       customerEmail: input.customerEmail,
       customerDocument: input.customerDocument.replace(/\D/g, ''),

@@ -706,6 +706,8 @@ export class ApiDomClient implements IPaymentGateway {
     domToken: string,
     input: {
       domLinkId: string;
+      amount: number;
+      description: string;
       customerName: string;
       customerEmail: string;
       customerDocument: string;
@@ -725,34 +727,40 @@ export class ApiDomClient implements IPaymentGateway {
       };
     },
   ): Promise<{ id: string; status?: string; pixContent?: string | null }> {
-    const url = `${this.domRealApiUrl}/set-payment-link/${input.domLinkId}/charge`;
-    const body: any = {
+    if (input.paymentMethod === 'pix') {
+      throw new BadRequestException('Use a rota PIX do link de pagamento');
+    }
+    if (!input.card?.token) {
+      throw new BadRequestException('Token do cartão obrigatório');
+    }
+
+    const url = `${this.domRealApiUrl}/transactions`;
+    const document = input.customerDocument.replace(/\D/g, '');
+    const body = {
       customer: {
         name: input.customerName,
         email: input.customerEmail,
-        document: input.customerDocument,
-        phone: input.customerPhone,
+        document,
+        document_type: document.length === 14 ? 'CNPJ' : 'CPF',
+        mobile_phone: input.customerPhone.replace(/\D/g, ''),
       },
-      payment_method: input.paymentMethod,
-      installments: input.paymentMethod === 'debit_card' ? 1 : input.installments,
+      items: [
+        { description: input.description, price: input.amount, quantity: 1 },
+      ],
+      payment: {
+        payment_method: input.paymentMethod,
+        total: input.amount,
+        [input.paymentMethod]: {
+          token: input.card.token,
+          installments: input.paymentMethod === 'debit_card' ? 1 : input.installments,
+        },
+      },
+      metadata: JSON.stringify({ paymentLinkId: input.domLinkId }),
     };
-    if ((input.paymentMethod === 'credit_card' || input.paymentMethod === 'debit_card') && input.card) {
-      body.card = {
-        token: input.card.token,
-        brand: input.card.brand,
-        bin: input.card.bin,
-        exp_month: input.card.exp_month,
-        exp_year: input.card.exp_year,
-        cvv: input.card.cvv,
-        holder_name: input.card.holder_name,
-        holder_document: input.card.holder_document,
-        number: input.card.number,
-      };
-    }
     const res = await firstValueFrom(this.http.post<any>(url, body, {
       headers: { 'Authorization': `Bearer ${domToken}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
     }));
-    this.logger.log(`[DOM Charge Link RAW] ${JSON.stringify(res.data)}`);
+
     const root = res.data?.data ?? res.data;
     const id = root?.id ?? root?.transaction_id;
     if (!id) throw new Error('Charge response missing id');
