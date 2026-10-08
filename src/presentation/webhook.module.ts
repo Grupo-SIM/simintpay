@@ -3,6 +3,7 @@ import { WebhookController } from './controllers/webhook.controller';
 import { FrendzWebhookController } from './controllers/frendz-webhook.controller';
 import { InternalReconcileController } from './controllers/internal-reconcile.controller';
 import { RabbitMqModule } from '../infrastructure/queue/rabbitmq.module';
+import { ZeroGrauNotificationConsumer } from '../infrastructure/queue/consumers/zero-grau-notification.consumer';
 import { WebhookConsumer } from '../infrastructure/queue/consumers/webhook.consumer';
 import { DomWebhookConsumer } from '../infrastructure/queue/consumers/dom-webhook.consumer';
 import { ProcessWebhookUseCase } from '../application/use-cases/webhook/process-webhook.use-case';
@@ -34,6 +35,7 @@ import { CheckoutModule } from './checkout.module';
     ProcessDomWebhookUseCase,
     ReconcilePendingTransactionsUseCase,
     WebhookConsumer,
+    ZeroGrauNotificationConsumer,
     DomWebhookConsumer,
     CommunityManagementService,
     AffiliateCommissionService,

@@ -27,6 +27,7 @@ describe('notifyZeroGrauPaymentStatus', () => {
         'x-simpay-webhook-secret': 'shared-secret',
       },
       method: 'POST',
+      signal: expect.any(AbortSignal),
     });
   });
 

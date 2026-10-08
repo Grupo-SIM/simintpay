@@ -183,13 +183,13 @@ export class ProcessWebhookUseCase {
     const eventId = parsed.signature;
 
     const exists = await this.events.findByEventId(eventId);
-    if (exists) {
+    if (exists?.status === 'PROCESSED') {
       return;
     }
 
     const eventType = parsed.event;
 
-    const event = await this.events.create({
+    const event = exists ?? await this.events.create({
       eventId,
       source: 'api-dom',
       eventType,
@@ -398,6 +398,7 @@ export class ProcessWebhookUseCase {
         event.id,
         e instanceof Error ? e.message : 'unknown error',
       );
+      throw e;
     }
   }
 

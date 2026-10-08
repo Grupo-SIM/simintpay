@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit, Logger, Inject } from '@nestjs/common';
 import { QUEUE_SERVICE } from '../../../core/services/queue.interface';
-import { InMemoryQueueService } from '../in-memory-queue.service';
+import { RabbitMqService } from '../rabbitmq.service';
 import { QueueNames } from '../queue-names';
 import { ProcessDomWebhookUseCase } from '../../../application/use-cases/webhook/process-dom-webhook.use-case';
 
@@ -10,7 +10,7 @@ export class DomWebhookConsumer implements OnModuleInit {
 
   constructor(
     private readonly processDomWebhook: ProcessDomWebhookUseCase,
-    @Inject(QUEUE_SERVICE) private readonly queue: InMemoryQueueService,
+    @Inject(QUEUE_SERVICE) private readonly queue: RabbitMqService,
   ) {}
 
   onModuleInit(): void {

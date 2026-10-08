@@ -30,6 +30,7 @@ export async function notifyZeroGrauPaymentStatus(
         'x-simpay-webhook-secret': secret,
       },
       method: 'POST',
+      signal: AbortSignal.timeout(5_000),
     });
     return response.ok ? 'sent' : 'failed';
   } catch {

@@ -1,6 +1,19 @@
 version: '3.8'
 
 services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: simintpay
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api_donate:
     image: brenolima1706/back-simpay:latest
     networks:
@@ -8,6 +21,7 @@ services:
       - default
     environment:
       # --- CORE & AUTH ---
+      - RABBITMQ_URL=amqp://simintpay:${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD}@rabbitmq:5672
       - PORT=3333
       - NODE_ENV=production
       - TZ=America/Fortaleza
@@ -314,6 +328,7 @@ services:
         - "traefik.http.services.back-simpay.loadbalancer.server.port=3333"
 
 volumes:
+  rabbitmq_data:
   simpay_storage:
     external: true
     name: back-simpay_simpay_storage

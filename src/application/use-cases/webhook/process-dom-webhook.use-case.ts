@@ -1,3 +1,5 @@
+import { QUEUE_SERVICE, type IQueueService } from '../../../core/services/queue.interface';
+import { QueueNames } from '../../../infrastructure/queue/queue-names';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { Prisma, PaymentMethod, TransactionStatus } from '@prisma/client';
@@ -102,6 +104,7 @@ export class ProcessDomWebhookUseCase {
     @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
     @Optional() private readonly checkoutEvents?: CheckoutEventsService,
     @Optional() private readonly storage?: StorageService,
+    @Optional() @Inject(QUEUE_SERVICE) private readonly queue?: IQueueService,
   ) { }
 
   async execute(payload: unknown): Promise<void> {
@@ -113,16 +116,16 @@ export class ProcessDomWebhookUseCase {
 
     const existingEv = await this.prisma.webhookEvent.findFirst({
       where: { eventId: event.signature },
-      select: { id: true },
+      select: { id: true, status: true },
     });
-    if (existingEv) {
+    if (existingEv?.status === 'PROCESSED') {
       this.logger.log(`[DomWebhook] ${event.signature} já registrado – ignorando`);
       return;
     }
 
     let wh: { id: string };
     try {
-      wh = await this.prisma.webhookEvent.create({
+      wh = existingEv ?? await this.prisma.webhookEvent.create({
         data: {
           eventId: event.signature,
           source: 'dom-webhook-direct',
@@ -153,7 +156,7 @@ export class ProcessDomWebhookUseCase {
 
       await this.prisma.webhookEvent.update({
         where: { id: wh.id },
-        data: { status: 'PROCESSED', processedAt: new Date() },
+        data: { status: 'PROCESSED', processedAt: new Date(), error: null },
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'unknown';
@@ -162,6 +165,7 @@ export class ProcessDomWebhookUseCase {
         where: { id: wh.id },
         data: { status: 'FAILED', error: msg, retryCount: { increment: 1 } },
       });
+      throw err;
     }
   }
 
@@ -293,7 +297,12 @@ export class ProcessDomWebhookUseCase {
     });
 
     if (existing) {
-      if (existing.status === nextStatus) return;
+      if (existing.status === nextStatus) {
+        if (this.queue && existing.userId === process.env.ZERO_GRAU_USER_ID?.trim()) {
+          await this.queue.publish(QueueNames.ZERO_GRAU_NOTIFICATIONS, { paymentId: data.id, status: nextStatus });
+        }
+        return;
+      }
 
       // Transação paga não regride para PENDING/FAILED/EXPIRED: essa regressão não estorna o saldo,
       // e o próximo "paid" creditaria a wallet de novo (crédito duplicado).
@@ -437,12 +446,14 @@ export class ProcessDomWebhookUseCase {
 
       const zeroGrauUserId = String(process.env.ZERO_GRAU_USER_ID ?? '').trim();
       if (zeroGrauUserId && existing.userId === zeroGrauUserId) {
-        const webhookResult = await notifyZeroGrauPaymentStatus({
-          paymentId: data.id,
-          status: nextStatus,
-        });
-        if (webhookResult === 'failed') {
-          this.logger.warn(`[DomWebhook][zero-grau] Falha ao notificar pagamento ${data.id}`);
+        const notification = { paymentId: data.id, status: nextStatus };
+        if (this.queue) {
+          await this.queue.publish(QueueNames.ZERO_GRAU_NOTIFICATIONS, notification);
+        } else {
+          const result = await notifyZeroGrauPaymentStatus(notification);
+          if (result === 'failed') {
+            this.logger.warn(`[DomWebhook][zero-grau] Falha ao notificar pagamento ${data.id}`);
+          }
         }
       }
 
@@ -1404,7 +1415,7 @@ export class ProcessDomWebhookUseCase {
       }
       await this.prisma.webhookEvent.update({
         where: { id: webhookEventDbId },
-        data: { status: 'PROCESSED', processedAt: new Date() },
+        data: { status: 'PROCESSED', processedAt: new Date(), error: null },
       });
       return true;
     }
@@ -1413,7 +1424,7 @@ export class ProcessDomWebhookUseCase {
     if (order.status === 'paid') {
       await this.prisma.webhookEvent.update({
         where: { id: webhookEventDbId },
-        data: { status: 'PROCESSED', processedAt: new Date() },
+        data: { status: 'PROCESSED', processedAt: new Date(), error: null },
       });
       return true;
     }
