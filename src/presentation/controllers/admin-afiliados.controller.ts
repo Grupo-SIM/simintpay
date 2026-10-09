@@ -87,11 +87,32 @@ export class AdminAfiliadosController {
           totalReferrals: a._count.referrals,
           totalCommission: Number(totals._sum.commissionAmount ?? 0),
           createdAt: a.createdAt,
+          platform: 'SIMINTPAY',
         };
       }),
     );
 
-    return { data };
+    const [ebook, atlas] = await Promise.all([
+      this.fetchExternalAffiliates(process.env.BACK_EBOOK_URL, '/internal/affiliates', 'EBOOK'),
+      this.fetchExternalAffiliates(process.env.ATLAS_HOSTING_URL, '/api/internal/affiliates', 'ATLAS'),
+    ]);
+
+    return { data: [...data, ...ebook, ...atlas] };
+  }
+
+  /** Afiliados que vivem no banco de outra plataforma (somente leitura; falha não derruba a lista). */
+  private async fetchExternalAffiliates(baseUrl: string | undefined, path: string, platform: string) {
+    const base = String(baseUrl ?? '').replace(/\/+$/, '');
+    if (!base) return [];
+    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    try {
+      const res = await fetch(`${base}${path}`, { headers: { 'x-internal-token': token } });
+      if (!res.ok) return [];
+      const json = (await res.json()) as { data?: Array<Record<string, unknown>> };
+      return (json.data ?? []).map((a) => ({ ...a, platform }));
+    } catch {
+      return [];
+    }
   }
 
   @Get('buscar')
@@ -120,6 +141,85 @@ export class AdminAfiliadosController {
     });
 
     return { data: users };
+  }
+
+  @Get(':userId/indicados')
+  @ApiOperation({ summary: 'Indicados de um afiliado (qualquer plataforma) com as carteiras Sim Int Pay' })
+  @ApiQuery({ name: 'platform', required: false })
+  async referrals(
+    @Param('userId') userId: string,
+    @Query('platform') platform = 'SIMINTPAY',
+    @CurrentUser() authUser?: JwtPayload,
+  ) {
+    await assertMaster(this.prisma, authUser);
+
+    type Person = { id: string; name: string; email: string; cpf?: string | null; generated?: number };
+    let affiliate: Person | null = null;
+    let people: Person[] = [];
+
+    if (platform === 'SIMINTPAY') {
+      const row = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true, name: true, email: true, cpf: true,
+          referrals: { select: { id: true, name: true, email: true, cpf: true } },
+        },
+      });
+      if (!row) throw new NotFoundException('Usuário não encontrado');
+      affiliate = { id: row.id, name: row.name, email: row.email, cpf: row.cpf };
+      const commissions = await this.prisma.affiliateCommission.findMany({
+        where: { affiliateUserId: userId, status: 'CREDITED' },
+        select: { referredUserId: true, commissionAmount: true },
+      });
+      const byUser = new Map<string, number>();
+      for (const c of commissions) {
+        byUser.set(c.referredUserId, (byUser.get(c.referredUserId) ?? 0) + Number(c.commissionAmount));
+      }
+      people = row.referrals.map((r) => ({ ...r, generated: byUser.get(r.id) ?? 0 }));
+    } else {
+      const [base, path] =
+        platform === 'EBOOK'
+          ? [process.env.BACK_EBOOK_URL, `/internal/affiliates/${encodeURIComponent(userId)}`]
+          : [process.env.ATLAS_HOSTING_URL, `/api/internal/affiliates/${encodeURIComponent(userId)}`];
+      const url = String(base ?? '').replace(/\/+$/, '');
+      if (!url) throw new NotFoundException('Plataforma não configurada');
+      const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+      const res = await fetch(`${url}${path}`, { headers: { 'x-internal-token': token } }).catch(() => null);
+      if (!res?.ok) throw new NotFoundException('Não foi possível consultar a plataforma');
+      const json = (await res.json()) as { data?: { affiliate: Person | null; referrals: Person[] } };
+      affiliate = json.data?.affiliate ?? null;
+      people = json.data?.referrals ?? [];
+    }
+
+    // Carteira Sim Int Pay: casa por e-mail ou CPF.
+    const all = [...(affiliate ? [affiliate] : []), ...people];
+    const emails = all.map((p) => p.email?.toLowerCase()).filter(Boolean) as string[];
+    const cpfs = all.map((p) => p.cpf?.replace(/\D/g, '')).filter(Boolean) as string[];
+    const accounts = await this.prisma.user.findMany({
+      where: { OR: [{ email: { in: emails, mode: 'insensitive' } }, ...(cpfs.length ? [{ cpf: { in: cpfs } }] : [])] },
+      select: { email: true, cpf: true, wallet: { select: { balance: true, lockedBalance: true } } },
+    });
+    const walletOf = (p: Person) => {
+      const acc = accounts.find(
+        (a) => a.email?.toLowerCase() === p.email?.toLowerCase() || (!!p.cpf && a.cpf === p.cpf.replace(/\D/g, '')),
+      );
+      if (!acc) return null;
+      return {
+        balance: Number(acc.wallet?.balance ?? 0),
+        lockedBalance: Number(acc.wallet?.lockedBalance ?? 0),
+      };
+    };
+
+    return {
+      data: {
+        affiliate: affiliate && { ...affiliate, wallet: walletOf(affiliate) },
+        referrals: people.map((p) => ({
+          id: p.id, name: p.name, email: p.email,
+          generated: Number(p.generated ?? 0),
+          wallet: walletOf(p),
+        })),
+      },
+    };
   }
 
   @Get(':userId')
