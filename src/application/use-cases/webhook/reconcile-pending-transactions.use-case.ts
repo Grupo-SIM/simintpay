@@ -24,6 +24,7 @@ type ReconcileDetail = { id: string; domPaymentId: string; domStatus?: string; a
 export class ReconcilePendingTransactionsUseCase {
   private readonly logger = new Logger(ReconcilePendingTransactionsUseCase.name);
   private running = false;
+  private activeRun: { mode: string; startedAt: number } | undefined;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -53,12 +54,24 @@ export class ReconcilePendingTransactionsUseCase {
     /** Consulta individual na DOM, sem depender da listagem paginada. */
     direct?: boolean;
   }): Promise<{ checked: number; completed: number; details: ReconcileDetail[] }> {
-    if (this.running) return { checked: 0, completed: 0, details: [] };
+    const mode = opts?.direct ? 'poll' : 'list';
+    const prefix = `[Reconcile][${mode}]`;
+    const startedAt = Date.now();
+    if (this.running) {
+      this.logger.warn(`${prefix} skipped: activeMode=${this.activeRun?.mode} activeDurationMs=${startedAt - (this.activeRun?.startedAt ?? startedAt)}`);
+      return { checked: 0, completed: 0, details: [] };
+    }
     this.running = true;
+    this.activeRun = { mode, startedAt };
+    let checked = 0;
+    let completed = 0;
+    let outcome = 'error';
     try {
       const sinceHours = opts?.sinceHours ?? 72;
       const minAgeMin = opts?.minAgeMinutes ?? 1;
       const now = Date.now();
+
+      this.logger.log(`${prefix} started: sinceHours=${sinceHours} minAgeMinutes=${minAgeMin} userId=${opts?.userId ?? 'all'} limit=${opts?.direct ? 'all' : (opts?.limit ?? 150)} createdSince=${new Date(now - sinceHours * 3_600_000).toISOString()} updatedBefore=${new Date(now - minAgeMin * 60_000).toISOString()}`);
 
       const pendings = await this.prisma.transaction.findMany({
         where: {
@@ -74,12 +87,19 @@ export class ReconcilePendingTransactionsUseCase {
       });
 
       const details: ReconcileDetail[] = [];
-      if (pendings.length === 0) return { checked: 0, completed: 0, details };
+      checked = pendings.length;
+      this.logger.log(`${prefix} selected: checked=${checked}`);
+      if (pendings.length === 0) {
+        outcome = 'no-pending';
+        return { checked: 0, completed: 0, details };
+      }
 
       // Token master — mesma fonte do GET /admin/transacoes-dom, que retorna o status correto da DOM.
       // (O /transactions/{id} de detalhe voltava status vazio; a listagem paginada funciona.)
       const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
       if (!domToken) {
+        outcome = 'no-master-token';
+        this.logger.warn(`${prefix} skipped: no master token configured checked=${checked}`);
         return {
           checked: pendings.length,
           completed: 0,
@@ -98,12 +118,20 @@ export class ReconcilePendingTransactionsUseCase {
       if (opts?.direct) {
         for (let offset = 0; offset < pendings.length; offset += 10) {
           await Promise.all(pendings.slice(offset, offset + 10).map(async (tx) => {
+            const queryStartedAt = Date.now();
+            const transactionContext = `tx=${tx.id} domPaymentId=${tx.domPaymentId}`;
+            this.logger.log(`${prefix} DOM request: ${transactionContext}`);
             try {
               const detail = await this.gateway.getDomTransactionDetail(domToken, tx.domPaymentId as string);
               // ApiDomClient normaliza o detalhe como { order: { type, total, ... } }.
               const order = detail?.order;
               const status = order?.type ?? detail?.status;
-              if (typeof status !== 'string' || !status) return;
+              const durationMs = Date.now() - queryStartedAt;
+              if (typeof status !== 'string' || !status) {
+                this.logger.warn(`${prefix} DOM response: ${transactionContext} status=missing durationMs=${durationMs}`);
+                return;
+              }
+              this.logger.log(`${prefix} DOM response: ${transactionContext} status=${status} durationMs=${durationMs}`);
               domMap.set(tx.domPaymentId as string, {
                 id: tx.domPaymentId as string,
                 status,
@@ -113,7 +141,7 @@ export class ReconcilePendingTransactionsUseCase {
                 created_at: order?.date_register ?? detail?.created_at ?? '',
               });
             } catch (err) {
-              this.logger.warn(`[Reconcile][poll] consulta ${tx.id} falhou: ${err instanceof Error ? err.message : String(err)}`);
+              this.logger.warn(`${prefix} DOM request failed: ${transactionContext} durationMs=${Date.now() - queryStartedAt} error=${err instanceof Error ? err.message : String(err)}`);
             }
           }));
         }
@@ -142,7 +170,6 @@ export class ReconcilePendingTransactionsUseCase {
         if (txs.length < 100) break;
       }
 
-      let completed = 0;
       for (const tx of pendings) {
         const domPaymentId = tx.domPaymentId as string;
         const dom = domMap.get(domPaymentId)
@@ -151,6 +178,7 @@ export class ReconcilePendingTransactionsUseCase {
         const domStatus = String(dom?.status ?? '').toLowerCase();
 
         if (!dom || !PAID_STATUSES.has(domStatus)) {
+          this.logger.log(`${prefix} kept-pending: tx=${tx.id} domPaymentId=${domPaymentId} domStatus=${dom ? domStatus : 'not-found'} reason=${dom ? 'not-paid' : 'no-DOM-match'}`);
           details.push({
             id: tx.id,
             domPaymentId,
@@ -181,6 +209,8 @@ export class ReconcilePendingTransactionsUseCase {
           },
         };
 
+        const webhookStartedAt = Date.now();
+        this.logger.log(`${prefix} webhook started: tx=${tx.id} domPaymentId=${domPaymentId} domStatus=${domStatus}`);
         try {
           await this.webhook.execute(payload);
           const settled = await this.prisma.transaction.findUnique({
@@ -189,12 +219,14 @@ export class ReconcilePendingTransactionsUseCase {
           });
           if (settled?.status === 'COMPLETED') {
             completed++;
+            this.logger.log(`${prefix} completed: tx=${tx.id} domPaymentId=${domPaymentId} durationMs=${Date.now() - webhookStartedAt}`);
             details.push({ id: tx.id, domPaymentId, domStatus, action: 'completed' });
           } else {
             details.push({ id: tx.id, domPaymentId, domStatus, action: 'kept-pending' });
-            this.logger.warn(`[Reconcile] tx ${tx.id} continua pendente após processar status ${domStatus}`);
+            this.logger.warn(`${prefix} webhook did not complete: tx=${tx.id} domPaymentId=${domPaymentId} domStatus=${domStatus} localStatus=${settled?.status ?? 'missing'} durationMs=${Date.now() - webhookStartedAt}`);
           }
         } catch (err) {
+          this.logger.error(`${prefix} webhook failed: tx=${tx.id} domPaymentId=${domPaymentId} domStatus=${domStatus} durationMs=${Date.now() - webhookStartedAt} error=${err instanceof Error ? err.message : String(err)}`);
           details.push({
             id: tx.id,
             domPaymentId,
@@ -204,9 +236,15 @@ export class ReconcilePendingTransactionsUseCase {
         }
       }
 
+      outcome = 'finished';
       return { checked: pendings.length, completed, details };
+    } catch (err) {
+      this.logger.error(`${prefix} run failed: error=${err instanceof Error ? err.message : String(err)}`);
+      throw err;
     } finally {
+      this.logger.log(`${prefix} ended: outcome=${outcome} checked=${checked} completed=${completed} durationMs=${Date.now() - startedAt}`);
       this.running = false;
+      this.activeRun = undefined;
     }
   }
 
