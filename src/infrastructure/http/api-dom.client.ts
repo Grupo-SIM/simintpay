@@ -1306,7 +1306,7 @@ export class ApiDomClient implements IPaymentGateway {
   async getDomTransactionDetail(domToken: string, id: string): Promise<any> {
     const url = `${this.domRealApiUrl}/transactions/${id}`;
     try {
-      const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${domToken}` } }));
+      const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${domToken}` }, timeout: 4_000 }));
       const obj = this.getObject(res.data);
       if (obj) {
         const normalized = this.normalizeDomApiResponse(obj);

@@ -27,7 +27,7 @@ export class InternalReconcileController {
   ) {
     this.ensureInternalToken(internalToken);
     // Botão manual: janela ampla (30 dias) e limite maior por padrão, para pegar pendências antigas
-    // travadas. (O cron automático usa a janela curta de 72h, suficiente para falhas recentes.)
+    // travadas. O polling automático consulta apenas os primeiros 30 minutos de criação.
     const sinceHours = horas ? Math.max(1, Number(horas)) : 720;
     return this.reconcilePending.execute({ userId: userId || undefined, sinceHours, limit: 500 });
   }
