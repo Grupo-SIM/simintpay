@@ -1,4 +1,5 @@
 import { Controller, Post, Body, HttpCode, Inject } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ApiTags, ApiExcludeController } from '@nestjs/swagger';
 import { QUEUE_SERVICE } from '../../../core/services/queue.interface';
 import type { IQueueService } from '../../../core/services/queue.interface';
@@ -6,6 +7,7 @@ import { QueueNames } from '../../../infrastructure/queue/queue-names';
 
 @ApiTags('Renovada Webhooks')
 @ApiExcludeController()
+@SkipThrottle()
 @Controller('renovada/webhook')
 export class RenovadaWebhookNewController {
   constructor(

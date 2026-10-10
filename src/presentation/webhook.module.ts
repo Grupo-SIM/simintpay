@@ -8,6 +8,7 @@ import { WebhookConsumer } from '../infrastructure/queue/consumers/webhook.consu
 import { DomWebhookConsumer } from '../infrastructure/queue/consumers/dom-webhook.consumer';
 import { ProcessWebhookUseCase } from '../application/use-cases/webhook/process-webhook.use-case';
 import { ProcessDomWebhookUseCase } from '../application/use-cases/webhook/process-dom-webhook.use-case';
+import { DomPaymentPollingService } from '../application/use-cases/webhook/dom-payment-polling.service';
 import { ReconcilePendingTransactionsUseCase } from '../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { WEBHOOK_EVENT_REPOSITORY } from '../core/repositories/webhook-event.repository.interface';
 import { PrismaWebhookEventRepository } from '../infrastructure/database/repositories/prisma-webhook-event.repository';
@@ -34,6 +35,7 @@ import { CheckoutModule } from './checkout.module';
     ProcessWebhookUseCase,
     ProcessDomWebhookUseCase,
     ReconcilePendingTransactionsUseCase,
+    DomPaymentPollingService,
     WebhookConsumer,
     ZeroGrauNotificationConsumer,
     DomWebhookConsumer,

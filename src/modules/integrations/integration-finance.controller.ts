@@ -1,3 +1,5 @@
+import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Body, Controller, Get, Headers, Param, Post, Put, Query } from '@nestjs/common';
 import { ZeroGrauPaymentService } from '../zero-grau/services/zero-grau-payment.service';
 import { CheckoutPixDto } from '../renovada/dtos/checkout-pix.dto';
@@ -9,6 +11,7 @@ export class IntegrationFinanceController {
   constructor(
     private readonly finance: IntegrationFinanceService,
     private readonly payments: ZeroGrauPaymentService,
+    private readonly reconcilePayments: ReconcilePendingTransactionsUseCase,
   ) {}
 
   private auth(token?: string) { this.finance.assertToken(token); }
@@ -34,9 +37,12 @@ export class IntegrationFinanceController {
   }
 
   @Get('payments/:paymentId')
+  @SkipThrottle()
   async paymentStatus(@Param() params: { integrationKey: string; externalMerchantId: string; paymentId: string }, @Headers('x-internal-token') token?: string) {
     this.auth(token);
-    return this.finance.paymentStatus(params.integrationKey, params.externalMerchantId, params.paymentId);
+    const merchant = await this.finance.merchant(params.integrationKey, params.externalMerchantId);
+    return this.reconcilePayments.reconcilePayment(params.paymentId, merchant.userId,
+      process.env.ZERO_GRAU_DOM_TOKEN || process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY);
   }
 
   @Get('finance/summary')

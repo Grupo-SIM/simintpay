@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 
+let connected = true;
 const setups: Array<(channel: unknown) => Promise<void>> = [];
 const send = mock(async (..._args: unknown[]) => undefined);
 const close = mock(async () => undefined);
 mock.module('amqp-connection-manager', () => ({
   connect: () => ({
+    on: () => undefined,
+    isConnected: () => connected,
     createChannel: (options: { setup?: (channel: unknown) => Promise<void> }) => {
       if (options.setup) setups.push(options.setup);
       return { addSetup: async () => undefined, sendToQueue: send, close };
@@ -14,7 +17,7 @@ mock.module('amqp-connection-manager', () => ({
 }));
 const { RabbitMqService } = await import('./rabbitmq.service');
 
-afterEach(() => { setups.length = 0; send.mockClear(); });
+afterEach(() => { connected = true; setups.length = 0; send.mockClear(); });
 
 async function consumer(handler: (payload: unknown) => Promise<void>) {
   const service = new RabbitMqService();
@@ -72,4 +75,34 @@ describe('durable webhook queues', () => {
     expect(channel.nack).toHaveBeenCalledWith(msg, false, true);
     await service.onModuleDestroy();
   });
+});
+
+ test('processes opted-in DOM webhook locally while disconnected', async () => {
+   const service = new RabbitMqService();
+   const handler = mock(async () => undefined);
+   service.register('dom', handler, true);
+   connected = false;
+   await service.publish('dom', { id: 'paid' });
+   expect(handler).toHaveBeenCalledWith({ id: 'paid' });
+   expect(send).not.toHaveBeenCalled();
+   await service.onModuleDestroy();
+ });
+ test('falls back after publish timeout and propagates local processing failure', async () => {
+   const service = new RabbitMqService();
+   const handler = mock(async () => { throw new Error('database unavailable'); });
+   service.register('dom', handler, true);
+   send.mockImplementationOnce(async () => { throw new Error('timeout'); });
+   await expect(service.publish('dom', { id: 'paid' })).rejects.toThrow('database unavailable');
+   expect(handler).toHaveBeenCalledTimes(1);
+   await service.onModuleDestroy();
+ });
+
+test('completes webhook locally after broker timeout', async () => {
+  const service = new RabbitMqService();
+  const handler = mock(async () => undefined);
+  service.register('dom', handler, true);
+  send.mockImplementationOnce(async () => { throw new Error('timeout'); });
+  await service.publish('dom', { id: 'paid' });
+  expect(handler).toHaveBeenCalledWith({ id: 'paid' });
+  await service.onModuleDestroy();
 });
