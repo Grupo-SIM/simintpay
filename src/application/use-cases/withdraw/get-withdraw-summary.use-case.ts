@@ -94,55 +94,9 @@ export class GetWithdrawSummaryUseCase {
       };
     }
 
-    let availableBalanceGross = 0;
-
-    // 2. Busca transações para ver se calculamos via Ledger ou via Wallet Fixa
-    const isBosqueWallet = moduleSlug === 'bosque';
-    const txRows = await this.prisma.transaction.findMany({
-      where: {
-        userId,
-        status: TransactionStatus.COMPLETED,
-        amount: { gt: 0 },
-        ...(isBosqueWallet ? {
-          NOT: {
-            OR: [
-              { description: { contains: 'Sincronização Bosque', mode: 'insensitive' } },
-              { description: { contains: 'Sincronizacao Bosque', mode: 'insensitive' } },
-              { description: { contains: 'Ajuste Administrativo', mode: 'insensitive' } },
-              { description: { contains: 'balance sync', mode: 'insensitive' } },
-            ],
-          },
-        } : {}),
-      },
-      select: { amount: true, description: true, createdAt: true },
-    });
-
-    if (txRows.length > 0) {
-      const fallbackTag = canonicalPlatformTaxaTag(moduleSlug.toUpperCase() || 'GLOBAL');
-
-      const totalLiquidProfit = txRows.reduce((s, t) => {
-        const rowTag = platformTaxaTagFromText(t.description ?? undefined);
-        const effectiveTag = rowTag !== 'GLOBAL' ? rowTag : fallbackTag;
-        const liqRate = getPlatformTaxaEffective(effectiveTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
-        const svcRate = TAGS_SEM_TAXA_SERVICO_SUMMARY.has(effectiveTag)
-          ? 0
-          : getPlatformTaxaEffective(effectiveTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-        const svcFee = svcRate > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? svcRate : 0;
-        return s + Number(t.amount) * liqRate - svcFee;
-      }, 0);
-      
-      const completedAggr = await this.prisma.withdrawRequest.aggregate({
-        where: { userId, status: WithdrawStatus.COMPLETED },
-        _sum: { grossAmount: true }
-      });
-      const totalCompletedGross = Number(completedAggr._sum.grossAmount || 0);
-
-      availableBalanceGross = totalLiquidProfit - totalCompletedGross - lockedBalanceGross;
-    } else {
-      // Fallback para wallet.balance (Sobe 100, desce 100) — Tipicamente contas manuais sem transações DOM
-      const storedBalance = Number(wallet.balance); 
-      availableBalanceGross = Math.max(0, storedBalance - lockedBalanceGross);
-    }
+    // Fonte única de saldo: a mesma que a validação do saque (request-withdraw) usa.
+    // Antes o resumo recalculava por ledger (amount × liquidez − serviço) e divergia da wallet.
+    const availableBalanceGross = Math.max(0, Number(wallet.balance) - Number(wallet.lockedBalance));
 
     const netBalance = availableBalanceGross - configResp.taxaFixa;
 

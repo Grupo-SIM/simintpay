@@ -16,10 +16,10 @@ export class ListSubscriptionLinksUseCase {
     @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
   ) {}
 
-  async execute(input: { userId: string; role?: string; page?: number; pageSize?: number }) {
+  async execute(input: { userId: string; role?: string; onlyMine?: boolean; page?: number; pageSize?: number }) {
     const page = input.page ?? 1;
     const pageSize = input.pageSize ?? 20;
-    const result = input.role === 'ADMIN'
+    const result = input.role === 'ADMIN' && !input.onlyMine
       ? await this.repo.findAll({ page, pageSize })
       : await this.repo.findManyByUserId({ userId: input.userId, page, pageSize });
 

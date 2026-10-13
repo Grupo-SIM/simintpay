@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
@@ -80,8 +81,13 @@ export class PlanController {
   @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
   async listRoute(
     @CurrentUser() user: JwtPayload | undefined,
+    @Query('onlyMine') onlyMine?: string,
   ): Promise<{ data: unknown }> {
-    return this.list.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER' });
+    return this.list.execute({
+      userId: user?.sub ?? '',
+      role: user?.role ?? 'USER',
+      onlyMine: onlyMine === 'true' || onlyMine === '1',
+    });
   }
 
   @Post()

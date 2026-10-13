@@ -10,6 +10,7 @@ import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { calculatePaymentLinkFees, calculateDebitFees } from './payment-link-fees.helper';
 import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { getEbookTaxaServico } from '../../../modules/ebooksim/ebooksim.config';
 import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { splitDocument } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
@@ -94,6 +95,60 @@ export class ChargePaymentLinkUseCase {
       select: { id: true },
     });
     return merchant?.id ?? fallbackUserId;
+  }
+
+  /** Mesmo delta do webhook DOM (process-dom-webhook), para wallet e relatórios ficarem consistentes. */
+  private resolveWalletDelta(netAmount: number, description: string | null | undefined): Prisma.Decimal {
+    const net = new Prisma.Decimal(netAmount);
+    if (description?.includes('[TENANT:EBOOK]')) return net.sub(getEbookTaxaServico());
+    return net;
+  }
+
+  private async creditWalletForApprovedCharge(
+    transactionId: string,
+    userId: string,
+    netAmount: number,
+    description: string | null | undefined,
+  ): Promise<void> {
+    const delta = this.resolveWalletDelta(netAmount, description);
+
+    await this.prisma.$transaction(async (p) => {
+      // Idempotência: se o webhook (ou uma chamada anterior) já creditou esta transação, não credita de novo.
+      const already = await p.balanceLog.findFirst({
+        where: { transactionId, action: { in: ['DOM_WEBHOOK_COMPLETED', 'CHARGE_APPROVED_COMPLETED'] } },
+        select: { id: true },
+      });
+      if (already) return;
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const wallet = await p.wallet.findUnique({ where: { userId } });
+        if (!wallet) return;
+
+        const newBalance = wallet.balance.add(delta);
+        const result = await p.wallet.updateMany({
+          where: { id: wallet.id, version: wallet.version },
+          data: { balance: newBalance, version: { increment: 1 } },
+        });
+
+        if (result.count > 0) {
+          await p.balanceLog.create({
+            data: {
+              userId,
+              action: 'CHARGE_APPROVED_COMPLETED',
+              transactionId,
+              amount: delta.abs(),
+              balanceBefore: wallet.balance,
+              balanceAfter: newBalance,
+              lockedBefore: wallet.lockedBalance,
+              lockedAfter: wallet.lockedBalance,
+              source: 'CHARGE_PAYMENT_LINK',
+            },
+          });
+          return;
+        }
+      }
+      throw new Error('Wallet version conflict after 3 retries');
+    });
   }
 
   async execute(input: ChargePaymentLinkInput): Promise<{
@@ -241,6 +296,12 @@ export class ChargePaymentLinkUseCase {
         installments,
       },
     });
+
+    // Cartão aprovado na hora nasce COMPLETED e o webhook DOM não transiciona o status
+    // (ver process-dom-webhook: status igual → retorna), então o crédito da wallet é feito aqui.
+    if (tx.status === TransactionStatus.COMPLETED) {
+      await this.creditWalletForApprovedCharge(tx.id, effectiveUserId, netAmount, tx.description);
+    }
 
     // Incrementa contador de usos
     await this.links.update(link.id, {

@@ -340,13 +340,11 @@ export class ProcessDomWebhookUseCase {
           : amountDec;
         delta = netAmountDec.sub(getEbookTaxaServico());
       } else {
-        const netAmountDec = existing.netAmount != null
+        // netAmount já é o líquido final do vendedor (taxas descontadas na criação da cobrança):
+        // não descontar fixa/cashback/serviço de novo aqui.
+        delta = existing.netAmount != null
           ? new Prisma.Decimal(existing.netAmount.toString())
           : amountDec;
-        const taxaFixa = getPlatformTaxaEffective('GLOBAL', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-        const taxaCashback = getPlatformTaxaEffective('GLOBAL', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-        const taxaServico = getPlatformTaxaEffective('GLOBAL', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-        delta = netAmountDec.sub(taxaFixa + taxaCashback + taxaServico);
       }
 
       await this.prisma.$transaction(async (p) => {

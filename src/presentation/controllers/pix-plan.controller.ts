@@ -105,6 +105,7 @@ export class PixPlanController {
     @Query('limit') limit?: string,
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('onlyMine') onlyMine?: string,
   ) {
     const pageNumber = page ? parseInt(page, 10) : 1;
     const limitNumber = limit ? parseInt(limit, 10) : 10;
@@ -118,6 +119,7 @@ export class PixPlanController {
       limit: limitNumber,
       status: normalizedStatus,
       search,
+      onlyMine: onlyMine === 'true' || onlyMine === '1',
     });
   }
 

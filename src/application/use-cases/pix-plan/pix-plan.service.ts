@@ -422,13 +422,14 @@ export class PixPlanService {
     limit: number;
     status?: 'ACTIVE' | 'INACTIVE';
     search?: string;
+    onlyMine?: boolean;
   }) {
     const safePage = Number.isFinite(params.page) ? Math.max(1, params.page) : 1;
     const safeLimit = Number.isFinite(params.limit)
       ? Math.min(Math.max(1, params.limit), 100)
       : 10;
 
-    const isAdmin = params.role === 'ADMIN';
+    const isAdmin = params.role === 'ADMIN' && !params.onlyMine;
 
     const { items, total } = await this.repo.findPixCreditPlansByUserIdPaginated({
       userId: isAdmin ? undefined : params.userId,
@@ -1066,12 +1067,10 @@ export class PixPlanService {
         const domStatus: string = domTx?.status ?? '';
         const isPaid = ['paid', 'approved', 'completed', 'revision_paid', 'capture'].includes(domStatus.toLowerCase());
         if (isPaid) {
-          await this.prisma.transaction.update({
-            where: { id: transaction.id },
-            data: { status: 'COMPLETED' },
-          });
+          // Só reflete o status na resposta. Persistir COMPLETED aqui sem creditar a wallet fazia o
+          // webhook/cron DOM (que só creditam na transição PENDING → COMPLETED) nunca creditarem a venda.
           transaction = { ...transaction, status: 'COMPLETED' as any };
-          this.logger.log(`[getPurchaseDetails] tx ${transaction.id} marcada COMPLETED via consulta direta DOM`);
+          this.logger.log(`[getPurchaseDetails] tx ${transaction.id} paga na DOM; crédito da wallet segue pelo webhook/cron`);
         }
       } catch {
         // ignora erro — retorna status local

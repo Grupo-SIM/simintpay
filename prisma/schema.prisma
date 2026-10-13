@@ -15,6 +15,8 @@ model User {
   clientStatus         ClientStatus?
   clientApprovedAt     DateTime?
   isCompany            Boolean              @default(false)
+  /// Conta que já aparece em "Clientes Simintpay" (plataforma/comunidade): some da lista de Usuários ativos.
+  isSimintpayClient    Boolean              @default(false)
     isActive             Boolean              @default(true)
     billingExcluded      Boolean              @default(false)
     isPurged             Boolean              @default(false)
@@ -65,6 +67,7 @@ model User {
   @@index([tenantModuleId])
   @@index([clientStatus])
   @@index([isCompany])
+  @@index([isSimintpayClient])
   @@index([referredByUserId])
   @@index([affiliateCode])
 }

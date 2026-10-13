@@ -46,12 +46,12 @@ function formatCpf(cpf: string | null | undefined): string | null {
 export class ListPlansUseCase {
   constructor(private readonly prisma: PrismaService) {}
 
-  async execute(input: { userId: string; role: string }): Promise<{ data: unknown }> {
+  async execute(input: { userId: string; role: string; onlyMine?: boolean }): Promise<{ data: unknown }> {
     let items: any[];
 
     const userSelect = { select: { cpf: true, name: true, email: true, clientStatus: true } };
 
-    if (input.role === 'ADMIN') {
+    if (input.role === 'ADMIN' && !input.onlyMine) {
       items = await this.prisma.plan.findMany({
         orderBy: { createdAt: 'desc' },
         include: { user: userSelect },

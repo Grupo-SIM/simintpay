@@ -38,7 +38,7 @@ export class ListBoletosUseCase {
     let total: number;
     let items: any[];
 
-    if (input.role === 'ADMIN') {
+    if (input.role === 'ADMIN' && !input.query.onlyMine) {
       [total, items] = await this.prisma.$transaction([
         this.prisma.boleto.count(),
         this.prisma.boleto.findMany({

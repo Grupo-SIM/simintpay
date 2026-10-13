@@ -112,14 +112,17 @@ export class SyncDomTransactionsCron implements OnModuleInit {
         if (newStatus === tx.status) continue;
 
         await this.prisma.$transaction(async (p) => {
-          await p.transaction.update({
-            where: { id: tx.id },
+          // Só transiciona se ainda estiver PENDING: se o webhook DOM já alterou o status (e creditou),
+          // não credita de novo.
+          const changed = await p.transaction.updateMany({
+            where: { id: tx.id, status: tx.status },
             data: {
               status: newStatus,
               previousStatus: tx.status,
               updatedAt: new Date(),
             },
           });
+          if (changed.count === 0) return;
 
           // Se completou, atualizar saldo
           if (newStatus === TransactionStatus.COMPLETED) {

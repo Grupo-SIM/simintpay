@@ -17,4 +17,8 @@ export class ListBoletosQueryDto {
     value != null ? Number(value) : value,
   )
   pageSize?: number = 20;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => value === true || value === 'true' || value === '1')
+  onlyMine?: boolean;
 }

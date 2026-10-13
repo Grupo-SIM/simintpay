@@ -155,10 +155,12 @@ export class SubscriptionLinkController {
     @CurrentUser() user: JwtPayload,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('onlyMine') onlyMine?: string,
   ) {
     return this.listUC.execute({
       userId: user.sub,
       role: user.role,
+      onlyMine: onlyMine === 'true' || onlyMine === '1',
       page: page ? Number(page) : 1,
       pageSize: pageSize ? Number(pageSize) : 20,
     });

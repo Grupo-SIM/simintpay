@@ -38,7 +38,7 @@ export class ListPaymentLinksUseCase {
     let total: number;
     let items: any[];
 
-    if (input.role === 'ADMIN') {
+    if (input.role === 'ADMIN' && !input.query.onlyMine) {
       [total, items] = await this.prisma.$transaction([
         this.prisma.paymentLink.count(),
         this.prisma.paymentLink.findMany({

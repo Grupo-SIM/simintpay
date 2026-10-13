@@ -136,7 +136,9 @@ export function calculatePaymentLinkFees(
   const cashbackFee = (link as any).cashbackFee ?? getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
   const transactionFixedFee = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
   const sellerFee = baseAmount * getSellerFeePercentage(platformTag) + getSellerFeeFixed(platformTag);
-  const netAmount = baseAmount - sellerFee - cashbackFee - transactionFixedFee;
+  // Líquido = base − (TAXA_LINK_PERCENT × base + TAXA_LINK_FIXA). Cashback e taxa fixa por transação
+  // seguem expostos no retorno, mas não entram no líquido (evita cobrança duplicada).
+  const netAmount = baseAmount - sellerFee;
 
   return {
     baseAmount,

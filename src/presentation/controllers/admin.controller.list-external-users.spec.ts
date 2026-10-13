@@ -177,4 +177,45 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       expect.objectContaining({ id: 'revalida-inativa', isDeleted: true }),
     ]);
   });
+
+  describe('contas marcadas como cliente Simintpay', () => {
+    function invokeFull(prisma: any, args: { deleted?: string; simintpayClients?: string } = {}) {
+      return (AdminController.prototype as any).listExternalUsers.call(
+        { prisma } as any,
+        undefined, '1', '20', args.deleted, undefined, undefined, args.simintpayClients,
+      );
+    }
+
+    it('aba de ativos esconde contas marcadas', async () => {
+      const prisma = makeMockPrisma([directClient]);
+      await invokeFull(prisma);
+
+      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) => isClientQuery(a));
+      expect(clientCall?.[0]?.where?.AND).toContainEqual({ isSimintpayClient: false });
+      const [[externalCall]] = prisma.externalPlatformUser.findMany.mock.calls;
+      expect(externalCall.where.AND).toEqual([
+        { OR: [{ userId: null }, { user: { is: { isSimintpayClient: false } } }] },
+      ]);
+    });
+
+    it('simintpayClients=true lista só as contas marcadas', async () => {
+      const prisma = makeMockPrisma([directClient]);
+      await invokeFull(prisma, { simintpayClients: 'true' });
+
+      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) => isClientQuery(a));
+      expect(clientCall?.[0]?.where?.AND).toContainEqual({ isSimintpayClient: true });
+      const [[externalCall]] = prisma.externalPlatformUser.findMany.mock.calls;
+      expect(externalCall.where.AND).toEqual([{ user: { is: { isSimintpayClient: true } } }]);
+    });
+
+    it('aba de inativas não filtra pela marcação', async () => {
+      const prisma = makeMockPrisma([directClient]);
+      await invokeFull(prisma, { deleted: 'true' });
+
+      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) => isClientQuery(a));
+      expect(
+        clientCall?.[0]?.where?.AND.some((c: any) => c && 'isSimintpayClient' in c),
+      ).toBe(false);
+    });
+  });
 });

@@ -153,7 +153,22 @@ export class AdminAfiliadosController {
   ) {
     await assertMaster(this.prisma, authUser);
 
-    type Person = { id: string; name: string; email: string; cpf?: string | null; generated?: number };
+    type Purchase = {
+      title: string;
+      type?: string;
+      grossAmount: number;
+      commissionAmount: number;
+      createdAt?: string | Date | null;
+    };
+    type Person = {
+      id: string;
+      name: string;
+      email: string;
+      cpf?: string | null;
+      generated?: number;
+      grossTotal?: number;
+      purchases?: Purchase[];
+    };
     let affiliate: Person | null = null;
     let people: Person[] = [];
 
@@ -216,6 +231,8 @@ export class AdminAfiliadosController {
         referrals: people.map((p) => ({
           id: p.id, name: p.name, email: p.email,
           generated: Number(p.generated ?? 0),
+          grossTotal: Number(p.grossTotal ?? 0),
+          purchases: p.purchases ?? [],
           wallet: walletOf(p),
         })),
       },
