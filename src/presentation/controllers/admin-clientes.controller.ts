@@ -1,3 +1,4 @@
+import { getPlatformOwnerId } from '../../modules/module.registry';
 import {
   Body,
   Controller,
@@ -22,7 +23,7 @@ import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import {
   buildClientTaxaTag,
   applyPatchToOverrides,
-  writeOverrides,
+  patchPlatformOverrides,
   getPlatformTaxaEffective,
 } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
@@ -71,8 +72,7 @@ export class AdminClientesController {
     if (body.taxaPix != null) patch['MDR_PIX'] = Number(body.taxaPix);
     if (body.taxaAssinatura != null) patch['TAXA_ASSINATURA'] = Number(body.taxaAssinatura);
     if (Object.keys(patch).length === 0) return;
-    const next = applyPatchToOverrides(tag, patch);
-    await writeOverrides(next);
+    await patchPlatformOverrides(tag, patch);
   }
 
   // ── Backfill: marca contas avulsas como cliente (clientStatus) ─────────────
@@ -102,17 +102,7 @@ export class AdminClientesController {
     // filtro. Marcá-las como cliente mudaria a taxa delas (tag da plataforma →
     // CLIENT:<email>), marcaria os links como SIMINTPAY e aplicaria o mínimo de
     // cliente. NUNCA podem entrar no backfill.
-    const PLATFORM_ACCOUNT_IDS = [
-      process.env.RENOVADA_USER_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-      process.env.BOSQUE_USER_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c',
-      process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854',
-      process.env.EBOOK_ID || '',
-      process.env.ATLAS_USER_ID || '',
-      process.env.PAGATG_USER_ID || '',
-      process.env.ZERO_GRAU_USER_ID || '',
-    ]
-      .map((s) => String(s).trim())
-      .filter(Boolean);
+    const PLATFORM_ACCOUNT_IDS = (await this.prisma.platform.findMany({ select: { ownerUserId: true } })).map((platform) => platform.ownerUserId);
 
     const where: Prisma.UserWhereInput = {
       role: Role.USER,

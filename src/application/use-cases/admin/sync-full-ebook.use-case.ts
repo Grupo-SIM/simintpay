@@ -1,3 +1,5 @@
+import { getPlatformOwnerId } from '../../../modules/module.registry';
+import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus, WithdrawStatus, PaymentMethod, Prisma } from '@prisma/client';
@@ -19,11 +21,9 @@ export class SyncFullEbookUseCase {
   ) {}
 
   async execute() {
-    const EBOOK_ID = process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
-    const EBOOK_EMAIL = process.env.EBOOK_EMAIL || 'contato@ebook.com.br';
-    const EBOOK_NAME = process.env.EBOOK_NAME || 'Ebook';
-    const API_DOM_URL = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
-    const tokensRaw = process.env.EBOOK_APIDOM_XTOKENS || process.env.EBOOK_APIDOM_XTOKEN || '';
+    const EBOOK_ID = (getPlatformOwnerId('EBOOK') ?? '');
+    const API_DOM_URL = getPlatformIntegrationValue('EBOOK', 'DOM_BACKEND_URL');
+    const tokensRaw = (getPlatformIntegrationValue('EBOOK', 'API_DOM_XTOKEN') ?? undefined) || (getPlatformIntegrationValue('EBOOK', 'API_DOM_XTOKEN') ?? undefined) || '';
     const tokens = [...new Set(tokensRaw.split(',').map((t) => t.trim()).filter(Boolean))];
     if (tokens.length === 0) {
       return {
@@ -32,31 +32,9 @@ export class SyncFullEbookUseCase {
       };
     }
 
-    const hashedPassword = await this.hashService.hash('password-migrated');
 
-    await this.prisma.user.upsert({
-      where: { id: EBOOK_ID },
-      update: { email: EBOOK_EMAIL, name: EBOOK_NAME, password: hashedPassword, domToken: null },
-      create: {
-        id: EBOOK_ID,
-        name: EBOOK_NAME,
-        email: EBOOK_EMAIL,
-        password: hashedPassword,
-        role: 'USER',
-        domToken: null,
-      },
-    });
-
-    const ebookModule = await this.prisma.tenantModule.findFirst({
-      where: { slug: { in: ['ebook', 'ebooksim'] } },
-      select: { id: true },
-    });
-    if (ebookModule) {
-      await this.prisma.user.update({
-        where: { id: EBOOK_ID },
-        data: { tenantModuleId: ebookModule.id },
-      });
-    }
+    const assignedOwner = await this.prisma.platform.findUnique({ where: { tag: 'EBOOK' }, include: { owner: true } });
+    if (!assignedOwner?.isActive || !assignedOwner.owner.isActive || assignedOwner.owner.isPurged) throw new Error('Plataforma sem dono ativo cadastrado');
 
     await this.prisma.wallet.upsert({
       where: { userId: EBOOK_ID },

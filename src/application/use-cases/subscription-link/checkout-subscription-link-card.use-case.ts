@@ -1,3 +1,5 @@
+import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
@@ -48,14 +50,8 @@ export class CheckoutSubscriptionLinkCardUseCase {
       throw new BadRequestException('Limite de assinaturas atingido');
     }
     const owner = await this.users.findById(link.userId);
-    // Areaflix usa o usuário admin (adminljl) como dono do link; o domToken dele
-    // no banco pode estar expirado e causa 401 na DOM. Força o master key do env.
-    const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
-    let domToken: string | null | undefined = isAreaflix
-      ? process.env.DOM_TOKEN
-      : owner?.domToken;
-    if (!domToken && owner?.tenantModule?.slug) domToken = getModuleDomToken(owner.tenantModule.slug);
-    if (!domToken) domToken = process.env.DOM_TOKEN;
+    const selectedTag = link.platformTag ?? link.plataformas?.[0] ?? owner?.tenantModule?.slug ?? 'GLOBAL';
+    const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
 
     let domPlanId = link.domPlanId;
@@ -82,7 +78,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
     if (!link.isStandalone) {
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
       // Plataforma: usa a selecionada no link (platformTag) → fallback tenantModule → webhook heuristic
-      const platformTag = (link as any).platformTag?.toUpperCase() ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'GLOBAL');
+      const platformTag = selectedTag;
       // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
       const taxaTag = platformTag === 'GLOBAL' && input.dto.customerEmail?.trim()
         ? buildClientTaxaTag(input.dto.customerEmail)
@@ -90,7 +86,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
       // Passa link.platformFee como fallback final: se nada estiver configurado no admin,
       // usa o valor que estava gravado no link. Se GLOBAL estiver configurado, GLOBAL prevalece.
       const mdrDom1x = getPlatformTaxaEffective(taxaTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
-      const mdrMaster1x = getPlatformTaxaEffective(taxaTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+      const mdrMaster1x = getCustomerInterestRate(taxaTag, 1);
       platformFeeRate = mdrDom1x + mdrMaster1x;
     } else {
       platformFeeRate = 0;

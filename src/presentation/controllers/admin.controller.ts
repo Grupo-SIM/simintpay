@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   BadRequestException,
   Body,
@@ -77,7 +78,7 @@ import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/ad
 import { SyncMaquinetasUseCase } from '../../application/use-cases/admin/sync-maquinetas.use-case';
 import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-transactions.cron';
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
-import { getModuleConfig } from '../../modules/module.registry';
+import { getModuleConfig, getPlatformOwnerId, getRegisteredPlatform } from '../../modules/module.registry';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
 import { SyncWithdrawalsDto } from '../../application/dtos/admin/sync-withdrawals.dto';
 import { TestEbookEmailDto } from '../../application/dtos/admin/test-ebook-email.dto';
@@ -226,63 +227,23 @@ async function expandUserIdsByCpf(
  * Conta técnica onde ficam as transações do checkout Ebook (`[TENANT:EBOOK]` no webhook/sync).
  * Mesmo default de `EBOOK_ID` nos endpoints de limpeza/sync do ebook.
  */
-const REVALIDA_CONSOLIDADO_USER_ID =
-  process.env.REVALIDA_USER_ID || '27598c29-0ace-4b5d-ad49-f5d399910854';
-
-const AREAFLIX_CONSOLIDADO_FALLBACK_ID = 'f0000000-0000-4000-8000-000000000af1';
-
 type ConsolidadoPlatformEntry = { tag: string; id: string };
 
-async function resolveBySlugOrEnv(
-  prisma: PrismaService,
-  envKey: string,
-  slugs: string[],
-  fallback = '',
-): Promise<string> {
-  const envId = process.env[envKey]?.trim();
-  if (envId) return envId;
-  const u = await prisma.user.findFirst({
-    where: {
-      OR: slugs.map((s) => ({
-        tenantModule: { slug: { equals: s, mode: 'insensitive' } },
-      })),
-    },
-    select: { id: true },
-  });
-  return u?.id ?? fallback;
+async function resolveRegisteredOwner(prisma: PrismaService, _envKey: string, slugs: string[], _fallback = ''): Promise<string> {
+  const tags = slugs.map((slug) => normalizePlatformTag(slug));
+  const platform = await prisma.platform.findFirst({ where: { tag: { in: tags }, isActive: true }, select: { ownerUserId: true } });
+  return platform?.ownerUserId ?? '';
 }
 
 /** Resolve todos os user IDs das plataformas do consolidado em paralelo. */
 async function resolveConsolidadoPlatforms(
   prisma: PrismaService,
 ): Promise<ConsolidadoPlatformEntry[]> {
-  const [
-    renovadaId, pagatgId, bosqueId, revalidaId,
-    ebookId, areaflixId, atlasId, frendzId,
-  ] = await Promise.all([
-    resolveBySlugOrEnv(prisma, 'RENOVADA_USER_ID', ['renovada'], 'ba2b57d6-e3bf-4395-af31-58454f27207a'),
-    resolveBySlugOrEnv(prisma, 'PAGATG_USER_ID', ['pagatg']),
-    resolveBySlugOrEnv(prisma, 'BOSQUE_USER_ID', ['bosque', 'ibb'], 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c'),
-    // Revalida tem conta técnica canônica. Resolver pelo primeiro usuário do módulo
-    // incluía outra conta sem tag nos cards, enquanto tabela usa este mesmo ID.
-    REVALIDA_CONSOLIDADO_USER_ID,
-    resolveBySlugOrEnv(prisma, 'EBOOK_ID', ['ebooksim', 'ebook']),
-    resolveBySlugOrEnv(prisma, 'AREAFLIX_USER_ID', ['areaflix'], AREAFLIX_CONSOLIDADO_FALLBACK_ID),
-    resolveBySlugOrEnv(prisma, 'ATLAS_USER_ID', ['atlas']),
-    resolveBySlugOrEnv(prisma, 'FRENDZ_USER_ID', ['frendz']),
-  ]);
-
-  const platforms: ConsolidadoPlatformEntry[] = [];
-  const add = (tag: string, id: string) => { if (id) platforms.push({ tag, id }); };
-  add('RENOVADA', renovadaId);
-  add('PAGATG', pagatgId);
-  add('BOSQUE', bosqueId);
-  add('REVALIDA', revalidaId);
-  add('EBOOK', ebookId);
-  add('FRENDZ', frendzId);
-  add('AREAFLIX', areaflixId);
-  add('ATLAS', atlasId);
-  return platforms;
+  const platforms = await prisma.platform.findMany({
+    where: { isActive: true },
+    select: { tag: true, ownerUserId: true },
+  });
+  return platforms.map((platform) => ({ tag: platform.tag, id: platform.ownerUserId }));
 }
 
 /**
@@ -419,11 +380,7 @@ function transacaoAtribuiEbookPorDescricao(description: string | null | undefine
 }
 
 /** Tags de plataformas fixas — qualquer [TENANT:X] fora deste conjunto é uma comunidade individual. */
-const FIXED_PLATFORM_TAGS = new Set([
-  'RENOVADA', 'BOSQUE', 'AREAFLIX', 'PAGATG', 'EBOOK', 'EBOOKSIM',
-  'ATLAS', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL',
-  'REVALIDA', 'FRENDZ', 'BETAI', 'TERON', 'GLOBAL',
-]);
+const FIXED_PLATFORM_TAGS = { has: (tag: string) => getRegisteredPlatform(tag) !== null };
 
 /** Tag sentinela para transações sem plataforma/produto atribuível — nada fica de fora do relatório. */
 const TAG_NAO_IDENTIFICADA = 'NAO-IDENTIFICADA';
@@ -432,28 +389,13 @@ function consolidadoTagParaTransacao(
   tx: { userId: string; description: string | null },
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): string {
-  // Tag explícita [TENANT:X] é a fonte mais precisa e vale para QUALQUER plataforma
-  // (fixa ou dinâmica). Antes só as dinâmicas eram reconhecidas aqui: transação de
-  // plataforma fixa (ATLAS, REVALIDA, BETAI…) com userId de outra conta caía no
-  // fallback RENOVADA — sumia dos cards do produto e inflava a Renovada.
-  if (tx.description) {
-    const m = tx.description.match(/\[TENANT:([A-Z0-9_-]+)\]/i);
-    if (m) {
-      const t = m[1].toUpperCase();
-      if (t !== 'GLOBAL') return t === 'EBOOKSIM' ? 'EBOOK' : t;
-    }
+  const match = tx.description?.match(/\[TENANT:([A-Z0-9_-]+)\]/i);
+  if (match) {
+    const tag = normalizePlatformTag(match[1]);
+    return platforms.some((platform) => platform.tag === tag) ? tag : TAG_NAO_IDENTIFICADA;
   }
-  if (transacaoAtribuiBosquePorDescricao(tx.description)) return 'BOSQUE';
-  if (transacaoAtribuiAreaflixPorDescricao(tx.description)) return 'AREAFLIX';
-  if (transacaoAtribuiPagatgPorDescricao(tx.description)) return 'PAGATG';
-  if (transacaoAtribuiEbookPorDescricao(tx.description)) return 'EBOOK';
-  if (tx.description?.includes(TENANT_CONTROLE_MOTORISTA_TAG)) return 'CONTROLE-MOTORISTA';
-  if (tx.description?.includes(TENANT_CONTROLE_PATRIMONIAL_TAG)) return 'CONTROLE-PATRIMONIAL';
-  const platform = platforms.find((p) => p.id === tx.userId);
-  // Sem tag, sem keyword e sem conta conhecida → NÃO IDENTIFICADA. Antes o fallback
-  // era 'RENOVADA', que inflava a Renovada e escondia transações órfãs — agora elas
-  // aparecem no card "Transações não identificadas" do relatório para serem tratadas.
-  return platform?.tag ?? TAG_NAO_IDENTIFICADA;
+  const owners = platforms.filter((platform) => platform.id === tx.userId);
+  return owners.length === 1 ? owners[0].tag : TAG_NAO_IDENTIFICADA;
 }
 
 type ConsolidadoListQuery = {
@@ -1415,60 +1357,18 @@ export class AdminController {
    * por outra conta com a tag [TENANT:TAG]. Relatórios, tabelas e breakdowns
    * devem sempre considerar ambas as origens.
    */
+  private async requireExclusivePlatformWallet(tag: string): Promise<void> {
+    const platform = await this.prisma.platform.findUnique({ where: { tag }, select: { ownerUserId: true } });
+    if (!platform) throw new NotFoundException('Plataforma não cadastrada');
+    const count = await this.prisma.platform.count({ where: { ownerUserId: platform.ownerUserId } });
+    if (count > 1) throw new BadRequestException('Carteira compartilhada entre plataformas; manutenção por plataforma indisponível');
+  }
+
   private async getPlatformTransactionScope(tag: string): Promise<Prisma.TransactionWhereInput> {
     const upperTag = normalizePlatformTag(tag);
-    let userIds: string[] = [];
-
-    if (upperTag === 'RENOVADA') {
-      userIds = [process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a'];
-    } else if (upperTag === 'REVALIDA') {
-      userIds = [process.env.REVALIDA_USER_ID || REVALIDA_CONSOLIDADO_USER_ID];
-    } else if (upperTag === 'EBOOK') {
-      const users = await this.prisma.user.findMany({
-        where: {
-          OR: [
-            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
-            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
-          ],
-        },
-        select: { id: true },
-      });
-      userIds = await expandUserIdsByCpf(this.prisma, users.map((user) => user.id));
-    } else if (upperTag === 'BOSQUE') {
-      userIds = [process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c'];
-    } else if (upperTag === 'ATLAS') {
-      const atlasUserId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-      if (atlasUserId) userIds = [atlasUserId];
-    } else if (!['PAGATG', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL'].includes(upperTag)) {
-      const plans = await this.prisma.pixCreditPlan.findMany({
-        where: {
-          OR: [
-            { description: { contains: `|${upperTag}]`, mode: 'insensitive' } },
-            { description: { contains: upperTag, mode: 'insensitive' } },
-          ],
-        },
-        select: { userId: true, description: true },
-      });
-      userIds = await expandPlatformTransactionUserIds(this.prisma, plans);
-    }
-
-    if (upperTag === 'BOSQUE') {
-      return {
-        OR: [
-          { userId: { in: userIds } },
-          { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-          { description: { contains: 'bosque', mode: 'insensitive' } },
-          { description: { contains: 'ibb', mode: 'insensitive' } },
-        ],
-      };
-    }
-
-    return {
-      OR: [
-        ...(userIds.length ? [{ userId: { in: userIds } }] : []),
-        { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } },
-      ],
-    };
+    const platform = await this.prisma.platform.findUnique({ where: { tag: upperTag } });
+    if (!platform) throw new NotFoundException('Plataforma não cadastrada');
+    return { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } };
   }
 
   /**
@@ -1915,14 +1815,8 @@ export class AdminController {
     // Known platform master accounts identified by env var or fallback UUID.
     // These users may not have tenantModuleId set (sync never assigns it) so the
     // tenantModule relation query alone won't find them.
-    const KNOWN_PLATFORM_IDS: Record<string, string> = {
-      renovada: (process.env.RENOVADA_USER_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a').trim(),
-      bosque:   (process.env.BOSQUE_USER_ID   || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c').trim(),
-      revalida: (process.env.REVALIDA_USER_ID  || '27598c29-0ace-4b5d-ad49-f5d399910854').trim(),
-      ebook:    (process.env.EBOOK_ID          || '').trim(),
-      atlas:    (process.env.ATLAS_USER_ID     || '').trim(),
-      pagatg:   (process.env.PAGATG_USER_ID    || '').trim(),
-    };
+    const registered = await this.prisma.platform.findMany({ select: { tag: true, ownerUserId: true } });
+    const KNOWN_PLATFORM_IDS: Record<string, string> = Object.fromEntries(registered.map((platform) => [platform.tag.toLowerCase(), platform.ownerUserId]));
 
     // Map knownId → platformSlug so we can label entries found via this path.
     const knownIdToPlatform = new Map<string, string>(
@@ -2897,16 +2791,16 @@ export class AdminController {
 
     const calls: (Promise<unknown> | null)[] = [];
     if ((platform === 'EBOOK' || platform === 'EBOOKSIM') && cpf) {
-      calls.push(call(process.env.BACK_EBOOK_URL, '/internal/users', { cpf }));
+      calls.push(call((getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined), '/internal/users', { cpf }));
     }
     if (platform === 'PAGATG' && cpf) {
-      calls.push(call(process.env.API_PAGATG_URL, '/internal/users', { cpf }));
+      calls.push(call((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined), '/internal/users', { cpf }));
     }
     if (platform === 'AREAFLIX' && email) {
-      calls.push(call(process.env.AREAFLIX_BACK_URL, '/internal/users', { email }));
+      calls.push(call((getPlatformIntegrationValue('AREAFLIX', 'BACKEND_URL') ?? undefined), '/internal/users', { email }));
     }
     if (platform === 'ATLAS' && email) {
-      calls.push(call(process.env.ATLAS_HOSTING_URL, '/api/internal/users', { email }));
+      calls.push(call((getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined), '/api/internal/users', { email }));
     }
 
     await Promise.all(calls.filter(Boolean));
@@ -3288,34 +3182,19 @@ export class AdminController {
         grossAmount: true,
         updatedAt: true,
         userId: true,
+        platform: true,
         user: {
           select: { tenantModule: { select: { slug: true } } },
         },
       },
     });
 
-    const RENOVADA_USER_ID_WD = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-    const BOSQUE_USER_ID_WD = (process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c').toLowerCase();
-    const EBOOK_USER_ID_WD = (process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001').toLowerCase();
-    const USER_ID_TAG_MAP: Record<string, string> = {
-      [RENOVADA_USER_ID_WD]: 'RENOVADA',
-      [BOSQUE_USER_ID_WD]: 'BOSQUE',
-      [EBOOK_USER_ID_WD]: 'EBOOK',
-    };
-
     const DOM_FEE_SAQUE = 1;
     let lucroSaqueAcum = 0;
     // saquesPorDia: lucro de saque agregado por dia (updatedAt SP) e tag da plataforma
     const saquesPorDiaMap = new Map<string, number>(); // key = `${ymd}|${tag}`
     for (const w of withdrawsAprovados) {
-      const tagFromModule = w.user?.tenantModule?.slug;
-      const tagFromUserId = w.userId ? USER_ID_TAG_MAP[w.userId.toLowerCase()] : undefined;
-      // Multi-vendor platforms (EBOOK, PAGATG) tag by tenantModule; single-admin platforms
-      // (RENOVADA, BOSQUE) tag only by userId — their subscribers also carry the module slug
-      // but are not the platform's cash-out account.
-      const moduleLower = (tagFromModule ?? '').toLowerCase();
-      const isMultiVendorModule = moduleLower === 'ebook' || moduleLower === 'ebooksim' || moduleLower === 'pagatg';
-      const platformTag = (tagFromUserId ?? (isMultiVendorModule ? tagFromModule : undefined) ?? 'GLOBAL').toUpperCase();
+      const platformTag = normalizePlatformTag(w.platform ?? w.user?.tenantModule?.slug ?? 'GLOBAL');
       const taxaSaqueFixa = getPlatformTaxaEffective(
         platformTag,
         'TAXA_SAQUE_FIXA',
@@ -3900,6 +3779,7 @@ export class AdminController {
       platforms.map(async (p) => {
         const slug = p.tag.toLowerCase();
         const source = AVAILABLE_SOURCE[p.tag] ?? 'owner';
+        const sharedOwner = platforms.filter((row) => row.id === p.id).length > 1;
         let totalDisponivel = 0;
         let totalBloqueado = 0;
         let contas = 1;
@@ -3910,11 +3790,13 @@ export class AdminController {
           contas = s?.contas ?? 0;
         } else if (source === 'bosque') {
           totalDisponivel = await computeBosqueAvailableSinceLastWithdrawal(this.prisma, [p.id]);
-        } else {
+        } else if (!sharedOwner) {
           totalDisponivel = await computeUserNetBalance(this.prisma, p.id, slug);
         }
         return {
           platform: slug,
+          ownerUserId: p.id,
+          walletScope: sharedOwner && source !== 'sellers' ? 'shared-owner' : 'platform',
           totalDisponivel: Number(Math.max(0, totalDisponivel).toFixed(2)),
           totalBloqueado: Number(Math.max(0, totalBloqueado).toFixed(2)),
           contas,
@@ -4318,7 +4200,8 @@ export class AdminController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Limpar transações incorretas da Renovada (vindas do master token) antes de re-sincronizar' })
   async cleanupRenovada() {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    await this.requireExclusivePlatformWallet('RENOVADA');
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     // Contar antes
     const countBefore = await this.prisma.transaction.count({ where: { userId: RENOVADA_ID } });
@@ -4363,7 +4246,8 @@ export class AdminController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Remover transações do EBOOK importadas via legado api-dom' })
   async cleanupEbook() {
-    const EBOOK_ID = process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
+    await this.requireExclusivePlatformWallet('EBOOK');
+    const EBOOK_ID = getPlatformOwnerId('EBOOK') ?? '';
 
     const whereEbookImported: Prisma.TransactionWhereInput = {
       AND: [
@@ -4525,7 +4409,8 @@ export class AdminController {
   })
   @ApiQuery({ name: 'balance', required: true, description: 'Saldo base a definir (ex: 3840.70)', example: 3840.70 })
   async syncWalletRenovada(@Query('balance') balanceParam?: string) {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    await this.requireExclusivePlatformWallet('RENOVADA');
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     try {
       const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
@@ -4544,7 +4429,7 @@ export class AdminController {
 
       // O valor informado é o netBalance desejado (saldo líquido exibido).
       // wallet.balance armazena o valor bruto: netBalance / fatorLiquidez.
-      const fatorLiquidez = Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
+      const fatorLiquidez = getPlatformTaxaEffective('RENOVADA', 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
       const netBalance = Number(balanceParam);
       const grossBalance = netBalance / fatorLiquidez;
 
@@ -4602,7 +4487,8 @@ export class AdminController {
   @ApiOperation({ summary: 'Definir saldo base da carteira Bosque (execução única para inicializar o saldo correto)' })
   @ApiQuery({ name: 'balance', required: true, description: 'Saldo líquido (netBalance) a exibir (ex: 554.08). Será convertido para bruto internamente.', example: 554.08 })
   async syncWalletBosque(@Query('balance') balanceParam?: string) {
-    const BOSQUE_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+    await this.requireExclusivePlatformWallet('BOSQUE');
+    const BOSQUE_ID = getPlatformOwnerId('BOSQUE') ?? '';
 
     try {
       const wallet = await this.prisma.wallet.findUnique({ where: { userId: BOSQUE_ID } });
@@ -4621,7 +4507,7 @@ export class AdminController {
 
       // O valor informado é o netBalance desejado (saldo líquido exibido).
       // wallet.balance armazena o valor bruto: netBalance / fatorLiquidez.
-      const fatorLiquidez = Number(process.env.BOSQUE_LIQUIDEZ || 0.91);
+      const fatorLiquidez = getPlatformTaxaEffective('BOSQUE', 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
       const netBalance = Number(balanceParam);
       const grossBalance = netBalance / fatorLiquidez;
 
@@ -4971,7 +4857,7 @@ export class AdminController {
     @Query('endDate') endDate?: string,
     @Query('description') description?: string,
   ) {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const skip = (pageNum - 1) * limitNum;
@@ -5043,7 +4929,7 @@ export class AdminController {
     @Query('endDate') endDate?: string,
     @Query('description') description?: string,
   ) {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     const where: any = {
       userId: RENOVADA_ID,
@@ -5084,7 +4970,7 @@ export class AdminController {
   @Get('renovada/summary')
   @ApiOperation({ summary: 'Resumo financeiro da Renovada (equivalente ao api-dom /payments/summary)' })
   async renovadaSummary() {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     const [wallet, pendingWithdraws] = await Promise.all([
       this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } }),
@@ -5147,7 +5033,8 @@ export class AdminController {
       'Soma amount - domFee de todas as transações COMPLETED de maquineta, desconta saques aprovados/completos e define o wallet.balance correto.',
   })
   async recalcularBalanceMaquinetas() {
-    const RENOVADA_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    await this.requireExclusivePlatformWallet('RENOVADA');
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
     if (!wallet) {
@@ -5243,7 +5130,7 @@ export class AdminController {
     startDate?: string,
     endDate?: string,
   ) {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
     const pageNum = Number(page);
     const limitNum = Math.max(1, Math.min(Number(limit) || 20, 100));
     const skip = (pageNum - 1) * limitNum;
@@ -5335,7 +5222,8 @@ export class AdminController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Deletar transações PIX_PLAN_CODE incorretamente atribuídas à Renovada' })
   async cleanupRenovadaPlanTxs() {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    await this.requireExclusivePlatformWallet('RENOVADA');
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     const txs = await this.prisma.transaction.findMany({
       where: {
@@ -5370,7 +5258,8 @@ export class AdminController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Deletar uma transação da Renovada' })
   async deleteRenovadaTransaction(@Param('id') id: string) {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    await this.requireExclusivePlatformWallet('RENOVADA');
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     const tx = await this.prisma.transaction.findFirst({
       where: { id, userId: RENOVADA_ID },
@@ -5401,7 +5290,8 @@ export class AdminController {
   })
   @ApiQuery({ name: 'dataInicio', required: true, description: 'Data de início no formato YYYY-MM-DD', example: '2026-01-01' })
   async recalcularSaldoRenovadaPorData(@Query('dataInicio') dataInicio: string) {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    await this.requireExclusivePlatformWallet('RENOVADA');
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     if (!dataInicio) {
       return { success: false, error: 'Parâmetro dataInicio obrigatório (formato YYYY-MM-DD)' };
@@ -5500,7 +5390,8 @@ export class AdminController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Remove transações sem dízimo/primícia/oferta do pool Renovada e recalcula o saldo' })
   async renovadaRecalcular() {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    await this.requireExclusivePlatformWallet('RENOVADA');
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     const keywordOr = [
       { description: { contains: 'dizimo', mode: 'insensitive' as const } },
@@ -5572,7 +5463,8 @@ export class AdminController {
     summary: 'Recalcula o saldo da wallet da Renovada: ofertas/dízimos (31/03-06/04) usando amount + maquinetas (05/04-06/04) usando netAmount, excluindo ajustes',
   })
   async fixRenovadaWalletBalance() {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    await this.requireExclusivePlatformWallet('RENOVADA');
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     const periodoOfertasInicio = new Date('2026-03-31T00:00:00-03:00');
     const periodoFim           = new Date('2026-04-06T23:59:59-03:00');
@@ -5768,7 +5660,7 @@ export class AdminController {
     summary: 'Recalcula o saldo da wallet do Bosque somando netAmount das transações reais (15/03–06/04/2026), excluindo sincronizações e ajustes',
   })
   async fixBosqueWalletBalance() {
-    const BOSQUE_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
+    const BOSQUE_ID = getPlatformOwnerId('BOSQUE') ?? '';
 
     const periodoInicio = new Date('2026-03-15T00:00:00-03:00');
     const periodoFim    = new Date('2026-04-06T23:59:59-03:00');
@@ -5844,16 +5736,13 @@ export class AdminController {
   // ──────────── PLATAFORMAS ────────────
 
   @Get('plataformas/taxas')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @ApiOperation({
-    summary: 'Taxas por plataforma (.env + overrides em storage)',
+    summary: 'Custos SimIntPay por plataforma cadastrada (banco e padrão global)',
   })
   async listPlatformTaxas() {
-    const communities = await this.prisma.community.findMany({
-      where: { isActive: true, slug: { not: 'areaflix' } },
-      select: { slug: true },
-    });
-    const communityTags = communities.map((c) => c.slug.toUpperCase());
-    return this.platformTaxas.getTaxasResponse(communityTags);
+    return this.platformTaxas.getTaxasResponse();
   }
 
   @Patch('plataformas/taxas/:tag')
@@ -6502,320 +6391,27 @@ export class AdminController {
   }
 
   @Get('plataformas')
-  @ApiOperation({ summary: 'Listar plataformas detectadas (via tag [CPF:xxx|TAG] nos planos)' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Listar plataformas cadastradas e seus donos' })
   async listPlataformas() {
-    const plans = await this.prisma.pixCreditPlan.findMany({
-      select: { description: true, userId: true, createdAt: true },
+    const platforms = await this.prisma.platform.findMany({
+      select: {
+        id: true, tag: true, name: true, ownerUserId: true, isActive: true, createdAt: true,
+        customerInterestRates: true,
+        owner: { select: { id: true, name: true, email: true, cpf: true, cnpj: true } },
+      },
+      orderBy: { tag: 'asc' },
     });
-
-    const map = new Map<
-      string,
-      {
-        tag: string;
-        cpf: string;
-        planRows: { userId: string; description: string | null }[];
-        plansCount: number;
-        firstSeen: Date;
-      }
-    >();
-
-    // Plataformas conhecidas para detecção por texto livre (fallback sem formato padrão)
-    const KNOWN_TAGS = ['PAGATG', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL', 'RENOVADA', 'REVALIDA', 'BOSQUE', 'FRENDZ', 'EBOOKSIM', 'EBOOK', 'ATLAS', 'AREAFLIX'];
-
-    for (const p of plans) {
-      const desc = p.description ?? '';
-      const row = { userId: p.userId, description: p.description };
-
-      // Tenta formato padrão [CPF:xxx|TAG]
-      const m = desc.match(PLAN_PLATFORM_CPF_REGEX);
-      if (m) {
-        const [, cpf, tag] = m;
-        const key = normalizePlatformTag(tag);
-        const existing = map.get(key);
-        if (existing) {
-          existing.planRows.push(row);
-          existing.plansCount++;
-          if (p.createdAt < existing.firstSeen) existing.firstSeen = p.createdAt;
-        } else {
-          map.set(key, { tag: key, cpf, planRows: [row], plansCount: 1, firstSeen: p.createdAt });
-        }
-        continue;
-      }
-
-      // Fallback: detecta tag conhecida em texto livre e CPF como sequência de dígitos
-      const upperDesc = desc.toUpperCase();
-      const matchedTag = KNOWN_TAGS.find(t => upperDesc.includes(t));
-      if (!matchedTag) continue;
-      const cpfDigits = (desc.match(/\d{11,14}/g) ?? []).find(d => d.length >= 11) ?? '';
-      if (!cpfDigits) continue;
-      const normalizedTag = normalizePlatformTag(matchedTag);
-
-      const existing = map.get(normalizedTag);
-      if (existing) {
-        existing.planRows.push(row);
-        existing.plansCount++;
-        if (p.createdAt < existing.firstSeen) existing.firstSeen = p.createdAt;
-      } else {
-        map.set(normalizedTag, { tag: normalizedTag, cpf: cpfDigits, planRows: [row], plansCount: 1, firstSeen: p.createdAt });
-      }
-    }
-
-    // Garante que a plataforma RENOVADA apareça na listagem mesmo sem planos tagueados
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-    if (!map.has('RENOVADA')) {
-      const firstTx = await this.prisma.transaction.findFirst({
-        where: { userId: RENOVADA_ID },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      });
-      if (firstTx) {
-        map.set('RENOVADA', {
-          tag: 'RENOVADA',
-          cpf: '',
-          planRows: [{ userId: RENOVADA_ID, description: 'Plataforma Renovada' }],
-          plansCount: 0,
-          firstSeen: firstTx.createdAt,
-        });
-      }
-    }
-
-    // Garante que EBOOK apareça quando houver transações tagueadas ou contas do módulo ebook
-    if (!map.has('EBOOK')) {
-      const ebookModuleUsers = await this.prisma.user.findMany({
-        where: {
-          OR: [
-            { tenantModule: { slug: { equals: 'ebook', mode: 'insensitive' } } },
-            { tenantModule: { slug: { equals: 'ebooksim', mode: 'insensitive' } } },
-          ],
-        },
-        select: { id: true },
-      });
-      const ebookUserIds = ebookModuleUsers.map((u) => u.id);
-      const ebookExpandedUserIds = await expandUserIdsByCpf(this.prisma, ebookUserIds);
-
-      const firstEbookTx = await this.prisma.transaction.findFirst({
-        where: {
-          OR: [
-            { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
-            ...(ebookExpandedUserIds.length > 0 ? [{ userId: { in: ebookExpandedUserIds } }] : []),
-          ],
-        },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      });
-
-      if (firstEbookTx) {
-        map.set('EBOOK', {
-          tag: 'EBOOK',
-          cpf: '',
-          planRows: ebookExpandedUserIds.map((id) => ({ userId: id, description: 'Plataforma Ebook' })),
-          plansCount: 0,
-          firstSeen: firstEbookTx.createdAt,
-        });
-      } else {
-        // Mantém o card de EBOOK visível no módulo master, mesmo antes da primeira transação.
-        map.set('EBOOK', {
-          tag: 'EBOOK',
-          cpf: '',
-          planRows: ebookExpandedUserIds.map((id) => ({ userId: id, description: 'Plataforma Ebook' })),
-          plansCount: 0,
-          firstSeen: new Date(),
-        });
-      }
-    }
-
-    // Garante que PAGATG apareça quando houver transações [TENANT:PAGATG]
-    if (!map.has('PAGATG')) {
-      const firstPagatgTx = await this.prisma.transaction.findFirst({
-        where: { description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' } },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      });
-      map.set('PAGATG', {
-        tag: 'PAGATG',
-        cpf: '',
-        planRows: [],
-        plansCount: 0,
-        firstSeen: firstPagatgTx?.createdAt ?? new Date(),
-      });
-    }
-
-    // Garante que CONTROLE-MOTORISTA apareça (plataforma Controle de Motorista)
-    if (!map.has('CONTROLE-MOTORISTA')) {
-      const firstCmTx = await this.prisma.transaction.findFirst({
-        where: { description: { contains: '[TENANT:CONTROLE-MOTORISTA]', mode: 'insensitive' } },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      });
-      map.set('CONTROLE-MOTORISTA', {
-        tag: 'CONTROLE-MOTORISTA',
-        cpf: '',
-        planRows: [],
-        plansCount: 0,
-        firstSeen: firstCmTx?.createdAt ?? new Date(),
-      });
-    }
-
-    // Garante que CONTROLE-PATRIMONIAL apareça (plataforma Controle Patrimonial)
-    if (!map.has('CONTROLE-PATRIMONIAL')) {
-      const firstCpTx = await this.prisma.transaction.findFirst({
-        where: { description: { contains: '[TENANT:CONTROLE-PATRIMONIAL]', mode: 'insensitive' } },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      });
-      map.set('CONTROLE-PATRIMONIAL', {
-        tag: 'CONTROLE-PATRIMONIAL',
-        cpf: '',
-        planRows: [],
-        plansCount: 0,
-        firstSeen: firstCpTx?.createdAt ?? new Date(),
-      });
-    }
-
-    // Garante que ATLAS apareça com o mesmo userId do consolidado (env ou tenant atlas)
-    const atlasConsolidadoId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-    if (!map.has('ATLAS') && atlasConsolidadoId) {
-      const firstAtlasTx = await this.prisma.transaction.findFirst({
-        where: {
-          OR: [
-            { userId: atlasConsolidadoId },
-            { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
-          ],
-        },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      });
-      map.set('ATLAS', {
-        tag: 'ATLAS',
-        cpf: '',
-        planRows: [{ userId: atlasConsolidadoId, description: 'Plataforma Atlas' }],
-        plansCount: 0,
-        firstSeen: firstAtlasTx?.createdAt ?? new Date(),
-      });
-    }
-
-    // Garante que REVALIDA apareça (conta técnica / consolidado, como Atlas)
-    const revalidaConsolidadoId = REVALIDA_CONSOLIDADO_USER_ID;
-    if (!map.has('REVALIDA')) {
-      const firstRevalidaTx = await this.prisma.transaction.findFirst({
-        where: {
-          OR: [
-            { userId: revalidaConsolidadoId },
-            { description: { contains: '[TENANT:REVALIDA]', mode: 'insensitive' } },
-          ],
-        },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      });
-      map.set('REVALIDA', {
-        tag: 'REVALIDA',
-        cpf: '',
-        planRows: [{ userId: revalidaConsolidadoId, description: 'Plataforma Revalida' }],
-        plansCount: 0,
-        firstSeen: firstRevalidaTx?.createdAt ?? new Date(),
-      });
-    }
-
-    // Garante que BOSQUE apareça (conta técnica + [TENANT:BOSQUE] / "bosque" na descrição)
-    const bosqueConsolidadoId = await resolveBySlugOrEnv(this.prisma, 'BOSQUE_USER_ID', ['bosque', 'ibb'], 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c');
-    if (!map.has('BOSQUE')) {
-      const firstBosqueTx = await this.prisma.transaction.findFirst({
-        where: {
-          OR: [
-            { userId: bosqueConsolidadoId },
-            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-            { description: { contains: 'bosque', mode: 'insensitive' } },
-          ],
-        },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      });
-      map.set('BOSQUE', {
-        tag: 'BOSQUE',
-        cpf: '',
-        planRows: [{ userId: bosqueConsolidadoId, description: 'Plataforma Bosque' }],
-        plansCount: 0,
-        firstSeen: firstBosqueTx?.createdAt ?? new Date(),
-      });
-    }
-
-    // Garante que AREAFLIX apareça sempre (ordens de subscription links)
-    if (!map.has('AREAFLIX')) {
-      const firstAreaflixOrder = await this.prisma.subscriptionLinkOrder.findFirst({
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      });
-      map.set('AREAFLIX', {
-        tag: 'AREAFLIX',
-        cpf: '',
-        planRows: [],
-        plansCount: 0,
-        firstSeen: firstAreaflixOrder?.createdAt ?? new Date(),
-      });
-    }
-
-    const result = [];
-    for (const v of map.values()) {
-      const expandedUserIds = await expandPlatformTransactionUserIds(this.prisma, v.planRows);
-      const isTenantTaggedPlatform = v.tag === 'EBOOK' || v.tag === 'PAGATG';
-
-      let whereTx: any =
-        isTenantTaggedPlatform
-          ? {
-            OR: [
-              { description: { contains: `[TENANT:${v.tag}]`, mode: 'insensitive' } },
-              ...(v.tag === 'EBOOK' && expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
-            ],
-          }
-          : { userId: { in: expandedUserIds } };
-      if (v.tag === 'RENOVADA') {
-        whereTx.OR = [
-          { description: { contains: 'dizimo', mode: 'insensitive' } },
-          { description: { contains: 'dízimo', mode: 'insensitive' } },
-          { description: { contains: 'primicia', mode: 'insensitive' } },
-          { description: { contains: 'primícia', mode: 'insensitive' } },
-          { description: { contains: 'oferta', mode: 'insensitive' } },
-        ];
-      } else if (v.tag === 'EBOOK') {
-        whereTx.OR = [
-          { description: { contains: TENANT_EBOOK_TAG, mode: 'insensitive' } },
-          ...(expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
-          { description: { contains: 'ebook', mode: 'insensitive' } },
-        ];
-      } else if (v.tag === 'BOSQUE') {
-        whereTx = {
-          OR: [
-            ...(expandedUserIds.length > 0 ? [{ userId: { in: expandedUserIds } }] : []),
-            { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
-            { description: { contains: 'bosque', mode: 'insensitive' } },
-          ],
-        };
-      }
-
-      let totalTx = 0;
-      if (v.tag === 'AREAFLIX') {
-        totalTx = await this.prisma.subscriptionLinkOrder.count();
-      } else if (isTenantTaggedPlatform) {
-        totalTx = await this.prisma.transaction.count({ where: whereTx });
-      } else if (expandedUserIds.length > 0) {
-        const txCounts = await this.prisma.transaction.groupBy({
-          by: ['userId'],
-          where: whereTx,
-          _count: true,
-        });
-        const txMap = new Map(txCounts.map((t) => [t.userId, t._count]));
-        totalTx = expandedUserIds.reduce((sum, uid) => sum + (txMap.get(uid) ?? 0), 0);
-      }
-      result.push({
-        tag: v.tag,
-        cpf: v.cpf,
-        plansCount: v.plansCount,
-        transactionsCount: totalTx,
-        firstSeen: v.firstSeen,
-      });
-    }
-
-    return { data: result };
+    return { data: await Promise.all(platforms.map(async (platform) => ({
+      ...platform,
+      cpf: platform.owner.cpf ?? platform.owner.cnpj ?? '',
+      firstSeen: platform.createdAt,
+      plansCount: await this.prisma.pixCreditPlan.count({ where: { tenantTag: platform.tag } }),
+      transactionsCount: await this.prisma.transaction.count({ where: {
+        description: { contains: `[TENANT:${platform.tag}]`, mode: 'insensitive' },
+      } }),
+    }))) };
   }
 
   @Get('plataformas/:tag/comunidades')
@@ -7660,7 +7256,8 @@ export class AdminController {
       'Zera wallet, remove todos os saques. O /auth/me Renovada usa wallet + saques COMPLETED/APPROVED; um saque sintético COMPLETED quebrava o saldo (gross × (fator−1) ficava negativo). Transações permanecem no banco.',
   })
   async resetRenovadaWallet() {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    await this.requireExclusivePlatformWallet('RENOVADA');
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     await this.prisma.$transaction(async (tx) => {
       await tx.wallet.update({
@@ -7710,7 +7307,7 @@ export class AdminController {
     },
   })
   async setRenovadaWalletBalance(@Body() body: { balance: number }) {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
     const newBalance = Number(body.balance);
     if (!Number.isFinite(newBalance) || newBalance < 0) {
       throw new BadRequestException('balance deve ser um número positivo');
@@ -7810,8 +7407,8 @@ export class AdminController {
 
   private getSaasBaseUrl(tag: string): string | null {
     const upper = tag.toUpperCase();
-    if (upper === 'CONTROLE-PATRIMONIAL') return String(process.env.CONTROLE_PATRIMONIAL_URL ?? '').replace(/\/+$/, '');
-    if (upper === 'CONTROLE-MOTORISTA') return String(process.env.CONTROLE_MOTORISTA_URL ?? '').replace(/\/+$/, '');
+    if (upper === 'CONTROLE-PATRIMONIAL') return String((getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
+    if (upper === 'CONTROLE-MOTORISTA') return String((getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
     return null;
   }
 
@@ -7932,7 +7529,7 @@ export class AdminController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
-    const atlasUserId = await resolveBySlugOrEnv(this.prisma, 'ATLAS_USER_ID', ['atlas']);
+    const atlasUserId = await resolveRegisteredOwner(this.prisma, 'ATLAS_USER_ID', ['atlas']);
     const effectiveStart = startDate ?? dayjs().tz(TZ).startOf('month').format('YYYY-MM-DD');
     // Os cards financeiros comuns são calculados pelo mesmo caminho de todas
     // as plataformas. Este endpoint só acrescenta dados próprios do Atlas.
@@ -7941,7 +7538,7 @@ export class AdminController {
 
     const TAXA_SAQUE_FIXA = getPlatformTaxaEffective('ATLAS', 'TAXA_SAQUE_FIXA',     PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA);
 
-    const atlasBaseUrl = String(process.env.ATLAS_HOSTING_URL ?? '').replace(/\/+$/, '');
+    const atlasBaseUrl = String((getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
     const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN ?? '';
 
     let atlasData: {

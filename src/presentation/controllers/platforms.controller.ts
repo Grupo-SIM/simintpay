@@ -1,0 +1,42 @@
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { PlatformsService } from '../../application/services/platforms.service';
+import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
+import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
+
+@ApiTags('Platforms')
+@ApiBearerAuth()
+@Controller('platforms')
+@UseGuards(JwtAuthGuard)
+export class PlatformsController {
+  constructor(private readonly platforms: PlatformsService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Listar plataformas próprias; administrador lista todas' })
+  list(@CurrentUser() user: JwtPayload) { return this.platforms.list(user); }
+
+  @Post()
+  @ApiOperation({ summary: 'Criar plataforma própria; administrador pode atribuir dono' })
+  create(@CurrentUser() user: JwtPayload, @Body() body: { tag?: string; name?: string; ownerUserId?: string }) {
+    return this.platforms.create(user, body);
+  }
+
+  @Patch(':tag')
+  @ApiOperation({ summary: 'Editar plataforma; transferência exclusiva do administrador' })
+  update(@Param('tag') tag: string, @CurrentUser() user: JwtPayload, @Body() body: { name?: string; isActive?: boolean; ownerUserId?: string; acquirer?: 'DOM' | 'FRENDZ'; absorbCustomerInterest?: boolean }) {
+    return this.platforms.update(tag, user, body);
+  }
+  @Patch(':tag/customer-interest-rates')
+  @ApiOperation({ summary: 'Definir juros cobrados do comprador por parcela (decimal)' })
+  rates(@Param('tag') tag: string, @CurrentUser() user: JwtPayload, @Body() body: { rates?: Record<string, unknown> }) {
+    return this.platforms.patchCustomerInterestRates(tag, user, body);
+  }
+
+  @Get(':tag/customer-interest-rates/simulation')
+  @ApiOperation({ summary: 'Simular valor cobrado, custos e líquido por parcela' })
+  simulate(@Param('tag') tag: string, @CurrentUser() user: JwtPayload, @Query('amount') amount: string) {
+    return this.platforms.simulate(tag, user, amount);
+  }
+
+}

@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -18,7 +19,6 @@ import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.st
 @Injectable()
 export class RevalidaSyncService implements OnModuleInit {
   private readonly logger = new Logger(RevalidaSyncService.name);
-  private revalidaUserId: string | null = null;
 
   private readonly DOM_API_URL = 'https://apiv3.dompagamentos.com.br/checkout/production';
 
@@ -29,47 +29,29 @@ export class RevalidaSyncService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    const enabled = process.env.ENABLE_REVALIDA_DOM_SYNC === 'true';
+    const enabled = getPlatformIntegrationValue('REVALIDA', 'ENABLE_DOM_SYNC') === 'true';
     this.logger.log(
       `[REVALIDA] Sync service initialized (DOM API v3 mode; ${enabled ? 'enabled' : 'disabled'})`,
     );
   }
 
   private async resolveRevalidaUserId(): Promise<string | null> {
-    if (this.revalidaUserId) return this.revalidaUserId;
-
-    const envId = process.env.REVALIDA_USER_ID;
-    if (envId) {
-      this.revalidaUserId = envId;
-      return envId;
-    }
-
-    let user: { id: string } | null;
     try {
-      user = await this.prisma.user.findFirst({
-        where: { email: 'revalida@jbmidia.com.br' },
-        select: { id: true },
+      const platform = await this.prisma.platform.findFirst({
+        where: { tag: { equals: 'revalida', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
       });
+      return platform?.ownerUserId ?? null;
     } catch (error) {
-      this.logger.error('[REVALIDA] Banco indisponível ao resolver usuário; nova tentativa no próximo ciclo.', error);
+      this.logger.error('Banco indisponível ao resolver dono da plataforma.', error);
       return null;
     }
-
-    if (user) {
-      this.revalidaUserId = user.id;
-      this.logger.log(`[REVALIDA] User ID resolvido: ${user.id}`);
-    } else {
-      this.logger.warn('[REVALIDA] Usuário revalida@jbmidia.com.br não encontrado. Execute POST /admin/revalida/setup');
-    }
-
-    return this.revalidaUserId;
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSync() {
-    if (process.env.ENABLE_REVALIDA_DOM_SYNC !== 'true') return;
+    if (getPlatformIntegrationValue('REVALIDA', 'ENABLE_DOM_SYNC') !== 'true') return;
 
-    const rawToken = process.env.REVALIDA_DOM_TOKEN || process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+    const rawToken = getPlatformIntegrationValue('REVALIDA', 'DOM_TOKEN');
     if (!rawToken) {
       this.logger.warn('[REVALIDA] Token não configurado (REVALIDA_DOM_TOKEN ou DOM_TOKEN) — sync ignorado');
       return;
@@ -224,15 +206,15 @@ export class RevalidaSyncService implements OnModuleInit {
    * filtra pelo nome "revalida", cria/atualiza no banco e recalcula o saldo da carteira do zero.
    */
   async syncFull(): Promise<any> {
-    const rawToken = process.env.REVALIDA_DOM_TOKEN || process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+    const rawToken = getPlatformIntegrationValue('REVALIDA', 'DOM_TOKEN');
     if (!rawToken) {
-      return { success: false, error: 'Token não configurado no .env (REVALIDA_DOM_TOKEN ou DOM_TOKEN)' };
+      return { success: false, error: 'Token não configurado no admin (REVALIDA_DOM_TOKEN ou DOM_TOKEN)' };
     }
     const token = rawToken.trim();
 
     const userId = await this.resolveRevalidaUserId();
     if (!userId) {
-      return { success: false, error: 'Usuário revalida não encontrado. Execute POST /dashboard/revalida/setup primeiro.' };
+      return { success: false, error: 'Plataforma sem dono cadastrado no admin.' };
     }
 
     // Teste de conexão (usa um intervalo pequeno para garantir sucesso)
@@ -314,11 +296,11 @@ export class RevalidaSyncService implements OnModuleInit {
             const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
 
             if (existing) {
-              const needsUserFix = existing.userId !== (this.revalidaUserId || userId);
+              const needsUserFix = existing.userId !== (userId);
               await this.prisma.transaction.update({
                 where: { id: existing.id },
                 data: {
-                  ...(needsUserFix ? { userId: this.revalidaUserId || userId } : {}),
+                  ...(needsUserFix ? { userId: userId } : {}),
                   status: mappedStatus,
                   amount,
                   netAmount,
@@ -342,7 +324,7 @@ export class RevalidaSyncService implements OnModuleInit {
 
             await this.prisma.transaction.create({
               data: {
-                userId:           this.revalidaUserId || userId, // Use detected ID
+                userId:           userId, // Use detected ID
                 amount,
                 netAmount,
                 status:           mappedStatus,
@@ -477,7 +459,7 @@ export class RevalidaSyncService implements OnModuleInit {
   }> {
     const userId = await this.resolveRevalidaUserId();
     if (!userId) {
-      return { success: false, error: 'REVALIDA_USER_ID não configurado ou usuário revalida não encontrado.' };
+      return { success: false, error: 'Plataforma sem dono cadastrado no admin.' };
     }
 
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
@@ -541,6 +523,11 @@ export class RevalidaSyncService implements OnModuleInit {
    */
   private async syncExternalPlatformBalance(userId: string, balance: number): Promise<void> {
     try {
+      const platform = await this.prisma.platform.findFirst({
+        where: { tag: { equals: 'revalida', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false }, ownerUserId: userId },
+      });
+      if (!platform) return;
+
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
         select: { id: true, name: true, cpf: true },

@@ -1,3 +1,12 @@
+import { initializePlatformRegistryCache } from '../../../modules/module.registry';
+import { initializePlatformIntegrationsCache } from '../../../modules/platform-integrations/platform-integrations.store';
+import { initializePlatformTaxasCache } from '../../../modules/platform-taxas/platform-taxas.store';
+beforeEach(async () => {
+  const fixture = { platform: { findMany: async () => [{ tag: 'RENOVADA', ownerUserId: 'u1', customerInterestRates: {} }] }, platformIntegration: { findMany: async () => [{ platform: { tag: 'RENOVADA' }, key: 'DOM_TOKEN', url: 'assigned-token' }] }, platformTaxaOverride: { findMany: async () => [] } };
+  await initializePlatformRegistryCache(fixture as never);
+  await initializePlatformIntegrationsCache(fixture as never);
+  await initializePlatformTaxasCache(fixture as never);
+});
 import { CreatePlanUseCase } from './create-plan.use-case';
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
 
@@ -47,7 +56,7 @@ describe('CreatePlanUseCase (cliente)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('cria para cliente APPROVED ignorando plataforma enviada e agrupando em SIMINTPAY', async () => {
+  it('cliente APPROVED preserva plataforma explicitamente atribuída', async () => {
     const { uc, plans } = build({
       id: 'u1',
       email: 'v@v.com',
@@ -58,7 +67,7 @@ describe('CreatePlanUseCase (cliente)', () => {
       dto: { ...baseDto, plataformas: ['RENOVADA'] },
     });
     expect(plans.create).toHaveBeenCalledWith(
-      expect.objectContaining({ plataformas: ['SIMINTPAY'] }),
+      expect.objectContaining({ plataformas: ['RENOVADA'] }),
     );
   });
 

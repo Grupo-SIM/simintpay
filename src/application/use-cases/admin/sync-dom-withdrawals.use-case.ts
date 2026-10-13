@@ -1,3 +1,4 @@
+import { getModuleDomToken } from '../../../modules/module.registry';
 import {
   BadRequestException,
   Inject,
@@ -74,7 +75,7 @@ export class SyncDomWithdrawalsUseCase {
       });
       if (module) {
         const envKey = `${module.slug.toUpperCase()}_DOM_TOKEN`;
-        domToken = process.env[envKey];
+        domToken = getModuleDomToken(module.slug) ?? undefined;
         source = `Módulo (${module.slug})`;
       }
     }

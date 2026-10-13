@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   Controller,
   Get,
@@ -29,7 +30,7 @@ import { Roles } from '../../infrastructure/security/decorators/roles.decorator'
 @ApiTags('Betai (admin)')
 export class BetaiAdminController {
   private betaiUrl(): string {
-    return String(process.env.BETAI_URL ?? '').replace(/\/+$/, '');
+    return String((getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
   }
   private token(): string {
     return process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';

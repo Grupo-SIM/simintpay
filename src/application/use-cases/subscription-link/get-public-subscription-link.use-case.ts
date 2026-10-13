@@ -1,3 +1,5 @@
+import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
@@ -35,7 +37,8 @@ export class GetPublicSubscriptionLinkUseCase {
     // Valor que o comprador pagará (com ou sem taxa de assinatura da plataforma)
     const base = Number(link.amount);
     let effectivePlatformFee = link.platformFee; // fallback: valor gravado no link
-    let platformTag = (link as any).platformTag?.toUpperCase?.() ?? 'GLOBAL';
+    let platformTag = link.platformTag ?? link.plataformas?.[0] ?? 'GLOBAL';
+    platformGatewayToken(platformTag, process.env.DOM_TOKEN);
 
     if (!link.isStandalone) {
       const owner = await this.users.findById(link.userId);
@@ -45,13 +48,12 @@ export class GetPublicSubscriptionLinkUseCase {
       // 3º AREAFLIX se webhookUrl contiver 'areaflix'
       // 4º GLOBAL (fallback)
       const linkPlatformTag = (link as any).platformTag?.toUpperCase?.();
-      const isAreaflix = (link.webhookUrl ?? '').toLowerCase().includes('areaflix');
       const slugTag = owner?.tenantModule?.slug?.toUpperCase();
-      platformTag = linkPlatformTag ?? slugTag ?? (isAreaflix ? 'AREAFLIX' : 'GLOBAL');
+      platformTag = linkPlatformTag ?? link.plataformas?.[0] ?? slugTag ?? 'GLOBAL';
 
       // Taxa ao cliente (cartão) = MDR_CC_1X + MDR_CC_MASTER_1X por plataforma
       const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
-      const mdrMaster1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+      const mdrMaster1x = getCustomerInterestRate(platformTag, 1);
       effectivePlatformFee = Math.round((mdrDom1x + mdrMaster1x) * 10000) / 100;
     }
 

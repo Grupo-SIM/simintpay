@@ -47,67 +47,8 @@ export class CreatePaymentLinkDto {
   @IsOptional()
   isStandalone?: boolean;
 
-  @IsNumber()
-  @IsOptional()
-  platformFee1x?: number;
 
-  @IsNumber()
-  @IsOptional()
-  platformFee2x?: number;
 
-  @IsNumber()
-  @IsOptional()
-  platformFee3x?: number;
-
-  @IsNumber()
-  @IsOptional()
-  platformFee4x?: number;
-
-  @IsNumber()
-  @IsOptional()
-  platformFee5x?: number;
-
-  @IsNumber()
-  @IsOptional()
-  platformFee6x?: number;
-
-  @IsNumber()
-  @IsOptional()
-  platformFee7x?: number;
-
-  @IsNumber()
-  @IsOptional()
-  platformFee8x?: number;
-
-  @IsNumber()
-  @IsOptional()
-  platformFee9x?: number;
-
-  @IsNumber()
-  @IsOptional()
-  platformFee10x?: number;
-
-  @IsNumber()
-  @IsOptional()
-  platformFee11x?: number;
-
-  @IsNumber()
-  @IsOptional()
-  platformFee12x?: number;
-
-  @IsNumber()
-  @IsOptional()
-  cashbackFee?: number;
-
-  /** Taxa percentual da plataforma para débito (default 2%). Cobrada do vendedor. */
-  @IsNumber()
-  @IsOptional()
-  debitFeePercent?: number;
-
-  /** Taxa fixa da plataforma para débito em R$ (default R$2,00). Cobrada do vendedor. */
-  @IsNumber()
-  @IsOptional()
-  debitFeeFixed?: number;
 
   @IsString()
   @IsOptional()

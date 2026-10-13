@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Post, Body, Logger } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, Logger, GoneException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RevalidaDashboardService } from '../services/revalida-dashboard.service';
 import { RevalidaSyncService } from '../services/revalida-sync.service';
@@ -48,46 +48,17 @@ export class RevalidaDashboardController {
   @Post('setup')
   @ApiOperation({ summary: '[REVALIDA] Criar usuário revalida no banco (executar uma vez)' })
   async setup() {
-    const email = 'revalida@jbmidia.com.br';
-
-    let user = await this.prisma.user.findFirst({ where: { email } });
-
-    if (!user) {
-      const bcrypt = await import('bcryptjs');
-      const hash = await bcrypt.hash('revalida@JB2024!', 10);
-      user = await this.prisma.user.create({
-        data: {
-          name: 'Revalida Sistema',
-          email,
-          password: hash,
-          role: 'USER',
-        },
-      });
-      this.logger.log(`[REVALIDA] Usuário criado: ${user.id}`);
-    }
-
-    let wallet = await this.prisma.wallet.findUnique({ where: { userId: user.id } });
-    if (!wallet) {
-      wallet = await this.prisma.wallet.create({ data: { userId: user.id } });
-      this.logger.log(`[REVALIDA] Wallet criada para ${user.id}`);
-    }
-
-    return {
-      success: true,
-      message: 'Usuário Revalida configurado com sucesso. Adicione o REVALIDA_USER_ID ao .env',
-      userId: user.id,
-      email: user.email,
-      hint: `Adicione ao .env: REVALIDA_USER_ID=${user.id}`,
-    };
+    throw new GoneException('Cadastre a plataforma e atribua um dono existente pelo admin.');
   }
 
   @Post('sync-external-user')
   @ApiOperation({ summary: '[REVALIDA] Registra/atualiza o usuário Revalida na listagem de plataformas do admin' })
   async syncExternalUser() {
-    const userId = process.env.REVALIDA_USER_ID;
-    if (!userId) {
-      return { success: false, error: 'REVALIDA_USER_ID não configurado no .env' };
-    }
+    const platform = await this.prisma.platform.findFirst({
+      where: { tag: { equals: 'revalida', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
+    });
+    if (!platform) return { success: false, error: 'Plataforma não cadastrada com dono no admin' };
+    const userId = platform.ownerUserId;
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

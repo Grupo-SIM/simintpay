@@ -1,3 +1,5 @@
+import { getPlatformOwnerId } from '../../../modules/module.registry';
+import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus, WithdrawStatus, PaymentMethod, Prisma } from '@prisma/client';
@@ -20,8 +22,7 @@ export class SyncFullRenovadaUseCase {
   ) {}
 
   async execute() {
-    const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-    const RENOVADA_EMAIL = process.env.RENOVADA_EMAIL || 'contato@renovada12.com.br';
+    const RENOVADA_ID = (getPlatformOwnerId('RENOVADA') ?? '');
     const RENOVADA_NAME = 'Renovada 12';
 
     /**
@@ -32,36 +33,21 @@ export class SyncFullRenovadaUseCase {
      * O api-dom já tem a separação por userId correta no banco dele.
      * O x-access-token "4a29df01..." mapeia para o user da Renovada no api-dom.
      */
-    const API_DOM_URL = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
+    const API_DOM_URL = getPlatformIntegrationValue('RENOVADA', 'DOM_BACKEND_URL');
     // x-access-token do api-dom para a Renovada (NÃO é o token da DOM Pagamentos!)
     // Usar RENOVADA_APIDOM_XTOKEN para não confundir com RENOVADA_DOM_TOKEN (que em prod é o master)
-    const RENOVADA_API_DOM_TOKEN = process.env.RENOVADA_APIDOM_XTOKEN || '4a29df01-a980-45e3-b3c7-1a8b8eb7850f';
+    const RENOVADA_API_DOM_TOKEN = (getPlatformIntegrationValue('RENOVADA', 'API_DOM_XTOKEN') ?? undefined);
+
+    if (!API_DOM_URL || !RENOVADA_API_DOM_TOKEN) throw new Error('Integração da plataforma não configurada');
 
     this.logger.log(`=== SINCRONIZAÇÃO COMPLETA RENOVADA ===`);
     this.logger.log(`RENOVADA_ID: ${RENOVADA_ID}`);
     this.logger.log(`API_DOM_URL: ${API_DOM_URL}`);
-    this.logger.log(`Token: ${RENOVADA_API_DOM_TOKEN.substring(0, 8)}...`);
 
-    const hashedPassword = await this.hashService.hash('password-migrated');
 
     // 1. Upsert Usuário & Carteira (NÃO setar domToken — é master e traria tudo)
-    await this.prisma.user.upsert({
-      where: { id: RENOVADA_ID },
-      update: {
-        email: RENOVADA_EMAIL,
-        name: RENOVADA_NAME,
-        password: hashedPassword,
-        domToken: null, // IMPORTANTE: NÃO setar domToken (master token traz ALL plataformas)
-      },
-      create: {
-        id: RENOVADA_ID,
-        name: RENOVADA_NAME,
-        email: RENOVADA_EMAIL,
-        password: hashedPassword,
-        role: 'USER',
-        domToken: null,
-      },
-    });
+    const assignedOwner = await this.prisma.platform.findUnique({ where: { tag: 'RENOVADA' }, include: { owner: true } });
+    if (!assignedOwner?.isActive || !assignedOwner.owner.isActive || assignedOwner.owner.isPurged) throw new Error('Plataforma sem dono ativo cadastrado');
 
     await this.prisma.wallet.upsert({
       where: { userId: RENOVADA_ID },

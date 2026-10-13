@@ -1,3 +1,4 @@
+import { getPlatformOwnerId } from '../../modules/module.registry';
 import { WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { getModuleConfig } from '../../modules/module.registry';
@@ -21,11 +22,11 @@ export async function computeUserNetBalance(
 
   const fatorLiquidez =
     getModuleConfig(tenantSlug)?.saque?.fatorLiquidez ??
-    Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
+    getPlatformTaxaEffective('GLOBAL', 'LIQUIDEZ', 0.91);
 
-  const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+  const renovadaId = (getPlatformOwnerId('RENOVADA') ?? '');
   const slug = (tenantSlug || '').toLowerCase();
-  const useRenovadaWalletLedger = slug === 'renovada' || slug === 'bosque' || userId === renovadaId;
+  const useRenovadaWalletLedger = slug === 'renovada' || slug === 'bosque';
 
   if (useRenovadaWalletLedger) {
     // wallet.balance armazena o valor líquido diretamente (netAmount já descontado das taxas)

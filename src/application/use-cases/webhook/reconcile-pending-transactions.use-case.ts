@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -149,7 +150,7 @@ export class ReconcilePendingTransactionsUseCase {
             this.logger.log(`${prefix} DOM request: ${transactionContext}`);
             try {
               const queryToken = opts?.domToken
-                || (tx.description?.includes('[TENANT:ZERO_GRAU]') ? process.env.ZERO_GRAU_DOM_TOKEN : undefined)
+                || (tx.description?.includes('[TENANT:ZERO_GRAU]') ? (getPlatformIntegrationValue('ZERO-GRAU', 'DOM_TOKEN') ?? undefined) : undefined)
                 || tx.user?.domToken
                 || domToken;
               if (!queryToken) {

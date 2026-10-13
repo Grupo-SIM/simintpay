@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -26,7 +27,8 @@ export class UpdatePaymentLinkUseCase {
       : await this.links.findByIdForUser({ id: input.id, userId: input.userId });
     if (!existing) throw new NotFoundException('Link não encontrado');
 
-    const domToken = process.env.DOM_TOKEN;
+    const selectedTag = assertExplicitPlatform({ id: input.userId, role: input.role }, input.dto.plataformas ?? (existing as any).plataformas, true);
+    const domToken = existing.domPaymentLinkId ? platformGatewayToken(selectedTag, process.env.DOM_TOKEN) : null;
 
     // Sincronizar com DOM apenas os campos que o gateway reconhece.
     // isStandalone e platformFeeNx são locais — o DOM não os conhece.
@@ -58,25 +60,10 @@ export class UpdatePaymentLinkUseCase {
       isActive: input.dto.isActive ?? existing.isActive,
       aceitaDebito: input.dto.aceitaDebito ?? (existing as any).aceitaDebito,
       isStandalone: input.dto.isStandalone ?? (existing as any).isStandalone,
-      platformFee1x: input.dto.platformFee1x ?? (existing as any).platformFee1x,
-      platformFee2x: input.dto.platformFee2x ?? (existing as any).platformFee2x,
-      platformFee3x: input.dto.platformFee3x ?? (existing as any).platformFee3x,
-      platformFee4x: input.dto.platformFee4x ?? (existing as any).platformFee4x,
-      platformFee5x: input.dto.platformFee5x ?? (existing as any).platformFee5x,
-      platformFee6x: input.dto.platformFee6x ?? (existing as any).platformFee6x,
-      platformFee7x: input.dto.platformFee7x ?? (existing as any).platformFee7x,
-      platformFee8x: input.dto.platformFee8x ?? (existing as any).platformFee8x,
-      platformFee9x: input.dto.platformFee9x ?? (existing as any).platformFee9x,
-      platformFee10x: input.dto.platformFee10x ?? (existing as any).platformFee10x,
-      platformFee11x: input.dto.platformFee11x ?? (existing as any).platformFee11x,
-      platformFee12x: input.dto.platformFee12x ?? (existing as any).platformFee12x,
-      cashbackFee: input.dto.cashbackFee ?? (existing as any).cashbackFee,
-      debitFeePercent: input.dto.debitFeePercent ?? (existing as any).debitFeePercent,
-      debitFeeFixed: input.dto.debitFeeFixed ?? (existing as any).debitFeeFixed,
       webhookUrl: input.dto.webhookUrl ?? (existing as any).webhookUrl,
       maxUses: input.dto.maxUses ?? (existing as any).maxUses,
       ...(input.dto.emailBody !== undefined && { emailBody: input.dto.emailBody }),
-      ...(input.dto.plataformas !== undefined && { plataformas: input.dto.plataformas }),
+      ...(input.dto.plataformas !== undefined && { plataformas: selectedTag ? [selectedTag] : [] }),
     });
 
     return {

@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   BadRequestException,
   Body,
@@ -97,7 +98,7 @@ export class WebhookController {
       throw new BadRequestException('orderNumber e status são obrigatórios');
     }
 
-    const backEbookUrl = process.env.BACK_EBOOK_URL;
+    const backEbookUrl = (getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined);
     const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN;
     if (!backEbookUrl || !internalToken) {
       throw new InternalServerErrorException('BACK_EBOOK_URL/API_MACHINE_INTERNAL_TOKEN não configurados');

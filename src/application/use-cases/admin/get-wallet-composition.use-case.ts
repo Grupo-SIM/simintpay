@@ -1,3 +1,5 @@
+import { getPlatformOwnerId } from '../../../modules/module.registry';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import {
   BadRequestException,
   Injectable,
@@ -50,17 +52,17 @@ export class GetWalletCompositionUseCase {
 
     const fatorLiquidez =
       getModuleConfig(user.tenantModule?.slug)?.saque?.fatorLiquidez ??
-      Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91);
+      getPlatformTaxaEffective('GLOBAL', 'LIQUIDEZ', 0.91);
 
     const renovadaId =
-      process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+      (getPlatformOwnerId('RENOVADA') ?? '');
     const slug = (user.tenantModule?.slug || '').toLowerCase();
     const useRenovadaWalletLedger =
-      slug === 'renovada' || user.id === renovadaId;
+      slug === 'renovada';
 
     const fatorRenovada =
       getModuleConfig('renovada')?.saque?.fatorLiquidez ??
-      Number(process.env.RENOVADA_LIQUIDEZ || 0.91);
+      getPlatformTaxaEffective('RENOVADA', 'LIQUIDEZ', 0.91);
 
     const [transactions, withdraws] = await Promise.all([
       this.prisma.transaction.findMany({

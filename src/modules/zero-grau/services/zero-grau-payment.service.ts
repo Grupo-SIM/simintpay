@@ -1,3 +1,5 @@
+import { getPlatformOwnerId } from '../../module.registry';
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { CheckoutPixDto } from '../../renovada/dtos/checkout-pix.dto';
@@ -86,11 +88,11 @@ export class ZeroGrauPaymentService {
   ) {}
 
   private get domToken(): string | undefined {
-    return process.env.ZERO_GRAU_DOM_TOKEN || process.env.DOM_TOKEN;
+    return (getPlatformIntegrationValue('ZERO-GRAU', 'DOM_TOKEN') ?? undefined);
   }
 
   private get domOrigin(): string {
-    return process.env.ZERO_GRAU_URL_APP || process.env.URL_APP || 'https://api-atlas.jbmidia.com';
+    return (getPlatformIntegrationValue('ZERO-GRAU', 'URL_APP') ?? undefined) || '';
   }
 
   private buildInternalDescription(description: string | null | undefined): string {
@@ -460,7 +462,7 @@ export class ZeroGrauPaymentService {
   }
 
   async checkPixStatusDirect(domPaymentId: string): Promise<{ status: string }> {
-    const userId = process.env.ZERO_GRAU_USER_ID?.trim();
+    const userId = (getPlatformOwnerId('ZERO-GRAU') ?? '');
     if (!userId) return { status: 'UNKNOWN' };
     const result = await this.reconcile.reconcilePayment(domPaymentId, userId, this.domToken);
     return { status: result.status };

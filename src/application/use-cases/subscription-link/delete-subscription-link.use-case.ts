@@ -1,3 +1,4 @@
+import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -19,7 +20,7 @@ export class DeleteSubscriptionLinkUseCase {
 
     // Desativa o plano na DOM se existir
     if (existing.domPlanId) {
-      const domToken = process.env.DOM_TOKEN;
+      const domToken = platformGatewayToken(existing.platformTag ?? existing.plataformas?.[0], process.env.DOM_TOKEN);
       if (domToken) {
         try {
           await this.gateway.updatePaymentLink(domToken, existing.domPlanId, { isActive: false });

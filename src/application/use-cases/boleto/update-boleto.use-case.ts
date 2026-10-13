@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { BOLETO_REPOSITORY } from '../../../core/repositories/boleto.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -26,7 +27,8 @@ export class UpdateBoletoUseCase {
       : await this.boletos.findByIdForUser({ id: input.id, userId: input.userId });
     if (!existing) throw new NotFoundException('Boleto não encontrado');
 
-    const domToken = process.env.DOM_TOKEN;
+    const selectedTag = assertExplicitPlatform({ id: input.userId, role: input.role }, input.dto.plataformas ?? (existing as any).plataformas, true);
+    const domToken = existing.domPaymentLinkId ? platformGatewayToken(selectedTag, process.env.DOM_TOKEN) : null;
 
     // Sincroniza com a DOM apenas os campos que o gateway reconhece. Falha no DOM
     // não bloqueia a atualização local (alinhado ao Link de Pagamento).
@@ -54,7 +56,7 @@ export class UpdateBoletoUseCase {
       isActive: input.dto.isActive ?? existing.isActive,
       webhookUrl: input.dto.webhookUrl ?? existing.webhookUrl,
       maxUses: input.dto.maxUses ?? existing.maxUses,
-      ...(input.dto.plataformas !== undefined && { plataformas: input.dto.plataformas }),
+      ...(input.dto.plataformas !== undefined && { plataformas: selectedTag ? [selectedTag] : [] }),
     });
 
     return {

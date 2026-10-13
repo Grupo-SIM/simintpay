@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Post, Body, Logger } from '@nestjs/common';
+import { Controller, Get, Query, Post, Body, Logger, GoneException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AtlasDashboardService } from '../services/atlas-dashboard.service';
 import { AtlasSyncService } from '../services/atlas-sync.service';
@@ -48,46 +48,17 @@ export class AtlasDashboardController {
   @Post('setup')
   @ApiOperation({ summary: '[ATLAS] Criar usuário Atlas no banco (executar uma vez)' })
   async setup() {
-    const email = 'atlas@jbmidia.com.br';
-
-    let user = await this.prisma.user.findFirst({ where: { email } });
-
-    if (!user) {
-      const bcrypt = await import('bcryptjs');
-      const hash = await bcrypt.hash('atlas@JB2024!', 10);
-      user = await this.prisma.user.create({
-        data: {
-          name: 'Atlas Sistema',
-          email,
-          password: hash,
-          role: 'USER',
-        },
-      });
-      this.logger.log(`[ATLAS] Usuário criado: ${user.id}`);
-    }
-
-    let wallet = await this.prisma.wallet.findUnique({ where: { userId: user.id } });
-    if (!wallet) {
-      wallet = await this.prisma.wallet.create({ data: { userId: user.id } });
-      this.logger.log(`[ATLAS] Wallet criada para ${user.id}`);
-    }
-
-    return {
-      success: true,
-      message: 'Usuário Atlas configurado com sucesso. Adicione o ATLAS_USER_ID ao .env',
-      userId: user.id,
-      email: user.email,
-      hint: `Adicione ao .env: ATLAS_USER_ID=${user.id}`,
-    };
+    throw new GoneException('Cadastre a plataforma e atribua um dono existente pelo admin.');
   }
 
   @Post('sync-external-user')
   @ApiOperation({ summary: '[ATLAS] Registra/atualiza o usuário Atlas na listagem de plataformas do admin' })
   async syncExternalUser() {
-    const userId = process.env.ATLAS_USER_ID;
-    if (!userId) {
-      return { success: false, error: 'ATLAS_USER_ID não configurado no .env' };
-    }
+    const platform = await this.prisma.platform.findFirst({
+      where: { tag: { equals: 'atlas', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
+    });
+    if (!platform) return { success: false, error: 'Plataforma não cadastrada com dono no admin' };
+    const userId = platform.ownerUserId;
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

@@ -1,3 +1,5 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
+import { getPlatformOwnerId } from '../../modules/module.registry';
 import {
   BadRequestException,
   Body,
@@ -26,7 +28,7 @@ export class InternalEbookFinanceController {
   ) {}
 
   private ensureInternalToken(token?: string) {
-    const expected = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN;
+    const expected = getPlatformIntegrationValue('EBOOK', 'INTERNAL_TOKEN');
     if (!expected || token !== expected) {
       throw new UnauthorizedException('Token interno inválido');
     }
@@ -189,7 +191,7 @@ export class InternalEbookFinanceController {
     let domByOrderNumber = new Map<string, DomTransactionItem[]>();
     try {
       if (items.length > 0) {
-        const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+        const domToken = getPlatformIntegrationValue('EBOOK', 'DOM_TOKEN');
         if (domToken?.trim()) {
           const parsedDates = items
             .map((t) => t.createdAt)
@@ -362,7 +364,8 @@ export class InternalEbookFinanceController {
     });
     if (existing) return { success: true, id: existing.id, created: false };
 
-    let userId = 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
+    let userId = getPlatformOwnerId('EBOOK');
+    if (!userId) throw new BadRequestException('Plataforma EBOOK sem dono ativo');
     let ownerName: string | null = body.ownerName?.trim() || null;
     if (body.ownerCpf) {
       const cpf = body.ownerCpf.replace(/\D/g, '');
@@ -381,18 +384,7 @@ export class InternalEbookFinanceController {
       }
     }
 
-    await this.prisma.user.upsert({
-      where: { id: 'd4fbf80f-6f13-4bc6-8e15-ebook00000001' },
-      update: {},
-      create: {
-        id: 'd4fbf80f-6f13-4bc6-8e15-ebook00000001',
-        name: 'EbookSim Platform',
-        email: 'ebook-platform@ebooksim.com',
-        cpf: '00000000000',
-        password: 'SYSTEM_NO_LOGIN',
-      },
-    });
-
+    if (!userId) throw new BadRequestException('Plataforma Ebook sem dono cadastrado');
     const ownerDoc = body.ownerCpf ? body.ownerCpf.replace(/\D/g, '') : '';
     const cpfTag = ownerDoc ? ` [${ownerDoc.length === 14 ? 'CNPJ' : 'CPF'}_DONO:${ownerDoc}]` : '';
     const nomeTag = ownerName ? ` [NOME_DONO:${ownerName}]` : '';

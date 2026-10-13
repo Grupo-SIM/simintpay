@@ -1,3 +1,4 @@
+import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
@@ -10,7 +11,6 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const BRT = 'America/Sao_Paulo';
-const RENOVADA_ID = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
 @Injectable()
 export class ListTransactionsUseCase {
@@ -37,7 +37,7 @@ export class ListTransactionsUseCase {
             { userId: input.userId },
             {
               AND: [
-                { userId: RENOVADA_ID },
+                { userId: (getPlatformOwnerId('RENOVADA') ?? '') },
                 {
                   OR: [
                     { description: { contains: cpfDigits, mode: Prisma.QueryMode.insensitive } },

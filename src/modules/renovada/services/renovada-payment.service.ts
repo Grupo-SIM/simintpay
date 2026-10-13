@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { CheckoutPixDto } from '../dtos/checkout-pix.dto';
@@ -78,6 +79,12 @@ const RENOVADA_HIDDEN_TAG = '[TENANT:RENOVADA]';
 @Injectable()
 export class RenovadaPaymentService {
   private readonly logger = new Logger(RenovadaPaymentService.name);
+
+  private get domToken(): string {
+    const token = getPlatformIntegrationValue('RENOVADA', 'DOM_TOKEN');
+    if (!token) throw new BadRequestException('Token da plataforma não configurado no admin.');
+    return token;
+  }
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -396,7 +403,7 @@ export class RenovadaPaymentService {
     const url = 'https://apiv3.dompagamentos.com.br/checkout/production/transactions';
 
     const headers = {
-      Authorization: `Bearer ${process.env.DOM_TOKEN}`,
+      Authorization: `Bearer ${this.domToken}`,
       accept: 'application/json',
       'content-type': 'application/json',
       Origin: process.env.URL_APP || 'https://api-renovada.jbmidia.com',
@@ -477,7 +484,7 @@ export class RenovadaPaymentService {
     const url = 'https://apiv3.dompagamentos.com.br/checkout/production/transactions';
 
     const headers = {
-      Authorization: `Bearer ${process.env.DOM_TOKEN}`,
+      Authorization: `Bearer ${this.domToken}`,
       accept: 'application/json',
       'content-type': 'application/json',
       Origin: process.env.URL_APP || 'https://api-renovada.jbmidia.com',

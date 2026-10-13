@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -24,7 +25,7 @@ export class DeletePaymentLinkUseCase {
     // Remoção na DOM é best-effort: se o link já não existe lá (ou o DOM falha),
     // NÃO pode bloquear a exclusão local — senão o master fica sem conseguir
     // apagar o link. Alinhado ao update, que já ignora falha do DOM.
-    const domToken = process.env.DOM_TOKEN;
+    const domToken = platformGatewayToken((existing as any).plataformas?.[0], process.env.DOM_TOKEN);
     if (domToken && existing.domPaymentLinkId) {
       try {
         await this.gateway.deletePaymentLink(domToken, existing.domPaymentLinkId);

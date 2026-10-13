@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -35,18 +36,10 @@ export class CreatePaymentLinkUseCase {
     // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
     const user = await this.users.findById(input.userId);
     assertClientCanCreate(user, input.dto.valor);
-    const clientTag = clientTaxaTagFor(user);
+    const selectedTag = assertExplicitPlatform(user, input.dto.plataformas);
+    const clientTag = selectedTag ? null : clientTaxaTagFor(user);
 
-    // Resolve domToken: cliente SimintPay SEMPRE usa o token mestre; senão usuário > módulo > global.
-    let domToken: string | null | undefined = clientTag ? process.env.DOM_TOKEN : user?.domToken;
-
-    if (!domToken && !clientTag && user?.tenantModule?.slug) {
-      domToken = getModuleDomToken(user.tenantModule.slug);
-    }
-
-    if (!domToken) {
-      domToken = process.env.DOM_TOKEN;
-    }
+    const domToken = platformGatewayToken(selectedTag ?? user?.tenantModule?.slug, process.env.DOM_TOKEN);
 
     if (!domToken) {
       throw new UnauthorizedException('Token DOM não encontrado para este usuário/módulo');
@@ -96,21 +89,6 @@ export class CreatePaymentLinkUseCase {
       aceitaPix,
       isActive: true,
       isStandalone,
-      platformFee1x: input.dto.platformFee1x,
-      platformFee2x: input.dto.platformFee2x,
-      platformFee3x: input.dto.platformFee3x,
-      platformFee4x: input.dto.platformFee4x,
-      platformFee5x: input.dto.platformFee5x,
-      platformFee6x: input.dto.platformFee6x,
-      platformFee7x: input.dto.platformFee7x,
-      platformFee8x: input.dto.platformFee8x,
-      platformFee9x: input.dto.platformFee9x,
-      platformFee10x: input.dto.platformFee10x,
-      platformFee11x: input.dto.platformFee11x,
-      platformFee12x: input.dto.platformFee12x,
-      cashbackFee: input.dto.cashbackFee,
-      debitFeePercent: input.dto.debitFeePercent,
-      debitFeeFixed: input.dto.debitFeeFixed,
       webhookUrl: input.dto.webhookUrl ?? null,
       redirectUrl: input.dto.redirectUrl ?? null,
       maxUses: input.dto.maxUses ?? null,
@@ -119,7 +97,7 @@ export class CreatePaymentLinkUseCase {
       // Cliente SimintPay: atribui a plataforma "SIMINTPAY" (exibição/agrupamento) para o
       // link não ficar sem plataforma. A taxa continua resolvendo pela tag do dono
       // (CLIENT:<email> → herda da SIM INT PAY/GLOBAL) — este campo não altera a cobrança.
-      plataformas: clientTag ? ['SIMINTPAY'] : (input.dto.plataformas ?? []),
+      plataformas: selectedTag ? [selectedTag] : clientTag ? ['SIMINTPAY'] : [],
     });
 
     return {

@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { BOLETO_REPOSITORY } from '../../../core/repositories/boleto.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -37,16 +38,8 @@ export class CreateBoletoUseCase {
     assertClientCanCreate(user, input.dto.valor);
     const clientTag = clientTaxaTagFor(user);
 
-    // Resolve domToken: cliente SimintPay SEMPRE usa o token mestre; senão usuário > módulo > global.
-    let domToken: string | null | undefined = clientTag ? process.env.DOM_TOKEN : user?.domToken;
-
-    if (!domToken && !clientTag && user?.tenantModule?.slug) {
-      domToken = getModuleDomToken(user.tenantModule.slug);
-    }
-
-    if (!domToken) {
-      domToken = process.env.DOM_TOKEN;
-    }
+    const selectedTag = assertExplicitPlatform(user, input.dto.plataformas);
+    const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
 
     if (!domToken) {
       throw new UnauthorizedException('Token DOM não encontrado para este usuário/módulo');
@@ -81,7 +74,7 @@ export class CreateBoletoUseCase {
       domLink: created.code ?? null,
       // Cliente SimintPay: atribui a plataforma "SIMINTPAY" (exibição/agrupamento). A taxa
       // continua resolvendo pela tag do dono — este campo não altera a cobrança.
-      plataformas: clientTag ? ['SIMINTPAY'] : (input.dto.plataformas ?? []),
+      plataformas: selectedTag ? [selectedTag] : clientTag ? ['SIMINTPAY'] : [],
     });
 
     return {

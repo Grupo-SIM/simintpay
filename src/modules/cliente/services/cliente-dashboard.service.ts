@@ -1,3 +1,5 @@
+import { getPlatformOwnerId } from '../../module.registry';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus } from '@prisma/client';
@@ -54,8 +56,8 @@ export class ClienteDashboardService {
 
     // IDs dos pools onde as transações podem estar (PagaTG, Renovada, etc.)
     const poolIds = [
-      process.env.PAGATG_ID,
-      process.env.RENOVADA_ID,
+      getPlatformOwnerId('PAGATG'),
+      getPlatformOwnerId('RENOVADA'),
       process.env.ADMIN_USER_ID,
     ].filter(Boolean) as string[];
 
@@ -104,7 +106,7 @@ export class ClienteDashboardService {
     const lockedVal = Number(wallet?.lockedBalance || 0);
     
     // Taxas do ENV
-    const liquidez = Number(process.env.CLIENTE_LIQUIDEZ || 0.91);
+    const liquidez = getPlatformTaxaEffective('GLOBAL', 'LIQUIDEZ', 0.91);
     const availableBalanceNet = Number(((balanceVal - lockedVal) * liquidez).toFixed(2));
 
     // 3. Estornos

@@ -1,3 +1,4 @@
+import { getPlatformOwnerId } from '../../module.registry';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, PaymentMethod, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
@@ -114,7 +115,7 @@ export class MasterWebhookService {
   }
 
   private calcNet(amount: number, liquidAmount?: number): Prisma.Decimal {
-    const factor = parseFloat(process.env.DEFAULT_LIQUIDITY_FACTOR ?? '0.91');
+    const factor = getPlatformTaxaEffective('GLOBAL', 'LIQUIDEZ', 0.91);
     const liq = liquidAmount ?? amount * factor;
     return new Prisma.Decimal(liq);
   }
@@ -125,7 +126,7 @@ export class MasterWebhookService {
       : PaymentMethod.PIX;
   }
 
-  private readonly RENOVADA_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+  private get RENOVADA_USER_ID(): string | null { return getPlatformOwnerId('RENOVADA'); }
 
   private getLiquidezFactor(userId: string): Prisma.Decimal {
     if (userId === this.RENOVADA_USER_ID) {

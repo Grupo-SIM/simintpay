@@ -1,3 +1,4 @@
+import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
@@ -98,7 +99,7 @@ export class ChargePixPaymentLinkUseCase {
     }
 
     const owner = await this.users.findById(link.userId);
-    const ownerClientTag = clientTaxaTagFor(owner);
+    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(((link as any).plataformas?.[0] ?? 'GLOBAL').toUpperCase()) ? null : clientTaxaTagFor(owner);
 
     const isAreaflix = isAreaflixLink({
       webhookUrl: (link as any).webhookUrl,
@@ -106,15 +107,8 @@ export class ChargePixPaymentLinkUseCase {
     });
 
     // Cliente SimintPay e Areaflix usam o token mestre (SimintPay) sempre.
-    let domToken: string | null | undefined = (ownerClientTag || isAreaflix)
-      ? process.env.DOM_TOKEN
-      : owner?.domToken;
-
-    if (!domToken && !ownerClientTag && owner?.tenantModule?.slug) {
-      domToken = getModuleDomToken(owner.tenantModule.slug);
-    }
-
-    if (!domToken) domToken = process.env.DOM_TOKEN;
+    const selectedTag = (link as any).plataformas?.[0] ?? owner?.tenantModule?.slug ?? 'GLOBAL';
+    const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
 
     if (!domToken) {
       throw new BadRequestException('Token do gateway não configurado');

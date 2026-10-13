@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PLAN_REPOSITORY } from '../../../core/repositories/plan.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -22,7 +23,7 @@ export class DeletePlanUseCase {
 
     // Remoção na DOM é best-effort: se o plano já não existe lá (ou o DOM falha),
     // não bloqueia a exclusão local (mesmo padrão do delete de link).
-    const domToken = process.env.DOM_TOKEN;
+    const domToken = platformGatewayToken((plan as any).plataformas?.[0], process.env.DOM_TOKEN);
     if (domToken && plan.domPlanId) {
       try {
         await this.gateway.deletePlan(domToken, plan.domPlanId);

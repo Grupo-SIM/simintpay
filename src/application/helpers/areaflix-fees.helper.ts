@@ -14,7 +14,7 @@ export function isAreaflixLink(input: {
 }): boolean {
   if ((input.platformTag ?? '').toUpperCase() === 'AREAFLIX') return true;
   if ((input.plataformas ?? []).some((p) => (p ?? '').toUpperCase() === 'AREAFLIX')) return true;
-  return (input.webhookUrl ?? '').toLowerCase().includes('areaflix');
+  return false;
 }
 
 /**
@@ -48,7 +48,7 @@ export function calculateAreaflixSellerNet(
     const percent =
       n <= 1
         ? taxa('TAXA_LINK_PERCENT')
-        : taxa(`MDR_LINK_${n}X` as PlataformaTaxaKey);
+        : taxa(`LINK_COST_${n}X` as PlataformaTaxaKey);
     const fixa = taxa('TAXA_LINK_FIXA');
     net = gross * (1 - percent) - fixa;
   }

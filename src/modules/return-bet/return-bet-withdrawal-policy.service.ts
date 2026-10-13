@@ -1,3 +1,4 @@
+import { getPlatformTaxaEffective, patchPlatformOverrides } from '../platform-taxas/platform-taxas.store';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 
@@ -21,12 +22,12 @@ export class ReturnBetWithdrawalPolicyService {
   constructor(private readonly prisma: PrismaService) {}
 
   async get(): Promise<ReturnBetWithdrawalPolicy> {
-    const policy = await this.prisma.returnBetWithdrawalPolicy.upsert({
-      where: { id: POLICY_ID },
-      create: { id: POLICY_ID, ...DEFAULT_POLICY },
-      update: {},
-    });
-    return this.serialize(policy);
+    const policy = await this.prisma.returnBetWithdrawalPolicy.findUnique({ where: { id: POLICY_ID } });
+    return {
+      minimumGrossAmount: getPlatformTaxaEffective('RETURN-BET', 'SAQUE_MIN', 100),
+      fixedWithdrawalFee: getPlatformTaxaEffective('RETURN-BET', 'TAXA_SAQUE_FIXA', 2),
+      withdrawalWindowDays: policy?.withdrawalWindowDays ?? DEFAULT_POLICY.withdrawalWindowDays,
+    };
   }
 
   async set(input: ReturnBetWithdrawalPolicyInput): Promise<ReturnBetWithdrawalPolicy> {
@@ -36,7 +37,8 @@ export class ReturnBetWithdrawalPolicyService {
       create: { id: POLICY_ID, ...input },
       update: input,
     });
-    return this.serialize(policy);
+    await patchPlatformOverrides('RETURN-BET', { SAQUE_MIN: input.minimumGrossAmount, TAXA_SAQUE_FIXA: input.fixedWithdrawalFee });
+    return this.get();
   }
 
   private validate(input: ReturnBetWithdrawalPolicyInput) {

@@ -36,6 +36,7 @@ function withdrawal(overrides: Record<string, unknown> = {}) {
 
 function makePrisma() {
   const prisma: any = {
+    platform: { findFirst: jest.fn().mockResolvedValue({ id: "return-bet", ownerUserId: "owner" }) },
     returnBetAccount: {
       findUnique: jest.fn().mockResolvedValue({ id: 'account-1', userId: 'sim-user-1' }),
       update: jest.fn().mockResolvedValue({ id: 'account-1', userId: 'sim-user-1' }),
@@ -84,6 +85,14 @@ function makeService(prisma = makePrisma(), policy = makePolicy()) {
 }
 
 describe('ReturnBetWithdrawalService', () => {
+  it('refuses withdrawals when the platform has no explicit registration', async () => {
+    const prisma = makePrisma();
+    prisma.platform.findFirst.mockResolvedValue(null);
+    await expect(makeService(prisma).request(input)).rejects.toThrow('não cadastrada com dono');
+    expect(prisma.withdrawRequest.create).not.toHaveBeenCalled();
+    expect(prisma.returnBetAccount.update).not.toHaveBeenCalled();
+  });
+
   it('creates an idempotent pending request and applies the R$2 fee', async () => {
     const prisma = makePrisma();
     const service = makeService(prisma);

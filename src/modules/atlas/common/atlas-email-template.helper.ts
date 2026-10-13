@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 /**
  * Template central de e-mail Atlashost (visual equivalente ao ÁreaFlix: fundo escuro,
  * logo no topo, container central). Todo e-mail Atlas é envolvido por este shell.
@@ -8,7 +9,7 @@
 
 // Por padrão a logo é anexada inline via CID (renderiza no Gmail sem depender de hosting).
 // Pode sobrescrever com uma URL pública via ATLAS_EMAIL_LOGO_URL.
-const LOGO_URL = process.env.ATLAS_EMAIL_LOGO_URL || 'cid:atlaslogo';
+const logoUrl = () => getPlatformIntegrationValue('ATLAS', 'EMAIL_LOGO_URL') || 'cid:atlaslogo';
 
 /** CID usado para anexar a logo inline (ver AtlasMailService). */
 export const ATLAS_EMAIL_LOGO_CID = 'atlaslogo';
@@ -41,7 +42,7 @@ export function wrapAtlasEmail(innerHtml: string, previewText?: string): string 
         <table role="presentation" width="465" cellpadding="0" cellspacing="0" style="width:100%; max-width:465px; background:#0b0b0d; border:1px solid #1f2430; border-radius:14px; padding:28px;">
           <tr>
             <td align="center" style="padding-bottom:8px;">
-              <img src="${LOGO_URL}" height="44" alt="Atlashost" style="display:block; margin:0 auto; height:44px; width:auto;" />
+              <img src="${logoUrl()}" height="44" alt="Atlashost" style="display:block; margin:0 auto; height:44px; width:auto;" />
             </td>
           </tr>
           <tr>

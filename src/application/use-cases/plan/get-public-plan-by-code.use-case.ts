@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { PLAN_REPOSITORY } from '../../../core/repositories/plan.repository.interface';
@@ -42,11 +43,7 @@ export class GetPublicPlanByCodeUseCase {
     }
 
     const owner = await this.users.findById(plan.userId);
-    let domToken: string | null | undefined = owner?.domToken;
-    if (!domToken && owner?.tenantModule?.slug) {
-      domToken = getModuleDomToken(owner.tenantModule.slug);
-    }
-    if (!domToken) domToken = process.env.DOM_TOKEN;
+    const domToken = platformGatewayToken(plan.plataformas?.[0] ?? owner?.tenantModule?.slug, process.env.DOM_TOKEN);
 
     const frequencyType = mapTypeLabel(plan.type);
     const frequency = mapTypeFrequency(plan.type);

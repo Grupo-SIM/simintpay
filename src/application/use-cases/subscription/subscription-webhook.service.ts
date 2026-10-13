@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, TransactionStatus, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
@@ -376,11 +377,11 @@ export class SubscriptionWebhookService {
     const tag = ((link?.platformTag ?? link?.plataformas?.[0] ?? '') as string).toString().toUpperCase();
     let url = '';
     if (tag === 'CONTROLE-MOTORISTA') {
-      url = String(process.env.CONTROLE_MOTORISTA_URL ?? '').replace(/\/+$/, '');
+      url = String((getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
     } else if (tag === 'CONTROLE-PATRIMONIAL') {
-      url = String(process.env.CONTROLE_PATRIMONIAL_URL ?? '').replace(/\/+$/, '');
+      url = String((getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
     } else if (tag === 'BETAI') {
-      url = String(process.env.BETAI_URL ?? '').replace(/\/+$/, '');
+      url = String((getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
     } else {
       return; // plataforma sem provisionamento de conta automática
     }

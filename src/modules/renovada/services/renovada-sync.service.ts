@@ -1,3 +1,5 @@
+import { getPlatformOwnerId } from '../../module.registry';
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
@@ -23,7 +25,6 @@ import { appendInternalTags, TENANT_RENOVADA_TAG } from '../../../application/ut
 @Injectable()
 export class RenovadaSyncService implements OnModuleInit {
   private readonly logger = new Logger(RenovadaSyncService.name);
-  private readonly RENOVADA_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -41,12 +42,11 @@ export class RenovadaSyncService implements OnModuleInit {
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSync() {
-    if (process.env.DISABLE_RENOVADA_SYNC === 'true') {
-      return;
-    }
-
-    const API_DOM_URL = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
-    const RENOVADA_API_DOM_TOKEN = process.env.RENOVADA_APIDOM_XTOKEN || '4a29df01-a980-45e3-b3c7-1a8b8eb7850f';
+    if (getPlatformIntegrationValue('RENOVADA', 'DISABLE_SYNC') === 'true') return;
+    const ownerId = getPlatformOwnerId('RENOVADA');
+    const API_DOM_URL = getPlatformIntegrationValue('RENOVADA', 'DOM_BACKEND_URL');
+    const RENOVADA_API_DOM_TOKEN = getPlatformIntegrationValue('RENOVADA', 'API_DOM_XTOKEN');
+    if (!ownerId || !API_DOM_URL || !RENOVADA_API_DOM_TOKEN) return;
 
     try {
       // Buscar as transações mais recentes do api-dom (páginas 1 a 3 = últimas 300)
@@ -180,7 +180,7 @@ export class RenovadaSyncService implements OnModuleInit {
             // Criar nova transação
             const newTx = await this.prisma.transaction.create({
               data: {
-                userId: this.RENOVADA_ID,
+                userId: ownerId,
                 amount,
                 netAmount,
                 status: mappedStatus,
@@ -225,7 +225,7 @@ export class RenovadaSyncService implements OnModuleInit {
         // Atualizar saldo incrementalmente (não recalcular do zero — saldo base foi definido manualmente)
         if (!completedDelta.equals(0)) {
           await this.prisma.wallet.update({
-            where: { userId: this.RENOVADA_ID },
+            where: { userId: ownerId },
             data: {
               balance: { increment: completedDelta },
               version: { increment: 1 },

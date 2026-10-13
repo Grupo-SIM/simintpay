@@ -1,3 +1,5 @@
+import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
@@ -60,18 +62,8 @@ export class CreateSubscriptionLinkUseCase {
     assertClientCanCreate(owner, input.dto.valor);
     const clientTag = clientTaxaTagFor(owner);
 
-    // Areaflix usa o usuário admin (adminljl) como dono do link; o domToken dele
-    // no banco pode estar expirado e causa 401 na DOM. Força o master key do env.
-    const isAreaflixLink =
-      (input.dto.webhookUrl ?? '').toLowerCase().includes('areaflix') ||
-      input.dto.platformTag?.toUpperCase() === 'AREAFLIX' ||
-      (input.dto.plataformas ?? []).some((p) => p?.toUpperCase() === 'AREAFLIX');
-    // Cliente SimintPay SEMPRE usa o token mestre (SimintPay), ignorando token pessoal.
-    let domToken: string | null | undefined = (clientTag || isAreaflixLink)
-      ? process.env.DOM_TOKEN
-      : owner?.domToken;
-    if (!domToken && !clientTag && owner?.tenantModule?.slug) domToken = getModuleDomToken(owner.tenantModule.slug);
-    if (!domToken) domToken = process.env.DOM_TOKEN;
+    const selectedTag = assertExplicitPlatform(owner, [...(input.dto.plataformas ?? []), ...(input.dto.platformTag ? [input.dto.platformTag] : [])]);
+    const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
 
     const { planType, domFrequency } = mapFrequency(input.dto.frequencia);
@@ -80,11 +72,11 @@ export class CreateSubscriptionLinkUseCase {
 
     // Preço que o DOM cobrará do cliente no cartão = base × (1 + MDR_CC_1X + MDR_CC_MASTER_1X)
     // Cliente: resolve a taxa pela tag CLIENT:<email> (herda do GLOBAL).
-    const platformTag = clientTag ?? (input.dto.platformTag ?? input.dto.plataformas?.[0] ?? 'GLOBAL').toUpperCase();
+    const platformTag = selectedTag ?? clientTag ?? 'GLOBAL';
     let domPrice = input.dto.valor;
     if (!isStandalone) {
       const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
-      const mdrMaster1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+      const mdrMaster1x = getCustomerInterestRate(platformTag, 1);
       domPrice = Math.round(input.dto.valor * (1 + mdrDom1x + mdrMaster1x) * 100) / 100;
     }
 
@@ -110,7 +102,7 @@ export class CreateSubscriptionLinkUseCase {
       isStandalone,
       platformFee: (() => {
         const m1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
-        const mMaster = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+        const mMaster = getCustomerInterestRate(platformTag, 1);
         return isStandalone ? 0 : Math.round((m1x + mMaster) * 10000) / 100;
       })(),
       redirectUrl: input.dto.redirectUrl ?? null,
@@ -118,11 +110,11 @@ export class CreateSubscriptionLinkUseCase {
       maxUses: input.dto.maxUses ?? null,
       domPlanId: domPlan.id,
       paymentMethods: input.dto.paymentMethods ?? 'BOTH',
-      platformTag: clientTag ?? input.dto.platformTag ?? null,
+      platformTag: selectedTag ?? clientTag ?? null,
       emailBody: input.dto.emailBody ?? null,
       // Cliente SimintPay: atribui a plataforma "SIMINTPAY" (exibição/agrupamento) para o
       // master aplicar taxas via CLIENT:<email>. Mesmo padrão do link de pagamento e plano.
-      plataformas: clientTag ? ['SIMINTPAY'] : (input.dto.plataformas ?? []),
+      plataformas: selectedTag ? [selectedTag] : clientTag ? ['SIMINTPAY'] : [],
     });
 
     // Regra de negócio: link de assinatura NUNCA cria comunidade automaticamente.

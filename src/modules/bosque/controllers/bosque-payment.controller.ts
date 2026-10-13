@@ -1,11 +1,9 @@
-import { Controller, Post, Body, Get, Param } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CheckoutPixDto } from '../dtos/checkout-pix.dto';
 import { CheckoutCreditCardDto } from '../dtos/checkout-credit-card.dto';
 import { BosquePaymentService } from '../services/bosque-payment.service';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-
-const BOSQUE_USER_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
 
 @ApiTags('Bosque Payments')
 @Controller('bosque/payments')
@@ -15,16 +13,24 @@ export class BosquePaymentController {
     private readonly prisma: PrismaService,
   ) {}
 
+  private async ownerUserId(): Promise<string> {
+    const platform = await this.prisma.platform.findFirst({
+      where: { tag: { equals: 'bosque', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
+    });
+    if (!platform) throw new NotFoundException('Plataforma não cadastrada com dono no admin.');
+    return platform.ownerUserId;
+  }
+
   @Post('pix')
   @ApiOperation({ summary: '[BOSQUE] Criar pagamento PIX' })
   async createPix(@Body() body: CheckoutPixDto) {
-    return this.paymentService.createPaymentPix(BOSQUE_USER_ID, body);
+    return this.paymentService.createPaymentPix(await this.ownerUserId(), body);
   }
 
   @Post('credit-card')
   @ApiOperation({ summary: '[BOSQUE] Criar pagamento com Cartão de Crédito' })
   async createCreditCard(@Body() body: CheckoutCreditCardDto) {
-    return this.paymentService.createPaymentCreditCard(BOSQUE_USER_ID, body);
+    return this.paymentService.createPaymentCreditCard(await this.ownerUserId(), body);
   }
 
   @Get('status/:paymentId')
@@ -32,7 +38,7 @@ export class BosquePaymentController {
   async checkStatus(@Param('paymentId') paymentId: string) {
     const tx = await this.prisma.transaction.findFirst({
       where: {
-        userId: BOSQUE_USER_ID,
+        userId: await this.ownerUserId(),
         OR: [{ domPaymentId: paymentId }, { domTransactionId: paymentId }],
       },
       select: { domPaymentId: true, status: true },

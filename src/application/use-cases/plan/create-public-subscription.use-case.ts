@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import {
   BadRequestException,
   Inject,
@@ -65,12 +66,7 @@ export class CreatePublicSubscriptionUseCase {
     }
 
     const owner = await this.users.findById(plan.userId);
-    let domToken: string | null | undefined = owner?.domToken;
-    if (!domToken && owner?.tenantModule?.slug) {
-      domToken = getModuleDomToken(owner.tenantModule.slug);
-    }
-    const masterToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
-    if (!domToken) domToken = masterToken;
+    const domToken = platformGatewayToken(plan.plataformas?.[0] ?? owner?.tenantModule?.slug, process.env.DOM_TOKEN);
     if (!domToken) {
       throw new BadRequestException('Token do gateway não configurado');
     }
@@ -112,21 +108,7 @@ export class CreatePublicSubscriptionUseCase {
       card: input.card,
     };
 
-    let domResult: Awaited<ReturnType<IPaymentGateway['createSubscriptionFromCheckout']>>;
-    try {
-      domResult = await this.gateway.createSubscriptionFromCheckout(domToken, subscriptionInput);
-    } catch (err) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      // Token do owner pode estar expirado/revogado na DOM — tenta de novo com o master key.
-      if (status === 401 && masterToken && masterToken !== domToken) {
-        this.logger.warn(
-          `[CreatePublicSubscription] Token do owner (userId=${plan.userId}) recusado pela DOM (401). Retentando com DOM_TOKEN master.`,
-        );
-        domResult = await this.gateway.createSubscriptionFromCheckout(masterToken, subscriptionInput);
-      } else {
-        throw err;
-      }
-    }
+    const domResult = await this.gateway.createSubscriptionFromCheckout(domToken, subscriptionInput);
 
     const statusLower = (domResult.status ?? '').toString().toLowerCase();
     if (['inactive', 'cancelled', 'canceled', 'suspended'].includes(statusLower)) {

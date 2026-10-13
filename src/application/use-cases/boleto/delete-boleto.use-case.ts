@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { BOLETO_REPOSITORY } from '../../../core/repositories/boleto.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -22,7 +23,7 @@ export class DeleteBoletoUseCase {
     if (!existing) throw new NotFoundException('Boleto não encontrado');
 
     // Remoção na DOM é best-effort: falha não bloqueia a exclusão local.
-    const domToken = process.env.DOM_TOKEN;
+    const domToken = platformGatewayToken((existing as any).plataformas?.[0], process.env.DOM_TOKEN);
     if (domToken && existing.domPaymentLinkId) {
       try {
         await this.gateway.deletePaymentLink(domToken, existing.domPaymentLinkId);

@@ -1,3 +1,5 @@
+import { assertExplicitPlatform } from '../../helpers/explicit-platform.helper';
+import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { WITHDRAW_REPOSITORY } from '../../../core/repositories/withdraw.repository.interface';
 import { WALLET_REPOSITORY } from '../../../core/repositories/wallet.repository.interface';
@@ -24,27 +26,28 @@ export class GetWithdrawSummaryUseCase {
     private readonly prisma: PrismaService,
   ) { }
 
-  async execute(userId: string) {
+  async execute(userId: string, platformTag?: string) {
     const user = await this.users.findById(userId);
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
     const wallet = await this.wallets.findByUserId(userId);
     if (!wallet) throw new NotFoundException('Carteira não encontrada');
 
-    const moduleSlug = (user.tenantModule?.slug || '').toLowerCase();
-    const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-    const isRenovadaWallet = moduleSlug === 'renovada' || moduleSlug === 'bosque' || userId === renovadaId;
+    const selected = platformTag ? [platformTag] : user.tenantModule?.slug ? [user.tenantModule.slug] : undefined;
+    const moduleSlug = assertExplicitPlatform(user, selected)?.toLowerCase() ?? '';
+    const renovadaId = (getPlatformOwnerId('RENOVADA') ?? '');
+    const isRenovadaWallet = moduleSlug === 'renovada' || moduleSlug === 'bosque';
 
     const defaultSaque = {
-      minValor: Number(process.env.SAQUE_MIN_VALOR || 100),
-      taxaFixa: Number(process.env.SAQUE_TAXA_FIXA || 2),
+      minValor: getPlatformTaxaEffective('GLOBAL', 'SAQUE_MIN', 100),
+      taxaFixa: getPlatformTaxaEffective('GLOBAL', 'TAXA_SAQUE_FIXA', 2),
       taxaPercentual: 0,
-      fatorLiquidez: Number(process.env.DEFAULT_LIQUIDITY_FACTOR || 0.91),
+      fatorLiquidez: getPlatformTaxaEffective('GLOBAL', 'LIQUIDEZ', 0.91),
     };
 
     const config = isRenovadaWallet
       ? getModuleConfig('renovada')
-      : getModuleConfig(user.tenantModule?.slug);
+      : getModuleConfig(moduleSlug);
 
     const resolvedConfig = config || {
       saque: defaultSaque,

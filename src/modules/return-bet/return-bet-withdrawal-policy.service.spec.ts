@@ -1,3 +1,4 @@
+jest.mock('../platform-taxas/platform-taxas.store', () => { const values: Record<string, number> = {}; return { getPlatformTaxaEffective: (_tag: string, key: string, fallback: number) => values[key] ?? fallback, patchPlatformOverrides: async (_tag: string, patch: Record<string, number>) => Object.assign(values, patch) }; });
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { ReturnBetWithdrawalPolicyService } from './return-bet-withdrawal-policy.service';
@@ -5,6 +6,7 @@ import { ReturnBetWithdrawalPolicyService } from './return-bet-withdrawal-policy
 function makePrisma() {
   return {
     returnBetWithdrawalPolicy: {
+      findUnique: jest.fn().mockResolvedValue(null),
       upsert: jest.fn().mockImplementation(({ create, update }: any) => ({
         ...create,
         ...update,
@@ -28,7 +30,9 @@ describe('ReturnBetWithdrawalPolicyService', () => {
   });
 
   it('persists valid custom policy values', async () => {
-    const service = new ReturnBetWithdrawalPolicyService(makePrisma());
+    const prisma = makePrisma();
+    prisma.returnBetWithdrawalPolicy.findUnique.mockResolvedValue({ withdrawalWindowDays: 14 });
+    const service = new ReturnBetWithdrawalPolicyService(prisma);
 
     await expect(
       service.set({ minimumGrossAmount: 80, fixedWithdrawalFee: 5, withdrawalWindowDays: 14 }),

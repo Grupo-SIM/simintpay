@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
   BadRequestException,
   Injectable,
@@ -71,8 +72,8 @@ export class ResumeSubscriptionUseCase {
 
     // Notificar api-pagatg da retomada (para re-adicionar ao Telegram)
     try {
-      const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
-      const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+      const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
+      const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
 
       await fetch(`${apiPagatgUrl}/webhook/signature`, {
         method: 'POST',

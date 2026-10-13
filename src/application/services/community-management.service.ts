@@ -42,50 +42,6 @@ export class CommunityManagementService {
     }
   }
 
-  async ensureAutomaticBindingForSubscriptionLink(input: {
-    subscriptionLinkId: string;
-    linkName: string;
-    linkDescription?: string | null;
-  }) {
-    const communityName = this.inferCommunityName(input.linkName, input.linkDescription);
-    const slug = this.slugify(communityName) || 'comunidade-sem-nome';
-
-    const community = await this.prisma.community.upsert({
-      where: { slug },
-      update: {
-        name: communityName,
-        source: 'AUTOMATIC',
-      },
-      create: {
-        slug,
-        name: communityName,
-        source: 'AUTOMATIC',
-      },
-    });
-
-    const existing = await this.prisma.communityLinkBinding.findFirst({
-      where: { subscriptionLinkId: input.subscriptionLinkId },
-    });
-
-    if (!existing) {
-      await this.prisma.communityLinkBinding.create({
-        data: {
-          communityId: community.id,
-          bindingType: 'SUBSCRIPTION_LINK',
-          subscriptionLinkId: input.subscriptionLinkId,
-          isManual: false,
-        },
-      });
-    } else if (!existing.isManual && existing.communityId !== community.id) {
-      await this.prisma.communityLinkBinding.update({
-        where: { id: existing.id },
-        data: { communityId: community.id },
-      });
-    }
-
-    return community;
-  }
-
   async findBoundCommunityForSubscriptionLink(subscriptionLinkId: string) {
     const binding = await this.prisma.communityLinkBinding.findFirst({
       where: { subscriptionLinkId },

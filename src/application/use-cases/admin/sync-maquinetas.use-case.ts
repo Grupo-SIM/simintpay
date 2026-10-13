@@ -1,3 +1,5 @@
+import { registeredPlatformTags, getPlatformOwnerId } from '../../../modules/module.registry';
+import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, TransactionStatus, PaymentMethod } from '@prisma/client';
 import dayjs from 'dayjs';
@@ -20,8 +22,6 @@ type MaquinetaPlatform = {
   /** Tag interna gravada na descrição da transação. */
   tenantTag: string;
   /** Variável de ambiente com o userId dono da carteira. */
-  userIdEnv: string;
-  userIdFallback: string;
   /** CNPJ(s) que a DOM envia em `customer_document` nas vendas físicas. */
   documents: string[];
   /** Seriais dos terminais cadastrados. */
@@ -32,26 +32,13 @@ type MaquinetaPlatform = {
   fallbackSerial: string;
 };
 
-const MAQUINETA_PLATFORMS: MaquinetaPlatform[] = [
-  {
-    tag: 'RENOVADA',
-    tenantTag: TENANT_RENOVADA_TAG,
-    userIdEnv: 'RENOVADA_ID',
-    userIdFallback: 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-    documents: ['44522660000108'],
-    serials: [
-      'PB1S24C373609',
-      'PB1S24C373623',
-      'PB1S24C373616',
-      'PB1S24C373596',
-      '4AF61W62R',
-      '4AF61V34L',
-      '4AF61VY6G',
-    ],
-    isDefault: true,
-    fallbackSerial: 'POS-MIG-RENOVADA',
-  },
-];
+function configuredMachinePlatforms(): MaquinetaPlatform[] {
+  return registeredPlatformTags().flatMap((tag) => {
+    const serials = (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+    if (!serials.length) return [];
+    return [{ tag, tenantTag: `[TENANT:${tag}]`, documents: (getPlatformIntegrationValue(tag, 'MACHINE_DOCUMENTS') ?? '').split(',').filter(Boolean), serials, isDefault: false, fallbackSerial: `POS-${tag}` }];
+  });
+}
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -80,8 +67,9 @@ export class SyncMaquinetasUseCase {
 
     // Carteira de cada plataforma com maquineta — sem carteira, a plataforma é ignorada.
     const platformsComCarteira: Array<{ platform: MaquinetaPlatform; userId: string }> = [];
-    for (const platform of MAQUINETA_PLATFORMS) {
-      const userId = process.env[platform.userIdEnv] || platform.userIdFallback;
+    for (const platform of configuredMachinePlatforms()) {
+      const userId = getPlatformOwnerId(platform.tag);
+      if (!userId) continue;
       const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
       if (!wallet) {
         this.logger.warn(`[SyncMaquinetas] Wallet de ${platform.tag} não encontrada — plataforma ignorada`);

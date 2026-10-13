@@ -1,3 +1,4 @@
+import { getRegisteredPlatform } from '../module.registry';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
@@ -28,13 +29,8 @@ let lastCacheUpdate = 0;
 const CACHE_TTL = 30 * 1000;
 let isFetching = false;
 
-// Overrides that must exist for these platforms but may be missing due to prior misconfiguration.
-const REQUIRED_OVERRIDES: Array<{ tag: string; key: string; value: number }> = [
-  { tag: 'AREAFLIX', key: 'MDR_CC_1X', value: 0.0399 },
-  { tag: 'PAGATG',   key: 'MDR_CC_1X', value: 0.0399 },
-];
-
-export async function initializePlatformTaxasCache(): Promise<void> {
+export async function initializePlatformTaxasCache(client?: PrismaClient): Promise<void> {
+  if (client) prisma = client;
   try {
     const records = await getPrisma().platformTaxaOverride.findMany();
     const newCache: Overrides = {};
@@ -45,76 +41,10 @@ export async function initializePlatformTaxasCache(): Promise<void> {
       newCache[req.tag][req.key] = req.value;
     }
 
-    // Ensure required overrides exist in both cache and DB.
-    // Only inserts if the platform has no explicit value for that key.
-    const toInsert: Array<{ tag: string; key: string; value: number }> = [];
-    for (const { tag, key, value } of REQUIRED_OVERRIDES) {
-      if (newCache[tag]?.[key] === undefined) {
-        if (!newCache[tag]) newCache[tag] = {};
-        newCache[tag][key] = value;
-        toInsert.push({ tag, key, value });
-      }
-    }
-    // Inject MDR_CC_1X = 0.0399 for every active community slug that has no explicit override
-    try {
-      const communityRows = await getPrisma().community.findMany({
-        where: { isActive: true },
-        select: { slug: true },
-      });
-      for (const { slug } of communityRows) {
-        const tag = slug.toUpperCase();
-        if (newCache[tag]?.['MDR_CC_1X'] === undefined) {
-          if (!newCache[tag]) newCache[tag] = {};
-          newCache[tag]['MDR_CC_1X'] = 0.0399;
-          toInsert.push({ tag, key: 'MDR_CC_1X', value: 0.0399 });
-        }
-      }
-    } catch {
-      // non-fatal: community slugs will fall back to global default
-    }
-
-    if (toInsert.length > 0) {
-      await Promise.all(
-        toInsert.map(({ tag, key, value }) =>
-          getPrisma().platformTaxaOverride.upsert({
-            where: { tag_key: { tag, key } },
-            update: { value },
-            create: { tag, key, value },
-          }),
-        ),
-      );
-    }
-
     overridesCache = newCache;
     lastCacheUpdate = Date.now();
   } catch (err: unknown) {
     console.error('Failed to initialize platform taxa overrides from DB', err);
-  }
-}
-
-/**
- * Remove stale per-platform overrides that were superseded by a new global default.
- * Currently cleans up ATLAS.MDR_CC_1X = 0.0399 (old DOM rate, now absorbed — global default is 0).
- */
-export async function cleanupStaleOverrides(): Promise<void> {
-  try {
-    const STALE: Array<{ tag: string; key: string; staleValue: number }> = [
-      { tag: 'ATLAS', key: 'MDR_CC_1X', staleValue: 0.0399 },
-    ];
-    let changed = false;
-    for (const { tag, key, staleValue } of STALE) {
-      const record = await getPrisma().platformTaxaOverride.findUnique({
-        where: { tag_key: { tag, key } },
-      });
-      if (record && Math.abs(record.value - staleValue) < 1e-6) {
-        await getPrisma().platformTaxaOverride.delete({ where: { tag_key: { tag, key } } });
-        console.log(`[platform-taxas] Removed stale override ${tag}.${key} = ${staleValue}`);
-        changed = true;
-      }
-    }
-    if (changed) lastCacheUpdate = 0;
-  } catch (err: unknown) {
-    console.error('[platform-taxas] cleanupStaleOverrides failed', err);
   }
 }
 
@@ -125,13 +55,6 @@ function refreshCacheAsync(): void {
     isFetching = false;
   });
 }
-
-/** Tag canônica na UI (EBOOK); variáveis de ambiente do ebook usam prefixo EBOOKSIM_. */
-const ENV_PREFIX_BY_CANONICAL_TAG: Record<string, string> = {
-  EBOOK: 'EBOOKSIM',
-  'CONTROLE-MOTORISTA': 'CONTROLE_MOTORISTA',
-  'CONTROLE-PATRIMONIAL': 'CONTROLE_PATRIMONIAL',
-};
 
 export function canonicalPlatformTaxaTag(tag: string): string {
   const u = String(tag || '').toUpperCase();
@@ -150,16 +73,6 @@ export function buildClientTaxaTag(email: string): string {
 /** True se a tag representa um cliente personalizado (CLIENT:<email>). */
 export function isClientTaxaTag(tag: string): boolean {
   return String(tag || '').toUpperCase().startsWith(CLIENT_TAXA_TAG_PREFIX);
-}
-
-function envPrefixForCanonical(canonical: string): string {
-  return ENV_PREFIX_BY_CANONICAL_TAG[canonical] ?? canonical;
-}
-
-function parseEnvNumber(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw === '') return fallback;
-  const n = Number(String(raw).replace(',', '.'));
-  return Number.isFinite(n) ? n : fallback;
 }
 
 export function readOverridesRaw(): Overrides {
@@ -188,7 +101,7 @@ export function getPlatformTaxaEffective(
   fallback: number,
 ): number {
   // Cliente personalizado (SIM INT PAY): usa o override do cliente; se não houver
-  // para esta chave, herda TODA a resolução do GLOBAL (override + env + default).
+  // para esta chave, herda TODA a resolução do GLOBAL (override + default).
   if (isClientTaxaTag(listOrModuleTag)) {
     const clientTag = canonicalPlatformTaxaTag(listOrModuleTag);
     const clientOverride = readOverridesRaw()[clientTag]?.[keySuffix];
@@ -208,16 +121,7 @@ export function getPlatformTaxaEffective(
     return finalizeResolvedTaxa(keySuffix, Number(platformOverride));
   }
 
-  // 2º: variável de ambiente específica da plataforma
-  const envTag = envPrefixForCanonical(canonical);
-  const envKey = `${envTag}_${keySuffix}`;
-  const envVal = process.env[envKey];
-  if (envVal !== undefined && envVal !== '') {
-    const n = parseEnvNumber(envVal, NaN);
-    if (Number.isFinite(n)) return finalizeResolvedTaxa(keySuffix, n);
-  }
-
-  // 3º: override global (tag GLOBAL)
+  // 2º: override global (tag GLOBAL)
   if (canonical !== 'GLOBAL') {
     const globalRow = overrides['GLOBAL'];
     const globalOverride = globalRow?.[keySuffix];
@@ -226,14 +130,14 @@ export function getPlatformTaxaEffective(
     }
   }
 
-  // 4º: fallback (default do código)
-  return finalizeResolvedTaxa(keySuffix, parseEnvNumber(undefined, fallback));
+  // 3º: padrão único para todos os consumidores.
+  return finalizeResolvedTaxa(keySuffix, PLATFORM_TAXA_DEFAULTS[keySuffix as PlataformaTaxaKey] ?? fallback);
 }
 
 export function getPlatformTaxaSource(
   listOrModuleTag: string,
   keySuffix: string,
-): 'override' | 'global' | 'env' {
+): 'override' | 'global' | 'default' {
   // Cliente personalizado: 'override' se ele tem valor próprio; senão, a fonte é o GLOBAL.
   if (isClientTaxaTag(listOrModuleTag)) {
     const clientTag = canonicalPlatformTaxaTag(listOrModuleTag);
@@ -252,10 +156,6 @@ export function getPlatformTaxaSource(
     return 'override';
   }
 
-  const envTag = envPrefixForCanonical(canonical);
-  const envKey = `${envTag}_${keySuffix}`;
-  if (process.env[envKey] !== undefined && process.env[envKey] !== '') return 'env';
-
   if (canonical !== 'GLOBAL') {
     const globalRow = overrides['GLOBAL'];
     if (globalRow && Object.prototype.hasOwnProperty.call(globalRow, keySuffix)) {
@@ -263,7 +163,7 @@ export function getPlatformTaxaSource(
     }
   }
 
-  return 'env';
+  return 'default';
 }
 
 function isAllowedKey(k: string): k is PlataformaTaxaKey {
@@ -317,4 +217,28 @@ export function defaultTaxaValue(key: PlataformaTaxaKey): number {
 /** Força recarga do cache na próxima leitura (use após deletar overrides direto no banco). */
 export function invalidatePlatformTaxaCache(): void {
   lastCacheUpdate = 0;
+}
+
+/** Customer interest belongs to the platform, independently of admin cost overrides. */
+export function getCustomerInterestRate(tag: string, installments: number): number {
+  readOverridesRaw();
+  const n = Math.min(12, Math.max(1, Math.trunc(installments)));
+  const canonical = canonicalPlatformTaxaTag(tag);
+  const platform = getRegisteredPlatform(canonical);
+  if (platform?.absorbCustomerInterest) return 0;
+  const configured = (platform?.customerInterestRates as Record<string, number> | undefined)?.[String(n)];
+  return typeof configured === 'number' && Number.isFinite(configured) ? configured : PLATFORM_TAXA_DEFAULTS[`MDR_LINK_${n}X` as PlataformaTaxaKey];
+}
+
+/** Update only requested keys, preserving concurrent changes to other platforms. */
+export async function patchPlatformOverrides(tag: string, patch: Record<string, number | null>): Promise<void> {
+  const canonical = canonicalPlatformTaxaTag(tag);
+  const operations = Object.entries(patch).map(([key, value]) => value === null
+    ? getPrisma().platformTaxaOverride.deleteMany({ where: { tag: canonical, key } })
+    : getPrisma().platformTaxaOverride.upsert({
+      where: { tag_key: { tag: canonical, key } },
+      create: { tag: canonical, key, value }, update: { value },
+    }));
+  await getPrisma().$transaction(operations);
+  await initializePlatformTaxasCache();
 }

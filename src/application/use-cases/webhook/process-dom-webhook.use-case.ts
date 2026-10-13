@@ -1,3 +1,6 @@
+import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
+import { getPlatformOwnerId, registeredPlatformTags } from '../../../modules/module.registry';
+import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { QUEUE_SERVICE, type IQueueService } from '../../../core/services/queue.interface';
 import { QueueNames } from '../../../infrastructure/queue/queue-names';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
@@ -34,20 +37,13 @@ import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
-const RENOVADA_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-const BOSQUE_USER_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
-const EBOOK_USER_ID = process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
 
-const MACHINE_CONFIG: Record<string, string> = {
-  '4AF61W62R': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  '4AF61V34L': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  '4AF61VY6G': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  '4AF61W759': '8b63ba8f-3622-4ecc-ad9a-35389eaeded6',
-  'PB1S24C373609': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  'PB1S24C373623': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  'PB1S24C373616': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  'PB1S24C373596': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-};
+function machineOwners(): Record<string, string> {
+  return Object.fromEntries(registeredPlatformTags().flatMap((tag) => {
+    const owner = getPlatformOwnerId(tag);
+    return owner ? (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '').split(',').filter(Boolean).map((serial) => [serial.trim(), owner]) : [];
+  }));
+}
 
 // ─── Interfaces internas ──────────────────────────────────────────────────────
 
@@ -182,12 +178,12 @@ export class ProcessDomWebhookUseCase {
   }
 
   private detectSerial(data: RawDomData): string | null {
-    if (data.serial_number && MACHINE_CONFIG[data.serial_number]) {
+    if (data.serial_number && machineOwners()[data.serial_number]) {
       return data.serial_number;
     }
     const name = data.customer?.name ?? '';
     const m = name.match(/Terminal:\s*([A-Z0-9]+)/);
-    if (m && MACHINE_CONFIG[m[1]]) return m[1];
+    if (m && machineOwners()[m[1]]) return m[1];
     return null;
   }
 
@@ -254,14 +250,12 @@ export class ProcessDomWebhookUseCase {
       },
     });
     if (user?.tenantModule?.slug) return user.tenantModule.slug.toUpperCase();
-    const planTag = (user?.plans?.[0] as any)?.plataformas?.[0];
-    if (planTag) return String(planTag).toUpperCase();
     return 'GLOBAL';
   }
 
   private getLiquidezFactorByTag(tenantTag?: string): number {
     if (!tenantTag) {
-      return parseFloat(process.env.RENOVADA_LIQUIDEZ ?? '0.91');
+      return getPlatformTaxaEffective('RENOVADA', 'LIQUIDEZ', 0.91);
     }
     return getPlatformTaxaEffective(tenantTag.toUpperCase(), 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ ?? 0.91);
   }
@@ -270,13 +264,6 @@ export class ProcessDomWebhookUseCase {
     return method?.toLowerCase().includes('card')
       ? PaymentMethod.CREDIT_CARD
       : PaymentMethod.PIX;
-  }
-
-  private getLiquidezFactor(userId: string): Prisma.Decimal {
-    if (userId === RENOVADA_USER_ID) {
-      return new Prisma.Decimal(process.env.RENOVADA_LIQUIDEZ ?? '0.91');
-    }
-    return new Prisma.Decimal(1);
   }
 
   // ─── Transação regular ────────────────────────────────────────────────────
@@ -298,7 +285,7 @@ export class ProcessDomWebhookUseCase {
 
     if (existing) {
       if (existing.status === nextStatus) {
-        if (this.queue && existing.userId === process.env.ZERO_GRAU_USER_ID?.trim()) {
+        if (this.queue && platformTaxaTagFromText(existing.description) === 'ZERO-GRAU') {
           await this.queue.publish(QueueNames.ZERO_GRAU_NOTIFICATIONS, { paymentId: data.id, status: nextStatus });
         }
         return;
@@ -318,8 +305,8 @@ export class ProcessDomWebhookUseCase {
         return;
       }
 
-      const isRenovada = existing.userId === RENOVADA_USER_ID;
-      const isBosque = existing.userId === BOSQUE_USER_ID;
+      const isRenovada = platformTaxaTagFromText(existing.description) === 'RENOVADA';
+      const isBosque = platformTaxaTagFromText(existing.description) === 'BOSQUE';
       // Renovada/Bosque: wallet stores net (DOM liquid_amount). Use liquid from webhook when available,
       // fall back to stored netAmount, then gross as last resort.
       let delta: Prisma.Decimal;
@@ -442,8 +429,8 @@ export class ProcessDomWebhookUseCase {
         }
       });
 
-      const zeroGrauUserId = String(process.env.ZERO_GRAU_USER_ID ?? '').trim();
-      if (zeroGrauUserId && existing.userId === zeroGrauUserId) {
+      const zeroGrauUserId = String((getPlatformOwnerId('ZERO-GRAU') ?? '') ?? '').trim();
+      if (zeroGrauUserId && platformTaxaTagFromText(existing.description) === 'ZERO-GRAU') {
         const notification = { paymentId: data.id, status: nextStatus };
         if (this.queue) {
           await this.queue.publish(QueueNames.ZERO_GRAU_NOTIFICATIONS, notification);
@@ -455,7 +442,7 @@ export class ProcessDomWebhookUseCase {
         }
       }
 
-      if (existing.userId === RENOVADA_USER_ID && this.renovadaEvents) {
+      if (platformTaxaTagFromText(existing.description) === 'RENOVADA' && this.renovadaEvents) {
         this.renovadaEvents.emitTransaction({ ...existing, status: nextStatus });
       }
 
@@ -537,7 +524,7 @@ export class ProcessDomWebhookUseCase {
 
         // BETAI: pagamento do link de ENTRADA (R$249,99, pagamento único) → provisiona
         // a conta no Betai (cria conta + envia senha por e-mail). Gated pelo id do link.
-        if (existing.paymentLinkId && existing.paymentLinkId === String(process.env.BETAI_ENTRY_LINK_ID ?? '').trim()) {
+        if (existing.paymentLinkId && existing.paymentLinkId === String((getPlatformIntegrationValue('BETAI', 'ENTRY_LINK_ID') ?? undefined) ?? '').trim()) {
           void this.tryProvisionBetaiUser(data, existing);
         }
       }
@@ -556,7 +543,7 @@ export class ProcessDomWebhookUseCase {
       const topKeys = Object.keys(data as Record<string, unknown>).slice(0, 18).join(',');
       this.logger.log(
         `[DomWebhook][ebook] sem tx prévia domPaymentId=${data.id} status=${data.status} amount≈${amountReais} ` +
-          `hasEmail=${Boolean(data.customer?.email)} BACK_EBOOK_URL=${Boolean(String(process.env.BACK_EBOOK_URL ?? '').trim())} ` +
+          `hasEmail=${Boolean(data.customer?.email)} BACK_EBOOK_URL=${Boolean(String((getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined) ?? '').trim())} ` +
           `payloadKeys=[${topKeys}]`,
       );
       // Checkout ebook (back-ebook): não cria transação local antes do pagamento → não há domPaymentId na base.
@@ -667,8 +654,8 @@ export class ProcessDomWebhookUseCase {
     }
 
     const relaxed =
-      String(process.env.EBOOK_DOM_WEBHOOK_RELAXED ?? '').toLowerCase() === 'true' ||
-      String(process.env.EBOOK_DOM_WEBHOOK_RELAXED ?? '') === '1';
+      String((getPlatformIntegrationValue('EBOOK', 'WEBHOOK_RELAXED') ?? undefined) ?? '').toLowerCase() === 'true' ||
+      String((getPlatformIntegrationValue('EBOOK', 'WEBHOOK_RELAXED') ?? undefined) ?? '') === '1';
 
     const suggestsEbook = this.domPayloadSuggestsEbookCheckout(detect);
     const looksEbook = suggestsEbook || relaxed;
@@ -739,7 +726,7 @@ export class ProcessDomWebhookUseCase {
   }
 
   private async tryProvisionBetaiUser(data: RawDomData, existing: { customerEmail?: string | null; customerName?: string | null }): Promise<void> {
-    const url = String(process.env.BETAI_URL ?? '').replace(/\/+$/, '');
+    const url = String((getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
     const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
     if (!url || !token) {
       this.logger.warn(`[DomWebhook][betai] BETAI_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`);
@@ -776,7 +763,7 @@ export class ProcessDomWebhookUseCase {
   }
 
   private async tryProvisionControleMotoristaUser(data: RawDomData, existing: { customerEmail?: string | null; customerName?: string | null }): Promise<void> {
-    const url = String(process.env.CONTROLE_MOTORISTA_URL ?? '').replace(/\/+$/, '');
+    const url = String((getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
     const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
     if (!url || !token) {
       this.logger.warn(`[DomWebhook][controle-motorista] CONTROLE_MOTORISTA_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`);
@@ -813,7 +800,7 @@ export class ProcessDomWebhookUseCase {
   }
 
   private async tryProvisionControlePatrimonialUser(data: RawDomData, existing: { customerEmail?: string | null; customerName?: string | null }): Promise<void> {
-    const url = String(process.env.CONTROLE_PATRIMONIAL_URL ?? '').replace(/\/+$/, '');
+    const url = String((getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
     const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
     if (!url || !token) {
       this.logger.warn(`[DomWebhook][controle-patrimonial] CONTROLE_PATRIMONIAL_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`);
@@ -955,7 +942,7 @@ export class ProcessDomWebhookUseCase {
 
     const bodySource = data;
     let detect: RawDomData = data;
-    const wantEnrich = Boolean(String(process.env.BACK_EBOOK_URL ?? '').trim());
+    const wantEnrich = Boolean(String((getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined) ?? '').trim());
     if (wantEnrich) {
       const blob = await this.fetchDomTransactionDetailJson(data.id);
       if (blob) {
@@ -985,7 +972,7 @@ export class ProcessDomWebhookUseCase {
 
     const { orderNumber, email, descriptionLine, matchedOrdPattern } = payload;
 
-    const backEbookUrl = String(process.env.BACK_EBOOK_URL ?? '').replace(/\/+$/, '');
+    const backEbookUrl = String((getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
     const token =
       process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
     if (!backEbookUrl || !token) {
@@ -1142,19 +1129,8 @@ export class ProcessDomWebhookUseCase {
 
       // Autor sem conta ainda: usar conta genérica ebook como placeholder
       if (!ebookUserId) {
-        ebookUserId = EBOOK_USER_ID;
-        await this.prisma.user.upsert({
-          where: { id: ebookUserId },
-          update: {},
-          create: {
-            id: ebookUserId,
-            name: process.env.EBOOK_NAME || 'Ebook',
-            email: process.env.EBOOK_EMAIL || 'contato@ebook.com.br',
-            password: 'migrated',
-            role: 'USER',
-            domToken: null,
-          },
-        });
+        ebookUserId = (getPlatformOwnerId('EBOOK') ?? '');
+        if (!ebookUserId) throw new Error('Plataforma EBOOK sem dono cadastrado');
       }
 
       await this.prisma.wallet.upsert({
@@ -1267,7 +1243,7 @@ export class ProcessDomWebhookUseCase {
       return;
     }
 
-    const userId = MACHINE_CONFIG[serial];
+    const userId = machineOwners()[serial];
 
     const alreadySynced = await this.prisma.transaction.findFirst({
       where: { domPaymentId: data.id, userId },
@@ -1282,12 +1258,9 @@ export class ProcessDomWebhookUseCase {
     // `liquid_amount` que a DOM devolve serve só de referência do custo dela.
     // Mesmo modelo do sync-maquinetas — os dois caminhos precisam gravar igual.
     const amountReais = data.amount / 100;
-    const platformTag =
-      userId === RENOVADA_USER_ID
-        ? 'RENOVADA'
-        : userId === BOSQUE_USER_ID
-          ? 'BOSQUE'
-          : await this.resolveTenantTagForUser(userId);
+    const matches = registeredPlatformTags().filter((tag) => (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '').split(',').map((value) => value.trim()).includes(serial));
+    if (!userId || matches.length !== 1) throw new Error('Terminal sem plataforma única cadastrada');
+    const platformTag = matches[0];
     const fees = calculateMaquinetaFees(
       platformTag,
       amountReais,
@@ -1313,8 +1286,7 @@ export class ProcessDomWebhookUseCase {
           description: appendInternalTags(
             `Sincronização Automática - Terminal: ${serial}`,
             [
-              ...(userId === RENOVADA_USER_ID ? [TENANT_RENOVADA_TAG] : []),
-              ...(userId === BOSQUE_USER_ID ? [TENANT_BOSQUE_TAG] : []),
+              `[TENANT:${platformTag}]`,
               ORIGEM_MAQUINETA_TAG,
             ],
           ),
@@ -1374,7 +1346,7 @@ export class ProcessDomWebhookUseCase {
       return newTx;
     });
 
-    if (userId === RENOVADA_USER_ID && this.renovadaEvents) {
+    if (platformTag === 'RENOVADA' && this.renovadaEvents) {
       this.renovadaEvents.emitTransaction(tx);
     }
     this.logger.log(`[DomWebhook] Máquineta sincronizada: ${serial} → tx ${tx.id}`);
@@ -1618,7 +1590,7 @@ export class ProcessDomWebhookUseCase {
       }
       // CONTROLE-MOTORISTA: provisionar conta no saas-consumo-back
       if (subPlatformTag === 'CONTROLE-MOTORISTA') {
-        const url = String(process.env.CONTROLE_MOTORISTA_URL ?? '').replace(/\/+$/, '');
+        const url = String((getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
         const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
         if (!url || !token) {
           this.logger.warn('[DomWebhook][CONTROLE-MOTORISTA] CONTROLE_MOTORISTA_URL ou token não configurado — provisão e acesso ignorados');
@@ -1659,7 +1631,7 @@ export class ProcessDomWebhookUseCase {
       }
       // CONTROLE-PATRIMONIAL: provisionar conta no saas-controle-patrimonial-back
       if (subPlatformTag === 'CONTROLE-PATRIMONIAL') {
-        const url = String(process.env.CONTROLE_PATRIMONIAL_URL ?? '').replace(/\/+$/, '');
+        const url = String((getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
         const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
         if (!url || !token) {
           this.logger.warn('[DomWebhook][CONTROLE-PATRIMONIAL] CONTROLE_PATRIMONIAL_URL ou token não configurado — provisão e acesso ignorados');
@@ -1700,7 +1672,7 @@ export class ProcessDomWebhookUseCase {
       }
       // BETAI: provisionar conta no betai (investidor) após pagamento
       if (subPlatformTag === 'BETAI') {
-        const url = String(process.env.BETAI_URL ?? '').replace(/\/+$/, '');
+        const url = String((getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
         const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
         if (!url || !token) {
           this.logger.warn('[DomWebhook][BETAI] BETAI_URL ou token não configurado — provisão e acesso ignorados');

@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { Controller, Get, Query, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PlatformDashboardService } from '../services/renovada-dashboard.service';
@@ -12,15 +13,6 @@ import { PlatformReportingService } from '../../../application/services/platform
  */
 const OWNER_BALANCE_TAGS = new Set(['RENOVADA', 'REVALIDA', 'PAGATG', 'FRENDZ', 'BOSQUE']);
 
-/** Mesma resolução usada no consolidado: env var primeiro, depois slug do tenantModule. */
-const OWNER_ENV_KEY: Record<string, { env: string; slugs: string[]; fallback?: string }> = {
-  RENOVADA: { env: 'RENOVADA_USER_ID', slugs: ['renovada'], fallback: 'ba2b57d6-e3bf-4395-af31-58454f27207a' },
-  REVALIDA: { env: 'REVALIDA_USER_ID', slugs: ['revalida'] },
-  PAGATG: { env: 'PAGATG_USER_ID', slugs: ['pagatg'] },
-  FRENDZ: { env: 'FRENDZ_USER_ID', slugs: ['frendz'] },
-  BOSQUE: { env: 'BOSQUE_USER_ID', slugs: ['bosque', 'ibb'], fallback: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c' },
-};
-
 @ApiTags('Admin Platforms')
 @Controller('admin/plataformas')
 export class PlatformDashboardController {
@@ -31,24 +23,13 @@ export class PlatformDashboardController {
   ) {}
 
   /**
-   * Resolve o userId dono da plataforma — env var primeiro, depois o slug do
-   * tenantModule, igual ao resolveBySlugOrEnv do consolidado.
+   * Resolve o userId dono da plataforma — cadastro explícito no banco.
    */
   private async resolveOwnerUserId(upperTag: string, tagLower: string): Promise<string> {
-    const cfg = OWNER_ENV_KEY[upperTag];
-    const envId = cfg?.env ? process.env[cfg.env]?.trim() : undefined;
-    if (envId) return envId;
-
-    const slugs = cfg?.slugs ?? [tagLower];
-    const u = await this.prisma.user.findFirst({
-      where: {
-        OR: slugs.map((s) => ({
-          tenantModule: { slug: { equals: s, mode: 'insensitive' as const } },
-        })),
-      },
-      select: { id: true },
+    const platform = await this.prisma.platform.findFirst({
+      where: { tag: { equals: upperTag, mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
     });
-    return u?.id ?? cfg?.fallback ?? '';
+    return platform?.ownerUserId ?? '';
   }
 
   @Get(':tag/dashboard')
@@ -78,11 +59,11 @@ export class PlatformDashboardController {
   @ApiOperation({ summary: 'Sellers ativos e total de contas por plataforma' })
   async getSellerStats(@Param('tag') tag: string) {
     const upperTag = String(tag).toUpperCase();
-    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    const token = getPlatformIntegrationValue(upperTag, 'INTERNAL_TOKEN') ?? '';
     const headers = { 'x-internal-token': token };
 
     if (upperTag === 'EBOOK' || upperTag === 'EBOOKSIM') {
-      const backEbookUrl = String(process.env.BACK_EBOOK_URL ?? '').replace(/\/+$/, '');
+      const backEbookUrl = String(getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? '').replace(/\/+$/, '');
       if (!backEbookUrl) return { totalContas: 0, sellersAtivos: 0 };
       const res = await fetch(`${backEbookUrl}/internal/stats`, { headers });
       if (!res.ok) return { totalContas: 0, sellersAtivos: 0 };
@@ -90,7 +71,7 @@ export class PlatformDashboardController {
     }
 
     if (upperTag === 'PAGATG') {
-      const apiPagatgUrl = String(process.env.API_PAGATG_URL ?? '').replace(/\/+$/, '');
+      const apiPagatgUrl = String(getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? '').replace(/\/+$/, '');
       if (!apiPagatgUrl) return { totalContas: 0, sellersAtivos: 0 };
       const res = await fetch(`${apiPagatgUrl}/internal/stats`, { headers });
       if (!res.ok) return { totalContas: 0, sellersAtivos: 0 };
@@ -221,13 +202,13 @@ export class PlatformDashboardController {
     // saldo ali diverge do card (que soma ExternalPlatformUser.wallet no nosso banco).
     // Cai no branch genérico "External platforms" mais abaixo, que usa a mesma fonte.
     if ((upperTag === 'EBOOK' || upperTag === 'EBOOKSIM') && !usarCarteiras) {
-      const backEbookUrl = String(process.env.BACK_EBOOK_URL ?? '').replace(/\/+$/, '');
+      const backEbookUrl = String(getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? '').replace(/\/+$/, '');
       console.log(`[getActiveSellers] EBOOK: backEbookUrl="${backEbookUrl}"`);
       if (!backEbookUrl) {
         console.error('[getActiveSellers] EBOOK: BACK_EBOOK_URL not set, returning empty');
         return empty;
       }
-      const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+      const token = getPlatformIntegrationValue(upperTag, 'INTERNAL_TOKEN') ?? '';
       const qs = new URLSearchParams({ page: String(pageNum), pageSize: String(size) });
       const fetchUrl = `${backEbookUrl}/internal/users/list?${qs}`;
       console.log(`[getActiveSellers] EBOOK: fetching ${fetchUrl}`);
@@ -344,9 +325,9 @@ export class PlatformDashboardController {
     // branch sempre busca lá (com ou sem fonteSaldo=carteiras) — usar o branch genérico
     // aqui mostraria só o registro sintético, escondendo os clientes reais.
     if (upperTag === 'ATLAS') {
-      const atlasUrl = String(process.env.ATLAS_HOSTING_URL ?? '').replace(/\/+$/, '');
+      const atlasUrl = String(getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? '').replace(/\/+$/, '');
       if (!atlasUrl) return empty;
-      const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+      const token = getPlatformIntegrationValue(upperTag, 'INTERNAL_TOKEN') ?? '';
       const qs = new URLSearchParams({ page: String(pageNum), pageSize: String(size) });
       const res = await fetch(`${atlasUrl}/api/internal/users?${qs}`, { headers: { 'x-internal-token': token } });
       if (!res.ok) return empty;

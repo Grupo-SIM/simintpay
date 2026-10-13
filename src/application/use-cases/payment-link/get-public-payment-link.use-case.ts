@@ -1,10 +1,10 @@
+import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentLinkRepository } from '../../../core/repositories/payment-link.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import { calculatePaymentLinkFees, calculateDebitFees } from './payment-link-fees.helper';
-import { MODULE_REGISTRY } from '../../../modules/module.registry';
 
 type InstallmentOption = {
   parcelas: number;
@@ -16,31 +16,6 @@ type InstallmentOption = {
   valorParcela: number;
   temJuros: boolean;
 };
-
-/**
- * Tenta extrair a platformTag a partir da descrição do link.
- * Suporta dois formatos:
- *   1. Tag estruturada: [CPF:...|REVALIDA]
- *   2. Texto livre: qualquer palavra que bata com um slug registrado (ex: "Acesso Revalida Class")
- */
-function resolvePlatformTagFromDescription(description: string | null | undefined): string | null {
-  const text = description ?? '';
-
-  // Formato estruturado legado: [CPF:xxx|REVALIDA]
-  const tagMatch = text.match(/\[CPF:[^\]|]*\|([^\]]+)\]/);
-  if (tagMatch) return tagMatch[1].toUpperCase();
-
-  // Texto livre: procura qualquer slug conhecido (case-insensitive)
-  const slugs = Object.keys(MODULE_REGISTRY);
-  const lower = text.toLowerCase();
-  for (const slug of slugs) {
-    if (lower.includes(slug.toLowerCase())) {
-      return slug.toUpperCase();
-    }
-  }
-
-  return null;
-}
 
 @Injectable()
 export class GetPublicPaymentLinkUseCase {
@@ -88,20 +63,11 @@ export class GetPublicPaymentLinkUseCase {
     // 3º módulo do dono do link
     // 4º fallback final: GLOBAL
     const linkPlataformas = (link as any).plataformas as string[] | undefined;
-    let platformTag: string;
+    const owner = await this.users.findById(link.userId);
+    const platformTag = linkPlataformas?.[0]?.toUpperCase() ?? owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
 
-    if (linkPlataformas && linkPlataformas.length > 0 && linkPlataformas[0]) {
-      platformTag = linkPlataformas[0].toUpperCase();
-    } else {
-      const tagFromDescription = resolvePlatformTagFromDescription(link.description);
-      if (tagFromDescription) {
-        platformTag = tagFromDescription;
-      } else {
-        const owner = await this.users.findById(link.userId);
-        platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
-      }
-    }
-
+    // Validate platform lifecycle without resolving another platform from user identity.
+    platformGatewayToken(platformTag, 'public-global');
     const maxInstallments = link.maxInstallments;
     const opcoesParcelas: InstallmentOption[] = [];
 

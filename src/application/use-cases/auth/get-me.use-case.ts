@@ -1,3 +1,4 @@
+import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { WALLET_REPOSITORY } from '../../../core/repositories/wallet.repository.interface';
@@ -63,9 +64,9 @@ export class GetMeUseCase {
     }
 
     const slug = (user.tenantModule?.slug || '').toLowerCase();
-    const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+    const renovadaId = (getPlatformOwnerId('RENOVADA') ?? '');
     const useRenovadaWalletLedger =
-      slug === 'renovada' || slug === 'bosque' || user.id === renovadaId;
+      slug === 'renovada' || slug === 'bosque';
 
     const netBalance = await computeUserNetBalance(
       this.prisma,

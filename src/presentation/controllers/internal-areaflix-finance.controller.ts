@@ -1,3 +1,5 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
+import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import {
   BadRequestException,
   Body,
@@ -13,8 +15,8 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 
 const AREAFLIX_CLAIM_TRANSFER_ACTION = 'AREAFLIX_CLAIM_TRANSFER';
 
-const AREAFLIX_WITHDRAW_MIN = Number(process.env.AREAFLIX_WITHDRAW_MIN || 100);
-const AREAFLIX_WITHDRAW_FEE = Number(process.env.AREAFLIX_WITHDRAW_FEE || 2);
+const areaflixWithdrawMin = () => getPlatformTaxaEffective('AREAFLIX', 'SAQUE_MIN', 100);
+const areaflixWithdrawFee = () => getPlatformTaxaEffective('AREAFLIX', 'TAXA_SAQUE_FIXA', 2);
 
 /**
  * Endpoints internos consumidos pelo saas-netflix-back (areaflix).
@@ -26,7 +28,7 @@ export class InternalAreaflixFinanceController {
   constructor(private readonly prisma: PrismaService) {}
 
   private ensureInternalToken(token?: string) {
-    const expected = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN;
+    const expected = getPlatformIntegrationValue('AREAFLIX', 'INTERNAL_TOKEN');
     if (!expected || token !== expected) {
       throw new UnauthorizedException('Token interno inválido');
     }
@@ -99,8 +101,8 @@ export class InternalAreaflixFinanceController {
     const userIds = await this.resolveUserIdsByDoc(cpf);
     return {
       accountExists: userIds.length > 0,
-      minimumWithdrawalAmount: AREAFLIX_WITHDRAW_MIN,
-      withdrawalFeeBrl: AREAFLIX_WITHDRAW_FEE,
+      minimumWithdrawalAmount: areaflixWithdrawMin(),
+      withdrawalFeeBrl: areaflixWithdrawFee(),
     };
   }
 
@@ -366,6 +368,12 @@ export class InternalAreaflixFinanceController {
     if (clean.length !== 11 && clean.length !== 14) return;
 
     try {
+      if (!targetUserId) return;
+      const platform = await this.prisma.platform.findFirst({
+        where: { tag: { equals: 'areaflix', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false }, ownerUserId: targetUserId },
+      });
+      if (!platform) return;
+
       const where =
         clean.length === 11
           ? { platform: 'areaflix', cpf: clean }
@@ -411,8 +419,8 @@ export class InternalAreaflixFinanceController {
     }
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
-    if (amount < AREAFLIX_WITHDRAW_MIN) {
-      throw new BadRequestException(`Valor mínimo para saque é de R$ ${AREAFLIX_WITHDRAW_MIN.toFixed(2)}`);
+    if (amount < areaflixWithdrawMin()) {
+      throw new BadRequestException(`Valor mínimo para saque é de R$ ${areaflixWithdrawMin().toFixed(2)}`);
     }
     if (!body.pixKey?.trim()) throw new BadRequestException('Chave PIX é obrigatória');
 
@@ -426,10 +434,10 @@ export class InternalAreaflixFinanceController {
 
     const targetUserId = userIds[0];
     const grossAmount = parseFloat(amount.toFixed(2));
-    const netAmount = parseFloat((amount - AREAFLIX_WITHDRAW_FEE).toFixed(2));
+    const netAmount = parseFloat((amount - areaflixWithdrawFee()).toFixed(2));
     if (netAmount <= 0) {
       throw new BadRequestException(
-        `Valor insuficiente para cobrir a taxa de saque (R$ ${AREAFLIX_WITHDRAW_FEE.toFixed(2)})`,
+        `Valor insuficiente para cobrir a taxa de saque (R$ ${areaflixWithdrawFee().toFixed(2)})`,
       );
     }
 
@@ -451,7 +459,7 @@ export class InternalAreaflixFinanceController {
           userId: targetUserId,
           amount: netAmount,
           grossAmount,
-          fee: parseFloat(AREAFLIX_WITHDRAW_FEE.toFixed(2)),
+          fee: parseFloat(areaflixWithdrawFee().toFixed(2)),
           status: 'PENDING',
           pixKey: body.pixKey.trim(),
           platform: 'areaflix',

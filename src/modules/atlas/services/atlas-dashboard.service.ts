@@ -20,21 +20,17 @@ export class AtlasDashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   private async getAtlasUserId(): Promise<string | null> {
-    const envId = process.env.ATLAS_USER_ID;
-    if (envId) return envId;
-
-    const user = await this.prisma.user.findFirst({
-      where: { email: 'atlas@jbmidia.com.br' },
-      select: { id: true },
+    const platform = await this.prisma.platform.findFirst({
+      where: { tag: { equals: 'atlas', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
     });
-    return user?.id ?? null;
+    return platform?.ownerUserId ?? null;
   }
 
   async getDashboardData(period: string = 'hoje') {
     const userId = await this.getAtlasUserId();
     if (!userId) {
       return {
-        error: 'Usuário Atlas não configurado. Execute POST /dashboard/atlas/setup',
+        error: 'Usuário Atlas não configurado. Cadastre plataforma e dono pelo admin',
         profit: { total: 0, today: { total: 0 }, sevenDays: { total: 0 }, fifteenDays: { total: 0 }, thirtyDays: { total: 0 }, charts: { last30Days: [], annualByMonth: [] } },
         withdrawals: { today: 0, sevenDays: 0, fifteenDays: 0, thirtyDays: 0, annual: 0 },
         estornos: { quantidade: 0, valorLiquido: 0 },

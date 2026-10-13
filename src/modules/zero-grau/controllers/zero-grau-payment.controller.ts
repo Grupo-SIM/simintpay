@@ -1,3 +1,5 @@
+import { getPlatformOwnerId } from '../../module.registry';
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { Controller, Post, Body, Get, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CheckoutPixDto } from '../../renovada/dtos/checkout-pix.dto';
@@ -14,8 +16,8 @@ export class ZeroGrauPaymentController {
   ) {}
 
   private get zeroGrauUserId(): string {
-    const id = process.env.ZERO_GRAU_USER_ID;
-    if (!id) throw new Error('ZERO_GRAU_USER_ID não configurado no .env');
+    const id = (getPlatformOwnerId('ZERO-GRAU') ?? '');
+    if (!id) throw new Error('Plataforma Zero Grau sem dono cadastrado');
     return id;
   }
 
@@ -35,7 +37,7 @@ export class ZeroGrauPaymentController {
   @ApiOperation({ summary: '[ZERO_GRAU] Verificar status de um pagamento' })
   async checkStatus(@Param('paymentId') paymentId: string) {
     return this.reconcile.reconcilePayment(paymentId, this.zeroGrauUserId,
-      process.env.ZERO_GRAU_DOM_TOKEN || process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY);
+      (getPlatformIntegrationValue('ZERO-GRAU', 'DOM_TOKEN') ?? undefined));
   }
 
   @Get('pix-status/:domPaymentId')

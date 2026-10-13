@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CheckoutPixDto } from '../../renovada/dtos/checkout-pix.dto';
 import { CheckoutCreditCardDto } from '../../renovada/dtos/checkout-credit-card.dto';
@@ -13,22 +13,24 @@ export class AtlasPaymentController {
     private readonly prisma: PrismaService,
   ) {}
 
-  private get atlasUserId(): string {
-    const id = process.env.ATLAS_USER_ID;
-    if (!id) throw new Error('ATLAS_USER_ID não configurado no .env');
-    return id;
+  private async ownerUserId(): Promise<string> {
+    const platform = await this.prisma.platform.findFirst({
+      where: { tag: { equals: 'atlas', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
+    });
+    if (!platform) throw new NotFoundException('Plataforma não cadastrada com dono no admin.');
+    return platform.ownerUserId;
   }
 
   @Post('pix')
   @ApiOperation({ summary: '[ATLAS] Criar pagamento PIX' })
   async createPix(@Body() body: CheckoutPixDto) {
-    return this.paymentService.createPaymentPix(this.atlasUserId, body);
+    return this.paymentService.createPaymentPix(await this.ownerUserId(), body);
   }
 
   @Post('credit-card')
   @ApiOperation({ summary: '[ATLAS] Criar pagamento com Cartão de Crédito' })
   async createCreditCard(@Body() body: CheckoutCreditCardDto) {
-    return this.paymentService.createPaymentCreditCard(this.atlasUserId, body);
+    return this.paymentService.createPaymentCreditCard(await this.ownerUserId(), body);
   }
 
   @Get('status/:paymentId')
@@ -36,7 +38,7 @@ export class AtlasPaymentController {
   async checkStatus(@Param('paymentId') paymentId: string) {
     const tx = await this.prisma.transaction.findFirst({
       where: {
-        userId: this.atlasUserId,
+        userId: await this.ownerUserId(),
         OR: [{ domPaymentId: paymentId }, { domTransactionId: paymentId }],
       },
       select: { domPaymentId: true, status: true },

@@ -21,7 +21,7 @@ function buildPrisma(overrides: any = {}) {
 }
 
 function invoke(method: string, prisma: any, ...args: any[]) {
-  const ctx = { prisma } as any;
+  const ctx = { prisma, fetchExternalAffiliates: jest.fn().mockResolvedValue([]) } as any;
   return (AdminAfiliadosController.prototype as any)[method].apply(ctx, args);
 }
 

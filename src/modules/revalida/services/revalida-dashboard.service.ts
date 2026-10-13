@@ -22,21 +22,17 @@ export class RevalidaDashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   private async getRevalidaUserId(): Promise<string | null> {
-    const envId = process.env.REVALIDA_USER_ID;
-    if (envId) return envId;
-
-    const user = await this.prisma.user.findFirst({
-      where: { email: 'revalida@jbmidia.com.br' },
-      select: { id: true },
+    const platform = await this.prisma.platform.findFirst({
+      where: { tag: { equals: 'revalida', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
     });
-    return user?.id ?? null;
+    return platform?.ownerUserId ?? null;
   }
 
   async getDashboardData(period: string = 'hoje') {
     const userId = await this.getRevalidaUserId();
     if (!userId) {
       return {
-        error: 'Usuário Revalida não configurado. Execute POST /admin/revalida/setup',
+        error: 'Usuário Revalida não configurado. Cadastre plataforma e dono pelo admin',
         profit: { total: 0, today: { total: 0 }, sevenDays: { total: 0 }, fifteenDays: { total: 0 }, thirtyDays: { total: 0 }, charts: { last30Days: [], annualByMonth: [] } },
         withdrawals: { today: 0, sevenDays: 0, fifteenDays: 0, thirtyDays: 0, annual: 0 },
         estornos: { quantidade: 0, valorLiquido: 0 },

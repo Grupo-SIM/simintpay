@@ -1,3 +1,5 @@
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
+import { getPlatformOwnerId, registeredPlatformTags } from '../../module.registry';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, PaymentMethod, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
@@ -9,13 +11,6 @@ import {
   ORIGEM_MAQUINETA_TAG,
   TENANT_RENOVADA_TAG,
 } from '../../../application/utils/internal-tags.util';
-
-/** Dono das maquinetas → tag de taxas usada para resolver as chaves POS_*. */
-const RENOVADA_MACHINE_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-const MACHINE_PLATFORM_TAG_BY_USER: Record<string, string> = {
-  [RENOVADA_MACHINE_USER_ID]: 'RENOVADA',
-  '8b63ba8f-3622-4ecc-ad9a-35389eaeded6': 'BOSQUE',
-};
 
 interface RawDomData {
   id: string;
@@ -50,19 +45,24 @@ interface RawDomWebhook {
 @Injectable()
 export class RenovadaWebhookService {
   private readonly logger = new Logger(RenovadaWebhookService.name);
-  private readonly RENOVADA_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
+  private get RENOVADA_ID(): string {
+    const id = getPlatformOwnerId('RENOVADA');
+    if (!id) throw new Error('Plataforma Renovada sem dono cadastrado.');
+    return id;
+  }
 
-  /** Serial da máquineta → userId de destino */
-  private readonly MACHINE_CONFIG: Record<string, string> = {
-    '4AF61W62R':     'ba2b57d6-e3bf-4395-af31-58454f27207a',
-    '4AF61V34L':     'ba2b57d6-e3bf-4395-af31-58454f27207a',
-    '4AF61VY6G':     'ba2b57d6-e3bf-4395-af31-58454f27207a',
-    '4AF61W759':     '8b63ba8f-3622-4ecc-ad9a-35389eaeded6',
-    'PB1S24C373609': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-    'PB1S24C373623': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-    'PB1S24C373616': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-    'PB1S24C373596': 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  };
+  private get MACHINE_CONFIG(): Record<string, string> {
+    const machines: Record<string, string> = {};
+    for (const tag of registeredPlatformTags()) {
+      const owner = getPlatformOwnerId(tag);
+      if (!owner) continue;
+      const serials = getPlatformIntegrationValue(tag, 'MACHINE_SERIALS')?.split(',') ?? [];
+      for (const serial of serials) {
+        if (serial.trim()) machines[serial.trim()] = owner;
+      }
+    }
+    return machines;
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -129,12 +129,12 @@ export class RenovadaWebhookService {
   }
 
   private detectSerial(data: RawDomData): string | null {
-    if (data.serial_number && this.MACHINE_CONFIG[data.serial_number]) {
+    if (data.serial_number) {
       return data.serial_number;
     }
     const name = data.customer?.name ?? '';
     const m = name.match(/Terminal:\s*([A-Z0-9]+)/);
-    if (m && this.MACHINE_CONFIG[m[1]]) return m[1];
+    if (m) return m[1];
     return null;
   }
 
@@ -360,6 +360,7 @@ export class RenovadaWebhookService {
     }
 
     const userId = this.MACHINE_CONFIG[serial];
+    if (!userId) throw new Error('Terminal sem plataforma/dono cadastrado.');
 
     const alreadySynced = await this.prisma.transaction.findFirst({
       where: { domPaymentId: data.id, userId },
@@ -375,7 +376,9 @@ export class RenovadaWebhookService {
     // `liquid_amount` da DOM é só referência do custo dela.
     // Mesmo modelo do sync-maquinetas — todos os caminhos precisam gravar igual.
     const amountReais = data.amount / 100;
-    const platformTag = MACHINE_PLATFORM_TAG_BY_USER[userId] ?? 'GLOBAL';
+    const tags = registeredPlatformTags().filter((tag) => (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '').split(',').map((value) => value.trim()).includes(serial));
+    if (tags.length !== 1) throw new Error('Terminal deve pertencer a uma única plataforma');
+    const platformTag = tags[0];
     const fees = calculateMaquinetaFees(
       platformTag,
       amountReais,
@@ -401,7 +404,7 @@ export class RenovadaWebhookService {
           description: appendInternalTags(
             `Sincronização Automática - Terminal: ${serial}`,
             [
-              ...(userId === RENOVADA_MACHINE_USER_ID ? [TENANT_RENOVADA_TAG] : []),
+              `[TENANT:${platformTag}]`,
               ORIGEM_MAQUINETA_TAG,
             ],
           ),
@@ -452,7 +455,7 @@ export class RenovadaWebhookService {
       return newTx;
     });
 
-    if (userId === this.RENOVADA_ID) {
+    if (platformTag === 'RENOVADA') {
       this.renovadaEvents.emitTransaction(tx);
     }
     this.logger.log(

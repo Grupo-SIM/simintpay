@@ -1,3 +1,5 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
+import { getPlatformOwnerId } from '../../modules/module.registry';
 import {
   BadRequestException,
   Body,
@@ -32,7 +34,7 @@ export class InternalBosqueFinanceController {
   constructor(private readonly prisma: PrismaService) {}
 
   private ensureInternalToken(token?: string) {
-    const expected = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN;
+    const expected = getPlatformIntegrationValue('BOSQUE', 'INTERNAL_TOKEN');
     if (!expected || token !== expected) {
       throw new UnauthorizedException('Token interno inválido');
     }
@@ -91,7 +93,7 @@ export class InternalBosqueFinanceController {
       if (u) return u.id;
     }
 
-    const envId = process.env.BOSQUE_ID?.trim();
+    const envId = (getPlatformOwnerId('BOSQUE') ?? '');
     return envId || null;
   }
 

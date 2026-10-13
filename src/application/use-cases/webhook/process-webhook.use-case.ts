@@ -1,3 +1,4 @@
+import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { TRANSACTION_REPOSITORY } from '../../../core/repositories/transaction.repository.interface';
@@ -389,7 +390,7 @@ export class ProcessWebhookUseCase {
       }
 
       // EMIT EVENT for Real-Time UI (Renovada)
-      if (t.userId === 'ba2b57d6-e3bf-4395-af31-58454f27207a') {
+      if (platformTaxaTagFromText(t.description) === 'RENOVADA') {
         this.renovadaEvents.emitTransaction(t);
       }
     } catch (e: unknown) {

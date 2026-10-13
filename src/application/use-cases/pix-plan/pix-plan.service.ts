@@ -1,3 +1,5 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
+import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
   BadRequestException,
   HttpException,
@@ -138,8 +140,6 @@ export class PixPlanService {
   // ── POST /payments/pix-plan/checkout ─────────────────────────────────────
 
   async createPixPlanPayment(userId: string, body: PixPlanCheckoutDto) {
-    const domToken = process.env.DOM_TOKEN;
-    if (!domToken) throw new UnauthorizedException('DOM_TOKEN não configurado');
 
     let effectiveUserId = userId;
     let planTenantTag: string | null = null;
@@ -189,7 +189,9 @@ export class PixPlanService {
 
     const amount = body.price;
     // Usa taxas configuradas para o tenant do plano; fallback para PAGATG se não identificado
-    const tenantTag = planTenantTag ?? 'PAGATG';
+    const tenantTag = planTenantTag ?? 'GLOBAL';
+    const domToken = platformGatewayToken(tenantTag, process.env.DOM_TOKEN);
+    if (!domToken) throw new UnauthorizedException('Credencial do gateway não configurada');
     // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
     const taxaTag = tenantTag === 'GLOBAL' && body.email?.trim()
       ? buildClientTaxaTag(body.email)
@@ -343,7 +345,7 @@ export class PixPlanService {
 
     if (body.voucherCode && body.voucherCode.trim()) {
       try {
-        const API_PAGATG_URL = process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com';
+        const API_PAGATG_URL = (getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '';
         const voucherResponse = await fetch(
           `${API_PAGATG_URL}/webhook/validate-voucher-by-plan`,
           {
@@ -572,6 +574,7 @@ export class PixPlanService {
     if (role !== 'ADMIN' && plan.userId !== userId)
       throw new BadRequestException('Plano não pertence a este usuário');
 
+    const selectedTag = body.tenantTag !== undefined ? assertExplicitPlatform({ id: userId, role }, body.tenantTag ? [body.tenantTag] : undefined, true) : undefined;
     const updated = await this.prisma.pixCreditPlan.update({
       where: { id: planId },
       data: {
@@ -580,7 +583,7 @@ export class PixPlanService {
         ...(body.frequency_type !== undefined && { type: this.mapFrequencyToType(body.frequency_type as 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR') }),
         ...(body.redirectUrl !== undefined && { redirectUrl: body.redirectUrl || null }),
         ...(body.webhookUrl !== undefined && { webhookUrl: body.webhookUrl || null }),
-        ...(body.tenantTag !== undefined && { tenantTag: body.tenantTag ? body.tenantTag.toUpperCase() : null }),
+        ...(body.tenantTag !== undefined && { tenantTag: selectedTag }),
         ...(body.emailBody !== undefined && { emailBody: body.emailBody || null }),
       },
     });
@@ -651,7 +654,7 @@ export class PixPlanService {
     // O produto de origem (ex.: PAGATG) sempre manda no tenant do plano — a mesma
     // conta pode ser cliente SimintPay e também dona de um plano em outro produto.
     // A tag CLIENT:<email> só se aplica quando o chamador não informou um tenant próprio.
-    const explicitTag = body.tenantTag ? body.tenantTag.toUpperCase().trim() : null;
+    const explicitTag = assertExplicitPlatform(owner, body.tenantTag ? [body.tenantTag] : undefined);
     const tag = explicitTag ?? clientTag;
     const plan = await this.repo.createPixCreditPlan({
       userId,
@@ -903,8 +906,8 @@ export class PixPlanService {
 
       // Notificar api-pagatg da mudança de status
       try {
-        const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
-        const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+        const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
+        const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
         await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
           headers: {
@@ -948,8 +951,8 @@ export class PixPlanService {
 
       // Notificar api-pagatg da mudança de status
       try {
-        const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
-        const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+        const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
+        const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
         await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
           headers: {
@@ -981,8 +984,8 @@ export class PixPlanService {
       
       // Notificar api-pagatg da expiração automática
       try {
-        const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
-        const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+        const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
+        const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
         await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
           headers: {
@@ -1019,8 +1022,8 @@ export class PixPlanService {
 
       // Notificar api-pagatg da expiração automática por dias consumidos
       try {
-        const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
-        const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+        const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
+        const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
         await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
           headers: {
@@ -1326,8 +1329,8 @@ export class PixPlanService {
         linkCodeForNotification = foundLinkCode?.code || null;
       }
       if (linkCodeForNotification) {
-        const apiPagatgUrl = (process.env.API_PAGATG_URL || 'https://api-bot.jbmidia.com').replace(/\/+$/, '');
-        const pagatgInternalToken = process.env.PAGATG_INTERNAL_TOKEN || '';
+        const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
+        const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
         await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
           headers: {

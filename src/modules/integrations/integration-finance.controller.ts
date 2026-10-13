@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../platform-integrations/platform-integrations.store';
 import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Body, Controller, Get, Headers, Param, Post, Put, Query } from '@nestjs/common';
@@ -42,7 +43,7 @@ export class IntegrationFinanceController {
     this.auth(token);
     const merchant = await this.finance.merchant(params.integrationKey, params.externalMerchantId);
     return this.reconcilePayments.reconcilePayment(params.paymentId, merchant.userId,
-      process.env.ZERO_GRAU_DOM_TOKEN || process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY);
+      (getPlatformIntegrationValue('ZERO-GRAU', 'DOM_TOKEN') ?? undefined));
   }
 
   @Get('finance/summary')

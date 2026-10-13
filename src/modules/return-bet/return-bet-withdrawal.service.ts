@@ -236,6 +236,12 @@ export class ReturnBetWithdrawalService {
   }
 
   private async ensureAccount(input: ReturnBetWithdrawalInput) {
+    const registeredPlatform = await this.prisma.platform.findFirst({
+      where: { tag: { equals: ReturnBetConfig.slug, mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
+    });
+    if (!registeredPlatform) {
+      throw new UnprocessableEntityException('Plataforma Return Bet não cadastrada com dono no admin.');
+    }
     const current = await this.prisma.returnBetAccount.findUnique({
       where: { externalUserId: input.externalUserId },
     });
@@ -255,11 +261,15 @@ export class ReturnBetWithdrawalService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const tenant = await tx.tenantModule.upsert({
-          where: { slug: ReturnBetConfig.slug },
-          update: { name: ReturnBetConfig.name, isActive: true },
-          create: { slug: ReturnBetConfig.slug, name: ReturnBetConfig.name },
+        const platform = await tx.platform.findFirst({
+          where: { tag: { equals: ReturnBetConfig.slug, mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
         });
+        const tenant = platform?.tenantModuleId
+          ? await tx.tenantModule.findUnique({ where: { id: platform.tenantModuleId } })
+          : null;
+        if (!platform || !tenant?.isActive) {
+          throw new UnprocessableEntityException('Plataforma Return Bet não cadastrada com dono no admin.');
+        }
         const user = await tx.user.create({
           data: {
             name: input.name.trim(),

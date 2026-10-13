@@ -1,3 +1,5 @@
+import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { PLAN_REPOSITORY } from '../../../core/repositories/plan.repository.interface';
@@ -42,10 +44,6 @@ export class CreatePlanUseCase {
     userId: string;
     dto: CreatePlanDto;
   }): Promise<{ data: unknown }> {
-    const domToken = process.env.DOM_TOKEN;
-    if (!domToken) {
-      throw new UnauthorizedException('DOM_TOKEN não configurado');
-    }
 
     // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
     const owner = await this.users.findById(input.userId);
@@ -59,10 +57,12 @@ export class CreatePlanUseCase {
     // A plataforma de origem (ex.: PAGATG) sempre manda quando informada explicitamente — a
     // mesma conta pode ser cliente SimintPay e também dona de um plano em outro produto.
     // Só cai na tag CLIENT:<email> (herda do GLOBAL) quando nenhuma plataforma foi enviada.
-    const explicitPlatformTag = input.dto.plataformas?.[0]?.toUpperCase();
+    const explicitPlatformTag = assertExplicitPlatform(owner, input.dto.plataformas);
+    const domToken = platformGatewayToken(explicitPlatformTag, process.env.DOM_TOKEN);
+    if (!domToken) throw new UnauthorizedException('Token do gateway não configurado');
     const platformTag = explicitPlatformTag ?? clientTag ?? 'GLOBAL';
     const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
-    const mdrMaster1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_MASTER_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X);
+    const mdrMaster1x = getCustomerInterestRate(platformTag, 1);
     const domPrice = Math.round(input.dto.preco * (1 + mdrDom1x + mdrMaster1x) * 100) / 100;
 
     const dom = await this.gateway.createPlan(domToken, {

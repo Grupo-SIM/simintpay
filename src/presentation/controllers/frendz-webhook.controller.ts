@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   Body,
   Controller,
@@ -79,7 +80,7 @@ export class FrendzWebhookController {
     body: Record<string, unknown>,
     tokenHeader: string | undefined,
   ): void {
-    const expected = process.env.FRENDZ_WEBHOOK_TOKEN;
+    const expected = (getPlatformIntegrationValue('FRENDZ', 'WEBHOOK_SECRET') ?? undefined);
     if (!expected) {
       this.logger.warn(
         '[Frendz webhook] FRENDZ_WEBHOOK_TOKEN não configurado — aceitando sem validar origem',

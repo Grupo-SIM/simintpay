@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 export interface ZeroGrauPaymentStatusWebhook {
   paymentId: string;
   status: string;
@@ -13,8 +14,8 @@ interface ZeroGrauWebhookConfig {
 export async function notifyZeroGrauPaymentStatus(
   payload: ZeroGrauPaymentStatusWebhook,
   config: ZeroGrauWebhookConfig = {
-    secret: process.env.ZERO_GRAU_WEBHOOK_SECRET,
-    url: process.env.ZERO_GRAU_WEBHOOK_URL,
+    secret: (getPlatformIntegrationValue('ZERO-GRAU', 'WEBHOOK_SECRET') ?? undefined),
+    url: (getPlatformIntegrationValue('ZERO-GRAU', 'WEBHOOK_URL') ?? undefined),
   },
   fetcher: typeof fetch = fetch,
 ): Promise<ZeroGrauWebhookResult> {

@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
@@ -66,11 +67,8 @@ export class FrendzProductService {
   }
 
   private offerHashFromEnv(slug?: string | null): string | null {
-    if (slug) {
-      const scoped = process.env[`${slug.toUpperCase()}_FRENDZ_OFFER_HASH`];
-      if (scoped && scoped.length > 0) return scoped;
-    }
-    const global = process.env.FRENDZ_OFFER_HASH;
+    if (slug) return getPlatformIntegrationValue(slug, 'OFFER_HASH');
+    const global = (getPlatformIntegrationValue('FRENDZ', 'OFFER_HASH') ?? undefined);
     return global && global.length > 0 ? global : null;
   }
 

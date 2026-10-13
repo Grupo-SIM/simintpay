@@ -1,4 +1,4 @@
-/** Sufixo após `{PLATAFORMA}_` no .env (alinhado ao front). */
+/** Chaves dos overrides persistidos no banco (alinhadas ao front). */
 export const PLATAFORMA_TAXA_KEYS = [
   'MDR_PIX',
   'TAXA_SAQUE_FIXA',
@@ -34,6 +34,18 @@ export const PLATAFORMA_TAXA_KEYS = [
   'MDR_CC_11X',
   'MDR_CC_12X',
   // Taxa master (plataforma) sobre link de pagamento por parcela — configurável
+  'LINK_COST_1X',
+  'LINK_COST_2X',
+  'LINK_COST_3X',
+  'LINK_COST_4X',
+  'LINK_COST_5X',
+  'LINK_COST_6X',
+  'LINK_COST_7X',
+  'LINK_COST_8X',
+  'LINK_COST_9X',
+  'LINK_COST_10X',
+  'LINK_COST_11X',
+  'LINK_COST_12X',
   'MDR_LINK_1X',
   'MDR_LINK_2X',
   'MDR_LINK_3X',
@@ -102,9 +114,9 @@ export const PLATAFORMA_TAXA_KEYS = [
 
 export type PlataformaTaxaKey = (typeof PLATAFORMA_TAXA_KEYS)[number];
 
-/** Fallback quando .env não define a variável (mesmos defaults dos módulos). */
+/** Padrões únicos quando nenhum override de plataforma ou global existe. */
 export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
-  /** Taxa DOM sobre PIX (decimal): 0,98% sobre o valor pago. Sobrescreva por tenant/env. */
+  /** Taxa DOM sobre PIX (decimal): 0,98% sobre o valor pago. Sobrescreva pelo painel admin. */
   MDR_PIX: 0.0098,
   TAXA_SAQUE_FIXA: 2,
   TAXA_SAQUE_DOM: 3.5,
@@ -141,6 +153,18 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   MDR_CC_12X: 0.2099,
   // Master: juros cobrados do comprador pela plataforma em links de pagamento
   // Default = taxa total anunciada - taxa DOM do link
+  LINK_COST_1X: 0.0699,
+  LINK_COST_2X: 0.0699,
+  LINK_COST_3X: 0.0699,
+  LINK_COST_4X: 0.0699,
+  LINK_COST_5X: 0.0699,
+  LINK_COST_6X: 0.0699,
+  LINK_COST_7X: 0.0699,
+  LINK_COST_8X: 0.0699,
+  LINK_COST_9X: 0.0699,
+  LINK_COST_10X: 0.0699,
+  LINK_COST_11X: 0.0699,
+  LINK_COST_12X: 0.0699,
   MDR_LINK_1X:  0.0152,  // 1,52% (total 1,52% − DOM 0,00%)
   MDR_LINK_2X:  0.0352,  // 3,52% (total 8,03% − DOM 4,51%)
   MDR_LINK_3X:  0.0573,  // 5,73% (total 11,77% − DOM 6,04%)

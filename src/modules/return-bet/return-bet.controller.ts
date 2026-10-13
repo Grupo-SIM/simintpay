@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../platform-integrations/platform-integrations.store';
 import {
   Body,
   Controller,
@@ -37,7 +38,7 @@ export class ReturnBetController {
   ) {}
 
   private ensureInternalToken(token?: string) {
-    const expected = process.env.RETURN_BET_INTERNAL_TOKEN;
+    const expected = getPlatformIntegrationValue('RETURN_BET', 'INTERNAL_TOKEN');
     if (!expected || token !== expected) {
       throw new UnauthorizedException('Token interno inválido');
     }

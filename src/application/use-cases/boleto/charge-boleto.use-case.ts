@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { BOLETO_REPOSITORY } from '../../../core/repositories/boleto.repository.interface';
@@ -60,13 +61,9 @@ export class ChargeBoletoUseCase {
     }
 
     const owner = await this.users.findById(boleto.userId);
-    const ownerClientTag = clientTaxaTagFor(owner);
+    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes((boleto.plataformas?.[0] ?? 'GLOBAL').toUpperCase()) ? null : clientTaxaTagFor(owner);
 
-    let domToken: string | null | undefined = ownerClientTag ? process.env.DOM_TOKEN : owner?.domToken;
-    if (!domToken && !ownerClientTag && owner?.tenantModule?.slug) {
-      domToken = getModuleDomToken(owner.tenantModule.slug);
-    }
-    if (!domToken) domToken = process.env.DOM_TOKEN;
+    const domToken = platformGatewayToken(boleto.plataformas?.[0] ?? owner?.tenantModule?.slug, process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
 
     const document = input.customerDocument.replace(/\D/g, '');

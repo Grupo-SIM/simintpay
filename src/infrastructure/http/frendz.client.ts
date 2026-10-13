@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import { HttpService } from '@nestjs/axios';
 import {
   Injectable,
@@ -139,8 +140,8 @@ export class FrendzClient implements IPaymentGateway {
       payment_method: 'pix',
       // postback_url diz à Frendz para onde enviar a confirmação de pagamento.
       // Definido por env para apontar ao endpoint público desta API.
-      ...(process.env.FRENDZ_POSTBACK_URL
-        ? { postback_url: process.env.FRENDZ_POSTBACK_URL }
+      ...((getPlatformIntegrationValue('FRENDZ', 'WEBHOOK_URL') ?? undefined)
+        ? { postback_url: (getPlatformIntegrationValue('FRENDZ', 'WEBHOOK_URL') ?? undefined) }
         : {}),
       customer: {
         name: input.customerName,

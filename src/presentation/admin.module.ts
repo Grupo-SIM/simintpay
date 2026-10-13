@@ -1,6 +1,8 @@
+import { PlatformIntegrationsController } from './controllers/platform-integrations.controller';
+import { PlatformsController } from './controllers/platforms.controller';
+import { PlatformsService } from '../application/services/platforms.service';
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
-import { ScanPlatformOwnersCron } from '../infrastructure/cron/scan-platform-owners.cron';
 import { ScanPlatformOwnersUseCase } from '../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../application/use-cases/admin/get-wallet-composition.use-case';
 import { LinkExternalPlatformUserService } from '../application/services/link-external-platform-user.service';
@@ -49,8 +51,9 @@ import { ExternalPlatformDbModule } from '../modules/external-platform-db/extern
 
 @Module({
   imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule, WebhookModule, PlatformReportingModule, ExternalPlatformDbModule],
-  controllers: [AdminController, AdminClientesController, AdminAfiliadosController],
+  controllers: [PlatformIntegrationsController, PlatformsController, AdminController, AdminClientesController, AdminAfiliadosController],
   providers: [
+    PlatformsService,
     SyncDomTransactionsCron,
     SyncMaquinetasCron,
     CommunityAccessCron,
@@ -75,7 +78,6 @@ import { ExternalPlatformDbModule } from '../modules/external-platform-db/extern
     PlatformTaxasService,
     PlatformAccessService,
     RolesGuard,
-    ScanPlatformOwnersCron,
     ScanPlatformOwnersUseCase,
     GetWalletCompositionUseCase,
     LinkExternalPlatformUserService,

@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { PLAN_REPOSITORY } from '../../../core/repositories/plan.repository.interface';
@@ -53,6 +54,7 @@ export class UpdatePlanUseCase {
       throw new UnauthorizedException('Sem permissão para editar este plano');
     }
 
+    const selectedTag = assertExplicitPlatform({ id: input.userId, role: input.role }, input.dto.plataformas ?? existing.plataformas, true);
     const updated = await this.plans.update(input.id, {
       name: input.dto.nome ?? existing.name,
       description: input.dto.descricao ?? existing.description,
@@ -63,7 +65,7 @@ export class UpdatePlanUseCase {
       ...(input.dto.isActive !== undefined && { isActive: input.dto.isActive }),
       ...(input.dto.code !== undefined && { code: input.dto.code }),
       ...(input.dto.emailBody !== undefined && { emailBody: input.dto.emailBody }),
-      ...(input.dto.plataformas !== undefined && { plataformas: input.dto.plataformas }),
+      ...(input.dto.plataformas !== undefined && { plataformas: selectedTag ? [selectedTag] : [] }),
     });
 
     return {

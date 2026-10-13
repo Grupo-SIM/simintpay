@@ -104,8 +104,9 @@ export class WithdrawController {
   @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
   async summary(
     @CurrentUser() user: JwtPayload | undefined,
+    @Query('platformTag') platformTag?: string,
   ): Promise<{ data: unknown }> {
-    const out = await this.getSummary.execute(user?.sub ?? '');
+    const out = await this.getSummary.execute(user?.sub ?? '', platformTag);
     return { data: out };
   }
 

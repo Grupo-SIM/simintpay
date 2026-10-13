@@ -7,7 +7,10 @@ import { AppModule } from './app.module';
 import { correlationIdMiddleware } from './presentation/middlewares/correlation-id.middleware';
 import { AllExceptionsFilter } from './presentation/filters/all-exceptions.filter';
 import { ptbrValidationExceptionFactory } from './infrastructure/validation/ptbr-validation.factory';
-import { initializePlatformTaxasCache, cleanupStaleOverrides } from './modules/platform-taxas/platform-taxas.store';
+import { PrismaService } from './infrastructure/database/prisma/prisma.service';
+import { initializePlatformIntegrationsCache } from './modules/platform-integrations/platform-integrations.store';
+import { initializePlatformRegistryCache } from './modules/module.registry';
+import { initializePlatformTaxasCache } from './modules/platform-taxas/platform-taxas.store';
 
 async function bootstrap() {
   // Validate required env vars early
@@ -76,8 +79,9 @@ async function bootstrap() {
 
   // Pre-fetch platform taxas to ensure synchronous getters don't return initial empty state
   logger.log('Inicializando cache de taxas de plataforma (banco de dados)...');
-  await initializePlatformTaxasCache();
-  await cleanupStaleOverrides();
+  await initializePlatformRegistryCache(app.get(PrismaService));
+  await initializePlatformTaxasCache(app.get(PrismaService));
+  await initializePlatformIntegrationsCache(app.get(PrismaService));
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);

@@ -1,3 +1,6 @@
+import { assertExplicitPlatform } from '../../helpers/explicit-platform.helper';
+import { getPlatformOwnerId } from '../../../modules/module.registry';
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import {
   ConflictException,
   Inject,
@@ -18,11 +21,6 @@ import { getModuleConfig } from '../../../modules/module.registry';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
-
-// Fallback para usuários sem módulo configurado
-const DEFAULT_MIN_VALOR = Number(process.env.DEFAULT_WITHDRAW_MIN_VALUE || 100);
-const DEFAULT_TAXA_FIXA = Number(process.env.DEFAULT_WITHDRAW_FIXED_FEE || 2);
-const DEFAULT_TAXA_PERCENT = Number(process.env.DEFAULT_WITHDRAW_PERCENT_FEE || 0);
 
 @Injectable()
 export class RequestWithdrawUseCase {
@@ -62,20 +60,21 @@ export class RequestWithdrawUseCase {
     });
 
     // Regras do módulo (ou fallback padrão)
-    const moduleSlug = user?.tenantModule?.slug ?? null;
-    const renovadaId = process.env.RENOVADA_ID || 'ba2b57d6-e3bf-4395-af31-58454f27207a';
-    const isRenovada = moduleSlug === 'renovada' || userId === renovadaId;
+    const selected = dto.platformTag ? [dto.platformTag] : user?.tenantModule?.slug ? [user.tenantModule.slug] : undefined;
+    const moduleSlug = assertExplicitPlatform(user, selected)?.toLowerCase() ?? null;
+    const renovadaId = (getPlatformOwnerId('RENOVADA') ?? '');
+    const isRenovada = moduleSlug === 'renovada';
     const config = getModuleConfig(moduleSlug);
     const renovadaConfig = getModuleConfig('renovada');
 
     const minValor = isRenovada
-      ? (renovadaConfig?.saque.minValor ?? DEFAULT_MIN_VALOR)
-      : (config?.saque.minValor ?? DEFAULT_MIN_VALOR);
+      ? (renovadaConfig?.saque.minValor ?? getPlatformTaxaEffective('GLOBAL', 'SAQUE_MIN', 100))
+      : (config?.saque.minValor ?? getPlatformTaxaEffective('GLOBAL', 'SAQUE_MIN', 100));
     const calcularTaxa = isRenovada && renovadaConfig
       ? (v: number) => renovadaConfig.saque.calcularTaxa(v)
       : config
         ? (v: number) => config.saque.calcularTaxa(v)
-        : (v: number) => DEFAULT_TAXA_FIXA + v * DEFAULT_TAXA_PERCENT;
+        : (v: number) => getPlatformTaxaEffective('GLOBAL', 'TAXA_SAQUE_FIXA', 2) + v * getPlatformTaxaEffective('GLOBAL', 'TAXA_SAQUE_PERCENT', 0);
 
     // Valor mínimo de saque
     if (dto.valor < minValor) {
@@ -98,35 +97,6 @@ export class RequestWithdrawUseCase {
     // [MODO SIMPAY SOBERANO] — Gerencia saldo local 
     let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
     
-    // Se estiver em desenvolvimento e não houver wallet,Provisionamos para o teste real fluir
-    if (!wallet && process.env.NODE_ENV === 'development') {
-      console.log(`[SIMPAY DEV] Auto-provisionando usuário e carteira para o ID: ${userId}`);
-      
-      const email = user?.email || `cliente-${userId.substring(0, 8)}@simpay.com`;
-      const name = user?.name || 'Cliente Renovada Sincronizado';
-
-      // Garante que o usuário existe
-      await this.prisma.user.upsert({
-        where: { id: userId },
-        update: {},
-        create: {
-          id: userId,
-          email,
-          name,
-          password: 'password-dev',
-        }
-      });
-
-      // Cria carteira com saldo para permitir os testes de fluxo
-      wallet = await this.prisma.wallet.create({
-        data: {
-          userId,
-          balance: 10000.00, // Saldo inicial de teste (Real)
-          lockedBalance: 0,
-        }
-      });
-    }
-
     if (!wallet) throw new NotFoundException('Wallet não encontrada');
 
     const walletBalance = new Prisma.Decimal(wallet.balance.toString());

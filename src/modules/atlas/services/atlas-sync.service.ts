@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -18,7 +19,6 @@ import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.st
 @Injectable()
 export class AtlasSyncService implements OnModuleInit {
   private readonly logger = new Logger(AtlasSyncService.name);
-  private atlasUserId: string | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -27,47 +27,29 @@ export class AtlasSyncService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    const enabled = process.env.ENABLE_ATLAS_DOM_SYNC === 'true';
+    const enabled = getPlatformIntegrationValue('ATLAS', 'ENABLE_DOM_SYNC') === 'true';
     this.logger.log(
       `[ATLAS] Sync service initialized (DOM API v3 mode; ${enabled ? 'enabled' : 'disabled'})`,
     );
   }
 
   private async resolveAtlasUserId(): Promise<string | null> {
-    if (this.atlasUserId) return this.atlasUserId;
-
-    const envId = process.env.ATLAS_USER_ID;
-    if (envId) {
-      this.atlasUserId = envId;
-      return envId;
-    }
-
-    let user: { id: string } | null;
     try {
-      user = await this.prisma.user.findFirst({
-        where: { email: 'atlas@jbmidia.com.br' },
-        select: { id: true },
+      const platform = await this.prisma.platform.findFirst({
+        where: { tag: { equals: 'atlas', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
       });
+      return platform?.ownerUserId ?? null;
     } catch (error) {
-      this.logger.error('[ATLAS] Banco indisponível ao resolver usuário; nova tentativa no próximo ciclo.', error);
+      this.logger.error('Banco indisponível ao resolver dono da plataforma.', error);
       return null;
     }
-
-    if (user) {
-      this.atlasUserId = user.id;
-      this.logger.log(`[ATLAS] User ID resolvido: ${user.id}`);
-    } else {
-      this.logger.warn('[ATLAS] Usuário atlas@jbmidia.com.br não encontrado. Execute POST /dashboard/atlas/setup');
-    }
-
-    return this.atlasUserId;
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSync() {
-    if (process.env.ENABLE_ATLAS_DOM_SYNC !== 'true') return;
+    if (getPlatformIntegrationValue('ATLAS', 'ENABLE_DOM_SYNC') !== 'true') return;
 
-    const rawToken = process.env.ATLAS_DOM_TOKEN || process.env.DOM_TOKEN;
+    const rawToken = getPlatformIntegrationValue('ATLAS', 'DOM_TOKEN');
     if (!rawToken) {
       this.logger.warn('[ATLAS] Token não configurado (ATLAS_DOM_TOKEN) — sync ignorado');
       return;
@@ -218,15 +200,15 @@ export class AtlasSyncService implements OnModuleInit {
   }
 
   async syncFull(): Promise<any> {
-    const rawToken = process.env.ATLAS_DOM_TOKEN || process.env.DOM_TOKEN;
+    const rawToken = getPlatformIntegrationValue('ATLAS', 'DOM_TOKEN');
     if (!rawToken) {
-      return { success: false, error: 'Token não configurado no .env (ATLAS_DOM_TOKEN)' };
+      return { success: false, error: 'Token não configurado no admin (ATLAS_DOM_TOKEN)' };
     }
     const token = rawToken.trim();
 
     const userId = await this.resolveAtlasUserId();
     if (!userId) {
-      return { success: false, error: 'Usuário Atlas não encontrado. Execute POST /dashboard/atlas/setup primeiro.' };
+      return { success: false, error: 'Plataforma sem dono cadastrado no admin.' };
     }
 
     try {
@@ -299,11 +281,11 @@ export class AtlasSyncService implements OnModuleInit {
             const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
 
             if (existing) {
-              const needsUserFix = existing.userId !== (this.atlasUserId || userId);
+              const needsUserFix = existing.userId !== (userId);
               await this.prisma.transaction.update({
                 where: { id: existing.id },
                 data: {
-                  ...(needsUserFix ? { userId: this.atlasUserId || userId } : {}),
+                  ...(needsUserFix ? { userId: userId } : {}),
                   status: mappedStatus,
                   amount,
                   netAmount,
@@ -324,7 +306,7 @@ export class AtlasSyncService implements OnModuleInit {
 
             await this.prisma.transaction.create({
               data: {
-                userId: this.atlasUserId || userId,
+                userId: userId,
                 amount,
                 netAmount,
                 status: mappedStatus,
@@ -442,7 +424,7 @@ export class AtlasSyncService implements OnModuleInit {
   async zeroWallet(): Promise<any> {
     const userId = await this.resolveAtlasUserId();
     if (!userId) {
-      return { success: false, error: 'ATLAS_USER_ID não configurado ou usuário Atlas não encontrado.' };
+      return { success: false, error: 'Plataforma sem dono cadastrado no admin.' };
     }
 
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
@@ -491,6 +473,11 @@ export class AtlasSyncService implements OnModuleInit {
 
   private async syncExternalPlatformBalance(userId: string, balance: number): Promise<void> {
     try {
+      const platform = await this.prisma.platform.findFirst({
+        where: { tag: { equals: 'atlas', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false }, ownerUserId: userId },
+      });
+      if (!platform) return;
+
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
         select: { id: true, name: true, cpf: true },

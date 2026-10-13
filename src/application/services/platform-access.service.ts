@@ -1,11 +1,7 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
+import { getRegisteredPlatform, getPlatformOwnerId } from '../../modules/module.registry';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
-
-const PLATFORM_LABELS: Record<string, string> = {
-  'CONTROLE-MOTORISTA': 'Controle de Motorista',
-  'CONTROLE-PATRIMONIAL': 'Controle Patrimonial',
-  'BETAI': 'BetAi',
-};
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -46,16 +42,12 @@ export class PlatformAccessService {
 
   /** Rótulo amigável da plataforma para emails. */
   platformLabel(platformTag: string): string {
-    return PLATFORM_LABELS[platformTag.toUpperCase()] ?? platformTag;
+    return getRegisteredPlatform(platformTag)?.name ?? platformTag;
   }
 
-  /** URL base do backend do SaaS conforme a tag (env). */
+  /** URL base cadastrada na integração da plataforma. */
   getSaasBaseUrl(platformTag: string): string | null {
-    const t = platformTag.toUpperCase();
-    if (t === 'CONTROLE-PATRIMONIAL') return String(process.env.CONTROLE_PATRIMONIAL_URL ?? '').replace(/\/+$/, '');
-    if (t === 'CONTROLE-MOTORISTA') return String(process.env.CONTROLE_MOTORISTA_URL ?? '').replace(/\/+$/, '');
-    if (t === 'BETAI') return String(process.env.BETAI_URL ?? '').replace(/\/+$/, '');
-    return null;
+    return getPlatformIntegrationValue(platformTag, 'BACKEND_URL')?.replace(/\/+$/, '') ?? null;
   }
 
   /**
@@ -77,6 +69,7 @@ export class PlatformAccessService {
     const email = (input.email ?? '').toLowerCase().trim();
     if (!email) return;
     const platformTag = input.platformTag.toUpperCase();
+    if (!getPlatformOwnerId(platformTag)) return;
     const days = input.planDays > 0 ? input.planDays : 30;
     const now = new Date();
 
@@ -132,7 +125,7 @@ export class PlatformAccessService {
   /** Liga/desliga o login do usuário no backend do SaaS (bloqueio/desbloqueio). */
   async setSaasUserActive(platformTag: string, email: string, isActive: boolean): Promise<void> {
     const baseUrl = this.getSaasBaseUrl(platformTag);
-    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    const token = getPlatformIntegrationValue(platformTag, 'INTERNAL_TOKEN');
     if (!baseUrl || !token) {
       this.logger.warn(`[PlatformAccess][${platformTag}] URL/token não configurado — toggle ignorado`);
       return;

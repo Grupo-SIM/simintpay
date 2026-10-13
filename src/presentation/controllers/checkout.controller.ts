@@ -1,3 +1,6 @@
+import { getPlatformOwnerId, getRegisteredPlatform } from '../../modules/module.registry';
+import { platformGatewayToken } from '../../application/helpers/explicit-platform.helper';
+import { getCustomerInterestRate } from '../../modules/platform-taxas/platform-taxas.store';
 import {
   BadRequestException,
   Body,
@@ -132,7 +135,7 @@ export class CheckoutController {
   @Post('pix')
   @ApiOperation({ summary: 'Criar pagamento PIX avulso (ebook/store)' })
   async createPublicPix(@Body() body: PublicPixBody) {
-    const domToken = process.env.DOM_TOKEN;
+    const domToken = platformGatewayToken(String(body.store || 'EBOOK'), process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('Gateway de pagamento não configurado');
 
     const price = Number(body.price);
@@ -165,19 +168,8 @@ export class CheckoutController {
       const tenantTag = store || 'EBOOK';
 
       // Usuário genérico por plataforma para transações sem usuário autenticado
-      const platformUserId = `d4fbf80f-6f13-4bc6-8e15-${tenantTag.toLowerCase().padEnd(12, '0').slice(0, 12)}`;
-      const platformEmail = `${tenantTag.toLowerCase()}-platform@auto.simpay.com`;
-      await this.prisma.user.upsert({
-        where: { id: platformUserId },
-        update: {},
-        create: {
-          id: platformUserId,
-          name: `${tenantTag} Platform`,
-          email: platformEmail,
-          cpf: '00000000000',
-          password: 'SYSTEM_NO_LOGIN',
-        },
-      });
+      const platformUserId = getPlatformOwnerId(tenantTag);
+      if (!platformUserId) throw new BadRequestException('Plataforma sem dono ativo cadastrado');
 
       const price = Number(body.price);
       const netAmountDec = calculateSellerNetValue(price, 1, tenantTag, 'pix');
@@ -325,13 +317,14 @@ export class CheckoutController {
     const store = String(body.store || 'GLOBAL').toUpperCase();
     // Aceita qualquer plataforma configurada; CARDMACHINE sem tag específica cai em GLOBAL
     const tenantTag = store === 'CARDMACHINE' ? 'GLOBAL' : store;
+    if (tenantTag !== 'GLOBAL' && !getRegisteredPlatform(tenantTag)) throw new BadRequestException('Plataforma não cadastrada');
     const isLinkMode = tenantTag === 'PAGATG';
     const max = Math.min(Math.max(Number(body.maxInstallments) || 1, 1), 12);
 
     const options = [];
     for (let n = 1; n <= max; n++) {
       const mdrMasterKey = `MDR_CC_MASTER_${n}X` as PlataformaTaxaKey;
-      const masterRate = getPlatformTaxaEffective(tenantTag, mdrMasterKey, PLATFORM_TAXA_DEFAULTS[mdrMasterKey]);
+      const masterRate = getCustomerInterestRate(tenantTag, n);
       const domRate = isLinkMode ? (DOM_LINK_FEE_RATES[n] ?? 0) : (DOM_CC_FEE_RATES[n] ?? 0);
       const domFixed = n > 1 ? 1.0 : 0;
 
@@ -392,7 +385,7 @@ export class CheckoutController {
       orderNumber?: string;
     },
   ) {
-    const domToken = process.env.DOM_TOKEN;
+    const domToken = platformGatewayToken(String(body.store || 'EBOOK'), process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('Gateway de pagamento não configurado');
 
     const price = Number(body.price);
@@ -404,7 +397,8 @@ export class CheckoutController {
 
     const n = Math.min(Math.max(Number(body.installments) || 1, 1), 12);
     const store = String(body.store || 'ebook').toUpperCase();
-    const tenantTag = ['EBOOKSIM', 'PAGATG', 'CARDMACHINE'].includes(store) ? store : 'EBOOK';
+    const tenantTag = store === 'CARDMACHINE' ? 'GLOBAL' : store;
+    if (tenantTag !== 'GLOBAL' && !getRegisteredPlatform(tenantTag)) throw new BadRequestException('Plataforma não cadastrada');
     const isLinkMode = tenantTag === 'PAGATG';
     const orderNumber = body.orderNumber ? String(body.orderNumber).trim() : null;
     const description = String(body.description ?? '').trim() || 'Pedido ebook';
@@ -412,7 +406,7 @@ export class CheckoutController {
 
     // Calcular total com MDR_CC_MASTER
     const mdrMasterKey = `MDR_CC_MASTER_${n}X` as PlataformaTaxaKey;
-    const masterRate = getPlatformTaxaEffective(tenantTag, mdrMasterKey, PLATFORM_TAXA_DEFAULTS[mdrMasterKey]);
+    const masterRate = getCustomerInterestRate(tenantTag, n);
     const domRate = isLinkMode ? (DOM_LINK_FEE_RATES[n] ?? 0) : (DOM_CC_FEE_RATES[n] ?? 0);
     const domFixed = n > 1 ? 1.0 : 0;
 
@@ -444,18 +438,8 @@ export class CheckoutController {
     }
 
     if (!transaction) {
-      const ebookUserId = 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
-      await this.prisma.user.upsert({
-        where: { id: ebookUserId },
-        update: {},
-        create: {
-          id: ebookUserId,
-          name: 'EbookSim Platform',
-          email: 'ebook-platform@ebooksim.com',
-          cpf: '00000000000',
-          password: 'SYSTEM_NO_LOGIN',
-        },
-      });
+      const ebookUserId = getPlatformOwnerId(tenantTag);
+      if (!ebookUserId) throw new BadRequestException('Plataforma sem dono ativo cadastrado');
 
       const netAmountDec = calculateSellerNetValue(price, n, tenantTag, 'credit_card');
       const netAmount = Number(netAmountDec.toFixed(2));
@@ -656,7 +640,7 @@ export class CheckoutController {
     const fb = (k: PlataformaTaxaKey) => PLATFORM_TAXA_DEFAULTS[k] ?? 0;
 
     const domCcRate    = getPlatformTaxaEffective(tag, 'MDR_CC_1X',        fb('MDR_CC_1X'));
-    const masterCcRate = getPlatformTaxaEffective(tag, 'MDR_CC_MASTER_1X', fb('MDR_CC_MASTER_1X'));
+    const masterCcRate = getCustomerInterestRate(tag, 1);
     // 1x: comprador não paga DOM (absorvido pela SimIntPay); só paga masterCcRate (0% para ATLAS 1x)
     const buyerCcRate  = masterCcRate;
 
@@ -664,7 +648,7 @@ export class CheckoutController {
       const domKey    = `MDR_CC_${n}X`        as PlataformaTaxaKey;
       const masterKey = `MDR_CC_MASTER_${n}X` as PlataformaTaxaKey;
       const domRate    = getPlatformTaxaEffective(tag, domKey,    fb(domKey));
-      const masterRate = getPlatformTaxaEffective(tag, masterKey, fb(masterKey));
+      const masterRate = getCustomerInterestRate(tag, n);
       // 1x: grátis ao comprador. 2x+: DOM + master + R$1 fixo
       return { n, domRate, masterRate, buyerRate: n === 1 ? 0 : domRate + masterRate, fixedFee: n === 1 ? 0 : 1 };
     });

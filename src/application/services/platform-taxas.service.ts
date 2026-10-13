@@ -1,44 +1,29 @@
+import { calculatePaymentLinkFees } from '../use-cases/payment-link/payment-link-fees.helper';
+import type { PaymentLink } from '@prisma/client';
+import { getRegisteredPlatform, registeredPlatformTags } from '../../modules/module.registry';
 import { Injectable, BadRequestException } from '@nestjs/common';
 import {
   canonicalPlatformTaxaTag,
   defaultTaxaValue,
   getPlatformTaxaEffective,
   getPlatformTaxaSource,
-  readOverridesRaw,
   applyPatchToOverrides,
-  writeOverrides,
+  patchPlatformOverrides,
 } from '../../modules/platform-taxas/platform-taxas.store';
 import {
   PLATAFORMA_TAXA_KEYS,
   type PlataformaTaxaKey,
 } from '../../modules/platform-taxas/platform-taxas.keys';
 
-const KNOWN_CANONICAL_TAGS = [
-  'GLOBAL',
-  'RENOVADA',
-  'REVALIDA',
-  'BOSQUE',
-  'PAGATG',
-  'EBOOK',
-  'AREAFLIX',
-  'FRENDZ',
-  'ATLAS',
-  'CONTROLE-MOTORISTA',
-  'CONTROLE-PATRIMONIAL',
-] as const;
-
 export type PlataformaTaxaSourceMap = Record<
   string,
-  Partial<Record<PlataformaTaxaKey, 'env' | 'override' | 'global'>>
+  Partial<Record<PlataformaTaxaKey, 'default' | 'override' | 'global'>>
 >;
 
 @Injectable()
 export class PlatformTaxasService {
   getTaxasResponse(extraTags?: string[]) {
-    const set = new Set<string>(KNOWN_CANONICAL_TAGS);
-    for (const k of Object.keys(readOverridesRaw())) {
-      set.add(canonicalPlatformTaxaTag(k));
-    }
+    const set = new Set<string>(['GLOBAL', ...registeredPlatformTags()]);
     for (const t of extraTags ?? []) {
       set.add(canonicalPlatformTaxaTag(t));
     }
@@ -48,7 +33,7 @@ export class PlatformTaxasService {
 
     for (const tag of [...set].sort()) {
       const row: Partial<Record<PlataformaTaxaKey, number>> = {};
-      const srcRow: Partial<Record<PlataformaTaxaKey, 'env' | 'override' | 'global'>> = {};
+      const srcRow: Partial<Record<PlataformaTaxaKey, 'default' | 'override' | 'global'>> = {};
       for (const key of PLATAFORMA_TAXA_KEYS) {
         const fb = defaultTaxaValue(key);
         row[key] = getPlatformTaxaEffective(tag, key, fb);
@@ -87,7 +72,7 @@ export class PlatformTaxasService {
    */
   getResolvedTaxaForTag(tag: string) {
     const data: Partial<Record<PlataformaTaxaKey, number>> = {};
-    const sources: Partial<Record<PlataformaTaxaKey, 'env' | 'override' | 'global'>> = {};
+    const sources: Partial<Record<PlataformaTaxaKey, 'default' | 'override' | 'global'>> = {};
 
     for (const key of PLATAFORMA_TAXA_KEYS) {
       data[key] = getPlatformTaxaEffective(tag, key, defaultTaxaValue(key));
@@ -105,11 +90,16 @@ export class PlatformTaxasService {
   }
 
   async patchPlatform(tag: string, body: Record<string, unknown>) {
+    tag = canonicalPlatformTaxaTag(tag);
+    if (tag !== 'GLOBAL' && !tag.startsWith('CLIENT:') && !getRegisteredPlatform(tag)) throw new BadRequestException('Plataforma não cadastrada');
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Body inválido');
     }
     const patch: Record<string, number | null> = {};
     for (const [k, v] of Object.entries(body)) {
+      if (k.startsWith('MDR_LINK_')) {
+        throw new BadRequestException('Juros do comprador devem ser configurados na plataforma pelo dono');
+      }
       if (!(PLATAFORMA_TAXA_KEYS as readonly string[]).includes(k)) {
         throw new BadRequestException(`Chave não permitida: ${k}`);
       }
@@ -127,7 +117,7 @@ export class PlatformTaxasService {
           : typeof v === 'string'
             ? Number(String(v).replace(',', '.'))
             : NaN;
-      if (!Number.isFinite(n)) {
+      if (!Number.isFinite(n) || n < 0 || (k === "LIQUIDEZ" && n > 1) || ((k.startsWith("LINK_COST_") || k.startsWith("MDR_") || k.endsWith("_PERCENT")) && n > 1)) {
         throw new BadRequestException(`Número inválido: ${k}`);
       }
       patch[k] = n;
@@ -136,12 +126,14 @@ export class PlatformTaxasService {
       throw new BadRequestException('Nenhuma taxa para atualizar');
     }
     try {
-      const next = applyPatchToOverrides(tag, patch);
-      await writeOverrides(next);
+      await patchPlatformOverrides(tag, patch);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Falha ao persistir';
       throw new BadRequestException(msg);
     }
-    return this.getTaxasResponse([tag]);
+    const response = this.getTaxasResponse([tag]);
+    const affected = tag === 'GLOBAL' ? registeredPlatformTags() : [tag];
+    const warnings = affected.flatMap((platformTag) => Array.from({ length: 12 }, (_, index) => ({ platformTag, installments: index + 1, ...calculatePaymentLinkFees({ amount: 100, isStandalone: false } as unknown as PaymentLink, index + 1, platformTag) })).filter((row) => row.negativeMargin));
+    return { ...response, meta: { ...response.meta, simulationAmount: 100, warnings } };
   }
 }

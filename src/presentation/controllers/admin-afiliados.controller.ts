@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   Body,
   Controller,
@@ -93,8 +94,8 @@ export class AdminAfiliadosController {
     );
 
     const [ebook, atlas] = await Promise.all([
-      this.fetchExternalAffiliates(process.env.BACK_EBOOK_URL, '/internal/affiliates', 'EBOOK'),
-      this.fetchExternalAffiliates(process.env.ATLAS_HOSTING_URL, '/api/internal/affiliates', 'ATLAS'),
+      this.fetchExternalAffiliates((getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined), '/internal/affiliates', 'EBOOK'),
+      this.fetchExternalAffiliates((getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined), '/api/internal/affiliates', 'ATLAS'),
     ]);
 
     return { data: [...data, ...ebook, ...atlas] };
@@ -194,8 +195,8 @@ export class AdminAfiliadosController {
     } else {
       const [base, path] =
         platform === 'EBOOK'
-          ? [process.env.BACK_EBOOK_URL, `/internal/affiliates/${encodeURIComponent(userId)}`]
-          : [process.env.ATLAS_HOSTING_URL, `/api/internal/affiliates/${encodeURIComponent(userId)}`];
+          ? [(getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined), `/internal/affiliates/${encodeURIComponent(userId)}`]
+          : [(getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined), `/api/internal/affiliates/${encodeURIComponent(userId)}`];
       const url = String(base ?? '').replace(/\/+$/, '');
       if (!url) throw new NotFoundException('Plataforma não configurada');
       const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';

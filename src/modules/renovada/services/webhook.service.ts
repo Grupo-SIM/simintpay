@@ -1,3 +1,4 @@
+import { getPlatformOwnerId } from '../../module.registry';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
@@ -5,7 +6,6 @@ import { createHmac } from 'crypto';
 import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.store';
 import { CheckoutEventsService } from '../../../application/services/checkout-events.service';
 
-const RENOVADA_USER_ID = 'ba2b57d6-e3bf-4395-af31-58454f27207a';
 
 interface WebhookEvent {
   event: string;
@@ -105,6 +105,8 @@ export class WebhookService {
       });
 
       if (!transaction) {
+        const ownerId = getPlatformOwnerId('RENOVADA');
+        if (!ownerId) throw new Error('Plataforma Renovada não cadastrada com dono.');
         this.logger.log(`[RENOVADA] Transação ${event.data.id} não encontrada — criando via webhook`);
         // DOM Pagamentos envia amount em CENTAVOS → dividir por 100
         const amount = new Prisma.Decimal((event.data.amount || 0) / 100);
@@ -114,7 +116,7 @@ export class WebhookService {
         try {
           transaction = await this.prisma.transaction.create({
             data: {
-              userId: RENOVADA_USER_ID,
+              userId: ownerId,
               domPaymentId: event.data.id,
               status: TransactionStatus.PENDING,
               amount,
@@ -142,6 +144,8 @@ export class WebhookService {
             });
           }
           if (!transaction) {
+        const ownerId = getPlatformOwnerId('RENOVADA');
+        if (!ownerId) throw new Error('Plataforma Renovada não cadastrada com dono.');
             this.logger.error(`[RENOVADA] Falha ao criar transação para ${event.data.id}: ${createErr.message}`);
             await this.logUnprocessableWebhook(event, 'Transaction not found and could not be created');
             return;

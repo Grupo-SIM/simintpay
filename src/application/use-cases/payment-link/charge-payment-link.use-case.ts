@@ -1,3 +1,4 @@
+import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
@@ -173,16 +174,9 @@ export class ChargePaymentLinkUseCase {
 
     // Resolve domToken: cliente SimintPay SEMPRE usa o token mestre; senão usuário > módulo > global.
     const owner = await this.users.findById(link.userId);
-    const ownerClientTag = clientTaxaTagFor(owner);
-    let domToken: string | null | undefined = ownerClientTag ? process.env.DOM_TOKEN : owner?.domToken;
-
-    if (!domToken && !ownerClientTag && owner?.tenantModule?.slug) {
-      domToken = getModuleDomToken(owner.tenantModule.slug);
-    }
-
-    if (!domToken) {
-      domToken = process.env.DOM_TOKEN;
-    }
+    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(((link as any).plataformas?.[0] ?? 'GLOBAL').toUpperCase()) ? null : clientTaxaTagFor(owner);
+    const selectedTag = (link as any).plataformas?.[0] ?? owner?.tenantModule?.slug ?? 'GLOBAL';
+    const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
 
     if (!domToken) {
       throw new BadRequestException('Token do gateway não configurado');
@@ -213,7 +207,7 @@ export class ChargePaymentLinkUseCase {
             domFeeAmount: d.domFeeAmount + d.platformFeeAmount, // total de taxas sobre o vendedor
           };
         })()
-      : calculatePaymentLinkFees(link, installments, taxaTag, isPix);
+      : calculatePaymentLinkFees(link, installments, taxaTag, isPix, false);
     const { totalAmount, domFeeAmount } = fees;
     let { netAmount } = fees;
 

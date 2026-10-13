@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { BosqueConfig } from '../bosque.config';
@@ -39,7 +40,9 @@ export class BosquePaymentService {
   }
 
   private get domToken(): string {
-    return process.env.DOM_TOKEN ?? '';
+    const token = getPlatformIntegrationValue('BOSQUE', 'DOM_TOKEN');
+    if (!token) throw new BadRequestException('Token da plataforma não configurado no admin.');
+    return token;
   }
 
   async createPaymentPix(userId: string, body: CheckoutPixDto): Promise<any> {

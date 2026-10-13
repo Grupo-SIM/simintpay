@@ -61,6 +61,7 @@ model User {
   billingContracts       BillingContract[]
   returnBetAccount       ReturnBetAccount?
   integrationMerchant    IntegrationMerchant?
+  ownedPlatforms         Platform[]
 
   @@index([email])
   @@index([domUserId])
@@ -786,6 +787,7 @@ model TenantModule {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   users     User[]
+  platform  Platform?
 
   @@index([slug])
 }
@@ -1160,4 +1162,39 @@ model AffiliateCommission {
 enum AffiliateCommissionStatus {
   CREDITED
   REVERSED
+}
+
+/// Explicit platform registry. Owners are existing local accounts.
+model Platform {
+  id             String @id @default(uuid())
+  tag            String @unique
+  name           String
+  ownerUserId    String
+  isActive       Boolean @default(true)
+  acquirer       Acquirer @default(DOM)
+  tenantModuleId String? @unique
+  tenantModule TenantModule? @relation(fields: [tenantModuleId], references: [id], onDelete: Restrict)
+  customerInterestRates Json @default("{}")
+  absorbCustomerInterest Boolean @default(false)
+  integrations   PlatformIntegration[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  owner          User @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+
+  @@index([ownerUserId])
+}
+
+/// Private integration configuration; encrypted values never appear in public metadata.
+model PlatformIntegration {
+  id             String @id @default(uuid())
+  platformId     String
+  key            String
+  encryptedValue String?
+  tokenHash      String? @unique
+  url            String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  platform       Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  @@unique([platformId, key])
 }

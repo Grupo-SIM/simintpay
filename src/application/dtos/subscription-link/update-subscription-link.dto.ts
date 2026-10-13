@@ -51,9 +51,6 @@ export class UpdateSubscriptionLinkDto {
   @IsOptional()
   paymentMethods?: string;
 
-  @IsNumber()
-  @IsOptional()
-  platformFee?: number;
 
   @IsString()
   @Transform(({ value }) => normalizeOptionalUrl(value))

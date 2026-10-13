@@ -1,3 +1,4 @@
+import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   Body,
   Controller,
@@ -374,7 +375,7 @@ export class BotPixPlanController {
     @Headers('x-pagatg-internal-token') internalToken: string,
     @Body() body: { customerId: string; isActive: boolean; remainingDays: number },
   ) {
-    const expected = process.env.PAGATG_INTERNAL_TOKEN;
+    const expected = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined);
     if (expected && internalToken !== expected) {
       throw new UnauthorizedException('Token interno inválido');
     }

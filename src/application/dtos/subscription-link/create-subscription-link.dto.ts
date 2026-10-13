@@ -49,9 +49,6 @@ export class CreateSubscriptionLinkDto {
   isStandalone?: boolean;
 
   /** Taxa de juros aplicada quando isStandalone=false. Default 9.00 */
-  @IsNumber()
-  @IsOptional()
-  platformFee?: number;
 
   @IsString()
   @Transform(({ value }) => normalizeOptionalUrl(value))

@@ -1,8 +1,12 @@
-import { IsNotEmpty, IsNumber, IsString, Matches, Min } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsNumber, IsString, Matches, Min } from 'class-validator';
 
 export class RequestWithdrawDto {
+  @IsOptional()
+  @IsString()
+  platformTag?: string;
+
   @IsNumber()
-  @Min(100, { message: 'O valor mínimo para saque é de R$ 100,00' })
+  @Min(0.01, { message: 'Valor de saque deve ser positivo' })
   valor!: number;
 
   @IsString()

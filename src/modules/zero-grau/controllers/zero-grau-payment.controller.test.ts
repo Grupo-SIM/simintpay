@@ -1,3 +1,5 @@
+import { initializePlatformRegistryCache } from '../../module.registry';
+import { initializePlatformIntegrationsCache } from '../../platform-integrations/platform-integrations.store';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { ZeroGrauPaymentController } from './zero-grau-payment.controller';
 
@@ -8,7 +10,8 @@ afterEach(() => {
 });
 
 test('legacy card status checks reconcile DOM under the Zero Grau owner', async () => {
-  process.env.ZERO_GRAU_USER_ID = 'legacy-seller';
+  await initializePlatformRegistryCache({ platform: { findMany: async () => [{ tag: 'ZERO-GRAU', ownerUserId: 'legacy-seller' }] } } as never);
+  await initializePlatformIntegrationsCache({ platformIntegration: { findMany: async () => [] } } as never);
   const reconcilePayment = mock(async () => ({ paymentId: 'dom-card', status: 'COMPLETED' }));
   const controller = new ZeroGrauPaymentController({} as never, { reconcilePayment } as never);
   expect(await controller.checkStatus('dom-card')).toEqual({ paymentId: 'dom-card', status: 'COMPLETED' });

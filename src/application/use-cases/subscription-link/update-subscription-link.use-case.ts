@@ -1,3 +1,4 @@
+import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
@@ -33,12 +34,13 @@ export class UpdateSubscriptionLinkUseCase {
       : await this.repo.findByIdForUser({ id: input.id, userId: input.userId });
     if (!existing) throw new NotFoundException('Link de assinatura não encontrado');
 
+    const selectedTag = assertExplicitPlatform({ id: input.userId, role: input.role }, [...(input.dto.plataformas ?? existing.plataformas ?? []), ...((input.dto.platformTag ?? existing.platformTag) ? [input.dto.platformTag ?? existing.platformTag!] : [])], true);
     const nextIsActive = input.dto.isActive ?? existing.isActive;
 
     // Propaga o status ativo/inativo para a DOM (bloqueia checkout e reassinatura externa)
     // quando o link tem plano na DOM e o status realmente mudou.
     if (input.dto.isActive !== undefined && input.dto.isActive !== existing.isActive && existing.domPlanId) {
-      const domToken = process.env.DOM_TOKEN;
+      const domToken = platformGatewayToken(existing.platformTag ?? existing.plataformas?.[0], process.env.DOM_TOKEN);
       if (domToken) {
         try {
           await this.gateway.updatePaymentLink(domToken, existing.domPlanId, { isActive: nextIsActive });
@@ -67,14 +69,13 @@ export class UpdateSubscriptionLinkUseCase {
       paymentMethods: input.dto.paymentMethods ?? (existing as any).paymentMethods,
       isActive: nextIsActive,
       isStandalone: input.dto.isStandalone ?? existing.isStandalone,
-      platformFee: input.dto.platformFee ?? existing.platformFee,
       redirectUrl: input.dto.redirectUrl ?? existing.redirectUrl,
       webhookUrl: input.dto.webhookUrl ?? existing.webhookUrl,
       maxUses: input.dto.maxUses ?? existing.maxUses,
       platformTag: input.dto.platformTag !== undefined ? input.dto.platformTag : (existing as any).platformTag,
       ...(planChanged && (existing as any).domPlanId ? { domPlanId: null } : {}),
       ...(input.dto.emailBody !== undefined && { emailBody: input.dto.emailBody }),
-      ...(input.dto.plataformas !== undefined && { plataformas: input.dto.plataformas }),
+      ...(input.dto.plataformas !== undefined && { plataformas: selectedTag ? [selectedTag] : [] }),
     });
 
     return {

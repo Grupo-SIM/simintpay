@@ -1,5 +1,6 @@
 import { Injectable, ExecutionContext, UnauthorizedException, Logger } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { hashPlatformToken } from '../../../modules/platform-integrations/platform-secrets';
 import { PrismaService } from '../../database/prisma/prisma.service';
 
 @Injectable()
@@ -28,27 +29,32 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     // 2) Fallback: x-access-token (domToken) para integrações de plataforma (ex: pagatg)
     const domToken = request.headers['x-access-token'] as string | undefined;
     if (domToken && domToken.length >= 8) {
-      let user = await this.prisma.user.findFirst({
-        where: { domToken, isActive: true },
-        select: { id: true, email: true, role: true },
-      });
-
-      if (!user) {
-        const created = await this.prisma.user.create({
-          data: {
-            name: 'Platform User',
-            email: `platform-${domToken.substring(0, 8)}@auto.simpay.com`,
-            password: 'EXTERNAL_TOKEN_AUTH',
-            domToken,
-            role: 'USER',
-          },
-          select: { id: true, email: true, role: true },
-        });
-        user = created;
+      // Integration credentials cannot act as an interactive user session.
+      const path = String(request.url).split('?')[0];
+      if (request.method !== 'POST' || !/^\/(links-pagamento|planos|links-assinatura|boletos|payments\/pix-plan)\/?$/.test(path)) {
+        throw new UnauthorizedException('Token restrito a operações de integração');
       }
-
-      this.logger.log(`[Auth] domToken válido para ${request.url} user=${user.id}`);
-      request.user = { sub: user.id, email: user.email, role: user.role };
+      const credential = await this.prisma.platformIntegration.findUnique({
+        where: { tokenHash: hashPlatformToken(domToken) },
+        include: { platform: { include: { owner: true } } },
+      });
+      const platform = credential?.key === 'INBOUND_TOKEN' ? credential.platform : null;
+      if (!platform?.isActive || !platform.owner.isActive || platform.owner.isPurged) {
+        throw new UnauthorizedException('Token de plataforma não cadastrado ou inativo');
+      }
+      const selected = request.body?.plataformas;
+      if (selected && (!Array.isArray(selected) || selected.some((tag: string) => String(tag).toUpperCase() !== platform.tag))) throw new UnauthorizedException('Token restrito à plataforma atribuída');
+      if (request.body?.platformTag && String(request.body.platformTag).toUpperCase() !== platform.tag) throw new UnauthorizedException('Token restrito à plataforma atribuída');
+      request.body ??= {};
+      request.body.plataformas = [platform.tag];
+      if (path === "/payments/pix-plan") {
+        if (request.body.tenantTag && request.body.tenantTag.toUpperCase() !== platform.tag) throw new UnauthorizedException("Token restrito à plataforma atribuída");
+        request.body.tenantTag = platform.tag;
+      }
+      request.user = {
+        sub: platform.ownerUserId, email: platform.owner.email, role: 'USER',
+        authMode: 'integration', platformId: platform.id, platformTag: platform.tag,
+      };
       return true;
     }
 

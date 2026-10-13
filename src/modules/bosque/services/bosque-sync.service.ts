@@ -1,3 +1,5 @@
+import { getPlatformOwnerId } from '../../module.registry';
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
@@ -16,7 +18,6 @@ const BOSQUE_HIDDEN_TAG = '[TENANT:BOSQUE]';
 @Injectable()
 export class BosqueSyncService implements OnModuleInit {
   private readonly logger = new Logger(BosqueSyncService.name);
-  private readonly BOSQUE_ID = process.env.BOSQUE_ID || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -37,10 +38,11 @@ export class BosqueSyncService implements OnModuleInit {
 
   @Cron(CronExpression.EVERY_MINUTE)
   async handleSync() {
-    if (process.env.DISABLE_BOSQUE_SYNC === 'true') return;
-
-    const API_DOM_URL = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
-    const BOSQUE_APIDOM_XTOKEN = process.env.BOSQUE_APIDOM_XTOKEN || '0ba3f139-b1ff-4ded-a5ef-71ccb1c9482f';
+    if (getPlatformIntegrationValue('BOSQUE', 'DISABLE_SYNC') === 'true') return;
+    const ownerId = getPlatformOwnerId('BOSQUE');
+    const API_DOM_URL = getPlatformIntegrationValue('BOSQUE', 'DOM_BACKEND_URL');
+    const BOSQUE_APIDOM_XTOKEN = getPlatformIntegrationValue('BOSQUE', 'API_DOM_XTOKEN');
+    if (!ownerId || !API_DOM_URL || !BOSQUE_APIDOM_XTOKEN) return;
 
     try {
       let created = 0;
@@ -115,7 +117,7 @@ export class BosqueSyncService implements OnModuleInit {
 
             const newTx = await this.prisma.transaction.create({
               data: {
-                userId:           this.BOSQUE_ID,
+                userId:           ownerId,
                 amount,
                 netAmount,
                 status:           mappedStatus,
@@ -156,7 +158,7 @@ export class BosqueSyncService implements OnModuleInit {
 
         if (!completedDelta.equals(0)) {
           await this.prisma.wallet.update({
-            where: { userId: this.BOSQUE_ID },
+            where: { userId: ownerId },
             data: { balance: { increment: completedDelta }, version: { increment: 1 } },
           });
           this.logger.log(`[BOSQUE] Saldo ajustado em R$ ${completedDelta.toFixed(2)}`);

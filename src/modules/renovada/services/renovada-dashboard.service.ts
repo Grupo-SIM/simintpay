@@ -1,3 +1,4 @@
+import { getPlatformOwnerId } from '../../module.registry';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
@@ -14,13 +15,6 @@ dayjs.extend(timezone);
 dayjs.locale('pt-br');
 
 const TZ = 'America/Sao_Paulo';
-
-const PLATFORM_IDS: Record<string, string> = {
-  RENOVADA: 'ba2b57d6-e3bf-4395-af31-58454f27207a',
-  PAGATG: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5d',
-  BOSQUE: 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c',
-  REVALIDA: '7929df01-a980-45e3-b3c7-1a8b8eb7850f',
-};
 
 /**
  * Filtro dos saques que entram na "Taxa de Saque — Simintpay" de uma plataforma.
@@ -77,23 +71,11 @@ export class PlatformDashboardService {
     ].includes(upperTag);
     const isTenantTagged = upperTag === 'EBOOK' || upperTag === 'EBOOKSIM' || upperTag === 'PAGATG' || !isKnownFixedTag;
 
-    let atlasWalletUserId: string | null = null;
-    if (isAtlas) {
-      const envAtlas = process.env.ATLAS_USER_ID?.trim();
-      if (envAtlas) atlasWalletUserId = envAtlas;
-      else {
-        const u = await this.prisma.user.findFirst({
-          where: { email: 'atlas@jbmidia.com.br' },
-          select: { id: true },
-        });
-        atlasWalletUserId = u?.id ?? null;
-      }
-    }
+    const atlasWalletUserId = isAtlas ? getPlatformOwnerId('ATLAS') : null;
 
-    const platIdKey = `${upperTag}_ID`;
     const platformId = isTenantTagged || isAreaflix
       ? null
-      : (process.env[platIdKey] || PLATFORM_IDS[upperTag] || null);
+      : getPlatformOwnerId(upperTag);
 
     // Mesma janela do card: sem período explícito, conta a partir do dia 1 do mês atual.
     const saqueStart = dataInicio ? dayjs(dataInicio).startOf('day').toDate() : now.startOf('month').toDate();
@@ -186,24 +168,12 @@ export class PlatformDashboardService {
     };
 
     // Carteira/saques Atlas: conta técnica (não usar fallback Renovada no userId)
-    let atlasWalletUserId: string | null = null;
-    if (isAtlas) {
-      const envAtlas = process.env.ATLAS_USER_ID?.trim();
-      if (envAtlas) atlasWalletUserId = envAtlas;
-      else {
-        const u = await this.prisma.user.findFirst({
-          where: { email: 'atlas@jbmidia.com.br' },
-          select: { id: true },
-        });
-        atlasWalletUserId = u?.id ?? null;
-      }
-    }
+    const atlasWalletUserId = isAtlas ? getPlatformOwnerId('ATLAS') : null;
 
-    // Prioridade: .env -> Mapa Interno -> null (sem fallback para Renovada para evitar vazamento de dados)
-    const platIdKey = `${upperTag}_ID`;
+    // Dono explicitamente atribuído no cadastro da plataforma.
     const platformId = isTenantTagged || isAreaflix
       ? null
-      : (process.env[platIdKey] || PLATFORM_IDS[upperTag] || null);
+      : getPlatformOwnerId(upperTag);
 
     if (dataInicio || dataFim) {
       start = dataInicio ? dayjs(dataInicio).startOf('day').toDate() : now.subtract(10, 'year').toDate();

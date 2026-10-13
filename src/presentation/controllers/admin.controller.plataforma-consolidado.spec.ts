@@ -1,3 +1,5 @@
+import { initializePlatformRegistryCache } from '../../modules/module.registry';
+beforeEach(async () => { await initializePlatformRegistryCache({ platform: { findMany: async () => ['ATLAS', 'RENOVADA', 'BOSQUE'].map(tag => ({ tag, ownerUserId: tag.toLowerCase() + '-1' })) } } as never); });
 // `uuid` (v13) é ESM-only e o jest não o transforma por padrão.
 jest.mock('uuid', () => ({
   v4: () => 'test-uuid',
@@ -450,20 +452,18 @@ describe('AdminController.listPlataformaTransacoes — maquineta', () => {
 });
 
 describe('AdminController.getAtlasConsolidado', () => {
-  it('inclui conta Atlas e TENANT:ATLAS no escopo canônico', async () => {
+  it('filtra TENANT:ATLAS sem incluir outras plataformas do mesmo dono', async () => {
     const ctx = {
       prisma: {
-        user: { findFirst: jest.fn().mockResolvedValue({ id: 'atlas-1' }) },
+        platform: { findUnique: jest.fn().mockResolvedValue({ tag: 'ATLAS', ownerUserId: 'atlas-1' }), findFirst: jest.fn().mockResolvedValue({ ownerUserId: 'atlas-1' }) },
+          user: { findFirst: jest.fn().mockResolvedValue({ id: 'atlas-1' }) },
       },
     } as any;
 
     const scope = await (AdminController.prototype as any).getPlatformTransactionScope.call(ctx, 'ATLAS');
 
     expect(scope).toEqual({
-      OR: [
-        { userId: { in: ['atlas-1'] } },
-        { description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' } },
-      ],
+      description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' },
     });
   });
 
@@ -474,6 +474,7 @@ describe('AdminController.getAtlasConsolidado', () => {
     try {
       const ctx = {
         prisma: {
+          platform: { findUnique: jest.fn().mockResolvedValue({ tag: 'ATLAS', ownerUserId: 'atlas-1' }), findFirst: jest.fn().mockResolvedValue({ ownerUserId: 'atlas-1' }) },
           user: { findFirst: jest.fn().mockResolvedValue({ id: 'atlas-1' }) },
           transaction: {
             count: jest.fn().mockResolvedValue(0),

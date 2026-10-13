@@ -1,6 +1,7 @@
+import { getRegisteredPlatform } from '../../../modules/module.registry';
 import type { PaymentLink } from '@prisma/client';
-import { getPlatformTaxaEffective, getPlatformTaxaSource } from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { getPlatformTaxaEffective, getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 /**
  * Taxas da DOM por número de parcelas (cobradas do COMPRADOR sobre o valor com juros).
@@ -31,10 +32,10 @@ function getDomFixedFee(installments: number): number {
  * Taxa do vendedor (casa): configurável via GLOBAL → plataforma.
  * Padrão: 6,99% + R$4,00
  */
-function getSellerFeePercentage(platformTag?: string): number {
+function getSellerFeePercentage(platformTag?: string, installments = 1): number {
   return getPlatformTaxaEffective(
     platformTag ?? 'GLOBAL',
-    'TAXA_LINK_PERCENT',
+    `LINK_COST_${installments}X`,
     PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT,
   );
 }
@@ -46,15 +47,7 @@ function getSellerFeeFixed(platformTag?: string): number {
   );
 }
 
-/**
- * Retorna a taxa de juros da plataforma (master) para um link de pagamento por
- * número de parcelas. Usa MDR_LINK_NX configurado por plataforma; fallback para
- * o campo platformFeeNx gravado no link (legado) se a taxa de plataforma for 0.
- *
- * Regra:
- * - isStandalone=true (Avulso): 1x sem juros (só DOM), 2x+ com juros da plataforma
- * - isStandalone=false (Plataforma): sempre com juros, incluindo 1x
- */
+/** Customer interest is owned by the platform; standalone 1x remains interest-free. */
 export function getPlatformFeeRate(link: PaymentLink, installments: number, platformTag?: string): number {
   const isStandalone = (link as any).isStandalone ?? true;
   const shouldApply = isStandalone ? installments > 1 : true;
@@ -62,24 +55,8 @@ export function getPlatformFeeRate(link: PaymentLink, installments: number, plat
 
   const n = Math.min(Math.max(installments, 1), 12);
   const tag = platformTag ?? (link as any).platformTag ?? 'GLOBAL';
-  const mdrKey = `MDR_LINK_${n}X` as PlataformaTaxaKey;
 
-  // Usa MDR_LINK_NX somente se houver override explícito (env var ou storage).
-  // Sem override, respeita o platformFeeNx gravado no link (legado / produção existente).
-  const source = getPlatformTaxaSource(tag, mdrKey);
-  if (source === 'override' || source === 'env') {
-    const platformRate = getPlatformTaxaEffective(tag, mdrKey, PLATFORM_TAXA_DEFAULTS[mdrKey]);
-    return platformRate * 100; // decimal → % (o caller divide por 100)
-  }
-
-  // Comportamento original: campo platformFeeNx gravado diretamente no link
-  const legacyMap: Record<number, string> = {
-    1: 'platformFee1x', 2: 'platformFee2x', 3: 'platformFee3x',
-    4: 'platformFee4x', 5: 'platformFee5x', 6: 'platformFee6x',
-    7: 'platformFee7x', 8: 'platformFee8x', 9: 'platformFee9x',
-    10: 'platformFee10x', 11: 'platformFee11x', 12: 'platformFee12x',
-  };
-  return Number((link as any)[legacyMap[n]] ?? 0);
+  return getCustomerInterestRate(tag, n) * 100;
 }
 
 
@@ -99,6 +76,7 @@ export function calculatePaymentLinkFees(
   installments: number,
   platformTag?: string,
   isPix = false,
+  absorbInterest = false,
 ): {
   baseAmount: number;
   platformFeeRate: number;
@@ -113,8 +91,11 @@ export function calculatePaymentLinkFees(
   transactionFixedFee: number;
   cashbackFee: number;
   netAmount: number;
+  estimatedMargin: number;
+  negativeMargin: boolean;
 } {
   const n = Math.min(Math.max(installments, 1), 12);
+  absorbInterest = absorbInterest || !!getRegisteredPlatform(platformTag)?.absorbCustomerInterest;
   const baseAmount = Number(link.amount);
 
   // 1. Juros da plataforma sobre o valor base — PIX nunca tem juros para o comprador
@@ -128,19 +109,20 @@ export function calculatePaymentLinkFees(
   const domFeeAmount = valueWithInterest * domFeeRate + domFixedFee;
 
   // 3. Total que o COMPRADOR paga
-  const totalAmount = valueWithInterest + domFeeAmount;
+  const totalAmount = isPix || absorbInterest ? baseAmount : valueWithInterest + domFeeAmount;
   const installmentAmount = totalAmount / n;
 
   // 4. Líquido do VENDEDOR (calculado sobre o valor BASE, com taxa fixa multiplicada por parcelas)
   const tag = platformTag ?? 'GLOBAL';
-  const cashbackFee = (link as any).cashbackFee ?? getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+  const cashbackFee = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
   const transactionFixedFee = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-  const sellerFee = baseAmount * getSellerFeePercentage(platformTag) + getSellerFeeFixed(platformTag);
-  // Líquido = base − (TAXA_LINK_PERCENT × base + TAXA_LINK_FIXA). Cashback e taxa fixa por transação
-  // seguem expostos no retorno, mas não entram no líquido (evita cobrança duplicada).
-  const netAmount = baseAmount - sellerFee;
+  const sellerFee = baseAmount * getSellerFeePercentage(platformTag, n) + getSellerFeeFixed(platformTag);
+  const netAmount = totalAmount - (isPix ? 0 : domFeeAmount) - sellerFee;
+  const estimatedMargin = netAmount - baseAmount;
 
   return {
+    estimatedMargin: round2(estimatedMargin),
+    negativeMargin: estimatedMargin < 0,
     baseAmount,
     platformFeeRate,
     interestAmount: round2(interestAmount),

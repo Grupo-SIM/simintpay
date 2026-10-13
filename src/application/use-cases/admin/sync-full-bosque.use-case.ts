@@ -1,3 +1,5 @@
+import { getPlatformOwnerId } from '../../../modules/module.registry';
+import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TransactionStatus, WithdrawStatus, PaymentMethod, Prisma } from '@prisma/client';
@@ -26,40 +28,19 @@ export class SyncFullBosqueUseCase {
   }
 
   async execute() {
-    const BOSQUE_ID    = process.env.BOSQUE_ID    || 'c7f3a2b1-d4e5-4f6a-8b9c-0d1e2f3a4b5c';
-    const BOSQUE_EMAIL = process.env.BOSQUE_EMAIL  || 'contato@bosque.com.br';
+    const BOSQUE_ID    = (getPlatformOwnerId('BOSQUE') ?? '');
     const BOSQUE_NAME  = 'Igreja Batista do Bosque';
-    const API_DOM_URL  = process.env.DOM_BACKEND_URL || 'https://api-dom.jbmidia.com';
-    const BOSQUE_APIDOM_XTOKEN = process.env.BOSQUE_APIDOM_XTOKEN || '0ba3f139-b1ff-4ded-a5ef-71ccb1c9482f';
+    const API_DOM_URL  = getPlatformIntegrationValue('BOSQUE', 'DOM_BACKEND_URL');
+    const BOSQUE_APIDOM_XTOKEN = (getPlatformIntegrationValue('BOSQUE', 'API_DOM_XTOKEN') ?? undefined);
 
     this.logger.log('=== SINCRONIZAÇÃO COMPLETA BOSQUE ===');
     this.logger.log(`BOSQUE_ID: ${BOSQUE_ID}`);
     this.logger.log(`API_DOM_URL: ${API_DOM_URL}`);
-    this.logger.log(`Token: ${BOSQUE_APIDOM_XTOKEN.substring(0, 8)}...`);
 
-    const hashedPassword = await this.hashService.hash('password-migrated');
 
     // 1. Upsert usuário Bosque
-    await this.prisma.user.upsert({
-      where: { id: BOSQUE_ID },
-      update: { email: BOSQUE_EMAIL, name: BOSQUE_NAME, password: hashedPassword, domToken: null },
-      create: {
-        id: BOSQUE_ID,
-        name: BOSQUE_NAME,
-        email: BOSQUE_EMAIL,
-        password: hashedPassword,
-        role: 'USER',
-        domToken: null,
-      },
-    });
-
-    const bosqueModule = await this.prisma.tenantModule.findUnique({ where: { slug: 'bosque' } });
-    if (bosqueModule) {
-      await this.prisma.user.update({
-        where: { id: BOSQUE_ID },
-        data: { tenantModuleId: bosqueModule.id },
-      });
-    }
+    const assignedOwner = await this.prisma.platform.findUnique({ where: { tag: 'BOSQUE' }, include: { owner: true } });
+    if (!assignedOwner?.isActive || !assignedOwner.owner.isActive || assignedOwner.owner.isPurged) throw new Error('Plataforma sem dono ativo cadastrado');
 
     await this.prisma.wallet.upsert({
       where: { userId: BOSQUE_ID },
