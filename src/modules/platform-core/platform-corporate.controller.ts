@@ -1,3 +1,5 @@
+import { PlatformReconciliation } from './platform-reconciliation';
+import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { PlatformLinkClaim, type LinkClaim } from './platform-link-claim';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query, Req, SetMetadata, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
@@ -14,6 +16,10 @@ import { unsupportedCapability } from './platform-adapters';
 @UseGuards(PlatformAuthGuard)
 export class PlatformCorporateController {
   constructor(private readonly modules: ModuleRef, private readonly prisma: PrismaService) {}
+  @Post('finance/reconcile') @SetMetadata('platform-operation', 'sync:run')
+  reconcile(@Req() request: { platformContext: PlatformContext }, @Query('hours') hours?: string) {
+    return new PlatformReconciliation(this.prisma, this.modules.get(ReconcilePendingTransactionsUseCase, { strict: false })).run(request.platformContext.tag, hours === undefined ? 720 : Number(hours), undefined, request.platformContext);
+  }
   @Post('links/claim') @SetMetadata('platform-operation', 'maintenance:run')
   async claimLinks(@Req() request: { platformContext: PlatformContext }, @Body() body: LinkClaim) {
     if (Object.keys(body).some(key => !['paymentLinkIds', 'subscriptionLinkIds', 'retroactiveAmountCents'].includes(key))) throw new BadRequestException('Campo desconhecido');

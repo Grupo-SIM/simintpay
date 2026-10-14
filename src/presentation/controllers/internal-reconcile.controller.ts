@@ -1,3 +1,5 @@
+import { PlatformReconciliation } from '../../modules/platform-core/platform-reconciliation';
+import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { Controller, Headers, Post, Query, UnauthorizedException } from '@nestjs/common';
 import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 
@@ -10,7 +12,7 @@ import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases
  */
 @Controller('internal/renovada/finance')
 export class InternalReconcileController {
-  constructor(private readonly reconcilePending: ReconcilePendingTransactionsUseCase) {}
+  constructor(private readonly reconcilePending: ReconcilePendingTransactionsUseCase, private readonly prisma: PrismaService) {}
 
   private ensureInternalToken(token?: string) {
     const expected = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN;
@@ -29,6 +31,6 @@ export class InternalReconcileController {
     // Botão manual: janela ampla (30 dias) e limite maior por padrão, para pegar pendências antigas
     // travadas. O polling automático consulta apenas os primeiros 30 minutos de criação.
     const sinceHours = horas ? Math.max(1, Number(horas)) : 720;
-    return this.reconcilePending.execute({ userId: userId || undefined, sinceHours, limit: 500 });
+    return new PlatformReconciliation(this.prisma, this.reconcilePending).run('RENOVADA', sinceHours, userId || undefined);
   }
 }

@@ -132,3 +132,5 @@ Histórico sem marca, marcas conflitantes, saques sem plataforma e transações 
 Streams legados de Atlas/Bosque/Renovada/Revalida usam projeção única do barramento, preservando headers, nomes, IDs e heartbeat imediato/a cada 20 segundos. Eventos permanecem isolados por produto.
 
 Espelhamento administrativo de Atlas/Revalida usa núcleo transacional único. Espelha carteira do dono como projeção de compatibilidade; não cria plataforma, usuário técnico ou carteira financeira. API canônica `POST /platforms/:tag/sync/owner-mirror` exige `sync:run`, revalida dono e retorna centavos; aliases conservam reais e autenticação histórica.
+
+Reconciliação manual Renovada e `POST /platforms/:tag/finance/reconcile` compartilham seleção por marca exclusiva, adquirente DOM e credencial cadastrada do produto. Canônico exige `sync:run` e fixa dono autenticado; alias preserva token interno e seleção opcional por usuário, sempre limitada ao produto. Configuração ausente ou adquirente sem suporte retorna 422 estável, sem usar token master como fallback.

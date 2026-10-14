@@ -1,3 +1,4 @@
+import { hasPlatformMarker } from '../../../modules/platform-core/platform-sync.adapter';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
@@ -64,6 +65,8 @@ export class ReconcilePendingTransactionsUseCase {
   async execute(opts?: {
     /** Janela de criação a considerar (default 72h). */
     sinceHours?: number;
+    /** Explicit product scope; conflicting legacy tags are excluded before gateway calls. */
+    platformTag?: string;
     /** Idade mínima da última atualização, para não competir com o webhook ao vivo (default 1min). */
     minAgeMinutes?: number;
     /** Máximo de transações por execução (default 150). */
@@ -78,7 +81,7 @@ export class ReconcilePendingTransactionsUseCase {
     direct?: boolean;
   }): Promise<{ checked: number; completed: number; details: ReconcileDetail[] }> {
     const mode = opts?.transactionId ? 'status' : opts?.direct ? 'poll' : 'list';
-    const runKey = opts?.transactionId ?? mode;
+    const runKey = opts?.transactionId ?? `${mode}:${opts?.platformTag ?? '*'}:${opts?.userId ?? '*'}`;
     const prefix = `[Reconcile][${mode}]`;
     const startedAt = Date.now();
     const activeRun = this.activeRuns.get(runKey);
@@ -97,10 +100,11 @@ export class ReconcilePendingTransactionsUseCase {
 
       this.logger.log(`${prefix} started: sinceHours=${sinceHours} minAgeMinutes=${minAgeMin} userId=${opts?.userId ?? 'all'} limit=${opts?.direct ? 'all' : (opts?.limit ?? 150)} createdSince=${new Date(now - sinceHours * 3_600_000).toISOString()} updatedBefore=${new Date(now - minAgeMin * 60_000).toISOString()}`);
 
-      const pendings = await this.prisma.transaction.findMany({
+      const candidates = await this.prisma.transaction.findMany({
         where: {
           status: 'PENDING',
           acquirer: 'DOM',
+          ...(opts?.platformTag ? { description: { contains: `[TENANT:${opts.platformTag}]`, mode: 'insensitive' as const } } : {}),
           domPaymentId: { not: null },
           ...(opts?.transactionId
             ? { id: opts.transactionId }
@@ -110,9 +114,10 @@ export class ReconcilePendingTransactionsUseCase {
         },
         select: { id: true, userId: true, domPaymentId: true, domTransactionId: true, description: true, user: { select: { domToken: true } } },
         orderBy: { createdAt: 'desc' },
-        take: opts?.direct ? undefined : (opts?.limit ?? 150),
+        take: opts?.platformTag ? (opts.limit ?? 500) : opts?.direct ? undefined : (opts?.limit ?? 150),
       });
 
+      const pendings = opts?.platformTag ? candidates.filter(tx => hasPlatformMarker(tx.description, opts.platformTag!)) : candidates;
       const details: ReconcileDetail[] = [];
       checked = pendings.length;
       this.logger.log(`${prefix} selected: checked=${checked}`);

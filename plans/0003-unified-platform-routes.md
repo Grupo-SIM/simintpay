@@ -134,3 +134,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 
 - [x] Atlas/Revalida delegam espelhamento à mesma transação serializável; endpoint canônico em centavos e escopo `sync:run`.
 - [x] Cinco testes cobrem equivalência de respostas/escritas, ausência de cadastro, transferência e unidades canônicas.
+
+## Continuação — reconciliação manual isolada
+
+- [x] Alias Renovada deixa de varrer outros produtos; serviço compartilhado com canônico valida plataforma/dono/adquirente e credencial explícita.
+- [x] Marcas conflitantes/ausentes excluídas antes de chamadas ao gateway; limite e coalescência por produto.
+- [x] 18 testes dirigidos e build aprovados, com gateway mockado.
