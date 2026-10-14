@@ -30,3 +30,11 @@ Inventário obtido de HEAD antes da substituição dos controllers. Nenhuma conf
 - [x] Cartão DOM tokenizado, centavos/Decimal, taxas por parcela e replay idempotente sem persistir token.
 - [x] Falha incerta mantém draft e bloqueia nova cobrança; resposta não regride status liquidado.
 - [x] 12 testes de pagamentos com mocks aprovados; build local aprovado.
+
+## Continuação — sincronização e webhooks
+
+- [x] Adapters fixos de classificação/status, rejeição de status/valores desconhecidos e proteção de estados terminais.
+- [x] Sincronização conserva líquido/taxas gravados e carteira original após transferência; CAS impede crédito concorrente.
+- [x] Poll legado coalescido; antigo cron global virou fachada sem agendamento próprio/token master.
+- [x] Payload DOM/Frendz normalizado antes do processamento; evento legado Frendz não usa credencial como identificador.
+- [x] Webhook imediato pode liquidar draft; regressões de idempotência, refund, concorrência e isolamento aprovadas.

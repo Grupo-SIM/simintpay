@@ -1,3 +1,4 @@
+import { canSyncTransition, conflictingPlatformMarker, hasPlatformMarker, platformSyncAdapter, syncStatus } from './platform-sync.adapter';
 import { Inject, Injectable } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -13,10 +14,22 @@ export class PlatformSyncPersistenceService {
   constructor(private readonly prisma: PrismaService, private readonly http: HttpService,
     private readonly events: PlatformEventsService, @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway) {}
 
-  async poll(tag: string) {
+  private readonly running = new Map<string, Promise<unknown>>();
+
+  poll(tag: string): Promise<unknown> {
+    const active = this.running.get(tag);
+    if (active) return active;
+    const task = this.executePoll(tag).finally(() => this.running.delete(tag));
+    this.running.set(tag, task);
+    return task;
+  }
+
+  private async executePoll(tag: string) {
     const platform = await this.prisma.platform.findUnique({ where: { tag }, include: { owner: true } });
     if (!platform?.isActive || !platform.owner.isActive || platform.owner.isPurged || platform.acquirer !== 'DOM') return;
-    const direct = tag === 'ATLAS' || tag === 'REVALIDA';
+    const adapter = platformSyncAdapter(tag);
+    if (!adapter) return;
+    const direct = adapter.transport === 'DOM';
     if (getPlatformIntegrationValue(tag, 'DISABLE_SYNC') === 'true' || (direct && getPlatformIntegrationValue(tag, 'ENABLE_DOM_SYNC') !== 'true')) return;
     const token = getPlatformIntegrationValue(tag, direct ? 'DOM_TOKEN' : 'API_DOM_XTOKEN');
     const base = getPlatformIntegrationValue(tag, 'DOM_BACKEND_URL');
@@ -28,9 +41,7 @@ export class PlatformSyncPersistenceService {
         : (await firstValueFrom(this.http.get<any>(`${base}/payments/history`, { headers: { 'x-access-token': token, Accept: 'application/json' }, params: { page, limit: 100 }, timeout: 15000 }))).data?.transactions ?? [];
       for (const row of rows) {
         const description = String(row.product_first ?? row.description ?? '');
-        const lower = description.toLowerCase();
-        if (direct && !lower.includes(tag.toLowerCase())) continue;
-        if (tag === 'RENOVADA' && (description.startsWith('PIX_PLAN_CODE:') || !['dizimo', 'dízimo', 'primicia', 'primícia', 'oferta', 'fundacao', 'fundação', 'maquineta', 'terminal'].some(word => lower.includes(word)))) continue;
+        if (!adapter.accepts(description) || conflictingPlatformMarker(description, tag)) continue;
         if (await this.persist(platform, row, description)) changed++;
       }
       if (rows.length < 100) break;
@@ -42,16 +53,17 @@ export class PlatformSyncPersistenceService {
     const paymentId = String(row.order_id ?? row.paymentId ?? row.id ?? '');
     const transactionId = row.id == null ? null : String(row.id);
     if (!paymentId) return false;
-    const amount = new Prisma.Decimal(row.amount ?? 0);
-    const netAmount = new Prisma.Decimal(row.liquid_amount ?? row.amountWithoutAllFee ?? amount.mul('0.91'));
-    if (amount.lt(0) || netAmount.lt(0)) return false;
-    const raw = String(row.status ?? '').toLowerCase();
-    const status = ['paid', 'approved', 'completed'].includes(raw) ? TransactionStatus.COMPLETED
-      : ['refused', 'canceled', 'failed', 'error', 'not_authorized'].includes(raw) ? TransactionStatus.FAILED
-      : raw === 'refunded' ? TransactionStatus.REFUNDED : raw === 'expired' ? TransactionStatus.EXPIRED
-      : raw === 'chargeback' ? TransactionStatus.CHARGEBACK : TransactionStatus.PENDING;
-    const totalFee = new Prisma.Decimal(row.fee_total ?? row.fee ?? 0);
-    const domFee = new Prisma.Decimal(row.dom_fee ?? 0);
+    let amount: Prisma.Decimal, netAmount: Prisma.Decimal, totalFee: Prisma.Decimal, domFee: Prisma.Decimal;
+    try {
+      amount = new Prisma.Decimal(row.amount ?? 0);
+      netAmount = new Prisma.Decimal(row.liquid_amount ?? row.amountWithoutAllFee ?? amount.mul('0.91'));
+      totalFee = new Prisma.Decimal(row.fee_total ?? row.fee ?? 0);
+      domFee = new Prisma.Decimal(row.dom_fee ?? 0);
+    } catch { return false; }
+    if (!totalFee.isFinite() || !domFee.isFinite() || totalFee.lt(0) || domFee.lt(0)) return false;
+    if (!amount.isFinite() || !netAmount.isFinite() || amount.lt(0) || netAmount.lt(0)) return false;
+    const status = syncStatus(row.status);
+    if (!status) return false;
     const marker = `[TENANT:${platform.tag}]`;
     const data = { amount, netAmount, totalFee, domFee, platformFee: Prisma.Decimal.max(0, totalFee.minus(domFee)), status,
       description: description.includes(marker) ? description : `${description} ${marker}`,
@@ -63,19 +75,23 @@ export class PlatformSyncPersistenceService {
         const active = await tx.platform.findUnique({ where: { id: platform.id }, include: { owner: true } });
         if (!active?.isActive || !active.owner.isActive || active.owner.isPurged || active.ownerUserId !== platform.ownerUserId) return null;
         const existing = await tx.transaction.findFirst({ where: { OR: [{ domPaymentId: paymentId }, ...(transactionId ? [{ domTransactionId: transactionId }] : [])] } });
-        if (existing && (!existing.description?.includes(marker) || existing.acquirer !== 'DOM')) return null;
+        if (existing && (!hasPlatformMarker(existing.description, platform.tag) || existing.acquirer !== 'DOM')) return null;
         // Historical transaction always belongs to original wallet, even after ownership transfer.
         const userId = existing?.userId ?? platform.ownerUserId;
-        const grossWallet = platform.tag !== 'BOSQUE' && !/^[a-f0-9]{64}$/.test(existing?.id ?? '');
-        const value = grossWallet ? amount : netAmount;
+        const canonical = /^[a-f0-9]{64}$/.test(existing?.id ?? '');
+        const grossWallet = platformSyncAdapter(platform.tag)?.grossWallet === true && !canonical;
+        if (existing && !canSyncTransition(existing.status, status)) return null;
+        if (canonical && (!amount.equals(existing!.amount) || existing!.netAmount === null)) return null;
+        const value = canonical ? new Prisma.Decimal(existing!.netAmount!) : grossWallet ? amount : netAmount;
+        const updateData = canonical ? { status } : data;
         const before = existing?.status === 'COMPLETED' ? new Prisma.Decimal(grossWallet ? existing.amount : existing.netAmount ?? existing.amount) : new Prisma.Decimal(0);
         const after = status === 'COMPLETED' ? value : new Prisma.Decimal(0);
         let result;
         if (existing) {
           if (existing.status === status) return null;
-          const updated = await tx.transaction.updateMany({ where: { id: existing.id, status: existing.status }, data: { ...data, previousStatus: existing.status } });
+          const updated = await tx.transaction.updateMany({ where: { id: existing.id, status: existing.status }, data: { ...updateData, previousStatus: existing.status } });
           if (!updated.count) return null;
-          result = { ...existing, ...data };
+          result = { ...existing, ...updateData };
         } else {
           result = await tx.transaction.create({ data: { ...data, userId, domPaymentId: paymentId, domTransactionId: transactionId, acquirer: 'DOM', paymentMethod: /card|credit/i.test(row.payment_method ?? '') ? 'CREDIT_CARD' : 'PIX', installments: row.installments ?? 1 } });
         }

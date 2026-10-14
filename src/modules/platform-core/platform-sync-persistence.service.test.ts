@@ -33,4 +33,48 @@ describe('Shared sync persistence', () => {
     expect(await persist({ id: 'gateway', status: 'paid', amount: 100 })).toBe(false);
     expect(tx.transaction.updateMany).not.toHaveBeenCalled();
   });
+  test('malformed amounts skip only bad provider row', async () => {
+    const { persist, tx } = fixture();
+    expect(await persist({ id: 'gateway', status: 'paid', amount: 'invalid' })).toBe(false);
+    expect(tx.transaction.updateMany).not.toHaveBeenCalled();
+  });
+  test('unknown provider status cannot regress settled funds', async () => {
+    const { persist, tx } = fixture(1, { status: 'COMPLETED' });
+    expect(await persist({ id: 'gateway', status: 'new_provider_state', amount: 100 })).toBe(false);
+    expect(tx.transaction.updateMany).not.toHaveBeenCalled();
+    expect(tx.wallet.update).not.toHaveBeenCalled();
+  });
+  test('pending provider status cannot regress completed payment', async () => {
+    const { persist, tx } = fixture(1, { status: 'COMPLETED' });
+    expect(await persist({ id: 'gateway', status: 'pending', amount: 100 })).toBe(false);
+    expect(tx.transaction.updateMany).not.toHaveBeenCalled();
+  });
+  test('canonical settlement preserves stored fees and credits stored net', async () => {
+    const { persist, tx } = fixture(1, { id: 'a'.repeat(64) });
+    expect(await persist({ id: 'gateway', status: 'paid', amount: 100, liquid_amount: 99 })).toBe(true);
+    expect((tx.transaction.updateMany.mock.calls as any)[0][0].data).toEqual({ status: 'COMPLETED', previousStatus: 'PENDING' });
+    expect((tx.wallet.update.mock.calls as any)[0][0].data.balance.increment.toNumber()).toBe(91);
+  });
+  test('canonical settlement rejects provider gross mismatch', async () => {
+    const { persist, tx } = fixture(1, { id: 'a'.repeat(64) });
+    expect(await persist({ id: 'gateway', status: 'paid', amount: 101 })).toBe(false);
+    expect(tx.wallet.update).not.toHaveBeenCalled();
+  });
+  test('refund debits stored canonical net once', async () => {
+    const { persist, tx } = fixture(1, { id: 'a'.repeat(64), status: 'COMPLETED' });
+    expect(await persist({ id: 'gateway', status: 'refunded', amount: 100, liquid_amount: 0 })).toBe(true);
+    expect((tx.wallet.update.mock.calls as any)[0][0].data.balance.increment.toNumber()).toBe(-91);
+  });
+  test('direct legacy polling coalesces same-platform work', async () => {
+    const service = new PlatformSyncPersistenceService({} as never, {} as never, new PlatformEventsService(), {} as never);
+    let complete!: () => void;
+    const pending = new Promise<void>(resolve => { complete = resolve; });
+    const execute = mock(() => pending);
+    (service as any).executePoll = execute;
+    const first = service.poll('ATLAS'), second = service.poll('ATLAS');
+    expect(first).toBe(second); expect(execute).toHaveBeenCalledTimes(1);
+    complete(); await first;
+    await service.poll('ATLAS'); expect(execute).toHaveBeenCalledTimes(2);
+  });
+
 });

@@ -1,7 +1,8 @@
+import { syncStatus } from './platform-sync.adapter';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ModuleRef } from '@nestjs/core';
-import { Prisma, TransactionStatus } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
 import { decryptPlatformSecret } from '../platform-integrations/platform-secrets';
@@ -49,16 +50,15 @@ export class PlatformSyncService {
     const row = await this.prisma.platformIntegration.findUnique({ where: { platformId_key: { platformId: context.id, key: 'DOM_TOKEN' } } });
     if (!row?.encryptedValue) unsupportedCapability('sync.configuration');
     const token = decryptPlatformSecret(row.encryptedValue);
-    const pending = await this.prisma.transaction.findMany({ where: { userId: context.ownerUserId, status: 'PENDING', acquirer: 'DOM', description: { contains: `[TENANT:${context.tag}]` }, domPaymentId: { not: null } }, take: 100 });
+    const pending = await this.prisma.transaction.findMany({ where: { status: 'PENDING', acquirer: 'DOM', description: { contains: `[TENANT:${context.tag}]` }, domPaymentId: { not: null } }, take: 100 });
     if (!pending.length) return { updated: 0 };
     const response = await this.gateway.listDomTransactions(token, { page: 1, limit: 100, begin_date: new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10), end_date: new Date().toISOString().slice(0, 10) });
     let updated = 0;
     for (const transaction of pending) {
       const remote = response.transactions?.find(row => String(row.id) === transaction.domPaymentId || row.order_id === transaction.domPaymentId);
       if (!remote) continue;
-      const state = String(remote.status).toLowerCase();
-      const status = ['paid', 'approved', 'completed'].includes(state) ? TransactionStatus.COMPLETED : ['failed', 'refused', 'not_authorized'].includes(state) ? TransactionStatus.FAILED : state === 'refunded' ? TransactionStatus.REFUNDED : state === 'expired' ? TransactionStatus.EXPIRED : TransactionStatus.PENDING;
-      if (status === 'PENDING') continue;
+      const status = syncStatus(remote.status);
+      if (!status || status === 'PENDING' || status === 'REFUNDED' || status === 'CHARGEBACK') continue;
       const changed = await this.prisma.$transaction(async tx => {
         const currentPlatform = await tx.platform.findUnique({ where: { id: context.id }, include: { owner: true } });
         if (!currentPlatform?.isActive || !currentPlatform.owner.isActive || currentPlatform.owner.isPurged || currentPlatform.ownerUserId !== context.ownerUserId) return false;
@@ -66,7 +66,7 @@ export class PlatformSyncService {
         if (!result.count) return false;
         if (status === 'COMPLETED') {
           if (transaction.netAmount === null) throw new Error('Transação sem líquido definido');
-          await tx.wallet.update({ where: { userId: context.ownerUserId }, data: { balance: { increment: new Prisma.Decimal(transaction.netAmount) }, version: { increment: 1 } } });
+          await tx.wallet.update({ where: { userId: transaction.userId }, data: { balance: { increment: new Prisma.Decimal(transaction.netAmount) }, version: { increment: 1 } } });
         }
         return true;
       });

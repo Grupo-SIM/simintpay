@@ -153,7 +153,7 @@ export class ProcessWebhookUseCase {
     to: TransactionStatus,
   ): boolean {
     const allowed: Record<TransactionStatus, TransactionStatus[]> = {
-      [TransactionStatus.DRAFT]: [TransactionStatus.PENDING],
+      [TransactionStatus.DRAFT]: [TransactionStatus.PENDING, TransactionStatus.COMPLETED, TransactionStatus.FAILED, TransactionStatus.EXPIRED],
       [TransactionStatus.PENDING]: [
         TransactionStatus.COMPLETED,
         TransactionStatus.FAILED,

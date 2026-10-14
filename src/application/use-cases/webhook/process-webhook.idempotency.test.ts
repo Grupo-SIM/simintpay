@@ -2,8 +2,8 @@ import { describe, test, expect, mock } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import { ProcessWebhookUseCase } from './process-webhook.use-case';
 
-function fixture(claimCount = 1) {
-  const payment = { id: 'a'.repeat(64), userId: 'original-owner', status: 'PENDING', description: '[TENANT:CLIENT]', netAmount: new Prisma.Decimal(90), platformFee: new Prisma.Decimal(9) };
+function fixture(claimCount = 1, status = 'PENDING') {
+  const payment = { id: 'a'.repeat(64), userId: 'original-owner', status, description: '[TENANT:CLIENT]', netAmount: new Prisma.Decimal(90), platformFee: new Prisma.Decimal(9) };
   const wallet = { id: 'wallet', balance: new Prisma.Decimal(10), lockedBalance: new Prisma.Decimal(0), version: 0 };
   const tx = {
     transaction: { updateMany: mock(async () => ({ count: claimCount })) },
@@ -23,6 +23,12 @@ describe('Canonical webhook financial integrity', () => {
     const { service, tx } = fixture();
     await service.execute({ payload });
     expect(tx.wallet.findUnique).toHaveBeenCalledWith({ where: { userId: 'original-owner' } });
+    expect((tx.wallet.updateMany.mock.calls as any)[0][0].data.balance.toNumber()).toBe(100);
+  });
+  test('immediate paid event can settle draft without an intermediate pending event', async () => {
+    const { service, tx } = fixture(1, 'DRAFT');
+    await service.execute({ payload });
+    expect(tx.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 'a'.repeat(64), status: 'DRAFT' }, data: { previousStatus: 'DRAFT', status: 'COMPLETED' } });
     expect((tx.wallet.updateMany.mock.calls as any)[0][0].data.balance.toNumber()).toBe(100);
   });
   test('losing concurrent status claim skips wallet, history, commission and notifications', async () => {

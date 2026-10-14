@@ -1,3 +1,4 @@
+import { platformWebhookEvent } from './platform-webhook.adapter';
 import { Body, Controller, Headers, HttpCode, Param, Post, Req, UnauthorizedException } from '@nestjs/common';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { PlatformContextService } from './platform-context.service';
@@ -23,12 +24,9 @@ export class PlatformWebhookController {
     const expected = platform.acquirer === 'FRENDZ' ? secret : createHmac('sha256', secret).update(request.rawBody!).digest('hex');
     const supplied = Buffer.from(provided); const computed = Buffer.from(expected);
     if (supplied.length !== computed.length || !timingSafeEqual(supplied, computed)) throw new UnauthorizedException('Assinatura inválida');
-    const data = platform.acquirer === 'FRENDZ' ? body.transaction : body.data;
-    const paymentId = String(platform.acquirer === 'FRENDZ' ? data?.id ?? '' : data?.paymentId ?? '');
-    const transaction = paymentId ? await this.prisma.transaction.findFirst({ where: { acquirer: platform.acquirer, description: { contains: `[TENANT:${platform.tag}]` }, OR: [{ externalPaymentId: paymentId }, { domPaymentId: paymentId }] } }) : null;
+    const { paymentId, status: normalized, externalReference } = platformWebhookEvent(platform.acquirer, body);
+    const transaction = paymentId ? await this.prisma.transaction.findFirst({ where: { acquirer: platform.acquirer, description: { contains: `[TENANT:${platform.tag}]` }, OR: [{ externalPaymentId: paymentId }, { domPaymentId: paymentId }, ...(externalReference ? [{ id: externalReference }] : [])] } }) : null;
     if (!transaction) throw new UnauthorizedException('Pagamento fora da plataforma');
-    const status = String(body.status ?? data.status ?? '').toLowerCase();
-    const normalized = ['approved', 'completed'].includes(status) ? 'paid' : ['refused', 'not_authorized'].includes(status) ? 'failed' : status;
     const eventId = createHash('sha256').update(`${platform.id}:${platform.acquirer}:${paymentId}:${normalized}`).digest('hex');
     await this.processor.execute({ transactionId: transaction.id, payload: { event: 'transaction', signature: eventId, data: { paymentId, status: normalized,
       amountWithoutAllFee: transaction.netAmount?.toNumber() ?? transaction.amount.toNumber(), acquirer: platform.acquirer } } });

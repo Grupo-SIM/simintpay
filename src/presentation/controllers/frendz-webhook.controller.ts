@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   Body,
@@ -61,7 +62,7 @@ export class FrendzWebhookController {
       // Postback que não conseguimos mapear (sem id ou status). Respondemos 200
       // para a Frendz não reenviar em loop, mas logamos para diagnóstico.
       this.logger.warn(
-        `[Frendz webhook] payload não mapeável: ${JSON.stringify(body).slice(0, 500)}`,
+        '[Frendz webhook] payload não mapeável',
       );
       return { status: 'ignored' };
     }
@@ -169,9 +170,8 @@ export class FrendzWebhookController {
     const cents = netCents ?? grossCents ?? 0;
     const amountWithoutAllFee = Number((cents / 100).toFixed(2)); // centavos → reais
 
-    // `signature` é exigido por parseDomPayload como id único do evento; usamos
-    // o token do evento ou o próprio paymentId.
-    const signature = this.asString(body.token) ?? `frendz_${paymentId}`;
+    // Credentials never identify events: one token signs many payments/statuses.
+    const signature = createHash('sha256').update(`frendz:${paymentId}:${status}`).digest('hex');
 
     return {
       event: this.asString(body.event) ?? 'transaction',
