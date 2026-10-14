@@ -31,6 +31,10 @@ const CANCELLED_STATUSES = new Set(['cancelled', 'canceled']);
 export class ReturnBetCommunityStatusService {
   constructor(private readonly prisma: PrismaService) {}
 
+  checkBatch(users: { id: string; cpf?: string; email?: string }[]) {
+    return Promise.all(users.map(async user => ({ id: user.id, ...await this.checkOne({ cpf: user.cpf, email: user.email }) })));
+  }
+
   async checkOne(input: { cpf?: string; email?: string }): Promise<CommunityStatusResult> {
     const cpf = input.cpf?.replace(/\D/g, '') || undefined;
     const email = input.email?.trim().toLowerCase() || undefined;

@@ -1,3 +1,4 @@
+import { PlatformReturnBetController } from './platform-return-bet.controller';
 import { PlatformReportProjectionsController } from './platform-report-projections.controller';
 import { PlatformReportingModule } from '../../application/services/platform-reporting.module';
 import { PlatformBetaiController } from './platform-betai.controller';
@@ -24,6 +25,6 @@ import { PlatformPaymentsService } from '../unified-platform/payments/platform-p
 import { PlatformEventsModule } from './platform-events.module';
 
 @Module({ imports: [PlatformReportingModule, WebhookModule, PrismaModule, ApiDomModule, AuthModule, CheckoutModule, PlatformEventsModule],
-  controllers: [PlatformReportProjectionsController, PlatformBetaiController, PlatformSubscriptionCapabilitiesController, PlatformVoucherCapabilitiesController, PlatformCorporateController, PlatformOperationsController, PlatformWebhookController, PlatformMerchantsController], providers: [PlatformBetaiService, PlatformSubscriptionCapabilitiesService, PlatformVoucherCapabilitiesService, PlatformContextService, PlatformAuthGuard, PlatformSyncService, PlatformPaymentsService, PlatformMerchantsService],
+  controllers: [PlatformReturnBetController, PlatformReportProjectionsController, PlatformBetaiController, PlatformSubscriptionCapabilitiesController, PlatformVoucherCapabilitiesController, PlatformCorporateController, PlatformOperationsController, PlatformWebhookController, PlatformMerchantsController], providers: [PlatformBetaiService, PlatformSubscriptionCapabilitiesService, PlatformVoucherCapabilitiesService, PlatformContextService, PlatformAuthGuard, PlatformSyncService, PlatformPaymentsService, PlatformMerchantsService],
   exports: [PlatformBetaiService, PlatformContextService, PlatformPaymentsService, PlatformSyncService] })
 export class PlatformCoreModule {}

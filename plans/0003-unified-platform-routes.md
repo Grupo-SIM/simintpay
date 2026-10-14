@@ -145,3 +145,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 
 - [x] Bloquear snapshot externo sobre carteira compartilhada/conta inativa; transação serializável e replay validado por contrato.
 - [x] Três testes de integridade e nove regressões Jest aprovados; build aprovado.
+
+## Continuação — contratos Return Bet
+
+- [x] Oito contratos legados dispõem de operações canônicas usando os mesmos serviços; política, comunidade em lote e ciclo de saque em centavos.
+- [x] Equivalência de argumentos/envelopes/unidades, token legado inválido, capacidade ausente e campos de identidade rejeitados. Revisões canônicas usam ator do JWT.
+- [x] Regressão completa anterior desta etapa: 441 Bun e 200 Jest aprovados (1 pré-existente ignorado); build aprovado. Ajuste de identidade de revisão possui teste dirigido adicional.

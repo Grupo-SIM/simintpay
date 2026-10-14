@@ -76,12 +76,7 @@ export class ReturnBetController {
   ): Promise<{ results: Array<{ id: string } & CommunityStatusResult> }> {
     this.ensureInternalToken(internalToken);
     const users = Array.isArray(body?.users) ? body.users : [];
-    const results = await Promise.all(
-      users.map(async (u) => ({
-        id: u.id,
-        ...(await this.communityStatus.checkOne({ cpf: u.cpf, email: u.email })),
-      })),
-    );
+    const results = await this.communityStatus.checkBatch(users);
     return { results };
   }
 
