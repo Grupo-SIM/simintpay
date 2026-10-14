@@ -96,3 +96,10 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Atlas/Revalida compartilham núcleo de projeções e adapter de regras; canônico em centavos disponível nas quatro visões.
 - [x] Histórico sem marca excluído de relatórios do produto; saques filtrados por plataforma. Dono compartilhado não duplica atribuição.
 - [x] Três testes de equivalência/unidades/escopo e transferência de dono aprovados; build local aprovado.
+
+## Continuação — inventário executável
+
+- [x] Manifesto fixo com 144 contratos e teste estrutural por rota: método, caminho, status, SSE e permissões anônimas.
+- [x] Registro de uso cobre exatamente contratos inventariados; teste verifica ausência de credenciais e dados de requisição.
+- [x] 40 aliases financeiros verificados quanto a argumentos, envelope e propagação de erros do serviço compartilhado.
+- [ ] Resultado financeiro completo de todos os 144 contratos ainda exige equivalência comportamental adicional; manifesto não encerra essa pendência.

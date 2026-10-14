@@ -1,3 +1,4 @@
+import { LEGACY_PLATFORM_CONTRACTS } from './legacy-platform-contracts';
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 
 /** Records route template only: credentials, identifiers and query strings are never logged. */
@@ -8,7 +9,7 @@ export class LegacyPlatformUsageInterceptor implements NestInterceptor {
     if (context.getType() === 'http') {
       const request = context.switchToHttp().getRequest();
       const template = request.route?.path;
-      if (typeof template === 'string' && /^\/(atlas|bosque|renovada|revalida|zero-grau|return-bet|internal\/(ebook|atlas|bosque|renovada|pagatg|areaflix|betai|integrations))(\/|$)/.test(template)) {
+      if (typeof template === 'string' && LEGACY_PLATFORM_CONTRACTS.some(contract => contract.method === request.method && contract.path === template)) {
         this.logger.log({ method: request.method, route: template });
       }
     }

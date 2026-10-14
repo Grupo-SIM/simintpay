@@ -107,3 +107,7 @@ Listagem e pause/resume de assinantes CONTROLE-MOTORISTA/CONTROLE-PATRIMONIAL us
 ### Projeções de dashboard
 
 Atlas e Revalida compartilham consultas, gráficos, resumos e paginação. Adapters conservam liquidez e desconto de taxas de Revalida na coluna de líquido. Transações exigem marca explícita da plataforma; saques exigem campo de plataforma correspondente. Carteira armazenada permanece por usuário, compartilhada entre produtos. Histórico sem marca não é atribuído por dono. `/platforms/:tag/reports/dashboard/:view` aceita `stats`, `sales`, `withdrawals`, `summary`; valores monetários canônicos são centavos, com contagens separadas. Aliases preservam envelopes e reais.
+
+### Inventário executável de aliases
+
+`legacy-platform-contracts.ts` fixa 144 pares método/caminho, handler, autenticação declarada, unidade e família equivalente. Telemetria registra somente método e template constantes desses contratos, nunca URL concreta, query, corpo ou credenciais. Checagem estrutural cobre 144 declarações; testes de delegação cobrem 40 aliases financeiros. Equivalência estrutural/delegação não prova, isoladamente, todos os resultados financeiros dos 144 contratos.
