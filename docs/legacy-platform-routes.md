@@ -633,9 +633,9 @@ Exceções no handler: `` new NotFoundException(`Plataforma ${tag} não suporta 
 
 Retorno declarado: `` { error: 'Use /admin/relatorios/atlas-consolidado for ATLAS' } ``; `` breakdown ``.
 
-### admin/betai
+### admin/betai — removido
 
-Fonte: [src/presentation/controllers/betai-admin.controller.ts](../src/presentation/controllers/betai-admin.controller.ts).
+Oito aliases removidos por solicitação explícita do usuário: sistema fora do ar e endpoints upstream `/internal/mensalidade/*` inexistentes. Sem substituto canônico; rotas deixam de ser registradas (404). Tabela e contratos abaixo são somente registro histórico, não APIs disponíveis. Controller original: `src/presentation/controllers/betai-admin.controller.ts` (removido).
 
 | Método / caminho | Auth | Operação equivalente no núcleo | HTTP / unidade |
 | --- | --- | --- | --- |
@@ -1063,7 +1063,7 @@ Exceções no handler: `` new UnauthorizedException('Invalid webhook secret') ``
 - Alias deve chamar diretamente operação compartilhada e traduzir contrato. Sem redirect, loopback HTTP, cálculo financeiro duplicado ou acesso canônico anônimo.
 - Manutenção que substitui/zera/recalcula carteira compartilhada deve bloquear; histórico sem plataforma identificada não recebe plataforma arbitrária.
 - Return Bet requer associação explícita de comunidade; ausência bloqueia capacidade, sem criação automática de VIVENDO-DE-BET.
-- Inventário cobre 144 declarações de rotas corporativas/internas. Serviços retornados por delegação e DTOs referenciados integram contrato e precisam de testes de equivalência antes de substituir implementação.
+- Inventário histórico cobre 144 declarações de rotas corporativas/internas; 136 permanecem registradas e oito aliases administrativos BetAI foram removidos. Serviços retornados por delegação e DTOs referenciados integram contrato e precisam de testes de equivalência antes de substituir implementação.
 
 
 ## Delegação implementada na continuação: BetAI

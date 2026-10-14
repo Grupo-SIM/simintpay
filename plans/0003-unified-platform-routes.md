@@ -218,3 +218,12 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Teste integrado de autorização, controller e projeção verifica dois produtos do mesmo dono: líquidos/saques separados, uma carteira compartilhada e histórico sem atribuição excluído de ambos.
 - [x] Escopo `finance:read` e bloqueio de outro dono verificados. Sete testes dirigidos de saldo aprovados com banco sentinela e HTTP bloqueado.
 - [ ] Pendências integrais dos 144 contratos e schema BetAI permanecem abertas.
+
+
+## Continuação — retirada de mensalidades administrativas BetAI
+
+- [x] Usuário determinou remoção dos oito aliases `/admin/betai/...`: upstream inexistente e sistema fora do ar. Controller, proxy e testes de transporte removidos; registros Nest eliminados.
+- [x] Inventário original de 144 preservado para auditoria; oito contratos retirados, 136 ativos. Telemetria e checagem estrutural usam somente contratos ativos; documentação marca retirada sem substituição canônica.
+- [x] Pendência de schema monetário BetAI encerrada por retirada explícita da capacidade, substituindo os registros anteriores dessa pendência.
+- [x] Validação local: 477 testes Bun, 200 Jest (um ignorado pré-existente) e build aprovados. Jest exigiu setup temporário de cache de taxas com mock: execução padrão passou asserções, mas falhou por refresh assíncrono tardio contra banco sentinela loopback; repetição isolada encerrou com código zero.
+- [ ] Equivalência comportamental integral dos 136 contratos restantes continua pendente.

@@ -110,7 +110,7 @@ Atlas e Revalida compartilham consultas, gráficos, resumos e paginação. Adapt
 
 ### Inventário executável de aliases
 
-`legacy-platform-contracts.ts` fixa 144 pares método/caminho, handler, autenticação declarada, unidade e família equivalente. Telemetria registra somente método e template constantes desses contratos, nunca URL concreta, query, corpo ou credenciais. Checagem estrutural cobre 144 declarações; testes de delegação cobrem 40 aliases financeiros. Equivalência estrutural/delegação não prova, isoladamente, todos os resultados financeiros dos 144 contratos.
+`legacy-platform-contracts.ts` preserva inventário original de 144 pares método/caminho, com 136 contratos ativos e oito aliases administrativos BetAI retirados por decisão explícita do usuário. Telemetria registra somente método e template constantes desses contratos, nunca URL concreta, query, corpo ou credenciais. Checagem estrutural cobre 136 declarações ativas; testes de delegação cobrem 40 aliases financeiros. Equivalência estrutural/delegação não prova, isoladamente, todos os resultados financeiros dos 144 contratos.
 
 ### Claim de links AreaFlix
 
@@ -145,7 +145,7 @@ Sincronização histórica Atlas/Revalida compartilha persistência com polling,
 
 Comerciantes canônicos podem reutilizar associação legada existente somente por `LEGACY_MERCHANT_KEYS` explícita e sem ambiguidade entre plataformas. Não é feito backfill automático. Pagamentos, saques individuais/listagens e outbox respeitam produto e titular. Reconciliação de comerciantes não transfere transações históricas nem dinheiro entre carteiras: referências de outro titular/produto ou sem identificação retornam em `conflicts`. Cotação, consulta individual e reconciliação estão disponíveis sob `/platforms/:tag/merchants/:externalMerchantId/finance/...`, com escopos canônicos.
 
-Oito proxies administrativos de mensalidade BetAI usam adapter de integração compartilhado, após resolver produto/dono ativos. Contratos legados continuam encaminhando JSON opaco, método, body nulo→`{}`, IDs/query escapados e erros 500 existentes. Esse JSON legado não define contrato monetário das novas APIs. Schema externo de `/internal/mensalidade/*` não está no checkout local BetAI; normalização canônica dessa capacidade aguarda contrato explícito. Nenhuma chamada externa foi feita durante validação.
+Oito aliases administrativos `/admin/betai/...` de mensalidades foram removidos por solicitação explícita do usuário: sistema fora do ar e endpoints upstream `/internal/mensalidade/*` inexistentes. Controller e serviço de proxy foram excluídos; rotas deixam de ser registradas (404), sem substituto canônico. Inventário histórico conserva os oito contratos como retirados e telemetria de aliases considera somente os 136 restantes. Essa capacidade sai do escopo da migração; não há pendência de schema monetário para ela. Demais integrações BetAI existentes permanecem no escopo.
 
 Snapshots canônicos representam líquido final e não recebem novo desconto de taxas fixas. Contratos legados podem armazenar líquido anterior às taxas fixas: seu cálculo caracterizado permanece preservado. Entrada canônica sem snapshot retorna `422 PLATFORM_CAPABILITY_UNAVAILABLE` (`webhooks.net-snapshot`) antes de processar; fallback monetário antigo permanece restrito aos ingressos legados.
 

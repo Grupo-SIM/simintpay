@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
-import { LEGACY_PLATFORM_CONTRACTS } from './legacy-platform-contracts';
+import { LEGACY_PLATFORM_CONTRACTS, ORIGINAL_LEGACY_PLATFORM_CONTRACTS, RETIRED_LEGACY_PLATFORM_CONTRACTS } from './legacy-platform-contracts';
 
 const sources = new Map<string, ts.SourceFile>();
 function decorators(node: ts.Node) { return ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : []; }
@@ -35,9 +35,11 @@ for (const contract of LEGACY_PLATFORM_CONTRACTS) {
     }
   });
 }
-test('inventory covers 144 unique method/path pairs and remains synchronized with documentation', () => {
-  expect(LEGACY_PLATFORM_CONTRACTS).toHaveLength(144);
-  expect(new Set(LEGACY_PLATFORM_CONTRACTS.map(c => `${c.method} ${c.path}`)).size).toBe(144);
+test('inventory preserves 144 historical contracts and 136 active contracts synchronized with documentation', () => {
+  expect(ORIGINAL_LEGACY_PLATFORM_CONTRACTS).toHaveLength(144);
+  expect(RETIRED_LEGACY_PLATFORM_CONTRACTS).toHaveLength(8);
+  expect(LEGACY_PLATFORM_CONTRACTS).toHaveLength(136);
+  expect(new Set(LEGACY_PLATFORM_CONTRACTS.map(c => `${c.method} ${c.path}`)).size).toBe(136);
   const documentation = readFileSync('docs/legacy-platform-routes.md', 'utf8');
-  for (const c of LEGACY_PLATFORM_CONTRACTS) expect(documentation).toContain('`' + c.path + '`');
+  for (const c of ORIGINAL_LEGACY_PLATFORM_CONTRACTS) expect(documentation).toContain('`' + c.path + '`');
 });

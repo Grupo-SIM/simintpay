@@ -1,5 +1,5 @@
 // Frozen public contracts characterized before migration. Do not infer auth from path names.
-export const LEGACY_PLATFORM_CONTRACTS = [
+export const ORIGINAL_LEGACY_PLATFORM_CONTRACTS = [
   {
     "method": "GET",
     "path": "/dashboard/atlas/stats",
@@ -1441,3 +1441,9 @@ export const LEGACY_PLATFORM_CONTRACTS = [
     "sse": false
   }
 ] as const;
+
+
+// Retained only as historical inventory. Removed by explicit product decision:
+// upstream mensalidade endpoints do not exist and the system is offline.
+export const RETIRED_LEGACY_PLATFORM_CONTRACTS = ORIGINAL_LEGACY_PLATFORM_CONTRACTS.filter(contract => contract.path.startsWith('/admin/betai/'));
+export const LEGACY_PLATFORM_CONTRACTS = ORIGINAL_LEGACY_PLATFORM_CONTRACTS.filter(contract => !contract.path.startsWith('/admin/betai/'));

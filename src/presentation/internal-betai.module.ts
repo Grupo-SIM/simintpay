@@ -3,12 +3,11 @@ import { Module } from '@nestjs/common';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { PrismaService } from '../infrastructure/database/prisma/prisma.service';
 import { InternalBetaiController } from './controllers/internal-betai.controller';
-import { BetaiAdminController } from './controllers/betai-admin.controller';
 import { SubscriptionLinkModule } from './subscription-link.module';
 
 @Module({
   imports: [PlatformCoreModule, ApiDomModule, SubscriptionLinkModule],
-  controllers: [InternalBetaiController, BetaiAdminController],
+  controllers: [InternalBetaiController],
   providers: [PrismaService],
 })
 export class InternalBetaiModule {}
