@@ -1,3 +1,6 @@
+import { PlatformPaymentLookup } from './platform-payment-lookup';
+import { postDomCheckout } from './dom-checkout.acquirer';
+import { PlatformPaymentExecution } from './platform-payment-execution';
 import { getPlatformOwnerId } from '../../module.registry';
 import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
@@ -119,7 +122,7 @@ export class LegacyPlatformPaymentCore {
   }
 
   private buildInternalDescription(description: string | null | undefined): string {
-    const base = (description ?? '').trim();
+    const base = (description ?? '').replace(/\[TENANT:[^\]]*\]/gi, '').trim();
     if (!base) return this.hiddenTag;
     if (base.includes(this.hiddenTag)) return base;
     return `${base} ${this.hiddenTag}`;
@@ -169,8 +172,7 @@ export class LegacyPlatformPaymentCore {
 
       const internalDescription = this.buildInternalDescription(body?.description);
 
-      const transaction = await this.prisma.transaction.create({
-        data: {
+      const transaction = await new PlatformPaymentExecution(this.prisma).reserve({
           userId,
           amount: price,
           status: TransactionStatus.DRAFT,
@@ -184,8 +186,7 @@ export class LegacyPlatformPaymentCore {
           customerEmail: body?.email,
           customerDocument: body?.document,
           customerPhone: body?.mobile_phone,
-          installments: 1,
-        },
+          installments: 1, acquirer: 'DOM',
       });
 
       this.logger.log(`✅ [ZERO_GRAU] Transação criada: ${transaction.id}`);
@@ -214,21 +215,11 @@ export class LegacyPlatformPaymentCore {
       };
 
       this.logger.log('📤 [ZERO_GRAU] Enviando requisição para DOM Pagamentos');
-      const payment = await this.createDomPagamentosPix(paymentRequest);
-      this.logger.log('📥 [ZERO_GRAU] Resposta do DOM Pagamentos recebida', {
-        paymentId: payment.id,
-        status: payment.status,
-      });
-
-      await this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: TransactionStatus.PENDING,
-          domPaymentId: payment.id,
-          pixQrCode: payment.pix_qrcode,
-          pixContent: payment.pix_content,
-          pixExpire: payment.pix_expire ? new Date(payment.pix_expire) : null,
-        },
+      const { payment } = await new PlatformPaymentExecution(this.prisma).charge({
+        transactionId: transaction.id, charge: () => this.createDomPagamentosPix(paymentRequest),
+        references: payment => ({ domPaymentId: payment.id, externalPaymentId: payment.id,
+          pixQrCode: payment.pix_qrcode, pixContent: payment.pix_content,
+          pixExpire: payment.pix_expire ? new Date(payment.pix_expire) : null }),
       });
 
       this.logger.log(`✅ [ZERO_GRAU] Transação ${transaction.id} atualizada para PENDING`);
@@ -281,8 +272,7 @@ export class LegacyPlatformPaymentCore {
 
       const internalDescription = this.buildInternalDescription(body?.description);
 
-      const transaction = await this.prisma.transaction.create({
-        data: {
+      const transaction = await new PlatformPaymentExecution(this.prisma).reserve({
           userId,
           amount: price,
           status: TransactionStatus.DRAFT,
@@ -298,8 +288,7 @@ export class LegacyPlatformPaymentCore {
           customerPhone: body?.mobile_phone,
           installments: body.installments,
           cardBrand: body.brand,
-          cardBin: body.bin,
-        },
+          cardBin: body.bin, acquirer: 'DOM',
       });
 
       this.logger.log(`✅ [ZERO_GRAU] Transação criada: ${transaction.id}`);
@@ -335,22 +324,16 @@ export class LegacyPlatformPaymentCore {
       };
 
       this.logger.log('📤 [ZERO_GRAU] Enviando requisição para DOM Pagamentos');
-      const payment = await this.createDomPagamentosCreditCard(paymentRequest);
-      this.logger.log('📥 [ZERO_GRAU] Resposta do DOM Pagamentos recebida', {
-        paymentId: payment.id,
-        status: payment.status,
+      const rejected = (status: string) => ['not_authorized', 'error', 'failed', 'refused', 'canceled', 'expired'].includes(status.toLowerCase());
+      const { payment } = await new PlatformPaymentExecution(this.prisma).charge({
+        transactionId: transaction.id, charge: () => this.createDomPagamentosCreditCard(paymentRequest),
+        rejection: payment => this.tag === 'ATLAS' && rejected(String(payment.status ?? '')),
+        references: payment => ({ domPaymentId: payment.id, externalPaymentId: payment.id }),
       });
-
       const gatewayStatus = String(payment.status ?? '').toLowerCase();
-      if (this.tag === 'ATLAS' && ['not_authorized', 'error', 'failed', 'refused', 'canceled', 'expired'].includes(gatewayStatus)) {
-        await this.prisma.transaction.update({ where: { id: transaction.id }, data: { status: TransactionStatus.FAILED, domPaymentId: payment.id } });
+      if (this.tag === 'ATLAS' && rejected(gatewayStatus)) {
         throw new BadRequestException('O pagamento não foi autorizado pela operadora do cartão. Verifique os dados do cartão ou tente outro método de pagamento.');
       }
-      await this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: { status: TransactionStatus.PENDING, domPaymentId: payment.id },
-      });
-
       this.logger.log(`✅ [ZERO_GRAU] Transação ${transaction.id} atualizada para PENDING`);
 
       // Persist terminal gateway results through the same idempotent webhook path.
@@ -387,119 +370,54 @@ export class LegacyPlatformPaymentCore {
     }
   }
 
-  protected async createDomPagamentosPix(request: DomPixRequest): Promise<DomPagamentosResponse> {
-    const url = 'https://apiv3.dompagamentos.com.br/checkout/production/transactions';
-    const headers = {
-      Authorization: `Bearer ${this.domToken}`,
-      accept: 'application/json',
-      'content-type': 'application/json',
-      Origin: this.domOrigin,
-    };
+  protected createDomPagamentosPix(request: DomPixRequest): Promise<DomPagamentosResponse> {
+    return this.createDomCheckout(request, 'PIX');
+  }
 
+  protected createDomPagamentosCreditCard(request: DomCreditCardRequest): Promise<DomPagamentosResponse> {
+    return this.createDomCheckout(request, 'cartão');
+  }
+
+  private async createDomCheckout(request: DomPixRequest | DomCreditCardRequest, kind: string): Promise<DomPagamentosResponse> {
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(request),
-      });
-
-      const responseData = await response.json();
-
+      const response = await postDomCheckout(this.domToken, request, this.domOrigin);
       if (!response.ok) {
-        this.logger.error('[ZERO_GRAU] Erro do DOM Pagamentos (PIX):', {
-          status: response.status,
-          response: responseData,
-        });
-
-        let errorMessage = 'Erro ao processar pagamento PIX';
-        switch (response.status) {
-          case 400: errorMessage = responseData.message || 'Parâmetros de requisição inválidos'; break;
-          case 401: errorMessage = 'Credenciais de API inválidas'; break;
-          case 422: errorMessage = 'Dados de pagamento inválidos'; break;
-          case 429: errorMessage = 'Muitas requisições, tente novamente mais tarde'; break;
-          case 500: case 502: case 503: errorMessage = 'Serviço de pagamento temporariamente indisponível'; break;
-        }
-
-        throw new BadRequestException(errorMessage);
+        const messages: Record<number, string> = {
+          400: response.data.message || 'Parâmetros de requisição inválidos',
+          401: 'Credenciais de API inválidas', 422: kind === 'PIX' ? 'Dados de pagamento inválidos' : 'Dados de cartão inválidos',
+          429: 'Muitas requisições, tente novamente mais tarde',
+          500: 'Serviço de pagamento temporariamente indisponível',
+          502: 'Serviço de pagamento temporariamente indisponível', 503: 'Serviço de pagamento temporariamente indisponível',
+        };
+        throw new BadRequestException(messages[response.status] ?? (kind === 'PIX' ? 'Erro ao processar pagamento PIX' : 'Erro ao processar pagamento com cartão'));
       }
-
-      this.logger.log('✅ [ZERO_GRAU] Sucesso no DOM Pagamentos (PIX)', {
-        id: responseData.id,
-        status: responseData.status,
-      });
-
-      return responseData as DomPagamentosResponse;
+      return response.data as DomPagamentosResponse;
     } catch (error) {
-      this.logger.error('[ZERO_GRAU] Erro na comunicação com DOM Pagamentos (PIX):', error);
       if (error instanceof BadRequestException || error instanceof ForbiddenException || error instanceof NotFoundException || error instanceof UnprocessableEntityException) throw error;
-      throw new BadRequestException(
-        'Erro ao comunicar com o serviço de pagamento. Por favor, tente novamente mais tarde.',
-      );
+      throw new BadRequestException('Erro ao comunicar com o serviço de pagamento. Por favor, tente novamente mais tarde.');
     }
   }
 
-  protected async createDomPagamentosCreditCard(request: DomCreditCardRequest): Promise<DomPagamentosResponse> {
-    const url = 'https://apiv3.dompagamentos.com.br/checkout/production/transactions';
-    const headers = {
-      Authorization: `Bearer ${this.domToken}`,
-      accept: 'application/json',
-      'content-type': 'application/json',
-      Origin: this.domOrigin,
-    };
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(request),
-      });
-
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        this.logger.error('[ZERO_GRAU] Erro do DOM Pagamentos (Cartão):', {
-          status: response.status,
-          response: responseData,
-        });
-
-        let errorMessage = 'Erro ao processar pagamento com cartão';
-        switch (response.status) {
-          case 400: errorMessage = responseData.message || 'Parâmetros de requisição inválidos'; break;
-          case 401: errorMessage = 'Credenciais de API inválidas'; break;
-          case 422: errorMessage = 'Dados de cartão inválidos'; break;
-          case 429: errorMessage = 'Muitas requisições, tente novamente mais tarde'; break;
-          case 500: case 502: case 503: errorMessage = 'Serviço de pagamento temporariamente indisponível'; break;
-        }
-
-        throw new BadRequestException(errorMessage);
-      }
-
-      this.logger.log('✅ [ZERO_GRAU] Sucesso no DOM Pagamentos (Cartão)', {
-        id: responseData.id,
-        status: responseData.status,
-      });
-
-      return responseData as DomPagamentosResponse;
-    } catch (error) {
-      this.logger.error('[ZERO_GRAU] Erro na comunicação com DOM Pagamentos (Cartão):', error);
-      if (error instanceof BadRequestException || error instanceof ForbiddenException || error instanceof NotFoundException || error instanceof UnprocessableEntityException) throw error;
-      throw new BadRequestException(
-        'Erro ao comunicar com o serviço de pagamento. Por favor, tente novamente mais tarde.',
-      );
-    }
+  async checkStatus(paymentId: string) {
+    const payment = await new PlatformPaymentLookup(this.prisma).find({ tag: this.tag }, paymentId);
+    if (!payment) return { paymentId, status: ['BOSQUE', 'RENOVADA'].includes(this.tag) ? 'PENDING' : 'NOT_FOUND' };
+    if (this.tag === 'ZERO-GRAU' && this.reconcile) return this.reconcile.reconcilePayment(paymentId, payment.userId, this.domToken);
+    return { paymentId: payment.domPaymentId, status: payment.status };
   }
 
   async checkPixStatusDirect(domPaymentId: string): Promise<{ status: string }> {
     const userId = (getPlatformOwnerId(this.tag) ?? '');
     if (!userId) return { status: 'UNKNOWN' };
     await this.assertPlatformOwner(userId);
+    const payment = await new PlatformPaymentLookup(this.prisma).find({ tag: this.tag }, domPaymentId);
+    if (!payment) return { status: 'UNKNOWN' };
     if (!this.reconcile) {
       const response = await fetch(`https://apiv3.dompagamentos.com.br/checkout/production/transactions/${encodeURIComponent(domPaymentId)}`, { headers: { Authorization: `Bearer ${this.domToken}`, accept: 'application/json' } });
       if (!response.ok) return { status: 'UNKNOWN' };
       const data = await response.json();
       return { status: String(data.status ?? 'UNKNOWN').toUpperCase() };
     }
-    const result = await this.reconcile!.reconcilePayment(domPaymentId, userId, this.domToken);
+    const result = await this.reconcile!.reconcilePayment(domPaymentId, payment.userId, this.domToken);
     return { status: result.status };
   }
 }

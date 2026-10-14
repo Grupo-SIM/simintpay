@@ -36,8 +36,7 @@ export class ZeroGrauPaymentController {
   @Get('status/:paymentId')
   @ApiOperation({ summary: '[ZERO_GRAU] Verificar status de um pagamento' })
   async checkStatus(@Param('paymentId') paymentId: string) {
-    return this.reconcile.reconcilePayment(paymentId, this.zeroGrauUserId,
-      (getPlatformIntegrationValue('ZERO-GRAU', 'DOM_TOKEN') ?? undefined));
+    return this.paymentService.checkStatus(paymentId);
   }
 
   @Get('pix-status/:domPaymentId')

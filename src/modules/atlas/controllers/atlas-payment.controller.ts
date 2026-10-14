@@ -36,16 +36,7 @@ export class AtlasPaymentController {
   @Get('status/:paymentId')
   @ApiOperation({ summary: '[ATLAS] Verificar status de um pagamento' })
   async checkStatus(@Param('paymentId') paymentId: string) {
-    const tx = await this.prisma.transaction.findFirst({
-      where: {
-        userId: await this.ownerUserId(),
-        OR: [{ domPaymentId: paymentId }, { domTransactionId: paymentId }],
-      },
-      select: { domPaymentId: true, status: true },
-    });
-
-    if (!tx) return { paymentId, status: 'NOT_FOUND' };
-    return { paymentId: tx.domPaymentId, status: tx.status };
+    return this.paymentService.checkStatus(paymentId);
   }
 
   @Get('pix-status/:domPaymentId')

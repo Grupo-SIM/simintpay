@@ -20,6 +20,9 @@ export class PlatformOperationsController {
   @Get('capabilities') @Operation('reports:read')
   capabilities(@Req() request: PlatformRequest) { return platformAdapter(request.platformContext.tag); }
 
+  @Get('payments/:paymentId') @Operation('payments:read')
+  payment(@Req() request: PlatformRequest, @Param('paymentId') paymentId: string) { return this.payments.read(request.platformContext, paymentId); }
+
   @Post('payments') @Operation('payments:create')
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   create(@Req() request: PlatformRequest, @Body() body: CreatePlatformPaymentDto) { return this.payments.create(request.platformContext, body); }

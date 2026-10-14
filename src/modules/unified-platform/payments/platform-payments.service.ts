@@ -1,3 +1,5 @@
+import { PlatformPaymentLookup } from './platform-payment-lookup';
+import { PlatformPaymentExecution } from './platform-payment-execution';
 import { createHash } from 'node:crypto';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -14,6 +16,12 @@ export type PaymentPlatformContext = { id: string; tag: string; ownerUserId: str
 @Injectable()
 export class PlatformPaymentsService {
   constructor(private readonly prisma: PrismaService, private readonly gateways: PaymentGatewayResolver) {}
+
+  async read(context: PaymentPlatformContext, reference: string) {
+    const payment = await new PlatformPaymentLookup(this.prisma).find(context, reference);
+    if (!payment) throw new NotFoundException('Pagamento não encontrado');
+    return this.result(payment);
+  }
 
   async create(context: PaymentPlatformContext, input: CreatePlatformPaymentDto) {
     return this.execute(context, input);
@@ -60,34 +68,33 @@ export class PlatformPaymentsService {
     for (const row of overrides.filter(row => row.tag === 'GLOBAL')) rates[row.key] = row.value;
     for (const row of overrides.filter(row => row.tag !== 'GLOBAL')) rates[row.key] = row.value;
     try {
-      await this.prisma.transaction.create({ data: {
+      await new PlatformPaymentExecution(this.prisma).reserve({
         id, userId: financialUserId, amount, ...adapter.fees(amount, rates, cardAcquirer ? input.card!.installments : undefined),
         status: 'DRAFT', paymentMethod: input.paymentMethod, acquirer: platform.acquirer,
         description, customerName: input.customer.name, customerEmail: input.customer.email,
         customerDocument: input.customer.document, customerPhone: input.customer.phone ?? '', installments: cardAcquirer ? input.card!.installments : 1,
         ...(cardAcquirer ? { cardBin: input.card!.bin, cardBrand: input.card!.brand } : {}),
-      } });
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException({ code: 'PAYMENT_PROCESSING', transactionId: id });
       throw error;
     }
     // Frendz's current transport expects cents; DOM's expects reais.
-    const payment = cardAcquirer ? await cardAcquirer.charge(token, { id, amountCents: input.amountCents, description: adapter.description(input.description), customer: input.customer, card: input.card! }) : await this.gateways.byAcquirer(platform.acquirer as Acquirer).createPixCheckout(token, {
-      codExternal: id, amount: platform.acquirer === 'FRENDZ' ? input.amountCents : amount.toNumber(),
-      description: adapter.description(input.description), customerName: input.customer.name,
-      customerEmail: input.customer.email, customerDocument: input.customer.document,
-      customerPhone: input.customer.phone ?? '', documentType: input.customer.documentType,
+    const { transaction: stored } = await new PlatformPaymentExecution(this.prisma).charge({
+      transactionId: id,
+      charge: async () => cardAcquirer ? cardAcquirer.charge(token, { id, amountCents: input.amountCents, description: adapter.description(input.description), customer: input.customer, card: input.card! }) : this.gateways.byAcquirer(platform.acquirer as Acquirer).createPixCheckout(token, {
+        codExternal: id, amount: platform.acquirer === 'FRENDZ' ? input.amountCents : amount.toNumber(),
+        description: adapter.description(input.description), customerName: input.customer.name,
+        customerEmail: input.customer.email, customerDocument: input.customer.document,
+        customerPhone: input.customer.phone ?? '', documentType: input.customer.documentType,
+      }),
+      rejection: payment => !!cardAcquirer && ['not_authorized', 'error', 'failed', 'refused', 'canceled', 'expired'].includes(payment.status),
+      references: payment => ({ externalPaymentId: payment.id,
+        ...(platform.acquirer === 'DOM' ? { domPaymentId: payment.id } : {}),
+        pixQrCode: payment.qrCode, pixContent: payment.pixContent,
+        pixExpire: payment.pixExpire ? new Date(payment.pixExpire) : null,
+      }),
     });
-    // An immediate webhook may already have settled DRAFT while charge awaited.
-    await this.prisma.transaction.updateMany({ where: { id, status: 'DRAFT' }, data: {
-      status: cardAcquirer && ['not_authorized', 'error', 'failed', 'refused', 'canceled', 'expired'].includes(payment.status) ? 'FAILED' : 'PENDING',
-    } });
-    const stored = await this.prisma.transaction.update({ where: { id }, data: {
-      externalPaymentId: payment.id,
-      ...(platform.acquirer === 'DOM' ? { domPaymentId: payment.id } : {}),
-      pixQrCode: payment.qrCode, pixContent: payment.pixContent,
-      pixExpire: payment.pixExpire ? new Date(payment.pixExpire) : null,
-    } });
     return this.result(stored);
   }
 

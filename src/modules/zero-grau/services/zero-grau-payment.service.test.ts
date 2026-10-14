@@ -19,6 +19,7 @@ function fixture(gatewayStatus: string, localStatus: string) {
     transaction: {
       create: mock(async () => ({ id: 'local-card' })),
       update: mock(async () => ({})),
+      updateMany: mock(async () => ({ count: 1 })),
     },
   };
   const reconcilePayment = mock(async () => ({ paymentId: 'dom-card', status: localStatus }));
@@ -33,7 +34,8 @@ describe('Zero Grau card settlement', () => {
     const { service, prisma, reconcilePayment } = fixture('approved', 'COMPLETED');
     const result = await service.createPaymentCreditCard('seller', card);
     expect(result).toMatchObject({ status: 'COMPLETED', paymentId: 'dom-card', transactionId: 'local-card' });
-    expect(prisma.transaction.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'PENDING', domPaymentId: 'dom-card' } }));
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({ where: { id: 'local-card', status: 'DRAFT' }, data: { status: 'PENDING' } });
+    expect(prisma.transaction.update).toHaveBeenCalledWith(expect.objectContaining({ data: { domPaymentId: 'dom-card', externalPaymentId: 'dom-card' } }));
     expect(reconcilePayment.mock.calls[0]?.slice(0, 2)).toEqual(['dom-card', 'seller']);
   });
 

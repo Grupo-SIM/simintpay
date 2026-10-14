@@ -36,16 +36,7 @@ export class RenovadaPaymentController {
   @Get('status/:paymentId')
   @ApiOperation({ summary: '[RENOVADA] Verificar status de pagamento por domPaymentId' })
   async checkStatus(@Param('paymentId') paymentId: string) {
-    const tx = await this.prisma.transaction.findFirst({
-      where: {
-        userId: await this.ownerUserId(),
-        OR: [{ domPaymentId: paymentId }, { domTransactionId: paymentId }],
-      },
-      select: { domPaymentId: true, status: true },
-    });
-
-    if (!tx) return { paymentId, status: 'PENDING' };
-    return { paymentId: tx.domPaymentId, status: tx.status };
+    return this.paymentService.checkStatus(paymentId);
   }
 
   @Get('test')

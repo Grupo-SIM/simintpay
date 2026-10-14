@@ -56,7 +56,7 @@ Inventário obtido de HEAD antes da substituição dos controllers. Nenhuma conf
 
 ## Próximos itens ainda necessários para concluir o plano inteiro
 
-- Unificar a execução financeira dos contratos legados de pagamento com a operação canônica, preservando respostas específicas de cada adapter.
+- [x] Unificar execução financeira dos pagamentos legados/canônicos: PlatformPaymentExecution compartilha draft, chamada e CAS; transport DOM compartilhado e consultas de status isoladas. Respostas específicas preservadas.
 - Reduzir consultas/projeções duplicadas nos adapters financeiros legados; migrar espelhamento/registro de transações PAGATG e demais capacidades corporativas ainda atendidas somente pelos contratos existentes.
 - Completar testes de equivalência de todos os 144 contratos inventariados (cobertura atual dirigida, sem equivalência exaustiva).
 - Validar contratos corporativos restantes de checkout/callbacks sem executar serviços externos.
@@ -70,3 +70,10 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Preparar SQL transacional e preflight; associação ausente bloqueia backfill. Nenhuma migração aplicada em banco.
 - [x] `/auth/me` lista produtos e preserva saldo compartilhado; usuário com vários produtos precisa escolha explícita em criação financeira.
 - [x] Schema Prisma validado, cliente regenerado localmente, build aprovado; 163 testes Bun e 200 Jest aprovados (1 teste pré-existente ignorado). Identidade pronta para commit local; aliases continuam próxima etapa.
+
+## Execução compartilhada de pagamentos
+
+- [x] Atlas/Bosque/Renovada/Zero Grau e canônico delegam reserva/cobrança/persistência ao mesmo executor.
+- [x] Adapter DOM separado das regras corporativas; status por referência usa lookup compartilhado e bloqueia marcas conflitantes.
+- [x] Matriz de equivalência de 4 plataformas × PIX/cartão verifica lançamentos, centavos/reais, taxas, estado e ausência de crédito antecipado.
+- [x] Build aprovado; 31 testes dirigidos de execução, equivalência, adapters e isolamento aprovados.
