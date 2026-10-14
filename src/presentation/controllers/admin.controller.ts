@@ -1,3 +1,4 @@
+import { PlatformSaasAccessService } from '../../modules/platform-core/platform-saas-access.service';
 import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   BadRequestException,
@@ -7405,18 +7406,9 @@ export class AdminController {
 
   // ── Gestão de usuários das plataformas SaaS (PlatformSubscriberAccess) ───────
 
-  private getSaasBaseUrl(tag: string): string | null {
-    const upper = tag.toUpperCase();
-    if (upper === 'CONTROLE-PATRIMONIAL') return String((getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
-    if (upper === 'CONTROLE-MOTORISTA') return String((getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
-    return null;
-  }
+  
 
-  private calcRemainingDays(expiresAt: Date, frozenDays: number, isActive: boolean): number {
-    if (!isActive) return frozenDays;
-    const ms = new Date(expiresAt).getTime() - Date.now();
-    return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
-  }
+  
 
   @Get('plataformas/:tag/usuarios')
   @ApiOperation({ summary: 'Listar assinantes de uma plataforma SaaS com dias restantes' })
@@ -7428,99 +7420,14 @@ export class AdminController {
     @Query('status') status = 'all',
     @Query('page') page = '1',
     @Query('limit') limit = '20',
-  ) {
-    const upper = tag.toUpperCase();
-    const validTags = ['CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL'];
-    if (!validTags.includes(upper)) throw new NotFoundException(`Plataforma ${tag} não suporta listagem de usuários`);
-
-    const pageNum = Math.max(1, Number(page));
-    const pageSize = Math.min(Math.max(1, Number(limit)), 100);
-
-    const where: any = { platformTag: upper };
-    if (status === 'active') where.isActive = true;
-    else if (status === 'inactive') where.isActive = false;
-
-    const [records, total] = await Promise.all([
-      this.prisma.platformSubscriberAccess.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (pageNum - 1) * pageSize,
-        take: pageSize,
-      }),
-      this.prisma.platformSubscriberAccess.count({ where }),
-    ]);
-
-    const users = records.map((r) => ({
-      id: r.id,
-      email: r.customerEmail,
-      name: r.customerName,
-      cpf: r.customerCpf,
-      phone: r.customerPhone,
-      isActive: r.isActive,
-      expiresAt: r.expiresAt,
-      remainingDays: this.calcRemainingDays(r.expiresAt, r.frozenDays, r.isActive),
-      frozenDays: r.frozenDays,
-      totalDaysCredited: r.totalDaysCredited,
-      lastPaymentMethod: r.lastPaymentMethod ?? null,
-      createdAt: r.createdAt,
-    }));
-
-    return { users, total, page: pageNum, pageSize, totalPages: Math.ceil(total / pageSize) };
-  }
+  ) { return new PlatformSaasAccessService(this.prisma).list(tag, status, page, limit); }
 
   @Patch('plataformas/:tag/usuarios/:userId/toggle')
   @ApiOperation({ summary: 'Pausar/retomar acesso de assinante (freeze de dias + notifica SaaS backend)' })
   async togglePlataformaUsuario(
     @Param('tag') tag: string,
     @Param('userId') userId: string,
-  ) {
-    const upper = tag.toUpperCase();
-    const validTags = ['CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL'];
-    if (!validTags.includes(upper)) throw new NotFoundException(`Plataforma ${tag} não suporta toggle de usuários`);
-
-    const record = await this.prisma.platformSubscriberAccess.findUnique({ where: { id: userId } });
-    if (!record) throw new NotFoundException('Assinante não encontrado');
-
-    const now = new Date();
-    let updated: any;
-
-    if (record.isActive) {
-      // ── PAUSAR: congelar os dias restantes ───────────────────────────────────
-      const remainingDays = this.calcRemainingDays(record.expiresAt, record.frozenDays, true);
-      updated = await this.prisma.platformSubscriberAccess.update({
-        where: { id: userId },
-        data: { isActive: false, expiresAt: now, frozenDays: remainingDays },
-      });
-    } else {
-      // ── RETOMAR: devolver os dias congelados ─────────────────────────────────
-      const daysToReturn = record.frozenDays;
-      if (daysToReturn <= 0) throw new Error('Não há dias guardados para retomar');
-      const newExpiry = new Date(now.getTime() + daysToReturn * 24 * 60 * 60 * 1000);
-      updated = await this.prisma.platformSubscriberAccess.update({
-        where: { id: userId },
-        data: { isActive: true, expiresAt: newExpiry, frozenDays: 0 },
-      });
-    }
-
-    // Notifica o SaaS backend para sincronizar isActive do usuário
-    const baseUrl = this.getSaasBaseUrl(upper);
-    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
-    if (baseUrl && token) {
-      fetch(`${baseUrl}/internal/users/toggle-by-email`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json', 'x-internal-token': token },
-        body: JSON.stringify({ email: record.customerEmail, isActive: updated.isActive }),
-      }).catch(() => { /* não bloquear se o SaaS backend estiver indisponível */ });
-    }
-
-    return {
-      toggled: true,
-      isActive: updated.isActive,
-      remainingDays: this.calcRemainingDays(updated.expiresAt, updated.frozenDays, updated.isActive),
-      frozenDays: updated.frozenDays,
-      expiresAt: updated.expiresAt,
-    };
-  }
+  ) { return new PlatformSaasAccessService(this.prisma).toggle(tag, userId); }
 
   @Get('relatorios/atlas-consolidado')
   @UseGuards(JwtAuthGuard, RolesGuard)

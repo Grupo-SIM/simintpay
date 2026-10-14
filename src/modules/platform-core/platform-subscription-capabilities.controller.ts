@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, SetMetadata, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, SetMetadata, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
 import { PlatformSubscriptionPlanDto } from './platform-subscription-capabilities.dto';
@@ -18,6 +18,16 @@ export class PlatformSubscriptionCapabilitiesController {
   @Get('subscriptions/:code/status') @SetMetadata('platform-operation', 'subscriptions:read')
   status(@Req() request: { platformContext: PlatformContext }, @Param('code') code: string) {
     return this.capabilities.paymentStatus(request.platformContext, code);
+  }
+
+  @Get('saas/subscribers') @SetMetadata('platform-operation', 'subscriptions:read')
+  subscribers(@Req() request: { platformContext: PlatformContext }, @Query('status') status = 'all', @Query('page') page = '1', @Query('limit') limit = '20') {
+    return this.capabilities.subscribers(request.platformContext, status, page, limit);
+  }
+
+  @Patch('saas/subscribers/:id/toggle') @SetMetadata('platform-operation', 'subscriptions:write')
+  toggleSubscriber(@Req() request: { platformContext: PlatformContext }, @Param('id') id: string) {
+    return this.capabilities.toggleSubscriber(request.platformContext, id);
   }
 
   @Get('saas/access') @SetMetadata('platform-operation', 'subscriptions:read')

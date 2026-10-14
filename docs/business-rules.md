@@ -99,3 +99,7 @@ Execução de pagamentos passa por PlatformPaymentExecution tanto nas APIs canô
 - Identificador de assinatura PAGATG é referência externa não única: várias faturas podem pertencer à mesma assinatura. Identificador de pagamento continua único.
 - Espelhamento de plano exige vínculo explícito com conta/plataforma. Código global não autoriza sobrescrever plano de outro produto; legado sem atribuição exige associação administrativa.
 - Tokens internos históricos são verificados exclusivamente no guard dos aliases financeiros inventariados. APIs canônicas mantêm autenticação própria; health Atlas permanece público.
+
+### Acesso SaaS compartilhado
+
+Listagem e pause/resume de assinantes CONTROLE-MOTORISTA/CONTROLE-PATRIMONIAL usam mesmo serviço nos aliases e em `/platforms/:tag/saas/subscribers`. ID de assinante sempre precisa pertencer à tag. Produto/dono inativo bloqueia operação. Pause congela dias restantes; resume restaura dias congelados. Comparação do estado anterior impede duas operações concorrentes de aplicar mudanças sobre cálculo obsoleto. Aliases mantêm acesso histórico; APIs canônicas exigem `subscriptions:read`/`subscriptions:write`.

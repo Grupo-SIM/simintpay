@@ -1,3 +1,4 @@
+import { PlatformSaasAccessService } from './platform-saas-access.service';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
@@ -45,6 +46,16 @@ export class PlatformSubscriptionCapabilitiesService {
     const order = await this.prisma.subscriptionLinkOrder.findFirst({ where: { subscriptionLinkId: link.id, status: { in: ['paid', 'active'] } },
       orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
     return { paid: !!order, paidAt: order?.createdAt ?? null };
+  }
+
+  async subscribers(context: PlatformContext, status: string, page: string, limit: string) {
+    const current = await this.current(context, 'saas.subscribers', saasTags);
+    return new PlatformSaasAccessService(this.prisma).list(current.tag, status, page, limit);
+  }
+
+  async toggleSubscriber(context: PlatformContext, subscriberId: string) {
+    const current = await this.current(context, 'saas.toggle', saasTags);
+    return new PlatformSaasAccessService(this.prisma).toggle(current.tag, subscriberId);
   }
 
   async access(context: PlatformContext, email: string) {

@@ -85,3 +85,8 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Espelhamento de planos bloqueia colisão entre produtos; referência da assinatura não impede múltiplas faturas.
 - [x] Resolver documental e paginação de saques compartilhados; guards dos aliases preservam fontes de token e exceção pública Atlas.
 - [ ] Equivalência integral dos demais contratos permanece pendente; esta etapa não conclui matriz de 144.
+
+## Continuação — administração SaaS
+
+- [x] Listagem e toggle legados/canônicos usam PlatformSaasAccessService; filtros de tag e controle concorrente preservam isolamento.
+- [x] Três testes com mocks verificam equivalência da projeção, ID estrangeiro e pause concorrente. Build local aprovado.
