@@ -1,4 +1,4 @@
-import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
+import { PlatformBetaiAdministrationService } from '../../modules/platform-core/platform-betai-administration.service';
 import {
   Controller,
   Get,
@@ -10,7 +10,6 @@ import {
   Param,
   Query,
   UseGuards,
-  InternalServerErrorException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
@@ -29,118 +28,37 @@ import { Roles } from '../../infrastructure/security/decorators/roles.decorator'
 @ApiBearerAuth()
 @ApiTags('Betai (admin)')
 export class BetaiAdminController {
-  private betaiUrl(): string {
-    return String((getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
-  }
-  private token(): string {
-    return process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
-  }
+  constructor(private readonly administration: PlatformBetaiAdministrationService) {}
 
   @Get('mensalidades')
   @ApiOperation({ summary: 'Lista as mensalidades do Betai (proxy)' })
-  async mensalidades() {
-    const url = this.betaiUrl();
-    if (!url) throw new InternalServerErrorException('BETAI_URL não configurado no api-machine');
-    const resp = await fetch(`${url}/internal/mensalidade/invoices`, {
-      headers: { 'x-internal-token': this.token() },
-    });
-    if (!resp.ok) {
-      throw new InternalServerErrorException(`Betai respondeu ${resp.status}`);
-    }
-    return resp.json();
-  }
+  async mensalidades() { return this.administration.legacy('invoices'); }
 
   @Post('mensalidades/run')
   @ApiOperation({ summary: 'Roda geração/reconciliação das mensalidades do Betai (proxy)' })
-  async run() {
-    const url = this.betaiUrl();
-    if (!url) throw new InternalServerErrorException('BETAI_URL não configurado no api-machine');
-    const resp = await fetch(`${url}/internal/mensalidade/run`, {
-      method: 'POST',
-      headers: { 'x-internal-token': this.token() },
-    });
-    if (!resp.ok) {
-      throw new InternalServerErrorException(`Betai respondeu ${resp.status}`);
-    }
-    return resp.json();
-  }
+  async run() { return this.administration.legacy('run'); }
 
   @Get('cobranca')
   @ApiOperation({ summary: 'Config de cobrança da mensalidade (padrão global + exceções) (proxy)' })
-  async cobranca() {
-    const url = this.betaiUrl();
-    if (!url) throw new InternalServerErrorException('BETAI_URL não configurado no api-machine');
-    const resp = await fetch(`${url}/internal/mensalidade/cobranca`, {
-      headers: { 'x-internal-token': this.token() },
-    });
-    if (!resp.ok) throw new InternalServerErrorException(`Betai respondeu ${resp.status}`);
-    return resp.json();
-  }
+  async cobranca() { return this.administration.legacy('configuration'); }
 
   @Put('cobranca')
   @ApiOperation({ summary: 'Salva config de cobrança da mensalidade (proxy)' })
-  async saveCobranca(@Body() body: unknown) {
-    const url = this.betaiUrl();
-    if (!url) throw new InternalServerErrorException('BETAI_URL não configurado no api-machine');
-    const resp = await fetch(`${url}/internal/mensalidade/cobranca`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'x-internal-token': this.token() },
-      body: JSON.stringify(body ?? {}),
-    });
-    if (!resp.ok) throw new InternalServerErrorException(`Betai respondeu ${resp.status}`);
-    return resp.json();
-  }
+  async saveCobranca(@Body() body: unknown) { return this.administration.legacy('saveConfiguration', { body }); }
 
   @Get('investors')
   @ApiOperation({ summary: 'Busca investidores do Betai por nome/e-mail/telefone/CPF (proxy)' })
-  async investors(@Query('q') q: string) {
-    const url = this.betaiUrl();
-    if (!url) throw new InternalServerErrorException('BETAI_URL não configurado no api-machine');
-    const resp = await fetch(`${url}/internal/mensalidade/investors?q=${encodeURIComponent(q ?? '')}`, {
-      headers: { 'x-internal-token': this.token() },
-    });
-    if (!resp.ok) throw new InternalServerErrorException(`Betai respondeu ${resp.status}`);
-    return resp.json();
-  }
+  async investors(@Query('q') q: string) { return this.administration.legacy('investors', { query: q }); }
 
   @Post('cobrar')
   @ApiOperation({ summary: 'Cobra a mensalidade do mês atual (todos/selecionados) (proxy)' })
-  async cobrar(@Body() body: unknown) {
-    const url = this.betaiUrl();
-    if (!url) throw new InternalServerErrorException('BETAI_URL não configurado no api-machine');
-    const resp = await fetch(`${url}/internal/mensalidade/cobrar`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-internal-token': this.token() },
-      body: JSON.stringify(body ?? {}),
-    });
-    if (!resp.ok) throw new InternalServerErrorException(`Betai respondeu ${resp.status}`);
-    return resp.json();
-  }
+  async cobrar(@Body() body: unknown) { return this.administration.legacy('charge', { body }); }
 
   @Patch('mensalidades/:id')
   @ApiOperation({ summary: 'Edita uma mensalidade (valor/vencimento/status) (proxy)' })
-  async editMensalidade(@Param('id') id: string, @Body() body: unknown) {
-    const url = this.betaiUrl();
-    if (!url) throw new InternalServerErrorException('BETAI_URL não configurado no api-machine');
-    const resp = await fetch(`${url}/internal/mensalidade/invoices/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'x-internal-token': this.token() },
-      body: JSON.stringify(body ?? {}),
-    });
-    if (!resp.ok) throw new InternalServerErrorException(`Betai respondeu ${resp.status}`);
-    return resp.json();
-  }
+  async editMensalidade(@Param('id') id: string, @Body() body: unknown) { return this.administration.legacy('editInvoice', { id, body }); }
 
   @Delete('mensalidades/:id')
   @ApiOperation({ summary: 'Remove uma mensalidade (proxy)' })
-  async deleteMensalidade(@Param('id') id: string) {
-    const url = this.betaiUrl();
-    if (!url) throw new InternalServerErrorException('BETAI_URL não configurado no api-machine');
-    const resp = await fetch(`${url}/internal/mensalidade/invoices/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-      headers: { 'x-internal-token': this.token() },
-    });
-    if (!resp.ok) throw new InternalServerErrorException(`Betai respondeu ${resp.status}`);
-    return resp.json();
-  }
+  async deleteMensalidade(@Param('id') id: string) { return this.administration.legacy('deleteInvoice', { id }); }
 }

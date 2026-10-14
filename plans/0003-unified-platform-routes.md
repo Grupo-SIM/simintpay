@@ -172,3 +172,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Reconciliação deixa de transferir titularidade histórica/carteiras: referências incompatíveis retornam conflitos.
 - [x] APIs canônicas de cotação/detalhe/reconciliação compartilham serviços dos aliases, preservando centavos.
 - [x] Dez testes Bun dirigidos e cinco regressões Jest aprovados.
+
+## Continuação — administração remota BetAI
+
+- [x] Oito proxies delegam ao adapter compartilhado, com resolução de plataforma/dono ativos e preservação do transporte legado.
+- [x] Nove testes mockados verificam métodos, caminhos, headers, JSON/unidades legadas, escape, defaults e erros.
+- [ ] Contrato monetário canônico de mensalidades depende de schema dos endpoints remotos `/internal/mensalidade/*`, ausentes no checkout local `../betai`. Fonte solicitada ao usuário; não inferir campos monetários de JSON opaco.
