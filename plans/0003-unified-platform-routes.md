@@ -103,3 +103,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Registro de uso cobre exatamente contratos inventariados; teste verifica ausência de credenciais e dados de requisição.
 - [x] 40 aliases financeiros verificados quanto a argumentos, envelope e propagação de erros do serviço compartilhado.
 - [ ] Resultado financeiro completo de todos os 144 contratos ainda exige equivalência comportamental adicional; manifesto não encerra essa pendência.
+
+## Continuação — claim AreaFlix
+
+- [x] Alias e API canônica delegam claim ao núcleo; links precisam vínculo explícito e dono ativo.
+- [x] Histórico financeiro preservado; retroativo usa origem explicitamente associada pelo admin, saldo disponível e CAS de carteiras em transação serializável.
+- [x] Cinco testes de integridade/idempotência e quatro de administração de integrações aprovados. Build aprovado; nenhuma configuração externa criada.

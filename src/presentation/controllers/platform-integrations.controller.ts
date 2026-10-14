@@ -32,7 +32,7 @@ export class PlatformIntegrationsController {
   @Put(':key')
   async put(@Param('id') id: string, @Param('key') key: string, @Body() body: { value?: unknown }, @CurrentUser() user: JwtPayload | undefined) {
     const platform = await this.authorize(id, user);
-    if (['INBOUND_TOKEN', 'INBOUND_OPERATIONS', 'COMMUNITY_PLATFORM_TAG', 'LEGACY_MERCHANT_KEYS'].includes(key)) {
+    if (['CLAIM_SOURCE_USER_ID', 'INBOUND_TOKEN', 'INBOUND_OPERATIONS', 'COMMUNITY_PLATFORM_TAG', 'LEGACY_MERCHANT_KEYS'].includes(key)) {
       const actor = await this.prisma.user.findUnique({ where: { id: user!.sub } });
       if (actor?.role !== 'ADMIN') throw new ForbiddenException('Associação exige administrador');
     }
@@ -49,6 +49,11 @@ export class PlatformIntegrationsController {
       }
       if (['ENABLE_DOM_SYNC', 'DISABLE_SYNC'].includes(key) && !['true', 'false'].includes(value)) throw new BadRequestException('Use true ou false');
       if (key === 'INBOUND_OPERATIONS' && !value.split(',').every((scope) => ['ledger:write', 'payments:create', 'payments:read', 'finance:read', 'finance:withdraw', 'reports:read', 'events:read', 'sync:run', 'merchants:manage', 'mail:send', 'community:read', 'subscriptions:write', 'subscriptions:read', 'vouchers:write', 'vouchers:read', 'billing:read', 'billing:write'].includes(scope.trim()))) throw new BadRequestException('Operação inválida');
+      if (key === 'CLAIM_SOURCE_USER_ID') {
+        if (platform.tag !== 'AREAFLIX') throw new BadRequestException('Referência exclusiva de AreaFlix');
+        const source = await this.prisma.user.findUnique({ where: { id: value } });
+        if (!source?.isActive || source.isPurged || source.id === platform.ownerUserId) throw new BadRequestException('Conta de origem inválida');
+      }
       if (key === 'COMMUNITY_PLATFORM_TAG') {
         if (platform.tag !== 'RETURN-BET') throw new BadRequestException('Referência exclusiva de Return Bet');
         const community = await this.prisma.platform.findUnique({ where: { tag: value } , include: { owner: true } });

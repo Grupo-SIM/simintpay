@@ -111,3 +111,7 @@ Atlas e Revalida compartilham consultas, gráficos, resumos e paginação. Adapt
 ### Inventário executável de aliases
 
 `legacy-platform-contracts.ts` fixa 144 pares método/caminho, handler, autenticação declarada, unidade e família equivalente. Telemetria registra somente método e template constantes desses contratos, nunca URL concreta, query, corpo ou credenciais. Checagem estrutural cobre 144 declarações; testes de delegação cobrem 40 aliases financeiros. Equivalência estrutural/delegação não prova, isoladamente, todos os resultados financeiros dos 144 contratos.
+
+### Claim de links AreaFlix
+
+`/platforms/:tag/links/claim` exige admin; alias interno preserva credencial histórica. Ambos usam transação serializável e dono atual ativo. Links precisam associação explícita AREAFLIX. Apenas titularidade futura dos links muda: transações e ordens históricas conservam dono original. Transferência retroativa exige configuração administrativa `CLAIM_SOURCE_USER_ID`; e-mail do corpo não escolhe origem. Carteira compartilhada de origem ou saldo disponível insuficiente bloqueiam transferência. Logs históricos `AREAFLIX_CLAIM_TRANSFER` impedem novo crédito, inclusive após atualização do escritor.

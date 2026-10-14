@@ -26,3 +26,8 @@ describe('platform integration management', () => {
     expect(findMany).not.toHaveBeenCalled();
   });
 });
+
+test('only admin can associate a retroactive claim source', async () => {
+  const { controller } = fixture();
+  await expect(controller.put('platform', 'CLAIM_SOURCE_USER_ID', { value: 'source' }, user)).rejects.toBeInstanceOf(ForbiddenException);
+});

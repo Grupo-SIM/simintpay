@@ -1,3 +1,4 @@
+import { PlatformLinkClaim, type LinkClaim } from './platform-link-claim';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query, Req, SetMetadata, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
@@ -13,6 +14,11 @@ import { unsupportedCapability } from './platform-adapters';
 @UseGuards(PlatformAuthGuard)
 export class PlatformCorporateController {
   constructor(private readonly modules: ModuleRef, private readonly prisma: PrismaService) {}
+  @Post('links/claim') @SetMetadata('platform-operation', 'maintenance:run')
+  async claimLinks(@Req() request: { platformContext: PlatformContext }, @Body() body: LinkClaim) {
+    if (Object.keys(body).some(key => !['paymentLinkIds', 'subscriptionLinkIds', 'retroactiveAmountCents'].includes(key))) throw new BadRequestException('Campo desconhecido');
+    return new PlatformLinkClaim(this.prisma).claim(request.platformContext.tag, request.platformContext.ownerUserId, body);
+  }
   @Put('return-bet/accounts/:externalUserId') @SetMetadata('platform-operation', 'maintenance:run')
   async associateAccount(@Req() request: { platformContext: PlatformContext }, @Param('externalUserId') externalUserId: string, @Body() body: { userId: string }) {
     if (request.platformContext.tag !== 'RETURN-BET') unsupportedCapability('return-bet.account-binding');
