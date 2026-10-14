@@ -1,13 +1,12 @@
 import { ConflictException } from '@nestjs/common';
 import { IntegrationFinanceService } from './integration-finance.service';
-import { ZeroGrauConfig } from '../zero-grau/zero-grau.config';
+import * as platformTaxas from '../platform-taxas/platform-taxas.store';
 
 describe('IntegrationFinanceService', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('quotes positive values without applying the legacy withdrawal minimum', () => {
-    jest.spyOn(ZeroGrauConfig.saque, 'taxaFixa', 'get').mockReturnValue(2);
-    jest.spyOn(ZeroGrauConfig.saque, 'taxaPercentual', 'get').mockReturnValue(0.01);
+    jest.spyOn(platformTaxas, 'getPlatformTaxaEffective').mockImplementation((_tag, key) => key === 'TAXA_SAQUE_FIXA' ? 2 : 0.01);
     const service = new IntegrationFinanceService({} as never);
 
     expect(service.quote(10_000)).toEqual({ feeCents: 300, grossAmountCents: 10_000, netAmountCents: 9_700 });

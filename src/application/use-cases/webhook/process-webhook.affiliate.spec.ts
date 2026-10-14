@@ -14,7 +14,7 @@ describe('ProcessWebhookUseCase — hook de comissão de afiliado', () => {
     };
 
     const prismaTxClient = {
-      transaction: { update: jest.fn().mockResolvedValue({}) },
+      transaction: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       transactionStatusHistory: { create: jest.fn().mockResolvedValue({}) },
       wallet: {
         findUnique: jest.fn().mockResolvedValue(wallet),

@@ -5,10 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
-import { randomUUID } from 'crypto';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { isValidDocument } from '../../application/validators/is-document.validator';
-import { ZeroGrauConfig } from '../zero-grau/zero-grau.config';
+import { getPlatformTaxaEffective } from '../platform-taxas/platform-taxas.store';
+import { resolveLegacyMerchantPlatform } from './legacy-merchant-platform';
 
 interface ProvisionMerchantInput {
   cnpj: string;
@@ -67,15 +67,8 @@ export class IntegrationFinanceService {
     if (clash) throw new ConflictException('CNPJ já vinculado a outro merchant nesta integração');
 
     return this.prisma.$transaction(async tx => {
-      const user = await tx.user.create({
-        data: {
-          cnpj,
-          email: `${integrationKey}.${externalMerchantId}@integration.internal`,
-          name: legalName,
-          password: randomUUID(),
-          wallet: { create: {} },
-        },
-      });
+      const user = await tx.user.findUnique({ where: { cnpj } });
+      if (!user?.isActive || user.isPurged) throw new BadRequestException('Comerciante exige conta ativa previamente cadastrada');
       return tx.integrationMerchant.create({
         data: { cnpj, externalMerchantId, integrationKey, legalName, userId: user.id },
         select: { cnpj: true, externalMerchantId: true, id: true, integrationKey: true, legalName: true },
@@ -92,12 +85,11 @@ export class IntegrationFinanceService {
     return merchant;
   }
 
-  quote(grossAmountCents: number) {
-    if (!Number.isInteger(grossAmountCents) || grossAmountCents <= 0) {
+  quote(grossAmountCents: number, tag = 'GLOBAL') {
+    if (!Number.isSafeInteger(grossAmountCents) || grossAmountCents <= 0) {
       throw new BadRequestException('Valor bruto inválido');
     }
-    const gross = grossAmountCents / 100;
-    const feeCents = Math.round(ZeroGrauConfig.saque.calcularTaxa(gross) * 100);
+    const feeCents = new Prisma.Decimal(getPlatformTaxaEffective(tag, 'TAXA_SAQUE_FIXA', 2)).plus(new Prisma.Decimal(grossAmountCents).div(100).mul(getPlatformTaxaEffective(tag, 'TAXA_SAQUE_PERCENT', 0))).mul(100).toDecimalPlaces(0).toNumber();
     const netAmountCents = grossAmountCents - feeCents;
     if (netAmountCents <= 0) throw new BadRequestException('Valor insuficiente para cobrir a taxa');
     return { feeCents, grossAmountCents, netAmountCents };
@@ -105,6 +97,7 @@ export class IntegrationFinanceService {
 
   async summary(integrationKey: string, externalMerchantId: string) {
     const merchant = await this.merchant(integrationKey, externalMerchantId);
+    const platform = await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
     const processing = await this.prisma.withdrawRequest.aggregate({
       where: { userId: merchant.userId, status: { in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED] } },
       _count: { id: true },
@@ -119,8 +112,8 @@ export class IntegrationFinanceService {
       canRequest: active === 0,
       blockReason: active > 0 ? 'WITHDRAWAL_IN_PROGRESS' : null,
       feePolicy: {
-        fixedCents: Math.round(ZeroGrauConfig.saque.taxaFixa * 100),
-        percentBasisPoints: Math.round(ZeroGrauConfig.saque.taxaPercentual * 10_000),
+        fixedCents: Math.round(getPlatformTaxaEffective(platform.tag, 'TAXA_SAQUE_FIXA', 2) * 100),
+        percentBasisPoints: Math.round(getPlatformTaxaEffective(platform.tag, 'TAXA_SAQUE_PERCENT', 0) * 10_000),
       },
       processingCount: processing._count.id,
       processingGrossCents: Math.round(Number(processing._sum.grossAmount ?? 0) * 100),
@@ -152,7 +145,8 @@ export class IntegrationFinanceService {
       return this.serializeWithdrawal(duplicate);
     }
 
-    const quote = this.quote(input.grossAmountCents);
+    const platform = await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
+    const quote = this.quote(input.grossAmountCents, platform.tag);
     const pixKey = input.pixKey?.trim();
     if (!pixKey) throw new BadRequestException('Chave Pix obrigatória');
     const active = await this.prisma.withdrawRequest.findFirst({
@@ -174,10 +168,11 @@ export class IntegrationFinanceService {
           userId: merchant.userId,
         },
       });
-      await tx.wallet.update({
-        where: { userId: merchant.userId },
+      const walletReservation = await tx.wallet.updateMany({
+        where: { userId: merchant.userId, version: merchant.user.wallet!.version },
         data: { lockedBalance: { increment: created.grossAmount }, version: { increment: 1 } },
       });
+      if (walletReservation.count !== 1) throw new ConflictException('Carteira alterada; tente novamente');
       await this.enqueueStatus(tx, merchant.id, created);
       return created;
     });

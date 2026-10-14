@@ -1,8 +1,11 @@
+import { LegacyPlatformUsageInterceptor } from './modules/platform-core/legacy-platform-usage.interceptor';
+import { PlatformCoreModule } from './modules/platform-core/platform-core.module';
+import { PlatformEventsModule } from './modules/platform-core/platform-events.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './infrastructure/database/prisma/prisma.module';
 import { AuthModule } from './presentation/auth.module';
 import { WebhookModule } from './presentation/webhook.module';
@@ -39,6 +42,8 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
 
 @Module({
   imports: [
+    PlatformEventsModule,
+    PlatformCoreModule,
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot({
@@ -85,6 +90,7 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
     IntegrationFinanceModule,
   ],
   providers: [
+    { provide: APP_INTERCEPTOR, useClass: LegacyPlatformUsageInterceptor },
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

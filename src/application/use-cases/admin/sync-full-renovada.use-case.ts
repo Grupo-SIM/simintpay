@@ -1,3 +1,4 @@
+import { requireExclusivePlatformWallet } from '../../helpers/exclusive-platform-wallet.helper';
 import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Inject, Logger } from '@nestjs/common';
@@ -48,6 +49,7 @@ export class SyncFullRenovadaUseCase {
     // 1. Upsert Usuário & Carteira (NÃO setar domToken — é master e traria tudo)
     const assignedOwner = await this.prisma.platform.findUnique({ where: { tag: 'RENOVADA' }, include: { owner: true } });
     if (!assignedOwner?.isActive || !assignedOwner.owner.isActive || assignedOwner.owner.isPurged) throw new Error('Plataforma sem dono ativo cadastrado');
+    await requireExclusivePlatformWallet(this.prisma, assignedOwner.ownerUserId, 'RENOVADA');
 
     await this.prisma.wallet.upsert({
       where: { userId: RENOVADA_ID },

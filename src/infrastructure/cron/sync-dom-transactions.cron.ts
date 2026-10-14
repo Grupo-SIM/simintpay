@@ -1,4 +1,3 @@
-import { getPlatformOwnerId } from '../../modules/module.registry';
 import { Injectable, Logger, Inject, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type { IPaymentGateway } from '../../core/services/payment-gateway.interface';
@@ -49,7 +48,7 @@ export class SyncDomTransactionsCron implements OnModuleInit {
       }
 
       // IDs de usuários com serviços de sync dedicados — não processar aqui
-      const DEDICATED_SYNC_USER_IDS = ['RENOVADA', 'BOSQUE', 'REVALIDA'].map(getPlatformOwnerId).filter((id): id is string => !!id);
+      const DEDICATED_SYNC_USER_IDS = (await this.prisma.platform.findMany({ select: { ownerUserId: true } })).map(platform => platform.ownerUserId);
 
       // Buscar transações PENDENTES que precisam de atualização de status
       const pendingTxs = await this.prisma.transaction.findMany({

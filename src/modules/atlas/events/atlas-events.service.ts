@@ -1,24 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { Subject } from 'rxjs';
+import { PlatformEventsService } from '../../platform-core/platform-events.service';
 
+/** Legacy facade preserves original streams and event payloads. */
 @Injectable()
 export class AtlasEventsService {
-  private readonly transactionEventSubject = new Subject<any>();
-  private readonly withdrawalEventSubject = new Subject<any>();
+  constructor(private readonly events: PlatformEventsService) {}
 
-  emitTransaction(data: any) {
-    this.transactionEventSubject.next(data);
-  }
-
-  emitWithdrawal(data: any) {
-    this.withdrawalEventSubject.next(data);
-  }
-
-  getTransactionStream() {
-    return this.transactionEventSubject.asObservable();
-  }
-
-  getWithdrawalStream() {
-    return this.withdrawalEventSubject.asObservable();
-  }
+  emitTransaction(data: unknown) { this.events.emit('ATLAS', 'transaction', data); }
+  emitWithdrawal(data: unknown) { this.events.emit('ATLAS', 'withdrawal', data); }
+  getTransactionStream() { return this.events.stream('ATLAS', 'transaction'); }
+  getWithdrawalStream() { return this.events.stream('ATLAS', 'withdrawal'); }
 }

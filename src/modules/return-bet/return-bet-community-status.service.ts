@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import type { PlanType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 
@@ -17,7 +17,6 @@ export interface CommunityStatusResult {
   issueStartedAt: string | null;
 }
 
-const VIVENDO_DE_BET_PLATFORM_TAG = 'VIVENDO-DE-BET';
 const ACTIVE_STATUSES = new Set(['active', 'paid', 'approved', 'trial']);
 const FAILED_STATUSES = new Set([
   'failed',
@@ -37,8 +36,15 @@ export class ReturnBetCommunityStatusService {
     const email = input.email?.trim().toLowerCase() || undefined;
     if (!cpf && !email) return this.emptyResult();
 
+    const association = await this.prisma.platformIntegration.findFirst({
+      where: { key: 'COMMUNITY_PLATFORM_TAG', platform: { tag: 'RETURN-BET', isActive: true, owner: { isActive: true, isPurged: false } } },
+    });
+    const community = association?.url ? await this.prisma.platform.findUnique({ where: { tag: association.url }, include: { owner: true } }) : null;
+    if (!community?.isActive || !community.owner.isActive || community.owner.isPurged) {
+      throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'community', message: 'Comunidade não associada ou inativa' });
+    }
     const link = await this.prisma.subscriptionLink.findFirst({
-      where: { platformTag: VIVENDO_DE_BET_PLATFORM_TAG },
+      where: { platformTag: community.tag },
       select: { id: true, frequencyType: true },
     });
     if (!link) return this.emptyResult();

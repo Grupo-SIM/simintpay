@@ -17,6 +17,8 @@ function makeOrder(overrides: Record<string, unknown> = {}) {
 
 function makePrismaMock(orders: ReturnType<typeof makeOrder>[]) {
   return {
+    platformIntegration: { findFirst: jest.fn().mockResolvedValue({ url: 'COMMUNITY' }) },
+    platform: { findUnique: jest.fn().mockResolvedValue({ tag: 'COMMUNITY', isActive: true, owner: { isActive: true, isPurged: false } }) },
     subscriptionLink: {
       findFirst: jest.fn().mockResolvedValue({ id: 'link-1', frequencyType: 'MONTHLY' }),
     },
@@ -29,6 +31,13 @@ function makePrismaMock(orders: ReturnType<typeof makeOrder>[]) {
 describe('ReturnBetCommunityStatusService', () => {
   beforeEach(() => jest.useFakeTimers().setSystemTime(NOW));
   afterEach(() => jest.useRealTimers());
+
+  it('blocks only community capability without explicit association', async () => {
+    const prisma = makePrismaMock([]);
+    prisma.platformIntegration.findFirst.mockResolvedValue(null);
+    await expect(new ReturnBetCommunityStatusService(prisma).checkOne({ cpf: '11122233344' })).rejects.toMatchObject({ status: 422 });
+    expect(prisma.subscriptionLink.findFirst).not.toHaveBeenCalled();
+  });
 
   it('returns active membership with its period end', async () => {
     const service = new ReturnBetCommunityStatusService(makePrismaMock([makeOrder()]));

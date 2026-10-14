@@ -16,6 +16,9 @@ export class PlatformsController {
   @ApiOperation({ summary: 'Listar plataformas próprias; administrador lista todas' })
   list(@CurrentUser() user: JwtPayload) { return this.platforms.list(user); }
 
+  @Get('integration-diagnostics')
+  integrationDiagnostics(@CurrentUser() user: JwtPayload) { return this.platforms.integrationDiagnostics(user); }
+
   @Post()
   @ApiOperation({ summary: 'Criar plataforma própria; administrador pode atribuir dono' })
   create(@CurrentUser() user: JwtPayload, @Body() body: { tag?: string; name?: string; ownerUserId?: string }) {

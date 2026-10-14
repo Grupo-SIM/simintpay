@@ -17,8 +17,10 @@ export class PrismaWebhookEventRepository implements IWebhookEventRepository {
     eventType: string;
     payload: unknown;
   }): Promise<WebhookEvent> {
-    return this.prisma.webhookEvent.create({
-      data: {
+    return this.prisma.webhookEvent.upsert({
+      where: { eventId: data.eventId },
+      update: {},
+      create: {
         eventId: data.eventId,
         source: data.source,
         eventType: data.eventType,

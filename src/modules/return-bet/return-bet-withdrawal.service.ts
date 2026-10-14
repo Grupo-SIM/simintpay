@@ -6,8 +6,6 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma, WithdrawStatus } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
-import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { ReturnBetConfig } from './return-bet.config';
 import {
@@ -256,48 +254,7 @@ export class ReturnBetWithdrawalService {
       });
     }
 
-    const password = await bcrypt.hash(randomUUID(), 12);
-    const emailHash = createHash('sha256').update(input.externalUserId).digest('hex').slice(0, 24);
-
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        const platform = await tx.platform.findFirst({
-          where: { tag: { equals: ReturnBetConfig.slug, mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
-        });
-        const tenant = platform?.tenantModuleId
-          ? await tx.tenantModule.findUnique({ where: { id: platform.tenantModuleId } })
-          : null;
-        if (!platform || !tenant?.isActive) {
-          throw new UnprocessableEntityException('Plataforma Return Bet não cadastrada com dono no admin.');
-        }
-        const user = await tx.user.create({
-          data: {
-            name: input.name.trim(),
-            email: `return-bet-${emailHash}@internal.simpay`,
-            password,
-            tenantModuleId: tenant.id,
-            isActive: false,
-          },
-        });
-        await tx.wallet.create({ data: { userId: user.id } });
-        return tx.returnBetAccount.create({
-          data: {
-            externalUserId: input.externalUserId,
-            userId: user.id,
-            name: input.name.trim(),
-            email: input.email.trim().toLowerCase(),
-            document: input.document.replace(/\D/g, ''),
-          },
-        });
-      });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        return this.prisma.returnBetAccount.findUniqueOrThrow({
-          where: { externalUserId: input.externalUserId },
-        });
-      }
-      throw error;
-    }
+    throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'withdrawals.account-binding', message: 'Cliente exige associação administrativa explícita; conta técnica não será criada' });
   }
 
   private findByRequestId(requestId: string) {

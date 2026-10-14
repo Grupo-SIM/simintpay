@@ -31,7 +31,11 @@ export class PlatformIntegrationsController {
 
   @Put(':key')
   async put(@Param('id') id: string, @Param('key') key: string, @Body() body: { value?: unknown }, @CurrentUser() user: JwtPayload | undefined) {
-    await this.authorize(id, user);
+    const platform = await this.authorize(id, user);
+    if (['INBOUND_TOKEN', 'INBOUND_OPERATIONS', 'COMMUNITY_PLATFORM_TAG', 'LEGACY_MERCHANT_KEYS'].includes(key)) {
+      const actor = await this.prisma.user.findUnique({ where: { id: user!.sub } });
+      if (actor?.role !== 'ADMIN') throw new ForbiddenException('Associação exige administrador');
+    }
     if (!(PLATFORM_INTEGRATION_KEYS as readonly string[]).includes(key)) throw new BadRequestException('Configuração desconhecida');
     if (body?.value === null) {
       await this.prisma.platformIntegration.deleteMany({ where: { platformId: id, key } });
@@ -44,6 +48,12 @@ export class PlatformIntegrationsController {
         if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new BadRequestException('URL HTTP(S) sem credenciais obrigatória');
       }
       if (['ENABLE_DOM_SYNC', 'DISABLE_SYNC'].includes(key) && !['true', 'false'].includes(value)) throw new BadRequestException('Use true ou false');
+      if (key === 'INBOUND_OPERATIONS' && !value.split(',').every((scope) => ['payments:create', 'payments:read', 'finance:read', 'finance:withdraw', 'reports:read', 'events:read', 'sync:run', 'merchants:manage', 'mail:send', 'community:read'].includes(scope.trim()))) throw new BadRequestException('Operação inválida');
+      if (key === 'COMMUNITY_PLATFORM_TAG') {
+        if (platform.tag !== 'RETURN-BET') throw new BadRequestException('Referência exclusiva de Return Bet');
+        const community = await this.prisma.platform.findUnique({ where: { tag: value } , include: { owner: true } });
+        if (!community?.isActive || !community.owner.isActive || community.owner.isPurged) throw new BadRequestException('Comunidade não cadastrada ou inativa');
+      }
       const data = {
         url: PLATFORM_PUBLIC_VALUE_KEYS.has(key) ? value : null,
         encryptedValue: PLATFORM_PUBLIC_VALUE_KEYS.has(key) ? null : encryptPlatformSecret(value),

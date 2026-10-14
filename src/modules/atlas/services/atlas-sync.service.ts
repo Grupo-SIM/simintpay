@@ -1,7 +1,8 @@
+import { requireExclusivePlatformWallet } from '../../../application/helpers/exclusive-platform-wallet.helper';
+import { PlatformSyncPersistenceService } from '../../platform-core/platform-sync-persistence.service';
 import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { TransactionStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { AtlasEventsService } from '../events/atlas-events.service';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -21,6 +22,7 @@ export class AtlasSyncService implements OnModuleInit {
   private readonly logger = new Logger(AtlasSyncService.name);
 
   constructor(
+    private readonly syncCore: PlatformSyncPersistenceService,
     private readonly prisma: PrismaService,
     private readonly events: AtlasEventsService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
@@ -45,159 +47,7 @@ export class AtlasSyncService implements OnModuleInit {
     }
   }
 
-  @Cron(CronExpression.EVERY_MINUTE)
-  async handleSync() {
-    if (getPlatformIntegrationValue('ATLAS', 'ENABLE_DOM_SYNC') !== 'true') return;
-
-    const rawToken = getPlatformIntegrationValue('ATLAS', 'DOM_TOKEN');
-    if (!rawToken) {
-      this.logger.warn('[ATLAS] Token não configurado (ATLAS_DOM_TOKEN) — sync ignorado');
-      return;
-    }
-    const token = rawToken.trim();
-
-    try {
-      const userId = await this.resolveAtlasUserId();
-      if (!userId) return;
-      let created = 0;
-      let updated = 0;
-      let completedDelta = new Prisma.Decimal(0);
-
-      for (let page = 1; page <= 3; page++) {
-        const response = await this.gateway.listDomTransactions(token, {
-          page,
-          limit: 100,
-          begin_date: dayjs().subtract(90, 'days').format('YYYY-MM-DD'),
-          end_date: dayjs().format('YYYY-MM-DD'),
-        });
-
-        const txList = response.transactions || [];
-        if (txList.length === 0) break;
-
-        for (const tx of txList) {
-          try {
-            const description = ((tx as any).product_first || (tx as any).description || '').toLowerCase();
-            if (!description.includes('atlas')) continue;
-
-            const paymentId = tx.order_id || tx.id;
-            const txId = tx.id;
-
-            const existing = await this.prisma.transaction.findFirst({
-              where: {
-                OR: [
-                  ...(paymentId ? [{ domPaymentId: String(paymentId) }] : []),
-                  ...(txId ? [{ domTransactionId: String(txId) }] : []),
-                ],
-              },
-            });
-
-            const mappedStatus = this.mapStatus(tx.status);
-            const amount      = new Prisma.Decimal(tx.amount || 0);
-            const netAmount   = new Prisma.Decimal(tx.liquid_amount || Number(tx.amount || 0) * 0.91);
-            const totalFee    = new Prisma.Decimal(tx.fee_total || 0);
-            const domFee      = new Prisma.Decimal(tx.dom_fee || 0);
-            const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
-
-            if (existing) {
-              const needsUserFix = existing.userId !== userId;
-              const needsStatusUpdate = existing.status !== mappedStatus;
-
-              if (needsUserFix || needsStatusUpdate) {
-                await this.prisma.transaction.update({
-                  where: { id: existing.id },
-                  data: {
-                    ...(needsUserFix ? { userId } : {}),
-                    status: mappedStatus,
-                    previousStatus: existing.status,
-                    amount,
-                    netAmount,
-                    totalFee,
-                    domFee,
-                    platformFee,
-                    customerName:     tx.customer_name || existing.customerName,
-                    customerEmail:    tx.customer_email || existing.customerEmail,
-                    customerDocument: tx.customer_document || existing.customerDocument,
-                    updatedAt: new Date(),
-                  },
-                });
-                updated++;
-                this.events.emitTransaction({ ...existing, status: mappedStatus });
-
-                if (needsStatusUpdate) {
-                  if (existing.status !== TransactionStatus.COMPLETED && mappedStatus === TransactionStatus.COMPLETED) {
-                    completedDelta = completedDelta.add(amount);
-                  }
-                  if (existing.status === TransactionStatus.COMPLETED && mappedStatus !== TransactionStatus.COMPLETED) {
-                    completedDelta = completedDelta.sub(new Prisma.Decimal(existing.amount ?? 0));
-                  }
-                }
-
-                if (needsUserFix && mappedStatus === TransactionStatus.COMPLETED) {
-                  completedDelta = completedDelta.add(amount);
-                  this.logger.log(`[ATLAS] Tx ${existing.id} reassociada para userId=${userId}`);
-                }
-              }
-              continue;
-            }
-
-            const newTx = await this.prisma.transaction.create({
-              data: {
-                userId,
-                amount,
-                netAmount,
-                status: mappedStatus,
-                paymentMethod: this.mapPaymentMethod(tx.payment_method),
-                description: tx.product_first || 'atlas',
-                domTransactionId: txId,
-                domPaymentId:     paymentId,
-                customerName:     tx.customer_name,
-                customerEmail:    tx.customer_email,
-                customerDocument: tx.customer_document,
-                customerPhone:    tx.customer_phone,
-                totalFee,
-                domFee,
-                platformFee,
-                installments:     tx.installments || 1,
-                createdAt:        tx.created_at ? new Date(tx.created_at) : new Date(),
-                updatedAt:        tx.updated_at ? new Date(tx.updated_at) : (tx.created_at ? new Date(tx.created_at) : new Date()),
-              },
-            });
-
-            created++;
-            this.events.emitTransaction(newTx);
-
-            if (mappedStatus === TransactionStatus.COMPLETED) {
-              completedDelta = completedDelta.add(amount);
-            }
-          } catch (err: any) {
-            if (err.code !== 'P2002') {
-              this.logger.warn(`[ATLAS] Erro ao processar tx: ${err.message}`);
-            }
-          }
-        }
-
-        if (txList.length < 100) break;
-      }
-
-      if (created > 0 || updated > 0) {
-        this.logger.log(`[ATLAS] Sync: ${created} criadas, ${updated} atualizadas`);
-
-        if (!completedDelta.equals(0)) {
-          const updatedWallet = await this.prisma.wallet.update({
-            where: { userId },
-            data: {
-              balance: { increment: completedDelta },
-              version: { increment: 1 },
-            },
-          });
-          this.logger.log(`[ATLAS] Saldo ajustado em R$ ${completedDelta.toFixed(2)} (bruto)`);
-          await this.syncExternalPlatformBalance(userId, Number(updatedWallet.balance));
-        }
-      }
-    } catch (error: any) {
-      this.logger.error(`[ATLAS] Sync error: ${error.message}`);
-    }
-  }
+  async handleSync() { return this.syncCore.poll('ATLAS'); }
 
   async syncFull(): Promise<any> {
     const rawToken = getPlatformIntegrationValue('ATLAS', 'DOM_TOKEN');
@@ -210,6 +60,8 @@ export class AtlasSyncService implements OnModuleInit {
     if (!userId) {
       return { success: false, error: 'Plataforma sem dono cadastrado no admin.' };
     }
+
+    await requireExclusivePlatformWallet(this.prisma, userId, 'ATLAS');
 
     try {
       await this.gateway.listDomTransactions(token, {
@@ -281,6 +133,7 @@ export class AtlasSyncService implements OnModuleInit {
             const platformFee = totalFee.sub(domFee).lessThan(0) ? new Prisma.Decimal(0) : totalFee.sub(domFee);
 
             if (existing) {
+              if (existing.userId !== userId) continue;
               const needsUserFix = existing.userId !== (userId);
               await this.prisma.transaction.update({
                 where: { id: existing.id },
@@ -382,6 +235,8 @@ export class AtlasSyncService implements OnModuleInit {
     const userId = await this.resolveAtlasUserId();
     if (!userId) return { success: false, error: 'Usuário Atlas não encontrado.' };
 
+    await requireExclusivePlatformWallet(this.prisma, userId, 'ATLAS');
+
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
     if (!wallet) return { success: false, error: 'Wallet não encontrada.' };
 
@@ -426,6 +281,8 @@ export class AtlasSyncService implements OnModuleInit {
     if (!userId) {
       return { success: false, error: 'Plataforma sem dono cadastrado no admin.' };
     }
+
+    await requireExclusivePlatformWallet(this.prisma, userId, 'ATLAS');
 
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
     if (!wallet) {

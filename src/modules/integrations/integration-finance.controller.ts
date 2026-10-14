@@ -1,8 +1,6 @@
-import { getPlatformIntegrationValue } from '../platform-integrations/platform-integrations.store';
-import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Body, Controller, Get, Headers, Param, Post, Put, Query } from '@nestjs/common';
-import { ZeroGrauPaymentService } from '../zero-grau/services/zero-grau-payment.service';
+import { IntegrationPaymentService } from './integration-payment.service';
 import { CheckoutPixDto } from '../renovada/dtos/checkout-pix.dto';
 import { CheckoutCreditCardDto } from '../renovada/dtos/checkout-credit-card.dto';
 import { IntegrationFinanceService } from './integration-finance.service';
@@ -11,8 +9,7 @@ import { IntegrationFinanceService } from './integration-finance.service';
 export class IntegrationFinanceController {
   constructor(
     private readonly finance: IntegrationFinanceService,
-    private readonly payments: ZeroGrauPaymentService,
-    private readonly reconcilePayments: ReconcilePendingTransactionsUseCase,
+    private readonly payments: IntegrationPaymentService,
   ) {}
 
   private auth(token?: string) { this.finance.assertToken(token); }
@@ -26,24 +23,20 @@ export class IntegrationFinanceController {
   @Post('payments/pix')
   async pix(@Param() params: { integrationKey: string; externalMerchantId: string }, @Body() body: CheckoutPixDto, @Headers('x-internal-token') token?: string) {
     this.auth(token);
-    const merchant = await this.finance.merchant(params.integrationKey, params.externalMerchantId);
-    return this.payments.createPaymentPix(merchant.userId, body);
+    return this.payments.pix(params.integrationKey, params.externalMerchantId, body);
   }
 
   @Post('payments/credit-card')
   async card(@Param() params: { integrationKey: string; externalMerchantId: string }, @Body() body: CheckoutCreditCardDto, @Headers('x-internal-token') token?: string) {
     this.auth(token);
-    const merchant = await this.finance.merchant(params.integrationKey, params.externalMerchantId);
-    return this.payments.createPaymentCreditCard(merchant.userId, body);
+    return this.payments.card(params.integrationKey, params.externalMerchantId, body);
   }
 
   @Get('payments/:paymentId')
   @SkipThrottle()
   async paymentStatus(@Param() params: { integrationKey: string; externalMerchantId: string; paymentId: string }, @Headers('x-internal-token') token?: string) {
     this.auth(token);
-    const merchant = await this.finance.merchant(params.integrationKey, params.externalMerchantId);
-    return this.reconcilePayments.reconcilePayment(params.paymentId, merchant.userId,
-      (getPlatformIntegrationValue('ZERO-GRAU', 'DOM_TOKEN') ?? undefined));
+    return this.payments.status(params.integrationKey, params.externalMerchantId, params.paymentId);
   }
 
   @Get('finance/summary')
@@ -53,9 +46,9 @@ export class IntegrationFinanceController {
   }
 
   @Post('finance/withdrawals/quote')
-  quote(@Body() body: { grossAmountCents: number }, @Headers('x-internal-token') token?: string) {
+  async quote(@Param('integrationKey') integrationKey: string, @Body() body: { grossAmountCents: number }, @Headers('x-internal-token') token?: string) {
     this.auth(token);
-    return this.finance.quote(body.grossAmountCents);
+    return this.finance.quote(body.grossAmountCents, (await this.payments.platform(integrationKey)).tag);
   }
 
   @Post('finance/withdrawals')

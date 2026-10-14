@@ -1,3 +1,4 @@
+import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 import { getPlatformOwnerId, registeredPlatformTags } from '../../../modules/module.registry';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
@@ -101,6 +102,7 @@ export class ProcessDomWebhookUseCase {
     @Optional() private readonly checkoutEvents?: CheckoutEventsService,
     @Optional() private readonly storage?: StorageService,
     @Optional() @Inject(QUEUE_SERVICE) private readonly queue?: IQueueService,
+    @Optional() private readonly platformEvents?: PlatformEventsService,
   ) { }
 
   async execute(payload: unknown): Promise<void> {
@@ -310,7 +312,9 @@ export class ProcessDomWebhookUseCase {
       // Renovada/Bosque: wallet stores net (DOM liquid_amount). Use liquid from webhook when available,
       // fall back to stored netAmount, then gross as last resort.
       let delta: Prisma.Decimal;
-      if (isRenovada || isBosque) {
+      if (/^[a-f0-9]{64}$/.test(existing.id) && existing.netAmount != null) {
+        delta = new Prisma.Decimal(existing.netAmount);
+      } else if (isRenovada || isBosque) {
         const domLiquid = data.liquid_amount != null ? new Prisma.Decimal(data.liquid_amount / 100) : null;
         delta = domLiquid
           ?? (existing.netAmount != null ? new Prisma.Decimal(existing.netAmount.toString()) : amountDec);
@@ -429,6 +433,8 @@ export class ProcessDomWebhookUseCase {
         }
       });
 
+      const eventTag = platformTaxaTagFromText(existing.description);
+      if (this.platformEvents && eventTag !== 'GLOBAL') this.platformEvents.emit(eventTag, 'transaction', { ...existing, status: nextStatus });
       const zeroGrauUserId = String((getPlatformOwnerId('ZERO-GRAU') ?? '') ?? '').trim();
       if (zeroGrauUserId && platformTaxaTagFromText(existing.description) === 'ZERO-GRAU') {
         const notification = { paymentId: data.id, status: nextStatus };
@@ -443,7 +449,7 @@ export class ProcessDomWebhookUseCase {
       }
 
       if (platformTaxaTagFromText(existing.description) === 'RENOVADA' && this.renovadaEvents) {
-        this.renovadaEvents.emitTransaction({ ...existing, status: nextStatus });
+        if (!this.platformEvents) this.renovadaEvents.emitTransaction({ ...existing, status: nextStatus });
       }
 
       if (

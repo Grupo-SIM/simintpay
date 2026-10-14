@@ -50,6 +50,6 @@ import { CheckoutModule } from './checkout.module';
     { provide: TRANSACTION_REPOSITORY, useClass: PrismaTransactionRepository },
     { provide: BALANCE_LOG_REPOSITORY, useClass: PrismaBalanceLogRepository },
   ],
-  exports: [ReconcilePendingTransactionsUseCase],
+  exports: [ReconcilePendingTransactionsUseCase, ProcessWebhookUseCase],
 })
 export class WebhookModule {}

@@ -1,5 +1,10 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { beforeAll, describe, expect, mock, test } from 'bun:test';
+import { initializePlatformTaxasCache } from '../../platform-taxas/platform-taxas.store';
 import { ZeroGrauPaymentService } from './zero-grau-payment.service';
+
+beforeAll(async () => {
+  await initializePlatformTaxasCache({ platformTaxaOverride: { findMany: async () => [] } } as never);
+});
 
 const card = {
   price: 10, document: '52998224725', document_type: 'CPF', email: 'customer@example.com',
@@ -9,6 +14,7 @@ const card = {
 
 function fixture(gatewayStatus: string, localStatus: string) {
   const prisma = {
+    platform: { findUnique: mock(async () => ({ ownerUserId: 'seller', isActive: true, acquirer: 'DOM', owner: { isActive: true, isPurged: false } })) },
     wallet: { findUnique: mock(async () => ({ id: 'wallet' })) },
     transaction: {
       create: mock(async () => ({ id: 'local-card' })),

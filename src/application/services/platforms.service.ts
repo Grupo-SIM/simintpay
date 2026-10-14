@@ -1,3 +1,4 @@
+import { CORPORATE_PLATFORM_TAGS } from '../../modules/platform-core/platform-adapters';
 import { initializePlatformIntegrationsCache, invalidatePlatformIntegrationsCache } from '../../modules/platform-integrations/platform-integrations.store';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
@@ -25,6 +26,19 @@ export class PlatformsService {
     return { ...user, role: actor.role };
   }
 
+  async integrationDiagnostics(user: JwtPayload) {
+    user = await this.requireSession(user);
+    if (user.role !== Role.ADMIN) throw new ForbiddenException('Exige administrador');
+    const rows = await this.prisma.platform.findMany({ include: { owner: { select: { isActive: true, isPurged: true } }, integrations: { select: { key: true, tokenHash: true, url: true, encryptedValue: true } } }, orderBy: { tag: 'asc' } });
+    return { data: rows.map(platform => ({
+      id: platform.id, tag: platform.tag, ownerUserId: platform.ownerUserId,
+      active: platform.isActive && platform.owner.isActive && !platform.owner.isPurged,
+      inboundCredentialLinked: platform.integrations.some(row => row.key === 'INBOUND_TOKEN' && !!row.tokenHash && !!row.encryptedValue),
+      operations: platform.integrations.find(row => row.key === 'INBOUND_OPERATIONS')?.url?.split(',').map(scope => scope.trim()) ?? ['payments:create'],
+      communityLinked: platform.tag === 'RETURN-BET' ? platform.integrations.some(row => row.key === 'COMMUNITY_PLATFORM_TAG' && !!row.url) : undefined,
+    })) };
+  }
+
   async list(user: JwtPayload) {
     user = await this.requireSession(user);
     return { data: await this.prisma.platform.findMany({
@@ -47,6 +61,7 @@ export class PlatformsService {
     const tag = canonicalPlatformTaxaTag(typeof body.tag === 'string' ? body.tag.trim() : '');
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!/^[A-Z][A-Z0-9-]{1,49}$/.test(tag) || ['GLOBAL', 'SIMINTPAY'].includes(tag)) throw new BadRequestException('Tag inválida ou reservada');
+    if (CORPORATE_PLATFORM_TAGS.has(tag) && user.role !== Role.ADMIN) throw new ForbiddenException('Tag corporativa reservada ao administrador');
     if (!name) throw new BadRequestException('Nome obrigatório');
     if (user.role !== Role.ADMIN && body.ownerUserId && body.ownerUserId !== user.sub) throw new ForbiddenException('Somente administrador pode atribuir outro dono');
     const ownerUserId = body.ownerUserId ?? user.sub;

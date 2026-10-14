@@ -1,3 +1,5 @@
+import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
+import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
 import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
@@ -65,6 +67,7 @@ export class ProcessWebhookUseCase {
     @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
+    @Optional() private readonly platformEvents?: PlatformEventsService,
   ) { }
 
   private getObject(v: unknown): Record<string, unknown> | null {
@@ -175,7 +178,7 @@ export class ProcessWebhookUseCase {
     return allowed[from]?.includes(to) ?? false;
   }
 
-  async execute(input: { payload: WebhookPayload }): Promise<void> {
+  async execute(input: { payload: WebhookPayload; transactionId?: string }): Promise<void> {
     const parsed = this.parseDomPayload(input.payload);
     if (!parsed) {
       return;
@@ -200,7 +203,7 @@ export class ProcessWebhookUseCase {
     try {
       const domPaymentId = parsed.data.paymentId;
 
-      let trx = await this.transactions.findByDomPaymentId(domPaymentId);
+      const trx = input.transactionId ? await this.prisma.transaction.findUnique({ where: { id: input.transactionId } }) : await this.transactions.findByDomPaymentId(domPaymentId);
 
       if (!trx) {
         // Check if this is a subscription link PIX payment
@@ -247,11 +250,14 @@ export class ProcessWebhookUseCase {
       const feeTag = rowTag !== 'GLOBAL' ? rowTag : canonicalPlatformTaxaTag(tenantSlug);
       const fixedTx = getPlatformTaxaEffective(feeTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
       const fixedCashback = getPlatformTaxaEffective(feeTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-      const creditAmount = amountWithoutAllFee.sub(new Prisma.Decimal(fixedTx + fixedCashback));
+      const storedCanonical = /^[a-f0-9]{64}$/.test(t.id);
+      const creditAmount = storedCanonical && t.netAmount != null ? new Prisma.Decimal(t.netAmount) : amountWithoutAllFee.sub(new Prisma.Decimal(fixedTx + fixedCashback));
 
       const status = parsed.data.status;
 
-      await this.prisma.$transaction(async (p) => {
+      const applied = await this.prisma.$transaction(async (p) => {
+        const claimed = await p.transaction.updateMany({ where: { id: t.id, status: t.status }, data: { previousStatus: t.status, status: nextStatus } });
+        if (claimed.count !== 1) return false;
         const walletUpdates: {
           balance?: Prisma.Decimal;
           lockedBalance?: Prisma.Decimal;
@@ -318,10 +324,6 @@ export class ProcessWebhookUseCase {
           }
         }
 
-        await p.transaction.update({
-          where: { id: t.id },
-          data: { previousStatus: t.status, status: nextStatus },
-        });
 
         await p.transactionStatusHistory.create({
           data: {
@@ -364,9 +366,11 @@ export class ProcessWebhookUseCase {
         } else if (nextStatus === TransactionStatus.REFUNDED || nextStatus === TransactionStatus.CHARGEBACK) {
           await this.affiliateCommission.reverseForTransaction(p, t.id);
         }
+        return true;
       });
 
       await this.events.markProcessed(event.id);
+      if (!applied) return;
 
       // SSE: notificar checkout em tempo real (payment link, PIX plan, etc.)
       if (nextStatus === TransactionStatus.COMPLETED) {
@@ -390,9 +394,13 @@ export class ProcessWebhookUseCase {
       }
 
       // EMIT EVENT for Real-Time UI (Renovada)
-      if (platformTaxaTagFromText(t.description) === 'RENOVADA') {
-        this.renovadaEvents.emitTransaction(t);
+      const eventTag = platformTaxaTagFromText(t.description);
+      if (eventTag === 'ZERO-GRAU') {
+        const outcome = await notifyZeroGrauPaymentStatus({ paymentId: domPaymentId, status: nextStatus });
+        if (outcome === 'failed') this.logger.warn(`Callback Zero Grau pendente para ${t.id}`);
       }
+      if (this.platformEvents && eventTag !== 'GLOBAL') this.platformEvents.emit(eventTag, 'transaction', { ...t, status: nextStatus });
+      else if (eventTag === 'RENOVADA') this.renovadaEvents.emitTransaction({ ...t, status: nextStatus });
     } catch (e: unknown) {
       this.logger.error(`Error processing webhook ${event.id}: ${e instanceof Error ? e.message : 'unknown error'}`);
       await this.events.markFailed(

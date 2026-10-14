@@ -93,6 +93,13 @@ describe('ReturnBetWithdrawalService', () => {
     expect(prisma.returnBetAccount.update).not.toHaveBeenCalled();
   });
 
+  it('never creates a technical user for an unlinked external customer', async () => {
+    const prisma = makePrisma();
+    prisma.returnBetAccount.findUnique.mockResolvedValue(null);
+    await expect(makeService(prisma).request(input)).rejects.toMatchObject({ status: 422 });
+    expect(prisma.withdrawRequest.create).not.toHaveBeenCalled();
+  });
+
   it('creates an idempotent pending request and applies the R$2 fee', async () => {
     const prisma = makePrisma();
     const service = makeService(prisma);

@@ -1,3 +1,10 @@
+import { PlatformFinanceService } from '../modules/unified-platform/finance/platform-finance.service';
+import { InternalPagatgFinanceService } from '../modules/unified-platform/finance/legacy-pagatg-finance.service';
+import { InternalAreaflixFinanceService } from '../modules/unified-platform/finance/legacy-areaflix-finance.service';
+import { InternalRenovadaFinanceService } from '../modules/unified-platform/finance/legacy-renovada-finance.service';
+import { InternalBosqueFinanceService } from '../modules/unified-platform/finance/legacy-bosque-finance.service';
+import { InternalEbookFinanceService } from '../modules/unified-platform/finance/legacy-ebook-finance.service';
+import { InternalAtlasFinanceService } from '../modules/unified-platform/finance/legacy-atlas-finance.service';
 import { Module } from '@nestjs/common';
 import { CheckoutController } from './controllers/checkout.controller';
 import { InternalEbookFinanceController } from './controllers/internal-ebook-finance.controller';
@@ -21,7 +28,7 @@ import { CheckoutEventsService } from '../application/services/checkout-events.s
     InternalAtlasFinanceController,
     InternalAreaflixFinanceController,
   ],
-  providers: [CheckoutEventsService],
-  exports: [CheckoutEventsService],
+  providers: [CheckoutEventsService, PlatformFinanceService, InternalAtlasFinanceService, InternalEbookFinanceService, InternalBosqueFinanceService, InternalRenovadaFinanceService, InternalAreaflixFinanceService, InternalPagatgFinanceService],
+  exports: [CheckoutEventsService, PlatformFinanceService],
 })
 export class CheckoutModule {}
