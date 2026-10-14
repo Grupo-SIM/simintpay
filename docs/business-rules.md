@@ -31,6 +31,8 @@ URLs, tokens, webhooks, opções de sincronização e terminais específicos fic
 
 Variáveis de infraestrutura global (banco, Redis, SMTP, armazenamento, JWT, gateway global e URLs gerais) permanecem no ambiente. Cache de registro/integrações renova após 30 segundos e fecha acesso em falha/expiração; alterações administrativas recarregam cache.
 
+Falha de descriptografia exclui toda a configuração da plataforma afetada do cache, inclusive URLs públicas, sem interromper a inicialização da API ou o carregamento das demais plataformas. O diagnóstico identifica plataforma e chave de configuração, nunca valores secretos. Recuperação exige restaurar a chave original ou recadastrar as credenciais afetadas; recarregar o cache remove valores anteriores.
+
 ## Migração e carteira
 
 A migração `20261014000000_unify_platform_identity` substitui vínculos de TenantModule por referências diretas a Platform e remove entidade antiga. Usa exclusivamente associação explícita anteriormente registrada em `Platform.tenantModuleId`; vínculo de usuário sem correspondência bloqueia migração com `PLATFORM_LINK_MISSING`. Não escolhe dono por e-mail/documento/slug, não cria plataforma/usuário e não altera carteiras ou lançamentos. Artefato SQL foi preparado localmente; aplicação em banco exige autorização específica. Preflight em `scripts/diagnose-platform-identity.sql` identifica vínculos faltantes.

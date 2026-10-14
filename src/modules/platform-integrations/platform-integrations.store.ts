@@ -1,6 +1,8 @@
 import type { PrismaClient } from '@prisma/client';
+import { Logger } from '@nestjs/common';
 import { decryptPlatformSecret } from './platform-secrets';
 
+const logger = new Logger('PlatformIntegrationsCache');
 let cache: Record<string, Record<string, string>> = {};
 let prisma: PrismaClient | undefined;
 let fetchedAt = 0;
@@ -19,11 +21,23 @@ export async function initializePlatformIntegrationsCache(client?: PrismaClient)
     include: { platform: { select: { tag: true } } },
   });
   const next: typeof cache = {};
+  const unavailable = new Set<string>();
   for (const row of rows) {
     const tag = canonicalTag(row.platform.tag);
+    if (unavailable.has(tag)) continue;
     next[tag] ??= {};
-    const value = row.encryptedValue ? decryptPlatformSecret(row.encryptedValue) : row.url;
-    if (value) next[tag][row.key] = value;
+    try {
+      const value = row.encryptedValue ? decryptPlatformSecret(row.encryptedValue) : row.url;
+      if (value) next[tag][row.key] = value;
+    } catch {
+      // A partial configuration could enable unsafe fallbacks; exclude the whole platform.
+      delete next[tag];
+      unavailable.add(tag);
+      logger.error(
+        `Integrações indisponíveis para ${tag}: falha ao descriptografar ${row.key}. ` +
+        'Verifique PLATFORM_CONFIG_ENCRYPTION_KEY; restaure a chave original ou recadastre as credenciais.',
+      );
+    }
   }
   cache = next;
   fetchedAt = Date.now();
