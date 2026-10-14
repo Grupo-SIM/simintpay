@@ -189,3 +189,8 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Preservar diferença entre snapshot final canônico e líquido pré-taxas do contrato legado; leitura de taxas ocorre apenas no caminho legado.
 - [x] Canônico sem snapshot líquido retorna 422 antes de lançamento; fallback antigo fica nos ingressos legados.
 - [x] Testes caracterizam separadamente crédito canônico e desconto fixo legado com UUID.
+
+## Continuação — adapter de webhook Frendz
+
+- [x] Remover normalização duplicada do controller; entrada canônica e legado compartilham adapter, preservando unidades/envelope legado e regras de status.
+- [x] 13 variantes de status/fallback comparadas entre contratos; testes de identidade dos eventos e exclusão de credenciais aprovados.

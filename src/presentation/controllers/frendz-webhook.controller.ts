@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { legacyFrendzWebhookPayload } from '../../modules/platform-core/platform-webhook.adapter';
 import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   Body,
@@ -96,95 +96,5 @@ export class FrendzWebhookController {
     }
   }
 
-  /** Mapeia status da Frendz → status canônico consumido pelo ProcessWebhookUseCase. */
-  private mapStatus(frendzStatus: string | null | undefined): string | null {
-    switch ((frendzStatus ?? '').toLowerCase()) {
-      case 'paid':
-        return 'paid';
-      case 'refunded':
-        return 'refunded';
-      case 'chargeback':
-        return 'chargeback';
-      case 'in_protest':
-      case 'in_mediation':
-      case 'in_dispute':
-        return 'in_mediation';
-      case 'pending':
-      case 'waiting_payment':
-        return 'pending';
-      case 'canceled':
-      case 'cancelled':
-      case 'refused':
-      case 'failed':
-        return 'failed';
-      default:
-        return null;
-    }
-  }
-
-  private asObject(v: unknown): Record<string, unknown> | null {
-    return v && typeof v === 'object' && !Array.isArray(v)
-      ? (v as Record<string, unknown>)
-      : null;
-  }
-
-  private asString(v: unknown): string | null {
-    if (typeof v === 'string' && v.length > 0) return v;
-    if (typeof v === 'number' && Number.isFinite(v)) return String(v);
-    return null;
-  }
-
-  private asNumber(v: unknown): number | null {
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-    if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)))
-      return Number(v);
-    return null;
-  }
-
-  /**
-   * Traduz o corpo da Frendz para o formato que parseDomPayload espera:
-   *   { event, signature, data: { paymentId, status, amountWithoutAllFee, ... } }
-   * - paymentId  ← transaction.id  (casa com Transaction.externalPaymentId)
-   * - status     ← mapStatus(status da raiz)
-   * - amountWithoutAllFee ← transaction.net_amount em REAIS (Frendz manda centavos)
-   */
-  private toCanonicalPayload(
-    body: Record<string, unknown>,
-  ): Record<string, unknown> | null {
-    const tx = this.asObject(body.transaction);
-    const paymentId =
-      this.asString(tx?.id) ??
-      this.asString(body.id) ??
-      this.asString(tx?.hash);
-    if (!paymentId) return null;
-
-    // Status do pagamento: prioriza o da raiz (é o "Status do Pagamento" do
-    // painel); cai para o de transaction se necessário.
-    const status =
-      this.mapStatus(this.asString(body.status)) ??
-      this.mapStatus(this.asString(tx?.status));
-    if (!status) return null;
-
-    const netCents = this.asNumber(tx?.net_amount);
-    const grossCents = this.asNumber(tx?.amount);
-    const cents = netCents ?? grossCents ?? 0;
-    const amountWithoutAllFee = Number((cents / 100).toFixed(2)); // centavos → reais
-
-    // Credentials never identify events: one token signs many payments/statuses.
-    const signature = createHash('sha256').update(`frendz:${paymentId}:${status}`).digest('hex');
-
-    return {
-      event: this.asString(body.event) ?? 'transaction',
-      signature,
-      data: {
-        paymentId,
-        status,
-        amountWithoutAllFee,
-        acquirer: 'FRENDZ',
-        method: this.asString(body.method) ?? 'pix',
-        paidAt: this.asString(body.paid_at),
-        refundedAt: this.asString(body.refunded_at),
-      },
-    };
-  }
+  private toCanonicalPayload(body: Record<string, unknown>) { return legacyFrendzWebhookPayload(body); }
 }
