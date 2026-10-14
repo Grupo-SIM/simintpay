@@ -1,3 +1,4 @@
+import { PlatformEbookConfirmation, type EbookConfirmation } from './platform-ebook-confirmation';
 import { PlatformSyncPersistenceService } from './platform-sync-persistence.service';
 import { Prisma } from '@prisma/client';
 import { PlatformReconciliation } from './platform-reconciliation';
@@ -18,6 +19,11 @@ import { unsupportedCapability } from './platform-adapters';
 @UseGuards(PlatformAuthGuard)
 export class PlatformCorporateController {
   constructor(private readonly modules: ModuleRef, private readonly prisma: PrismaService) {}
+  @Post('integrations/ebook/payment-confirmations') @SetMetadata('platform-operation', 'billing:write')
+  ebookConfirmation(@Req() request: { platformContext: PlatformContext }, @Body() body: EbookConfirmation) {
+    if (!body || Object.keys(body).some(key => !['orderNumber', 'status', 'email', 'store'].includes(key)) || Object.values(body).some(value => value !== undefined && typeof value !== 'string')) throw new BadRequestException('Contrato inválido');
+    return new PlatformEbookConfirmation(this.prisma).forward(body, request.platformContext);
+  }
   @Post('maintenance/full-sync') @SetMetadata('platform-operation', 'maintenance:run')
   async history(@Req() request: { platformContext: PlatformContext }) {
     const result = await this.modules.get(PlatformSyncPersistenceService, { strict: false }).history(request.platformContext.tag, request.platformContext) as Record<string, unknown>;

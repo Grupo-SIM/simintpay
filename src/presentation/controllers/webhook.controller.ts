@@ -1,11 +1,10 @@
-import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
+import { PlatformEbookConfirmation } from '../../modules/platform-core/platform-ebook-confirmation';
+import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import {
-  BadRequestException,
   Body,
   Controller,
   Headers,
   HttpCode,
-  InternalServerErrorException,
   Post,
   Req,
   UnauthorizedException,
@@ -27,7 +26,7 @@ import { QueueNames } from '../../infrastructure/queue/queue-names';
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
 
-  constructor(@Inject(QUEUE_SERVICE) private readonly queue: IQueueService) {}
+  constructor(@Inject(QUEUE_SERVICE) private readonly queue: IQueueService, private readonly prisma: PrismaService) {}
 
   @Post('eventos')
   @HttpCode(200)
@@ -94,43 +93,6 @@ export class WebhookController {
       throw new UnauthorizedException('Invalid webhook secret');
     }
 
-    if (!body?.orderNumber || !body?.status) {
-      throw new BadRequestException('orderNumber e status são obrigatórios');
-    }
-
-    const backEbookUrl = (getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined);
-    const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN;
-    if (!backEbookUrl || !internalToken) {
-      throw new InternalServerErrorException('BACK_EBOOK_URL/API_MACHINE_INTERNAL_TOKEN não configurados');
-    }
-
-    const endpoint = `${backEbookUrl.replace(/\/+$/, '')}/webhook/payment-confirmation`;
-    this.logger.log(
-      `[ebook/payment-confirmation] Encaminhando para back-ebook url=${endpoint} orderNumber=${body.orderNumber} status=${body.status} tokenLen=${internalToken.length}`,
-    );
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-internal-token': internalToken,
-      },
-      body: JSON.stringify({
-        orderNumber: body.orderNumber,
-        status: body.status,
-        email: body.email,
-        store: body.store || 'ebook',
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      this.logger.error(
-        `[ebook/payment-confirmation] back-ebook falhou status=${response.status} body=${text.slice(0, 800)}`,
-      );
-      throw new BadRequestException(`Falha ao encaminhar webhook para back-ebook: ${response.status} ${text}`);
-    }
-
-    this.logger.log('[ebook/payment-confirmation] Encaminhamento OK');
-    return { status: 'ok', forwarded: true };
+    return new PlatformEbookConfirmation(this.prisma).forward(body);
   }
 }

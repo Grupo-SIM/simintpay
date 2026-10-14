@@ -194,3 +194,8 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 
 - [x] Remover normalização duplicada do controller; entrada canônica e legado compartilham adapter, preservando unidades/envelope legado e regras de status.
 - [x] 13 variantes de status/fallback comparadas entre contratos; testes de identidade dos eventos e exclusão de credenciais aprovados.
+
+## Continuação — contratos de ingressos e confirmação Ebook
+
+- [x] Confirmação Ebook compartilha hook entre alias e capacidade canônica; contexto ativo revalidado e credenciais canônicas específicas do produto.
+- [x] Nove testes com mocks preservam seis ingressos DOM, segredo/HMAC do ingresso compartilhado e confirmação Ebook (payload/defaults/erros/identidade). Nenhuma fila ou chamada HTTP externa real.
