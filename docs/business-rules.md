@@ -73,3 +73,16 @@ PAGATG expõe `/platforms/PAGATG/vouchers`: GET lista, POST cria, POST `/validat
 BETAI expõe POST `/platforms/BETAI/billing` com `{ amountCents, title?, dueDate?, email? }`, GET `/billing/:code/status` e POST `/billing/subscriptions/cancel` com `{ code }`. Cobrança delega ao núcleo de links e registra Cobranca PAYABLE; não lança saldo diretamente. Registro opcional do link DOM pode falhar mantendo checkout local, como no contrato antigo, sem trocar adquirente. Configuração ausente continua erro explícito. Cancelamento usa DOM_TOKEN da plataforma e retorna quantidade de cancelamentos remotos bem-sucedidos, permitindo tentativa explícita dos restantes.
 
 Aliases `/internal/betai/*` preservam header interno, campos em reais e respostas antigas; apenas traduzem contrato e delegam ao mesmo serviço. Dono vem de BETAI cadastrada, nunca de MASTER_ADMIN_EMAILS ou conta técnica. Histórico avulso sem identificação explícita BETAI não é atribuído automaticamente à plataforma. Associação/configuração precisa ser feita pelo admin. Novas rotas usam `billing:read`, `billing:write`, `subscriptions:read`, `subscriptions:write`, `vouchers:read` ou `vouchers:write`, cadastrados explicitamente em INBOUND_OPERATIONS; nenhuma permissão legada é herdada.
+
+
+## Painel do cliente e notificações de vendas
+
+Cliente aprovado cria/edita somente os cinco produtos atuais de sua propriedade: planos, planos PIX, links de pagamento/assinatura e boletos. Valor mínimo R$ 14,99. Sessão de admin mantém seu escopo; clientes não alteram proprietário, código público, taxas ou vínculos administrativos. URLs administrativas não autorizam cliente; endpoints de dashboard, cobranças e taxas próprias mantêm acesso autenticado por usuário.
+
+Edição preserva campos não apresentados no formulário e links públicos. Recorrência legada de planos é recuperada do plano exato no gateway, sem inferir frequência/repetições/retentativa. Se configuração não puder ser recuperada, erro impede edição em vez de gravar valores presumidos. Alteração de preço/recorrência cria configuração no gateway mantendo ID/código locais; assinaturas existentes conservam seu plano do gateway.
+
+Web Push é opt-in por dispositivo para cliente aprovado. Cadastro recebe assinatura padrão do navegador; usuário vem da sessão. Endpoint tem associação única a usuário; troca remove entregas anteriores. Remoção autenticada do próprio dispositivo continua permitida depois de revogar aprovação, para concluir logout.
+
+Trigger PostgreSQL registra primeira aprovação COMPLETED dentro da transação da venda, inclusive criação já aprovada, independentemente de webhook/reconciliação. Migração marca vendas anteriormente aprovadas sem criar entregas; importações históricas mantêm data original e não alertam. Cada evento/assinatura tem entrega única. Processador periódico usa leases, backoff em falhas e remoção de assinaturas 404/410; push não faz parte do caminho crítico do pagamento. Payload contém somente ID da venda e valor, nunca dados pessoais do comprador. Cliente mostra “Venda aprovada” e abre /transacoes.
+
+Navegador e sistema precisam permitir execução em segundo plano; encerramento completo ou permissões bloqueadas podem impedir/adiar entrega. Configuração VAPID e migração são locais nesta entrega. Provedor real, migração remota e publicação dependem de pedido específico.
