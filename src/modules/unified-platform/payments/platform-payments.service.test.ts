@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import { PlatformPaymentsService } from './platform-payments.service';
 import { encryptPlatformSecret } from '../../platform-integrations/platform-secrets';
@@ -18,6 +18,7 @@ function fixture(acquirer: 'DOM' | 'FRENDZ' = 'DOM') {
       findUnique: mock(async () => stored ?? null),
       create: mock(async ({ data }: any) => { stored = data; return stored; }),
       update: mock(async ({ data }: any) => { stored = { ...stored, ...data }; return stored; }),
+      updateMany: mock(async ({ where, data }: any) => { if (stored?.status === where.status) stored = { ...stored, ...data }; return { count: 1 }; }),
     },
   };
   const charge = mock(async () => ({ id: 'gateway-payment', status: 'pending', amount: 123.45, pixContent: 'mock-pix', qrCode: 'mock-qr', pixExpire: null }));
@@ -82,5 +83,55 @@ describe('platform payment core', () => {
     await expect(service.create(context, input)).rejects.toThrow('timeout');
     await expect(service.create(context, input)).rejects.toThrow();
     expect(charge).toHaveBeenCalledTimes(1);
+  });
+});
+
+const nativeFetch = globalThis.fetch;
+afterEach(() => { globalThis.fetch = nativeFetch; });
+const cardInput = { ...input, paymentMethod: 'CREDIT_CARD' as const, card: { token: 'mock-card-token', holderName: 'Maria Silva', bin: '424242', brand: 'visa', installments: 2 } };
+
+describe('canonical card acquirer', () => {
+  test('DOM receives reais, persists no token, and replays without charging twice', async () => {
+    const { service, prisma } = fixture();
+    const transport = mock(async () => Response.json({ id: 'card-payment', status: 'paid' }));
+    globalThis.fetch = transport as never;
+    const result = await service.create(context, cardInput);
+    expect(result.status).toBe('PENDING');
+    expect(JSON.parse((transport.mock.calls as any)[0][1].body).payment).toMatchObject({ total: 123.45, credit_card: { installments: 2 } });
+    expect(JSON.stringify(prisma.transaction.create.mock.calls)).not.toContain('mock-card-token');
+    expect(await service.create(context, cardInput)).toEqual(result);
+    expect(transport).toHaveBeenCalledTimes(1);
+    await expect(service.create(context, { ...cardInput, card: { ...cardInput.card, token: 'other-token' } })).rejects.toThrow();
+  });
+
+  test('unsupported Frendz card fails before draft and never switches to DOM', async () => {
+    const { service, prisma, gateways } = fixture('FRENDZ');
+    await expect(service.create({ ...context, acquirer: 'FRENDZ' }, cardInput)).rejects.toThrow();
+    expect(prisma.transaction.create).not.toHaveBeenCalled();
+    expect(gateways.byAcquirer).not.toHaveBeenCalled();
+  });
+
+  test('uncertain card transport failure retains draft and never charges retry', async () => {
+    const { service } = fixture();
+    const transport = mock(async () => { throw new Error('timeout'); });
+    globalThis.fetch = transport as never;
+    await expect(service.create(context, cardInput)).rejects.toThrow('timeout');
+    await expect(service.create(context, cardInput)).rejects.toThrow();
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  test('rejection is persisted and cannot become an approved response', async () => {
+    const { service } = fixture();
+    globalThis.fetch = mock(async () => Response.json({ id: 'declined-card', status: 'not_authorized' })) as never;
+    expect(await service.create(context, cardInput)).toMatchObject({ status: 'FAILED', paymentId: 'declined-card' });
+  });
+
+  test('webhook completion during charge cannot regress to pending', async () => {
+    const { service, prisma } = fixture();
+    globalThis.fetch = mock(async () => {
+      await prisma.transaction.update({ data: { status: 'COMPLETED' } });
+      return Response.json({ id: 'immediate-payment', status: 'paid' });
+    }) as never;
+    expect((await service.create(context, cardInput)).status).toBe('COMPLETED');
   });
 });

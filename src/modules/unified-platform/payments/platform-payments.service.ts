@@ -7,6 +7,7 @@ import { Acquirer } from '../../../core/services/acquirer.enum';
 import { decryptPlatformSecret } from '../../platform-integrations/platform-secrets';
 import { CreatePlatformPaymentDto } from './platform-payment.dto';
 import { resolvePaymentAdapter } from './platform-payment.adapter';
+import { resolveCardAcquirer } from './platform-card-acquirer.adapter';
 
 export type PaymentPlatformContext = { id: string; tag: string; ownerUserId: string; acquirer: 'DOM' | 'FRENDZ' };
 
@@ -32,8 +33,10 @@ export class PlatformPaymentsService {
     const platform = await this.prisma.platform.findUnique({ where: { id: context.id }, include: { owner: true, integrations: true } });
     if (!platform) throw new NotFoundException('Plataforma não cadastrada');
     if (!platform.isActive || !platform.owner.isActive || platform.owner.isPurged || platform.ownerUserId !== context.ownerUserId) throw new ForbiddenException('Contexto da plataforma mudou');
-    if (input.paymentMethod !== 'PIX') throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'payments.' + input.paymentMethod });
-    if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0 || !input.idempotencyKey || !input.customer) throw new UnprocessableEntityException({ code: 'INVALID_PAYMENT_CONTRACT' });
+    if (!['PIX', 'CREDIT_CARD'].includes(input.paymentMethod)) throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'payments.' + input.paymentMethod });
+    const cardAcquirer = input.paymentMethod === 'CREDIT_CARD' ? resolveCardAcquirer(platform.acquirer) : undefined;
+    if (cardAcquirer && (!input.card || !input.card.token || !input.card.holderName || !/^\d{6,8}$/.test(input.card.bin) || !input.card.brand || !Number.isInteger(input.card.installments) || input.card.installments < 1 || input.card.installments > 12)) throw new UnprocessableEntityException({ code: 'INVALID_PAYMENT_CONTRACT' });
+    if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0 || input.amountCents > 999999999999 || !input.idempotencyKey || input.idempotencyKey.length > 128 || !input.customer) throw new UnprocessableEntityException({ code: 'INVALID_PAYMENT_CONTRACT' });
     const integration = platform.integrations.find(row => row.key === (platform.acquirer === 'DOM' ? 'DOM_TOKEN' : 'FRENDZ_TOKEN'));
     if (!integration?.encryptedValue) throw new UnprocessableEntityException({ code: 'PLATFORM_CONFIGURATION_MISSING', key: platform.acquirer === 'DOM' ? 'DOM_TOKEN' : 'FRENDZ_TOKEN' });
     const token = decryptPlatformSecret(integration.encryptedValue);
@@ -41,11 +44,13 @@ export class PlatformPaymentsService {
     const financialUserId = merchant?.userId ?? platform.ownerUserId;
     const id = createHash('sha256').update(`${platform.id}\0${merchant?.id ?? ''}\0${input.idempotencyKey}`).digest('hex');
     const marker = `[TENANT:${platform.tag}]`;
-    const description = `${adapter.description(input.description)} ${marker}`;
+    // Persist only a digest of card contract; never persist reusable tokens.
+    const cardDigest = cardAcquirer ? ` [REQUEST:${createHash('sha256').update(JSON.stringify([input.card!.token, input.card!.holderName, input.card!.bin, input.card!.brand, input.card!.installments])).digest('hex')}]` : '';
+    const description = `${adapter.description(input.description)} ${marker}${cardDigest}`;
     const amount = new Prisma.Decimal(input.amountCents).div(100);
     const existing = await this.prisma.transaction.findUnique({ where: { id } });
     if (existing) {
-      if (existing.userId !== financialUserId || !existing.amount.equals(amount) || existing.description !== description || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== 'PIX') throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
+      if (existing.userId !== financialUserId || !existing.amount.equals(amount) || existing.description !== description || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== input.paymentMethod) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       if (!existing.externalPaymentId) throw new ConflictException({ code: 'PAYMENT_PROCESSING', transactionId: id });
       return this.result(existing);
     }
@@ -56,24 +61,29 @@ export class PlatformPaymentsService {
     for (const row of overrides.filter(row => row.tag !== 'GLOBAL')) rates[row.key] = row.value;
     try {
       await this.prisma.transaction.create({ data: {
-        id, userId: financialUserId, amount, ...adapter.fees(amount, rates),
-        status: 'DRAFT', paymentMethod: 'PIX', acquirer: platform.acquirer,
+        id, userId: financialUserId, amount, ...adapter.fees(amount, rates, cardAcquirer ? input.card!.installments : undefined),
+        status: 'DRAFT', paymentMethod: input.paymentMethod, acquirer: platform.acquirer,
         description, customerName: input.customer.name, customerEmail: input.customer.email,
-        customerDocument: input.customer.document, customerPhone: input.customer.phone ?? '', installments: 1,
+        customerDocument: input.customer.document, customerPhone: input.customer.phone ?? '', installments: cardAcquirer ? input.card!.installments : 1,
+        ...(cardAcquirer ? { cardBin: input.card!.bin, cardBrand: input.card!.brand } : {}),
       } });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException({ code: 'PAYMENT_PROCESSING', transactionId: id });
       throw error;
     }
     // Frendz's current transport expects cents; DOM's expects reais.
-    const payment = await this.gateways.byAcquirer(platform.acquirer as Acquirer).createPixCheckout(token, {
+    const payment = cardAcquirer ? await cardAcquirer.charge(token, { id, amountCents: input.amountCents, description: adapter.description(input.description), customer: input.customer, card: input.card! }) : await this.gateways.byAcquirer(platform.acquirer as Acquirer).createPixCheckout(token, {
       codExternal: id, amount: platform.acquirer === 'FRENDZ' ? input.amountCents : amount.toNumber(),
       description: adapter.description(input.description), customerName: input.customer.name,
       customerEmail: input.customer.email, customerDocument: input.customer.document,
       customerPhone: input.customer.phone ?? '', documentType: input.customer.documentType,
     });
+    // An immediate webhook may already have settled DRAFT while charge awaited.
+    await this.prisma.transaction.updateMany({ where: { id, status: 'DRAFT' }, data: {
+      status: cardAcquirer && ['not_authorized', 'error', 'failed', 'refused', 'canceled', 'expired'].includes(payment.status) ? 'FAILED' : 'PENDING',
+    } });
     const stored = await this.prisma.transaction.update({ where: { id }, data: {
-      status: 'PENDING', externalPaymentId: payment.id,
+      externalPaymentId: payment.id,
       ...(platform.acquirer === 'DOM' ? { domPaymentId: payment.id } : {}),
       pixQrCode: payment.qrCode, pixContent: payment.pixContent,
       pixExpire: payment.pixExpire ? new Date(payment.pixExpire) : null,

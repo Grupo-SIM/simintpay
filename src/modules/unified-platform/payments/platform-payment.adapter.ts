@@ -10,9 +10,10 @@ export class PlatformPaymentAdapter {
     return value?.replace(/\[TENANT:[^\]]*\]/gi, '').trim() || 'Pagamento PIX';
   }
 
-  fees(amount: Prisma.Decimal, rates: Record<string, number>) {
+  fees(amount: Prisma.Decimal, rates: Record<string, number>, installments?: number) {
     const liquidity = new Prisma.Decimal(rates.LIQUIDEZ ?? PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
-    const mdr = new Prisma.Decimal(rates.MDR_PIX ?? PLATFORM_TAXA_DEFAULTS.MDR_PIX);
+    const key = installments ? `MDR_CC_${installments}X` : 'MDR_PIX';
+    const mdr = new Prisma.Decimal(rates[key] ?? PLATFORM_TAXA_DEFAULTS[key as keyof typeof PLATFORM_TAXA_DEFAULTS]);
     const netAmount = amount.mul(liquidity).toDecimalPlaces(2);
     const totalFee = amount.minus(netAmount);
     const domFee = amount.mul(mdr).toDecimalPlaces(2);

@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { IsDefined, IsEmail, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PlatformPaymentCustomerDto {
@@ -9,10 +9,19 @@ export class PlatformPaymentCustomerDto {
   @IsOptional() @IsString() phone?: string;
 }
 
+export class PlatformPaymentCardDto {
+  @IsString() @MinLength(1) @MaxLength(4096) token!: string;
+  @IsString() @MinLength(2) @MaxLength(200) holderName!: string;
+  @IsString() @MinLength(6) @MaxLength(8) bin!: string;
+  @IsString() @MinLength(1) @MaxLength(40) brand!: string;
+  @IsInt() @Min(1) @Max(12) installments!: number;
+}
+
 export class CreatePlatformPaymentDto {
   @IsInt() @Min(1) @Max(999999999999) amountCents!: number;
-  @IsIn(['PIX']) paymentMethod!: 'PIX';
+  @IsIn(['PIX', 'CREDIT_CARD']) paymentMethod!: 'PIX' | 'CREDIT_CARD';
   @IsString() @MinLength(1) @MaxLength(128) idempotencyKey!: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
-  @ValidateNested() @Type(() => PlatformPaymentCustomerDto) customer!: PlatformPaymentCustomerDto;
+  @IsDefined() @ValidateNested() @Type(() => PlatformPaymentCustomerDto) customer!: PlatformPaymentCustomerDto;
+  @ValidateIf(value => value.paymentMethod === 'CREDIT_CARD') @IsDefined() @ValidateNested() @Type(() => PlatformPaymentCardDto) card?: PlatformPaymentCardDto;
 }
