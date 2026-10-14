@@ -1,6 +1,9 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { initializePlatformTaxasCache } from '../../../modules/platform-taxas/platform-taxas.store';
+import { beforeAll, describe, test, expect, mock } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import { ProcessWebhookUseCase } from './process-webhook.use-case';
+
+beforeAll(async () => initializePlatformTaxasCache({ platformTaxaOverride: { findMany: async () => [] } } as any));
 
 function fixture(claimCount = 1, status = 'PENDING') {
   const payment = { id: 'a'.repeat(64), userId: 'original-owner', status, description: '[TENANT:CLIENT]', netAmount: new Prisma.Decimal(90), platformFee: new Prisma.Decimal(9) };
@@ -14,7 +17,7 @@ function fixture(claimCount = 1, status = 'PENDING') {
   const affiliates = { applyForTransaction: mock(async () => {}), reverseForTransaction: mock(async () => {}) };
   const prisma = { user: { findUnique: mock(async () => ({ platform: null })) }, $transaction: mock(async (fn: any) => fn(tx)) };
   const service = new ProcessWebhookUseCase(events as never, { findByDomPaymentId: async () => payment } as never, {} as never, prisma as never, {} as never, affiliates as never);
-  return { service, tx, affiliates };
+  return { service, tx, affiliates, payment };
 }
 const payload = { event: 'transaction', signature: 'event1', data: { paymentId: 'payment', status: 'paid', amountWithoutAllFee: 999 } };
 
@@ -38,4 +41,11 @@ describe('Canonical webhook financial integrity', () => {
     expect(tx.transactionStatusHistory.create).not.toHaveBeenCalled();
     expect(affiliates.applyForTransaction).not.toHaveBeenCalled();
   });
+});
+
+test('legacy UUID preserves its pre-fixed-fee provider contract', async () => {
+  const { service, tx, payment } = fixture();
+  payment.id = '8a8cb93a-2fbe-4a52-bd0e-1bb2971275b8';
+  await service.execute({ payload: { ...payload, data: { ...payload.data, amountWithoutAllFee: 90 } } });
+  expect((tx.wallet.updateMany.mock.calls as any)[0][0].data.balance.toNumber()).toBe(96);
 });

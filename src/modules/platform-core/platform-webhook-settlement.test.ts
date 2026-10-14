@@ -31,3 +31,10 @@ test('legacy missing-payment acknowledgment never delegates unscoped settlement'
   await core.apply(platform, { data: { id: 'remote', status: 'paid' } }, false);
   expect(processor.execute).not.toHaveBeenCalled();
 });
+
+test('canonical webhook without persisted net cannot invent financial snapshot from gross', async () => {
+  const { core, platform, payment, processor } = fixture();
+  (payment as any).netAmount = null;
+  await expect(core.apply(platform, { data: { id: 'remote', status: 'paid' } })).rejects.toMatchObject({ response: { code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'webhooks.net-snapshot' } });
+  expect(processor.execute).not.toHaveBeenCalled();
+});

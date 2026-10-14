@@ -183,3 +183,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 
 - [x] `bun scripts/test-platform-migration.ts` inicializa caches com mocks, fixa banco sentinela em loopback e falha se houver HTTP sem mock. Evita refresh implícito de taxas usando configuração do checkout.
 - [x] 484 testes Bun aprovados com isolamento ativo; nenhuma chamada HTTP real na suíte.
+
+## Continuação — snapshot e taxas de webhooks
+
+- [x] Preservar diferença entre snapshot final canônico e líquido pré-taxas do contrato legado; leitura de taxas ocorre apenas no caminho legado.
+- [x] Canônico sem snapshot líquido retorna 422 antes de lançamento; fallback antigo fica nos ingressos legados.
+- [x] Testes caracterizam separadamente crédito canônico e desconto fixo legado com UUID.

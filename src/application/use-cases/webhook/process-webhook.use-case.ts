@@ -241,19 +241,21 @@ export class ProcessWebhookUseCase {
         parsed.data.amountWithoutAllFee,
       );
 
-      // Determina a plataforma da transação para calcular taxas fixas corretas.
-      // Renovada e Bosque são isentos (taxaFixa=0, taxaCashback=0); demais pagam R$4.
-      const user = await this.prisma.user.findUnique({
-        where: { id: t.userId },
-        select: { platform: { select: { tag: true } } },
-      });
-      const tenantSlug = user?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
-      const rowTag = platformTaxaTagFromText(t.description ?? undefined);
-      const feeTag = rowTag !== 'GLOBAL' ? rowTag : canonicalPlatformTaxaTag(tenantSlug);
-      const fixedTx = getPlatformTaxaEffective(feeTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-      const fixedCashback = getPlatformTaxaEffective(feeTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-      const storedCanonical = /^[a-f0-9]{64}$/.test(t.id);
-      const creditAmount = storedCanonical && t.netAmount != null ? new Prisma.Decimal(t.netAmount) : amountWithoutAllFee.sub(new Prisma.Decimal(fixedTx + fixedCashback));
+      let creditAmount: Prisma.Decimal;
+      if (/^[a-f0-9]{64}$/.test(t.id) && t.netAmount != null) creditAmount = new Prisma.Decimal(t.netAmount);
+      else {
+        // Legacy entries retain their characterized pre-fixed-fee contract.
+        const user = await this.prisma.user.findUnique({
+          where: { id: t.userId },
+          select: { platform: { select: { tag: true } } },
+        });
+        const tenantSlug = user?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
+        const rowTag = platformTaxaTagFromText(t.description ?? undefined);
+        const feeTag = rowTag !== 'GLOBAL' ? rowTag : canonicalPlatformTaxaTag(tenantSlug);
+        const fixedTx = getPlatformTaxaEffective(feeTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+        const fixedCashback = getPlatformTaxaEffective(feeTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+        creditAmount = amountWithoutAllFee.sub(new Prisma.Decimal(fixedTx + fixedCashback));
+      }
 
       const status = parsed.data.status;
 

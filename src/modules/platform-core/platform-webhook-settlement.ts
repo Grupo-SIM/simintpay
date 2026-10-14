@@ -1,3 +1,4 @@
+import { unsupportedCapability } from './platform-adapters';
 import { UnauthorizedException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -19,6 +20,7 @@ export class PlatformWebhookSettlement {
       if (requirePayment) throw new UnauthorizedException('Pagamento fora da plataforma');
       return;
     }
+    if (requirePayment && transaction.netAmount === null) unsupportedCapability('webhooks.net-snapshot');
     const eventId = createHash('sha256').update(`${platform.id}:${platform.acquirer}:${paymentId}:${status}`).digest('hex');
     await this.processor.execute({ transactionId: transaction.id, payload: { event: 'transaction', signature: eventId, data: {
       paymentId, status, amountWithoutAllFee: transaction.netAmount?.toNumber() ?? transaction.amount.toNumber(), acquirer: platform.acquirer,
