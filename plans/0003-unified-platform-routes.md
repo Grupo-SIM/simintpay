@@ -109,3 +109,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Alias e API canônica delegam claim ao núcleo; links precisam vínculo explícito e dono ativo.
 - [x] Histórico financeiro preservado; retroativo usa origem explicitamente associada pelo admin, saldo disponível e CAS de carteiras em transação serializável.
 - [x] Cinco testes de integridade/idempotência e quatro de administração de integrações aprovados. Build aprovado; nenhuma configuração externa criada.
+
+## Continuação — liquidação de callbacks
+
+- [x] Bosque e canônico compartilham PlatformWebhookSettlement; checkout/SSE publicados pelo processador após transição.
+- [x] Quatro variantes sem consumidores removidas; testes de terminal transferidos ao processador realmente utilizado.
+- [x] Equivalência de normalização/líquido/chave de deduplicação e isolamento aprovados; regressões completas: 399 Bun, 200 Jest, 1 Jest pré-existente ignorado, build aprovado.

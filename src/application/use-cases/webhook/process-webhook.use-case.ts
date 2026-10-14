@@ -1,3 +1,4 @@
+import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
 import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
 import { getPlatformOwnerId } from '../../../modules/module.registry';
@@ -68,6 +69,7 @@ export class ProcessWebhookUseCase {
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
     @Optional() private readonly platformEvents?: PlatformEventsService,
+    @Optional() private readonly checkoutEvents?: CheckoutEventsService,
   ) { }
 
   private getObject(v: unknown): Record<string, unknown> | null {
@@ -399,6 +401,7 @@ export class ProcessWebhookUseCase {
         const outcome = await notifyZeroGrauPaymentStatus({ paymentId: domPaymentId, status: nextStatus });
         if (outcome === 'failed') this.logger.warn(`Callback Zero Grau pendente para ${t.id}`);
       }
+      if (t.domPaymentId && ['COMPLETED', 'FAILED', 'EXPIRED'].includes(nextStatus)) this.checkoutEvents?.emit({ domPaymentId: t.domPaymentId, status: nextStatus as 'COMPLETED' | 'FAILED' | 'EXPIRED' });
       if (this.platformEvents && eventTag !== 'GLOBAL') this.platformEvents.emit(eventTag, 'transaction', { ...t, status: nextStatus });
       else if (eventTag === 'RENOVADA') this.renovadaEvents.emitTransaction({ ...t, status: nextStatus });
     } catch (e: unknown) {

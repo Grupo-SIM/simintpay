@@ -1250,6 +1250,8 @@ export class ProcessDomWebhookUseCase {
     }
 
     const userId = machineOwners()[serial];
+    const matches = registeredPlatformTags().filter((tag) => (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '').split(',').map((value) => value.trim()).includes(serial));
+    if (!userId || matches.length !== 1) throw new Error('Terminal sem plataforma única cadastrada');
 
     const alreadySynced = await this.prisma.transaction.findFirst({
       where: { domPaymentId: data.id, userId },
@@ -1264,8 +1266,6 @@ export class ProcessDomWebhookUseCase {
     // `liquid_amount` que a DOM devolve serve só de referência do custo dela.
     // Mesmo modelo do sync-maquinetas — os dois caminhos precisam gravar igual.
     const amountReais = data.amount / 100;
-    const matches = registeredPlatformTags().filter((tag) => (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '').split(',').map((value) => value.trim()).includes(serial));
-    if (!userId || matches.length !== 1) throw new Error('Terminal sem plataforma única cadastrada');
     const platformTag = matches[0];
     const fees = calculateMaquinetaFees(
       platformTag,

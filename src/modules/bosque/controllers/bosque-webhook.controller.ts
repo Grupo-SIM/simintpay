@@ -11,7 +11,6 @@ export class BosqueWebhookController {
   @Post('/dom')
   @HttpCode(200)
   async domWebhook(@Body() body: any) {
-    this.webhookService['logger']?.log?.('[BOSQUE] Webhook DOM recebido');
     return await this.webhookService.processWebhook(body);
   }
 

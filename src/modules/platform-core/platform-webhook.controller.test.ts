@@ -7,7 +7,7 @@ import { PlatformWebhookController } from './platform-webhook.controller';
 process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = 'a'.repeat(64);
 function fixture() {
   const platform = { id: 'platform', tag: 'SHOP', ownerUserId: 'owner', acquirer: 'DOM' };
-  const transaction = { id: 'local', netAmount: new Prisma.Decimal(9), amount: new Prisma.Decimal(10) };
+  const transaction = { id: 'local', description: '[TENANT:SHOP]', netAmount: new Prisma.Decimal(9), amount: new Prisma.Decimal(10) };
   const contexts = { resolve: mock(async () => platform) };
   const prisma = { platformIntegration: { findUnique: mock(async () => ({ encryptedValue: encryptPlatformSecret('secret') })) }, transaction: { findFirst: mock(async () => transaction) } };
   const processor = { execute: mock(async () => {}) };

@@ -1,6 +1,6 @@
-import { platformWebhookEvent } from './platform-webhook.adapter';
+import { PlatformWebhookSettlement } from './platform-webhook-settlement';
 import { Body, Controller, Headers, HttpCode, Param, Post, Req, UnauthorizedException } from '@nestjs/common';
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PlatformContextService } from './platform-context.service';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { decryptPlatformSecret } from '../platform-integrations/platform-secrets';
@@ -24,12 +24,7 @@ export class PlatformWebhookController {
     const expected = platform.acquirer === 'FRENDZ' ? secret : createHmac('sha256', secret).update(request.rawBody!).digest('hex');
     const supplied = Buffer.from(provided); const computed = Buffer.from(expected);
     if (supplied.length !== computed.length || !timingSafeEqual(supplied, computed)) throw new UnauthorizedException('Assinatura inválida');
-    const { paymentId, status: normalized, externalReference } = platformWebhookEvent(platform.acquirer, body);
-    const transaction = paymentId ? await this.prisma.transaction.findFirst({ where: { acquirer: platform.acquirer, description: { contains: `[TENANT:${platform.tag}]` }, OR: [{ externalPaymentId: paymentId }, { domPaymentId: paymentId }, ...(externalReference ? [{ id: externalReference }] : [])] } }) : null;
-    if (!transaction) throw new UnauthorizedException('Pagamento fora da plataforma');
-    const eventId = createHash('sha256').update(`${platform.id}:${platform.acquirer}:${paymentId}:${normalized}`).digest('hex');
-    await this.processor.execute({ transactionId: transaction.id, payload: { event: 'transaction', signature: eventId, data: { paymentId, status: normalized,
-      amountWithoutAllFee: transaction.netAmount?.toNumber() ?? transaction.amount.toNumber(), acquirer: platform.acquirer } } });
+    await new PlatformWebhookSettlement(this.prisma, this.processor).apply(platform, body);
     return { status: 'ok' };
   }
 }

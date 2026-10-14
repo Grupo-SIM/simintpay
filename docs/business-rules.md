@@ -115,3 +115,7 @@ Atlas e Revalida compartilham consultas, gráficos, resumos e paginação. Adapt
 ### Claim de links AreaFlix
 
 `/platforms/:tag/links/claim` exige admin; alias interno preserva credencial histórica. Ambos usam transação serializável e dono atual ativo. Links precisam associação explícita AREAFLIX. Apenas titularidade futura dos links muda: transações e ordens históricas conservam dono original. Transferência retroativa exige configuração administrativa `CLAIM_SOURCE_USER_ID`; e-mail do corpo não escolhe origem. Carteira compartilhada de origem ou saldo disponível insuficiente bloqueiam transferência. Logs históricos `AREAFLIX_CLAIM_TRANSFER` impedem novo crédito, inclusive após atualização do escritor.
+
+### Liquidação compartilhada de webhooks
+
+Bosque e entrada canônica usam mesmo normalizador, busca limitada à plataforma e chave de evento por produto/adquirente/pagamento/status. Valor líquido vem do lançamento persistido, nunca do corpo recebido. Marcas conflitantes bloqueiam liquidação. Permissão/signatura histórica fica somente no alias; entrada canônica exige segredo configurado. Processador publica confirmação de checkout e eventos de plataforma após transição efetiva. Variantes Master/Renovada sem consumidores foram removidas; rotas continuam delegando ao processador ativo pela fila existente.
