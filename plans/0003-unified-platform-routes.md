@@ -69,7 +69,7 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Migrar runtime, guards, autenticação, relatórios, gateways e scripts para tag/referência Platform. Cadastro deixa de criar módulo paralelo.
 - [x] Preparar SQL transacional e preflight; associação ausente bloqueia backfill. Nenhuma migração aplicada em banco.
 - [x] `/auth/me` lista produtos e preserva saldo compartilhado; usuário com vários produtos precisa escolha explícita em criação financeira.
-- [x] Schema Prisma validado, cliente regenerado localmente, build aprovado; 163 testes Bun e 200 Jest aprovados (1 teste pré-existente ignorado). Identidade pronta para commit local; aliases continuam próxima etapa.
+- [x] Schema Prisma validado, cliente regenerado localmente, build aprovado; 163 testes Bun e 200 Jest aprovados (1 teste pré-existente ignorado). Identidade registrada em commit local; continuação dos aliases documentada abaixo.
 
 ## Execução compartilhada de pagamentos
 
@@ -204,3 +204,10 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 
 - [x] Base contábil `persisted-net` explícita na resposta; adapter Bosque inclui baseline administrativo sem afetar regras das demais plataformas.
 - [x] Seis testes de saldo cobrem carteira compartilhada, líquido ausente, marcas conflitantes, transferência, resultado negativo e baseline.
+
+## Continuação — contratos de configuração e verificação final local
+
+- [x] Caracterizar APIs preservadas de taxas/clientes: valores decimais, patch, tag pessoal/de membro, paginação, busca por documento e metadados omitidos. Três testes cobrem cinco handlers.
+- [x] Verificação final: 493 testes Bun com harness isolado, 200 testes Jest aprovados (1 ignorado pré-existente) e build local aprovado.
+- [x] Alterações registradas em commits locais; nenhuma migração de banco, push ou deploy executado.
+- [ ] Plano completo ainda não encerrado: equivalência comportamental integral dos 144 contratos não demonstrada. Schema monetário das mensalidades remotas BetAI permanece pendência explícita, com fonte solicitada ao usuário.
