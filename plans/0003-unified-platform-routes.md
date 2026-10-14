@@ -151,3 +151,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Oito contratos legados dispõem de operações canônicas usando os mesmos serviços; política, comunidade em lote e ciclo de saque em centavos.
 - [x] Equivalência de argumentos/envelopes/unidades, token legado inválido, capacidade ausente e campos de identidade rejeitados. Revisões canônicas usam ator do JWT.
 - [x] Regressão completa anterior desta etapa: 441 Bun e 200 Jest aprovados (1 pré-existente ignorado); build aprovado. Ajuste de identidade de revisão possui teste dirigido adicional.
+
+## Continuação — escritor financeiro de comerciantes
+
+- [x] Remover escritor duplicado de saques: alias e canônico usam `PlatformFinanceService.createWithdrawal`, com reserva/CAS, vínculo explícito e adquirente cadastrado.
+- [x] Outbox compartilhado e transacional para ambos os contratos; idempotência valida valor/chave e namespace.
+- [x] Três testes de equivalência financeira, 13 testes do núcleo/comerciantes e cinco regressões Jest aprovados.

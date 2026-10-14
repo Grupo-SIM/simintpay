@@ -1,3 +1,4 @@
+import { merchantWithdrawalDelivery } from '../../platform-core/platform-merchant-delivery';
 import { PlatformOwnerMirror } from '../../platform-core/platform-owner-mirror';
 import { PlatformAttributedBalance } from '../../platform-core/platform-attributed-balance';
 import { PlatformDashboardReports } from '../../platform-core/platform-dashboard-reports';
@@ -250,7 +251,7 @@ export class PlatformFinanceService {
   async createWithdrawal(input: {
     userId: string; platform: string; amount: number | Prisma.Decimal; grossAmount: number | Prisma.Decimal;
     fee: number | Prisma.Decimal; pixKey: string; reserveWallet?: boolean; acquirer?: 'DOM' | 'FRENDZ';
-    logBalance?: boolean; integrationRequestId?: string; context?: FinancePlatformContext; merchantId?: string;
+    logBalance?: boolean; integrationRequestId?: string; context?: FinancePlatformContext; merchantId?: string; merchantNamespace?: string; singlePending?: boolean;
   }) {
     return this.prisma.$transaction(async tx => {
       if (input.context) {
@@ -261,11 +262,18 @@ export class PlatformFinanceService {
       }
       if (input.merchantId && input.context) {
         const merchant = await tx.integrationMerchant.findUnique({ where: { id: input.merchantId }, include: { user: true } });
-        if (!merchant?.user.isActive || merchant.user.isPurged || merchant.userId !== input.userId || merchant.integrationKey !== `platform:${input.context.id}`) throw new ForbiddenException('Comerciante alterado ou inativo');
+        if (!merchant?.user.isActive || merchant.user.isPurged || merchant.userId !== input.userId || merchant.integrationKey !== (input.merchantNamespace ?? `platform:${input.context.id}`)) throw new ForbiddenException('Comerciante alterado ou inativo');
+      }
+      if (input.merchantNamespace && input.context && input.merchantNamespace !== `platform:${input.context.id}`) {
+        const binding = await tx.platformIntegration.findUnique({ where: { platformId_key: { platformId: input.context.id, key: 'LEGACY_MERCHANT_KEYS' } } });
+        if (!binding?.url?.split(',').map(key => key.trim()).includes(input.merchantNamespace)) throw new ForbiddenException('Vínculo legado do comerciante alterado');
       }
       if (input.integrationRequestId) {
         const existing = await tx.withdrawRequest.findUnique({ where: { integrationRequestId: input.integrationRequestId } });
-        if (existing) return existing;
+        if (existing) {
+          if (existing.userId !== input.userId || !new Prisma.Decimal(existing.grossAmount).equals(input.grossAmount) || existing.pixKey !== input.pixKey.trim() || ![input.platform.toLowerCase(), input.merchantNamespace?.toLowerCase()].includes(existing.platform?.toLowerCase())) throw new ConflictException('Chave idempotente pertence a outro contrato');
+          return existing;
+        }
       }
       if (input.context?.tag === 'RETURN-BET') {
         const policy = await tx.returnBetWithdrawalPolicy.findUnique({ where: { id: 'default' } });
@@ -275,6 +283,7 @@ export class PlatformFinanceService {
       if (input.context?.tag === 'RETURN-BET' && await tx.withdrawRequest.count({ where: { userId: input.userId, status: 'PENDING' } }) > 0) {
         throw new UnprocessableEntityException({ code: 'WITHDRAWAL_PENDING_LIMIT', message: 'Já existe saque pendente' });
       }
+      if (input.singlePending && await tx.withdrawRequest.findFirst({ where: { userId: input.userId, status: { in: ['PENDING', 'APPROVED'] } } })) throw new ConflictException('Já existe saque em processamento');
       if (input.reserveWallet) {
         const wallet = await tx.wallet.findUnique({ where: { userId: input.userId } });
         if (!wallet) throw new BadRequestException('Carteira não encontrada');
@@ -292,11 +301,13 @@ export class PlatformFinanceService {
           description: `Saque ${input.platform} solicitado: R$ ${new Prisma.Decimal(input.grossAmount).toFixed(2)}`,
         } });
       }
-      return tx.withdrawRequest.create({ data: {
+      const created = await tx.withdrawRequest.create({ data: {
         userId: input.userId, platform: input.platform, amount: input.amount, grossAmount: input.grossAmount,
         fee: input.fee, pixKey: input.pixKey, status: 'PENDING', acquirer: input.acquirer ?? 'DOM',
         integrationRequestId: input.integrationRequestId,
       } });
+      if (input.merchantId) await tx.integrationWebhookDelivery.create({ data: merchantWithdrawalDelivery(input.merchantId, created) });
+      return created;
     });
   }
 }

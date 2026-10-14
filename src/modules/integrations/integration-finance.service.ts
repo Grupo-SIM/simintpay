@@ -1,3 +1,5 @@
+import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
+import { merchantWithdrawalDelivery } from '../platform-core/platform-merchant-delivery';
 import {
   BadRequestException,
   ConflictException,
@@ -81,7 +83,7 @@ export class IntegrationFinanceService {
       where: { integrationKey_externalMerchantId: { integrationKey, externalMerchantId } },
       include: { user: { include: { wallet: true } } },
     });
-    if (!merchant?.user.wallet) throw new NotFoundException('Merchant não provisionado');
+    if (!merchant?.user.wallet || !merchant.user.isActive || merchant.user.isPurged) throw new NotFoundException('Merchant não provisionado');
     return merchant;
   }
 
@@ -142,6 +144,7 @@ export class IntegrationFinanceService {
     });
     if (duplicate) {
       if (duplicate.userId !== merchant.userId) throw new ConflictException('Chave idempotente pertence a outro merchant');
+      if (!duplicate.grossAmount.equals(new Prisma.Decimal(input.grossAmountCents).div(100)) || duplicate.pixKey !== input.pixKey?.trim()) throw new ConflictException('Chave idempotente pertence a outro contrato');
       return this.serializeWithdrawal(duplicate);
     }
 
@@ -149,32 +152,13 @@ export class IntegrationFinanceService {
     const quote = this.quote(input.grossAmountCents, platform.tag);
     const pixKey = input.pixKey?.trim();
     if (!pixKey) throw new BadRequestException('Chave Pix obrigatória');
-    const active = await this.prisma.withdrawRequest.findFirst({
-      where: { userId: merchant.userId, status: { in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED] } },
-    });
-    if (active) throw new ConflictException('Já existe saque em processamento');
-    const availableCents = Math.round((Number(merchant.user.wallet!.balance) - Number(merchant.user.wallet!.lockedBalance)) * 100);
-    if (quote.grossAmountCents > availableCents) throw new BadRequestException('Saldo insuficiente');
-
-    const withdrawal = await this.prisma.$transaction(async tx => {
-      const created = await tx.withdrawRequest.create({
-        data: {
-          amount: new Prisma.Decimal(quote.netAmountCents).div(100),
-          fee: new Prisma.Decimal(quote.feeCents).div(100),
-          grossAmount: new Prisma.Decimal(quote.grossAmountCents).div(100),
-          integrationRequestId: input.requestId,
-          pixKey,
-          platform: integrationKey,
-          userId: merchant.userId,
-        },
-      });
-      const walletReservation = await tx.wallet.updateMany({
-        where: { userId: merchant.userId, version: merchant.user.wallet!.version },
-        data: { lockedBalance: { increment: created.grossAmount }, version: { increment: 1 } },
-      });
-      if (walletReservation.count !== 1) throw new ConflictException('Carteira alterada; tente novamente');
-      await this.enqueueStatus(tx, merchant.id, created);
-      return created;
+    const withdrawal = await new PlatformFinanceService(this.prisma).createWithdrawal({
+      userId: merchant.userId, platform: platform.tag.toLowerCase(),
+      amount: new Prisma.Decimal(quote.netAmountCents).div(100), fee: new Prisma.Decimal(quote.feeCents).div(100),
+      grossAmount: new Prisma.Decimal(quote.grossAmountCents).div(100), pixKey, integrationRequestId: input.requestId,
+      reserveWallet: true, singlePending: true, acquirer: platform.acquirer,
+      context: { id: platform.id, tag: platform.tag, ownerUserId: platform.ownerUserId, acquirer: platform.acquirer },
+      merchantId: merchant.id, merchantNamespace: integrationKey,
     });
     return this.serializeWithdrawal(withdrawal);
   }
@@ -252,31 +236,11 @@ export class IntegrationFinanceService {
       for (const withdrawal of withdrawals) {
         await this.prisma.integrationWebhookDelivery.upsert({
           where: { withdrawalId_status: { status: withdrawal.status, withdrawalId: withdrawal.id } },
-          create: this.deliveryData(merchant.id, withdrawal),
+          create: merchantWithdrawalDelivery(merchant.id, withdrawal),
           update: {},
         });
       }
     }
-  }
-
-  private deliveryData(merchantId: string, withdrawal: { id: string; status: WithdrawStatus; integrationRequestId: string | null; rejectionReason: string | null; updatedAt: Date }) {
-    return {
-      merchantId,
-      payload: {
-        eventId: `${withdrawal.id}:${withdrawal.status}`,
-        requestId: withdrawal.integrationRequestId,
-        rejectionReason: withdrawal.rejectionReason,
-        status: withdrawal.status,
-        updatedAt: withdrawal.updatedAt.toISOString(),
-        withdrawalId: withdrawal.id,
-      },
-      status: withdrawal.status,
-      withdrawalId: withdrawal.id,
-    };
-  }
-
-  private async enqueueStatus(tx: Prisma.TransactionClient, merchantId: string, withdrawal: { id: string; status: WithdrawStatus; integrationRequestId: string | null; rejectionReason: string | null; updatedAt: Date }) {
-    await tx.integrationWebhookDelivery.create({ data: this.deliveryData(merchantId, withdrawal) });
   }
 
   private serializeWithdrawal(item: { id: string; grossAmount: Prisma.Decimal; amount: Prisma.Decimal; fee: Prisma.Decimal; pixKey: string; status: WithdrawStatus; rejectionReason: string | null; integrationRequestId: string | null; createdAt: Date; updatedAt: Date }) {
