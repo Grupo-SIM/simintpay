@@ -1,3 +1,4 @@
+import { PlatformAttributedBalance } from '../../modules/platform-core/platform-attributed-balance';
 import { PlatformAdministrationService } from '../../modules/platform-core/platform-administration.service';
 import { resolveConsolidadoPlatforms, getComunidadeOrderRows, FIXED_PLATFORM_TAGS, parseYmdSp, normalizePlatformTag, TZ, getTaxaServicoEffectiveDate, TAGS_SEM_TAXA_SERVICO, ConsolidadoPlatformEntry, TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA, TAXA_SERVICO_EFFECTIVE_DATE } from '../../modules/platform-core/platform-administration.helpers';
 import { PlatformSaasAccessService } from '../../modules/platform-core/platform-saas-access.service';
@@ -93,7 +94,6 @@ import {
 import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositories/wallet.repository.interface';
 import { CommunityManagementService } from '../../application/services/community-management.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
-import { computeBosqueAvailableSinceLastWithdrawal } from '../../application/helpers/bosque-available.helper';
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
 import { getPlatformTaxaEffective, invalidatePlatformTaxaCache, buildClientTaxaTag, canonicalPlatformTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
@@ -1590,7 +1590,7 @@ export class AdminController {
     // Contas marcadas como cliente Simintpay (já listadas em "Clientes Simintpay")
     // saem da aba de ativos e ganham aba própria. Inativas/purgadas mostram todas.
     const simintpayClientMode: 'exclude' | 'only' | 'any' =
-      showPurged || showDeleted ? 'any' : simintpayClients === 'true' ? 'only' : 'exclude';
+      simintpayClients === 'true' ? 'only' : simintpayClients === 'any' || showPurged || showDeleted ? 'any' : 'exclude';
     const userSimintpayClientFilter =
       simintpayClientMode === 'any' ? [] : [{ isSimintpayClient: simintpayClientMode === 'only' }];
     const extSimintpayClientFilter: Prisma.ExternalPlatformUserWhereInput[] =
@@ -1670,7 +1670,7 @@ export class AdminController {
     // Known platform master accounts identified by env var or fallback UUID.
     // These users may not have platformId set (sync never assigns it) so the
     // platform relation query alone won't find them.
-    const registered = await this.prisma.platform.findMany({ select: { tag: true, ownerUserId: true } });
+    const registered = await this.prisma.platform.findMany({ select: { id: true, tag: true, ownerUserId: true, acquirer: true, isActive: true } });
     const KNOWN_PLATFORM_IDS: Record<string, string> = Object.fromEntries(registered.map((platform) => [platform.tag.toLowerCase(), platform.ownerUserId]));
 
     // Map knownId → platformSlug so we can label entries found via this path.
@@ -1679,20 +1679,6 @@ export class AdminController {
         .filter(([, id]) => id)
         .map(([slug, id]) => [id, slug]),
     );
-
-    // Contas técnicas de integração não têm tenantModule nem estão em KNOWN_PLATFORM_IDS
-    // e caíam no rótulo genérico "simintpay". Inferimos a plataforma pelo id/e-mail:
-    //  - usuário placeholder do EbookSim (EBOOK_ID)
-    //  - ZERO_GRAU_USER_ID
-    //  - e-mail `<origem>_<slug>.<uuid>@integration.internal` → slug (ex.: zero-grau)
-    const EBOOK_PLACEHOLDER_ID = (process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001').trim();
-    const ZERO_GRAU_ID = (process.env.ZERO_GRAU_USER_ID || '').trim();
-    const inferIntegrationPlatform = (u: { id: string; email: string }): string | null => {
-      if (u.id === EBOOK_PLACEHOLDER_ID) return 'ebook';
-      if (ZERO_GRAU_ID && u.id === ZERO_GRAU_ID) return 'zero-grau';
-      const m = /^[^_@]+_([a-z0-9-]+)\.[0-9a-f-]{36}@integration\.internal$/i.exec(u.email ?? '');
-      return m ? m[1].toLowerCase() : null;
-    };
 
     // Contas de módulo/plataforma (Renovada, Bosque…) não têm exclusão
     // permanente, mas podem ser inativadas/reativadas pela própria conta.
@@ -1935,116 +1921,22 @@ export class AdminController {
         : Promise.resolve(new Set<string>()),
     ]);
 
-    // ── 5b. Saldo das plataformas ao vivo ────────────────────────────────────
-    // A carteira externa só era atualizada no "Varrer agora" (e ignorava vendas sem
-    // tag CPF_DONO e as taxas por venda). Aqui recalculamos o saldo de cada dono com
-    // a MESMA regra que o webhook DOM usa para creditar a plataforma:
-    //  - ebook: líquido − TAXA_SERVICO (exceto comissão de afiliado)
-    //  - areaflix / renovada / bosque: líquido (já final)
-    //  - demais (pagatg, frendz): líquido − (taxa fixa + cashback + serviço) globais
-    // e depois subtrai os saques (pendentes ficam como bloqueado).
-    const LIVE_PLATFORMS: Record<string, { tags: string[]; fee: (affiliate: boolean) => number }> = {
-      ebook: { tags: ['EBOOK', 'EBOOKSIM'], fee: (aff) => (aff ? 0 : getEbookTaxaServico()) },
-      areaflix: { tags: ['AREAFLIX'], fee: () => 0 },
-      renovada: { tags: ['RENOVADA'], fee: () => 0 },
-      bosque: { tags: ['BOSQUE'], fee: () => 0 },
-      pagatg: { tags: ['PAGATG'], fee: () => genericFee() },
-      frendz: { tags: ['FRENDZ'], fee: () => genericFee() },
-    };
-    const genericFee = () =>
-      getPlatformTaxaEffective('GLOBAL', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO) +
-      getPlatformTaxaEffective('GLOBAL', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK) +
-      getPlatformTaxaEffective('GLOBAL', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-    const normPlatform = (p: string | null | undefined) => {
-      const v = (p ?? '').toLowerCase();
-      return v === 'ebooksim' ? 'ebook' : v;
-    };
-    const liveKey = (userId: string, platform: string) => `${userId}:${normPlatform(platform)}`;
-
-    const liveRecords = pagedIdentities
-      .filter((i) => i.source === 'ext')
-      .flatMap((i) => byDoc.get(i.document) ?? [])
-      .filter((r) => !!r.userId && !!LIVE_PLATFORMS[normPlatform(r.platform)]);
-    const liveUserIds = [...new Set(liveRecords.map((r) => r.userId!))];
-    const liveBalances = new Map<string, { balance: number; locked: number }>();
-    if (liveUserIds.length > 0) {
-      const liveTags = [...new Set(liveRecords.flatMap((r) => LIVE_PLATFORMS[normPlatform(r.platform)].tags))];
-      const [liveTxs, liveWds] = await Promise.all([
-        this.prisma.transaction.findMany({
-          where: {
-            userId: { in: liveUserIds },
-            status: TransactionStatus.COMPLETED,
-            OR: liveTags.map((t) => ({ description: { contains: `[TENANT:${t}]`, mode: 'insensitive' as const } })),
-          },
-          select: { userId: true, netAmount: true, amount: true, description: true },
-        }),
-        this.prisma.withdrawRequest.findMany({
-          where: {
-            userId: { in: liveUserIds },
-            status: { in: ['APPROVED', 'COMPLETED', 'PENDING'] as any },
-          },
-          select: { userId: true, status: true, platform: true, amount: true, grossAmount: true },
-        }),
-      ]);
-      const platformsByUser = new Map<string, Set<string>>();
-      for (const r of liveRecords) {
-        const plat = normPlatform(r.platform);
-        liveBalances.set(liveKey(r.userId!, plat), { balance: 0, locked: 0 });
-        if (!platformsByUser.has(r.userId!)) platformsByUser.set(r.userId!, new Set());
-        platformsByUser.get(r.userId!)!.add(plat);
-      }
-      for (const t of liveTxs) {
-        const desc = t.description ?? '';
-        const isAffiliate = /\[AFFILIATE_COMMISSION\]/i.test(desc);
-        for (const plat of platformsByUser.get(t.userId) ?? []) {
-          const cfg = LIVE_PLATFORMS[plat];
-          if (!cfg.tags.some((tag) => desc.toUpperCase().includes(`[TENANT:${tag}]`))) continue;
-          liveBalances.get(liveKey(t.userId, plat))!.balance +=
-            Number(t.netAmount ?? t.amount ?? 0) - cfg.fee(isAffiliate);
-        }
-      }
-      for (const w of liveWds) {
-        const gross = Number(w.grossAmount ?? w.amount ?? 0);
-        const wPlat = normPlatform(w.platform);
-        const plats = [...(platformsByUser.get(w.userId) ?? [])];
-        // Saque sem plataforma só é abatido quando o usuário tem uma única plataforma.
-        const target = wPlat ? (plats.includes(wPlat) ? wPlat : null) : plats.length === 1 ? plats[0] : null;
-        if (!target) continue;
-        const cur = liveBalances.get(liveKey(w.userId, target))!;
-        cur.balance -= gross;
-        if (w.status === 'PENDING') cur.locked += gross;
-      }
-      for (const v of liveBalances.values()) {
-        v.balance = Number(v.balance.toFixed(2));
-        v.locked = Number(v.locked.toFixed(2));
-      }
-    }
-
-    // ── 5c. Saldo canônico do Bosque ─────────────────────────────────────────
-    // O wallet.balance do Bosque é creditado BRUTO no sync/webhook e fica fora de sincronia
-    // (não desconta taxa de serviço nem saques). O app do Bosque usa o ledger canônico;
-    // aqui usamos o mesmo cálculo pra Carteira do admin não divergir.
-    const bosqueModuleUsers = moduleUsers.filter(
-      (u) =>
-        (u.tenantModule?.slug ?? knownIdToPlatform.get(u.id) ?? '').toLowerCase() === 'bosque',
-    );
-    const bosqueBalances = new Map<string, { balance: number; locked: number }>();
-    for (const u of bosqueModuleUsers) {
-      try {
-        const [balance, pending] = await Promise.all([
-          computeBosqueAvailableSinceLastWithdrawal(this.prisma, [u.id]),
-          this.prisma.withdrawRequest.aggregate({
-            where: { userId: u.id, status: 'PENDING' as any },
-            _sum: { grossAmount: true },
-          }),
-        ]);
-        bosqueBalances.set(u.id, {
-          balance,
-          locked: Number(pending._sum.grossAmount ?? 0),
-        });
-      } catch {
-        // falha no cálculo canônico: cai no wallet.balance gravado
-      }
+    // Product projections reuse persisted snapshots and explicit ownership.
+    const normPlatform = (p: string) => p.toLowerCase() === 'ebooksim' ? 'ebook' : p.toLowerCase();
+    const liveKey = (userId: string, tag: string) => `${userId}:${normPlatform(tag)}`;
+    const liveBalances = new Map<string, { balance: number; locked: number; attribution: unknown }>();
+    const relevantUsers = new Set([
+      ...pagedIdentities.filter((i): i is ModId => i.source === 'mod').map(i => i.userId),
+      ...pagedIdentities.filter((i): i is ExtId => i.source === 'ext').flatMap(i => byDoc.get(i.document) ?? []).flatMap(r => r.userId ? [r.userId] : []),
+    ]);
+    for (const platform of registered) {
+      if (!relevantUsers.has(platform.ownerUserId) || platform.isActive === false) continue;
+      const attribution = await new PlatformAttributedBalance(this.prisma).read(platform);
+      liveBalances.set(liveKey(platform.ownerUserId, platform.tag), {
+        balance: attribution.balanceCents / 100,
+        locked: attribution.pendingWithdrawalsGrossCents / 100,
+        attribution,
+      });
     }
 
     // ── 6. Build response in paged order ─────────────────────────────────────
@@ -2098,6 +1990,7 @@ export class AdminController {
               name: r.name,
               email: r.user?.email ?? null,
             })),
+            balanceAttribution: records.map(r => r.userId ? liveBalances.get(liveKey(r.userId, r.platform))?.attribution ?? { state: 'unidentified' } : { state: 'unidentified' }),
             balance: totalBalance,
             lockedBalance: totalLocked,
             vinculado: records.some((r) => !!r.userId),
@@ -2133,18 +2026,22 @@ export class AdminController {
           // Module user (platform-based)
           const u = moduleUserMap.get(identity.userId);
           if (!u) return null;
-          const moduleSlug = u.platform?.tag?.toLowerCase()
-            ?? knownIdToPlatform.get(u.id)
-            ?? inferIntegrationPlatform(u)
-            ?? (clientUserIds.has(u.id) ? 'simintpay' : (platformLower ?? 'unknown'));
+          const products = registered.filter(p => p.ownerUserId === u.id && (!platformLower || normPlatform(p.tag) === normPlatform(platformLower)));
+          const moduleSlug = products[0]?.tag?.toLowerCase() ?? u.platform?.tag?.toLowerCase()
+            ?? (clientUserIds.has(u.id) ? 'simintpay' : 'unknown');
+          const projections = products.map(p => liveBalances.get(liveKey(u.id, p.tag))).filter((p): p is NonNullable<typeof p> => !!p);
           return {
             id: u.id,
             cpf: u.cpf ?? '',
             cnpj: u.cnpj ?? '',
             name: u.name,
-            platformEntries: [{ id: u.id, platform: moduleSlug, name: u.name, email: u.email }],
-            balance: bosqueBalances.get(u.id)?.balance ?? Number(u.wallet?.balance ?? 0),
-            lockedBalance: bosqueBalances.get(u.id)?.locked ?? Number(u.wallet?.lockedBalance ?? 0),
+            platformEntries: (products.length ? products.map(p => ({ id: p.id, platform: p.tag.toLowerCase(), name: u.name, email: u.email })) : [{ id: u.id, platform: moduleSlug, name: u.name, email: u.email }]),
+            walletScope: registered.filter(p => p.ownerUserId === u.id).length > 1 ? 'shared-owner' : 'owner',
+            walletBalance: Number(u.wallet?.balance ?? 0),
+            walletLockedBalance: Number(u.wallet?.lockedBalance ?? 0),
+            balanceAttribution: projections.map(p => p.attribution),
+            balance: projections.length ? projections.reduce((sum, p) => sum + p.balance, 0) : Number(u.wallet?.balance ?? 0),
+            lockedBalance: projections.length ? projections.reduce((sum, p) => sum + p.locked, 0) : Number(u.wallet?.lockedBalance ?? 0),
             vinculado: true,
             isAtivo: activeTxUserIds.has(u.id) ? true : (null as boolean | null),
             // Cliente direto não tem isDeleted próprio — quem marca é o User.isActive.
@@ -2279,12 +2176,13 @@ export class AdminController {
     @Param('userId') userId: string,
     @Body() body: { isSimintpayClient: boolean },
   ) {
+    if (typeof body?.isSimintpayClient !== 'boolean') throw new BadRequestException('isSimintpayClient deve ser booleano');
     const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!target) throw new NotFoundException('Conta Simintpay não encontrada para este usuário');
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { isSimintpayClient: !!body.isSimintpayClient },
+      data: { isSimintpayClient: body.isSimintpayClient },
       select: { id: true, isSimintpayClient: true },
     });
 

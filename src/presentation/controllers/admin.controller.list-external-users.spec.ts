@@ -49,7 +49,10 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
         findMany: jest
           .fn()
           .mockImplementation(async (arg: any) => {
-            if (isClientQuery(arg)) return clientUsers;
+            if (isClientQuery(arg)) {
+              const flag = arg.where.AND.find((c: any) => typeof c?.isSimintpayClient === 'boolean');
+              return flag ? clientUsers.filter(u => (u.isSimintpayClient ?? false) === flag.isSimintpayClient) : clientUsers;
+            }
             if (!isModuleQuery(arg)) return [];
             const activeFilter = arg.where.AND.find((c: any) => typeof c?.isActive === 'boolean');
             return activeFilter ? moduleUsers.filter((u) => u.isActive === activeFilter.isActive) : moduleUsers;
@@ -78,6 +81,7 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       args.page ?? '1',
       args.pageSize ?? '20',
       args.deleted,
+      undefined,
       args.search,
     );
   }
@@ -179,11 +183,29 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
     ]);
   });
 
+  it('uses attributed snapshots for multiple explicit products, preserves shared wallet separately', async () => {
+    const owner = { ...directClient, isActive: true, platform: null, wallet: { balance: 500, lockedBalance: 20 } };
+    const products = ['ATLAS', 'BOSQUE'].map(tag => ({ id: tag, tag, ownerUserId: owner.id, acquirer: 'DOM', isActive: true }));
+    const prisma: any = makeMockPrisma([], [owner]);
+    prisma.platform.findMany.mockResolvedValue(products);
+    prisma.platform.findUnique = jest.fn().mockImplementation(async ({ where }) => ({ ...products.find(p => p.id === where.id), owner: { isActive: true, isPurged: false } }));
+    prisma.platform.count = jest.fn().mockResolvedValue(2);
+    prisma.wallet = { findUnique: jest.fn().mockResolvedValue(owner.wallet) };
+    prisma.withdrawRequest = { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockImplementation(async ({ where }) => where.platform.in.includes('atlas') ? [{ status: 'APPROVED', grossAmount: 10 }, { status: 'PENDING', grossAmount: 20 }] : []) };
+    prisma.transaction.findMany.mockResolvedValue([{ userId: owner.id, description: '[TENANT:ATLAS]', netAmount: 100 }, { userId: owner.id, description: '[TENANT:BOSQUE]', netAmount: 200 }]);
+    prisma.$transaction = async (fn: any) => fn(prisma);
+    const result = await invoke(prisma);
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0]).toMatchObject({ balance: 290, lockedBalance: 20, walletBalance: 500, walletScope: 'shared-owner' });
+    expect(result.data[0].platformEntries.map((p: any) => p.platform)).toEqual(['atlas', 'bosque']);
+    expect(result.data[0].balanceAttribution).toHaveLength(2);
+  });
+
   describe('contas marcadas como cliente Simintpay', () => {
-    function invokeFull(prisma: any, args: { deleted?: string; simintpayClients?: string } = {}) {
+    function invokeFull(prisma: any, args: { deleted?: string; purged?: string; simintpayClients?: string; page?: string; pageSize?: string } = {}) {
       return (AdminController.prototype as any).listExternalUsers.call(
         { prisma } as any,
-        undefined, '1', '20', args.deleted, undefined, undefined, args.simintpayClients,
+        undefined, args.page ?? '1', args.pageSize ?? '20', args.deleted, args.purged, undefined, args.simintpayClients,
       );
     }
 
@@ -209,6 +231,25 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       expect(externalCall.where.AND).toEqual([{ user: { is: { isSimintpayClient: true } } }]);
     });
 
+    it('any includes both classes; filtering precedes count and pagination', async () => {
+      const marked = { ...directClient, id: 'marked', isSimintpayClient: true };
+      const prisma = makeMockPrisma([directClient, marked]);
+      const all = await invokeFull(prisma, { simintpayClients: 'any', pageSize: '1' });
+      expect(all.total).toBe(2); expect(all.data).toHaveLength(1);
+      const filtered = await invokeFull(prisma, { simintpayClients: 'true', pageSize: '1' });
+      expect(filtered.total).toBe(1); expect(filtered.data[0].id).toBe('marked');
+      const pageTwo = await invokeFull(prisma, { page: '2', pageSize: '1' });
+      expect(pageTwo.total).toBe(1); expect(pageTwo.data).toHaveLength(0);
+    });
+
+    it('purged defaults to both classes', async () => {
+      const prisma = makeMockPrisma([]);
+      await invokeFull(prisma, { purged: 'true' });
+      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) => isClientQuery(a));
+      expect(clientCall?.[0].where.AND).toContainEqual({ isPurged: true });
+      expect(clientCall?.[0].where.AND.some((c: any) => 'isSimintpayClient' in c)).toBe(false);
+    });
+
     it('aba de inativas não filtra pela marcação', async () => {
       const prisma = makeMockPrisma([directClient]);
       await invokeFull(prisma, { deleted: 'true' });
@@ -218,5 +259,16 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
         clientCall?.[0]?.where?.AND.some((c: any) => c && 'isSimintpayClient' in c),
       ).toBe(false);
     });
+  });
+});
+
+describe('SimintPay classification PATCH', () => {
+  it('accepts actual false and rejects string coercion before writing', async () => {
+    const prisma = { user: { findUnique: jest.fn().mockResolvedValue({ id: 'owner' }), update: jest.fn().mockImplementation(async ({ data }) => ({ id: 'owner', ...data })) } };
+    const invoke = (body: any) => AdminController.prototype.setUserIsSimintpayClient.call({ prisma } as any, 'owner', body);
+    await expect(invoke({ isSimintpayClient: 'false' })).rejects.toThrow('booleano');
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(await invoke({ isSimintpayClient: false })).toEqual({ success: true, id: 'owner', isSimintpayClient: false });
+    expect(await invoke({ isSimintpayClient: true })).toEqual({ success: true, id: 'owner', isSimintpayClient: true });
   });
 });

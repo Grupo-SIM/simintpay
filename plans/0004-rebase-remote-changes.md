@@ -11,8 +11,8 @@ Execução local aprovada. Sem fetch, push, banco externo ou deploy.
 ## Etapas
 
 - [x] Ler plano 0003, verificar árvore limpa e criar backup local.
-- [ ] Reaplicar commits e resolver conflitos preservando núcleo compartilhado.
-- [ ] Integrar classificação, filtros e afiliados.
+- [x] Reaplicar commits e resolver conflitos preservando núcleo compartilhado.
+- [x] Integrar classificação, filtros e afiliados.
 - [ ] Integrar taxas, marcador FINAL_NET e liquidação atômica sem alterar histórico.
 - [ ] Adaptar consultas externas à configuração explícita criptografada, isolamento e limites.
 - [ ] Testar com mocks, verificar migrations localmente, build e range-diff; concluir com árvore limpa.
@@ -20,3 +20,7 @@ Execução local aprovada. Sem fetch, push, banco externo ou deploy.
 ## Regras confirmadas
 
 Links novos sem descontos adicionais de cashback/fixa; juros do comprador permanecem receita da plataforma. Defaults: 9% e saque R$ 3,50; override zero válido. Histórico, dono e isolamento preservados. Consulta externa somente leitura, sem inferência de dono por e-mail; estados unconfigured/unavailable explícitos.
+
+## Rebase e administração
+
+37 commits reaplicados (36 originais e registro deste plano). Conflitos resolvidos em Compose, taxas, providers administrativos e cron. Referência remota inteira ancestral do HEAD; núcleo Platform/scheduler e retirada BetAI preservados. Classificação booleana validada; filtros executados antes de paginação; onlyMine testado nos cinco produtos. Projeções administrativas usam PlatformAttributedBalance, produtos explícitos e carteira compartilhada separada; baseline Bosque mantido pelo adapter existente.
