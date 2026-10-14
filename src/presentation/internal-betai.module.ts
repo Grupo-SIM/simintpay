@@ -1,3 +1,4 @@
+import { PlatformCoreModule } from '../modules/platform-core/platform-core.module';
 import { Module } from '@nestjs/common';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { PrismaService } from '../infrastructure/database/prisma/prisma.service';
@@ -6,7 +7,7 @@ import { BetaiAdminController } from './controllers/betai-admin.controller';
 import { SubscriptionLinkModule } from './subscription-link.module';
 
 @Module({
-  imports: [ApiDomModule, SubscriptionLinkModule],
+  imports: [PlatformCoreModule, ApiDomModule, SubscriptionLinkModule],
   controllers: [InternalBetaiController, BetaiAdminController],
   providers: [PrismaService],
 })

@@ -45,3 +45,20 @@ Inventário obtido de HEAD antes da substituição dos controllers. Nenhuma conf
 - [x] Atlas/Revalida/Bosque delegam correções/baseline ao mesmo núcleo transacional.
 - [x] Associação exclusiva revalidada com isolamento serializável; versão da carteira e auditoria preservadas.
 - [x] 14 testes financeiros/manutenção e build local aprovados.
+
+## Continuação — capacidades corporativas
+
+- [x] Planos/status BETAI/PAGATG/SaaS pelo caso de uso compartilhado; consulta de acesso SaaS isolada por tag.
+- [x] Vouchers PAGATG com centavos/taxa decimal, dono/canal fixados e serviço existente compartilhado.
+- [x] Cobrança avulsa/cancelamento/status BETAI extraídos; quatro aliases internos delegam ao mesmo serviço canônico, sem master por e-mail/token global.
+- [x] Registro dos módulos/escopos e contratos DTO; identidade do corpo não substitui contexto.
+- [x] 105 testes Bun dirigidos e 154 testes Jest aprovados; testes usam mocks. Build local final aprovado.
+
+## Próximos itens ainda necessários para concluir o plano inteiro
+
+- Unificar a execução financeira dos contratos legados de pagamento com a operação canônica, preservando respostas específicas de cada adapter.
+- Reduzir consultas/projeções duplicadas nos adapters financeiros legados; migrar espelhamento/registro de transações PAGATG e demais capacidades corporativas ainda atendidas somente pelos contratos existentes.
+- Completar testes de equivalência de todos os 144 contratos inventariados (cobertura atual dirigida, sem equivalência exaustiva).
+- Validar contratos corporativos restantes de checkout/callbacks sem executar serviços externos.
+
+Nenhum desses itens é tratado como concluído pela existência da nova rota. Implementação segue parcial quanto à migração integral dos aliases; endpoints existentes continuam atendidos. Nenhum banco externo, deploy ou push foi executado.

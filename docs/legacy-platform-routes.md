@@ -1064,3 +1064,17 @@ Exceções no handler: `` new UnauthorizedException('Invalid webhook secret') ``
 - Manutenção que substitui/zera/recalcula carteira compartilhada deve bloquear; histórico sem plataforma identificada não recebe plataforma arbitrária.
 - Return Bet requer associação explícita de comunidade; ausência bloqueia capacidade, sem criação automática de VIVENDO-DE-BET.
 - Inventário cobre 144 declarações de rotas corporativas/internas. Serviços retornados por delegação e DTOs referenciados integram contrato e precisam de testes de equivalência antes de substituir implementação.
+
+
+## Delegação implementada na continuação: BetAI
+
+Inventário acima mantém caracterização original. Agora os quatro aliases internos usam PlatformBetaiService compartilhado com APIs canônicas, sem HTTP interno/redirecionamento. Header `x-internal-token` permanece exclusivo dos aliases; status HTTP continuam 201 em POST e 200 em GET.
+
+| Alias | Operação canônica | Tradução |
+| --- | --- | --- |
+| POST `/internal/betai/cobranca` | POST `/platforms/BETAI/billing` | `valor` em reais → `amountCents`; `titulo` → `title`; resposta `{ linkCode, checkoutUrl }` preservada |
+| POST `/internal/betai/plano` | POST `/platforms/BETAI/subscriptions/plans` | `valor` → centavos; `label` → `name`; frequência MENSAL; resposta antiga `{ code, checkoutUrl }` |
+| POST `/internal/betai/plano/cancelar` | POST `/platforms/BETAI/billing/subscriptions/cancel` | `{ code }`; alias retorna `{ encontrada, canceladas }`; canônico `{ found, cancelled }` |
+| GET `/internal/betai/cobranca/:code/status` | GET `/platforms/BETAI/billing/:code/status` | alias `{ pago, pagoEm }`; canônico `{ paid, paidAt }` |
+
+Dono e credenciais agora exigem cadastro ativo BETAI, sem inferência de master por e-mail. Registros antigos sem tag explícita não recebem atribuição automática. Falha no registro opcional de link DOM mantém checkout local; ausência de configuração não faz fallback global. Testes cobrem tradução reais/centavos, igualdade da operação compartilhada, auth do alias, isolamento de dono/tag e capacidade ausente.

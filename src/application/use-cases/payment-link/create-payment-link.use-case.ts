@@ -19,7 +19,7 @@ export class CreatePaymentLinkUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
   ) {}
 
-  async execute(input: { userId: string; dto: CreatePaymentLinkDto }): Promise<{
+  async execute(input: { userId: string; dto: CreatePaymentLinkDto; allowLocalCheckout?: boolean }): Promise<{
     data: {
       id: string;
       codigo: string;
@@ -75,6 +75,11 @@ export class CreatePaymentLinkUseCase {
       interestRateInstallment: interestRate,
       aceitaCartao,
       aceitaPix,
+    }).catch(error => {
+      // BetAI's registered-platform contract keeps a local checkout if optional
+      // DOM link registration fails. It never switches acquirer or owner.
+      if (!input.allowLocalCheckout) throw error;
+      return null;
     });
 
     const saved = await this.links.create({
@@ -92,7 +97,7 @@ export class CreatePaymentLinkUseCase {
       webhookUrl: input.dto.webhookUrl ?? null,
       redirectUrl: input.dto.redirectUrl ?? null,
       maxUses: input.dto.maxUses ?? null,
-      domPaymentLinkId: created.id,
+      domPaymentLinkId: created?.id ?? null,
       emailBody: input.dto.emailBody ?? null,
       // Cliente SimintPay: atribui a plataforma "SIMINTPAY" (exibição/agrupamento) para o
       // link não ficar sem plataforma. A taxa continua resolvendo pela tag do dono
