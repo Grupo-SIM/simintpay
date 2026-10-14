@@ -38,3 +38,10 @@ Inventário obtido de HEAD antes da substituição dos controllers. Nenhuma conf
 - [x] Poll legado coalescido; antigo cron global virou fachada sem agendamento próprio/token master.
 - [x] Payload DOM/Frendz normalizado antes do processamento; evento legado Frendz não usa credencial como identificador.
 - [x] Webhook imediato pode liquidar draft; regressões de idempotência, refund, concorrência e isolamento aprovadas.
+
+## Continuação — manutenção compartilhada
+
+- [x] `zero-wallet` e `set-balance` canônicos, admin obrigatório, centavos inteiros e motivo obrigatório.
+- [x] Atlas/Revalida/Bosque delegam correções/baseline ao mesmo núcleo transacional.
+- [x] Associação exclusiva revalidada com isolamento serializável; versão da carteira e auditoria preservadas.
+- [x] 14 testes financeiros/manutenção e build local aprovados.

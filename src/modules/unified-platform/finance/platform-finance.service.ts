@@ -1,3 +1,4 @@
+import { PlatformMaintenanceService } from './platform-maintenance.service';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.store';
@@ -10,6 +11,10 @@ export type FinancePage = { page?: number; limit?: number; status?: string };
 @Injectable()
 export class PlatformFinanceService {
   constructor(private readonly prisma: PrismaService) {}
+
+  maintenance(context: FinancePlatformContext, operation: string, body: Record<string, unknown>) {
+    return new PlatformMaintenanceService(this.prisma).run(context, operation, body);
+  }
 
   cents(value: Prisma.Decimal | number | string | null | undefined): number {
     const result = new Prisma.Decimal(value ?? 0).mul(100).toDecimalPlaces(0).toNumber();

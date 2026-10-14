@@ -6,7 +6,7 @@ import { PlatformSyncService } from './platform-sync.service';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
 import { PlatformPaymentsService } from '../unified-platform/payments/platform-payments.service';
 import { CreatePlatformPaymentDto } from '../unified-platform/payments/platform-payment.dto';
-import { platformAdapter, unsupportedCapability } from './platform-adapters';
+import { platformAdapter } from './platform-adapters';
 
 type PlatformRequest = { platformContext: PlatformContext };
 const Operation = (operation: string) => SetMetadata('platform-operation', operation);
@@ -52,8 +52,7 @@ export class PlatformOperationsController {
   sync(@Req() request: PlatformRequest) { return this.syncService.sync(request.platformContext); }
 
   @Post('maintenance/:operation') @Operation('maintenance:run')
-  async maintenance(@Req() request: PlatformRequest, @Param('operation') operation: string) {
-    await this.finance.ensureMaintenanceSafe(request.platformContext.ownerUserId, request.platformContext.tag);
-    unsupportedCapability('maintenance.' + operation);
+  async maintenance(@Req() request: PlatformRequest, @Param('operation') operation: string, @Body() body: Record<string, unknown>) {
+    return this.finance.maintenance(request.platformContext, operation, body);
   }
 }

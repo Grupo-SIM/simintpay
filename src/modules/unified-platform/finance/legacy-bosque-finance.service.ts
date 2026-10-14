@@ -1,3 +1,4 @@
+import { PlatformMaintenanceService } from './platform-maintenance.service';
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
@@ -317,34 +318,7 @@ export class InternalBosqueFinanceService {
       : available;
     const valor = Number(abate.toFixed(2));
     const depois = Number((available - valor).toFixed(2));
-    const created = await this.prisma.$transaction(async (tx) => {
-      const wr = await tx.withdrawRequest.create({
-        data: {
-          userId: resolvedId,
-          amount: valor,
-          grossAmount: valor,
-          fee: 0,
-          status: 'COMPLETED',
-          pixKey: BASELINE_PIXKEY,
-          platform: 'bosque-baseline',
-        },
-      });
-      await tx.balanceLog.create({
-        data: {
-          userId: resolvedId,
-          action: 'BOSQUE_BASELINE_ZERO',
-          amount: -valor,
-          balanceBefore: 0,
-          balanceAfter: 0,
-          lockedBefore: 0,
-          lockedAfter: 0,
-          source: 'MASTER_ADMIN_CONTROL',
-          description: body.reason?.trim() || 'Baseline: zera o disponível do Bosque (vendas anteriores já liquidadas por fora).',
-          metadata: { platform: 'bosque', via: 'internal/bosque/finance/zerar-disponivel', valorZerado: valor, baselineId: 'pending' },
-        },
-      });
-      return wr;
-    });
+    const created = await new PlatformMaintenanceService(this.prisma).baseline(resolvedId, 'BOSQUE', valor, BASELINE_PIXKEY, body.reason?.trim() || 'Baseline: zera o disponível do Bosque (vendas anteriores já liquidadas por fora).');
 
     return { success: true, baselineWithdrawId: created.id, antes: Number(available.toFixed(2)), abatido: valor, depois };
   }
@@ -418,30 +392,7 @@ export class InternalBosqueFinanceService {
 
     const reason = body.reason?.trim() || 'Correção manual de saldo (Bosque/IBB)';
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.wallet.update({
-        where: { id: wallet.id },
-        data: {
-          balance: balanceAfter,
-          lockedBalance: lockedAfter,
-          version: { increment: 1 },
-        },
-      });
-      await tx.balanceLog.create({
-        data: {
-          userId: resolvedId,
-          action: 'ADMIN_BALANCE_FIX',
-          amount: Number((balanceAfter - balanceBefore).toFixed(2)),
-          balanceBefore,
-          balanceAfter,
-          lockedBefore,
-          lockedAfter,
-          source: 'MASTER_ADMIN_CONTROL',
-          description: reason,
-          metadata: { platform: 'bosque', via: 'internal/bosque/finance/fix-balance' },
-        },
-      });
-    });
+    await new PlatformMaintenanceService(this.prisma).correct(resolvedId, 'BOSQUE', { balance: balanceAfter, lockedBalance: lockedAfter, reason, action: 'ADMIN_BALANCE_FIX', metadata: { via: 'internal/bosque/finance/fix-balance' } });
 
     return {
       success: true,

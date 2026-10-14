@@ -1,3 +1,4 @@
+import { PlatformMaintenanceService } from '../../unified-platform/finance/platform-maintenance.service';
 import { requireExclusivePlatformWallet } from '../../../application/helpers/exclusive-platform-wallet.helper';
 import { PlatformSyncPersistenceService } from '../../platform-core/platform-sync-persistence.service';
 import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
@@ -225,10 +226,7 @@ export class RevalidaSyncService implements OnModuleInit {
     const totalWithdrawn = Number(withdrawalsAgg._sum.amount ?? 0);
     const newBalance = Math.max(0, totalReceived - totalWithdrawn);
 
-    await this.prisma.wallet.update({
-      where: { userId },
-      data: { balance: new Prisma.Decimal(newBalance), version: { increment: 1 } },
-    });
+    await new PlatformMaintenanceService(this.prisma).correct(userId, 'REVALIDA', { balance: newBalance, action: 'WALLET_RECALCULATE', source: 'ADMIN_SYNC', reason: 'Reconciliação do histórico após sincronização completa' });
     await this.syncExternalPlatformBalance(userId, newBalance);
 
     const totalInDatabase = await this.prisma.transaction.count({ where: { userId } });
@@ -269,26 +267,7 @@ export class RevalidaSyncService implements OnModuleInit {
     const netBalance = Number(netBalanceParam);
     const grossBalance = netBalance / fatorLiquidez;
 
-    await this.prisma.$transaction([
-      this.prisma.wallet.update({
-        where: { userId },
-        data: { balance: new Prisma.Decimal(grossBalance), version: { increment: 1 } },
-      }),
-      this.prisma.balanceLog.create({
-        data: {
-          userId,
-          action: 'WALLET_RECALCULATE',
-          amount: grossBalance - oldBalance,
-          balanceBefore: oldBalance,
-          balanceAfter: grossBalance,
-          lockedBefore: wallet.lockedBalance,
-          lockedAfter: wallet.lockedBalance,
-          description: `Saldo base Revalida definido manualmente. netBalance: R$ ${netBalance.toFixed(2)}, bruto: R$ ${grossBalance.toFixed(2)}`,
-          source: 'ADMIN_SYNC',
-          metadata: { oldBalance, netBalance, grossBalance, fatorLiquidez, setManually: true },
-        },
-      }),
-    ]);
+    await new PlatformMaintenanceService(this.prisma).correct(userId, 'REVALIDA', { balance: grossBalance, action: 'WALLET_RECALCULATE', source: 'ADMIN_SYNC', reason: 'Saldo definido manualmente com liquidez' });
 
     this.logger.log(`[REVALIDA] Saldo definido manualmente: Net=R$ ${netBalance.toFixed(2)}, Bruto=R$ ${grossBalance.toFixed(2)}`);
     return {
@@ -338,30 +317,7 @@ export class RevalidaSyncService implements OnModuleInit {
       };
     }
 
-    await this.prisma.$transaction([
-      this.prisma.wallet.update({
-        where: { userId },
-        data: {
-          balance: new Prisma.Decimal(0),
-          lockedBalance: new Prisma.Decimal(0),
-          version: { increment: 1 },
-        },
-      }),
-      this.prisma.balanceLog.create({
-        data: {
-          userId,
-          action: 'REVALIDA_WALLET_ZERO',
-          amount: new Prisma.Decimal(-oldBalance),
-          balanceBefore: oldBalance,
-          balanceAfter: 0,
-          lockedBefore: oldLocked,
-          lockedAfter: 0,
-          description: `Carteira Revalida zerada (admin). Saldo bruto antes: R$ ${oldBalance.toFixed(2)}, bloqueado: R$ ${oldLocked.toFixed(2)}`,
-          source: 'ADMIN_SYNC',
-          metadata: { oldBalance, oldLocked, userId },
-        },
-      }),
-    ]);
+    await new PlatformMaintenanceService(this.prisma).correct(userId, 'REVALIDA', { balance: 0, lockedBalance: 0, action: 'REVALIDA_WALLET_ZERO', source: 'ADMIN_SYNC' });
 
     await this.syncExternalPlatformBalance(userId, 0);
     this.logger.warn(`[REVALIDA] Carteira zerada para userId=${userId} (balance era ${oldBalance}, locked ${oldLocked})`);
