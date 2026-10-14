@@ -152,3 +152,5 @@ Snapshots canônicos representam líquido final e não recebem novo desconto de 
 Frendz canônico e legado compartilham transformação de referência/status. Status de disputa/protesto convergem para mediação; status desconhecido da raiz permite fallback para status conhecido da transação. Envelope legado mantém conversão centavos→reais e assinatura determinística sem credenciais. Autenticação permissiva legada continua restrita ao alias inventariado.
 
 Confirmação de pedido Ebook usa mesmo hook em `/webhook/ebook/payment-confirmation` e `/platforms/:tag/integrations/ebook/payment-confirmations`. Alias conserva segredo global de webhook e token interno legado; canônico exige `billing:write`, dono ativo e token cadastrado de Ebook, sem fallback global. Defaults, conteúdo e resposta do back-ebook permanecem compatíveis; logs não capturam token, tamanho de token ou payload externo.
+
+Saldo contábil por produto informa `balanceBasis: persisted-net`: projeção de líquidos registrados, sem equivaler automaticamente ao valor sacável da carteira. Adapter Bosque inclui saques administrativos `bosque-baseline` na dedução atribuída; demais produtos consideram somente sua tag.

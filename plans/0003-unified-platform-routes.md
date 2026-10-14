@@ -199,3 +199,8 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 
 - [x] Confirmação Ebook compartilha hook entre alias e capacidade canônica; contexto ativo revalidado e credenciais canônicas específicas do produto.
 - [x] Nove testes com mocks preservam seis ingressos DOM, segredo/HMAC do ingresso compartilhado e confirmação Ebook (payload/defaults/erros/identidade). Nenhuma fila ou chamada HTTP externa real.
+
+## Continuação — regra de saldo por produto
+
+- [x] Base contábil `persisted-net` explícita na resposta; adapter Bosque inclui baseline administrativo sem afetar regras das demais plataformas.
+- [x] Seis testes de saldo cobrem carteira compartilhada, líquido ausente, marcas conflitantes, transferência, resultado negativo e baseline.

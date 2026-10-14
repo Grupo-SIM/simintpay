@@ -1,3 +1,4 @@
+import { platformBalanceRules } from './platform-balance.adapter';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -8,12 +9,13 @@ import { hasPlatformMarker } from './platform-sync.adapter';
 export class PlatformAttributedBalance {
   constructor(private readonly prisma: PrismaService) {}
   async read(context: PlatformContext) {
+    const rules = platformBalanceRules(context.tag);
     return this.prisma.$transaction(async p => {
       const platform = await p.platform.findUnique({ where: { id: context.id }, include: { owner: true } });
       if (!platform?.isActive || !platform.owner.isActive || platform.owner.isPurged || platform.ownerUserId !== context.ownerUserId || platform.tag !== context.tag) throw new ConflictException('Contexto da plataforma mudou');
       const [rows, withdrawals, wallet, productCount, unidentifiedOwnerWithdrawals] = await Promise.all([
         p.transaction.findMany({ where: { userId: context.ownerUserId, status: 'COMPLETED' }, select: { description: true, netAmount: true } }),
-        p.withdrawRequest.findMany({ where: { userId: context.ownerUserId, platform: { equals: context.tag, mode: 'insensitive' }, status: { in: ['PENDING', 'APPROVED', 'COMPLETED'] } }, select: { grossAmount: true, status: true } }),
+        p.withdrawRequest.findMany({ where: { userId: context.ownerUserId, platform: { in: rules.withdrawalPlatforms, mode: 'insensitive' }, status: { in: ['PENDING', 'APPROVED', 'COMPLETED'] } }, select: { grossAmount: true, status: true } }),
         p.wallet.findUnique({ where: { userId: context.ownerUserId } }),
         p.platform.count({ where: { ownerUserId: context.ownerUserId } }),
         p.withdrawRequest.count({ where: { userId: context.ownerUserId, platform: null, status: { in: ['PENDING', 'APPROVED', 'COMPLETED'] } } }),
@@ -40,7 +42,7 @@ export class PlatformAttributedBalance {
         return result;
       };
       return {
-        unit: 'cents', scope: 'platform-ledger', platformTag: context.tag, ownerUserId: context.ownerUserId,
+        unit: 'cents', scope: 'platform-ledger', balanceBasis: rules.basis, platformTag: context.tag, ownerUserId: context.ownerUserId,
         earnedCents: cents(earned), withdrawnGrossCents: cents(settled), pendingWithdrawalsGrossCents: cents(reserved),
         balanceCents: cents(balance), availableBalanceCents: cents(Prisma.Decimal.max(0, available)),
         walletScope: productCount > 1 ? 'shared-owner' : 'owner', ownerWalletBalanceCents: cents(wallet?.balance ?? 0),
