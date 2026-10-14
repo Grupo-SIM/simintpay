@@ -15,7 +15,7 @@ Execução local aprovada. Sem fetch, push, banco externo ou deploy.
 - [x] Integrar classificação, filtros e afiliados.
 - [x] Integrar taxas, marcador FINAL_NET e liquidação atômica sem alterar histórico.
 - [x] Adaptar consultas externas à configuração explícita criptografada, isolamento e limites.
-- [ ] Testar com mocks, verificar migrations localmente, build e range-diff; concluir com árvore limpa.
+- [x] Testar com mocks, verificar migrations localmente, build e range-diff; concluir com árvore limpa.
 
 ## Regras confirmadas
 
@@ -40,3 +40,16 @@ Durante execução outra ferramenta atualizou origin/main para b670f6c3fcabb8da1
 ## Detalhes de afiliados
 
 Campos remotos grossTotal/purchases preservados com defaults compatíveis. Caminho local consulta apenas IDs dos indicados do afiliado selecionado e vendas COMPLETED, mantendo generated e comissão por transação desse afiliado. Lista vazia de indicados não dispara consulta financeira sem escopo. Dois testes Jest caracterizam compras/total bruto e isolamento.
+
+## Aceite final local
+
+- 512 testes Bun aprovados via `bun scripts/test-platform-migration.ts`, preload de isolamento e banco sentinela loopback.
+- 209 testes Jest aprovados, um ignorado preexistente, via setup temporário de caches mockados e fetch bloqueado; banco sentinela loopback. Inclui classificação/paginação, produtos próprios, histórico, callbacks e detalhes de afiliados.
+- `bun run build` aprovado no resultado final; Prisma Client regenerado localmente. Nenhum formatter/lint/type-check manual usado como preparação de commit.
+- Migrations verificadas em PostgreSQL descartável local nas tabelas de fixture afetadas; nenhum banco externo consultado ou alterado. SQL remoto de classificação intacto; migration financeira aditiva sem backfill.
+- Range-diff revisado: 36 commits originais preservados, 33 com patches idênticos e três com diferenças explicadas pela integração estrutural/remota (configuração/providers, scheduler e remoção TenantModule). Adaptações adicionais em commits atômicos.
+- `origin/main` final `b670f6c3fcabb8da1df776cb807672513ebba323` ancestral do HEAD. Backup original preservado em `backup/pre-remote-rebase-20261014`.
+- Commits normais com autor/committer Aran Leite <hyoretsu@gmail.com> e trailer Codex. Checkout possui somente hooks .sample, sem Lefthook ativo; nenhum hook contornado.
+- Nenhum fetch, push, deploy ou chamada a serviço externo nesta execução. Aplicação das migrations em ambiente externo continua fora do escopo.
+
+Plano de integração concluído. Pendências de equivalência integral dos 136 contratos registradas no plano 0003 permanecem independentes deste rebase.
