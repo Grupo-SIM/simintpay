@@ -1,3 +1,6 @@
+import { recoverPlanRecurrence } from '../../helpers/plan-recurrence.helper';
+import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
+import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { PLAN_REPOSITORY } from '../../../core/repositories/plan.repository.interface';
@@ -5,8 +8,10 @@ import type { IPlanRepository } from '../../../core/repositories/plan.repository
 
 function mapPlanTypeToPt(
   tipo: PlanType,
-): 'MENSAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' {
+): 'SEMANAL' | 'MENSAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' {
   switch (tipo) {
+    case PlanType.WEEKLY:
+      return 'SEMANAL';
     case PlanType.MONTHLY:
       return 'MENSAL';
     case PlanType.TRIMESTRAL:
@@ -23,6 +28,7 @@ function mapPlanTypeToPt(
 export class GetPlanByIdUseCase {
   constructor(
     @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
   ) {}
 
   async execute(input: { userId: string; role: string; id: string }): Promise<{ data: unknown }> {
@@ -38,6 +44,8 @@ export class GetPlanByIdUseCase {
       throw new NotFoundException('Plano não encontrado');
     }
 
+    if (input.role !== 'ADMIN') plan = await recoverPlanRecurrence(plan, this.plans, this.gateway);
+
     return {
       data: {
         id: plan.id,
@@ -45,9 +53,9 @@ export class GetPlanByIdUseCase {
         descricao: plan.description ?? null,
         preco: Number(plan.price),
         tipo: mapPlanTypeToPt(plan.type),
-        frequencia: 1,
-        repeticoes: 0,
-        diasRetentativa: 3,
+        frequencia: plan.frequency ?? null,
+        repeticoes: plan.repetitions ?? null,
+        diasRetentativa: plan.retryDays ?? null,
         redirectUrl: plan.redirectUrl ?? null,
         webhookUrl: plan.webhookUrl ?? null,
         ativo: plan.isActive,

@@ -11,6 +11,8 @@ import { CommunityManagementService } from '../../services/community-management.
 /** Converte a frequência do form (MENSAL/TRIMESTRAL/...) para o enum PlanType. */
 function frequenciaToPlanType(f: string): PlanType {
   switch (f.toUpperCase()) {
+    case 'WEEKLY':
+    case 'SEMANAL': return PlanType.WEEKLY;
     case 'TRIMESTRAL': return PlanType.TRIMESTRAL;
     case 'SEMESTRAL': return PlanType.SEMESTRAL;
     case 'ANUAL': return PlanType.ANUAL;
@@ -34,7 +36,9 @@ export class UpdateSubscriptionLinkUseCase {
       : await this.repo.findByIdForUser({ id: input.id, userId: input.userId });
     if (!existing) throw new NotFoundException('Link de assinatura não encontrado');
 
-    const selectedTag = assertExplicitPlatform({ id: input.userId, role: input.role }, [...(input.dto.plataformas ?? existing.plataformas ?? []), ...((input.dto.platformTag ?? existing.platformTag) ? [input.dto.platformTag ?? existing.platformTag!] : [])], true);
+    const selectedTag = input.dto.plataformas !== undefined || input.dto.platformTag !== undefined
+      ? assertExplicitPlatform({ id: input.userId, role: input.role }, [...(input.dto.plataformas ?? existing.plataformas ?? []), ...((input.dto.platformTag ?? existing.platformTag) ? [input.dto.platformTag ?? existing.platformTag!] : [])], true)
+      : existing.platformTag ?? existing.plataformas?.[0] ?? null;
     const nextIsActive = input.dto.isActive ?? existing.isActive;
 
     // Propaga o status ativo/inativo para a DOM (bloqueia checkout e reassinatura externa)

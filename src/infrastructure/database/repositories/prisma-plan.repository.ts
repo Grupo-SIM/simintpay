@@ -13,6 +13,9 @@ export class PrismaPlanRepository implements IPlanRepository {
     description?: string | null;
     price: number;
     type: PlanType;
+    frequency?: number | null;
+    repetitions?: number | null;
+    retryDays?: number | null;
     isActive?: boolean;
     webhookUrl?: string | null;
     redirectUrl?: string | null;
@@ -29,6 +32,9 @@ export class PrismaPlanRepository implements IPlanRepository {
         description: data.description ?? undefined,
         price: new Prisma.Decimal(data.price),
         type: data.type,
+        frequency: data.frequency,
+        repetitions: data.repetitions,
+        retryDays: data.retryDays,
         isActive: data.isActive ?? true,
         webhookUrl: data.webhookUrl ?? undefined,
         redirectUrl: data.redirectUrl ?? undefined,
@@ -79,6 +85,9 @@ export class PrismaPlanRepository implements IPlanRepository {
       description?: string | null;
       price: number;
       type: PlanType;
+    frequency?: number | null;
+    repetitions?: number | null;
+    retryDays?: number | null;
       isActive?: boolean;
       webhookUrl?: string | null;
       redirectUrl?: string | null;
@@ -96,6 +105,9 @@ export class PrismaPlanRepository implements IPlanRepository {
         description: data.description ?? undefined,
         price: data.price != null ? new Prisma.Decimal(data.price) : undefined,
         type: data.type,
+        frequency: data.frequency,
+        repetitions: data.repetitions,
+        retryDays: data.retryDays,
         isActive: data.isActive,
         webhookUrl: data.webhookUrl ?? undefined,
         redirectUrl: data.redirectUrl ?? undefined,

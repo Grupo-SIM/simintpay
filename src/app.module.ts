@@ -1,3 +1,4 @@
+import { SalePushModule } from './modules/sale-push/sale-push.module';
 import { LegacyPlatformUsageInterceptor } from './modules/platform-core/legacy-platform-usage.interceptor';
 import { PlatformCoreModule } from './modules/platform-core/platform-core.module';
 import { PlatformEventsModule } from './modules/platform-core/platform-events.module';
@@ -42,6 +43,7 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
 
 @Module({
   imports: [
+    SalePushModule,
     PlatformEventsModule,
     PlatformCoreModule,
     ConfigModule.forRoot({ isGlobal: true }),

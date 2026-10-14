@@ -319,6 +319,7 @@ export class ApiDomClient implements IPaymentGateway {
       frequency_type: this.pickString(obj, 'frequency_type') as any,
       frequency: this.pickNumber(obj, 'frequency') ?? undefined,
       repetitions: this.pickNumber(obj, 'repetitions') ?? undefined,
+      retry_days: this.pickNumber(obj, 'retry_days') ?? undefined,
       status: this.pickString(obj, 'status') ?? undefined,
       externalReference: this.pickString(obj, 'external_reference') ?? undefined,
       paymentMethods: Array.isArray(obj?.payment_methods) ? (obj?.payment_methods as string[]) : undefined,

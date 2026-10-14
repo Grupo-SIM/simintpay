@@ -135,6 +135,7 @@ export type DomPlanOutput = {
   frequency_type?: DomPlanFrequencyType;
   frequency?: number;
   repetitions?: number;
+  retry_days?: number;
   status?: string;
   externalReference?: string;
   paymentMethods?: string[];

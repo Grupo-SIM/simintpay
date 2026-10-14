@@ -1,5 +1,6 @@
 import {
   IsIn,
+  IsNumber,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -10,10 +11,12 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 export class CreatePixCreditPlanDto {
   @ApiProperty({ description: 'Valor do plano (reais)' })
   @IsNotEmpty()
+  @IsNumber()
   price: number;
 
   @ApiProperty({ description: 'Descrição do plano' })
   @IsNotEmpty()
+  @IsString()
   description: string;
 
   @ApiPropertyOptional({ description: 'URL de redirecionamento' })

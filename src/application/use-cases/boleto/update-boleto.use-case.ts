@@ -27,7 +27,9 @@ export class UpdateBoletoUseCase {
       : await this.boletos.findByIdForUser({ id: input.id, userId: input.userId });
     if (!existing) throw new NotFoundException('Boleto não encontrado');
 
-    const selectedTag = assertExplicitPlatform({ id: input.userId, role: input.role }, input.dto.plataformas ?? (existing as any).plataformas, true);
+    const selectedTag = input.dto.plataformas !== undefined
+      ? assertExplicitPlatform({ id: input.userId, role: input.role }, input.dto.plataformas, true)
+      : existing.plataformas?.[0] ?? null;
     const domToken = existing.domPaymentLinkId ? platformGatewayToken(selectedTag, process.env.DOM_TOKEN) : null;
 
     // Sincroniza com a DOM apenas os campos que o gateway reconhece. Falha no DOM

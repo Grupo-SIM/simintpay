@@ -1,3 +1,4 @@
+import { UpdatePixCreditPlanDto } from '../../application/dtos/pix-plan/update-pix-credit-plan.dto';
 import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   Body,
@@ -161,7 +162,7 @@ export class PixPlanController {
   async updatePixCreditPlan(
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
-    @Body() body: Partial<CreatePixCreditPlanDto>,
+    @Body() body: UpdatePixCreditPlanDto,
   ) {
     return this.pixPlanService.updatePixCreditPlan(user?.sub ?? '', id, body, user?.role);
   }

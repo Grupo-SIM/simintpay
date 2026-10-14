@@ -42,6 +42,18 @@ export class UpdatePaymentLinkDto {
 
   @IsBoolean()
   @IsOptional()
+  aceitaCartao?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  aceitaPix?: boolean;
+
+  @IsString()
+  @IsOptional()
+  redirectUrl?: string;
+
+  @IsBoolean()
+  @IsOptional()
   isStandalone?: boolean;
 
 

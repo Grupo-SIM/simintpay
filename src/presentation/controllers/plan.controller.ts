@@ -1,3 +1,4 @@
+import { UpdatePlanDto } from '../../application/dtos/plan/update-plan.dto';
 import {
   Body,
   Controller,
@@ -157,7 +158,7 @@ export class PlanController {
   async updateRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
-    @Body() dto: Partial<CreatePlanDto>,
+    @Body() dto: UpdatePlanDto,
   ): Promise<{ data: unknown }> {
     return this.update.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id, dto });
   }

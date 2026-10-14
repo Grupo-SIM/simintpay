@@ -8,6 +8,9 @@ export type CreatePlanData = {
   description?: string | null;
   price: number;
   type: PlanType;
+  frequency?: number | null;
+  repetitions?: number | null;
+  retryDays?: number | null;
   isActive?: boolean;
   webhookUrl?: string | null;
   redirectUrl?: string | null;

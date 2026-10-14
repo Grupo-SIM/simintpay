@@ -27,7 +27,9 @@ export class UpdatePaymentLinkUseCase {
       : await this.links.findByIdForUser({ id: input.id, userId: input.userId });
     if (!existing) throw new NotFoundException('Link não encontrado');
 
-    const selectedTag = assertExplicitPlatform({ id: input.userId, role: input.role }, input.dto.plataformas ?? (existing as any).plataformas, true);
+    const selectedTag = input.dto.plataformas !== undefined
+      ? assertExplicitPlatform({ id: input.userId, role: input.role }, input.dto.plataformas, true)
+      : existing.plataformas?.[0] ?? null;
     const domToken = existing.domPaymentLinkId ? platformGatewayToken(selectedTag, process.env.DOM_TOKEN) : null;
 
     // Sincronizar com DOM apenas os campos que o gateway reconhece.
@@ -42,6 +44,9 @@ export class UpdatePaymentLinkUseCase {
           amount: input.dto.valor,
           maxInstallments: input.dto.parcelasMax,
           isActive: input.dto.isActive,
+          aceitaCartao: input.dto.aceitaCartao,
+          aceitaPix: input.dto.aceitaPix,
+          redirectUrl: input.dto.redirectUrl,
         });
       } catch (err: unknown) {
         // Falha no DOM não bloqueia a atualização local
@@ -58,6 +63,9 @@ export class UpdatePaymentLinkUseCase {
       expiresAt: input.dto.dataExpiracao ? new Date(input.dto.dataExpiracao) : (existing as any).expiresAt ?? null,
       maxInstallments: input.dto.parcelasMax ?? existing.maxInstallments,
       isActive: input.dto.isActive ?? existing.isActive,
+      aceitaCartao: input.dto.aceitaCartao ?? existing.aceitaCartao,
+      aceitaPix: input.dto.aceitaPix ?? existing.aceitaPix,
+      redirectUrl: input.dto.redirectUrl ?? existing.redirectUrl,
       aceitaDebito: input.dto.aceitaDebito ?? (existing as any).aceitaDebito,
       isStandalone: input.dto.isStandalone ?? (existing as any).isStandalone,
       webhookUrl: input.dto.webhookUrl ?? (existing as any).webhookUrl,

@@ -3,6 +3,8 @@ import {
   IsEnum,
   IsNotEmpty,
   IsNumber,
+  IsInt,
+  Min,
   IsOptional,
   IsString,
   IsUrl,
@@ -26,15 +28,18 @@ export class CreatePlanDto {
   @IsEnum(['SEMANAL', 'MENSAL', 'ANUAL'])
   tipo!: PlanTipoDto;
 
-  @IsNumber()
+  @IsInt()
+  @Min(1)
   @IsOptional()
   frequencia?: number;
 
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   @IsOptional()
   repeticoes?: number;
 
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   @IsOptional()
   diasRetentativa?: number;
 
