@@ -43,6 +43,7 @@ describe('IntegrationFinanceService', () => {
       },
     };
     const prisma = {
+      platformIntegration: { findMany: jest.fn().mockResolvedValue([{ url: 'sim-delivery_zero-grau', platform: { id: 'p', tag: 'SHOP', acquirer: 'DOM' } }]) },
       $transaction: jest.fn().mockImplementation((callback) => callback(tx)),
       integrationMerchant: { findUnique: jest.fn().mockResolvedValue(existing) },
     };
@@ -57,12 +58,13 @@ describe('IntegrationFinanceService', () => {
     expect(merchantUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'merchant-manual' } }));
   });
 
-  it('does not partially move reconciliation batches containing conflicts', async () => {
+  it('never moves historical ownership during merchant reconciliation', async () => {
     const transactions = [
       { amount: 100, domPaymentId: 'payment-1', externalPaymentId: null, id: 'transaction-1', netAmount: 90, status: 'COMPLETED', userId: 'legacy-user' },
       null,
     ];
     const prisma = {
+      platformIntegration: { findMany: jest.fn().mockResolvedValue([{ url: 'sim-delivery,sim-delivery_zero-grau', platform: { id: 'p', tag: 'SHOP', acquirer: 'DOM' } }]) },
       $transaction: jest.fn(),
       integrationMerchant: { findUnique: jest.fn().mockResolvedValue(null) },
       transaction: { findFirst: jest.fn().mockImplementation(() => Promise.resolve(transactions.shift())) },
@@ -72,7 +74,7 @@ describe('IntegrationFinanceService', () => {
 
     await expect(service.reconcilePayments('sim-delivery', 'company-1', ['payment-1', 'missing'], false)).resolves.toEqual({
       attributed: 0,
-      conflicts: ['missing'],
+      conflicts: ['payment-1', 'missing'],
       creditedCents: 0,
       dryRun: false,
       skipped: 0,
@@ -82,8 +84,9 @@ describe('IntegrationFinanceService', () => {
 
   it('skips payments already owned by the selected company merchant', async () => {
     const prisma = {
+      platformIntegration: { findMany: jest.fn().mockResolvedValue([{ url: 'sim-delivery,sim-delivery_zero-grau', platform: { id: 'p', tag: 'SHOP', acquirer: 'DOM' } }]) },
       integrationMerchant: { findUnique: jest.fn() },
-      transaction: { findFirst: jest.fn().mockResolvedValue({ userId: 'legacy-user' }) },
+      transaction: { findFirst: jest.fn().mockResolvedValue({ userId: 'legacy-user', description: '[TENANT:SHOP]' }) },
     };
     const service = new IntegrationFinanceService(prisma as never);
     jest.spyOn(service, 'merchant').mockResolvedValue({ userId: 'legacy-user' } as never);

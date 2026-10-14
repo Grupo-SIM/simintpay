@@ -202,7 +202,7 @@ export class PlatformFinanceService {
     };
   }
 
-  async requestWithdrawal(context: FinancePlatformContext, input: { amountCents: number; pixKey: string; idempotencyKey: string }, merchant?: { id: string; userId: string }) {
+  async requestWithdrawal(context: FinancePlatformContext, input: { amountCents: number; pixKey: string; idempotencyKey: string }, merchant?: { id: string; userId: string; integrationKey?: string }) {
     if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0) throw new BadRequestException('amountCents deve ser inteiro positivo');
     if (typeof input.pixKey !== 'string' || !input.pixKey.trim()) throw new BadRequestException('pixKey obrigatório');
     if (typeof input.idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{1,120}$/.test(input.idempotencyKey)) throw new BadRequestException('idempotencyKey inválida');
@@ -229,7 +229,7 @@ export class PlatformFinanceService {
       try {
         row = await this.createWithdrawal({ userId: financialUserId, platform: context.tag.toLowerCase(),
           amount, grossAmount: gross, fee, pixKey: input.pixKey.trim(), reserveWallet: true,
-          acquirer: context.acquirer, integrationRequestId, logBalance: true, context, merchantId: merchant?.id });
+          acquirer: context.acquirer, integrationRequestId, logBalance: true, context, merchantId: merchant?.id, merchantNamespace: merchant?.integrationKey });
       } catch (error) {
         if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
         row = await this.prisma.withdrawRequest.findUnique({ where: { integrationRequestId } });

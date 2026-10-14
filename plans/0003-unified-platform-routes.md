@@ -164,3 +164,11 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Full-sync canônico exige admin; mantém contrato legado de recálculo exclusivo e resposta em centavos. Datas históricas preservadas, histórico sem tag não adotado.
 - [x] Espelhamento após zero/full-sync também centralizado.
 - [x] 15 testes de histórico/persistência aprovados: equivalência financeira/unidades, carteira compartilhada, coalescência e preservação de titularidade.
+
+## Continuação — isolamento e compatibilidade de comerciantes
+
+- [x] Lookup compartilhado reutiliza vínculo legado explícito, rejeitando associação ambígua; pagamento canônico usa mesmo resolver.
+- [x] Listagens/detalhes de saques e outbox limitados ao produto; status de pagamento exige marca exclusiva e credencial do produto.
+- [x] Reconciliação deixa de transferir titularidade histórica/carteiras: referências incompatíveis retornam conflitos.
+- [x] APIs canônicas de cotação/detalhe/reconciliação compartilham serviços dos aliases, preservando centavos.
+- [x] Dez testes Bun dirigidos e cinco regressões Jest aprovados.

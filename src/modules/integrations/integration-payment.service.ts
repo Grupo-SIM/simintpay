@@ -1,3 +1,4 @@
+import { PlatformPaymentLookup } from '../unified-platform/payments/platform-payment-lookup';
 import { resolveLegacyMerchantPlatform } from './legacy-merchant-platform';
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -28,6 +29,10 @@ export class IntegrationPaymentService {
     const platform = await this.platform(integrationKey);
     const merchant = await this.finance.merchant(integrationKey, externalMerchantId);
     if (platform.acquirer !== 'DOM') throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'merchants.reconciliation' });
-    return this.reconcile.reconcilePayment(paymentId, merchant.userId, getPlatformIntegrationValue(platform.tag, 'DOM_TOKEN') ?? undefined);
+    const payment = await new PlatformPaymentLookup(this.prisma).find({ id: platform.id, tag: platform.tag, ownerUserId: platform.ownerUserId }, paymentId, merchant.userId);
+    if (!payment) return { paymentId, status: 'NOT_FOUND' };
+    const token = getPlatformIntegrationValue(platform.tag, 'DOM_TOKEN');
+    if (!token) throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'merchants.reconciliation.configuration' });
+    return this.reconcile.reconcilePayment(paymentId, merchant.userId, token);
   }
 }

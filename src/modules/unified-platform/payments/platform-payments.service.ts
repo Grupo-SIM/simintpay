@@ -1,3 +1,4 @@
+import { platformMerchant } from '../../platform-core/platform-merchant-lookup';
 import { PlatformPaymentLookup } from './platform-payment-lookup';
 import { PlatformPaymentExecution } from './platform-payment-execution';
 import { createHash } from 'node:crypto';
@@ -28,11 +29,7 @@ export class PlatformPaymentsService {
   }
 
   async createForMerchant(context: PaymentPlatformContext, externalMerchantId: string, input: CreatePlatformPaymentDto) {
-    const integrationKey = `platform:${context.id}`;
-    const merchant = await this.prisma.integrationMerchant.findUnique({
-      where: { integrationKey_externalMerchantId: { integrationKey, externalMerchantId } }, include: { user: true },
-    });
-    if (!merchant || !merchant.user.isActive || merchant.user.isPurged) throw new NotFoundException('Merchant não provisionado ou inativo');
+    const merchant = await platformMerchant(this.prisma, context, externalMerchantId);
     return this.execute(context, input, merchant);
   }
 

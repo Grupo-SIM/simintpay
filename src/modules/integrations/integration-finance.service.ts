@@ -1,3 +1,4 @@
+import { hasPlatformMarker } from '../platform-core/platform-sync.adapter';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
 import { merchantWithdrawalDelivery } from '../platform-core/platform-merchant-delivery';
 import {
@@ -6,7 +7,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, TransactionStatus, WithdrawStatus } from '@prisma/client';
+import { Prisma, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { isValidDocument } from '../../application/validators/is-document.validator';
 import { getPlatformTaxaEffective } from '../platform-taxas/platform-taxas.store';
@@ -39,6 +40,7 @@ export class IntegrationFinanceService {
       throw new BadRequestException('Integração, merchant externo e razão social são obrigatórios');
     }
 
+    await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
     const existing = await this.prisma.integrationMerchant.findUnique({
       where: { integrationKey_externalMerchantId: { integrationKey, externalMerchantId } },
     });
@@ -79,6 +81,7 @@ export class IntegrationFinanceService {
   }
 
   async merchant(integrationKey: string, externalMerchantId: string) {
+    await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
     const merchant = await this.prisma.integrationMerchant.findUnique({
       where: { integrationKey_externalMerchantId: { integrationKey, externalMerchantId } },
       include: { user: { include: { wallet: true } } },
@@ -122,17 +125,6 @@ export class IntegrationFinanceService {
     };
   }
 
-  async paymentStatus(integrationKey: string, externalMerchantId: string, paymentId: string) {
-    const merchant = await this.merchant(integrationKey, externalMerchantId);
-    const transaction = await this.prisma.transaction.findFirst({
-      where: { userId: merchant.userId, OR: [{ domPaymentId: paymentId }, { externalPaymentId: paymentId }] },
-      select: { domPaymentId: true, status: true },
-    });
-    return transaction
-      ? { paymentId: transaction.domPaymentId ?? paymentId, status: transaction.status }
-      : { paymentId, status: 'NOT_FOUND' };
-  }
-
   async requestWithdrawal(
     integrationKey: string,
     externalMerchantId: string,
@@ -145,6 +137,8 @@ export class IntegrationFinanceService {
     if (duplicate) {
       if (duplicate.userId !== merchant.userId) throw new ConflictException('Chave idempotente pertence a outro merchant');
       if (!duplicate.grossAmount.equals(new Prisma.Decimal(input.grossAmountCents).div(100)) || duplicate.pixKey !== input.pixKey?.trim()) throw new ConflictException('Chave idempotente pertence a outro contrato');
+      const bound = await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
+      if (![integrationKey, bound.tag.toLowerCase()].includes(duplicate.platform ?? '')) throw new ConflictException('Chave idempotente pertence a outra plataforma');
       return this.serializeWithdrawal(duplicate);
     }
 
@@ -167,7 +161,8 @@ export class IntegrationFinanceService {
     const merchant = await this.merchant(integrationKey, externalMerchantId);
     const safePage = Math.max(1, page);
     const safeSize = Math.min(100, Math.max(1, pageSize));
-    const where = { userId: merchant.userId };
+    const platform = await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
+    const where = { userId: merchant.userId, platform: { in: [integrationKey, platform.tag.toLowerCase()] } };
     const [totalItems, items] = await Promise.all([
       this.prisma.withdrawRequest.count({ where }),
       this.prisma.withdrawRequest.findMany({
@@ -185,51 +180,36 @@ export class IntegrationFinanceService {
 
   async getWithdrawal(integrationKey: string, externalMerchantId: string, withdrawalId: string) {
     const merchant = await this.merchant(integrationKey, externalMerchantId);
-    const item = await this.prisma.withdrawRequest.findFirst({ where: { id: withdrawalId, userId: merchant.userId } });
+    const platform = await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
+    const item = await this.prisma.withdrawRequest.findFirst({ where: { id: withdrawalId, userId: merchant.userId, platform: { in: [integrationKey, platform.tag.toLowerCase()] } } });
     if (!item) throw new NotFoundException('Saque não encontrado');
     return this.serializeWithdrawal(item);
   }
 
   async reconcilePayments(integrationKey: string, externalMerchantId: string, paymentIds: string[], dryRun: boolean) {
     const merchant = await this.merchant(integrationKey, externalMerchantId);
+    const platform = await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
     let skipped = 0;
     const conflicts: string[] = [];
-    const candidates: Array<{ id: string; previousUserId: string; amount: Prisma.Decimal | null }> = [];
-    for (const paymentId of [...new Set(paymentIds)]) {
-      const transaction = await this.prisma.transaction.findFirst({
-        where: { OR: [{ domPaymentId: paymentId }, { externalPaymentId: paymentId }] },
-      });
-      if (!transaction) { conflicts.push(paymentId); continue; }
-      if (transaction.userId === merchant.userId) { skipped += 1; continue; }
-      const owner = await this.prisma.integrationMerchant.findUnique({ where: { userId: transaction.userId } });
-      if (owner) { conflicts.push(paymentId); continue; }
-      candidates.push({
-        amount: transaction.status === TransactionStatus.COMPLETED ? transaction.netAmount ?? transaction.amount : null,
-        id: transaction.id,
-        previousUserId: transaction.userId,
-      });
+    for (const paymentId of [...new Set(paymentIds)].slice(0, 500)) {
+      const transaction = await this.prisma.transaction.findFirst({ where: { acquirer: platform.acquirer,
+        OR: [{ domPaymentId: paymentId }, { externalPaymentId: paymentId }] } });
+      if (!transaction || !hasPlatformMarker(transaction.description, platform.tag) || transaction.userId !== merchant.userId) {
+        conflicts.push(paymentId); continue;
+      }
+      skipped++;
     }
-    const creditedCents = candidates.reduce((sum, candidate) => sum + Math.round(Number(candidate.amount ?? 0) * 100), 0);
-    if (!dryRun && conflicts.length > 0) return { attributed: 0, conflicts, creditedCents: 0, dryRun, skipped };
-    if (!dryRun && candidates.length > 0) {
-      await this.prisma.$transaction(async tx => {
-        for (const candidate of candidates) {
-          await tx.transaction.update({ where: { id: candidate.id }, data: { userId: merchant.userId } });
-          if (candidate.amount) {
-            await tx.wallet.update({ where: { userId: candidate.previousUserId }, data: { balance: { decrement: candidate.amount }, version: { increment: 1 } } });
-            await tx.wallet.update({ where: { userId: merchant.userId }, data: { balance: { increment: candidate.amount }, version: { increment: 1 } } });
-          }
-        }
-      });
-    }
-    return { attributed: candidates.length, conflicts, creditedCents, dryRun, skipped };
+    // Reconciliation never transfers historical ownership or moves pooled wallet money.
+    return { attributed: 0, conflicts, creditedCents: 0, dryRun, skipped };
   }
 
   async enqueueCurrentStatuses(): Promise<void> {
-    const merchants = await this.prisma.integrationMerchant.findMany({ select: { id: true, userId: true } });
+    const merchants = await this.prisma.integrationMerchant.findMany({ select: { id: true, userId: true, integrationKey: true } });
     for (const merchant of merchants) {
+      let platform: Awaited<ReturnType<typeof resolveLegacyMerchantPlatform>>;
+      try { platform = await resolveLegacyMerchantPlatform(this.prisma, merchant.integrationKey); } catch { continue; }
       const withdrawals = await this.prisma.withdrawRequest.findMany({
-        where: { userId: merchant.userId },
+        where: { userId: merchant.userId, platform: { in: [merchant.integrationKey, platform.tag.toLowerCase()] } },
         orderBy: { updatedAt: 'desc' },
         take: 100,
       });

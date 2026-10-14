@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Req, SetMetadata, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, SetMetadata, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
 import { PlatformMerchantsService } from './platform-merchants.service';
@@ -20,7 +20,13 @@ export class PlatformMerchantsController {
   @Get('finance/summary') @Operation('finance:read')
   summary(@Req() request: PlatformRequest, @Param('externalMerchantId') id: string) { return this.merchants.summary(request.platformContext, id); }
   @Get('finance/withdrawals') @Operation('finance:read')
-  withdrawals(@Req() request: PlatformRequest, @Param('externalMerchantId') id: string) { return this.merchants.withdrawals(request.platformContext, id); }
+  withdrawals(@Req() request: PlatformRequest, @Param('externalMerchantId') id: string, @Query('page') page = '1', @Query('limit') limit = '20') { return this.merchants.withdrawals(request.platformContext, id, Number(page), Number(limit)); }
+  @Get('finance/withdrawals/:withdrawalId') @Operation('finance:read')
+  withdrawal(@Req() request: PlatformRequest, @Param('externalMerchantId') id: string, @Param('withdrawalId') withdrawalId: string) { return this.merchants.withdrawal(request.platformContext, id, withdrawalId); }
+  @Post('finance/withdrawals/quote') @Operation('finance:read')
+  quote(@Req() request: PlatformRequest, @Param('externalMerchantId') id: string, @Body() body: { amountCents: number }) { return this.merchants.quote(request.platformContext, id, body.amountCents); }
+  @Post('finance/reconciliation/payments') @Operation('sync:run')
+  reconcile(@Req() request: PlatformRequest, @Param('externalMerchantId') id: string, @Body() body: { paymentIds: string[]; dryRun?: boolean }) { return this.merchants.reconcile(request.platformContext, id, body.paymentIds, body.dryRun ?? true); }
   @Post('finance/withdrawals') @Operation('finance:withdraw')
   withdraw(@Req() request: PlatformRequest, @Param('externalMerchantId') id: string, @Body() body: { amountCents: number; pixKey: string; idempotencyKey: string }) { return this.merchants.withdraw(request.platformContext, id, body); }
 }
