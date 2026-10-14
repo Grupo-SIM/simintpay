@@ -178,3 +178,8 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Oito proxies delegam ao adapter compartilhado, com resolução de plataforma/dono ativos e preservação do transporte legado.
 - [x] Nove testes mockados verificam métodos, caminhos, headers, JSON/unidades legadas, escape, defaults e erros.
 - [ ] Contrato monetário canônico de mensalidades depende de schema dos endpoints remotos `/internal/mensalidade/*`, ausentes no checkout local `../betai`. Fonte solicitada ao usuário; não inferir campos monetários de JSON opaco.
+
+## Continuação — validação isolada
+
+- [x] `bun scripts/test-platform-migration.ts` inicializa caches com mocks, fixa banco sentinela em loopback e falha se houver HTTP sem mock. Evita refresh implícito de taxas usando configuração do checkout.
+- [x] 484 testes Bun aprovados com isolamento ativo; nenhuma chamada HTTP real na suíte.
