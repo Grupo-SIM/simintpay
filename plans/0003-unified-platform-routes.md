@@ -125,3 +125,7 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [ ] Equivalência comportamental dos 144 contratos continua pendente; projeções e testes estruturais não substituem essa etapa.
 
 - Validação desta etapa: 423 testes Bun, 200 Jest aprovados (1 ignorado pré-existente) e build local aprovado.
+
+## Continuação — projeção SSE
+
+- [x] Oito streams legados compartilham tradução do barramento; nove testes verificam headers, IDs, isolamento e heartbeat de 20 segundos. Incluídos na validação de 423 Bun e build local.

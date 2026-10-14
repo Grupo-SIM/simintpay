@@ -128,3 +128,5 @@ Relatórios administrativos de plataformas, consolidado e vendedores usam o mesm
 
 Histórico sem marca, marcas conflitantes, saques sem plataforma e transações sem líquido persistido não são distribuídos entre produtos. Contadores e `historicalAttributionComplete` tornam essas lacunas explícitas. Saldo atribuído pode ser negativo; disponibilidade projetada tem piso zero. Regras de saque continuam aplicando disponibilidade da carteira compartilhada.
 
+
+Streams legados de Atlas/Bosque/Renovada/Revalida usam projeção única do barramento, preservando headers, nomes, IDs e heartbeat imediato/a cada 20 segundos. Eventos permanecem isolados por produto.
