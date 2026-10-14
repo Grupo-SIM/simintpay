@@ -17,6 +17,7 @@ function withdrawal(overrides: Record<string, unknown> = {}) {
   return {
     id: 'sim-withdraw-1',
     userId: 'sim-user-1',
+    platform: 'return-bet',
     integrationRequestId: input.requestId,
     grossAmount: new Prisma.Decimal(120),
     amount: new Prisma.Decimal(118),
@@ -36,7 +37,8 @@ function withdrawal(overrides: Record<string, unknown> = {}) {
 
 function makePrisma() {
   const prisma: any = {
-    platform: { findFirst: jest.fn().mockResolvedValue({ id: "return-bet", ownerUserId: "owner" }) },
+    user: { findUnique: jest.fn().mockResolvedValue({ isActive: true, platform: null }) },
+    platform: { count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue({ id: "return-bet", ownerUserId: "owner" }) },
     returnBetAccount: {
       findUnique: jest.fn().mockResolvedValue({ id: 'account-1', userId: 'sim-user-1' }),
       update: jest.fn().mockResolvedValue({ id: 'account-1', userId: 'sim-user-1' }),

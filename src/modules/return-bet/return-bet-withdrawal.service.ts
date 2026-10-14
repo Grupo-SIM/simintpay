@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma, WithdrawStatus } from '@prisma/client';
+import { Prisma, WithdrawStatus, type WithdrawRequest } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { ReturnBetConfig } from './return-bet.config';
 import {
@@ -39,12 +39,15 @@ export class ReturnBetWithdrawalService {
     const policy = await this.policyService.get();
     this.validateRequest(input, policy);
 
+    const account = await this.ensureAccount(input);
+    const replay = (row: WithdrawRequest) => {
+      if (row.userId !== account.userId || row.platform?.toLowerCase() !== ReturnBetConfig.slug || !row.grossAmount.equals(input.amount) || row.pixKey !== input.pixKey.trim()) throw new ConflictException('Identificador de saque já utilizado com outro contrato');
+      return this.serialize(row);
+    };
     const existing = await this.prisma.withdrawRequest.findUnique({
       where: { integrationRequestId: input.requestId },
     });
-    if (existing) return this.serialize(existing);
-
-    const account = await this.ensureAccount(input);
+    if (existing) return replay(existing);
     const fee = Number(policy.fixedWithdrawalFee.toFixed(2));
     const netAmount = Number((input.amount - fee).toFixed(2));
     if (netAmount <= 0) {
@@ -57,8 +60,14 @@ export class ReturnBetWithdrawalService {
         const repeated = await tx.withdrawRequest.findUnique({
           where: { integrationRequestId: input.requestId },
         });
-        if (repeated) return repeated;
+        if (repeated) { replay(repeated); return repeated; }
 
+        const [actor, foreignProducts] = await Promise.all([
+          tx.user.findUnique({ where: { id: account.userId }, include: { platform: true } }),
+          tx.platform.count({ where: { ownerUserId: account.userId, NOT: { tag: { equals: 'RETURN-BET', mode: 'insensitive' } } } }),
+        ]);
+        if (!actor?.isActive || actor.isPurged) throw new ConflictException('Conta vinculada inativa');
+        if (foreignProducts > 0 || actor.platform && actor.platform.tag.toUpperCase() !== 'RETURN-BET') throw new ConflictException('Snapshot Return Bet não pode recalcular carteira compartilhada');
         const wallet = await tx.wallet.findUnique({ where: { userId: account.userId } });
         if (!wallet) throw new NotFoundException('Carteira técnica do Return Bet não encontrada.');
 
@@ -114,13 +123,13 @@ export class ReturnBetWithdrawalService {
             sourceBalanceSnapshot: input.availableBalance,
           },
         });
-      });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const recovered = await this.prisma.withdrawRequest.findUnique({
           where: { integrationRequestId: input.requestId },
         });
-        if (recovered) return this.serialize(recovered);
+        if (recovered) return replay(recovered);
       }
       throw error;
     }

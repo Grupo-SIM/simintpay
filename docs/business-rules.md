@@ -134,3 +134,5 @@ Streams legados de Atlas/Bosque/Renovada/Revalida usam projeção única do barr
 Espelhamento administrativo de Atlas/Revalida usa núcleo transacional único. Espelha carteira do dono como projeção de compatibilidade; não cria plataforma, usuário técnico ou carteira financeira. API canônica `POST /platforms/:tag/sync/owner-mirror` exige `sync:run`, revalida dono e retorna centavos; aliases conservam reais e autenticação histórica.
 
 Reconciliação manual Renovada e `POST /platforms/:tag/finance/reconcile` compartilham seleção por marca exclusiva, adquirente DOM e credencial cadastrada do produto. Canônico exige `sync:run` e fixa dono autenticado; alias preserva token interno e seleção opcional por usuário, sempre limitada ao produto. Configuração ausente ou adquirente sem suporte retorna 422 estável, sem usar token master como fallback.
+
+Snapshots de saldo Return Bet não podem recalcular carteiras de usuários que possuem outro produto ou pertencem a outra plataforma. Vínculo e conta ativa são revalidados em transação serializável. Replay de saque exige mesma plataforma, conta vinculada, valor bruto e chave PIX; colisão não retorna dados de outro cliente.

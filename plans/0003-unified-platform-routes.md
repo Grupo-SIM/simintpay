@@ -140,3 +140,8 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Alias Renovada deixa de varrer outros produtos; serviço compartilhado com canônico valida plataforma/dono/adquirente e credencial explícita.
 - [x] Marcas conflitantes/ausentes excluídas antes de chamadas ao gateway; limite e coalescência por produto.
 - [x] 18 testes dirigidos e build aprovados, com gateway mockado.
+
+## Continuação — integridade Return Bet
+
+- [x] Bloquear snapshot externo sobre carteira compartilhada/conta inativa; transação serializável e replay validado por contrato.
+- [x] Três testes de integridade e nove regressões Jest aprovados; build aprovado.
