@@ -11,21 +11,21 @@ function fixture(slug: ExternalPlatformSlug, fail = false) {
     if (!query.includes('SELECT')) return { rows: [] };
     if (fail) throw new Error('timeout with private connection details');
     if (query.includes('Customer')) return { rows: [{ id: 'customer', name: 'Buyer' }] };
-    if (['pagatg', 'areaflix'].includes(slug)) return { rows: [{ id: 'seller', name: 'Operator' }] };
+    if (slug === 'pagatg') return { rows: [{ id: 'seller', name: 'Operator' }] };
     return { rows: [{ id: 'seller', name: 'Seller', isVendedor: true, organizationName: slug === 'patrimonial' ? 'Fixture Company' : null }, { id: 'customer', name: 'Buyer', isVendedor: false }] };
   }) };
   const service = new ExternalPlatformDbService({} as never);
   (service as any).getPool = async () => ({ connect: async () => client });
   return { service, sql, client };
 }
-for (const slug of ['atlas', 'ebooksim', 'revalida', 'patrimonial', 'pagatg', 'areaflix'] as ExternalPlatformSlug[]) {
+for (const slug of ['atlas', 'ebooksim', 'revalida', 'patrimonial', 'pagatg'] as ExternalPlatformSlug[]) {
   test(`${slug} preserves classification and executes only read-only queries`, async () => {
     const { service, sql, client } = fixture(slug);
     const result = await service.listUsers(slug);
     expect(result.state).toBe('available');
     expect(result.vendedores.map(p => p.id)).toEqual(['seller']);
     expect(result.usuariosComuns.map(p => p.id)).toEqual(['customer']);
-    expect(result.tabelasSeparadas).toBe(['pagatg', 'areaflix'].includes(slug));
+    expect(result.tabelasSeparadas).toBe(slug === 'pagatg');
     expect(sql[0]).toBe('BEGIN READ ONLY');
     expect(sql[1]).toContain("statement_timeout = '5s'");
     expect(sql.at(-1)).toBe('COMMIT');
@@ -36,6 +36,25 @@ for (const slug of ['atlas', 'ebooksim', 'revalida', 'patrimonial', 'pagatg', 'a
     expect(client.release).toHaveBeenCalledTimes(1);
   });
 }
+
+test('areaflix: only parentAdminId-less operators count as vendedor, invited admins join usuariosComuns', async () => {
+  const sql: string[] = [];
+  const client = { release: mock(() => {}), query: mock(async (query: string) => {
+    sql.push(query);
+    if (!query.includes('SELECT')) return { rows: [] };
+    if (query.includes('Customer')) return { rows: [{ id: 'buyer', name: 'Buyer' }] };
+    if (query.includes('IS NOT NULL')) return { rows: [{ id: 'invited', name: 'Invited Admin' }] };
+    if (query.includes('IS NULL')) return { rows: [{ id: 'owner', name: 'Owner' }] };
+    return { rows: [] };
+  }) };
+  const service = new ExternalPlatformDbService({} as never);
+  (service as any).getPool = async () => ({ connect: async () => client });
+  const result = await service.listUsers('areaflix');
+  expect(result.state).toBe('available');
+  expect(result.tabelasSeparadas).toBe(true);
+  expect(result.vendedores.map(p => p.id)).toEqual(['owner']);
+  expect(result.usuariosComuns.map(p => p.id)).toEqual(['invited', 'buyer']);
+});
 test('invalid slug is 400; absent registration/configuration is unconfigured without connection', async () => {
   const service = new ExternalPlatformDbService({ platform: { findUnique: async () => null } } as never);
   await expect(service.listUsers('unknown' as ExternalPlatformSlug)).rejects.toBeInstanceOf(BadRequestException);

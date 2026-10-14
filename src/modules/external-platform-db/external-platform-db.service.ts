@@ -179,12 +179,22 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
     };
   }
 
-  // ── Areaflix: "User" = operador; "Customer" = assinante final ────────────
+  // ── Areaflix: "User" = operador, mas só quem não foi convidado por outro
+  // admin (parentAdminId IS NULL) é operador de verdade — quem tem
+  // parentAdminId é equipe de um operador, não assinante próprio, então
+  // entra junto com "Customer" (assinante final) do lado dos usuários comuns. ──
   private async listAreaflix(pool: PoolClient): Promise<ExternalPlatformUsersResult> {
-    const [vendedores, usuariosComuns] = await Promise.all([
+    const [operadores, equipe, usuariosComuns] = await Promise.all([
       pool.query(`
         SELECT id, name, email, "createdAt"
         FROM "User"
+        WHERE "parentAdminId" IS NULL
+        ORDER BY name
+      `),
+      pool.query(`
+        SELECT id, name, email, "createdAt"
+        FROM "User"
+        WHERE "parentAdminId" IS NOT NULL
         ORDER BY name
       `),
       pool.query(`
@@ -196,8 +206,8 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
     return {
       platform: 'areaflix',
       state: 'available',
-      vendedores: vendedores.rows.map(this.toPerson),
-      usuariosComuns: usuariosComuns.rows.map(this.toPerson),
+      vendedores: operadores.rows.map(this.toPerson),
+      usuariosComuns: [...equipe.rows, ...usuariosComuns.rows].map(this.toPerson),
       tabelasSeparadas: true,
     };
   }
