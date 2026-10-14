@@ -45,9 +45,10 @@ import { PlatformAccessService } from '../application/services/platform-access.s
 import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
 import { WebhookModule } from './webhook.module';
 import { PlatformReportingModule } from '../application/services/platform-reporting.module';
+import { ExternalPlatformDbModule } from '../modules/external-platform-db/external-platform-db.module';
 
 @Module({
-  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule, WebhookModule, PlatformReportingModule],
+  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule, WebhookModule, PlatformReportingModule, ExternalPlatformDbModule],
   controllers: [AdminController, AdminClientesController, AdminAfiliadosController],
   providers: [
     SyncDomTransactionsCron,
