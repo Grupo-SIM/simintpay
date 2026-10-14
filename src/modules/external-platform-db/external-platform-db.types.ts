@@ -38,6 +38,7 @@ export interface ExternalPlatformPerson {
  */
 export interface ExternalPlatformUsersResult {
   platform: ExternalPlatformSlug;
+  state: 'available' | 'unconfigured' | 'unavailable';
   vendedores: ExternalPlatformPerson[];
   usuariosComuns: ExternalPlatformPerson[];
   /** true quando a plataforma separa as duas listas em tabelas distintas (Pagatg, Areaflix) */

@@ -31,3 +31,21 @@ test('only admin can associate a retroactive claim source', async () => {
   const { controller } = fixture();
   await expect(controller.put('platform', 'CLAIM_SOURCE_USER_ID', { value: 'source' }, user)).rejects.toBeInstanceOf(ForbiddenException);
 });
+
+test('external database URL requires admin and is encrypted, masked and protocol validated', async () => {
+  const oldKey = process.env.PLATFORM_CONFIG_ENCRYPTION_KEY;
+  process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = 'ab'.repeat(32);
+  const writes: any[] = [];
+  let role = 'USER';
+  const prisma: any = { user: { findUnique: async () => ({ id: 'owner', role, isActive: true }) }, platform: { findUnique: async () => ({ id: 'p', ownerUserId: 'owner', tag: 'ATLAS' }) },
+    platformIntegration: { findMany: async () => [], upsert: async (input: any) => { writes.push(input.create); return input.create; } } };
+  const controller = new PlatformIntegrationsController(prisma);
+  try {
+    await expect(controller.put('p', 'EXTERNAL_DATABASE_URL', { value: 'postgresql://local:fixture@127.0.0.1/test' }, user)).rejects.toBeInstanceOf(ForbiddenException);
+    role = 'ADMIN';
+    await expect(controller.put('p', 'EXTERNAL_DATABASE_URL', { value: 'https://example.test' }, user)).rejects.toThrow('PostgreSQL');
+    await controller.put('p', 'EXTERNAL_DATABASE_URL', { value: 'postgresql://local:fixture@127.0.0.1/test' }, user);
+    expect(writes[0].url).toBeNull(); expect(writes[0].encryptedValue).toStartWith('v1:');
+    expect(JSON.stringify(writes)).not.toContain('local:fixture');
+  } finally { if (oldKey === undefined) delete process.env.PLATFORM_CONFIG_ENCRYPTION_KEY; else process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = oldKey; }
+});

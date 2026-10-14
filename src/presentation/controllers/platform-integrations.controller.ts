@@ -32,7 +32,7 @@ export class PlatformIntegrationsController {
   @Put(':key')
   async put(@Param('id') id: string, @Param('key') key: string, @Body() body: { value?: unknown }, @CurrentUser() user: JwtPayload | undefined) {
     const platform = await this.authorize(id, user);
-    if (['CLAIM_SOURCE_USER_ID', 'INBOUND_TOKEN', 'INBOUND_OPERATIONS', 'COMMUNITY_PLATFORM_TAG', 'LEGACY_MERCHANT_KEYS'].includes(key)) {
+    if (['EXTERNAL_DATABASE_URL', 'CLAIM_SOURCE_USER_ID', 'INBOUND_TOKEN', 'INBOUND_OPERATIONS', 'COMMUNITY_PLATFORM_TAG', 'LEGACY_MERCHANT_KEYS'].includes(key)) {
       const actor = await this.prisma.user.findUnique({ where: { id: user!.sub } });
       if (actor?.role !== 'ADMIN') throw new ForbiddenException('Associação exige administrador');
     }
@@ -42,6 +42,11 @@ export class PlatformIntegrationsController {
     } else {
       if (typeof body?.value !== 'string' || !body.value.trim()) throw new BadRequestException('Valor obrigatório');
       const value = body.value.trim();
+      if (key === 'EXTERNAL_DATABASE_URL') {
+        let url: URL;
+        try { url = new URL(value); } catch { throw new BadRequestException('URL de banco inválida'); }
+        if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.hostname || !url.pathname.slice(1)) throw new BadRequestException('URL PostgreSQL obrigatória');
+      }
       if (PLATFORM_URL_KEYS.has(key)) {
         let url: URL;
         try { url = new URL(value); } catch { throw new BadRequestException('URL inválida'); }

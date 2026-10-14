@@ -1,97 +1,96 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { Pool } from 'pg';
+import { BadRequestException, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Pool, type PoolClient } from 'pg';
+import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { decryptPlatformSecret } from '../platform-integrations/platform-secrets';
 import type {
   ExternalPlatformPerson,
   ExternalPlatformSlug,
   ExternalPlatformUsersResult,
 } from './external-platform-db.types';
 
-/**
- * ExternalPlatformDbService — leitura somente-leitura dos bancos Postgres de
- * cada SaaS externo (Atlas, EbookSim, Revalida, Patrimonial, Pagatg, Areaflix).
- *
- * Esses bancos rodam no MESMO servidor Postgres do simpay (container `postgres`,
- * hostname `postgresql` na rede Docker), cada um em seu próprio database.
- * Nenhum desses bancos é tocado pelo Prisma do simpay — usamos `pg` puro porque
- * cada SaaS tem um schema totalmente diferente (não vale gerar um Prisma Client
- * por plataforma só para 1-2 SELECTs).
- *
- * Config por env var `{SLUG}_DATABASE_URL`, ex.: ATLAS_DATABASE_URL.
- * Se a env var não existir, a plataforma é pulada (retorna listas vazias) em
- * vez de derrubar o admin inteiro — essas conexões são "best effort".
- */
 @Injectable()
 export class ExternalPlatformDbService implements OnModuleDestroy {
   private readonly logger = new Logger(ExternalPlatformDbService.name);
-  private readonly pools = new Map<ExternalPlatformSlug, Pool>();
-
-  private readonly ENV_KEYS: Record<ExternalPlatformSlug, string> = {
-    atlas: 'ATLAS_DATABASE_URL',
-    ebooksim: 'EBOOKSIM_DATABASE_URL',
-    revalida: 'REVALIDA_DATABASE_URL',
-    patrimonial: 'PATRIMONIAL_DATABASE_URL',
-    pagatg: 'PAGATG_DATABASE_URL',
-    areaflix: 'AREAFLIX_DATABASE_URL',
+  constructor(private readonly prisma: PrismaService) {}
+  private readonly pools = new Map<ExternalPlatformSlug, { url: string; pool: Pool }>();
+  private readonly configuring = new Map<ExternalPlatformSlug, Promise<Pool | null>>();
+  private readonly tags: Record<ExternalPlatformSlug, string> = {
+    atlas: 'ATLAS', ebooksim: 'EBOOK', revalida: 'REVALIDA',
+    patrimonial: 'PATRIMONIAL', pagatg: 'PAGATG', areaflix: 'AREAFLIX',
   };
 
-  private getPool(slug: ExternalPlatformSlug): Pool | null {
+  private async getPool(slug: ExternalPlatformSlug): Promise<Pool | null> {
+    const running = this.configuring.get(slug);
+    if (running) return running;
+    const task = this.configurePool(slug).finally(() => this.configuring.delete(slug));
+    this.configuring.set(slug, task);
+    return task;
+  }
+
+  private async configurePool(slug: ExternalPlatformSlug): Promise<Pool | null> {
+    const platform = await this.prisma.platform.findUnique({ where: { tag: this.tags[slug] }, include: { owner: true } });
+    const integration = platform?.isActive && platform.owner.isActive && !platform.owner.isPurged
+      ? await this.prisma.platformIntegration.findUnique({ where: { platformId_key: { platformId: platform.id, key: 'EXTERNAL_DATABASE_URL' } } })
+      : null;
+    const connectionString = integration?.encryptedValue ? decryptPlatformSecret(integration.encryptedValue) : null;
     const existing = this.pools.get(slug);
-    if (existing) return existing;
-
-    const connectionString = process.env[this.ENV_KEYS[slug]];
-    if (!connectionString) {
-      this.logger.warn(`[${slug}] ${this.ENV_KEYS[slug]} não configurada — pulando.`);
-      return null;
-    }
-
-    const pool = new Pool({
-      connectionString,
-      max: 2, // leitura ocasional no admin, não precisa de pool grande
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
-    });
-    pool.on('error', (err) => this.logger.error(`[${slug}] Erro no pool: ${err.message}`));
-    this.pools.set(slug, pool);
+    if (existing && existing.url === connectionString) return existing.pool;
+    if (existing) { this.pools.delete(slug); await existing.pool.end(); }
+    if (!connectionString) return null;
+    const url = new URL(connectionString);
+    if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new Error('Invalid database protocol');
+    const pool = this.createPool(connectionString);
+    // Never log driver errors: they may contain credentials or query data.
+    pool.on('error', () => this.logger.error(`[${slug}] Banco externo indisponível`));
+    this.pools.set(slug, { url: connectionString, pool });
     return pool;
   }
 
+  private createPool(connectionString: string): Pool {
+    return new Pool({ connectionString, max: 2, idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000, statement_timeout: 5_000, query_timeout: 5_000 });
+  }
+
   async onModuleDestroy() {
-    await Promise.all([...this.pools.values()].map((p) => p.end().catch(() => undefined)));
+    await Promise.allSettled([...this.configuring.values()]);
+    await Promise.all([...this.pools.values()].map(({ pool }) => pool.end().catch(() => undefined)));
+    this.pools.clear();
   }
 
   /** Lista usuários de uma plataforma, já separados em vendedores/usuários comuns. */
   async listUsers(slug: ExternalPlatformSlug): Promise<ExternalPlatformUsersResult> {
     const empty: ExternalPlatformUsersResult = {
       platform: slug,
+      state: 'unconfigured',
       vendedores: [],
       usuariosComuns: [],
       tabelasSeparadas: false,
     };
 
-    const pool = this.getPool(slug);
-    if (!pool) return empty;
-
+    if (!Object.prototype.hasOwnProperty.call(this.tags, slug)) throw new BadRequestException('Plataforma inválida');
+    let client: PoolClient | undefined;
     try {
+      const pool = await this.getPool(slug);
+      if (!pool) return empty;
+      client = await pool.connect();
+      await client.query('BEGIN READ ONLY');
+      await client.query("SET LOCAL statement_timeout = '5s'");
+      let result: ExternalPlatformUsersResult;
       switch (slug) {
-        case 'atlas':
-          return await this.listAtlas(pool);
-        case 'ebooksim':
-          return await this.listEbooksim(pool);
-        case 'revalida':
-          return await this.listRevalida(pool);
-        case 'patrimonial':
-          return await this.listPatrimonial(pool);
-        case 'pagatg':
-          return await this.listPagatg(pool);
-        case 'areaflix':
-          return await this.listAreaflix(pool);
-        default:
-          return empty;
+        case 'atlas': result = await this.listAtlas(client); break;
+        case 'ebooksim': result = await this.listEbooksim(client); break;
+        case 'revalida': result = await this.listRevalida(client); break;
+        case 'patrimonial': result = await this.listPatrimonial(client); break;
+        case 'pagatg': result = await this.listPagatg(client); break;
+        case 'areaflix': result = await this.listAreaflix(client); break;
       }
-    } catch (err: any) {
-      this.logger.error(`[${slug}] Falha ao consultar banco externo: ${err.message}`);
-      return empty;
-    }
+      await client.query('COMMIT');
+      return { ...result!, state: 'available' };
+    } catch {
+      if (client) await client.query('ROLLBACK').catch(() => undefined);
+      this.logger.error(`[${slug}] Banco externo indisponível`);
+      return { ...empty, state: 'unavailable' };
+    } finally { client?.release(); }
   }
 
   async listAll(): Promise<ExternalPlatformUsersResult[]> {
@@ -107,7 +106,7 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
   }
 
   // ── Atlas: vendedor = tem comissão de afiliado registrada ────────────────
-  private async listAtlas(pool: Pool): Promise<ExternalPlatformUsersResult> {
+  private async listAtlas(pool: PoolClient): Promise<ExternalPlatformUsersResult> {
     const { rows } = await pool.query(`
       SELECT u.id, u.name, u.email, u.created_at AS "createdAt",
         (ac.affiliate_user_id IS NOT NULL) AS "isVendedor"
@@ -121,7 +120,7 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
   }
 
   // ── EbookSim: vendedor = role ADMIN (afiliado por comissão ainda não é usado em produção) ──
-  private async listEbooksim(pool: Pool): Promise<ExternalPlatformUsersResult> {
+  private async listEbooksim(pool: PoolClient): Promise<ExternalPlatformUsersResult> {
     const { rows } = await pool.query(`
       SELECT id, name, email, cpf, cnpj, "isActive", "createdAt",
         (role = 'ADMIN') AS "isVendedor"
@@ -132,7 +131,7 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
   }
 
   // ── Revalida: vendedor = role admin ───────────────────────────────────────
-  private async listRevalida(pool: Pool): Promise<ExternalPlatformUsersResult> {
+  private async listRevalida(pool: PoolClient): Promise<ExternalPlatformUsersResult> {
     const { rows } = await pool.query(`
       SELECT id, name, email, "createdAt",
         (role = 'admin') AS "isVendedor"
@@ -145,7 +144,7 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
   // ── Patrimonial: multi-tenant por Organization. O "assinante" é quem tem
   // role=ADMIN dentro de cada organização — é essa conta que fechou o SaaS
   // com a Simintpay; USER é quem o assinante convidou pra usar por baixo dele. ──
-  private async listPatrimonial(pool: Pool): Promise<ExternalPlatformUsersResult> {
+  private async listPatrimonial(pool: PoolClient): Promise<ExternalPlatformUsersResult> {
     const { rows } = await pool.query(`
       SELECT u.id, u.name, u.email, u.cpf, u.cnpj, u."isActive", u."createdAt",
         o.name AS "organizationName",
@@ -158,7 +157,7 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
   }
 
   // ── Pagatg: "User" = dono/operador do bot; "CustomerTelegram" = cliente final ──
-  private async listPagatg(pool: Pool): Promise<ExternalPlatformUsersResult> {
+  private async listPagatg(pool: PoolClient): Promise<ExternalPlatformUsersResult> {
     const [vendedores, usuariosComuns] = await Promise.all([
       pool.query(`
         SELECT id, name, email, cpf, cnpj, "isActive", "createdAt"
@@ -169,10 +168,11 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
         SELECT id, name, "createdAt"
         FROM "CustomerTelegram"
         ORDER BY name
-      `).catch(() => ({ rows: [] })),
+      `),
     ]);
     return {
       platform: 'pagatg',
+      state: 'available',
       vendedores: vendedores.rows.map(this.toPerson),
       usuariosComuns: usuariosComuns.rows.map(this.toPerson),
       tabelasSeparadas: true,
@@ -180,21 +180,22 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
   }
 
   // ── Areaflix: "User" = operador; "Customer" = assinante final ────────────
-  private async listAreaflix(pool: Pool): Promise<ExternalPlatformUsersResult> {
+  private async listAreaflix(pool: PoolClient): Promise<ExternalPlatformUsersResult> {
     const [vendedores, usuariosComuns] = await Promise.all([
       pool.query(`
         SELECT id, name, email, "createdAt"
         FROM "User"
         ORDER BY name
-      `).catch(() => ({ rows: [] })),
+      `),
       pool.query(`
         SELECT id, name, email, "createdAt"
         FROM "Customer"
         ORDER BY name
-      `).catch(() => ({ rows: [] })),
+      `),
     ]);
     return {
       platform: 'areaflix',
+      state: 'available',
       vendedores: vendedores.rows.map(this.toPerson),
       usuariosComuns: usuariosComuns.rows.map(this.toPerson),
       tabelasSeparadas: true,
@@ -212,7 +213,7 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
       if (row.isVendedor) vendedores.push(person);
       else usuariosComuns.push(person);
     }
-    return { platform, vendedores, usuariosComuns, tabelasSeparadas: false };
+    return { platform, state: 'available', vendedores, usuariosComuns, tabelasSeparadas: false };
   }
 
   private toPerson = (row: any): ExternalPlatformPerson => ({
