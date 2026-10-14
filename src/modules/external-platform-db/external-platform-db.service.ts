@@ -16,7 +16,8 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
   private readonly configuring = new Map<ExternalPlatformSlug, Promise<Pool | null>>();
   private readonly tags: Record<ExternalPlatformSlug, string> = {
     atlas: 'ATLAS', ebooksim: 'EBOOK', revalida: 'REVALIDA',
-    patrimonial: 'PATRIMONIAL', pagatg: 'PAGATG', areaflix: 'AREAFLIX',
+    // Platform.tag real no banco é CONTROLE-PATRIMONIAL, não PATRIMONIAL.
+    patrimonial: 'CONTROLE-PATRIMONIAL', pagatg: 'PAGATG', areaflix: 'AREAFLIX',
   };
 
   private async getPool(slug: ExternalPlatformSlug): Promise<Pool | null> {
