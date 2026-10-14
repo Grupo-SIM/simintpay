@@ -1,3 +1,5 @@
+import { PlatformReportProjectionsController } from './platform-report-projections.controller';
+import { PlatformReportingModule } from '../../application/services/platform-reporting.module';
 import { PlatformBetaiController } from './platform-betai.controller';
 import { PlatformBetaiService } from './platform-betai.service';
 import { PlatformSubscriptionCapabilitiesController } from './platform-subscription-capabilities.controller';
@@ -21,7 +23,7 @@ import { PlatformSyncService } from './platform-sync.service';
 import { PlatformPaymentsService } from '../unified-platform/payments/platform-payments.service';
 import { PlatformEventsModule } from './platform-events.module';
 
-@Module({ imports: [WebhookModule, PrismaModule, ApiDomModule, AuthModule, CheckoutModule, PlatformEventsModule],
-  controllers: [PlatformBetaiController, PlatformSubscriptionCapabilitiesController, PlatformVoucherCapabilitiesController, PlatformCorporateController, PlatformOperationsController, PlatformWebhookController, PlatformMerchantsController], providers: [PlatformBetaiService, PlatformSubscriptionCapabilitiesService, PlatformVoucherCapabilitiesService, PlatformContextService, PlatformAuthGuard, PlatformSyncService, PlatformPaymentsService, PlatformMerchantsService],
+@Module({ imports: [PlatformReportingModule, WebhookModule, PrismaModule, ApiDomModule, AuthModule, CheckoutModule, PlatformEventsModule],
+  controllers: [PlatformReportProjectionsController, PlatformBetaiController, PlatformSubscriptionCapabilitiesController, PlatformVoucherCapabilitiesController, PlatformCorporateController, PlatformOperationsController, PlatformWebhookController, PlatformMerchantsController], providers: [PlatformBetaiService, PlatformSubscriptionCapabilitiesService, PlatformVoucherCapabilitiesService, PlatformContextService, PlatformAuthGuard, PlatformSyncService, PlatformPaymentsService, PlatformMerchantsService],
   exports: [PlatformBetaiService, PlatformContextService, PlatformPaymentsService, PlatformSyncService] })
 export class PlatformCoreModule {}

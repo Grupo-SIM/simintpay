@@ -15,7 +15,8 @@ jest.mock('../../modules/platform-taxas/platform-taxas.store', () => ({
   canonicalPlatformTaxaTag: (tag: string) => tag,
 }));
 
-import { AdminController } from './admin.controller';
+import { AdminController as HttpAdminController } from './admin.controller';
+import { PlatformAdministrationService as AdminController } from '../../modules/platform-core/platform-administration.service';
 
 describe('AdminController.getPlataformaConsolidado', () => {
   it('separa taxa percentual Sim Int Pay da taxa fixa e dos custos DOM', async () => {
@@ -495,7 +496,7 @@ describe('AdminController.getAtlasConsolidado', () => {
         }),
       } as any;
 
-      const result = await (AdminController.prototype as any).getAtlasConsolidado.call(
+      const result = await (HttpAdminController.prototype as any).getAtlasConsolidado.call(
         ctx,
         '2026-09-01',
         '2026-09-30',

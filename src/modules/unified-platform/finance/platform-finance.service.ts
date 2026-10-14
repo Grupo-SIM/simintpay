@@ -1,3 +1,4 @@
+import { PlatformAttributedBalance } from '../../platform-core/platform-attributed-balance';
 import { PlatformDashboardReports } from '../../platform-core/platform-dashboard-reports';
 import { platformDashboardRules } from '../../platform-core/platform-dashboard.adapter';
 import { PlatformLedger } from './platform-ledger';
@@ -14,6 +15,10 @@ export type FinancePage = { page?: number; limit?: number; status?: string };
 @Injectable()
 export class PlatformFinanceService {
   constructor(private readonly prisma: PrismaService) {}
+
+  platformBalance(context: FinancePlatformContext) {
+    return new PlatformAttributedBalance(this.prisma).read(context);
+  }
 
   async dashboard(context: FinancePlatformContext, view: string, page = 1, limit = 20, period?: string) {
     const core = new PlatformDashboardReports(this.prisma, platformDashboardRules(context.tag), context.ownerUserId);

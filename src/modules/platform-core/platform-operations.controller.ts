@@ -32,6 +32,9 @@ export class PlatformOperationsController {
     return this.finance.importEntry(request.platformContext, body);
   }
 
+  @Get('finance/balance') @Operation('finance:read')
+  platformBalance(@Req() request: PlatformRequest) { return this.finance.platformBalance(request.platformContext); }
+
   @Get('finance/summary') @Operation('finance:read')
   summary(@Req() request: PlatformRequest) { return this.finance.summary(request.platformContext); }
 

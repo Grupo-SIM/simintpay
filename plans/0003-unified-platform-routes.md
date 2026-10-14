@@ -17,7 +17,7 @@ Plano aprovado pelo usuário. Execução exclusivamente local; banco externo, pu
 
 ## Evidências
 
-Inventário obtido de HEAD antes da substituição dos controllers. Nenhuma configuração/token inferida ou banco externo alterado. Núcleo usa modelos existentes sem migração.
+Inventário obtido de HEAD antes da substituição dos controllers. Nenhuma configuração/token inferida ou banco externo alterado. Núcleo reutiliza modelos existentes; unificação adicional da identidade inclui artefato SQL local, ainda não aplicado.
 
 ## Limites verificados desta implementação
 
@@ -115,3 +115,13 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Bosque e canônico compartilham PlatformWebhookSettlement; checkout/SSE publicados pelo processador após transição.
 - [x] Quatro variantes sem consumidores removidas; testes de terminal transferidos ao processador realmente utilizado.
 - [x] Equivalência de normalização/líquido/chave de deduplicação e isolamento aprovados; regressões completas: 399 Bun, 200 Jest, 1 Jest pré-existente ignorado, build aprovado.
+
+## Continuação — projeções e saldo por produto
+
+- [x] Sete aliases administrativos delegam projeções compartilhadas; consolidado canônico em centavos revalida dono atual.
+- [x] Listagem/stats de vendedores compartilham núcleo; dono com vários produtos mantém carteira compartilhada identificada.
+- [x] API `finance/balance` oferece saldo atribuído ao produto junto à carteira do dono, sem repartir histórico desconhecido ou transferir titularidade histórica.
+- [x] Testes dirigidos cobrem equivalência de projeções, saldo negativo, transferência, marcas conflitantes e lacunas de atribuição.
+- [ ] Equivalência comportamental dos 144 contratos continua pendente; projeções e testes estruturais não substituem essa etapa.
+
+- Validação desta etapa: 423 testes Bun, 200 Jest aprovados (1 ignorado pré-existente) e build local aprovado.

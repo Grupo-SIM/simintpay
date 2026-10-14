@@ -119,3 +119,12 @@ Atlas e Revalida compartilham consultas, gráficos, resumos e paginação. Adapt
 ### Liquidação compartilhada de webhooks
 
 Bosque e entrada canônica usam mesmo normalizador, busca limitada à plataforma e chave de evento por produto/adquirente/pagamento/status. Valor líquido vem do lançamento persistido, nunca do corpo recebido. Marcas conflitantes bloqueiam liquidação. Permissão/signatura histórica fica somente no alias; entrada canônica exige segredo configurado. Processador publica confirmação de checkout e eventos de plataforma após transição efetiva. Variantes Master/Renovada sem consumidores foram removidas; rotas continuam delegando ao processador ativo pela fila existente.
+
+### Projeções administrativas e saldo atribuído ao produto
+
+Relatórios administrativos de plataformas, consolidado e vendedores usam o mesmo núcleo que os aliases. O consolidado canônico publica valores monetários com sufixo `Cents`; contagens continuam inteiras sem conversão. Relatórios revalidam cadastro ativo e dono atual antes das consultas. Carteira de dono com vários produtos permanece compartilhada.
+
+`GET /platforms/:tag/finance/balance` exige `finance:read` e oferece projeção por produto, também quando o dono possui outras plataformas. Soma o líquido persistido de transações concluídas do dono atual com marca exclusiva da plataforma; desconta saques aprovados/concluídos identificados pelo produto e separa reservas pendentes. Retorna valores em centavos, saldo atribuído e saldo da carteira do dono separadamente. Não altera carteira nem autoriza saque pelo saldo projetado. Histórico de donos anteriores permanece com seus titulares.
+
+Histórico sem marca, marcas conflitantes, saques sem plataforma e transações sem líquido persistido não são distribuídos entre produtos. Contadores e `historicalAttributionComplete` tornam essas lacunas explícitas. Saldo atribuído pode ser negativo; disponibilidade projetada tem piso zero. Regras de saque continuam aplicando disponibilidade da carteira compartilhada.
+
