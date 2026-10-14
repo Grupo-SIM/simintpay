@@ -16,6 +16,10 @@ describe('Client product authorization', () => {
  it.each(['/admin/clientes', '/communities', '/platforms', '/payments/admin/pix-plan-access', '/payments/plan-access/decrement-all'])('blocks administrative URL %s', async url => {
   await expect(authorize({ ...request, url })).rejects.toThrow('Área administrativa restrita');
  });
+ it('rejects clearing administrative links and introducing PIX routing markers', async () => {
+  await expect(authorize({ ...request, body: { plataformas: [] } })).rejects.toThrow('não podem ser alterados');
+  await expect(authorize({ ...request, url: '/payments/pix-plan', body: { description: 'New [TENANT:OTHER]' } })).rejects.toThrow('não podem ser informados');
+ });
  it('allows revoked client to remove its push device before logout', async () => {
   prisma.user.findUnique.mockResolvedValue({ clientStatus: 'REJECTED' });
   await expect(authorize({ ...request, method: 'DELETE', url: '/notifications/push/subscriptions' })).resolves.toBeUndefined();

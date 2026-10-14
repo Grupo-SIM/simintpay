@@ -2,6 +2,7 @@ import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/expl
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
   BadRequestException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
@@ -574,11 +575,23 @@ export class PixPlanService {
     if (role !== 'ADMIN' && plan.userId !== userId)
       throw new BadRequestException('Plano não pertence a este usuário');
 
+    let description = body.description;
+    if (description !== undefined && typeof description !== 'string') throw new BadRequestException('Descrição inválida');
+    if (role !== 'ADMIN' && description !== undefined) {
+      const metadataPattern = /\[(?:CPF_DONO|CPF|TENANT|NOME_DONO):[^\]]*\]/gi;
+      const original = plan.description?.match(metadataPattern) ?? [];
+      const supplied = description.match(metadataPattern) ?? [];
+      if (supplied.length && JSON.stringify(supplied) !== JSON.stringify(original)) {
+        throw new ForbiddenException('Metadados de proprietário e plataforma não podem ser alterados');
+      }
+      description = [description.replace(metadataPattern, '').trim(), ...original].filter(Boolean).join(' ');
+    }
+
     const selectedTag = body.tenantTag !== undefined ? assertExplicitPlatform({ id: userId, role }, body.tenantTag ? [body.tenantTag] : undefined, true) : undefined;
     const updated = await this.prisma.pixCreditPlan.update({
       where: { id: planId },
       data: {
-        ...(body.description !== undefined && { description: body.description }),
+        ...(description !== undefined && { description }),
         ...(body.price !== undefined && { price: body.price }),
         ...(body.frequency_type !== undefined && { type: this.mapFrequencyToType(body.frequency_type as 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR') }),
         ...(body.redirectUrl !== undefined && { redirectUrl: body.redirectUrl || null }),

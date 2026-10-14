@@ -33,7 +33,7 @@ export class SalePushService {
     this.publicKey();
     validateSubscription(subscription);
     await this.prisma.$transaction(async tx => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${subscription.endpoint}, 0))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${subscription.endpoint}, 0))::text AS lock`;
       await tx.$queryRaw`SELECT id FROM "PushSubscription" WHERE endpoint = ${subscription.endpoint} FOR UPDATE`;
       // Endpoint belongs to one device/account. Remove old queued deliveries on account change.
       await tx.$executeRaw`DELETE FROM "PushDelivery" WHERE "subscriptionId" IN (SELECT id FROM "PushSubscription" WHERE endpoint = ${subscription.endpoint} AND "userId" <> ${userId})`;

@@ -87,8 +87,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     const body = request.body ?? {};
     const protectedFields = ['userId', 'ownerUserId', 'platformFee', 'platformFeeNx', 'platformTag', 'tenantTag', 'communityId', 'comunidadeId', 'code', 'codigo', 'taxa', 'taxas', 'domPlanId', 'domPaymentLinkId'];
     const administrativeFees = Object.keys(body).some(key => /^platformFee(?:\d+x|Nx)?$/.test(key) || ['cashbackFee', 'debitFeePercent', 'debitFeeFixed', 'customerInterestRates', 'absorbCustomerInterest'].includes(key));
-    if (administrativeFees || protectedFields.some(key => body[key] !== undefined) || (Array.isArray(body.plataformas) && body.plataformas.length > 0)) {
+    if (administrativeFees || protectedFields.some(key => body[key] !== undefined) || body.plataformas !== undefined) {
       throw new ForbiddenException('Proprietário, taxas, código e vínculos administrativos não podem ser alterados');
+    }
+    if (request.method === 'POST' && path.replace(/\/$/, '') === '/payments/pix-plan' &&
+        typeof body.description === 'string' && /\[(?:CPF_DONO|CPF|TENANT|NOME_DONO):/i.test(body.description)) {
+      throw new ForbiddenException('Metadados de proprietário e plataforma não podem ser informados');
     }
     for (const key of ['preco', 'valor', 'price']) {
       if (body[key] !== undefined && (!Number.isFinite(body[key]) || Number(body[key]) < 14.99)) {
