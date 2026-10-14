@@ -75,3 +75,19 @@ describe('Shared platform finance', () => {
     expect(summary).toHaveBeenCalledWith('123', 'owner@example.com', 'account', 'legacy-token');
   });
 });
+
+test('canonical import uses authenticated wallet and strict cents', async () => {
+  const { service } = fixture();
+  const record = mock(async (...args: any[]) => ({ success: true, id: 'entry', created: true }));
+  service.recordEntry = record;
+  const platform = { ...context, tag: 'PAGATG' };
+  const body = { referenceId: 'invoice', amountCents: 1234, netAmountCents: 1200, kind: 'payment', paymentMethod: 'PIX' };
+  await service.importEntry(platform, body);
+  expect(record.mock.calls[0][1]).toMatchObject({ userId: 'owner', domPaymentId: 'invoice', status: 'COMPLETED' });
+  expect(record.mock.calls[0][1].amount.toString()).toBe('12.34');
+  expect(record.mock.calls[0][2]).toBe(true);
+  for (const change of [{ userId: 'foreign' }, { amountCents: 12.34 }, { kind: 'commission' }]) {
+    await expect(service.importEntry(platform, { ...body, ...change })).rejects.toThrow();
+  }
+  expect(record).toHaveBeenCalledTimes(1);
+});

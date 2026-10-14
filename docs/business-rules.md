@@ -90,3 +90,12 @@ Navegador e sistema precisam permitir execução em segundo plano; encerramento 
 `GET /auth/me` retorna `platform` para vínculo explícito legado e `ownedPlatforms` para todos os produtos possuídos. `walletScope=shared-owner` indica carteira compartilhada entre produtos; nesse caso resumo lê saldo persistido, sem reclassificar histórico sem tag. Criação financeira sem escolha de plataforma é rejeitada quando conta possui vários produtos.
 
 Execução de pagamentos passa por PlatformPaymentExecution tanto nas APIs canônicas quanto nos aliases corporativos. Reserva draft, invocação do adquirente e anexação de referência compartilham implementação. Anexação usa CAS de DRAFT e nunca regride liquidação concorrente. Adapters preservam nomes, respostas, classificação e arredondamentos legados. Consulta `/platforms/:tag/payments/:paymentId` usa lookup compartilhado com aliases; múltiplas marcas TENANT conflitantes bloqueiam exposição. Plataforma transferida continua consultando pagamento explicitamente marcado, mantendo carteira histórica.
+
+### Importação financeira por plataforma
+
+- `POST /platforms/:tag/finance/entries` importa lançamentos PAGATG/EBOOK em centavos inteiros. JWT exige admin; credencial exige vínculo explícito e escopo administrativo `ledger:write`. Dono comum não pode emitir saldo. Identidade do corpo é rejeitada.
+- PAGATG importa pagamento concluído e credita líquido na mesma transação. Ebook mantém pendências e comissões sem alterar saldo armazenado. Aliases internos usam mesmo escritor, conservando seleção histórica de conta e valores em reais.
+- Referência duplicada conserva lançamento; colisão de conta/plataforma/valor retorna `LEDGER_REFERENCE_CONFLICT`. Corrida pelo índice único não repete crédito. Produto/dono/beneficiário inativos bloqueiam escrita. Importação DOM em adquirente diferente retorna `ACQUIRER_OPERATION_UNSUPPORTED`.
+- Identificador de assinatura PAGATG é referência externa não única: várias faturas podem pertencer à mesma assinatura. Identificador de pagamento continua único.
+- Espelhamento de plano exige vínculo explícito com conta/plataforma. Código global não autoriza sobrescrever plano de outro produto; legado sem atribuição exige associação administrativa.
+- Tokens internos históricos são verificados exclusivamente no guard dos aliases financeiros inventariados. APIs canônicas mantêm autenticação própria; health Atlas permanece público.

@@ -32,7 +32,7 @@ export class PlatformContextService {
     if (user && user.authMode !== 'integration') {
       const actor = await this.prisma.user.findUnique({ where: { id: user.sub } });
       if (!actor?.isActive || actor.isPurged) throw new UnauthorizedException('Conta inativa');
-      if (operation.startsWith('maintenance:') && actor.role !== 'ADMIN') throw new ForbiddenException('Exige administrador');
+      if ((operation.startsWith('maintenance:') || operation === 'ledger:write') && actor.role !== 'ADMIN') throw new ForbiddenException('Exige administrador');
       if (actor.role !== 'ADMIN' && platform.ownerUserId !== actor.id) throw new ForbiddenException('Plataforma pertence a outro usuário');
       return platform;
     }

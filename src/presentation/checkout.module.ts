@@ -1,3 +1,4 @@
+import { LegacyInternalAuthGuard } from '../modules/platform-core/legacy-internal-auth.guard';
 import { PlatformFinanceService } from '../modules/unified-platform/finance/platform-finance.service';
 import { InternalPagatgFinanceService } from '../modules/unified-platform/finance/legacy-pagatg-finance.service';
 import { InternalAreaflixFinanceService } from '../modules/unified-platform/finance/legacy-areaflix-finance.service';
@@ -28,7 +29,7 @@ import { CheckoutEventsService } from '../application/services/checkout-events.s
     InternalAtlasFinanceController,
     InternalAreaflixFinanceController,
   ],
-  providers: [CheckoutEventsService, PlatformFinanceService, InternalAtlasFinanceService, InternalEbookFinanceService, InternalBosqueFinanceService, InternalRenovadaFinanceService, InternalAreaflixFinanceService, InternalPagatgFinanceService],
-  exports: [CheckoutEventsService, PlatformFinanceService],
+  providers: [LegacyInternalAuthGuard, CheckoutEventsService, PlatformFinanceService, InternalAtlasFinanceService, InternalEbookFinanceService, InternalBosqueFinanceService, InternalRenovadaFinanceService, InternalAreaflixFinanceService, InternalPagatgFinanceService],
+  exports: [CheckoutEventsService, PlatformFinanceService, InternalAtlasFinanceService, InternalEbookFinanceService, InternalBosqueFinanceService, InternalRenovadaFinanceService, InternalAreaflixFinanceService, InternalPagatgFinanceService],
 })
 export class CheckoutModule {}

@@ -1,8 +1,12 @@
+import { LegacyInternalAuthGuard } from '../../modules/platform-core/legacy-internal-auth.guard';
+import { SetMetadata, UseGuards } from '@nestjs/common';
 import { InternalBosqueFinanceService } from '../../modules/unified-platform/finance/legacy-bosque-finance.service';
 import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 import { ApiBody, ApiOperation } from '@nestjs/swagger';
 
 @Controller('internal/bosque/finance')
+@SetMetadata('legacy-platform-tag', 'BOSQUE')
+@UseGuards(LegacyInternalAuthGuard)
 export class InternalBosqueFinanceController {
   constructor(private readonly finance: InternalBosqueFinanceService) {}
 

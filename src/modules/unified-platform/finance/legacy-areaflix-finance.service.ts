@@ -1,8 +1,7 @@
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
-import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
@@ -15,45 +14,16 @@ const areaflixWithdrawFee = () => getPlatformTaxaEffective('AREAFLIX', 'TAXA_SAQ
 export class InternalAreaflixFinanceService {
   constructor(private readonly prisma: PrismaService, private readonly finance: PlatformFinanceService) {}
 
-  private ensureInternalToken(token?: string) {
-    const expected = getPlatformIntegrationValue('AREAFLIX', 'INTERNAL_TOKEN');
-    if (!expected || token !== expected) {
-      throw new UnauthorizedException('Token interno inválido');
-    }
-  }
 
   private normalizeDoc(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
   }
 
-  private async resolveUserIdsByDoc(doc: string): Promise<string[]> {
-    const ids = new Set<string>();
-    const clean = this.normalizeDoc(doc);
-
-    // Somente contas ativas — conta desativada (excluída pelo admin) não recebe
-    // créditos, links nem saques.
-    if (clean.length === 14) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const users = await (this.prisma.user as any).findMany({
-        where: { cnpj: clean, isActive: true },
-        select: { id: true },
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (users as any[]).forEach((u: any) => ids.add(u.id));
-    } else if (clean.length === 11) {
-      const variants = [clean, clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
-      const users = await this.prisma.user.findMany({
-        where: { cpf: { in: variants }, isActive: true },
-        select: { id: true },
-      });
-      users.forEach((u) => ids.add(u.id));
-    }
-
-    return [...ids];
+  private resolveUserIdsByDoc(doc: string): Promise<string[]> {
+    return this.finance.resolveAccountIds({ document: doc, activeOnly: true });
   }
   async wallet( cpf: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByDoc(cpf);
     if (userIds.length === 0) {
       return { accountExists: false, balance: 0, lockedBalance: 0, availableBalance: 0 };
@@ -75,7 +45,6 @@ export class InternalAreaflixFinanceService {
   }
   async accountStatus( cpf: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByDoc(cpf);
     return {
       accountExists: userIds.length > 0,
@@ -85,7 +54,6 @@ export class InternalAreaflixFinanceService {
   }
   async withdrawals( cpf: string, page = '1', limit = '20', internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByDoc(cpf);
     if (userIds.length === 0) {
       return { withdrawals: [], meta: { currentPage: 1, itemsPerPage: 20, totalItems: 0, totalPages: 1 } };
@@ -127,7 +95,6 @@ export class InternalAreaflixFinanceService {
   }
   async withdrawalTotals( cpf: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByDoc(cpf);
     if (userIds.length === 0) {
       return { pendingGross: 0, completedGross: 0 };
@@ -162,7 +129,6 @@ export class InternalAreaflixFinanceService {
       adminName?: string;
     }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByDoc(body.cpf);
     const targetUserId = userIds[0] ?? null;
 
@@ -365,7 +331,6 @@ export class InternalAreaflixFinanceService {
   }
   async requestWithdraw( body: { cpf: string; amount: number; pixKey: string }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByDoc(body.cpf);
     if (userIds.length === 0) {
       throw new BadRequestException('Nenhuma conta simintpay encontrada para este CPF/CNPJ');

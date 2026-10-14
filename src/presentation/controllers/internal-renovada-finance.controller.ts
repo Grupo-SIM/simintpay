@@ -1,7 +1,11 @@
+import { LegacyInternalAuthGuard } from '../../modules/platform-core/legacy-internal-auth.guard';
+import { SetMetadata, UseGuards } from '@nestjs/common';
 import { InternalRenovadaFinanceService } from '../../modules/unified-platform/finance/legacy-renovada-finance.service';
 import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 
 @Controller('internal/renovada/finance')
+@SetMetadata('legacy-platform-tag', 'RENOVADA')
+@UseGuards(LegacyInternalAuthGuard)
 export class InternalRenovadaFinanceController {
   constructor(private readonly finance: InternalRenovadaFinanceService) {}
 

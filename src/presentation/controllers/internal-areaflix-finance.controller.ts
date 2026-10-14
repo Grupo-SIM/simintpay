@@ -1,3 +1,5 @@
+import { LegacyInternalAuthGuard } from '../../modules/platform-core/legacy-internal-auth.guard';
+import { SetMetadata, UseGuards } from '@nestjs/common';
 import { InternalAreaflixFinanceService } from '../../modules/unified-platform/finance/legacy-areaflix-finance.service';
 import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 
@@ -7,6 +9,8 @@ import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
  * e saques que entram na fila de aprovação do painel admin do simpay.
  */
 @Controller('internal/areaflix/finance')
+@SetMetadata('legacy-platform-tag', 'AREAFLIX')
+@UseGuards(LegacyInternalAuthGuard)
 export class InternalAreaflixFinanceController {
   constructor(private readonly finance: InternalAreaflixFinanceService) {}
 

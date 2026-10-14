@@ -77,3 +77,11 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Adapter DOM separado das regras corporativas; status por referência usa lookup compartilhado e bloqueia marcas conflitantes.
 - [x] Matriz de equivalência de 4 plataformas × PIX/cartão verifica lançamentos, centavos/reais, taxas, estado e ausência de crédito antecipado.
 - [x] Build aprovado; 31 testes dirigidos de execução, equivalência, adapters e isolamento aprovados.
+
+## Continuação — importação e consultas financeiras
+
+- [x] Escritor transacional compartilhado para pagamentos externos PAGATG, pendências e comissões Ebook; idempotência concorrente e crédito atômico.
+- [x] API canônica de importação em centavos, identidade autenticada e autorização específica `ledger:write`; owner comum não emite saldo.
+- [x] Espelhamento de planos bloqueia colisão entre produtos; referência da assinatura não impede múltiplas faturas.
+- [x] Resolver documental e paginação de saques compartilhados; guards dos aliases preservam fontes de token e exceção pública Atlas.
+- [ ] Equivalência integral dos demais contratos permanece pendente; esta etapa não conclui matriz de 144.

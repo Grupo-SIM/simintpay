@@ -1,3 +1,4 @@
+import { PlatformLedger } from './platform-ledger';
 import { PlatformMaintenanceService } from './platform-maintenance.service';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -11,6 +12,46 @@ export type FinancePage = { page?: number; limit?: number; status?: string };
 @Injectable()
 export class PlatformFinanceService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async importEntry(context: FinancePlatformContext, body: Record<string, unknown>) {
+    if (!['PAGATG', 'EBOOK'].includes(context.tag)) throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'ledger.import' });
+    const allowed = ['referenceId', 'amountCents', 'netAmountCents', 'kind', 'description', 'paymentMethod'];
+    if (Object.keys(body).some(key => !allowed.includes(key))) throw new BadRequestException('Campo desconhecido');
+    if (typeof body.referenceId !== 'string' || !body.referenceId.trim() || body.referenceId.length > 120) throw new BadRequestException('referenceId inválido');
+    if (!Number.isSafeInteger(body.amountCents) || Number(body.amountCents) <= 0 || !Number.isSafeInteger(body.netAmountCents)) throw new BadRequestException('Centavos inteiros obrigatórios');
+    const kind = body.kind;
+    if ((context.tag === 'PAGATG' && kind !== 'payment') || (context.tag === 'EBOOK' && !['pending', 'commission'].includes(String(kind)))) throw new BadRequestException('kind inválido');
+    if (!['PIX', 'CREDIT_CARD'].includes(String(body.paymentMethod))) throw new BadRequestException('paymentMethod inválido');
+    if (body.description !== undefined && typeof body.description !== 'string') throw new BadRequestException('description inválida');
+    const amount = new Prisma.Decimal(Number(body.amountCents)).div(100);
+    const net = new Prisma.Decimal(Number(body.netAmountCents)).div(100);
+    const prefix = kind === 'pending' ? 'EBOOK_PENDING_' : kind === 'commission' ? 'EBOOK_AFFCOMM_' : '';
+    const text = String(body.description ?? '').replace(/\[TENANT:[^\]]*\]/gi, '').trim();
+    return this.recordEntry(context.tag, { userId: context.ownerUserId, domPaymentId: `${prefix}${body.referenceId.trim()}`,
+      amount, netAmount: net, totalFee: kind === 'payment' ? amount.minus(net) : 0,
+      status: kind === 'pending' ? 'PENDING' : 'COMPLETED', paymentMethod: body.paymentMethod as 'PIX' | 'CREDIT_CARD',
+      description: `${text} [TENANT:${context.tag}]${kind === 'commission' ? '[AFFILIATE_COMMISSION]' : ''}`,
+    }, kind === 'payment', context.ownerUserId);
+  }
+
+  async mirrorPlan(tag: string, userId: string, code: string, data: Omit<Prisma.PlanUncheckedCreateInput, 'userId' | 'code'>) {
+    return this.prisma.$transaction(async p => {
+      const platform = await p.platform.findUnique({ where: { tag }, include: { owner: true } });
+      if (!platform?.isActive || !platform.owner?.isActive || platform.owner.isPurged) throw new UnprocessableEntityException({ code: 'PLATFORM_UNAVAILABLE' });
+      const existing = await p.plan.findUnique({ where: { code } });
+      if (existing && (existing.userId !== userId || !existing.plataformas.includes(tag))) {
+        throw new ConflictException({ code: 'PLAN_PLATFORM_CONFLICT', message: 'Plano sem vínculo explícito com plataforma e conta' });
+      }
+      const row = existing
+        ? await p.plan.update({ where: { code }, data: { ...data, plataformas: [tag] } })
+        : await p.plan.create({ data: { ...data, userId, code, plataformas: [tag] } });
+      return { success: true, id: row.id, created: !existing };
+    });
+  }
+
+  recordEntry(tag: string, data: Prisma.TransactionUncheckedCreateInput, creditWallet = false, expectedOwnerUserId?: string) {
+    return new PlatformLedger(this.prisma).record(tag, data, creditWallet, expectedOwnerUserId);
+  }
 
   maintenance(context: FinancePlatformContext, operation: string, body: Record<string, unknown>) {
     return new PlatformMaintenanceService(this.prisma).run(context, operation, body);
@@ -29,6 +70,41 @@ export class PlatformFinanceService {
       throw new BadRequestException('Paginação inválida');
     }
     return { page, limit, skip: (page - 1) * limit };
+  }
+
+  /** Legacy account selection is permitted only behind inventoried alias guards. */
+  async resolveAccountIds(input: { document?: string; email?: string; userId?: string; activeOnly?: boolean; allowCnpj?: boolean }) {
+    const ids = new Set<string>();
+    if (input.email?.trim()) {
+      const user = await this.prisma.user.findUnique({ where: { email: input.email.trim() }, select: { id: true } });
+      if (user) ids.add(user.id);
+    }
+    const document = String(input.document ?? '').replace(/\D/g, '');
+    const where: Prisma.UserWhereInput | null = document.length === 14 && input.allowCnpj !== false ? { cnpj: document } : document.length === 11
+      ? { cpf: { in: [document, document.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')] } } : null;
+    if (where) {
+      const users = await this.prisma.user.findMany({ where: { ...where, ...(input.activeOnly ? { isActive: true } : {}) }, select: { id: true } });
+      users.forEach(user => ids.add(user.id));
+    }
+    if (input.userId?.trim()) ids.add(input.userId.trim());
+    return [...ids];
+  }
+
+  private async withdrawalPage(where: Prisma.WithdrawRequestWhereInput, page: number, limit: number) {
+    const [total, rows] = await Promise.all([
+      this.prisma.withdrawRequest.count({ where }),
+      this.prisma.withdrawRequest.findMany({ where, include: { user: { select: { name: true, email: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+    ]);
+    return { total, rows };
+  }
+
+  async legacyWithdrawals(userIds: string[], page = '1', limit = '10', excludedPixKey?: string) {
+    if (!userIds.length) return { withdrawals: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
+    const currentPage = Math.max(1, Number(page || 1)), itemsPerPage = Math.min(Math.max(1, Number(limit || 10)), 200);
+    const { total: totalItems, rows } = await this.withdrawalPage({ userId: { in: userIds }, ...(excludedPixKey ? { pixKey: { not: excludedPixKey } } : {}) }, currentPage, itemsPerPage);
+    return { withdrawals: rows.map(w => ({ id: w.id, userId: w.userId, amount: Number(w.amount), status: w.status, pixKey: w.pixKey,
+      rejectionReason: w.rejectionReason ?? null, createdAt: w.createdAt, user: { name: w.user?.name ?? '-', email: w.user?.email ?? '-' } })),
+      meta: { currentPage, itemsPerPage, totalItems, totalPages: Math.max(1, Math.ceil(totalItems / itemsPerPage)) } };
   }
 
   async summary(context: FinancePlatformContext) {
@@ -73,10 +149,7 @@ export class PlatformFinanceService {
   async withdrawals(context: FinancePlatformContext, options: FinancePage = {}) {
     const { page, limit, skip } = this.pagination(options);
     const where = { userId: context.ownerUserId, platform: context.tag.toLowerCase() };
-    const [total, rows] = await Promise.all([
-      this.prisma.withdrawRequest.count({ where }),
-      this.prisma.withdrawRequest.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit }),
-    ]);
+    const { total, rows } = await this.withdrawalPage(where, page, limit);
     return { unit: 'cents', data: rows.map(row => ({ id: row.id, amountCents: this.cents(row.amount),
       grossAmountCents: this.cents(row.grossAmount), feeCents: this.cents(row.fee), status: row.status,
       pixKey: row.pixKey, rejectionReason: row.rejectionReason, createdAt: row.createdAt,

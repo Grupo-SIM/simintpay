@@ -1,7 +1,11 @@
+import { LegacyInternalAuthGuard } from '../../modules/platform-core/legacy-internal-auth.guard';
+import { SetMetadata, UseGuards } from '@nestjs/common';
 import { InternalEbookFinanceService } from '../../modules/unified-platform/finance/legacy-ebook-finance.service';
 import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 
 @Controller('internal/ebook/finance')
+@SetMetadata('legacy-platform-tag', 'EBOOK')
+@UseGuards(LegacyInternalAuthGuard)
 export class InternalEbookFinanceController {
   constructor(private readonly finance: InternalEbookFinanceService) {}
 

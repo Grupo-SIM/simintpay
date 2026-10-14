@@ -1,8 +1,8 @@
+import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
-import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { getPlatformOwnerId } from '../../../modules/module.registry';
-import { BadRequestException, Inject, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Inject } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY, type DomTransactionItem, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { EbookSimConfig, getEbookTaxaServico } from '../../../modules/ebooksim/ebooksim.config';
@@ -19,36 +19,13 @@ export class InternalEbookFinanceService {
     @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway, private readonly finance: PlatformFinanceService
   ) {}
 
-  private ensureInternalToken(token?: string) {
-    const expected = getPlatformIntegrationValue('EBOOK', 'INTERNAL_TOKEN');
-    if (!expected || token !== expected) {
-      throw new UnauthorizedException('Token interno inválido');
-    }
-  }
 
   private normalizeDoc(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
   }
 
-  private async resolveUserIdsByDocument(doc: string): Promise<string[]> {
-    const clean = this.normalizeDoc(doc);
-    if (!clean) return [];
-    const isCnpj = clean.length === 14;
-    if (isCnpj) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const users = await (this.prisma.user as any).findMany({
-        where: { cnpj: clean },
-        select: { id: true },
-      });
-      return [...new Set((users as any[]).map((u: any) => u.id as string))];
-    }
-    if (clean.length !== 11) return [];
-    const variants = [clean, clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
-    const users = await this.prisma.user.findMany({
-      where: { cpf: { in: variants } },
-      select: { id: true },
-    });
-    return [...new Set(users.map((u) => u.id))];
+  private resolveUserIdsByDocument(doc: string): Promise<string[]> {
+    return this.finance.resolveAccountIds({ document: doc });
   }
 
   /** @deprecated use resolveUserIdsByDocument */
@@ -73,7 +50,6 @@ export class InternalEbookFinanceService {
   }
   async summary( cpf: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf);
     if (userIds.length === 0) {
       return {
@@ -131,7 +107,6 @@ export class InternalEbookFinanceService {
   }
   async transactions( cpf: string, page = '1', limit = '10', startDate?: string, endDate?: string, status?: string, description?: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf);
     if (userIds.length === 0) {
       return { transactions: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
@@ -269,43 +244,8 @@ export class InternalEbookFinanceService {
   }
   async withdrawals( cpf: string, page = '1', limit = '10', internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf);
-    if (userIds.length === 0) {
-      return { withdrawals: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
-    }
-    const pageNum = Math.max(1, Number(page || 1));
-    const size = Math.min(Math.max(1, Number(limit || 10)), 200);
-
-    const [totalItems, items] = await Promise.all([
-      this.prisma.withdrawRequest.count({ where: { userId: { in: userIds } } }),
-      this.prisma.withdrawRequest.findMany({
-        where: { userId: { in: userIds } },
-        include: { user: { select: { name: true, email: true } } },
-        orderBy: { createdAt: 'desc' },
-        skip: (pageNum - 1) * size,
-        take: size,
-      }),
-    ]);
-
-    return {
-      withdrawals: items.map((w) => ({
-        id: w.id,
-        userId: w.userId,
-        amount: Number(w.amount),
-        status: w.status,
-        pixKey: w.pixKey,
-        rejectionReason: w.rejectionReason ?? null,
-        createdAt: w.createdAt,
-        user: { name: w.user?.name ?? '-', email: w.user?.email ?? '-' },
-      })),
-      meta: {
-        currentPage: pageNum,
-        itemsPerPage: size,
-        totalItems,
-        totalPages: Math.max(1, Math.ceil(totalItems / size)),
-      },
-    };
+    return this.finance.legacyWithdrawals(userIds, page, limit);
   }
   async createPendingTransaction( body: {
       orderNumber: string;
@@ -319,18 +259,11 @@ export class InternalEbookFinanceService {
       installments?: number;
     }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
     if (!body.orderNumber?.trim()) throw new BadRequestException('orderNumber é obrigatório');
 
     const domPaymentId = `EBOOK_PENDING_${body.orderNumber}`;
-
-    const existing = await this.prisma.transaction.findFirst({
-      where: { domPaymentId },
-      select: { id: true },
-    });
-    if (existing) return { success: true, id: existing.id, created: false };
 
     let userId = getPlatformOwnerId('EBOOK');
     if (!userId) throw new BadRequestException('Plataforma EBOOK sem dono ativo');
@@ -361,8 +294,7 @@ export class InternalEbookFinanceService {
     const netAmount = calculateSellerNetValue(amount, installments, 'EBOOK', 'pix');
     const method = (body.paymentMethod || 'PIX').toUpperCase();
 
-    const tx = await this.prisma.transaction.create({
-      data: {
+    return this.finance.recordEntry('EBOOK', {
         userId,
         amount,
         netAmount,
@@ -374,13 +306,9 @@ export class InternalEbookFinanceService {
         customerName: body.buyerName ?? null,
         customerEmail: body.buyerEmail ?? null,
         customerDocument: body.buyerDocument ? body.buyerDocument.replace(/\D/g, '') : null,
-      },
     });
-
-    return { success: true, id: tx.id, created: true };
   }
   getConfig( internalToken?: string) {
-    this.ensureInternalToken(internalToken);
     const taxaFixaSummary = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
     const taxaCashbackSummary = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
     return {
@@ -402,7 +330,6 @@ export class InternalEbookFinanceService {
       description?: string;
     }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
     if (!body.referenceId?.trim()) throw new BadRequestException('referenceId é obrigatório');
@@ -411,12 +338,6 @@ export class InternalEbookFinanceService {
     if (!doc) throw new BadRequestException('cpf ou cnpj é obrigatório');
 
     const domPaymentId = `EBOOK_AFFCOMM_${body.referenceId.trim()}`;
-    const existing = await this.prisma.transaction.findFirst({
-      where: { domPaymentId },
-      select: { id: true },
-    });
-    if (existing) return { success: true, id: existing.id, created: false };
-
     const userIds = await this.resolveUserIdsByDocument(doc);
     if (userIds.length === 0) {
       throw new BadRequestException('Nenhuma conta Sim Int Pay encontrada para este CPF/CNPJ');
@@ -424,8 +345,7 @@ export class InternalEbookFinanceService {
 
     const description = `${body.description?.trim() || 'Comissão de afiliado'} [TENANT:EBOOK][AFFILIATE_COMMISSION]`;
 
-    const tx = await this.prisma.transaction.create({
-      data: {
+    return this.finance.recordEntry('EBOOK', {
         userId: userIds[0],
         amount,
         netAmount: amount,
@@ -434,14 +354,10 @@ export class InternalEbookFinanceService {
         description,
         domPaymentId,
         installments: 1,
-      },
     });
-
-    return { success: true, id: tx.id, created: true };
   }
   async requestWithdraw( body: { cpf: string; amount: number; pixKey: string }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(body.cpf);
     if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF');
     const amount = Number(body.amount);

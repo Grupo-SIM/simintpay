@@ -111,3 +111,12 @@ describe('PlatformContextService', () => {
     await expect(service.authorize('client-a', 'maintenance:write', { ...actor, sub: 'admin', role: 'ADMIN' })).resolves.toHaveProperty('id', 'platform-a');
   });
 });
+
+it('wallet import requires admin JWT or explicit integration scope', async () => {
+  const { service, prisma, setScope } = fixture();
+  await expect(service.authorize('client-a', 'ledger:write', actor)).rejects.toBeInstanceOf(ForbiddenException);
+  setScope('ledger:write');
+  await expect(service.authorize('client-a', 'ledger:write', undefined, 'secret')).resolves.toHaveProperty('id', 'platform-a');
+  prisma.user.findUnique.mockResolvedValueOnce({ id: 'admin', role: 'ADMIN', isActive: true, isPurged: false });
+  await expect(service.authorize('client-a', 'ledger:write', { ...actor, sub: 'admin' })).resolves.toHaveProperty('id', 'platform-a');
+});

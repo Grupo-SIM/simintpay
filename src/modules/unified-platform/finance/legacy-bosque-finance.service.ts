@@ -1,9 +1,8 @@
 import { PlatformMaintenanceService } from './platform-maintenance.service';
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
-import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { getPlatformOwnerId } from '../../../modules/module.registry';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { BosqueConfig } from '../../../modules/bosque/bosque.config';
 import { computeBosqueAvailableSinceLastWithdrawal } from '../../../application/helpers/bosque-available.helper';
@@ -26,12 +25,6 @@ type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'D
 export class InternalBosqueFinanceService {
   constructor(private readonly prisma: PrismaService, private readonly finance: PlatformFinanceService) {}
 
-  private ensureInternalToken(token?: string) {
-    const expected = getPlatformIntegrationValue('BOSQUE', 'INTERNAL_TOKEN');
-    if (!expected || token !== expected) {
-      throw new UnauthorizedException('Token interno inválido');
-    }
-  }
 
   private normalizeCpf(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
@@ -43,23 +36,8 @@ export class InternalBosqueFinanceService {
     return [cpf, cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
   }
 
-  private async resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
-    const ids = new Set<string>();
-
-    const variants = this.cpfVariants(cpf);
-    if (variants.length > 0) {
-      const users = await this.prisma.user.findMany({
-        where: { cpf: { in: variants } },
-        select: { id: true },
-      });
-      users.forEach((u) => ids.add(u.id));
-    }
-
-    if (directUserId?.trim()) {
-      ids.add(directUserId.trim());
-    }
-
-    return [...ids];
+  private resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
+    return this.finance.resolveAccountIds({ document: cpf, userId: directUserId, allowCnpj: false });
   }
 
   /**
@@ -116,7 +94,6 @@ export class InternalBosqueFinanceService {
   }
   async summary( cpf: string, userId?: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
 
     if (userIds.length === 0) {
@@ -143,7 +120,6 @@ export class InternalBosqueFinanceService {
   }
   async transactions( cpf: string, userId?: string, page = '1', limit = '10', startDate?: string, endDate?: string, status?: string, description?: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     const ownerFilter = this.buildOwnerFilter(cpf, userIds);
     if (!ownerFilter) {
@@ -221,47 +197,11 @@ export class InternalBosqueFinanceService {
   }
   async withdrawals( cpf: string, userId?: string, page = '1', limit = '10', internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
-    if (userIds.length === 0) {
-      return { withdrawals: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
-    }
-    const pageNum = Math.max(1, Number(page || 1));
-    const size = Math.min(Math.max(1, Number(limit || 10)), 200);
-
-    const [totalItems, items] = await Promise.all([
-      this.prisma.withdrawRequest.count({ where: { userId: { in: userIds }, pixKey: { not: BASELINE_PIXKEY } } }),
-      this.prisma.withdrawRequest.findMany({
-        where: { userId: { in: userIds }, pixKey: { not: BASELINE_PIXKEY } },
-        include: { user: { select: { name: true, email: true } } },
-        orderBy: { createdAt: 'desc' },
-        skip: (pageNum - 1) * size,
-        take: size,
-      }),
-    ]);
-
-    return {
-      withdrawals: items.map((w) => ({
-        id: w.id,
-        userId: w.userId,
-        amount: Number(w.amount),
-        status: w.status,
-        pixKey: w.pixKey,
-        rejectionReason: w.rejectionReason ?? null,
-        createdAt: w.createdAt,
-        user: { name: w.user?.name ?? '-', email: w.user?.email ?? '-' },
-      })),
-      meta: {
-        currentPage: pageNum,
-        itemsPerPage: size,
-        totalItems,
-        totalPages: Math.max(1, Math.ceil(totalItems / size)),
-      },
-    };
+    return this.finance.legacyWithdrawals(userIds, page, limit, BASELINE_PIXKEY);
   }
   async requestWithdraw( body: { cpf?: string; userId?: string; amount: number; pixKey: string }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(body.cpf ?? '', body.userId);
     if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada');
     const amount = Number(body.amount);
@@ -300,7 +240,6 @@ export class InternalBosqueFinanceService {
   }
   async zerarDisponivel( body: { userId?: string; email?: string; cpf?: string; reason?: string; valor?: number } = {}, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const resolvedId = await this.resolveBosqueUserId(body);
     if (!resolvedId) {
       throw new BadRequestException('Conta do Bosque não encontrada. Informe userId, email ou cpf.');
@@ -324,7 +263,6 @@ export class InternalBosqueFinanceService {
   }
   async inspectWallet( userId?: string, email?: string, cpf?: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const resolvedId = await this.resolveBosqueUserId({ userId, email, cpf });
     if (!resolvedId) {
       return { accountExists: false, balance: 0, lockedBalance: 0, availableBalance: 0 };
@@ -350,7 +288,6 @@ export class InternalBosqueFinanceService {
       reason?: string;
     } = {}, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
 
     const hasBalance = body.balance !== undefined && body.balance !== null;
     // delta = 0 é no-op (vem assim no exemplo do Swagger) — trata como "não informado".
@@ -411,7 +348,6 @@ export class InternalBosqueFinanceService {
   }
   async reconcile( userId?: string, email?: string, cpf?: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const resolvedId = await this.resolveBosqueUserId({ userId, email, cpf });
     if (!resolvedId) {
       throw new BadRequestException('Conta do Bosque não encontrada. Informe userId, email ou cpf.');

@@ -1,6 +1,6 @@
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PagaTGConfig } from '../../../modules/pagatg/pagatg.config';
@@ -20,12 +20,6 @@ export class InternalPagatgFinanceService {
     private readonly voucherService: VoucherService, private readonly finance: PlatformFinanceService
   ) {}
 
-  private ensureInternalToken(token?: string) {
-    const expected = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN;
-    if (!expected || token !== expected) {
-      throw new UnauthorizedException('Token interno inválido');
-    }
-  }
 
   private normalizeDoc(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
@@ -34,31 +28,8 @@ export class InternalPagatgFinanceService {
   /**
    * Retorna os userIds associados ao CPF ou CNPJ na tabela User do simpay.
    */
-  private async resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
-    const ids = new Set<string>();
-    const clean = this.normalizeDoc(cpf);
-
-    if (clean.length === 14) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const users = await (this.prisma.user as any).findMany({
-        where: { cnpj: clean },
-        select: { id: true },
-      });
-      (users as any[]).forEach((u: any) => ids.add(u.id));
-    } else if (clean.length === 11) {
-      const variants = [clean, clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
-      const users = await this.prisma.user.findMany({
-        where: { cpf: { in: variants } },
-        select: { id: true },
-      });
-      users.forEach((u) => ids.add(u.id));
-    }
-
-    if (directUserId?.trim()) {
-      ids.add(directUserId.trim());
-    }
-
-    return [...ids];
+  private resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
+    return this.finance.resolveAccountIds({ document: cpf, userId: directUserId });
   }
 
   /**
@@ -86,7 +57,6 @@ export class InternalPagatgFinanceService {
   }
   async summary( cpf: string, userId?: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     const ownerFilter = this.buildOwnerFilter(cpf, userIds);
     if (!ownerFilter) {
@@ -142,7 +112,6 @@ export class InternalPagatgFinanceService {
   }
   async transactions( cpf: string, userId?: string, page = '1', limit = '10', startDate?: string, endDate?: string, status?: string, description?: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     const ownerFilter = this.buildOwnerFilter(cpf, userIds);
     if (!ownerFilter) {
@@ -226,47 +195,11 @@ export class InternalPagatgFinanceService {
   }
   async withdrawals( cpf: string, userId?: string, page = '1', limit = '10', internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
-    if (userIds.length === 0) {
-      return { withdrawals: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
-    }
-    const pageNum = Math.max(1, Number(page || 1));
-    const size = Math.min(Math.max(1, Number(limit || 10)), 200);
-
-    const [totalItems, items] = await Promise.all([
-      this.prisma.withdrawRequest.count({ where: { userId: { in: userIds } } }),
-      this.prisma.withdrawRequest.findMany({
-        where: { userId: { in: userIds } },
-        include: { user: { select: { name: true, email: true } } },
-        orderBy: { createdAt: 'desc' },
-        skip: (pageNum - 1) * size,
-        take: size,
-      }),
-    ]);
-
-    return {
-      withdrawals: items.map((w) => ({
-        id: w.id,
-        userId: w.userId,
-        amount: Number(w.amount),
-        status: w.status,
-        pixKey: w.pixKey,
-        rejectionReason: w.rejectionReason ?? null,
-        createdAt: w.createdAt,
-        user: { name: w.user?.name ?? '-', email: w.user?.email ?? '-' },
-      })),
-      meta: {
-        currentPage: pageNum,
-        itemsPerPage: size,
-        totalItems,
-        totalPages: Math.max(1, Math.ceil(totalItems / size)),
-      },
-    };
+    return this.finance.legacyWithdrawals(userIds, page, limit);
   }
   async requestWithdraw( body: { cpf: string; userId?: string; amount: number; pixKey: string }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
     if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF');
     const amount = Number(body.amount);
@@ -293,7 +226,6 @@ export class InternalPagatgFinanceService {
       isActive?: boolean;
     }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
 
     if (!body.code?.trim()) throw new BadRequestException('code é obrigatório');
     // if (!body.domPlanId?.trim()) throw new BadRequestException('domPlanId é obrigatório'); // Desativado para descontinuar api-dom
@@ -314,45 +246,14 @@ export class InternalPagatgFinanceService {
     if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF/userId');
     const userId = userIds[0];
 
-    // Upsert: se já existe um plano com esse code, atualiza; senão cria
-    const existing = await this.prisma.plan.findUnique({ where: { code: body.code.trim() } });
-
-    const pmValue = body.paymentMethods?.trim() || 'CREDIT_CARD';
-    const isActive = body.isActive !== undefined ? body.isActive : true;
-
-    if (existing) {
-      const updated = await this.prisma.plan.update({
-        where: { code: body.code.trim() },
-        data: {
-          name: body.name.trim(),
-          price,
-          type: planType,
-          domPlanId: body.domPlanId?.trim() ?? null,
-          redirectUrl: body.redirectUrl ?? undefined,
-          webhookUrl: body.webhookUrl ?? undefined,
-          isActive,
-          paymentMethods: pmValue,
-        },
-      });
-      return { success: true, id: updated.id, created: false };
-    }
-
-    const created = await this.prisma.plan.create({
-      data: {
-        userId,
-        code: body.code.trim(),
-        name: body.name.trim(),
-        price,
-        type: planType,
-        domPlanId: body.domPlanId?.trim() ?? null,
-        redirectUrl: body.redirectUrl ?? undefined,
-        webhookUrl: body.webhookUrl ?? undefined,
-        isActive,
-        paymentMethods: pmValue,
-      },
+    return this.finance.mirrorPlan('PAGATG', userId, body.code.trim(), {
+      name: body.name.trim(), price, type: planType,
+      domPlanId: body.domPlanId?.trim() || null,
+      redirectUrl: body.redirectUrl ?? undefined, webhookUrl: body.webhookUrl ?? undefined,
+      isActive: body.isActive ?? true, paymentMethods: body.paymentMethods?.trim() || 'CREDIT_CARD',
     });
-    return { success: true, id: created.id, created: true };
   }
+
   async recordTransaction( body: {
       cpf: string;
       userId?: string;
@@ -367,19 +268,10 @@ export class InternalPagatgFinanceService {
       paymentMethod?: string;
     }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
 
     if (!body.domPaymentId?.trim()) throw new BadRequestException('domPaymentId é obrigatório');
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('amount inválido');
-
-    // Idempotência: não duplicar se já existe
-    const existing = await this.prisma.transaction.findFirst({
-      where: { domPaymentId: body.domPaymentId.trim() },
-    });
-    if (existing) {
-      return { success: true, id: existing.id, created: false };
-    }
 
     const userIds = await this.resolveUserIdsByCpf(body.cpf ?? '', body.userId);
     if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF/userId');
@@ -396,67 +288,42 @@ export class InternalPagatgFinanceService {
     const cpfTag = cpfClean.length === 14 ? ` [CNPJ_DONO:${cpfClean}]` : cpfClean.length === 11 ? ` [CPF_DONO:${cpfClean}]` : '';
     const description = `${body.planDescription} ${TENANT_PAGATG_TAG}${cpfTag}`;
 
-    const tx = await this.prisma.$transaction(async (p) => {
-      const newTx = await p.transaction.create({
-        data: {
-          userId,
-          domPaymentId: body.domPaymentId.trim(),
-          domTransactionId: body.domSubscriptionId?.trim() ?? null,
-          amount: amountDec,
-          netAmount: netDec,
-          totalFee: amountDec.sub(netDec),
-          status: 'COMPLETED',
-          paymentMethod: body.paymentMethod === 'PIX' ? 'PIX' : 'CREDIT_CARD',
-          description,
-          customerName: body.customerName ?? '',
-          customerEmail: body.customerEmail ?? '',
-          customerDocument: (body.customerDocument ?? '').replace(/\D/g, ''),
-        },
-      });
-
-      // Atualizar saldo da wallet
-      await p.wallet.upsert({
-        where: { userId },
-        update: { balance: { increment: netDec }, updatedAt: new Date() },
-        create: { userId, balance: netDec, lockedBalance: 0 },
-      });
-
-      return newTx;
-    });
-
-    return { success: true, id: tx.id, created: true };
+    return this.finance.recordEntry('PAGATG', {
+      userId, domPaymentId: body.domPaymentId.trim(),
+      externalTransactionId: body.domSubscriptionId?.trim() || null,
+      amount: amountDec, netAmount: netDec, totalFee: amountDec.sub(netDec),
+      status: 'COMPLETED', paymentMethod: body.paymentMethod === 'PIX' ? 'PIX' : 'CREDIT_CARD',
+      description, customerName: body.customerName ?? '', customerEmail: body.customerEmail ?? '',
+      customerDocument: (body.customerDocument ?? '').replace(/\D/g, ''),
+    }, true);
   }
+
   async listVouchers( cpf: string, userId?: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     if (userIds.length === 0) return [];
     return this.voucherService.listVouchers(userIds[0], 'USER');
   }
   async createVoucher( body: { cpf: string; userId?: string; dto: CreateVoucherDto }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
     if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
     return this.voucherService.createVoucher(userIds[0], body.dto);
   }
   async validateVoucher( body: { cpf: string; userId?: string; dto: ValidateVoucherDto }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
     if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
     return this.voucherService.validateVoucher(userIds[0], body.dto);
   }
   async updateVoucher( id: string, body: { cpf: string; userId?: string; dto: UpdateVoucherDto }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
     if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
     return this.voucherService.updateVoucher(userIds[0], 'USER', id, body.dto);
   }
   async deleteVoucher( id: string, body: { cpf: string; userId?: string }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
     if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
     return this.voucherService.deleteVoucher(userIds[0], 'USER', id);

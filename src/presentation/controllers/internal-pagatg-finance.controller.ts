@@ -1,8 +1,12 @@
+import { LegacyInternalAuthGuard } from '../../modules/platform-core/legacy-internal-auth.guard';
+import { SetMetadata, UseGuards } from '@nestjs/common';
 import { InternalPagatgFinanceService } from '../../modules/unified-platform/finance/legacy-pagatg-finance.service';
 import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { CreateVoucherDto, UpdateVoucherDto, ValidateVoucherDto } from '../../application/dtos/voucher/voucher.dto';
 
 @Controller('internal/pagatg/finance')
+@SetMetadata('legacy-platform-tag', 'PAGATG')
+@UseGuards(LegacyInternalAuthGuard)
 export class InternalPagatgFinanceController {
   constructor(private readonly finance: InternalPagatgFinanceService) {}
 

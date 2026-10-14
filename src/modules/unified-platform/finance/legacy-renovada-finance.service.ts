@@ -1,6 +1,6 @@
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaConfig } from '../../../modules/renovada/renovada.config';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
@@ -15,12 +15,6 @@ type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'D
 export class InternalRenovadaFinanceService {
   constructor(private readonly prisma: PrismaService, private readonly finance: PlatformFinanceService) {}
 
-  private ensureInternalToken(token?: string) {
-    const expected = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN;
-    if (!expected || token !== expected) {
-      throw new UnauthorizedException('Token interno inválido');
-    }
-  }
 
   private normalizeCpf(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
@@ -32,23 +26,8 @@ export class InternalRenovadaFinanceService {
     return [cpf, cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
   }
 
-  private async resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
-    const ids = new Set<string>();
-
-    const variants = this.cpfVariants(cpf);
-    if (variants.length > 0) {
-      const users = await this.prisma.user.findMany({
-        where: { cpf: { in: variants } },
-        select: { id: true },
-      });
-      users.forEach((u) => ids.add(u.id));
-    }
-
-    if (directUserId?.trim()) {
-      ids.add(directUserId.trim());
-    }
-
-    return [...ids];
+  private resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
+    return this.finance.resolveAccountIds({ document: cpf, userId: directUserId, allowCnpj: false });
   }
 
   private buildOwnerFilter(cpf: string, userIds: string[]): any {
@@ -69,7 +48,6 @@ export class InternalRenovadaFinanceService {
   }
   async summary( cpf: string, userId?: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
 
     if (userIds.length === 0) {
@@ -98,7 +76,6 @@ export class InternalRenovadaFinanceService {
   }
   async transactions( cpf: string, userId?: string, page = '1', limit = '10', startDate?: string, endDate?: string, status?: string, description?: string, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     const ownerFilter = this.buildOwnerFilter(cpf, userIds);
     if (!ownerFilter) {
@@ -179,47 +156,11 @@ export class InternalRenovadaFinanceService {
   }
   async withdrawals( cpf: string, userId?: string, page = '1', limit = '10', internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
-    if (userIds.length === 0) {
-      return { withdrawals: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
-    }
-    const pageNum = Math.max(1, Number(page || 1));
-    const size = Math.min(Math.max(1, Number(limit || 10)), 200);
-
-    const [totalItems, items] = await Promise.all([
-      this.prisma.withdrawRequest.count({ where: { userId: { in: userIds } } }),
-      this.prisma.withdrawRequest.findMany({
-        where: { userId: { in: userIds } },
-        include: { user: { select: { name: true, email: true } } },
-        orderBy: { createdAt: 'desc' },
-        skip: (pageNum - 1) * size,
-        take: size,
-      }),
-    ]);
-
-    return {
-      withdrawals: items.map((w) => ({
-        id: w.id,
-        userId: w.userId,
-        amount: Number(w.amount),
-        status: w.status,
-        pixKey: w.pixKey,
-        rejectionReason: w.rejectionReason ?? null,
-        createdAt: w.createdAt,
-        user: { name: w.user?.name ?? '-', email: w.user?.email ?? '-' },
-      })),
-      meta: {
-        currentPage: pageNum,
-        itemsPerPage: size,
-        totalItems,
-        totalPages: Math.max(1, Math.ceil(totalItems / size)),
-      },
-    };
+    return this.finance.legacyWithdrawals(userIds, page, limit);
   }
   async requestWithdraw( body: { cpf?: string; userId?: string; amount: number; pixKey: string }, internalToken?: string,
   ) {
-    this.ensureInternalToken(internalToken);
     const userIds = await this.resolveUserIdsByCpf(body.cpf ?? '', body.userId);
     if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada');
     const amount = Number(body.amount);

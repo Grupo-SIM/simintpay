@@ -27,6 +27,11 @@ export class PlatformOperationsController {
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   create(@Req() request: PlatformRequest, @Body() body: CreatePlatformPaymentDto) { return this.payments.create(request.platformContext, body); }
 
+  @Post('finance/entries') @Operation('ledger:write')
+  importEntry(@Req() request: PlatformRequest, @Body() body: Record<string, unknown>) {
+    return this.finance.importEntry(request.platformContext, body);
+  }
+
   @Get('finance/summary') @Operation('finance:read')
   summary(@Req() request: PlatformRequest) { return this.finance.summary(request.platformContext); }
 

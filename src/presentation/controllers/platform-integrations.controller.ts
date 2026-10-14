@@ -48,7 +48,7 @@ export class PlatformIntegrationsController {
         if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new BadRequestException('URL HTTP(S) sem credenciais obrigatória');
       }
       if (['ENABLE_DOM_SYNC', 'DISABLE_SYNC'].includes(key) && !['true', 'false'].includes(value)) throw new BadRequestException('Use true ou false');
-      if (key === 'INBOUND_OPERATIONS' && !value.split(',').every((scope) => ['payments:create', 'payments:read', 'finance:read', 'finance:withdraw', 'reports:read', 'events:read', 'sync:run', 'merchants:manage', 'mail:send', 'community:read', 'subscriptions:write', 'subscriptions:read', 'vouchers:write', 'vouchers:read', 'billing:read', 'billing:write'].includes(scope.trim()))) throw new BadRequestException('Operação inválida');
+      if (key === 'INBOUND_OPERATIONS' && !value.split(',').every((scope) => ['ledger:write', 'payments:create', 'payments:read', 'finance:read', 'finance:withdraw', 'reports:read', 'events:read', 'sync:run', 'merchants:manage', 'mail:send', 'community:read', 'subscriptions:write', 'subscriptions:read', 'vouchers:write', 'vouchers:read', 'billing:read', 'billing:write'].includes(scope.trim()))) throw new BadRequestException('Operação inválida');
       if (key === 'COMMUNITY_PLATFORM_TAG') {
         if (platform.tag !== 'RETURN-BET') throw new BadRequestException('Referência exclusiva de Return Bet');
         const community = await this.prisma.platform.findUnique({ where: { tag: value } , include: { owner: true } });
