@@ -103,3 +103,7 @@ Execução de pagamentos passa por PlatformPaymentExecution tanto nas APIs canô
 ### Acesso SaaS compartilhado
 
 Listagem e pause/resume de assinantes CONTROLE-MOTORISTA/CONTROLE-PATRIMONIAL usam mesmo serviço nos aliases e em `/platforms/:tag/saas/subscribers`. ID de assinante sempre precisa pertencer à tag. Produto/dono inativo bloqueia operação. Pause congela dias restantes; resume restaura dias congelados. Comparação do estado anterior impede duas operações concorrentes de aplicar mudanças sobre cálculo obsoleto. Aliases mantêm acesso histórico; APIs canônicas exigem `subscriptions:read`/`subscriptions:write`.
+
+### Projeções de dashboard
+
+Atlas e Revalida compartilham consultas, gráficos, resumos e paginação. Adapters conservam liquidez e desconto de taxas de Revalida na coluna de líquido. Transações exigem marca explícita da plataforma; saques exigem campo de plataforma correspondente. Carteira armazenada permanece por usuário, compartilhada entre produtos. Histórico sem marca não é atribuído por dono. `/platforms/:tag/reports/dashboard/:view` aceita `stats`, `sales`, `withdrawals`, `summary`; valores monetários canônicos são centavos, com contagens separadas. Aliases preservam envelopes e reais.

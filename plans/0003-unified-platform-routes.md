@@ -90,3 +90,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 
 - [x] Listagem e toggle legados/canônicos usam PlatformSaasAccessService; filtros de tag e controle concorrente preservam isolamento.
 - [x] Três testes com mocks verificam equivalência da projeção, ID estrangeiro e pause concorrente. Build local aprovado.
+
+## Continuação — dashboards
+
+- [x] Atlas/Revalida compartilham núcleo de projeções e adapter de regras; canônico em centavos disponível nas quatro visões.
+- [x] Histórico sem marca excluído de relatórios do produto; saques filtrados por plataforma. Dono compartilhado não duplica atribuição.
+- [x] Três testes de equivalência/unidades/escopo e transferência de dono aprovados; build local aprovado.

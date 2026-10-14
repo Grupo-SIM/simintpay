@@ -50,6 +50,11 @@ export class PlatformOperationsController {
     return this.finance.withdrawals(request.platformContext, { page: Number(page), limit: Number(limit) });
   }
 
+  @Get('reports/dashboard/:view') @Operation('reports:read')
+  dashboard(@Req() request: PlatformRequest, @Param('view') view: string, @Query('page') page = '1', @Query('limit') limit = '20', @Query('period') period?: string) {
+    return this.finance.dashboard(request.platformContext, view, Number(page), Number(limit), period);
+  }
+
   @Get('reports') @Operation('reports:read')
   report(@Req() request: PlatformRequest) { return this.finance.report(request.platformContext); }
 

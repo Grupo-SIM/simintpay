@@ -1,3 +1,5 @@
+import { PlatformDashboardReports } from '../../platform-core/platform-dashboard-reports';
+import { platformDashboardRules } from '../../platform-core/platform-dashboard.adapter';
 import { PlatformLedger } from './platform-ledger';
 import { PlatformMaintenanceService } from './platform-maintenance.service';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, UnprocessableEntityException } from '@nestjs/common';
@@ -12,6 +14,30 @@ export type FinancePage = { page?: number; limit?: number; status?: string };
 @Injectable()
 export class PlatformFinanceService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async dashboard(context: FinancePlatformContext, view: string, page = 1, limit = 20, period?: string) {
+    const core = new PlatformDashboardReports(this.prisma, platformDashboardRules(context.tag), context.ownerUserId);
+    if (view === 'summary') {
+      const result = await core.getSummary();
+      return { unit: 'cents', balanceCents: this.cents(result.total_balance), salesCents: this.cents(result.total_vendas), withdrawnCents: this.cents(result.total_sacado) };
+    }
+    if (view === 'sales') {
+      const result = await core.getSales(page, limit);
+      return { unit: 'cents', data: result.data.map(({ valor_transacao_cheia, valor_liquido, ...row }) => ({ ...row, amountCents: this.cents(valor_transacao_cheia), netAmountCents: this.cents(valor_liquido) })), meta: result.meta };
+    }
+    if (view === 'withdrawals') {
+      const result = await core.getWithdrawals(page, limit);
+      return { unit: 'cents', data: result.data.map(({ amount, grossAmount, fee, ...row }) => ({ ...row, amountCents: this.cents(amount), grossAmountCents: this.cents(grossAmount), feeCents: this.cents(fee) })), meta: result.meta };
+    }
+    if (view === 'stats') {
+      const result = await core.getDashboardData(period);
+      const convert = (value: any): any => typeof value === 'number' ? this.cents(value) : Array.isArray(value) ? value.map(convert) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, child]) => [key, convert(child)])) : value;
+      return { unit: 'cents', profit: convert(result.profit), withdrawalCounts: result.withdrawals,
+        refunds: { count: result.estornos.quantidade, netAmountCents: this.cents(result.estornos.valorLiquido) },
+        summary: { availableBalanceCents: this.cents(result.summary.availableBalance), balanceInProcessingCents: this.cents(result.summary.balanceInProcessing) } };
+    }
+    throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: `reports.dashboard.${view}` });
+  }
 
   async importEntry(context: FinancePlatformContext, body: Record<string, unknown>) {
     if (!['PAGATG', 'EBOOK'].includes(context.tag)) throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'ledger.import' });
