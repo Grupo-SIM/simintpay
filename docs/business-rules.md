@@ -4,7 +4,7 @@
 
 Plataforma existe somente após cadastro explícito em `Platform`, com dono obrigatório em `User`. Usuário ativo cria plataformas próprias; administrador atribui e transfere para outro usuário ativo. Uma pessoa pode possuir várias plataformas. Tags `GLOBAL`, `SIMINTPAY` e `CLIENT:<email>` são contextos financeiros reservados, não plataformas descobertas.
 
-TenantModule representa vínculo explícito de membros. Nome, e-mail, documento, webhook, descrição ou posse de token não criam plataforma, dono ou usuário. Rotinas de descoberta e seeds de plataformas foram removidas. Tags históricas nas transações continuam servindo para agrupamento; não criam cadastro.
+Platform é cadastro único de produto/plataforma. `Platform.ownerUserId` permite vários produtos por dono. `User.platformId` conserva vínculo explícito legado de usuário com uma plataforma; não determina nem limita produtos possuídos. Produto não cria módulo paralelo. Nome, e-mail, documento, webhook, descrição ou posse de token não criam plataforma, dono ou usuário. Rotinas de descoberta e seeds de plataformas foram removidas. Tags históricas nas transações continuam servindo para agrupamento; não criam cadastro.
 
 ## Custos e juros
 
@@ -33,9 +33,9 @@ Variáveis de infraestrutura global (banco, Redis, SMTP, armazenamento, JWT, gat
 
 ## Migração e carteira
 
-`scripts/migrate-owned-platforms.ts` faz inventário por padrão. `--apply` aplica somente a migração de plataformas/configurações, registra checksum no histórico Prisma, preserva donos comprovados e atribui pendências a `01a122a5-4743-7562-8f01-c84182eaafd1`. Contas técnicas automáticas são desativadas, preservando seus registros históricos. Tokens sem vínculo inequívoco não são atribuídos automaticamente.
+A migração `20261014000000_unify_platform_identity` substitui vínculos de TenantModule por referências diretas a Platform e remove entidade antiga. Usa exclusivamente associação explícita anteriormente registrada em `Platform.tenantModuleId`; vínculo de usuário sem correspondência bloqueia migração com `PLATFORM_LINK_MISSING`. Não escolhe dono por e-mail/documento/slug, não cria plataforma/usuário e não altera carteiras ou lançamentos. Artefato SQL foi preparado localmente; aplicação em banco exige autorização específica. Preflight em `scripts/diagnose-platform-identity.sql` identifica vínculos faltantes.
 
-Taxas efetivas anteriores, liquidez de saque, juros e credenciais são capturados antes de retirar variáveis antigas. Migração bloqueia divergências de juros não representáveis numa tabela única. Totais financeiros são conferidos antes/depois sob bloqueio transacional. Não move lançamentos nem saldos. Reexecução é idempotente. Snapshot local protegido permite rollback apenas se não houver atividade financeira ou mudança de cadastros posterior.
+Script antigo `migrate-owned-platforms.ts`, setup DOM e SQL manual de conta técnica estão desativados. Histórico anterior permanece no Git. Migrações SQL históricas permanecem imutáveis.
 
 Carteira pertence ao usuário, não à plataforma. Plataformas com mesmo dono compartilham carteira; selecionar plataforma define política do saque e persiste `WithdrawRequest.platform`, sem criar saldo separado. Relatórios agrupam tags explícitas; histórico sem tag de dono compartilhado fica não identificado. Resumo marca `walletScope=shared-owner` quando saldo não é individualizável. Manutenção antiga que zerava/recalculava carteira inteira por plataforma é bloqueada quando dono possui várias plataformas.
 
@@ -86,3 +86,5 @@ Web Push é opt-in por dispositivo para cliente aprovado. Cadastro recebe assina
 Trigger PostgreSQL registra primeira aprovação COMPLETED dentro da transação da venda, inclusive criação já aprovada, independentemente de webhook/reconciliação. Migração marca vendas anteriormente aprovadas sem criar entregas; importações históricas mantêm data original e não alertam. Cada evento/assinatura tem entrega única. Processador periódico usa leases, backoff em falhas e remoção de assinaturas 404/410; push não faz parte do caminho crítico do pagamento. Payload contém somente ID da venda e valor, nunca dados pessoais do comprador. Cliente mostra “Venda aprovada” e abre /transacoes.
 
 Navegador e sistema precisam permitir execução em segundo plano; encerramento completo ou permissões bloqueadas podem impedir/adiar entrega. Configuração VAPID e migração são locais nesta entrega. Provedor real, migração remota e publicação dependem de pedido específico.
+
+`GET /auth/me` retorna `platform` para vínculo explícito legado e `ownedPlatforms` para todos os produtos possuídos. `walletScope=shared-owner` indica carteira compartilhada entre produtos; nesse caso resumo lê saldo persistido, sem reclassificar histórico sem tag. Criação financeira sem escolha de plataforma é rejeitada quando conta possui vários produtos.

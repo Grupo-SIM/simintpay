@@ -107,7 +107,7 @@ export class ChargePixPaymentLinkUseCase {
     });
 
     // Cliente SimintPay e Areaflix usam o token mestre (SimintPay) sempre.
-    const selectedTag = (link as any).plataformas?.[0] ?? owner?.tenantModule?.slug ?? 'GLOBAL';
+    const selectedTag = (link as any).plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL';
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
 
     if (!domToken) {
@@ -121,7 +121,7 @@ export class ChargePixPaymentLinkUseCase {
 
     // PIX é sempre 1 parcela sem juros — comprador paga exatamente o valor base do link
     const platformTag = ((link as any).plataformas?.[0] as string | undefined)?.toUpperCase()
-      || owner?.tenantModule?.slug?.toUpperCase()
+      || owner?.platform?.tag?.toUpperCase()
       || 'GLOBAL';
     // Taxa: dono cliente SimintPay → tag do dono (CLIENT:<owner>); senão regra antiga por comprador.
     const taxaTag = ownerClientTag

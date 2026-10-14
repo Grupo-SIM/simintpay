@@ -33,7 +33,7 @@ export class GetWithdrawSummaryUseCase {
     const wallet = await this.wallets.findByUserId(userId);
     if (!wallet) throw new NotFoundException('Carteira não encontrada');
 
-    const selected = platformTag ? [platformTag] : user.tenantModule?.slug ? [user.tenantModule.slug] : undefined;
+    const selected = platformTag ? [platformTag] : user.platform?.tag ? [user.platform.tag] : undefined;
     const moduleSlug = assertExplicitPlatform(user, selected)?.toLowerCase() ?? '';
     const renovadaId = (getPlatformOwnerId('RENOVADA') ?? '');
     const isRenovadaWallet = moduleSlug === 'renovada' || moduleSlug === 'bosque';

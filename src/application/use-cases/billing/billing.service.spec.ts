@@ -173,7 +173,7 @@ describe('BillingService.cancelContract', () => {
     const create = jest.fn();
     const prisma = {
       user: {
-        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, tenantModule: null }),
+        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, platform: null }),
       },
       billingContract: { findUnique: jest.fn().mockResolvedValue(current) },
       $transaction: jest.fn().mockImplementation((callback) => callback({
@@ -206,7 +206,7 @@ describe('BillingService.cancelContract', () => {
     const create = jest.fn();
     const prisma = {
       user: {
-        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, tenantModule: null }),
+        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, platform: null }),
       },
       billingContract: { findUnique: jest.fn().mockResolvedValue(current) },
       $transaction: jest.fn().mockImplementation((callback) => callback({
@@ -236,7 +236,7 @@ describe('BillingService.cancelContract', () => {
     const create = jest.fn();
     const prisma = {
       user: {
-        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, tenantModule: null }),
+        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, platform: null }),
       },
       billingContract: { findUnique: jest.fn().mockImplementation(() => current) },
       $transaction: jest.fn().mockImplementation((callback) => callback({
@@ -315,7 +315,7 @@ describe('BillingService period refresh', () => {
         findUnique: jest.fn().mockResolvedValue({
           domToken: 'dom-token',
           clientStatus: false,
-          tenantModule: null,
+          platform: null,
         }),
       },
       billingContract: { update },

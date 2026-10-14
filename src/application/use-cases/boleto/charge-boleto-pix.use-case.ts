@@ -61,7 +61,7 @@ export class ChargeBoletoPixUseCase {
     const owner = await this.users.findById(boleto.userId);
     const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes((boleto.plataformas?.[0] ?? 'GLOBAL').toUpperCase()) ? null : clientTaxaTagFor(owner);
 
-    const domToken = platformGatewayToken(boleto.plataformas?.[0] ?? owner?.tenantModule?.slug, process.env.DOM_TOKEN);
+    const domToken = platformGatewayToken(boleto.plataformas?.[0] ?? owner?.platform?.tag, process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
 
     const document = input.customerDocument.replace(/\D/g, '');
@@ -71,7 +71,7 @@ export class ChargeBoletoPixUseCase {
     const base = Number(boleto.amount);
 
     const platformTag = (boleto.plataformas?.[0] as string | undefined)?.toUpperCase()
-      || owner?.tenantModule?.slug?.toUpperCase()
+      || owner?.platform?.tag?.toUpperCase()
       || 'GLOBAL';
     const taxaTag = ownerClientTag
       ?? (platformTag === 'GLOBAL' && input.customerEmail?.trim()

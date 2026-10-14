@@ -12,7 +12,7 @@ export type CreateUserData = {
   domToken?: string | null;
   cpf?: string | null;
   cnpj?: string | null;
-  tenantModuleId?: string | null;
+  platformId?: string | null;
   clientStatus?: ClientStatus | null;
   clientApprovedAt?: Date | null;
 };

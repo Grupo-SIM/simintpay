@@ -57,7 +57,7 @@ export class AdminClientesController {
     const requester = authUser?.sub
       ? await this.prisma.user.findUnique({
           where: { id: authUser.sub },
-          include: { tenantModule: true },
+          include: { platform: true },
         })
       : null;
     if (!requester || !isMasterAdminUser(requester)) {
@@ -98,7 +98,7 @@ export class AdminClientesController {
     const alvoEmail = email?.trim().toLowerCase();
 
     // Contas "master" de plataforma (Renovada, Bosque, …) têm role=USER e
-    // tenantModuleId = null — o sync nunca atribui o módulo — então casariam no
+    // platformId = null — o sync nunca atribui o módulo — então casariam no
     // filtro. Marcá-las como cliente mudaria a taxa delas (tag da plataforma →
     // CLIENT:<email>), marcaria os links como SIMINTPAY e aplicaria o mínimo de
     // cliente. NUNCA podem entrar no backfill.
@@ -106,7 +106,7 @@ export class AdminClientesController {
 
     const where: Prisma.UserWhereInput = {
       role: Role.USER,
-      tenantModuleId: null,
+      platformId: null,
       clientStatus: null,
       id: { notIn: PLATFORM_ACCOUNT_IDS },
       // Cliente de verdade tem documento. Conta sem cpf E sem cnpj é quase sempre
@@ -136,7 +136,7 @@ export class AdminClientesController {
           where: { email: { equals: alvoEmail, mode: 'insensitive' } },
           select: {
             id: true, email: true, name: true, role: true, cpf: true, cnpj: true,
-            clientStatus: true, tenantModuleId: true,
+            clientStatus: true, platformId: true,
             _count: { select: { externalPlatformUsers: true } },
           },
         });
@@ -145,7 +145,7 @@ export class AdminClientesController {
         } else {
           const motivos: string[] = [];
           if (u.role !== Role.USER) motivos.push(`role é ${u.role} (o alvo é USER)`);
-          if (u.tenantModuleId) motivos.push('conta pertence a uma plataforma/módulo (tenantModuleId preenchido)');
+          if (u.platformId) motivos.push('conta pertence a uma plataforma/módulo (platformId preenchido)');
           if (u.clientStatus !== null) motivos.push(`clientStatus já é ${u.clientStatus} — nada a fazer, já é cliente`);
           if (u._count.externalPlatformUsers > 0) {
             motivos.push('conta tem vínculo de vendedor de plataforma externa (excluída de propósito: marcar mudaria a taxa dela de plataforma para CLIENT)');

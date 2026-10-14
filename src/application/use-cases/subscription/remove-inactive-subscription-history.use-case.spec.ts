@@ -16,7 +16,7 @@ describe('RemoveInactiveSubscriptionHistoryUseCase', () => {
     id: 'master-user',
     role: 'ADMIN',
     email: 'master@simintpay.com',
-    tenantModule: { slug: 'master', name: 'Master' },
+    platform: { tag: 'master', name: 'Master' },
   };
 
   function makeSut(subscription: Record<string, unknown>, requester = masterUser) {
@@ -57,7 +57,7 @@ describe('RemoveInactiveSubscriptionHistoryUseCase', () => {
   it('refuses a non-master admin before changing history', async () => {
     const { sut, prisma } = makeSut(
       { data: { status: 'CANCELLED' } },
-      { ...masterUser, id: 'tenant-admin', tenantModule: { slug: 'areaflix', name: 'Areaflix' } },
+      { ...masterUser, id: 'tenant-admin', platform: { tag: 'areaflix', name: 'Areaflix' } },
     );
 
     await expect(sut.execute({ userId: 'tenant-admin', domSubscriptionId: 'sub-old' }))

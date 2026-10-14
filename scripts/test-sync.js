@@ -63,10 +63,10 @@ async function testSync() {
       name: true,
       domUserId: true,
       domToken: true,
-      tenantModule: {
+      platform: {
         select: {
           name: true,
-          slug: true
+          tag: true
         }
       }
     }

@@ -50,7 +50,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
       throw new BadRequestException('Limite de assinaturas atingido');
     }
     const owner = await this.users.findById(link.userId);
-    const selectedTag = link.platformTag ?? link.plataformas?.[0] ?? owner?.tenantModule?.slug ?? 'GLOBAL';
+    const selectedTag = link.platformTag ?? link.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL';
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
 
@@ -76,8 +76,8 @@ export class CheckoutSubscriptionLinkCardUseCase {
     // Taxa de assinatura: hierarquia completa — override da plataforma → env var → GLOBAL → valor gravado no link
     let platformFeeRate: number;
     if (!link.isStandalone) {
-      const slugTag = owner?.tenantModule?.slug?.toUpperCase();
-      // Plataforma: usa a selecionada no link (platformTag) → fallback tenantModule → webhook heuristic
+      const slugTag = owner?.platform?.tag?.toUpperCase();
+      // Plataforma: usa a selecionada no link (platformTag) → fallback platform → webhook heuristic
       const platformTag = selectedTag;
       // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
       const taxaTag = platformTag === 'GLOBAL' && input.dto.customerEmail?.trim()

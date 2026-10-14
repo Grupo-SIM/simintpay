@@ -69,14 +69,14 @@ export class SyncDomWithdrawalsUseCase {
     }
 
     // 3. Fallback: Token do Módulo (Revalida, Renovada, etc)
-    if (!domToken && (user as any).tenantModuleId) {
-      const module = await this.prisma.tenantModule.findUnique({
-        where: { id: (user as any).tenantModuleId },
+    if (!domToken && (user as any).platformId) {
+      const module = await this.prisma.platform.findUnique({
+        where: { id: (user as any).platformId },
       });
       if (module) {
-        const envKey = `${module.slug.toUpperCase()}_DOM_TOKEN`;
-        domToken = getModuleDomToken(module.slug) ?? undefined;
-        source = `Módulo (${module.slug})`;
+        const envKey = `${module.tag.toUpperCase()}_DOM_TOKEN`;
+        domToken = getModuleDomToken(module.tag) ?? undefined;
+        source = `Módulo (${module.tag})`;
       }
     }
 

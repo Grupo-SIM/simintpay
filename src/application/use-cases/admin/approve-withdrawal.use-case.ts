@@ -43,7 +43,7 @@ export class ApproveWithdrawalUseCase {
     if (adminUserId) {
       const admin = await this.prisma.user.findUnique({
         where: { id: adminUserId },
-        include: { tenantModule: true },
+        include: { platform: true },
       });
       if (admin && isMasterAdminUser(admin)) {
         isMasterAdmin = true;
@@ -85,13 +85,13 @@ export class ApproveWithdrawalUseCase {
       const userWithExt = await tx.user.findUnique({
         where: { id: withdraw.userId },
         include: { 
-          tenantModule: true,
+          platform: true,
           externalPlatformUsers: { include: { wallet: true } }
         }
       });
   
       if (withdraw.platform?.toLowerCase() !== 'atlas' && userWithExt?.externalPlatformUsers.length) {
-        const slug = userWithExt.tenantModule?.slug?.toLowerCase();
+        const slug = userWithExt.platform?.tag?.toLowerCase();
         const extUser = slug 
           ? userWithExt.externalPlatformUsers.find(u => u.platform.toLowerCase() === slug)
           : userWithExt.externalPlatformUsers[0];
@@ -129,7 +129,7 @@ export class ApproveWithdrawalUseCase {
 
       // Resolve a tag da plataforma do usuário que fez o saque para usar a TAXA_SAQUE_FIXA correta
       const platformTag = (
-        userWithExt?.tenantModule?.slug ?? 'GLOBAL'
+        userWithExt?.platform?.tag ?? 'GLOBAL'
       ).toUpperCase();
       const taxaSaqueFixa = getPlatformTaxaEffective(
         platformTag,

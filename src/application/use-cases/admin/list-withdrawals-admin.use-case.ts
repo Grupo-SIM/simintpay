@@ -100,11 +100,11 @@ export class ListWithdrawalsAdminUseCase {
     const andConditions: object[] = [];
 
     if (input.moduleSlug) {
-      // Match pelo campo platform gravado na criação, ou fallback para tenantModule do usuário
+      // Match pelo campo platform gravado na criação, ou fallback para platform do usuário
       andConditions.push({
         OR: [
           { platform: { equals: input.moduleSlug, mode: 'insensitive' as const } },
-          { user: { tenantModule: { slug: { equals: input.moduleSlug, mode: 'insensitive' as const } } } },
+          { user: { platform: { tag: { equals: input.moduleSlug, mode: 'insensitive' as const } } } },
         ],
       });
     }
@@ -140,7 +140,7 @@ export class ListWithdrawalsAdminUseCase {
               id: true,
               name: true,
               email: true,
-              tenantModule: { select: { name: true, slug: true } },
+              platform: { select: { name: true, tag: true } },
               wallet: { select: { balance: true, lockedBalance: true } },
               externalPlatformUsers: {
                 include: { wallet: true },
@@ -178,18 +178,18 @@ export class ListWithdrawalsAdminUseCase {
           nome: w.user.returnBetAccount?.name ?? w.user.name,
           email: w.user.returnBetAccount?.email ?? w.user.email,
           modulo: (() => {
-            // Prioridade: campo platform gravado na criação > tenantModule do usuário
+            // Prioridade: campo platform gravado na criação > platform do usuário
             if (platformStored) {
               return { nome: platformStored, slug: platformStored.toLowerCase() };
             }
-            if (w.user.tenantModule) {
-              return { nome: w.user.tenantModule.name, slug: w.user.tenantModule.slug };
+            if (w.user.platform) {
+              return { nome: w.user.platform.name, slug: w.user.platform.tag };
             }
             return null;
           })(),
           saldoAtual: resolveSaldoAtualCliente({
             platformOnWithdraw: platformStored,
-            tenantSlug: w.user.tenantModule?.slug ?? null,
+            tenantSlug: w.user.platform?.tag ?? null,
             mainWallet: w.user.wallet ?? null,
             externalPlatformUsers: w.user.externalPlatformUsers,
           }),

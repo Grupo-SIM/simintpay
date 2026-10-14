@@ -16,7 +16,7 @@ export class GetTaxesUseCase {
   async execute(input: { userId: string }): Promise<{ data: unknown }> {
     const user = await this.users.findById(input.userId);
 
-    const platformTag = (user as any)?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+    const platformTag = (user as any)?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
 
     const taxaServico = getPlatformTaxaEffective(platformTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
     const taxaFixaTransacao = getPlatformTaxaEffective(platformTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);

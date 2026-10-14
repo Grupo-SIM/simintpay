@@ -44,11 +44,11 @@ export class GetPublicSubscriptionLinkUseCase {
       const owner = await this.users.findById(link.userId);
       // Hierarquia de detecção de plataforma:
       // 1º platformTag gravado diretamente no link (campo explícito)
-      // 2º slugTag do tenantModule do dono
+      // 2º slugTag do platform do dono
       // 3º AREAFLIX se webhookUrl contiver 'areaflix'
       // 4º GLOBAL (fallback)
       const linkPlatformTag = (link as any).platformTag?.toUpperCase?.();
-      const slugTag = owner?.tenantModule?.slug?.toUpperCase();
+      const slugTag = owner?.platform?.tag?.toUpperCase();
       platformTag = linkPlatformTag ?? link.plataformas?.[0] ?? slugTag ?? 'GLOBAL';
 
       // Taxa ao cliente (cartão) = MDR_CC_1X + MDR_CC_MASTER_1X por plataforma

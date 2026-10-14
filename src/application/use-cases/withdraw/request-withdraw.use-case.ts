@@ -54,13 +54,14 @@ export class RequestWithdrawUseCase {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
-        tenantModule: true,
+        platform: true,
+        ownedPlatforms: { select: { tag: true } },
         wallet: true,
       },
     });
 
     // Regras do módulo (ou fallback padrão)
-    const selected = dto.platformTag ? [dto.platformTag] : user?.tenantModule?.slug ? [user.tenantModule.slug] : undefined;
+    const selected = dto.platformTag ? [dto.platformTag] : user?.platform?.tag ? [user.platform.tag] : undefined;
     const moduleSlug = assertExplicitPlatform(user, selected)?.toLowerCase() ?? null;
     const renovadaId = (getPlatformOwnerId('RENOVADA') ?? '');
     const isRenovada = moduleSlug === 'renovada';
@@ -159,7 +160,7 @@ export class RequestWithdrawUseCase {
       lockedBefore: beforeLocked.toFixed(2),
       lockedAfter: beforeLocked.add(amountToLock).toFixed(2),
       source: 'WITHDRAW',
-      description: `Solicitação de saque${user?.tenantModule ? ` — ${user.tenantModule.name}` : ''}`,
+      description: `Solicitação de saque${user?.platform ? ` — ${user.platform.name}` : ''}`,
     });
 
     await this.cache.delete(`wallet:${userId}`);
@@ -173,7 +174,7 @@ export class RequestWithdrawUseCase {
         taxa: Number(created.fee),
         status: 'PENDENTE',
         chavePix: created.pixKey,
-        modulo: user?.tenantModule?.name ?? null,
+        modulo: user?.platform?.name ?? null,
       },
       message: 'Saque solicitado com sucesso',
     };

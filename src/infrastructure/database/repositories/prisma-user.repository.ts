@@ -13,7 +13,7 @@ export class PrismaUserRepository implements IUserRepository {
   async findById(id: string): Promise<any | null> {
     return this.prisma.user.findUnique({
       where: { id },
-      include: { tenantModule: true },
+      include: { platform: true, ownedPlatforms: { select: { id: true, tag: true, name: true, isActive: true } } },
     });
   }
 
@@ -33,7 +33,7 @@ export class PrismaUserRepository implements IUserRepository {
         domToken: data.domToken ?? undefined,
         cpf: data.cpf ?? undefined,
         cnpj: data.cnpj ?? undefined,
-        tenantModuleId: data.tenantModuleId ?? undefined,
+        platformId: data.platformId ?? undefined,
         clientStatus: data.clientStatus ?? undefined,
         clientApprovedAt: data.clientApprovedAt ?? undefined,
       },

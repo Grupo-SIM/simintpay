@@ -41,7 +41,9 @@ export class GetMeUseCase {
     clientStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | null;
     isAffiliate: boolean;
     affiliateCode: string | null;
-    tenantModule: { slug: string; name: string } | null;
+    platform: { tag: string; name: string } | null;
+    ownedPlatforms: { id: string; tag: string; name: string; isActive: boolean }[];
+    walletScope: 'owner' | 'shared-owner';
     wallet: {
       balance: number;
       lockedBalance: number;
@@ -63,15 +65,17 @@ export class GetMeUseCase {
       throw new UnauthorizedException('Wallet não encontrada');
     }
 
-    const slug = (user.tenantModule?.slug || '').toLowerCase();
+    const ownedPlatforms = (user.ownedPlatforms ?? []).map((platform: { id: string; tag: string; name: string; isActive: boolean }) => ({ id: platform.id, tag: platform.tag, name: platform.name, isActive: platform.isActive }));
+    const sharedWallet = ownedPlatforms.length > 1;
+    const slug = sharedWallet ? '' : (user.platform?.tag || '').toLowerCase();
     const renovadaId = (getPlatformOwnerId('RENOVADA') ?? '');
     const useRenovadaWalletLedger =
       slug === 'renovada' || slug === 'bosque';
 
-    const netBalance = await computeUserNetBalance(
+    const netBalance = sharedWallet ? Math.max(0, Number(wallet.balance) - Number(wallet.lockedBalance)) : await computeUserNetBalance(
       this.prisma,
       user.id,
-      user.tenantModule?.slug,
+      user.platform?.tag,
     );
 
     let walletResp: {
@@ -81,7 +85,10 @@ export class GetMeUseCase {
       netBalance: number;
     };
 
-    if (useRenovadaWalletLedger) {
+    if (sharedWallet) {
+      const balance = Number(wallet.balance), lockedBalance = Number(wallet.lockedBalance);
+      walletResp = { balance, lockedBalance, availableBalance: Math.max(0, balance - lockedBalance), netBalance: Math.max(0, balance - lockedBalance) };
+    } else if (useRenovadaWalletLedger) {
       // wallet.balance armazena o valor líquido diretamente (netAmount já descontado das taxas)
       const storedNet = Number(wallet.balance);
       const pendingAggr = await this.prisma.withdrawRequest.aggregate({
@@ -148,14 +155,14 @@ export class GetMeUseCase {
     }
 
     const tenant =
-      user.tenantModule != null
-        ? { slug: user.tenantModule.slug, name: user.tenantModule.name }
+      user.platform != null
+        ? { tag: user.platform.tag, name: user.platform.name }
         : null;
 
     const master = isMasterAdminUser({
       role: user.role,
       email: user.email,
-      tenantModule: user.tenantModule,
+      platform: user.platform,
     });
 
     if (user.domToken) {
@@ -175,7 +182,8 @@ export class GetMeUseCase {
             clientStatus: (user.clientStatus ?? null) as 'PENDING' | 'APPROVED' | 'REJECTED' | null,
             isAffiliate: user.isAffiliate ?? false,
             affiliateCode: user.affiliateCode ?? null,
-            tenantModule: tenant,
+            platform: tenant,
+            ownedPlatforms, walletScope: sharedWallet ? 'shared-owner' : 'owner',
             wallet: walletResp,
             createdAt: user.createdAt.toISOString(),
           };
@@ -198,7 +206,8 @@ export class GetMeUseCase {
       clientStatus: (user.clientStatus ?? null) as 'PENDING' | 'APPROVED' | 'REJECTED' | null,
       isAffiliate: user.isAffiliate ?? false,
       affiliateCode: user.affiliateCode ?? null,
-      tenantModule: tenant,
+      platform: tenant,
+      ownedPlatforms, walletScope: sharedWallet ? 'shared-owner' : 'owner',
       wallet: walletResp,
       createdAt: user.createdAt.toISOString(),
     };

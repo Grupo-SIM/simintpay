@@ -3,7 +3,7 @@ import type { PaymentLink } from '@prisma/client';
 import { calculatePaymentLinkFees, getPlatformFeeRate } from './payment-link-fees.helper';
 import { initializePlatformTaxasCache, readOverridesRaw } from '../../../modules/platform-taxas/platform-taxas.store';
 import { initializePlatformRegistryCache } from '../../../modules/module.registry';
-const platform = { id: 'shop', tag: 'SHOP', name: 'Shop', ownerUserId: 'owner', tenantModuleId: null, acquirer: 'DOM', customerInterestRates: { '2': 0.0352, '12': 0.3 }, absorbCustomerInterest: false };
+const platform = { id: 'shop', tag: 'SHOP', name: 'Shop', ownerUserId: 'owner', acquirer: 'DOM', customerInterestRates: { '2': 0.0352, '12': 0.3 }, absorbCustomerInterest: false };
 const client = { platformTaxaOverride: { findMany: async () => [] }, platform: { findMany: async () => [platform] } };
 const empty = { platformTaxaOverride: { findMany: async () => [] }, platform: { findMany: async () => [] } };
 const link = { amount: 100, isStandalone: false, platformFee2x: 99 } as unknown as PaymentLink;

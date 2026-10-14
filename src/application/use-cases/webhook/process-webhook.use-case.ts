@@ -243,9 +243,9 @@ export class ProcessWebhookUseCase {
       // Renovada e Bosque são isentos (taxaFixa=0, taxaCashback=0); demais pagam R$4.
       const user = await this.prisma.user.findUnique({
         where: { id: t.userId },
-        select: { tenantModule: { select: { slug: true } } },
+        select: { platform: { select: { tag: true } } },
       });
-      const tenantSlug = user?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+      const tenantSlug = user?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
       const rowTag = platformTaxaTagFromText(t.description ?? undefined);
       const feeTag = rowTag !== 'GLOBAL' ? rowTag : canonicalPlatformTaxaTag(tenantSlug);
       const fixedTx = getPlatformTaxaEffective(feeTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);

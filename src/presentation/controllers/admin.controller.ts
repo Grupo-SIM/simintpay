@@ -1800,7 +1800,7 @@ export class AdminController {
       return true;
     });
 
-    // ── 2. Module users (tenantModule-based platforms: renovada, bosque, etc.) ─
+    // ── 2. Module users (platform-based platforms: renovada, bosque, etc.) ─
     // Usuários de módulo usam User.isActive como estado reversível, então seguem a
     // mesma separação de abas das contas diretas: ativos na principal e inativos
     // em "Contas inativas".
@@ -1809,12 +1809,12 @@ export class AdminController {
       isActive: boolean; isCompany: boolean; clientStatus: string | null;
       createdAt: Date; updatedAt: Date;
       wallet: { balance: any; lockedBalance: any } | null;
-      tenantModule: { slug: string } | null;
+      platform: { tag: string } | null;
     };
 
     // Known platform master accounts identified by env var or fallback UUID.
-    // These users may not have tenantModuleId set (sync never assigns it) so the
-    // tenantModule relation query alone won't find them.
+    // These users may not have platformId set (sync never assigns it) so the
+    // platform relation query alone won't find them.
     const registered = await this.prisma.platform.findMany({ select: { tag: true, ownerUserId: true } });
     const KNOWN_PLATFORM_IDS: Record<string, string> = Object.fromEntries(registered.map((platform) => [platform.tag.toLowerCase(), platform.ownerUserId]));
 
@@ -1863,12 +1863,12 @@ export class AdminController {
 
       const moduleWhere: any = {
         AND: [
-          // tenantModule-linked users OR known platform accounts (without tenantModuleId)
+          // platform-linked users OR known platform accounts (without platformId)
           {
             OR: [
               {
-                tenantModule: platformLower
-                  ? { slug: { equals: platformLower, mode: 'insensitive' } }
+                platform: platformLower
+                  ? { tag: { equals: platformLower, mode: 'insensitive' } }
                   : { isNot: null },
               },
               ...(knownIds.length > 0 ? [{ id: { in: knownIds } }] : []),
@@ -1889,7 +1889,7 @@ export class AdminController {
           isActive: true, isCompany: true, clientStatus: true,
           createdAt: true, updatedAt: true,
           wallet: { select: { balance: true, lockedBalance: true } },
-          tenantModule: { select: { slug: true } },
+          platform: { select: { tag: true } },
         },
         orderBy: { createdAt: 'desc' },
       })) as ModuleUser[];
@@ -1933,7 +1933,7 @@ export class AdminController {
       const clientWhere: any = {
         AND: [
           { role: 'USER' },
-          { tenantModuleId: null },
+          { platformId: null },
           // Marcada como empresa pelo admin master: passa a viver só em /admin/clientes.
           { isCompany: false },
           // Contas-sombra de integrações são criadas pelo JwtAuthGuard e não
@@ -1954,7 +1954,7 @@ export class AdminController {
           isActive: true, isCompany: true, clientStatus: true,
           createdAt: true, updatedAt: true,
           wallet: { select: { balance: true, lockedBalance: true } },
-          tenantModule: { select: { slug: true } },
+          platform: { select: { tag: true } },
         },
         orderBy: { createdAt: 'desc' },
       })) as ModuleUser[];
@@ -2275,10 +2275,10 @@ export class AdminController {
             ),
           };
         } else {
-          // Module user (tenantModule-based)
+          // Module user (platform-based)
           const u = moduleUserMap.get(identity.userId);
           if (!u) return null;
-          const moduleSlug = u.tenantModule?.slug?.toLowerCase()
+          const moduleSlug = u.platform?.tag?.toLowerCase()
             ?? knownIdToPlatform.get(u.id)
             ?? inferIntegrationPlatform(u)
             ?? (clientUserIds.has(u.id) ? 'simintpay' : (platformLower ?? 'unknown'));
@@ -2338,7 +2338,7 @@ export class AdminController {
     if (authUser?.sub) {
       const requester = await this.prisma.user.findUnique({
         where: { id: authUser.sub },
-        include: { tenantModule: true },
+        include: { platform: true },
       });
       if (!requester || !isMasterAdminUser(requester)) {
         throw new ForbiddenException('Somente admin master pode editar leads');
@@ -2390,7 +2390,7 @@ export class AdminController {
     if (authUser?.sub) {
       const requester = await this.prisma.user.findUnique({
         where: { id: authUser.sub },
-        include: { tenantModule: true },
+        include: { platform: true },
       });
       if (!requester || !isMasterAdminUser(requester)) {
         throw new ForbiddenException('Somente admin master pode marcar contas como empresa');
@@ -2451,7 +2451,7 @@ export class AdminController {
     if (authUser?.sub) {
       const requester = await this.prisma.user.findUnique({
         where: { id: authUser.sub },
-        include: { tenantModule: true },
+        include: { platform: true },
       });
       if (!requester || !isMasterAdminUser(requester)) {
         throw new ForbiddenException('Somente admin master pode excluir contas');
@@ -2507,7 +2507,7 @@ export class AdminController {
     if (authUser?.sub) {
       const requester = await this.prisma.user.findUnique({
         where: { id: authUser.sub },
-        include: { tenantModule: true },
+        include: { platform: true },
       });
       if (!requester || !isMasterAdminUser(requester)) {
         throw new ForbiddenException('Somente admin master pode reativar contas');
@@ -2564,7 +2564,7 @@ export class AdminController {
     if (authUser?.sub) {
       const requester = await this.prisma.user.findUnique({
         where: { id: authUser.sub },
-        include: { tenantModule: true },
+        include: { platform: true },
       });
       if (!requester || !isMasterAdminUser(requester)) {
         throw new ForbiddenException('Somente admin master pode excluir contas permanentemente');
@@ -2820,7 +2820,7 @@ export class AdminController {
     if (authUser?.sub) {
       const requester = await this.prisma.user.findUnique({
         where: { id: authUser.sub },
-        include: { tenantModule: true },
+        include: { platform: true },
       });
       const requesterIsAdmin = requester?.role === 'ADMIN';
       const requesterIsMaster = requester ? isMasterAdminUser(requester) : false;
@@ -3184,7 +3184,7 @@ export class AdminController {
         userId: true,
         platform: true,
         user: {
-          select: { tenantModule: { select: { slug: true } } },
+          select: { platform: { select: { tag: true } } },
         },
       },
     });
@@ -3194,7 +3194,7 @@ export class AdminController {
     // saquesPorDia: lucro de saque agregado por dia (updatedAt SP) e tag da plataforma
     const saquesPorDiaMap = new Map<string, number>(); // key = `${ymd}|${tag}`
     for (const w of withdrawsAprovados) {
-      const platformTag = normalizePlatformTag(w.platform ?? w.user?.tenantModule?.slug ?? 'GLOBAL');
+      const platformTag = normalizePlatformTag(w.platform ?? w.user?.platform?.tag ?? 'GLOBAL');
       const taxaSaqueFixa = getPlatformTaxaEffective(
         platformTag,
         'TAXA_SAQUE_FIXA',
@@ -3243,14 +3243,14 @@ export class AdminController {
     } else {
       const platformUsers = await this.prisma.user.findMany({
         where: { id: { in: platformIds } },
-        include: { tenantModule: true },
+        include: { platform: true },
       });
       let snap = 0;
       for (const u of platformUsers) {
         snap += await computeUserNetBalance(
           this.prisma,
           u.id,
-          u.tenantModule?.slug,
+          u.platform?.tag,
         );
       }
       valorLiquidoPlataformas = Number(snap.toFixed(2));
@@ -3709,14 +3709,14 @@ export class AdminController {
     } else {
       const platformUsers = await this.prisma.user.findMany({
         where: { id: { in: platformIds } },
-        include: { tenantModule: true },
+        include: { platform: true },
       });
       let snap = 0;
       for (const u of platformUsers) {
         snap += await computeUserNetBalance(
           this.prisma,
           u.id,
-          u.tenantModule?.slug,
+          u.platform?.tag,
         );
       }
       valorLiquidoPlataformas = Number(snap.toFixed(2));
@@ -5788,7 +5788,7 @@ export class AdminController {
     const termDigits = term.replace(/\D/g, '');
     const userWhere: Prisma.UserWhereInput = {
       role: Role.USER,
-      tenantModuleId: null,
+      platformId: null,
       ...(term
         ? {
             OR: [
@@ -6369,14 +6369,14 @@ export class AdminController {
 
     const u = await this.prisma.user.findUnique({
       where: { id: user.sub },
-      include: { tenantModule: true },
+      include: { platform: true },
     });
     if (!u) throw new BadRequestException('Usuário não encontrado');
 
     // Plataforma (renovada/bosque/...) usa a tag do módulo; cliente SIM INT PAY
     // (sem módulo) usa CLIENT:<email>, que herda o GLOBAL e reflete o que o master
     // personalizou para ele na página de Taxas.
-    const slug = u.tenantModule?.slug?.trim();
+    const slug = u.platform?.tag?.trim();
     const tag = slug ? canonicalPlatformTaxaTag(slug.toUpperCase()) : buildClientTaxaTag(u.email);
 
     const resolved = this.platformTaxas.getResolvedTaxaForTag(tag);
@@ -6422,7 +6422,7 @@ export class AdminController {
     // Busca usuários do módulo que corresponde à tag
     const moduleUsers = await this.prisma.user.findMany({
       where: {
-        tenantModule: { slug: { contains: slug, mode: 'insensitive' } },
+        platform: { tag: { contains: slug, mode: 'insensitive' } },
       },
       select: { id: true },
     });

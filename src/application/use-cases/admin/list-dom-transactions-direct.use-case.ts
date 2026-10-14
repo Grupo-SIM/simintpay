@@ -128,7 +128,7 @@ export class ListDomTransactionsDirectUseCase {
             description: true,
             netAmount: true,
             paymentLinkId: true,
-            user: { select: { tenantModule: { select: { slug: true } } } },
+            user: { select: { platform: { select: { tag: true } } } },
           },
         })
       : [];
@@ -199,8 +199,8 @@ export class ListDomTransactionsDirectUseCase {
       // Vendas legadas podem não trazer [TENANT:*] na descrição da DOM. O
       // dono registrado localmente ainda identifica a plataforma e impede que
       // cards ignorem parte das mesmas vendas exibidas na tabela.
-      if (tenantTag === 'GLOBAL' && dbRecord?.user?.tenantModule?.slug) {
-        tenantTag = canonicalPlatformTaxaTag(dbRecord.user.tenantModule.slug);
+      if (tenantTag === 'GLOBAL' && dbRecord?.user?.platform?.tag) {
+        tenantTag = canonicalPlatformTaxaTag(dbRecord.user.platform.tag);
       }
       if (tenantTag === 'GLOBAL') {
         const subLinkTag = subLinkTagByCodExternal.get(String(tx.cod_external ?? ''));

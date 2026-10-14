@@ -233,8 +233,8 @@ export class ProcessDomWebhookUseCase {
   }
 
   /**
-   * Resolve o tenantTag de um usuário sem tenantModule:
-   * 1. tenantModule.slug do usuário (existente)
+   * Resolve o tenantTag de um usuário sem platform:
+   * 1. platform.tag do usuário (existente)
    * 2. plataformas[0] de qualquer plano ativo do usuário
    * 3. GLOBAL como fallback
    */
@@ -242,7 +242,7 @@ export class ProcessDomWebhookUseCase {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
-        tenantModule: { select: { slug: true } },
+        platform: { select: { tag: true } },
         plans: {
           where: { isActive: true },
           select: { plataformas: true },
@@ -251,7 +251,7 @@ export class ProcessDomWebhookUseCase {
         },
       },
     });
-    if (user?.tenantModule?.slug) return user.tenantModule.slug.toUpperCase();
+    if (user?.platform?.tag) return user.platform.tag.toUpperCase();
     return 'GLOBAL';
   }
 

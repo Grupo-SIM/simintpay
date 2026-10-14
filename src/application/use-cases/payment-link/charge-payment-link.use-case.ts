@@ -175,7 +175,7 @@ export class ChargePaymentLinkUseCase {
     // Resolve domToken: cliente SimintPay SEMPRE usa o token mestre; senão usuário > módulo > global.
     const owner = await this.users.findById(link.userId);
     const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(((link as any).plataformas?.[0] ?? 'GLOBAL').toUpperCase()) ? null : clientTaxaTagFor(owner);
-    const selectedTag = (link as any).plataformas?.[0] ?? owner?.tenantModule?.slug ?? 'GLOBAL';
+    const selectedTag = (link as any).plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL';
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
 
     if (!domToken) {
@@ -183,9 +183,9 @@ export class ChargePaymentLinkUseCase {
     }
 
     const installments = input.installments ?? 1;
-    // Plataforma: usa a selecionada no link (plataformas[0]) → fallback tenantModule → GLOBAL
+    // Plataforma: usa a selecionada no link (plataformas[0]) → fallback platform → GLOBAL
     const linkPlatformTag = (link as any).plataformas?.[0]?.toUpperCase() ?? null;
-    const platformTag = linkPlatformTag ?? owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+    const platformTag = linkPlatformTag ?? owner?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
     // Taxa: se o DONO do link é cliente SimintPay, usa a tag do dono (CLIENT:<owner>).
     // Senão, mantém a regra antiga (GLOBAL + email do comprador para taxa personalizada por comprador).
     const taxaTag = ownerClientTag

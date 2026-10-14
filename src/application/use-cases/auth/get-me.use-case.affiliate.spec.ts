@@ -16,7 +16,7 @@ describe('GetMeUseCase — campos de afiliado', () => {
   it('inclui isAffiliate e affiliateCode na resposta', async () => {
     const uc = build({
       id: 'u1', name: 'A', email: 'a@x.com', cpf: null, cnpj: null, role: 'USER',
-      clientStatus: null, tenantModule: null, domToken: null, createdAt: new Date(),
+      clientStatus: null, platform: null, domToken: null, createdAt: new Date(),
       isAffiliate: true, affiliateCode: 'ABC123',
     });
 
@@ -29,7 +29,7 @@ describe('GetMeUseCase — campos de afiliado', () => {
   it('isAffiliate=false e affiliateCode=null quando a conta não é afiliada', async () => {
     const uc = build({
       id: 'u1', name: 'A', email: 'a@x.com', cpf: null, cnpj: null, role: 'USER',
-      clientStatus: null, tenantModule: null, domToken: null, createdAt: new Date(),
+      clientStatus: null, platform: null, domToken: null, createdAt: new Date(),
       isAffiliate: false, affiliateCode: null,
     });
 

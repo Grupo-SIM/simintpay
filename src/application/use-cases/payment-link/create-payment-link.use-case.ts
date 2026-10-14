@@ -39,7 +39,7 @@ export class CreatePaymentLinkUseCase {
     const selectedTag = assertExplicitPlatform(user, input.dto.plataformas);
     const clientTag = selectedTag ? null : clientTaxaTagFor(user);
 
-    const domToken = platformGatewayToken(selectedTag ?? user?.tenantModule?.slug, process.env.DOM_TOKEN);
+    const domToken = platformGatewayToken(selectedTag ?? user?.platform?.tag, process.env.DOM_TOKEN);
 
     if (!domToken) {
       throw new UnauthorizedException('Token DOM não encontrado para este usuário/módulo');

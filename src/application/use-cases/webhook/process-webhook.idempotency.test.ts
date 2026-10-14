@@ -12,7 +12,7 @@ function fixture(claimCount = 1, status = 'PENDING') {
   };
   const events = { findByEventId: mock(async () => null), create: mock(async () => ({ id: 'event' })), markProcessed: mock(async () => {}), markFailed: mock(async () => {}) };
   const affiliates = { applyForTransaction: mock(async () => {}), reverseForTransaction: mock(async () => {}) };
-  const prisma = { user: { findUnique: mock(async () => ({ tenantModule: null })) }, $transaction: mock(async (fn: any) => fn(tx)) };
+  const prisma = { user: { findUnique: mock(async () => ({ platform: null })) }, $transaction: mock(async (fn: any) => fn(tx)) };
   const service = new ProcessWebhookUseCase(events as never, { findByDomPaymentId: async () => payment } as never, {} as never, prisma as never, {} as never, affiliates as never);
   return { service, tx, affiliates };
 }

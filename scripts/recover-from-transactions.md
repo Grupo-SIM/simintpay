@@ -102,7 +102,7 @@ antes desse lote não são revertidos caso aplicação de saldos falhe.
 
 ## Limites
 
-Não inventa contas User a partir de e-mail de comprador, módulos TenantModule,
+Não inventa contas User a partir de e-mail de comprador, plataformas,
 links, planos, assinaturas, permissões,
 histórico fictício de status ou saldos externos por inferência. Transaction não
 contém configuração suficiente para recriar esses registros com segurança.

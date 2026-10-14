@@ -14,7 +14,7 @@ export class RemoveInactiveSubscriptionHistoryUseCase {
   async execute(input: { userId: string; domSubscriptionId: string }): Promise<{ removed: true }> {
     const requester = await this.prisma.user.findUnique({
       where: { id: input.userId },
-      include: { tenantModule: true },
+      include: { platform: true },
     });
     if (!requester || !isMasterAdminUser(requester)) {
       throw new ForbiddenException('Somente o admin master pode excluir assinaturas do histórico');

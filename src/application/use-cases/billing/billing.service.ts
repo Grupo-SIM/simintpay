@@ -1005,7 +1005,7 @@ export class BillingService {
       select: {
         domToken: true,
         clientStatus: true,
-        tenantModule: { select: { slug: true } },
+        platform: { select: { tag: true } },
       },
     });
     if (!user)
@@ -1013,7 +1013,7 @@ export class BillingService {
     const token = user.clientStatus
       ? process.env.DOM_TOKEN
       : (user.domToken ??
-        getModuleDomToken(user.tenantModule?.slug) ??
+        getModuleDomToken(user.platform?.tag) ??
         process.env.DOM_TOKEN);
     if (!token)
       throw new BadRequestException(

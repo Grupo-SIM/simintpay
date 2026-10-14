@@ -1,8 +1,8 @@
 import { AdminAfiliadosController } from './admin-afiliados.controller';
 import { ForbiddenException, NotFoundException, ConflictException } from '@nestjs/common';
 
-const masterUser = { id: 'admin1', role: 'ADMIN', email: 'master@simintpay.com', tenantModule: { slug: 'master', name: 'Master' } };
-const nonMasterAdmin = { id: 'admin2', role: 'ADMIN', email: 'sub@areaflix.com', tenantModule: { slug: 'areaflix', name: 'Areaflix' } };
+const masterUser = { id: 'admin1', role: 'ADMIN', email: 'master@simintpay.com', platform: { tag: 'master', name: 'Master' } };
+const nonMasterAdmin = { id: 'admin2', role: 'ADMIN', email: 'sub@areaflix.com', platform: { tag: 'areaflix', name: 'Areaflix' } };
 
 function buildPrisma(overrides: any = {}) {
   return {

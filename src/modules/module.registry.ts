@@ -11,7 +11,6 @@ export type RegisteredPlatform = {
   tag: string;
   name: string;
   ownerUserId: string;
-  tenantModuleId: string | null;
   acquirer: string;
   customerInterestRates: Prisma.JsonValue;
   absorbCustomerInterest: boolean;
@@ -25,7 +24,7 @@ export async function initializePlatformRegistryCache(prisma: PrismaClient): Pro
   client = prisma;
   const rows = await prisma.platform.findMany({
     where: { isActive: true, owner: { isActive: true, isPurged: false } },
-    select: { id: true, tag: true, name: true, ownerUserId: true, tenantModuleId: true, acquirer: true, customerInterestRates: true, absorbCustomerInterest: true },
+    select: { id: true, tag: true, name: true, ownerUserId: true, acquirer: true, customerInterestRates: true, absorbCustomerInterest: true },
   });
   platforms = new Map(rows.map((row) => [row.tag, row]));
   fetchedAt = Date.now();

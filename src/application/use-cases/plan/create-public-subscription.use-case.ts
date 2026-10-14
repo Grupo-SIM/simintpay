@@ -66,7 +66,7 @@ export class CreatePublicSubscriptionUseCase {
     }
 
     const owner = await this.users.findById(plan.userId);
-    const domToken = platformGatewayToken(plan.plataformas?.[0] ?? owner?.tenantModule?.slug, process.env.DOM_TOKEN);
+    const domToken = platformGatewayToken(plan.plataformas?.[0] ?? owner?.platform?.tag, process.env.DOM_TOKEN);
     if (!domToken) {
       throw new BadRequestException('Token do gateway não configurado');
     }

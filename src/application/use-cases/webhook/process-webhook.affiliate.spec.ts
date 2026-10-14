@@ -37,7 +37,7 @@ describe('ProcessWebhookUseCase — hook de comissão de afiliado', () => {
     const balanceLogs = {} as any;
 
     const prisma = {
-      user: { findUnique: jest.fn().mockResolvedValue({ tenantModule: null }) },
+      user: { findUnique: jest.fn().mockResolvedValue({ platform: null }) },
       $transaction: jest.fn().mockImplementation((cb: any) => cb(prismaTxClient)),
     } as any;
 

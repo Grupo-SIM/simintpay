@@ -11,7 +11,7 @@ import { AdminController } from './admin.controller';
 
 /**
  * Regressão: contas criadas em "Criar Conta" (Conta Avulsa) ou por auto-cadastro
- * são Users role=USER sem plataforma externa e sem tenantModule. Antes elas ficavam
+ * são Users role=USER sem plataforma externa e sem platform. Antes elas ficavam
  * invisíveis em GET /admin/usuarios ("Leads"). Agora aparecem como plataforma
  * virtual "simintpay".
  *
@@ -27,7 +27,7 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
     createdAt: new Date('2026-07-13T12:00:00Z'),
     updatedAt: new Date('2026-07-13T12:00:00Z'),
     wallet: { balance: 0, lockedBalance: 0 },
-    tenantModule: null,
+    platform: null,
   };
 
   // A query de clientes diretos é a única com um filtro { role: 'USER' } dentro do AND.
@@ -38,7 +38,7 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
   const isModuleQuery = (arg: any): boolean =>
     Array.isArray(arg?.where?.AND) &&
     arg.where.AND.some((c: any) =>
-      Array.isArray(c?.OR) && c.OR.some((option: any) => option?.tenantModule),
+      Array.isArray(c?.OR) && c.OR.some((option: any) => option?.platform),
     );
 
   function makeMockPrisma(clientUsers: any[], moduleUsers: any[] = []) {
@@ -166,7 +166,7 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       id: 'revalida-inativa',
       email: 'inativa@revalida.com',
       isActive: false,
-      tenantModule: { slug: 'revalida' },
+      platform: { tag: 'revalida' },
     };
     const prisma = makeMockPrisma([], [inactiveModuleUser]);
 

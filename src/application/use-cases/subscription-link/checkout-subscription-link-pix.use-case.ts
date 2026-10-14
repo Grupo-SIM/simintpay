@@ -44,7 +44,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
       throw new BadRequestException('Limite de assinaturas atingido');
     }
     const owner = await this.users.findById(link.userId);
-    const selectedTag = link.platformTag ?? link.plataformas?.[0] ?? owner?.tenantModule?.slug ?? 'GLOBAL';
+    const selectedTag = link.platformTag ?? link.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL';
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
 
@@ -70,7 +70,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
     // PIX: cliente paga o valor base; MDR_PIX é descontado do repasse ao vendedor (não somado ao cliente)
     let platformFeeAmount = 0;
     if (!link.isStandalone) {
-      const slugTag = owner?.tenantModule?.slug?.toUpperCase();
+      const slugTag = owner?.platform?.tag?.toUpperCase();
       const platformTag = selectedTag;
       // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
       const taxaTag = platformTag === 'GLOBAL' && input.dto.customerEmail?.trim()

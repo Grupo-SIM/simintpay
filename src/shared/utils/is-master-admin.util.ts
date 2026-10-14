@@ -16,12 +16,12 @@ function masterAdminEmailsFromEnv(): Set<string> {
 export function isMasterAdminUser(user: {
   role: string;
   email?: string | null;
-  tenantModule?: { slug?: string | null; name?: string | null } | null;
+  platform?: { tag?: string | null; name?: string | null } | null;
 }): boolean {
   if (user.role !== 'ADMIN') return false;
   const mail = (user.email ?? '').trim().toLowerCase();
   if (mail && masterAdminEmailsFromEnv().has(mail)) return true;
-  const slug = (user.tenantModule?.slug ?? '').toLowerCase();
-  const name = (user.tenantModule?.name ?? '').toLowerCase();
+  const slug = (user.platform?.tag ?? '').toLowerCase();
+  const name = (user.platform?.name ?? '').toLowerCase();
   return slug.includes('master') || name.includes('master');
 }

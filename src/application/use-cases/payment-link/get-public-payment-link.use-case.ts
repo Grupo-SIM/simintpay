@@ -64,7 +64,7 @@ export class GetPublicPaymentLinkUseCase {
     // 4º fallback final: GLOBAL
     const linkPlataformas = (link as any).plataformas as string[] | undefined;
     const owner = await this.users.findById(link.userId);
-    const platformTag = linkPlataformas?.[0]?.toUpperCase() ?? owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+    const platformTag = linkPlataformas?.[0]?.toUpperCase() ?? owner?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
 
     // Validate platform lifecycle without resolving another platform from user identity.
     platformGatewayToken(platformTag, 'public-global');

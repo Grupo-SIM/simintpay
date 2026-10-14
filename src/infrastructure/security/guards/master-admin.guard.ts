@@ -19,7 +19,7 @@ export class MasterAdminGuard implements CanActivate {
     }
     const admin = await this.prisma.user.findUnique({
       where: { id: sub },
-      include: { tenantModule: true },
+      include: { platform: true },
     });
     if (!admin || !isMasterAdminUser(admin)) {
       throw new ForbiddenException('Somente admin master');

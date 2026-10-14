@@ -26,11 +26,11 @@ export class GetWalletCompositionUseCase {
     const user = userId
       ? await this.prisma.user.findUnique({
           where: { id: userId },
-          include: { tenantModule: true },
+          include: { platform: true },
         })
       : await this.prisma.user.findUnique({
           where: { email: email!.toLowerCase() },
-          include: { tenantModule: true },
+          include: { platform: true },
         });
 
     if (!user) {
@@ -47,16 +47,16 @@ export class GetWalletCompositionUseCase {
     const netBalance = await computeUserNetBalance(
       this.prisma,
       user.id,
-      user.tenantModule?.slug,
+      user.platform?.tag,
     );
 
     const fatorLiquidez =
-      getModuleConfig(user.tenantModule?.slug)?.saque?.fatorLiquidez ??
+      getModuleConfig(user.platform?.tag)?.saque?.fatorLiquidez ??
       getPlatformTaxaEffective('GLOBAL', 'LIQUIDEZ', 0.91);
 
     const renovadaId =
       (getPlatformOwnerId('RENOVADA') ?? '');
-    const slug = (user.tenantModule?.slug || '').toLowerCase();
+    const slug = (user.platform?.tag || '').toLowerCase();
     const useRenovadaWalletLedger =
       slug === 'renovada';
 
@@ -208,7 +208,7 @@ export class GetWalletCompositionUseCase {
         id: user.id,
         email: user.email,
         nome: user.name,
-        tenantSlug: user.tenantModule?.slug ?? null,
+        tenantSlug: user.platform?.tag ?? null,
       },
       netBalanceExibido: r2(netBalance),
       composicao,

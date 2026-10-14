@@ -16,11 +16,11 @@ async function checkDomMapping() {
       name: true,
       domUserId: true,
       domToken: true,
-      tenantModule: {
+      platform: {
         select: {
           id: true,
           name: true,
-          slug: true
+          tag: true
         }
       }
     }
@@ -41,11 +41,11 @@ async function checkDomMapping() {
       email: true,
       name: true,
       domToken: true,
-      tenantModule: {
+      platform: {
         select: {
           id: true,
           name: true,
-          slug: true
+          tag: true
         }
       }
     }
@@ -57,11 +57,11 @@ async function checkDomMapping() {
   });
 
   // 3. Verificar módulos disponíveis
-  const modules = await prisma.tenantModule.findMany({
+  const modules = await prisma.platform.findMany({
     select: {
       id: true,
       name: true,
-      slug: true,
+      tag: true,
       isActive: true,
       _count: {
         select: { users: true }
@@ -71,7 +71,7 @@ async function checkDomMapping() {
 
   console.log('\n📦 Módulos disponíveis:');
   modules.forEach(module => {
-    console.log(`  - ${module.name} (${module.slug}) - ${module._count.users} usuários - Ativo: ${module.isActive}`);
+    console.log(`  - ${module.name} (${module.tag}) - ${module._count.users} usuários - Ativo: ${module.isActive}`);
   });
 
   // 4. Verificar usuário específico da Renovada
@@ -85,11 +85,11 @@ async function checkDomMapping() {
       name: true,
       domUserId: true,
       domToken: true,
-      tenantModule: {
+      platform: {
         select: {
           id: true,
           name: true,
-          slug: true
+          tag: true
         }
       }
     }
@@ -100,7 +100,7 @@ async function checkDomMapping() {
     console.log(`  - ${renovadaUser.name} (${renovadaUser.email})`);
     console.log(`    domUserId: ${renovadaUser.domUserId || 'NÃO CONFIGURADO'}`);
     console.log(`    domToken: ${renovadaUser.domToken ? 'CONFIGURADO' : 'NÃO CONFIGURADO'}`);
-    console.log(`    Módulo: ${renovadaUser.tenantModule?.name || 'NENHUM'}`);
+    console.log(`    Módulo: ${renovadaUser.platform?.name || 'NENHUM'}`);
   } else {
     console.log('  ❌ Usuário não encontrado no banco!');
   }

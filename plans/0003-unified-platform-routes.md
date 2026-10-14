@@ -62,3 +62,11 @@ Inventário obtido de HEAD antes da substituição dos controllers. Nenhuma conf
 - Validar contratos corporativos restantes de checkout/callbacks sem executar serviços externos.
 
 Nenhum desses itens é tratado como concluído pela existência da nova rota. Implementação segue parcial quanto à migração integral dos aliases; endpoints existentes continuam atendidos. Nenhum banco externo, deploy ou push foi executado.
+
+## Unificação da identidade — solicitação adicional
+
+- [x] Remover modelo TenantModule; relações de usuários apontam diretamente para Platform. Ownership permanece 1:N, sem atributo único por dono.
+- [x] Migrar runtime, guards, autenticação, relatórios, gateways e scripts para tag/referência Platform. Cadastro deixa de criar módulo paralelo.
+- [x] Preparar SQL transacional e preflight; associação ausente bloqueia backfill. Nenhuma migração aplicada em banco.
+- [x] `/auth/me` lista produtos e preserva saldo compartilhado; usuário com vários produtos precisa escolha explícita em criação financeira.
+- [x] Schema Prisma validado, cliente regenerado localmente, build aprovado; 163 testes Bun e 200 Jest aprovados (1 teste pré-existente ignorado). Identidade pronta para commit local; aliases continuam próxima etapa.

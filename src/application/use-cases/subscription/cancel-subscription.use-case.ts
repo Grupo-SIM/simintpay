@@ -55,11 +55,11 @@ export class CancelSubscriptionUseCase {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { domToken: true, tenantModule: { select: { slug: true } } },
+      select: { domToken: true, platform: { select: { tag: true } } },
     });
     if (user?.domToken) return user.domToken;
 
-    const moduleToken = getModuleDomToken(user?.tenantModule?.slug);
+    const moduleToken = getModuleDomToken(user?.platform?.tag);
     if (moduleToken) return moduleToken;
 
     return process.env.DOM_TOKEN ?? null;

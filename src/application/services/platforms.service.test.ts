@@ -27,3 +27,20 @@ describe('Platform ownership', () => {
     await expect(fixture.service.create(user, { tag: 'SHOP', name: 'Shop', ownerUserId: 'other' })).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
+
+// No database or legacy module repository: products are Platform records only.
+describe('Platform product ownership', () => {
+  test('one owner creates multiple products without creating a module or replacing membership', async () => {
+    const rows: any[] = [];
+    const create = mock(async ({ data }: any) => { const row = { ...data, id: data.tag, isActive: true, acquirer: 'DOM', customerInterestRates: {}, absorbCustomerInterest: false }; rows.push(row); return row; });
+    const prisma = { user: { findUnique: async () => ({ role: 'USER', isActive: true, isPurged: false }), findFirst: async () => ({ id: 'owner' }) },
+      platform: { create, findMany: async () => rows } };
+    const service = new PlatformsService(prisma as never);
+    const actor = { sub: 'owner', role: 'USER' } as never;
+    await service.create(actor, { tag: 'PRODUCT-A', name: 'A' });
+    await service.create(actor, { tag: 'PRODUCT-B', name: 'B' });
+    expect(rows.map(row => row.ownerUserId)).toEqual(['owner', 'owner']);
+    expect(rows.map(row => row.tag)).toEqual(['PRODUCT-A', 'PRODUCT-B']);
+    expect(create.mock.calls.every(([arg]) => !('platformId' in arg.data))).toBe(true);
+  });
+});

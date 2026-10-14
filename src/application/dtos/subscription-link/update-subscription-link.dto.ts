@@ -71,7 +71,7 @@ export class UpdateSubscriptionLinkDto {
 
   /**
    * Tag de plataforma para resolução de taxa (ex: AREAFLIX, COMUNIDADE, GLOBAL).
-   * Sobrepõe a detecção automática por tenantModule ou webhookUrl.
+   * Sobrepõe a detecção automática por platform ou webhookUrl.
    */
   @IsString()
   @IsOptional()

@@ -41,7 +41,7 @@ export class GetPublicBoletoUseCase {
       platformTag = plats[0].toUpperCase();
     } else {
       const owner = await this.users.findById(boleto.userId);
-      platformTag = owner?.tenantModule?.slug?.toUpperCase() ?? 'GLOBAL';
+      platformTag = owner?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
     }
 
     // Garante que o cálculo de taxa esteja disponível (não altera o retorno público,

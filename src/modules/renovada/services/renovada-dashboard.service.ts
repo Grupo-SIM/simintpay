@@ -42,7 +42,7 @@ function buildSaqueWhere(params: {
     return params.atlasWalletUserId ? { userId: params.atlasWalletUserId, ...periodo } : null;
   }
   if (params.isTenantTagged) {
-    return { user: { tenantModule: { slug: params.moduleSlug } }, fee: { gt: 0 }, ...periodo };
+    return { user: { platform: { tag: params.moduleSlug } }, fee: { gt: 0 }, ...periodo };
   }
   return params.platformId ? { userId: params.platformId, fee: { gt: 0 }, ...periodo } : null;
 }

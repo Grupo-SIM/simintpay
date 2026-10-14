@@ -24,7 +24,7 @@ model User {
     purgedAmount         Decimal?             @db.Decimal(12, 2)
     domUserId            String?              @unique
   domToken             String?
-  tenantModuleId       String?
+  platformId           String?
   cpf                  String?              @unique
   cnpj                 String?              @unique
   isAffiliate          Boolean              @default(false)
@@ -43,7 +43,7 @@ model User {
   transactions         Transaction[]
   wallet               Wallet?
   withdrawals          WithdrawRequest[]
-  tenantModule         TenantModule?        @relation(fields: [tenantModuleId], references: [id])
+  platform             Platform?            @relation("PlatformMembers", fields: [platformId], references: [id], onDelete: SetNull)
   pixCreditPlans         PixCreditPlan[]
   pixPlanOrders          PixPlanOrder[]
   customerPlanAccesses   CustomerPlanAccess[]
@@ -61,14 +61,14 @@ model User {
   billingContracts       BillingContract[]
   returnBetAccount       ReturnBetAccount?
   integrationMerchant    IntegrationMerchant?
-  ownedPlatforms         Platform[]
+  ownedPlatforms         Platform[] @relation("PlatformOwner")
 
   pushSubscriptions PushSubscription[]
   salePushEvents SalePushEvent[]
 
   @@index([email])
   @@index([domUserId])
-  @@index([tenantModuleId])
+  @@index([platformId])
   @@index([clientStatus])
   @@index([isCompany])
   @@index([isSimintpayClient])
@@ -786,19 +786,6 @@ model UserSettings {
   updatedAt          DateTime @updatedAt
 }
 
-model TenantModule {
-  id        String   @id @default(uuid())
-  name      String // Ex: "Revalida", "Renovada"
-  slug      String   @unique // Ex: "revalida", "renovada" — usado p/ env var {SLUG}_DOM_TOKEN
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  users     User[]
-  platform  Platform?
-
-  @@index([slug])
-}
-
 model Lead {
   id              String     @id @default(uuid())
   name            String
@@ -1179,14 +1166,13 @@ model Platform {
   ownerUserId    String
   isActive       Boolean @default(true)
   acquirer       Acquirer @default(DOM)
-  tenantModuleId String? @unique
-  tenantModule TenantModule? @relation(fields: [tenantModuleId], references: [id], onDelete: Restrict)
+  users          User[] @relation("PlatformMembers")
   customerInterestRates Json @default("{}")
   absorbCustomerInterest Boolean @default(false)
   integrations   PlatformIntegration[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-  owner          User @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  owner          User @relation("PlatformOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
 
   @@index([ownerUserId])
 }

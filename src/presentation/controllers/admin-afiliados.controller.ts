@@ -37,7 +37,7 @@ async function assertMaster(prisma: PrismaService, authUser?: JwtPayload): Promi
   const requester = requesterId
     ? await prisma.user.findUnique({
         where: { id: requesterId },
-        include: { tenantModule: true },
+        include: { platform: true },
       })
     : null;
   if (!requester || !isMasterAdminUser(requester)) {

@@ -104,7 +104,7 @@ export class BillingController {
       select: {
         domToken: true,
         clientStatus: true,
-        tenantModule: { select: { slug: true } },
+        platform: { select: { tag: true } },
       },
     });
     if (!owner)
@@ -114,7 +114,7 @@ export class BillingController {
     const domToken = owner.clientStatus
       ? process.env.DOM_TOKEN
       : (owner.domToken ??
-        getModuleDomToken(owner.tenantModule?.slug) ??
+        getModuleDomToken(owner.platform?.tag) ??
         process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('DOM_TOKEN não configurado');
 

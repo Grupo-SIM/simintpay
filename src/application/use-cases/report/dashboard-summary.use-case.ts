@@ -39,13 +39,13 @@ export class DashboardSummaryUseCase {
     const [user, wallet] = await Promise.all([
       this.prisma.user.findUnique({ 
         where: { id: userId }, 
-        include: { tenantModule: true } 
+        include: { platform: true }
       }),
       this.prisma.wallet.findUnique({ where: { userId } }),
     ]);
 
     // 3. Cálculo de Saldo Disponível conforme Liquidez do Módulo
-    const slug = user?.tenantModule?.slug || null;
+    const slug = user?.platform?.tag || null;
     const fatorLiquidez = (slug === 'renovada') ? 0.91 : 0.91; // Fallback 0.91 ou buscar de config
     
     const balance = Number(wallet?.balance || 0);
