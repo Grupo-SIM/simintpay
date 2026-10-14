@@ -185,13 +185,27 @@ export class AdminAfiliadosController {
       affiliate = { id: row.id, name: row.name, email: row.email, cpf: row.cpf };
       const commissions = await this.prisma.affiliateCommission.findMany({
         where: { affiliateUserId: userId, status: 'CREDITED' },
-        select: { referredUserId: true, commissionAmount: true },
+        select: { referredUserId: true, transactionId: true, commissionAmount: true },
       });
       const byUser = new Map<string, number>();
       for (const c of commissions) {
         byUser.set(c.referredUserId, (byUser.get(c.referredUserId) ?? 0) + Number(c.commissionAmount));
       }
-      people = row.referrals.map((r) => ({ ...r, generated: byUser.get(r.id) ?? 0 }));
+      const referralIds = row.referrals.map(r => r.id);
+      const purchases = referralIds.length ? await this.prisma.transaction.findMany({
+        where: { userId: { in: referralIds }, status: 'COMPLETED' },
+        select: { id: true, userId: true, amount: true, description: true, paymentMethod: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      }) : [];
+      const commissionByTransaction = new Map(commissions.map(c => [c.transactionId, Number(c.commissionAmount)]));
+      people = row.referrals.map(r => {
+        const selected = purchases.filter(p => p.userId === r.id);
+        return { ...r, generated: byUser.get(r.id) ?? 0,
+          grossTotal: selected.reduce((sum, p) => sum + Number(p.amount), 0),
+          purchases: selected.map(p => ({ title: p.description ?? 'Compra', type: p.paymentMethod,
+            grossAmount: Number(p.amount), commissionAmount: commissionByTransaction.get(p.id) ?? 0, createdAt: p.createdAt })),
+        };
+      });
     } else {
       const [base, path] =
         platform === 'EBOOK'

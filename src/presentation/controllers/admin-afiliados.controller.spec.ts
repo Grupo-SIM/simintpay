@@ -169,3 +169,24 @@ describe('AdminAfiliadosController', () => {
     });
   });
 });
+
+describe('affiliate referral purchases', () => {
+  it('preserves generated commissions and restricts gross/purchases to selected affiliate referrals', async () => {
+    const prisma = buildPrisma({ transaction: { findMany: jest.fn().mockResolvedValue([
+      { id: 'sale', userId: 'referral', amount: '100.00', description: 'Plan', paymentMethod: 'PIX', createdAt: new Date(0) },
+    ]) } });
+    prisma.user.findUnique.mockResolvedValueOnce(masterUser).mockResolvedValueOnce({ id: 'affiliate', name: 'Affiliate', email: 'affiliate@example.test', referrals: [{ id: 'referral', name: 'Buyer', email: 'buyer@example.test' }, { id: 'empty', name: 'Empty', email: 'empty@example.test' }] });
+    prisma.affiliateCommission.findMany.mockResolvedValue([{ referredUserId: 'referral', transactionId: 'sale', commissionAmount: '4.00' }]);
+    const result = await invoke('referrals', prisma, 'affiliate', 'SIMINTPAY', masterUser);
+    expect(prisma.affiliateCommission.findMany.mock.calls[0][0].where).toEqual({ affiliateUserId: 'affiliate', status: 'CREDITED' });
+    expect(prisma.transaction.findMany.mock.calls[0][0].where).toEqual({ userId: { in: ['referral', 'empty'] }, status: 'COMPLETED' });
+    expect(result.data.referrals[0]).toMatchObject({ generated: 4, grossTotal: 100, purchases: [{ title: 'Plan', grossAmount: 100, commissionAmount: 4 }] });
+    expect(result.data.referrals[1]).toMatchObject({ generated: 0, grossTotal: 0, purchases: [] });
+  });
+  it('no referrals never becomes an unscoped transaction query', async () => {
+    const prisma = buildPrisma({ transaction: { findMany: jest.fn() } });
+    prisma.user.findUnique.mockResolvedValueOnce(masterUser).mockResolvedValueOnce({ id: 'affiliate', name: 'Affiliate', email: 'affiliate@example.test', referrals: [] });
+    expect((await invoke('referrals', prisma, 'affiliate', 'SIMINTPAY', masterUser)).data.referrals).toEqual([]);
+    expect(prisma.transaction.findMany).not.toHaveBeenCalled();
+  });
+});

@@ -36,3 +36,7 @@ Migration remota de classificação preservada byte a byte. Ambas migrations apl
 URLs migradas do exemplo de ambiente para segredo EXTERNAL_DATABASE_URL em PlatformIntegration. Configuração restrita ao admin, protocolo PostgreSQL validado e segredo mascarado. Cadastro/configuração ativos obrigatórios; slug inválido 400; estados available/unconfigured/unavailable. Pools de dois clientes com transação somente leitura e limites de 5s; renovação e fechamento verificados com mocks. Fixtures cobrem classificação das seis fontes e falha parcial, sem consultas reais.
 
 Durante execução outra ferramenta atualizou origin/main para b670f6c3fcabb8da1df776cb807672513ebba323 (campo organizationName de Patrimonial). Nenhum fetch executado nesta tarefa. Commit adicional incorporado por rebase local; organizationName preservado e testado, sem mudar classificação ou identidade financeira.
+
+## Detalhes de afiliados
+
+Campos remotos grossTotal/purchases preservados com defaults compatíveis. Caminho local consulta apenas IDs dos indicados do afiliado selecionado e vendas COMPLETED, mantendo generated e comissão por transação desse afiliado. Lista vazia de indicados não dispara consulta financeira sem escopo. Dois testes Jest caracterizam compras/total bruto e isolamento.
