@@ -1,3 +1,4 @@
+import { WebhookModule } from '../../presentation/webhook.module';
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../infrastructure/database/prisma/prisma.module';
 import { ZeroGrauModule } from '../zero-grau/zero-grau.module';
@@ -6,7 +7,7 @@ import { IntegrationFinanceService } from './integration-finance.service';
 import { IntegrationWebhookWorker } from './integration-webhook.worker';
 
 @Module({
-  imports: [PrismaModule, ZeroGrauModule],
+  imports: [PrismaModule, ZeroGrauModule, WebhookModule],
   controllers: [IntegrationFinanceController],
   providers: [IntegrationFinanceService, IntegrationWebhookWorker],
   exports: [IntegrationFinanceService],

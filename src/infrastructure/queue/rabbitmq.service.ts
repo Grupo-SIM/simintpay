@@ -9,23 +9,44 @@ export class RabbitMqService implements IQueueService, OnModuleDestroy {
   private readonly connection = connect([process.env.RABBITMQ_URL ?? 'amqp://localhost:5672']);
   private readonly queues = new Map<string, Promise<void>>();
   private readonly consumers: ChannelWrapper[] = [];
+  private readonly fallbacks = new Map<string, (message: unknown) => Promise<void>>();
   private readonly publisher = this.connection.createChannel({ confirm: true });
 
-  async publish(queue: string, message: unknown): Promise<void> {
-    if (!this.queues.has(queue)) {
-      const setup = this.publisher.addSetup(async (channel: ConfirmChannel) => {
-        await channel.assertQueue(queue, { durable: true });
-      });
-      this.queues.set(queue, setup);
-    }
-    await this.queues.get(queue);
-    await this.publisher.sendToQueue(queue, Buffer.from(JSON.stringify(message)), {
-      persistent: true,
-      timeout: 10_000,
-    });
+  constructor() {
+    this.connection.on('connect', () => this.logger.log('[RabbitMQ] connected'));
+    this.connection.on('disconnect', () => this.logger.error('[RabbitMQ] disconnected; DOM webhooks use local processing'));
+    this.connection.on('connectFailed', () => this.logger.error('[RabbitMQ] connection failed; check broker availability and credentials'));
   }
 
-  register(queue: string, handler: (message: unknown) => Promise<void>): void {
+  async publish(queue: string, message: unknown): Promise<void> {
+    const fallback = this.fallbacks.get(queue);
+    if (fallback && !this.connection.isConnected()) {
+      this.logger.warn(`[RabbitMQ] local processing: queue=${queue} reason=disconnected`);
+      await fallback(message);
+      return;
+    }
+    try {
+      if (!this.queues.has(queue)) {
+        const setup = this.publisher.addSetup(async (channel: ConfirmChannel) => {
+          await channel.assertQueue(queue, { durable: true });
+        });
+        this.queues.set(queue, setup);
+      }
+      await this.queues.get(queue);
+      await this.publisher.sendToQueue(queue, Buffer.from(JSON.stringify(message)), {
+        persistent: true,
+        timeout: 10_000,
+      });
+    } catch (error) {
+      if (!fallback) throw error;
+      this.logger.warn(`[RabbitMQ] local processing: queue=${queue} reason=publish-failed`);
+      // A timed-out publish may still arrive later. Only idempotent handlers opt in.
+      await fallback(message);
+    }
+  }
+
+  register(queue: string, handler: (message: unknown) => Promise<void>, localFallback = false): void {
+    if (localFallback) this.fallbacks.set(queue, handler);
     const consumer = this.connection.createChannel({
       setup: async (channel: ConfirmChannel) => {
         await channel.assertQueue(queue, { durable: true });

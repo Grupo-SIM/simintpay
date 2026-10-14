@@ -3,14 +3,14 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CheckoutPixDto } from '../../renovada/dtos/checkout-pix.dto';
 import { CheckoutCreditCardDto } from '../../renovada/dtos/checkout-credit-card.dto';
 import { ZeroGrauPaymentService } from '../services/zero-grau-payment.service';
-import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { ReconcilePendingTransactionsUseCase } from '../../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 
 @ApiTags('Zero Grau Payments')
 @Controller('zero-grau/payments')
 export class ZeroGrauPaymentController {
   constructor(
     private readonly paymentService: ZeroGrauPaymentService,
-    private readonly prisma: PrismaService,
+    private readonly reconcile: ReconcilePendingTransactionsUseCase,
   ) {}
 
   private get zeroGrauUserId(): string {
@@ -34,16 +34,8 @@ export class ZeroGrauPaymentController {
   @Get('status/:paymentId')
   @ApiOperation({ summary: '[ZERO_GRAU] Verificar status de um pagamento' })
   async checkStatus(@Param('paymentId') paymentId: string) {
-    const tx = await this.prisma.transaction.findFirst({
-      where: {
-        userId: this.zeroGrauUserId,
-        OR: [{ domPaymentId: paymentId }, { domTransactionId: paymentId }],
-      },
-      select: { domPaymentId: true, status: true },
-    });
-
-    if (!tx) return { paymentId, status: 'NOT_FOUND' };
-    return { paymentId: tx.domPaymentId, status: tx.status };
+    return this.reconcile.reconcilePayment(paymentId, this.zeroGrauUserId,
+      process.env.ZERO_GRAU_DOM_TOKEN || process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY);
   }
 
   @Get('pix-status/:domPaymentId')

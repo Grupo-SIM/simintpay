@@ -4,6 +4,7 @@ import { CheckoutPixDto } from '../../renovada/dtos/checkout-pix.dto';
 import { CheckoutCreditCardDto } from '../../renovada/dtos/checkout-credit-card.dto';
 import { TransactionStatus, PaymentMethod } from '@prisma/client';
 import dayjs from 'dayjs';
+import { ReconcilePendingTransactionsUseCase } from '../../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { ZeroGrauConfig } from '../zero-grau.config';
 
 interface DomPagamentosResponse {
@@ -79,7 +80,10 @@ const ZERO_GRAU_HIDDEN_TAG = '[TENANT:ZERO_GRAU]';
 export class ZeroGrauPaymentService {
   private readonly logger = new Logger(ZeroGrauPaymentService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reconcile: ReconcilePendingTransactionsUseCase,
+  ) {}
 
   private get domToken(): string | undefined {
     return process.env.ZERO_GRAU_DOM_TOKEN || process.env.DOM_TOKEN;
@@ -319,11 +323,24 @@ export class ZeroGrauPaymentService {
 
       this.logger.log(`✅ [ZERO_GRAU] Transação ${transaction.id} atualizada para PENDING`);
 
+      // Persist terminal gateway results through the same idempotent webhook path.
+      // Returning the stored status prevents Delivery from confirming before SimIntPay.
+      let status = 'PENDING';
+      if (!['pending', 'pending_capture'].includes(payment.status?.trim().toLowerCase())) {
+        try {
+          const settled = await this.reconcile.reconcilePayment(payment.id, userId, this.domToken);
+          if (settled.status !== 'NOT_FOUND') status = settled.status;
+        } catch (error) {
+          // Charge already exists: preserve its reference so polling can retry settlement.
+          this.logger.error(`[ZERO_GRAU][card] Settlement failed paymentId=${payment.id}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
       return {
         ...payment,
         transactionId: transaction.id,
         paymentId: payment.id,
-        status: 'PENDING',
+        status,
         fee_details: {
           installment_amount: installmentAmount,
           total_fee: totalFeesFinal,
@@ -443,22 +460,9 @@ export class ZeroGrauPaymentService {
   }
 
   async checkPixStatusDirect(domPaymentId: string): Promise<{ status: string }> {
-    const token = this.domToken;
-    if (!token) return { status: 'UNKNOWN' };
-    try {
-      const url = `https://apiv3.dompagamentos.com.br/checkout/production/transactions/${domPaymentId}`;
-      const res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          Origin: this.domOrigin,
-        },
-      });
-      if (!res.ok) return { status: 'UNKNOWN' };
-      const data = await res.json() as { status?: string };
-      return { status: (data.status || 'UNKNOWN').toUpperCase() };
-    } catch {
-      return { status: 'UNKNOWN' };
-    }
+    const userId = process.env.ZERO_GRAU_USER_ID?.trim();
+    if (!userId) return { status: 'UNKNOWN' };
+    const result = await this.reconcile.reconcilePayment(domPaymentId, userId, this.domToken);
+    return { status: result.status };
   }
 }

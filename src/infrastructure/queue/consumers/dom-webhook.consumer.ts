@@ -16,7 +16,7 @@ export class DomWebhookConsumer implements OnModuleInit {
   onModuleInit(): void {
     this.queue.register(QueueNames.DOM_WEBHOOK_DIRECT, async (payload) => {
       await this.processDomWebhook.execute(payload);
-    });
+    }, true);
     this.logger.log('[DomWebhookConsumer] Ouvindo fila dom-webhook-direct');
   }
 }
