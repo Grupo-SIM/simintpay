@@ -157,3 +157,10 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Remover escritor duplicado de saques: alias e canônico usam `PlatformFinanceService.createWithdrawal`, com reserva/CAS, vínculo explícito e adquirente cadastrado.
 - [x] Outbox compartilhado e transacional para ambos os contratos; idempotência valida valor/chave e namespace.
 - [x] Três testes de equivalência financeira, 13 testes do núcleo/comerciantes e cinco regressões Jest aprovados.
+
+## Continuação — sincronização histórica
+
+- [x] Atlas/Revalida deixam de implementar importação financeira própria; full-sync e polling usam mesma persistência e coordenador por plataforma.
+- [x] Full-sync canônico exige admin; mantém contrato legado de recálculo exclusivo e resposta em centavos. Datas históricas preservadas, histórico sem tag não adotado.
+- [x] Espelhamento após zero/full-sync também centralizado.
+- [x] 15 testes de histórico/persistência aprovados: equivalência financeira/unidades, carteira compartilhada, coalescência e preservação de titularidade.

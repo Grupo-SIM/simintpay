@@ -1,3 +1,4 @@
+import { PlatformHistoricalSync } from './platform-historical-sync';
 import { canSyncTransition, conflictingPlatformMarker, hasPlatformMarker, platformSyncAdapter, syncStatus } from './platform-sync.adapter';
 import { Inject, Injectable } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
@@ -14,15 +15,17 @@ export class PlatformSyncPersistenceService {
   constructor(private readonly prisma: PrismaService, private readonly http: HttpService,
     private readonly events: PlatformEventsService, @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway) {}
 
-  private readonly running = new Map<string, Promise<unknown>>();
+  private readonly running = new Map<string, { mode: string; task: Promise<unknown> }>();
 
-  poll(tag: string): Promise<unknown> {
+  private run(tag: string, mode: string, execute: () => Promise<unknown>): Promise<unknown> {
     const active = this.running.get(tag);
-    if (active) return active;
-    const task = this.executePoll(tag).finally(() => this.running.delete(tag));
-    this.running.set(tag, task);
+    if (active) return active.mode === mode ? active.task : active.task.catch(() => undefined).then(() => this.run(tag, mode, execute));
+    const task = execute().finally(() => { if (this.running.get(tag)?.task === task) this.running.delete(tag); });
+    this.running.set(tag, { mode, task });
     return task;
   }
+  poll(tag: string) { return this.run(tag, 'poll', () => this.executePoll(tag)); }
+  history(tag: string, context?: import('./platform-context.service').PlatformContext) { return this.run(tag, 'history', () => new PlatformHistoricalSync(this.prisma, this.gateway, this.persist.bind(this)).run(tag, context)); }
 
   private async executePoll(tag: string) {
     const platform = await this.prisma.platform.findUnique({ where: { tag }, include: { owner: true } });
@@ -64,6 +67,8 @@ export class PlatformSyncPersistenceService {
     if (!amount.isFinite() || !netAmount.isFinite() || amount.lt(0) || netAmount.lt(0)) return false;
     const status = syncStatus(row.status);
     if (!status) return false;
+    const createdAt = row.created_at == null ? undefined : new Date(row.created_at);
+    if (createdAt && !Number.isFinite(createdAt.getTime())) return false;
     const marker = `[TENANT:${platform.tag}]`;
     const data = { amount, netAmount, totalFee, domFee, platformFee: Prisma.Decimal.max(0, totalFee.minus(domFee)), status,
       description: description.includes(marker) ? description : `${description} ${marker}`,
@@ -93,7 +98,7 @@ export class PlatformSyncPersistenceService {
           if (!updated.count) return null;
           result = { ...existing, ...updateData };
         } else {
-          result = await tx.transaction.create({ data: { ...data, userId, domPaymentId: paymentId, domTransactionId: transactionId, acquirer: 'DOM', paymentMethod: /card|credit/i.test(row.payment_method ?? '') ? 'CREDIT_CARD' : 'PIX', installments: row.installments ?? 1 } });
+          result = await tx.transaction.create({ data: { ...data, ...(createdAt ? { createdAt } : {}), userId, domPaymentId: paymentId, domTransactionId: transactionId, acquirer: 'DOM', paymentMethod: /card|credit/i.test(row.payment_method ?? '') ? 'CREDIT_CARD' : 'PIX', installments: row.installments ?? 1 } });
         }
         const delta = after.minus(before);
         if (!delta.isZero()) await tx.wallet.update({ where: { userId }, data: { balance: { increment: delta }, version: { increment: 1 } } });

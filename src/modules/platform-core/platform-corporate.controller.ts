@@ -1,3 +1,5 @@
+import { PlatformSyncPersistenceService } from './platform-sync-persistence.service';
+import { Prisma } from '@prisma/client';
 import { PlatformReconciliation } from './platform-reconciliation';
 import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { PlatformLinkClaim, type LinkClaim } from './platform-link-claim';
@@ -16,6 +18,14 @@ import { unsupportedCapability } from './platform-adapters';
 @UseGuards(PlatformAuthGuard)
 export class PlatformCorporateController {
   constructor(private readonly modules: ModuleRef, private readonly prisma: PrismaService) {}
+  @Post('maintenance/full-sync') @SetMetadata('platform-operation', 'maintenance:run')
+  async history(@Req() request: { platformContext: PlatformContext }) {
+    const result = await this.modules.get(PlatformSyncPersistenceService, { strict: false }).history(request.platformContext.tag, request.platformContext) as Record<string, unknown>;
+    const { balance, totalReceived, totalWithdrawn, ...data } = result;
+    if (!result.success) return result;
+    const cents = (value: unknown) => new Prisma.Decimal(value as number).mul(100).toDecimalPlaces(0).toNumber();
+    return { ...data, unit: 'cents', balanceCents: cents(balance), totalReceivedCents: cents(totalReceived), totalWithdrawnCents: cents(totalWithdrawn) };
+  }
   @Post('finance/reconcile') @SetMetadata('platform-operation', 'sync:run')
   reconcile(@Req() request: { platformContext: PlatformContext }, @Query('hours') hours?: string) {
     return new PlatformReconciliation(this.prisma, this.modules.get(ReconcilePendingTransactionsUseCase, { strict: false })).run(request.platformContext.tag, hours === undefined ? 720 : Number(hours), undefined, request.platformContext);
