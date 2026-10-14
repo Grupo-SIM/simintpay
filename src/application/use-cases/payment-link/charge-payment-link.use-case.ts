@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { persistLinkCharge } from '../../../modules/platform-core/link-settlement';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
@@ -11,7 +13,6 @@ import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { calculatePaymentLinkFees, calculateDebitFees } from './payment-link-fees.helper';
 import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
-import { getEbookTaxaServico } from '../../../modules/ebooksim/ebooksim.config';
 import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { splitDocument } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
@@ -98,60 +99,6 @@ export class ChargePaymentLinkUseCase {
     return merchant?.id ?? fallbackUserId;
   }
 
-  /** Mesmo delta do webhook DOM (process-dom-webhook), para wallet e relatórios ficarem consistentes. */
-  private resolveWalletDelta(netAmount: number, description: string | null | undefined): Prisma.Decimal {
-    const net = new Prisma.Decimal(netAmount);
-    if (description?.includes('[TENANT:EBOOK]')) return net.sub(getEbookTaxaServico());
-    return net;
-  }
-
-  private async creditWalletForApprovedCharge(
-    transactionId: string,
-    userId: string,
-    netAmount: number,
-    description: string | null | undefined,
-  ): Promise<void> {
-    const delta = this.resolveWalletDelta(netAmount, description);
-
-    await this.prisma.$transaction(async (p) => {
-      // Idempotência: se o webhook (ou uma chamada anterior) já creditou esta transação, não credita de novo.
-      const already = await p.balanceLog.findFirst({
-        where: { transactionId, action: { in: ['DOM_WEBHOOK_COMPLETED', 'CHARGE_APPROVED_COMPLETED'] } },
-        select: { id: true },
-      });
-      if (already) return;
-
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const wallet = await p.wallet.findUnique({ where: { userId } });
-        if (!wallet) return;
-
-        const newBalance = wallet.balance.add(delta);
-        const result = await p.wallet.updateMany({
-          where: { id: wallet.id, version: wallet.version },
-          data: { balance: newBalance, version: { increment: 1 } },
-        });
-
-        if (result.count > 0) {
-          await p.balanceLog.create({
-            data: {
-              userId,
-              action: 'CHARGE_APPROVED_COMPLETED',
-              transactionId,
-              amount: delta.abs(),
-              balanceBefore: wallet.balance,
-              balanceAfter: newBalance,
-              lockedBefore: wallet.lockedBalance,
-              lockedAfter: wallet.lockedBalance,
-              source: 'CHARGE_PAYMENT_LINK',
-            },
-          });
-          return;
-        }
-      }
-      throw new Error('Wallet version conflict after 3 retries');
-    });
-  }
-
   async execute(input: ChargePaymentLinkInput): Promise<{
     id: string;
     status: string;
@@ -224,24 +171,8 @@ export class ChargePaymentLinkUseCase {
       );
     }
 
-    const result = await this.gateway.chargePaymentLink(domToken, {
-      domLinkId: link.domPaymentLinkId,
-      amount: totalAmount,
-      description: link.description ?? link.title,
-      customerName: input.customerName,
-      customerEmail: input.customerEmail,
-      customerDocument: input.customerDocument.replace(/\D/g, ''),
-      customerPhone: input.customerPhone.replace(/\D/g, ''),
-      paymentMethod: input.paymentMethod ?? 'credit_card',
-      installments,
-      card: input.card,
-    });
 
     const effectiveUserId = await this.resolveMerchantUserIdByDocument(link.description, link.userId);
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: effectiveUserId } });
-    if (!wallet) {
-      await this.prisma.wallet.create({ data: { userId: effectiveUserId, balance: 0 } });
-    }
 
     const customerDocument = input.customerDocument.replace(/\D/g, '');
     const customerPhone = input.customerPhone.replace(/\D/g, '');
@@ -250,52 +181,42 @@ export class ChargePaymentLinkUseCase {
     const totalFee = totalAmount - netAmount;
     const platformFee = totalFee - domFeeAmount;
 
-    const tx = await this.prisma.transaction.upsert({
-      where: { domPaymentId: result.id },
-      update: {
-        status: this.mapGatewayStatusToTxStatus(result.status),
-        paymentMethod: this.mapPaymentMethod(input.paymentMethod),
-        amount: new Prisma.Decimal(totalAmount),
-        netAmount: new Prisma.Decimal(netAmount),
-        totalFee: new Prisma.Decimal(totalFee),
-        domFee: new Prisma.Decimal(domFeeAmount),
-        platformFee: new Prisma.Decimal(platformFee),
-        userId: effectiveUserId,
-        description: platformTag !== 'GLOBAL' ? `${link.description ?? link.title} [TENANT:${platformTag}]` : (link.description ?? link.title),
-        customerName: input.customerName,
-        customerEmail: input.customerEmail,
-        customerDocument,
-        customerPhone,
-        paymentLinkId: link.id,
-        pixContent: result.pixContent ?? null,
-        installments,
-      },
-      create: {
+    const chargeId = randomUUID();
+    const snapshot = {
         userId: effectiveUserId,
         amount: new Prisma.Decimal(totalAmount),
         netAmount: new Prisma.Decimal(netAmount),
-        status: this.mapGatewayStatusToTxStatus(result.status),
-        paymentMethod: this.mapPaymentMethod(input.paymentMethod),
-        totalFee: new Prisma.Decimal(totalFee),
-        domFee: new Prisma.Decimal(domFeeAmount),
-        platformFee: new Prisma.Decimal(platformFee),
-        domPaymentId: result.id,
-        description: platformTag !== 'GLOBAL' ? `${link.description ?? link.title} [TENANT:${platformTag}]` : (link.description ?? link.title),
-        customerName: input.customerName,
-        customerEmail: input.customerEmail,
-        customerDocument,
-        customerPhone,
-        paymentLinkId: link.id,
-        pixContent: result.pixContent ?? null,
-        installments,
-      },
-    });
 
-    // Cartão aprovado na hora nasce COMPLETED e o webhook DOM não transiciona o status
-    // (ver process-dom-webhook: status igual → retorna), então o crédito da wallet é feito aqui.
-    if (tx.status === TransactionStatus.COMPLETED) {
-      await this.creditWalletForApprovedCharge(tx.id, effectiveUserId, netAmount, tx.description);
-    }
+        paymentMethod: this.mapPaymentMethod(input.paymentMethod),
+        totalFee: new Prisma.Decimal(totalFee),
+        domFee: new Prisma.Decimal(domFeeAmount),
+        platformFee: new Prisma.Decimal(platformFee),
+        description: platformTag !== 'GLOBAL' ? `${link.description ?? link.title} [TENANT:${platformTag}]` : (link.description ?? link.title),
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+        customerDocument,
+        customerPhone,
+        paymentLinkId: link.id,
+        installments,
+    };
+    await this.prisma.$transaction(async p => {
+      await p.wallet.upsert({ where: { userId: effectiveUserId }, update: {}, create: { userId: effectiveUserId, balance: 0 } });
+      await p.transaction.create({ data: { ...snapshot, id: chargeId, status: 'DRAFT', settlementBasis: 'FINAL_NET' } });
+    });
+    const result = await this.gateway.chargePaymentLink(domToken, {
+      domLinkId: link.domPaymentLinkId,
+      amount: totalAmount,
+      description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,
+      customerName: input.customerName,
+      customerEmail: input.customerEmail,
+      customerDocument: input.customerDocument.replace(/\D/g, ''),
+      customerPhone: input.customerPhone.replace(/\D/g, ''),
+      paymentMethod: input.paymentMethod ?? 'credit_card',
+      installments,
+      card: input.card,
+    });
+    const tx = await this.prisma.$transaction(p =>
+      persistLinkCharge(p, { ...snapshot, domPaymentId: result.id, pixContent: result.pixContent ?? null }, this.mapGatewayStatusToTxStatus(result.status), chargeId));
 
     // Incrementa contador de usos
     await this.links.update(link.id, {

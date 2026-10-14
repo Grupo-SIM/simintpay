@@ -74,14 +74,14 @@ export class GetWithdrawSummaryUseCase {
       const pendingOnly = activeWithdraws.filter((w) => w.status === WithdrawStatus.PENDING);
       const pendingBruto = pendingOnly.reduce((s, r) => s + Number(r.grossAmount), 0);
       const pendingNetSum = pendingOnly.reduce((s, r) => s + Number(r.amount), 0);
-      const availableNet = Math.max(0, storedNet - pendingBruto);
+      const availableNet = Math.max(0, storedNet - Number(wallet.lockedBalance));
       const r2 = (n: number) => Number(n.toFixed(2));
 
       return {
         availableBalance: r2(availableNet),
         netBalance: String(r2(availableNet)),
         pendingWithdraws: r2(pendingBruto),
-        lockedBalance: r2(pendingBruto),
+        lockedBalance: r2(Number(wallet.lockedBalance)),
         netLockedBalance: String(r2(pendingNetSum)),
         config: {
           minValor: configResp.minValor,
@@ -107,7 +107,7 @@ export class GetWithdrawSummaryUseCase {
       availableBalance: availableBalanceGross,
       netBalance: String(netBalance),
       pendingWithdraws: lockedBalanceGross,
-      lockedBalance: lockedBalanceGross,
+      lockedBalance: Number(wallet.lockedBalance),
       netLockedBalance: String(lockedBalanceNet),
       config: configResp,
       wallet: {

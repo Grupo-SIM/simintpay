@@ -156,3 +156,13 @@ Confirmação de pedido Ebook usa mesmo hook em `/webhook/ebook/payment-confirma
 Saldo contábil por produto está disponível para todas as plataformas com histórico identificado, genéricas ou corporativas, em `GET /platforms/:tag/finance/balance`, sem lista de produtos habilitados. Apenas lançamentos explicitamente vinculados à plataforma compõem sua projeção; histórico sem identificação permanece excluído e sinalizado na resposta. Ausência de histórico identificado não bloqueia a consulta nem autoriza atribuição automática de histórico.
 
 Saldo contábil por produto informa `balanceBasis: persisted-net`: projeção de líquidos registrados, sem equivaler automaticamente ao valor sacável da carteira. Adapter Bosque inclui saques administrativos `bosque-baseline` na dedução atribuída; demais produtos consideram somente sua tag.
+
+## Integração remota — links e classificação administrativa
+
+- `isSimintpayClient` é classificação administrativa; não altera aprovação, papel, titularidade ou associação de produtos. Ativos excluem marcados por padrão; `simintpayClients=true` seleciona marcados e `any` inclui ambos. Inativos/purgados incluem ambos por padrão.
+- Admin lista globalmente os cinco produtos; `onlyMine=true` ou `1` limita ao próprio usuário. Usuário comum permanece limitado à própria conta.
+- Links novos: líquido de crédito = total cobrado − custo gateway calculado − taxa do vendedor. Juros pagos pelo comprador permanecem na receita da plataforma. PIX preserva sua regra específica de gateway. Cashback e fixa adicionais são zero no breakdown; débito conserva seus descontos próprios.
+- Defaults de `TAXA_LINK_PERCENT` e `LINK_COST_1X…12X`: 9%. Default global de saque: R$ 3,50. Overrides cadastrados, inclusive zero, prevalecem.
+- `Transaction.settlementBasis=FINAL_NET` identifica snapshots finais dos links novos. NULL preserva contratos históricos, sem backfill financeiro. Draft fixa snapshot e dono antes da cobrança. Resposta, callback e polling liquidam com CAS, carteira e auditoria na mesma transação; estorno usa crédito efetivamente registrado. Falha incerta conserva draft para reconciliação, sem repetir automaticamente cobrança.
+- Disponibilidade de saque usa `max(0, wallet.balance − wallet.lockedBalance)`; reserva não é abatida novamente. Saldo administrativo por produto reutiliza líquidos persistidos, saques explicitamente identificados e indicadores de lacunas. Bosque inclui baseline no adapter existente; carteira compartilhada continua separada da projeção.
+

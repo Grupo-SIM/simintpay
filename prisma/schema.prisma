@@ -164,6 +164,7 @@ model Transaction {
   id               String                     @id @default(uuid())
   userId           String
   amount           Decimal                    @db.Decimal(12, 2)
+  settlementBasis String?
   netAmount        Decimal?                   @db.Decimal(12, 2)
   status           TransactionStatus          @default(DRAFT)
   previousStatus   TransactionStatus?

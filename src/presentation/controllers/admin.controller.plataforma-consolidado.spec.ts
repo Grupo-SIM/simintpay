@@ -265,10 +265,10 @@ describe('AdminController.getPlataformaConsolidado', () => {
       taxaDomFixa: 1,
       taxaDomCashback: 3,
       totalTaxasDom: 4.04,
-      taxaSimIntPctBruta: 4.07,
+      taxaSimIntPctBruta: 4.09,
       taxaSimIntFixa: 4,
-      taxaSimIntPctNet: 4.03,
-      totalTaxasSimInt: 8.07,
+      taxaSimIntPctNet: 4.05,
+      totalTaxasSimInt: 8.09,
     });
   });
 

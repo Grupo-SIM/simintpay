@@ -33,7 +33,7 @@ describe('ProcessDomWebhookUseCase — proteção contra crédito duplicado', ()
         findUnique: jest.fn().mockResolvedValue(wallet),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      balanceLog: { create: jest.fn().mockResolvedValue({}) },
+      balanceLog: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
     };
 
     const prisma = {

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { persistLinkCharge } from '../../../modules/platform-core/link-settlement';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
@@ -117,7 +119,6 @@ export class ChargePixPaymentLinkUseCase {
     const document = input.customerDocument.replace(/\D/g, '');
     const documentType = input.documentType ?? (document.length === 14 ? 'CNPJ' : 'CPF');
     const phone = (input.customerPhone ?? '').replace(/\D/g, '');
-    const codExternal = `pix-link-${link.id}-${Date.now()}`;
 
     // PIX é sempre 1 parcela sem juros — comprador paga exatamente o valor base do link
     const platformTag = ((link as any).plataformas?.[0] as string | undefined)?.toUpperCase()
@@ -137,65 +138,46 @@ export class ChargePixPaymentLinkUseCase {
       netAmount = calculateAreaflixSellerNet(totalAmount, 'PIX');
     }
 
+
+    const effectiveUserId = await this.resolveMerchantUserIdByDocument(link.description, link.userId);
+
+    const totalFee = totalAmount - netAmount;
+    const platformFee = totalFee - domFeeAmount;
+
+    const chargeId = randomUUID();
+    const snapshot = {
+        userId: effectiveUserId,
+        amount: new Prisma.Decimal(totalAmount),
+        netAmount: new Prisma.Decimal(netAmount),
+
+        paymentMethod: PaymentMethod.PIX,
+        totalFee: new Prisma.Decimal(totalFee),
+        domFee: new Prisma.Decimal(domFeeAmount),
+        platformFee: new Prisma.Decimal(platformFee),
+        description: platformTag !== 'GLOBAL' ? `${link.description ?? link.title} [TENANT:${platformTag}]` : (link.description ?? link.title),
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+        customerDocument: document,
+        customerPhone: phone || null,
+        paymentLinkId: link.id,
+    };
+    await this.prisma.$transaction(async p => {
+      await p.wallet.upsert({ where: { userId: effectiveUserId }, update: {}, create: { userId: effectiveUserId, balance: 0 } });
+      await p.transaction.create({ data: { ...snapshot, id: chargeId, status: 'DRAFT', settlementBasis: 'FINAL_NET' } });
+    });
     const result = await this.gateway.chargePixForLink(domToken, {
       domLinkId: link.domPaymentLinkId,
       amount: totalAmount,
-      description: link.title,
+      description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,
       customerName: input.customerName,
       customerEmail: input.customerEmail,
       customerDocument: document,
       customerPhone: phone,
       documentType,
-      codExternal,
+      codExternal: chargeId,
     });
-
-    const effectiveUserId = await this.resolveMerchantUserIdByDocument(link.description, link.userId);
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: effectiveUserId } });
-    if (!wallet) {
-      await this.prisma.wallet.create({ data: { userId: effectiveUserId, balance: 0 } });
-    }
-
-    const totalFee = totalAmount - netAmount;
-    const platformFee = totalFee - domFeeAmount;
-
-    const savedTx = await this.prisma.transaction.upsert({
-      where: { domPaymentId: result.id },
-      update: {
-        status: TransactionStatus.PENDING,
-        paymentMethod: PaymentMethod.PIX,
-        amount: new Prisma.Decimal(totalAmount),
-        netAmount: new Prisma.Decimal(netAmount),
-        totalFee: new Prisma.Decimal(totalFee),
-        domFee: new Prisma.Decimal(domFeeAmount),
-        platformFee: new Prisma.Decimal(platformFee),
-        userId: effectiveUserId,
-        description: platformTag !== 'GLOBAL' ? `${link.description ?? link.title} [TENANT:${platformTag}]` : (link.description ?? link.title),
-        customerName: input.customerName,
-        customerEmail: input.customerEmail,
-        customerDocument: document,
-        customerPhone: phone || null,
-        paymentLinkId: link.id,
-        pixContent: result.pixContent ?? null,
-      },
-      create: {
-        userId: effectiveUserId,
-        amount: new Prisma.Decimal(totalAmount),
-        netAmount: new Prisma.Decimal(netAmount),
-        status: TransactionStatus.PENDING,
-        paymentMethod: PaymentMethod.PIX,
-        totalFee: new Prisma.Decimal(totalFee),
-        domFee: new Prisma.Decimal(domFeeAmount),
-        platformFee: new Prisma.Decimal(platformFee),
-        domPaymentId: result.id,
-        description: platformTag !== 'GLOBAL' ? `${link.description ?? link.title} [TENANT:${platformTag}]` : (link.description ?? link.title),
-        customerName: input.customerName,
-        customerEmail: input.customerEmail,
-        customerDocument: document,
-        customerPhone: phone || null,
-        paymentLinkId: link.id,
-        pixContent: result.pixContent ?? null,
-      },
-    });
+    const savedTx = await this.prisma.$transaction(p =>
+      persistLinkCharge(p, { ...snapshot, domPaymentId: result.id, pixContent: result.pixContent ?? null }, TransactionStatus.PENDING, chargeId));
 
     // Incrementa contador de usos
     await this.links.update(link.id, {

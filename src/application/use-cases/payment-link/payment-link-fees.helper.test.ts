@@ -18,8 +18,8 @@ describe('separate platform interest and costs', () => {
   });
   test('interest revenue belongs to platform; costs deducted once', () => {
     const fees = calculatePaymentLinkFees(link, 12, 'SHOP');
-    expect(fees.netAmount).toBe(115.01);
-    expect(fees.estimatedMargin).toBe(15.01);
+    expect(fees.netAmount).toBe(117);
+    expect(fees.estimatedMargin).toBe(17);
   });
   test('warns individually for negative margin and permits absorption', () => {
     const normal = calculatePaymentLinkFees(link, 2, 'SHOP');
@@ -32,4 +32,26 @@ describe('separate platform interest and costs', () => {
     expect(getPlatformFeeRate({ ...link, isStandalone: true } as PaymentLink, 1, 'SHOP')).toBe(0);
     expect(calculatePaymentLinkFees(link, 1, 'SHOP', true).totalAmount).toBe(100);
   });
+});
+
+test('credit matrix 1–12 keeps interest and excludes extra fees; zero overrides are honored', async () => {
+  await initializePlatformRegistryCache(client as never);
+  await initializePlatformTaxasCache(client as never);
+  try {
+    for (let n = 1; n <= 12; n++) {
+      const fees = calculatePaymentLinkFees(link, n, 'SHOP');
+      expect(fees.netAmount).toBe(Number((fees.totalAmount - fees.domFeeAmount - fees.sellerFee).toFixed(2)));
+      expect(fees.cashbackFee).toBe(0); expect(fees.transactionFixedFee).toBe(0);
+    }
+    readOverridesRaw().SHOP = { LINK_COST_1X: 0, TAXA_LINK_FIXA: 0 };
+    const pix = calculatePaymentLinkFees(link, 1, 'SHOP', true);
+    expect(pix.netAmount).toBe(100);
+  } finally { await initializePlatformRegistryCache(empty as never); await initializePlatformTaxasCache(empty as never); }
+});
+
+test('debit keeps its method-specific cashback and fixed discounts', async () => {
+  const { calculateDebitFees } = await import('./payment-link-fees.helper');
+  const fees = calculateDebitFees(link, 'GLOBAL');
+  expect(fees.cashbackFee).toBe(3); expect(fees.transactionFixedFee).toBe(1);
+  expect(fees.netAmount).toBe(Number((100 - fees.domFeeAmount - fees.platformFeeAmount - 4).toFixed(2)));
 });

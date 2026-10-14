@@ -30,7 +30,7 @@ function getDomFixedFee(installments: number): number {
 
 /**
  * Taxa do vendedor (casa): configurável via GLOBAL → plataforma.
- * Padrão: 6,99% + R$4,00
+ * Padrão: 9% + R$4,00
  */
 function getSellerFeePercentage(platformTag?: string, installments = 1): number {
   return getPlatformTaxaEffective(
@@ -69,7 +69,7 @@ export function getPlatformFeeRate(link: PaymentLink, installments: number, plat
  * 1. Juros da plataforma (platformFee%) aplicados sobre o valor BASE
  * 2. Taxa DOM aplicada sobre (base + juros)
  * 3. Valor total que o COMPRADOR paga = base + juros + taxaDom + fixedDom
- * 4. Valor líquido que o VENDEDOR recebe = base - (6,99% + R$4) - cashbackFee
+ * 4. Líquido = total cobrado − custo DOM calculado − taxa vendedor (9% + R$4)
  */
 export function calculatePaymentLinkFees(
   link: PaymentLink,
@@ -113,9 +113,8 @@ export function calculatePaymentLinkFees(
   const installmentAmount = totalAmount / n;
 
   // 4. Líquido do VENDEDOR (calculado sobre o valor BASE, com taxa fixa multiplicada por parcelas)
-  const tag = platformTag ?? 'GLOBAL';
-  const cashbackFee = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-  const transactionFixedFee = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
+  const cashbackFee = 0;
+  const transactionFixedFee = 0;
   const sellerFee = baseAmount * getSellerFeePercentage(platformTag, n) + getSellerFeeFixed(platformTag);
   const netAmount = totalAmount - (isPix ? 0 : domFeeAmount) - sellerFee;
   const estimatedMargin = netAmount - baseAmount;

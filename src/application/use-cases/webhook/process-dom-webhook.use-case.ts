@@ -1,3 +1,4 @@
+import { creditedSettlementAmount, bindLinkPayment, linkChargeReference, settleFinalNet } from '../../../modules/platform-core/link-settlement';
 import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 import { getPlatformOwnerId, registeredPlatformTags } from '../../../modules/module.registry';
@@ -281,8 +282,9 @@ export class ProcessDomWebhookUseCase {
     // DOM Pagamentos envia amount e liquid_amount em CENTAVOS → dividir por 100
     const amountDec = new Prisma.Decimal(data.amount / 100);
 
+    const chargeReference = linkChargeReference(data.description ?? data.product_first ?? data.items?.[0]?.description);
     const existing = await this.prisma.transaction.findFirst({
-      where: { domPaymentId: data.id },
+      where: { OR: [{ domPaymentId: data.id }, ...(chargeReference ? [{ id: chargeReference, settlementBasis: 'FINAL_NET' }] : [])] },
     });
 
     if (existing) {
@@ -312,8 +314,8 @@ export class ProcessDomWebhookUseCase {
       // Renovada/Bosque: wallet stores net (DOM liquid_amount). Use liquid from webhook when available,
       // fall back to stored netAmount, then gross as last resort.
       let delta: Prisma.Decimal;
-      if (/^[a-f0-9]{64}$/.test(existing.id) && existing.netAmount != null) {
-        delta = new Prisma.Decimal(existing.netAmount);
+      if (existing.settlementBasis === 'FINAL_NET' || (/^[a-f0-9]{64}$/.test(existing.id) && existing.netAmount != null)) {
+        delta = new Prisma.Decimal(existing.netAmount!);
       } else if (isRenovada || isBosque) {
         const domLiquid = data.liquid_amount != null ? new Prisma.Decimal(data.liquid_amount / 100) : null;
         delta = domLiquid
@@ -331,14 +333,21 @@ export class ProcessDomWebhookUseCase {
           : amountDec;
         delta = netAmountDec.sub(getEbookTaxaServico());
       } else {
-        // netAmount já é o líquido final do vendedor (taxas descontadas na criação da cobrança):
-        // não descontar fixa/cashback/serviço de novo aqui.
-        delta = existing.netAmount != null
-          ? new Prisma.Decimal(existing.netAmount.toString())
-          : amountDec;
+        const feeTag = 'GLOBAL';
+        delta = (existing.netAmount != null ? new Prisma.Decimal(existing.netAmount) : amountDec)
+          .sub(getPlatformTaxaEffective(feeTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO))
+          .sub(getPlatformTaxaEffective(feeTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK))
+          .sub(getPlatformTaxaEffective(feeTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO));
       }
 
-      await this.prisma.$transaction(async (p) => {
+      const applied = await this.prisma.$transaction(async (p) => {
+        if (existing.settlementBasis === 'FINAL_NET') {
+          await bindLinkPayment(p, existing, data.id);
+          return settleFinalNet(p, existing, nextStatus, 'DOM_WEBHOOK');
+        }
+        if (existing.status === TransactionStatus.COMPLETED && [TransactionStatus.REFUNDED, TransactionStatus.CHARGEBACK, TransactionStatus.IN_MEDIATION].includes(nextStatus as never)) {
+          delta = await creditedSettlementAmount(p, existing.id, delta);
+        }
         // Só aplica se o status ainda for o lido acima: dois webhooks simultâneos não creditam duas vezes.
         const statusChange = await p.transaction.updateMany({
           where: { id: existing.id, status: existing.status },
@@ -384,7 +393,7 @@ export class ProcessDomWebhookUseCase {
 
         for (let attempt = 0; attempt < 3; attempt++) {
           const wallet = await p.wallet.findUnique({ where: { userId: existing.userId } });
-          if (!wallet) break;
+          if (!wallet) throw new Error('wallet not found');
 
           const newBalance = wallet.balance.add(balanceDelta);
           const newLocked = wallet.lockedBalance.add(lockedDelta);
@@ -432,6 +441,8 @@ export class ProcessDomWebhookUseCase {
           await this.affiliateCommission.reverseForTransaction(p, existing.id);
         }
       });
+
+      if (applied === false) return;
 
       const eventTag = platformTaxaTagFromText(existing.description);
       if (this.platformEvents && eventTag !== 'GLOBAL') this.platformEvents.emit(eventTag, 'transaction', { ...existing, status: nextStatus });

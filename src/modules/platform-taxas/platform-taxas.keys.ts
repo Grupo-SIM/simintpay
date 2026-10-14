@@ -10,7 +10,7 @@ export const PLATAFORMA_TAXA_KEYS = [
   'TAXA_CASHBACK',
   'TAXA_SERVICO',      // Taxa de Serviço Sim Int Pay (padrão R$ 4.00)
   'TAXA_COMISSAO_AFILIADO', // Comissão % de afiliado sobre venda de livro afiliado (ebook) (padrão 10%)
-  'TAXA_LINK_PERCENT',   // Taxa % da casa sobre links de pagamento (padrão 6.99%)
+  'TAXA_LINK_PERCENT',   // Taxa % da casa sobre links de pagamento (padrão 9%)
   'TAXA_LINK_FIXA',      // Taxa fixa da casa sobre links de pagamento (padrão R$ 4.00)
   'TAXA_ASSINATURA',     // Taxa % da casa sobre links de assinatura (padrão 9.0%)
   'TAXA_DEBITO_PERCENT', // Taxa % da plataforma sobre débito (padrão 2%)
@@ -118,7 +118,7 @@ export type PlataformaTaxaKey = (typeof PLATAFORMA_TAXA_KEYS)[number];
 export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   /** Taxa DOM sobre PIX (decimal): 0,98% sobre o valor pago. Sobrescreva pelo painel admin. */
   MDR_PIX: 0.0098,
-  TAXA_SAQUE_FIXA: 2,
+  TAXA_SAQUE_FIXA: 3.50,
   TAXA_SAQUE_DOM: 3.5,
   TAXA_SAQUE_PERCENT: 0,
   SAQUE_MIN: 100,
@@ -127,7 +127,7 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   TAXA_CASHBACK: 3.0,
   TAXA_SERVICO: 4.0,
   TAXA_COMISSAO_AFILIADO: 0.10, // 10%
-  TAXA_LINK_PERCENT: 0.0699,
+  TAXA_LINK_PERCENT: 0.09,
   TAXA_LINK_FIXA: 4.0,
   TAXA_ASSINATURA: 9.0,
   TAXA_DEBITO_PERCENT: 0.02,   // 2%
@@ -153,18 +153,18 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   MDR_CC_12X: 0.2099,
   // Master: juros cobrados do comprador pela plataforma em links de pagamento
   // Default = taxa total anunciada - taxa DOM do link
-  LINK_COST_1X: 0.0699,
-  LINK_COST_2X: 0.0699,
-  LINK_COST_3X: 0.0699,
-  LINK_COST_4X: 0.0699,
-  LINK_COST_5X: 0.0699,
-  LINK_COST_6X: 0.0699,
-  LINK_COST_7X: 0.0699,
-  LINK_COST_8X: 0.0699,
-  LINK_COST_9X: 0.0699,
-  LINK_COST_10X: 0.0699,
-  LINK_COST_11X: 0.0699,
-  LINK_COST_12X: 0.0699,
+  LINK_COST_1X: 0.09,
+  LINK_COST_2X: 0.09,
+  LINK_COST_3X: 0.09,
+  LINK_COST_4X: 0.09,
+  LINK_COST_5X: 0.09,
+  LINK_COST_6X: 0.09,
+  LINK_COST_7X: 0.09,
+  LINK_COST_8X: 0.09,
+  LINK_COST_9X: 0.09,
+  LINK_COST_10X: 0.09,
+  LINK_COST_11X: 0.09,
+  LINK_COST_12X: 0.09,
   MDR_LINK_1X:  0.0152,  // 1,52% (total 1,52% − DOM 0,00%)
   MDR_LINK_2X:  0.0352,  // 3,52% (total 8,03% − DOM 4,51%)
   MDR_LINK_3X:  0.0573,  // 5,73% (total 11,77% − DOM 6,04%)

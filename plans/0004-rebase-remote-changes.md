@@ -13,7 +13,7 @@ Execução local aprovada. Sem fetch, push, banco externo ou deploy.
 - [x] Ler plano 0003, verificar árvore limpa e criar backup local.
 - [x] Reaplicar commits e resolver conflitos preservando núcleo compartilhado.
 - [x] Integrar classificação, filtros e afiliados.
-- [ ] Integrar taxas, marcador FINAL_NET e liquidação atômica sem alterar histórico.
+- [x] Integrar taxas, marcador FINAL_NET e liquidação atômica sem alterar histórico.
 - [ ] Adaptar consultas externas à configuração explícita criptografada, isolamento e limites.
 - [ ] Testar com mocks, verificar migrations localmente, build e range-diff; concluir com árvore limpa.
 
@@ -24,3 +24,9 @@ Links novos sem descontos adicionais de cashback/fixa; juros do comprador perman
 ## Rebase e administração
 
 37 commits reaplicados (36 originais e registro deste plano). Conflitos resolvidos em Compose, taxas, providers administrativos e cron. Referência remota inteira ancestral do HEAD; núcleo Platform/scheduler e retirada BetAI preservados. Classificação booleana validada; filtros executados antes de paginação; onlyMine testado nos cinco produtos. Projeções administrativas usam PlatformAttributedBalance, produtos explícitos e carteira compartilhada separada; baseline Bosque mantido pelo adapter existente.
+
+## Liquidação e taxas
+
+FINAL_NET nullable com CHECK aditivo, sem backfill. Draft persistido antes do gateway; referência explícita permite callback antes da resposta. Escritor comum aplica CAS, saldo, histórico e comissão atomicamente em resposta/webhook/polling. Snapshot e dono não são reescritos; estorno consulta crédito auditado, fallback legado preservado. PIX/débito mantêm regras próprias; matriz de 1–12 parcelas, juros, absorção, override zero e rollback cobertos. Resumo usa balance − lockedBalance, inclusive Bosque/Renovada.
+
+Migration remota de classificação preservada byte a byte. Ambas migrations aplicadas em PostgreSQL 18 descartável via socket /tmp, sem rede: histórico manteve líquido e base NULL; classificação default false; marcador inválido rejeitado. Servidor local encerrado após teste. Regressão anterior: 510 Bun e 206 Jest aprovados (um ignorado preexistente); checks finais seguem na última etapa.

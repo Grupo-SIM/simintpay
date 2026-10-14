@@ -1,3 +1,4 @@
+import { bindLinkPayment, linkChargeReference, settleFinalNet } from './link-settlement';
 import { PlatformHistoricalSync } from './platform-historical-sync';
 import { canSyncTransition, conflictingPlatformMarker, hasPlatformMarker, platformSyncAdapter, syncStatus } from './platform-sync.adapter';
 import { Inject, Injectable } from '@nestjs/common';
@@ -79,8 +80,14 @@ export class PlatformSyncPersistenceService {
       stored = await this.prisma.$transaction(async tx => {
         const active = await tx.platform.findUnique({ where: { id: platform.id }, include: { owner: true } });
         if (!active?.isActive || !active.owner.isActive || active.owner.isPurged || active.ownerUserId !== platform.ownerUserId) return null;
-        const existing = await tx.transaction.findFirst({ where: { OR: [{ domPaymentId: paymentId }, ...(transactionId ? [{ domTransactionId: transactionId }] : [])] } });
+        const reference = linkChargeReference(description);
+        const existing = await tx.transaction.findFirst({ where: { OR: [{ domPaymentId: paymentId }, ...(reference ? [{ id: reference, settlementBasis: 'FINAL_NET' }] : []), ...(transactionId ? [{ domTransactionId: transactionId }] : [])] } });
         if (existing && (!hasPlatformMarker(existing.description, platform.tag) || existing.acquirer !== 'DOM')) return null;
+        if (existing?.settlementBasis === 'FINAL_NET') {
+          await bindLinkPayment(tx, existing, paymentId);
+          const changed = await settleFinalNet(tx, existing, status, 'POLLING');
+          return changed ? { ...existing, status } : null;
+        }
         // Historical transaction always belongs to original wallet, even after ownership transfer.
         const userId = existing?.userId ?? platform.ownerUserId;
         const canonical = /^[a-f0-9]{64}$/.test(existing?.id ?? '');

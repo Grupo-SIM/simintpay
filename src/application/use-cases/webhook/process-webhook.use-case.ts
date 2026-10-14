@@ -1,3 +1,4 @@
+import { creditedSettlementAmount, bindLinkPayment, linkChargeReference, settleFinalNet } from '../../../modules/platform-core/link-settlement';
 import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
 import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
@@ -205,7 +206,8 @@ export class ProcessWebhookUseCase {
     try {
       const domPaymentId = parsed.data.paymentId;
 
-      const trx = input.transactionId ? await this.prisma.transaction.findUnique({ where: { id: input.transactionId } }) : await this.transactions.findByDomPaymentId(domPaymentId);
+      const reference = input.transactionId ?? linkChargeReference(parsed.data.description);
+      const trx = reference ? await this.prisma.transaction.findUnique({ where: { id: reference } }) : await this.transactions.findByDomPaymentId(domPaymentId);
 
       if (!trx) {
         // Check if this is a subscription link PIX payment
@@ -242,7 +244,7 @@ export class ProcessWebhookUseCase {
       );
 
       let creditAmount: Prisma.Decimal;
-      if (/^[a-f0-9]{64}$/.test(t.id) && t.netAmount != null) creditAmount = new Prisma.Decimal(t.netAmount);
+      if (t.settlementBasis === 'FINAL_NET' || (/^[a-f0-9]{64}$/.test(t.id) && t.netAmount != null)) creditAmount = new Prisma.Decimal(t.netAmount!);
       else {
         // Legacy entries retain their characterized pre-fixed-fee contract.
         const user = await this.prisma.user.findUnique({
@@ -260,6 +262,11 @@ export class ProcessWebhookUseCase {
       const status = parsed.data.status;
 
       const applied = await this.prisma.$transaction(async (p) => {
+        if (t.settlementBasis === 'FINAL_NET') {
+          await bindLinkPayment(p, t, domPaymentId);
+          return settleFinalNet(p, t, nextStatus, 'WEBHOOK');
+        }
+        if (t.status === TransactionStatus.COMPLETED && ['refunded', 'chargeback', 'in_mediation'].includes(status)) creditAmount = await creditedSettlementAmount(p, t.id, creditAmount);
         const claimed = await p.transaction.updateMany({ where: { id: t.id, status: t.status }, data: { previousStatus: t.status, status: nextStatus } });
         if (claimed.count !== 1) return false;
         const walletUpdates: {

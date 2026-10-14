@@ -45,7 +45,7 @@ describe('Shared platform finance', () => {
   test('canonical withdrawal reserves once and preserves configured acquirer', async () => {
     const { service, prisma } = fixture();
     const result = await service.requestWithdrawal(context, { amountCents: 10000, pixKey: 'key', idempotencyKey: 'order-1' });
-    expect(result).toMatchObject({ status: 'PENDING', grossAmountCents: 10000, feeCents: 200, amountCents: 9800 });
+    expect(result).toMatchObject({ status: 'PENDING', grossAmountCents: 10000, feeCents: 350, amountCents: 9650 });
     expect(prisma.wallet.updateMany.mock.calls[0][0]).toMatchObject({ where: { version: 3 }, data: { lockedBalance: { increment: decimal(100) } } });
     expect(prisma.withdrawRequest.create.mock.calls[0][0].data).toMatchObject({ acquirer: 'FRENDZ', platform: 'shop', integrationRequestId: 'platform:platform:order-1' });
   });

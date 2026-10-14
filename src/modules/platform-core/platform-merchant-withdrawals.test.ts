@@ -24,7 +24,7 @@ test('merchant legacy and canonical withdrawals share reserve, fees, ledger and 
   const a = fixture('legacy'), b = fixture('platform:p');
   const old = await a.legacy.requestWithdrawal('legacy', 'external', { grossAmountCents: 12000, pixKey: 'key', requestId: 'request' });
   const current = await b.canonical.withdraw(context, 'external', { amountCents: 12000, pixKey: 'key', idempotencyKey: 'request' });
-  expect(old).toMatchObject({ grossAmountCents: 12000, netAmountCents: 11800, feeCents: 200 });
+  expect(old).toMatchObject({ grossAmountCents: 12000, netAmountCents: 11650, feeCents: 350 });
   expect(current).toMatchObject({ grossAmountCents: old.grossAmountCents, amountCents: old.netAmountCents, feeCents: old.feeCents });
   expect(a.p.wallet.updateMany.mock.calls).toEqual(b.p.wallet.updateMany.mock.calls);
   const data = (p: any) => { const { integrationRequestId, ...result } = p.withdrawRequest.create.mock.calls[0][0].data; return result; };
