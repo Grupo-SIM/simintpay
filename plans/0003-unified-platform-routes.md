@@ -211,3 +211,10 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Verificação final: 493 testes Bun com harness isolado, 200 testes Jest aprovados (1 ignorado pré-existente) e build local aprovado.
 - [x] Alterações registradas em commits locais; nenhuma migração de banco, push ou deploy executado.
 - [ ] Plano completo ainda não encerrado: equivalência comportamental integral dos 144 contratos não demonstrada. Schema monetário das mensalidades remotas BetAI permanece pendência explícita, com fonte solicitada ao usuário.
+
+## Continuação — dono de múltiplos produtos
+
+- [x] Usuário confirmou alcance: todas as plataformas com histórico identificado, sem habilitação por tag. Implementação genérica existente atende regra; documentação de negócio atualizada.
+- [x] Teste integrado de autorização, controller e projeção verifica dois produtos do mesmo dono: líquidos/saques separados, uma carteira compartilhada e histórico sem atribuição excluído de ambos.
+- [x] Escopo `finance:read` e bloqueio de outro dono verificados. Sete testes dirigidos de saldo aprovados com banco sentinela e HTTP bloqueado.
+- [ ] Pendências integrais dos 144 contratos e schema BetAI permanecem abertas.

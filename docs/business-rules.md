@@ -153,4 +153,6 @@ Frendz canônico e legado compartilham transformação de referência/status. St
 
 Confirmação de pedido Ebook usa mesmo hook em `/webhook/ebook/payment-confirmation` e `/platforms/:tag/integrations/ebook/payment-confirmations`. Alias conserva segredo global de webhook e token interno legado; canônico exige `billing:write`, dono ativo e token cadastrado de Ebook, sem fallback global. Defaults, conteúdo e resposta do back-ebook permanecem compatíveis; logs não capturam token, tamanho de token ou payload externo.
 
+Saldo contábil por produto está disponível para todas as plataformas com histórico identificado, genéricas ou corporativas, em `GET /platforms/:tag/finance/balance`, sem lista de produtos habilitados. Apenas lançamentos explicitamente vinculados à plataforma compõem sua projeção; histórico sem identificação permanece excluído e sinalizado na resposta. Ausência de histórico identificado não bloqueia a consulta nem autoriza atribuição automática de histórico.
+
 Saldo contábil por produto informa `balanceBasis: persisted-net`: projeção de líquidos registrados, sem equivaler automaticamente ao valor sacável da carteira. Adapter Bosque inclui saques administrativos `bosque-baseline` na dedução atribuída; demais produtos consideram somente sua tag.
