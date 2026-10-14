@@ -1,3 +1,4 @@
+import { PlatformOwnerMirror } from '../../platform-core/platform-owner-mirror';
 import { PlatformAttributedBalance } from '../../platform-core/platform-attributed-balance';
 import { PlatformDashboardReports } from '../../platform-core/platform-dashboard-reports';
 import { platformDashboardRules } from '../../platform-core/platform-dashboard.adapter';
@@ -15,6 +16,8 @@ export type FinancePage = { page?: number; limit?: number; status?: string };
 @Injectable()
 export class PlatformFinanceService {
   constructor(private readonly prisma: PrismaService) {}
+
+  ownerMirror(context: FinancePlatformContext) { return new PlatformOwnerMirror(this.prisma).sync(context.tag, context); }
 
   platformBalance(context: FinancePlatformContext) {
     return new PlatformAttributedBalance(this.prisma).read(context);

@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Post, Body, Logger, GoneException } from '@nestjs/common';
+import { PlatformOwnerMirror } from '../../platform-core/platform-owner-mirror';
+import { Controller, Get, Query, Post, Body, GoneException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RevalidaDashboardService } from '../services/revalida-dashboard.service';
 import { RevalidaSyncService } from '../services/revalida-sync.service';
@@ -7,8 +8,6 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 @ApiTags('Revalida Dashboard')
 @Controller('dashboard/revalida')
 export class RevalidaDashboardController {
-  private readonly logger = new Logger(RevalidaDashboardController.name);
-
   constructor(
     private readonly dashboardService: RevalidaDashboardService,
     private readonly syncService: RevalidaSyncService,
@@ -53,58 +52,7 @@ export class RevalidaDashboardController {
 
   @Post('sync-external-user')
   @ApiOperation({ summary: '[REVALIDA] Registra/atualiza o usuário Revalida na listagem de plataformas do admin' })
-  async syncExternalUser() {
-    const platform = await this.prisma.platform.findFirst({
-      where: { tag: { equals: 'revalida', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
-    });
-    if (!platform) return { success: false, error: 'Plataforma não cadastrada com dono no admin' };
-    const userId = platform.ownerUserId;
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, name: true, email: true, cpf: true },
-    });
-    if (!user) {
-      return { success: false, error: `Usuário com id ${userId} não encontrado` };
-    }
-
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-    const balance = Number(wallet?.balance ?? 0);
-
-    // CPF placeholder para plataformas sem CPF — usa o userId truncado
-    const cpf = user.cpf ?? userId.replace(/-/g, '').slice(0, 11).padEnd(11, '0');
-
-    const extUser = await this.prisma.externalPlatformUser.upsert({
-      where: { cpf_platform: { cpf, platform: 'revalida' } },
-      update: {
-        name: user.name,
-        userId: user.id,
-        updatedAt: new Date(),
-      },
-      create: {
-        cpf,
-        name: user.name,
-        platform: 'revalida',
-        userId: user.id,
-      },
-    });
-
-    await this.prisma.externalPlatformWallet.upsert({
-      where: { externalUserId: extUser.id },
-      update: { balance },
-      create: { externalUserId: extUser.id, balance },
-    });
-
-    this.logger.log(`[REVALIDA] ExternalPlatformUser sincronizado: ${extUser.id} balance=${balance}`);
-    return {
-      success: true,
-      externalUserId: extUser.id,
-      userId: user.id,
-      name: user.name,
-      platform: 'revalida',
-      balance,
-    };
-  }
+  async syncExternalUser() { return new PlatformOwnerMirror(this.prisma).sync('REVALIDA'); }
 
   @Post('sync-full')
   @ApiOperation({ summary: '[REVALIDA] Sincronização manual completa (histórico)' })

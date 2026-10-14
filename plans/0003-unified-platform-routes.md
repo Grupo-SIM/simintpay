@@ -129,3 +129,8 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 ## Continuação — projeção SSE
 
 - [x] Oito streams legados compartilham tradução do barramento; nove testes verificam headers, IDs, isolamento e heartbeat de 20 segundos. Incluídos na validação de 423 Bun e build local.
+
+## Continuação — espelhamento do dono
+
+- [x] Atlas/Revalida delegam espelhamento à mesma transação serializável; endpoint canônico em centavos e escopo `sync:run`.
+- [x] Cinco testes cobrem equivalência de respostas/escritas, ausência de cadastro, transferência e unidades canônicas.

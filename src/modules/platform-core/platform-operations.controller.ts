@@ -1,3 +1,5 @@
+import { unsupportedCapability } from './platform-adapters';
+import { Prisma } from '@prisma/client';
 import { Body, Controller, Get, Param, Post, Query, Req, SetMetadata, Sse, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
@@ -16,6 +18,15 @@ const Operation = (operation: string) => SetMetadata('platform-operation', opera
 export class PlatformOperationsController {
   constructor(private readonly finance: PlatformFinanceService, private readonly payments: PlatformPaymentsService,
     private readonly events: PlatformEventsService, private readonly syncService: PlatformSyncService) {}
+
+  @Post('sync/owner-mirror') @Operation('sync:run')
+  async ownerMirror(@Req() request: PlatformRequest) {
+    if (!['ATLAS', 'REVALIDA'].includes(request.platformContext.tag)) unsupportedCapability('sync.owner-mirror');
+    const result = await this.finance.ownerMirror(request.platformContext);
+    if (!result.success) return result;
+    const { balance, ...data } = result;
+    return { ...data, unit: 'cents', balanceScope: 'owner-wallet', balanceCents: new Prisma.Decimal(balance ?? 0).mul(100).toNumber() };
+  }
 
   @Get('capabilities') @Operation('reports:read')
   capabilities(@Req() request: PlatformRequest) { return platformAdapter(request.platformContext.tag); }

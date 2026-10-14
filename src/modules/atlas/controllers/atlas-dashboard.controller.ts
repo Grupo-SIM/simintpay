@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Post, Body, Logger, GoneException } from '@nestjs/common';
+import { PlatformOwnerMirror } from '../../platform-core/platform-owner-mirror';
+import { Controller, Get, Query, Post, Body, GoneException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AtlasDashboardService } from '../services/atlas-dashboard.service';
 import { AtlasSyncService } from '../services/atlas-sync.service';
@@ -7,8 +8,6 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 @ApiTags('Atlas Dashboard')
 @Controller('dashboard/atlas')
 export class AtlasDashboardController {
-  private readonly logger = new Logger(AtlasDashboardController.name);
-
   constructor(
     private readonly dashboardService: AtlasDashboardService,
     private readonly syncService: AtlasSyncService,
@@ -53,48 +52,7 @@ export class AtlasDashboardController {
 
   @Post('sync-external-user')
   @ApiOperation({ summary: '[ATLAS] Registra/atualiza o usuário Atlas na listagem de plataformas do admin' })
-  async syncExternalUser() {
-    const platform = await this.prisma.platform.findFirst({
-      where: { tag: { equals: 'atlas', mode: 'insensitive' }, isActive: true, owner: { isActive: true, isPurged: false } },
-    });
-    if (!platform) return { success: false, error: 'Plataforma não cadastrada com dono no admin' };
-    const userId = platform.ownerUserId;
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, name: true, email: true, cpf: true },
-    });
-    if (!user) {
-      return { success: false, error: `Usuário com id ${userId} não encontrado` };
-    }
-
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-    const balance = Number(wallet?.balance ?? 0);
-
-    const cpf = user.cpf ?? userId.replace(/-/g, '').slice(0, 11).padEnd(11, '0');
-
-    const extUser = await this.prisma.externalPlatformUser.upsert({
-      where: { cpf_platform: { cpf, platform: 'atlas' } },
-      update: { name: user.name, userId: user.id, updatedAt: new Date() },
-      create: { cpf, name: user.name, platform: 'atlas', userId: user.id },
-    });
-
-    await this.prisma.externalPlatformWallet.upsert({
-      where: { externalUserId: extUser.id },
-      update: { balance },
-      create: { externalUserId: extUser.id, balance },
-    });
-
-    this.logger.log(`[ATLAS] ExternalPlatformUser sincronizado: ${extUser.id} balance=${balance}`);
-    return {
-      success: true,
-      externalUserId: extUser.id,
-      userId: user.id,
-      name: user.name,
-      platform: 'atlas',
-      balance,
-    };
-  }
+  async syncExternalUser() { return new PlatformOwnerMirror(this.prisma).sync('ATLAS'); }
 
   @Post('sync-full')
   @ApiOperation({ summary: '[ATLAS] Sincronização manual completa (histórico)' })
