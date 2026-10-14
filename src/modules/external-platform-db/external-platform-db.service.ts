@@ -166,9 +166,9 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
         ORDER BY name
       `),
       pool.query(`
-        SELECT id, name, "createdAt"
+        SELECT id, "telegramUsername" AS name, "createdAt"
         FROM "CustomerTelegram"
-        ORDER BY name
+        ORDER BY "createdAt" DESC
       `),
     ]);
     return {
