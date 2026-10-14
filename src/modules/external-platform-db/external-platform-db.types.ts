@@ -22,6 +22,8 @@ export interface ExternalPlatformPerson {
   cnpj?: string | null;
   isActive?: boolean | null;
   createdAt?: Date | null;
+  /** Nome da organização/tenant dessa pessoa dentro do SaaS (quando a plataforma é multi-tenant, ex. Patrimonial). */
+  organizationName?: string | null;
 }
 
 /**

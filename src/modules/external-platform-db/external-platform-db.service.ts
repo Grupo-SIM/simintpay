@@ -142,13 +142,17 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
     return this.splitByFlag('revalida', rows);
   }
 
-  // ── Patrimonial: vendedor = role ADMIN ────────────────────────────────────
+  // ── Patrimonial: multi-tenant por Organization. O "assinante" é quem tem
+  // role=ADMIN dentro de cada organização — é essa conta que fechou o SaaS
+  // com a Simintpay; USER é quem o assinante convidou pra usar por baixo dele. ──
   private async listPatrimonial(pool: Pool): Promise<ExternalPlatformUsersResult> {
     const { rows } = await pool.query(`
-      SELECT id, name, email, cpf, cnpj, "isActive", "createdAt",
-        (role = 'ADMIN') AS "isVendedor"
-      FROM "User"
-      ORDER BY "isVendedor" DESC, name
+      SELECT u.id, u.name, u.email, u.cpf, u.cnpj, u."isActive", u."createdAt",
+        o.name AS "organizationName",
+        (u.role = 'ADMIN') AS "isVendedor"
+      FROM "User" u
+      LEFT JOIN "Organization" o ON o.id = u."organizationId"
+      ORDER BY "isVendedor" DESC, u.name
     `);
     return this.splitByFlag('patrimonial', rows);
   }
@@ -219,5 +223,6 @@ export class ExternalPlatformDbService implements OnModuleDestroy {
     cnpj: row.cnpj ?? null,
     isActive: row.isActive ?? null,
     createdAt: row.createdAt ?? null,
+    organizationName: row.organizationName ?? null,
   });
 }
