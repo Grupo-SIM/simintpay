@@ -1560,6 +1560,43 @@ export class AdminController {
     return { data };
   }
 
+  private externalPeopleCache?: {
+    at: number;
+    data: { platform: string; name: string | null; email: string | null; doc: string | null }[];
+  };
+
+  /**
+   * Pessoas de todos os bancos de plataforma, reduzidas a e-mail/documento para o
+   * cruzamento com `User`. Cache curto: a listagem de Contas é paginada e abriria
+   * 6 conexões externas a cada página. Falha de uma plataforma só a omite.
+   */
+  private async listExternalPeopleCached() {
+    const ttlMs = 60_000;
+    if (this.externalPeopleCache && Date.now() - this.externalPeopleCache.at < ttlMs) {
+      return this.externalPeopleCache.data;
+    }
+    const doc = (cpf?: string | null, cnpj?: string | null) => {
+      const c = (cpf ?? '').replace(/\D/g, '');
+      if (c.length === 11) return c;
+      const j = (cnpj ?? '').replace(/\D/g, '');
+      return j.length === 14 ? j : null;
+    };
+    const results = await this.externalPlatformDb.listAll();
+    const data = results.flatMap((r) =>
+      [...r.vendedores, ...r.usuariosComuns]
+        .map((p) => ({
+          platform: r.platform as string,
+          name: p.name,
+          email: p.email?.trim().toLowerCase() || null,
+          doc: doc(p.cpf, p.cnpj),
+        }))
+        .filter((p) => p.email || p.doc),
+    );
+    // Só guarda se ao menos uma plataforma respondeu; senão tenta de novo na próxima.
+    if (results.some((r) => r.state === 'available')) this.externalPeopleCache = { at: Date.now(), data };
+    return data;
+  }
+
   @Get('usuarios')
   @ApiOperation({ summary: 'Lista usuários externos agrupados por CPF com todas as plataformas' })
   @ApiQuery({ name: 'platform', required: false })
@@ -1804,6 +1841,79 @@ export class AdminController {
       moduleUsers = [...moduleUsers, ...clientUsers];
     }
 
+    // ── 2c. Contas Simintpay que também existem no banco de alguma plataforma ──
+    // Lê (somente leitura) os bancos das plataformas e cruza e-mail ou CPF/CNPJ com
+    // `User`. Nada é gravado: o vínculo é calculado na hora. Só na aba de ativos.
+    const externalMatches = new Map<string, { platform: string; name: string | null; email: string | null }[]>();
+    if (!showPurged && !showDeleted) {
+      const slugToPlatform: Record<string, string> = { ebooksim: 'ebook', patrimonial: 'controle-patrimonial' };
+      const digits = (v?: string | null) => (v ?? '').replace(/\D/g, '');
+      const people = (await this.listExternalPeopleCached())
+        .map((p) => ({ ...p, platform: slugToPlatform[p.platform] ?? p.platform }))
+        .filter((p) => !platformLower || p.platform === platformLower);
+
+      const emails = [...new Set(people.map((p) => p.email).filter((e): e is string => !!e))];
+      const docs = [...new Set(people.map((p) => p.doc).filter((d): d is string => !!d))];
+
+      if (emails.length > 0 || docs.length > 0) {
+        const alreadyIds = [
+          ...linkedUserIds,
+          ...moduleUsers.filter((u) => !clientUserIds.has(u.id)).map((u) => u.id),
+          ...knownIdToPlatform.keys(),
+        ];
+        const matchedUsers = (await this.prisma.user.findMany({
+          where: {
+            AND: [
+              {
+                OR: [
+                  ...(emails.length > 0 ? [{ email: { in: emails, mode: 'insensitive' as const } }] : []),
+                  ...(docs.length > 0 ? [{ cpf: { in: docs } }, { cnpj: { in: docs } }] : []),
+                ],
+              },
+              { isActive: true },
+              { isPurged: false },
+              { NOT: { email: { endsWith: '@auto.simpay.com', mode: 'insensitive' as const } } },
+              ...(alreadyIds.length > 0 ? [{ id: { notIn: alreadyIds } }] : []),
+              ...userSimintpayClientFilter,
+            ],
+          },
+          select: {
+            id: true, name: true, cpf: true, cnpj: true, email: true,
+            isActive: true, isCompany: true, clientStatus: true,
+            createdAt: true, updatedAt: true,
+            wallet: { select: { balance: true, lockedBalance: true } },
+            platform: { select: { tag: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        })) as ModuleUser[];
+
+        const term = searchTerm.toLowerCase();
+        for (const u of matchedUsers) {
+          const uEmail = u.email.trim().toLowerCase();
+          const uDocs = [digits(u.cpf), digits(u.cnpj)].filter(Boolean);
+          const hits = people.filter((p) => p.email === uEmail || (p.doc !== null && uDocs.includes(p.doc)));
+          if (hits.length === 0) continue;
+          // CPF já representado por uma linha ExternalPlatformUser (mesmo sem vínculo): não duplica.
+          if (!clientUserIds.has(u.id) && uDocs.some((d) => extDocSeen.has(d))) continue;
+          if (term && !(
+            u.name.toLowerCase().includes(term) ||
+            uEmail.includes(term) ||
+            (cpfDigits.length > 0 && uDocs.some((d) => d.includes(cpfDigits)))
+          )) continue;
+
+          const seen = new Set<string>();
+          externalMatches.set(
+            u.id,
+            hits
+              .filter((h) => (seen.has(h.platform) ? false : (seen.add(h.platform), true)))
+              .map((h) => ({ platform: h.platform, name: h.name, email: h.email })),
+          );
+          // Cliente direto já está na lista (2b): só ganha as plataformas extras.
+          if (!clientUserIds.has(u.id)) moduleUsers.push(u);
+        }
+      }
+    }
+
     const moduleUserMap = new Map(moduleUsers.map((u) => [u.id, u]));
 
     // ── 3. Merge and sort by createdAt desc, then paginate ────────────────────
@@ -2027,15 +2137,25 @@ export class AdminController {
           const u = moduleUserMap.get(identity.userId);
           if (!u) return null;
           const products = registered.filter(p => p.ownerUserId === u.id && (!platformLower || normPlatform(p.tag) === normPlatform(platformLower)));
+          const matches = externalMatches.get(u.id) ?? [];
+          // Conta que só entrou por existir em outra plataforma: o rótulo vem do banco dela.
           const moduleSlug = products[0]?.tag?.toLowerCase() ?? u.platform?.tag?.toLowerCase()
-            ?? (clientUserIds.has(u.id) ? 'simintpay' : 'unknown');
+            ?? (clientUserIds.has(u.id) ? 'simintpay' : matches[0]?.platform ?? 'unknown');
           const projections = products.map(p => liveBalances.get(liveKey(u.id, p.tag))).filter((p): p is NonNullable<typeof p> => !!p);
+          const baseEntries = products.length
+            ? products.map(p => ({ id: p.id, platform: p.tag.toLowerCase(), name: u.name, email: u.email }))
+            : matches.length > 0 && !clientUserIds.has(u.id)
+              ? []
+              : [{ id: u.id, platform: moduleSlug, name: u.name, email: u.email }];
+          const extraEntries = matches
+            .filter((m) => !baseEntries.some((e) => e.platform === m.platform))
+            .map((m) => ({ id: `${u.id}:${m.platform}`, platform: m.platform, name: m.name ?? u.name, email: m.email ?? u.email }));
           return {
             id: u.id,
             cpf: u.cpf ?? '',
             cnpj: u.cnpj ?? '',
             name: u.name,
-            platformEntries: (products.length ? products.map(p => ({ id: p.id, platform: p.tag.toLowerCase(), name: u.name, email: u.email })) : [{ id: u.id, platform: moduleSlug, name: u.name, email: u.email }]),
+            platformEntries: [...baseEntries, ...extraEntries],
             walletScope: registered.filter(p => p.ownerUserId === u.id).length > 1 ? 'shared-owner' : 'owner',
             walletBalance: Number(u.wallet?.balance ?? 0),
             walletLockedBalance: Number(u.wallet?.lockedBalance ?? 0),
@@ -2101,7 +2221,19 @@ export class AdminController {
       where: { id },
       include: { user: { select: { id: true, email: true } } },
     });
-    if (!externalUser) throw new NotFoundException('Usuário não encontrado');
+    if (!externalUser) {
+      // Conta de módulo / cliente direto: a linha da listagem usa o User.id e não
+      // tem ExternalPlatformUser. A edição vale só para a conta Simintpay.
+      const account = await this.prisma.user.findUnique({ where: { id }, select: { id: true } });
+      if (!account) throw new NotFoundException('Usuário não encontrado');
+      const accountData: Record<string, any> = {};
+      if (body.name?.trim()) accountData.name = body.name.trim();
+      if (body.cpf) accountData.cpf = body.cpf.replace(/\D/g, '');
+      if (Object.keys(accountData).length > 0) {
+        await this.prisma.user.update({ where: { id }, data: accountData });
+      }
+      return { success: true };
+    }
 
     const oldCpf = externalUser.cpf;
     const oldEmail = externalUser.user?.email;
