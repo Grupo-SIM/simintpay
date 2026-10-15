@@ -15,6 +15,7 @@ import { calculatePaymentLinkFees } from './payment-link-fees.helper';
 import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
+import { offersDescriptionSuffix, recordOfferSales, resolveFunnelOffer, resolveOrderBumps, sumOffers } from './payment-link-offers.helper';
 
 export type ChargePixPaymentLinkInput = {
   linkId: string;
@@ -23,6 +24,12 @@ export type ChargePixPaymentLinkInput = {
   customerDocument: string;
   customerPhone?: string;
   documentType?: 'CPF' | 'CNPJ';
+  /** Order bumps marcados no checkout (somados ao pedido principal) */
+  orderBumpIds?: string[];
+  /** Upsell/downsell pós-compra: cobra só a oferta, vinculada ao pedido principal */
+  offerId?: string;
+  /** domPaymentId ou id da transação do pedido principal (obrigatório com offerId) */
+  parentPaymentId?: string;
 };
 
 export type ChargePixPaymentLinkOutput = {
@@ -90,7 +97,9 @@ export class ChargePixPaymentLinkUseCase {
     if ((link as any).expiresAt && new Date((link as any).expiresAt).getTime() <= Date.now()) {
       throw new NotFoundException('Link de pagamento expirado');
     }
-    if ((link as any).maxUses != null && (link as any).currentUses >= (link as any).maxUses) {
+    const isFunnel = Boolean(input.offerId);
+    // Upsell/downsell complementam um pedido já contabilizado — não consomem uso do link.
+    if (!isFunnel && (link as any).maxUses != null && (link as any).currentUses >= (link as any).maxUses) {
       throw new BadRequestException('Limite de usos do link atingido');
     }
     if (!link.domPaymentLinkId) {
@@ -99,6 +108,20 @@ export class ChargePixPaymentLinkUseCase {
     if (!link.aceitaPix) {
       throw new BadRequestException('Este link não aceita pagamento via PIX');
     }
+
+    const funnel = isFunnel
+      ? await resolveFunnelOffer(this.prisma, {
+          paymentLinkId: link.id,
+          offerId: input.offerId!,
+          parentPaymentId: input.parentPaymentId,
+          customerEmail: input.customerEmail ?? '',
+        })
+      : null;
+    const bumps = funnel ? [] : await resolveOrderBumps(this.prisma, link.id, input.orderBumpIds);
+    const soldOffers = funnel ? [funnel.offer] : bumps;
+    // Taxas são calculadas sobre o valor efetivamente cobrado (oferta ou link + order bumps).
+    const chargedBase = funnel ? Number(funnel.offer.price) : Number(link.amount) + sumOffers(bumps);
+    const pricedLink = { ...link, amount: new Prisma.Decimal(chargedBase) };
 
     const owner = await this.users.findById(link.userId);
     const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(((link as any).plataformas?.[0] ?? 'GLOBAL').toUpperCase()) ? null : clientTaxaTagFor(owner);
@@ -129,7 +152,7 @@ export class ChargePixPaymentLinkUseCase {
       ?? (platformTag === 'GLOBAL' && input.customerEmail?.trim()
         ? buildClientTaxaTag(input.customerEmail)
         : platformTag);
-    const fees = calculatePaymentLinkFees(link, 1, taxaTag, true);
+    const fees = calculatePaymentLinkFees(pricedLink, 1, taxaTag, true);
     const { totalAmount, domFeeAmount } = fees;
     let { netAmount } = fees;
 
@@ -145,6 +168,9 @@ export class ChargePixPaymentLinkUseCase {
     const platformFee = totalFee - domFeeAmount;
 
     const chargeId = randomUUID();
+    const baseDescription = funnel
+      ? `${link.description ?? link.title} | ${funnel.offer.type === 'UPSELL' ? 'Upsell' : 'Downsell'}: ${funnel.offer.title}`
+      : `${link.description ?? link.title}${offersDescriptionSuffix(bumps)}`;
     const snapshot = {
         userId: effectiveUserId,
         amount: new Prisma.Decimal(totalAmount),
@@ -154,7 +180,7 @@ export class ChargePixPaymentLinkUseCase {
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFeeAmount),
         platformFee: new Prisma.Decimal(platformFee),
-        description: platformTag !== 'GLOBAL' ? `${link.description ?? link.title} [TENANT:${platformTag}]` : (link.description ?? link.title),
+        description: platformTag !== 'GLOBAL' ? `${baseDescription} [TENANT:${platformTag}]` : baseDescription,
         customerName: input.customerName,
         customerEmail: input.customerEmail,
         customerDocument: document,
@@ -179,10 +205,19 @@ export class ChargePixPaymentLinkUseCase {
     const savedTx = await this.prisma.$transaction(p =>
       persistLinkCharge(p, { ...snapshot, domPaymentId: result.id, pixContent: result.pixContent ?? null }, TransactionStatus.PENDING, chargeId));
 
-    // Incrementa contador de usos
-    await this.links.update(link.id, {
-      currentUses: ((link as any).currentUses ?? 0) + 1,
+    await recordOfferSales(this.prisma, {
+      paymentLinkId: link.id,
+      transactionId: savedTx.id,
+      parentTransactionId: funnel?.parentTransactionId ?? null,
+      offers: soldOffers,
     });
+
+    // Incrementa contador de usos
+    if (!isFunnel) {
+      await this.links.update(link.id, {
+        currentUses: ((link as any).currentUses ?? 0) + 1,
+      });
+    }
 
     return {
       ...result,

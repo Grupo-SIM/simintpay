@@ -16,6 +16,7 @@ import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-tax
 import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { splitDocument } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
+import { offersDescriptionSuffix, recordOfferSales, resolveFunnelOffer, resolveOrderBumps, sumOffers } from './payment-link-offers.helper';
 
 export type ChargePaymentLinkInput = {
   linkId: string;
@@ -25,6 +26,12 @@ export type ChargePaymentLinkInput = {
   customerPhone: string;
   paymentMethod?: 'credit_card' | 'debit_card' | 'pix';
   installments?: number;
+  /** Order bumps marcados no checkout (somados ao pedido principal) */
+  orderBumpIds?: string[];
+  /** Upsell/downsell pós-compra: cobra só a oferta, vinculada ao pedido principal */
+  offerId?: string;
+  /** domPaymentId ou id da transação do pedido principal (obrigatório com offerId) */
+  parentPaymentId?: string;
   card?: {
     token: string;
     brand?: string;
@@ -101,6 +108,7 @@ export class ChargePaymentLinkUseCase {
 
   async execute(input: ChargePaymentLinkInput): Promise<{
     id: string;
+    transactionId: string;
     status: string;
     pixContent: string | null;
     redirectUrl: string | null;
@@ -112,12 +120,28 @@ export class ChargePaymentLinkUseCase {
     if ((link as any).expiresAt && new Date((link as any).expiresAt).getTime() <= Date.now()) {
       throw new NotFoundException('Link de pagamento expirado');
     }
-    if ((link as any).maxUses != null && (link as any).currentUses >= (link as any).maxUses) {
+    const isFunnel = Boolean(input.offerId);
+    // Upsell/downsell complementam um pedido já contabilizado — não consomem uso do link.
+    if (!isFunnel && (link as any).maxUses != null && (link as any).currentUses >= (link as any).maxUses) {
       throw new BadRequestException('Limite de usos do link atingido');
     }
     if (!link.domPaymentLinkId) {
       throw new BadRequestException('Link ainda não sincronizado com o gateway');
     }
+
+    const funnel = isFunnel
+      ? await resolveFunnelOffer(this.prisma, {
+          paymentLinkId: link.id,
+          offerId: input.offerId!,
+          parentPaymentId: input.parentPaymentId,
+          customerEmail: input.customerEmail ?? '',
+        })
+      : null;
+    const bumps = funnel ? [] : await resolveOrderBumps(this.prisma, link.id, input.orderBumpIds);
+    const soldOffers = funnel ? [funnel.offer] : bumps;
+    // Taxas são calculadas sobre o valor efetivamente cobrado (oferta ou link + order bumps).
+    const chargedBase = funnel ? Number(funnel.offer.price) : Number(link.amount) + sumOffers(bumps);
+    const pricedLink = { ...link, amount: new Prisma.Decimal(chargedBase) };
 
     // Resolve domToken: cliente SimintPay SEMPRE usa o token mestre; senão usuário > módulo > global.
     const owner = await this.users.findById(link.userId);
@@ -147,14 +171,14 @@ export class ChargePaymentLinkUseCase {
     // Para crédito: cálculo normal com juros repassados ao comprador.
     const fees = isDebit
       ? (() => {
-          const d = calculateDebitFees(link, taxaTag);
+          const d = calculateDebitFees(pricedLink, taxaTag);
           return {
             totalAmount: d.baseAmount,       // comprador paga o valor base
             netAmount: d.netAmount,
             domFeeAmount: d.domFeeAmount + d.platformFeeAmount, // total de taxas sobre o vendedor
           };
         })()
-      : calculatePaymentLinkFees(link, installments, taxaTag, isPix, false);
+      : calculatePaymentLinkFees(pricedLink, installments, taxaTag, isPix, false);
     const { totalAmount, domFeeAmount } = fees;
     let { netAmount } = fees;
 
@@ -182,6 +206,9 @@ export class ChargePaymentLinkUseCase {
     const platformFee = totalFee - domFeeAmount;
 
     const chargeId = randomUUID();
+    const baseDescription = funnel
+      ? `${link.description ?? link.title} | ${funnel.offer.type === 'UPSELL' ? 'Upsell' : 'Downsell'}: ${funnel.offer.title}`
+      : `${link.description ?? link.title}${offersDescriptionSuffix(bumps)}`;
     const snapshot = {
         userId: effectiveUserId,
         amount: new Prisma.Decimal(totalAmount),
@@ -191,7 +218,7 @@ export class ChargePaymentLinkUseCase {
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFeeAmount),
         platformFee: new Prisma.Decimal(platformFee),
-        description: platformTag !== 'GLOBAL' ? `${link.description ?? link.title} [TENANT:${platformTag}]` : (link.description ?? link.title),
+        description: platformTag !== 'GLOBAL' ? `${baseDescription} [TENANT:${platformTag}]` : baseDescription,
         customerName: input.customerName,
         customerEmail: input.customerEmail,
         customerDocument,
@@ -218,10 +245,19 @@ export class ChargePaymentLinkUseCase {
     const tx = await this.prisma.$transaction(p =>
       persistLinkCharge(p, { ...snapshot, domPaymentId: result.id, pixContent: result.pixContent ?? null }, this.mapGatewayStatusToTxStatus(result.status), chargeId));
 
-    // Incrementa contador de usos
-    await this.links.update(link.id, {
-      currentUses: ((link as any).currentUses ?? 0) + 1,
+    await recordOfferSales(this.prisma, {
+      paymentLinkId: link.id,
+      transactionId: tx.id,
+      parentTransactionId: funnel?.parentTransactionId ?? null,
+      offers: soldOffers,
     });
+
+    // Incrementa contador de usos
+    if (!isFunnel) {
+      await this.links.update(link.id, {
+        currentUses: ((link as any).currentUses ?? 0) + 1,
+      });
+    }
 
     // Cartão aprovado na hora não gera transição de status no webhook DOM —
     // notificar o webhook externo do link (ex: areaflix) aqui. Dedup no
@@ -234,7 +270,7 @@ export class ChargePaymentLinkUseCase {
         event: 'purchase_approved',
         customerEmail: input.customerEmail,
         customerName: input.customerName,
-        planName: link.title,
+        planName: funnel ? funnel.offer.title : `${link.title}${offersDescriptionSuffix(bumps)}`,
         paymentMethod: String(this.mapPaymentMethod(input.paymentMethod)),
         amountCharged: totalAmount,
         netAmount: Number(netAmount.toFixed(2)),
@@ -247,6 +283,7 @@ export class ChargePaymentLinkUseCase {
 
     return {
       id: result.id,
+      transactionId: tx.id,
       status: result.status ?? 'pending',
       pixContent: result.pixContent ?? null,
       redirectUrl: (link as any).redirectUrl ?? null,

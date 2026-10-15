@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class ChargePixPaymentLinkDto {
   @IsString()
@@ -20,4 +20,21 @@ export class ChargePixPaymentLinkDto {
   @IsString()
   @IsOptional()
   documentType?: 'CPF' | 'CNPJ';
+
+  /** Order bumps marcados no checkout */
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsString({ each: true })
+  @IsOptional()
+  orderBumpIds?: string[];
+
+  /** Upsell/downsell pós-compra */
+  @IsString()
+  @IsOptional()
+  offerId?: string;
+
+  /** domPaymentId ou id da transação do pedido principal (obrigatório com offerId) */
+  @IsString()
+  @IsOptional()
+  parentPaymentId?: string;
 }
