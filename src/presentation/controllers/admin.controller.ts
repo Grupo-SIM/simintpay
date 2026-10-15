@@ -2221,7 +2221,19 @@ export class AdminController {
       where: { id },
       include: { user: { select: { id: true, email: true } } },
     });
-    if (!externalUser) throw new NotFoundException('Usuário não encontrado');
+    if (!externalUser) {
+      // Conta de módulo / cliente direto: a linha da listagem usa o User.id e não
+      // tem ExternalPlatformUser. A edição vale só para a conta Simintpay.
+      const account = await this.prisma.user.findUnique({ where: { id }, select: { id: true } });
+      if (!account) throw new NotFoundException('Usuário não encontrado');
+      const accountData: Record<string, any> = {};
+      if (body.name?.trim()) accountData.name = body.name.trim();
+      if (body.cpf) accountData.cpf = body.cpf.replace(/\D/g, '');
+      if (Object.keys(accountData).length > 0) {
+        await this.prisma.user.update({ where: { id }, data: accountData });
+      }
+      return { success: true };
+    }
 
     const oldCpf = externalUser.cpf;
     const oldEmail = externalUser.user?.email;
