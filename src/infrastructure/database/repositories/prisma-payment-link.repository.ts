@@ -10,6 +10,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
   async create(data: CreatePaymentLinkData): Promise<PaymentLink> {
     return this.prisma.paymentLink.create({
       data: {
+        ...(data.id ? { id: data.id } : {}),
         userId: data.userId,
         title: data.title,
         description: data.description ?? undefined,

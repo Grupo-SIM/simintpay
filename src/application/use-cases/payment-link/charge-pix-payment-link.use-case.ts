@@ -1,3 +1,4 @@
+import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 import { randomUUID } from 'node:crypto';
 import { persistLinkCharge } from '../../../modules/platform-core/link-settlement';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
@@ -17,6 +18,7 @@ import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 
 export type ChargePixPaymentLinkInput = {
+  tracking?: Record<string, string>;
   linkId: string;
   customerName: string;
   customerEmail: string;
@@ -159,6 +161,7 @@ export class ChargePixPaymentLinkUseCase {
         customerEmail: input.customerEmail,
         customerDocument: document,
         customerPhone: phone || null,
+        tracking: paymentTracking(input.tracking),
         paymentLinkId: link.id,
     };
     await this.prisma.$transaction(async p => {
@@ -177,7 +180,7 @@ export class ChargePixPaymentLinkUseCase {
       codExternal: chargeId,
     });
     const savedTx = await this.prisma.$transaction(p =>
-      persistLinkCharge(p, { ...snapshot, domPaymentId: result.id, pixContent: result.pixContent ?? null }, TransactionStatus.PENDING, chargeId));
+      persistLinkCharge(p, { ...snapshot, domPaymentId: result.id, pixContent: result.pixContent ?? null, pixExpire: result.pixExpire ? new Date(result.pixExpire) : null }, TransactionStatus.PENDING, chargeId));
 
     // Incrementa contador de usos
     await this.links.update(link.id, {

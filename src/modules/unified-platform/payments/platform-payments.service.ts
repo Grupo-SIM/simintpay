@@ -39,6 +39,10 @@ export class PlatformPaymentsService {
     if (!platform) throw new NotFoundException('Plataforma não cadastrada');
     if (!platform.isActive || !platform.owner.isActive || platform.owner.isPurged || platform.ownerUserId !== context.ownerUserId) throw new ForbiddenException('Contexto da plataforma mudou');
     if (!['PIX', 'CREDIT_CARD'].includes(input.paymentMethod)) throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'payments.' + input.paymentMethod });
+    if (input.linkId) {
+      const link = await this.prisma.paymentLink.findFirst({ where: { id: input.linkId, userId: platform.ownerUserId, plataformas: { has: platform.tag }, isActive: true } });
+      if (!link || !link.amount.mul(100).equals(input.amountCents)) throw new UnprocessableEntityException({ code: 'INVALID_LINK_PAYMENT' });
+    }
     const cardAcquirer = input.paymentMethod === 'CREDIT_CARD' ? resolveCardAcquirer(platform.acquirer) : undefined;
     if (cardAcquirer && (!input.card || !input.card.token || !input.card.holderName || !/^\d{6,8}$/.test(input.card.bin) || !input.card.brand || !Number.isInteger(input.card.installments) || input.card.installments < 1 || input.card.installments > 12)) throw new UnprocessableEntityException({ code: 'INVALID_PAYMENT_CONTRACT' });
     if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0 || input.amountCents > 999999999999 || !input.idempotencyKey || input.idempotencyKey.length > 128 || !input.customer) throw new UnprocessableEntityException({ code: 'INVALID_PAYMENT_CONTRACT' });
@@ -55,7 +59,7 @@ export class PlatformPaymentsService {
     const amount = new Prisma.Decimal(input.amountCents).div(100);
     const existing = await this.prisma.transaction.findUnique({ where: { id } });
     if (existing) {
-      if (existing.userId !== financialUserId || !existing.amount.equals(amount) || existing.description !== description || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== input.paymentMethod) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
+      if (existing.userId !== financialUserId || (existing.paymentLinkId ?? undefined) !== input.linkId || !existing.amount.equals(amount) || existing.description !== description || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== input.paymentMethod) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       if (!existing.externalPaymentId) throw new ConflictException({ code: 'PAYMENT_PROCESSING', transactionId: id });
       return this.result(existing);
     }
@@ -66,7 +70,7 @@ export class PlatformPaymentsService {
     for (const row of overrides.filter(row => row.tag !== 'GLOBAL')) rates[row.key] = row.value;
     try {
       await new PlatformPaymentExecution(this.prisma).reserve({
-        id, userId: financialUserId, amount, ...adapter.fees(amount, rates, cardAcquirer ? input.card!.installments : undefined),
+        id, userId: financialUserId, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...adapter.fees(amount, rates, cardAcquirer ? input.card!.installments : undefined),
         status: 'DRAFT', paymentMethod: input.paymentMethod, acquirer: platform.acquirer,
         description, customerName: input.customer.name, customerEmail: input.customer.email,
         customerDocument: input.customer.document, customerPhone: input.customer.phone ?? '', installments: cardAcquirer ? input.card!.installments : 1,
@@ -95,9 +99,9 @@ export class PlatformPaymentsService {
     return this.result(stored);
   }
 
-  private result(transaction: { id: string; externalPaymentId: string | null; status: string; amount: Prisma.Decimal; pixContent: string | null; pixQrCode: string | null; pixExpire: Date | null }) {
+  private result(transaction: { id: string; externalPaymentId: string | null; status: string; amount: Prisma.Decimal; netAmount?: Prisma.Decimal | null; pixContent: string | null; pixQrCode: string | null; pixExpire: Date | null }) {
     return { transactionId: transaction.id, paymentId: transaction.externalPaymentId, status: transaction.status,
-      amountCents: transaction.amount.mul(100).toNumber(), pixContent: transaction.pixContent,
+      amountCents: transaction.amount.mul(100).toNumber(), netAmountCents: transaction.netAmount?.mul(100).toNumber() ?? null, pixContent: transaction.pixContent,
       qrCode: transaction.pixQrCode, pixExpire: transaction.pixExpire };
   }
 }

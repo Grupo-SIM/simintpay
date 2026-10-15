@@ -194,6 +194,7 @@ model Transaction {
   customerEmail    String?
   customerDocument String?
   customerPhone    String?
+  tracking         Json?
   paymentLinkId    String?
   createdAt        DateTime                   @default(now())
   updatedAt        DateTime                   @updatedAt
@@ -1176,6 +1177,7 @@ model Platform {
   owner          User @relation("PlatformOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
 
   @@index([ownerUserId])
+  salesEvents PlatformSalesEvent[]
 }
 
 /// Private integration configuration; encrypted values never appear in public metadata.
@@ -1229,4 +1231,22 @@ model PushDelivery {
 }
 model SalePushActivation {
   startedAt DateTime @id @default(now()) @db.Timestamptz
+}
+
+/// Signed, replayable sales callbacks. Payload excludes buyer document/card data.
+model PlatformSalesEvent {
+  sequence BigInt @id @default(autoincrement())
+  eventId String @unique
+  platformId String
+  platform Platform @relation(fields: [platformId], references: [id])
+  url String
+  payload Json
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  emailDeliveredAt DateTime?
+  deliveredAt DateTime?
+  lastError String?
+  createdAt DateTime @default(now())
+  @@index([platformId, sequence])
+  @@index([deliveredAt, nextAttemptAt])
 }

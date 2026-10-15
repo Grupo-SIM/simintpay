@@ -1,3 +1,4 @@
+import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 import { randomUUID } from 'node:crypto';
 import { persistLinkCharge } from '../../../modules/platform-core/link-settlement';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
@@ -18,6 +19,7 @@ import { splitDocument } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 
 export type ChargePaymentLinkInput = {
+  tracking?: Record<string, string>;
   linkId: string;
   customerName: string;
   customerEmail: string;
@@ -56,7 +58,8 @@ export class ChargePaymentLinkUseCase {
     const s = (status ?? '').toUpperCase();
     if (s === 'PAID' || s === 'APPROVED' || s === 'COMPLETED') return TransactionStatus.COMPLETED;
     if (s === 'FAILED' || s === 'REJECTED' || s === 'EXPIRED') return TransactionStatus.FAILED;
-    if (s === 'REFUNDED' || s === 'CHARGEBACK') return TransactionStatus.REFUNDED;
+    if (s === 'REFUNDED') return TransactionStatus.REFUNDED;
+    if (s === 'CHARGEBACK') return TransactionStatus.CHARGEBACK;
     return TransactionStatus.PENDING;
   }
 
@@ -196,6 +199,7 @@ export class ChargePaymentLinkUseCase {
         customerEmail: input.customerEmail,
         customerDocument,
         customerPhone,
+        tracking: paymentTracking(input.tracking),
         paymentLinkId: link.id,
         installments,
     };
@@ -228,7 +232,8 @@ export class ChargePaymentLinkUseCase {
     // receptor via orderId (tx.id).
     if (
       this.mapGatewayStatusToTxStatus(result.status) === TransactionStatus.COMPLETED &&
-      (link as any).webhookUrl
+      (link as any).webhookUrl &&
+      !await this.prisma.platformIntegration.findFirst({ where: { key: 'WEBHOOK_SECRET', encryptedValue: { not: null }, platform: { tag: { in: link.plataformas } } } })
     ) {
       void this.notifyExternalWebhook((link as any).webhookUrl as string, {
         event: 'purchase_approved',

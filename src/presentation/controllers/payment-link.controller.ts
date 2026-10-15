@@ -12,6 +12,7 @@ import {
   UseInterceptors,
   NotFoundException,
 } from '@nestjs/common';
+import { paymentTracking } from '../../modules/platform-core/payment-tracking';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -75,8 +76,9 @@ export class PaymentLinkController {
   async chargeRoute(
     @Param('id') id: string,
     @Body() body: Omit<ChargePaymentLinkInput, 'linkId'>,
+    @Query() query: Record<string, string>,
   ) {
-    return this.charge.execute({ ...body, linkId: id });
+    return this.charge.execute({ ...body, tracking: paymentTracking({ ...query, ...body.tracking }), linkId: id });
   }
 
   @Post('public/:id/pix')
@@ -99,8 +101,9 @@ export class PaymentLinkController {
   async chargePixRoute(
     @Param('id') id: string,
     @Body() body: ChargePixPaymentLinkDto,
+    @Query() query: Record<string, string>,
   ) {
-    return this.chargePix.execute({ ...body, linkId: id });
+    return this.chargePix.execute({ ...body, tracking: paymentTracking({ ...query, ...body.tracking }), linkId: id });
   }
 
   @Get('public/pix-status/:domPaymentId')

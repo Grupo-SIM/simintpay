@@ -1797,6 +1797,8 @@ export class ProcessDomWebhookUseCase {
         include: { files: true },
       });
       if (!link) return;
+      const signed = await this.prisma.platformIntegration.findFirst({ where: { key: 'WEBHOOK_SECRET', encryptedValue: { not: null }, platform: { tag: { in: link.plataformas } } } });
+      if (signed) return; // Durable platform outbox delivers e-mail and retries.
 
       const hasCustomBody = Boolean(link.emailBody?.trim());
       const redirectUrl = (link as any).redirectUrl?.trim() ? (link as any).redirectUrl as string : null;
@@ -1881,10 +1883,12 @@ export class ProcessDomWebhookUseCase {
     try {
       const link = await this.prisma.paymentLink.findUnique({
         where: { id: tx.paymentLinkId },
-        select: { id: true, title: true, webhookUrl: true },
+        select: { id: true, title: true, webhookUrl: true, plataformas: true },
       });
       if (!link?.webhookUrl) return;
 
+      const signed = await this.prisma.platformIntegration.findFirst({ where: { key: 'WEBHOOK_SECRET', encryptedValue: { not: null }, platform: { tag: { in: link.plataformas } } } });
+      if (signed) return; // Durable worker owns signed callbacks.
       const simpayToken = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
       await fetch(link.webhookUrl, {
         method: 'POST',

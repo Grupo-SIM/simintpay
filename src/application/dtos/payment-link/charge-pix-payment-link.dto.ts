@@ -1,6 +1,7 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsObject, IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class ChargePixPaymentLinkDto {
+  @IsOptional() @IsObject() tracking?: Record<string, string>;
   @IsString()
   @IsNotEmpty()
   customerName!: string;

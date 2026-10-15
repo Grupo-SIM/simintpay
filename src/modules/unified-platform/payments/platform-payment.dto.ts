@@ -18,6 +18,7 @@ export class PlatformPaymentCardDto {
 }
 
 export class CreatePlatformPaymentDto {
+  @IsOptional() @IsString() @MaxLength(128) linkId?: string;
   @IsInt() @Min(1) @Max(999999999999) amountCents!: number;
   @IsIn(['PIX', 'CREDIT_CARD']) paymentMethod!: 'PIX' | 'CREDIT_CARD';
   @IsString() @MinLength(1) @MaxLength(128) idempotencyKey!: string;

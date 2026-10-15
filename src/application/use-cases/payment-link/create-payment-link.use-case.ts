@@ -19,7 +19,7 @@ export class CreatePaymentLinkUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
   ) {}
 
-  async execute(input: { userId: string; dto: CreatePaymentLinkDto; allowLocalCheckout?: boolean }): Promise<{
+  async execute(input: { userId: string; id?: string; dto: CreatePaymentLinkDto; allowLocalCheckout?: boolean }): Promise<{
     data: {
       id: string;
       codigo: string;
@@ -83,6 +83,7 @@ export class CreatePaymentLinkUseCase {
     });
 
     const saved = await this.links.create({
+      ...(input.id ? { id: input.id } : {}),
       userId: input.userId,
       title: input.dto.titulo,
       description: input.dto.descricao ?? null,

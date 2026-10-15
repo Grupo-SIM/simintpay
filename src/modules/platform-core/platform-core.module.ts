@@ -1,3 +1,7 @@
+import { PlatformLinksController } from './platform-links.controller';
+import { PlatformSalesEventsController } from './platform-sales-events.controller';
+import { PlatformSalesEventsService } from './platform-sales-events.service';
+import { PaymentLinkModule } from '../../presentation/payment-link.module';
 import { PlatformReturnBetController } from './platform-return-bet.controller';
 import { PlatformReportProjectionsController } from './platform-report-projections.controller';
 import { PlatformReportingModule } from '../../application/services/platform-reporting.module';
@@ -24,7 +28,7 @@ import { PlatformSyncService } from './platform-sync.service';
 import { PlatformPaymentsService } from '../unified-platform/payments/platform-payments.service';
 import { PlatformEventsModule } from './platform-events.module';
 
-@Module({ imports: [PlatformReportingModule, WebhookModule, PrismaModule, ApiDomModule, AuthModule, CheckoutModule, PlatformEventsModule],
-  controllers: [PlatformReturnBetController, PlatformReportProjectionsController, PlatformBetaiController, PlatformSubscriptionCapabilitiesController, PlatformVoucherCapabilitiesController, PlatformCorporateController, PlatformOperationsController, PlatformWebhookController, PlatformMerchantsController], providers: [PlatformBetaiService, PlatformSubscriptionCapabilitiesService, PlatformVoucherCapabilitiesService, PlatformContextService, PlatformAuthGuard, PlatformSyncService, PlatformPaymentsService, PlatformMerchantsService],
+@Module({ imports: [PaymentLinkModule, PlatformReportingModule, WebhookModule, PrismaModule, ApiDomModule, AuthModule, CheckoutModule, PlatformEventsModule],
+  controllers: [PlatformLinksController, PlatformSalesEventsController, PlatformReturnBetController, PlatformReportProjectionsController, PlatformBetaiController, PlatformSubscriptionCapabilitiesController, PlatformVoucherCapabilitiesController, PlatformCorporateController, PlatformOperationsController, PlatformWebhookController, PlatformMerchantsController], providers: [PlatformSalesEventsService, PlatformBetaiService, PlatformSubscriptionCapabilitiesService, PlatformVoucherCapabilitiesService, PlatformContextService, PlatformAuthGuard, PlatformSyncService, PlatformPaymentsService, PlatformMerchantsService],
   exports: [PlatformBetaiService, PlatformContextService, PlatformPaymentsService, PlatformSyncService] })
 export class PlatformCoreModule {}
