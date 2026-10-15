@@ -667,7 +667,7 @@ export class PixPlanService {
     // O produto de origem (ex.: PAGATG) sempre manda no tenant do plano — a mesma
     // conta pode ser cliente SimintPay e também dona de um plano em outro produto.
     // A tag CLIENT:<email> só se aplica quando o chamador não informou um tenant próprio.
-    const explicitTag = assertExplicitPlatform(owner, body.tenantTag ? [body.tenantTag] : undefined);
+    const explicitTag = assertExplicitPlatform(owner, body.tenantTag ? [body.tenantTag] : undefined, true);
     const tag = explicitTag ?? clientTag;
     const plan = await this.repo.createPixCreditPlan({
       userId,

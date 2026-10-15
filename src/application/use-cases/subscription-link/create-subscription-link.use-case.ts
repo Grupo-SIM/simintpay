@@ -62,7 +62,7 @@ export class CreateSubscriptionLinkUseCase {
     assertClientCanCreate(owner, input.dto.valor);
     const clientTag = clientTaxaTagFor(owner);
 
-    const selectedTag = assertExplicitPlatform(owner, [...(input.dto.plataformas ?? []), ...(input.dto.platformTag ? [input.dto.platformTag] : [])]);
+    const selectedTag = assertExplicitPlatform({ ...owner!, role: input.role }, [...(input.dto.plataformas ?? []), ...(input.dto.platformTag ? [input.dto.platformTag] : [])], true);
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('Token do gateway não configurado');
 

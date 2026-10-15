@@ -38,7 +38,7 @@ export class CreateBoletoUseCase {
     assertClientCanCreate(user, input.dto.valor);
     const clientTag = clientTaxaTagFor(user);
 
-    const selectedTag = assertExplicitPlatform(user, input.dto.plataformas);
+    const selectedTag = assertExplicitPlatform(user, input.dto.plataformas, true);
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
 
     if (!domToken) {

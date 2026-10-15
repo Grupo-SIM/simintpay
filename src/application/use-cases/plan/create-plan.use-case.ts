@@ -57,7 +57,7 @@ export class CreatePlanUseCase {
     // A plataforma de origem (ex.: PAGATG) sempre manda quando informada explicitamente — a
     // mesma conta pode ser cliente SimintPay e também dona de um plano em outro produto.
     // Só cai na tag CLIENT:<email> (herda do GLOBAL) quando nenhuma plataforma foi enviada.
-    const explicitPlatformTag = assertExplicitPlatform(owner, input.dto.plataformas);
+    const explicitPlatformTag = assertExplicitPlatform(owner, input.dto.plataformas, true);
     const domToken = platformGatewayToken(explicitPlatformTag, process.env.DOM_TOKEN);
     if (!domToken) throw new UnauthorizedException('Token do gateway não configurado');
     const platformTag = explicitPlatformTag ?? clientTag ?? 'GLOBAL';

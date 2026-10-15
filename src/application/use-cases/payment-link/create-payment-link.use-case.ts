@@ -36,7 +36,7 @@ export class CreatePaymentLinkUseCase {
     // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
     const user = await this.users.findById(input.userId);
     assertClientCanCreate(user, input.dto.valor);
-    const selectedTag = assertExplicitPlatform(user, input.dto.plataformas);
+    const selectedTag = assertExplicitPlatform(user, input.dto.plataformas, true);
     const clientTag = selectedTag ? null : clientTaxaTagFor(user);
 
     const domToken = platformGatewayToken(selectedTag ?? user?.platform?.tag, process.env.DOM_TOKEN);
