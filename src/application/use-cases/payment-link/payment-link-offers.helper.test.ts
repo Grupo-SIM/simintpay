@@ -50,3 +50,22 @@ test('resolveFunnelOffer exige pedido principal aprovado do mesmo comprador', as
   const ok = await resolveFunnelOffer(mk({ id: 't', status: 'COMPLETED', customerEmail: 'a@x.com' }), input);
   expect(ok.parentTransactionId).toBe('t');
 });
+
+test('imagem do storage privado é exibida pela rota pública; URL externa segue direta', async () => {
+  const { toOfferView } = await import('./payment-link-offers.helper');
+  const updatedAt = new Date(1_700_000_000_000);
+  const stored = toOfferView(offer({ id: 'o9', imageUrl: 'https://gateway.storjshare.io/ebook/payment-link-offers/x.png', updatedAt }));
+  expect(stored.imagemUrl).toBe('https://simpay-back.simintermediacoes.com/links-pagamento/public/ofertas/o9/imagem?v=1700000000000');
+  expect(toOfferView(offer({ imageUrl: 'https://cdn.exemplo.com/a.png', updatedAt })).imagemUrl).toBe('https://cdn.exemplo.com/a.png');
+});
+
+test('salvar com a URL da rota pública mantém o arquivo original da imagem', async () => {
+  let updated: any;
+  const db: any = { paymentLinkOffer: {
+    findMany: async () => [offer({ id: 'o1', type: 'UPSELL', imageUrl: 'https://gateway.storjshare.io/ebook/payment-link-offers/orig.png' })],
+    update: async ({ data }: any) => { updated = data; return {}; },
+    updateMany: async () => ({ count: 0 }),
+  } };
+  await saveLinkOffers(db, 'link', [{ id: 'o1', tipo: 'UPSELL', titulo: 'X', valor: 1, imagemUrl: 'https://simpay-back.simintermediacoes.com/links-pagamento/public/ofertas/o1/imagem?v=1' }]);
+  expect(updated.imageUrl).toBe('https://gateway.storjshare.io/ebook/payment-link-offers/orig.png');
+});

@@ -29,6 +29,25 @@ export type AdminOfferView = OfferView & { mensagemEmail: string | null; arquivo
 
 type OfferWithFiles = PaymentLinkOffer & { files?: PaymentLinkOfferFile[] };
 
+/** Caminho da rota pública que serve a imagem da oferta (o bucket do storage é privado). */
+const OFFER_IMAGE_ROUTE = /\/links-pagamento\/public\/ofertas\/[^/?]+\/imagem/;
+
+function publicApiBase(): string {
+  return (process.env.PUBLIC_API_URL || 'https://simpay-back.simintermediacoes.com').trim().replace(/\/+$/, '');
+}
+
+function isStoredUpload(url: string): boolean {
+  const storage = (process.env.STORJ_ENDPOINT || 'https://gateway.storjshare.io').trim().replace(/\/$/, '');
+  return url.startsWith(`${storage}/`);
+}
+
+/** URL exibível: uploads do storage privado passam pelo backend; URLs externas seguem diretas. */
+function displayImageUrl(o: PaymentLinkOffer): string | null {
+  if (!o.imageUrl) return null;
+  if (!isStoredUpload(o.imageUrl)) return o.imageUrl;
+  return `${publicApiBase()}/links-pagamento/public/ofertas/${o.id}/imagem?v=${o.updatedAt.getTime()}`;
+}
+
 /** Visão pública (checkout): nunca expõe a mensagem de entrega nem os PDFs. */
 export function toOfferView(o: PaymentLinkOffer): OfferView {
   return {
@@ -37,7 +56,7 @@ export function toOfferView(o: PaymentLinkOffer): OfferView {
     chamada: o.headline ?? null,
     titulo: o.title,
     descricao: o.description ?? null,
-    imagemUrl: o.imageUrl ?? null,
+    imagemUrl: displayImageUrl(o),
     valor: Number(o.price),
     valorOriginal: o.originalPrice != null ? Number(o.originalPrice) : null,
     posicao: o.position,
@@ -100,12 +119,17 @@ export async function saveLinkOffers(db: Db, paymentLinkId: string, offers: Save
 
   for (const o of offers) {
     const position = positions[o.tipo] = (positions[o.tipo] ?? -1) + 1;
+    // O painel recebe a URL da rota pública da imagem; ao salvar de volta, mantém o arquivo original.
+    const sentImage = o.imagemUrl?.trim() || null;
+    const imageUrl = sentImage && OFFER_IMAGE_ROUTE.test(sentImage)
+      ? existing.find(e => e.id === o.id)?.imageUrl ?? null
+      : sentImage;
     const data = {
       type: o.tipo,
       headline: o.chamada?.trim() || null,
       title: o.titulo.trim(),
       description: o.descricao?.trim() || null,
-      imageUrl: o.imagemUrl?.trim() || null,
+      imageUrl,
       // undefined preserva a mensagem atual (clientes antigos não enviam o campo)
       ...(o.mensagemEmail !== undefined ? { emailBody: o.mensagemEmail?.trim() || null } : {}),
       price: new Prisma.Decimal(o.valor),

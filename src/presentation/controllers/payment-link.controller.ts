@@ -7,6 +7,7 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UploadedFile,
   UploadedFiles,
   UseGuards,
@@ -16,6 +17,7 @@ import {
 } from '@nestjs/common';
 import { paymentTracking } from '../../modules/platform-core/payment-tracking';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { memoryStorage } from 'multer';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
@@ -77,6 +79,28 @@ export class PaymentLinkController {
   async getPublicRoute(@Param('id') id: string, @Query('orderBumps') orderBumps?: string) {
     const bumpIds = orderBumps ? orderBumps.split(',').map(s => s.trim()).filter(Boolean) : undefined;
     return this.getPublic.execute(id, bumpIds);
+  }
+
+  @Get('public/ofertas/:offerId/imagem')
+  @ApiOperation({ summary: 'Imagem de uma oferta (servida do storage privado)' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 404 })
+  async offerImageRoute(@Param('offerId') offerId: string, @Res() res: Response) {
+    const offer = await this.prisma.paymentLinkOffer.findUnique({ where: { id: offerId }, select: { imageUrl: true } });
+    if (!offer?.imageUrl) throw new NotFoundException('Imagem não encontrada');
+    if (!this.storage.tryExtractObjectKeyFromStoredUrl(offer.imageUrl)) {
+      res.redirect(offer.imageUrl);
+      return;
+    }
+    try {
+      const { buffer, contentType } = await this.storage.getReceiptBufferByStoredUrl(offer.imageUrl);
+      if (!contentType.startsWith('image/')) throw new Error('NOT_IMAGE');
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.send(buffer);
+    } catch {
+      throw new NotFoundException('Imagem não disponível');
+    }
   }
 
   @Post('public/:id/charge')
