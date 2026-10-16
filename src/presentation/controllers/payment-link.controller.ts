@@ -7,13 +7,15 @@ import {
   Post,
   Put,
   Query,
+  UploadedFile,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { paymentTracking } from '../../modules/platform-core/payment-tracking';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
@@ -32,6 +34,9 @@ import { ChargePaymentLinkUseCase, ChargePaymentLinkInput } from '../../applicat
 import { ChargePixPaymentLinkUseCase } from '../../application/use-cases/payment-link/charge-pix-payment-link.use-case';
 import { ChargePixPaymentLinkDto } from '../../application/dtos/payment-link/charge-pix-payment-link.dto';
 import { ManagePaymentLinkFilesUseCase } from '../../application/use-cases/payment-link/manage-payment-link-files.use-case';
+import { SavePaymentLinkOffersDto } from '../../application/dtos/payment-link/save-payment-link-offers.dto';
+import { listLinkOffers, saveLinkOffers, toOfferView } from '../../application/use-cases/payment-link/payment-link-offers.helper';
+import { StorageService } from '../../infrastructure/storage/storage.service';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -42,6 +47,9 @@ import {
 
 /** Máximo de PDFs anexáveis a um link de pagamento (por envio). */
 const MAX_PDF_FILES = 20;
+
+/** Imagens de ofertas (order bump / upsell / downsell). */
+const OFFER_IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
 @Controller('links-pagamento')
 @ApiTags('Links de Pagamento')
@@ -57,6 +65,7 @@ export class PaymentLinkController {
     private readonly chargePix: ChargePixPaymentLinkUseCase,
     private readonly prisma: PrismaService,
     private readonly manageFiles: ManagePaymentLinkFilesUseCase,
+    private readonly storage: StorageService,
   ) {}
 
   // ── Rotas públicas (sem autenticação) ──────────────────────────────────────
@@ -65,8 +74,9 @@ export class PaymentLinkController {
   @ApiOperation({ summary: 'Detalhes públicos de um link de pagamento (checkout)' })
   @ApiResponse({ status: 200 })
   @ApiResponse({ status: 404 })
-  async getPublicRoute(@Param('id') id: string) {
-    return this.getPublic.execute(id);
+  async getPublicRoute(@Param('id') id: string, @Query('orderBumps') orderBumps?: string) {
+    const bumpIds = orderBumps ? orderBumps.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+    return this.getPublic.execute(id, bumpIds);
   }
 
   @Post('public/:id/charge')
@@ -200,7 +210,60 @@ export class PaymentLinkController {
       orderBy: { createdAt: 'asc' },
       select: { id: true, fileName: true, fileUrl: true, fileSize: true, createdAt: true },
     });
-    return { data: { ...(result.data as object), files } };
+    const ofertas = (await listLinkOffers(this.prisma, id)).map(toOfferView);
+    return { data: { ...(result.data as object), files, ofertas } };
+  }
+
+  @Get(':id/ofertas')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Listar order bumps, upsell e downsell do link' })
+  async listOffersRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+  ): Promise<{ data: unknown }> {
+    await this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    return { data: (await listLinkOffers(this.prisma, id)).map(toOfferView) };
+  }
+
+  @Put(':id/ofertas')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Salvar order bumps, upsell e downsell do link (ofertas omitidas são desativadas, nunca apagadas)' })
+  @ApiBody({ type: SavePaymentLinkOffersDto })
+  async saveOffersRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+    @Body() dto: SavePaymentLinkOffersDto,
+  ): Promise<{ data: unknown }> {
+    // Reaproveita a regra de acesso do detalhe (dono do link ou ADMIN).
+    await this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    const saved = await this.prisma.$transaction(p => saveLinkOffers(p, id, dto.ofertas));
+    return { data: saved.map(toOfferView) };
+  }
+
+  @Post(':id/ofertas/imagem')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Upload da imagem de uma oferta (retorna a URL pública)' })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (OFFER_IMAGE_MIMES.includes(file.mimetype)) cb(null, true);
+        else cb(new BadRequestException('Envie uma imagem PNG, JPG, WEBP ou GIF'), false);
+      },
+    }),
+  )
+  async uploadOfferImageRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<{ url: string }> {
+    if (!file) throw new BadRequestException('Arquivo obrigatório');
+    await this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    return { url: await this.storage.uploadFile(file, 'payment-link-offers') };
   }
 
   @Put(':id')

@@ -344,9 +344,55 @@ model PaymentLink {
   transactions     Transaction[]
   communityBindings CommunityLinkBinding[]
   files            PaymentLinkFile[]
+  offers           PaymentLinkOffer[]
 
   @@index([userId])
   @@index([code])
+}
+
+/// Oferta extra de um link de pagamento: ORDER_BUMP (somada ao pedido no checkout),
+/// UPSELL (oferecida após a aprovação) ou DOWNSELL (oferecida quando o upsell é recusado).
+model PaymentLinkOffer {
+  id            String      @id @default(uuid())
+  paymentLinkId String
+  paymentLink   PaymentLink @relation(fields: [paymentLinkId], references: [id], onDelete: Cascade)
+  /// ORDER_BUMP | UPSELL | DOWNSELL
+  type          String
+  /// Chamada em destaque (ex: "POR QUE NÃO DOBRAR A SUA RENDA?")
+  headline      String?
+  title         String
+  description   String?
+  imageUrl      String?
+  price         Decimal     @db.Decimal(12, 2)
+  /// Preço "de" exibido riscado (opcional)
+  originalPrice Decimal?    @db.Decimal(12, 2)
+  position      Int         @default(0)
+  isActive      Boolean     @default(true)
+  /// Remoção lógica — ofertas removidas no painel nunca são apagadas fisicamente
+  deletedAt     DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([paymentLinkId])
+}
+
+/// Registro de cada oferta vendida (order bump no pedido principal; upsell/downsell em cobrança própria).
+/// Guarda snapshot de título/preço para não depender da oferta continuar existindo.
+model PaymentLinkOfferSale {
+  id                  String   @id @default(uuid())
+  offerId             String
+  paymentLinkId       String
+  transactionId       String
+  /// Transação do pedido principal (upsell/downsell); null para order bump
+  parentTransactionId String?
+  type                String
+  title               String
+  price               Decimal  @db.Decimal(12, 2)
+  createdAt           DateTime @default(now())
+
+  @@index([transactionId])
+  @@index([parentTransactionId])
+  @@index([offerId])
 }
 
 /// Cobrança por boleto — espelha o Link de Pagamento, mas cobra via boleto (à vista, sem parcelas).

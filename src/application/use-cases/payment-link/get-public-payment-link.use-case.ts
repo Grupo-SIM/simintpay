@@ -4,7 +4,12 @@ import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentLinkRepository } from '../../../core/repositories/payment-link.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { calculatePaymentLinkFees, calculateDebitFees } from './payment-link-fees.helper';
+import { listLinkOffers, resolveOrderBumps, sumOffers, toOfferView, type OfferView } from './payment-link-offers.helper';
+
+type FunnelOfferView = OfferView & { valorCartao: number };
 
 type InstallmentOption = {
   parcelas: number;
@@ -24,9 +29,14 @@ export class GetPublicPaymentLinkUseCase {
     private readonly links: IPaymentLinkRepository,
     @Inject(USER_REPOSITORY)
     private readonly users: IUserRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
-  async execute(id: string): Promise<{
+  /**
+   * @param orderBumpIds order bumps marcados pelo comprador — quando informados, as opções de
+   * parcelamento/valores são recalculadas sobre (valor do link + order bumps).
+   */
+  async execute(id: string, orderBumpIds?: string[]): Promise<{
     id: string;
     titulo: string;
     descricao: string | null;
@@ -49,6 +59,14 @@ export class GetPublicPaymentLinkUseCase {
     debitTaxaDomFixed: number;
     debitTotalFee: number;
     debitNetAmount: number;
+    /** Valor base efetivamente cobrado (link + order bumps selecionados), antes de juros */
+    valorComOfertas: number;
+    orderBumpsSelecionados: string[];
+    ofertas: {
+      orderBumps: OfferView[];
+      upsell: FunnelOfferView | null;
+      downsell: FunnelOfferView | null;
+    };
   }> {
     const link = await this.links.findById(id);
     const isExpired =
@@ -68,11 +86,24 @@ export class GetPublicPaymentLinkUseCase {
 
     // Validate platform lifecycle without resolving another platform from user identity.
     platformGatewayToken(platformTag, 'public-global');
+
+    const offers = await listLinkOffers(this.prisma, link.id, true);
+    const selectedBumps = await resolveOrderBumps(this.prisma, link.id, orderBumpIds);
+    const chargedBase = Number(link.amount) + sumOffers(selectedBumps);
+    const pricedLink = { ...link, amount: new Prisma.Decimal(chargedBase) };
+    const funnelView = (type: 'UPSELL' | 'DOWNSELL'): FunnelOfferView | null => {
+      const offer = offers.find(o => o.type === type);
+      if (!offer) return null;
+      // Upsell/downsell no cartão são cobrados à vista (1x).
+      const card = calculatePaymentLinkFees({ ...link, amount: offer.price }, 1, platformTag);
+      return { ...toOfferView(offer), valorCartao: card.totalAmount };
+    };
+
     const maxInstallments = link.maxInstallments;
     const opcoesParcelas: InstallmentOption[] = [];
 
     for (let i = 1; i <= maxInstallments; i++) {
-      const f = calculatePaymentLinkFees(link, i, platformTag);
+      const f = calculatePaymentLinkFees(pricedLink, i, platformTag);
       opcoesParcelas.push({
         parcelas: i,
         taxaJurosPlatforma: f.platformFeeRate,
@@ -85,11 +116,11 @@ export class GetPublicPaymentLinkUseCase {
       });
     }
 
-    const debitCalc = calculateDebitFees(link, platformTag);
+    const debitCalc = calculateDebitFees(pricedLink, platformTag);
 
     // Para PIX, o cliente paga o valor base sem acréscimo de taxa de crédito.
     // A taxa de processamento PIX (MDR_PIX) fica do lado do vendedor, igual ao débito.
-    const valorPix = Number(link.amount);
+    const valorPix = chargedBase;
 
     return {
       id: link.id,
@@ -106,7 +137,7 @@ export class GetPublicPaymentLinkUseCase {
       redirectUrl: (link as any).redirectUrl ?? null,
       opcoesParcelas,
       valorPix,
-      valorDebito: Number(link.amount),
+      valorDebito: chargedBase,
       platformTag,
       debitFeePercent: debitCalc.platformFeePercent,
       debitFeeFixed: debitCalc.platformFeeFixed,
@@ -114,6 +145,13 @@ export class GetPublicPaymentLinkUseCase {
       debitTaxaDomFixed: debitCalc.domFeeFixed,
       debitTotalFee: debitCalc.totalFeeAmount,
       debitNetAmount: debitCalc.netAmount,
+      valorComOfertas: chargedBase,
+      orderBumpsSelecionados: selectedBumps.map(o => o.id),
+      ofertas: {
+        orderBumps: offers.filter(o => o.type === 'ORDER_BUMP').map(toOfferView),
+        upsell: funnelView('UPSELL'),
+        downsell: funnelView('DOWNSELL'),
+      },
     };
   }
 }
