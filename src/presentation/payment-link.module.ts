@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { PrismaService } from '../infrastructure/database/prisma/prisma.service';
 import { StorageService } from '../infrastructure/storage/storage.service';
+import { EmailService } from '../infrastructure/email/email.service';
 import { PaymentLinkController } from './controllers/payment-link.controller';
 import { CreatePaymentLinkUseCase } from '../application/use-cases/payment-link/create-payment-link.use-case';
 import { ListPaymentLinksUseCase } from '../application/use-cases/payment-link/list-payment-links.use-case';
@@ -23,6 +24,7 @@ import { PrismaUserRepository } from '../infrastructure/database/repositories/pr
   providers: [
     PrismaService,
     StorageService,
+    EmailService,
     CreatePaymentLinkUseCase,
     ListPaymentLinksUseCase,
     GetPaymentLinkUseCase,

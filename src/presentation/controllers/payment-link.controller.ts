@@ -35,7 +35,7 @@ import { ChargePixPaymentLinkUseCase } from '../../application/use-cases/payment
 import { ChargePixPaymentLinkDto } from '../../application/dtos/payment-link/charge-pix-payment-link.dto';
 import { ManagePaymentLinkFilesUseCase } from '../../application/use-cases/payment-link/manage-payment-link-files.use-case';
 import { SavePaymentLinkOffersDto } from '../../application/dtos/payment-link/save-payment-link-offers.dto';
-import { listLinkOffers, saveLinkOffers, toOfferView } from '../../application/use-cases/payment-link/payment-link-offers.helper';
+import { listLinkOffers, saveLinkOffers, toAdminOfferView } from '../../application/use-cases/payment-link/payment-link-offers.helper';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import {
   ApiBearerAuth,
@@ -210,7 +210,7 @@ export class PaymentLinkController {
       orderBy: { createdAt: 'asc' },
       select: { id: true, fileName: true, fileUrl: true, fileSize: true, createdAt: true },
     });
-    const ofertas = (await listLinkOffers(this.prisma, id)).map(toOfferView);
+    const ofertas = (await listLinkOffers(this.prisma, id)).map(toAdminOfferView);
     return { data: { ...(result.data as object), files, ofertas } };
   }
 
@@ -223,7 +223,7 @@ export class PaymentLinkController {
     @Param('id') id: string,
   ): Promise<{ data: unknown }> {
     await this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
-    return { data: (await listLinkOffers(this.prisma, id)).map(toOfferView) };
+    return { data: (await listLinkOffers(this.prisma, id)).map(toAdminOfferView) };
   }
 
   @Put(':id/ofertas')
@@ -239,7 +239,69 @@ export class PaymentLinkController {
     // Reaproveita a regra de acesso do detalhe (dono do link ou ADMIN).
     await this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
     const saved = await this.prisma.$transaction(p => saveLinkOffers(p, id, dto.ofertas));
-    return { data: saved.map(toOfferView) };
+    return { data: saved.map(toAdminOfferView) };
+  }
+
+  @Post(':id/ofertas/:offerId/arquivos')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Upload de PDFs entregues ao comprador desta oferta' })
+  @UseInterceptors(
+    FilesInterceptor('files', MAX_PDF_FILES, {
+      storage: memoryStorage(),
+      limits: { fileSize: 25 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        if (file.mimetype === 'application/pdf') cb(null, true);
+        else cb(new BadRequestException('Apenas arquivos PDF são permitidos'), false);
+      },
+    }),
+  )
+  async uploadOfferFilesRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+    @Param('offerId') offerId: string,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    await this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    const offer = await this.prisma.paymentLinkOffer.findFirst({
+      where: { id: offerId, paymentLinkId: id, deletedAt: null },
+      select: { id: true, _count: { select: { files: true } } },
+    });
+    if (!offer) throw new NotFoundException('Oferta não encontrada');
+    if (!files || files.length === 0) return { files: [] };
+    if (offer._count.files + files.length > MAX_PDF_FILES) {
+      throw new BadRequestException(`Máximo de ${MAX_PDF_FILES} PDFs por oferta`);
+    }
+    const created = [];
+    for (const file of files) {
+      const fileUrl = await this.storage.uploadFile(file, 'payment-link-offer-files');
+      created.push(await this.prisma.paymentLinkOfferFile.create({
+        data: { offerId, fileName: file.originalname, fileUrl, fileSize: file.size },
+        select: { id: true, fileName: true, fileUrl: true, fileSize: true, createdAt: true },
+      }));
+    }
+    return { files: created };
+  }
+
+  @Delete(':id/ofertas/:offerId/arquivos/:fileId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remover PDF de uma oferta' })
+  async deleteOfferFileRoute(
+    @CurrentUser() user: JwtPayload | undefined,
+    @Param('id') id: string,
+    @Param('offerId') offerId: string,
+    @Param('fileId') fileId: string,
+  ): Promise<{ deleted: true }> {
+    await this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    const file = await this.prisma.paymentLinkOfferFile.findFirst({
+      where: { id: fileId, offerId, offer: { paymentLinkId: id } },
+    });
+    if (!file) throw new NotFoundException('Arquivo não encontrado');
+    // Remoção pedida pelo dono no painel (mesmo comportamento dos PDFs do link).
+    await this.storage.deleteFile(file.fileUrl);
+    await this.prisma.paymentLinkOfferFile.delete({ where: { id: file.id } });
+    return { deleted: true };
   }
 
   @Post(':id/ofertas/imagem')

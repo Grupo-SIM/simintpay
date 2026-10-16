@@ -2,7 +2,7 @@ import { paymentTracking } from '../../../modules/platform-core/payment-tracking
 import { randomUUID } from 'node:crypto';
 import { persistLinkCharge } from '../../../modules/platform-core/link-settlement';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
@@ -18,6 +18,9 @@ import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { splitDocument } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 import { offersDescriptionSuffix, recordOfferSales, resolveFunnelOffer, resolveOrderBumps, sumOffers } from './payment-link-offers.helper';
+import { resolveLinkDelivery, sendLinkDelivery } from './payment-link-delivery';
+import { EmailService } from '../../../infrastructure/email/email.service';
+import { StorageService } from '../../../infrastructure/storage/storage.service';
 
 export type ChargePaymentLinkInput = {
   tracking?: Record<string, string>;
@@ -51,6 +54,8 @@ const PLAN_PLATFORM_CPF_REGEX = /\[CPF:([^\]|]*)\|([^\]]+)\]/;
 
 @Injectable()
 export class ChargePaymentLinkUseCase {
+  private readonly logger = new Logger(ChargePaymentLinkUseCase.name);
+
   constructor(
     @Inject(PAYMENT_LINK_REPOSITORY)
     private readonly links: IPaymentLinkRepository,
@@ -59,6 +64,8 @@ export class ChargePaymentLinkUseCase {
     @Inject(PAYMENT_GATEWAY)
     private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
+    @Optional() private readonly emailService?: EmailService,
+    @Optional() private readonly storage?: StorageService,
   ) {}
 
   private mapGatewayStatusToTxStatus(status: string | null | undefined): TransactionStatus {
@@ -264,18 +271,19 @@ export class ChargePaymentLinkUseCase {
     }
 
     // Cartão aprovado na hora não gera transição de status no webhook DOM —
-    // notificar o webhook externo do link (ex: areaflix) aqui. Dedup no
-    // receptor via orderId (tx.id).
+    // notificar o webhook externo do link (ex: areaflix) e entregar o material aqui.
+    // Plataformas com webhook assinado recebem ambos pelo outbox durável.
+    const approvedNow = this.mapGatewayStatusToTxStatus(result.status) === TransactionStatus.COMPLETED;
+    const needsWebhook = approvedNow && Boolean((link as any).webhookUrl);
+    const needsDelivery = approvedNow && Boolean(this.emailService);
     if (
-      this.mapGatewayStatusToTxStatus(result.status) === TransactionStatus.COMPLETED &&
-      (link as any).webhookUrl &&
+      (needsWebhook || needsDelivery) &&
       !await this.prisma.platformIntegration.findFirst({ where: { key: 'WEBHOOK_SECRET', encryptedValue: { not: null }, platform: { tag: { in: link.plataformas } } } })
     ) {
-      void this.notifyExternalWebhook((link as any).webhookUrl as string, {
+      void this.afterImmediateApproval(link.id, tx.id, { needsWebhook, needsDelivery }, {
         event: 'purchase_approved',
         customerEmail: input.customerEmail,
         customerName: input.customerName,
-        planName: funnel ? funnel.offer.title : `${link.title}${offersDescriptionSuffix(bumps)}`,
         paymentMethod: String(this.mapPaymentMethod(input.paymentMethod)),
         amountCharged: totalAmount,
         netAmount: Number(netAmount.toFixed(2)),
@@ -293,6 +301,46 @@ export class ChargePaymentLinkUseCase {
       pixContent: result.pixContent ?? null,
       redirectUrl: (link as any).redirectUrl ?? null,
     };
+  }
+
+  /** Entrega por e-mail + webhook externo de uma cobrança aprovada na própria resposta do gateway. */
+  private async afterImmediateApproval(
+    linkId: string,
+    transactionId: string,
+    flags: { needsWebhook: boolean; needsDelivery: boolean },
+    webhookPayload: Record<string, unknown> & { customerEmail: string; customerName: string },
+  ): Promise<void> {
+    try {
+      const link = await this.prisma.paymentLink.findUnique({ where: { id: linkId }, include: { files: true } });
+      if (!link) return;
+      // Pedido principal: produto + order bumps. Upsell/downsell: só o material da oferta.
+      const delivery = await resolveLinkDelivery(this.prisma, transactionId, link);
+
+      if (flags.needsWebhook && link.webhookUrl) {
+        void this.notifyExternalWebhook(link.webhookUrl, {
+          ...webhookPayload,
+          // Pedido principal mantém o nome do link (plataformas mapeiam o plano por ele).
+          planName: delivery.kind === 'OFFER' ? delivery.title : link.title,
+          items: delivery.items,
+        });
+      }
+
+      // Só entrega se ESTA requisição aprovou a transação; se um webhook chegou antes,
+      // ele já fez a entrega na transição de status.
+      const settledHere = flags.needsDelivery && this.emailService && await this.prisma.transactionStatusHistory.findFirst({
+        where: { transactionId, toStatus: TransactionStatus.COMPLETED, metadata: { path: ['source'], equals: 'CHARGE_PAYMENT_LINK' } },
+        select: { id: true },
+      });
+      if (settledHere && this.emailService) {
+        await sendLinkDelivery(
+          { email: this.emailService, storage: this.storage, logger: this.logger },
+          { email: webhookPayload.customerEmail, name: webhookPayload.customerName, transactionId },
+          delivery,
+        );
+      }
+    } catch (err: unknown) {
+      this.logger.error(`[LinkDelivery] Falha pós-aprovação (tx=${transactionId}): ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   private async notifyExternalWebhook(

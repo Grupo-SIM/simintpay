@@ -7,6 +7,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { decryptPlatformSecret } from '../platform-integrations/platform-secrets';
 import type { PlatformContext } from './platform-context.service';
+import { loadDeliveryAttachments, purchasedItemsByTransaction, resolveLinkDelivery, DEFAULT_DELIVERY_BODY } from '../../application/use-cases/payment-link/payment-link-delivery';
 type Stored = { sequence: bigint; eventId: string; platformId: string; url: string; payload: object; attempts: number; deliveredAt: Date | null; emailDeliveredAt: Date | null };
 /** Durable snapshots rebuilt from financial state/history; never trusts checkout-supplied amounts. */
 @Injectable()
@@ -40,6 +41,7 @@ export class PlatformSalesEventsService {
       let cursor = '';
       for (;;) {
         const transactions = await this.prisma.transaction.findMany({ where: { userId: p.ownerUserId, id: { gt: cursor }, OR: [{ paymentLink: { plataformas: { has: p.tag } } }, { description: { contains: `[TENANT:${p.tag}]` } }] }, include: { paymentLink: true, statusHistory: { orderBy: { createdAt: 'asc' } } }, orderBy: { id: 'asc' }, take: 100 });
+        const itemsByTx = await purchasedItemsByTransaction(this.prisma, transactions);
         for (const tx of transactions) {
           const url = tx.paymentLink?.webhookUrl || p.integrations.find(i => i.key === 'WEBHOOK_URL')?.url;
           if (!url) continue;
@@ -53,7 +55,7 @@ export class PlatformSalesEventsService {
             // Null liquid settlement is not an approved financial contract.
             if (['purchase_approved', 'purchase_refunded', 'chargeback'].includes(event) && tx.netAmount === null) continue;
             const eventId = createHash('sha256').update(`${p.id}:${tx.id}:${event}`).digest('hex');
-            const payload = { eventId, occurredAt: snapshot.em.toISOString(), event, orderId: tx.id, linkId: tx.paymentLinkId ?? undefined, amountCents: tx.amount.mul(100).toNumber(), netAmountCents: tx.netAmount?.mul(100).toNumber() ?? 0, paymentMethod: tx.paymentMethod, phone: tx.customerPhone, customerEmail: tx.customerEmail, customerName: tx.customerName, tracking: tx.tracking ?? {}, ...(event === 'pix_generated' ? { pixContent: tx.pixContent, pixExpire: tx.pixExpire?.toISOString() } : {}) };
+            const payload = { eventId, occurredAt: snapshot.em.toISOString(), event, orderId: tx.id, linkId: tx.paymentLinkId ?? undefined, amountCents: tx.amount.mul(100).toNumber(), netAmountCents: tx.netAmount?.mul(100).toNumber() ?? 0, paymentMethod: tx.paymentMethod, phone: tx.customerPhone, customerEmail: tx.customerEmail, customerName: tx.customerName, tracking: tx.tracking ?? {}, ...(itemsByTx.has(tx.id) ? { items: itemsByTx.get(tx.id) } : {}), ...(event === 'pix_generated' ? { pixContent: tx.pixContent, pixExpire: tx.pixExpire?.toISOString() } : {}) };
             await this.prisma.$executeRaw`INSERT INTO "PlatformSalesEvent" ("eventId", "platformId", url, payload) VALUES (${eventId}, ${p.id}, ${url}, ${JSON.stringify(payload)}::jsonb) ON CONFLICT ("eventId") DO NOTHING`;
           }
         }
@@ -83,10 +85,10 @@ export class PlatformSalesEventsService {
         const enabledAt = config.createdAt;
         const existedBeforeIntegration = tx && enabledAt && tx.createdAt < enabledAt;
         if (!existedBeforeIntegration && tx?.status === 'COMPLETED' && tx.paymentLink && tx.customerEmail) {
-          const link = tx.paymentLink;
-          const storage = this.modules.get(StorageService, { strict: false });
-          const attachments = await Promise.all(link.files.map(async f => ({ filename: f.fileName.replace(/^[a-f0-9]{64}-/, ''), content: (await storage.getReceiptBufferByStoredUrl(f.fileUrl)).buffer })));
-          await this.modules.get(EmailService, { strict: false }).sendEbookAccessEmail({ to: tx.customerEmail, customerName: tx.customerName || 'Cliente', title: link.title, body: link.emailBody || 'Seu pagamento foi aprovado. Seguem os arquivos da compra.', redirectUrl: link.redirectUrl, attachments });
+          // Pedido principal: produto + order bumps. Upsell/downsell: só o material da oferta.
+          const delivery = await resolveLinkDelivery(this.prisma, tx.id, tx.paymentLink);
+          const attachments = await loadDeliveryAttachments(this.modules.get(StorageService, { strict: false }), delivery.files);
+          await this.modules.get(EmailService, { strict: false }).sendEbookAccessEmail({ to: tx.customerEmail, customerName: tx.customerName || 'Cliente', title: delivery.title, body: delivery.body || DEFAULT_DELIVERY_BODY, redirectUrl: delivery.redirectUrl, attachments });
         }
         await this.prisma.$executeRaw`UPDATE "PlatformSalesEvent" SET "emailDeliveredAt" = NOW() WHERE "eventId" = ${row.eventId}`;
       }

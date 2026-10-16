@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { Prisma, type PaymentLinkOffer } from '@prisma/client';
+import { Prisma, type PaymentLinkOffer, type PaymentLinkOfferFile } from '@prisma/client';
 
 export const OFFER_TYPES = ['ORDER_BUMP', 'UPSELL', 'DOWNSELL'] as const;
 export type OfferType = (typeof OFFER_TYPES)[number];
@@ -22,6 +22,14 @@ export type OfferView = {
   ativo: boolean;
 };
 
+export type OfferFileView = { id: string; fileName: string; fileUrl: string; fileSize: number; createdAt: Date };
+
+/** Visão do painel: inclui o material de entrega (mensagem e PDFs). */
+export type AdminOfferView = OfferView & { mensagemEmail: string | null; arquivos: OfferFileView[] };
+
+type OfferWithFiles = PaymentLinkOffer & { files?: PaymentLinkOfferFile[] };
+
+/** Visão pública (checkout): nunca expõe a mensagem de entrega nem os PDFs. */
 export function toOfferView(o: PaymentLinkOffer): OfferView {
   return {
     id: o.id,
@@ -37,10 +45,19 @@ export function toOfferView(o: PaymentLinkOffer): OfferView {
   };
 }
 
-export async function listLinkOffers(db: Db, paymentLinkId: string, activeOnly = false): Promise<PaymentLinkOffer[]> {
+export function toAdminOfferView(o: OfferWithFiles): AdminOfferView {
+  return {
+    ...toOfferView(o),
+    mensagemEmail: o.emailBody ?? null,
+    arquivos: (o.files ?? []).map(f => ({ id: f.id, fileName: f.fileName, fileUrl: f.fileUrl, fileSize: f.fileSize, createdAt: f.createdAt })),
+  };
+}
+
+export async function listLinkOffers(db: Db, paymentLinkId: string, activeOnly = false): Promise<OfferWithFiles[]> {
   return db.paymentLinkOffer.findMany({
     where: { paymentLinkId, deletedAt: null, ...(activeOnly ? { isActive: true } : {}) },
     orderBy: [{ type: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }],
+    include: { files: { orderBy: { createdAt: 'asc' } } },
   });
 }
 
@@ -51,6 +68,7 @@ export type SaveOfferInput = {
   titulo: string;
   descricao?: string | null;
   imagemUrl?: string | null;
+  mensagemEmail?: string | null;
   valor: number;
   valorOriginal?: number | null;
   ativo?: boolean;
@@ -60,7 +78,7 @@ export type SaveOfferInput = {
  * Sincroniza as ofertas do link com a lista enviada pelo painel.
  * Ofertas ausentes da lista recebem `deletedAt` (remoção lógica) — nada é apagado fisicamente.
  */
-export async function saveLinkOffers(db: Db, paymentLinkId: string, offers: SaveOfferInput[]): Promise<PaymentLinkOffer[]> {
+export async function saveLinkOffers(db: Db, paymentLinkId: string, offers: SaveOfferInput[]): Promise<OfferWithFiles[]> {
   const bumps = offers.filter(o => o.tipo === 'ORDER_BUMP');
   if (bumps.length > MAX_ORDER_BUMPS) throw new BadRequestException(`Máximo de ${MAX_ORDER_BUMPS} order bumps por link`);
   if (offers.filter(o => o.tipo === 'UPSELL').length > 1) throw new BadRequestException('Apenas 1 upsell por link');
@@ -88,6 +106,8 @@ export async function saveLinkOffers(db: Db, paymentLinkId: string, offers: Save
       title: o.titulo.trim(),
       description: o.descricao?.trim() || null,
       imageUrl: o.imagemUrl?.trim() || null,
+      // undefined preserva a mensagem atual (clientes antigos não enviam o campo)
+      ...(o.mensagemEmail !== undefined ? { emailBody: o.mensagemEmail?.trim() || null } : {}),
       price: new Prisma.Decimal(o.valor),
       originalPrice: o.valorOriginal != null && o.valorOriginal > 0 ? new Prisma.Decimal(o.valorOriginal) : null,
       position,

@@ -16,6 +16,8 @@ function fixture() {
     platform: { findUnique: mock(async () => ({ isActive: true, owner: { isActive: true, isPurged: false } })), findMany: mock(async () => [{ id: 'p', tag: 'CENTRAL-INFO', ownerUserId: 'owner', owner: { isActive: true }, integrations: [] }]) },
     transaction: { findMany: mock(async () => [tx]), findUnique: mock(async () => tx) },
     platformIntegration: { findUnique: mock(async () => ({ encryptedValue: secret })) },
+    paymentLinkOfferSale: { findMany: mock(async () => []) },
+    paymentLinkOffer: { findMany: mock(async () => []) },
     $executeRaw: mock(async (parts: TemplateStringsArray, ...values: any[]) => {
       const sql = parts.join('?');
       if (sql.startsWith('INSERT')) {
