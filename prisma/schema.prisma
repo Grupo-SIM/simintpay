@@ -363,6 +363,8 @@ model PaymentLinkOffer {
   title         String
   description   String?
   imageUrl      String?
+  /// Mensagem do e-mail de entrega desta oferta (ex.: link de acesso)
+  emailBody     String?
   price         Decimal     @db.Decimal(12, 2)
   /// Preço "de" exibido riscado (opcional)
   originalPrice Decimal?    @db.Decimal(12, 2)
@@ -372,8 +374,22 @@ model PaymentLinkOffer {
   deletedAt     DateTime?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
+  files         PaymentLinkOfferFile[]
 
   @@index([paymentLinkId])
+}
+
+/// PDFs entregues por e-mail ao comprador desta oferta
+model PaymentLinkOfferFile {
+  id        String           @id @default(uuid())
+  offerId   String
+  offer     PaymentLinkOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  fileName  String
+  fileUrl   String
+  fileSize  Int
+  createdAt DateTime         @default(now())
+
+  @@index([offerId])
 }
 
 /// Registro de cada oferta vendida (order bump no pedido principal; upsell/downsell em cobrança própria).

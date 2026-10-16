@@ -43,6 +43,12 @@ export class PaymentLinkOfferItemDto {
   @MaxLength(1000)
   imagemUrl?: string | null;
 
+  /** Mensagem do e-mail de entrega desta oferta (ex.: link de acesso) */
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  mensagemEmail?: string | null;
+
   @IsNumber()
   @Min(0.01)
   valor!: number;

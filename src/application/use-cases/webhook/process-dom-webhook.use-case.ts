@@ -36,6 +36,7 @@ import { StorageService } from '../../../infrastructure/storage/storage.service'
 import { documentType, splitDocument as provisionDocPayload } from '../../utils/document.util';
 import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
 import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
+import { resolveLinkDelivery, sendLinkDelivery } from '../payment-link/payment-link-delivery';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -1789,7 +1790,7 @@ export class ProcessDomWebhookUseCase {
     customerEmail: string | null;
     customerName: string | null;
   }): Promise<void> {
-    if (!tx.paymentLinkId || !tx.customerEmail) return;
+    if (!tx.paymentLinkId || !tx.customerEmail || !this.emailService) return;
 
     try {
       const link = await this.prisma.paymentLink.findUnique({
@@ -1800,60 +1801,13 @@ export class ProcessDomWebhookUseCase {
       const signed = await this.prisma.platformIntegration.findFirst({ where: { key: 'WEBHOOK_SECRET', encryptedValue: { not: null }, platform: { tag: { in: link.plataformas } } } });
       if (signed) return; // Durable platform outbox delivers e-mail and retries.
 
-      const hasCustomBody = Boolean(link.emailBody?.trim());
-      const redirectUrl = (link as any).redirectUrl?.trim() ? (link as any).redirectUrl as string : null;
-
-      // Sem corpo personalizado, sem arquivos e sem redirect: nada a enviar.
-      if (!hasCustomBody && link.files.length === 0 && !redirectUrl) return;
-
-      // Anexos (PDFs) — só busca do storage quando há storage configurado e arquivos.
-      const attachments =
-        link.files.length > 0 && this.storage
-          ? await Promise.all(
-              link.files.map(async (f) => {
-                const { buffer } = await this.storage!.getReceiptBufferByStoredUrl(f.fileUrl);
-                return { filename: f.fileName, content: buffer };
-              }),
-            )
-          : [];
-
-      // Corpo personalizado: e-mail com a mensagem do vendedor (+ anexos, se houver).
-      if (hasCustomBody) {
-        await this.emailService!.sendEbookAccessEmail({
-          to: tx.customerEmail,
-          customerName: tx.customerName ?? 'Cliente',
-          title: link.title,
-          body: link.emailBody as string,
-          redirectUrl,
-          attachments,
-        });
-        this.logger.log(`[DomWebhook] E-mail de ebook enviado para ${tx.customerEmail} (tx=${tx.id}, link=${tx.paymentLinkId})`);
-        return;
-      }
-
-      // Entrega de PDFs (quando há arquivos) — inclui botão de redirect se configurado.
-      if (attachments.length > 0) {
-        await this.emailService!.sendPaymentLinkFiles({
-          to: tx.customerEmail,
-          customerName: tx.customerName ?? 'Cliente',
-          linkTitle: link.title,
-          attachments,
-          redirectUrl,
-        });
-        this.logger.log(`[DomWebhook] PDFs enviados para ${tx.customerEmail} (tx=${tx.id}, link=${tx.paymentLinkId})`);
-        return;
-      }
-
-      // Apenas redirect (sem corpo/arquivos): confirmação simples com botão de redirecionamento.
-      if (redirectUrl) {
-        await this.emailService!.sendPaymentLinkConfirmation({
-          to: tx.customerEmail,
-          customerName: tx.customerName ?? 'Cliente',
-          linkTitle: link.title,
-          redirectUrl,
-        });
-        this.logger.log(`[DomWebhook] E-mail de confirmação (redirect) enviado para ${tx.customerEmail} (tx=${tx.id}, link=${tx.paymentLinkId})`);
-      }
+      // Pedido principal: produto + order bumps. Upsell/downsell: só o material da oferta.
+      const delivery = await resolveLinkDelivery(this.prisma, tx.id, link);
+      await sendLinkDelivery(
+        { email: this.emailService, storage: this.storage, logger: this.logger },
+        { email: tx.customerEmail, name: tx.customerName, transactionId: tx.id },
+        delivery,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`[DomWebhook] Falha ao enviar PDFs do link ${tx.paymentLinkId} para ${tx.customerEmail}: ${msg}`);
@@ -1883,13 +1837,15 @@ export class ProcessDomWebhookUseCase {
     try {
       const link = await this.prisma.paymentLink.findUnique({
         where: { id: tx.paymentLinkId },
-        select: { id: true, title: true, webhookUrl: true, plataformas: true },
+        include: { files: true },
       });
       if (!link?.webhookUrl) return;
 
       const signed = await this.prisma.platformIntegration.findFirst({ where: { key: 'WEBHOOK_SECRET', encryptedValue: { not: null }, platform: { tag: { in: link.plataformas } } } });
       if (signed) return; // Durable worker owns signed callbacks.
       const simpayToken = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
+      // items: o que foi comprado nesta transação (principal + order bumps, ou só o upsell/downsell)
+      const delivery = await resolveLinkDelivery(this.prisma, tx.id, link);
       await fetch(link.webhookUrl, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-simpay-token': simpayToken },
@@ -1897,7 +1853,9 @@ export class ProcessDomWebhookUseCase {
           event,
           customerEmail: tx.customerEmail,
           customerName: tx.customerName,
-          planName: link.title,
+          // Pedido principal mantém o nome do link (plataformas mapeiam o plano por ele).
+          planName: delivery.kind === 'OFFER' ? delivery.title : link.title,
+          items: delivery.items,
           paymentMethod: String(tx.paymentMethod),
           amountCharged: Number(tx.amount),
           netAmount: Number(Number(tx.netAmount ?? tx.amount).toFixed(2)),
