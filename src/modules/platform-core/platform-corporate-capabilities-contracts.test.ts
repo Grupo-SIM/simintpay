@@ -7,7 +7,7 @@ import { PlatformBetaiController, PlatformBetaiBillDto } from './platform-betai.
 import { PlatformAuthGuard } from './platform-auth.guard';
 import { PlatformSubscriptionCapabilitiesController } from './platform-subscription-capabilities.controller';
 import { PlatformVoucherCapabilitiesController } from './platform-voucher-capabilities.controller';
-import { PlatformSubscriptionPlanDto } from './platform-subscription-capabilities.dto';
+import { PlatformPlanImportDto, PlatformSubscriptionPlanDto } from './platform-subscription-capabilities.dto';
 import { PlatformVoucherDto, PlatformVoucherUpdateDto } from './platform-voucher.dto';
 
 const options = { whitelist: true, forbidNonWhitelisted: true };
@@ -16,7 +16,7 @@ describe('canonical corporate capability authorization contracts', () => {
   test('all controllers require platform auth and declare explicit operation scopes', () => {
     for (const [controller, scopes] of [
       [PlatformBetaiController, { create: 'billing:write', status: 'billing:read', cancel: 'subscriptions:write' }],
-      [PlatformSubscriptionCapabilitiesController, { create: 'subscriptions:write', status: 'subscriptions:read', access: 'subscriptions:read' }],
+      [PlatformSubscriptionCapabilitiesController, { create: 'subscriptions:write', importPlan: 'ledger:write', status: 'subscriptions:read', access: 'subscriptions:read' }],
       [PlatformVoucherCapabilitiesController, { list: 'vouchers:read', create: 'vouchers:write', validate: 'vouchers:read', update: 'vouchers:write', delete: 'vouchers:write' }],
     ] as const) {
       expect(Reflect.getMetadata(GUARDS_METADATA, controller)).toContain(PlatformAuthGuard);
@@ -56,4 +56,10 @@ describe('canonical corporate capability authorization contracts', () => {
       expect((await validate(plainToInstance(PlatformVoucherUpdateDto, input), options)).length).toBeGreaterThan(0);
     }
   });
+});
+
+test('plan import validates cents, type and prevents account/provider identity overrides', async () => {
+  const valid = { code: 'p', name: 'Plano', amountCents: 1234, type: 'MONTHLY' };
+  expect(await validate(plainToInstance(PlatformPlanImportDto, valid), options)).toEqual([]);
+  for (const patch of [{ amountCents: 12.34 }, { amountCents: 0 }, { userId: 'foreign' }, { plataformas: ['OTHER'] }, { type: 'DAILY' }]) expect((await validate(plainToInstance(PlatformPlanImportDto, { ...valid, ...patch }), options)).length).toBeGreaterThan(0);
 });

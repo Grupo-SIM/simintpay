@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, SetMetadata, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
-import { PlatformSubscriptionPlanDto } from './platform-subscription-capabilities.dto';
+import { PlatformPlanImportDto, PlatformSubscriptionPlanDto } from './platform-subscription-capabilities.dto';
 import { PlatformSubscriptionCapabilitiesService } from './platform-subscription-capabilities.service';
 
 @Controller('platforms/:tag')
@@ -13,6 +13,12 @@ export class PlatformSubscriptionCapabilitiesController {
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   create(@Req() request: { platformContext: PlatformContext }, @Body() body: PlatformSubscriptionPlanDto) {
     return this.capabilities.createPlan(request.platformContext, body);
+  }
+
+  @Post('subscriptions/plans/import') @SetMetadata('platform-operation', 'ledger:write')
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  importPlan(@Req() request: { platformContext: PlatformContext }, @Body() body: PlatformPlanImportDto) {
+    return this.capabilities.importPlan(request.platformContext, body);
   }
 
   @Get('subscriptions/:code/status') @SetMetadata('platform-operation', 'subscriptions:read')

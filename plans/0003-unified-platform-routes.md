@@ -279,3 +279,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Consultas canônicas excluem marcas conflitantes antes de paginação, contagem e somas; relatório usa Decimal.
 - [x] Status válidos derivados do enum Prisma, incluindo CHARGEBACK e IN_MEDIATION. Regressão de 613 testes Bun aprovada. Build aprovado após remoção de condição redundante no relatório de cliente.
 - [x] Espelhamento de planos aceita revalidação transacional de contexto canônico.
+
+## Continuação — importação de planos e lançamentos
+
+- [x] Importação canônica de plano Pagatg existente em `POST /platforms/:tag/subscriptions/plans/import`, com cents/DTO, sem criar assinatura remota. Mesmo escritor do alias, vínculo global protegido e contexto revalidado.
+- [x] Dois contratos Ebook exercitam escritor real: pendência e comissão preservam referências, status, dados do comprador, parcelas e ausência de crédito à carteira. Comparação respeita precisão Decimal(12,2) persistida.
+- [x] Testes dirigidos aprovados para importações e validação de DTO.

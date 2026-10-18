@@ -52,7 +52,7 @@ export class PlatformFinanceService {
 
   async importEntry(context: FinancePlatformContext, body: Record<string, unknown>) {
     if (!['PAGATG', 'EBOOK'].includes(context.tag)) throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'ledger.import' });
-    const allowed = ['referenceId', 'amountCents', 'netAmountCents', 'kind', 'description', 'paymentMethod'];
+    const allowed = ['referenceId', 'amountCents', 'netAmountCents', 'kind', 'description', 'paymentMethod', 'installments', 'customerName', 'customerEmail', 'customerDocument'];
     if (Object.keys(body).some(key => !allowed.includes(key))) throw new BadRequestException('Campo desconhecido');
     if (typeof body.referenceId !== 'string' || !body.referenceId.trim() || body.referenceId.length > 120) throw new BadRequestException('referenceId inválido');
     if (!Number.isSafeInteger(body.amountCents) || Number(body.amountCents) <= 0 || !Number.isSafeInteger(body.netAmountCents)) throw new BadRequestException('Centavos inteiros obrigatórios');
@@ -60,12 +60,15 @@ export class PlatformFinanceService {
     if ((context.tag === 'PAGATG' && kind !== 'payment') || (context.tag === 'EBOOK' && !['pending', 'commission'].includes(String(kind)))) throw new BadRequestException('kind inválido');
     if (!['PIX', 'CREDIT_CARD'].includes(String(body.paymentMethod))) throw new BadRequestException('paymentMethod inválido');
     if (body.description !== undefined && typeof body.description !== 'string') throw new BadRequestException('description inválida');
+    for (const key of ['customerName', 'customerEmail', 'customerDocument']) if (body[key] !== undefined && typeof body[key] !== 'string') throw new BadRequestException(`${key} inválido`);
+    if (body.installments !== undefined && (!Number.isSafeInteger(body.installments) || Number(body.installments) < 1 || Number(body.installments) > 12)) throw new BadRequestException('installments inválido');
     const amount = new Prisma.Decimal(Number(body.amountCents)).div(100);
     const net = new Prisma.Decimal(Number(body.netAmountCents)).div(100);
     const prefix = kind === 'pending' ? 'EBOOK_PENDING_' : kind === 'commission' ? 'EBOOK_AFFCOMM_' : '';
     const text = String(body.description ?? '').replace(/\[TENANT:[^\]]*\]/gi, '').trim();
     return this.recordEntry(context.tag, { userId: context.ownerUserId, domPaymentId: `${prefix}${body.referenceId.trim()}`,
       amount, netAmount: net, totalFee: kind === 'payment' ? amount.minus(net) : 0,
+      installments: Number(body.installments ?? 1), customerName: body.customerName as string | undefined, customerEmail: body.customerEmail as string | undefined, customerDocument: body.customerDocument === undefined ? undefined : String(body.customerDocument).replace(/\D/g, ''),
       status: kind === 'pending' ? 'PENDING' : 'COMPLETED', paymentMethod: body.paymentMethod as 'PIX' | 'CREDIT_CARD',
       description: `${text} [TENANT:${context.tag}]${kind === 'commission' ? '[AFFILIATE_COMMISSION]' : ''}`,
     }, kind === 'payment', context.ownerUserId);

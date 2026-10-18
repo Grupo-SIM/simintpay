@@ -194,3 +194,7 @@ Atlas classifica comissão de afiliado; Ebook/Revalida/Patrimonial usam papel ad
 Baseline administrativo Bosque baixa somente disponível contábil, dentro da transação, sem movimentar carteira física. Valor aplicado nunca excede disponível atual. Ajustes por delta usam saldo transacional. Todas as operações de manutenção exigem vínculo exclusivo de carteira; APIs canônicas exigem admin. Legado Bosque conserva piso zero; canônico rejeita resultado negativo.
 
 Consultas financeiras canônicas descartam lançamentos com marcas de plataformas conflitantes antes de contar, paginar ou somar. Todos os estados do enum de transação podem ser consultados.
+
+### Importações corporativas
+
+Importação de plano Pagatg existente usa `/platforms/:tag/subscriptions/plans/import`; criação de nova assinatura permanece operação distinta. Valores canônicos em centavos. Código global de plano não pode ser adotado por outro produto/conta. Lançamentos Ebook pending/commission não creditam carteira; pending conserva cálculo histórico PIX independentemente do meio exibido. Campos opcionais de comprador/parcelas não substituem identidade autenticada.

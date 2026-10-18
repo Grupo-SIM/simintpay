@@ -1,3 +1,4 @@
+import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
 import { PlatformSaasAccessService } from './platform-saas-access.service';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
@@ -6,7 +7,7 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { CreateSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/create-subscription-link.use-case';
 import { PlatformContextService, type PlatformContext } from './platform-context.service';
 import { unsupportedCapability } from './platform-adapters';
-import type { PlatformSubscriptionPlanDto } from './platform-subscription-capabilities.dto';
+import type { PlatformPlanImportDto, PlatformSubscriptionPlanDto } from './platform-subscription-capabilities.dto';
 
 const subscriptionTags = new Set(['BETAI', 'PAGATG', 'CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL']);
 const saasTags = new Set(['CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL']);
@@ -19,7 +20,7 @@ export class PlatformSubscriptionCapabilitiesService {
   private async current(context: PlatformContext, capability: string, tags = subscriptionTags) {
     const current = await this.contexts.resolve(context.tag);
     if (!tags.has(current.tag)) unsupportedCapability(capability);
-    if (current.id !== context.id || current.ownerUserId !== context.ownerUserId) throw new BadRequestException('Contexto da plataforma mudou');
+    if (current.id !== context.id || current.tag !== context.tag || current.ownerUserId !== context.ownerUserId) throw new BadRequestException('Contexto da plataforma mudou');
     return current;
   }
 
@@ -36,6 +37,17 @@ export class PlatformSubscriptionCapabilitiesService {
     });
     return { id: result.data.id, code: result.data.codigo, name: result.data.nome,
       amountCents: new Prisma.Decimal(result.data.valor).mul(100).toNumber(), frequency: body.frequency, isActive: result.data.ativo };
+  }
+
+  async importPlan(context: PlatformContext, body: PlatformPlanImportDto) {
+    const current = await this.current(context, 'subscriptions.import', new Set(['PAGATG']));
+    if (current.acquirer !== 'DOM') unsupportedCapability('subscriptions.import.FRENDZ');
+    if (!Number.isSafeInteger(body.amountCents) || body.amountCents <= 0 || !body.code?.trim() || !body.name?.trim()) throw new BadRequestException('Plano inválido');
+    return this.modules.get(PlatformFinanceService, { strict: false }).mirrorPlan(current.tag, current.ownerUserId, body.code.trim(), {
+      name: body.name.trim(), price: new Prisma.Decimal(body.amountCents).div(100), type: body.type,
+      domPlanId: body.externalPlanId?.trim() || null, redirectUrl: body.redirectUrl, webhookUrl: body.webhookUrl,
+      isActive: body.isActive ?? true, paymentMethods: body.paymentMethods ?? 'CREDIT_CARD',
+    }, current);
   }
 
   async paymentStatus(context: PlatformContext, code: string) {
