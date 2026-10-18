@@ -36,7 +36,7 @@ describe('Shared platform finance', () => {
     await service.transactions(context);
     expect(prisma.transaction.findMany.mock.calls[0][0]).toMatchObject({ where: { userId: 'owner', description: { contains: '[TENANT:SHOP]' } } });
     await service.report(context);
-    expect(prisma.transaction.aggregate.mock.calls[0][0]).toMatchObject({ where: { description: { contains: '[TENANT:SHOP]' }, status: 'COMPLETED' } });
+    expect(prisma.transaction.findMany.mock.calls[1][0]).toMatchObject({ where: { description: { contains: '[TENANT:SHOP]' }, status: 'COMPLETED' } });
   });
   test('blocks maintenance of shared owner wallet', async () => {
     const { service } = fixture();
@@ -90,4 +90,13 @@ test('canonical import uses authenticated wallet and strict cents', async () => 
     await expect(service.importEntry(platform, { ...body, ...change })).rejects.toThrow();
   }
   expect(record).toHaveBeenCalledTimes(1);
+});
+
+test('ambiguous history excluded before pagination, counts and financial sums', async () => {
+  const { service, prisma } = fixture();
+  const row = (id: string, description: string, status = 'COMPLETED') => ({ id, description, status, amount: decimal(10.29), netAmount: decimal(9.99), platformFee: decimal(.2), domFee: decimal(.1) });
+  prisma.transaction.findMany.mockImplementation(async () => [row('mixed', '[TENANT:SHOP][TENANT:OTHER]'), row('valid', '[TENANT:SHOP]') ] as any);
+  expect(await service.transactions(context, { limit: 1 })).toMatchObject({ data: [{ id: 'valid', amountCents: 1029 }], meta: { total: 1, totalPages: 1 } });
+  expect(await service.report(context)).toMatchObject({ completedTransactions: 1, grossAmountCents: 1029, netAmountCents: 999, platformFeeCents: 20, acquirerFeeCents: 10 });
+  for (const status of ['CHARGEBACK', 'IN_MEDIATION']) await service.transactions(context, { status });
 });

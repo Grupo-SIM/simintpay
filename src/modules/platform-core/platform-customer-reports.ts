@@ -121,7 +121,7 @@ export class PlatformCustomerReports {
       where: { 
         userId: { in: poolIds },
         status: TransactionStatus.REFUNDED,
-        description: { contains: this.context ? `[TENANT:${this.context.tag}]` : dbUser.cpf || 'UNDEFINED_CPF' },
+        description: { contains: dbUser.cpf || 'UNDEFINED_CPF' },
       },
       _count: { id: true },
       _sum: { netAmount: true },

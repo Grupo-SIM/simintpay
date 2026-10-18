@@ -7,7 +7,8 @@ import { PlatformLedger } from './platform-ledger';
 import { PlatformMaintenanceService } from './platform-maintenance.service';
 import { platformWithdrawalQuote } from '../../platform-core/platform-withdrawal.adapter';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, TransactionStatus } from '@prisma/client';
+import { hasPlatformMarker } from '../../platform-core/platform-sync.adapter';
 import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.store';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
@@ -70,10 +71,11 @@ export class PlatformFinanceService {
     }, kind === 'payment', context.ownerUserId);
   }
 
-  async mirrorPlan(tag: string, userId: string, code: string, data: Omit<Prisma.PlanUncheckedCreateInput, 'userId' | 'code'>) {
+  async mirrorPlan(tag: string, userId: string, code: string, data: Omit<Prisma.PlanUncheckedCreateInput, 'userId' | 'code'>, context?: FinancePlatformContext) {
     return this.prisma.$transaction(async p => {
       const platform = await p.platform.findUnique({ where: { tag }, include: { owner: true } });
       if (!platform?.isActive || !platform.owner?.isActive || platform.owner.isPurged) throw new UnprocessableEntityException({ code: 'PLATFORM_UNAVAILABLE' });
+      if (context && (platform.id !== context.id || platform.ownerUserId !== context.ownerUserId || userId !== context.ownerUserId || platform.acquirer !== context.acquirer)) throw new ConflictException('Contexto da plataforma mudou');
       const existing = await p.plan.findUnique({ where: { code } });
       if (existing && (existing.userId !== userId || !existing.plataformas.includes(tag))) {
         throw new ConflictException({ code: 'PLAN_PLATFORM_CONFLICT', message: 'Plano sem vínculo explícito com plataforma e conta' });
@@ -164,17 +166,17 @@ export class PlatformFinanceService {
 
   async transactions(context: FinancePlatformContext, options: FinancePage = {}) {
     const { page, limit, skip } = this.pagination(options);
-    const statuses = ['PENDING', 'COMPLETED', 'FAILED', 'REFUNDED', 'EXPIRED', 'DRAFT'];
+    const statuses: string[] = Object.values(TransactionStatus);
     if (options.status && !statuses.includes(options.status)) throw new BadRequestException('Status inválido');
     const where: Prisma.TransactionWhereInput = {
       userId: context.ownerUserId,
       description: { contains: `[TENANT:${context.tag}]`, mode: 'insensitive' },
       ...(options.status ? { status: options.status as Prisma.TransactionWhereInput['status'] } : {}),
     };
-    const [total, rows] = await Promise.all([
-      this.prisma.transaction.count({ where }),
-      this.prisma.transaction.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit }),
-    ]);
+    const candidates = await this.prisma.transaction.findMany({ where, orderBy: { createdAt: 'desc' } });
+    const identified = candidates.filter(row => hasPlatformMarker(row.description, context.tag));
+    const total = identified.length;
+    const rows = identified.slice(skip, skip + limit);
     return { unit: 'cents', data: rows.map(row => ({
       id: row.id, amountCents: this.cents(row.amount), netAmountCents: this.cents(row.netAmount ?? row.amount),
       platformFeeCents: this.cents(row.platformFee), acquirerFeeCents: this.cents(row.domFee),
@@ -193,10 +195,13 @@ export class PlatformFinanceService {
   }
 
   async report(context: FinancePlatformContext) {
-    const aggregate = await this.prisma.transaction.aggregate({
+    const candidates = await this.prisma.transaction.findMany({
       where: { userId: context.ownerUserId, status: 'COMPLETED', description: { contains: `[TENANT:${context.tag}]`, mode: 'insensitive' } },
-      _sum: { amount: true, netAmount: true, platformFee: true, domFee: true }, _count: true,
+      select: { description: true, amount: true, netAmount: true, platformFee: true, domFee: true },
     });
+    const rows = candidates.filter(row => hasPlatformMarker(row.description, context.tag));
+    const sum = (key: 'amount' | 'netAmount' | 'platformFee' | 'domFee') => rows.reduce((total, row) => total.plus(row[key] ?? 0), new Prisma.Decimal(0));
+    const aggregate = { _count: rows.length, _sum: { amount: sum('amount'), netAmount: sum('netAmount'), platformFee: sum('platformFee'), domFee: sum('domFee') } };
     return { unit: 'cents', attribution: 'explicit-tenant-tag', completedTransactions: aggregate._count,
       grossAmountCents: this.cents(aggregate._sum.amount), netAmountCents: this.cents(aggregate._sum.netAmount),
       platformFeeCents: this.cents(aggregate._sum.platformFee), acquirerFeeCents: this.cents(aggregate._sum.domFee),

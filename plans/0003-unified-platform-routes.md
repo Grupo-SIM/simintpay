@@ -273,3 +273,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Baseline calculado dentro da transação serializável, limitado ao disponível atual; repetição sem saldo não lança nova baixa.
 - [x] Delta de carteira aplica sobre saldo transacional e preserva bloqueado não informado. Compatibilidade mantém piso zero legado; canônico rejeita saldo negativo.
 - [x] Adicionar operações canônicas admin `baseline` e `adjust-balance`, centavos inteiros e bloqueio de carteira compartilhada. Seis testes comportamentais aprovados; suíte isolada de 612 Bun aprovada.
+
+## Continuação — atribuição estrita das consultas financeiras
+
+- [x] Consultas canônicas excluem marcas conflitantes antes de paginação, contagem e somas; relatório usa Decimal.
+- [x] Status válidos derivados do enum Prisma, incluindo CHARGEBACK e IN_MEDIATION. Regressão de 613 testes Bun aprovada. Build aprovado após remoção de condição redundante no relatório de cliente.
+- [x] Espelhamento de planos aceita revalidação transacional de contexto canônico.
