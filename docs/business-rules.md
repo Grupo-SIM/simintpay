@@ -163,6 +163,8 @@ Aliases de zerar carteira Atlas/Revalida sempre passam pela manutenção seriali
 
 E-mail de acesso VM Atlas usa mesmo serviço/template no alias e na capacidade canônica `mail/vm-access`. Canônico exige `mail:send` e plataforma Atlas; outra plataforma recebe 422 `PLATFORM_CAPABILITY_UNAVAILABLE`. Falha SMTP propaga sem resposta de sucesso em ambos os contratos; permissões legadas permanecem restritas ao alias inventariado.
 
+Saques de dono Ebook/Pagatg precificam taxa sobre líquido. API canônica recebe bruto em centavos e resolve líquido = (bruto − taxa fixa) / (1 + taxa percentual), arredondado a centavos; mínimo incide sobre líquido. Demais produtos e saques de comerciantes mantêm base bruta; AreaFlix aplica somente taxa fixa. Escritor de saques sempre consulta plataforma/dono ativos e usa adquirente cadastrado, inclusive em aliases, sem fallback DOM. Exceções históricas sem reserva de carteira em Atlas/Ebook/Pagatg permanecem restritas aos aliases; canônico sempre reserva bruto.
+
 ## Integração remota — links e classificação administrativa
 
 - `isSimintpayClient` é classificação administrativa; não altera aprovação, papel, titularidade ou associação de produtos. Ativos excluem marcados por padrão; `simintpayClients=true` seleciona marcados e `any` inclui ambos. Inativos/purgados incluem ambos por padrão.

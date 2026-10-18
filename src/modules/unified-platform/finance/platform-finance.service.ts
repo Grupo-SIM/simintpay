@@ -5,6 +5,7 @@ import { PlatformDashboardReports } from '../../platform-core/platform-dashboard
 import { platformDashboardRules } from '../../platform-core/platform-dashboard.adapter';
 import { PlatformLedger } from './platform-ledger';
 import { PlatformMaintenanceService } from './platform-maintenance.service';
+import { platformWithdrawalQuote } from '../../platform-core/platform-withdrawal.adapter';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.store';
@@ -207,13 +208,7 @@ export class PlatformFinanceService {
     if (typeof input.pixKey !== 'string' || !input.pixKey.trim()) throw new BadRequestException('pixKey obrigatório');
     if (typeof input.idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{1,120}$/.test(input.idempotencyKey)) throw new BadRequestException('idempotencyKey inválida');
     const gross = new Prisma.Decimal(input.amountCents).div(100);
-    const minimum = getPlatformTaxaEffective(context.tag, 'SAQUE_MIN', 100);
-    if (gross.lt(minimum)) throw new BadRequestException('Valor inferior ao saque mínimo');
-    const fixed = getPlatformTaxaEffective(context.tag, 'TAXA_SAQUE_FIXA', 2);
-    const rate = context.tag === 'AREAFLIX' ? 0 : getPlatformTaxaEffective(context.tag, 'TAXA_SAQUE_PERCENT', 0);
-    const fee = new Prisma.Decimal(fixed).plus(gross.mul(rate)).toDecimalPlaces(2);
-    const amount = gross.minus(fee);
-    if (amount.lte(0)) throw new BadRequestException('Valor insuficiente para cobrir taxa');
+    const { amount, fee } = platformWithdrawalQuote(context.tag, gross, !!merchant);
     // Every canonical request reserves owner wallet; approval remains PENDING, including Return Bet.
     const financialUserId = merchant?.userId ?? context.ownerUserId;
     const integrationRequestId = `platform:${context.id}:${merchant ? merchant.id + ":" : ""}${input.idempotencyKey}`;
@@ -254,11 +249,12 @@ export class PlatformFinanceService {
     logBalance?: boolean; integrationRequestId?: string; context?: FinancePlatformContext; merchantId?: string; merchantNamespace?: string; singlePending?: boolean;
   }) {
     return this.prisma.$transaction(async tx => {
-      if (input.context) {
-        const current = await tx.platform.findUnique({ where: { id: input.context.id }, include: { owner: true } });
-        if (!current?.isActive || !current.owner.isActive || current.owner.isPurged || current.ownerUserId !== input.context.ownerUserId || current.tag !== input.context.tag || current.acquirer !== input.context.acquirer) {
-          throw new ForbiddenException('Plataforma ou dono alterado/inativo; refaça autenticação');
-        }
+      const current = await tx.platform.findUnique({ where: input.context ? { id: input.context.id } : { tag: input.platform.toUpperCase() }, include: { owner: true } });
+      if (!current) throw new UnprocessableEntityException({ code: 'PLATFORM_UNAVAILABLE', message: 'Plataforma não cadastrada' });
+      if (!current.isActive || !current.owner.isActive || current.owner.isPurged || current.tag.toLowerCase() !== input.platform.toLowerCase()
+        || input.acquirer !== undefined && current.acquirer !== input.acquirer
+        || input.context && (current.ownerUserId !== input.context.ownerUserId || current.tag !== input.context.tag || current.acquirer !== input.context.acquirer)) {
+        throw new ForbiddenException('Plataforma ou dono alterado/inativo; refaça autenticação');
       }
       if (input.merchantId && input.context) {
         const merchant = await tx.integrationMerchant.findUnique({ where: { id: input.merchantId }, include: { user: true } });
@@ -303,7 +299,7 @@ export class PlatformFinanceService {
       }
       const created = await tx.withdrawRequest.create({ data: {
         userId: input.userId, platform: input.platform, amount: input.amount, grossAmount: input.grossAmount,
-        fee: input.fee, pixKey: input.pixKey, status: 'PENDING', acquirer: input.acquirer ?? 'DOM',
+        fee: input.fee, pixKey: input.pixKey, status: 'PENDING', acquirer: current.acquirer,
         integrationRequestId: input.integrationRequestId,
       } });
       if (input.merchantId) await tx.integrationWebhookDelivery.create({ data: merchantWithdrawalDelivery(input.merchantId, created) });

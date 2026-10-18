@@ -241,3 +241,10 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Alias de e-mail VM e capacidade canônica exercitam serviço real de montagem de template com SMTP substituído por mock. Destinatário, assunto, IP e senha são equivalentes; envelopes próprios preservados.
 - [x] Três testes dirigidos aprovados: equivalência, falha SMTP propagada e capacidade indisponível em outra plataforma (422 estável). Escopo canônico `mail:send` verificado; nenhuma mensagem enviada.
 - [ ] Equivalência integral dos demais contratos continua pendente; esta etapa acrescenta um contrato legado à cobertura comportamental.
+
+## Continuação — equivalência financeira de saques corporativos
+
+- [x] Seis aliases comparados com pedido canônico usando escritor real e persistência mockada: líquido, bruto, taxa, chave, status, adquirente e políticas históricas de reserva.
+- [x] Corrigir taxa canônica Ebook/Pagatg para base líquida; regra de comerciante mantém base bruta. Escritor legado deixa de presumir DOM e valida cadastro/dono ativos na transação.
+- [x] 25 testes dirigidos e 563 Bun da suíte completa aprovados; build local aprovado. Validação inclui bloqueio de plataforma inexistente/inativa sem lançamento.
+- [ ] Cobertura comportamental das demais rotas segue em execução.
