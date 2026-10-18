@@ -235,3 +235,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Dez testes novos verificam equivalência, resposta sem mudança e concorrência; suíte Bun isolada completa passou com 547 testes.
 - [x] Build local aprovado após regeneração local do cliente Prisma, desatualizado em relação aos modelos de ofertas já presentes no schema. Nenhuma migração executada.
 - [ ] Equivalência integral dos demais contratos continua pendente. Arquivo SQL previamente staged pelo usuário preservado fora desta etapa.
+
+## Continuação — contrato de e-mail VM Atlas
+
+- [x] Alias de e-mail VM e capacidade canônica exercitam serviço real de montagem de template com SMTP substituído por mock. Destinatário, assunto, IP e senha são equivalentes; envelopes próprios preservados.
+- [x] Três testes dirigidos aprovados: equivalência, falha SMTP propagada e capacidade indisponível em outra plataforma (422 estável). Escopo canônico `mail:send` verificado; nenhuma mensagem enviada.
+- [ ] Equivalência integral dos demais contratos continua pendente; esta etapa acrescenta um contrato legado à cobertura comportamental.

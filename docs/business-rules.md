@@ -161,6 +161,8 @@ Saldo contábil por produto informa `balanceBasis: persisted-net`: projeção de
 
 Aliases de zerar carteira Atlas/Revalida sempre passam pela manutenção serializável, inclusive quando leitura preliminar indica saldo zero. Resposta de saldo anterior e indicação `alreadyZero` vêm da leitura transacional; vínculo exclusivo, dono ativo e conflito de versão continuam obrigatórios. Operação sem mudança não gera lançamento financeiro extra, mas mantém espelhamento compatível.
 
+E-mail de acesso VM Atlas usa mesmo serviço/template no alias e na capacidade canônica `mail/vm-access`. Canônico exige `mail:send` e plataforma Atlas; outra plataforma recebe 422 `PLATFORM_CAPABILITY_UNAVAILABLE`. Falha SMTP propaga sem resposta de sucesso em ambos os contratos; permissões legadas permanecem restritas ao alias inventariado.
+
 ## Integração remota — links e classificação administrativa
 
 - `isSimintpayClient` é classificação administrativa; não altera aprovação, papel, titularidade ou associação de produtos. Ativos excluem marcados por padrão; `simintpayClients=true` seleciona marcados e `any` inclui ambos. Inativos/purgados incluem ambos por padrão.
