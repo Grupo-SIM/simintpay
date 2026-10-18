@@ -167,6 +167,8 @@ Saques de dono Ebook/Pagatg precificam taxa sobre líquido. API canônica recebe
 
 Voucher Pagatg pode ser atualizado em `PATCH /platforms/:tag/vouchers/:id`, com `vouchers:write`. Usa mesmo serviço do alias; ID precisa pertencer ao dono atual e canal Pagatg. Valores fixos são centavos inteiros e percentuais são taxas decimais; trocar tipo exige valor na unidade correspondente. Cliente não substitui dono ou canais por campos do corpo.
 
+Filtro textual de histórico Ebook é combinado com tag da plataforma, nunca a substitui. Consultas de status preservam contrato de ausência legado (PENDING em Bosque/Renovada, NOT_FOUND ou UNKNOWN nas variantes Atlas/Zero Grau); canônico retorna 404. Estados de provedor no PIX direto são normalizados para comparação financeira, sem reatribuir titular histórico.
+
 ## Integração remota — links e classificação administrativa
 
 - `isSimintpayClient` é classificação administrativa; não altera aprovação, papel, titularidade ou associação de produtos. Ativos excluem marcados por padrão; `simintpayClients=true` seleciona marcados e `any` inclui ambos. Inativos/purgados incluem ambos por padrão.

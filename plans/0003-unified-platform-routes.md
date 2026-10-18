@@ -254,3 +254,10 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Adicionar PATCH canônico de voucher, com centavos/taxa decimal, escopo `vouchers:write` e campos de identidade/canal rejeitados.
 - [x] Cinco aliases exercitam VoucherService real com persistência mockada: criação, listagem, validação, atualização e exclusão. Valores, arredondamento, canal, propriedade e envelopes comparados; casos inválidos não escrevem.
 - [x] Seis testes de ciclo de voucher e DTO/escopo adicional aprovados; suíte Bun com etapas atuais passou em 602 testes. Build local aprovado.
+
+## Continuação — consultas financeiras e status de pagamentos
+
+- [x] Consultas legadas exercitam projeções reais, valores não zerados e predicados Prisma avaliados no fixture: seis summaries/carteiras, cinco listagens de saques, quatro históricos, AreaFlix status/totais, Atlas health/status, Ebook configuração e Bosque inspeção/conciliação.
+- [x] Corrigir busca por descrição Ebook para manter condição da plataforma; busca textual não pode substituir tag.
+- [x] Seis aliases de status de pagamento comparados com lookup canônico: referências, estado normalizado, líquido/bruto em centavos, histórico do dono anterior, ausência/marca conflitante e plataforma inativa. Respostas legadas NOT_FOUND/PENDING/UNKNOWN e canônico 404 permanecem deliberadamente distintos.
+- [x] 19 testes de leitura financeira e 14 de status aprovados; regressão completa de 602 Bun e build aprovados antes das etapas seguintes.

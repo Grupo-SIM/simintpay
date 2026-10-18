@@ -123,7 +123,7 @@ export class InternalEbookFinanceService {
       where.status = String(status).toUpperCase() as TxStatus;
     }
     if (description && description !== 'ALL') {
-      where.description = { contains: description, mode: 'insensitive' };
+      where.AND = [{ description: { contains: description, mode: 'insensitive' } }];
     }
     if (startDate || endDate) {
       where.createdAt = {};
