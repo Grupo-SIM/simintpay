@@ -15,8 +15,8 @@ import { AdminController } from './admin.controller';
  * invisíveis em GET /admin/usuarios ("Leads"). Agora aparecem como plataforma
  * virtual "simintpay".
  *
- * listExternalUsers só depende de `this.prisma`, então instanciamos o método sobre
- * um contexto mínimo com um Prisma mockado — sem subir o módulo Nest inteiro.
+ * listExternalUsers usa Prisma e cache de pessoas externas; testes mantêm ambos
+ * locais com dependências mockadas — sem subir o módulo Nest inteiro.
  */
 describe('AdminController.listExternalUsers — clientes diretos (simintpay)', () => {
   const directClient = {
@@ -74,7 +74,7 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       search?: string;
     } = {},
   ) {
-    const ctx = { prisma } as any;
+    const ctx = Object.assign(Object.create(AdminController.prototype), { prisma, externalPlatformDb: { listAll: jest.fn().mockResolvedValue([]) } });
     return (AdminController.prototype as any).listExternalUsers.call(
       ctx,
       args.platform,
@@ -204,7 +204,7 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
   describe('contas marcadas como cliente Simintpay', () => {
     function invokeFull(prisma: any, args: { deleted?: string; purged?: string; simintpayClients?: string; page?: string; pageSize?: string } = {}) {
       return (AdminController.prototype as any).listExternalUsers.call(
-        { prisma } as any,
+        Object.assign(Object.create(AdminController.prototype), { prisma, externalPlatformDb: { listAll: jest.fn().mockResolvedValue([]) } }),
         undefined, args.page ?? '1', args.pageSize ?? '20', args.deleted, args.purged, undefined, args.simintpayClients,
       );
     }
