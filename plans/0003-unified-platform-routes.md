@@ -261,3 +261,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Corrigir busca por descrição Ebook para manter condição da plataforma; busca textual não pode substituir tag.
 - [x] Seis aliases de status de pagamento comparados com lookup canônico: referências, estado normalizado, líquido/bruto em centavos, histórico do dono anterior, ausência/marca conflitante e plataforma inativa. Respostas legadas NOT_FOUND/PENDING/UNKNOWN e canônico 404 permanecem deliberadamente distintos.
 - [x] 19 testes de leitura financeira e 14 de status aprovados; regressão completa de 602 Bun e build aprovados antes das etapas seguintes.
+
+## Continuação — relatório de cliente por produto
+
+- [x] Extrair dashboard de cliente para núcleo compartilhado; alias preserva seleção histórica, canônico exige contexto e histórico exclusivo do produto.
+- [x] Adicionar `GET /platforms/:tag/reports/customer`, centavos, contagens preservadas e carteira explicitamente do dono. Cálculos monetários usam Decimal.
+- [x] Três testes de contrato cobrem equivalência, isolamento e transferência. Suíte isolada: 612 testes Bun aprovados; build aprovado.

@@ -5,6 +5,7 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../core/services/payment-gateway.interface';
 import { PlatformReportingService } from '../../application/services/platform-reporting.service';
 import { PlatformAdministrationService } from './platform-administration.service';
+import { PlatformCustomerReports } from './platform-customer-reports';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
 
@@ -12,6 +13,22 @@ import type { PlatformContext } from './platform-context.service';
 @UseGuards(PlatformAuthGuard)
 export class PlatformReportProjectionsController {
   constructor(private readonly prisma: PrismaService, @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway, private readonly reporting: PlatformReportingService) {}
+
+  @Get('customer') @SetMetadata('platform-operation', 'reports:read')
+  async customer(@Req() request: { platformContext: PlatformContext }, @Query('period') period = 'hoje') {
+    if (!['hoje', 'ontem', '7dias', '15dias', '30dias'].includes(period)) throw new BadRequestException('Período inválido');
+    const result = await new PlatformCustomerReports(this.prisma, request.platformContext).getDashboardData(period, { sub: request.platformContext.ownerUserId });
+    const cents = (value: number) => {
+      const amount = new Prisma.Decimal(value).mul(100).toDecimalPlaces(0).toNumber();
+      if (!Number.isSafeInteger(amount)) throw new BadRequestException('Valor fora do limite');
+      return amount;
+    };
+    const money = (value: any): any => typeof value === 'number' ? cents(value) : Array.isArray(value) ? value.map(money) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, money(item)])) : value;
+    return { unit: 'cents', scope: 'product-history', period: result.period,
+      summary: { ownerWalletAvailableBalanceCents: cents(result.summary.availableBalance), balanceInProcessingCents: cents(result.summary.balanceInProcessing) },
+      selected: { profit: money(result.selected.profit), withdrawals: result.selected.withdrawals },
+      profit: money(result.profit), refunds: { count: result.estornos.quantidade, netAmountCents: cents(result.estornos.valorLiquido) }, withdrawals: result.withdrawals };
+  }
 
   @Get('sellers/stats') @SetMetadata('platform-operation', 'reports:read')
   sellerStats(@Req() request: { platformContext: PlatformContext }) {

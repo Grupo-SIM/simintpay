@@ -184,3 +184,7 @@ Filtro textual de histórico Ebook é combinado com tag da plataforma, nunca a s
 Cadastro ativo explícito em `Platform` e integração `EXTERNAL_DATABASE_URL` com valor criptografado são obrigatórios. Configurar via API administrativa de integrações, usando corpo `{ "value": "postgresql://…" }` (armazenado como segredo); nunca armazenar URL de banco em campo público `url` ou seis variáveis de ambiente. `PLATFORM_CONFIG_ENCRYPTION_KEY` permanece chave de criptografia do servidor; nenhuma credencial real consta deste guia.
 
 Atlas classifica comissão de afiliado; Ebook/Revalida/Patrimonial usam papel administrativo; Patrimonial expõe organizationName da associação explícita à Organization; Pagatg/Areaflix consultam tabelas separadas de operadores e clientes. Classificação serve somente à listagem, nunca define dono. Slug inválido retorna 400. Envelopes `{ data }` e listas existentes preservados; `state` distingue `available`, `unconfigured` e `unavailable`. Conexões limitadas a dois por fonte; transações somente leitura e timeout de cinco segundos. Mudança de configuração encerra pool anterior. Falha de uma fonte não bloqueia demais. Nenhuma associação é inferida por e-mail.
+
+### Relatório de cliente por plataforma
+
+`GET /platforms/:tag/reports/customer` usa somente lançamentos identificados sem ambiguidade do produto e do dono atual. Respostas monetárias em centavos; contagens permanecem contagens. `ownerWalletAvailableBalanceCents` representa carteira do dono, compartilhada entre seus produtos. Alias de cliente mantém contrato histórico de CPF/pools.
