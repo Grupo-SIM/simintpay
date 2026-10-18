@@ -26,8 +26,17 @@ for (const [tag, Service] of [['ATLAS', AtlasDashboardService], ['REVALIDA', Rev
     const summary = await alias.getSummary();
     const result = await finance.dashboard(context, 'summary') as any;
     expect(result.balanceCents).toBe(Math.round(summary.total_balance * 100));
-    await alias.getDashboardData();
-    await alias.getWithdrawals(1, 20);
+    const stats = await alias.getDashboardData();
+    const statsCanonical = await finance.dashboard(context, 'stats') as any;
+    expect(statsCanonical.profit.total).toBe(Math.round(stats.profit.total * 100));
+    expect(statsCanonical.profit.today.total).toBe(Math.round(stats.profit.today.total * 100));
+    expect(statsCanonical.profit.charts.last30Days).toEqual(stats.profit.charts.last30Days.map(row => ({ ...row, value: Math.round(row.value * 100) })));
+    expect(statsCanonical.withdrawalCounts).toEqual(stats.withdrawals);
+    expect(statsCanonical.refunds).toEqual({ count: stats.estornos.quantidade, netAmountCents: Math.round(stats.estornos.valorLiquido * 100) });
+    const withdrawals = await alias.getWithdrawals(1, 20);
+    const withdrawalsCanonical = await finance.dashboard(context, 'withdrawals') as any;
+    expect(withdrawalsCanonical.meta).toEqual(withdrawals.meta);
+    expect(withdrawalsCanonical.data).toEqual(withdrawals.data.map(({ amount, grossAmount, fee, ...row }) => ({ ...row, amountCents: Math.round(amount * 100), grossAmountCents: Math.round(grossAmount * 100), feeCents: Math.round(fee * 100) })));
     for (const fn of [prisma.transaction.findMany, prisma.transaction.count, prisma.transaction.aggregate]) {
       for (const [query] of fn.mock.calls as any[]) expect(query.where.description).toEqual({ contains: `[TENANT:${tag}]`, mode: 'insensitive' });
     }

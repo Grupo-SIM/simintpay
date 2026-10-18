@@ -1,3 +1,6 @@
+import { InternalAreaflixFinanceService } from '../unified-platform/finance/legacy-areaflix-finance.service';
+import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
+import { PlatformCorporateController } from './platform-corporate.controller';
 import { expect, mock, test } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import { PlatformLinkClaim } from './platform-link-claim';
@@ -52,4 +55,18 @@ test('claim rejects stale owner, insufficient available balance, fractional cent
     await expect(service.claim('AREAFLIX', target, { paymentLinkIds: ['link'], ...body })).rejects.toThrow();
     expect(p.wallet.updateMany).not.toHaveBeenCalled();
   }
+});
+
+test('AreaFlix claim alias reais equals canonical cents with actual shared transfer and audit', async () => {
+  const old = fixture(), current = fixture();
+  old.p.user.findMany = async () => [{ id: 'owner' }];
+  const legacy = new InternalAreaflixFinanceService(old.p, new PlatformFinanceService(old.p));
+  const canonical = new PlatformCorporateController({} as any, current.p);
+  const before = await legacy.claimLinks({ cpf: '12345678901', paymentLinkIds: ['link'], retroactiveAmount: 12.34 });
+  const after = await canonical.claimLinks({ platformContext: { id: 'p', tag: 'AREAFLIX', ownerUserId: 'owner', acquirer: 'DOM' } }, { paymentLinkIds: ['link'], retroactiveAmountCents: 1234 });
+  const { retroactiveTransferred, ...legacyResult } = before as any;
+  expect(after).toEqual({ ...legacyResult, unit: 'cents', retroactiveTransferredCents: Math.round(retroactiveTransferred * 100) });
+  expect(old.p.wallet.updateMany.mock.calls).toEqual(current.p.wallet.updateMany.mock.calls);
+  expect(old.p.balanceLog.create.mock.calls).toEqual(current.p.balanceLog.create.mock.calls);
+  expect(after.retroactiveTransferredCents).toBe(1234);
 });

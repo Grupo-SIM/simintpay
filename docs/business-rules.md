@@ -198,3 +198,5 @@ Consultas financeiras canônicas descartam lançamentos com marcas de plataforma
 ### Importações corporativas
 
 Importação de plano Pagatg existente usa `/platforms/:tag/subscriptions/plans/import`; criação de nova assinatura permanece operação distinta. Valores canônicos em centavos. Código global de plano não pode ser adotado por outro produto/conta. Lançamentos Ebook pending/commission não creditam carteira; pending conserva cálculo histórico PIX independentemente do meio exibido. Campos opcionais de comprador/parcelas não substituem identidade autenticada.
+
+Vínculo canônico AreaFlix retorna `retroactiveTransferredCents`; alias conserva `retroactiveTransferred` em reais. Ambos usam transferência única com vínculo explícito de origem e mesmos registros de auditoria.

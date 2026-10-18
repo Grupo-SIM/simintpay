@@ -285,3 +285,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Importação canônica de plano Pagatg existente em `POST /platforms/:tag/subscriptions/plans/import`, com cents/DTO, sem criar assinatura remota. Mesmo escritor do alias, vínculo global protegido e contexto revalidado.
 - [x] Dois contratos Ebook exercitam escritor real: pendência e comissão preservam referências, status, dados do comprador, parcelas e ausência de crédito à carteira. Comparação respeita precisão Decimal(12,2) persistida.
 - [x] Testes dirigidos aprovados para importações e validação de DTO.
+
+## Continuação — dashboards e vínculo AreaFlix
+
+- [x] Comparar oito contratos Atlas/Revalida: summary, sales, stats e withdrawals, incluindo gráficos, contagens e valores.
+- [x] Alias AreaFlix e capacidade canônica executam transferência/auditoria compartilhadas reais; mesmas escritas e valores. Resposta canônica expõe retroactiveTransferredCents, legado mantém reais. Seis testes de vínculo aprovados.
+- [x] Build local aprovado com etapas atuais.

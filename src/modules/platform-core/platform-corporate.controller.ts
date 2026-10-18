@@ -39,7 +39,8 @@ export class PlatformCorporateController {
   @Post('links/claim') @SetMetadata('platform-operation', 'maintenance:run')
   async claimLinks(@Req() request: { platformContext: PlatformContext }, @Body() body: LinkClaim) {
     if (Object.keys(body).some(key => !['paymentLinkIds', 'subscriptionLinkIds', 'retroactiveAmountCents'].includes(key))) throw new BadRequestException('Campo desconhecido');
-    return new PlatformLinkClaim(this.prisma).claim(request.platformContext.tag, request.platformContext.ownerUserId, body);
+    const { retroactiveTransferred, ...result } = await new PlatformLinkClaim(this.prisma).claim(request.platformContext.tag, request.platformContext.ownerUserId, body);
+    return { ...result, unit: 'cents', retroactiveTransferredCents: new Prisma.Decimal(retroactiveTransferred).mul(100).toDecimalPlaces(0).toNumber() };
   }
   @Put('return-bet/accounts/:externalUserId') @SetMetadata('platform-operation', 'maintenance:run')
   async associateAccount(@Req() request: { platformContext: PlatformContext }, @Param('externalUserId') externalUserId: string, @Body() body: { userId: string }) {
