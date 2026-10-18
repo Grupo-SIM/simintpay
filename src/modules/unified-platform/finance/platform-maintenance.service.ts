@@ -2,8 +2,9 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import type { FinancePlatformContext } from './platform-finance.service';
+import { computeBosqueAvailableSinceLastWithdrawal } from '../../../application/helpers/bosque-available.helper';
 
-export type WalletCorrection = { balance?: Prisma.Decimal.Value; delta?: Prisma.Decimal.Value; lockedBalance?: Prisma.Decimal.Value; reason?: string; action?: string; source?: string; metadata?: Prisma.InputJsonObject };
+export type WalletCorrection = { balance?: Prisma.Decimal.Value; delta?: Prisma.Decimal.Value; lockedBalance?: Prisma.Decimal.Value; clampNegativeBalance?: boolean; reason?: string; action?: string; source?: string; metadata?: Prisma.InputJsonObject };
 
 @Injectable()
 export class PlatformMaintenanceService {
@@ -31,7 +32,8 @@ export class PlatformMaintenanceService {
       const wallet = await tx.wallet.findUnique({ where: { userId } });
       if (!wallet) throw new BadRequestException('Carteira não encontrada');
       const balanceBefore = new Prisma.Decimal(wallet.balance), lockedBefore = new Prisma.Decimal(wallet.lockedBalance);
-      const balanceAfter = input.balance != null ? parse(input.balance) : input.delta != null ? balanceBefore.plus(parse(input.delta)) : balanceBefore;
+      const computedBalance = input.balance != null ? parse(input.balance) : input.delta != null ? balanceBefore.plus(parse(input.delta)) : balanceBefore;
+      const balanceAfter = input.clampNegativeBalance ? Prisma.Decimal.max(0, computedBalance) : computedBalance;
       const lockedAfter = input.lockedBalance != null ? parse(input.lockedBalance) : lockedBefore;
       if (balanceAfter.isNegative() || lockedAfter.isNegative()) throw new BadRequestException('Saldo não pode ser negativo');
       const changed = !balanceAfter.eq(balanceBefore) || !lockedAfter.eq(lockedBefore);
@@ -44,27 +46,46 @@ export class PlatformMaintenanceService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
-  async baseline(userId: string, tag: string, amount: number, pixKey: string, reason: string) {
+  async baseline(userId: string, tag: string, amount: number, pixKey: string, reason: string, context?: FinancePlatformContext) {
     if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor monetário inválido');
     return this.prisma.$transaction(async tx => {
-      await this.exclusive(tx, userId, tag);
-      const created = await tx.withdrawRequest.create({ data: { userId, amount, grossAmount: amount, fee: 0, status: 'COMPLETED', pixKey, platform: `${tag.toLowerCase()}-baseline` } });
-      await tx.balanceLog.create({ data: { userId, action: `${tag}_BASELINE_ZERO`, amount: -amount, balanceBefore: 0, balanceAfter: 0, lockedBefore: 0, lockedAfter: 0, source: 'MASTER_ADMIN_CONTROL', description: reason, metadata: { platform: tag.toLowerCase(), via: 'internal/bosque/finance/zerar-disponivel', valorZerado: amount, baselineId: created.id } } });
-      return created;
+      await this.exclusive(tx, userId, tag, context);
+      if (tag !== 'BOSQUE') throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'maintenance.baseline' });
+      const availableBefore = await computeBosqueAvailableSinceLastWithdrawal(tx as PrismaService, [userId]);
+      const actualAmount = new Prisma.Decimal(Math.min(amount, availableBefore)).toDecimalPlaces(2).toNumber();
+      const availableAfter = new Prisma.Decimal(availableBefore).minus(actualAmount).toNumber();
+      if (actualAmount <= 0) return { id: null, actualAmount: 0, availableBefore, availableAfter };
+      const created = await tx.withdrawRequest.create({ data: { userId, amount: actualAmount, grossAmount: actualAmount, fee: 0, status: 'COMPLETED', pixKey, platform: `${tag.toLowerCase()}-baseline` } });
+      await tx.balanceLog.create({ data: { userId, action: `${tag}_BASELINE_ZERO`, amount: -actualAmount, balanceBefore: 0, balanceAfter: 0, lockedBefore: 0, lockedAfter: 0, source: 'MASTER_ADMIN_CONTROL', description: reason, metadata: { platform: tag.toLowerCase(), via: 'internal/bosque/finance/zerar-disponivel', valorZerado: actualAmount, baselineId: created.id } } });
+      return { ...created, actualAmount, availableBefore, availableAfter };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   async run(context: FinancePlatformContext, operation: string, body: Record<string, unknown>) {
-    if (!['zero-wallet', 'set-balance'].includes(operation)) throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: `maintenance.${operation}` });
-    const allowed = operation === 'zero-wallet' ? ['reason'] : ['balanceCents', 'lockedBalanceCents', 'reason'];
+    if (!['zero-wallet', 'set-balance', 'adjust-balance', 'baseline'].includes(operation)) throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: `maintenance.${operation}` });
+    const allowed = operation === 'zero-wallet' ? ['reason'] : operation === 'baseline' ? ['amountCents', 'reason'] : operation === 'adjust-balance' ? ['deltaCents', 'lockedBalanceCents', 'reason'] : ['balanceCents', 'lockedBalanceCents', 'reason'];
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !allowed.includes(key))) throw new BadRequestException('Contrato de manutenção inválido');
     if (typeof body.reason !== 'string' || !body.reason.trim()) throw new BadRequestException('reason obrigatório');
     const cents = (value: unknown) => {
       if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new BadRequestException('Valor deve ser centavos inteiros não negativos');
       return new Prisma.Decimal(value).div(100);
     };
-    const result = await this.correct(context.ownerUserId, context.tag, operation === 'zero-wallet' ? { balance: 0, lockedBalance: 0, reason: body.reason } : { balance: cents(body.balanceCents), ...(body.lockedBalanceCents !== undefined ? { lockedBalance: cents(body.lockedBalanceCents) } : {}), reason: body.reason }, context);
-    const toCents = (value: number) => new Prisma.Decimal(value).mul(100).toNumber();
+    const toCents = (value: number) => {
+      const result = new Prisma.Decimal(value).mul(100).toDecimalPlaces(0).toNumber();
+      if (!Number.isSafeInteger(result)) throw new BadRequestException('Valor fora do limite');
+      return result;
+    };
+    if (operation === 'baseline') {
+      if (context.tag !== 'BOSQUE') throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'maintenance.baseline' });
+      const amount = cents(body.amountCents);
+      if (amount.lte(0)) throw new BadRequestException('amountCents deve ser positivo');
+      const result = await this.baseline(context.ownerUserId, context.tag, amount.toNumber(), 'BASELINE_SALDO', body.reason, context);
+      return { success: true, unit: 'cents', baselineWithdrawId: result.id, beforeAvailableCents: toCents(result.availableBefore), appliedCents: toCents(result.actualAmount), afterAvailableCents: toCents(result.availableAfter) };
+    }
+    if (operation === 'adjust-balance' && (typeof body.deltaCents !== 'number' || !Number.isSafeInteger(body.deltaCents))) throw new BadRequestException('deltaCents deve ser inteiro');
+    const result = await this.correct(context.ownerUserId, context.tag, operation === 'zero-wallet' ? { balance: 0, lockedBalance: 0, reason: body.reason } : {
+      ...(operation === 'adjust-balance' ? { delta: new Prisma.Decimal(body.deltaCents as number).div(100) } : { balance: cents(body.balanceCents) }),
+      ...(body.lockedBalanceCents !== undefined ? { lockedBalance: cents(body.lockedBalanceCents) } : {}), reason: body.reason }, context);
     return { success: true, unit: 'cents', changed: result.changed, before: { balanceCents: toCents(result.balanceBefore), lockedBalanceCents: toCents(result.lockedBefore) }, after: { balanceCents: toCents(result.balanceAfter), lockedBalanceCents: toCents(result.lockedAfter) } };
   }
 }

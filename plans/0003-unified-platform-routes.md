@@ -267,3 +267,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Extrair dashboard de cliente para núcleo compartilhado; alias preserva seleção histórica, canônico exige contexto e histórico exclusivo do produto.
 - [x] Adicionar `GET /platforms/:tag/reports/customer`, centavos, contagens preservadas e carteira explicitamente do dono. Cálculos monetários usam Decimal.
 - [x] Três testes de contrato cobrem equivalência, isolamento e transferência. Suíte isolada: 612 testes Bun aprovados; build aprovado.
+
+## Continuação — manutenção Bosque transacional
+
+- [x] Baseline calculado dentro da transação serializável, limitado ao disponível atual; repetição sem saldo não lança nova baixa.
+- [x] Delta de carteira aplica sobre saldo transacional e preserva bloqueado não informado. Compatibilidade mantém piso zero legado; canônico rejeita saldo negativo.
+- [x] Adicionar operações canônicas admin `baseline` e `adjust-balance`, centavos inteiros e bloqueio de carteira compartilhada. Seis testes comportamentais aprovados; suíte isolada de 612 Bun aprovada.

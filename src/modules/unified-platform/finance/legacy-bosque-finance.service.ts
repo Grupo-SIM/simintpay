@@ -259,7 +259,8 @@ export class InternalBosqueFinanceService {
     const depois = Number((available - valor).toFixed(2));
     const created = await new PlatformMaintenanceService(this.prisma).baseline(resolvedId, 'BOSQUE', valor, BASELINE_PIXKEY, body.reason?.trim() || 'Baseline: zera o disponível do Bosque (vendas anteriores já liquidadas por fora).');
 
-    return { success: true, baselineWithdrawId: created.id, antes: Number(available.toFixed(2)), abatido: valor, depois };
+    if (!created.id) return { success: true, message: 'O disponível já está zerado.', antes: created.availableBefore, depois: 0 };
+    return { success: true, baselineWithdrawId: created.id, antes: created.availableBefore, abatido: created.actualAmount, depois: created.availableAfter };
   }
   async inspectWallet( userId?: string, email?: string, cpf?: string, internalToken?: string,
   ) {
@@ -329,20 +330,23 @@ export class InternalBosqueFinanceService {
 
     const reason = body.reason?.trim() || 'Correção manual de saldo (Bosque/IBB)';
 
-    await new PlatformMaintenanceService(this.prisma).correct(resolvedId, 'BOSQUE', { balance: balanceAfter, lockedBalance: lockedAfter, reason, action: 'ADMIN_BALANCE_FIX', metadata: { via: 'internal/bosque/finance/fix-balance' } });
+    const corrected = await new PlatformMaintenanceService(this.prisma).correct(resolvedId, 'BOSQUE', {
+      ...(hasDelta ? { delta: Number(body.delta), clampNegativeBalance: true } : hasBalance ? { balance: balanceAfter } : {}),
+      ...(hasLocked ? { lockedBalance: lockedAfter } : {}), reason, action: 'ADMIN_BALANCE_FIX', metadata: { via: 'internal/bosque/finance/fix-balance' },
+    });
 
     return {
       success: true,
       userId: resolvedId,
       before: {
-        balance: Number(balanceBefore.toFixed(2)),
-        lockedBalance: Number(lockedBefore.toFixed(2)),
-        availableBalance: Number(Math.max(0, balanceBefore - lockedBefore).toFixed(2)),
+        balance: corrected.balanceBefore,
+        lockedBalance: corrected.lockedBefore,
+        availableBalance: Number(Math.max(0, corrected.balanceBefore - corrected.lockedBefore).toFixed(2)),
       },
       after: {
-        balance: Number(balanceAfter.toFixed(2)),
-        lockedBalance: Number(lockedAfter.toFixed(2)),
-        availableBalance: Number(Math.max(0, balanceAfter - lockedAfter).toFixed(2)),
+        balance: corrected.balanceAfter,
+        lockedBalance: corrected.lockedAfter,
+        availableBalance: Number(Math.max(0, corrected.balanceAfter - corrected.lockedAfter).toFixed(2)),
       },
     };
   }

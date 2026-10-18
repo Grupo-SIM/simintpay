@@ -188,3 +188,7 @@ Atlas classifica comissão de afiliado; Ebook/Revalida/Patrimonial usam papel ad
 ### Relatório de cliente por plataforma
 
 `GET /platforms/:tag/reports/customer` usa somente lançamentos identificados sem ambiguidade do produto e do dono atual. Respostas monetárias em centavos; contagens permanecem contagens. `ownerWalletAvailableBalanceCents` representa carteira do dono, compartilhada entre seus produtos. Alias de cliente mantém contrato histórico de CPF/pools.
+
+### Manutenção Bosque
+
+Baseline administrativo Bosque baixa somente disponível contábil, dentro da transação, sem movimentar carteira física. Valor aplicado nunca excede disponível atual. Ajustes por delta usam saldo transacional. Todas as operações de manutenção exigem vínculo exclusivo de carteira; APIs canônicas exigem admin. Legado Bosque conserva piso zero; canônico rejeita resultado negativo.
