@@ -90,20 +90,17 @@ export class AtlasSyncService implements OnModuleInit {
       return { success: false, error: 'Wallet não encontrada para o usuário Atlas.' };
     }
 
-    const oldBalance = Number(wallet.balance || 0);
-    const oldLocked = Number(wallet.lockedBalance || 0);
-
-    if (oldBalance === 0 && oldLocked === 0) {
-      await this.syncExternalPlatformBalance(userId, 0);
-      return { success: true, userId, balanceBefore: 0, lockedBefore: 0, alreadyZero: true };
-    }
-
-    await new PlatformMaintenanceService(this.prisma).correct(userId, 'ATLAS', { balance: 0, lockedBalance: 0, action: 'ATLAS_WALLET_ZERO', source: 'ADMIN_SYNC' });
+    const result = await new PlatformMaintenanceService(this.prisma).correct(userId, 'ATLAS', { balance: 0, lockedBalance: 0, action: 'ATLAS_WALLET_ZERO', source: 'ADMIN_SYNC' });
 
     await this.syncExternalPlatformBalance(userId, 0);
-    this.logger.warn(`[ATLAS] Carteira zerada para userId=${userId}`);
-
-    return { success: true, userId, balanceBefore: oldBalance, lockedBefore: oldLocked };
+    if (result.changed) this.logger.warn(`[ATLAS] Carteira zerada para userId=${userId}`);
+    return {
+      success: true,
+      userId,
+      balanceBefore: result.balanceBefore,
+      lockedBefore: result.lockedBefore,
+      ...(!result.changed ? { alreadyZero: true as const } : {}),
+    };
   }
 
   private async syncExternalPlatformBalance(userId: string, _balance: number): Promise<void> {

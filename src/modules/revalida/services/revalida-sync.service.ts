@@ -107,30 +107,16 @@ export class RevalidaSyncService implements OnModuleInit {
       return { success: false, error: 'Wallet não encontrada para o usuário Revalida.' };
     }
 
-    const oldBalance = Number(wallet.balance || 0);
-    const oldLocked = Number(wallet.lockedBalance || 0);
-
-    if (oldBalance === 0 && oldLocked === 0) {
-      await this.syncExternalPlatformBalance(userId, 0);
-      return {
-        success: true,
-        userId,
-        balanceBefore: 0,
-        lockedBefore: 0,
-        alreadyZero: true as const,
-      };
-    }
-
-    await new PlatformMaintenanceService(this.prisma).correct(userId, 'REVALIDA', { balance: 0, lockedBalance: 0, action: 'REVALIDA_WALLET_ZERO', source: 'ADMIN_SYNC' });
+    const result = await new PlatformMaintenanceService(this.prisma).correct(userId, 'REVALIDA', { balance: 0, lockedBalance: 0, action: 'REVALIDA_WALLET_ZERO', source: 'ADMIN_SYNC' });
 
     await this.syncExternalPlatformBalance(userId, 0);
-    this.logger.warn(`[REVALIDA] Carteira zerada para userId=${userId} (balance era ${oldBalance}, locked ${oldLocked})`);
-
+    if (result.changed) this.logger.warn(`[REVALIDA] Carteira zerada para userId=${userId}`);
     return {
       success: true,
       userId,
-      balanceBefore: oldBalance,
-      lockedBefore: oldLocked,
+      balanceBefore: result.balanceBefore,
+      lockedBefore: result.lockedBefore,
+      ...(!result.changed ? { alreadyZero: true as const } : {}),
     };
   }
 

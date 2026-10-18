@@ -227,3 +227,11 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Pendência de schema monetário BetAI encerrada por retirada explícita da capacidade, substituindo os registros anteriores dessa pendência.
 - [x] Validação local: 477 testes Bun, 200 Jest (um ignorado pré-existente) e build aprovados. Jest exigiu setup temporário de cache de taxas com mock: execução padrão passou asserções, mas falhou por refresh assíncrono tardio contra banco sentinela loopback; repetição isolada encerrou com código zero.
 - [ ] Equivalência comportamental integral dos 136 contratos restantes continua pendente.
+
+## Continuação — equivalência e concorrência de manutenção
+
+- [x] Quatro aliases Atlas/Revalida comparados com manutenção canônica: saldo líquido legado em reais, saldo bruto canônico em centavos, preservação de bloqueado e mesmos valores/CAS no lançamento.
+- [x] Remover escape de manutenção no caminho `alreadyZero`; núcleo serializável revalida vínculo exclusivo mesmo sem mudança. Respostas passam a usar saldos transacionais, eliminando leitura anterior obsoleta.
+- [x] Dez testes novos verificam equivalência, resposta sem mudança e concorrência; suíte Bun isolada completa passou com 547 testes.
+- [x] Build local aprovado após regeneração local do cliente Prisma, desatualizado em relação aos modelos de ofertas já presentes no schema. Nenhuma migração executada.
+- [ ] Equivalência integral dos demais contratos continua pendente. Arquivo SQL previamente staged pelo usuário preservado fora desta etapa.
