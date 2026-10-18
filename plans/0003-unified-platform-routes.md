@@ -14,16 +14,21 @@ Plano aprovado pelo usuário. Execução exclusivamente local; banco externo, pu
 - [x] Entrada canônica de webhook assinada; comparação atômica de status evita crédito duplicado e preserva dono histórico.
 - [x] Validação dirigida com mocks: 50 testes Bun + 45 regressões Jest (+ 5 testes de cartão legado Zero Grau) aprovados.
 - [x] Builds locais aprovados; commits locais com identidade Git configurada e trailer Codex.
+- [x] Migração integral dos aliases ativos e matriz dos 136 contratos, com equivalência comportamental, unidades e divergências intencionais documentadas.
 
 ## Evidências
 
 Inventário obtido de HEAD antes da substituição dos controllers. Nenhuma configuração/token inferida ou banco externo alterado. Núcleo reutiliza modelos existentes; unificação adicional da identidade inclui artefato SQL local, ainda não aplicado.
 
-## Limites verificados desta implementação
+## Estado atual
 
-- Contratos corporativos financeiros continuam em adapters específicos, inclusive consultas e projeções próprias. Nem todos os 144 contratos inventariados têm teste de equivalência alias/canônico.
-- Migração completa das capacidades corporativas e equivalência de todos os aliases ainda pendentes. Endpoints existentes permanecem ativos.
-- Nenhum hook Git ativo encontrado neste checkout (somente arquivos `.sample`); commits normais não contornam hooks.
+Implementação local concluída. 136 contratos ativos vinculados a operações compartilhadas e evidências comportamentais em `docs/legacy-platform-equivalence.md` e manifesto JSON. Oito proxies administrativos BetAI retirados por instrução explícita; inventário original de 144 preservado para auditoria.
+
+`Platform` é identidade única; dono pode possuir vários produtos. Saldo atribuído existe para todo histórico identificado sem dividir carteira física do dono. Não há pendência de schema BetAI: capacidade inexistente foi retirada.
+
+Checkboxes abertos nas notas cronológicas abaixo registram estado anterior, superado pelas etapas posteriores e pelo fechamento final. Nenhuma operação externa faz parte da entrega local. Migração SQL e configuração/vínculos administrativos deverão ser aplicados explicitamente pelo usuário em etapa posterior.
+
+Nenhum hook Git ativo encontrado neste checkout (somente arquivos `.sample`); commits normais não contornam hooks.
 
 ## Continuação — cartão canônico
 
@@ -315,3 +320,12 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Comparar status de comerciante com lookup real, referências, titularidade histórica e conflito de tags.
 - [x] Resumo canônico preserva disponibilidade, bloqueio, processamento e política; restringe processamento ao produto e converte basis points em taxa decimal. Alias conserva alcance legado.
 - [x] Webhook Bosque assinado executa mesmo settlement e rejeita assinatura falsa antes de processamento. 26 testes dirigidos de pagamentos/resumo/webhooks e sete de status/overview aprovados.
+
+## Fechamento — 136 contratos ativos
+
+- [x] Manifesto final relaciona cada método/caminho a operação registrada, evidência comportamental e regra de compatibilidade; oito proxies BetAI retirados permanecem somente no inventário histórico.
+- [x] Teste da matriz exige 136 entradas únicas, operação efetivamente registrada e evidência além de suites estruturais/delegação.
+- [x] Relatório canônico usa dono revalidado mesmo com cache legado desatualizado; teste de regressão aprovado.
+- [x] Validação final isolada: 650 testes Bun em 86 arquivos, 212 Jest aprovados em 44 suites (um teste/suite ignorado preexistente). Fixture administrativo atualizado com cache/dependência externa mockados.
+- [x] Build local aprovado; alterações em commits locais coerentes, identidade do usuário e trailer Codex.
+- [x] Nenhum banco externo, migração executada, push ou deploy. SQL previamente staged pelo usuário preservado fora dos commits. Plano de implementação local concluído.

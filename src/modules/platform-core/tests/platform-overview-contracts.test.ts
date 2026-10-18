@@ -47,3 +47,13 @@ test('canonical overview excludes ambiguous and untagged history and other produ
   f.platform.ownerUserId = 'transferred';
   await expect(f.canonical.overview({ platformContext: f.context })).rejects.toThrow('Contexto');
 });
+
+test('canonical overview uses revalidated current owner even while legacy registry cache is stale', async () => {
+  const f = fixture();
+  await initializePlatformRegistryCache({ platform: { findMany: async () => [{ tag: 'ATLAS', ownerUserId: 'old-owner' }] } } as any);
+  let selectedOwner: string | undefined;
+  f.p.wallet.findUnique = async ({ where }: any) => { selectedOwner = where.userId; return { balance: 100, lockedBalance: 5 }; };
+  const result = await f.canonical.overview({ platformContext: f.context });
+  expect(selectedOwner).toBe('owner');
+  expect(result.data.profit.totalCents).toBe(10000);
+});

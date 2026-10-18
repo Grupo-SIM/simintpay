@@ -56,6 +56,8 @@ export class PlatformOverviewReports {
 
   constructor(private readonly prisma: PrismaService, private readonly context?: PlatformContext) { }
 
+  private owner(tag: string) { return this.context?.tag === tag ? this.context.ownerUserId : getPlatformOwnerId(tag); }
+
   private async current(tag: string) {
     if (!this.context) return;
     const row = await this.prisma.platform.findUnique({ where: { id: this.context.id }, include: { owner: true } });
@@ -92,11 +94,11 @@ export class PlatformOverviewReports {
     ].includes(upperTag);
     const isTenantTagged = upperTag === 'EBOOK' || upperTag === 'EBOOKSIM' || upperTag === 'PAGATG' || !isKnownFixedTag;
 
-    const atlasWalletUserId = isAtlas ? getPlatformOwnerId('ATLAS') : null;
+    const atlasWalletUserId = isAtlas ? this.owner('ATLAS') : null;
 
     const platformId = isTenantTagged || isAreaflix
       ? null
-      : getPlatformOwnerId(upperTag);
+      : this.owner(upperTag);
 
     // Mesma janela do card: sem período explícito, conta a partir do dia 1 do mês atual.
     const saqueStart = dataInicio ? dayjs(dataInicio).startOf('day').toDate() : now.startOf('month').toDate();
@@ -190,12 +192,12 @@ export class PlatformOverviewReports {
     };
 
     // Carteira/saques Atlas: conta técnica (não usar fallback Renovada no userId)
-    const atlasWalletUserId = isAtlas ? getPlatformOwnerId('ATLAS') : null;
+    const atlasWalletUserId = isAtlas ? this.owner('ATLAS') : null;
 
     // Dono explicitamente atribuído no cadastro da plataforma.
     const platformId = isTenantTagged || isAreaflix
       ? null
-      : getPlatformOwnerId(upperTag);
+      : this.owner(upperTag);
 
     if (dataInicio || dataFim) {
       start = dataInicio ? dayjs(dataInicio).startOf('day').toDate() : now.subtract(10, 'year').toDate();

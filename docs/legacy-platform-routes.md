@@ -1,6 +1,6 @@
 # Inventário dos contratos legados de plataformas
 
-Registro de caracterização dos controllers existentes antes da unificação. Cada entrada registra contrato declarado, não execução de serviços externos. Paths sem prefixo global (`main.ts` não define prefixo). A operação equivalente indica família do núcleo para migração; não afirma que todo endpoint canônico já foi implementado.
+Registro de caracterização dos controllers existentes antes da unificação. Cada entrada registra contrato declarado, não execução de serviços externos. Paths sem prefixo global (`main.ts` não define prefixo). A coluna de operação equivalente conserva a família identificada na caracterização original. Mapeamento final dos 136 contratos ativos, rotas canônicas concretas e evidências comportamentais: [legacy-platform-equivalence.md](legacy-platform-equivalence.md). Oito proxies administrativos BetAI foram retirados por orientação explícita; inventário histórico original permanece com 144 entradas.
 
 ## Convenções preservadas
 

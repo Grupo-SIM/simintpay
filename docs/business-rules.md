@@ -208,3 +208,7 @@ Vínculo canônico AreaFlix retorna `retroactiveTransferredCents`; alias conserv
 Configuração financeira Ebook em `/platforms/:tag/finance/config` distingue taxas decimais de custos fixos em centavos. Detalhe de saque canônico exige ID, dono e plataforma correspondentes.
 
 Resumo canônico de comerciante mantém carteira por usuário e disponibilidade compartilhada, mas processamento de saques é limitado ao produto/namespace explícito. Política expõe `fixedCents` e `rate` decimal; alias mantém `percentBasisPoints` e seleção histórica. Provisionamento existente também exige conta ativa.
+
+### Alcance da compatibilidade concluída
+
+136 contratos ativos permanecem aliases/entradas compatíveis, relacionados no manifesto `docs/legacy-platform-equivalence.json`. Oito proxies administrativos BetAI retirados não recebem substituto inventado. Diferenças de autorização, reais/centavos, taxas, SSE e envelopes ficam explícitas na matriz; APIs novas não herdam permissões legadas. Carteira física continua por usuário; histórico atribuído por produto não autoriza manutenção que zere carteira compartilhada. Relatórios canônicos usam dono revalidado mesmo quando cache legado ainda aponta dono anterior.
