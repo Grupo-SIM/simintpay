@@ -38,7 +38,7 @@ describe('IntegrationFinanceService', () => {
     const tx = {
       integrationMerchant: { update: merchantUpdate },
       user: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'duplicate-integration-user' }),
+        findUnique: jest.fn().mockImplementation(({ where }) => Promise.resolve(where.id ? { id: 'legacy-user', isActive: true, isPurged: false } : { id: 'duplicate-integration-user' })),
         update: userUpdate,
       },
     };

@@ -308,3 +308,10 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Adicionar projeções canônicas communities, atlas-products, payment-methods e transactions; centavos, taxas decimais e contagens preservadas. Contexto revalidado e histórico conflitante excluído antes de agregação/paginação.
 - [x] Configuração Ebook e detalhe de saque ganham leitura canônica em centavos; testes comparam contratos antigos.
 - [x] Sete testes de overview/sellers, seis administrativos e 19 de leitura financeira aprovados.
+
+## Continuação — contratos completos de comerciantes e webhook Bosque
+
+- [x] Duplicar caracterização PIX/cartão para dono/comerciante: 16 combinações de produto/meio/contexto, com mesmo lançamento e sem crédito antecipado.
+- [x] Comparar status de comerciante com lookup real, referências, titularidade histórica e conflito de tags.
+- [x] Resumo canônico preserva disponibilidade, bloqueio, processamento e política; restringe processamento ao produto e converte basis points em taxa decimal. Alias conserva alcance legado.
+- [x] Webhook Bosque assinado executa mesmo settlement e rejeita assinatura falsa antes de processamento. 26 testes dirigidos de pagamentos/resumo/webhooks e sete de status/overview aprovados.

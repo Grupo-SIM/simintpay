@@ -34,15 +34,21 @@ function financial(row: any) {
 
 describe('Legacy and canonical payment execution equivalence', () => {
   for (const [tag, config] of [['ATLAS', AtlasConfig], ['BOSQUE', BosqueConfig], ['RENOVADA', RenovadaConfig], ['ZERO-GRAU', ZeroGrauConfig]] as const) {
-    for (const method of ['PIX', 'CREDIT_CARD'] as const) {
-      test(`${tag} ${method}: reais alias and cents API persist same financial contract`, async () => {
+    for (const method of ['PIX', 'CREDIT_CARD'] as const) for (const merchant of [false, true]) {
+      test(`${tag} ${method} ${merchant ? "merchant" : "owner"}: reais alias and cents API persist same financial contract`, async () => {
         const legacy = fixture(tag), canonical = fixture(tag);
-        const adapter = new LegacyPlatformPaymentCore(legacy.prisma as never, undefined, tag, config);
+        const account = merchant ? 'seller' : 'owner';
+        for (const f of [legacy, canonical]) {
+          (f.prisma as any).integrationMerchant = { findUnique: async () => ({ id: 'merchant', integrationKey: f === legacy ? 'legacy' : 'platform:p', userId: account, user: { isActive: true, isPurged: false } }) };
+          (f.prisma as any).platformIntegration = { findUnique: async () => ({ url: 'legacy' }) };
+        }
+        const adapter = new LegacyPlatformPaymentCore(legacy.prisma as never, undefined, tag, config, merchant ? 'merchant' : undefined);
         Object.assign(adapter, { createDomPagamentosPix: async () => remote, createDomPagamentosCreditCard: async () => remote });
         const service = new PlatformPaymentsService(canonical.prisma as never, { byAcquirer: () => ({ createPixCheckout: async () => ({ id: remote.id, status: remote.status, pixContent: remote.pix_content, qrCode: remote.pix_qrcode }) }) } as never);
         globalThis.fetch = mock(async () => new Response(JSON.stringify(remote), { status: 200 })) as unknown as typeof fetch;
-        const result = method === 'PIX' ? await adapter.createPaymentPix('owner', body) : await adapter.createPaymentCreditCard('owner', body);
-        const current = await service.create(canonical.platform as never, { amountCents: 12345, paymentMethod: method, idempotencyKey: 'purchase', description: body.description,
+        const result = method === 'PIX' ? await adapter.createPaymentPix(account, body) : await adapter.createPaymentCreditCard(account, body);
+        const execute = merchant ? (input: any) => service.createForMerchant(canonical.platform as never, 'external', input) : (input: any) => service.create(canonical.platform as never, input);
+        const current = await execute({ amountCents: 12345, paymentMethod: method, idempotencyKey: 'purchase', description: body.description,
           customer: { name: body.name, email: body.email, document: body.document, documentType: 'CPF', phone: body.mobile_phone },
           ...(method === 'CREDIT_CARD' ? { card: { token: body.token, holderName: body.holder_name, bin: body.bin, brand: body.brand, installments: 3 } } : {}) });
         expect(financial(legacy.stored())).toEqual(financial(canonical.stored()));

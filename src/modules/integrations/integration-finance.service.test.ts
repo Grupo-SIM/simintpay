@@ -55,3 +55,26 @@ test('canonical and legacy merchant quote/list/detail/reconciliation preserve fi
   p.transaction.findFirst = async () => ({ userId: 'seller', description: '[TENANT:SHOP]' });
   expect(await canonical.reconcile(context, 'external', ['payment'], true)).toEqual(await service.reconcilePayments('legacy', 'external', ['payment'], true));
 });
+
+test('merchant summary compares pooled wallet cents, product processing and decimal fee rate', async () => {
+  const { PlatformMerchantsService } = await import('../platform-core/platform-merchants.service');
+  const { PlatformFinanceService } = await import('../unified-platform/finance/platform-finance.service');
+  const { Prisma } = await import('@prisma/client');
+  const { service, p, merchant, queries } = fixture();
+  const context = { id: 'p', tag: 'SHOP', ownerUserId: 'owner', acquirer: 'DOM' as const };
+  (merchant.user as any).wallet = { balance: new Prisma.Decimal('12.34'), lockedBalance: new Prisma.Decimal('2.34') };
+  p.wallet.findUnique = async () => merchant.user.wallet;
+  p.platform = { count: async () => 2 };
+  p.withdrawRequest.aggregate = async (q: any) => { queries.push(q); return { _count: { id: 1 }, _sum: { grossAmount: new Prisma.Decimal(2) } }; };
+  p.integrationMerchant.findUnique = async (q: any) => q.where.integrationKey_externalMerchantId?.integrationKey === 'platform:p' ? null : merchant;
+  p.platformIntegration.findUnique = async () => ({ url: 'legacy' });
+  const canonical = new PlatformMerchantsService(p, {} as any, new PlatformFinanceService(p));
+  const before = await service.summary('legacy', 'external');
+  const after = await canonical.summary(context, 'external');
+  expect(after.availableBalanceCents).toBe(before.availableBalanceCents);
+  expect(after.processingCount).toBe(before.processingCount);
+  expect(after.processingGrossCents).toBe(before.processingGrossCents);
+  expect(after.canRequest).toBe(before.canRequest);
+  expect(after.feePolicy).toEqual({ fixedCents: before.feePolicy.fixedCents, rate: before.feePolicy.percentBasisPoints / 10000 });
+  expect(queries[1].where.platform).toEqual({ in: ['legacy', 'shop'] });
+});

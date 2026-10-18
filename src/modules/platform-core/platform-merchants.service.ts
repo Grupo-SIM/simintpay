@@ -1,4 +1,5 @@
 import { PlatformMerchantProvisioning } from './platform-merchant-provisioning';
+import { Prisma } from '@prisma/client';
 import { platformMerchant } from './platform-merchant-lookup';
 import { PlatformPaymentLookup } from '../unified-platform/payments/platform-payment-lookup';
 import { IntegrationFinanceService } from '../integrations/integration-finance.service';
@@ -26,7 +27,8 @@ export class PlatformMerchantsService {
   createPayment(context: PlatformContext, externalMerchantId: string, input: CreatePlatformPaymentDto) { return this.payments.createForMerchant(context, externalMerchantId, input); }
   async summary(context: PlatformContext, externalMerchantId: string) {
     const merchant = await this.resolve(context, externalMerchantId);
-    return { ...await this.finance.summary({ ...context, ownerUserId: merchant.userId }), walletScope: 'merchant-user' };
+    const { feePolicy, ...processing } = await new IntegrationFinanceService(this.prisma).summary(merchant.integrationKey, externalMerchantId, true);
+    return { ...await this.finance.summary({ ...context, ownerUserId: merchant.userId }), ...processing, feePolicy: { fixedCents: feePolicy.fixedCents, rate: new Prisma.Decimal(feePolicy.percentBasisPoints).div(10000).toNumber() }, walletScope: 'merchant-user' };
   }
   async payment(context: PlatformContext, externalMerchantId: string, paymentId: string) {
     const merchant = await this.resolve(context, externalMerchantId);

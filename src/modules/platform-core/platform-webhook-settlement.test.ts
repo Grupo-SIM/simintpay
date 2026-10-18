@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { expect, mock, test } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import { PlatformWebhookSettlement } from './platform-webhook-settlement';
@@ -37,4 +38,20 @@ test('canonical webhook without persisted net cannot invent financial snapshot f
   (payment as any).netAmount = null;
   await expect(core.apply(platform, { data: { id: 'remote', status: 'paid' } })).rejects.toMatchObject({ response: { code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'webhooks.net-snapshot' } });
   expect(processor.execute).not.toHaveBeenCalled();
+});
+
+test('Bosque signed alias shares settlement and rejects forged signature before processing', async () => {
+  const f = fixture();
+  const oldSecret = process.env.DOM_WEBHOOK_SECRET;
+  process.env.DOM_WEBHOOK_SECRET = 'mock-only';
+  try {
+    const alias = new BosqueWebhookController(new BosqueWebhookService(f.prisma, { get: () => f.processor } as any));
+    const body = { data: { id: 'remote', status: 'paid' } };
+    const signature = createHmac('sha256', 'mock-only').update(JSON.stringify(body)).digest('hex');
+    expect(await alias.webhook(body, { 'x-webhook-signature': signature })).toBeUndefined();
+    await f.core.apply(f.platform, body);
+    expect(f.processor.execute.mock.calls[0]).toEqual(f.processor.execute.mock.calls[1]);
+    await expect(alias.webhook(body, { 'x-webhook-signature': 'forged' })).rejects.toThrow('Assinatura inválida');
+    expect(f.processor.execute).toHaveBeenCalledTimes(2);
+  } finally { if (oldSecret === undefined) delete process.env.DOM_WEBHOOK_SECRET; else process.env.DOM_WEBHOOK_SECRET = oldSecret; }
 });

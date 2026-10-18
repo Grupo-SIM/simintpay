@@ -52,16 +52,16 @@ export class IntegrationFinanceService {
     return { feeCents, grossAmountCents, netAmountCents };
   }
 
-  async summary(integrationKey: string, externalMerchantId: string) {
+  async summary(integrationKey: string, externalMerchantId: string, productScope = false) {
     const merchant = await this.merchant(integrationKey, externalMerchantId);
     const platform = await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
     const processing = await this.prisma.withdrawRequest.aggregate({
-      where: { userId: merchant.userId, status: { in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED] } },
+      where: { userId: merchant.userId, ...(productScope ? { platform: { in: [integrationKey, platform.tag.toLowerCase()] } } : {}), status: { in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED] } },
       _count: { id: true },
       _sum: { grossAmount: true },
     });
     const active = await this.prisma.withdrawRequest.count({
-      where: { userId: merchant.userId, status: WithdrawStatus.PENDING },
+      where: { userId: merchant.userId, ...(productScope ? { platform: { in: [integrationKey, platform.tag.toLowerCase()] } } : {}), status: WithdrawStatus.PENDING },
     });
     const wallet = merchant.user.wallet!;
     return {

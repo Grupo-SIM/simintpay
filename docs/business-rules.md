@@ -206,3 +206,5 @@ Vínculo canônico AreaFlix retorna `retroactiveTransferredCents`; alias conserv
 `/platforms/:tag/reports` inclui `overview`, `withdrawal-fees`, `communities`, `atlas-products`, `payment-methods`, `transactions`, `sellers` e `sellers/stats`. Valores monetários usam sufixo Cents; percentuais de distribuição e participação tornam-se taxas decimais. Quantidades não são multiplicadas por cem. Atlas products fica restrito a Atlas. Histórico com marcas conflitantes fica excluído das projeções canônicas. Dashboard legado conserva consultas históricas e formato original no núcleo compartilhado.
 
 Configuração financeira Ebook em `/platforms/:tag/finance/config` distingue taxas decimais de custos fixos em centavos. Detalhe de saque canônico exige ID, dono e plataforma correspondentes.
+
+Resumo canônico de comerciante mantém carteira por usuário e disponibilidade compartilhada, mas processamento de saques é limitado ao produto/namespace explícito. Política expõe `fixedCents` e `rate` decimal; alias mantém `percentBasisPoints` e seleção histórica. Provisionamento existente também exige conta ativa.
