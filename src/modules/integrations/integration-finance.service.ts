@@ -1,3 +1,4 @@
+import { PlatformMerchantProvisioning } from '../platform-core/platform-merchant-provisioning';
 import { hasPlatformMarker } from '../platform-core/platform-sync.adapter';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
 import { merchantWithdrawalDelivery } from '../platform-core/platform-merchant-delivery';
@@ -9,7 +10,6 @@ import {
 } from '@nestjs/common';
 import { Prisma, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
-import { isValidDocument } from '../../application/validators/is-document.validator';
 import { getPlatformTaxaEffective } from '../platform-taxas/platform-taxas.store';
 import { resolveLegacyMerchantPlatform } from './legacy-merchant-platform';
 
@@ -27,57 +27,9 @@ export class IntegrationFinanceService {
     if (!expected || token !== expected) throw new BadRequestException('Token interno inválido');
   }
 
-  private cleanCnpj(value: string): string {
-    const cnpj = String(value ?? '').replace(/\D/g, '');
-    if (cnpj.length !== 14 || !isValidDocument(cnpj)) throw new BadRequestException('CNPJ inválido');
-    return cnpj;
-  }
-
   async provision(integrationKey: string, externalMerchantId: string, input: ProvisionMerchantInput) {
-    const cnpj = this.cleanCnpj(input.cnpj);
-    const legalName = input.legalName?.trim();
-    if (!integrationKey.trim() || !externalMerchantId.trim() || !legalName) {
-      throw new BadRequestException('Integração, merchant externo e razão social são obrigatórios');
-    }
-
     await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
-    const existing = await this.prisma.integrationMerchant.findUnique({
-      where: { integrationKey_externalMerchantId: { integrationKey, externalMerchantId } },
-    });
-    if (existing) {
-      const clash = await this.prisma.integrationMerchant.findUnique({
-        where: { integrationKey_cnpj: { integrationKey, cnpj } },
-      });
-      if (clash && clash.id !== existing.id) {
-        throw new ConflictException('CNPJ já vinculado a outro merchant nesta integração');
-      }
-      return this.prisma.$transaction(async tx => {
-        const cnpjOwner = await tx.user.findUnique({ where: { cnpj }, select: { id: true } });
-        await tx.user.update({
-          where: { id: existing.userId },
-          data: { ...(cnpjOwner && cnpjOwner.id !== existing.userId ? {} : { cnpj }), name: legalName },
-        });
-        return tx.integrationMerchant.update({
-          where: { id: existing.id },
-          data: { cnpj, legalName },
-          select: { cnpj: true, externalMerchantId: true, id: true, integrationKey: true, legalName: true },
-        });
-      });
-    }
-
-    const clash = await this.prisma.integrationMerchant.findUnique({
-      where: { integrationKey_cnpj: { integrationKey, cnpj } },
-    });
-    if (clash) throw new ConflictException('CNPJ já vinculado a outro merchant nesta integração');
-
-    return this.prisma.$transaction(async tx => {
-      const user = await tx.user.findUnique({ where: { cnpj } });
-      if (!user?.isActive || user.isPurged) throw new BadRequestException('Comerciante exige conta ativa previamente cadastrada');
-      return tx.integrationMerchant.create({
-        data: { cnpj, externalMerchantId, integrationKey, legalName, userId: user.id },
-        select: { cnpj: true, externalMerchantId: true, id: true, integrationKey: true, legalName: true },
-      });
-    });
+    return new PlatformMerchantProvisioning(this.prisma).provision(integrationKey, externalMerchantId, input);
   }
 
   async merchant(integrationKey: string, externalMerchantId: string) {

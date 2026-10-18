@@ -296,3 +296,8 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 
 - [x] Quatro rotas de diagnóstico/setup caracterizadas sem banco/gateway: dois diagnósticos estáticos e dois setups 410 sem criação.
 - [x] Status e cancelamento BetAI com serviço real, persistência e adquirente mockados; envelopes traduzidos e falha parcial de cancelamento preservada. Doze testes dirigidos aprovados.
+
+## Continuação — provisionamento compartilhado de comerciantes
+
+- [x] Remover escritores duplicados; alias e canônico usam PlatformMerchantProvisioning, associando somente contas ativas existentes. Não cria usuário técnico.
+- [x] Atualização de merchant existente revalida conta ativa; provisionamento e conflitos compartilham persistência. Cinco testes dirigidos aprovados.

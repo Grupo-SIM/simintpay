@@ -1,3 +1,4 @@
+import { PlatformMerchantProvisioning } from './platform-merchant-provisioning';
 import { platformMerchant } from './platform-merchant-lookup';
 import { PlatformPaymentLookup } from '../unified-platform/payments/platform-payment-lookup';
 import { IntegrationFinanceService } from '../integrations/integration-finance.service';
@@ -14,18 +15,8 @@ export class PlatformMerchantsService {
   private namespace(context: PlatformContext) { return `platform:${context.id}`; }
 
   async provision(context: PlatformContext, externalMerchantId: string, body: { cnpj: string; legalName: string }) {
-    const cnpj = String(body.cnpj ?? '').replace(/\D/g, '');
-    const legalName = typeof body.legalName === 'string' ? body.legalName.trim() : '';
-    if (cnpj.length !== 14 || !legalName || !externalMerchantId.trim()) throw new BadRequestException('CNPJ, razão social e referência obrigatórios');
-    // Provisioning associates an existing active account. No inferred or technical users.
-    const user = await this.prisma.user.findUnique({ where: { cnpj } });
-    if (!user?.isActive || user.isPurged) throw new BadRequestException('Comerciante exige conta ativa previamente cadastrada');
-    const integrationKey = this.namespace(context);
-    try {
-      return await this.prisma.integrationMerchant.upsert({ where: { integrationKey_externalMerchantId: { integrationKey, externalMerchantId } },
-        create: { integrationKey, externalMerchantId, userId: user.id, cnpj, legalName }, update: { userId: user.id, cnpj, legalName },
-        select: { id: true, externalMerchantId: true, cnpj: true, legalName: true } });
-    } catch (error) { if ((error as { code?: string }).code === 'P2002') throw new ConflictException('Comerciante já associado'); throw error; }
+    const { integrationKey, ...result } = await new PlatformMerchantProvisioning(this.prisma).provision(this.namespace(context), externalMerchantId, body);
+    return result;
   }
 
   async resolve(context: PlatformContext, externalMerchantId: string) {
