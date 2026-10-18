@@ -1,4 +1,6 @@
+import { PlatformOverviewReports } from './platform-overview-reports';
 import { PlatformSellerReports } from './platform-seller-reports';
+import { unsupportedCapability } from './platform-adapters';
 import { BadRequestException, Controller, Get, Inject, Query, Req, SetMetadata, UseGuards } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -28,6 +30,62 @@ export class PlatformReportProjectionsController {
       summary: { ownerWalletAvailableBalanceCents: cents(result.summary.availableBalance), balanceInProcessingCents: cents(result.summary.balanceInProcessing) },
       selected: { profit: money(result.selected.profit), withdrawals: result.selected.withdrawals },
       profit: money(result.profit), refunds: { count: result.estornos.quantidade, netAmountCents: cents(result.estornos.valorLiquido) }, withdrawals: result.withdrawals };
+  }
+
+  private administration(context: PlatformContext) { return new PlatformAdministrationService(this.prisma, this.gateway, this.reporting, context); }
+
+  private serialize(value: any): any {
+    if (Array.isArray(value)) return value.map(item => this.serialize(item));
+    if (!value || typeof value !== 'object' || value instanceof Date) return value;
+    const monetary = new Set(['amount', 'receita', 'lucro', 'valor', 'valorBruto', 'valorLiquido', 'lucroAdmin', 'taxaDom', 'taxaSimIntPay', 'taxaFixa', 'taxaCashback', 'taxaServico', 'lucroPrejuizo', 'total', 'dom', 'plataforma', 'availableBalance', 'balanceInProcessing', 'maquinetas', 'offers', 'lucroSimpay', 'value', 'taxaCobrada', 'totalFee', 'taxaTotalDOM', 'taxaTotal']);
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+      if (key.endsWith('Pct') && typeof item === 'number') return [key.replace(/Pct$/, 'Rate'), new Prisma.Decimal(item).div(100).toNumber()];
+      if (key === 'percentual' && typeof item === 'number') return ['rate', new Prisma.Decimal(item).div(100).toNumber()];
+      if (monetary.has(key) && (typeof item === 'number' || key === 'amount' && typeof item === 'string')) {
+        const cents = new Prisma.Decimal(item as number).mul(100).toDecimalPlaces(0).toNumber();
+        if (!Number.isSafeInteger(cents)) throw new BadRequestException('Valor fora do limite');
+        return [`${key}Cents`, cents];
+      }
+      return [key, this.serialize(item)];
+    }));
+  }
+
+  @Get('overview') @SetMetadata('platform-operation', 'reports:read')
+  async overview(@Req() request: { platformContext: PlatformContext }, @Query('period') period = 'hoje') {
+    if (!['hoje', 'ontem', '7dias', '15dias', '30dias'].includes(period)) throw new BadRequestException('Período inválido');
+    const result = await new PlatformOverviewReports(this.prisma, request.platformContext).getDashboardData(request.platformContext.tag, period);
+    return { unit: 'cents', data: this.serialize(result) };
+  }
+
+  @Get('withdrawal-fees') @SetMetadata('platform-operation', 'reports:read')
+  async withdrawalFees(@Req() request: { platformContext: PlatformContext }) {
+    const result = await new PlatformOverviewReports(this.prisma, request.platformContext).getSaquesDetalhados(request.platformContext.tag);
+    return { unit: 'cents', ...this.serialize(result) };
+  }
+
+  @Get('payment-methods') @SetMetadata('platform-operation', 'reports:read')
+  async paymentMethods(@Req() request: { platformContext: PlatformContext }) {
+    const result = await this.administration(request.platformContext).getPlataformaDistribuicaoMetodo(request.platformContext.tag);
+    return { unit: 'cents', total: result.total, items: this.serialize(result.items) };
+  }
+
+  @Get('atlas-products') @SetMetadata('platform-operation', 'reports:read')
+  async atlasProducts(@Req() request: { platformContext: PlatformContext }) {
+    if (request.platformContext.tag !== 'ATLAS') unsupportedCapability('reports.atlas-products');
+    return { unit: 'cents', data: this.serialize(await this.administration(request.platformContext).getAtlasBreakdown()) };
+  }
+
+  @Get('communities') @SetMetadata('platform-operation', 'reports:read')
+  async communities(@Req() request: { platformContext: PlatformContext }) {
+    await this.administration(request.platformContext).getPlatformTransactionScope(request.platformContext.tag);
+    return { unit: 'cents', ...this.serialize(await this.administration(request.platformContext).listPlataformaComunidades(request.platformContext.tag)) };
+  }
+
+  @Get('transactions') @SetMetadata('platform-operation', 'reports:read')
+  async transactionDetails(@Req() request: { platformContext: PlatformContext }, @Query('page') page = '1', @Query('limit') limit = '20') {
+    if (![page, limit].every(value => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) && Number(value) > 0) || Number(limit) > 100) throw new BadRequestException('Paginação inválida');
+    const result = await this.administration(request.platformContext).listPlataformaTransacoes(request.platformContext.tag, page, limit);
+    return { unit: 'cents', ...result, data: this.serialize(result.data) };
   }
 
   @Get('sellers/stats') @SetMetadata('platform-operation', 'reports:read')

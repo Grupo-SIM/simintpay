@@ -200,3 +200,9 @@ Consultas financeiras canônicas descartam lançamentos com marcas de plataforma
 Importação de plano Pagatg existente usa `/platforms/:tag/subscriptions/plans/import`; criação de nova assinatura permanece operação distinta. Valores canônicos em centavos. Código global de plano não pode ser adotado por outro produto/conta. Lançamentos Ebook pending/commission não creditam carteira; pending conserva cálculo histórico PIX independentemente do meio exibido. Campos opcionais de comprador/parcelas não substituem identidade autenticada.
 
 Vínculo canônico AreaFlix retorna `retroactiveTransferredCents`; alias conserva `retroactiveTransferred` em reais. Ambos usam transferência única com vínculo explícito de origem e mesmos registros de auditoria.
+
+### Projeções administrativas canônicas
+
+`/platforms/:tag/reports` inclui `overview`, `withdrawal-fees`, `communities`, `atlas-products`, `payment-methods`, `transactions`, `sellers` e `sellers/stats`. Valores monetários usam sufixo Cents; percentuais de distribuição e participação tornam-se taxas decimais. Quantidades não são multiplicadas por cem. Atlas products fica restrito a Atlas. Histórico com marcas conflitantes fica excluído das projeções canônicas. Dashboard legado conserva consultas históricas e formato original no núcleo compartilhado.
+
+Configuração financeira Ebook em `/platforms/:tag/finance/config` distingue taxas decimais de custos fixos em centavos. Detalhe de saque canônico exige ID, dono e plataforma correspondentes.

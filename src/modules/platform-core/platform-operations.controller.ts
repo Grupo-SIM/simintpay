@@ -43,6 +43,12 @@ export class PlatformOperationsController {
     return this.finance.importEntry(request.platformContext, body);
   }
 
+  @Get('finance/config') @Operation('finance:read')
+  config(@Req() request: PlatformRequest) { return this.finance.config(request.platformContext); }
+
+  @Get('finance/withdrawals/:id') @Operation('finance:read')
+  withdrawal(@Req() request: PlatformRequest, @Param('id') id: string) { return this.finance.withdrawal(request.platformContext, id); }
+
   @Get('finance/balance') @Operation('finance:read')
   platformBalance(@Req() request: PlatformRequest) { return this.finance.platformBalance(request.platformContext); }
 

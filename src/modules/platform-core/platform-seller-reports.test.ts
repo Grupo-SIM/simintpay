@@ -36,3 +36,16 @@ test('multiple products expose shared stored owner wallet without recalculating 
   const result = await new PlatformSellerReports(prisma, {} as any).getActiveSellers('BOSQUE', '1', '20', 'true', 'carteiras');
   expect(result.data[0]).toMatchObject({ walletScope: 'shared-owner', balance: 95, lockedBalance: 5 });
 });
+
+test('generic seller stats alias equals scoped canonical projection with real subscriber query', async () => {
+  const f = fixture();
+  f.context.tag = 'AREAFLIX';
+  f.platform.tag = 'AREAFLIX';
+  const p: any = f.prisma;
+  p.subscriptionLink = { findMany: async () => [{ id: 'link' }] };
+  p.subscriptionLinkOrder = { findMany: async ({ where }: any) => where.status.in ? [{ customerEmail: 'active@example.com' }] : [{ customerEmail: 'active@example.com' }, { customerEmail: 'expired@example.com' }] };
+  const old = await new PlatformDashboardController({} as any, p, {} as any).getSellerStats('AREAFLIX');
+  const current = await new PlatformReportProjectionsController(p, {} as any, {} as any).sellerStats({ platformContext: f.context });
+  expect(old).toEqual({ totalContas: 2, sellersAtivos: 1 });
+  expect(current).toEqual(old);
+});

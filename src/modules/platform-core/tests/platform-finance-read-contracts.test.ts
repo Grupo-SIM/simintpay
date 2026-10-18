@@ -40,6 +40,7 @@ function fixture(tag: string, Service: any, Controller: any) {
   const model = (rows: any[]) => ({
     findMany: async (q: any) => { queries.push(q); const selected = rows.filter(row => matches(row, q.where)); return selected.slice(q.skip ?? 0, q.take === undefined ? undefined : (q.skip ?? 0) + q.take); },
     count: async (q: any) => rows.filter(row => matches(row, q.where)).length,
+    findFirst: async ({ where }: any) => rows.find(row => matches(row, where)) ?? null,
     findUnique: async ({ where }: any) => rows.find(row => matches(row, where)) ?? null,
     aggregate: async (q: any) => { const selected = rows.filter(row => matches(row, q.where)); return { _sum: Object.fromEntries(Object.keys(q._sum ?? {}).map(key => [key, selected.reduce((sum, row) => sum.plus(row[key] ?? 0), new Prisma.Decimal(0))])), _count: selected.length }; },
   });
@@ -88,11 +89,16 @@ test('Atlas health and withdrawal status preserve nonfinancial contract and not-
   const f = fixture('ATLAS', InternalAtlasFinanceService, InternalAtlasFinanceController);
   expect(await f.controller.health()).toEqual({ status: 'ok', service: 'atlas-finance-internal' });
   expect(await f.controller.getWithdrawStatus('w0')).toMatchObject({ id: 'w0', status: 'PENDING' });
+  const canonical = await f.finance.withdrawal({ id: 'p', tag: 'ATLAS', ownerUserId: 'owner', acquirer: 'DOM' }, 'w0');
+  expect(canonical).toMatchObject({ id: 'w0', amountCents: 1700, grossAmountCents: 2000, feeCents: 300, status: 'PENDING' });
+  await expect(f.finance.withdrawal({ id: 'p', tag: 'OTHER', ownerUserId: 'owner', acquirer: 'DOM' }, 'w0')).rejects.toThrow('Saque não encontrado');
   await expect(f.controller.getWithdrawStatus('missing')).rejects.toThrow('Saque não encontrado');
 });
 test('Ebook configuration preserves decimal liquidity and legacy percentage commission', () => {
   const f = fixture('EBOOK', InternalEbookFinanceService, InternalEbookFinanceController);
-  expect(f.controller.getConfig()).toMatchObject({ transactionFeeBrl: 4, taxaFixaTransacao: 1, taxaCashback: 1 });
+  const legacy = f.controller.getConfig();
+  expect(legacy).toMatchObject({ transactionFeeBrl: 4, taxaFixaTransacao: 1, taxaCashback: 1 });
+  expect(f.finance.config({ id: 'p', tag: 'EBOOK', ownerUserId: 'owner', acquirer: 'DOM' })).toEqual({ unit: 'cents', liquidityRate: legacy.liquidez, pixMdrRate: legacy.mdrPix, transactionFeeCents: 400, fixedTransactionFeeCents: 100, cashbackAmountCents: 100, affiliateCommissionRate: legacy.affiliateCommissionRate / 100 });
 });
 test('Bosque inspection and read-only reconciliation preserve wallet and ledger decomposition', async () => {
   const f = fixture('BOSQUE', InternalBosqueFinanceService, InternalBosqueFinanceController);

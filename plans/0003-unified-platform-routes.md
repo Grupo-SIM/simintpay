@@ -301,3 +301,10 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 
 - [x] Remover escritores duplicados; alias e canônico usam PlatformMerchantProvisioning, associando somente contas ativas existentes. Não cria usuário técnico.
 - [x] Atualização de merchant existente revalida conta ativa; provisionamento e conflitos compartilham persistência. Cinco testes dirigidos aprovados.
+
+## Continuação — administração e dashboard genérico compartilhados
+
+- [x] Extrair PlatformOverviewReports; serviço Renovada vira fachada sem lógica própria. Dashboard/saques/sellers usam mesmo núcleo, com APIs canônicas overview, withdrawal-fees e sellers.
+- [x] Adicionar projeções canônicas communities, atlas-products, payment-methods e transactions; centavos, taxas decimais e contagens preservadas. Contexto revalidado e histórico conflitante excluído antes de agregação/paginação.
+- [x] Configuração Ebook e detalhe de saque ganham leitura canônica em centavos; testes comparam contratos antigos.
+- [x] Sete testes de overview/sellers, seis administrativos e 19 de leitura financeira aprovados.

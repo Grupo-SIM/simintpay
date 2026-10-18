@@ -1,3 +1,4 @@
+import { hasPlatformMarker } from './platform-sync.adapter';
 import type { PlatformContext } from './platform-context.service';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PlatformReportingService } from '../../application/services/platform-reporting.service';
@@ -1223,9 +1224,12 @@ export class PlatformAdministrationService {
  async getPlatformTransactionScope(tag: string): Promise<Prisma.TransactionWhereInput> {
     const upperTag = normalizePlatformTag(tag);
     const platform = await this.prisma.platform.findUnique({ where: { tag: upperTag }, include: { owner: true } });
-    if (this.expectedContext && (!platform?.isActive || !platform.owner?.isActive || platform.owner.isPurged || platform.id !== this.expectedContext.id || platform.ownerUserId !== this.expectedContext.ownerUserId)) throw new ForbiddenException('Contexto da plataforma mudou');
+    if (this.expectedContext && (upperTag !== this.expectedContext.tag || !platform?.isActive || !platform.owner?.isActive || platform.owner.isPurged || platform.id !== this.expectedContext.id || platform.ownerUserId !== this.expectedContext.ownerUserId)) throw new ForbiddenException('Contexto da plataforma mudou');
     if (!platform) throw new NotFoundException('Plataforma não cadastrada');
-    return { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } };
+    const marker: Prisma.TransactionWhereInput = { description: { contains: `[TENANT:${upperTag}]`, mode: 'insensitive' } };
+    if (!this.expectedContext) return marker;
+    const rows = await this.prisma.transaction.findMany({ where: marker, select: { id: true, description: true } });
+    return { ...marker, id: { in: rows.filter(row => hasPlatformMarker(row.description, upperTag)).map(row => row.id) } };
   }
 
  extractOrderNumberFromText(value: string | null | undefined): string | null {

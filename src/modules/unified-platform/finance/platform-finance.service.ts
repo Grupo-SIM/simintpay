@@ -1,3 +1,5 @@
+import { EbookSimConfig } from '../../ebooksim/ebooksim.config';
+import { PLATFORM_TAXA_DEFAULTS } from '../../platform-taxas/platform-taxas.keys';
 import { merchantWithdrawalDelivery } from '../../platform-core/platform-merchant-delivery';
 import { PlatformOwnerMirror } from '../../platform-core/platform-owner-mirror';
 import { PlatformAttributedBalance } from '../../platform-core/platform-attributed-balance';
@@ -6,7 +8,7 @@ import { platformDashboardRules } from '../../platform-core/platform-dashboard.a
 import { PlatformLedger } from './platform-ledger';
 import { PlatformMaintenanceService } from './platform-maintenance.service';
 import { platformWithdrawalQuote } from '../../platform-core/platform-withdrawal.adapter';
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma, TransactionStatus } from '@prisma/client';
 import { hasPlatformMarker } from '../../platform-core/platform-sync.adapter';
 import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.store';
@@ -165,6 +167,21 @@ export class PlatformFinanceService {
       availableBalanceCents: this.cents(Prisma.Decimal.max(0, balance.minus(locked))),
       lockedBalanceCents: this.cents(locked), pendingPlatformWithdrawalsCents: this.cents(pending._sum.grossAmount),
     };
+  }
+
+  config(context: FinancePlatformContext) {
+    if (context.tag !== 'EBOOK') throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'finance.config' });
+    return { unit: 'cents', liquidityRate: EbookSimConfig.saque.fatorLiquidez, pixMdrRate: EbookSimConfig.mdr.pix,
+      transactionFeeCents: this.cents(getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO)),
+      fixedTransactionFeeCents: this.cents(getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO)),
+      cashbackAmountCents: this.cents(getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK)),
+      affiliateCommissionRate: getPlatformTaxaEffective('EBOOK', 'TAXA_COMISSAO_AFILIADO', PLATFORM_TAXA_DEFAULTS.TAXA_COMISSAO_AFILIADO) };
+  }
+
+  async withdrawal(context: FinancePlatformContext, id: string) {
+    const row = await this.prisma.withdrawRequest.findFirst({ where: { id, userId: context.ownerUserId, platform: context.tag.toLowerCase() } });
+    if (!row) throw new NotFoundException('Saque não encontrado');
+    return { unit: 'cents', id: row.id, amountCents: this.cents(row.amount), grossAmountCents: this.cents(row.grossAmount), feeCents: this.cents(row.fee), status: row.status, pixKey: row.pixKey, rejectionReason: row.rejectionReason, createdAt: row.createdAt };
   }
 
   async transactions(context: FinancePlatformContext, options: FinancePage = {}) {
