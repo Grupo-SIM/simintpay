@@ -59,3 +59,24 @@ describe('Platform draft simulation', () => {
     await expect(service().service.simulateDraft('SHOP', user as never, { amount: -1 })).rejects.toThrow();
   });
 });
+
+
+describe('Platform rate atomic update', () => {
+  test('persists interest and absorption together, rejects invalid absorption before writing', async () => {
+    let data: unknown;
+    const platform = { id: 'p', tag: 'SHOP', ownerUserId: 'owner', customerInterestRates: {} };
+    const update = mock(async (args: any) => { data = args.data; return { ...platform, ...args.data }; });
+    const prisma = {
+      user: { findUnique: async () => ({ isActive: true, isPurged: false, role: 'USER' }) },
+      platform: { findUnique: async () => platform, update, findMany: async () => [] },
+      platformTaxaOverride: { findMany: async () => [] },
+    };
+    const service = new PlatformsService(prisma as never);
+    await service.patchCustomerInterestRates('SHOP', user as never, { rates: { '2': 0.025 }, absorbCustomerInterest: true });
+    expect(data).toEqual({ customerInterestRates: { '2': 0.025 }, absorbCustomerInterest: true });
+    await expect(service.patchCustomerInterestRates('SHOP', user as never, { absorbCustomerInterest: 'yes' as never })).rejects.toThrow();
+    expect(update).toHaveBeenCalledTimes(1);
+    await service.patchCustomerInterestRates('SHOP', user as never, { absorbCustomerInterest: false });
+    expect(update).toHaveBeenCalledTimes(2);
+  });
+});

@@ -100,20 +100,22 @@ export class PlatformsService {
     await initializePlatformIntegrationsCache(this.prisma);
     return { data: updated };
   }
-  async patchCustomerInterestRates(tag: string, user: JwtPayload, body: { rates?: Record<string, unknown> }) {
+  async patchCustomerInterestRates(tag: string, user: JwtPayload, body: { rates?: Record<string, unknown>; absorbCustomerInterest?: boolean }) {
     user = await this.requireSession(user);
     const platform = await this.requireAccess(tag, user);
-    if (!body || !body.rates || typeof body.rates !== 'object' || Array.isArray(body.rates)) throw new BadRequestException('Tabela de juros inválida');
+    if (!body || (body.rates !== undefined && (!body.rates || typeof body.rates !== 'object' || Array.isArray(body.rates)))) throw new BadRequestException('Tabela de juros inválida');
+    if (body.absorbCustomerInterest !== undefined && typeof body.absorbCustomerInterest !== 'boolean') throw new BadRequestException('Opção de absorção inválida');
     const rates: Record<string, number> = { ...(platform.customerInterestRates as Record<string, number>) };
-    if (Object.keys(body.rates).length === 0) throw new BadRequestException('Informe ao menos uma parcela');
-    for (const [key, value] of Object.entries(body.rates)) {
+    if (Object.keys(body.rates ?? {}).length === 0 && body.absorbCustomerInterest === undefined) throw new BadRequestException('Informe ao menos uma parcela ou opção de absorção');
+    for (const [key, value] of Object.entries(body.rates ?? {})) {
       if (!/^(?:[1-9]|1[0-2])$/.test(key) || typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
         throw new BadRequestException('Parcelas devem ser 1 a 12 e juros decimais entre 0 e 1');
       }
       rates[key] = value;
     }
-    const updated = await this.prisma.platform.update({ where: { id: platform.id }, data: { customerInterestRates: rates }, select: publicSelect });
+    const updated = await this.prisma.platform.update({ where: { id: platform.id }, data: { customerInterestRates: rates, ...(body.absorbCustomerInterest !== undefined ? { absorbCustomerInterest: body.absorbCustomerInterest } : {}) }, select: publicSelect });
     setCustomerInterestRates(platform.tag, rates);
+    await initializePlatformRegistryCache(this.prisma);
     await initializePlatformTaxasCache(this.prisma);
     return { data: updated, meta: { warnings: this.simulation(platform.tag, 100).filter((row) => row.negativeMargin) } };
   }

@@ -32,7 +32,7 @@ export class PlatformsController {
   }
   @Patch(':tag/customer-interest-rates')
   @ApiOperation({ summary: 'Definir juros cobrados do comprador por parcela (decimal)' })
-  rates(@Param('tag') tag: string, @CurrentUser() user: JwtPayload, @Body() body: { rates?: Record<string, unknown> }) {
+  rates(@Param('tag') tag: string, @CurrentUser() user: JwtPayload, @Body() body: { rates?: Record<string, unknown>; absorbCustomerInterest?: boolean }) {
     return this.platforms.patchCustomerInterestRates(tag, user, body);
   }
 
