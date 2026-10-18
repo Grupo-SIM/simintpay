@@ -8,7 +8,7 @@ import { PlatformAuthGuard } from './platform-auth.guard';
 import { PlatformSubscriptionCapabilitiesController } from './platform-subscription-capabilities.controller';
 import { PlatformVoucherCapabilitiesController } from './platform-voucher-capabilities.controller';
 import { PlatformSubscriptionPlanDto } from './platform-subscription-capabilities.dto';
-import { PlatformVoucherDto } from './platform-voucher.dto';
+import { PlatformVoucherDto, PlatformVoucherUpdateDto } from './platform-voucher.dto';
 
 const options = { whitelist: true, forbidNonWhitelisted: true };
 
@@ -17,7 +17,7 @@ describe('canonical corporate capability authorization contracts', () => {
     for (const [controller, scopes] of [
       [PlatformBetaiController, { create: 'billing:write', status: 'billing:read', cancel: 'subscriptions:write' }],
       [PlatformSubscriptionCapabilitiesController, { create: 'subscriptions:write', status: 'subscriptions:read', access: 'subscriptions:read' }],
-      [PlatformVoucherCapabilitiesController, { list: 'vouchers:read', create: 'vouchers:write', validate: 'vouchers:read', delete: 'vouchers:write' }],
+      [PlatformVoucherCapabilitiesController, { list: 'vouchers:read', create: 'vouchers:write', validate: 'vouchers:read', update: 'vouchers:write', delete: 'vouchers:write' }],
     ] as const) {
       expect(Reflect.getMetadata(GUARDS_METADATA, controller)).toContain(PlatformAuthGuard);
       for (const [method, scope] of Object.entries(scopes)) {
@@ -48,6 +48,12 @@ describe('canonical corporate capability authorization contracts', () => {
       { code: 'OFF', discountType: 'FIXED', discountAmountCents: 1, discountValue: 1 },
     ]) {
       expect((await validate(plainToInstance(PlatformVoucherDto, input), options)).length).toBeGreaterThan(0);
+    }
+  });
+  test('voucher update DTO validates partial cents/rate and rejects identity/channel overrides', async () => {
+    expect(await validate(plainToInstance(PlatformVoucherUpdateDto, { discountRate: 0.15, discountType: 'PERCENTAGE', isActive: false }), options)).toEqual([]);
+    for (const input of [{ discountAmountCents: 1.2 }, { discountRate: 15 }, { isActive: 'false' }, { userId: 'other' }, { allowedChannels: ['OTHER'] }]) {
+      expect((await validate(plainToInstance(PlatformVoucherUpdateDto, input), options)).length).toBeGreaterThan(0);
     }
   });
 });

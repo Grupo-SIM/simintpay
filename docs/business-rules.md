@@ -165,6 +165,8 @@ E-mail de acesso VM Atlas usa mesmo serviço/template no alias e na capacidade c
 
 Saques de dono Ebook/Pagatg precificam taxa sobre líquido. API canônica recebe bruto em centavos e resolve líquido = (bruto − taxa fixa) / (1 + taxa percentual), arredondado a centavos; mínimo incide sobre líquido. Demais produtos e saques de comerciantes mantêm base bruta; AreaFlix aplica somente taxa fixa. Escritor de saques sempre consulta plataforma/dono ativos e usa adquirente cadastrado, inclusive em aliases, sem fallback DOM. Exceções históricas sem reserva de carteira em Atlas/Ebook/Pagatg permanecem restritas aos aliases; canônico sempre reserva bruto.
 
+Voucher Pagatg pode ser atualizado em `PATCH /platforms/:tag/vouchers/:id`, com `vouchers:write`. Usa mesmo serviço do alias; ID precisa pertencer ao dono atual e canal Pagatg. Valores fixos são centavos inteiros e percentuais são taxas decimais; trocar tipo exige valor na unidade correspondente. Cliente não substitui dono ou canais por campos do corpo.
+
 ## Integração remota — links e classificação administrativa
 
 - `isSimintpayClient` é classificação administrativa; não altera aprovação, papel, titularidade ou associação de produtos. Ativos excluem marcados por padrão; `simintpayClients=true` seleciona marcados e `any` inclui ambos. Inativos/purgados incluem ambos por padrão.

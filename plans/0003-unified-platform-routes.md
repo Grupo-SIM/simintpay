@@ -248,3 +248,9 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Corrigir taxa canônica Ebook/Pagatg para base líquida; regra de comerciante mantém base bruta. Escritor legado deixa de presumir DOM e valida cadastro/dono ativos na transação.
 - [x] 25 testes dirigidos e 563 Bun da suíte completa aprovados; build local aprovado. Validação inclui bloqueio de plataforma inexistente/inativa sem lançamento.
 - [ ] Cobertura comportamental das demais rotas segue em execução.
+
+## Continuação — ciclo completo de vouchers Pagatg
+
+- [x] Adicionar PATCH canônico de voucher, com centavos/taxa decimal, escopo `vouchers:write` e campos de identidade/canal rejeitados.
+- [x] Cinco aliases exercitam VoucherService real com persistência mockada: criação, listagem, validação, atualização e exclusão. Valores, arredondamento, canal, propriedade e envelopes comparados; casos inválidos não escrevem.
+- [x] Seis testes de ciclo de voucher e DTO/escopo adicional aprovados; suíte Bun com etapas atuais passou em 602 testes. Build local aprovado.
