@@ -291,3 +291,8 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Comparar oito contratos Atlas/Revalida: summary, sales, stats e withdrawals, incluindo gráficos, contagens e valores.
 - [x] Alias AreaFlix e capacidade canônica executam transferência/auditoria compartilhadas reais; mesmas escritas e valores. Resposta canônica expõe retroactiveTransferredCents, legado mantém reais. Seis testes de vínculo aprovados.
 - [x] Build local aprovado com etapas atuais.
+
+## Continuação — diagnóstico e BetAI remanescente
+
+- [x] Quatro rotas de diagnóstico/setup caracterizadas sem banco/gateway: dois diagnósticos estáticos e dois setups 410 sem criação.
+- [x] Status e cancelamento BetAI com serviço real, persistência e adquirente mockados; envelopes traduzidos e falha parcial de cancelamento preservada. Doze testes dirigidos aprovados.
