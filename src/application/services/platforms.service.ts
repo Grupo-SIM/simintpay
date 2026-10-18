@@ -4,9 +4,10 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
-import { canonicalPlatformTaxaTag, initializePlatformTaxasCache } from '../../modules/platform-taxas/platform-taxas.store';
+import { canonicalPlatformTaxaTag, initializePlatformTaxasCache, getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import { initializePlatformRegistryCache, setCustomerInterestRates } from '../../modules/module.registry';
 
+import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
 import type { PaymentLink } from '@prisma/client';
 import { calculatePaymentLinkFees } from '../use-cases/payment-link/payment-link-fees.helper';
 
@@ -41,10 +42,11 @@ export class PlatformsService {
 
   async list(user: JwtPayload) {
     user = await this.requireSession(user);
-    return { data: await this.prisma.platform.findMany({
+    const platforms = await this.prisma.platform.findMany({
       where: user.role === Role.ADMIN ? {} : { ownerUserId: user.sub },
       select: publicSelect, orderBy: { tag: 'asc' },
-    }) };
+    });
+    return { data: platforms.map(platform => ({ ...platform, effectiveCustomerInterestRates: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i + 1), platform.absorbCustomerInterest ? 0 : (platform.customerInterestRates as Record<string, number> | null)?.[String(i + 1)] ?? getPlatformTaxaEffective('GLOBAL', `MDR_LINK_${i + 1}X`, PLATFORM_TAXA_DEFAULTS[`MDR_LINK_${i + 1}X` as PlataformaTaxaKey])])) })) };
   }
 
   async requireAccess(tag: string, user: JwtPayload) {
@@ -122,6 +124,23 @@ export class PlatformsService {
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) throw new BadRequestException('Valor deve ser positivo');
     return { data: this.simulation(platform.tag, value) };
+  }
+
+  async simulateDraft(tag: string, user: JwtPayload, body: { amount?: unknown; rates?: Record<string, unknown>; absorbCustomerInterest?: boolean }) {
+    const platform = await this.requireAccess(tag, user);
+    const amount = Number(body?.amount);
+    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor deve ser positivo');
+    if (body.absorbCustomerInterest !== undefined && typeof body.absorbCustomerInterest !== 'boolean') throw new BadRequestException('Opção de absorção inválida');
+    if (body.rates !== undefined && (!body.rates || typeof body.rates !== 'object' || Array.isArray(body.rates))) throw new BadRequestException('Tabela de juros inválida');
+    for (const [key, value] of Object.entries(body.rates ?? {})) {
+      if (!/^(?:[1-9]|1[0-2])$/.test(key) || typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) throw new BadRequestException('Parcelas devem ser 1 a 12 e juros decimais entre 0 e 1');
+    }
+    const link = { amount, isStandalone: false } as unknown as PaymentLink;
+    return { data: Array.from({ length: 12 }, (_, index) => {
+      const installments = index + 1;
+      const rate = body.rates?.[String(installments)] as number | undefined;
+      return { installments, ...calculatePaymentLinkFees(link, installments, platform.tag, false, body.absorbCustomerInterest ?? platform.absorbCustomerInterest, rate, body.absorbCustomerInterest) };
+    }) };
   }
 
   private simulation(tag: string, amount: number) {

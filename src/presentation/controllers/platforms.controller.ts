@@ -36,6 +36,12 @@ export class PlatformsController {
     return this.platforms.patchCustomerInterestRates(tag, user, body);
   }
 
+  @Post(':tag/customer-interest-rates/simulation')
+  @ApiOperation({ summary: 'Simular rascunho de juros sem salvar alterações' })
+  simulateDraft(@Param('tag') tag: string, @CurrentUser() user: JwtPayload, @Body() body: { amount?: unknown; rates?: Record<string, unknown>; absorbCustomerInterest?: boolean }) {
+    return this.platforms.simulateDraft(tag, user, body);
+  }
+
   @Get(':tag/customer-interest-rates/simulation')
   @ApiOperation({ summary: 'Simular valor cobrado, custos e líquido por parcela' })
   simulate(@Param('tag') tag: string, @CurrentUser() user: JwtPayload, @Query('amount') amount: string) {

@@ -55,3 +55,22 @@ test('debit keeps its method-specific cashback and fixed discounts', async () =>
   expect(fees.cashbackFee).toBe(3); expect(fees.transactionFixedFee).toBe(1);
   expect(fees.netAmount).toBe(Number((100 - fees.domFeeAmount - fees.platformFeeAmount - 4).toFixed(2)));
 });
+
+test('draft rates do not mutate checkout and absorption uses actual charged principal', async () => {
+  await initializePlatformRegistryCache(client as never);
+  await initializePlatformTaxasCache(client as never);
+  try {
+    const draft = calculatePaymentLinkFees(link, 12, 'SHOP', false, false, 0.05);
+    expect(draft.interestAmount).toBe(5);
+    expect(calculatePaymentLinkFees(link, 12, 'SHOP').interestAmount).toBe(30);
+    const absorbed = calculatePaymentLinkFees(link, 12, 'SHOP', false, true);
+    expect(absorbed.interestAmount).toBe(0);
+    expect(absorbed.domFeeAmount).toBe(21.48);
+    expect(absorbed.netAmount).toBe(65.52);
+    readOverridesRaw().GLOBAL = { MDR_LINK_3X: 0.07 };
+    expect(getPlatformFeeRate(link, 3, 'SHOP')).toBeCloseTo(7);
+  } finally {
+    await initializePlatformRegistryCache(empty as never);
+    await initializePlatformTaxasCache(empty as never);
+  }
+});

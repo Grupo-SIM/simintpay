@@ -227,7 +227,7 @@ export function getCustomerInterestRate(tag: string, installments: number): numb
   const platform = getRegisteredPlatform(canonical);
   if (platform?.absorbCustomerInterest) return 0;
   const configured = (platform?.customerInterestRates as Record<string, number> | undefined)?.[String(n)];
-  return typeof configured === 'number' && Number.isFinite(configured) ? configured : PLATFORM_TAXA_DEFAULTS[`MDR_LINK_${n}X` as PlataformaTaxaKey];
+  return typeof configured === 'number' && Number.isFinite(configured) ? configured : getPlatformTaxaEffective('GLOBAL', `MDR_LINK_${n}X`, PLATFORM_TAXA_DEFAULTS[`MDR_LINK_${n}X` as PlataformaTaxaKey]);
 }
 
 /** Update only requested keys, preserving concurrent changes to other platforms. */

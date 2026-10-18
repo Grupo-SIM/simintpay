@@ -77,6 +77,8 @@ export function calculatePaymentLinkFees(
   platformTag?: string,
   isPix = false,
   absorbInterest = false,
+  customerRateOverride?: number,
+  absorptionOverride?: boolean,
 ): {
   baseAmount: number;
   platformFeeRate: number;
@@ -95,11 +97,12 @@ export function calculatePaymentLinkFees(
   negativeMargin: boolean;
 } {
   const n = Math.min(Math.max(installments, 1), 12);
-  absorbInterest = absorbInterest || !!getRegisteredPlatform(platformTag)?.absorbCustomerInterest;
+  platformTag = platformTag ?? (link as any).platformTag ?? 'GLOBAL';
+  absorbInterest = absorptionOverride ?? (absorbInterest || !!getRegisteredPlatform(platformTag)?.absorbCustomerInterest);
   const baseAmount = Number(link.amount);
 
   // 1. Juros da plataforma sobre o valor base — PIX nunca tem juros para o comprador
-  const platformFeeRate = isPix ? 0 : getPlatformFeeRate(link, n, platformTag);
+  const platformFeeRate = isPix || absorbInterest ? 0 : customerRateOverride !== undefined ? customerRateOverride * 100 : getPlatformFeeRate(link, n, platformTag);
   const interestAmount = (baseAmount * platformFeeRate) / 100;
   const valueWithInterest = baseAmount + interestAmount;
 

@@ -44,3 +44,18 @@ describe('Platform product ownership', () => {
     expect(create.mock.calls.every(([arg]) => !('platformId' in arg.data))).toBe(true);
   });
 });
+
+describe('Platform draft simulation', () => {
+  test('simulates owner draft without persisting and rejects foreign owner', async () => {
+    const fixture = service();
+    const result = await fixture.service.simulateDraft('SHOP', user as never, { amount: 200, rates: { '2': 0.05 } });
+    expect(result.data).toHaveLength(12);
+    expect(result.data[1].interestAmount).toBe(10);
+    expect(fixture.update).not.toHaveBeenCalled();
+    await expect(service({ id: 'p', tag: 'SHOP', ownerUserId: 'other' }).service.simulateDraft('SHOP', user as never, { amount: 200 })).rejects.toBeInstanceOf(ForbiddenException);
+  });
+  test('rejects malformed draft rates and invalid amounts', async () => {
+    await expect(service().service.simulateDraft('SHOP', user as never, { amount: 200, rates: { '13': 0.05 } })).rejects.toThrow();
+    await expect(service().service.simulateDraft('SHOP', user as never, { amount: -1 })).rejects.toThrow();
+  });
+});
