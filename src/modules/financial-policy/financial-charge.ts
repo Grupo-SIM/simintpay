@@ -10,7 +10,7 @@ export async function loadChargePolicy(prisma: Pick<Prisma.TransactionClient, 'f
 export function quoteFinancialCharge(context: { policy: ResolvedPolicy; acquirer: string; tag?: string }, amount: number, method: Method, installments = 1, channel: Channel = 'ONLINE') {
   const key = laneKey(context.acquirer, method, channel, installments);
   try { validateKey(key); } catch { throw new BadRequestException('Modalidade, canal ou parcela inválidos'); }
-  if (!context.policy.document.lanes[key]?.active) return null; // Explicit cutover per complete contract; legacy charges unchanged.
+  if (!context.policy.document.lanes[key]) return null; // Unconfigured lanes retain legacy pricing; configured admin rates apply immediately.
   const r = calculateFinancials(context.policy, key, cents(amount));
   return { financialSnapshot: { ...ownerResult(r), policyTag: context.tag ?? 'GLOBAL' }, baseAmount: r.originalCents / 100, totalAmount: r.buyerTotalCents / 100,
     netAmount: r.netCents / 100, domFeeAmount: r.acquirerCostCents / 100,
@@ -25,7 +25,7 @@ export function quoteFinancialCharge(context: { policy: ResolvedPolicy; acquirer
 /** Terminal reports buyer total. Invert the same monotonic cent function; never charge its costs twice. */
 export function quoteReportedPos(context: Awaited<ReturnType<typeof loadChargePolicy>>, buyerTotal: number, method: Method, n = 1) {
   const key = laneKey(context.acquirer, method, 'POS', n);
-  if (!context.policy.document.lanes[key]?.active) return null;
+  if (!context.policy.document.lanes[key]) return null;
   const target = cents(buyerTotal);
   let low = 1, high = Math.min(target, 1_000_000_000);
   while (low <= high) {

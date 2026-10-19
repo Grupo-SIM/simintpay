@@ -7,6 +7,7 @@ export type Channel = typeof CHANNELS[number];
 /** All money is integer cents; all rates are integer millionths of original value. */
 export type Addition = { fixedCents: number; ratePpm: number };
 export type Contract = Addition & { cashbackCents: number; interestPpm: number; base: 'ORIGINAL' | 'BUYER_TOTAL'; reference: string };
+/** active is retained for stored-document compatibility; configured rates apply without activation. */
 export type Lane = { active: boolean; contract: Contract; sim: Addition & { interestPpm: number } };
 export type OwnerRule = Addition & { passInterestPpm: number };
 export type Policy = { schemaVersion: 1; lanes: Record<string, Lane>; owner: Record<string, OwnerRule>; interestFree?: boolean; legacyAudit?: unknown };
@@ -28,7 +29,7 @@ export function cents(value: number | string | Prisma.Decimal) { return round(ne
 export function calculateFinancials(policy: ResolvedPolicy, key: string, originalCents: number, interestFree = policy.document.interestFree) {
   if (!Number.isSafeInteger(originalCents) || originalCents <= 0 || originalCents > 1_000_000_000) throw new Error('Valor inválido');
   const lane = policy.document.lanes[key];
-  if (!lane?.active) throw new Error('Contrato completo ainda não ativado');
+  if (!lane) throw new Error('Taxas administrativas não configuradas para esta modalidade, canal e parcela');
   const owner = policy.document.owner[key] ?? defaultOwner();
   const n = Number(key.split('/')[3]);
   const acquirerInterestCents = round(fraction(originalCents, lane.contract.interestPpm));
@@ -76,20 +77,11 @@ export function validatePolicy(value: unknown): asserts value is Policy {
   }
   for (const [key, lane] of Object.entries(value.lanes)) {
     validateKey(key);
-    if (!record(lane) || typeof lane.active !== 'boolean' || !record(lane.contract) || !record(lane.sim)) throw new Error('Contrato completo obrigatório');
+    if (!record(lane) || typeof lane.active !== 'boolean' || !record(lane.contract) || !record(lane.sim)) throw new Error('Taxas administrativas incompletas');
     exact(lane, ['active', 'contract', 'sim']); exact(lane.contract, ['fixedCents', 'ratePpm', 'cashbackCents', 'interestPpm', 'base', 'reference']); exact(lane.sim, ['fixedCents', 'ratePpm', 'interestPpm']);
     for (const part of [lane.contract, lane.sim]) { integer(part.fixedCents, 1_000_000_000); integer(part.ratePpm, 1_000_000); integer(part.interestPpm, 1_000_000); }
     integer(lane.contract.cashbackCents, 1_000_000_000);
-    if (!['ORIGINAL', 'BUYER_TOTAL'].includes(String(lane.contract.base)) || typeof lane.contract.reference !== 'string' || !lane.contract.reference.trim() || lane.contract.reference.length > 200) throw new Error('Base e referência contratual obrigatórias');
+    if (!['ORIGINAL', 'BUYER_TOTAL'].includes(String(lane.contract.base)) || typeof lane.contract.reference !== 'string' || lane.contract.reference.length > 200) throw new Error('Base ou referência de taxas inválida');
     if (!key.includes('/CREDIT_CARD/') && (lane.contract.interestPpm !== 0 || lane.sim.interestPpm !== 0)) throw new Error('Juros exclusivos do crédito');
-  }
-}
-
-/** Activation is atomic for the whole installment table, never a guessed partial schedule. */
-export function validateActivation(policy: Policy) {
-  for (const [key, lane] of Object.entries(policy.lanes)) {
-    if (!lane.active || !key.includes('/CREDIT_CARD/')) continue;
-    const prefix = key.substring(0, key.lastIndexOf('/') + 1);
-    for (let n = 1; n <= 12; n++) if (!policy.lanes[`${prefix}${n}`]?.active) throw new Error('Ativação do crédito exige contrato completo de 1x a 12x');
   }
 }

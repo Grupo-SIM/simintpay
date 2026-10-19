@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, NotFoundExc
 import { Prisma, Role } from '@prisma/client';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
-import { calculateFinancials, emptyPolicy, laneKey, ownerResult, resolvePolicy, validatePolicy, validateKey, validateActivation, type Channel, type Method, type Policy, type ResolvedPolicy } from './financial-policy';
+import { calculateFinancials, emptyPolicy, laneKey, ownerResult, resolvePolicy, validatePolicy, validateKey, type Channel, type Method, type Policy, type ResolvedPolicy } from './financial-policy';
 
 type Client = Pick<Prisma.TransactionClient, 'financialPolicyRevision' | 'platform'>;
 export async function loadFinancialPolicy(prisma: Client, tag: string, at?: Date): Promise<ResolvedPolicy> {
@@ -16,7 +16,7 @@ export async function loadFinancialPolicy(prisma: Client, tag: string, at?: Date
 export function projectPolicy(policy: ResolvedPolicy, admin: boolean) {
   const { version, sources } = policy;
   return { version, sources, ownerOverrides: policy.own.owner, globalOwner: policy.global.owner, owner: policy.document.owner, interestFree: !!policy.document.interestFree, interestFreeOverride: policy.own.interestFree ?? null, globalInterestFree: policy.global.interestFree ?? false,
-    keys: Object.keys(policy.document.lanes).filter(key => policy.document.lanes[key].active),
+    keys: Object.keys(policy.document.lanes),
     ...(admin ? { lanes: policy.document.lanes, laneOverrides: policy.own.lanes, globalLanes: policy.global.lanes } : {}) };
 }
 
@@ -56,7 +56,6 @@ export async function saveFinancialPolicy(prisma: PrismaService, tag: string, us
       else if (input.interestFree !== undefined) document.interestFree = input.interestFree as boolean;
       if (input.lanes !== undefined) document.lanes = input.lanes as Policy['lanes'];
       validatePolicy(document);
-      validateActivation(resolvePolicy(current.global, document, current.version).document);
       // Global inheritance remains explicit: omitted keys inherit, zero stays an override.
       await tx.financialPolicyRevision.create({ data: { tag, version: (previous?.version ?? 0) + 1, actorId: user.sub, document: document as Prisma.InputJsonValue } });
       return { data: projectPolicy(await loadFinancialPolicy(tx, tag), admin) };
