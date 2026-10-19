@@ -104,13 +104,13 @@ import { LinkExternalPlatformUserService } from '../../application/services/link
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
 import { summarizeRefunds } from '../../application/helpers/refund-report.helper';
-import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG, isMaquinetaDescription } from '../../application/utils/internal-tags.util';
+import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG, ORIGEM_MAQUINETA_TAG, isMaquinetaDescription } from '../../application/utils/internal-tags.util';
 import { PlatformReportingService } from '../../application/services/platform-reporting.service';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
   if (!description) return '-';
-  const m = description.match(/Terminal:\s*([A-Z0-9]+)/i);
+  const m = description.match(/Terminal:\s*([^\s\[]+)/i);
   return m ? m[1] : '-';
 }
 
@@ -4928,14 +4928,21 @@ export class AdminController {
     startDate?: string,
     endDate?: string,
   ) {
-    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
-    const pageNum = Number(page);
+    const platform = await this.prisma.platform.findUnique({
+      where: { tag: 'RENOVADA' },
+      select: { ownerUserId: true, isActive: true, owner: { select: { isActive: true, isPurged: true } } },
+    });
+    const pageNum = Math.max(1, Math.floor(Number(page) || 1));
     const limitNum = Math.max(1, Math.min(Number(limit) || 20, 100));
     const skip = (pageNum - 1) * limitNum;
+    if (!platform?.isActive || !platform.owner.isActive || platform.owner.isPurged) {
+      return { transactions: [], meta: { page: pageNum, limit: limitNum, total: 0, totalPages: 0 } };
+    }
 
-    const where: any = {
-      userId: RENOVADA_ID,
+    const where: Prisma.TransactionWhereInput = {
+      userId: platform.ownerUserId,
       OR: [
+        { description: { contains: ORIGEM_MAQUINETA_TAG, mode: 'insensitive' } },
         { description: { contains: 'Terminal:', mode: 'insensitive' } },
         { description: { contains: 'Maquineta', mode: 'insensitive' } },
       ],

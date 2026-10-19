@@ -35,6 +35,8 @@ Falha de descriptografia exclui toda a configuração da plataforma afetada do c
 
 ## Migração e carteira
 
+Listagem administrativa legada de maquinetas da Renovada preserva filtro pelo dono atual, consultado diretamente no cadastro com plataforma ativa e dono ativo/não expurgado. Marca TENANT não amplia consulta para vendas de donos anteriores. Cadastro ausente ou inativo retorna listagem vazia. Identificação física aceita `[ORIGEM:MAQUINETA]`, `Terminal:` ou `Maquineta`; serial do terminal preserva hífens. Consultar histórico não modifica dono, transações ou carteira.
+
 A migração `20261014000000_unify_platform_identity` substitui vínculos de TenantModule por referências diretas a Platform e remove entidade antiga. Usa exclusivamente associação explícita anteriormente registrada em `Platform.tenantModuleId`; vínculo de usuário sem correspondência bloqueia migração com `PLATFORM_LINK_MISSING`. Não escolhe dono por e-mail/documento/slug, não cria plataforma/usuário e não altera carteiras ou lançamentos. Artefato SQL foi preparado localmente; aplicação em banco exige autorização específica. Preflight em `scripts/diagnose-platform-identity.sql` identifica vínculos faltantes.
 
 Script antigo `migrate-owned-platforms.ts`, setup DOM e SQL manual de conta técnica estão desativados. Histórico anterior permanece no Git. Migrações SQL históricas permanecem imutáveis.
