@@ -161,6 +161,7 @@ model BalanceLog {
 }
 
 model Transaction {
+  financialSnapshot Json?
   id               String                     @id @default(uuid())
   userId           String
   amount           Decimal                    @db.Decimal(12, 2)
@@ -493,6 +494,7 @@ model SubscriptionLink {
 
 /// Registro de cada assinatura originada por um SubscriptionLink
 model SubscriptionLinkOrder {
+  financialSnapshot Json?
   id                  String    @id @default(uuid())
   subscriptionLinkId  String
   userId              String
@@ -653,6 +655,7 @@ model Plan {
 }
 
 model Subscription {
+  financialSnapshot Json?
   id                String    @id @default(uuid())
   userId            String
   planId            String
@@ -1311,4 +1314,15 @@ model PlatformSalesEvent {
   createdAt DateTime @default(now())
   @@index([platformId, sequence])
   @@index([deliveredAt, nextAttemptAt])
+}
+
+/// Append-only policy revisions. No legacy prices are interpreted as acquirer interest.
+model FinancialPolicyRevision {
+  id String @id @default(uuid())
+  tag String
+  version Int
+  document Json
+  actorId String
+  createdAt DateTime @default(now())
+  @@unique([tag, version])
 }

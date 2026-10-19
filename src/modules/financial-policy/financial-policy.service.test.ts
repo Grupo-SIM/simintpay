@@ -1,0 +1,78 @@
+import { describe, expect, mock, test } from 'bun:test';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { getFinancialPolicy, saveFinancialPolicy, simulateFinancialPolicy } from './financial-policy.service';
+import { defaultOwner, emptyPolicy, laneKey, type Lane } from './financial-policy';
+
+const user = { sub: 'owner', role: 'USER', email: 'owner@example.com' } as const;
+const key = laneKey('DOM', 'CREDIT_CARD', 'ONLINE', 2);
+function fixture(role = 'USER', ownerUserId = 'owner') {
+  const global = emptyPolicy();
+  const lane: Lane = { active: true, contract: { reference: 'Signed', fixedCents: 100, ratePpm: 20_000, cashbackCents: 0, interestPpm: 10_000, base: 'ORIGINAL' }, sim: { fixedCents: 50, ratePpm: 30_000, interestPpm: 20_000 } };
+  for (let n = 1; n <= 12; n++) global.lanes[laneKey('DOM', 'CREDIT_CARD', 'ONLINE', n)] = structuredClone(lane);
+  const revisions: any[] = [{ tag: 'GLOBAL', version: 1, document: global }, { tag: 'SHOP', version: 1, document: emptyPolicy() }];
+  const findMany = mock(async () => [...new Map([...revisions].sort((a, b) => b.version - a.version).map(row => [row.tag, row])).values()]);
+  const prisma: any = {
+    user: { findUnique: mock(async () => ({ isActive: true, isPurged: false, role })) },
+    platform: { findUnique: mock(async () => ({ ownerUserId })) },
+    financialPolicyRevision: { findMany, findFirst: mock(async () => [...revisions].reverse().find(row => row.tag === 'SHOP')), create: mock(async ({ data }: any) => { revisions.push(data); return data; }) },
+  };
+  // Return the latest distinct revision, like Prisma's ordered distinct query.
+  findMany.mockImplementation(async () => ['GLOBAL', 'SHOP'].map(tag => [...revisions].filter(row => row.tag === tag).sort((a, b) => b.version - a.version)[0]));
+  prisma.$transaction = async (run: any) => run(prisma);
+  return { prisma, revisions };
+}
+
+describe('financial contracts and authorization', () => {
+  test('owner configuration omits contracts, cashback, acquirer costs and SimIntPay margin', async () => {
+    const { prisma } = fixture();
+    const result = await getFinancialPolicy(prisma, 'SHOP', user);
+    expect(result.data).not.toHaveProperty('lanes');
+    expect(result.data).not.toHaveProperty('globalLanes');
+    expect(result.data).not.toHaveProperty('laneOverrides');
+    expect(result.data.version).toBe('1:1');
+    const response = await simulateFinancialPolicy(prisma, 'SHOP', user, { amountCents: 10000, acquirer: 'DOM', method: 'CREDIT_CARD', channel: 'ONLINE', installments: [2] });
+    expect(response.data).toHaveLength(1);
+    expect(response.data[0].result).not.toHaveProperty('simMarginCents');
+    expect(response.data[0].result).not.toHaveProperty('acquirerCostCents');
+  });
+  test('one authorization and one configuration load per multi-row simulation', async () => {
+    const { prisma } = fixture();
+    const response = await simulateFinancialPolicy(prisma, 'SHOP', user, { amountCents: 10000, acquirer: 'DOM', method: 'CREDIT_CARD', channel: 'ONLINE', installments: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] });
+    expect(response.data).toHaveLength(12);
+    expect(prisma.user.findUnique).toHaveBeenCalledTimes(1);
+    expect(prisma.platform.findUnique).toHaveBeenCalledTimes(1);
+    expect(prisma.financialPolicyRevision.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.financialPolicyRevision.create).not.toHaveBeenCalled();
+  });
+  test('foreign owners, integration sessions and forged admin claims cannot access internal costs', async () => {
+    const { prisma } = fixture('USER', 'other');
+    await expect(getFinancialPolicy(prisma, 'SHOP', { ...user, role: 'ADMIN' })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(getFinancialPolicy(prisma, 'SHOP', { ...user, authMode: 'integration' })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(getFinancialPolicy(fixture().prisma, 'GLOBAL', user)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+  test('owners cannot alter costs using save or draft fields', async () => {
+    const { prisma } = fixture();
+    await expect(saveFinancialPolicy(prisma, 'SHOP', user, { version: '1:1', lanes: {} })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(simulateFinancialPolicy(prisma, 'SHOP', user, { amountCents: 10000, acquirer: 'DOM', method: 'CREDIT_CARD', channel: 'ONLINE', installments: [2], draft: { lanes: {} } })).rejects.toBeInstanceOf(ForbiddenException);
+  });
+  test('optimistic version conflict cannot replace another revision', async () => {
+    const { prisma } = fixture();
+    await expect(saveFinancialPolicy(prisma, 'SHOP', user, { version: 'old', owner: {} })).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.financialPolicyRevision.create).not.toHaveBeenCalled();
+  });
+  test('save appends audited revision, preserves old configuration and explicit zero', async () => {
+    const { prisma, revisions } = fixture();
+    const original = JSON.stringify(revisions);
+    await saveFinancialPolicy(prisma, 'SHOP', user, { version: '1:1', owner: { [key]: { ...defaultOwner(), passInterestPpm: 0 } }, interestFree: true });
+    expect(JSON.stringify(revisions.slice(0, 2))).toBe(original);
+    expect(revisions[2]).toMatchObject({ actorId: 'owner', version: 2, document: { interestFree: true, owner: { [key]: { fixedCents: 0, passInterestPpm: 0 } } } });
+  });
+  test('only requested installments are calculated; row failure remains isolated', async () => {
+    const { prisma, revisions } = fixture();
+    delete revisions[0].document.lanes[key];
+    const result = await simulateFinancialPolicy(prisma, 'SHOP', user, { amountCents: 10000, acquirer: 'DOM', method: 'CREDIT_CARD', channel: 'ONLINE', installments: [1, 2] });
+    expect(result.data[0].result).toBeDefined();
+    expect(result.data[1].error).toBeDefined();
+    expect(result.data).toHaveLength(2);
+  });
+});

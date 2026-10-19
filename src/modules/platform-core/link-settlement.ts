@@ -55,7 +55,7 @@ export async function settleFinalNet(
 export async function persistLinkCharge(p: Prisma.TransactionClient, data: Prisma.TransactionUncheckedCreateInput, nextStatus: TransactionStatus, draftId?: string) {
   if (draftId) {
     const draft = await p.transaction.findUnique({ where: { id: draftId } });
-    if (!draft || draft.userId !== data.userId || draft.paymentLinkId !== data.paymentLinkId || (draft.domPaymentId && draft.domPaymentId !== data.domPaymentId)) throw new ConflictException('Cobrança incompatível');
+    if (!draft || draft.userId !== data.userId || (draft.paymentLinkId ?? null) !== (data.paymentLinkId ?? null) || (draft.domPaymentId && draft.domPaymentId !== data.domPaymentId)) throw new ConflictException('Cobrança incompatível');
     await bindLinkPayment(p, draft, String(data.domPaymentId));
     if (data.pixExpire) await p.transaction.updateMany({ where: { id: draft.id, pixExpire: null }, data: { pixExpire: data.pixExpire } });
     if (data.pixContent) await p.transaction.updateMany({ where: { id: draft.id, pixContent: null }, data: { pixContent: data.pixContent } });
@@ -64,7 +64,7 @@ export async function persistLinkCharge(p: Prisma.TransactionClient, data: Prism
   }
   const row = await p.transaction.upsert({ where: { domPaymentId: String(data.domPaymentId) }, update: {},
     create: { ...data, status: 'PENDING', settlementBasis: 'FINAL_NET' } });
-  if (row.userId !== data.userId || row.paymentLinkId !== data.paymentLinkId) throw new ConflictException('Referência de pagamento pertence a outra cobrança');
+  if (row.userId !== data.userId || (row.paymentLinkId ?? null) !== (data.paymentLinkId ?? null)) throw new ConflictException('Referência de pagamento pertence a outra cobrança');
   if (row.settlementBasis === 'FINAL_NET') await settleFinalNet(p, row, nextStatus, 'CHARGE_PAYMENT_LINK');
   // Legacy rows may already have been settled by a webhook. Never rewrite or recredit them.
   return row;
