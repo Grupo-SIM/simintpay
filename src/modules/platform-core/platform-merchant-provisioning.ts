@@ -31,9 +31,10 @@ export class PlatformMerchantProvisioning {
         const active = await tx.user.findUnique({ where: { id: existing.userId } });
         if (!active?.isActive || active.isPurged) throw new BadRequestException('Comerciante exige conta ativa previamente cadastrada');
         const cnpjOwner = await tx.user.findUnique({ where: { cnpj }, select: { id: true } });
+        if (cnpjOwner && cnpjOwner.id !== existing.userId) throw new ConflictException('CNPJ já pertence a outra conta');
         await tx.user.update({
           where: { id: existing.userId },
-          data: { ...(cnpjOwner && cnpjOwner.id !== existing.userId ? {} : { cnpj }), name: legalName },
+          data: { cnpj, isCompany: true, name: legalName },
         });
         return tx.integrationMerchant.update({
           where: { id: existing.id },

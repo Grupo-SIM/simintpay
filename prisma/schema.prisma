@@ -268,7 +268,7 @@ model IntegrationMerchant {
   integrationKey     String
   externalMerchantId String
   legalName          String
-  cnpj               String
+  cnpj               String?
   userId             String   @unique
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

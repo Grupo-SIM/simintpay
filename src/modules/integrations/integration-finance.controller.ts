@@ -1,5 +1,7 @@
+import { ProvisionDeliveryOwnerService } from './provision-delivery-owner.service';
+import { ProvisionDeliveryOwnerDto } from './provision-delivery-owner.dto';
 import { SkipThrottle } from '@nestjs/throttler';
-import { Body, Controller, Get, Headers, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Put, Query, UsePipes, ValidationPipe } from '@nestjs/common';
 import { IntegrationPaymentService } from './integration-payment.service';
 import { CheckoutPixDto } from '../renovada/dtos/checkout-pix.dto';
 import { CheckoutCreditCardDto } from '../renovada/dtos/checkout-credit-card.dto';
@@ -8,11 +10,19 @@ import { IntegrationFinanceService } from './integration-finance.service';
 @Controller('internal/integrations/:integrationKey/merchants/:externalMerchantId')
 export class IntegrationFinanceController {
   constructor(
+    private readonly owners: ProvisionDeliveryOwnerService,
     private readonly finance: IntegrationFinanceService,
     private readonly payments: IntegrationPaymentService,
   ) {}
 
   private auth(token?: string) { this.finance.assertToken(token); }
+
+  @Put('owner')
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async owner(@Param() params: { integrationKey: string; externalMerchantId: string }, @Body() body: ProvisionDeliveryOwnerDto, @Headers('x-internal-token') token?: string) {
+    this.auth(token);
+    return this.owners.execute(params.integrationKey, params.externalMerchantId, body);
+  }
 
   @Put()
   async provision(@Param() params: { integrationKey: string; externalMerchantId: string }, @Body() body: { cnpj: string; legalName: string }, @Headers('x-internal-token') token?: string) {

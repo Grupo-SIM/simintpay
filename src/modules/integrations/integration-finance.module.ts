@@ -1,3 +1,6 @@
+import { JwtModule } from '@nestjs/jwt';
+import { EmailService } from '../../infrastructure/email/email.service';
+import { ProvisionDeliveryOwnerService } from './provision-delivery-owner.service';
 import { WebhookModule } from '../../presentation/webhook.module';
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../infrastructure/database/prisma/prisma.module';
@@ -7,9 +10,9 @@ import { IntegrationFinanceService } from './integration-finance.service';
 import { IntegrationWebhookWorker } from './integration-webhook.worker';
 
 @Module({
-  imports: [PrismaModule, WebhookModule],
+  imports: [PrismaModule, WebhookModule, JwtModule.register({})],
   controllers: [IntegrationFinanceController],
-  providers: [IntegrationFinanceService, IntegrationWebhookWorker, IntegrationPaymentService],
+  providers: [ProvisionDeliveryOwnerService, EmailService, IntegrationFinanceService, IntegrationWebhookWorker, IntegrationPaymentService],
   exports: [IntegrationFinanceService],
 })
 export class IntegrationFinanceModule {}
