@@ -32,7 +32,7 @@ describe('Platform ownership', () => {
 describe('Platform product ownership', () => {
   test('one owner creates multiple products without creating a module or replacing membership', async () => {
     const rows: any[] = [];
-    const create = mock(async ({ data }: any) => { const row = { ...data, id: data.tag, isActive: true, acquirer: 'DOM', customerInterestRates: {}, absorbCustomerInterest: false }; rows.push(row); return row; });
+    const create = mock(async ({ data }: any) => { const row = { ...data, id: data.tag, isActive: true, acquirer: 'DOM', customerInterestRates: {} }; rows.push(row); return row; });
     const prisma = { user: { findUnique: async () => ({ role: 'USER', isActive: true, isPurged: false }), findFirst: async () => ({ id: 'owner' }) },
       platform: { create, findMany: async () => rows } };
     const service = new PlatformsService(prisma as never);
@@ -41,6 +41,7 @@ describe('Platform product ownership', () => {
     await service.create(actor, { tag: 'PRODUCT-B', name: 'B' });
     expect(rows.map(row => row.ownerUserId)).toEqual(['owner', 'owner']);
     expect(rows.map(row => row.tag)).toEqual(['PRODUCT-A', 'PRODUCT-B']);
+    expect(rows.every(row => row.absorbCustomerInterest === true)).toBe(true);
     expect(create.mock.calls.every(([arg]) => !('platformId' in arg.data))).toBe(true);
   });
 });

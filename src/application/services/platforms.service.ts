@@ -80,7 +80,7 @@ export class PlatformsService {
     const ownerUserId = body.ownerUserId ?? user.sub;
     if (!await this.prisma.user.findFirst({ where: { id: ownerUserId, isActive: true, isPurged: false } })) throw new BadRequestException('Dono não encontrado ou inativo');
     try {
-      const platform = await this.prisma.platform.create({ data: { tag, name, ownerUserId }, select: publicSelect });
+      const platform = await this.prisma.platform.create({ data: { tag, name, ownerUserId, absorbCustomerInterest: true }, select: publicSelect });
       await initializePlatformRegistryCache(this.prisma);
       return { data: platform };
     } catch (error) {

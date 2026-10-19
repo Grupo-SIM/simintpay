@@ -29,11 +29,33 @@ describe('precise three-layer financial policy', () => {
       policy.document.owner[key] = { ...defaultOwner(), fixedCents: addition };
       const r = calculateFinancials(policy, key, 10_000);
       expect(r.contractedCostCents).toBe(1315);
-      expect(r.buyerTotalCents).toBe(10500 + addition);
-      expect(r.differenceCents).toBe(addition - 815);
+      expect(r.buyerTotalCents).toBe(10000 + addition);
+      expect(r.differenceCents).toBe(addition - 1315);
       expect(r.acquirerCostCents).toBe(715);
       expect(r.simMarginCents).toBe(600);
     }
+  });
+  test('default owner absorbs all costs without increasing buyer total', () => {
+    const policy = fixture();
+    for (const method of METHODS) {
+      const key = laneKey('DOM', method, 'ONLINE', 1);
+      const result = calculateFinancials(policy, key, 10000);
+      expect(result.buyerTotalCents).toBe(10000);
+      expect(result.buyerInterestCents).toBe(0);
+      expect(result.netCents).toBe(10000 - result.contractedCostCents);
+      policy.document.owner[key] = defaultOwner();
+    }
+    expect(() => validatePolicy(policy.document)).not.toThrow();
+  });
+  test('9% SimIntPay cost remains seller cost, never buyer interest', () => {
+    const policy = fixture();
+    const key = laneKey('DOM', 'CREDIT_CARD', 'ONLINE', 1);
+    policy.document.lanes[key] = { active: true, contract: { fixedCents: 0, ratePpm: 0, cashbackCents: 0, interestPpm: 0, base: 'ORIGINAL', reference: '1x' }, sim: { fixedCents: 0, ratePpm: 90000, interestPpm: 0 } };
+    const result = calculateFinancials(policy, key, 10000);
+    expect(result.buyerInterestCents).toBe(0);
+    expect(result.buyerTotalCents).toBe(10000);
+    expect(result.simAdditionCents).toBe(900);
+    expect(result.netCents).toBe(9100);
   });
   test('full/partial/zero interest never waives contracted interest', () => {
     const policy = fixture();
@@ -50,7 +72,7 @@ describe('precise three-layer financial policy', () => {
   test('contractual total basis, cashback, fixed costs and half-up rounding', () => {
     const policy = fixture();
     policy.document.lanes[key].contract.base = 'BUYER_TOTAL';
-    expect(calculateFinancials(policy, key, 10_000).acquirerProcessingCents).toBe(325);
+    expect(calculateFinancials(policy, key, 10_000).acquirerProcessingCents).toBe(315);
     policy.document.lanes[key].contract.ratePpm = 5000;
     expect(calculateFinancials(policy, key, 100).acquirerProcessingCents).toBe(116);
   });

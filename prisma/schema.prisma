@@ -1235,7 +1235,7 @@ model Platform {
   acquirer       Acquirer @default(DOM)
   users          User[] @relation("PlatformMembers")
   customerInterestRates Json @default("{}")
-  absorbCustomerInterest Boolean @default(false)
+  absorbCustomerInterest Boolean @default(true)
   integrations   PlatformIntegration[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

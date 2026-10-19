@@ -12,7 +12,7 @@ export type OwnerRule = Addition & { passInterestPpm: number };
 export type Policy = { schemaVersion: 1; lanes: Record<string, Lane>; owner: Record<string, OwnerRule>; interestFree?: boolean; legacyAudit?: unknown };
 export type ResolvedPolicy = { global: Policy; own: Policy; version: string; document: Policy; sources: Record<string, { lane: 'global' | 'override'; owner: 'global' | 'override' | 'default' }> };
 export const emptyPolicy = (): Policy => ({ schemaVersion: 1, lanes: {}, owner: {} });
-export const defaultOwner = (): OwnerRule => ({ fixedCents: 0, ratePpm: 0, passInterestPpm: 1_000_000 });
+export const defaultOwner = (): OwnerRule => ({ fixedCents: 0, ratePpm: 0, passInterestPpm: 0 });
 export function laneKey(acquirer: string, method: Method, channel: Channel, installments: number) { return `${acquirer}/${method}/${channel}/${installments}`; }
 export function resolvePolicy(global: Policy, own: Policy, version: string): ResolvedPolicy {
   const lanes = { ...global.lanes, ...own.lanes }, owner = { ...global.owner, ...own.owner };
@@ -72,7 +72,7 @@ export function validatePolicy(value: unknown): asserts value is Policy {
     if (!record(rule)) throw new Error('Adicional inválido');
     exact(rule, ['fixedCents', 'ratePpm', 'passInterestPpm']);
     integer(rule.fixedCents, 1_000_000_000); integer(rule.ratePpm, 1_000_000); integer(rule.passInterestPpm, 1_000_000);
-    if (!key.includes('/CREDIT_CARD/') && rule.passInterestPpm !== 1_000_000) throw new Error('Repasse de juros exclusivo do crédito');
+    if (!key.includes('/CREDIT_CARD/') && ![0, 1_000_000].includes(rule.passInterestPpm as number)) throw new Error('Repasse de juros exclusivo do crédito');
   }
   for (const [key, lane] of Object.entries(value.lanes)) {
     validateKey(key);

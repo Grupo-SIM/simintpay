@@ -151,8 +151,7 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   MDR_CC_10X: 0.1864,
   MDR_CC_11X: 0.1983,
   MDR_CC_12X: 0.2099,
-  // Master: juros cobrados do comprador pela plataforma em links de pagamento
-  // Default = taxa total anunciada - taxa DOM do link
+  // Custos SimIntPay do vendedor, independentes dos juros do comprador.
   LINK_COST_1X: 0.09,
   LINK_COST_2X: 0.09,
   LINK_COST_3X: 0.09,
@@ -165,7 +164,8 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   LINK_COST_10X: 0.09,
   LINK_COST_11X: 0.09,
   LINK_COST_12X: 0.09,
-  MDR_LINK_1X:  0.0152,  // 1,52% (total 1,52% − DOM 0,00%)
+  // Juros legados do comprador: pagamento à vista não tem juros.
+  MDR_LINK_1X:  0,
   MDR_LINK_2X:  0.0352,  // 3,52% (total 8,03% − DOM 4,51%)
   MDR_LINK_3X:  0.0573,  // 5,73% (total 11,77% − DOM 6,04%)
   MDR_LINK_4X:  0.0916,  // 9,16% (total 16,75% − DOM 7,59%)

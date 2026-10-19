@@ -28,6 +28,14 @@ describe('separate platform interest and costs', () => {
     expect(absorbed.totalAmount).toBe(100);
     expect(absorbed.negativeMargin).toBe(true);
   });
+  test('platform 1x keeps 9% SimIntPay cost separate from zero buyer interest', () => {
+    const fees = calculatePaymentLinkFees(link, 1, 'SHOP');
+    expect(fees.platformFeeRate).toBe(0);
+    expect(fees.interestAmount).toBe(0);
+    expect(fees.totalAmount).toBe(100);
+    expect(fees.sellerFee).toBe(13);
+    expect(fees.netAmount).toBe(87);
+  });
   test('standalone 1x and PIX do not add interest', () => {
     expect(getPlatformFeeRate({ ...link, isStandalone: true } as PaymentLink, 1, 'SHOP')).toBe(0);
     expect(calculatePaymentLinkFees(link, 1, 'SHOP', true).totalAmount).toBe(100);
