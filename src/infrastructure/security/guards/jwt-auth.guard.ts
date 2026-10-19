@@ -76,7 +76,8 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     }
     if (request.method === 'DELETE' && path === '/notifications/push/subscriptions') return;
     const selfService = request.method === 'GET' && ['/admin/plataformas/cliente/dashboard', '/admin/cobrancas/minhas', '/admin/plataformas/minhas-taxas'].includes(path);
-    if (!selfService && (/^\/(admin|comunidades|communities|platforms|plataformas)(\/|$)/.test(path) ||
+    // /platforms is owner self-service; its services enforce ownership and admin-only operations.
+    if (!selfService && (/^\/(admin|comunidades|communities|plataformas)(\/|$)/.test(path) ||
         /^\/payments\/(admin|plan-access\/decrement-all)(\/|$)/.test(path))) {
       throw new ForbiddenException('Área administrativa restrita');
     }

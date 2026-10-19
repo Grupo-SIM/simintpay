@@ -13,8 +13,11 @@ describe('Client product authorization', () => {
  it.each(['userId', 'platformFee1x', 'platformFee12x', 'cashbackFee', 'platformFee', 'platformTag', 'communityId', 'code', 'tenantTag'])('blocks protected %s', async field => {
   await expect(authorize({ ...request, body: { [field]: 'tampered' } })).rejects.toThrow('não podem ser alterados');
  });
- it.each(['/admin/clientes', '/communities', '/platforms', '/payments/admin/pix-plan-access', '/payments/plan-access/decrement-all'])('blocks administrative URL %s', async url => {
+ it.each(['/admin/clientes', '/communities', '/plataformas', '/payments/admin/pix-plan-access', '/payments/plan-access/decrement-all'])('blocks administrative URL %s', async url => {
   await expect(authorize({ ...request, url })).rejects.toThrow('Área administrativa restrita');
+ });
+ it.each([['GET', '/platforms'], ['POST', '/platforms'], ['PATCH', '/platforms/SHOP'], ['GET', '/platforms/SHOP/financial-policy'], ['PATCH', '/platforms/SHOP/financial-policy'], ['POST', '/platforms/SHOP/financial-policy/simulation'], ['GET', '/platforms/SHOP/integrations']])('delegates owned platform access to service for %s %s', async (method, url) => {
+  await expect(authorize({ ...request, method, url })).resolves.toBeUndefined();
  });
  it('rejects clearing administrative links and introducing PIX routing markers', async () => {
   await expect(authorize({ ...request, body: { plataformas: [] } })).rejects.toThrow('não podem ser alterados');
