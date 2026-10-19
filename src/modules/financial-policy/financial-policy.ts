@@ -8,7 +8,7 @@ export type Channel = typeof CHANNELS[number];
 export type Addition = { fixedCents: number; ratePpm: number };
 export type Contract = Addition & { cashbackCents: number; interestPpm: number; base: 'ORIGINAL' | 'BUYER_TOTAL'; reference: string };
 /** active is retained for stored-document compatibility; configured rates apply without activation. */
-export type Lane = { active: boolean; contract: Contract; sim: Addition & { interestPpm: number } };
+export type Lane = { total?: Addition; active: boolean; contract: Contract; sim: Addition & { interestPpm: number } };
 export type OwnerRule = Addition & { passInterestPpm: number };
 export type Policy = { schemaVersion: 1; lanes: Record<string, Lane>; owner: Record<string, OwnerRule>; interestFree?: boolean; legacyAudit?: unknown };
 export type ResolvedPolicy = { global: Policy; own: Policy; version: string; document: Policy; sources: Record<string, { lane: 'global' | 'override'; owner: 'global' | 'override' | 'default' }> };
@@ -40,7 +40,11 @@ export function calculateFinancials(policy: ResolvedPolicy, key: string, origina
   const buyerTotalCents = originalCents + buyerAdditionCents + buyerInterestCents;
   const acquirerBase = lane.contract.base === 'BUYER_TOTAL' ? buyerTotalCents : originalCents;
   const acquirerProcessingCents = lane.contract.fixedCents + round(fraction(acquirerBase, lane.contract.ratePpm)) + lane.contract.cashbackCents;
-  const simAdditionCents = lane.sim.fixedCents + round(fraction(originalCents, lane.sim.ratePpm));
+  // Legacy administrative totals already include processing; never deduct it twice.
+  const processingTotalCents = lane.total ? lane.total.fixedCents + round(fraction(originalCents, lane.total.ratePpm)) : undefined;
+  const simAdditionCents = processingTotalCents !== undefined
+    ? processingTotalCents - acquirerProcessingCents
+    : lane.sim.fixedCents + round(fraction(originalCents, lane.sim.ratePpm));
   const acquirerCostCents = acquirerProcessingCents + acquirerInterestCents;
   const contractedCostCents = acquirerCostCents + simAdditionCents + simInterestCents;
   const netCents = buyerTotalCents - contractedCostCents;
@@ -78,7 +82,13 @@ export function validatePolicy(value: unknown): asserts value is Policy {
   for (const [key, lane] of Object.entries(value.lanes)) {
     validateKey(key);
     if (!record(lane) || typeof lane.active !== 'boolean' || !record(lane.contract) || !record(lane.sim)) throw new Error('Taxas administrativas incompletas');
-    exact(lane, ['active', 'contract', 'sim']); exact(lane.contract, ['fixedCents', 'ratePpm', 'cashbackCents', 'interestPpm', 'base', 'reference']); exact(lane.sim, ['fixedCents', 'ratePpm', 'interestPpm']);
+    exact(lane, ['active', 'contract', 'sim', 'total']);
+    if (lane.total !== undefined) {
+      if (!record(lane.total)) throw new Error('Custo total inválido');
+      exact(lane.total, ['fixedCents', 'ratePpm']);
+      integer(lane.total.fixedCents, 1_000_000_000); integer(lane.total.ratePpm, 1_000_000);
+    }
+    exact(lane.contract, ['fixedCents', 'ratePpm', 'cashbackCents', 'interestPpm', 'base', 'reference']); exact(lane.sim, ['fixedCents', 'ratePpm', 'interestPpm']);
     for (const part of [lane.contract, lane.sim]) { integer(part.fixedCents, 1_000_000_000); integer(part.ratePpm, 1_000_000); integer(part.interestPpm, 1_000_000); }
     integer(lane.contract.cashbackCents, 1_000_000_000);
     if (!['ORIGINAL', 'BUYER_TOTAL'].includes(String(lane.contract.base)) || typeof lane.contract.reference !== 'string' || lane.contract.reference.length > 200) throw new Error('Base ou referência de taxas inválida');
