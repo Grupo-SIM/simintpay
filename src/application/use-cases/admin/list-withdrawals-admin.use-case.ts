@@ -161,6 +161,9 @@ export class ListWithdrawalsAdminUseCase {
           (w as { platform?: string | null }).platform?.trim() || null;
         return {
         id: w.id,
+        saldoRestanteAposSaque: w.status === WithdrawStatus.REJECTED || w.remainingBalanceAfterWithdrawal == null
+          ? null
+          : Number(w.remainingBalanceAfterWithdrawal),
         valor: Number(w.grossAmount),
         valorLiquido: Number(w.amount),
         status: mapWithdrawStatusToPt(w.status),

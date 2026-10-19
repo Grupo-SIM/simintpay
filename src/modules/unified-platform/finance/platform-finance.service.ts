@@ -305,6 +305,7 @@ export class PlatformFinanceService {
         throw new UnprocessableEntityException({ code: 'WITHDRAWAL_PENDING_LIMIT', message: 'Já existe saque pendente' });
       }
       if (input.singlePending && await tx.withdrawRequest.findFirst({ where: { userId: input.userId, status: { in: ['PENDING', 'APPROVED'] } } })) throw new ConflictException('Já existe saque em processamento');
+      let remainingBalanceAfterWithdrawal: Prisma.Decimal | null = null;
       if (input.reserveWallet) {
         const wallet = await tx.wallet.findUnique({ where: { userId: input.userId } });
         if (!wallet) throw new BadRequestException('Carteira não encontrada');
@@ -315,6 +316,7 @@ export class PlatformFinanceService {
           data: { lockedBalance: { increment: input.grossAmount }, version: { increment: 1 } },
         });
         if (updated.count !== 1) throw new ConflictException('Carteira alterada; tente novamente');
+        remainingBalanceAfterWithdrawal = available.minus(input.grossAmount);
         if (input.logBalance) await tx.balanceLog.create({ data: {
           userId: input.userId, action: 'WITHDRAW_REQUESTED', amount: new Prisma.Decimal(input.grossAmount).neg(),
           balanceBefore: wallet.balance, balanceAfter: wallet.balance, lockedBefore: wallet.lockedBalance,
@@ -326,6 +328,7 @@ export class PlatformFinanceService {
         userId: input.userId, platform: input.platform, amount: input.amount, grossAmount: input.grossAmount,
         fee: input.fee, pixKey: input.pixKey, status: 'PENDING', acquirer: current.acquirer,
         integrationRequestId: input.integrationRequestId,
+        remainingBalanceAfterWithdrawal,
       } });
       if (input.merchantId) await tx.integrationWebhookDelivery.create({ data: merchantWithdrawalDelivery(input.merchantId, created) });
       return created;

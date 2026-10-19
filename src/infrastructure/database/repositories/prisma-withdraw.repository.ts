@@ -52,9 +52,11 @@ export class PrismaWithdrawRepository implements IWithdrawRepository {
     currentWalletVersion: number;
   }): Promise<WithdrawRequest> {
     return this.prisma.$transaction(async (tx) => {
+      const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: input.userId } });
       const created = await tx.withdrawRequest.create({
         data: {
           userId: input.userId,
+          remainingBalanceAfterWithdrawal: new Prisma.Decimal(wallet.balance).minus(wallet.lockedBalance).minus(input.amountToLock),
           amount: new Prisma.Decimal(input.amount),
           grossAmount: new Prisma.Decimal(input.grossAmount),
           fee: new Prisma.Decimal(input.fee),

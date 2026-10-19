@@ -50,6 +50,7 @@ function makePrisma() {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue(withdrawal()),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      update: jest.fn().mockResolvedValue({}),
     },
     wallet: {
       findUnique: jest.fn().mockResolvedValue({
@@ -62,7 +63,7 @@ function makePrisma() {
         balance: new Prisma.Decimal(150),
         lockedBalance: new Prisma.Decimal(120),
       }),
-      update: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({ balance: new Prisma.Decimal(30), lockedBalance: new Prisma.Decimal(0) }),
     },
     balanceLog: { create: jest.fn().mockResolvedValue({}) },
     $queryRaw: jest.fn().mockResolvedValue([]),

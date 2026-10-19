@@ -41,6 +41,9 @@ function mapWithdrawStatusToPt(
 function mapWithdrawToResponse(w: WithdrawWithUser) {
   return {
     id: w.id,
+    saldoRestanteAposSaque: w.status === WithdrawStatus.REJECTED || w.remainingBalanceAfterWithdrawal == null
+      ? null
+      : Number(w.remainingBalanceAfterWithdrawal),
     valor: Number(w.amount) + Number(w.fee ?? 0),
     valorLiquido: Number(w.amount),
     status: mapWithdrawStatusToPt(w.status),

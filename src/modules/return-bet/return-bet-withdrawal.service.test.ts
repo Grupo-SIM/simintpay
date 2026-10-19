@@ -32,3 +32,21 @@ test('idempotency key belonging to another platform or customer cannot leak its 
     expect(p.wallet.update).not.toHaveBeenCalled();
   }
 });
+test('Return Bet reserves gross amount from explicit source snapshot', async () => {
+  const { p, service } = fixture();
+  p.withdrawRequest.create.mockImplementation(async ({ data }: any) => ({ id: 'w', ...data }));
+  await service.request(input);
+  expect(Number(p.withdrawRequest.create.mock.calls[0][0].data.remainingBalanceAfterWithdrawal)).toBe(30);
+});
+test('Return Bet approval freezes post-debit available balance', async () => {
+  const { p, service } = fixture();
+  const withdrawal = { id: 'w', userId: 'owner', integrationRequestId: 'r', platform: 'return-bet', status: 'PENDING', grossAmount: new Prisma.Decimal(120), amount: new Prisma.Decimal(118), fee: new Prisma.Decimal(2), pixKey: input.pixKey };
+  p.withdrawRequest.findFirstOrThrow = async () => withdrawal;
+  p.wallet.findUniqueOrThrow = p.wallet.findUnique;
+  p.withdrawRequest.updateMany = async () => ({ count: 1 });
+  p.withdrawRequest.update = mock(async () => ({}));
+  p.wallet.update.mockImplementation(async () => ({ balance: new Prisma.Decimal(350), lockedBalance: new Prisma.Decimal(20) }));
+  p.balanceLog = { create: async () => ({}) };
+  await service.approve('r', 'receipt', {});
+  expect(Number(p.withdrawRequest.update.mock.calls[0][0].data.remainingBalanceAfterWithdrawal)).toBe(330);
+});

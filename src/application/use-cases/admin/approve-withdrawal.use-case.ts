@@ -70,13 +70,20 @@ export class ApproveWithdrawalUseCase {
 
       // 2. Deduz os valores da wallet (Total e Bloqueado) - Pula se for Atlas
       if (withdraw.platform?.toLowerCase() !== 'atlas') {
-        await tx.wallet.update({
+        const updatedWallet = await tx.wallet.update({
           where: { id: wallet.id },
           data: {
             balance: { decrement: withdraw.grossAmount },
             lockedBalance: { decrement: withdraw.grossAmount },
             version: { increment: 1 },
             updatedAt: new Date(),
+          },
+        });
+        // Freeze the available balance returned by this debit, including concurrent wallet changes.
+        await tx.withdrawRequest.update({
+          where: { id: withdrawId },
+          data: {
+            remainingBalanceAfterWithdrawal: updatedWallet.balance.minus(updatedWallet.lockedBalance),
           },
         });
       }

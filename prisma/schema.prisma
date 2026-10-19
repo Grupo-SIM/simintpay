@@ -246,6 +246,7 @@ model WithdrawRequest {
   acquirer           Acquirer @default(DOM)
   externalWithdrawId String?
   integrationRequestId String?        @unique
+  remainingBalanceAfterWithdrawal Decimal? @db.Decimal(12, 2)
   sourceBalanceSnapshot Decimal?      @db.Decimal(12, 2)
   reviewedAt            DateTime?
   reviewSource          String?

@@ -121,6 +121,7 @@ export class ReturnBetWithdrawalService {
             status: WithdrawStatus.PENDING,
             integrationRequestId: input.requestId,
             sourceBalanceSnapshot: input.availableBalance,
+            remainingBalanceAfterWithdrawal: new Prisma.Decimal(input.availableBalance).minus(input.amount),
           },
         });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -177,13 +178,17 @@ export class ReturnBetWithdrawalService {
       if (claimed.count !== 1) throw new ConflictException('Saque alterado por outro administrador.');
 
       const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: withdrawal.userId } });
-      await tx.wallet.update({
+      const updatedWallet = await tx.wallet.update({
         where: { id: wallet.id },
         data: {
           balance: { decrement: withdrawal.grossAmount },
           lockedBalance: { decrement: withdrawal.grossAmount },
           version: { increment: 1 },
         },
+      });
+      await tx.withdrawRequest.update({
+        where: { id: withdrawal.id },
+        data: { remainingBalanceAfterWithdrawal: updatedWallet.balance.minus(updatedWallet.lockedBalance) },
       });
       await this.createBalanceLog(tx, withdrawal, wallet, 'WITHDRAW_APPROVED');
     });
