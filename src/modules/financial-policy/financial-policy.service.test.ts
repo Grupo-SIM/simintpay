@@ -91,12 +91,14 @@ describe('automatic administrative rate inheritance', () => {
     expect(config.data.keys).toContain(key);
     expect(config.data.ownerOverrides).toEqual({});
     const quote = quoteFinancialCharge({ policy: await loadFinancialPolicy(prisma, 'SHOP'), acquirer: 'DOM', tag: 'SHOP' }, 100, 'CREDIT_CARD', 2)!;
-    expect(quote.netAmount).toBe(90.5);
+    expect(quote.netAmount).toBe(93.5);
+    const { restoreFinancialCharge } = await import('./financial-charge');
+    expect((await restoreFinancialCharge(prisma, quote.financialSnapshot))?.totalAmount).toBe(103);
     const response = await simulateFinancialPolicy(prisma, 'SHOP', user, {
-      version: '1:0', amountCents: 10000, acquirer: 'DOM', method: 'CREDIT_CARD', channel: 'ONLINE', installments: [2],
+      version: '1:0', amountCents: 10000, acquirer: 'DOM', method: 'CREDIT_CARD', channel: 'ONLINE', installments: [2], draft: { owner: {}, interestFree: false },
     });
     expect(response.data[0].error).toBeUndefined();
-    expect(response.data[0].result).toMatchObject({ buyerTotalCents: 10000, contractedCostCents: 950, netCents: 9050 });
+    expect(response.data[0].result).toMatchObject({ buyerTotalCents: 10300, contractedCostCents: 950, processingCostCents: 650, interestRatePpm: 30000, buyerInterestRatePpm: 30000, netCents: 9350, differenceCents: -650 });
     expect(prisma.financialPolicyRevision.create).not.toHaveBeenCalled();
   });
 

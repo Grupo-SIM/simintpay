@@ -48,16 +48,19 @@ export function calculateFinancials(policy: ResolvedPolicy, key: string, origina
   const acquirerCostCents = acquirerProcessingCents + acquirerInterestCents;
   const contractedCostCents = acquirerCostCents + simAdditionCents + simInterestCents;
   const netCents = buyerTotalCents - contractedCostCents;
+  const processingCostCents = contractedCostCents - interestCostCents;
+  const interestRatePpm = lane.contract.interestPpm + lane.sim.interestPpm;
+  const buyerInterestRatePpm = interestFree ? 0 : round(fraction(interestRatePpm, owner.passInterestPpm));
   return { version: policy.version, key, installments: n, originalCents, buyerAdditionCents, buyerInterestCents, buyerTotalCents,
     installmentCents: Math.floor(buyerTotalCents / n), lastInstallmentCents: buyerTotalCents - Math.floor(buyerTotalCents / n) * (n - 1),
-    contractedCostCents, netCents, differenceCents: netCents - originalCents,
+    contractedCostCents, processingCostCents, interestCostCents, interestRatePpm, buyerInterestRatePpm, netCents, differenceCents: policy.document.interestOnly ? buyerAdditionCents - processingCostCents : netCents - originalCents,
     acquirerCostCents, acquirerProcessingCents, acquirerInterestCents, simAdditionCents, simInterestCents,
     simMarginCents: contractedCostCents - acquirerCostCents };
 }
 export type FinancialResult = ReturnType<typeof calculateFinancials>;
 export function ownerResult(result: FinancialResult) {
-  const { version, key, installments, originalCents, buyerAdditionCents, buyerInterestCents, buyerTotalCents, installmentCents, lastInstallmentCents, contractedCostCents, netCents, differenceCents } = result;
-  return { version, key, installments, originalCents, buyerAdditionCents, buyerInterestCents, buyerTotalCents, installmentCents, lastInstallmentCents, contractedCostCents, netCents, differenceCents };
+  const { version, key, installments, originalCents, buyerAdditionCents, buyerInterestCents, buyerTotalCents, installmentCents, lastInstallmentCents, contractedCostCents, processingCostCents, interestCostCents, interestRatePpm, buyerInterestRatePpm, netCents, differenceCents } = result;
+  return { version, key, installments, originalCents, buyerAdditionCents, buyerInterestCents, buyerTotalCents, installmentCents, lastInstallmentCents, contractedCostCents, processingCostCents, interestCostCents, interestRatePpm, buyerInterestRatePpm, netCents, differenceCents };
 }
 
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }

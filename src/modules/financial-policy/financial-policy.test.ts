@@ -133,3 +133,34 @@ describe('interest-only pricing and frozen history', () => {
     expect(() => validatePolicy(policy.document)).toThrow();
   });
 });
+
+
+describe('installment interest separated from processing fees', () => {
+  test('full, partial and zero interest pass-through never enter processing difference', () => {
+    const policy = fixture();
+    policy.document.interestOnly = true;
+    policy.document.owner[key] = { ...defaultOwner(), passInterestPpm: 1_000_000 };
+    const full = calculateFinancials(policy, key, 10000);
+    expect(full.buyerTotalCents).toBe(10500);
+    expect(full.interestRatePpm).toBe(50000);
+    expect(full.buyerInterestRatePpm).toBe(50000);
+    expect(full.processingCostCents).toBe(815);
+    expect(full.interestCostCents).toBe(500);
+    expect(full.differenceCents).toBe(-815);
+    for (const passInterestPpm of [0, 500000, 1000000]) {
+      policy.document.owner[key] = { ...defaultOwner(), passInterestPpm };
+      const result = calculateFinancials(policy, key, 10000);
+      expect(result.buyerInterestCents).toBe(500 * passInterestPpm / 1000000);
+      expect(result.buyerInterestRatePpm).toBe(50000 * passInterestPpm / 1000000);
+      expect(result.differenceCents).toBe(-815);
+      expect(result.netCents).toBe(result.buyerTotalCents - 1315);
+      expect(ownerResult(result).interestRatePpm).toBe(50000);
+    }
+    policy.document.interestFree = true;
+    const free = calculateFinancials(policy, key, 10000);
+    expect(free.buyerInterestRatePpm).toBe(0);
+    expect(free.buyerTotalCents).toBe(10000);
+    expect(free.differenceCents).toBe(-815);
+    expect(free.netCents).toBe(8685);
+  });
+});

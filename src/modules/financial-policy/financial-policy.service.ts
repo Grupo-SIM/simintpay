@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, NotFoundExc
 import { Prisma, Role } from '@prisma/client';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
-import { calculateFinancials, emptyPolicy, laneKey, ownerResult, resolvePolicy, validatePolicy, validateKey, type Channel, type Method, type Policy, type ResolvedPolicy } from './financial-policy';
+import { calculateFinancials, defaultOwner, emptyPolicy, laneKey, ownerResult, resolvePolicy, validatePolicy, validateKey, type Channel, type Method, type Policy, type ResolvedPolicy } from './financial-policy';
 
 type Client = Pick<Prisma.TransactionClient, 'financialPolicyRevision' | 'platform'>;
 export async function loadFinancialPolicy(prisma: Client, tag: string, at?: Date): Promise<ResolvedPolicy> {
@@ -13,6 +13,10 @@ export async function loadFinancialPolicy(prisma: Client, tag: string, at?: Date
     : resolvePolicy((global?.document as Policy | undefined) ?? emptyPolicy(), (own?.document as Policy | undefined) ?? emptyPolicy(), `${global?.version ?? 0}:${own?.version ?? 0}`);
   // Current quotes only pass contracted interest. Historical restores resolve their frozen documents directly.
   resolved.document.interestOnly = true;
+  // Materialize current defaults so frozen snapshots preserve their exact owner rule.
+  for (const key of Object.keys(resolved.document.lanes)) {
+    resolved.document.owner[key] ??= { ...defaultOwner(), passInterestPpm: key.includes('/CREDIT_CARD/') ? 1_000_000 : 0 };
+  }
   return resolved;
 }
 
@@ -86,6 +90,9 @@ export async function simulateFinancialPolicy(prisma: PrismaService, tag: string
   }
   try {
     policy.document.interestOnly = true;
+    for (const key of Object.keys(policy.document.lanes)) {
+      policy.document.owner[key] ??= { ...defaultOwner(), passInterestPpm: key.includes('/CREDIT_CARD/') ? 1_000_000 : 0 };
+    }
     validatePolicy(policy.document);
     const data = body.installments.map(n => {
       if (!Number.isInteger(n)) throw new Error('Parcela inválida');
