@@ -8,8 +8,12 @@ type Client = Pick<Prisma.TransactionClient, 'financialPolicyRevision' | 'platfo
 export async function loadFinancialPolicy(prisma: Client, tag: string, at?: Date): Promise<ResolvedPolicy> {
   const rows = await prisma.financialPolicyRevision.findMany({ where: { tag: { in: ['GLOBAL', tag] }, ...(at ? { createdAt: { lte: at } } : {}) }, orderBy: { version: 'desc' }, distinct: ['tag'] });
   const global = rows.find(row => row.tag === 'GLOBAL'), own = tag === 'GLOBAL' ? undefined : rows.find(row => row.tag === tag);
-  if (tag === 'GLOBAL') return resolvePolicy(emptyPolicy(), (global?.document as Policy | undefined) ?? emptyPolicy(), `${global?.version ?? 0}:0`);
-  return resolvePolicy((global?.document as Policy | undefined) ?? emptyPolicy(), (own?.document as Policy | undefined) ?? emptyPolicy(), `${global?.version ?? 0}:${own?.version ?? 0}`);
+  const resolved = tag === 'GLOBAL'
+    ? resolvePolicy(emptyPolicy(), (global?.document as Policy | undefined) ?? emptyPolicy(), `${global?.version ?? 0}:0`)
+    : resolvePolicy((global?.document as Policy | undefined) ?? emptyPolicy(), (own?.document as Policy | undefined) ?? emptyPolicy(), `${global?.version ?? 0}:${own?.version ?? 0}`);
+  // Current quotes only pass contracted interest. Historical restores resolve their frozen documents directly.
+  resolved.document.interestOnly = true;
+  return resolved;
 }
 
 /** No internal acquirer fields leave this projection. */
@@ -44,7 +48,7 @@ export async function saveFinancialPolicy(prisma: PrismaService, tag: string, us
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BadRequestException('Configuração inválida');
   const input = body as { version?: unknown; owner?: unknown; interestFree?: unknown; lanes?: unknown };
   if (Object.keys(body).some(key => !['version', 'owner', 'interestFree', 'lanes'].includes(key))) throw new BadRequestException('Campo não permitido');
-  if (!admin && input.lanes !== undefined) throw new ForbiddenException('Custos contratuais exclusivos do administrador');
+  if (!admin && input.lanes !== undefined) throw new ForbiddenException('Custos SimIntPay exclusivos do administrador');
   try {
     return await prisma.$transaction(async tx => {
       const current = await loadFinancialPolicy(tx, tag);
@@ -55,6 +59,7 @@ export async function saveFinancialPolicy(prisma: PrismaService, tag: string, us
       if (input.interestFree === null) delete document.interestFree;
       else if (input.interestFree !== undefined) document.interestFree = input.interestFree as boolean;
       if (input.lanes !== undefined) document.lanes = input.lanes as Policy['lanes'];
+      document.interestOnly = true;
       validatePolicy(document);
       // Global inheritance remains explicit: omitted keys inherit, zero stays an override.
       await tx.financialPolicyRevision.create({ data: { tag, version: (previous?.version ?? 0) + 1, actorId: user.sub, document: document as Prisma.InputJsonValue } });
@@ -76,10 +81,11 @@ export async function simulateFinancialPolicy(prisma: PrismaService, tag: string
   const draft = body.draft;
   if (draft) {
     if (Object.keys(draft).some(key => !['owner', 'interestFree', 'lanes'].includes(key))) throw new BadRequestException('Rascunho inválido');
-    if (!admin && draft.lanes !== undefined) throw new ForbiddenException('Custos contratuais exclusivos do administrador');
+    if (!admin && draft.lanes !== undefined) throw new ForbiddenException('Custos SimIntPay exclusivos do administrador');
     policy = resolvePolicy(policy.global, { ...policy.own, ...draft }, policy.version);
   }
   try {
+    policy.document.interestOnly = true;
     validatePolicy(policy.document);
     const data = body.installments.map(n => {
       if (!Number.isInteger(n)) throw new Error('Parcela inválida');

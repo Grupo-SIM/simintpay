@@ -652,7 +652,7 @@ export class CheckoutController {
       return { tag: tag.toUpperCase(), version: context.policy.version,
         installments: quotes.map((quote, i) => {
           const key = `${context.acquirer}/CREDIT_CARD/ONLINE/${i + 1}`;
-          const fixedFee = (context.policy.document.owner[key]?.fixedCents ?? 0) / 100;
+          const fixedFee = context.policy.document.interestOnly ? 0 : (context.policy.document.owner[key]?.fixedCents ?? 0) / 100;
           return { n: i + 1, buyerRate: quote ? (quote.totalAmount - 100 - fixedFee) / 100 : null, fixedFee };
         }) };
     }

@@ -219,10 +219,10 @@ Resumo canônico de comerciante mantém carteira por usuário e disponibilidade 
 
 ## Política financeira versionada
 
-- Adquirente, SimIntPay e plataforma constituem camadas independentes por adquirente/modalidade/canal/parcela. Contrato da adquirente separa fixo, percentual, cashback fixo e juros; base de processamento é original ou total do comprador. SimIntPay soma fixo/percentual e juros próprios; dono escolhe adicional independente e repasse dos juros.
-- Adicionais e juros percentuais incidem no valor original. Repasse zero ou opção sem juros não elimina juros contratados. Líquido = total comprador − custo contratado; custo da adquirente é descontado uma única vez. Diferença contra original não representa lucro contábil.
+- Adquirente, SimIntPay e plataforma constituem camadas independentes por adquirente/modalidade/canal/parcela. Contrato da adquirente separa fixo, percentual, cashback fixo e juros; base de processamento é original ou total do comprador. SimIntPay soma fixo/percentual e juros próprios; dono escolhe somente a proporção dos juros efetivos repassada ao comprador.
+- Juros percentuais incidem no valor original; novas cobranças não aplicam adicionais do dono. Repasse zero ou opção sem juros não elimina juros SimIntPay. Líquido = total comprador − custos SimIntPay; custo da adquirente é descontado uma única vez. Diferença contra original não representa lucro contábil.
 - Motor Decimal usa centavos e taxas inteiras em milionésimos. Cada componente arredonda meio para cima; última parcela recebe resíduo da divisão. Prévia, cobrança e liquidação usam esse motor e snapshot da versão aplicada.
-- `FinancialPolicyRevision` é append-only, com ator e versão. Configuração efetiva combina GLOBAL e overrides explícitos, inclusive zero; ausência herda. Escritas exigem versão atual e transação serializável. Dono pode alterar somente adicionais/repasse e opção sem juros; custos internos e margem são exclusivos do admin. Sessão, conta ativa, papel e propriedade são revalidados no banco.
+- `FinancialPolicyRevision` é append-only, com ator e versão. Configuração efetiva combina GLOBAL e overrides explícitos, inclusive zero; ausência herda. Escritas exigem versão atual e transação serializável. Dono pode alterar somente repasse dos juros e opção sem juros; custos internos e margem são exclusivos do admin. Sessão, conta ativa, papel e propriedade são revalidados no banco.
 - GET/PATCH `/platforms/:tag/financial-policy` retornam configuração efetiva, origem e versão. POST `/platforms/:tag/financial-policy/simulation` recebe modalidade, canal, valor em centavos, parcelas solicitadas e rascunho; autorização/configuração carregam uma vez, cálculo puro não consulta banco por parcela. Resposta do dono omite composição interna; falha de cálculo fica restrita à parcela.
 - Ativação é explícita após contrato completo. Crédito exige todas as 12 parcelas ativas. Migração não infere juros de taxas antigas: audita personalizações anteriores, prepara adicional zero/absorção integral pelo dono e mantém política legada até ativação. Após ativação, APIs antigas de edição/simulação de juros são desabilitadas para evitar contratos contraditórios.
 - Histórico, saldos e lançamentos existentes não são recalculados. Novas cobranças congelam revisão/snapshot; recorrências restauram essas revisões. Importação POS resolve configuração na data da venda e inverte total informado sem deduzir custo duas vezes. Liquidação e estorno usam lançamento final idempotente.
@@ -232,3 +232,12 @@ Resumo canônico de comerciante mantém carteira por usuário e disponibilidade 
 ## Padrões de juros e taxas
 
 Novas plataformas absorvem custos por padrão (`absorbCustomerInterest=true`); no motor financeiro, ausência de regra do dono implica adicional zero e `passInterestPpm=0`. Overrides explícitos continuam válidos. Juros padrão de 1 parcela são zero. Os 9% SimIntPay são custo do vendedor (`LINK_COST_*` / `sim.ratePpm`), nunca juros do comprador. Campos legados `PaymentLink.platformFee*` permanecem por compatibilidade, mas não determinam juros no cálculo atual. Migração de padrões não recalcula cobranças, saldos nem configurações explícitas de plataformas existentes.
+
+
+## Repasse exclusivo dos juros ao comprador
+
+Novas simulações e cobranças permitem somente repasse de 0% a 100% dos juros SimIntPay efetivos (`passInterestPpm`). Custos administrativos fixos e percentuais são descontados do líquido da plataforma, nunca adicionados ao comprador. Os antigos adicionais do dono permanecem no documento para compatibilidade, mas são ignorados nas cobranças atuais. Total comprador = original + juros repassados; líquido = total comprador − custos SimIntPay, sem duplicar descontos. Sem juros zera apenas juros cobrados do comprador.
+
+Documentos novos recebem `interestOnly=true`. Snapshots novos também congelam esse indicador, inclusive quando usam uma revisão anterior à mudança. Restauração de cobrança/assinatura histórica sem indicador mantém o cálculo original da revisão. Nenhuma revisão, transação ou saldo anterior é reescrito. A API não permite ao cliente desativar essa regra por save ou draft.
+
+- Nomenclatura financeira apresentada ao dono: custos e juros SimIntPay. SimIntPay cobre custos das adquirentes; composição por adquirente é informação interna do administrador, sem contratação separada pelo dono da plataforma.

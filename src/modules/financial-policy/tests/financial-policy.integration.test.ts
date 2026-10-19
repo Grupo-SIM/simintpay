@@ -38,7 +38,8 @@ test.skipIf(!prisma)('real local database: migration audit, policy revisions, qu
   const simulation = await simulateFinancialPolicy(client, platform.tag, user, { amountCents: 10001, acquirer: 'DOM', method: 'CREDIT_CARD', channel: 'ONLINE', installments: [2] });
   const context = await loadChargePolicy(db, platform.tag);
   const quote = quoteFinancialCharge(context, 100.01, 'CREDIT_CARD', 2)!;
-  const { policyTag, ...visible } = quote.financialSnapshot;
+  const { policyTag, interestOnly, ...visible } = quote.financialSnapshot;
+  expect(interestOnly).toBe(true);
   expect(simulation.data[0].result).toMatchObject(visible);
   const snapshot = quote.financialSnapshot;
   const paymentId = crypto.randomUUID();

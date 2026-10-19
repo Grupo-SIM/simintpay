@@ -100,7 +100,7 @@ describe('automatic administrative rate inheritance', () => {
     expect(prisma.financialPolicyRevision.create).not.toHaveBeenCalled();
   });
 
-  test('owner additions and partial interest absorption preserve inherited administrative costs and match checkout', async () => {
+  test('legacy additions are ignored in current quotes while partial contracted interest matches checkout', async () => {
     const { prisma, revisions } = fixture();
     const owner = { [key]: { fixedCents: 100, ratePpm: 10000, passInterestPpm: 500000 } };
     const globalBefore = JSON.stringify(revisions[0]);
@@ -108,12 +108,12 @@ describe('automatic administrative rate inheritance', () => {
     const response = await simulateFinancialPolicy(prisma, 'SHOP', user, {
       amountCents: 10000, acquirer: 'DOM', method: 'CREDIT_CARD', channel: 'ONLINE', installments: [2],
     });
-    expect(response.data[0].result).toMatchObject({ buyerAdditionCents: 200, buyerInterestCents: 150, contractedCostCents: 950, buyerTotalCents: 10350, netCents: 9400 });
+    expect(response.data[0].result).toMatchObject({ buyerAdditionCents: 0, buyerInterestCents: 150, contractedCostCents: 950, buyerTotalCents: 10150, netCents: 9200 });
     expect(JSON.stringify(revisions[0])).toBe(globalBefore);
     const policy = await loadFinancialPolicy(prisma, 'SHOP');
     const quote = quoteFinancialCharge({ policy, acquirer: 'DOM', tag: 'SHOP' }, 100, 'CREDIT_CARD', 2)!;
-    expect(quote.totalAmount).toBe(103.5);
-    expect(quote.netAmount).toBe(94);
+    expect(quote.totalAmount).toBe(101.5);
+    expect(quote.netAmount).toBe(92);
   });
 
   test('missing global rates report missing configuration, never an activation requirement', async () => {

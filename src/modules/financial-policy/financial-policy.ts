@@ -10,14 +10,14 @@ export type Contract = Addition & { cashbackCents: number; interestPpm: number; 
 /** active is retained for stored-document compatibility; configured rates apply without activation. */
 export type Lane = { total?: Addition; active: boolean; contract: Contract; sim: Addition & { interestPpm: number } };
 export type OwnerRule = Addition & { passInterestPpm: number };
-export type Policy = { schemaVersion: 1; lanes: Record<string, Lane>; owner: Record<string, OwnerRule>; interestFree?: boolean; legacyAudit?: unknown };
+export type Policy = { schemaVersion: 1; lanes: Record<string, Lane>; owner: Record<string, OwnerRule>; interestFree?: boolean; interestOnly?: boolean; legacyAudit?: unknown };
 export type ResolvedPolicy = { global: Policy; own: Policy; version: string; document: Policy; sources: Record<string, { lane: 'global' | 'override'; owner: 'global' | 'override' | 'default' }> };
 export const emptyPolicy = (): Policy => ({ schemaVersion: 1, lanes: {}, owner: {} });
 export const defaultOwner = (): OwnerRule => ({ fixedCents: 0, ratePpm: 0, passInterestPpm: 0 });
 export function laneKey(acquirer: string, method: Method, channel: Channel, installments: number) { return `${acquirer}/${method}/${channel}/${installments}`; }
 export function resolvePolicy(global: Policy, own: Policy, version: string): ResolvedPolicy {
   const lanes = { ...global.lanes, ...own.lanes }, owner = { ...global.owner, ...own.owner };
-  return { global, own, version, document: { schemaVersion: 1, lanes, owner, interestFree: own.interestFree ?? global.interestFree ?? false },
+  return { global, own, version, document: { schemaVersion: 1, lanes, owner, interestFree: own.interestFree ?? global.interestFree ?? false, interestOnly: own.interestOnly ?? global.interestOnly ?? false },
     sources: Object.fromEntries(Object.keys(lanes).map(key => [key, { lane: own.lanes[key] !== undefined ? 'override' : 'global', owner: own.owner[key] !== undefined ? 'override' : global.owner[key] !== undefined ? 'global' : 'default' }])) };
 }
 const D = Prisma.Decimal;
@@ -36,7 +36,7 @@ export function calculateFinancials(policy: ResolvedPolicy, key: string, origina
   const simInterestCents = round(fraction(originalCents, lane.sim.interestPpm));
   const interestCostCents = acquirerInterestCents + simInterestCents;
   const buyerInterestCents = interestFree ? 0 : round(fraction(interestCostCents, owner.passInterestPpm));
-  const buyerAdditionCents = owner.fixedCents + round(fraction(originalCents, owner.ratePpm));
+  const buyerAdditionCents = policy.document.interestOnly ? 0 : owner.fixedCents + round(fraction(originalCents, owner.ratePpm));
   const buyerTotalCents = originalCents + buyerAdditionCents + buyerInterestCents;
   const acquirerBase = lane.contract.base === 'BUYER_TOTAL' ? buyerTotalCents : originalCents;
   const acquirerProcessingCents = lane.contract.fixedCents + round(fraction(acquirerBase, lane.contract.ratePpm)) + lane.contract.cashbackCents;
@@ -69,8 +69,8 @@ export function validateKey(key: string) {
 }
 export function validatePolicy(value: unknown): asserts value is Policy {
   if (!record(value)) throw new Error('Configuração inválida');
-  exact(value, ['schemaVersion', 'lanes', 'owner', 'interestFree', 'legacyAudit']);
-  if (value.schemaVersion !== 1 || !record(value.lanes) || !record(value.owner) || (value.interestFree !== undefined && typeof value.interestFree !== 'boolean')) throw new Error('Configuração inválida');
+  exact(value, ['schemaVersion', 'lanes', 'owner', 'interestFree', 'interestOnly', 'legacyAudit']);
+  if (value.schemaVersion !== 1 || !record(value.lanes) || !record(value.owner) || (value.interestFree !== undefined && typeof value.interestFree !== 'boolean') || (value.interestOnly !== undefined && typeof value.interestOnly !== 'boolean')) throw new Error('Configuração inválida');
   if (Object.keys(value.lanes).length > 500 || Object.keys(value.owner).length > 500) throw new Error('Configuração excede limite');
   for (const [key, rule] of Object.entries(value.owner)) {
     validateKey(key);

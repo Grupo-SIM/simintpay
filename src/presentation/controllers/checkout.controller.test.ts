@@ -13,6 +13,6 @@ test('public rates expose buyer charges only, including active policy version', 
   const result = await CheckoutController.prototype.getCcRates.call(controller as any, 'SHOP');
   expect(result.version).toBe('0:1');
   expect(result.installments).toHaveLength(12);
-  expect(result.installments[0]).toEqual({ n: 1, buyerRate: 0.04, fixedFee: 0.5 });
+  expect(result.installments[0]).toEqual({ n: 1, buyerRate: 0.03, fixedFee: 0 });
   expect(JSON.stringify(result)).not.toMatch(/domRate|domCcRate|masterRate|private-contract|cashback|simMargin|vendorCc/);
 });

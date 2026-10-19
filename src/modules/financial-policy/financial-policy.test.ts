@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { calculateFinancials, CHANNELS, defaultOwner, emptyPolicy, laneKey, METHODS, ownerResult, resolvePolicy, validatePolicy, type Lane } from './financial-policy';
-import { quoteFinancialCharge } from './financial-charge';
+import { quoteFinancialCharge, restoreFinancialCharge } from './financial-charge';
 
 const lane = (credit = true): Lane => ({ active: true, contract: { fixedCents: 100, ratePpm: 20_000, cashbackCents: 15, interestPpm: credit ? 40_000 : 0, base: 'ORIGINAL', reference: 'Signed 2026-10' }, sim: { fixedCents: 200, ratePpm: 30_000, interestPpm: credit ? 10_000 : 0 } });
 function fixture() {
@@ -98,5 +98,38 @@ describe('precise three-layer financial policy', () => {
     delete (policy.document.lanes[key].contract as Partial<Lane['contract']>).interestPpm;
     expect(() => validatePolicy(policy.document)).toThrow();
     expect(() => validatePolicy({ ...emptyPolicy(), owner: { 'DOM/PIX/ONLINE/12': defaultOwner() } })).toThrow();
+  });
+});
+
+
+describe('interest-only pricing and frozen history', () => {
+  test('new charges only pass real interest and restore without adopting historical additions', async () => {
+    const policy = fixture();
+    policy.document.owner[key] = { fixedCents: 1000, ratePpm: 100000, passInterestPpm: 500000 };
+    const document = structuredClone(policy.document);
+    const historical = quoteFinancialCharge({ policy, acquirer: 'DOM', tag: 'SHOP' }, 100, 'CREDIT_CARD', 2)!;
+    policy.document.interestOnly = true;
+    const current = quoteFinancialCharge({ policy, acquirer: 'DOM', tag: 'SHOP' }, 100, 'CREDIT_CARD', 2)!;
+    expect(current.totalAmount).toBe(102.5);
+    expect(current.netAmount).toBe(89.35);
+    expect(current.financialSnapshot.buyerAdditionCents).toBe(0);
+    expect(current.financialSnapshot.interestOnly).toBe(true);
+    const prisma = { financialPolicyRevision: { findMany: async () => [{ tag: 'GLOBAL', version: 1, document }] } } as any;
+    expect((await restoreFinancialCharge(prisma, historical.financialSnapshot))?.totalAmount).toBe(122.5);
+    expect((await restoreFinancialCharge(prisma, current.financialSnapshot))?.totalAmount).toBe(102.5);
+    expect(document.interestOnly).toBe(false);
+  });
+
+  test('interest-free suppresses only buyer interest, and invalid fractions cannot mark up costs', () => {
+    const policy = fixture();
+    policy.document.interestOnly = true;
+    policy.document.owner[key] = { fixedCents: 5000, ratePpm: 1000000, passInterestPpm: 1000000 };
+    expect(calculateFinancials(policy, key, 10000).buyerTotalCents).toBe(10500);
+    policy.document.interestFree = true;
+    const result = calculateFinancials(policy, key, 10000);
+    expect(result.buyerTotalCents).toBe(10000);
+    expect(result.netCents).toBe(8685);
+    policy.document.owner[key].passInterestPpm = 1000001;
+    expect(() => validatePolicy(policy.document)).toThrow();
   });
 });

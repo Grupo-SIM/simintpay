@@ -7,7 +7,7 @@ import { restoreFinancialCharge } from './financial-charge';
 export async function settleFinancialSubscription(prisma: PrismaService, input: { snapshot: Prisma.JsonValue | null | undefined; amount: Prisma.Decimal; paymentId: string; userId: string; method: 'PIX' | 'CREDIT_CARD'; name: string; customerName?: string | null; customerEmail?: string | null; customerDocument?: string | null }) {
   const quote = await restoreFinancialCharge(prisma, input.snapshot);
   if (!quote) return null;
-  if (cents(input.amount) !== cents(quote.totalAmount)) throw new Error('Cobrança recorrente diverge do contrato financeiro');
+  if (cents(input.amount) !== cents(quote.totalAmount)) throw new Error('Cobrança recorrente diverge da configuração financeira');
   await prisma.$transaction(async tx => {
     await tx.wallet.upsert({ where: { userId: input.userId }, update: {}, create: { userId: input.userId, balance: 0 } });
     await persistLinkCharge(tx, { userId: input.userId, amount: new Prisma.Decimal(quote.totalAmount), netAmount: new Prisma.Decimal(quote.netAmount),
