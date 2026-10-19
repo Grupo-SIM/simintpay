@@ -14,7 +14,7 @@ function fixture(acquirer: 'DOM' | 'FRENDZ' = 'DOM') {
     financialPolicyRevision: { findMany: mock(async () => []) },
     platformTaxaOverride: { findMany: mock(async () => []) },
     platform: { findUnique: mock(async () => platform) },
-    wallet: { findUnique: mock(async () => ({ id: 'wallet' })) },
+    wallet: { findUnique: mock(async () => ({ id: 'wallet' })), upsert: mock(async () => ({ id: 'wallet' })) },
     transaction: {
       findUnique: mock(async () => stored ?? null),
       create: mock(async ({ data }: any) => { stored = data; return stored; }),

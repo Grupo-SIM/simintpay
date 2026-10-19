@@ -1411,6 +1411,7 @@ export class AdminController {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user = await (this.prisma.user as any).create({
       data: {
+        wallet: { create: { balance: 0, lockedBalance: 0 } },
         name: email.split('@')[0],
         email,
         password: hashed,

@@ -18,7 +18,7 @@ function fixture(tag: string) {
   process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = 'a'.repeat(64);
   let stored: any;
   const platform = { id: 'p', tag, ownerUserId: 'owner', isActive: true, acquirer: 'DOM', owner: { isActive: true, isPurged: false }, integrations: [{ key: 'DOM_TOKEN', encryptedValue: encryptPlatformSecret('test-only') }] };
-  const prisma = { financialPolicyRevision: { findMany: async () => [] }, platform: { findUnique: async () => platform }, platformTaxaOverride: { findMany: async () => [] }, wallet: { findUnique: async () => ({ id: 'wallet' }), update: mock() },
+  const prisma = { financialPolicyRevision: { findMany: async () => [] }, platform: { findUnique: async () => platform }, platformTaxaOverride: { findMany: async () => [] }, wallet: { findUnique: async () => ({ id: 'wallet' }), upsert: mock(async () => ({ id: 'wallet' })), update: mock() },
     transaction: {
       findUnique: async () => stored ?? null,
       create: mock(async ({ data }: any) => { stored = { id: 'legacy-payment', ...data }; return stored; }),
@@ -59,5 +59,43 @@ describe('Legacy and canonical payment execution equivalence', () => {
         expect(legacy.prisma.transaction.create).toHaveBeenCalledTimes(1);
       });
     }
+  }
+});
+
+
+describe('Legacy checkout wallet initialization', () => {
+  for (const method of ['PIX', 'CREDIT_CARD'] as const) {
+    for (const existing of [false, true]) {
+      test(`${method}: ${existing ? 'preserves existing balances' : 'creates missing wallet'} before charging`, async () => {
+        const f = fixture('RENOVADA');
+        let wallet = existing ? { userId: 'owner', balance: 120, lockedBalance: 30 } : null;
+        f.prisma.wallet.upsert = mock(async ({ where, update, create }: any) => {
+          expect(where).toEqual({ userId: 'owner' });
+          expect(update).toEqual({});
+          wallet ??= create;
+          return { id: 'wallet', ...wallet };
+        });
+        const adapter = new LegacyPlatformPaymentCore(f.prisma as never, undefined, 'RENOVADA', RenovadaConfig);
+        const charge = mock(async () => {
+          expect(wallet).toEqual({ userId: 'owner', balance: existing ? 120 : 0, lockedBalance: existing ? 30 : 0 });
+          return remote;
+        });
+        Object.assign(adapter, { createDomPagamentosPix: charge, createDomPagamentosCreditCard: charge });
+        if (method === 'PIX') await adapter.createPaymentPix('owner', body);
+        else await adapter.createPaymentCreditCard('owner', body);
+        expect(f.prisma.wallet.upsert).toHaveBeenCalledTimes(1);
+        expect(charge).toHaveBeenCalledTimes(1);
+      });
+    }
+    test(`${method}: rejects wrong owner before creating wallet or charging`, async () => {
+      const f = fixture('RENOVADA');
+      const adapter = new LegacyPlatformPaymentCore(f.prisma as never, undefined, 'RENOVADA', RenovadaConfig);
+      const charge = mock(async () => remote);
+      Object.assign(adapter, { createDomPagamentosPix: charge, createDomPagamentosCreditCard: charge });
+      const result = method === 'PIX' ? adapter.createPaymentPix('other', body) : adapter.createPaymentCreditCard('other', body);
+      await expect(result).rejects.toThrow('Plataforma pertence a outro dono');
+      expect(f.prisma.wallet.upsert).not.toHaveBeenCalled();
+      expect(charge).not.toHaveBeenCalled();
+    });
   }
 });

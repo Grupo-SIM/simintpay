@@ -24,6 +24,7 @@ export class PrismaUserRepository implements IUserRepository {
   async create(data: CreateUserData): Promise<User> {
     return (this.prisma.user as any).create({
       data: {
+        wallet: { create: { balance: 0, lockedBalance: 0 } },
         name: data.name,
         email: data.email,
         password: data.password,

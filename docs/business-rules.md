@@ -41,6 +41,8 @@ Script antigo `migrate-owned-platforms.ts`, setup DOM e SQL manual de conta téc
 
 Carteira pertence ao usuário, não à plataforma. Plataformas com mesmo dono compartilham carteira; selecionar plataforma define política do saque e persiste `WithdrawRequest.platform`, sem criar saldo separado. Relatórios agrupam tags explícitas; histórico sem tag de dono compartilhado fica não identificado. Resumo marca `walletScope=shared-owner` quando saldo não é individualizável. Manutenção antiga que zerava/recalculava carteira inteira por plataforma é bloqueada quando dono possui várias plataformas.
 
+Todo usuário criado pelos fluxos da API recebe carteira zerada na mesma operação atômica do cadastro. Garantir carteira existente é idempotente e nunca redefine saldos. Checkouts canônicos e legados de PIX e cartão inicializam carteira ausente do dono ou comerciante validado com saldo e saldo bloqueado zerados antes de cobrar. A inicialização concorrente usa `upsert` e preserva integralmente carteiras existentes; não credita pagamento antecipadamente.
+
 ## Núcleo canônico de plataformas
 
 Operações canônicas usam `/platforms/:tag/payments`, `/finance`, `/reports`, `/events`, `/sync` e `/maintenance`. Cadastro/configuração/juros continuam nas APIs existentes. Valores novos usam centavos inteiros; cálculos usam `Prisma.Decimal`. Resolução consulta cadastro, dono ativo e papel atual antes de qualquer adapter. Tags corporativas exigem admin no cadastro.

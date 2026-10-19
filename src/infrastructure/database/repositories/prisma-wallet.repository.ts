@@ -12,6 +12,10 @@ export class PrismaWalletRepository implements IWalletRepository {
   }
 
   async createForUser(userId: string): Promise<Wallet> {
-    return this.prisma.wallet.create({ data: { userId } });
+    return this.prisma.wallet.upsert({
+      where: { userId },
+      update: {},
+      create: { userId, balance: 0, lockedBalance: 0 },
+    });
   }
 }

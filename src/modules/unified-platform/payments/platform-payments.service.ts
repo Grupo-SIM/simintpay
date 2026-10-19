@@ -65,7 +65,7 @@ export class PlatformPaymentsService {
       if (!existing.externalPaymentId) throw new ConflictException({ code: 'PAYMENT_PROCESSING', transactionId: id });
       return this.result(existing);
     }
-    if (!await this.prisma.wallet.findUnique({ where: { userId: financialUserId } })) throw new UnprocessableEntityException({ code: 'WALLET_MISSING' });
+    await this.prisma.wallet.upsert({ where: { userId: financialUserId }, update: {}, create: { userId: financialUserId, balance: 0, lockedBalance: 0 } });
     const overrides = await this.prisma.platformTaxaOverride.findMany({ where: { tag: { in: ['GLOBAL', platform.tag, platform.tag.replaceAll('-', '_')] } } });
     const rates: Record<string, number> = {};
     for (const row of overrides.filter(row => row.tag === 'GLOBAL')) rates[row.key] = row.value;

@@ -137,7 +137,7 @@ export class LegacyPlatformPaymentCore {
 
   async createPaymentPix(userId: string, body: CheckoutPixDto): Promise<any> {
     try {
-      this.logger.log(`📱 [ZERO_GRAU] Criando pagamento PIX para usuário ${userId}`, {
+      this.logger.log(`📱 [${this.tag}] Criando pagamento PIX para usuário ${userId}`, {
         price: body.price,
         document: body.document,
         email: body.email,
@@ -167,10 +167,11 @@ export class LegacyPlatformPaymentCore {
       const domFee = financialQuote?.domFeeAmount ?? parseFloat((price * mdrPix).toFixed(2));
       const platformFeeCalc = parseFloat((totalFees - domFee).toFixed(2));
 
-      const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-      if (!wallet) {
-        throw new BadRequestException('Carteira não encontrada');
-      }
+      await this.prisma.wallet.upsert({
+        where: { userId },
+        update: {},
+        create: { userId, balance: 0, lockedBalance: 0 },
+      });
 
       const internalDescription = this.buildInternalDescription(body?.description);
 
@@ -192,7 +193,7 @@ export class LegacyPlatformPaymentCore {
           installments: 1, acquirer: 'DOM',
       });
 
-      this.logger.log(`✅ [ZERO_GRAU] Transação criada: ${transaction.id}`);
+      this.logger.log(`✅ [${this.tag}] Transação criada: ${transaction.id}`);
 
       const paymentRequest: DomPixRequest = {
         cod_external: transaction.id,
@@ -217,7 +218,7 @@ export class LegacyPlatformPaymentCore {
         },
       };
 
-      this.logger.log('📤 [ZERO_GRAU] Enviando requisição para DOM Pagamentos');
+      this.logger.log(`📤 [${this.tag}] Enviando requisição para DOM Pagamentos`);
       const { payment } = await new PlatformPaymentExecution(this.prisma).charge({
         transactionId: transaction.id, charge: () => this.createDomPagamentosPix(paymentRequest),
         references: payment => ({ domPaymentId: payment.id, externalPaymentId: payment.id,
@@ -225,7 +226,7 @@ export class LegacyPlatformPaymentCore {
           pixExpire: payment.pix_expire ? new Date(payment.pix_expire) : null }),
       });
 
-      this.logger.log(`✅ [ZERO_GRAU] Transação ${transaction.id} atualizada para PENDING`);
+      this.logger.log(`✅ [${this.tag}] Transação ${transaction.id} atualizada para PENDING`);
 
       return {
         ...payment,
@@ -234,7 +235,7 @@ export class LegacyPlatformPaymentCore {
         status: 'PENDING',
       };
     } catch (error) {
-      this.logger.error('❌ [ZERO_GRAU] Erro ao criar pagamento PIX:', error);
+      this.logger.error(`❌ [${this.tag}] Erro ao criar pagamento PIX:`, error);
       if (error instanceof BadRequestException || error instanceof ForbiddenException || error instanceof NotFoundException || error instanceof UnprocessableEntityException) throw error;
       throw new BadRequestException(
         'Ocorreu um erro ao processar o pagamento. Por favor, verifique os dados e tente novamente.',
@@ -245,7 +246,7 @@ export class LegacyPlatformPaymentCore {
   async createPaymentCreditCard(userId: string, body: CheckoutCreditCardDto): Promise<any> {
     try {
       if (this.tag === 'BOSQUE') body = { ...body, installments: body.installments ?? 1 };
-      this.logger.log(`💳 [ZERO_GRAU] Criando pagamento com cartão para usuário ${userId}`, {
+      this.logger.log(`💳 [${this.tag}] Criando pagamento com cartão para usuário ${userId}`, {
         price: body.price,
         installments: body.installments,
         email: body.email,
@@ -269,10 +270,11 @@ export class LegacyPlatformPaymentCore {
       const domFee = financialQuote?.domFeeAmount ?? parseFloat((price * mdrCC).toFixed(2));
       const platformFeeCC = parseFloat((totalFeesFinal - domFee).toFixed(2));
 
-      const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-      if (!wallet) {
-        throw new BadRequestException('Carteira não encontrada');
-      }
+      await this.prisma.wallet.upsert({
+        where: { userId },
+        update: {},
+        create: { userId, balance: 0, lockedBalance: 0 },
+      });
 
       const internalDescription = this.buildInternalDescription(body?.description);
 
@@ -296,7 +298,7 @@ export class LegacyPlatformPaymentCore {
           cardBin: body.bin, acquirer: 'DOM',
       });
 
-      this.logger.log(`✅ [ZERO_GRAU] Transação criada: ${transaction.id}`);
+      this.logger.log(`✅ [${this.tag}] Transação criada: ${transaction.id}`);
 
       const installmentAmount = price / body.installments;
 
@@ -328,7 +330,7 @@ export class LegacyPlatformPaymentCore {
         },
       };
 
-      this.logger.log('📤 [ZERO_GRAU] Enviando requisição para DOM Pagamentos');
+      this.logger.log(`📤 [${this.tag}] Enviando requisição para DOM Pagamentos`);
       const rejected = (status: string) => ['not_authorized', 'error', 'failed', 'refused', 'canceled', 'expired'].includes(status.toLowerCase());
       const { payment } = await new PlatformPaymentExecution(this.prisma).charge({
         transactionId: transaction.id, charge: () => this.createDomPagamentosCreditCard(paymentRequest),
@@ -339,7 +341,7 @@ export class LegacyPlatformPaymentCore {
       if (this.tag === 'ATLAS' && rejected(gatewayStatus)) {
         throw new BadRequestException('O pagamento não foi autorizado pela operadora do cartão. Verifique os dados do cartão ou tente outro método de pagamento.');
       }
-      this.logger.log(`✅ [ZERO_GRAU] Transação ${transaction.id} atualizada para PENDING`);
+      this.logger.log(`✅ [${this.tag}] Transação ${transaction.id} atualizada para PENDING`);
 
       // Persist terminal gateway results through the same idempotent webhook path.
       // Returning the stored status prevents Delivery from confirming before SimIntPay.
@@ -350,7 +352,7 @@ export class LegacyPlatformPaymentCore {
           if (settled.status !== 'NOT_FOUND') status = settled.status;
         } catch (error) {
           // Charge already exists: preserve its reference so polling can retry settlement.
-          this.logger.error(`[ZERO_GRAU][card] Settlement failed paymentId=${payment.id}: ${error instanceof Error ? error.message : String(error)}`);
+          this.logger.error(`[${this.tag}][card] Settlement failed paymentId=${payment.id}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 
@@ -367,7 +369,7 @@ export class LegacyPlatformPaymentCore {
         },
       };
     } catch (error) {
-      this.logger.error('❌ [ZERO_GRAU] Erro ao criar pagamento com cartão:', error);
+      this.logger.error(`❌ [${this.tag}] Erro ao criar pagamento com cartão:`, error);
       if (error instanceof BadRequestException || error instanceof ForbiddenException || error instanceof NotFoundException || error instanceof UnprocessableEntityException) throw error;
       throw new BadRequestException(
         'Ocorreu um erro ao processar o pagamento. Por favor, verifique os dados e tente novamente.',
