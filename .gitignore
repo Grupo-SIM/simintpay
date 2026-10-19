@@ -1,5 +1,6 @@
 # compiled output
 /dist
+/dist-watch
 /node_modules
 /build
 
