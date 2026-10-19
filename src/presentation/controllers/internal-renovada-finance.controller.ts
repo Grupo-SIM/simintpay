@@ -2,12 +2,23 @@ import { LegacyInternalAuthGuard } from '../../modules/platform-core/legacy-inte
 import { SetMetadata, UseGuards } from '@nestjs/common';
 import { InternalRenovadaFinanceService } from '../../modules/unified-platform/finance/legacy-renovada-finance.service';
 import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
+import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 
 @Controller('internal/renovada/finance')
 @SetMetadata('legacy-platform-tag', 'RENOVADA')
 @UseGuards(LegacyInternalAuthGuard)
 export class InternalRenovadaFinanceController {
   constructor(private readonly finance: InternalRenovadaFinanceService) {}
+
+  @Get('fees')
+  fees() {
+    return {
+      taxaFixa: getPlatformTaxaEffective('RENOVADA', 'TAXA_SAQUE_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA),
+      taxaPercent: getPlatformTaxaEffective('RENOVADA', 'TAXA_SAQUE_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_PERCENT),
+      saqueMin: getPlatformTaxaEffective('RENOVADA', 'SAQUE_MIN', PLATFORM_TAXA_DEFAULTS.SAQUE_MIN),
+    };
+  }
 
   @Get('summary')
   async summary(
