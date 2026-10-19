@@ -19,10 +19,17 @@ beforeAll(async () => {
   if (!sql) return;
   await sql.unsafe(`CREATE TEMP TABLE "Platform" (id text, tag text, "ownerUserId" text, name text, "isActive" boolean DEFAULT true, acquirer text DEFAULT 'DOM');
     CREATE TEMP TABLE "User" (id text, name text, email text);
-    CREATE TEMP TABLE "Transaction" (id text, "userId" text, amount numeric, "netAmount" numeric, "totalFee" numeric, status text, "paymentMethod" text, description text, "createdAt" timestamp);`);
+    CREATE TEMP TABLE "Transaction" (id text, "userId" text, amount numeric, "netAmount" numeric, "totalFee" numeric, status text, "paymentMethod" text, description text, "createdAt" timestamp, "paymentLinkId" text, tracking jsonb, "domPaymentId" text, "externalPaymentId" text);
+    CREATE TEMP TABLE "PaymentLink" (id text, "userId" text, plataformas text[]);
+    CREATE TEMP TABLE "SubscriptionLink" (id text, "userId" text, plataformas text[], "platformTag" text);
+    CREATE TEMP TABLE "SubscriptionLinkOrder" (id text, "subscriptionLinkId" text, "userId" text, "createdAt" timestamp, status text, "paymentMethod" text, "amountCharged" numeric, "platformFeeAmount" numeric, "domPixPaymentId" text);
+    CREATE TEMP TABLE "Community" (id text, slug text);
+    CREATE TEMP TABLE "CommunityLinkBinding" ("communityId" text, "subscriptionLinkId" text);
+    CREATE TEMP TABLE "IntegrationMerchant" ("userId" text, "integrationKey" text);
+    CREATE TEMP TABLE "PlatformIntegration" ("platformId" text, key text, url text);`);
   await sql.unsafe(`INSERT INTO "User" VALUES ('owner','Dono','owner@test.local'), ('stranger','Outro','other@test.local');
     INSERT INTO "Platform" (id,tag,"ownerUserId",name) VALUES ('p-a','ALPHA','owner','Árvore'), ('p-b','BETA','owner','Bosque'), ('p-x','OTHER','stranger','Outro'), ('p-e','EBOOK','owner','Ebook');
-    INSERT INTO "Transaction" VALUES
+    INSERT INTO "Transaction" (id,"userId",amount,"netAmount","totalFee",status,"paymentMethod",description,"createdAt") VALUES
     ('a','owner',100,90,10,'COMPLETED','PIX','[TENANT:ALPHA]','2026-10-01T03:00:00Z'),
     ('b','owner',200,180,20,'COMPLETED','CREDIT_CARD','[TENANT:BETA]','2026-10-05T03:00:00Z'),
     ('refund','owner',50,45,5,'REFUNDED','PIX','[TENANT:ALPHA]','2026-10-06T03:00:00Z'),
@@ -73,4 +80,51 @@ local('real PostgreSQL: legacy equivalent tags count once and local monthly boun
   const filters = { platform: 'EBOOK', startDate: '2026-10-31', endDate: '2026-10-31' };
   expect((await service.summary(user, filters)).summary).toMatchObject({ salesCount: 1, grossCents: 1700, netCents: 1500 });
   expect((await service.series(user, filters, 'monthly')).data).toEqual([{ key: '2026-10', count: 1, grossCents: 1700, netCents: 1500 }]);
+});
+
+local('real PostgreSQL: linked legacy sales, merchant owner snapshots and paid orders reconcile everywhere', async () => {
+  await sql!.unsafe(`INSERT INTO "PaymentLink" VALUES ('legacy-link','owner',ARRAY['ALPHA']),('ambiguous','owner',ARRAY['ALPHA','BETA']);
+    INSERT INTO "SubscriptionLink" VALUES ('sub','owner',ARRAY[]::text[],NULL);
+    INSERT INTO "Community" VALUES ('community-alpha','alpha');
+    INSERT INTO "CommunityLinkBinding" VALUES ('community-alpha','sub');
+    INSERT INTO "SubscriptionLinkOrder" VALUES
+      ('order-only','sub','owner','2026-10-12T12:00:00Z','paid','PIX',30,3,NULL),
+      ('order-duplicate','sub','owner','2026-10-12T12:00:00Z','paid','PIX',40,4,'provider-ref'),
+      ('order-refunded','sub','owner','2026-10-12T12:00:00Z','paid','PIX',50,5,'refunded-ref'),
+      ('foreign-order','sub','previous','2026-10-12T12:00:00Z','paid','PIX',800,80,NULL);
+    INSERT INTO "Transaction" (id,"userId",amount,"netAmount","totalFee",status,"paymentMethod",description,"createdAt","paymentLinkId",tracking,"domPaymentId") VALUES
+      ('linked','owner',60,54,0,'COMPLETED','PIX','Legacy','2026-10-12T12:00:00Z','legacy-link',NULL,NULL),
+      ('ambiguous-link','owner',900,810,90,'COMPLETED','PIX','Legacy','2026-10-12T12:00:00Z','ambiguous',NULL,NULL),
+      ('merchant','seller',70,63,0,'COMPLETED','PIX','[TENANT:ALPHA]','2026-10-12T12:00:00Z',NULL,'{"reportAttribution":{"platformId":"p-a","ownerUserId":"owner","beneficiaryUserId":"seller"}}',NULL),
+      ('previous-merchant','seller',700,630,70,'COMPLETED','PIX','[TENANT:ALPHA]','2026-10-12T12:00:00Z',NULL,'{"reportAttribution":{"platformId":"p-a","ownerUserId":"previous","beneficiaryUserId":"seller"}}',NULL),
+      ('real-order','owner',40,36,0,'COMPLETED','PIX','subOrder=order-duplicate','2026-10-12T12:00:00Z',NULL,NULL,'provider-ref'),
+      ('refunded-order','owner',50,45,0,'REFUNDED','PIX','[TENANT:ALPHA] subOrder=order-refunded','2026-10-12T12:00:00Z',NULL,NULL,'refunded-ref');`);
+  try {
+    const selected = { platform: 'ALPHA', startDate: '2026-10-12', endDate: '2026-10-12', paymentMethod: 'PIX' };
+    const summary = await service.summary(user, selected);
+    expect(summary.summary).toMatchObject({ salesCount: 4, grossCents: 20000, netCents: 18000, feesCents: 2000, refundsCents: 4500, historicalAttributionComplete: false });
+    const details = await service.transactionDetails(user, selected);
+    expect(details.total).toBe(5);
+    expect(details.data.map(row => row.id).sort()).toEqual(['comunidade_order_order-only','linked','merchant','real-order','refunded-order']);
+    expect(details.data.filter(row => row.status === 'COMPLETED').reduce((sum, row) => sum + row.feesCents, 0)).toBe(summary.summary.feesCents);
+    expect((await service.series(user, selected, 'monthly')).data).toEqual([{ key: '2026-10', count: 4, grossCents: 20000, netCents: 18000 }]);
+    expect((await service.series(user, selected, 'method')).data).toEqual([{ key: 'PIX', count: 4, grossCents: 20000, netCents: 18000 }]);
+    expect((await service.summary(user, { ...selected, paymentMethod: 'CREDIT_CARD' })).summary.salesCount).toBe(0);
+    expect((await service.transactionDetails(user, { ...selected, pageSize: '2', page: '2' })).data).toHaveLength(2);
+  } finally {
+    await sql!.unsafe(`DELETE FROM "Transaction" WHERE "createdAt" = '2026-10-12T12:00:00Z'; DELETE FROM "SubscriptionLinkOrder"; DELETE FROM "SubscriptionLink"; DELETE FROM "PaymentLink"; DELETE FROM "CommunityLinkBinding"; DELETE FROM "Community";`);
+  }
+});
+
+local('real PostgreSQL: unknown tags and unbound merchant history report incomplete attribution', async () => {
+  await sql!.unsafe(`INSERT INTO "IntegrationMerchant" VALUES ('seller','platform:p-a');
+    INSERT INTO "Transaction" (id,"userId",amount,"netAmount","totalFee",status,"paymentMethod",description,"createdAt") VALUES
+      ('unknown-tag','owner',90,81,9,'COMPLETED','PIX','[TENANT:UNKNOWN]','2026-10-13T12:00:00Z'),
+      ('unbound-merchant','seller',100,90,10,'COMPLETED','PIX','[TENANT:ALPHA]','2026-10-13T12:00:00Z');`);
+  try {
+    const result = await service.summary(user, { platform: 'ALPHA', startDate: '2026-10-13', endDate: '2026-10-13' });
+    expect(result.summary).toMatchObject({ salesCount: 0, unattributedEntries: 3, historicalAttributionComplete: false });
+  } finally {
+    await sql!.unsafe(`DELETE FROM "IntegrationMerchant"; DELETE FROM "Transaction" WHERE "createdAt" = '2026-10-13T12:00:00Z';`);
+  }
 });

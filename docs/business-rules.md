@@ -247,7 +247,7 @@ Documentos novos recebem `interestOnly=true`. Snapshots novos também congelam e
 
 - `/relatorios/plataformas` consulta cadastro real, com pesquisa por nome/tag, ordenação por nome/tag e paginação. Admin lista todas; usuário lista somente plataformas próprias, inclusive inativas para histórico.
 - `/relatorios/financeiro` e seus detalhes/séries consolidam plataformas próprias ou uma plataforma autorizada. `/relatorios/plataformas/:tag/produto` usa o mesmo escopo. Sessão de integração não acessa esses endpoints.
-- Histórico pertence ao beneficiário original. Projeções exigem dono atual e marca exclusiva; sem marca, marcas conflitantes e líquido ausente não são estimados. Troca de dono não transfere receitas antigas. Datas seguem America/Sao_Paulo; limites inicial inclusivo e final exclusivo no dia seguinte.
+- Histórico pertence ao beneficiário original. Pagamentos e importações novos registram plataforma, dono e beneficiário no tracking; relatórios exigem correspondência desse snapshot com dono atual, permitindo vendas de vendedores sem transferir histórico ao novo dono. Legado exige beneficiário igual ao dono e marca exclusiva, ou vínculo exclusivo de link sem marca. Marcas conflitantes e líquido ausente não são estimados. Troca de dono não transfere receitas antigas. Datas seguem America/Sao_Paulo; limites inicial inclusivo e final exclusivo no dia seguinte.
 - Respostas do dono incluem bruto, taxas totais persistidas, líquido, estornos, saques e contagens. Nunca incluem custos da adquirente ou margens SimIntPay. Projeções canônicas antigas com composição interna exigem sessão administrativa; integrações explicitamente autorizadas mantêm seus contratos.
 - `/admin/relatorios/saldos-plataformas` é exclusivo do admin, com catálogo completo paginado por nome/tag. Saldo atribuído, disponível projetado e reservas vêm da mesma projeção no card/detalhe. Carteira do dono é informação separada; carteira compartilhada nunca é somada entre produtos. Histórico inativo é legível; operações financeiras continuam bloqueadas.
 - Valores monetários das novas APIs são centavos; saldo atribuído negativo permanece explícito e disponível tem piso zero. Projeção não autoriza saque nem recalcula carteira.
@@ -256,6 +256,13 @@ Documentos novos recebem `interestOnly=true`. Snapshots novos também congelam e
 ## Saldo restante após saque
 
 `saldoRestanteAposSaque` nas listagens administrativa e do usuário é snapshot persistido do disponível (saldo menos bloqueios). Solicitação com reserva registra disponível após bloquear o bruto; aprovação com débito local atualiza o snapshot com o disponível retornado pela carteira dentro da mesma transação. Movimentações posteriores não alteram o histórico. Histórico anterior, importações e operações sem reserva/débito confiável retornam `null`; saques recusados retornam `null`. Nenhum saldo histórico é estimado a partir da carteira atual. Migração somente preparada localmente, sem aplicação em banco.
+
+
+### Coleta dos relatórios próprios
+
+- Resumo, séries e transações compartilham a mesma projeção SQL e filtros. Ordens pagas de assinatura com plataforma exclusiva (catálogo do link ou comunidade vinculada) entram pelo beneficiário original; referência `subOrder` ou pagamento PIX já representado por transação impede duplicação, inclusive após estorno.
+- Taxas totais são bruto menos líquido persistido. Sem líquido, conserva-se `totalFee` e sinaliza-se falta do snapshot; nunca se inventa líquido com taxa atual. Importações novas preenchem taxa ausente pela diferença bruto/líquido.
+- Histórico de vendedor sem snapshot do dono não é atribuído retroativamente usando vínculo atual. Marcadores desconhecidos e histórico de integração sem atribuição segura sinalizam incompletude. Saques sem plataforma não são rateados; filtro de método aplica-se às vendas, não aos saques.
 
 
 ## Plataformas próprias e catálogo de adquirentes

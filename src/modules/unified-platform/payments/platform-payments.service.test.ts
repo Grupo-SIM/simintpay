@@ -136,3 +136,11 @@ describe('canonical card acquirer', () => {
     expect((await service.create(context, cardInput)).status).toBe('COMPLETED');
   });
 });
+
+test('merchant payments snapshot the platform owner without changing the beneficiary wallet', async () => {
+  const { service, prisma: base } = fixture();
+  const prisma = base as typeof base & { integrationMerchant: unknown };
+  prisma.integrationMerchant = { findUnique: mock(async () => ({ id: 'merchant', userId: 'seller', user: { isActive: true, isPurged: false } })) } as never;
+  await service.createForMerchant(context, 'external-merchant', input);
+  expect(prisma.transaction.create.mock.calls[0][0].data).toMatchObject({ userId: 'seller', tracking: { reportAttribution: { platformId: 'platform', ownerUserId: 'owner', beneficiaryUserId: 'seller' } } });
+});

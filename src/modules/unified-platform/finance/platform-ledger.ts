@@ -29,7 +29,10 @@ export class PlatformLedger {
         if (existing) return replay(existing);
         const user = await p.user.findUnique({ where: { id: data.userId }, select: { isActive: true, isPurged: true } });
         if (!user?.isActive || user.isPurged) throw new UnprocessableEntityException({ code: 'ACCOUNT_UNAVAILABLE' });
-        const row = await p.transaction.create({ data: { ...data, amount, netAmount: net, acquirer: platform.acquirer } });
+        const row = await p.transaction.create({ data: { ...data, amount, netAmount: net, totalFee: data.totalFee ?? amount.minus(net),
+          tracking: { ...(data.tracking && typeof data.tracking === 'object' && !Array.isArray(data.tracking) ? data.tracking : {}),
+            reportAttribution: { platformId: platform.id, ownerUserId: platform.ownerUserId, beneficiaryUserId: data.userId } },
+          acquirer: platform.acquirer } });
         if (creditWallet) {
           if (data.status !== 'COMPLETED') throw new BadRequestException('Crédito exige lançamento concluído');
           await p.wallet.upsert({ where: { userId: data.userId }, update: { balance: { increment: net }, updatedAt: new Date() }, create: { userId: data.userId, balance: net, lockedBalance: 0 } });

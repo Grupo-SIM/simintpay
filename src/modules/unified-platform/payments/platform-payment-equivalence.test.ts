@@ -29,7 +29,7 @@ function fixture(tag: string) {
 }
 function financial(row: any) {
   return { amount: new Prisma.Decimal(row.amount).toString(), net: new Prisma.Decimal(row.netAmount).toString(), total: new Prisma.Decimal(row.totalFee).toString(), gateway: new Prisma.Decimal(row.domFee).toString(), fee: new Prisma.Decimal(row.platformFee).toString(),
-    status: row.status, userId: row.userId, method: row.paymentMethod, installments: row.installments, acquirer: row.acquirer, paymentId: row.domPaymentId };
+    tracking: row.tracking, status: row.status, userId: row.userId, method: row.paymentMethod, installments: row.installments, acquirer: row.acquirer, paymentId: row.domPaymentId };
 }
 
 describe('Legacy and canonical payment execution equivalence', () => {

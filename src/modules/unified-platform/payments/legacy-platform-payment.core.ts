@@ -106,7 +106,7 @@ export class LegacyPlatformPaymentCore {
     return description?.trim() || (this.tag === 'ATLAS' ? 'HOSTING Compra Atlas Hosting' : 'Pagamento PIX');
   }
 
-  private async assertPlatformOwner(userId: string): Promise<void> {
+  private async assertPlatformOwner(userId: string) {
     const platform = await this.prisma.platform.findUnique({ where: { tag: this.tag }, include: { owner: true } });
     if (!platform) throw new NotFoundException('Plataforma não cadastrada');
     if (!platform.isActive || !platform.owner.isActive || platform.owner.isPurged) throw new ForbiddenException('Plataforma ou dono indisponível');
@@ -116,6 +116,7 @@ export class LegacyPlatformPaymentCore {
       if (!merchant?.user.isActive || merchant.user.isPurged || merchant.userId !== userId || !binding?.url?.split(',').map(key => key.trim()).includes(merchant.integrationKey)) throw new ForbiddenException('Comerciante fora da plataforma');
     } else if (platform.ownerUserId !== userId) throw new ForbiddenException('Plataforma pertence a outro dono');
     if (platform.acquirer !== 'DOM') throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'legacy.dom-checkout' });
+    return platform;
   }
 
   private get domOrigin(): string {
@@ -157,7 +158,7 @@ export class LegacyPlatformPaymentCore {
         throw new BadRequestException('Nome deve ter pelo menos 2 caracteres');
       }
 
-      await this.assertPlatformOwner(userId);
+      const platform = await this.assertPlatformOwner(userId);
       const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, this.tag), body.price, 'PIX');
       const price = financialQuote?.totalAmount ?? body.price;
       const liquidez = this.config.saque.fatorLiquidez;
@@ -177,6 +178,7 @@ export class LegacyPlatformPaymentCore {
 
       const transaction = await new PlatformPaymentExecution(this.prisma).reserve({
           userId,
+          tracking: { reportAttribution: { platformId: platform.id, ownerUserId: platform.ownerUserId, beneficiaryUserId: userId } },
           ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
           amount: price,
           status: TransactionStatus.DRAFT,
@@ -260,7 +262,7 @@ export class LegacyPlatformPaymentCore {
         throw new BadRequestException('Preço deve ser maior que zero');
       }
 
-      await this.assertPlatformOwner(userId);
+      const platform = await this.assertPlatformOwner(userId);
       const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, this.tag), body.price, 'CREDIT_CARD', body.installments);
       const price = financialQuote?.totalAmount ?? body.price;
       const liquidezCC = this.config.saque.fatorLiquidez;
@@ -280,6 +282,7 @@ export class LegacyPlatformPaymentCore {
 
       const transaction = await new PlatformPaymentExecution(this.prisma).reserve({
           userId,
+          tracking: { reportAttribution: { platformId: platform.id, ownerUserId: platform.ownerUserId, beneficiaryUserId: userId } },
           ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
           amount: price,
           status: TransactionStatus.DRAFT,

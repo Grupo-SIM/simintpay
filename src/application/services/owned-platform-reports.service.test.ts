@@ -46,7 +46,7 @@ test('scope exact marker and original owner; stable database pagination', async 
   const { db, service } = fixture();
   await service.transactionDetails(user, { platform: 'OWN', page: '3', pageSize: '10', startDate: '2026-10-01', endDate: '2026-10-19', paymentMethod: 'PIX' });
   const sql = db.$queryRaw.mock.calls[0][0];
-  expect(sql.text).toContain('p."ownerUserId" = t."userId"'); expect(sql.text).toContain('SELECT DISTINCT'); expect(sql.text).toContain('ARRAY[p.tag]');
+  expect(sql.text).toContain('p."ownerUserId" = t."userId"'); expect(sql.text).toContain('reportAttribution'); expect(sql.text).toContain('SELECT DISTINCT'); expect(sql.text).toContain('ARRAY[p.tag]');
   expect(sql.text).toContain('ORDER BY "createdAt" DESC, id ASC LIMIT');
   expect(sql.values).toContain('p'); expect(sql.values).toContain('PIX'); expect(sql.values.slice(-2)).toEqual([10, 20]);
   expect(sql.values.some((v: unknown) => v instanceof Date && v.toISOString() === '2026-10-20T03:00:00.000Z')).toBe(true);

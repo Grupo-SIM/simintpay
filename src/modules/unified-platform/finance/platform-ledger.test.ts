@@ -62,3 +62,12 @@ test('ownership transfer invalidates canonical import context', async () => {
   await expect(ledger.record('PAGATG', input, true, 'old-owner')).rejects.toThrow();
   expect(p.transaction.create).not.toHaveBeenCalled();
 });
+
+test('imports persist owner attribution and fees from original gross/net amounts', async () => {
+  const { p, ledger } = fixture();
+  p.platform.findUnique.mockImplementation(async () => ({ id: 'platform', ownerUserId: 'owner', isActive: true, acquirer: 'DOM', owner: { isActive: true } }));
+  await ledger.record('PAGATG', input);
+  const data = p.transaction.create.mock.calls[0][0].data;
+  expect(data.totalFee.toString()).toBe('0.5');
+  expect(data.tracking).toEqual({ reportAttribution: { platformId: 'platform', ownerUserId: 'owner', beneficiaryUserId: 'seller' } });
+});

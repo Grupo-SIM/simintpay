@@ -80,7 +80,7 @@ export class PlatformPaymentsService {
     } : adapter.fees(amount, rates, cardAcquirer ? input.card!.installments : undefined);
     try {
       await new PlatformPaymentExecution(this.prisma).reserve({
-        id, userId: financialUserId, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...financialFields,
+        id, userId: financialUserId, tracking: { reportAttribution: { platformId: platform.id, ownerUserId: platform.ownerUserId, beneficiaryUserId: financialUserId } }, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...financialFields,
         status: 'DRAFT', paymentMethod: input.paymentMethod, acquirer: platform.acquirer,
         description, customerName: input.customer.name, customerEmail: input.customer.email,
         customerDocument: input.customer.document, customerPhone: input.customer.phone ?? '', installments: cardAcquirer ? input.card!.installments : 1,

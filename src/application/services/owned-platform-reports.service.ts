@@ -3,6 +3,7 @@ import { Prisma, type PaymentMethod, type Acquirer } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import { platformBalanceRules } from '../../modules/platform-core/platform-balance.adapter';
+import { ownedReportSource, reportUnattributedSource } from './owned-report-source';
 import { PlatformAttributedBalance } from '../../modules/platform-core/platform-attributed-balance';
 
 type Filters = { platform?: string; startDate?: string; endDate?: string; paymentMethod?: string; page?: string; pageSize?: string; search?: string };
@@ -99,22 +100,8 @@ export class OwnedPlatformReportsService {
     });
   }
 
-  private markerTags() {
-    return Prisma.sql`ARRAY(SELECT DISTINCT CASE WHEN upper(replace(m[1], '_', '-')) = 'EBOOKSIM' THEN 'EBOOK' ELSE upper(replace(m[1], '_', '-')) END
-      FROM regexp_matches(coalesce(t.description, ''), ${String.raw`\[TENANT:([^\]]+)\]`}, 'gi') m)`;
-  }
-
-  /** Exact, exclusive marker plus original beneficiary. Never use owner-wide balances as product revenue. */
   private transactions(scope: Scope, filters: Filters) {
-    const { start, end } = reportPeriod(filters);
-    const ids = scope.map(p => p.id);
-    return Prisma.sql`SELECT t.*, p.tag AS "platformTag" FROM "Transaction" t
-      JOIN "Platform" p ON p."ownerUserId" = t."userId"
-      AND ${this.markerTags()} = ARRAY[p.tag]
-      WHERE ${ids.length ? Prisma.sql`p.id IN (${Prisma.join(ids)})` : Prisma.sql`false`}
-      ${start ? Prisma.sql`AND t."createdAt" >= ${start}` : Prisma.empty}
-      ${end ? Prisma.sql`AND t."createdAt" < ${end}` : Prisma.empty}
-      ${filters.paymentMethod ? Prisma.sql`AND t."paymentMethod"::text = ${filters.paymentMethod}` : Prisma.empty}`;
+    return ownedReportSource(scope, { ...reportPeriod(filters), paymentMethod: filters.paymentMethod });
   }
 
   private async withdrawals(db: Database, scope: Scope, filters: Filters) {
@@ -129,13 +116,7 @@ export class OwnedPlatformReportsService {
   private async attributionGaps(db: Database, scope: Scope, filters: Filters) {
     const { start, end } = reportPeriod(filters);
     const owners = [...new Set(scope.map(p => p.ownerUserId))];
-    const rows = await db.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-      SELECT count(*) AS count FROM "Transaction" t
-      WHERE ${owners.length ? Prisma.sql`t."userId" IN (${Prisma.join(owners)})` : Prisma.sql`false`}
-      ${start ? Prisma.sql`AND t."createdAt" >= ${start}` : Prisma.empty}
-      ${end ? Prisma.sql`AND t."createdAt" < ${end}` : Prisma.empty}
-      ${filters.paymentMethod ? Prisma.sql`AND t."paymentMethod"::text = ${filters.paymentMethod}` : Prisma.empty}
-      AND cardinality(${this.markerTags()}) <> 1`);
+    const rows = await db.$queryRaw<{ count: bigint }[]>(reportUnattributedSource(scope, { start, end, paymentMethod: filters.paymentMethod }));
     const withdrawals = await db.withdrawRequest.count({ where: { userId: { in: owners }, platform: null,
       ...(start || end ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lt: end } : {}) } } : {}),
     } });
