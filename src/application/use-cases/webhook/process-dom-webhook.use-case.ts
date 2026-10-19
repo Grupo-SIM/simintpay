@@ -1,3 +1,6 @@
+import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
+import { loadChargePolicy, quoteReportedPos } from '../../../modules/financial-policy/financial-charge';
+import { isPhysicalDebit } from '../../helpers/dom-fee-estimate.helper';
 import { creditedSettlementAmount, bindLinkPayment, linkChargeReference, settleFinalNet } from '../../../modules/platform-core/link-settlement';
 import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
@@ -1279,13 +1282,16 @@ export class ProcessDomWebhookUseCase {
     // Mesmo modelo do sync-maquinetas — os dois caminhos precisam gravar igual.
     const amountReais = data.amount / 100;
     const platformTag = matches[0];
-    const fees = calculateMaquinetaFees(
+    let fees = calculateMaquinetaFees(
       platformTag,
       amountReais,
       data.payment_method,
       Number(data.installments ?? 1),
       data.card_brand,
     );
+    const financialQuote = data.created_at ? quoteReportedPos(await loadChargePolicy(this.prisma, platformTag, new Date(data.created_at)), amountReais,
+      isPhysicalDebit(data.payment_method, data.card_brand) ? 'DEBIT_CARD' : /card|credit/i.test(data.payment_method ?? '') ? 'CREDIT_CARD' : 'PIX', Number(data.installments ?? 1)) : null;
+    if (financialQuote) fees = { simIntRate: 0, platformFeeAmt: financialQuote.platformProfit, netAmount: financialQuote.netAmount, domFeeAmt: financialQuote.domFeeAmount };
     const amountDec = new Prisma.Decimal(amountReais);
     const netDec = new Prisma.Decimal(fees.netAmount);
 
@@ -1294,6 +1300,7 @@ export class ProcessDomWebhookUseCase {
         data: {
           userId,
           domPaymentId: data.id,
+          ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
           amount: amountDec,
           netAmount: netDec,
           totalFee: new Prisma.Decimal(fees.domFeeAmt + fees.platformFeeAmt),
@@ -1383,6 +1390,7 @@ export class ProcessDomWebhookUseCase {
     });
 
     if (!order) return false;
+    if (domStatus === 'paid' && order.financialSnapshot) await settleFinancialSubscription(this.prisma, { snapshot: order.financialSnapshot, amount: order.amountCharged, paymentId: domPixPaymentId, userId: order.userId, method: 'PIX', name: order.subscriptionLink.name, customerName: order.customerName, customerEmail: order.customerEmail, customerDocument: order.customerDocument });
 
     this.logger.log(
       `[DomWebhook] SubscriptionLinkOrder ${order.id} encontrada para domPixPaymentId=${domPixPaymentId}, status=${domStatus}`,
@@ -1480,7 +1488,7 @@ export class ProcessDomWebhookUseCase {
     }
 
     // AREAFLIX: líquido do vendedor = valor − % do método − taxa fixa (taxas do painel)
-    const isAfSubLink = isAreaflixLink({
+    const isAfSubLink = !order.financialSnapshot && isAreaflixLink({
       webhookUrl: order.subscriptionLink.webhookUrl,
       platformTag: (order.subscriptionLink as any).platformTag,
       plataformas: (order.subscriptionLink as any).plataformas,

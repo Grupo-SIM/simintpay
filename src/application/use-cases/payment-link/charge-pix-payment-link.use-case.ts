@@ -1,3 +1,4 @@
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 import { randomUUID } from 'node:crypto';
 import { persistLinkCharge } from '../../../modules/platform-core/link-settlement';
@@ -154,12 +155,13 @@ export class ChargePixPaymentLinkUseCase {
       ?? (platformTag === 'GLOBAL' && input.customerEmail?.trim()
         ? buildClientTaxaTag(input.customerEmail)
         : platformTag);
-    const fees = calculatePaymentLinkFees(pricedLink, 1, taxaTag, true);
+    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, platformTag), chargedBase, 'PIX');
+    const fees = financialQuote ?? calculatePaymentLinkFees(pricedLink, 1, taxaTag, true);
     const { totalAmount, domFeeAmount } = fees;
     let { netAmount } = fees;
 
     // AREAFLIX: líquido do vendedor = valor − % PIX − taxa fixa (taxas do painel)
-    if (isAreaflix) {
+    if (isAreaflix && !financialQuote) {
       netAmount = calculateAreaflixSellerNet(totalAmount, 'PIX');
     }
 
@@ -174,6 +176,7 @@ export class ChargePixPaymentLinkUseCase {
       ? `${link.description ?? link.title} | ${funnel.offer.type === 'UPSELL' ? 'Upsell' : 'Downsell'}: ${funnel.offer.title}`
       : `${link.description ?? link.title}${offersDescriptionSuffix(bumps)}`;
     const snapshot = {
+        ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
         userId: effectiveUserId,
         amount: new Prisma.Decimal(totalAmount),
         netAmount: new Prisma.Decimal(netAmount),

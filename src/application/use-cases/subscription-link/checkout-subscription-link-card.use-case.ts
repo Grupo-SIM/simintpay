@@ -1,3 +1,5 @@
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
@@ -41,6 +43,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
     private readonly communities: CommunityManagementService,
     private readonly emailService: EmailService,
     private readonly voucherService: VoucherService,
+    private readonly prisma: PrismaService,
   ) { }
 
   async execute(input: { code: string; dto: CheckoutSubscriptionLinkCardDto }) {
@@ -91,8 +94,10 @@ export class CheckoutSubscriptionLinkCardUseCase {
     } else {
       platformFeeRate = 0;
     }
-    const platformFeeAmount = Math.round(base * platformFeeRate * 100) / 100;
-    const initialAmountCharged = base + platformFeeAmount;
+    let platformFeeAmount = Math.round(base * platformFeeRate * 100) / 100;
+    const context = await loadChargePolicy(this.prisma, selectedTag);
+    const activated = context.policy.document.lanes[`${context.acquirer}/CREDIT_CARD/ONLINE/1`]?.active;
+    const initialAmountCharged = activated ? base : base + platformFeeAmount;
 
     let amountCharged = initialAmountCharged;
 
@@ -111,6 +116,14 @@ export class CheckoutSubscriptionLinkCardUseCase {
       }
     }
 
+    // New financial subscriptions get a new gateway plan, preserving existing subscriptions and their prices.
+    const financialQuote = quoteFinancialCharge(context, amountCharged, 'CREDIT_CARD');
+    if (financialQuote) {
+      amountCharged = financialQuote.totalAmount; platformFeeAmount = financialQuote.totalFeeAmount;
+      const frequency = mapPlanFrequencyToDom(link.frequencyType);
+      const plan = await this.gateway.createPlan(domToken, { price: amountCharged, description: link.name, ...frequency, repetitions: 0, retry_days: 3, webhookUrl: link.webhookUrl ?? undefined, redirectUrl: link.redirectUrl ?? undefined });
+      domPlanId = plan.id;
+    }
     const cleanDoc = input.dto.customerDocument.replace(/\D/g, '');
     const cleanPhone = (input.dto.customerPhone ?? '').replace(/\D/g, '');
 
@@ -154,6 +167,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
       domSubscriptionId: domResult.id,
       amountCharged,
       platformFeeAmount,
+      ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
       currentPeriodEndsAt: advanceSubscriptionPeriod(new Date(), link.frequencyType),
     });
 
@@ -202,13 +216,13 @@ export class CheckoutSubscriptionLinkCardUseCase {
       paymentMethod: 'CREDIT_CARD',
       frequencyType: link.frequencyType,
       amountCharged,
-      netAmount: isAreaflixLink({
+      netAmount: financialQuote?.netAmount ?? (isAreaflixLink({
         webhookUrl: link.webhookUrl,
         platformTag: (link as any).platformTag,
         plataformas: (link as any).plataformas,
       })
         ? calculateAreaflixSellerNet(amountCharged, 'CREDIT_CARD', 1)
-        : Number((amountCharged - platformFeeAmount).toFixed(2)),
+        : Number((amountCharged - platformFeeAmount).toFixed(2))),
       orderId: order.id,
       linkId: link.id,
       ...splitDocument(cleanDoc),

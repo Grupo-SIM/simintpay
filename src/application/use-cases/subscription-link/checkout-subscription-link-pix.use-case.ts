@@ -1,3 +1,5 @@
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
@@ -35,6 +37,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly communities: CommunityManagementService,
     private readonly voucherService: VoucherService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(input: { code: string; dto: CheckoutSubscriptionLinkPixDto }) {
@@ -100,6 +103,8 @@ export class CheckoutSubscriptionLinkPixUseCase {
       }
     }
 
+    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, selectedTag), amountCharged, 'PIX');
+    if (financialQuote) { amountCharged = financialQuote.totalAmount; platformFeeAmount = financialQuote.totalFeeAmount; }
     const cleanDoc = input.dto.customerDocument.replace(/\D/g, '');
     const documentType = cleanDoc.length === 14 ? 'CNPJ' : 'CPF';
     const cleanPhone = (input.dto.customerPhone ?? '').replace(/\D/g, '');
@@ -133,6 +138,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
       pixExpire,
       amountCharged,
       platformFeeAmount,
+      ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
     });
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });

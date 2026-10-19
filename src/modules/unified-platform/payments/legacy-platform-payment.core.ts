@@ -1,3 +1,4 @@
+import { loadChargePolicy, quoteFinancialCharge } from '../../financial-policy/financial-charge';
 import { PlatformPaymentLookup } from './platform-payment-lookup';
 import { postDomCheckout } from './dom-checkout.acquirer';
 import { PlatformPaymentExecution } from './platform-payment-execution';
@@ -157,12 +158,13 @@ export class LegacyPlatformPaymentCore {
       }
 
       await this.assertPlatformOwner(userId);
-      const price = body.price;
+      const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, this.tag), body.price, 'PIX');
+      const price = financialQuote?.totalAmount ?? body.price;
       const liquidez = this.config.saque.fatorLiquidez;
       const mdrPix = this.config.mdr.pix;
-      const amountWithoutAllFee = parseFloat((price * liquidez).toFixed(2));
-      const totalFees = parseFloat((this.tag === 'BOSQUE' || this.tag === 'RENOVADA' ? price - amountWithoutAllFee : price * (1 - liquidez)).toFixed(2));
-      const domFee = parseFloat((price * mdrPix).toFixed(2));
+      const amountWithoutAllFee = financialQuote?.netAmount ?? parseFloat((price * liquidez).toFixed(2));
+      const totalFees = financialQuote?.totalFeeAmount ?? parseFloat((this.tag === 'BOSQUE' || this.tag === 'RENOVADA' ? price - amountWithoutAllFee : price * (1 - liquidez)).toFixed(2));
+      const domFee = financialQuote?.domFeeAmount ?? parseFloat((price * mdrPix).toFixed(2));
       const platformFeeCalc = parseFloat((totalFees - domFee).toFixed(2));
 
       const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
@@ -174,6 +176,7 @@ export class LegacyPlatformPaymentCore {
 
       const transaction = await new PlatformPaymentExecution(this.prisma).reserve({
           userId,
+          ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
           amount: price,
           status: TransactionStatus.DRAFT,
           netAmount: amountWithoutAllFee,
@@ -257,12 +260,13 @@ export class LegacyPlatformPaymentCore {
       }
 
       await this.assertPlatformOwner(userId);
-      const price = body.price;
+      const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, this.tag), body.price, 'CREDIT_CARD', body.installments);
+      const price = financialQuote?.totalAmount ?? body.price;
       const liquidezCC = this.config.saque.fatorLiquidez;
       const mdrCC = this.config.mdr.cartao[body.installments] ?? this.config.mdr.cartao[1];
-      const amountWithoutAllFee = parseFloat((price * liquidezCC).toFixed(2));
-      const totalFeesFinal = parseFloat((this.tag === 'BOSQUE' || this.tag === 'RENOVADA' ? price - amountWithoutAllFee : price * (1 - liquidezCC)).toFixed(2));
-      const domFee = parseFloat((price * mdrCC).toFixed(2));
+      const amountWithoutAllFee = financialQuote?.netAmount ?? parseFloat((price * liquidezCC).toFixed(2));
+      const totalFeesFinal = financialQuote?.totalFeeAmount ?? parseFloat((this.tag === 'BOSQUE' || this.tag === 'RENOVADA' ? price - amountWithoutAllFee : price * (1 - liquidezCC)).toFixed(2));
+      const domFee = financialQuote?.domFeeAmount ?? parseFloat((price * mdrCC).toFixed(2));
       const platformFeeCC = parseFloat((totalFeesFinal - domFee).toFixed(2));
 
       const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
@@ -274,6 +278,7 @@ export class LegacyPlatformPaymentCore {
 
       const transaction = await new PlatformPaymentExecution(this.prisma).reserve({
           userId,
+          ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
           amount: price,
           status: TransactionStatus.DRAFT,
           netAmount: amountWithoutAllFee,

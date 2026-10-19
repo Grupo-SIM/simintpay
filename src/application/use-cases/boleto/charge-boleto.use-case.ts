@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { persistLinkCharge } from '../../../modules/platform-core/link-settlement';
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
@@ -93,11 +96,25 @@ export class ChargeBoletoUseCase {
         ? buildClientTaxaTag(input.customerEmail)
         : platformTag);
 
-    const fees = calculateBoletoFees(base, taxaTag);
+    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, platformTag), base, 'BOLETO');
+    const fees = financialQuote ?? calculateBoletoFees(base, taxaTag);
+    const chargeId = randomUUID();
+    const snapshot = {
+      userId: boleto.userId, amount: new Prisma.Decimal(financialQuote?.totalAmount ?? base), netAmount: new Prisma.Decimal(fees.netAmount),
+      paymentMethod: PaymentMethod.BOLETO, totalFee: new Prisma.Decimal(fees.platformFeeTotal),
+      domFee: new Prisma.Decimal(fees.domFeeAmount), platformFee: new Prisma.Decimal(fees.platformProfit),
+      description: platformTag !== 'GLOBAL' ? `${boleto.description ?? boleto.title} [TENANT:${platformTag}]` : (boleto.description ?? boleto.title),
+      customerName: input.customerName, customerEmail: input.customerEmail, customerDocument: document, customerPhone: phone || null,
+      ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
+    };
+    if (financialQuote) await this.prisma.$transaction(async tx => {
+      await tx.wallet.upsert({ where: { userId: boleto.userId }, update: {}, create: { userId: boleto.userId, balance: 0 } });
+      await tx.transaction.create({ data: { ...snapshot, id: chargeId, status: 'DRAFT', settlementBasis: 'FINAL_NET' } });
+    });
 
     const result = await this.gateway.chargeBoletoForLink(domToken, {
-      amount: base,
-      description: boleto.title,
+      amount: financialQuote?.totalAmount ?? base,
+      description: financialQuote ? `${snapshot.description} [LINK_CHARGE:${chargeId}]` : boleto.title,
       customerName: input.customerName,
       customerEmail: input.customerEmail,
       customerDocument: document,
@@ -132,7 +149,7 @@ export class ChargeBoletoUseCase {
       await this.prisma.wallet.create({ data: { userId: boleto.userId, balance: 0 } });
     }
 
-    const savedTx = await this.prisma.transaction.upsert({
+    const savedTx = financialQuote ? await this.prisma.$transaction(tx => persistLinkCharge(tx, { ...snapshot, domPaymentId: result.id }, TransactionStatus.PENDING, chargeId)) : await this.prisma.transaction.upsert({
       where: { domPaymentId: result.id },
       update: {
         status: TransactionStatus.PENDING,
@@ -177,7 +194,7 @@ export class ChargeBoletoUseCase {
       barcode: result.barcode,
       digitableLine: result.digitableLine,
       dueDate: result.dueDate,
-      amount: base,
+      amount: financialQuote?.totalAmount ?? base,
     };
   }
 }

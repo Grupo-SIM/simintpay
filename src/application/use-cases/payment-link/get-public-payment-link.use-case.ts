@@ -1,3 +1,4 @@
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
@@ -87,6 +88,7 @@ export class GetPublicPaymentLinkUseCase {
     // Validate platform lifecycle without resolving another platform from user identity.
     platformGatewayToken(platformTag, 'public-global');
 
+    const financialContext = await loadChargePolicy(this.prisma, platformTag);
     const offers = await listLinkOffers(this.prisma, link.id, true);
     const selectedBumps = await resolveOrderBumps(this.prisma, link.id, orderBumpIds);
     const chargedBase = Number(link.amount) + sumOffers(selectedBumps);
@@ -95,7 +97,7 @@ export class GetPublicPaymentLinkUseCase {
       const offer = offers.find(o => o.type === type);
       if (!offer) return null;
       // Upsell/downsell no cartão são cobrados à vista (1x).
-      const card = calculatePaymentLinkFees({ ...link, amount: offer.price }, 1, platformTag);
+      const card = quoteFinancialCharge(financialContext, Number(offer.price), 'CREDIT_CARD') ?? calculatePaymentLinkFees({ ...link, amount: offer.price }, 1, platformTag);
       return { ...toOfferView(offer), valorCartao: card.totalAmount };
     };
 
@@ -103,24 +105,26 @@ export class GetPublicPaymentLinkUseCase {
     const opcoesParcelas: InstallmentOption[] = [];
 
     for (let i = 1; i <= maxInstallments; i++) {
-      const f = calculatePaymentLinkFees(pricedLink, i, platformTag);
+      const financialQuote = quoteFinancialCharge(financialContext, chargedBase, 'CREDIT_CARD', i);
+      const f = financialQuote ?? calculatePaymentLinkFees(pricedLink, i, platformTag);
       opcoesParcelas.push({
         parcelas: i,
         taxaJurosPlatforma: f.platformFeeRate,
         valorJurosPlatforma: f.interestAmount,
         taxaDom: f.domFeeRate * 100,
-        valorTaxaDom: f.domFeeAmount,
+        valorTaxaDom: financialQuote ? 0 : f.domFeeAmount,
         valorTotal: f.totalAmount,
         valorParcela: f.installmentAmount,
         temJuros: f.platformFeeRate > 0,
       });
     }
 
-    const debitCalc = calculateDebitFees(pricedLink, platformTag);
+    const debitQuote = quoteFinancialCharge(financialContext, chargedBase, 'DEBIT_CARD');
+    const debitCalc = debitQuote ?? calculateDebitFees(pricedLink, platformTag);
 
     // Para PIX, o cliente paga o valor base sem acréscimo de taxa de crédito.
     // A taxa de processamento PIX (MDR_PIX) fica do lado do vendedor, igual ao débito.
-    const valorPix = chargedBase;
+    const valorPix = quoteFinancialCharge(financialContext, chargedBase, 'PIX')?.totalAmount ?? chargedBase;
 
     return {
       id: link.id,
@@ -137,14 +141,14 @@ export class GetPublicPaymentLinkUseCase {
       redirectUrl: (link as any).redirectUrl ?? null,
       opcoesParcelas,
       valorPix,
-      valorDebito: chargedBase,
+      valorDebito: debitQuote?.totalAmount ?? chargedBase,
       platformTag,
       debitFeePercent: debitCalc.platformFeePercent,
       debitFeeFixed: debitCalc.platformFeeFixed,
       debitTaxaDomPercent: debitCalc.domFeePercent,
       debitTaxaDomFixed: debitCalc.domFeeFixed,
-      debitTotalFee: debitCalc.totalFeeAmount,
-      debitNetAmount: debitCalc.netAmount,
+      debitTotalFee: debitQuote ? 0 : debitCalc.totalFeeAmount,
+      debitNetAmount: debitQuote ? 0 : debitCalc.netAmount,
       valorComOfertas: chargedBase,
       orderBumpsSelecionados: selectedBumps.map(o => o.id),
       ofertas: {

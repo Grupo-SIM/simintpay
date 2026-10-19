@@ -1,3 +1,4 @@
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
@@ -188,7 +189,7 @@ export class PixPlanService {
       });
     }
 
-    const amount = body.price;
+    let amount = body.price;
     // Usa taxas configuradas para o tenant do plano; fallback para PAGATG se não identificado
     const tenantTag = planTenantTag ?? 'GLOBAL';
     const domToken = platformGatewayToken(tenantTag, process.env.DOM_TOKEN);
@@ -198,14 +199,17 @@ export class PixPlanService {
       ? buildClientTaxaTag(body.email)
       : tenantTag;
     const mdrPix = getPlatformTaxaEffective(taxaTag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
-    const netAmount = Number(calculateSellerNetValue(amount, 1, taxaTag, 'pix').toFixed(2));
+    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, tenantTag), amount, 'PIX');
+    amount = financialQuote?.totalAmount ?? amount;
+    const netAmount = financialQuote?.netAmount ?? Number(calculateSellerNetValue(amount, 1, taxaTag, 'pix').toFixed(2));
     const totalFee = parseFloat((amount - netAmount).toFixed(2));
-    const domFee = parseFloat((amount * mdrPix).toFixed(2));
+    const domFee = financialQuote?.domFeeAmount ?? parseFloat((amount * mdrPix).toFixed(2));
     const platformFee = parseFloat((totalFee - domFee).toFixed(2));
 
     const transaction = await this.prisma.transaction.create({
       data: {
         userId: effectiveUserId,
+        ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
         amount: new Prisma.Decimal(amount),
         netAmount: new Prisma.Decimal(netAmount),
         status: 'DRAFT',

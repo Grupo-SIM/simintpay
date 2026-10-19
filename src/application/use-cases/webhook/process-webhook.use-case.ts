@@ -1,3 +1,4 @@
+import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import { creditedSettlementAmount, bindLinkPayment, linkChargeReference, settleFinalNet } from '../../../modules/platform-core/link-settlement';
 import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
@@ -436,6 +437,7 @@ export class ProcessWebhookUseCase {
     });
 
     if (!order) return false;
+    if (domStatus === 'paid' && order.financialSnapshot) await settleFinancialSubscription(this.prisma, { snapshot: order.financialSnapshot, amount: order.amountCharged, paymentId: domPixPaymentId, userId: order.userId, method: 'PIX', name: order.subscriptionLink.name, customerName: order.customerName, customerEmail: order.customerEmail, customerDocument: order.customerDocument });
 
     this.logger.log(`[WEBHOOK] Found SubscriptionLinkOrder ${order.id} for domPixPaymentId ${domPixPaymentId}, status=${domStatus}`);
 

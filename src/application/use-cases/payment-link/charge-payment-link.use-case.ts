@@ -1,3 +1,4 @@
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 import { randomUUID } from 'node:crypto';
 import { persistLinkCharge } from '../../../modules/platform-core/link-settlement';
@@ -179,7 +180,9 @@ export class ChargePaymentLinkUseCase {
     // Para débito: comprador paga valor base; taxas (DOM 3,49%+R$1 + plataforma) saem do líquido do vendedor.
     // Para PIX: comprador paga exatamente o valor base, sem juros de parcelamento.
     // Para crédito: cálculo normal com juros repassados ao comprador.
-    const fees = isDebit
+    const financialContext = await loadChargePolicy(this.prisma, platformTag);
+    const financialQuote = quoteFinancialCharge(financialContext, chargedBase, isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD', installments);
+    const fees = financialQuote ?? (isDebit
       ? (() => {
           const d = calculateDebitFees(pricedLink, taxaTag);
           return {
@@ -188,7 +191,7 @@ export class ChargePaymentLinkUseCase {
             domFeeAmount: d.domFeeAmount + d.platformFeeAmount, // total de taxas sobre o vendedor
           };
         })()
-      : calculatePaymentLinkFees(pricedLink, installments, taxaTag, isPix, false);
+      : calculatePaymentLinkFees(pricedLink, installments, taxaTag, isPix, false));
     const { totalAmount, domFeeAmount } = fees;
     let { netAmount } = fees;
 
@@ -197,7 +200,7 @@ export class ChargePaymentLinkUseCase {
       webhookUrl: (link as any).webhookUrl,
       plataformas: (link as any).plataformas,
     });
-    if (isAfLink) {
+    if (isAfLink && !financialQuote) {
       netAmount = calculateAreaflixSellerNet(
         totalAmount,
         isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
@@ -220,6 +223,7 @@ export class ChargePaymentLinkUseCase {
       ? `${link.description ?? link.title} | ${funnel.offer.type === 'UPSELL' ? 'Upsell' : 'Downsell'}: ${funnel.offer.title}`
       : `${link.description ?? link.title}${offersDescriptionSuffix(bumps)}`;
     const snapshot = {
+        ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
         userId: effectiveUserId,
         amount: new Prisma.Decimal(totalAmount),
         netAmount: new Prisma.Decimal(netAmount),

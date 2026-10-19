@@ -18,7 +18,7 @@ function fixture(tag: string) {
   process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = 'a'.repeat(64);
   let stored: any;
   const platform = { id: 'p', tag, ownerUserId: 'owner', isActive: true, acquirer: 'DOM', owner: { isActive: true, isPurged: false }, integrations: [{ key: 'DOM_TOKEN', encryptedValue: encryptPlatformSecret('test-only') }] };
-  const prisma = { platform: { findUnique: async () => platform }, platformTaxaOverride: { findMany: async () => [] }, wallet: { findUnique: async () => ({ id: 'wallet' }), update: mock() },
+  const prisma = { financialPolicyRevision: { findMany: async () => [] }, platform: { findUnique: async () => platform }, platformTaxaOverride: { findMany: async () => [] }, wallet: { findUnique: async () => ({ id: 'wallet' }), update: mock() },
     transaction: {
       findUnique: async () => stored ?? null,
       create: mock(async ({ data }: any) => { stored = { id: 'legacy-payment', ...data }; return stored; }),

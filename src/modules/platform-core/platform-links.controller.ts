@@ -1,3 +1,4 @@
+import { loadChargePolicy, quoteFinancialCharge } from '../financial-policy/financial-charge';
 import { BadRequestException, Body, Controller, Get, Headers, Query, NotFoundException, Param, Patch, Post, Req, SetMetadata, UploadedFiles, UseGuards, UseInterceptors, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { FilesInterceptor } from '@nestjs/platform-express';
@@ -92,9 +93,12 @@ export class PlatformLinksController {
     return { files: results };
   }
   @Get('pricing/simulation') @SetMetadata('platform-operation', 'reports:read')
-  simulation(@Req() req: Request, @Query('amountCents') raw: string) {
+  async simulation(@Req() req: Request, @Query('amountCents') raw: string) {
     const cents = Number(raw);
     if (!Number.isSafeInteger(cents) || cents < 1499) throw new BadRequestException('x-amount-cents inválido');
+    const context = await loadChargePolicy(this.prisma, req.platformContext.tag);
+    const quotes = Array.from({ length: 12 }, (_, i) => quoteFinancialCharge(context, cents / 100, 'CREDIT_CARD', i + 1));
+    if (quotes.some(Boolean)) return { unit: 'cents', data: quotes.map((quote, i) => quote ? quote.financialSnapshot : { installments: i + 1, error: 'Contrato ainda não ativado' }) };
     return { unit: 'reais', data: Array.from({ length: 12 }, (_, i) => ({ installments: i + 1, ...calculatePaymentLinkFees({ amount: cents / 100, isStandalone: false } as unknown as PaymentLink, i + 1, req.platformContext.tag) })) };
   }
 }

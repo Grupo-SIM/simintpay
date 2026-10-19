@@ -1,3 +1,5 @@
+import { loadFinancialPolicy } from '../../financial-policy/financial-policy.service';
+import { quoteFinancialCharge } from '../../financial-policy/financial-charge';
 import { platformMerchant } from '../../platform-core/platform-merchant-lookup';
 import { PlatformPaymentLookup } from './platform-payment-lookup';
 import { PlatformPaymentExecution } from './platform-payment-execution';
@@ -59,7 +61,7 @@ export class PlatformPaymentsService {
     const amount = new Prisma.Decimal(input.amountCents).div(100);
     const existing = await this.prisma.transaction.findUnique({ where: { id } });
     if (existing) {
-      if (existing.userId !== financialUserId || (existing.paymentLinkId ?? undefined) !== input.linkId || !existing.amount.equals(amount) || existing.description !== description || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== input.paymentMethod) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
+      if (existing.userId !== financialUserId || (existing.paymentLinkId ?? undefined) !== input.linkId || !(existing.financialSnapshot ? new Prisma.Decimal((existing.financialSnapshot as { originalCents: number }).originalCents).div(100).equals(amount) : existing.amount.equals(amount)) || existing.description !== description || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== input.paymentMethod) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       if (!existing.externalPaymentId) throw new ConflictException({ code: 'PAYMENT_PROCESSING', transactionId: id });
       return this.result(existing);
     }
@@ -68,9 +70,17 @@ export class PlatformPaymentsService {
     const rates: Record<string, number> = {};
     for (const row of overrides.filter(row => row.tag === 'GLOBAL')) rates[row.key] = row.value;
     for (const row of overrides.filter(row => row.tag !== 'GLOBAL')) rates[row.key] = row.value;
+    const financialQuote = quoteFinancialCharge({ policy: await loadFinancialPolicy(this.prisma, platform.tag), acquirer: platform.acquirer, tag: platform.tag }, amount.toNumber(), input.paymentMethod as 'PIX' | 'CREDIT_CARD', cardAcquirer ? input.card!.installments : 1);
+    const chargeAmount = new Prisma.Decimal(financialQuote?.totalAmount ?? amount);
+    const chargeCents = chargeAmount.mul(100).toNumber();
+    const financialFields = financialQuote ? {
+      amount: chargeAmount, netAmount: new Prisma.Decimal(financialQuote.netAmount), totalFee: new Prisma.Decimal(financialQuote.totalFeeAmount),
+      domFee: new Prisma.Decimal(financialQuote.domFeeAmount), platformFee: new Prisma.Decimal(financialQuote.platformProfit),
+      financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const,
+    } : adapter.fees(amount, rates, cardAcquirer ? input.card!.installments : undefined);
     try {
       await new PlatformPaymentExecution(this.prisma).reserve({
-        id, userId: financialUserId, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...adapter.fees(amount, rates, cardAcquirer ? input.card!.installments : undefined),
+        id, userId: financialUserId, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...financialFields,
         status: 'DRAFT', paymentMethod: input.paymentMethod, acquirer: platform.acquirer,
         description, customerName: input.customer.name, customerEmail: input.customer.email,
         customerDocument: input.customer.document, customerPhone: input.customer.phone ?? '', installments: cardAcquirer ? input.card!.installments : 1,
@@ -83,8 +93,8 @@ export class PlatformPaymentsService {
     // Frendz's current transport expects cents; DOM's expects reais.
     const { transaction: stored } = await new PlatformPaymentExecution(this.prisma).charge({
       transactionId: id,
-      charge: async () => cardAcquirer ? cardAcquirer.charge(token, { id, amountCents: input.amountCents, description: adapter.description(input.description), customer: input.customer, card: input.card! }) : this.gateways.byAcquirer(platform.acquirer as Acquirer).createPixCheckout(token, {
-        codExternal: id, amount: platform.acquirer === 'FRENDZ' ? input.amountCents : amount.toNumber(),
+      charge: async () => cardAcquirer ? cardAcquirer.charge(token, { id, amountCents: chargeCents, description: adapter.description(input.description), customer: input.customer, card: input.card! }) : this.gateways.byAcquirer(platform.acquirer as Acquirer).createPixCheckout(token, {
+        codExternal: id, amount: platform.acquirer === 'FRENDZ' ? chargeCents : chargeAmount.toNumber(),
         description: adapter.description(input.description), customerName: input.customer.name,
         customerEmail: input.customer.email, customerDocument: input.customer.document,
         customerPhone: input.customer.phone ?? '', documentType: input.customer.documentType,

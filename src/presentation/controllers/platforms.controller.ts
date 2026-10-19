@@ -1,3 +1,4 @@
+import type { SimulationInput } from '../../modules/financial-policy/financial-policy.service';
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PlatformsService } from '../../application/services/platforms.service';
@@ -24,6 +25,15 @@ export class PlatformsController {
   create(@CurrentUser() user: JwtPayload, @Body() body: { tag?: string; name?: string; ownerUserId?: string }) {
     return this.platforms.create(user, body);
   }
+
+  @Get(':tag/financial-policy')
+  financialPolicy(@Param('tag') tag: string, @CurrentUser() user: JwtPayload) { return this.platforms.financialPolicy(tag, user); }
+
+  @Patch(':tag/financial-policy')
+  saveFinancialPolicy(@Param('tag') tag: string, @CurrentUser() user: JwtPayload, @Body() body: unknown) { return this.platforms.saveFinancialPolicy(tag, user, body); }
+
+  @Post(':tag/financial-policy/simulation')
+  simulateFinancialPolicy(@Param('tag') tag: string, @CurrentUser() user: JwtPayload, @Body() body: SimulationInput) { return this.platforms.simulateFinancialPolicy(tag, user, body); }
 
   @Patch(':tag')
   @ApiOperation({ summary: 'Editar plataforma; transferência exclusiva do administrador' })

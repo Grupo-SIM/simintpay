@@ -1,3 +1,5 @@
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { BOLETO_REPOSITORY } from '../../../core/repositories/boleto.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
@@ -12,6 +14,7 @@ export class GetPublicBoletoUseCase {
     private readonly boletos: IBoletoRepository,
     @Inject(USER_REPOSITORY)
     private readonly users: IUserRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(id: string): Promise<{
@@ -48,11 +51,12 @@ export class GetPublicBoletoUseCase {
     // mas valida a plataforma). O líquido é calculado no charge.
     calculateBoletoFees(Number(boleto.amount), platformTag);
 
+    const quote = quoteFinancialCharge(await loadChargePolicy(this.prisma, platformTag), Number(boleto.amount), 'BOLETO');
     return {
       id: boleto.id,
       titulo: boleto.title,
       descricao: boleto.description ?? null,
-      valor: Number(boleto.amount),
+      valor: quote?.totalAmount ?? Number(boleto.amount),
       aceitaBoleto: true,
       aceitaPix: true,
       vencimentoDias: boleto.vencimentoDias,

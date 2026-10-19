@@ -1,3 +1,4 @@
+import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, TransactionStatus, PaymentMethod } from '@prisma/client';
@@ -117,6 +118,10 @@ export class SubscriptionWebhookService {
       return;
     }
 
+    if (subscription.financialSnapshot && domTransactionId) {
+      await settleFinancialSubscription(this.prisma, { snapshot: subscription.financialSnapshot, amount, paymentId: domTransactionId, userId: subscription.userId, method: 'CREDIT_CARD', name: subscription.plan.name, customerName: subscription.customer?.name, customerEmail: subscription.customer?.email, customerDocument: subscription.customer?.document });
+      return;
+    }
     const effectivePlanTag = (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
     // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
     const taxaTag = effectivePlanTag === 'GLOBAL' && subscription.customer?.email?.trim()
@@ -241,6 +246,10 @@ export class SubscriptionWebhookService {
       return;
     }
 
+    if (subscription.financialSnapshot && domTransactionId) {
+      await settleFinancialSubscription(this.prisma, { snapshot: subscription.financialSnapshot, amount, paymentId: domTransactionId, userId: subscription.userId, method: 'CREDIT_CARD', name: subscription.plan.name, customerName: subscription.customer?.name, customerEmail: subscription.customer?.email, customerDocument: subscription.customer?.document });
+      return;
+    }
     const effectivePlanTag = (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
     // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
     const taxaTag = effectivePlanTag === 'GLOBAL' && subscription.customer?.email?.trim()
@@ -422,6 +431,10 @@ export class SubscriptionWebhookService {
     source: string,
   ): Promise<void> {
     const link = linkOrder.subscriptionLink;
+    const financialQuote = linkOrder.financialSnapshot && domTransactionId ? await settleFinancialSubscription(this.prisma, {
+      snapshot: linkOrder.financialSnapshot, amount, paymentId: domTransactionId, userId: linkOrder.userId, method: 'CREDIT_CARD', name: link.name,
+      customerName: linkOrder.customerName, customerEmail: linkOrder.customerEmail, customerDocument: linkOrder.customerDocument,
+    }) : null;
     const now = new Date();
     const periodBase =
       linkOrder.currentPeriodEndsAt && linkOrder.currentPeriodEndsAt > now
@@ -483,7 +496,7 @@ export class SubscriptionWebhookService {
 
     // AREAFLIX: líquido do vendedor = valor − % do método − taxa fixa (taxas do painel).
     // Renovação de assinatura é cobrada no cartão (1x).
-    const netAmount = isAfLink
+    const netAmount = financialQuote ? new Prisma.Decimal(financialQuote.netAmount) : isAfLink
       ? new Prisma.Decimal(
           calculateAreaflixSellerNet(amount.toNumber(), 'CREDIT_CARD', 1).toFixed(2),
         )
@@ -501,7 +514,8 @@ export class SubscriptionWebhookService {
         paymentMethod: 'CREDIT_CARD',
         status: 'paid',
         amountCharged: amount.toNumber(),
-        platformFeeAmount,
+        ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
+        platformFeeAmount: financialQuote?.totalFeeAmount ?? platformFeeAmount,
         currentPeriodEndsAt,
       },
     });
@@ -511,7 +525,7 @@ export class SubscriptionWebhookService {
       where: { id: linkOrder.userId },
       include: { wallet: true },
     });
-    if (owner?.wallet) {
+    if (owner?.wallet && !financialQuote) {
       const walletBefore = await this.prisma.wallet.findUnique({ where: { userId: owner.id } });
       const walletAfter = await this.prisma.wallet.update({
         where: { userId: owner.id },

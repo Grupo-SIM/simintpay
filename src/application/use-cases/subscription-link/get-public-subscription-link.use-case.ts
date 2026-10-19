@@ -1,3 +1,5 @@
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
@@ -23,6 +25,7 @@ export class GetPublicSubscriptionLinkUseCase {
   constructor(
     @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
+    private readonly prisma: PrismaService,
   ) { }
 
   async execute(code: string) {
@@ -61,13 +64,17 @@ export class GetPublicSubscriptionLinkUseCase {
       ? base
       : Math.round(base * (1 + effectivePlatformFee / 100) * 100) / 100;
 
+    const context = await loadChargePolicy(this.prisma, platformTag);
+    const quote = quoteFinancialCharge(context, base, 'CREDIT_CARD');
+    const pixQuote = quoteFinancialCharge(context, base, 'PIX');
     return {
       id: link.id,
       codigo: link.code,
       nome: link.name,
       descricao: link.description ?? null,
       valor: base,
-      valorComJuros,
+      valorComJuros: quote?.totalAmount ?? valorComJuros,
+      valorPix: pixQuote?.totalAmount ?? base,
       platformFee: effectivePlatformFee,
       isStandalone: link.isStandalone,
       frequencia: mapFrequencyLabel(link.frequencyType),

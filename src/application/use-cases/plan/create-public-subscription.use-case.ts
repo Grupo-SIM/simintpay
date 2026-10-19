@@ -1,3 +1,4 @@
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import {
   BadRequestException,
@@ -96,8 +97,16 @@ export class CreatePublicSubscriptionUseCase {
       },
     });
 
+    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL'), Number(plan.price), 'CREDIT_CARD');
+    let gatewayPlanId = plan.domPlanId;
+    if (financialQuote) {
+      const synced = await this.gateway.createPlan(domToken, { price: financialQuote.totalAmount, description: plan.name,
+        frequency_type: plan.type === 'WEEKLY' ? 'WEEK' : plan.type === 'ANUAL' ? 'YEAR' : 'MONTH',
+        frequency: plan.frequency ?? 1, repetitions: plan.repetitions ?? 0, retry_days: plan.retryDays ?? 3 });
+      gatewayPlanId = synced.id;
+    }
     const subscriptionInput = {
-      planId: plan.domPlanId,
+      planId: gatewayPlanId,
       customer: {
         name: input.customerName,
         email: input.customerEmail,
@@ -131,6 +140,7 @@ export class CreatePublicSubscriptionUseCase {
       customerId: customer.id,
       status: (domResult.status as string) ?? 'active',
       domSubscriptionId: domResult.id,
+      ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
     });
 
     this.logger.log(

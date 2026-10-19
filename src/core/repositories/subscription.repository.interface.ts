@@ -3,6 +3,7 @@ import type { Subscription } from '@prisma/client';
 export const SUBSCRIPTION_REPOSITORY = Symbol('SUBSCRIPTION_REPOSITORY');
 
 export type CreateSubscriptionData = {
+  financialSnapshot?: import('@prisma/client').Prisma.InputJsonValue;
   userId: string;
   planId: string;
   customerId?: string | null;

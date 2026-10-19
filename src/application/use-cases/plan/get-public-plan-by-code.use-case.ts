@@ -1,3 +1,5 @@
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
@@ -30,6 +32,7 @@ export class GetPublicPlanByCodeUseCase {
   constructor(
     @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(code: string) {
@@ -60,13 +63,18 @@ export class GetPublicPlanByCodeUseCase {
       paymentMethods = ['CREDIT_CARD', 'PIX'];
     }
 
+    const context = await loadChargePolicy(this.prisma, plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL');
+    const quote = quoteFinancialCharge(context, Number(plan.price), 'CREDIT_CARD');
+    const pixQuote = quoteFinancialCharge(context, Number(plan.price), 'PIX');
     return {
       id: plan.id,
       planId: plan.id,
       token: domToken ?? null,
       plan: {
         description: plan.name,
-        value: Number(plan.price),
+        value: quote?.totalAmount ?? Number(plan.price),
+        originalPrice: Number(plan.price),
+        paymentTotals: { CREDIT_CARD: quote?.totalAmount ?? Number(plan.price), PIX: pixQuote?.totalAmount ?? Number(plan.price) },
         frequencyType,
         frequency,
         paymentMethods,

@@ -22,6 +22,7 @@ export type CreateSubscriptionLinkData = {
 };
 
 export type CreateSubscriptionLinkOrderData = {
+  financialSnapshot?: import('@prisma/client').Prisma.InputJsonValue;
   subscriptionLinkId: string;
   userId: string;
   customerName: string;

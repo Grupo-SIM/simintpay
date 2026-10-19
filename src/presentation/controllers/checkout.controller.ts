@@ -1,3 +1,4 @@
+import { loadChargePolicy, quoteFinancialCharge } from '../../modules/financial-policy/financial-charge';
 import { getPlatformOwnerId, getRegisteredPlatform } from '../../modules/module.registry';
 import { platformGatewayToken } from '../../application/helpers/explicit-platform.helper';
 import { getCustomerInterestRate } from '../../modules/platform-taxas/platform-taxas.store';
@@ -149,11 +150,12 @@ export class CheckoutController {
 
     // Loja/tenant desta cobrança — também decide a adquirente (DOM por padrão).
     const storeSlug = String(body.store || 'ebook').toLowerCase();
+    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, storeSlug.toUpperCase()), price, 'PIX');
     const acquirer = this.gatewayResolver.acquirerForSlug(storeSlug);
 
     // Busca a transação criada pelo back-ebook via notifyPendingTransaction
     let transaction: { id: string } | null = null;
-    if (orderNumber) {
+    if (orderNumber && !financialQuote) {
       transaction = await this.prisma.transaction.findFirst({
         where: { domPaymentId: `EBOOK_PENDING_${orderNumber}` },
         select: { id: true },
@@ -172,17 +174,18 @@ export class CheckoutController {
       if (!platformUserId) throw new BadRequestException('Plataforma sem dono ativo cadastrado');
 
       const price = Number(body.price);
-      const netAmountDec = calculateSellerNetValue(price, 1, tenantTag, 'pix');
+      const netAmountDec = financialQuote ? new Prisma.Decimal(financialQuote.netAmount) : calculateSellerNetValue(price, 1, tenantTag, 'pix');
       const netAmount = Number(netAmountDec.toFixed(2));
-      const totalFee = parseFloat((price - netAmount).toFixed(2));
+      const totalFee = financialQuote?.totalFeeAmount ?? parseFloat((price - netAmount).toFixed(2));
       const mdrPix = getPlatformTaxaEffective(tenantTag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
-      const domFee = parseFloat((price * mdrPix).toFixed(2));
+      const domFee = financialQuote?.domFeeAmount ?? parseFloat((price * mdrPix).toFixed(2));
       const platformFee = parseFloat((totalFee - domFee).toFixed(2));
 
       transaction = await this.prisma.transaction.create({
         data: {
           userId: platformUserId,
-          amount: new Prisma.Decimal(price),
+          ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
+          amount: new Prisma.Decimal(financialQuote?.totalAmount ?? price),
           netAmount: netAmountDec,
           status: 'DRAFT',
           paymentMethod: 'PIX',
@@ -205,7 +208,7 @@ export class CheckoutController {
 
     const payment = await gateway.createPixCheckout(gatewayToken, {
       codExternal: transaction.id,
-      amount: price,
+      amount: financialQuote?.totalAmount ?? price,
       description,
       customerName: body.name.trim(),
       customerEmail: body.email.trim(),
@@ -308,7 +311,7 @@ export class CheckoutController {
    */
   @Post('card/installment-options')
   @ApiOperation({ summary: 'Calcular opções de parcelamento com MDR_CC_MASTER por plataforma' })
-  getCardInstallmentOptions(
+  async getCardInstallmentOptions(
     @Body() body: { price: number; store?: string; maxInstallments?: number },
   ) {
     const price = Number(body.price);
@@ -321,8 +324,11 @@ export class CheckoutController {
     const isLinkMode = tenantTag === 'PAGATG';
     const max = Math.min(Math.max(Number(body.maxInstallments) || 1, 1), 12);
 
+    const financialContext = await loadChargePolicy(this.prisma, tenantTag);
     const options = [];
     for (let n = 1; n <= max; n++) {
+      const quote = quoteFinancialCharge(financialContext, price, 'CREDIT_CARD', n);
+      if (quote) { options.push({ installments: n, masterRate: quote.platformFeeRate / 100, interestAmount: quote.interestAmount, domRate: 0, domFeeAmount: 0, totalAmount: quote.totalAmount, installmentAmount: quote.installmentAmount, hasInterest: quote.interestAmount > 0 }); continue; }
       const mdrMasterKey = `MDR_CC_MASTER_${n}X` as PlataformaTaxaKey;
       const masterRate = getCustomerInterestRate(tenantTag, n);
       const domRate = isLinkMode ? (DOM_LINK_FEE_RATES[n] ?? 0) : (DOM_CC_FEE_RATES[n] ?? 0);
@@ -426,11 +432,13 @@ export class CheckoutController {
       totalAmount = Math.round((valueWithInterest + domFeeAmount) * 100) / 100;
     }
 
+    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, tenantTag), price, 'CREDIT_CARD', n);
+    if (financialQuote) { totalAmount = financialQuote.totalAmount; domFeeAmount = financialQuote.domFeeAmount; }
     const installmentAmount = Math.round((totalAmount / n) * 100) / 100;
 
     // Busca ou cria transação
     let transaction: { id: string } | null = null;
-    if (orderNumber) {
+    if (orderNumber && !financialQuote) {
       transaction = await this.prisma.transaction.findFirst({
         where: { domPaymentId: `EBOOK_PENDING_${orderNumber}` },
         select: { id: true },
@@ -441,7 +449,7 @@ export class CheckoutController {
       const ebookUserId = getPlatformOwnerId(tenantTag);
       if (!ebookUserId) throw new BadRequestException('Plataforma sem dono ativo cadastrado');
 
-      const netAmountDec = calculateSellerNetValue(price, n, tenantTag, 'credit_card');
+      const netAmountDec = financialQuote ? new Prisma.Decimal(financialQuote.netAmount) : calculateSellerNetValue(price, n, tenantTag, 'credit_card');
       const netAmount = Number(netAmountDec.toFixed(2));
       const totalFee = Math.round((totalAmount - netAmount) * 100) / 100;
       const domFee = Math.round(domFeeAmount * 100) / 100;
@@ -450,6 +458,7 @@ export class CheckoutController {
       transaction = await this.prisma.transaction.create({
         data: {
           userId: ebookUserId,
+          ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
           amount: new Prisma.Decimal(totalAmount),
           netAmount: netAmountDec,
           status: 'DRAFT',
@@ -636,37 +645,35 @@ export class CheckoutController {
 
   @Get('public/cc-rates/:tag')
   @ApiOperation({ summary: 'Taxas de checkout para o comprador e vendedor de uma plataforma (público)' })
-  getCcRates(@Param('tag') tag: string) {
+  async getCcRates(@Param('tag') tag: string) {
+    const context = await loadChargePolicy(this.prisma, tag.toUpperCase());
+    const quotes = Array.from({ length: 12 }, (_, i) => quoteFinancialCharge(context, 100, 'CREDIT_CARD', i + 1));
+    if (quotes.some(Boolean)) {
+      return { tag: tag.toUpperCase(), version: context.policy.version,
+        installments: quotes.map((quote, i) => {
+          const key = `${context.acquirer}/CREDIT_CARD/ONLINE/${i + 1}`;
+          const fixedFee = (context.policy.document.owner[key]?.fixedCents ?? 0) / 100;
+          return { n: i + 1, buyerRate: quote ? (quote.totalAmount - 100 - fixedFee) / 100 : null, fixedFee };
+        }) };
+    }
     const fb = (k: PlataformaTaxaKey) => PLATFORM_TAXA_DEFAULTS[k] ?? 0;
 
-    const domCcRate    = getPlatformTaxaEffective(tag, 'MDR_CC_1X',        fb('MDR_CC_1X'));
     const masterCcRate = getCustomerInterestRate(tag, 1);
     // 1x: comprador não paga DOM (absorvido pela SimIntPay); só paga masterCcRate (0% para ATLAS 1x)
     const buyerCcRate  = masterCcRate;
 
     const installments = ([1,2,3,4,5,6,7,8,9,10,11,12] as const).map((n) => {
       const domKey    = `MDR_CC_${n}X`        as PlataformaTaxaKey;
-      const masterKey = `MDR_CC_MASTER_${n}X` as PlataformaTaxaKey;
       const domRate    = getPlatformTaxaEffective(tag, domKey,    fb(domKey));
       const masterRate = getCustomerInterestRate(tag, n);
       // 1x: grátis ao comprador. 2x+: DOM + master + R$1 fixo
-      return { n, domRate, masterRate, buyerRate: n === 1 ? 0 : domRate + masterRate, fixedFee: n === 1 ? 0 : 1 };
+      return { n, buyerRate: n === 1 ? 0 : domRate + masterRate, fixedFee: n === 1 ? 0 : 1 };
     });
-
-    // Taxas que o vendedor paga à plataforma por transação
-    const vendorCcPercent  = getPlatformTaxaEffective(tag, 'TAXA_LINK_PERCENT', fb('TAXA_LINK_PERCENT'));
-    const vendorCcFixed    = getPlatformTaxaEffective(tag, 'TAXA_LINK_FIXA',    fb('TAXA_LINK_FIXA'));
-    const vendorPixPercent = getPlatformTaxaEffective(tag, 'LIQUIDEZ',          fb('LIQUIDEZ'));
 
     return {
       tag: tag.toUpperCase(),
-      domCcRate,
-      masterCcRate,
       buyerCcRate,
       installments,
-      vendorCcPercent,
-      vendorCcFixed,
-      vendorPixPercent,
     };
   }
 }

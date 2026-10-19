@@ -1,3 +1,5 @@
+import { loadChargePolicy, quoteReportedPos } from '../../../modules/financial-policy/financial-charge';
+import { isPhysicalDebit } from '../../helpers/dom-fee-estimate.helper';
 import { registeredPlatformTags, getPlatformOwnerId } from '../../../modules/module.registry';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Logger } from '@nestjs/common';
@@ -98,7 +100,7 @@ export class SyncMaquinetasUseCase {
       try {
         const amountReais = tx.amount; // DOM envia em Reais (ex: 25.00) para máquinas
         const serial = tx.serial;
-        const fees = calculateMaquinetaFees(platform.tag, amountReais, tx.payment_method, tx.installments, tx.card_brand);
+        let fees = calculateMaquinetaFees(platform.tag, amountReais, tx.payment_method, tx.installments, tx.card_brand);
 
         // Verificar se já existe no banco (pela domPaymentId que é UNICA)
         const existing = await this.prisma.transaction.findUnique({
@@ -200,6 +202,9 @@ export class SyncMaquinetasUseCase {
           continue;
         }
 
+        const financialQuote = tx.created_at ? quoteReportedPos(await loadChargePolicy(this.prisma, platform.tag, new Date(tx.created_at)), amountReais,
+          isPhysicalDebit(tx.payment_method, tx.card_brand) ? 'DEBIT_CARD' : /card|credit/i.test(tx.payment_method ?? '') ? 'CREDIT_CARD' : 'PIX', Number(tx.installments ?? 1)) : null;
+        if (financialQuote) fees = { simIntRate: 0, platformFeeAmt: financialQuote.platformProfit, netAmount: financialQuote.netAmount, domFeeAmt: financialQuote.domFeeAmount };
         // --- NOVA TRANSAÇÃO ---
         const pm = String(tx.payment_method ?? '').toLowerCase();
         // TODO: mudar CREDIT_CARD para DEBIT_CARD quando rodar: prisma migrate dev + prisma generate
@@ -212,6 +217,7 @@ export class SyncMaquinetasUseCase {
             data: {
               userId,
               domPaymentId: tx.id,
+              ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
               domTransactionId: tx.cod_external || null, // null para PIX sem cod_external
               amount: new Prisma.Decimal(amountReais),
               // Cliente só perde a taxa Sim Int Pay — o MDR da DOM sai da margem da casa.

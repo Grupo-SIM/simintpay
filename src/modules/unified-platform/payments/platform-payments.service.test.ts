@@ -11,6 +11,7 @@ function fixture(acquirer: 'DOM' | 'FRENDZ' = 'DOM') {
   const platform = { ...context, acquirer, isActive: true, owner: { isActive: true, isPurged: false }, integrations: [{ key: acquirer === 'DOM' ? 'DOM_TOKEN' : 'FRENDZ_TOKEN', encryptedValue: encryptPlatformSecret('mock-token') }] };
   let stored: any;
   const prisma = {
+    financialPolicyRevision: { findMany: mock(async () => []) },
     platformTaxaOverride: { findMany: mock(async () => []) },
     platform: { findUnique: mock(async () => platform) },
     wallet: { findUnique: mock(async () => ({ id: 'wallet' })) },

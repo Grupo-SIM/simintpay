@@ -7,7 +7,7 @@ const user = { sub: 'owner', email: 'owner@example.com', role: 'USER' };
 
 function service(platform = { id: 'platform', tag: 'SHOP', ownerUserId: 'owner' }) {
   const update = mock(async () => platform);
-  const prisma = { platform: { findUnique: mock(async () => platform), update }, user: { findFirst: mock(async () => null), findUnique: mock(async () => ({ id: 'owner', role: 'USER', isActive: true, isPurged: false })) } };
+  const prisma = { financialPolicyRevision: { findMany: async () => [] }, platform: { findUnique: mock(async () => platform), update }, user: { findFirst: mock(async () => null), findUnique: mock(async () => ({ id: 'owner', role: 'USER', isActive: true, isPurged: false })) } };
   return { service: new PlatformsService(prisma as unknown as PrismaService), update };
 }
 
@@ -67,6 +67,7 @@ describe('Platform rate atomic update', () => {
     const platform = { id: 'p', tag: 'SHOP', ownerUserId: 'owner', customerInterestRates: {} };
     const update = mock(async (args: any) => { data = args.data; return { ...platform, ...args.data }; });
     const prisma = {
+      financialPolicyRevision: { findMany: async () => [] },
       user: { findUnique: async () => ({ isActive: true, isPurged: false, role: 'USER' }) },
       platform: { findUnique: async () => platform, update, findMany: async () => [] },
       platformTaxaOverride: { findMany: async () => [] },

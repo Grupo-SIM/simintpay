@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { persistLinkCharge } from '../../../modules/platform-core/link-settlement';
+import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
@@ -83,13 +86,23 @@ export class ChargeBoletoPixUseCase {
     const sellerFeeFixed = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
     const cashback = getPlatformTaxaEffective(taxaTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
     const transFixed = getPlatformTaxaEffective(taxaTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-    const netAmount = round2(base - (base * sellerFeePct + sellerFeeFixed) - cashback - transFixed);
-    const totalFee = round2(base - netAmount);
+    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, platformTag), base, 'PIX');
+    const netAmount = financialQuote?.netAmount ?? round2(base - (base * sellerFeePct + sellerFeeFixed) - cashback - transFixed);
+    const totalFee = financialQuote?.totalFeeAmount ?? round2(base - netAmount);
+    const chargeId = randomUUID();
+    const snapshot = { userId: boleto.userId, amount: new Prisma.Decimal(financialQuote?.totalAmount ?? base), netAmount: new Prisma.Decimal(netAmount),
+      totalFee: new Prisma.Decimal(totalFee), domFee: new Prisma.Decimal(financialQuote?.domFeeAmount ?? 0), platformFee: new Prisma.Decimal(financialQuote?.platformProfit ?? totalFee), paymentMethod: PaymentMethod.PIX,
+      description: `${boleto.title} [TENANT:${platformTag}]`, customerName: input.customerName, customerEmail: input.customerEmail, customerDocument: document, customerPhone: phone,
+      ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}) };
+    if (financialQuote) await this.prisma.$transaction(async tx => {
+      await tx.wallet.upsert({ where: { userId: boleto.userId }, update: {}, create: { userId: boleto.userId, balance: 0 } });
+      await tx.transaction.create({ data: { ...snapshot, id: chargeId, status: 'DRAFT', settlementBasis: 'FINAL_NET' } });
+    });
 
     const result = await this.gateway.chargePixForLink(domToken, {
       domLinkId: boleto.domPaymentLinkId,
-      amount: base,
-      description: boleto.title,
+      amount: financialQuote?.totalAmount ?? base,
+      description: financialQuote ? `${snapshot.description} [LINK_CHARGE:${chargeId}]` : boleto.title,
       customerName: input.customerName,
       customerEmail: input.customerEmail,
       customerDocument: document,
@@ -103,7 +116,7 @@ export class ChargeBoletoPixUseCase {
       await this.prisma.wallet.create({ data: { userId: boleto.userId, balance: 0 } });
     }
 
-    const savedTx = await this.prisma.transaction.upsert({
+    const savedTx = financialQuote ? await this.prisma.$transaction(tx => persistLinkCharge(tx, { ...snapshot, domPaymentId: result.id, pixContent: result.pixContent ?? null }, TransactionStatus.PENDING, chargeId)) : await this.prisma.transaction.upsert({
       where: { domPaymentId: result.id },
       update: {
         status: TransactionStatus.PENDING,
@@ -145,7 +158,7 @@ export class ChargeBoletoPixUseCase {
     return {
       ...result,
       transactionId: savedTx.id,
-      amount: base,
+      amount: financialQuote?.totalAmount ?? base,
     };
   }
 }
