@@ -65,6 +65,12 @@ export async function saveFinancialPolicy(prisma: PrismaService, tag: string, us
       if (input.lanes !== undefined) document.lanes = input.lanes as Policy['lanes'];
       document.interestOnly = true;
       validatePolicy(document);
+      if (input.lanes !== undefined) {
+        const codes = [...new Set(Object.keys(document.lanes).map(key => key.split('/')[0]))];
+        const registered = await tx.acquirerCatalogue.findMany({ where: { code: { in: codes } }, select: { code: true } });
+        const known = new Set(registered.map(row => row.code));
+        if (codes.some(code => !known.has(code))) throw new BadRequestException('Adquirente não cadastrada');
+      }
       // Global inheritance remains explicit: omitted keys inherit, zero stays an override.
       await tx.financialPolicyRevision.create({ data: { tag, version: (previous?.version ?? 0) + 1, actorId: user.sub, document: document as Prisma.InputJsonValue } });
       return { data: projectPolicy(await loadFinancialPolicy(tx, tag), admin) };

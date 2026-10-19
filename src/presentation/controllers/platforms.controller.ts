@@ -17,6 +17,13 @@ export class PlatformsController {
   @ApiOperation({ summary: 'Listar plataformas próprias; administrador lista todas' })
   list(@CurrentUser() user: JwtPayload) { return this.platforms.list(user); }
 
+  @Get('owned')
+  @ApiOperation({ summary: 'Listar somente plataformas próprias, inclusive para administrador' })
+  owned(@CurrentUser() user: JwtPayload) { return this.platforms.list(user, true); }
+
+  @Get('acquirers')
+  acquirers(@CurrentUser() user: JwtPayload) { return this.platforms.acquirers(user); }
+
   @Get('integration-diagnostics')
   integrationDiagnostics(@CurrentUser() user: JwtPayload) { return this.platforms.integrationDiagnostics(user); }
 

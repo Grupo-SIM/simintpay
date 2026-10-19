@@ -51,13 +51,18 @@ export class PlatformsService {
     })) };
   }
 
-  async list(user: JwtPayload) {
+  async list(user: JwtPayload, ownedOnly = false) {
     user = await this.requireSession(user);
     const platforms = await this.prisma.platform.findMany({
-      where: user.role === Role.ADMIN ? {} : { ownerUserId: user.sub },
+      where: !ownedOnly && user.role === Role.ADMIN ? {} : { ownerUserId: user.sub },
       select: publicSelect, orderBy: { tag: 'asc' },
     });
     return { data: platforms.map(platform => ({ ...platform, effectiveCustomerInterestRates: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i + 1), platform.absorbCustomerInterest ? 0 : (platform.customerInterestRates as Record<string, number> | null)?.[String(i + 1)] ?? getPlatformTaxaEffective('GLOBAL', `MDR_LINK_${i + 1}X`, PLATFORM_TAXA_DEFAULTS[`MDR_LINK_${i + 1}X` as PlataformaTaxaKey])])) })) };
+  }
+
+  async acquirers(user: JwtPayload) {
+    await this.requireSession(user);
+    return { data: await this.prisma.acquirerCatalogue.findMany({ orderBy: { code: 'asc' }, select: { code: true, name: true } }) };
   }
 
   async requireAccess(tag: string, user: JwtPayload) {

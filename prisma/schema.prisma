@@ -1327,3 +1327,9 @@ model FinancialPolicyRevision {
   createdAt DateTime @default(now())
   @@unique([tag, version])
 }
+
+/// Technical catalogue; policy keys and historical revisions retain their original codes.
+model AcquirerCatalogue {
+  code String @id
+  name String
+}

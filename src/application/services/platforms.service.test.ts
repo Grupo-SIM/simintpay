@@ -82,3 +82,16 @@ describe('Platform rate atomic update', () => {
     expect(update).toHaveBeenCalledTimes(2);
   });
 });
+
+
+describe('owned catalogue scope', () => {
+  test.each(['USER', 'ADMIN'])('filters session-owned platforms for %s', async role => {
+    const findMany = mock(async (_args: any) => []);
+    const prisma = { user: { findUnique: async () => ({ role, isActive: true, isPurged: false }) }, platform: { findMany } };
+    await new PlatformsService(prisma as never).list(user as never, true);
+    expect(findMany.mock.calls[0][0].where).toEqual({ ownerUserId: 'owner' });
+  });
+  test('catalogue requires a user session', async () => {
+    await expect(service().service.acquirers({ ...user, authMode: 'integration' } as never)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});

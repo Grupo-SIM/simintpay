@@ -256,3 +256,10 @@ Documentos novos recebem `interestOnly=true`. Snapshots novos também congelam e
 ## Saldo restante após saque
 
 `saldoRestanteAposSaque` nas listagens administrativa e do usuário é snapshot persistido do disponível (saldo menos bloqueios). Solicitação com reserva registra disponível após bloquear o bruto; aprovação com débito local atualiza o snapshot com o disponível retornado pela carteira dentro da mesma transação. Movimentações posteriores não alteram o histórico. Histórico anterior, importações e operações sem reserva/débito confiável retornam `null`; saques recusados retornam `null`. Nenhum saldo histórico é estimado a partir da carteira atual. Migração somente preparada localmente, sem aplicação em banco.
+
+
+## Plataformas próprias e catálogo de adquirentes
+
+`GET /platforms/owned` filtra sempre pelo usuário autenticado, inclusive administradores. `GET /platforms` mantém catálogo administrativo completo. Sessões de integração não acessam nenhum desses catálogos.
+
+`GET /platforms/acquirers` expõe código único e nome às sessões autenticadas. Cadastro inicial técnico, sem gestão pelo painel. Novas configurações financeiras aceitam somente códigos cadastrados; migração registra códigos do enum e de todas as revisões históricas, incluindo DOM, sem alterar chaves, documentos ou transações. Admin define custos e juros SimIntPay; dono define repasse ao comprador. Custos internos da adquirente permanecem visíveis somente ao admin.

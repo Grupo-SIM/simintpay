@@ -13,6 +13,7 @@ function fixture(role = 'USER', ownerUserId = 'owner') {
   const revisions: any[] = [{ tag: 'GLOBAL', version: 1, document: global }, { tag: 'SHOP', version: 1, document: emptyPolicy() }];
   const findMany = mock(async () => [...new Map([...revisions].sort((a, b) => b.version - a.version).map(row => [row.tag, row])).values()]);
   const prisma: any = {
+    acquirerCatalogue: { findMany: mock(async () => [{ code: 'DOM' }]) },
     user: { findUnique: mock(async () => ({ isActive: true, isPurged: false, role })) },
     platform: { findUnique: mock(async () => ({ ownerUserId })) },
     financialPolicyRevision: { findMany, findFirst: mock(async () => [...revisions].reverse().find(row => row.tag === 'SHOP')), create: mock(async ({ data }: any) => { revisions.push(data); return data; }) },
@@ -140,4 +141,15 @@ test('admin can save rate configuration without reference or separate table acti
     amountCents: 10000, acquirer: 'DOM', method: 'CREDIT_CARD', channel: 'ONLINE', installments: [2],
   });
   expect(result.data[0].result?.contractedCostCents).toBe(1050);
+});
+
+
+describe('acquirer catalogue validation', () => {
+  test('rejects unknown processors without appending a revision', async () => {
+    const { prisma } = fixture('ADMIN');
+    const policy = emptyPolicy();
+    policy.lanes['UNKNOWN/CREDIT_CARD/ONLINE/2'] = (await loadFinancialPolicy(prisma, 'SHOP')).document.lanes[key];
+    await expect(saveFinancialPolicy(prisma, 'SHOP', user, { version: '1:1', lanes: policy.lanes })).rejects.toThrow('Adquirente não cadastrada');
+    expect(prisma.financialPolicyRevision.create).not.toHaveBeenCalled();
+  });
 });
