@@ -1,3 +1,5 @@
+import { OwnedPlatformReportsService } from '../application/services/owned-platform-reports.service';
+import { OwnedPlatformReportsController, PlatformReportBalancesController } from './controllers/owned-platform-reports.controller';
 import { Module } from '@nestjs/common';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { ReportController } from './controllers/report.controller';
@@ -8,8 +10,9 @@ import { PrismaUserRepository } from '../infrastructure/database/repositories/pr
 
 @Module({
   imports: [ApiDomModule],
-  controllers: [ReportController],
+  controllers: [ReportController, OwnedPlatformReportsController, PlatformReportBalancesController],
   providers: [
+    OwnedPlatformReportsService,
     DashboardSummaryUseCase,
     MonthlyRevenueUseCase,
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },

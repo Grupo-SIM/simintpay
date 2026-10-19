@@ -241,3 +241,13 @@ Novas simulações e cobranças permitem somente repasse de 0% a 100% dos juros 
 Documentos novos recebem `interestOnly=true`. Snapshots novos também congelam esse indicador, inclusive quando usam uma revisão anterior à mudança. Restauração de cobrança/assinatura histórica sem indicador mantém o cálculo original da revisão. Nenhuma revisão, transação ou saldo anterior é reescrito. A API não permite ao cliente desativar essa regra por save ou draft.
 
 - Nomenclatura financeira apresentada ao dono: custos e juros SimIntPay. SimIntPay cobre custos das adquirentes; composição por adquirente é informação interna do administrador, sem contratação separada pelo dono da plataforma.
+
+
+## Relatórios por plataforma para sessões de donos
+
+- `/relatorios/plataformas` consulta cadastro real, com pesquisa por nome/tag, ordenação por nome/tag e paginação. Admin lista todas; usuário lista somente plataformas próprias, inclusive inativas para histórico.
+- `/relatorios/financeiro` e seus detalhes/séries consolidam plataformas próprias ou uma plataforma autorizada. `/relatorios/plataformas/:tag/produto` usa o mesmo escopo. Sessão de integração não acessa esses endpoints.
+- Histórico pertence ao beneficiário original. Projeções exigem dono atual e marca exclusiva; sem marca, marcas conflitantes e líquido ausente não são estimados. Troca de dono não transfere receitas antigas. Datas seguem America/Sao_Paulo; limites inicial inclusivo e final exclusivo no dia seguinte.
+- Respostas do dono incluem bruto, taxas totais persistidas, líquido, estornos, saques e contagens. Nunca incluem custos da adquirente ou margens SimIntPay. Projeções canônicas antigas com composição interna exigem sessão administrativa; integrações explicitamente autorizadas mantêm seus contratos.
+- `/admin/relatorios/saldos-plataformas` é exclusivo do admin, com catálogo completo paginado por nome/tag. Saldo atribuído, disponível projetado e reservas vêm da mesma projeção no card/detalhe. Carteira do dono é informação separada; carteira compartilhada nunca é somada entre produtos. Histórico inativo é legível; operações financeiras continuam bloqueadas.
+- Valores monetários das novas APIs são centavos; saldo atribuído negativo permanece explícito e disponível tem piso zero. Projeção não autoriza saque nem recalcula carteira.

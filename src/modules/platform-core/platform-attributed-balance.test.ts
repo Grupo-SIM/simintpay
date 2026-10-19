@@ -43,3 +43,19 @@ test('Bosque administrative baseline remains part of attributed product balance'
   withdrawals.push({ grossAmount: new Prisma.Decimal(80), status: 'COMPLETED' });
   expect(await service.read(context)).toMatchObject({ balanceBasis: 'persisted-net', balanceCents: 0, availableBalanceCents: 0 });
 });
+
+test('inactive history uses authorized snapshot; operational balance remains blocked', async () => {
+  const { p, service } = fixture();
+  p.platform.findUnique = async () => ({ ...context, isActive: false, owner: { isActive: true } });
+  await expect(service.read(context)).rejects.toThrow('Contexto da plataforma mudou');
+  expect(await service.readSnapshot(p, context, true)).toMatchObject({ balanceCents: 8000, walletScope: 'shared-owner' });
+});
+
+test('equivalent Ebook historical tags share attribution and withdrawal aliases', async () => {
+  const { p, rows, service } = fixture();
+  const ebook = { ...context, tag: 'EBOOK' };
+  p.platform.findUnique = async () => ({ ...ebook, isActive: true, owner: { isActive: true } });
+  p.withdrawRequest.findMany = async (query: any) => { expect(query.where.platform.in).toEqual(['ebook', 'ebooksim']); return []; };
+  rows.splice(0, rows.length, { description: '[TENANT:EBOOKSIM] [TENANT:EBOOK]', netAmount: new Prisma.Decimal(15) });
+  expect(await service.read(ebook)).toMatchObject({ earnedCents: 1500, balanceCents: 1500, historicalAttributionComplete: true });
+});

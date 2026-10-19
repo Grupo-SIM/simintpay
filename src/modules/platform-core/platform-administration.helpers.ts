@@ -10,7 +10,6 @@ export async function resolveConsolidadoPlatforms(
   prisma: PrismaService,
 ): Promise<ConsolidadoPlatformEntry[]> {
   const platforms = await prisma.platform.findMany({
-    where: { isActive: true },
     select: { tag: true, ownerUserId: true },
   });
   return platforms.map((platform) => ({ tag: platform.tag, id: platform.ownerUserId }));

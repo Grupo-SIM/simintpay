@@ -1,3 +1,4 @@
+import { ReportSessionGuard } from './report-session.guard';
 import { PlatformOverviewReports } from './platform-overview-reports';
 import { PlatformSellerReports } from './platform-seller-reports';
 import { unsupportedCapability } from './platform-adapters';
@@ -12,7 +13,7 @@ import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
 
 @Controller('platforms/:tag/reports')
-@UseGuards(PlatformAuthGuard)
+@UseGuards(PlatformAuthGuard, ReportSessionGuard)
 export class PlatformReportProjectionsController {
   constructor(private readonly prisma: PrismaService, @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway, private readonly reporting: PlatformReportingService) {}
 

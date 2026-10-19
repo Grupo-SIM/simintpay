@@ -9,10 +9,14 @@ import { hasPlatformMarker } from './platform-sync.adapter';
 export class PlatformAttributedBalance {
   constructor(private readonly prisma: PrismaService) {}
   async read(context: PlatformContext) {
+    return this.prisma.$transaction(p => this.readSnapshot(p, context), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  /** History-only reader; callers authorize the session inside the same snapshot. */
+  async readSnapshot(p: Prisma.TransactionClient, context: PlatformContext, allowInactive = false) {
     const rules = platformBalanceRules(context.tag);
-    return this.prisma.$transaction(async p => {
       const platform = await p.platform.findUnique({ where: { id: context.id }, include: { owner: true } });
-      if (!platform?.isActive || !platform.owner.isActive || platform.owner.isPurged || platform.ownerUserId !== context.ownerUserId || platform.tag !== context.tag) throw new ConflictException('Contexto da plataforma mudou');
+      if (!platform || (!allowInactive && (!platform.isActive || !platform.owner.isActive || platform.owner.isPurged)) || platform.ownerUserId !== context.ownerUserId || platform.tag !== context.tag) throw new ConflictException('Contexto da plataforma mudou');
       const [rows, withdrawals, wallet, productCount, unidentifiedOwnerWithdrawals] = await Promise.all([
         p.transaction.findMany({ where: { userId: context.ownerUserId, status: 'COMPLETED' }, select: { description: true, netAmount: true } }),
         p.withdrawRequest.findMany({ where: { userId: context.ownerUserId, platform: { in: rules.withdrawalPlatforms, mode: 'insensitive' }, status: { in: ['PENDING', 'APPROVED', 'COMPLETED'] } }, select: { grossAmount: true, status: true } }),
@@ -23,10 +27,11 @@ export class PlatformAttributedBalance {
       let earned = new Prisma.Decimal(0), settled = new Prisma.Decimal(0), reserved = new Prisma.Decimal(0);
       let identifiedTransactions = 0, unidentifiedTransactions = 0, missingNetSnapshots = 0, conflictingOwnerTransactions = 0;
       for (const row of rows) {
-        if (!/\[TENANT:[^\]]+\]/i.test(row.description ?? '')) unidentifiedTransactions++;
-        const markers = [...(row.description ?? '').matchAll(/\[TENANT:([^\]]+)\]/gi)].map(match => match[1].toUpperCase().replaceAll('_', '-'));
+        const description = (row.description ?? '').replace(/\[TENANT:EBOOKSIM\]/gi, '[TENANT:EBOOK]');
+        if (!/\[TENANT:[^\]]+\]/i.test(description)) unidentifiedTransactions++;
+        const markers = [...description.matchAll(/\[TENANT:([^\]]+)\]/gi)].map(match => match[1].toUpperCase().replaceAll('_', '-'));
         if (new Set(markers).size > 1) conflictingOwnerTransactions++;
-        if (!hasPlatformMarker(row.description, context.tag)) continue;
+        if (!hasPlatformMarker(description, context.tag)) continue;
         if (row.netAmount === null) { missingNetSnapshots++; continue; }
         earned = earned.plus(row.netAmount);
         identifiedTransactions++;
@@ -49,6 +54,5 @@ export class PlatformAttributedBalance {
         identifiedTransactions, unidentifiedOwnerTransactions: unidentifiedTransactions, conflictingOwnerTransactions, unidentifiedOwnerWithdrawals, missingNetSnapshots,
         historicalAttributionComplete: unidentifiedTransactions === 0 && conflictingOwnerTransactions === 0 && unidentifiedOwnerWithdrawals === 0 && missingNetSnapshots === 0,
       };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 }
