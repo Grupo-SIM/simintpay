@@ -32,10 +32,13 @@ export async function initializePlatformRegistryCache(prisma: PrismaClient): Pro
 
 export function getRegisteredPlatform(tag: string | null | undefined): RegisteredPlatform | null {
   if (!tag) return null;
+  // Stale-while-revalidate: refresca em background a cada 30s, mas SEMPRE serve o cache
+  // atual enquanto isso — nunca zera o Map nem devolve null só por estar desatualizado.
+  // Um refresh que falha (ex.: soneca de conexão) mantém o último cache bom conhecido em
+  // vez de apagar tudo, senão toda plataforma vira "não cadastrada" até o próximo sucesso.
   if (client && Date.now() - fetchedAt > 30_000 && !refreshing) {
-    refreshing = initializePlatformRegistryCache(client).catch(() => { platforms.clear(); }).finally(() => { refreshing = undefined; });
+    refreshing = initializePlatformRegistryCache(client).catch(() => {}).finally(() => { refreshing = undefined; });
   }
-  if (Date.now() - fetchedAt > 60_000) return null;
   return platforms.get(canonicalPlatformTaxaTag(tag.replace(/_/g, '-'))) ?? null;
 }
 export function registeredPlatformTags(): string[] { return [...platforms.keys()]; }
