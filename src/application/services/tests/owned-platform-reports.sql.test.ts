@@ -52,8 +52,8 @@ local('real PostgreSQL: exact attribution, inactive history, no previous owners 
   expect(alpha.summary).toMatchObject({ salesCount: 2, grossCents: 11000, netCents: 9000 });
 });
 local('real PostgreSQL: status, methods and monthly totals share exact scope', async () => {
-  expect((await service.series(user, filters, 'monthly')).data).toEqual([{ key: '2026-10', count: 3, grossCents: 31000, netCents: 27000, feesCents: 3100, interestCents: null }]);
-  expect((await service.series(user, { ...filters, platform: 'BETA' }, 'method')).data).toEqual([{ key: 'CREDIT_CARD', count: 1, grossCents: 20000, netCents: 18000, feesCents: 2000, interestCents: null }]);
+  expect((await service.series(user, filters, 'monthly')).data).toEqual([{ key: '2026-10', count: 3, grossCents: 31000, netCents: 27000, feesCents: 3100, interestCents: 0 }]);
+  expect((await service.series(user, { ...filters, platform: 'BETA' }, 'method')).data).toEqual([{ key: 'CREDIT_CARD', count: 1, grossCents: 20000, netCents: 18000, feesCents: 2000, interestCents: 0 }]);
   expect((await service.series(user, filters, 'status')).data.map(r => [r.key, r.count])).toEqual([['COMPLETED', 3], ['REFUNDED', 1]]);
 });
 local('real PostgreSQL: paginated transactions contain only authorized rows and null net is explicit', async () => {
@@ -142,7 +142,10 @@ local('owner aggregates customer counts, recorded interest, movements and refund
   expect((await service.summary(user, selected)).summary).toMatchObject({ salesCount: 2, customersCount: 1, interestCents: 500, feesCents: 2500, refundedCount: 1, refundedCents: 1800, chargebacksCount: 1, chargebacksCents: 900, pendingSalesCount: 1, pendingSalesCents: 3000, failedSalesCount: 1, failedSalesCents: 4000 });
   expect((await service.series(user, selected, 'monthly')).data).toEqual([{ key: '2026-09', count: 2, grossCents: 20500, netCents: 18000, feesCents: 2500, interestCents: 500 }]);
   expect((await service.summary(user, { ...selected, paymentMethod: 'PIX' })).summary).toMatchObject({ salesCount: 1, interestCents: 0 });
+  await sql!.unsafe(`INSERT INTO "Transaction" (id,"userId",amount,"netAmount","totalFee",status,"paymentMethod",description,"createdAt",installments) VALUES ('interest-legacy','owner',100,90,10,'COMPLETED','CREDIT_CARD','[TENANT:ALPHA]','2026-09-08T12:00:00Z',2)`);
+  expect((await service.summary(user, selected)).summary.interestCents).toBe(500);
+  expect((await service.series(user, selected, 'monthly')).data[0].interestCents).toBe(500);
   await sql!.unsafe(`UPDATE "Transaction" SET "financialSnapshot" = NULL WHERE id = 'interest-a'`);
-  expect((await service.summary(user, selected)).summary).toMatchObject({ interestCents: null, missingInterestSnapshots: 1 });
-  expect((await service.series(user, selected, 'monthly')).data[0].interestCents).toBeNull();
+  expect((await service.summary(user, selected)).summary).toMatchObject({ interestCents: 0, missingInterestSnapshots: 2 });
+  expect((await service.series(user, selected, 'monthly')).data[0].interestCents).toBe(0);
 });

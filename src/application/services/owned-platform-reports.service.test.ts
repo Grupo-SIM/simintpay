@@ -87,3 +87,20 @@ test('admin balances preserve inactive, negative product and separate shared own
   expect(db.$queryRaw.mock.calls[0][0].values.slice(-2)).toEqual([12, 0]);
   expect('totalOwnerWalletBalanceCents' in result).toBe(false);
 });
+
+
+test('withdrawal costs sum persisted fees only for approved and completed withdrawals in report scope', async () => {
+  const { db, service } = fixture();
+  db.withdrawRequest.findMany = mock(async () => [
+    { status: 'APPROVED', grossAmount: new Prisma.Decimal(100), fee: new Prisma.Decimal('2.35') },
+    { status: 'COMPLETED', grossAmount: new Prisma.Decimal(80), fee: new Prisma.Decimal('3.10') },
+    { status: 'PENDING', grossAmount: new Prisma.Decimal(50), fee: new Prisma.Decimal(9) },
+    { status: 'REJECTED', grossAmount: new Prisma.Decimal(60), fee: new Prisma.Decimal(8) },
+  ]);
+  const result = await service.summary(user, { platform: 'OWN', startDate: '2026-10-01', endDate: '2026-10-19' });
+  expect(result.summary).toMatchObject({ withdrawalFeesCents: 545, withdrawalsCents: 18000, pendingWithdrawalsCents: 5000 });
+  const query = db.withdrawRequest.findMany.mock.calls[0][0];
+  expect(query.where.OR[0].userId).toBe('owner');
+  expect(query.where.createdAt.gte.toISOString()).toBe('2026-10-01T03:00:00.000Z');
+  expect(query.where.createdAt.lt.toISOString()).toBe('2026-10-20T03:00:00.000Z');
+});

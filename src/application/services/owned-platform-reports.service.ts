@@ -110,7 +110,7 @@ export class OwnedPlatformReportsService {
       OR: scope.map(p => ({ userId: p.ownerUserId, platform: { in: platformBalanceRules(p.tag).withdrawalPlatforms, mode: 'insensitive' as const } })),
       ...(scope.length ? {} : { id: { in: [] } }),
       ...(start || end ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lt: end } : {}) } } : {}),
-    }, select: { status: true, grossAmount: true } });
+    }, select: { status: true, grossAmount: true, fee: true } });
   }
 
   private async attributionGaps(db: Database, scope: Scope, filters: Filters) {
@@ -157,12 +157,13 @@ export class OwnedPlatformReportsService {
         salesCount: Number(row.count), grossCents: cents(row.gross), feesCents: cents(row.fees), netCents: cents(row.net),
         refundsCents: cents(row.refunds), refundsCount: Number(row.refundCount),
         customersCount: Number(row.customers ?? 0),
-        interestCents: Number(row.unknownInterest ?? 0) > 0 ? null : cents(row.interest),
+        interestCents: cents(row.interest),
         missingInterestSnapshots: Number(row.unknownInterest ?? 0),
         refundedCents: cents(row.refunded), refundedCount: Number(row.refundedCount ?? 0),
         chargebacksCents: cents(row.chargebacks), chargebacksCount: Number(row.chargebackCount ?? 0),
         pendingSalesCents: cents(row.pending), pendingSalesCount: Number(row.pendingCount ?? 0),
         failedSalesCents: cents(row.failed), failedSalesCount: Number(row.failedCount ?? 0),
+        withdrawalFeesCents: cents(withdrawals.filter(w => ['APPROVED', 'COMPLETED'].includes(w.status)).reduce((total, w) => total.plus(w.fee), new Prisma.Decimal(0))),
         withdrawalsCents: cents(sum(['APPROVED', 'COMPLETED'])), pendingWithdrawalsCents: cents(sum(['PENDING'])),
         missingNetSnapshots: Number(row.missing), unattributedEntries: gaps, historicalAttributionComplete: Number(row.missing) === 0 && gaps === 0,
       } };
@@ -178,7 +179,7 @@ export class OwnedPlatformReportsService {
         SELECT ${key} AS key, count(*) AS count, sum(amount) AS gross, sum("netAmount") AS net, sum("totalFee") AS fees, sum(interest) AS interest, count(*) FILTER (WHERE interest IS NULL) AS "unknownInterest"
         FROM (${this.transactions(scope, filters)}) scoped ${group === 'status' ? Prisma.empty : Prisma.sql`WHERE status = 'COMPLETED'`}
         GROUP BY 1 ORDER BY 1`);
-      return { unit: 'cents' as const, data: rows.map(r => ({ key: r.key, count: Number(r.count), grossCents: cents(r.gross), netCents: cents(r.net), feesCents: cents(r.fees), interestCents: Number(r.unknownInterest ?? 0) > 0 ? null : cents(r.interest) })) };
+      return { unit: 'cents' as const, data: rows.map(r => ({ key: r.key, count: Number(r.count), grossCents: cents(r.gross), netCents: cents(r.net), feesCents: cents(r.fees), interestCents: cents(r.interest) })) };
     });
   }
 

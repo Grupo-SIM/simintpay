@@ -280,3 +280,5 @@ Novas cobranças criadas pelo núcleo `PlatformPaymentExecution`, incluindo alia
 PIX e cartão enviam a descrição do produto seguida de `[TENANT:TAG]` também à adquirente. Sincronização compartilhada prioriza esse marcador, rejeita marcadores conflitantes e mantém heurísticas de nome somente para histórico sem marcador. `DOMAIN <referência>` e `HOSTING <referência>` categorizam produtos Atlas no relatório; não identificam dono nem autorizam crédito. Histórico sem marcador ou vínculo comprovado não é atribuído ao Atlas só por conter essas categorias.
 
 Aliases de criação retornam status financeiro persistido. Resposta `paid` da adquirente, sozinha, não faz Atlas anunciar `COMPLETED` antes da liquidação local; webhook ou reconciliação confirmam status e crédito atomicamente.
+
+- Relatórios próprios: juros sem registro contam como zero, preservando a soma dos juros registrados. Custos incluem taxas persistidas dos saques aprovados/concluídos, no mesmo escopo de dono, plataforma e período; saques pendentes/recusados não entram. Filtro de método aplica-se somente às vendas.
