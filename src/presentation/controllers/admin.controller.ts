@@ -27,7 +27,7 @@ import {
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { LeadStatus, Prisma, Role, TransactionStatus, WithdrawStatus } from '@prisma/client';
+import { LeadStatus, PaymentMethod, Prisma, Role, TransactionStatus, WithdrawStatus } from '@prisma/client';
 import { getEbookTaxaServico } from '../../modules/ebooksim/ebooksim.config';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { getAtlasProductType } from '../../modules/atlas/utils/atlas-product-description.util';
@@ -2811,6 +2811,7 @@ export class AdminController {
     @Query('transactionType') transactionType?: string,
     @Query('paymentLink') paymentLink?: string,
     @Query('planName') planName?: string,
+    @Query('metodoPagamento') metodoPagamento?: string,
   ) {
     const platforms = await resolveConsolidadoPlatforms(this.prisma);
     const where = buildConsolidadoTransactionWhere(
@@ -2825,6 +2826,10 @@ export class AdminController {
       },
       platforms,
     );
+    if (metodoPagamento) {
+      if (!['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'].includes(metodoPagamento)) throw new BadRequestException('Método inválido');
+      where.paymentMethod = metodoPagamento as PaymentMethod;
+    }
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
 
@@ -3438,6 +3443,7 @@ export class AdminController {
     @Query('meses') mesesParam?: string,
     @Query('dataInicio') dataInicioMes?: string,
     @Query('dataFim') dataFimMes?: string,
+    @Query('metodoPagamento') metodoPagamento?: string,
   ) {
     const platforms = await resolveConsolidadoPlatforms(this.prisma);
     const agora = dayjs().tz(TZ);
@@ -3446,9 +3452,9 @@ export class AdminController {
     let fimJanela: dayjs.Dayjs;
     let meses: number;
 
-    if (dataInicioMes?.match(/^\d{4}-\d{2}$/) && dataFimMes?.match(/^\d{4}-\d{2}$/)) {
-      inicioJanela = dayjs.tz(`${dataInicioMes}-01`, TZ).startOf('month');
-      fimJanela = dayjs.tz(`${dataFimMes}-01`, TZ).endOf('month');
+    if (dataInicioMes?.match(/^\d{4}-\d{2}(-\d{2})?$/) && dataFimMes?.match(/^\d{4}-\d{2}(-\d{2})?$/)) {
+      inicioJanela = dayjs.tz(`${dataInicioMes.slice(0, 7)}-01`, TZ).startOf('month');
+      fimJanela = dayjs.tz(`${dataFimMes.slice(0, 7)}-01`, TZ).endOf('month');
       meses = fimJanela.diff(inicioJanela, 'month') + 1;
     } else {
       meses = Math.min(Math.max(Number(mesesParam) || 12, 1), 36);
@@ -3457,11 +3463,15 @@ export class AdminController {
     }
 
     const where = buildConsolidadoResumoWhere(
-      inicioJanela.format('YYYY-MM-DD'),
-      fimJanela.format('YYYY-MM-DD'),
+      dataInicioMes?.length === 10 ? dataInicioMes : inicioJanela.format('YYYY-MM-DD'),
+      dataFimMes?.length === 10 ? dataFimMes : fimJanela.format('YYYY-MM-DD'),
       platforms,
     );
 
+    if (metodoPagamento) {
+      if (!['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'].includes(metodoPagamento)) throw new BadRequestException('Método inválido');
+      where.paymentMethod = metodoPagamento as PaymentMethod;
+    }
     const [txRowsBase, comunidadeRowsMensal] = await Promise.all([
       this.prisma.transaction.findMany({
         where,
@@ -3472,27 +3482,25 @@ export class AdminController {
           createdAt: true,
           description: true,
           installments: true,
+          domFee: true,
         },
         orderBy: { createdAt: 'asc' },
       }),
-      getComunidadeOrderRows(this.prisma, inicioJanela.format('YYYY-MM-DD'), fimJanela.format('YYYY-MM-DD')),
+      getComunidadeOrderRows(this.prisma, dataInicioMes?.length === 10 ? dataInicioMes : inicioJanela.format('YYYY-MM-DD'), dataFimMes?.length === 10 ? dataFimMes : fimJanela.format('YYYY-MM-DD'), metodoPagamento),
     ]);
 
-    const txRows = [...txRowsBase, ...dedupeComunidadeRows(txRowsBase, comunidadeRowsMensal)];
+    const txRows = [...txRowsBase, ...dedupeComunidadeRows(txRowsBase, comunidadeRowsMensal).filter(tx => !metodoPagamento || tx.paymentMethod === metodoPagamento)];
 
     type MesRow = {
       mes: string;
+      vendas: number;
       valorBruto: number;
       taxaAdquirente: number;
       lucroLiquido: number;
       totalRepassado: number;
     };
 
-    const taxaFixaUnit = getPlatformTaxaEffective('GLOBAL', 'TAXA_FIXA_TRANSACAO', 1.0);
-    const taxaCashbackUnit = getPlatformTaxaEffective('GLOBAL', 'TAXA_CASHBACK', 3.0);
-    const taxaDomUnit = taxaFixaUnit + taxaCashbackUnit;
-
-    const byMonth = new Map<string, { bruto: number; lucro: number; liquido: number; count: number }>();
+    const byMonth = new Map<string, { bruto: number; lucro: number; liquido: number; count: number; acquirerFees: number }>();
 
     for (const tx of txRows) {
       if (!transacaoEntraNoLucroSimpayConsolidado(tx.amount, tx.description)) continue;
@@ -3507,12 +3515,13 @@ export class AdminController {
       const liquido = SEM_REPASSE_TAGS.has(tag.toUpperCase())
         ? 0
         : valorLiquidoTransacaoConsolidado(tx, tag);
-      const prev = byMonth.get(mes) ?? { bruto: 0, lucro: 0, liquido: 0, count: 0 };
+      const prev = byMonth.get(mes) ?? { bruto: 0, lucro: 0, liquido: 0, count: 0, acquirerFees: 0 };
       byMonth.set(mes, {
         bruto: prev.bruto + bruto,
         lucro: prev.lucro + lucro,
         liquido: prev.liquido + liquido,
         count: prev.count + 1,
+        acquirerFees: prev.acquirerFees + ('domFee' in tx ? Number(tx.domFee ?? 0) : 0),
       });
     }
 
@@ -3520,11 +3529,12 @@ export class AdminController {
     const resultado: MesRow[] = [];
     for (let i = 0; i < meses; i++) {
       const mes = fimJanela.subtract(i, 'month').format('YYYY-MM');
-      const agg = byMonth.get(mes) ?? { bruto: 0, lucro: 0, liquido: 0, count: 0 };
+      const agg = byMonth.get(mes) ?? { bruto: 0, lucro: 0, liquido: 0, count: 0, acquirerFees: 0 };
       resultado.push({
         mes,
+        vendas: agg.count,
         valorBruto: Number(agg.bruto.toFixed(2)),
-        taxaAdquirente: Number((agg.count * taxaDomUnit).toFixed(2)),
+        taxaAdquirente: Number(agg.acquirerFees.toFixed(2)),
         lucroLiquido: Number(agg.lucro.toFixed(2)),
         totalRepassado: Number(agg.liquido.toFixed(2)),
       });

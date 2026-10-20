@@ -33,7 +33,11 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
     SELECT t.id, t."userId", t."createdAt", t.status::text AS status, t."paymentMethod"::text AS "paymentMethod",
       t.amount, t."netAmount",
       CASE WHEN t."netAmount" IS NOT NULL THEN t.amount - t."netAmount" ELSE t."totalFee" END AS "totalFee",
-      p.tag AS "platformTag"
+      p.tag AS "platformTag",
+      coalesce(nullif(t."customerDocument", ''), nullif(lower(t."customerEmail"), ''), nullif(t."customerPhone", '')) AS "customerKey",
+      CASE WHEN t."financialSnapshot"->>'buyerInterestCents' ~ '^[0-9]+$' THEN (t."financialSnapshot"->>'buyerInterestCents')::numeric / 100
+        WHEN t."paymentMethod"::text <> 'CREDIT_CARD' THEN 0 ELSE NULL END AS interest,
+      t.description, t."customerName"
     FROM "Transaction" t
     LEFT JOIN "PaymentLink" l ON l.id = t."paymentLinkId"
     LEFT JOIN LATERAL (
@@ -67,7 +71,11 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
     UNION ALL
     SELECT 'comunidade_order_' || o.id AS id, o."userId", o."createdAt", 'COMPLETED' AS status,
       o."paymentMethod"::text AS "paymentMethod", o."amountCharged" AS amount,
-      o."amountCharged" - o."platformFeeAmount" AS "netAmount", o."platformFeeAmount" AS "totalFee", p.tag AS "platformTag"
+      o."amountCharged" - o."platformFeeAmount" AS "netAmount", o."platformFeeAmount" AS "totalFee", p.tag AS "platformTag",
+      coalesce(nullif(o."customerDocument", ''), nullif(lower(o."customerEmail"), ''), nullif(o."customerPhone", '')) AS "customerKey",
+      CASE WHEN o."financialSnapshot"->>'buyerInterestCents' ~ '^[0-9]+$' THEN (o."financialSnapshot"->>'buyerInterestCents')::numeric / 100
+        WHEN o."paymentMethod"::text <> 'CREDIT_CARD' THEN 0 ELSE NULL END AS interest,
+      sl.name AS description, o."customerName"
     FROM "SubscriptionLinkOrder" o
     JOIN "SubscriptionLink" sl ON sl.id = o."subscriptionLinkId"
     CROSS JOIN LATERAL (SELECT ${subscriptionTags()} AS tags) link

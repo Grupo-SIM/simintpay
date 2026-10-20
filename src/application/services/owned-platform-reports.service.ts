@@ -128,8 +128,19 @@ export class OwnedPlatformReportsService {
     return this.snapshot(async db => {
       const scope = await this.scope(db, user, filters.platform);
       const [rows, withdrawals, gaps] = await Promise.all([
-        db.$queryRaw<{ count: bigint; gross: Prisma.Decimal; fees: Prisma.Decimal; net: Prisma.Decimal; refunds: Prisma.Decimal; refundCount: bigint; missing: bigint }[]>(Prisma.sql`
+        db.$queryRaw<{ count: bigint; gross: Prisma.Decimal; fees: Prisma.Decimal; net: Prisma.Decimal; refunds: Prisma.Decimal; refundCount: bigint; missing: bigint; customers: bigint; interest: Prisma.Decimal; unknownInterest: bigint; refunded: Prisma.Decimal; refundedCount: bigint; chargebacks: Prisma.Decimal; chargebackCount: bigint; pending: Prisma.Decimal; pendingCount: bigint; failed: Prisma.Decimal; failedCount: bigint }[]>(Prisma.sql`
           SELECT count(*) FILTER (WHERE status = 'COMPLETED') AS count,
+          count(DISTINCT "customerKey") FILTER (WHERE status = 'COMPLETED') AS customers,
+          coalesce(sum(interest) FILTER (WHERE status = 'COMPLETED'), 0) AS interest,
+          count(*) FILTER (WHERE status = 'COMPLETED' AND interest IS NULL) AS "unknownInterest",
+          coalesce(sum("netAmount") FILTER (WHERE status = 'REFUNDED'), 0) AS refunded,
+          count(*) FILTER (WHERE status = 'REFUNDED') AS "refundedCount",
+          coalesce(sum("netAmount") FILTER (WHERE status = 'CHARGEBACK'), 0) AS chargebacks,
+          count(*) FILTER (WHERE status = 'CHARGEBACK') AS "chargebackCount",
+          coalesce(sum(amount) FILTER (WHERE status = 'PENDING'), 0) AS pending,
+          count(*) FILTER (WHERE status = 'PENDING') AS "pendingCount",
+          coalesce(sum(amount) FILTER (WHERE status = 'FAILED'), 0) AS failed,
+          count(*) FILTER (WHERE status = 'FAILED') AS "failedCount",
           coalesce(sum(amount) FILTER (WHERE status = 'COMPLETED'), 0) AS gross,
           coalesce(sum("totalFee") FILTER (WHERE status = 'COMPLETED'), 0) AS fees,
           coalesce(sum("netAmount") FILTER (WHERE status = 'COMPLETED'), 0) AS net,
@@ -145,6 +156,13 @@ export class OwnedPlatformReportsService {
       return { unit: 'cents' as const, platformsCount: scope.length, summary: {
         salesCount: Number(row.count), grossCents: cents(row.gross), feesCents: cents(row.fees), netCents: cents(row.net),
         refundsCents: cents(row.refunds), refundsCount: Number(row.refundCount),
+        customersCount: Number(row.customers ?? 0),
+        interestCents: Number(row.unknownInterest ?? 0) > 0 ? null : cents(row.interest),
+        missingInterestSnapshots: Number(row.unknownInterest ?? 0),
+        refundedCents: cents(row.refunded), refundedCount: Number(row.refundedCount ?? 0),
+        chargebacksCents: cents(row.chargebacks), chargebacksCount: Number(row.chargebackCount ?? 0),
+        pendingSalesCents: cents(row.pending), pendingSalesCount: Number(row.pendingCount ?? 0),
+        failedSalesCents: cents(row.failed), failedSalesCount: Number(row.failedCount ?? 0),
         withdrawalsCents: cents(sum(['APPROVED', 'COMPLETED'])), pendingWithdrawalsCents: cents(sum(['PENDING'])),
         missingNetSnapshots: Number(row.missing), unattributedEntries: gaps, historicalAttributionComplete: Number(row.missing) === 0 && gaps === 0,
       } };
@@ -156,11 +174,11 @@ export class OwnedPlatformReportsService {
     return this.snapshot(async db => {
       const scope = await this.scope(db, user, filters.platform);
       const key = group === 'monthly' ? Prisma.sql`to_char(("createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM')` : group === 'status' ? Prisma.sql`status::text` : Prisma.sql`"paymentMethod"::text`;
-      const rows = await db.$queryRaw<{ key: string; count: bigint; gross: Prisma.Decimal; net: Prisma.Decimal }[]>(Prisma.sql`
-        SELECT ${key} AS key, count(*) AS count, sum(amount) AS gross, sum("netAmount") AS net
+      const rows = await db.$queryRaw<{ key: string; count: bigint; gross: Prisma.Decimal; net: Prisma.Decimal; fees: Prisma.Decimal; interest: Prisma.Decimal; unknownInterest: bigint }[]>(Prisma.sql`
+        SELECT ${key} AS key, count(*) AS count, sum(amount) AS gross, sum("netAmount") AS net, sum("totalFee") AS fees, sum(interest) AS interest, count(*) FILTER (WHERE interest IS NULL) AS "unknownInterest"
         FROM (${this.transactions(scope, filters)}) scoped ${group === 'status' ? Prisma.empty : Prisma.sql`WHERE status = 'COMPLETED'`}
         GROUP BY 1 ORDER BY 1`);
-      return { unit: 'cents' as const, data: rows.map(r => ({ key: r.key, count: Number(r.count), grossCents: cents(r.gross), netCents: cents(r.net) })) };
+      return { unit: 'cents' as const, data: rows.map(r => ({ key: r.key, count: Number(r.count), grossCents: cents(r.gross), netCents: cents(r.net), feesCents: cents(r.fees), interestCents: Number(r.unknownInterest ?? 0) > 0 ? null : cents(r.interest) })) };
     });
   }
 
@@ -171,12 +189,12 @@ export class OwnedPlatformReportsService {
       const scope = await this.scope(db, user, filters.platform);
       const source = this.transactions(scope, filters);
       const [rows, counts] = await Promise.all([
-        db.$queryRaw<{ id: string; platformTag: string; createdAt: Date; status: string; paymentMethod: PaymentMethod; amount: Prisma.Decimal; totalFee: Prisma.Decimal; netAmount: Prisma.Decimal | null }[]>(Prisma.sql`
-          SELECT id, "platformTag", "createdAt", status, "paymentMethod", amount, "totalFee", "netAmount" FROM (${source}) scoped ORDER BY "createdAt" DESC, id ASC LIMIT ${pageSize} OFFSET ${skip}`),
+        db.$queryRaw<{ id: string; platformTag: string; createdAt: Date; status: string; paymentMethod: PaymentMethod; amount: Prisma.Decimal; totalFee: Prisma.Decimal; netAmount: Prisma.Decimal | null; description: string | null; customerName: string | null }[]>(Prisma.sql`
+          SELECT id, "platformTag", "createdAt", status, "paymentMethod", amount, "totalFee", "netAmount", description, "customerName" FROM (${source}) scoped ORDER BY "createdAt" DESC, id ASC LIMIT ${pageSize} OFFSET ${skip}`),
         db.$queryRaw<{ total: bigint }[]>(Prisma.sql`SELECT count(*) AS total FROM (${source}) scoped`),
       ]);
       return { unit: 'cents' as const, data: rows.map(r => ({ id: r.id, platformTag: r.platformTag, createdAt: r.createdAt, status: r.status,
-        paymentMethod: r.paymentMethod, grossCents: cents(r.amount), feesCents: cents(r.totalFee), netCents: r.netAmount === null ? null : cents(r.netAmount) })), total: Number(counts[0].total), page, pageSize };
+        paymentMethod: r.paymentMethod, description: r.description, customerName: r.customerName, grossCents: cents(r.amount), feesCents: cents(r.totalFee), netCents: r.netAmount === null ? null : cents(r.netAmount) })), total: Number(counts[0].total), page, pageSize };
     });
   }
 
