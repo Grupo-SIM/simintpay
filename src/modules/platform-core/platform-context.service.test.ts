@@ -66,11 +66,24 @@ describe('PlatformContextService', () => {
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
   });
 
-  it('looks up token hash and defaults credential to payment creation only', async () => {
+  it('looks up token hash for default permissions', async () => {
     const { service, prisma } = fixture();
     await expect(service.authorize('client-a', 'payments:create', undefined, 'secret')).resolves.toHaveProperty('id', 'platform-a');
     expect(prisma.platformIntegration.findUnique).toHaveBeenCalledWith({ where: { tokenHash: hashPlatformToken('secret') } });
-    await expect(service.authorize('client-a', 'finance:read', undefined, 'secret')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it.each([
+    'events:read', 'finance:read', 'finance:withdraw', 'links:read', 'links:write',
+    'payments:create', 'payments:read', 'subscriptions:read', 'subscriptions:write',
+    'vouchers:read', 'vouchers:write',
+  ])('grants %s when operations are not configured', async (operation) => {
+    const { service } = fixture();
+    await expect(service.authorize('client-a', operation, undefined, 'secret')).resolves.toHaveProperty('id', 'platform-a');
+  });
+
+  it.each(['ledger:write', 'reports:read', 'sync:run', 'merchants:manage', 'mail:send', 'community:read', 'billing:read', 'billing:write'])('denies %s by default', async (operation) => {
+    const { service } = fixture();
+    await expect(service.authorize('client-a', operation, undefined, 'secret')).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it.each(['wrong-platform', 'wrong-key', 'missing'])('rejects %s credential', async (kind) => {

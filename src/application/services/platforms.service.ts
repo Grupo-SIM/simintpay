@@ -1,6 +1,7 @@
 import { loadFinancialPolicy } from '../../modules/financial-policy/financial-policy.service';
 import { getFinancialPolicy, saveFinancialPolicy, simulateFinancialPolicy, type SimulationInput } from '../../modules/financial-policy/financial-policy.service';
 import { CORPORATE_PLATFORM_TAGS } from '../../modules/platform-core/platform-adapters';
+import { DEFAULT_INBOUND_OPERATIONS } from '../../modules/platform-integrations/platform-integration-keys';
 import { initializePlatformIntegrationsCache, invalidatePlatformIntegrationsCache } from '../../modules/platform-integrations/platform-integrations.store';
 import { BadRequestException, ConflictException, ForbiddenException, GoneException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
@@ -46,7 +47,7 @@ export class PlatformsService {
       id: platform.id, tag: platform.tag, ownerUserId: platform.ownerUserId,
       active: platform.isActive && platform.owner.isActive && !platform.owner.isPurged,
       inboundCredentialLinked: platform.integrations.some(row => row.key === 'INBOUND_TOKEN' && !!row.tokenHash && !!row.encryptedValue),
-      operations: platform.integrations.find(row => row.key === 'INBOUND_OPERATIONS')?.url?.split(',').map(scope => scope.trim()) ?? ['payments:create'],
+      operations: platform.integrations.find(row => row.key === 'INBOUND_OPERATIONS')?.url?.split(',').map(scope => scope.trim()) ?? DEFAULT_INBOUND_OPERATIONS,
       communityLinked: platform.tag === 'RETURN-BET' ? platform.integrations.some(row => row.key === 'COMMUNITY_PLATFORM_TAG' && !!row.url) : undefined,
     })) };
   }

@@ -1,3 +1,10 @@
+/** Used when no explicit INBOUND_OPERATIONS configuration exists. */
+export const DEFAULT_INBOUND_OPERATIONS = [
+  'events:read', 'finance:read', 'finance:withdraw', 'links:read', 'links:write',
+  'payments:create', 'payments:read', 'subscriptions:read', 'subscriptions:write',
+  'vouchers:read', 'vouchers:write',
+] as const;
+
 /** Configuration keys are shared by migration, adapters and management APIs. */
 export const PLATFORM_INTEGRATION_KEYS = [
   'EXTERNAL_DATABASE_URL', 'DOM_TOKEN', 'API_DOM_XTOKEN', 'BACKEND_URL', 'INTERNAL_TOKEN', 'URL_APP',

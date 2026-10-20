@@ -4,6 +4,7 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import { canonicalPlatformTaxaTag } from '../platform-taxas/platform-taxas.store';
 import { hashPlatformToken } from '../platform-integrations/platform-secrets';
+import { DEFAULT_INBOUND_OPERATIONS } from '../platform-integrations/platform-integration-keys';
 
 export interface PlatformContext {
   id: string;
@@ -40,8 +41,8 @@ export class PlatformContextService {
     const credential = await this.prisma.platformIntegration.findUnique({ where: { tokenHash: hashPlatformToken(token) } });
     if (credential?.key !== 'INBOUND_TOKEN' || credential.platformId !== platform.id) throw new UnauthorizedException('Credencial inválida para plataforma');
     const scopes = await this.prisma.platformIntegration.findUnique({ where: { platformId_key: { platformId: platform.id, key: 'INBOUND_OPERATIONS' } } });
-    // Existing inbound credentials grant creation only. Read/finance scopes require explicit administration.
-    const allowed = scopes?.url?.split(',').map((value) => value.trim()) ?? ['payments:create'];
+    // Explicit scopes replace the defaults, including for existing credentials.
+    const allowed: readonly string[] = scopes?.url?.split(',').map((value) => value.trim()) ?? DEFAULT_INBOUND_OPERATIONS;
     if (!allowed.includes(operation)) throw new ForbiddenException('Credencial sem permissão para operação');
     return platform;
   }

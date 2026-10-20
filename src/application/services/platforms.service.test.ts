@@ -3,12 +3,27 @@ import { ForbiddenException } from '@nestjs/common';
 import { PlatformsService } from './platforms.service';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { initializePlatformTaxasCache } from '../../modules/platform-taxas/platform-taxas.store';
+import { DEFAULT_INBOUND_OPERATIONS } from '../../modules/platform-integrations/platform-integration-keys';
 
 beforeEach(async () => {
   await initializePlatformTaxasCache({ platformTaxaOverride: { findMany: async () => [] } } as never);
 });
 
 const user = { sub: 'owner', email: 'owner@example.com', role: 'USER' };
+
+test('integration diagnostics report default scopes and preserve explicit restrictions', async () => {
+  const platform = { id: 'platform', tag: 'SHOP', ownerUserId: 'owner', isActive: true, owner: { isActive: true, isPurged: false } };
+  const prisma = {
+    user: { findUnique: async () => ({ role: 'ADMIN', isActive: true, isPurged: false }) },
+    platform: { findMany: async () => [
+      { ...platform, integrations: [] },
+      { ...platform, id: 'restricted', integrations: [{ key: 'INBOUND_OPERATIONS', url: 'payments:read' }] },
+    ] },
+  };
+  const result = await new PlatformsService(prisma as never).integrationDiagnostics(user);
+  expect(result.data[0].operations).toEqual([...DEFAULT_INBOUND_OPERATIONS]);
+  expect(result.data[1].operations).toEqual(['payments:read']);
+});
 
 function service(platform = { id: 'platform', tag: 'SHOP', ownerUserId: 'owner' }) {
   const update = mock(async () => platform);
