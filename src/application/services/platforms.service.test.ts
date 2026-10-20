@@ -1,11 +1,18 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { ForbiddenException } from '@nestjs/common';
 import { PlatformsService } from './platforms.service';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { initializePlatformTaxasCache } from '../../modules/platform-taxas/platform-taxas.store';
+import { decryptPlatformSecret, hashPlatformToken } from '../../modules/platform-integrations/platform-secrets';
 import { DEFAULT_INBOUND_OPERATIONS } from '../../modules/platform-integrations/platform-integration-keys';
 
+const encryptionKey = process.env.PLATFORM_CONFIG_ENCRYPTION_KEY;
+afterEach(() => {
+  if (encryptionKey === undefined) delete process.env.PLATFORM_CONFIG_ENCRYPTION_KEY;
+  else process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = encryptionKey;
+});
 beforeEach(async () => {
+  process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = 'ab'.repeat(32);
   await initializePlatformTaxasCache({ platformTaxaOverride: { findMany: async () => [] } } as never);
 });
 
@@ -91,6 +98,17 @@ describe('Platform product ownership', () => {
     expect(rows.map(row => row.tag)).toEqual(['PRODUCT-A', 'PRODUCT-B']);
     expect(rows.every(row => row.absorbCustomerInterest === true)).toBe(true);
     expect(create.mock.calls.every(([arg]) => !('platformId' in arg.data))).toBe(true);
+    const credentials = create.mock.calls.map(([arg]) => arg.data.integrations.create);
+    const tokens = credentials.map(rows => decryptPlatformSecret(rows[0].encryptedValue));
+    expect(tokens[0]).toMatch(/^[a-f0-9]{64}$/);
+    expect(tokens[0]).not.toBe(tokens[1]);
+    credentials.forEach((rows, index) => {
+      expect(rows[0].tokenHash).toBe(hashPlatformToken(tokens[index]));
+      expect(rows[1]).toEqual({ key: 'INBOUND_OPERATIONS', url: DEFAULT_INBOUND_OPERATIONS.join(',') });
+      const secret = decryptPlatformSecret(rows[2].encryptedValue);
+      expect(secret).toMatch(/^[a-f0-9]{64}$/);
+      expect(secret).not.toBe(tokens[index]);
+    });
   });
 });
 

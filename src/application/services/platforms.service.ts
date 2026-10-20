@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+import { encryptPlatformSecret, hashPlatformToken } from '../../modules/platform-integrations/platform-secrets';
 import { loadFinancialPolicy } from '../../modules/financial-policy/financial-policy.service';
 import { getFinancialPolicy, saveFinancialPolicy, simulateFinancialPolicy, type SimulationInput } from '../../modules/financial-policy/financial-policy.service';
 import { CORPORATE_PLATFORM_TAGS } from '../../modules/platform-core/platform-adapters';
@@ -87,7 +89,17 @@ export class PlatformsService {
     const ownerUserId = body.ownerUserId ?? user.sub;
     if (!await this.prisma.user.findFirst({ where: { id: ownerUserId, isActive: true, isPurged: false, role: { not: Role.ADMIN } } })) throw new BadRequestException('Dono deve ser uma conta cliente ativa, separada da administração');
     try {
-      const platform = await this.prisma.platform.create({ data: { tag, name, ownerUserId, absorbCustomerInterest: true }, select: publicSelect });
+      const inboundToken = randomBytes(32).toString('hex');
+      const webhookSecret = randomBytes(32).toString('hex');
+      const platform = await this.prisma.platform.create({ data: {
+        tag, name, ownerUserId, absorbCustomerInterest: true,
+        integrations: { create: [
+          { key: 'INBOUND_TOKEN', encryptedValue: encryptPlatformSecret(inboundToken), tokenHash: hashPlatformToken(inboundToken) },
+          { key: 'INBOUND_OPERATIONS', url: DEFAULT_INBOUND_OPERATIONS.join(',') },
+          { key: 'WEBHOOK_SECRET', encryptedValue: encryptPlatformSecret(webhookSecret) },
+        ] },
+      }, select: publicSelect });
+      invalidatePlatformIntegrationsCache();
       await initializePlatformRegistryCache(this.prisma);
       return { data: platform };
     } catch (error) {

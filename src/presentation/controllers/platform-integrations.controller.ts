@@ -1,11 +1,12 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, NotFoundException, Param, Put, UseGuards } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Header, NotFoundException, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
-import { encryptPlatformSecret, hashPlatformToken } from '../../modules/platform-integrations/platform-secrets';
+import { decryptPlatformSecret, encryptPlatformSecret, hashPlatformToken } from '../../modules/platform-integrations/platform-secrets';
 import { initializePlatformIntegrationsCache, invalidatePlatformIntegrationsCache } from '../../modules/platform-integrations/platform-integrations.store';
-import { PLATFORM_INTEGRATION_KEYS, PLATFORM_PUBLIC_VALUE_KEYS, PLATFORM_URL_KEYS } from '../../modules/platform-integrations/platform-integration-keys';
+import { DEFAULT_INBOUND_OPERATIONS, PLATFORM_INTEGRATION_KEYS, PLATFORM_PUBLIC_VALUE_KEYS, PLATFORM_URL_KEYS } from '../../modules/platform-integrations/platform-integration-keys';
 
 @Controller('platforms/:id/integrations')
 @UseGuards(JwtAuthGuard)
@@ -27,6 +28,42 @@ export class PlatformIntegrationsController {
     await this.authorize(id, user);
     const rows = await this.prisma.platformIntegration.findMany({ where: { platformId: id } });
     return { data: rows.map(({ key, url, encryptedValue }) => ({ key, value: encryptedValue ? '********' : url, configured: !!(encryptedValue || url) })) };
+  }
+
+  @Get('settings')
+  @Header('Cache-Control', 'no-store')
+  async settings(@Param('id') id: string, @CurrentUser() user: JwtPayload | undefined) {
+    await this.authorize(id, user);
+    const keys = ['INBOUND_TOKEN', 'INBOUND_OPERATIONS', 'WEBHOOK_SECRET', 'WEBHOOK_URL'];
+    const rows = await this.prisma.platformIntegration.findMany({ where: { platformId: id, key: { in: keys } } });
+    return { data: Object.fromEntries(keys.map(key => {
+      const row = rows.find(row => row.key === key);
+      return [key, row?.encryptedValue ? decryptPlatformSecret(row.encryptedValue) : row?.url ?? null];
+    })) };
+  }
+
+  @Post('credentials/rotate')
+  @Header('Cache-Control', 'no-store')
+  async rotateCredentials(@Param('id') id: string, @CurrentUser() user: JwtPayload | undefined) {
+    await this.authorize(id, user);
+    const token = randomBytes(32).toString('hex');
+    const secret = randomBytes(32).toString('hex');
+    const credentials = [
+      { key: 'INBOUND_TOKEN', encryptedValue: encryptPlatformSecret(token), tokenHash: hashPlatformToken(token), url: null },
+      { key: 'WEBHOOK_SECRET', encryptedValue: encryptPlatformSecret(secret), tokenHash: null, url: null },
+    ];
+    await this.prisma.$transaction(async tx => {
+      for (const { key, ...data } of credentials) {
+        await tx.platformIntegration.upsert({ where: { platformId_key: { platformId: id, key } }, create: { platformId: id, key, ...data }, update: data });
+      }
+      // Preserve explicit restrictions, including an intentionally empty scope list.
+      await tx.platformIntegration.upsert({
+        where: { platformId_key: { platformId: id, key: 'INBOUND_OPERATIONS' } },
+        create: { platformId: id, key: 'INBOUND_OPERATIONS', url: DEFAULT_INBOUND_OPERATIONS.join(',') }, update: {},
+      });
+    });
+    invalidatePlatformIntegrationsCache();
+    return this.settings(id, user);
   }
 
   @Put(':key')
