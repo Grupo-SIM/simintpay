@@ -25,9 +25,11 @@ export class ListSubscriptionLinksUseCase {
 
     return {
       data: result.items.map((l) => {
-        // Link de cliente SimintPay → exibe a plataforma SIMINTPAY (independe do valor gravado,
-        // que em links antigos pode estar GLOBAL/vazio). O master aplica a taxa via CLIENT:<email>.
-        const isCliente = (l as any).user?.clientStatus != null;
+        // Link de cliente SimintPay sem plataforma própria selecionada → exibe SIMINTPAY
+        // (o master aplica a taxa via CLIENT:<email>). Quando o cliente escolheu uma
+        // plataforma própria explicitamente, respeita o valor gravado em vez de sobrescrever.
+        const plataformasGravadas = (l as any).plataformas ?? [];
+        const isCliente = (l as any).user?.clientStatus != null && plataformasGravadas.length === 0;
         return {
           id: l.id,
           codigo: l.code,
@@ -44,7 +46,7 @@ export class ListSubscriptionLinksUseCase {
           // Quem criou o link (cliente ou master) — para a coluna "Criado por".
           donoNome: (l as any).user?.name ?? null,
           donoEmail: (l as any).user?.email ?? null,
-          plataformas: isCliente ? ['SIMINTPAY'] : ((l as any).plataformas ?? []),
+          plataformas: isCliente ? ['SIMINTPAY'] : plataformasGravadas,
         };
       }),
       total: result.total,
