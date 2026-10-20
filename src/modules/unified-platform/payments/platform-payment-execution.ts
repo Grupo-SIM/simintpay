@@ -7,7 +7,7 @@ export class PlatformPaymentExecution {
   constructor(private readonly prisma: PrismaService) {}
 
   reserve(data: Prisma.TransactionUncheckedCreateInput) {
-    return this.prisma.transaction.create({ data: { ...data, status: TransactionStatus.DRAFT } });
+    return this.prisma.transaction.create({ data: { ...data, settlementBasis: 'FINAL_NET', status: TransactionStatus.DRAFT } });
   }
 
   async charge<T extends { id: string; status: string }>(input: {

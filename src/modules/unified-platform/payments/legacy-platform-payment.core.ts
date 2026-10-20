@@ -207,7 +207,7 @@ export class LegacyPlatformPaymentCore {
           name: body.name,
         },
         items: {
-          description: this.productDescription(body.description),
+          description: this.buildInternalDescription(this.productDescription(body.description)),
           price: price,
           quantity: 1,
         },
@@ -221,7 +221,7 @@ export class LegacyPlatformPaymentCore {
       };
 
       this.logger.log(`📤 [${this.tag}] Enviando requisição para DOM Pagamentos`);
-      const { payment } = await new PlatformPaymentExecution(this.prisma).charge({
+      const { payment, transaction: stored } = await new PlatformPaymentExecution(this.prisma).charge({
         transactionId: transaction.id, charge: () => this.createDomPagamentosPix(paymentRequest),
         references: payment => ({ domPaymentId: payment.id, externalPaymentId: payment.id,
           pixQrCode: payment.pix_qrcode, pixContent: payment.pix_content,
@@ -234,7 +234,7 @@ export class LegacyPlatformPaymentCore {
         ...payment,
         transactionId: transaction.id,
         paymentId: payment.id,
-        status: 'PENDING',
+        status: stored.status,
       };
     } catch (error) {
       this.logger.error(`❌ [${this.tag}] Erro ao criar pagamento PIX:`, error);
@@ -315,7 +315,7 @@ export class LegacyPlatformPaymentCore {
           name: body.name,
         },
         items: {
-          description: this.productDescription(body.description),
+          description: this.buildInternalDescription(this.productDescription(body.description)),
           price: price,
           quantity: 1,
         },
@@ -335,7 +335,7 @@ export class LegacyPlatformPaymentCore {
 
       this.logger.log(`📤 [${this.tag}] Enviando requisição para DOM Pagamentos`);
       const rejected = (status: string) => ['not_authorized', 'error', 'failed', 'refused', 'canceled', 'expired'].includes(status.toLowerCase());
-      const { payment } = await new PlatformPaymentExecution(this.prisma).charge({
+      const { payment, transaction: stored } = await new PlatformPaymentExecution(this.prisma).charge({
         transactionId: transaction.id, charge: () => this.createDomPagamentosCreditCard(paymentRequest),
         rejection: payment => this.tag === 'ATLAS' && rejected(String(payment.status ?? '')),
         references: payment => ({ domPaymentId: payment.id, externalPaymentId: payment.id }),
@@ -348,7 +348,7 @@ export class LegacyPlatformPaymentCore {
 
       // Persist terminal gateway results through the same idempotent webhook path.
       // Returning the stored status prevents Delivery from confirming before SimIntPay.
-      let status = this.tag === 'ATLAS' && gatewayStatus === 'paid' ? 'COMPLETED' : 'PENDING';
+      let status: string = stored.status;
       if (this.tag === 'ZERO-GRAU' && !['pending', 'pending_capture'].includes(payment.status?.trim().toLowerCase())) {
         try {
           const settled = await this.reconcile!.reconcilePayment(payment.id, userId, this.domToken);

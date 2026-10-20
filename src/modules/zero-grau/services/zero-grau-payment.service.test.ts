@@ -13,13 +13,18 @@ const card = {
 };
 
 function fixture(gatewayStatus: string, localStatus: string) {
+  let stored: any;
   const prisma = {
+    financialPolicyRevision: { findMany: mock(async () => []) },
     platform: { findUnique: mock(async () => ({ ownerUserId: 'seller', isActive: true, acquirer: 'DOM', owner: { isActive: true, isPurged: false } })) },
-    wallet: { findUnique: mock(async () => ({ id: 'wallet' })) },
+    wallet: { findUnique: mock(async () => ({ id: 'wallet' })), upsert: mock(async () => ({ id: 'wallet' })) },
     transaction: {
-      create: mock(async () => ({ id: 'local-card' })),
-      update: mock(async () => ({})),
-      updateMany: mock(async () => ({ count: 1 })),
+      create: mock(async ({ data }: any) => { stored = { id: 'local-card', ...data }; return stored; }),
+      update: mock(async ({ data }: any) => { stored = { ...stored, ...data }; return stored; }),
+      updateMany: mock(async ({ where, data }: any) => {
+        if (stored.status !== where.status) return { count: 0 };
+        stored = { ...stored, ...data }; return { count: 1 };
+      }),
     },
   };
   const reconcilePayment = mock(async () => ({ paymentId: 'dom-card', status: localStatus }));

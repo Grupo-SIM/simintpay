@@ -37,6 +37,12 @@ export function hasPlatformMarker(description: string | null, tag: string): bool
   return tags.length > 0 && tags.every(value => value === tag);
 }
 
+/** Explicit platform markers take precedence over legacy product-name heuristics. */
+export function acceptsPlatformSyncDescription(description: string, tag: string): boolean {
+  if (/\[TENANT:/i.test(description)) return hasPlatformMarker(description, tag);
+  return platformSyncAdapter(tag)?.accepts(description) ?? false;
+}
+
 export function conflictingPlatformMarker(description: string, tag: string): boolean {
   return /\[TENANT:/i.test(description) && !hasPlatformMarker(description, tag);
 }

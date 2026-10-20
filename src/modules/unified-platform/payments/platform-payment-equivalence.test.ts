@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import { PlatformPaymentsService } from './platform-payments.service';
 import { LegacyPlatformPaymentCore } from './legacy-platform-payment.core';
+import { acceptsPlatformSyncDescription } from '../../platform-core/platform-sync.adapter';
 import { AtlasConfig } from '../../atlas/atlas.config';
 import { BosqueConfig } from '../../bosque/bosque.config';
 import { RenovadaConfig } from '../../renovada/renovada.config';
@@ -29,7 +30,7 @@ function fixture(tag: string) {
 }
 function financial(row: any) {
   return { amount: new Prisma.Decimal(row.amount).toString(), net: new Prisma.Decimal(row.netAmount).toString(), total: new Prisma.Decimal(row.totalFee).toString(), gateway: new Prisma.Decimal(row.domFee).toString(), fee: new Prisma.Decimal(row.platformFee).toString(),
-    tracking: row.tracking, status: row.status, userId: row.userId, method: row.paymentMethod, installments: row.installments, acquirer: row.acquirer, paymentId: row.domPaymentId };
+    settlementBasis: row.settlementBasis, tracking: row.tracking, status: row.status, userId: row.userId, method: row.paymentMethod, installments: row.installments, acquirer: row.acquirer, paymentId: row.domPaymentId };
 }
 
 describe('Legacy and canonical payment execution equivalence', () => {
@@ -38,20 +39,26 @@ describe('Legacy and canonical payment execution equivalence', () => {
       test(`${tag} ${method} ${merchant ? "merchant" : "owner"}: reais alias and cents API persist same financial contract`, async () => {
         const legacy = fixture(tag), canonical = fixture(tag);
         const account = merchant ? 'seller' : 'owner';
+        const description = tag === 'ATLAS' ? (method === 'PIX' ? 'DOMAIN example.com' : 'HOSTING VPS-10-1784846') : body.description;
         for (const f of [legacy, canonical]) {
           (f.prisma as any).integrationMerchant = { findUnique: async () => ({ id: 'merchant', integrationKey: f === legacy ? 'legacy' : 'platform:p', userId: account, user: { isActive: true, isPurged: false } }) };
           (f.prisma as any).platformIntegration = { findUnique: async () => ({ url: 'legacy' }) };
         }
         const adapter = new LegacyPlatformPaymentCore(legacy.prisma as never, undefined, tag, config, merchant ? 'merchant' : undefined);
-        Object.assign(adapter, { createDomPagamentosPix: async () => remote, createDomPagamentosCreditCard: async () => remote });
+        const legacyCharge = mock(async (_request: any) => remote);
+        Object.assign(adapter, { createDomPagamentosPix: legacyCharge, createDomPagamentosCreditCard: legacyCharge });
         const service = new PlatformPaymentsService(canonical.prisma as never, { byAcquirer: () => ({ createPixCheckout: async () => ({ id: remote.id, status: remote.status, pixContent: remote.pix_content, qrCode: remote.pix_qrcode }) }) } as never);
         globalThis.fetch = mock(async () => new Response(JSON.stringify(remote), { status: 200 })) as unknown as typeof fetch;
-        const result = method === 'PIX' ? await adapter.createPaymentPix(account, body) : await adapter.createPaymentCreditCard(account, body);
+        const result = method === 'PIX' ? await adapter.createPaymentPix(account, { ...body, description }) : await adapter.createPaymentCreditCard(account, { ...body, description });
         const execute = merchant ? (input: any) => service.createForMerchant(canonical.platform as never, 'external', input) : (input: any) => service.create(canonical.platform as never, input);
-        const current = await execute({ amountCents: 12345, paymentMethod: method, idempotencyKey: 'purchase', description: body.description,
+        const current = await execute({ amountCents: 12345, paymentMethod: method, idempotencyKey: 'purchase', description,
           customer: { name: body.name, email: body.email, document: body.document, documentType: 'CPF', phone: body.mobile_phone },
           ...(method === 'CREDIT_CARD' ? { card: { token: body.token, holderName: body.holder_name, bin: body.bin, brand: body.brand, installments: 3 } } : {}) });
         expect(financial(legacy.stored())).toEqual(financial(canonical.stored()));
+        expect(legacy.stored().settlementBasis).toBe('FINAL_NET');
+        const providerDescription = legacyCharge.mock.calls[0][0].items.description;
+        expect(providerDescription).toContain(description);
+        expect(acceptsPlatformSyncDescription(providerDescription, tag)).toBe(true);
         expect(result).toMatchObject({ paymentId: current.paymentId, status: current.status });
         expect(current.amountCents).toBe(body.price * 100);
         expect(legacy.prisma.wallet.update).not.toHaveBeenCalled();
@@ -96,6 +103,22 @@ describe('Legacy checkout wallet initialization', () => {
       await expect(result).rejects.toThrow('Plataforma pertence a outro dono');
       expect(f.prisma.wallet.upsert).not.toHaveBeenCalled();
       expect(charge).not.toHaveBeenCalled();
+    });
+  }
+});
+
+describe('Atlas payment response follows committed financial status', () => {
+  for (const method of ['PIX', 'CREDIT_CARD'] as const) {
+    test(`${method}: provider approval cannot report local completion before settlement`, async () => {
+      const f = fixture('ATLAS');
+      const adapter = new LegacyPlatformPaymentCore(f.prisma as never, undefined, 'ATLAS', AtlasConfig);
+      const charge = mock(async () => ({ ...remote, status: 'paid' }));
+      Object.assign(adapter, { createDomPagamentosPix: charge, createDomPagamentosCreditCard: charge });
+      const result = method === 'PIX' ? await adapter.createPaymentPix('owner', body) : await adapter.createPaymentCreditCard('owner', body);
+      expect(result.status).toBe(f.stored().status);
+      expect(result.status).toBe('PENDING');
+      expect(f.stored().settlementBasis).toBe('FINAL_NET');
+      expect(f.prisma.wallet.update).not.toHaveBeenCalled();
     });
   }
 });

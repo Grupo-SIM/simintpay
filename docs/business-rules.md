@@ -272,3 +272,11 @@ Documentos novos recebem `interestOnly=true`. Snapshots novos também congelam e
 `GET /platforms/owned` filtra sempre pelo usuário autenticado, inclusive administradores. `GET /platforms` mantém catálogo administrativo completo. Sessões de integração não acessam nenhum desses catálogos.
 
 `GET /platforms/acquirers` expõe código único e nome às sessões autenticadas. Cadastro inicial técnico, sem gestão pelo painel. Novas configurações financeiras aceitam somente códigos cadastrados; migração registra códigos do enum e de todas as revisões históricas, incluindo DOM, sem alterar chaves, documentos ou transações. Admin define custos e juros SimIntPay; dono define repasse ao comprador. Custos internos da adquirente permanecem visíveis somente ao admin.
+
+## Identificação e liquidação de novas cobranças de plataforma
+
+Novas cobranças criadas pelo núcleo `PlatformPaymentExecution`, incluindo aliases legados, persistem `settlementBasis=FINAL_NET`. Crédito e estorno seguem o líquido registrado no momento da criação, pelo mesmo mecanismo atômico usado em links; não dependem do formato do ID nem de regra financeira exclusiva do Atlas. Fórmulas de criação e snapshots continuam sendo resolvidos pelos respectivos contratos e configuração. Lançamentos existentes não recebem backfill.
+
+PIX e cartão enviam a descrição do produto seguida de `[TENANT:TAG]` também à adquirente. Sincronização compartilhada prioriza esse marcador, rejeita marcadores conflitantes e mantém heurísticas de nome somente para histórico sem marcador. `DOMAIN <referência>` e `HOSTING <referência>` categorizam produtos Atlas no relatório; não identificam dono nem autorizam crédito. Histórico sem marcador ou vínculo comprovado não é atribuído ao Atlas só por conter essas categorias.
+
+Aliases de criação retornam status financeiro persistido. Resposta `paid` da adquirente, sozinha, não faz Atlas anunciar `COMPLETED` antes da liquidação local; webhook ou reconciliação confirmam status e crédito atomicamente.

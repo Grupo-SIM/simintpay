@@ -1,6 +1,6 @@
 import { bindLinkPayment, linkChargeReference, settleFinalNet } from './link-settlement';
 import { PlatformHistoricalSync } from './platform-historical-sync';
-import { canSyncTransition, conflictingPlatformMarker, hasPlatformMarker, platformSyncAdapter, syncStatus } from './platform-sync.adapter';
+import { canSyncTransition, acceptsPlatformSyncDescription, hasPlatformMarker, platformSyncAdapter, syncStatus } from './platform-sync.adapter';
 import { Inject, Injectable } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -45,7 +45,7 @@ export class PlatformSyncPersistenceService {
         : (await firstValueFrom(this.http.get<any>(`${base}/payments/history`, { headers: { 'x-access-token': token, Accept: 'application/json' }, params: { page, limit: 100 }, timeout: 15000 }))).data?.transactions ?? [];
       for (const row of rows) {
         const description = String(row.product_first ?? row.description ?? '');
-        if (!adapter.accepts(description) || conflictingPlatformMarker(description, tag)) continue;
+        if (!acceptsPlatformSyncDescription(description, tag)) continue;
         if (await this.persist(platform, row, description)) changed++;
       }
       if (rows.length < 100) break;

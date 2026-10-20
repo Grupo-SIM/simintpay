@@ -8,7 +8,7 @@ import { RevalidaSyncService } from '../revalida/services/revalida-sync.service'
 import { initializePlatformIntegrationsCache, invalidatePlatformIntegrationsCache } from '../platform-integrations/platform-integrations.store';
 beforeEach(async () => initializePlatformIntegrationsCache({ platformIntegration: { findMany: async () => ['ATLAS', 'REVALIDA'].map(tag => ({ platform: { tag }, key: 'DOM_TOKEN', url: 'mock-token' })) } } as any));
 afterEach(() => invalidatePlatformIntegrationsCache());
-function fixture(tag: string) {
+function fixture(tag: string, description = tag.toLowerCase()) {
   const context = { id: 'p', tag, ownerUserId: 'owner', acquirer: 'DOM' as const };
   const platform = { ...context, isActive: true, owner: { isActive: true }, updatedAt: new Date(0) };
   const wallet = { id: 'wallet', userId: 'owner', balance: new Prisma.Decimal(0), lockedBalance: new Prisma.Decimal(0), version: 0 };
@@ -24,7 +24,7 @@ function fixture(tag: string) {
   let delivered = false;
   const gateway: any = { listDomTransactions: mock(async (_token: string, q: any) => {
     if (q.limit === 1 || delivered) return { transactions: [] };
-    delivered = true; return { transactions: [{ id: 'provider', order_id: 'payment', status: 'paid', amount: 100, liquid_amount: 91, product_first: tag.toLowerCase(), created_at: '2024-02-01T12:00:00Z' }] };
+    delivered = true; return { transactions: [{ id: 'provider', order_id: 'payment', status: 'paid', amount: 100, liquid_amount: 91, product_first: description, created_at: '2024-02-01T12:00:00Z' }] };
   }) };
   const events = new PlatformEventsService();
   const core = new PlatformSyncPersistenceService(p, {} as any, events, gateway);
@@ -63,3 +63,12 @@ test('full-sync cannot adopt an untagged transaction or move historical ownershi
   expect(rows[0].userId).toBe('previous-owner'); expect(rows[0].description).toBe('atlas legacy');
   expect(p.wallet.update).not.toHaveBeenCalled(); expect(p.transaction.create).not.toHaveBeenCalled();
 });
+
+for (const description of ['DOMAIN example.com [TENANT:ATLAS]', 'HOSTING VPS-10-1784846 [TENANT:ATLAS]']) {
+  test(`full-sync identifies platform from marker without brand in product name: ${description}`, async () => {
+    const f = fixture('ATLAS', description);
+    const result = await f.core.history('ATLAS');
+    expect(result).toMatchObject({ success: true, totalSynced: 1 });
+    expect(f.rows[0].description).toBe(description);
+  });
+}

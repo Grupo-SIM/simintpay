@@ -93,9 +93,9 @@ export class PlatformPaymentsService {
     // Frendz's current transport expects cents; DOM's expects reais.
     const { transaction: stored } = await new PlatformPaymentExecution(this.prisma).charge({
       transactionId: id,
-      charge: async () => cardAcquirer ? cardAcquirer.charge(token, { id, amountCents: chargeCents, description: adapter.description(input.description), customer: input.customer, card: input.card! }) : this.gateways.byAcquirer(platform.acquirer as Acquirer).createPixCheckout(token, {
+      charge: async () => cardAcquirer ? cardAcquirer.charge(token, { id, amountCents: chargeCents, description: `${adapter.description(input.description)} ${marker}`, customer: input.customer, card: input.card! }) : this.gateways.byAcquirer(platform.acquirer as Acquirer).createPixCheckout(token, {
         codExternal: id, amount: platform.acquirer === 'FRENDZ' ? chargeCents : chargeAmount.toNumber(),
-        description: adapter.description(input.description), customerName: input.customer.name,
+        description: `${adapter.description(input.description)} ${marker}`, customerName: input.customer.name,
         customerEmail: input.customer.email, customerDocument: input.customer.document,
         customerPhone: input.customer.phone ?? '', documentType: input.customer.documentType,
       }),

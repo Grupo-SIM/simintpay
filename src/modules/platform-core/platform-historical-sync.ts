@@ -7,7 +7,7 @@ import { getPlatformIntegrationValue } from '../platform-integrations/platform-i
 import { requireExclusivePlatformWallet } from '../../application/helpers/exclusive-platform-wallet.helper';
 import { PlatformMaintenanceService } from '../unified-platform/finance/platform-maintenance.service';
 import { PlatformOwnerMirror } from './platform-owner-mirror';
-import { conflictingPlatformMarker, platformSyncAdapter } from './platform-sync.adapter';
+import { acceptsPlatformSyncDescription } from './platform-sync.adapter';
 import { unsupportedCapability } from './platform-adapters';
 
 type HistoricalPlatform = { id: string; tag: string; ownerUserId: string };
@@ -41,7 +41,7 @@ export class PlatformHistoricalSync {
         catch { totalErrors++; break; }
         for (const row of rows) {
           const description = String(row.product_first ?? row.description ?? '');
-          if (!platformSyncAdapter(tag)?.accepts(description) || conflictingPlatformMarker(description, tag)) continue;
+          if (!acceptsPlatformSyncDescription(description, tag)) continue;
           try {
             const paymentId = String(row.order_id ?? row.id ?? '');
             if (!paymentId) { totalSkipped++; continue; }
