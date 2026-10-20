@@ -2,6 +2,17 @@ import { Injectable, ExecutionContext, UnauthorizedException, ForbiddenException
 import { AuthGuard } from '@nestjs/passport';
 import { hashPlatformToken } from '../../../modules/platform-integrations/platform-secrets';
 import { PrismaService } from '../../database/prisma/prisma.service';
+import { CLIENT_MIN_AMOUNT } from '../../../application/helpers/client-rules.helper';
+
+/** true para o POST de CRIAÇÃO de um recurso (ex.: POST /links-assinatura), onde escolher a
+ * plataforma é esperado; false para edição de um recurso já existente (ex.: PUT /links-assinatura/:id,
+ * POST /planos/:id, PATCH /payments/pix-plan/:id), onde trocar o vínculo de plataforma não é permitido. */
+const CREATE_ROUTE_BASES = ['/planos', '/links-pagamento', '/links-assinatura', '/boletos', '/payments/pix-plan'];
+function isCreateRoute(method: string, path: string) {
+  if (method !== 'POST') return false;
+  const stripped = path.replace(/\/$/, '');
+  return CREATE_ROUTE_BASES.includes(stripped);
+}
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -86,9 +97,14 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     if (account?.clientStatus !== 'APPROVED') throw new ForbiddenException('Conta precisa estar aprovada');
     if (request.method === 'GET' || request.method === 'DELETE') return;
     const body = request.body ?? {};
-    const protectedFields = ['userId', 'ownerUserId', 'platformFee', 'platformFeeNx', 'platformTag', 'tenantTag', 'communityId', 'comunidadeId', 'code', 'codigo', 'taxa', 'taxas', 'domPlanId', 'domPaymentLinkId'];
+    const creating = isCreateRoute(request.method, path);
+    // userId/ownerUserId/taxas e afins nunca podem ser setados pelo cliente, nem na criação.
+    // platformTag/plataformas são esperados na criação (escolher a plataforma do produto) mas
+    // continuam bloqueados ao editar um recurso já existente, para não trocar o vínculo depois.
+    const alwaysProtectedFields = ['userId', 'ownerUserId', 'platformFee', 'platformFeeNx', 'tenantTag', 'communityId', 'comunidadeId', 'code', 'codigo', 'taxa', 'taxas', 'domPlanId', 'domPaymentLinkId'];
     const administrativeFees = Object.keys(body).some(key => /^platformFee(?:\d+x|Nx)?$/.test(key) || ['cashbackFee', 'debitFeePercent', 'debitFeeFixed', 'customerInterestRates', 'absorbCustomerInterest'].includes(key));
-    if (administrativeFees || protectedFields.some(key => body[key] !== undefined) || body.plataformas !== undefined) {
+    const touchesPlatformLink = !creating && (body.platformTag !== undefined || body.plataformas !== undefined);
+    if (administrativeFees || alwaysProtectedFields.some(key => body[key] !== undefined) || touchesPlatformLink) {
       throw new ForbiddenException('Proprietário, taxas, código e vínculos administrativos não podem ser alterados');
     }
     if (request.method === 'POST' && path.replace(/\/$/, '') === '/payments/pix-plan' &&
@@ -96,8 +112,8 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       throw new ForbiddenException('Metadados de proprietário e plataforma não podem ser informados');
     }
     for (const key of ['preco', 'valor', 'price']) {
-      if (body[key] !== undefined && (!Number.isFinite(body[key]) || Number(body[key]) < 14.99)) {
-        throw new BadRequestException('Valor mínimo é R$ 14,99');
+      if (body[key] !== undefined && (!Number.isFinite(body[key]) || Number(body[key]) < CLIENT_MIN_AMOUNT)) {
+        throw new BadRequestException(`Valor mínimo é R$ ${CLIENT_MIN_AMOUNT.toFixed(2).replace('.', ',')}`);
       }
     }
   }

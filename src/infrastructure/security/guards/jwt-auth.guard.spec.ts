@@ -35,4 +35,14 @@ describe('Client product authorization', () => {
   await expect(authorize({ ...request, body: { preco: 14.98 } })).rejects.toThrow('Valor mínimo');
   await expect(authorize({ ...request, user: { sub: 'admin', role: 'ADMIN' } })).resolves.toBeUndefined();
  });
+ it.each(['/planos', '/links-pagamento', '/links-assinatura', '/boletos', '/payments/pix-plan'])(
+  'allows platformTag/plataformas when creating a new resource via POST %s',
+  async base => {
+   await expect(authorize({ ...request, url: base, method: 'POST', body: { platformTag: 'SHOP', plataformas: ['SHOP'] } })).resolves.toBeUndefined();
+  },
+ );
+ it('still blocks platformTag/plataformas when editing an existing resource', async () => {
+  await expect(authorize({ ...request, url: '/links-assinatura/abc', method: 'PUT', body: { platformTag: 'SHOP' } })).rejects.toThrow('não podem ser alterados');
+  await expect(authorize({ ...request, url: '/planos/abc', method: 'POST', body: { plataformas: ['SHOP'] } })).rejects.toThrow('não podem ser alterados');
+ });
 });
