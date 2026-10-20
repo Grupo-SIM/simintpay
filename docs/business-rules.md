@@ -4,6 +4,8 @@
 
 Plataforma existe somente após cadastro explícito em `Platform`, com dono obrigatório em `User`. Usuário ativo cria plataformas próprias; administrador atribui e transfere para outro usuário ativo. Uma pessoa pode possuir várias plataformas. Tags `GLOBAL`, `SIMINTPAY` e `CLIENT:<email>` são contextos financeiros reservados, não plataformas descobertas.
 
+Administração SimIntPay não possui plataformas. Atlas e Áreaflix pertencem ao Grupo SIM, conta cliente separada. Criação administrativa exige dono explícito; criação e transferência rejeitam contas administrativas como donas. Tags nunca implicam propriedade da SimIntPay nem retenção de repasse. Consolidado e resultados mensais incluem o líquido de todas as plataformas nos repasses aos donos. Receita SimIntPay inclui somente suas taxas e margens; campo legado `lucroPlataformasSemRepasse` permanece zero e `totalRepasseReal` equivale a `totalRepasseConsolidado`. Nenhuma transferência ou reatribuição de histórico é automática.
+
 Platform é cadastro único de produto/plataforma. `Platform.ownerUserId` permite vários produtos por dono. `User.platformId` conserva vínculo explícito legado de usuário com uma plataforma; não determina nem limita produtos possuídos. Produto não cria módulo paralelo. Nome, e-mail, documento, webhook, descrição ou posse de token não criam plataforma, dono ou usuário. Rotinas de descoberta e seeds de plataformas foram removidas. Tags históricas nas transações continuam servindo para agrupamento; não criam cadastro.
 
 ## Custos e juros

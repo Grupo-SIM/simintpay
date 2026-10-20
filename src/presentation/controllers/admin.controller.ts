@@ -802,9 +802,6 @@ function buildLucroSimpayDetalhePorPlataforma(
   };
 }
 
-/** Plataformas cujo "repasse" não vai a lojista externo — o valor fica com a Simintpay. */
-const SEM_REPASSE_TAGS = new Set(['ATLAS', 'AREAFLIX']);
-
 /** Lucro Simpay de uma transação (mesma fórmula que buildLucroSimpayDetalhePorPlataforma). */
 function lucroSimpayUmaTransacaoConsolidado(
   tx: {
@@ -3029,22 +3026,12 @@ export class AdminController {
       (lucroSimpayNum + totalLucroSaque - totalTaxaSaque).toFixed(2),
     );
 
-    // Plataformas sem repasse real: o valor de "repasse" fica com a Simintpay (não vai a lojista externo).
-    const plataformasSemRepasse = plataformasLucroDetalhe.filter(
-      (p) => SEM_REPASSE_TAGS.has(p.tag.toUpperCase()),
-    );
-    // Repasse retido dessas plataformas (~91%): bruto − parte do admin (taxa Sim Int bruta)
-    const repasseRetidoSemRepasse = Number(
-      plataformasSemRepasse
-        .reduce((s, p) => s + (p.subtotalBruto - p.subtotalParteAdminMaster), 0)
-        .toFixed(2),
-    );
-    // "Lucro de plataformas": repasse que fica com a Simintpay de Areaflix, Atlas e Comunidades
-    const lucroPlataformasSemRepasse = repasseRetidoSemRepasse;
+    // Compatibilidade: SimIntPay não possui plataformas nem retém o líquido dos donos.
+    // Atlas e Áreaflix pertencem à conta separada do Grupo SIM.
+    const lucroPlataformasSemRepasse = 0;
     // "Lucro líquido de taxas": lucro de taxa de TODAS as plataformas (taxa Sim Int − DOM)
     const lucroSimpayConRepasse = lucroSimpayNum;
-    // Repasse real = total de repasse menos o valor retido pelas plataformas sem repasse
-    const totalRepasseReal = Number((totalRepasseConsolidado - repasseRetidoSemRepasse).toFixed(2));
+    const totalRepasseReal = totalRepasseConsolidado;
 
     // ── Saques: calcula direto na withdrawRequest para cobrir histórico sem BalanceLog ──
     // fee > 0: exclui registros importados pelo SyncDomWithdrawalsUseCase (fee=0, histórico DOM)
@@ -3511,10 +3498,7 @@ export class AdminController {
         { userId: tx.userId, description: tx.description ?? null },
         platforms,
       );
-      // Plataformas sem repasse real não contribuem para totalRepassado
-      const liquido = SEM_REPASSE_TAGS.has(tag.toUpperCase())
-        ? 0
-        : valorLiquidoTransacaoConsolidado(tx, tag);
+      const liquido = valorLiquidoTransacaoConsolidado(tx, tag);
       const prev = byMonth.get(mes) ?? { bruto: 0, lucro: 0, liquido: 0, count: 0, acquirerFees: 0 };
       byMonth.set(mes, {
         bruto: prev.bruto + bruto,

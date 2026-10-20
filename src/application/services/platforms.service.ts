@@ -82,8 +82,9 @@ export class PlatformsService {
     if (CORPORATE_PLATFORM_TAGS.has(tag) && user.role !== Role.ADMIN) throw new ForbiddenException('Tag corporativa reservada ao administrador');
     if (!name) throw new BadRequestException('Nome obrigatório');
     if (user.role !== Role.ADMIN && body.ownerUserId && body.ownerUserId !== user.sub) throw new ForbiddenException('Somente administrador pode atribuir outro dono');
+    if (user.role === Role.ADMIN && !body.ownerUserId) throw new BadRequestException('Informe a conta cliente proprietária da plataforma');
     const ownerUserId = body.ownerUserId ?? user.sub;
-    if (!await this.prisma.user.findFirst({ where: { id: ownerUserId, isActive: true, isPurged: false } })) throw new BadRequestException('Dono não encontrado ou inativo');
+    if (!await this.prisma.user.findFirst({ where: { id: ownerUserId, isActive: true, isPurged: false, role: { not: Role.ADMIN } } })) throw new BadRequestException('Dono deve ser uma conta cliente ativa, separada da administração');
     try {
       const platform = await this.prisma.platform.create({ data: { tag, name, ownerUserId, absorbCustomerInterest: true }, select: publicSelect });
       await initializePlatformRegistryCache(this.prisma);
@@ -99,7 +100,7 @@ export class PlatformsService {
     const platform = await this.requireAccess(tag, user);
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BadRequestException('Body inválido');
     if (body.ownerUserId !== undefined && user.role !== Role.ADMIN) throw new ForbiddenException('Somente administrador pode transferir plataforma');
-    if (body.ownerUserId !== undefined && !await this.prisma.user.findFirst({ where: { id: body.ownerUserId, isActive: true, isPurged: false } })) throw new BadRequestException('Dono não encontrado ou inativo');
+    if (body.ownerUserId !== undefined && !await this.prisma.user.findFirst({ where: { id: body.ownerUserId, isActive: true, isPurged: false, role: { not: Role.ADMIN } } })) throw new BadRequestException('Dono deve ser uma conta cliente ativa, separada da administração');
     if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) throw new BadRequestException('Nome obrigatório');
     if (body.isActive !== undefined && typeof body.isActive !== 'boolean') throw new BadRequestException('Estado inválido');
     if (body.absorbCustomerInterest !== undefined && typeof body.absorbCustomerInterest !== 'boolean') throw new BadRequestException('Opção de absorção inválida');

@@ -1,5 +1,10 @@
-import { expect, mock, test } from 'bun:test';
+import { beforeEach, expect, mock, test } from 'bun:test';
 import { AdminController } from './admin.controller';
+import { initializePlatformTaxasCache } from '../../modules/platform-taxas/platform-taxas.store';
+
+beforeEach(async () => {
+  await initializePlatformTaxasCache({ platformTaxaOverride: { findMany: async () => [] } } as never);
+});
 
 test('monthly sales count and recorded fees include every acquirer, and honor exact period and method', async () => {
   const findMany = mock(async () => [
@@ -27,4 +32,33 @@ test('consolidated sales apply payment method before counting and pagination', a
   await AdminController.prototype.listConsolidadoTransacoes.call(controller as any, '1', '20', '2026-10-01', '2026-10-19', undefined, undefined, undefined, undefined, undefined, 'PIX');
   expect(findMany.mock.calls[0][0].where.paymentMethod).toBe('PIX');
   expect(count.mock.calls[0][0].where.paymentMethod).toBe('PIX');
+});
+
+test('Grupo SIM platforms contribute their full net sales to monthly and consolidated owner transfers', async () => {
+  const rows = [
+    { id: 'atlas-sale', userId: 'grupo-sim', amount: 100, netAmount: 80, domFee: 2, createdAt: new Date('2026-10-05T12:00:00Z'), description: '[TENANT:ATLAS]', installments: 1, paymentMethod: 'PIX' },
+    { id: 'areaflix-sale', userId: 'grupo-sim', amount: 200, netAmount: 150, domFee: 3, createdAt: new Date('2026-10-06T12:00:00Z'), description: '[TENANT:AREAFLIX]', installments: 1, paymentMethod: 'PIX' },
+    { id: 'shop-sale', userId: 'other-owner', amount: 50, netAmount: 45, domFee: 1, createdAt: new Date('2026-10-07T12:00:00Z'), description: '[TENANT:SHOP]', installments: 1, paymentMethod: 'PIX' },
+  ];
+  const controller = { prisma: {
+    platform: { findMany: async () => [
+      { tag: 'ATLAS', ownerUserId: 'grupo-sim' },
+      { tag: 'AREAFLIX', ownerUserId: 'grupo-sim' },
+      { tag: 'SHOP', ownerUserId: 'other-owner' },
+    ] },
+    communityLinkBinding: { findMany: async () => [] },
+    transaction: { findMany: async ({ where }: any) => ['REFUNDED', 'CHARGEBACK'].includes(where.status) ? [] : rows },
+    balanceLog: { aggregate: async () => ({ _sum: { amount: 0 } }), findMany: async () => [] },
+    withdrawRequest: { findMany: async () => [] },
+  } };
+  const consolidated = await AdminController.prototype.getConsolidado.call(controller as any, '2026-10-01', '2026-10-19');
+  const monthly = await AdminController.prototype.getRelatorioMensal.call(controller as any, '1', '2026-10-01', '2026-10-19');
+  expect(consolidated.totalTransacoes).toBe(3);
+  expect(consolidated.valorBruto).toBe(350);
+  expect(consolidated.totalRepasseConsolidado).toBe(275);
+  expect(consolidated.totalRepasseReal).toBe(275);
+  expect(consolidated.lucroPlataformasSemRepasse).toBe(0);
+  expect(consolidated.lucroSimpayConRepasse).toBe(consolidated.lucroSimpay);
+  expect(consolidated.lucroTotalMaster).toBe(consolidated.lucroSimpay);
+  expect(monthly.meses[0].totalRepassado).toBe(275);
 });

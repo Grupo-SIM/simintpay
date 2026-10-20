@@ -1,7 +1,12 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { ForbiddenException } from '@nestjs/common';
 import { PlatformsService } from './platforms.service';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { initializePlatformTaxasCache } from '../../modules/platform-taxas/platform-taxas.store';
+
+beforeEach(async () => {
+  await initializePlatformTaxasCache({ platformTaxaOverride: { findMany: async () => [] } } as never);
+});
 
 const user = { sub: 'owner', email: 'owner@example.com', role: 'USER' };
 
@@ -12,6 +17,34 @@ function service(platform = { id: 'platform', tag: 'SHOP', ownerUserId: 'owner' 
 }
 
 describe('Platform ownership', () => {
+  test('admin must explicitly select a customer owner when creating a platform', async () => {
+    const create = mock(async () => ({}));
+    const prisma = { user: { findUnique: async () => ({ role: 'ADMIN', isActive: true, isPurged: false }) }, platform: { create } };
+    const service = new PlatformsService(prisma as never);
+    await expect(service.create({ ...user, sub: 'admin' }, { tag: 'ATLAS', name: 'Atlas' })).rejects.toThrow('Informe a conta cliente');
+    expect(create).not.toHaveBeenCalled();
+  });
+  test('admin can assign Grupo SIM ownership but cannot create or transfer to an admin', async () => {
+    const rows: any[] = [];
+    const platform = { id: 'atlas', tag: 'ATLAS', ownerUserId: 'grupo-sim', isActive: true };
+    const create = mock(async ({ data }: any) => { rows.push({ ...platform, ...data }); return rows.at(-1); });
+    const update = mock(async () => platform);
+    const findFirst = mock(async ({ where }: any) => where.id === 'grupo-sim' && where.role?.not === 'ADMIN' ? { id: 'grupo-sim' } : null);
+    const prisma = {
+      user: { findUnique: async () => ({ role: 'ADMIN', isActive: true, isPurged: false }), findFirst },
+      platform: { create, update, findUnique: async () => platform, findMany: async () => rows },
+    };
+    const service = new PlatformsService(prisma as never);
+    const actor = { ...user, sub: 'admin' };
+    await service.create(actor, { tag: 'ATLAS', name: 'Atlas', ownerUserId: 'grupo-sim' });
+    await service.create(actor, { tag: 'AREAFLIX', name: 'Áreaflix', ownerUserId: 'grupo-sim' });
+    expect(rows.map(row => row.ownerUserId)).toEqual(['grupo-sim', 'grupo-sim']);
+    await expect(service.create(actor, { tag: 'SHOP', name: 'Shop', ownerUserId: 'admin' })).rejects.toThrow('conta cliente ativa');
+    await expect(service.update('ATLAS', actor, { ownerUserId: 'admin' })).rejects.toThrow('conta cliente ativa');
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(update).not.toHaveBeenCalled();
+    expect(findFirst.mock.calls.every(([arg]) => arg.where.role.not === 'ADMIN')).toBe(true);
+  });
   test('owner cannot transfer platform', async () => {
     const fixture = service();
     await expect(fixture.service.update('SHOP', user, { ownerUserId: 'other' })).rejects.toBeInstanceOf(ForbiddenException);
