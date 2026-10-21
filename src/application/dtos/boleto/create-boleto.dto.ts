@@ -1,3 +1,4 @@
+import { IsObject } from 'class-validator';
 import {
   IsArray,
   IsDateString,
@@ -11,6 +12,10 @@ import {
 } from 'class-validator';
 
 export class CreateBoletoDto {
+  @IsOptional()
+  @IsObject()
+  coproduction?: unknown;
+
   @IsString()
   @IsNotEmpty()
   titulo!: string;

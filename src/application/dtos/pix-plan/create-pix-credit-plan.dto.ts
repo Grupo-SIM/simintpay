@@ -1,3 +1,4 @@
+import { IsObject } from 'class-validator';
 import {
   IsIn,
   IsNumber,
@@ -9,6 +10,10 @@ import {
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreatePixCreditPlanDto {
+  @IsOptional()
+  @IsObject()
+  coproduction?: unknown;
+
   @ApiProperty({ description: 'Valor do plano (reais)' })
   @IsNotEmpty()
   @IsNumber()

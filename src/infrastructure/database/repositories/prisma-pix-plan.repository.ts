@@ -1,3 +1,4 @@
+import { createWithCoproduction } from '../../../modules/coproduction/coproduction.service';
 import { Injectable } from '@nestjs/common';
 import type { IPixPlanRepository } from '../../../core/repositories/pix-plan.repository.interface';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,6 +8,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async createPixCreditPlan(data: {
+    coproduction?: unknown;
     userId: string;
     type: string;
     price: number;
@@ -16,7 +18,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     tenantTag?: string | null;
     emailBody?: string | null;
   }) {
-    return (this.prisma as any).pixCreditPlan.create({
+    return createWithCoproduction(this.prisma, 'planos-pix', data.userId, data.coproduction, tx => (tx as any).pixCreditPlan.create({
       data: {
         userId: data.userId,
         type: data.type,
@@ -27,7 +29,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
         tenantTag: data.tenantTag ?? null,
         emailBody: data.emailBody ?? null,
       },
-    });
+    }));
   }
 
   async findPixCreditPlanById(id: string) {

@@ -1,3 +1,4 @@
+import { IsObject } from 'class-validator';
 import {
   IsArray,
   IsBoolean,
@@ -26,6 +27,10 @@ function normalizeOptionalUrl(value: unknown): unknown {
 export type FrequencyTypeDto = 'SEMANAL' | 'MENSAL' | 'ANUAL';
 
 export class CreateSubscriptionLinkDto {
+  @IsOptional()
+  @IsObject()
+  coproduction?: unknown;
+
   @IsString()
   @IsNotEmpty()
   nome!: string;

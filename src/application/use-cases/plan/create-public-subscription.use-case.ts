@@ -1,3 +1,7 @@
+import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { captureCoproduction, withCoproduction } from '../../../modules/coproduction/coproduction.service';
+import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import {
@@ -105,6 +109,15 @@ export class CreatePublicSubscriptionUseCase {
         frequency: plan.frequency ?? 1, repetitions: plan.repetitions ?? 0, retry_days: plan.retryDays ?? 3 });
       gatewayPlanId = synced.id;
     }
+    const coproduction = await captureCoproduction(this.prisma, 'planos', plan.id, plan.userId);
+    const legacyPrice = Number(plan.price);
+    const policyTag = plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL';
+    const legacyDomFee = Math.round(legacyPrice * getPlatformTaxaEffective(policyTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X) * 100) / 100;
+    const legacyNet = Number(calculateSellerNetValue(legacyPrice, 1, policyTag, 'credit_card').sub(legacyDomFee).toFixed(2));
+    const coproductionFinancialSnapshot = withCoproduction(financialQuote?.financialSnapshot, coproduction, {
+      totalAmount: legacyPrice, netAmount: legacyNet, totalFeeAmount: Math.round((legacyPrice - legacyNet) * 100) / 100,
+      domFeeAmount: legacyDomFee, platformProfit: Math.round((legacyPrice - legacyNet - legacyDomFee) * 100) / 100, policyTag,
+    });
     const subscriptionInput = {
       planId: gatewayPlanId,
       customer: {
@@ -117,9 +130,18 @@ export class CreatePublicSubscriptionUseCase {
       card: input.card,
     };
 
-    const domResult = await this.gateway.createSubscriptionFromCheckout(domToken, subscriptionInput);
+    let saved = await this.subscriptions.create({
+      userId: plan.userId,
+      planId: plan.id,
+      customerId: customer.id,
+      status: 'pending',
+      ...(coproductionFinancialSnapshot ? { financialSnapshot: coproductionFinancialSnapshot } : {}),
+    });
+
+    const domResult = await this.gateway.createSubscriptionFromCheckout(domToken, subscriptionInput).catch(async (error: unknown) => { await this.prisma.subscription.update({ where: { id: saved.id }, data: { status: 'failed' } }); throw error; });
 
     const statusLower = (domResult.status ?? '').toString().toLowerCase();
+    saved = await this.prisma.subscription.update({ where: { id: saved.id }, data: { status: statusLower, domSubscriptionId: domResult.id } });
     if (['inactive', 'cancelled', 'canceled', 'suspended'].includes(statusLower)) {
       throw new BadRequestException(
         'Pagamento não autorizado. Tente outro cartão ou forma de pagamento.',
@@ -134,14 +156,6 @@ export class CreatePublicSubscriptionUseCase {
       );
     }
 
-    const saved = await this.subscriptions.create({
-      userId: plan.userId,
-      planId: plan.id,
-      customerId: customer.id,
-      status: (domResult.status as string) ?? 'active',
-      domSubscriptionId: domResult.id,
-      ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
-    });
 
     this.logger.log(
       `Assinatura criada: subId=${saved.id}, domSubId=${domResult.id}, planId=${plan.id}`,

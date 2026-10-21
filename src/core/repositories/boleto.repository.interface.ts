@@ -3,6 +3,7 @@ import type { Boleto } from '@prisma/client';
 export const BOLETO_REPOSITORY = Symbol('BOLETO_REPOSITORY');
 
 export type CreateBoletoData = {
+    coproduction?: unknown;
   userId: string;
   title: string;
   description?: string | null;

@@ -1,3 +1,4 @@
+import { settleCoproduction } from '../coproduction/coproduction-settlement';
 import { AffiliateCommissionService } from '../../application/services/affiliate-commission.service';
 import { ConflictException } from '@nestjs/common';
 import { Prisma, TransactionStatus, type Transaction } from '@prisma/client';
@@ -17,6 +18,7 @@ export async function settleFinalNet(
   if (row.settlementBasis !== 'FINAL_NET' || row.netAmount == null) throw new ConflictException('Snapshot final ausente');
   const claimed = await p.transaction.updateMany({ where: { id: row.id, status: from }, data: { status, previousStatus: from } });
   if (claimed.count !== 1) return false;
+  const distributed = await settleCoproduction(p, row, status, source);
   let balance = new Prisma.Decimal(0), locked = new Prisma.Decimal(0);
   let value = new Prisma.Decimal(row.netAmount);
   // Reversal follows the committed credit, even if configuration changed afterwards.
@@ -29,7 +31,7 @@ export async function settleFinalNet(
   else if (status === 'REFUNDED' || status === 'CHARGEBACK') {
     if (from === 'IN_MEDIATION') locked = value.neg(); else balance = value.neg();
   }
-  if (!balance.isZero() || !locked.isZero()) {
+  if (!distributed && (!balance.isZero() || !locked.isZero())) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const wallet = await p.wallet.findUnique({ where: { userId: row.userId } });
       if (!wallet) throw new ConflictException('Carteira ausente');

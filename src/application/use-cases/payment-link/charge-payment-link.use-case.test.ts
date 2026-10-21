@@ -26,14 +26,14 @@ function fixture(early = false, fail = false, financial = false) {
   };
   const lane = { active: true, contract: { reference: 'Signed', fixedCents: 100, ratePpm: 20000, cashbackCents: 15, interestPpm: 40000, base: 'ORIGINAL' }, sim: { fixedCents: 200, ratePpm: 30000, interestPpm: 10000 } };
   const document = { schemaVersion: 1, lanes: { 'DOM/CREDIT_CARD/ONLINE/1': lane }, owner: {}, interestFree: false };
-  const prisma: any = { financialPolicyRevision: { findMany: async () => financial ? [{ tag: 'GLOBAL', version: 1, document }] : [] }, platform: { findUnique: async () => null }, user: { findUnique: async () => ({ email: 'owner@example.test' }) }, $transaction: async (fn: any) => {
+  const prisma: any = { $queryRaw: async () => [], financialPolicyRevision: { findMany: async () => financial ? [{ tag: 'GLOBAL', version: 1, document }] : [] }, platform: { findUnique: async () => null }, user: { findUnique: async () => ({ email: 'owner@example.test' }) }, $transaction: async (fn: any) => {
     const beforeRow = row && { ...row }, beforeWallet = { ...wallet }, beforeLogs = [...logs];
     try { return await fn(p); } catch (e) { row = beforeRow; wallet = beforeWallet; logs = beforeLogs; throw e; }
   } };
   const link: any = { id: 'link', userId: 'owner', isActive: true, domPaymentLinkId: 'dom-link', amount: 100, title: 'Plan', isStandalone: true, plataformas: ['GLOBAL'] };
   const gateway: any = { chargePaymentLink: async (_: string, input: any) => {
-    expect(row.status).toBe('DRAFT'); expect(row.netAmount.toNumber()).toBe(financial ? 86.85 : 87);
-    if (financial) { expect(input.amount).toBe(100); lane.sim.fixedCents = 5000; }
+    expect(row.status).toBe('DRAFT'); expect(row.netAmount.toNumber()).toBe(financial ? 91.85 : 87);
+    if (financial) { expect(input.amount).toBe(105); lane.sim.fixedCents = 5000; }
     expect(linkChargeReference(input.description)).toBe(row.id);
     if (early) await prisma.$transaction(async (tx: any) => {
       const snapshot = { ...row };
@@ -66,7 +66,7 @@ test('new financial policy charges the simulated total and settles its immutable
     const f = fixture(early, false, true); await f.service.execute(f.input);
     expect(f.row().financialSnapshot.originalCents).toBe(10000);
     expect(f.row().financialSnapshot).not.toHaveProperty('acquirerCostCents');
-    expect(f.wallet().balance.toNumber()).toBe(86.85);
+    expect(f.wallet().balance.toNumber()).toBe(91.85);
     expect(f.logs()).toHaveLength(1);
   }
 });

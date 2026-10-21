@@ -1,3 +1,4 @@
+import { CoproductionModule } from './modules/coproduction/coproduction.module';
 import { SalePushModule } from './modules/sale-push/sale-push.module';
 import { LegacyPlatformUsageInterceptor } from './modules/platform-core/legacy-platform-usage.interceptor';
 import { PlatformCoreModule } from './modules/platform-core/platform-core.module';
@@ -43,6 +44,7 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
 
 @Module({
   imports: [
+    CoproductionModule,
     SalePushModule,
     PlatformEventsModule,
     PlatformCoreModule,

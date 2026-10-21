@@ -1,3 +1,4 @@
+import { createWithCoproduction } from '../../../modules/coproduction/coproduction.service';
 import { Injectable } from '@nestjs/common';
 import { Boleto, Prisma } from '@prisma/client';
 import type { CreateBoletoData, IBoletoRepository } from '../../../core/repositories/boleto.repository.interface';
@@ -8,7 +9,7 @@ export class PrismaBoletoRepository implements IBoletoRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(data: CreateBoletoData): Promise<Boleto> {
-    return this.prisma.boleto.create({
+    return createWithCoproduction(this.prisma, 'boletos', data.userId, data.coproduction, tx => tx.boleto.create({
       data: {
         userId: data.userId,
         title: data.title,
@@ -24,7 +25,7 @@ export class PrismaBoletoRepository implements IBoletoRepository {
         domLink: data.domLink ?? undefined,
         plataformas: data.plataformas ?? [],
       },
-    });
+    }));
   }
 
   async findManyByUserId(input: {

@@ -1,3 +1,4 @@
+import { captureCoproduction, withCoproduction } from '../../../modules/coproduction/coproduction.service';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
@@ -124,8 +125,29 @@ export class CheckoutSubscriptionLinkCardUseCase {
       const plan = await this.gateway.createPlan(domToken, { price: amountCharged, description: link.name, ...frequency, repetitions: 0, retry_days: 3, webhookUrl: link.webhookUrl ?? undefined, redirectUrl: link.redirectUrl ?? undefined });
       domPlanId = plan.id;
     }
+    const coproduction = await captureCoproduction(this.prisma, 'links-assinatura', link.id, link.userId);
+    const legacyDomFee = Math.round(amountCharged * getPlatformTaxaEffective(selectedTag, "MDR_CC_1X", PLATFORM_TAXA_DEFAULTS.MDR_CC_1X) * 100) / 100;
+    const coproductionFinancialSnapshot = withCoproduction(financialQuote?.financialSnapshot, coproduction, {
+      totalAmount: amountCharged, netAmount: Math.round((amountCharged - platformFeeAmount - legacyDomFee) * 100) / 100,
+      totalFeeAmount: platformFeeAmount + legacyDomFee, domFeeAmount: legacyDomFee, platformProfit: platformFeeAmount, policyTag: selectedTag,
+    });
     const cleanDoc = input.dto.customerDocument.replace(/\D/g, '');
     const cleanPhone = (input.dto.customerPhone ?? '').replace(/\D/g, '');
+
+    let order = await this.repo.createOrder({
+      subscriptionLinkId: link.id,
+      userId: link.userId,
+      customerName: input.dto.customerName,
+      customerEmail: input.dto.customerEmail,
+      customerDocument: cleanDoc,
+      customerPhone: cleanPhone || null,
+      paymentMethod: 'CREDIT_CARD',
+      status: 'pending',
+      amountCharged,
+      platformFeeAmount,
+      ...(coproductionFinancialSnapshot ? { financialSnapshot: coproductionFinancialSnapshot } : {}),
+      currentPeriodEndsAt: advanceSubscriptionPeriod(new Date(), link.frequencyType),
+    });
 
     const domResult = await this.gateway.createSubscriptionFromCheckout(domToken, {
       planId: domPlanId,
@@ -137,10 +159,11 @@ export class CheckoutSubscriptionLinkCardUseCase {
         documentType: cleanDoc.length === 14 ? 'CNPJ' : 'CPF',
       },
       card: input.dto.card,
-    });
+    }).catch(async (error: unknown) => { await this.prisma.subscriptionLinkOrder.update({ where: { id: order.id }, data: { status: 'failed' } }); throw error; });
 
     // Alinhado à api-dom (subscription-link.service): cartão recusado / assinatura inválida na resposta síncrona
     const statusLower = (domResult.status ?? '').toString().toLowerCase();
+    order = await this.prisma.subscriptionLinkOrder.update({ where: { id: order.id }, data: { status: statusLower, domSubscriptionId: domResult.id } });
     const cardNotAuthorized = ['inactive', 'cancelled', 'canceled', 'suspended'].includes(statusLower);
     if (cardNotAuthorized) {
       throw new BadRequestException(
@@ -155,21 +178,6 @@ export class CheckoutSubscriptionLinkCardUseCase {
       );
     }
 
-    const order = await this.repo.createOrder({
-      subscriptionLinkId: link.id,
-      userId: link.userId,
-      customerName: input.dto.customerName,
-      customerEmail: input.dto.customerEmail,
-      customerDocument: cleanDoc,
-      customerPhone: cleanPhone || null,
-      paymentMethod: 'CREDIT_CARD',
-      status: (domResult.status ?? 'pending').toLowerCase(),
-      domSubscriptionId: domResult.id,
-      amountCharged,
-      platformFeeAmount,
-      ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
-      currentPeriodEndsAt: advanceSubscriptionPeriod(new Date(), link.frequencyType),
-    });
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });
 

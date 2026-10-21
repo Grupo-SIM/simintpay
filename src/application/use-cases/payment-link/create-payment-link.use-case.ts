@@ -83,6 +83,7 @@ export class CreatePaymentLinkUseCase {
     });
 
     const saved = await this.links.create({
+      coproduction: input.dto.coproduction,
       ...(input.id ? { id: input.id } : {}),
       userId: input.userId,
       title: input.dto.titulo,

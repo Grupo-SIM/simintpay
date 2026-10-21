@@ -514,11 +514,16 @@ export class SubscriptionWebhookService {
         paymentMethod: 'CREDIT_CARD',
         status: 'paid',
         amountCharged: amount.toNumber(),
-        ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
+        ...(financialQuote ? { financialSnapshot: linkOrder.financialSnapshot as Prisma.InputJsonValue } : {}),
         platformFeeAmount: financialQuote?.totalFeeAmount ?? platformFeeAmount,
         currentPeriodEndsAt,
       },
     });
+
+    if (financialQuote && domTransactionId) {
+      await this.prisma.transaction.updateMany({ where: { domPaymentId: domTransactionId, userId: linkOrder.userId },
+        data: { description: `${link.name} [TENANT:${financialQuote.financialSnapshot.policyTag}] subOrder=${newOrder.id}` } });
+    }
 
     // Creditar wallet do dono do link
     const owner = await this.prisma.user.findUnique({

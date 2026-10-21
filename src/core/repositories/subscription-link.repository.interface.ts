@@ -3,6 +3,7 @@ import type { SubscriptionLink, SubscriptionLinkOrder } from '@prisma/client';
 export const SUBSCRIPTION_LINK_REPOSITORY = Symbol('SUBSCRIPTION_LINK_REPOSITORY');
 
 export type CreateSubscriptionLinkData = {
+    coproduction?: unknown;
   userId: string;
   ownerEmail?: string | null;
   name: string;

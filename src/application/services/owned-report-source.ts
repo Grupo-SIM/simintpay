@@ -31,7 +31,10 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
   const selected = ids.length ? Prisma.sql`p.id IN (${Prisma.join(ids)})` : Prisma.sql`false`;
   return Prisma.sql`
     SELECT t.id, t."userId", t."createdAt", t.status::text AS status, t."paymentMethod"::text AS "paymentMethod",
-      t.amount, t."netAmount",
+      t.amount, CASE WHEN t."financialSnapshot" ? 'coproduction' THEN t."netAmount" - coalesce((
+        SELECT sum(floor(t."netAmount" * 100 * (participant->>'percentageBps')::numeric / 10000) / 100)
+        FROM jsonb_array_elements(t."financialSnapshot" #> '{coproduction,participants}') participant
+      ), 0) ELSE t."netAmount" END AS "netAmount",
       CASE WHEN t."netAmount" IS NOT NULL THEN t.amount - t."netAmount" ELSE t."totalFee" END AS "totalFee",
       p.tag AS "platformTag",
       coalesce(nullif(t."customerDocument", ''), nullif(lower(t."customerEmail"), ''), nullif(t."customerPhone", '')) AS "customerKey",
@@ -71,7 +74,12 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
     UNION ALL
     SELECT 'comunidade_order_' || o.id AS id, o."userId", o."createdAt", 'COMPLETED' AS status,
       o."paymentMethod"::text AS "paymentMethod", o."amountCharged" AS amount,
-      o."amountCharged" - o."platformFeeAmount" AS "netAmount", o."platformFeeAmount" AS "totalFee", p.tag AS "platformTag",
+      CASE WHEN o."financialSnapshot" ? 'coproduction' THEN
+        coalesce((o."financialSnapshot"->>'netCents')::numeric / 100, (o."financialSnapshot" #>> '{coproductionLegacy,netAmount}')::numeric)
+        - coalesce((SELECT sum(floor(coalesce((o."financialSnapshot"->>'netCents')::numeric,
+          (o."financialSnapshot" #>> '{coproductionLegacy,netAmount}')::numeric * 100) * (participant->>'percentageBps')::numeric / 10000) / 100)
+          FROM jsonb_array_elements(o."financialSnapshot" #> '{coproduction,participants}') participant), 0)
+      ELSE o."amountCharged" - o."platformFeeAmount" END AS "netAmount", o."platformFeeAmount" AS "totalFee", p.tag AS "platformTag",
       coalesce(nullif(o."customerDocument", ''), nullif(lower(o."customerEmail"), ''), nullif(o."customerPhone", '')) AS "customerKey",
       CASE WHEN o."financialSnapshot"->>'buyerInterestCents' ~ '^[0-9]+$' THEN (o."financialSnapshot"->>'buyerInterestCents')::numeric / 100
         WHEN o."paymentMethod"::text <> 'CREDIT_CARD' THEN 0 ELSE NULL END AS interest,

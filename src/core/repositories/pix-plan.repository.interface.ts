@@ -3,6 +3,7 @@ export const PIX_PLAN_REPOSITORY = Symbol('PIX_PLAN_REPOSITORY');
 export interface IPixPlanRepository {
   // PixCreditPlan
   createPixCreditPlan(data: {
+    coproduction?: unknown;
     userId: string;
     type: string;
     price: number;

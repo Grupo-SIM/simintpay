@@ -1,3 +1,4 @@
+import { captureCoproduction, withCoproduction } from '../../../modules/coproduction/coproduction.service';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
@@ -105,10 +106,30 @@ export class CheckoutSubscriptionLinkPixUseCase {
 
     const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, selectedTag), amountCharged, 'PIX');
     if (financialQuote) { amountCharged = financialQuote.totalAmount; platformFeeAmount = financialQuote.totalFeeAmount; }
+    const coproduction = await captureCoproduction(this.prisma, 'links-assinatura', link.id, link.userId);
+    const legacyDomFee = 0;
+    const coproductionFinancialSnapshot = withCoproduction(financialQuote?.financialSnapshot, coproduction, {
+      totalAmount: amountCharged, netAmount: Math.round((amountCharged - platformFeeAmount - legacyDomFee) * 100) / 100,
+      totalFeeAmount: platformFeeAmount + legacyDomFee, domFeeAmount: legacyDomFee, platformProfit: platformFeeAmount, policyTag: selectedTag,
+    });
     const cleanDoc = input.dto.customerDocument.replace(/\D/g, '');
     const documentType = cleanDoc.length === 14 ? 'CNPJ' : 'CPF';
     const cleanPhone = (input.dto.customerPhone ?? '').replace(/\D/g, '');
     const codExternal = `sub-link-pix-${link.id}-${Date.now()}`;
+
+    let order = await this.repo.createOrder({
+      subscriptionLinkId: link.id,
+      userId: link.userId,
+      customerName: input.dto.customerName,
+      customerEmail: input.dto.customerEmail,
+      customerDocument: cleanDoc,
+      customerPhone: cleanPhone || null,
+      paymentMethod: 'PIX',
+      status: 'pending',
+      amountCharged,
+      platformFeeAmount,
+      ...(coproductionFinancialSnapshot ? { financialSnapshot: coproductionFinancialSnapshot } : {}),
+    });
 
     const result = await this.gateway.chargePixForLink(domToken, {
       domLinkId: domPlanId,
@@ -120,26 +141,11 @@ export class CheckoutSubscriptionLinkPixUseCase {
       customerPhone: cleanPhone,
       documentType,
       codExternal,
-    });
+    }).catch(async (error: unknown) => { await this.prisma.subscriptionLinkOrder.update({ where: { id: order.id }, data: { status: 'failed' } }); throw error; });
 
     const pixExpire = result.pixExpire ? new Date(result.pixExpire) : null;
 
-    const order = await this.repo.createOrder({
-      subscriptionLinkId: link.id,
-      userId: link.userId,
-      customerName: input.dto.customerName,
-      customerEmail: input.dto.customerEmail,
-      customerDocument: cleanDoc,
-      customerPhone: cleanPhone || null,
-      paymentMethod: 'PIX',
-      status: 'pending',
-      domPixPaymentId: result.id,
-      pixContent: result.pixContent ?? null,
-      pixExpire,
-      amountCharged,
-      platformFeeAmount,
-      ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot } : {}),
-    });
+    order = await this.prisma.subscriptionLinkOrder.update({ where: { id: order.id }, data: { domPixPaymentId: result.id, pixContent: result.pixContent ?? null, pixExpire } });
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });
 

@@ -1,3 +1,4 @@
+import { allocateNet, snapshotFrom } from '../coproduction/coproduction';
 import { platformBalanceRules } from './platform-balance.adapter';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -18,7 +19,7 @@ export class PlatformAttributedBalance {
       const platform = await p.platform.findUnique({ where: { id: context.id }, include: { owner: true } });
       if (!platform || (!allowInactive && (!platform.isActive || !platform.owner.isActive || platform.owner.isPurged)) || platform.ownerUserId !== context.ownerUserId || platform.tag !== context.tag) throw new ConflictException('Contexto da plataforma mudou');
       const [rows, withdrawals, wallet, productCount, unidentifiedOwnerWithdrawals] = await Promise.all([
-        p.transaction.findMany({ where: { userId: context.ownerUserId, status: 'COMPLETED' }, select: { description: true, netAmount: true } }),
+        p.transaction.findMany({ where: { userId: context.ownerUserId, status: 'COMPLETED' }, select: { description: true, netAmount: true, financialSnapshot: true } }),
         p.withdrawRequest.findMany({ where: { userId: context.ownerUserId, platform: { in: rules.withdrawalPlatforms, mode: 'insensitive' }, status: { in: ['PENDING', 'APPROVED', 'COMPLETED'] } }, select: { grossAmount: true, status: true } }),
         p.wallet.findUnique({ where: { userId: context.ownerUserId } }),
         p.platform.count({ where: { ownerUserId: context.ownerUserId } }),
@@ -33,7 +34,9 @@ export class PlatformAttributedBalance {
         if (new Set(markers).size > 1) conflictingOwnerTransactions++;
         if (!hasPlatformMarker(description, context.tag)) continue;
         if (row.netAmount === null) { missingNetSnapshots++; continue; }
-        earned = earned.plus(row.netAmount);
+        const agreement = snapshotFrom(row.financialSnapshot);
+        const ownerAmount = agreement ? allocateNet(agreement, row.netAmount).find(p => p.userId === context.ownerUserId)?.amount : row.netAmount;
+        earned = earned.plus(ownerAmount ?? 0);
         identifiedTransactions++;
       }
       for (const row of withdrawals) {

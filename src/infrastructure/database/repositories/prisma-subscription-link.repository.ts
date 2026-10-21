@@ -1,3 +1,4 @@
+import { createWithCoproduction } from '../../../modules/coproduction/coproduction.service';
 import { Injectable } from '@nestjs/common';
 import { PaymentMethod, Prisma, SubscriptionLink, SubscriptionLinkOrder } from '@prisma/client';
 import type {
@@ -12,7 +13,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
   constructor(private readonly prisma: PrismaService) { }
 
   async create(data: CreateSubscriptionLinkData): Promise<SubscriptionLink> {
-    return this.prisma.subscriptionLink.create({
+    return createWithCoproduction(this.prisma, 'links-assinatura', data.userId, data.coproduction, tx => tx.subscriptionLink.create({
       data: {
         userId: data.userId,
         ownerEmail: data.ownerEmail ?? undefined,
@@ -30,7 +31,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         emailBody: data.emailBody ?? undefined,
         plataformas: data.plataformas ?? [],
       },
-    });
+    }));
   }
 
   async findById(id: string): Promise<SubscriptionLink | null> {

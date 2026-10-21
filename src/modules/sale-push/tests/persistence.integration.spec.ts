@@ -46,7 +46,7 @@ localDescribe('Sale push persistence (disposable LOCAL PostgreSQL; mocked provid
     const sale = await prisma.transaction.create({ data: { userId: userIds[0], amount: 29.99, status: 'PENDING' } });
     await prisma.transaction.update({ where: { id: sale.id }, data: { status: 'COMPLETED' } });
     await prisma.transaction.update({ where: { id: sale.id }, data: { status: 'COMPLETED' } });
-    const event = await prisma.salePushEvent.findUniqueOrThrow({ where: { transactionId: sale.id } });
+    const event = await prisma.salePushEvent.findFirstOrThrow({ where: { transactionId: sale.id, userId: userIds[0] } });
     expect(await prisma.pushDelivery.count({ where: { eventId: event.id } })).toBe(2);
     await service.subscribe(userIds[1], subscription);
     expect(await prisma.pushSubscription.findUnique({ where: { endpoint } })).toMatchObject({ userId: userIds[1] });

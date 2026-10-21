@@ -1,3 +1,4 @@
+import { createWithCoproduction } from '../../../modules/coproduction/coproduction.service';
 import { Injectable } from '@nestjs/common';
 import { PaymentLink, Prisma } from '@prisma/client';
 import type { CreatePaymentLinkData, IPaymentLinkRepository } from '../../../core/repositories/payment-link.repository.interface';
@@ -8,7 +9,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(data: CreatePaymentLinkData): Promise<PaymentLink> {
-    return this.prisma.paymentLink.create({
+    return createWithCoproduction(this.prisma, 'links-pagamento', data.userId, data.coproduction, tx => tx.paymentLink.create({
       data: {
         ...(data.id ? { id: data.id } : {}),
         userId: data.userId,
@@ -42,7 +43,7 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
         emailBody: data.emailBody ?? undefined,
         plataformas: data.plataformas ?? [],
       },
-    });
+    }));
   }
 
   async findManyByUserId(input: {

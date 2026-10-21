@@ -1,3 +1,4 @@
+import { captureCoproduction, withCoproduction } from '../../../modules/coproduction/coproduction.service';
 import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
 import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
@@ -206,10 +207,12 @@ export class PixPlanService {
     const domFee = financialQuote?.domFeeAmount ?? parseFloat((amount * mdrPix).toFixed(2));
     const platformFee = parseFloat((totalFee - domFee).toFixed(2));
 
+    const coproduction = body.pixCreditPlanId ? await captureCoproduction(this.prisma, 'planos-pix', body.pixCreditPlanId, effectiveUserId) : null;
     const transaction = await this.prisma.transaction.create({
       data: {
         userId: effectiveUserId,
-        ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
+        financialSnapshot: withCoproduction(financialQuote?.financialSnapshot, coproduction),
+        ...((financialQuote || coproduction) ? { settlementBasis: 'FINAL_NET' as const } : {}),
         amount: new Prisma.Decimal(amount),
         netAmount: new Prisma.Decimal(netAmount),
         status: 'DRAFT',
@@ -674,6 +677,7 @@ export class PixPlanService {
     const explicitTag = assertExplicitPlatform(owner, body.tenantTag ? [body.tenantTag] : undefined, true);
     const tag = explicitTag ?? clientTag;
     const plan = await this.repo.createPixCreditPlan({
+      coproduction: body.coproduction,
       userId,
       type,
       price: body.price,

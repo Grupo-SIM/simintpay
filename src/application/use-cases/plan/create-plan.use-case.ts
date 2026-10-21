@@ -78,6 +78,7 @@ export class CreatePlanUseCase {
     });
 
     const saved = await this.plans.create({
+      coproduction: input.dto.coproduction,
       userId: input.userId,
       name: input.dto.nome,
       description: input.dto.descricao ?? null,

@@ -1,3 +1,4 @@
+import { IsObject } from 'class-validator';
 import {
   IsArray,
   IsBoolean,
@@ -13,6 +14,10 @@ import {
 } from 'class-validator';
 
 export class CreatePaymentLinkDto {
+  @IsOptional()
+  @IsObject()
+  coproduction?: unknown;
+
   @IsString()
   @IsNotEmpty()
   titulo!: string;

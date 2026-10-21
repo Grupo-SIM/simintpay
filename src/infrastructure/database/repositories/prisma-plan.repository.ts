@@ -1,3 +1,4 @@
+import { createWithCoproduction } from '../../../modules/coproduction/coproduction.service';
 import { Injectable } from '@nestjs/common';
 import { Plan, PlanType, Prisma } from '@prisma/client';
 import type { IPlanRepository } from '../../../core/repositories/plan.repository.interface';
@@ -8,6 +9,7 @@ export class PrismaPlanRepository implements IPlanRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(data: {
+    coproduction?: unknown;
     userId: string;
     name: string;
     description?: string | null;
@@ -25,7 +27,7 @@ export class PrismaPlanRepository implements IPlanRepository {
     emailBody?: string | null;
     plataformas?: string[];
   }): Promise<Plan> {
-    return this.prisma.plan.create({
+    return createWithCoproduction(this.prisma, 'planos', data.userId, data.coproduction, tx => tx.plan.create({
       data: {
         userId: data.userId,
         name: data.name,
@@ -44,7 +46,7 @@ export class PrismaPlanRepository implements IPlanRepository {
         emailBody: data.emailBody ?? undefined,
         plataformas: data.plataformas ?? [],
       },
-    });
+    }));
   }
 
   async findManyByUserId(userId: string): Promise<Plan[]> {

@@ -3,6 +3,7 @@ import type { Plan, PlanType } from '@prisma/client';
 export const PLAN_REPOSITORY = Symbol('PLAN_REPOSITORY');
 
 export type CreatePlanData = {
+    coproduction?: unknown;
   userId: string;
   name: string;
   description?: string | null;

@@ -60,6 +60,7 @@ export class CreateBoletoUseCase {
     });
 
     const saved = await this.boletos.create({
+      coproduction: input.dto.coproduction,
       userId: input.userId,
       title: input.dto.titulo,
       description: input.dto.descricao ?? null,

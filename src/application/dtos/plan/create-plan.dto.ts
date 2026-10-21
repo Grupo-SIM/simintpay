@@ -1,3 +1,4 @@
+import { IsObject } from 'class-validator';
 import {
   IsArray,
   IsEnum,
@@ -14,6 +15,10 @@ import {
 export type PlanTipoDto = 'SEMANAL' | 'MENSAL' | 'ANUAL';
 
 export class CreatePlanDto {
+  @IsOptional()
+  @IsObject()
+  coproduction?: unknown;
+
   @IsString()
   @IsNotEmpty()
   nome!: string;

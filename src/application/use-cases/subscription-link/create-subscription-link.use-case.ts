@@ -93,6 +93,7 @@ export class CreateSubscriptionLinkUseCase {
     });
 
     const saved = await this.repo.create({
+      coproduction: input.dto.coproduction,
       userId: targetUserId,
       ownerEmail,
       name: input.dto.nome,

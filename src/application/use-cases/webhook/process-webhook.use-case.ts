@@ -169,6 +169,7 @@ export class ProcessWebhookUseCase {
         TransactionStatus.IN_MEDIATION,
       ],
       [TransactionStatus.IN_MEDIATION]: [
+        TransactionStatus.CHARGEBACK,
         TransactionStatus.COMPLETED,
         TransactionStatus.REFUNDED,
       ],

@@ -3,6 +3,7 @@ import type { PaymentLink } from '@prisma/client';
 export const PAYMENT_LINK_REPOSITORY = Symbol('PAYMENT_LINK_REPOSITORY');
 
 export type CreatePaymentLinkData = {
+    coproduction?: unknown;
   id?: string;
   userId: string;
   title: string;
