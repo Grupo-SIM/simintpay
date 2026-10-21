@@ -97,3 +97,17 @@ describe('Sim Delivery first owner provisioning', () => {
     expect(email.sendPasswordReset).toHaveBeenCalledTimes(2);
   });
 });
+
+test('creates and updates CPF owners as individuals and rejects another account document', async () => {
+  for (const saved of [null, existing]) {
+    const { prisma, service } = fixture(saved);
+    await service.execute('sim-delivery_shop', 'company', { ...input, cnpj: '529.982.247-25' });
+    const calls = saved ? prisma.user.update.mock.calls : prisma.user.create.mock.calls;
+    expect(calls[0][0].data).toMatchObject({ cpf: '52998224725', cnpj: null, isCompany: false });
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { cpf: '52998224725' } });
+  }
+  const { prisma, service } = fixture(existing);
+  prisma.user.findUnique.mockResolvedValue({ id: 'another-user' });
+  await expect(service.execute('sim-delivery_shop', 'company', { ...input, cnpj: '52998224725' })).rejects.toMatchObject({ status: 409 });
+  expect(prisma.user.update).not.toHaveBeenCalled();
+});

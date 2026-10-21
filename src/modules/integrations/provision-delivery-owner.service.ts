@@ -20,7 +20,9 @@ export class ProvisionDeliveryOwnerService {
     const email = input.email.trim().toLowerCase();
     const legalName = input.legalName.trim();
     const cnpj = input.cnpj == null ? null : input.cnpj.replace(/\D/g, '');
-    if (!legalName || (cnpj !== null && (cnpj.length !== 14 || !isValidDocument(cnpj)))) throw new BadRequestException('Nome ou CNPJ inválido');
+    if (!legalName || (cnpj !== null && (!isValidDocument(cnpj)))) throw new BadRequestException('Nome ou CPF/CNPJ inválido');
+    const documentWhere = cnpj?.length === 11 ? { cpf: cnpj } : { cnpj: cnpj! };
+    const documentData = !cnpj ? {} : cnpj.length === 11 ? { cpf: cnpj, cnpj: null, isCompany: false } : { cpf: null, cnpj, isCompany: true };
     if (input.password !== undefined && Buffer.byteLength(input.password, 'utf8') > 72) throw new BadRequestException('Senha excede 72 bytes suportados pela SimIntPay');
     if (!input.password && !process.env.JWT_SECRET) throw new BadRequestException('JWT_SECRET não configurado para definição de senha');
     // Password is used only for a new account. Retries never reset existing credentials.
@@ -34,23 +36,23 @@ export class ProvisionDeliveryOwnerService {
           if (existing.user.email !== email) throw new ConflictException('Primeiro dono já vinculado com outro email');
           if (!existing.user.isActive || existing.user.isPurged) throw new ConflictException('Conta vinculada inativa; exige revisão administrativa');
           if (cnpj) {
-            const owner = await tx.user.findUnique({ where: { cnpj } });
-            if (owner && owner.id !== existing.userId) throw new ConflictException('CNPJ já pertence a outra conta');
+            const owner = await tx.user.findUnique({ where: documentWhere });
+            if (owner && owner.id !== existing.userId) throw new ConflictException('CPF/CNPJ já pertence a outra conta');
           }
-          const user = await tx.user.update({ where: { id: existing.userId }, data: { name: legalName, ...(cnpj && { cnpj, isCompany: true }) } });
+          const user = await tx.user.update({ where: { id: existing.userId }, data: { name: legalName, ...documentData } });
           await tx.wallet.upsert({ where: { userId: user.id }, create: { userId: user.id }, update: {} });
           return { ...await tx.integrationMerchant.update({ where: { id: existing.id }, data: { legalName, ...(cnpj && { cnpj }) } }), user };
         }
         // Never claim an unrelated account by knowing its email or CNPJ.
         if (await tx.user.findUnique({ where: { email } })) throw new ConflictException('Email já cadastrado na SimIntPay');
-        if (cnpj && await tx.user.findUnique({ where: { cnpj } })) throw new ConflictException('CNPJ já pertence a outra conta');
+        if (cnpj && await tx.user.findUnique({ where: documentWhere })) throw new ConflictException('CPF/CNPJ já pertence a outra conta');
         const password = await hash(input.password ?? randomBytes(32).toString('hex'), 10);
-        const user = await tx.user.create({ data: { email, name: legalName, password, isActive: true, isCompany: !!cnpj, ...(cnpj && { cnpj }), wallet: { create: {} } } });
+        const user = await tx.user.create({ data: { email, name: legalName, password, isActive: true, isCompany: cnpj?.length === 14, ...documentData, wallet: { create: {} } } });
         const merchant = await tx.integrationMerchant.create({ data: { integrationKey, externalMerchantId, legalName, cnpj, userId: user.id } });
         return { ...merchant, user };
       });
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('Email, CNPJ ou primeiro dono já vinculado; tente novamente');
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('Email, CPF/CNPJ ou primeiro dono já vinculado; tente novamente');
       throw error;
     }
     // Sending after commit allows a failed delivery to be retried without duplicate accounts.
