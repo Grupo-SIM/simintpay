@@ -3,8 +3,7 @@ import { ProvisionDeliveryOwnerDto } from './provision-delivery-owner.dto';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Body, Controller, Get, Headers, Param, Post, Put, Query, UsePipes, ValidationPipe } from '@nestjs/common';
 import { IntegrationPaymentService } from './integration-payment.service';
-import { CheckoutPixDto } from '../renovada/dtos/checkout-pix.dto';
-import { CheckoutCreditCardDto } from '../renovada/dtos/checkout-credit-card.dto';
+import { IntegrationPixCheckoutDto, IntegrationCardCheckoutDto } from './integration-checkout.dto';
 import { IntegrationFinanceService } from './integration-finance.service';
 
 @Controller('internal/integrations/:integrationKey/merchants/:externalMerchantId')
@@ -31,13 +30,13 @@ export class IntegrationFinanceController {
   }
 
   @Post('payments/pix')
-  async pix(@Param() params: { integrationKey: string; externalMerchantId: string }, @Body() body: CheckoutPixDto, @Headers('x-internal-token') token?: string) {
+  async pix(@Param() params: { integrationKey: string; externalMerchantId: string }, @Body() body: IntegrationPixCheckoutDto, @Headers('x-internal-token') token?: string) {
     this.auth(token);
     return this.payments.pix(params.integrationKey, params.externalMerchantId, body);
   }
 
   @Post('payments/credit-card')
-  async card(@Param() params: { integrationKey: string; externalMerchantId: string }, @Body() body: CheckoutCreditCardDto, @Headers('x-internal-token') token?: string) {
+  async card(@Param() params: { integrationKey: string; externalMerchantId: string }, @Body() body: IntegrationCardCheckoutDto, @Headers('x-internal-token') token?: string) {
     this.auth(token);
     return this.payments.card(params.integrationKey, params.externalMerchantId, body);
   }

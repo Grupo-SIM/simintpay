@@ -1,3 +1,5 @@
+import { deliveryAllocation } from './delivery-payment-allocation';
+import { IntegrationPixCheckoutDto, IntegrationCardCheckoutDto, type DeliveryAllocationDto } from './integration-checkout.dto';
 import { PlatformPaymentLookup } from '../unified-platform/payments/platform-payment-lookup';
 import { resolveLegacyMerchantPlatform } from './legacy-merchant-platform';
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
@@ -6,8 +8,6 @@ import { IntegrationFinanceService } from './integration-finance.service';
 import { LegacyPlatformPaymentCore } from '../unified-platform/payments/legacy-platform-payment.core';
 import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { getModuleConfig } from '../module.registry';
-import { CheckoutPixDto } from '../renovada/dtos/checkout-pix.dto';
-import { CheckoutCreditCardDto } from '../renovada/dtos/checkout-credit-card.dto';
 import { getPlatformIntegrationValue } from '../platform-integrations/platform-integrations.store';
 
 @Injectable()
@@ -16,15 +16,16 @@ export class IntegrationPaymentService {
 
   platform(integrationKey: string) { return resolveLegacyMerchantPlatform(this.prisma, integrationKey); }
 
-  private async core(integrationKey: string, externalMerchantId: string) {
+  private async core(integrationKey: string, externalMerchantId: string, inputAllocation?: DeliveryAllocationDto) {
+    const allocation = deliveryAllocation(integrationKey, inputAllocation);
     const platform = await this.platform(integrationKey);
     const merchant = await this.finance.merchant(integrationKey, externalMerchantId);
     const config = getModuleConfig(platform.tag);
     if (!config) throw new UnprocessableEntityException({ code: 'PLATFORM_CAPABILITY_UNAVAILABLE', capability: 'merchants.configuration' });
-    return { merchant, core: new LegacyPlatformPaymentCore(this.prisma, this.reconcile, platform.tag, config, merchant.id) };
+    return { merchant, core: new LegacyPlatformPaymentCore(this.prisma, this.reconcile, platform.tag, config, merchant.id, allocation) };
   }
-  async pix(integrationKey: string, externalMerchantId: string, body: CheckoutPixDto) { const { merchant, core } = await this.core(integrationKey, externalMerchantId); return core.createPaymentPix(merchant.userId, body); }
-  async card(integrationKey: string, externalMerchantId: string, body: CheckoutCreditCardDto) { const { merchant, core } = await this.core(integrationKey, externalMerchantId); return core.createPaymentCreditCard(merchant.userId, body); }
+  async pix(integrationKey: string, externalMerchantId: string, body: IntegrationPixCheckoutDto) { const { merchant, core } = await this.core(integrationKey, externalMerchantId, body.allocation); return core.createPaymentPix(merchant.userId, body); }
+  async card(integrationKey: string, externalMerchantId: string, body: IntegrationCardCheckoutDto) { const { merchant, core } = await this.core(integrationKey, externalMerchantId, body.allocation); return core.createPaymentCreditCard(merchant.userId, body); }
   async status(integrationKey: string, externalMerchantId: string, paymentId: string) {
     const platform = await this.platform(integrationKey);
     const merchant = await this.finance.merchant(integrationKey, externalMerchantId);

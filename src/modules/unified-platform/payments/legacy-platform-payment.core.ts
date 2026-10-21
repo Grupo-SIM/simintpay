@@ -1,3 +1,5 @@
+import { quoteDeliveryCharge } from '../../integrations/delivery-payment-allocation';
+import type { DeliveryAllocationDto } from '../../integrations/integration-checkout.dto';
 import { loadChargePolicy, quoteFinancialCharge } from '../../financial-policy/financial-charge';
 import { PlatformPaymentLookup } from './platform-payment-lookup';
 import { postDomCheckout } from './dom-checkout.acquirer';
@@ -93,6 +95,7 @@ export class LegacyPlatformPaymentCore {
     private readonly tag: string,
     private readonly config: ModuleConfig,
     private readonly merchantId?: string,
+    private readonly deliveryAllocation?: DeliveryAllocationDto,
   ) {}
 
   protected get domToken(): string | undefined {
@@ -159,7 +162,9 @@ export class LegacyPlatformPaymentCore {
       }
 
       const platform = await this.assertPlatformOwner(userId);
-      const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, this.tag), body.price, 'PIX');
+      const financialQuote = this.deliveryAllocation
+        ? quoteDeliveryCharge(body.price, this.deliveryAllocation)
+        : quoteFinancialCharge(await loadChargePolicy(this.prisma, this.tag), body.price, 'PIX');
       const price = financialQuote?.totalAmount ?? body.price;
       const liquidez = this.config.saque.fatorLiquidez;
       const mdrPix = this.config.mdr.pix;
@@ -263,7 +268,9 @@ export class LegacyPlatformPaymentCore {
       }
 
       const platform = await this.assertPlatformOwner(userId);
-      const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, this.tag), body.price, 'CREDIT_CARD', body.installments);
+      const financialQuote = this.deliveryAllocation
+        ? quoteDeliveryCharge(body.price, this.deliveryAllocation)
+        : quoteFinancialCharge(await loadChargePolicy(this.prisma, this.tag), body.price, 'CREDIT_CARD', body.installments);
       const price = financialQuote?.totalAmount ?? body.price;
       const liquidezCC = this.config.saque.fatorLiquidez;
       const mdrCC = this.config.mdr.cartao[body.installments] ?? this.config.mdr.cartao[1];

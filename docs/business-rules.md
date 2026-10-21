@@ -282,3 +282,11 @@ PIX e cartão enviam a descrição do produto seguida de `[TENANT:TAG]` também 
 Aliases de criação retornam status financeiro persistido. Resposta `paid` da adquirente, sozinha, não faz Atlas anunciar `COMPLETED` antes da liquidação local; webhook ou reconciliação confirmam status e crédito atomicamente.
 
 - Relatórios próprios: juros sem registro contam como zero, preservando a soma dos juros registrados. Custos incluem taxas persistidas dos saques aprovados/concluídos, no mesmo escopo de dono, plataforma e período; saques pendentes/recusados não entram. Filtro de método aplica-se somente às vendas.
+
+
+## Divisão de cobranças Sim Delivery
+
+- Integrações internas autenticadas `sim-delivery_*` exigem `allocation` com `merchantAmountCents` e `platformFeeCents`, inteiros não negativos cuja soma equivale exatamente a `price` em reais. Outras integrações e endpoints públicos não podem usar esse contrato para substituir políticas financeiras.
+- `price` já é o total final do comprador. A carteira do comerciante recebe integralmente `merchantAmountCents`; `platformFeeCents` constitui a taxa da plataforma. Nenhum custo adicional de adquirente, serviço, juros ou fator de liquidez é aplicado a essa cobrança. Taxas de saque permanecem contrato independente.
+- Transação registra bruto, líquido, taxa total/plataforma e snapshot `SIM_DELIVERY_ALLOCATION_V1`, com `settlementBasis=FINAL_NET`. Crédito, repetição de webhook, mediação, estorno e chargeback seguem o lançamento final idempotente existente. Custo de adquirente não contratado não é estimado como desconto do lojista.
+- Cobranças antigas permanecem intactas. Ausência ou inconsistência da divisão bloqueia novas cobranças Delivery; nenhuma configuração legada serve de fallback. Publicar este backend antes do cliente Delivery. Nenhum backfill, migração ou alteração de configuração externa é necessário.
