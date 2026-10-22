@@ -1,5 +1,5 @@
 import type { SimulationInput } from '../../modules/financial-policy/financial-policy.service';
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PlatformsService } from '../../application/services/platforms.service';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
@@ -41,6 +41,12 @@ export class PlatformsController {
 
   @Post(':tag/financial-policy/simulation')
   simulateFinancialPolicy(@Param('tag') tag: string, @CurrentUser() user: JwtPayload, @Body() body: SimulationInput) { return this.platforms.simulateFinancialPolicy(tag, user, body); }
+
+  @Delete(':tag')
+  @ApiOperation({ summary: 'Excluir plataforma própria; administrador pode excluir qualquer plataforma' })
+  remove(@Param('tag') tag: string, @CurrentUser() user: JwtPayload) {
+    return this.platforms.remove(tag, user);
+  }
 
   @Patch(':tag')
   @ApiOperation({ summary: 'Editar plataforma; transferência exclusiva do administrador' })

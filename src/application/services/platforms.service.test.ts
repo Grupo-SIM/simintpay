@@ -161,3 +161,51 @@ describe('owned catalogue scope', () => {
     await expect(service().service.acquirers({ ...user, authMode: 'integration' } as never)).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
+
+describe('Platform deletion', () => {
+  function fixture(role = 'USER', ownerUserId = 'owner', platformExists = true) {
+    const platform = { id: 'community', tag: 'COMUNIDADE', ownerUserId };
+    const remove = mock(async () => platform);
+    const findUnique = mock(async (_args: unknown) => platformExists ? platform : null);
+    const prisma = {
+      user: { findUnique: async () => ({ role, isActive: true, isPurged: false }) },
+      platform: { findUnique, delete: remove, findMany: mock(async () => []) },
+    };
+    return { service: new PlatformsService(prisma as never), remove, findUnique, prisma };
+  }
+
+  test('owner deletes canonical tag and refreshes registry', async () => {
+    const f = fixture();
+    expect((await f.service.remove('comunidade', user)).data.tag).toBe('COMUNIDADE');
+    expect(f.findUnique).toHaveBeenCalledWith({ where: { tag: 'COMUNIDADE' } });
+    expect(f.remove.mock.calls[0]).toBeDefined();
+    expect(f.prisma.platform.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  test('admin can delete another owner platform', async () => {
+    const f = fixture('ADMIN', 'other');
+    await f.service.remove('COMUNIDADE', user);
+    expect(f.remove).toHaveBeenCalledTimes(1);
+  });
+
+  test('foreign owners and integration sessions cannot delete', async () => {
+    const f = fixture('USER', 'other');
+    await expect(f.service.remove('COMUNIDADE', user)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(f.service.remove('COMUNIDADE', { ...user, authMode: 'integration' })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(f.remove).not.toHaveBeenCalled();
+  });
+
+  test('missing platform returns 404 without deleting', async () => {
+    const f = fixture('USER', 'owner', false);
+    await expect(f.service.remove('COMUNIDADE', user)).rejects.toThrow('Plataforma não cadastrada');
+    expect(f.remove).not.toHaveBeenCalled();
+  });
+
+  test('protected history returns conflict without refreshing registry', async () => {
+    const { Prisma } = await import('@prisma/client');
+    const f = fixture();
+    f.remove.mockImplementation(async () => { throw new Prisma.PrismaClientKnownRequestError('Foreign key', { code: 'P2003', clientVersion: '7' }); });
+    await expect(f.service.remove('COMUNIDADE', user)).rejects.toThrow('histórico vinculado');
+    expect(f.prisma.platform.findMany).not.toHaveBeenCalled();
+  });
+});

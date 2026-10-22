@@ -108,6 +108,23 @@ export class PlatformsService {
     }
   }
 
+  async remove(tag: string, user: JwtPayload) {
+    const platform = await this.requireAccess(tag, user);
+    let deleted;
+    try {
+      deleted = await this.prisma.platform.delete({ where: { id: platform.id }, select: publicSelect });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2003') throw new ConflictException('Plataforma possui histórico vinculado; desative-a em vez de excluir');
+        if (error.code === 'P2025') throw new NotFoundException('Plataforma não cadastrada');
+      }
+      throw error;
+    }
+    invalidatePlatformIntegrationsCache();
+    await initializePlatformRegistryCache(this.prisma);
+    return { data: deleted };
+  }
+
   async update(tag: string, user: JwtPayload, body: { name?: string; isActive?: boolean; ownerUserId?: string; acquirer?: 'DOM' | 'FRENDZ'; absorbCustomerInterest?: boolean }) {
     user = await this.requireSession(user);
     const platform = await this.requireAccess(tag, user);

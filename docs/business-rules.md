@@ -19,6 +19,7 @@ Margem negativa é permitida. Simulação autenticada informa margem e `negative
 ## APIs
 
 - `GET/POST /platforms`: listar/criar. Body de criação: `tag`, `name`, `ownerUserId` opcional somente para admin.
+- `DELETE /platforms/:tag`: dono ou administrador exclui cadastro e integrações; vínculos de membros são desfeitos pelo banco. Histórico com vínculo protegido impede exclusão (409); nesse caso, desativar via PATCH. Não altera carteiras ou lançamentos financeiros. Sessão de integração não pode excluir.
 - `PATCH /platforms/:tag`: nome, estado ativo, adquirente, absorção; transferência exclusiva do admin.
 - `PATCH /platforms/:tag/customer-interest-rates`: `{ "rates": { "1": 0.0152, "2": 0.0352 } }`, atualização parcial.
 - `GET /platforms/:tag/customer-interest-rates/simulation?amount=100`: comprador, custos, líquido e margem por parcela.
