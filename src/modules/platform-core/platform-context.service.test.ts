@@ -13,6 +13,7 @@ function fixture() {
   const prisma = {
     platform: { findUnique: mock(async () => platform) },
     user: { findUnique: mock(async () => ({ id: 'owner-a', role: 'USER', isActive: true, isPurged: false })) },
+    platformApiCredential: { findUnique: mock(async () => null) },
     platformIntegration: { findUnique: mock(async (query: { where: { tokenHash?: string } }) => query.where.tokenHash ? credential : scope === undefined ? null : { url: scope }) },
   };
   return { service: new PlatformContextService(prisma as never), prisma, platform, credential,

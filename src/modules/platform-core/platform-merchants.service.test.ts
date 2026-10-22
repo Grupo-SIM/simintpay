@@ -5,7 +5,7 @@ import { resolveLegacyMerchantPlatform } from '../integrations/legacy-merchant-p
 
 const context = { id: 'platform-a', tag: 'CLIENT-A', ownerUserId: 'owner', acquirer: 'DOM' as const };
 function fixture() {
-  const prisma = { user: { findUnique: mock(async () => ({ id: 'merchant-user', isActive: true, isPurged: false })) }, integrationMerchant: { findUnique: mock(async () => null as any), create: mock(async ({ data }: any) => ({ id: 'merchant', ...data })) } };
+  const prisma = { platformIntegration: { findUnique: mock(async () => null), findMany: mock(async () => []) }, user: { findUnique: mock(async () => ({ id: 'merchant-user', isActive: true, isPurged: false })) }, integrationMerchant: { findUnique: mock(async () => null as any), create: mock(async ({ data }: any) => ({ id: 'merchant', ...data })) } };
   (prisma as any).$transaction = async (callback: any) => callback(prisma);
   const payments = { createForMerchant: mock(async () => ({ amountCents: 100 })) };
   const finance = {};

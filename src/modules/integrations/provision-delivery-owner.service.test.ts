@@ -11,7 +11,7 @@ function fixture(existing: any = null) {
   process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = 'ab'.repeat(32);
   const prisma = {
     platform: { findMany: mock(async () => []), findUnique: mock(async () => null), create: mock(async ({ data }: any) => ({ id: 'new-platform', ...data })) },
-    deliveryPlatformRegistration: { upsert: mock(async () => ({ id: 'reservation', integrationKey: 'sim-delivery_shop', platformId: null })), update: mock(async () => ({})) },
+    deliveryPlatformRegistration: { findUnique: mock(async () => null), upsert: mock(async () => ({ id: 'reservation', integrationKey: 'sim-delivery_shop', platformId: null })), update: mock(async () => ({})) },
     platformIntegration: { findMany: mock(async () => [{ key: 'LEGACY_MERCHANT_KEYS', url: 'sim-delivery_shop', platform: { tag: 'SHOP', id: 'platform', isActive: true, owner: { isActive: true, isPurged: false } } }]) },
     integrationMerchant: {
       findUnique: mock(async () => existing),

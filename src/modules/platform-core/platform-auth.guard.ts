@@ -11,7 +11,7 @@ export class PlatformAuthGuard extends AuthGuard('jwt') {
     const request = context.switchToHttp().getRequest();
     if (request.headers.authorization) await super.canActivate(context);
     const operation = this.reflector.get<string>('platform-operation', context.getHandler());
-    request.platformContext = await this.contexts.authorize(request.params.tag, operation, request.user, request.headers['x-access-token']);
+    request.platformContext = await this.contexts.authorize(request.params.tag, operation, request.user, request.headers['x-access-token'], request.params.externalMerchantId);
     return true;
   }
 }

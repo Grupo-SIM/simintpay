@@ -144,3 +144,28 @@ test('merchant payments snapshot the platform owner without changing the benefic
   await service.createForMerchant(context, 'external-merchant', input);
   expect(prisma.transaction.create.mock.calls[0][0].data).toMatchObject({ userId: 'seller', tracking: { reportAttribution: { platformId: 'platform', ownerUserId: 'owner', beneficiaryUserId: 'seller' } } });
 });
+
+test('canonical Delivery allocation charges exact total, freezes shares and rejects replay changes', async () => {
+ const f = fixture();
+ const delegated = { id: 'credential', source: 'delivery', platformId: 'platform', merchantId: 'merchant', externalCompanyId: 'company', isActive: true, profile: { code: 'DELIVERY', isActive: true, acquirer: 'DOM', encryptedCredential: encryptPlatformSecret('delivery-account') } };
+ const p = f.prisma as any;
+ p.platformApiCredential = { findUnique: async () => delegated };
+ p.integrationMerchant = { findUnique: async () => ({ id: 'merchant', userId: 'seller', user: { isActive: true, isPurged: false } }) };
+ const ctx = { ...context, delivery: { credentialId: 'credential', merchantId: 'merchant', externalCompanyId: 'company', profileId: 'profile', allocate: true } };
+ const request = { ...input, amountCents: 10537, allocation: { merchantAmountCents: 10000, platformFeeCents: 537 } };
+ expect(await f.service.createForMerchant(ctx, 'company', request)).toMatchObject({ amountCents: 10537, netAmountCents: 10000 });
+ expect((f.charge.mock.calls as any)[0][0]).toBe('delivery-account');
+ expect((f.charge.mock.calls as any)[0][1].amount).toBe(105.37);
+ const row = (f.prisma.transaction.create.mock.calls as any)[0][0].data;
+ expect(row.financialSnapshot).toMatchObject({ contract: 'SIM_DELIVERY_ALLOCATION_V1', totalAmountCents: 10537, merchantAmountCents: 10000, platformFeeCents: 537 });
+ expect(row.tracking.delivery).toMatchObject({ credentialId: 'credential', idempotencyKey: input.idempotencyKey });
+ expect(f.prisma.financialPolicyRevision.findMany).not.toHaveBeenCalled();
+ await f.service.createForMerchant(ctx, 'company', request);
+ await expect(f.service.createForMerchant(ctx, 'company', { ...request, allocation: { merchantAmountCents: 10001, platformFeeCents: 536 } })).rejects.toMatchObject({ status: 409 });
+ expect(f.charge).toHaveBeenCalledTimes(1);
+});
+test('ordinary canonical callers cannot override the financial allocation', async () => {
+ const f = fixture();
+ await expect(f.service.create(context, { ...input, allocation: { merchantAmountCents: 12000, platformFeeCents: 345 } })).rejects.toMatchObject({ status: 403 });
+ expect(f.charge).not.toHaveBeenCalled();
+});

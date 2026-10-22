@@ -16,7 +16,7 @@ test('merchant withdrawal list and detail require explicit product or registered
   const { service, queries } = fixture();
   await service.listWithdrawals('legacy', 'external');
   await expect(service.getWithdrawal('legacy', 'external', 'foreign')).rejects.toThrow('não encontrado');
-  for (const q of queries) expect(q.where).toMatchObject({ userId: 'seller', platform: { in: ['legacy', 'shop'] } });
+  for (const q of queries) expect(q.where).toMatchObject({ userId: 'seller', OR: [{ platform: 'legacy' }, { platform: 'shop', integrationWebhookDeliveries: { some: { merchantId: 'm' } } }] });
 });
 test('status outbox sweeper excludes other products in shared user wallet', async () => {
   const { service, queries } = fixture(); await service.enqueueCurrentStatuses();
@@ -76,5 +76,5 @@ test('merchant summary compares pooled wallet cents, product processing and deci
   expect(after.processingGrossCents).toBe(before.processingGrossCents);
   expect(after.canRequest).toBe(before.canRequest);
   expect(after.feePolicy).toEqual({ fixedCents: before.feePolicy.fixedCents, rate: before.feePolicy.percentBasisPoints / 10000 });
-  expect(queries[1].where.platform).toEqual({ in: ['legacy', 'shop'] });
+  expect(queries[1].where.OR).toEqual([{ platform: 'legacy' }, { platform: 'shop', integrationWebhookDeliveries: { some: { merchantId: 'm' } } }]);
 });

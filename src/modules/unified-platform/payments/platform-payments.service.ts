@@ -1,3 +1,6 @@
+import { quoteDeliveryCharge } from '../../integrations/delivery-payment-allocation';
+import { deliveryProfile } from '../../platform-core/delivery-profile';
+import type { PlatformContext } from '../../platform-core/platform-context.service';
 import { loadFinancialPolicy } from '../../financial-policy/financial-policy.service';
 import { quoteFinancialCharge } from '../../financial-policy/financial-charge';
 import { platformMerchant } from '../../platform-core/platform-merchant-lookup';
@@ -14,7 +17,7 @@ import { CreatePlatformPaymentDto } from './platform-payment.dto';
 import { resolvePaymentAdapter } from './platform-payment.adapter';
 import { resolveCardAcquirer } from './platform-card-acquirer.adapter';
 
-export type PaymentPlatformContext = { id: string; tag: string; ownerUserId: string; acquirer: 'DOM' | 'FRENDZ' };
+export type PaymentPlatformContext = { id: string; tag: string; ownerUserId: string; acquirer: 'DOM' | 'FRENDZ'; delivery?: PlatformContext['delivery'] };
 
 @Injectable()
 export class PlatformPaymentsService {
@@ -35,6 +38,12 @@ export class PlatformPaymentsService {
     return this.execute(context, input, merchant);
   }
 
+  async readByKey(context: PaymentPlatformContext, externalMerchantId: string, key: string) {
+    const merchant = await platformMerchant(this.prisma, context, externalMerchantId);
+    const id = createHash('sha256').update(`${context.id}\0${merchant.id}\0${key}`).digest('hex');
+    return this.read(context, id);
+  }
+
   private async execute(context: PaymentPlatformContext, input: CreatePlatformPaymentDto, merchant?: { id: string; userId: string }) {
     // Re-resolve owner and activation immediately before financial writes.
     const platform = await this.prisma.platform.findUnique({ where: { id: context.id }, include: { owner: true, integrations: true } });
@@ -48,9 +57,12 @@ export class PlatformPaymentsService {
     const cardAcquirer = input.paymentMethod === 'CREDIT_CARD' ? resolveCardAcquirer(platform.acquirer) : undefined;
     if (cardAcquirer && (!input.card || !input.card.token || !input.card.holderName || !/^\d{6,8}$/.test(input.card.bin) || !input.card.brand || !Number.isInteger(input.card.installments) || input.card.installments < 1 || input.card.installments > 12)) throw new UnprocessableEntityException({ code: 'INVALID_PAYMENT_CONTRACT' });
     if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0 || input.amountCents > 999999999999 || !input.idempotencyKey || input.idempotencyKey.length > 128 || !input.customer) throw new UnprocessableEntityException({ code: 'INVALID_PAYMENT_CONTRACT' });
+    if (input.allocation && (!context.delivery?.allocate || !merchant || context.delivery.merchantId !== merchant.id)) throw new ForbiddenException('Divisão financeira não autorizada');
+    if (context.delivery && !input.allocation) throw new UnprocessableEntityException({ code: 'DELIVERY_ALLOCATION_REQUIRED' });
+    const acquiring = context.delivery ? await deliveryProfile(this.prisma, context) : null;
     const integration = platform.integrations.find(row => row.key === (platform.acquirer === 'DOM' ? 'DOM_TOKEN' : 'FRENDZ_TOKEN'));
-    if (!integration?.encryptedValue) throw new UnprocessableEntityException({ code: 'PLATFORM_CONFIGURATION_MISSING', key: platform.acquirer === 'DOM' ? 'DOM_TOKEN' : 'FRENDZ_TOKEN' });
-    const token = decryptPlatformSecret(integration.encryptedValue);
+    if (!acquiring && !integration?.encryptedValue) throw new UnprocessableEntityException({ code: 'PLATFORM_CONFIGURATION_MISSING', key: platform.acquirer === 'DOM' ? 'DOM_TOKEN' : 'FRENDZ_TOKEN' });
+    const token = acquiring?.token ?? decryptPlatformSecret(integration!.encryptedValue!);
     const adapter = resolvePaymentAdapter(platform.tag);
     const financialUserId = merchant?.userId ?? platform.ownerUserId;
     const id = createHash('sha256').update(`${platform.id}\0${merchant?.id ?? ''}\0${input.idempotencyKey}`).digest('hex');
@@ -61,8 +73,9 @@ export class PlatformPaymentsService {
     const amount = new Prisma.Decimal(input.amountCents).div(100);
     const existing = await this.prisma.transaction.findUnique({ where: { id } });
     if (existing) {
-      if (existing.userId !== financialUserId || (existing.paymentLinkId ?? undefined) !== input.linkId || !(existing.financialSnapshot ? new Prisma.Decimal((existing.financialSnapshot as { originalCents: number }).originalCents).div(100).equals(amount) : existing.amount.equals(amount)) || existing.description !== description || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== input.paymentMethod) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
+      if (existing.userId !== financialUserId || (existing.paymentLinkId ?? undefined) !== input.linkId || !(existing.financialSnapshot ? new Prisma.Decimal(((existing.financialSnapshot as { originalCents?: number; totalAmountCents?: number }).originalCents ?? (existing.financialSnapshot as { totalAmountCents: number }).totalAmountCents)).div(100).equals(amount) : existing.amount.equals(amount)) || existing.description !== description || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== input.paymentMethod) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       if (!existing.externalPaymentId) throw new ConflictException({ code: 'PAYMENT_PROCESSING', transactionId: id });
+      if (input.allocation && JSON.stringify([input.allocation.merchantAmountCents, input.allocation.platformFeeCents]) !== JSON.stringify([(existing.financialSnapshot as any)?.merchantAmountCents, (existing.financialSnapshot as any)?.platformFeeCents])) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       return this.result(existing);
     }
     await this.prisma.wallet.upsert({ where: { userId: financialUserId }, update: {}, create: { userId: financialUserId, balance: 0, lockedBalance: 0 } });
@@ -70,7 +83,7 @@ export class PlatformPaymentsService {
     const rates: Record<string, number> = {};
     for (const row of overrides.filter(row => row.tag === 'GLOBAL')) rates[row.key] = row.value;
     for (const row of overrides.filter(row => row.tag !== 'GLOBAL')) rates[row.key] = row.value;
-    const financialQuote = quoteFinancialCharge({ policy: await loadFinancialPolicy(this.prisma, platform.tag), acquirer: platform.acquirer, tag: platform.tag }, amount.toNumber(), input.paymentMethod as 'PIX' | 'CREDIT_CARD', cardAcquirer ? input.card!.installments : 1);
+    const financialQuote = input.allocation ? { ...quoteDeliveryCharge(amount.toNumber(), input.allocation), platformProfit: input.allocation.platformFeeCents / 100 } : quoteFinancialCharge({ policy: await loadFinancialPolicy(this.prisma, platform.tag), acquirer: platform.acquirer, tag: platform.tag }, amount.toNumber(), input.paymentMethod as 'PIX' | 'CREDIT_CARD', cardAcquirer ? input.card!.installments : 1);
     const chargeAmount = new Prisma.Decimal(financialQuote?.totalAmount ?? amount);
     const chargeCents = chargeAmount.mul(100).toNumber();
     const financialFields = financialQuote ? {
@@ -80,7 +93,7 @@ export class PlatformPaymentsService {
     } : adapter.fees(amount, rates, cardAcquirer ? input.card!.installments : undefined);
     try {
       await new PlatformPaymentExecution(this.prisma).reserve({
-        id, userId: financialUserId, tracking: { reportAttribution: { platformId: platform.id, ownerUserId: platform.ownerUserId, beneficiaryUserId: financialUserId } }, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...financialFields,
+        id, userId: financialUserId, tracking: { ...(context.delivery ? { delivery: { credentialId: context.delivery.credentialId, externalCompanyId: context.delivery.externalCompanyId, idempotencyKey: input.idempotencyKey } } : {}), reportAttribution: { platformId: platform.id, ownerUserId: platform.ownerUserId, beneficiaryUserId: financialUserId } }, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...financialFields,
         status: 'DRAFT', paymentMethod: input.paymentMethod, acquirer: platform.acquirer,
         description, customerName: input.customer.name, customerEmail: input.customer.email,
         customerDocument: input.customer.document, customerPhone: input.customer.phone ?? '', installments: cardAcquirer ? input.card!.installments : 1,

@@ -14,7 +14,7 @@ function fixture(namespace: string) {
     platformIntegration: { findMany: async () => [{ url: 'legacy', platform: context }], findUnique: async () => ({ url: 'legacy' }) },
     integrationMerchant: { findUnique: async () => merchant },
     wallet: { findUnique: async () => wallet, updateMany: mock(async () => ({ count: 1 })) },
-    withdrawRequest: { findUnique: async () => null, findFirst: async () => null, create: mock(async ({ data }: any) => ({ id: 'w', createdAt: new Date(0), updatedAt: new Date(0), rejectionReason: null, ...data })) },
+    withdrawRequest: { findUniqueOrThrow: async () => ({ pixKey: 'key', rejectionReason: null, createdAt: new Date(0), updatedAt: new Date(0) }), findUnique: async () => null, findFirst: async () => null, create: mock(async ({ data }: any) => ({ id: 'w', createdAt: new Date(0), updatedAt: new Date(0), rejectionReason: null, ...data })) },
     integrationWebhookDelivery: { create: mock(async () => ({})) }, balanceLog: { create: async () => ({}) },
     $transaction: async (f: any) => f(p),
   };

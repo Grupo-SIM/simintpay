@@ -1,3 +1,5 @@
+import { CanonicalCardsController } from './canonical-cards.controller';
+import { CanonicalCardsService } from './canonical-cards.service';
 import { ReportSessionGuard } from './report-session.guard';
 import { PlatformLinksController } from './platform-links.controller';
 import { PlatformSalesEventsController } from './platform-sales-events.controller';
@@ -30,6 +32,6 @@ import { PlatformPaymentsService } from '../unified-platform/payments/platform-p
 import { PlatformEventsModule } from './platform-events.module';
 
 @Module({ imports: [PaymentLinkModule, PlatformReportingModule, WebhookModule, PrismaModule, ApiDomModule, AuthModule, CheckoutModule, PlatformEventsModule],
-  controllers: [PlatformLinksController, PlatformSalesEventsController, PlatformReturnBetController, PlatformReportProjectionsController, PlatformBetaiController, PlatformSubscriptionCapabilitiesController, PlatformVoucherCapabilitiesController, PlatformCorporateController, PlatformOperationsController, PlatformWebhookController, PlatformMerchantsController], providers: [ReportSessionGuard, PlatformSalesEventsService, PlatformBetaiService, PlatformSubscriptionCapabilitiesService, PlatformVoucherCapabilitiesService, PlatformContextService, PlatformAuthGuard, PlatformSyncService, PlatformPaymentsService, PlatformMerchantsService],
+  controllers: [CanonicalCardsController, PlatformLinksController, PlatformSalesEventsController, PlatformReturnBetController, PlatformReportProjectionsController, PlatformBetaiController, PlatformSubscriptionCapabilitiesController, PlatformVoucherCapabilitiesController, PlatformCorporateController, PlatformOperationsController, PlatformWebhookController, PlatformMerchantsController], providers: [CanonicalCardsService, ReportSessionGuard, PlatformSalesEventsService, PlatformBetaiService, PlatformSubscriptionCapabilitiesService, PlatformVoucherCapabilitiesService, PlatformContextService, PlatformAuthGuard, PlatformSyncService, PlatformPaymentsService, PlatformMerchantsService],
   exports: [PlatformBetaiService, PlatformContextService, PlatformPaymentsService, PlatformSyncService] })
 export class PlatformCoreModule {}

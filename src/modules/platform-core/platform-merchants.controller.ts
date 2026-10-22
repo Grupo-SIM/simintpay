@@ -15,6 +15,8 @@ export class PlatformMerchantsController {
   @Post('payments') @Operation('payments:create')
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   create(@Req() request: PlatformRequest, @Param('externalMerchantId') id: string, @Body() body: CreatePlatformPaymentDto) { return this.merchants.createPayment(request.platformContext, id, body); }
+  @Get('payment-attempts/:key') @Operation('payments:read')
+  attempt(@Req() request: PlatformRequest, @Param('externalMerchantId') id: string, @Param('key') key: string) { return this.merchants.paymentAttempt(request.platformContext, id, key); }
   @Get('payments/:paymentId') @Operation('payments:read')
   payment(@Req() request: PlatformRequest, @Param('externalMerchantId') id: string, @Param('paymentId') paymentId: string) { return this.merchants.payment(request.platformContext, id, paymentId); }
   @Get('finance/summary') @Operation('finance:read')

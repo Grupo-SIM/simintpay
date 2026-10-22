@@ -34,10 +34,16 @@ export class IntegrationFinanceService {
 
   async merchant(integrationKey: string, externalMerchantId: string) {
     await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
-    const merchant = await this.prisma.integrationMerchant.findUnique({
+    let merchant = await this.prisma.integrationMerchant.findUnique({
       where: { integrationKey_externalMerchantId: { integrationKey, externalMerchantId } },
       include: { user: { include: { wallet: true } } },
     });
+    if (!merchant && integrationKey.startsWith('sim-delivery_')) {
+      const registration = await this.prisma.deliveryPlatformRegistration.findUnique({ where: { externalMerchantId } });
+      if (registration?.platformId && registration.integrationKey === integrationKey) {
+        merchant = await this.prisma.integrationMerchant.findUnique({ where: { integrationKey_externalMerchantId: { integrationKey: `platform:${registration.platformId}`, externalMerchantId } }, include: { user: { include: { wallet: true } } } });
+      }
+    }
     if (!merchant?.user.wallet || !merchant.user.isActive || merchant.user.isPurged) throw new NotFoundException('Merchant não provisionado');
     return merchant;
   }
@@ -56,12 +62,12 @@ export class IntegrationFinanceService {
     const merchant = await this.merchant(integrationKey, externalMerchantId);
     const platform = await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
     const processing = await this.prisma.withdrawRequest.aggregate({
-      where: { userId: merchant.userId, ...(productScope ? { platform: { in: [integrationKey, platform.tag.toLowerCase()] } } : {}), status: { in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED] } },
+      where: { userId: merchant.userId, ...(productScope ? { OR: [{ platform: integrationKey }, { platform: platform.tag.toLowerCase(), integrationWebhookDeliveries: { some: { merchantId: merchant.id } } }] } : {}), status: { in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED] } },
       _count: { id: true },
       _sum: { grossAmount: true },
     });
     const active = await this.prisma.withdrawRequest.count({
-      where: { userId: merchant.userId, ...(productScope ? { platform: { in: [integrationKey, platform.tag.toLowerCase()] } } : {}), status: WithdrawStatus.PENDING },
+      where: { userId: merchant.userId, ...(productScope ? { OR: [{ platform: integrationKey }, { platform: platform.tag.toLowerCase(), integrationWebhookDeliveries: { some: { merchantId: merchant.id } } }] } : {}), status: WithdrawStatus.PENDING },
     });
     const wallet = merchant.user.wallet!;
     return {
@@ -114,7 +120,7 @@ export class IntegrationFinanceService {
     const safePage = Math.max(1, page);
     const safeSize = Math.min(100, Math.max(1, pageSize));
     const platform = await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
-    const where = { userId: merchant.userId, platform: { in: [integrationKey, platform.tag.toLowerCase()] } };
+    const where = { userId: merchant.userId, OR: [{ platform: integrationKey }, { platform: platform.tag.toLowerCase(), integrationWebhookDeliveries: { some: { merchantId: merchant.id } } }] };
     const [totalItems, items] = await Promise.all([
       this.prisma.withdrawRequest.count({ where }),
       this.prisma.withdrawRequest.findMany({
@@ -133,7 +139,7 @@ export class IntegrationFinanceService {
   async getWithdrawal(integrationKey: string, externalMerchantId: string, withdrawalId: string) {
     const merchant = await this.merchant(integrationKey, externalMerchantId);
     const platform = await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
-    const item = await this.prisma.withdrawRequest.findFirst({ where: { id: withdrawalId, userId: merchant.userId, platform: { in: [integrationKey, platform.tag.toLowerCase()] } } });
+    const item = await this.prisma.withdrawRequest.findFirst({ where: { id: withdrawalId, userId: merchant.userId, OR: [{ platform: integrationKey }, { platform: platform.tag.toLowerCase(), integrationWebhookDeliveries: { some: { merchantId: merchant.id } } }] } });
     if (!item) throw new NotFoundException('Saque não encontrado');
     return this.serializeWithdrawal(item);
   }

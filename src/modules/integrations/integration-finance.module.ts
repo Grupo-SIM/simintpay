@@ -1,3 +1,5 @@
+import { CanonicalMerchantEventsWorker } from './canonical-merchant-events.worker';
+import { PlatformRegistrationsController } from './platform-registrations.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { EmailService } from '../../infrastructure/email/email.service';
 import { ProvisionDeliveryOwnerService } from './provision-delivery-owner.service';
@@ -11,8 +13,8 @@ import { IntegrationWebhookWorker } from './integration-webhook.worker';
 
 @Module({
   imports: [PrismaModule, WebhookModule, JwtModule.register({})],
-  controllers: [IntegrationFinanceController],
-  providers: [ProvisionDeliveryOwnerService, EmailService, IntegrationFinanceService, IntegrationWebhookWorker, IntegrationPaymentService],
+  controllers: [IntegrationFinanceController, PlatformRegistrationsController],
+  providers: [CanonicalMerchantEventsWorker, ProvisionDeliveryOwnerService, EmailService, IntegrationFinanceService, IntegrationWebhookWorker, IntegrationPaymentService],
   exports: [IntegrationFinanceService],
 })
 export class IntegrationFinanceModule {}

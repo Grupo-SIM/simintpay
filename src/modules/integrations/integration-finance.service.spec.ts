@@ -26,7 +26,7 @@ describe('IntegrationFinanceService', () => {
     })).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('reuses a manually linked merchant when a duplicate integration user owns the CNPJ', async () => {
+  it('rejects a document belonging to another account without changing linked merchant', async () => {
     const existing = {
       id: 'merchant-manual',
       integrationKey: 'sim-delivery_zero-grau',
@@ -49,13 +49,11 @@ describe('IntegrationFinanceService', () => {
     };
     const service = new IntegrationFinanceService(prisma as never);
 
-    await service.provision('sim-delivery_zero-grau', 'company-1', {
-      cnpj: '10.802.530/0001-07',
-      legalName: 'Zero Grau',
-    });
-
-    expect(userUpdate).toHaveBeenCalledWith({ where: { id: 'legacy-user' }, data: { name: 'Zero Grau' } });
-    expect(merchantUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'merchant-manual' } }));
+    await expect(service.provision('sim-delivery_zero-grau', 'company-1', {
+      cnpj: '10.802.530/0001-07', legalName: 'Zero Grau',
+    })).rejects.toMatchObject({ status: 409 });
+    expect(userUpdate).not.toHaveBeenCalled();
+    expect(merchantUpdate).not.toHaveBeenCalled();
   });
 
   it('never moves historical ownership during merchant reconciliation', async () => {

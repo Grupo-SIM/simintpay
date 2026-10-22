@@ -299,3 +299,7 @@ Aliases de criação retornam status financeiro persistido. Resposta `paid` da a
 - `vencimentoDias` aceita inteiros de 0 a 90. Zero representa ausência de prazo configurado; omissão mantém padrão de criação (3 dias) ou valor existente na edição. Zero explícito é preservado no armazenamento.
 - Cobrança sem prazo configurado não envia `boleto_due_days` nem retorna data calculada artificialmente. Data de vencimento retornada pela adquirente prevalece, inclusive nessa modalidade.
 - Itens da cobrança de boleto são enviados como lista, conforme demais cobranças em `/transactions`.
+
+## Delivery canônico
+
+Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado conclui conta, carteira e credencial delegada por empresa. Operações usam `/platforms/:tag/merchants/:companyId`; perfil DOM central DELIVERY é associação explícita, sem fallback global. Token delegado não acessa outra empresa nem rotas gerais da plataforma. Divisão financeira explícita exige capacidade payments:allocate e congela parcela empresarial e taxa sem custos adicionais. Histórico mantém titular e carteira; aliases antigos permanecem para drenagem. Detalhes em [guia Delivery](guides/delivery-canonical-integration.md).

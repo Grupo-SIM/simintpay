@@ -17,7 +17,12 @@ export class PlatformPaymentCardDto {
   @IsInt() @Min(1) @Max(12) installments!: number;
 }
 
+export class PlatformPaymentAllocationDto {
+  @IsInt() @Min(0) merchantAmountCents!: number;
+  @IsInt() @Min(0) platformFeeCents!: number;
+}
 export class CreatePlatformPaymentDto {
+  @IsOptional() @ValidateNested() @Type(() => PlatformPaymentAllocationDto) allocation?: PlatformPaymentAllocationDto;
   @IsOptional() @IsString() @MaxLength(128) linkId?: string;
   @IsInt() @Min(1) @Max(999999999999) amountCents!: number;
   @IsIn(['PIX', 'CREDIT_CARD']) paymentMethod!: 'PIX' | 'CREDIT_CARD';

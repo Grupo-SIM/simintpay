@@ -7,6 +7,7 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { EmailService } from '../../infrastructure/email/email.service';
 import { buildResetTokenSecret } from '../../application/use-cases/auth/forgot-password.use-case';
 import { isValidDocument } from '../../application/validators/is-document.validator';
+import { deliveryAccessResult, ensureDeliveryAccess } from './delivery-canonical-access';
 import { reserveDeliveryPlatform } from './delivery-platform-registration';
 import { ensureDeliveryOwnerPlatform } from './delivery-owner-platform';
 import { initializePlatformRegistryCache } from '../module.registry';
@@ -28,7 +29,7 @@ export class ProvisionDeliveryOwnerService {
     }
   }
 
-  async execute(integrationKey: string, externalMerchantId: string, input: ProvisionDeliveryOwnerDto) {
+  async execute(integrationKey: string, externalMerchantId: string, input: ProvisionDeliveryOwnerDto, canonical = false) {
     if (!integrationKey.startsWith('sim-delivery_') || !externalMerchantId.trim()) throw new BadRequestException('Integração Sim Delivery inválida');
     const email = input.email.trim().toLowerCase();
     const legalName = input.legalName.trim();
@@ -42,7 +43,11 @@ export class ProvisionDeliveryOwnerService {
     let result: { id: string; user: { id: string; name: string; email: string; password: string } };
     try {
       result = await this.prisma.$transaction(async tx => {
-        const existing = await tx.integrationMerchant.findUnique({
+        const registration = await tx.deliveryPlatformRegistration.findUnique({ where: { externalMerchantId } });
+        const canonicalMerchant = registration?.platformId ? await tx.integrationMerchant.findUnique({
+          where: { integrationKey_externalMerchantId: { integrationKey: `platform:${registration.platformId}`, externalMerchantId } }, include: { user: true },
+        }) : null;
+        const existing = canonicalMerchant ?? await tx.integrationMerchant.findUnique({
           where: { integrationKey_externalMerchantId: { integrationKey, externalMerchantId } }, include: { user: true },
         });
         if (existing) {
@@ -54,17 +59,20 @@ export class ProvisionDeliveryOwnerService {
           }
           const user = await tx.user.update({ where: { id: existing.userId }, data: { name: legalName, ...documentData } });
           await tx.wallet.upsert({ where: { userId: user.id }, create: { userId: user.id }, update: {} });
-          await ensureDeliveryOwnerPlatform(tx, integrationKey, externalMerchantId, user.id, legalName);
-          return { ...await tx.integrationMerchant.update({ where: { id: existing.id }, data: { legalName, ...(cnpj && { cnpj }) } }), user };
+          const platform = await ensureDeliveryOwnerPlatform(tx, integrationKey, externalMerchantId, user.id, legalName);
+          const merchant = await tx.integrationMerchant.update({ where: { id: existing.id }, data: { legalName, ...(cnpj && { cnpj }) } });
+          const access = canonical ? await ensureDeliveryAccess(tx, platform.id, { id: merchant.id, externalMerchantId }) : null;
+          return { ...merchant, user, ...(access ? deliveryAccessResult(access, await tx.platform.findUniqueOrThrow({ where: { id: platform.id } }), merchant) : {}) };
         }
         // Never claim an unrelated account by knowing its email or CNPJ.
         if (await tx.user.findUnique({ where: { email } })) throw new ConflictException('Email já cadastrado na SimIntPay');
         if (cnpj && await tx.user.findUnique({ where: documentWhere })) throw new ConflictException('CPF/CNPJ já pertence a outra conta');
         const password = await hash(input.password ?? randomBytes(32).toString('hex'), 10);
         const user = await tx.user.create({ data: { email, name: legalName, password, isActive: true, isCompany: cnpj?.length === 14, ...documentData, wallet: { create: {} } } });
-        await ensureDeliveryOwnerPlatform(tx, integrationKey, externalMerchantId, user.id, legalName);
-        const merchant = await tx.integrationMerchant.create({ data: { integrationKey, externalMerchantId, legalName, cnpj, userId: user.id } });
-        return { ...merchant, user };
+        const platform = await ensureDeliveryOwnerPlatform(tx, integrationKey, externalMerchantId, user.id, legalName);
+        const merchant = await tx.integrationMerchant.create({ data: { integrationKey: canonical ? `platform:${platform.id}` : integrationKey, externalMerchantId, legalName, cnpj, userId: user.id } });
+        const access = canonical ? await ensureDeliveryAccess(tx, platform.id, merchant) : null;
+        return { ...merchant, user, ...(access ? deliveryAccessResult(access, await tx.platform.findUniqueOrThrow({ where: { id: platform.id } }), merchant) : {}) };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') throw new ConflictException('Cadastro concorrente; tente novamente');
@@ -79,6 +87,10 @@ export class ProvisionDeliveryOwnerService {
       const token = await this.jwt.signAsync({ sub: result.user.id, type: 'pwreset' }, { secret: buildResetTokenSecret(result.user.password), expiresIn: '1h' });
       const base = (process.env.APP_URL ?? process.env.FRONTEND_URL ?? 'https://www.simintpay.com').replace(/\/+$/, '');
       await this.email.sendPasswordReset({ to: email, name: result.user.name, resetUrl: `${base}/redefinir-senha?token=${encodeURIComponent(token)}` });
+    }
+    if (canonical) {
+      const access = result as typeof result & ReturnType<typeof deliveryAccessResult>;
+      return { id: result.id, status: 'READY', platform: access.platform, merchant: access.merchant, credentials: access.credentials };
     }
     return { id: result.id };
   }

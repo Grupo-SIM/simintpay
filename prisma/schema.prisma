@@ -1262,6 +1262,7 @@ model Platform {
   owner          User @relation("PlatformOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
 
   @@index([ownerUserId])
+  delegatedCredentials PlatformApiCredential[]
   deliveryRegistrations DeliveryPlatformRegistration[]
   salesEvents PlatformSalesEvent[]
 }
@@ -1391,4 +1392,60 @@ model CoproductionAllocation {
   createdAt DateTime @default(now())
   @@id([transactionId, userId])
   @@index([userId])
+}
+
+// Explicit shared acquiring account, never a fallback to another platform.
+model PaymentIntegrationProfile {
+  id String @id @default(uuid())
+  code String @unique
+  acquirer Acquirer @default(DOM)
+  encryptedCredential String
+  isActive Boolean @default(true)
+  credentials PlatformApiCredential[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PlatformApiCredential {
+  id String @id @default(uuid())
+  source String @default("delivery")
+  externalCompanyId String @unique
+  platformId String
+  platform Platform @relation(fields: [platformId], references: [id], onDelete: Restrict)
+  merchantId String
+  profileId String
+  profile PaymentIntegrationProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  tokenHash String @unique
+  encryptedToken String
+  encryptedWebhookSecret String
+  operations String[]
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  cardCustomers CanonicalCardCustomer[]
+  events CanonicalMerchantEvent[]
+  @@index([platformId, merchantId])
+}
+
+model CanonicalCardCustomer {
+  id String @id @default(uuid())
+  credentialId String
+  credential PlatformApiCredential @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  externalCustomerId String
+  providerCustomerId String
+  @@unique([credentialId, externalCustomerId])
+}
+
+model CanonicalMerchantEvent {
+  id String @id @default(uuid())
+  credentialId String
+  credential PlatformApiCredential @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  eventId String @unique
+  payload Json
+  deliveredAt DateTime?
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError String?
+  createdAt DateTime @default(now())
+  @@index([deliveredAt, nextAttemptAt])
 }

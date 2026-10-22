@@ -14,6 +14,7 @@ export async function platformMerchant(prisma: PrismaService, context: PlatformC
     merchant = matches[0] ?? null;
     if (merchant && (await resolveLegacyMerchantPlatform(prisma, merchant.integrationKey)).id !== context.id) throw new ConflictException('Vínculo legado pertence a outra plataforma');
   }
+  if (context.delivery && merchant?.id !== context.delivery.merchantId) throw new ConflictException('Vínculo do comerciante mudou');
   if (!merchant?.user.isActive || merchant.user.isPurged) throw new NotFoundException('Comerciante não associado ou inativo');
   return merchant;
 }
