@@ -26,9 +26,10 @@ export class UpdateBoletoDto {
   valor?: number;
 
   @IsInt()
-  @Min(1)
+  @Min(0)
   @Max(90)
   @IsOptional()
+  /** Zero representa ausência de vencimento configurado. */
   vencimentoDias?: number;
 
   @IsBoolean()

@@ -29,9 +29,10 @@ export class CreateBoletoDto {
 
   /** Dias até o vencimento do boleto (boletoExpireDay na DOM). */
   @IsInt()
-  @Min(1)
+  @Min(0)
   @Max(90)
   @IsOptional()
+  /** Zero representa ausência de vencimento configurado. */
   vencimentoDias?: number;
 
   @IsString()

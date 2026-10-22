@@ -293,3 +293,9 @@ Aliases de criação retornam status financeiro persistido. Resposta `paid` da a
 - Cobranças antigas permanecem intactas. Ausência ou inconsistência da divisão bloqueia novas cobranças Delivery; nenhuma configuração legada serve de fallback. Publicar este backend antes do cliente Delivery. Nenhum backfill, migração ou alteração de configuração externa é necessário.
 
 - Relatórios administrativos de transações e consolidado reconhecem o snapshot de divisão Delivery: líquido usa valor persistido, inclusive zero; taxas fixas, cashback e serviço legados não são descontados ou estimados para essas linhas. Histórico sem esse contrato mantém regras anteriores.
+
+## Vencimento opcional de boletos
+
+- `vencimentoDias` aceita inteiros de 0 a 90. Zero representa ausência de prazo configurado; omissão mantém padrão de criação (3 dias) ou valor existente na edição. Zero explícito é preservado no armazenamento.
+- Cobrança sem prazo configurado não envia `boleto_due_days` nem retorna data calculada artificialmente. Data de vencimento retornada pela adquirente prevalece, inclusive nessa modalidade.
+- Itens da cobrança de boleto são enviados como lista, conforme demais cobranças em `/transactions`.

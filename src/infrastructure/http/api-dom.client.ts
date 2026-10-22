@@ -618,9 +618,9 @@ export class ApiDomClient implements IPaymentGateway {
     // DOM: cria transação de boleto direto em /transactions (payment_method=boleto)
     const url = `${this.domRealApiUrl}/transactions`;
 
-    const due = new Date();
-    due.setDate(due.getDate() + Math.max(1, input.expireDays || 3));
-    const dueDate = due.toISOString().slice(0, 10); // YYYY-MM-DD
+    const due = input.expireDays > 0 ? new Date() : null;
+    due?.setDate(due.getDate() + input.expireDays);
+    const dueDate = due?.toISOString().slice(0, 10) ?? null;
 
     const body = {
       cod_external: input.codExternal,
@@ -642,14 +642,14 @@ export class ApiDomClient implements IPaymentGateway {
           complement: (input.address.complement ?? '').trim().slice(0, 40),
         },
       },
-      items: {
+      items: [{
         description: input.description,
         price: input.amount,
         quantity: 1,
-      },
+      }],
       payment: {
         // DOM: dias até o vencimento do boleto (campo correto = boleto_due_days).
-        boleto: { boleto_due_days: Math.max(1, input.expireDays || 3) },
+        boleto: input.expireDays > 0 ? { boleto_due_days: input.expireDays } : {},
         payment_method: 'boleto',
         total: input.amount,
       },
