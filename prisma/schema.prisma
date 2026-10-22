@@ -1231,6 +1231,21 @@ enum AffiliateCommissionStatus {
 }
 
 /// Explicit platform registry. Owners are existing local accounts.
+// Delivery companies reserve a platform before their first owner exists.
+// Only the completed Platform participates in authorization and financial operations.
+model DeliveryPlatformRegistration {
+  id                 String @id @default(uuid())
+  integrationKey     String @unique
+  externalMerchantId String @unique
+  name               String
+  platformId         String?
+  platform           Platform? @relation(fields: [platformId], references: [id], onDelete: Restrict)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([platformId])
+}
+
 model Platform {
   id             String @id @default(uuid())
   tag            String @unique
@@ -1247,6 +1262,7 @@ model Platform {
   owner          User @relation("PlatformOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
 
   @@index([ownerUserId])
+  deliveryRegistrations DeliveryPlatformRegistration[]
   salesEvents PlatformSalesEvent[]
 }
 

@@ -7,16 +7,29 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { EmailService } from '../../infrastructure/email/email.service';
 import { buildResetTokenSecret } from '../../application/use-cases/auth/forgot-password.use-case';
 import { isValidDocument } from '../../application/validators/is-document.validator';
-import { resolveLegacyMerchantPlatform } from './legacy-merchant-platform';
+import { reserveDeliveryPlatform } from './delivery-platform-registration';
+import { ensureDeliveryOwnerPlatform } from './delivery-owner-platform';
+import { initializePlatformRegistryCache } from '../module.registry';
+import { initializePlatformIntegrationsCache, invalidatePlatformIntegrationsCache } from '../platform-integrations/platform-integrations.store';
 import { ProvisionDeliveryOwnerDto } from './provision-delivery-owner.dto';
 
 @Injectable()
 export class ProvisionDeliveryOwnerService {
   constructor(private readonly prisma: PrismaService, private readonly email: EmailService, private readonly jwt: JwtService) {}
 
+  async reservePlatform(integrationKey: string, externalMerchantId: string, legalName: string) {
+    if (typeof legalName !== 'string') throw new BadRequestException('Nome obrigatório');
+    try {
+      const registration = await this.prisma.$transaction(tx => reserveDeliveryPlatform(tx, integrationKey, externalMerchantId, legalName));
+      return { id: registration.platformId ?? registration.id, status: registration.platformId ? 'READY' : 'PENDING_OWNER' };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('Integração já reservada para outra empresa');
+      throw error;
+    }
+  }
+
   async execute(integrationKey: string, externalMerchantId: string, input: ProvisionDeliveryOwnerDto) {
     if (!integrationKey.startsWith('sim-delivery_') || !externalMerchantId.trim()) throw new BadRequestException('Integração Sim Delivery inválida');
-    await resolveLegacyMerchantPlatform(this.prisma, integrationKey);
     const email = input.email.trim().toLowerCase();
     const legalName = input.legalName.trim();
     const cnpj = input.cnpj == null ? null : input.cnpj.replace(/\D/g, '');
@@ -41,6 +54,7 @@ export class ProvisionDeliveryOwnerService {
           }
           const user = await tx.user.update({ where: { id: existing.userId }, data: { name: legalName, ...documentData } });
           await tx.wallet.upsert({ where: { userId: user.id }, create: { userId: user.id }, update: {} });
+          await ensureDeliveryOwnerPlatform(tx, integrationKey, externalMerchantId, user.id, legalName);
           return { ...await tx.integrationMerchant.update({ where: { id: existing.id }, data: { legalName, ...(cnpj && { cnpj }) } }), user };
         }
         // Never claim an unrelated account by knowing its email or CNPJ.
@@ -48,13 +62,17 @@ export class ProvisionDeliveryOwnerService {
         if (cnpj && await tx.user.findUnique({ where: documentWhere })) throw new ConflictException('CPF/CNPJ já pertence a outra conta');
         const password = await hash(input.password ?? randomBytes(32).toString('hex'), 10);
         const user = await tx.user.create({ data: { email, name: legalName, password, isActive: true, isCompany: cnpj?.length === 14, ...documentData, wallet: { create: {} } } });
+        await ensureDeliveryOwnerPlatform(tx, integrationKey, externalMerchantId, user.id, legalName);
         const merchant = await tx.integrationMerchant.create({ data: { integrationKey, externalMerchantId, legalName, cnpj, userId: user.id } });
         return { ...merchant, user };
-      });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') throw new ConflictException('Cadastro concorrente; tente novamente');
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('Email, CPF/CNPJ ou primeiro dono já vinculado; tente novamente');
       throw error;
     }
+    invalidatePlatformIntegrationsCache();
+    await Promise.all([initializePlatformRegistryCache(this.prisma), initializePlatformIntegrationsCache(this.prisma)]);
     // Sending after commit allows a failed delivery to be retried without duplicate accounts.
     if (!input.password) {
       if (!process.env.JWT_SECRET) throw new BadRequestException('JWT_SECRET não configurado para definição de senha');

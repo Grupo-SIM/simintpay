@@ -16,6 +16,12 @@ export class IntegrationFinanceController {
 
   private auth(token?: string) { this.finance.assertToken(token); }
 
+  @Put('platform')
+  async reservePlatform(@Param() params: { integrationKey: string; externalMerchantId: string }, @Body() body: { legalName: string }, @Headers('x-internal-token') token?: string) {
+    this.auth(token);
+    return this.owners.reservePlatform(params.integrationKey, params.externalMerchantId, body?.legalName);
+  }
+
   @Put('owner')
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
   async owner(@Param() params: { integrationKey: string; externalMerchantId: string }, @Body() body: ProvisionDeliveryOwnerDto, @Headers('x-internal-token') token?: string) {
