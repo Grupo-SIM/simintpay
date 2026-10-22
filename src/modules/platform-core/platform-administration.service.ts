@@ -1,3 +1,4 @@
+import { isDeliveryAllocationSnapshot } from '../integrations/delivery-payment-allocation';
 import { hasPlatformMarker } from './platform-sync.adapter';
 import type { PlatformContext } from './platform-context.service';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -731,6 +732,7 @@ export class PlatformAdministrationService {
     const data = items.map(t => {
       const valorBruto = Number(t.amount);
       const isCompleted = t.status === 'COMPLETED';
+      const isDelivery = isDeliveryAllocationSnapshot(t.financialSnapshot);
       const isMaquineta = isMaquinetaDescription(t.description);
       const pmStr = t.paymentMethod === 'PIX' ? 'pix' : t.paymentMethod === 'DEBIT_CARD' ? 'debit_card' : t.paymentMethod === 'BOLETO' ? 'boleto' : 'credit_card';
       const physicalDom = isCompleted && isMaquineta
@@ -744,10 +746,10 @@ export class PlatformAdministrationService {
         : null;
       // POS não registra cashback. A fixa DOM só existe para cartão/débito,
       // conforme a tabela POS; PIX físico não paga taxa fixa.
-      const taxaFixa = isCompleted
+      const taxaFixa = isCompleted && !isDelivery
         ? physicalDom?.fixa ?? Number(taxaServicoFixa.toFixed(2))
         : 0;
-      const taxaCashback = isCompleted && !isMaquineta
+      const taxaCashback = isCompleted && !isMaquineta && !isDelivery
         ? Number(taxaServicoCashback.toFixed(2))
         : 0;
       // Snapshot imutável salvo quando a venda foi criada. Recalcular com a
@@ -760,28 +762,28 @@ export class PlatformAdministrationService {
         : 0;
       // Taxa de serviço é venda online. Maquineta já cobra somente a taxa POS
       // persistida em platformFee.
-      const taxaServico = isCompleted && !isMaquineta && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
+      const taxaServico = isCompleted && !isMaquineta && !isDelivery && taxaServicoRate > 0 && t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
         ? Number(taxaServicoRate.toFixed(2))
         : 0;
       const lucroPrejuizo = isCompleted
         ? Number((taxaSimIntPay + taxaServico - taxaDom - taxaFixa - taxaCashback).toFixed(2))
         : 0;
 
-      const cashbackDeduction = isMaquineta ? 0 : valorBruto * (cashbackFee / 100);
+      const cashbackDeduction = isMaquineta || isDelivery ? 0 : valorBruto * (cashbackFee / 100);
       const fallbackNet = Number(((valorBruto * liquidityFactor) - fixedFee - cashbackDeduction).toFixed(2));
       // lucroAdmin = taxaSimIntPay (receita SimIntPay) - custo DOM - cashback repassado.
       // No boleto o custo DOM é o taxaDom (3,49+1), não o fixo do PIX.
-      const custoDomLucro = isMaquineta || pmStr === 'boleto' ? taxaDom + taxaFixa : fixedFee;
+      const custoDomLucro = isDelivery ? taxaDom : isMaquineta || pmStr === 'boleto' ? taxaDom + taxaFixa : fixedFee;
       const lucroAdmin = isCompleted ? Number((taxaSimIntPay - custoDomLucro - cashbackDeduction).toFixed(2)) : 0;
       const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
       // Alguns registros antigos/com erro ficaram COMPLETED com netAmount=0.
       // Nesses casos, exibimos o líquido calculado pela liquidez da plataforma.
-      const valorLiquidoBase = isCompleted && (netFromDb == null || netFromDb <= 0)
+      const valorLiquidoBase = isDelivery ? (netFromDb ?? 0) : isCompleted && (netFromDb == null || netFromDb <= 0)
         ? isMaquineta
           ? Number((valorBruto - taxaSimIntPay).toFixed(2))
           : fallbackNet
         : (netFromDb ?? fallbackNet);
-      const taxaServicoTotal = isMaquineta ? 0 : taxaServicoFixa + taxaServicoCashback;
+      const taxaServicoTotal = isMaquineta || isDelivery ? 0 : taxaServicoFixa + taxaServicoCashback;
       const valorLiquido = Number((valorLiquidoBase - taxaServicoTotal).toFixed(2));
 
       let reconciledCustomerName = t.customerName ?? null;
@@ -820,11 +822,13 @@ export class PlatformAdministrationService {
         taxaServico,
         lucroPrejuizo,
         calculos: {
-          valorLiquido: (t.netAmount != null && Number(t.netAmount) > 0)
+          valorLiquido: (isDelivery || (t.netAmount != null && Number(t.netAmount) > 0))
             ? `Salvo no BD: R$ ${valorLiquido.toFixed(2)}`
             : `(${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)}) - Fixo ${fixedFee.toFixed(2)} - Cb ${cashbackFee.toFixed(2)}% = ${valorLiquido.toFixed(2)}`,
           lucroAdmin: isCompleted
-            ? pmStr === 'boleto'
+            ? isDelivery
+              ? `Taxa plataforma(${taxaSimIntPay.toFixed(2)}) - custo registrado(${taxaDom.toFixed(2)}) = ${lucroAdmin.toFixed(2)}`
+              : pmStr === 'boleto'
               ? `Boleto SimIntPay(${taxaSimIntPay.toFixed(2)}) - DOM(${taxaDom.toFixed(2)}) - Cb(${cashbackDeduction.toFixed(2)}) = ${lucroAdmin.toFixed(2)}`
               : pmStr === 'credit_card'
               ? `CC SimIntPay(${taxaSimIntPay.toFixed(2)}) - DOM fixo(${fixedFee.toFixed(2)}) - Cb(${cashbackDeduction.toFixed(2)}) = ${lucroAdmin.toFixed(2)}`
@@ -881,7 +885,7 @@ export class PlatformAdministrationService {
     const TAXA_SERVICO_RATE = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
     const TAXA_SERVICO_DATE = getTaxaServicoEffectiveDate(tag);
 
-    const computeBreakdown = (txs: { amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; mdrValue?: unknown; platformFee?: unknown; createdAt?: Date | null; cardBrand?: string | null; acquirer?: string; isStandalone?: boolean }[]) => {
+    const computeBreakdown = (txs: { financialSnapshot?: unknown; amount: unknown; paymentMethod: string; installments: number; description?: string | null; netAmount?: unknown; domFee?: unknown; mdrValue?: unknown; platformFee?: unknown; createdAt?: Date | null; cardBrand?: string | null; acquirer?: string; isStandalone?: boolean }[]) => {
       const qtd = txs.length;
       // Maquineta liquida por modelo próprio (netAmount = líquido pós-MDR × 0,91; 9% TAXA_MAQUINETA).
       // Recalcular como cartão-link infla o repasse ~9% (a maquineta aparecia quase pelo bruto cheio).
@@ -892,7 +896,6 @@ export class PlatformAdministrationService {
       const isMaq = (t: { description?: string | null }) => isMaquinetaDescription(t.description);
       const normalTxs = txs.filter((t) => !isMaq(t));
       const maqTxs = txs.filter(isMaq);
-      const qtdNormal = normalTxs.length;
 
       // A criação de uma assinatura de workspace Teron registra a tentativa
       // antes da DOM confirmar a cobrança. Esses registros legados têm os
@@ -930,14 +933,16 @@ export class PlatformAdministrationService {
       // transação. Ela alimenta tanto o card de taxas quanto o repasse, para
       // manter a identidade: repasse = faturamento − taxas Sim Int Pay.
       const taxaServicoSimIntDaTransacao = (t: (typeof normalTxs)[number]) => (
-        t.isStandalone || TAXA_SERVICO_RATE <= 0 || t.createdAt == null || t.createdAt < TAXA_SERVICO_DATE
+        isDeliveryAllocationSnapshot(t.financialSnapshot) || t.isStandalone || TAXA_SERVICO_RATE <= 0 || t.createdAt == null || t.createdAt < TAXA_SERVICO_DATE
           ? 0
           : TAXA_SERVICO_RATE
       );
       // Repasse = receita − taxa Sim Int Pay. Custos DOM (MDR, fixo e
       // cashback) são despesas da plataforma e nunca reduzem o repasse.
       const totalRepasseNormal = normalTxs.reduce(
-        (s, t) => s + Number(t.amount) - taxaSimIntDaTransacao(t) - taxaServicoSimIntDaTransacao(t),
+        (s, t) => s + (isDeliveryAllocationSnapshot(t.financialSnapshot)
+          ? Number(t.netAmount ?? 0)
+          : Number(t.amount) - taxaSimIntDaTransacao(t) - taxaServicoSimIntDaTransacao(t)),
         0,
       );
       // Arredonda por transação, antes do acumulado. A tabela também mostra a
@@ -962,7 +967,7 @@ export class PlatformAdministrationService {
       // Cashback (R$3): a DOM NÃO cobra em maquineta (o cliente não consegue registrar os dados
       // pra receber o bônus nesse fluxo) — só entra nas transações normais.
       const custoCashback = normalTxs.reduce(
-        (sum, tx) => sum + (tx.isStandalone ? 0 : TAXA_CASHBACK),
+        (sum, tx) => sum + (tx.isStandalone || isDeliveryAllocationSnapshot(tx.financialSnapshot) ? 0 : TAXA_CASHBACK),
         0,
       );
       // `platformFee` é a taxa percentual Sim Int Pay persistida na venda.
@@ -974,7 +979,7 @@ export class PlatformAdministrationService {
         (sum, tx) => sum + taxaServicoSimIntDaTransacao(tx),
         0,
       );
-      const taxaDomFixaNormal = TAXA_FIXA * qtdNormal;
+      const taxaDomFixaNormal = normalTxs.reduce((sum, tx) => sum + (isDeliveryAllocationSnapshot(tx.financialSnapshot) ? 0 : TAXA_FIXA), 0);
       const totalTaxasSimIntNormal = taxaSimInt + taxaSimIntFixa;
       const taxaSimIntPctNetNormal = totalTaxasSimIntNormal - taxaMDRDomNormal - taxaDomFixaNormal - custoCashback;
 
@@ -1119,6 +1124,7 @@ export class PlatformAdministrationService {
       // somar a mesma cópia, independente da adquirente de origem.
       domFee: tx.domFee,
       platformFee: tx.platformFee,
+      financialSnapshot: tx.financialSnapshot,
       cardBrand: tx.cardBrand,
       acquirer: tx.acquirer,
     }));
@@ -1291,6 +1297,7 @@ export class PlatformAdministrationService {
         netAmount: true,
         domFee: true,
         platformFee: true,
+        financialSnapshot: true,
         cardBrand: true,
         createdAt: true,
         acquirer: true,

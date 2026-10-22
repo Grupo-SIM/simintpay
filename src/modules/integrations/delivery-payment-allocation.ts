@@ -31,3 +31,9 @@ export function quoteDeliveryCharge(price: number, allocation: DeliveryAllocatio
     financialSnapshot: { contract: 'SIM_DELIVERY_ALLOCATION_V1', totalAmountCents: total, ...valid },
   };
 }
+
+/** Identifies the frozen Delivery contract without reinterpreting historical policies. */
+export function isDeliveryAllocationSnapshot(snapshot: unknown): boolean {
+  return !!snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+    && 'contract' in snapshot && snapshot.contract === 'SIM_DELIVERY_ALLOCATION_V1';
+}
