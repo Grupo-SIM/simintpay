@@ -24,6 +24,23 @@ export async function ensureDeliveryOwnerPlatform(tx: Prisma.TransactionClient, 
     return complete(platform);
   }
 
+  // Legacy merchants already have a durable owner ID. Preserve its unique platform
+  // instead of creating another platform that cannot read the historical tenant marker.
+  const owned = await tx.platform.findMany({ where: { ownerUserId }, include: { owner: true } });
+  if (owned.length > 1) throw new ConflictException('Titular possui múltiplas plataformas; exige associação explícita');
+  if (owned.length === 1) {
+    const platform = owned[0];
+    if (!platform.isActive || !platform.owner.isActive || platform.owner.isPurged) throw new ConflictException('Plataforma histórica inativa; exige revisão administrativa');
+    const binding = await tx.platformIntegration.findUnique({ where: { platformId_key: { platformId: platform.id, key: 'LEGACY_MERCHANT_KEYS' } } });
+    if (binding?.url?.trim()) throw new ConflictException('Plataforma histórica já possui outro vínculo; exige revisão administrativa');
+    await tx.platformIntegration.upsert({
+      where: { platformId_key: { platformId: platform.id, key: 'LEGACY_MERCHANT_KEYS' } },
+      create: { platformId: platform.id, key: 'LEGACY_MERCHANT_KEYS', url: integrationKey },
+      update: { url: integrationKey },
+    });
+    return complete(platform);
+  }
+
   // Company ID gives a stable, bounded tag independent of display name and slug changes.
   const tag = `SIM-DELIVERY-${createHash('sha256').update(externalMerchantId).digest('hex').slice(0, 32).toUpperCase()}`;
   const existing = await tx.platform.findUnique({ where: { tag } });

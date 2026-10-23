@@ -16,7 +16,7 @@ function fixture(bindings: any[] = [], platform: any = null, binding: any = null
     platformIntegration: {
       findMany: mock(async () => bindings), findUnique: mock(async () => binding), upsert: mock(async () => ({})),
     },
-    platform: { findUnique: mock(async () => platform), create: mock(async ({ data }: any) => ({ ...data })) },
+    platform: { findMany: mock(async () => [] as any[]), findUnique: mock(async () => platform), create: mock(async ({ data }: any) => ({ ...data })) },
   };
   return { tx, run: () => ensureDeliveryOwnerPlatform(tx as never, 'sim-delivery_shop', 'company', 'user', 'Shop') };
 }
@@ -81,4 +81,29 @@ describe('Delivery owner platform', () => {
     await expect(run()).rejects.toThrow('PLATFORM_CONFIG_ENCRYPTION_KEY');
     expect(tx.platform.create).not.toHaveBeenCalled();
   });
+});
+
+test('legacy merchant retains its unique owned platform and original tenant history', async () => {
+ const { tx, run } = fixture();
+ tx.platform.findMany.mockResolvedValue([{ ...active, id: 'historical', tag: 'ZERO-GRAU' }]);
+ expect(await run()).toMatchObject({ id: 'historical', tag: 'ZERO-GRAU' });
+ expect(tx.platform.create).not.toHaveBeenCalled();
+ expect(tx.platformIntegration.upsert.mock.calls[0][0]).toMatchObject({ create: { platformId: 'historical', key: 'LEGACY_MERCHANT_KEYS', url: 'sim-delivery_shop' } });
+ expect(tx.deliveryPlatformRegistration.update).toHaveBeenCalledWith({ where: { id: 'reservation' }, data: { platformId: 'historical' } });
+});
+test('historical platform ambiguity or inactive ownership never creates a duplicate', async () => {
+ for (const owned of [[active, { ...active, id: 'second' }], [{ ...active, isActive: false }], [{ ...active, owner: { isActive: false, isPurged: false } }], [{ ...active, owner: { isActive: true, isPurged: true } }]]) {
+  const { tx, run } = fixture();
+  tx.platform.findMany.mockResolvedValue(owned);
+  await expect(run()).rejects.toMatchObject({ status: 409 });
+  expect(tx.platform.create).not.toHaveBeenCalled();
+  expect(tx.platformIntegration.upsert).not.toHaveBeenCalled();
+ }
+});
+test('historical platform bound to another company is never claimed', async () => {
+ const { tx, run } = fixture([], null, { url: 'sim-delivery_another-company' });
+ tx.platform.findMany.mockResolvedValue([active]);
+ await expect(run()).rejects.toMatchObject({ status: 409 });
+ expect(tx.platform.create).not.toHaveBeenCalled();
+ expect(tx.platformIntegration.upsert).not.toHaveBeenCalled();
 });

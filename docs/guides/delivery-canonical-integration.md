@@ -125,7 +125,11 @@ Rotas antigas e receptores antigos continuam durante drenagem. Novas cobranças 
 somente contrato canônico. Vínculos antigos explícitos são lidos sem criar segundo
 comerciante, reatribuir histórico, mover saldos ou alterar snapshots. Referência sem
 vínculo inequívoco exige revisão administrativa. Bootstrap de empresas históricas
-recupera credenciais por companyId, nunca por email.
+recupera credenciais por companyId, nunca por email. Quando comerciante histórico
+não tem `LEGACY_MERCHANT_KEYS`, bootstrap reutiliza a única plataforma já pertencente
+ao titular identificado pelo `userId` do comerciante, preservando ID, tag e histórico.
+Plataforma desativada, múltiplas plataformas do titular ou vínculo com outra empresa
+exigem associação explícita; não criam uma plataforma substituta.
 
 Estorno automático permanece indisponível enquanto operação real do adquirente não
 estiver implementada; Delivery conserva alternativa manual existente.
