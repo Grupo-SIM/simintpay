@@ -11,9 +11,13 @@ SIM INT PAY exige `PLATFORM_CONFIG_ENCRYPTION_KEY` (32 bytes em hexadecimal),
 `SIM_DELIVERY_PROVISIONING_TOKEN`, `JWT_SECRET`/SMTP para senha opcional e
 `SIM_DELIVERY_CANONICAL_WEBHOOK_URL=https://<delivery-api>/integrations/simintpay`.
 Delivery exige `SIMPAY_API_URL`, `SIMPAY_PROVISIONING_TOKEN` com mesmo valor,
-`SIMPAY_CREDENTIALS_ENCRYPTION_KEY` (32 bytes em hexadecimal). Segredos ficam somente
-nos backends. Preservar chaves de criptografia em backups; trocá-las sem recriptografar
-registros torna credenciais ilegíveis.
+`BETTER_AUTH_SECRETS` já utilizado pela autenticação. Delivery deriva uma chave
+específica para SIM INT PAY por HKDF-SHA256 e grava a versão do segredo junto do
+ciphertext; ao rotacionar, manter versões anteriores enquanto existirem credenciais
+criptografadas por elas. `SIMPAY_CREDENTIALS_ENCRYPTION_KEY` (32 bytes em hexadecimal)
+é alternativa dedicada opcional, preservada para registros anteriores no formato v1.
+Registros v2 continuam legíveis se uma chave dedicada for adicionada posteriormente.
+Segredos ficam somente nos backends. Preservar chaves e versões em backups.
 
 Perfil DOM central: a aquisição usa a mesma conta DOM do admin SIM INT PAY,
 configurada por `DOM_TOKEN` (ou alias `API_DOM_MASTER_KEY`). O primeiro bootstrap
