@@ -17,13 +17,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
       - name: Build and publish image
         uses: hyoretsu/gh-actions/containers@main
         with:
-          image: jbmidia/simintpay-back
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          image: ${{ github.repository_owner }}/simintpay-back
+          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ghcr.io
