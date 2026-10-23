@@ -223,7 +223,7 @@ export class ChargePaymentLinkUseCase {
     const baseDescription = funnel
       ? `${link.description ?? link.title} | ${funnel.offer.type === 'UPSELL' ? 'Upsell' : 'Downsell'}: ${funnel.offer.title}`
       : `${link.description ?? link.title}${offersDescriptionSuffix(bumps)}`;
-    const coproduction = await captureCoproduction(this.prisma, 'links-pagamento', link.id, effectiveUserId);
+    const coproduction = await captureCoproduction(this.prisma, 'links-pagamento', link.id, effectiveUserId, platformTag);
     const snapshot = {
         financialSnapshot: withCoproduction(financialQuote?.financialSnapshot, coproduction),
         userId: effectiveUserId,

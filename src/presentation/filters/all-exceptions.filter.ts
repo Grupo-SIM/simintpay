@@ -25,10 +25,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status: number;
     let message: unknown;
     let error: string;
+    let code: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
+      if (typeof exceptionResponse === 'object' && 'code' in exceptionResponse && typeof exceptionResponse.code === 'string') code = exceptionResponse.code;
       message =
         typeof exceptionResponse === 'string'
           ? exceptionResponse
@@ -70,6 +72,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     response.status(status).json({
       statusCode: status,
+      ...(code ? { code } : {}),
       message,
       error,
       timestamp: new Date().toISOString(),

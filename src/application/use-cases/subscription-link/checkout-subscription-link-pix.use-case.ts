@@ -106,7 +106,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
 
     const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, selectedTag), amountCharged, 'PIX');
     if (financialQuote) { amountCharged = financialQuote.totalAmount; platformFeeAmount = financialQuote.totalFeeAmount; }
-    const coproduction = await captureCoproduction(this.prisma, 'links-assinatura', link.id, link.userId);
+    const coproduction = await captureCoproduction(this.prisma, 'links-assinatura', link.id, link.userId, selectedTag);
     const legacyDomFee = 0;
     const coproductionFinancialSnapshot = withCoproduction(financialQuote?.financialSnapshot, coproduction, {
       totalAmount: amountCharged, netAmount: Math.round((amountCharged - platformFeeAmount - legacyDomFee) * 100) / 100,

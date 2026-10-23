@@ -1,3 +1,4 @@
+import { captureCoproduction, withCoproduction } from '../../coproduction/coproduction.service';
 import { quoteDeliveryCharge } from '../../integrations/delivery-payment-allocation';
 import { deliveryProfile } from '../../platform-core/delivery-profile';
 import type { PlatformContext } from '../../platform-core/platform-context.service';
@@ -75,6 +76,7 @@ export class PlatformPaymentsService {
     if (existing) {
       if (existing.userId !== financialUserId || (existing.paymentLinkId ?? undefined) !== input.linkId || !(existing.financialSnapshot ? new Prisma.Decimal(((existing.financialSnapshot as { originalCents?: number; totalAmountCents?: number }).originalCents ?? (existing.financialSnapshot as { totalAmountCents: number }).totalAmountCents)).div(100).equals(amount) : existing.amount.equals(amount)) || existing.description !== description || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== input.paymentMethod) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       if (!existing.externalPaymentId) throw new ConflictException({ code: 'PAYMENT_PROCESSING', transactionId: id });
+      if (input.allocation && (input.allocation.itemsAmountCents !== (existing.financialSnapshot as any)?.itemsAmountCents || input.allocation.deliveryAmountCents !== (existing.financialSnapshot as any)?.deliveryAmountCents)) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       if (input.allocation && JSON.stringify([input.allocation.merchantAmountCents, input.allocation.platformFeeCents]) !== JSON.stringify([(existing.financialSnapshot as any)?.merchantAmountCents, (existing.financialSnapshot as any)?.platformFeeCents])) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       return this.result(existing);
     }
@@ -91,9 +93,18 @@ export class PlatformPaymentsService {
       domFee: new Prisma.Decimal(financialQuote.domFeeAmount), platformFee: new Prisma.Decimal(financialQuote.platformProfit),
       financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const,
     } : adapter.fees(amount, rates, cardAcquirer ? input.card!.installments : undefined);
+    const coproduction = input.linkId
+      ? await captureCoproduction(this.prisma, 'links-pagamento', input.linkId, financialUserId, platform.tag)
+      : await captureCoproduction(this.prisma, 'plataformas', platform.id, financialUserId);
+    if (coproduction && context.delivery) {
+      if (input.allocation?.itemsAmountCents === undefined || input.allocation.deliveryAmountCents === undefined) throw new UnprocessableEntityException({ code: 'COPRODUCTION_BASE_REQUIRED', message: 'Cobrança exige detalhamento de itens e frete' });
+      coproduction.baseCents = input.allocation.itemsAmountCents;
+    }
+    if (coproduction && coproduction.baseCents === undefined) coproduction.baseCents = financialFields.netAmount.mul(100).toNumber();
+    const finalSnapshot = withCoproduction(financialQuote?.financialSnapshot ?? (coproduction ? { originalCents: input.amountCents } : undefined), coproduction);
     try {
       await new PlatformPaymentExecution(this.prisma).reserve({
-        id, userId: financialUserId, tracking: { ...(context.delivery ? { delivery: { credentialId: context.delivery.credentialId, externalCompanyId: context.delivery.externalCompanyId, idempotencyKey: input.idempotencyKey } } : {}), reportAttribution: { platformId: platform.id, ownerUserId: platform.ownerUserId, beneficiaryUserId: financialUserId } }, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...financialFields,
+        id, userId: financialUserId, tracking: { ...(context.delivery ? { delivery: { credentialId: context.delivery.credentialId, externalCompanyId: context.delivery.externalCompanyId, idempotencyKey: input.idempotencyKey } } : {}), reportAttribution: { platformId: platform.id, ownerUserId: platform.ownerUserId, beneficiaryUserId: financialUserId } }, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...financialFields, ...(finalSnapshot ? { financialSnapshot: finalSnapshot } : {}),
         status: 'DRAFT', paymentMethod: input.paymentMethod, acquirer: platform.acquirer,
         description, customerName: input.customer.name, customerEmail: input.customer.email,
         customerDocument: input.customer.document, customerPhone: input.customer.phone ?? '', installments: cardAcquirer ? input.card!.installments : 1,

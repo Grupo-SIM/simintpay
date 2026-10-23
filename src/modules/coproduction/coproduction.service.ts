@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { allocateNet, productTables, validateAgreement, type Product, type Snapshot } from './coproduction';
 
-type Saved = { version: number; participants: { userId: string; percentageBps: number }[] };
+type Saved = { mode?: 'OWN' | 'INHERIT'; version: number; participants: { userId: string; percentageBps: number }[] };
 
 @Injectable()
 export class CoproductionService {
@@ -28,7 +28,8 @@ export class CoproductionService {
   private async authorize(tx: Prisma.TransactionClient, actorId: string, product: string, id: string) {
     if (!Object.hasOwn(productTables, product)) throw new BadRequestException('Tipo de produto inválido');
     const table = Prisma.raw('"' + productTables[product as Product] + '"');
-    const rows = await tx.$queryRaw<{ userId: string }[]>(Prisma.sql`SELECT "userId" FROM ${table} WHERE id = ${id} FOR SHARE`);
+    const ownerColumn = Prisma.raw(product === 'plataformas' ? '"ownerUserId"' : '"userId"');
+    const rows = await tx.$queryRaw<{ userId: string }[]>(Prisma.sql`SELECT ${ownerColumn} AS "userId" FROM ${table} WHERE id = ${id} FOR SHARE`);
     if (!rows.length) throw new NotFoundException('Produto não encontrado');
     const actor = await tx.user.findUnique({ where: { id: actorId } });
     if (!actor?.isActive || actor.isPurged || (actor.role !== 'ADMIN' && (actor.clientStatus !== 'APPROVED' || rows[0].userId !== actorId))) throw new ForbiddenException('Co-produção restrita ao proprietário aprovado ou administrador');
@@ -36,13 +37,14 @@ export class CoproductionService {
   }
 
   private async read(tx: Prisma.TransactionClient, product: string, id: string) {
-    const rows = await tx.$queryRaw<Saved[]>`SELECT version, participants FROM "CoproductionAgreement" WHERE product = ${product} AND "productId" = ${id}`;
+    const rows = await tx.$queryRaw<Saved[]>`SELECT version, participants, mode FROM "CoproductionAgreement" WHERE product = ${product} AND "productId" = ${id}`;
     return rows[0] ?? { version: 0, participants: [] };
   }
 
-  private async present(tx: Prisma.TransactionClient, saved: Saved) {
+  private async present(tx: Prisma.TransactionClient, saved: Saved, effective?: Snapshot | null) {
     const users = await tx.user.findMany({ where: { id: { in: saved.participants.map(p => p.userId) } }, select: { id: true, name: true, email: true } });
-    return { data: { basis: 'NET' as const, version: saved.version, participants: saved.participants.map(p => {
+    const effectiveUsers = effective ? await tx.user.findMany({ where: { id: { in: effective.participants.map(p => p.userId) } }, select: { id: true, name: true, email: true } }) : [];
+    return { data: { basis: 'NET' as const, mode: saved.mode ?? (saved.version ? 'OWN' : 'INHERIT'), version: saved.version, effective: effective ? { source: effective.source ?? null, participants: effective.participants.map(p => { const u = effectiveUsers.find(u => u.id === p.userId); if (!u) throw new ConflictException('Conta beneficiária indisponível'); return { email: u.email, name: u.name, percentageBps: p.percentageBps }; }) } : null, participants: saved.participants.map(p => {
       const user = users.find(u => u.id === p.userId);
       if (!user) throw new ConflictException('Conta beneficiária indisponível');
       return { email: user.email, name: user.name, percentageBps: p.percentageBps };
@@ -51,8 +53,9 @@ export class CoproductionService {
 
   get(actorId: string, product: string, id: string) {
     return this.prisma.$transaction(async tx => {
-      await this.authorize(tx, actorId, product, id);
-      return this.present(tx, await this.read(tx, product, id));
+      const ownerId = await this.authorize(tx, actorId, product, id);
+      const saved = await this.read(tx, product, id);
+      return this.present(tx, { ...saved, ...(product === 'plataformas' ? { mode: 'OWN' as const } : {}) }, await captureCoproduction(tx, product as Product, id, ownerId));
     });
   }
 
@@ -63,10 +66,16 @@ export class CoproductionService {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`coproduction:${product}:${id}`}, 0))::text`;
       const previous = await this.read(tx, product, id);
       if (previous.version !== input.version) throw new ConflictException('Configuração alterada por outra sessão. Recarregue antes de salvar.');
+      if (product === 'plataformas' && input.mode === 'INHERIT') throw new BadRequestException('Plataforma não herda co-produção');
+      if (product === 'plataformas' && input.participants.length) {
+        const companies = await tx.platformApiCredential.count({ where: { platformId: id, source: 'delivery', isActive: true } });
+        const registrations = await tx.deliveryPlatformRegistration.count({ where: { platformId: id } });
+        if (Math.max(companies, registrations) > 1) throw new ConflictException('Plataforma Delivery compartilhada exige regularização antes da co-produção');
+      }
       const participants = await resolveParticipants(tx, ownerId, input);
       const version = previous.version + 1;
-      await persistAgreement(tx, product, id, version, participants, actorId);
-      return this.present(tx, { version, participants });
+      await persistAgreement(tx, product, id, version, participants, actorId, input.mode ?? 'OWN');
+      return this.present(tx, { version, participants, mode: input.mode ?? 'OWN' }, await captureCoproduction(tx, product as Product, id, ownerId));
     });
   }
 
@@ -95,10 +104,28 @@ export class CoproductionService {
 }
 
 /** Capture before contacting the gateway. Public responses must never include this object. */
-export async function captureCoproduction(prisma: Pick<Prisma.TransactionClient, '$queryRaw'>, product: Product, productId: string, ownerUserId: string): Promise<Snapshot | null> {
-  const rows = await prisma.$queryRaw<Saved[]>`SELECT version, participants FROM "CoproductionAgreement" WHERE product = ${product} AND "productId" = ${productId}`;
+export async function captureCoproduction(prisma: Pick<Prisma.TransactionClient, '$queryRaw'>, product: Product, productId: string, ownerUserId: string, platformTag?: string): Promise<Snapshot | null> {
+  const rows = await prisma.$queryRaw<Saved[]>`SELECT version, participants, mode FROM "CoproductionAgreement" WHERE product = ${product} AND "productId" = ${productId}`;
   const saved = rows[0];
-  return saved?.participants.length ? { basis: 'NET', version: saved.version, product, productId, ownerUserId, participants: saved.participants } : null;
+  if (saved && (saved.mode ?? 'OWN') === 'OWN') return makeSnapshot(saved, product, productId, ownerUserId, product === 'plataformas' ? productId : undefined);
+  if (product === 'plataformas') return null;
+  if (!platformTag) {
+    const table = Prisma.raw('"' + productTables[product] + '"');
+    const tagColumn = Prisma.raw(product === 'planos-pix' ? 'p."tenantTag"' : product === 'links-assinatura' ? 'coalesce(p."platformTag", p.plataformas[1])' : 'p.plataformas[1]');
+    const products = await prisma.$queryRaw<{ tag: string | null }[]>(Prisma.sql`SELECT coalesce(${tagColumn}, fallback.tag) AS tag FROM ${table} p JOIN "User" u ON u.id = p."userId" LEFT JOIN "Platform" fallback ON fallback.id = u."platformId" WHERE p.id = ${productId}`);
+    platformTag = products[0]?.tag ?? undefined;
+  }
+  if (!platformTag || ['GLOBAL', 'SIMINTPAY'].includes(platformTag.toUpperCase())) return null;
+  const platforms = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM "Platform" WHERE tag = ${platformTag.toUpperCase()} AND "isActive" = true`;
+  if (!platforms.length) return null;
+  const defaults = await prisma.$queryRaw<Saved[]>`SELECT version, participants, mode FROM "CoproductionAgreement" WHERE product = 'plataformas' AND "productId" = ${platforms[0].id}`;
+  return defaults[0] ? makeSnapshot(defaults[0], product, productId, ownerUserId, platforms[0].id) : null;
+}
+function makeSnapshot(saved: Saved, product: Product, productId: string, ownerUserId: string, platformId?: string): Snapshot | null {
+  // A financial beneficiary's own percentage is part of its residual, never a second credit.
+  const participants = saved.participants.filter(p => p.userId !== ownerUserId);
+  return participants.length ? { basis: 'NET', version: saved.version, product, productId, ownerUserId, participants,
+    ...(platformId ? { source: { platformId, version: saved.version } } : {}) } : null;
 }
 
 export function withCoproduction(financial: Prisma.InputJsonValue | undefined, snapshot: Snapshot | null, legacy?: { totalAmount: number; netAmount: number; totalFeeAmount: number; domFeeAmount: number; platformProfit: number; policyTag: string }): Prisma.InputJsonValue | undefined {
@@ -122,11 +149,11 @@ async function resolveParticipants(tx: Prisma.TransactionClient, ownerId: string
   return participants;
 }
 
-async function persistAgreement(tx: Prisma.TransactionClient, product: string, id: string, version: number, participants: Saved['participants'], actorId: string) {
-  await tx.$executeRaw`INSERT INTO "CoproductionAgreement" (product, "productId", version, participants, "actorId")
-    VALUES (${product}, ${id}, ${version}, ${JSON.stringify(participants)}::jsonb, ${actorId})
-    ON CONFLICT (product, "productId") DO UPDATE SET version = EXCLUDED.version, participants = EXCLUDED.participants, "actorId" = EXCLUDED."actorId", "updatedAt" = now()`;
-  await tx.$executeRaw`INSERT INTO "CoproductionRevision" (product, "productId", version, participants, "actorId") VALUES (${product}, ${id}, ${version}, ${JSON.stringify(participants)}::jsonb, ${actorId})`;
+async function persistAgreement(tx: Prisma.TransactionClient, product: string, id: string, version: number, participants: Saved['participants'], actorId: string, mode: 'OWN' | 'INHERIT' = 'OWN') {
+  await tx.$executeRaw`INSERT INTO "CoproductionAgreement" (product, "productId", version, participants, "actorId", mode)
+    VALUES (${product}, ${id}, ${version}, ${JSON.stringify(participants)}::jsonb, ${actorId}, ${mode})
+    ON CONFLICT (product, "productId") DO UPDATE SET version = EXCLUDED.version, participants = EXCLUDED.participants, "actorId" = EXCLUDED."actorId", mode = EXCLUDED.mode, "updatedAt" = now()`;
+  await tx.$executeRaw`INSERT INTO "CoproductionRevision" (product, "productId", version, participants, "actorId", mode) VALUES (${product}, ${id}, ${version}, ${JSON.stringify(participants)}::jsonb, ${actorId}, ${mode})`;
 }
 
 /** The local product and its initial agreement commit together or neither exists. */
@@ -137,7 +164,7 @@ export function createWithCoproduction<T extends { id: string }>(prisma: PrismaS
   return prisma.$transaction(async tx => {
     const participants = await resolveParticipants(tx, ownerId, input);
     const saved = await create(tx);
-    await persistAgreement(tx, product, saved.id, 1, participants, ownerId);
+    await persistAgreement(tx, product, saved.id, 1, participants, ownerId, input.mode ?? 'OWN');
     return saved;
   });
 }

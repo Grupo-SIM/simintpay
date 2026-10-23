@@ -109,7 +109,7 @@ export class CreatePublicSubscriptionUseCase {
         frequency: plan.frequency ?? 1, repetitions: plan.repetitions ?? 0, retry_days: plan.retryDays ?? 3 });
       gatewayPlanId = synced.id;
     }
-    const coproduction = await captureCoproduction(this.prisma, 'planos', plan.id, plan.userId);
+    const coproduction = await captureCoproduction(this.prisma, 'planos', plan.id, plan.userId, plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL');
     const legacyPrice = Number(plan.price);
     const policyTag = plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL';
     const legacyDomFee = Math.round(legacyPrice * getPlatformTaxaEffective(policyTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X) * 100) / 100;

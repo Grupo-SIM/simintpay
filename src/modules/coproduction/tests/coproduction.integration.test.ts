@@ -30,7 +30,7 @@ run('all five product endpoints authorize owners/admin and reject pending accoun
   ];
   for (const [kind, create] of factories) {
     const p = await create();
-    expect((await f.service.get(f.owner.id, kind, p.id)).data).toEqual({ basis: 'NET', version: 0, participants: [] });
+    expect((await f.service.get(f.owner.id, kind, p.id)).data).toMatchObject({ basis: 'NET', mode: 'INHERIT', version: 0, participants: [] });
     await expect(f.service.get(f.outsider.id, kind, p.id)).rejects.toThrow('restrita');
     await expect(f.service.get(f.pending.id, kind, p.id)).rejects.toThrow('restrita');
     const body = { basis: 'NET', version: 0, participants: [{ email: f.partner.email.toUpperCase(), percentageBps: 2550 }] };
@@ -185,4 +185,53 @@ run('account search matches name OR email, paginates and exposes only eligible p
   expect(page1.data.some(u => u.id === page2.data[0].id)).toBe(false);
   await f.service.save(f.owner.id, 'links-pagamento', f.product.id, { basis: 'NET', version: 0, participants: [{ email: first.email, percentageBps: 1000 }] });
   expect((await f.service.get(f.owner.id, 'links-pagamento', f.product.id)).data.participants[0].name).toBe(first.name);
+});
+run('platform defaults across all five products, explicit empty OWN and versioned return to INHERIT', async () => {
+ const f = await fixture(); const tag = `LOCAL-${crypto.randomUUID()}`.toUpperCase();
+ const platform = await db!.platform.create({ data: { tag, name: 'Local platform', ownerUserId: f.owner.id } });
+ await f.service.save(f.owner.id, 'plataformas', platform.id, { basis: 'NET', version: 0, participants: [{ email: f.partner.email, percentageBps: 500 }] });
+ const products: [Product, { id: string }][] = [
+  ['links-pagamento', await db!.paymentLink.update({ where: { id: f.product.id }, data: { plataformas: [tag] } })],
+  ['links-assinatura', await db!.subscriptionLink.create({ data: { userId: f.owner.id, name: 'Local', amount: 100, frequencyType: 'MONTHLY', plataformas: [tag] } })],
+  ['boletos', await db!.boleto.create({ data: { userId: f.owner.id, title: 'Local', amount: 100, plataformas: [tag] } })],
+  ['planos', await db!.plan.create({ data: { userId: f.owner.id, name: 'Local', price: 100, type: 'MONTHLY', plataformas: [tag] } })],
+  ['planos-pix', await db!.pixCreditPlan.create({ data: { userId: f.owner.id, price: 100, type: 'MONTHLY', tenantTag: tag } })],
+ ];
+ for (const [kind, p] of products) {
+  expect((await captureCoproduction(db!, kind, p.id, f.owner.id, tag))?.participants[0]).toEqual({ userId: f.partner.id, percentageBps: 500 });
+  await f.service.save(f.owner.id, kind, p.id, { basis: 'NET', version: 0, participants: [] });
+  expect(await captureCoproduction(db!, kind, p.id, f.owner.id, tag)).toBeNull();
+  await f.service.save(f.owner.id, kind, p.id, { basis: 'NET', mode: 'INHERIT', version: 1, participants: [] });
+  const result = await f.service.get(f.owner.id, kind, p.id);
+  expect(result.data.mode).toBe('INHERIT'); expect(result.data.effective?.source?.platformId).toBe(platform.id);
+ }
+ await expect(f.service.save(f.outsider.id, 'plataformas', platform.id, { basis: 'NET', version: 1, participants: [] })).rejects.toThrow('restrita');
+ await expect(f.service.save(f.owner.id, 'plataformas', platform.id, { basis: 'NET', mode: 'INHERIT', version: 1, participants: [] })).rejects.toThrow('não herda');
+});
+run('Delivery item split credits exact wallets, ignores config changes and reverses original allocations', async () => {
+ const f = await fixture(); const platform = await db!.platform.create({ data: { tag: `LOCAL-${crypto.randomUUID()}`, name: 'Local delivery', ownerUserId: f.owner.id } });
+ await f.service.save(f.owner.id, 'plataformas', platform.id, { basis: 'NET', version: 0, participants: [{ email: f.partner.email, percentageBps: 500 }] });
+ const agreement = (await captureCoproduction(db!, 'plataformas', platform.id, f.owner.id))!;
+ agreement.baseCents = 10000;
+ const balance = async (userId: string) => (await db!.wallet.findUniqueOrThrow({ where: { userId } })).balance.toFixed(2);
+ const row = await db!.transaction.create({ data: { userId: f.owner.id, amount: 115.37, netAmount: 110, totalFee: 5.37, platformFee: 5.37, status: 'PENDING', settlementBasis: 'FINAL_NET', financialSnapshot: withCoproduction({ contract: 'SIM_DELIVERY_ALLOCATION_V1', itemsAmountCents: 10000, deliveryAmountCents: 1000 }, agreement) } });
+ await f.service.save(f.owner.id, 'plataformas', platform.id, { basis: 'NET', version: 1, participants: [] });
+ const transition = (status: 'COMPLETED' | 'IN_MEDIATION' | 'CHARGEBACK') => db!.$transaction(async tx => settleFinalNet(tx, await tx.transaction.findUniqueOrThrow({ where: { id: row.id } }), status, 'LOCAL_TEST'));
+ await transition('COMPLETED'); await transition('COMPLETED');
+ expect(await balance(f.partner.id)).toBe('5.00'); expect(await balance(f.owner.id)).toBe('105.00');
+ await transition('IN_MEDIATION'); expect((await db!.wallet.findUniqueOrThrow({ where: { userId: f.partner.id } })).lockedBalance.toFixed(2)).toBe('5.00');
+ await transition('COMPLETED'); expect(await balance(f.owner.id)).toBe('105.00');
+ await transition('CHARGEBACK'); expect(await balance(f.partner.id)).toBe('0.00'); expect(await balance(f.owner.id)).toBe('0.00');
+ expect((await f.service.receipts(f.partner.id)).summary.reversedCents).toBe(500);
+});
+run('platform defaults remain isolated and shared historical Delivery binding blocks enablement', async () => {
+ const f = await fixture();
+ const a = await db!.platform.create({ data: { tag: `LOCAL-${crypto.randomUUID()}`.toUpperCase(), name: 'A', ownerUserId: f.owner.id } });
+ const b = await db!.platform.create({ data: { tag: `LOCAL-${crypto.randomUUID()}`.toUpperCase(), name: 'B', ownerUserId: f.owner.id } });
+ const body = { basis: 'NET', version: 0, participants: [{ email: f.partner.email, percentageBps: 500 }] };
+ await f.service.save(f.owner.id, 'plataformas', a.id, body);
+ expect(await captureCoproduction(db!, 'plataformas', b.id, f.owner.id)).toBeNull();
+ for (let i = 0; i < 2; i++) await db!.deliveryPlatformRegistration.create({ data: { integrationKey: `sim-delivery_local-${crypto.randomUUID()}`, externalMerchantId: crypto.randomUUID(), name: 'Local', platformId: b.id } });
+ await expect(f.service.save(f.owner.id, 'plataformas', b.id, body)).rejects.toThrow('compartilhada');
+ expect(await captureCoproduction(db!, 'plataformas', b.id, f.owner.id)).toBeNull();
 });

@@ -1,3 +1,4 @@
+import { coproductionOwnerNet, snapshotFrom } from '../coproduction/coproduction';
 import { isDeliveryAllocationSnapshot } from '../integrations/delivery-payment-allocation';
 import { hasPlatformMarker } from './platform-sync.adapter';
 import type { PlatformContext } from './platform-context.service';
@@ -784,7 +785,9 @@ export class PlatformAdministrationService {
           : fallbackNet
         : (netFromDb ?? fallbackNet);
       const taxaServicoTotal = isMaquineta || isDelivery ? 0 : taxaServicoFixa + taxaServicoCashback;
-      const valorLiquido = Number((valorLiquidoBase - taxaServicoTotal).toFixed(2));
+      const valorLiquido = snapshotFrom(t.financialSnapshot as Prisma.JsonValue)
+        ? Number(coproductionOwnerNet(t.financialSnapshot, new Prisma.Decimal(netFromDb ?? 0)).toFixed(2))
+        : Number((valorLiquidoBase - taxaServicoTotal).toFixed(2));
 
       let reconciledCustomerName = t.customerName ?? null;
       let reconciledCustomerEmail = t.customerEmail ?? null;
@@ -940,7 +943,9 @@ export class PlatformAdministrationService {
       // Repasse = receita − taxa Sim Int Pay. Custos DOM (MDR, fixo e
       // cashback) são despesas da plataforma e nunca reduzem o repasse.
       const totalRepasseNormal = normalTxs.reduce(
-        (s, t) => s + (isDeliveryAllocationSnapshot(t.financialSnapshot)
+        (s, t) => s + (snapshotFrom(t.financialSnapshot as Prisma.JsonValue)
+          ? coproductionOwnerNet(t.financialSnapshot, new Prisma.Decimal(Number(t.netAmount ?? 0))).toNumber()
+          : isDeliveryAllocationSnapshot(t.financialSnapshot)
           ? Number(t.netAmount ?? 0)
           : Number(t.amount) - taxaSimIntDaTransacao(t) - taxaServicoSimIntDaTransacao(t)),
         0,

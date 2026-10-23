@@ -33,7 +33,7 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
   return Prisma.sql`
     SELECT t.id, t."userId", t."createdAt", t.status::text AS status, t."paymentMethod"::text AS "paymentMethod",
       t.amount, CASE WHEN t."financialSnapshot" ? 'coproduction' THEN t."netAmount" - coalesce((
-        SELECT sum(floor(t."netAmount" * 100 * (participant->>'percentageBps')::numeric / 10000) / 100)
+        SELECT sum(floor(coalesce((t."financialSnapshot" #>> '{coproduction,baseCents}')::numeric, t."netAmount" * 100) * (participant->>'percentageBps')::numeric / 10000) / 100)
         FROM jsonb_array_elements(t."financialSnapshot" #> '{coproduction,participants}') participant
       ), 0) ELSE t."netAmount" END AS "netAmount",
       CASE WHEN t."netAmount" IS NOT NULL THEN t.amount - t."netAmount" ELSE t."totalFee" END AS "totalFee",

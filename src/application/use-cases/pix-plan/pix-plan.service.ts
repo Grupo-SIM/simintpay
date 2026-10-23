@@ -207,7 +207,7 @@ export class PixPlanService {
     const domFee = financialQuote?.domFeeAmount ?? parseFloat((amount * mdrPix).toFixed(2));
     const platformFee = parseFloat((totalFee - domFee).toFixed(2));
 
-    const coproduction = body.pixCreditPlanId ? await captureCoproduction(this.prisma, 'planos-pix', body.pixCreditPlanId, effectiveUserId) : null;
+    const coproduction = body.pixCreditPlanId ? await captureCoproduction(this.prisma, 'planos-pix', body.pixCreditPlanId, effectiveUserId, tenantTag) : null;
     const transaction = await this.prisma.transaction.create({
       data: {
         userId: effectiveUserId,

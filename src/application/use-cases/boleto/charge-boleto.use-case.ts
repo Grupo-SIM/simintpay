@@ -100,7 +100,7 @@ export class ChargeBoletoUseCase {
     const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, platformTag), base, 'BOLETO');
     const fees = financialQuote ?? calculateBoletoFees(base, taxaTag);
     const chargeId = randomUUID();
-    const coproduction = await captureCoproduction(this.prisma, 'boletos', boleto.id, boleto.userId);
+    const coproduction = await captureCoproduction(this.prisma, 'boletos', boleto.id, boleto.userId, platformTag);
     const finalSettlement = Boolean(financialQuote || coproduction);
     const snapshot = {
       userId: boleto.userId, amount: new Prisma.Decimal(financialQuote?.totalAmount ?? base), netAmount: new Prisma.Decimal(fees.netAmount),

@@ -11,6 +11,7 @@ function fixture(acquirer: 'DOM' | 'FRENDZ' = 'DOM') {
   const platform = { ...context, acquirer, isActive: true, owner: { isActive: true, isPurged: false }, integrations: [{ key: acquirer === 'DOM' ? 'DOM_TOKEN' : 'FRENDZ_TOKEN', encryptedValue: encryptPlatformSecret('mock-token') }] };
   let stored: any;
   const prisma = {
+    $queryRaw: mock(async () => [] as any[]),
     financialPolicyRevision: { findMany: mock(async () => []) },
     platformTaxaOverride: { findMany: mock(async () => []) },
     platform: { findUnique: mock(async () => platform) },
@@ -168,4 +169,22 @@ test('ordinary canonical callers cannot override the financial allocation', asyn
  const f = fixture();
  await expect(f.service.create(context, { ...input, allocation: { merchantAmountCents: 12000, platformFeeCents: 345 } })).rejects.toMatchObject({ status: 403 });
  expect(f.charge).not.toHaveBeenCalled();
+});
+test('platform defaults freeze item-only distribution, reject missing base and preserve replay after edits', async () => {
+ const f = fixture();
+ (f.prisma as any).integrationMerchant = { findUnique: async () => ({ id: 'merchant', externalMerchantId: 'company', userId: 'seller', user: { isActive: true, isPurged: false } }) };
+ (f.prisma as any).platformApiCredential = { findUnique: async () => ({ id: 'credential', platformId: 'platform', merchantId: 'merchant', externalCompanyId: 'company', source: 'delivery', isActive: true, profile: { code: 'DELIVERY', isActive: true, acquirer: 'DOM', encryptedCredential: encryptPlatformSecret('mock-token') } }) };
+ f.prisma.$queryRaw.mockResolvedValue([{ mode: 'OWN', version: 1, participants: [{ userId: 'partner', percentageBps: 500 }] }]);
+ const ctx = { ...context, delivery: { credentialId: 'credential', merchantId: 'merchant', externalCompanyId: 'company', profileId: 'profile', allocate: true } };
+ const request = { ...input, amountCents: 11537, allocation: { merchantAmountCents: 11000, platformFeeCents: 537 } };
+ await expect(f.service.createForMerchant(ctx, 'company', request)).rejects.toMatchObject({ status: 422 });
+ expect(f.charge).not.toHaveBeenCalled(); expect(f.prisma.transaction.create).not.toHaveBeenCalled();
+ const withItems = { ...request, allocation: { ...request.allocation, itemsAmountCents: 10000, deliveryAmountCents: 1000 } };
+ await f.service.createForMerchant(ctx, 'company', withItems);
+ const saved = (f.prisma.transaction.create.mock.calls as any)[0][0].data;
+ expect(saved.netAmount.toNumber()).toBe(110); expect(saved.platformFee.toNumber()).toBe(5.37);
+ expect(saved.financialSnapshot.coproduction).toMatchObject({ baseCents: 10000, version: 1, ownerUserId: 'seller' });
+ f.prisma.$queryRaw.mockResolvedValue([{ mode: 'OWN', version: 2, participants: [] }]);
+ await f.service.createForMerchant(ctx, 'company', withItems); expect(f.charge).toHaveBeenCalledTimes(1);
+ await expect(f.service.createForMerchant(ctx, 'company', { ...withItems, allocation: { ...withItems.allocation, itemsAmountCents: 9999, deliveryAmountCents: 1001 } })).rejects.toMatchObject({ status: 409 });
 });

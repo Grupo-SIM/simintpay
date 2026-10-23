@@ -125,7 +125,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
       const plan = await this.gateway.createPlan(domToken, { price: amountCharged, description: link.name, ...frequency, repetitions: 0, retry_days: 3, webhookUrl: link.webhookUrl ?? undefined, redirectUrl: link.redirectUrl ?? undefined });
       domPlanId = plan.id;
     }
-    const coproduction = await captureCoproduction(this.prisma, 'links-assinatura', link.id, link.userId);
+    const coproduction = await captureCoproduction(this.prisma, 'links-assinatura', link.id, link.userId, selectedTag);
     const legacyDomFee = Math.round(amountCharged * getPlatformTaxaEffective(selectedTag, "MDR_CC_1X", PLATFORM_TAXA_DEFAULTS.MDR_CC_1X) * 100) / 100;
     const coproductionFinancialSnapshot = withCoproduction(financialQuote?.financialSnapshot, coproduction, {
       totalAmount: amountCharged, netAmount: Math.round((amountCharged - platformFeeAmount - legacyDomFee) * 100) / 100,

@@ -85,3 +85,50 @@ Evento e entregas são criados na mesma transação do crédito. Unicidade por v
 ### Seleção de coprodutores
 
 O modal usa linhas com percentual à esquerda, select de conta ao centro e exclusão no final. Não há submodal. Conta selecionada mostra nome e e-mail. O select lista contas ao abrir e pesquisa nome OU e-mail, sem diferenciar maiúsculas, com debounce e paginação de 20 contas. `GET /coproducao/contas?search=&page=1` exige sessão aprovada ou administrador ativo e retorna somente `id`, `name`, `email` de clientes aprovados, ativos e não excluídos; omite a própria conta. Resposta sem cache. Produto existente também retorna nomes atuais dos participantes. Nomes são apenas apresentação; gravação usa e-mail e percentual validados pelo servidor.
+
+## Padrão por plataforma
+
+`GET/PUT /coproducao/plataformas/:platformId` usa sessão do dono aprovado ou
+administrador ativo. Tokens de integração não configuram divisões. Identidade é
+validada no banco, sem confiar em proprietário enviado no corpo. Formato mantém
+`basis: "NET"`, `version` e participantes em basis points (500 = 5%). Plataforma
+aceita apenas `mode: "OWN"`; cada empresa Delivery deve ter plataforma própria.
+Plataforma histórica compartilhada bloqueia configuração com participantes até
+regularização explícita. Nenhum acordo ou beneficiário é habilitado automaticamente.
+
+Cinco produtos herdam a plataforma efetivamente usada pela cobrança quando não há
+acordo próprio ou `mode: "INHERIT"`. Acordo `OWN` prevalece, inclusive lista vazia
+(desativa repasse). PUT antigo sem `mode` significa `OWN`. Voltar à herança usa PUT
+versionado com `mode: "INHERIT", participants: []`; revisões não são apagadas.
+GET acrescenta `mode` e `effective: { source, participants } | null`, para consulta
+interativa. Esses dados privados não integram checkout nem callbacks da integração.
+Produtos sem plataforma efetiva não herdam. Assinaturas existentes não são recalculadas.
+
+Vendas canônicas diretas usam acordo da plataforma; quando informam link, acordo
+próprio do link tem prioridade. Coprodutores recebem frações inteiras em centavos;
+restante pertence ao beneficiário financeiro original da venda. Se esse beneficiário
+constar no padrão herdado, sua parcela integra residual, sem crédito duplicado.
+
+### Base dos itens no Delivery
+
+Delivery envia `allocation.itemsAmountCents` (itens após cupom/cashback/pontos) e
+`allocation.deliveryAmountCents` (frete). Ambos não negativos; soma corresponde a
+`merchantAmountCents`. São apenas valores comerciais, nunca configuração de repasse.
+Com acordo ativo, detalhamento é obrigatório antes de chamar adquirente. Ausência
+retorna `COPRODUCTION_BASE_REQUIRED`; inconsistência, `COPRODUCTION_BASE_INVALID`.
+
+Itens líquidos R$ 100 + frete R$ 10 + taxa R$ 5,37: comprador paga R$ 115,37;
+coprodutor a 5% recebe R$ 5; empresa recebe R$ 105; taxa permanece R$ 5,37.
+Nos cinco produtos existentes, base permanece líquido após taxas. Snapshot registra
+base elegível, origem/versão e beneficiários antes da cobrança; alterações posteriores
+não afetam repetição, renovação, mediação ou reversão. `netAmount` continua líquido
+empresarial antes dos parceiros; relatórios descontam participações separadamente das taxas.
+
+### Publicação
+
+Aplicar migration `20261023000000_platform_coproduction` e backend SimIntPay primeiro;
+publicar Delivery com migration `20261023000000_payment_item_breakdown` e novo
+detalhamento; publicar interface SimIntPay; auditar vínculos e só então configurar
+acordos. Campos novos são aditivos. Tentativas antigas conservam contrato original,
+sem preenchimento retroativo. Não mover saldos ou reescrever histórico. Validação da
+implementação usa exclusivamente gateways simulados e PostgreSQL local isolado.

@@ -126,3 +126,19 @@ O ID da empresa identifica o cadastro mesmo após mudança de slug no Delivery.
 Após ativação, tag e namespace da plataforma permanecem estáveis; repetir bootstrap
 com novo slug recupera o vínculo existente. Vínculo histórico único pelo ID da
 empresa preserva o namespace original; múltiplos candidatos exigem revisão.
+
+## Coprodução configurada na SimIntPay
+
+Cobranças novas detalham `allocation.itemsAmountCents` e `deliveryAmountCents`;
+soma igual a `merchantAmountCents`. Itens já descontam cupom, cashback e pontos;
+frete não participa dos percentuais. Payload continua sem participantes/percentuais.
+SimIntPay divide exclusivamente base de itens, credita restante e frete integral à
+empresa, preservando taxa da plataforma e total pago. Configuração e recebimentos
+são privados da SimIntPay; callbacks e contratos públicos Delivery não mudam.
+
+Campos opcionais para contratos anteriores sem acordo ativo. Com coprodução ativa,
+ausência/inconsistência bloqueia criação antes do adquirente, com código
+COPRODUCTION_BASE_REQUIRED/COPRODUCTION_BASE_INVALID. São erros operacionais, não
+recusa de cartão. Tentativas já abertas conservam sua divisão e chave originais.
+Publicar backend SimIntPay compatível antes do Delivery; habilitar acordos somente
+após envio do detalhamento e auditoria dos vínculos empresariais.

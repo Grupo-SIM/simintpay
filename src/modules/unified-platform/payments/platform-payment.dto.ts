@@ -18,6 +18,8 @@ export class PlatformPaymentCardDto {
 }
 
 export class PlatformPaymentAllocationDto {
+  @IsOptional() @IsInt() @Min(0) itemsAmountCents?: number;
+  @IsOptional() @IsInt() @Min(0) deliveryAmountCents?: number;
   @IsInt() @Min(0) merchantAmountCents!: number;
   @IsInt() @Min(0) platformFeeCents!: number;
 }

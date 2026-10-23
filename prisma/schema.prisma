@@ -1359,6 +1359,7 @@ model AcquirerCatalogue {
 
 /// Private product agreements, updated with an optimistic version check.
 model CoproductionAgreement {
+  mode String @default("OWN")
   actor User @relation("CoproductionAgreementActor", fields: [actorId], references: [id], onDelete: Restrict)
   product String
   productId String
@@ -1371,6 +1372,7 @@ model CoproductionAgreement {
 
 /// Immutable audit of accepted agreement versions.
 model CoproductionRevision {
+  mode String @default("OWN")
   actor User @relation("CoproductionRevisionActor", fields: [actorId], references: [id], onDelete: Restrict)
   product String
   productId String

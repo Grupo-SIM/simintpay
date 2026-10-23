@@ -288,7 +288,7 @@ Aliases de criação retornam status financeiro persistido. Resposta `paid` da a
 ## Divisão de cobranças Sim Delivery
 
 - Integrações internas autenticadas `sim-delivery_*` exigem `allocation` com `merchantAmountCents` e `platformFeeCents`, inteiros não negativos cuja soma equivale exatamente a `price` em reais. Outras integrações e endpoints públicos não podem usar esse contrato para substituir políticas financeiras.
-- `price` já é o total final do comprador. A carteira do comerciante recebe integralmente `merchantAmountCents`; `platformFeeCents` constitui a taxa da plataforma. Nenhum custo adicional de adquirente, serviço, juros ou fator de liquidez é aplicado a essa cobrança. Taxas de saque permanecem contrato independente.
+- `price` já é o total final do comprador. Sem coprodução, carteira do comerciante recebe integralmente `merchantAmountCents`; com acordo, itens líquidos são repartidos e frete permanece integral ao comerciante; `platformFeeCents` constitui a taxa da plataforma. Nenhum custo adicional de adquirente, serviço, juros ou fator de liquidez é aplicado a essa cobrança. Taxas de saque permanecem contrato independente.
 - Transação registra bruto, líquido, taxa total/plataforma e snapshot `SIM_DELIVERY_ALLOCATION_V1`, com `settlementBasis=FINAL_NET`. Crédito, repetição de webhook, mediação, estorno e chargeback seguem o lançamento final idempotente existente. Custo de adquirente não contratado não é estimado como desconto do lojista.
 - Cobranças antigas permanecem intactas. Ausência ou inconsistência da divisão bloqueia novas cobranças Delivery; nenhuma configuração legada serve de fallback. Publicar este backend antes do cliente Delivery. Nenhum backfill, migração ou alteração de configuração externa é necessário.
 
@@ -308,3 +308,17 @@ Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado concl
 
 - “Quantidade de clientes” conta CPFs únicos nas vendas aprovadas do escopo e período selecionados, respeitando o método de pagamento. Inclui e-books e demais produtos; o mesmo CPF em várias compras/produtos conta uma vez no consolidado.
 - CPF é normalizado para 11 dígitos, removendo pontuação. Compras sem CPF de 11 dígitos não aumentam a contagem; e-mail, telefone e cadastros de plataforma não substituem CPF.
+
+### Coprodução por plataforma
+
+- Plataforma define padrão versionado, gerido por proprietário aprovado ou admin.
+  Os cinco produtos herdam quando sem acordo próprio; OWN vazio desativa repasse,
+  INHERIT restaura padrão explicitamente. Nenhuma soma entre acordo próprio e padrão.
+- Delivery informa itens líquidos após descontos/créditos e frete separadamente.
+  Coprodutores recebem percentual apenas dos itens; beneficiário empresarial recebe
+  residual mais frete integral. Taxas e total do comprador permanecem iguais.
+- Líquido empresarial original fica no snapshot; participações não são taxas.
+  Distribuição, carteiras e auditoria são atômicas, com reversões pelos valores originais.
+  Configuração nova nunca altera histórico/assinaturas ou transfere titular/saldo.
+- Empresas Delivery possuem configurações independentes. Plataforma compartilhada
+  historicamente exige regularização antes da habilitação; não habilitar 5% automaticamente.

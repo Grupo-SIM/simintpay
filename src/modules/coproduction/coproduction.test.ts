@@ -14,3 +14,10 @@ test('server rejects malformed, excessive and duplicate participants', () => {
   expect(validateAgreement(input).participants[0].email).toBe('a@example.test');
   for (const participants of [[{ email: 'bad', percentageBps: 1 }], [{ email: 'a@b.test', percentageBps: 1.5 }], [{ email: 'a@b.test', percentageBps: 10001 }], [{ email: 'a@b.test', percentageBps: 0 }], [{ email: 'a@b.test', percentageBps: 6000 }, { email: 'c@b.test', percentageBps: 6000 }], [{ email: 'a@b.test', percentageBps: 1 }, { email: ' A@b.test ', percentageBps: 1 }]]) expect(() => validateAgreement({ ...input, participants })).toThrow();
 });
+test('item base excludes freight; owner retains freight and fractional residue', () => {
+ const itemSale: Snapshot = { ...snapshot, baseCents: 10000, participants: [{ userId: 'a', percentageBps: 500 }] };
+ expect(allocateNet(itemSale, new Prisma.Decimal(110)).map(p => [p.userId, p.amount.toFixed(2)])).toEqual([['a', '5.00'], ['owner', '105.00']]);
+ expect(allocateNet({ ...itemSale, baseCents: 0 }, new Prisma.Decimal(10)).find(p => p.userId === 'owner')!.amount.toFixed(2)).toBe('10.00');
+ expect(() => allocateNet({ ...itemSale, baseCents: 11001 }, new Prisma.Decimal(110))).toThrow();
+ expect(() => validateAgreement({ basis: 'NET', version: 0, mode: 'INHERIT', participants: [{ email: 'a@b.test', percentageBps: 500 }] })).toThrow();
+});

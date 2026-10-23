@@ -4,6 +4,8 @@ import { CheckoutPixDto } from '../renovada/dtos/checkout-pix.dto';
 import { CheckoutCreditCardDto } from '../renovada/dtos/checkout-credit-card.dto';
 
 export class DeliveryAllocationDto {
+  @IsOptional() @IsInt() @Min(0) itemsAmountCents?: number;
+  @IsOptional() @IsInt() @Min(0) deliveryAmountCents?: number;
   @IsInt()
   @Min(0)
   merchantAmountCents: number;

@@ -1,3 +1,4 @@
+import { CoproductionSessionGuard } from './coproduction-session.guard';
 import { Body, Controller, Get, Header, Param, Put, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
@@ -5,7 +6,7 @@ import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.st
 import { CoproductionService } from './coproduction.service';
 
 @Controller('coproducao')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, CoproductionSessionGuard)
 export class CoproductionController {
   constructor(private readonly service: CoproductionService) {}
   @Get('contas')

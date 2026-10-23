@@ -91,7 +91,7 @@ export class ChargeBoletoPixUseCase {
     const netAmount = financialQuote?.netAmount ?? round2(base - (base * sellerFeePct + sellerFeeFixed) - cashback - transFixed);
     const totalFee = financialQuote?.totalFeeAmount ?? round2(base - netAmount);
     const chargeId = randomUUID();
-    const coproduction = await captureCoproduction(this.prisma, 'boletos', boleto.id, boleto.userId);
+    const coproduction = await captureCoproduction(this.prisma, 'boletos', boleto.id, boleto.userId, platformTag);
     const finalSettlement = Boolean(financialQuote || coproduction);
     const snapshot = { userId: boleto.userId, amount: new Prisma.Decimal(financialQuote?.totalAmount ?? base), netAmount: new Prisma.Decimal(netAmount),
       totalFee: new Prisma.Decimal(totalFee), domFee: new Prisma.Decimal(financialQuote?.domFeeAmount ?? 0), platformFee: new Prisma.Decimal(financialQuote?.platformProfit ?? totalFee), paymentMethod: PaymentMethod.PIX,
