@@ -16,9 +16,12 @@ export function summarizeRefunds(
   range: RefundReportRange = {},
 ): { quantidade: number; valor: number } {
   const refundsInRange = transactions.filter((transaction) => {
+    // Legacy refunds remain in undated totals. updatedAt is not evidence of
+    // a refund date: unrelated synchronization can change it.
+    if (!range.start && !range.end) return true;
     const referenceDate = range.dateBasis === 'transaction'
       ? transaction.createdAt
-      : transaction.statusHistory[0]?.createdAt ?? transaction.updatedAt;
+      : transaction.statusHistory[0]?.createdAt;
     if (!referenceDate) return false;
     if (range.start && referenceDate < range.start) return false;
     if (range.end && referenceDate > range.end) return false;

@@ -516,7 +516,7 @@ function masterLogDateFilter(
 
 /**
  * Estornos registrados no produto. O período considera quando a transação virou
- * REFUNDED; sincronizações legadas sem histórico usam updatedAt como fallback.
+ * REFUNDED; registros sem histórico só entram no total sem filtro de datas.
  */
 async function aggregateProductRefunds(
   prisma: PrismaService,

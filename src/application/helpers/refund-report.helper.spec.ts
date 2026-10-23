@@ -19,7 +19,7 @@ describe('summarizeRefunds', () => {
     expect(result).toEqual({ quantidade: 1, valor: 125.5 });
   });
 
-  it('uses updatedAt for synchronized refunds without status history', () => {
+  it('excludes undated legacy refunds from dated reports despite recent updates', () => {
     const result = summarizeRefunds(
       [
         {
@@ -36,7 +36,32 @@ describe('summarizeRefunds', () => {
       { start: new Date('2026-09-01T00:00:00.000Z') },
     );
 
-    expect(result).toEqual({ quantidade: 1, valor: 80 });
+    expect(result).toEqual({ quantidade: 0, valor: 0 });
+  });
+
+  it('does not move a historical refund into the current period after synchronization', () => {
+    const transaction = {
+      amount: 80,
+      updatedAt: new Date('2026-09-07T10:00:00.000Z'),
+      statusHistory: [{ createdAt: new Date('2026-08-15T10:00:00.000Z') }],
+    };
+
+    expect(summarizeRefunds([transaction], {
+      start: new Date('2026-09-01T00:00:00.000Z'),
+      end: new Date('2026-09-30T23:59:59.999Z'),
+    })).toEqual({ quantidade: 0, valor: 0 });
+    expect(summarizeRefunds([transaction], {
+      end: new Date('2026-08-31T23:59:59.999Z'),
+    })).toEqual({ quantidade: 1, valor: 80 });
+  });
+
+  it('requires a refund date even when only an end date is supplied', () => {
+    expect(summarizeRefunds([{
+      amount: 80,
+      updatedAt: new Date('2026-09-07T10:00:00.000Z'),
+      statusHistory: [],
+    }], { end: new Date('2026-09-30T23:59:59.999Z') }))
+      .toEqual({ quantidade: 0, valor: 0 });
   });
 
   it('counts every product refund without a date filter', () => {
