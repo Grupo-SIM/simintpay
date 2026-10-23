@@ -36,9 +36,9 @@ test('consolidated sales apply payment method before counting and pagination', a
 
 test('Grupo SIM platforms contribute their full net sales to monthly and consolidated owner transfers', async () => {
   const rows = [
-    { id: 'atlas-sale', userId: 'grupo-sim', amount: 100, netAmount: 80, domFee: 2, createdAt: new Date('2026-10-05T12:00:00Z'), description: '[TENANT:ATLAS]', installments: 1, paymentMethod: 'PIX' },
-    { id: 'areaflix-sale', userId: 'grupo-sim', amount: 200, netAmount: 150, domFee: 3, createdAt: new Date('2026-10-06T12:00:00Z'), description: '[TENANT:AREAFLIX]', installments: 1, paymentMethod: 'PIX' },
-    { id: 'shop-sale', userId: 'other-owner', amount: 50, netAmount: 45, domFee: 1, createdAt: new Date('2026-10-07T12:00:00Z'), description: '[TENANT:SHOP]', installments: 1, paymentMethod: 'PIX' },
+    { id: 'atlas-sale', customerDocument: '123.456.789-01', userId: 'grupo-sim', amount: 100, netAmount: 80, domFee: 2, createdAt: new Date('2026-10-05T12:00:00Z'), description: '[TENANT:ATLAS]', installments: 1, paymentMethod: 'PIX' },
+    { id: 'areaflix-sale', customerDocument: '12345678901', userId: 'grupo-sim', amount: 200, netAmount: 150, domFee: 3, createdAt: new Date('2026-10-06T12:00:00Z'), description: '[TENANT:AREAFLIX]', installments: 1, paymentMethod: 'PIX' },
+    { id: 'shop-sale', customerDocument: null, userId: 'other-owner', amount: 50, netAmount: 45, domFee: 1, createdAt: new Date('2026-10-07T12:00:00Z'), description: '[TENANT:SHOP]', installments: 1, paymentMethod: 'PIX' },
   ];
   const controller = { prisma: {
     platform: { findMany: async () => [
@@ -54,6 +54,7 @@ test('Grupo SIM platforms contribute their full net sales to monthly and consoli
   const consolidated = await AdminController.prototype.getConsolidado.call(controller as any, '2026-10-01', '2026-10-19');
   const monthly = await AdminController.prototype.getRelatorioMensal.call(controller as any, '1', '2026-10-01', '2026-10-19');
   expect(consolidated.totalTransacoes).toBe(3);
+  expect(consolidated.customersCount).toBe(1);
   expect(consolidated.valorBruto).toBe(350);
   expect(consolidated.totalRepasseConsolidado).toBe(275);
   expect(consolidated.totalRepasseReal).toBe(275);

@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { reportBuyerCpfSql } from '../helpers/report-buyer.helper';
 
 type PlatformScope = { id: string; tag: string; ownerUserId: string }[];
 type Period = { start?: Date; end?: Date; paymentMethod?: string };
@@ -37,7 +38,7 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
       ), 0) ELSE t."netAmount" END AS "netAmount",
       CASE WHEN t."netAmount" IS NOT NULL THEN t.amount - t."netAmount" ELSE t."totalFee" END AS "totalFee",
       p.tag AS "platformTag",
-      coalesce(nullif(t."customerDocument", ''), nullif(lower(t."customerEmail"), ''), nullif(t."customerPhone", '')) AS "customerKey",
+      ${reportBuyerCpfSql(Prisma.sql`t."customerDocument"`)} AS "customerKey",
       CASE WHEN t."financialSnapshot"->>'buyerInterestCents' ~ '^[0-9]+$' THEN (t."financialSnapshot"->>'buyerInterestCents')::numeric / 100
         WHEN t."paymentMethod"::text <> 'CREDIT_CARD' THEN 0 ELSE NULL END AS interest,
       t.description, t."customerName"
@@ -80,7 +81,7 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
           (o."financialSnapshot" #>> '{coproductionLegacy,netAmount}')::numeric * 100) * (participant->>'percentageBps')::numeric / 10000) / 100)
           FROM jsonb_array_elements(o."financialSnapshot" #> '{coproduction,participants}') participant), 0)
       ELSE o."amountCharged" - o."platformFeeAmount" END AS "netAmount", o."platformFeeAmount" AS "totalFee", p.tag AS "platformTag",
-      coalesce(nullif(o."customerDocument", ''), nullif(lower(o."customerEmail"), ''), nullif(o."customerPhone", '')) AS "customerKey",
+      ${reportBuyerCpfSql(Prisma.sql`o."customerDocument"`)} AS "customerKey",
       CASE WHEN o."financialSnapshot"->>'buyerInterestCents' ~ '^[0-9]+$' THEN (o."financialSnapshot"->>'buyerInterestCents')::numeric / 100
         WHEN o."paymentMethod"::text <> 'CREDIT_CARD' THEN 0 ELSE NULL END AS interest,
       sl.name AS description, o."customerName"

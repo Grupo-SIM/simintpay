@@ -1,3 +1,4 @@
+import { reportBuyerCpf } from '../../application/helpers/report-buyer.helper';
 import { PlatformAttributedBalance } from '../../modules/platform-core/platform-attributed-balance';
 import { PlatformAdministrationService } from '../../modules/platform-core/platform-administration.service';
 import { resolveConsolidadoPlatforms, getComunidadeOrderRows, FIXED_PLATFORM_TAGS, parseYmdSp, normalizePlatformTag, TZ, getTaxaServicoEffectiveDate, TAGS_SEM_TAXA_SERVICO, ConsolidadoPlatformEntry, TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA, TAXA_SERVICO_EFFECTIVE_DATE } from '../../modules/platform-core/platform-administration.helpers';
@@ -2914,6 +2915,7 @@ export class AdminController {
         where: whereResumo,
         select: {
           id: true,
+          customerDocument: true,
           userId: true,
           amount: true,
           netAmount: true,
@@ -2944,6 +2946,9 @@ export class AdminController {
       buildLucroSimpayDetalhePorPlataforma(txRowsLucro, platforms);
 
     const totalTransacoes = txRowsLucro.length;
+    const customersCount = new Set(txRowsLucro
+      .map(t => reportBuyerCpf(t.customerDocument))
+      .filter((cpf): cpf is string => cpf !== null)).size;
     // taxaSimInt = valorBruto − valorLiquido por transação (mesma fórmula do tooltip do gráfico no painel)
     // Usa netAmount quando disponível, senão bruto × LIQUIDEZ — idêntico ao acumulado diário do gráfico.
     const valorLiquidoTxBase = Number(
@@ -3261,6 +3266,7 @@ export class AdminController {
 
     const payload: Record<string, unknown> = {
       totalTransacoes,
+      customersCount,
       valorBruto: brutoTotal,
       taxaSimInt,
       taxaDom,

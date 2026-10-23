@@ -138,6 +138,9 @@ local('owner aggregates customer counts, recorded interest, movements and refund
     ('failed-a','owner',40,36,4,'FAILED','PIX','[TENANT:ALPHA]','2026-09-07T12:00:00Z',1,NULL,NULL),
     ('refunded-a','owner',20,18,2,'REFUNDED','PIX','[TENANT:ALPHA]','2026-09-07T12:00:00Z',1,NULL,NULL),
     ('chargeback-a','owner',10,9,1,'CHARGEBACK','PIX','[TENANT:ALPHA]','2026-09-07T12:00:00Z',1,NULL,NULL)`);
+  await sql!.unsafe(`UPDATE "Transaction" SET "customerDocument" = CASE id
+    WHEN 'interest-a' THEN '123.456.789-01' WHEN 'interest-b' THEN '12345678901'
+    ELSE '98765432100' END WHERE id IN ('interest-a', 'interest-b', 'interest-other')`);
   const selected = { startDate: '2026-09-01', endDate: '2026-09-30', platform: 'ALPHA' };
   expect((await service.summary(user, selected)).summary).toMatchObject({ salesCount: 2, customersCount: 1, interestCents: 500, feesCents: 2500, refundedCount: 1, refundedCents: 1800, chargebacksCount: 1, chargebacksCents: 900, pendingSalesCount: 1, pendingSalesCents: 3000, failedSalesCount: 1, failedSalesCents: 4000 });
   expect((await service.series(user, selected, 'monthly')).data).toEqual([{ key: '2026-09', count: 2, grossCents: 20500, netCents: 18000, feesCents: 2500, interestCents: 500 }]);
@@ -148,4 +151,19 @@ local('owner aggregates customer counts, recorded interest, movements and refund
   await sql!.unsafe(`UPDATE "Transaction" SET "financialSnapshot" = NULL WHERE id = 'interest-a'`);
   expect((await service.summary(user, selected)).summary).toMatchObject({ interestCents: 0, missingInterestSnapshots: 2 });
   expect((await service.series(user, selected, 'monthly')).data[0].interestCents).toBe(0);
+});
+
+local('buyer counts use unique CPF across products, approved sales and selected filters only', async () => {
+  await sql!.unsafe(`INSERT INTO "Transaction" (id,"userId",amount,"netAmount","totalFee",status,"paymentMethod",description,"createdAt","customerDocument","customerEmail") VALUES
+    ('cpf-a','owner',100,90,10,'COMPLETED','PIX','[TENANT:ALPHA]','2026-08-05', '123.456.789-01','a@test.local'),
+    ('cpf-b','owner',100,90,10,'COMPLETED','CREDIT_CARD','[TENANT:BETA]','2026-08-05', '12345678901','b@test.local'),
+    ('cpf-c','owner',100,90,10,'COMPLETED','CREDIT_CARD','[TENANT:BETA]','2026-08-05', '98765432100','a@test.local'),
+    ('cpf-none','owner',100,90,10,'COMPLETED','PIX','[TENANT:ALPHA]','2026-08-05', NULL,'c@test.local'),
+    ('cpf-company','owner',100,90,10,'COMPLETED','PIX','[TENANT:ALPHA]','2026-08-05', '12.345.678/0001-90','d@test.local'),
+    ('cpf-pending','owner',100,90,10,'PENDING','PIX','[TENANT:ALPHA]','2026-08-05', '11122233344',NULL),
+    ('cpf-outside','owner',100,90,10,'COMPLETED','PIX','[TENANT:ALPHA]','2026-07-05', '22233344455',NULL)`);
+  const filters = { startDate: '2026-08-01', endDate: '2026-08-31' };
+  expect((await service.summary(user, filters)).summary).toMatchObject({ salesCount: 5, customersCount: 2 });
+  expect((await service.summary(user, { ...filters, platform: 'ALPHA' })).summary.customersCount).toBe(1);
+  expect((await service.summary(user, { ...filters, paymentMethod: 'PIX' })).summary.customersCount).toBe(1);
 });

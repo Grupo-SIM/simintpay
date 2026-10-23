@@ -303,3 +303,8 @@ Aliases de criação retornam status financeiro persistido. Resposta `paid` da a
 ## Delivery canônico
 
 Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado conclui conta, carteira e credencial delegada por empresa. Operações usam `/platforms/:tag/merchants/:companyId`; perfil DOM central DELIVERY é associação explícita, sem fallback global. Token delegado não acessa outra empresa nem rotas gerais da plataforma. Divisão financeira explícita exige capacidade payments:allocate e congela parcela empresarial e taxa sem custos adicionais. Histórico mantém titular e carteira; aliases antigos permanecem para drenagem. Detalhes em [guia Delivery](guides/delivery-canonical-integration.md).
+
+## Compradores nos relatórios
+
+- “Quantidade de clientes” conta CPFs únicos nas vendas aprovadas do escopo e período selecionados, respeitando o método de pagamento. Inclui e-books e demais produtos; o mesmo CPF em várias compras/produtos conta uma vez no consolidado.
+- CPF é normalizado para 11 dígitos, removendo pontuação. Compras sem CPF de 11 dígitos não aumentam a contagem; e-mail, telefone e cadastros de plataforma não substituem CPF.

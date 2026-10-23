@@ -20,7 +20,7 @@ export async function getComunidadeOrderRows(
   dataInicio?: string,
   dataFim?: string,
   metodoPagamento?: string,
-): Promise<Array<{ id: string; userId: string; amount: unknown; netAmount: unknown; createdAt: Date; description: string; installments: number; paymentMethod: string | null }>> {
+): Promise<Array<{ id: string; userId: string; amount: unknown; netAmount: unknown; createdAt: Date; description: string; installments: number; paymentMethod: string | null; customerDocument: string | null }>> {
   const bindings = await prisma.communityLinkBinding.findMany({
     where: { subscriptionLinkId: { not: null } },
     select: {
@@ -56,6 +56,7 @@ export async function getComunidadeOrderRows(
     select: {
       id: true,
       amountCharged: true,
+      customerDocument: true,
       platformFeeAmount: true,
       createdAt: true,
       paymentMethod: true,
@@ -71,6 +72,7 @@ export async function getComunidadeOrderRows(
       id: `comunidade_order_${o.id}`,
       userId: o.subscriptionLink.userId,
       amount: o.amountCharged,
+      customerDocument: o.customerDocument,
       netAmount: Number(o.amountCharged) - Number(o.platformFeeAmount),
       createdAt: o.createdAt,
       description: `${o.subscriptionLink.name} [TENANT:${tag}]`,
