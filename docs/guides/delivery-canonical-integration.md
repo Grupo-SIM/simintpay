@@ -15,12 +15,20 @@ Delivery exige `SIMPAY_API_URL`, `SIMPAY_PROVISIONING_TOKEN` com mesmo valor,
 nos backends. Preservar chaves de criptografia em backups; trocá-las sem recriptografar
 registros torna credenciais ilegíveis.
 
-Perfil DOM central: no backend SIM INT PAY, operador informa `DELIVERY_DOM_TOKEN`
-da **mesma conta DOM que o Delivery já usava**. Inspecionar com
-`bun scripts/configure-delivery-profile.ts` (dry-run); configurar explicitamente com
-`bun scripts/configure-delivery-profile.ts --apply`. Comando não mostra token.
-Plataforma com DOM_TOKEN explícito diferente do perfil bloqueia bootstrap com DELIVERY_ACQUIRER_PROFILE_CONFLICT; não é trocada automaticamente. Associação nova preserva alias DOM_TOKEN para reversão ao transporte antigo, sem sobrescrever configuração existente. Não existe herança de Zero Grau nem fallback ao DOM_TOKEN global. Perfil compartilhado
-não mistura carteiras internas. Troca da conta DOM pode invalidar cartões salvos.
+Perfil DOM central: a aquisição usa a mesma conta DOM do admin SIM INT PAY,
+configurada por `DOM_TOKEN` (ou alias `API_DOM_MASTER_KEY`). O primeiro bootstrap
+empresarial cria automaticamente o perfil `DELIVERY` com essa credencial; nenhuma
+variável ou etapa manual adicional é necessária. Carteiras e repasses empresariais
+continuam separados no ledger interno, sem exigir contas DOM distintas.
+`bun scripts/configure-delivery-profile.ts` inspeciona o perfil (dry-run);
+`bun scripts/configure-delivery-profile.ts --apply` permite antecipar essa mesma
+inicialização automática. Perfil existente não tem credencial rotacionada, não é
+reativado e não troca de adquirente automaticamente. Plataforma com DOM_TOKEN
+explícito diferente do perfil bloqueia bootstrap com
+DELIVERY_ACQUIRER_PROFILE_CONFLICT; configuração existente não é sobrescrita.
+Associação nova preserva alias DOM_TOKEN para reversão ao transporte antigo.
+Não existe herança da configuração de outra plataforma. A conta DOM central é a
+origem de aquisição, enquanto as credenciais delegadas delimitam cada empresa.
 
 Publicar SIM INT PAY primeiro. Executar `bun scripts/audit-delivery-canonical.ts` e
 `bun scripts/audit-simpay-canonical.ts` no backend Delivery (somente leitura). Resolver
