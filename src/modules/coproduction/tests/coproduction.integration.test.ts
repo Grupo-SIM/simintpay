@@ -214,11 +214,14 @@ run('Delivery item split credits exact wallets, ignores config changes and rever
  const agreement = (await captureCoproduction(db!, 'plataformas', platform.id, f.owner.id))!;
  agreement.baseCents = 10000;
  const balance = async (userId: string) => (await db!.wallet.findUniqueOrThrow({ where: { userId } })).balance.toFixed(2);
- const row = await db!.transaction.create({ data: { userId: f.owner.id, amount: 115.37, netAmount: 110, totalFee: 5.37, platformFee: 5.37, status: 'PENDING', settlementBasis: 'FINAL_NET', financialSnapshot: withCoproduction({ contract: 'SIM_DELIVERY_ALLOCATION_V1', itemsAmountCents: 10000, deliveryAmountCents: 1000 }, agreement) } });
+ const row = await db!.transaction.create({ data: { userId: f.owner.id, description: `[TENANT:${platform.tag}]`, amount: 115.37, netAmount: 110, totalFee: 5.37, platformFee: 5.37, status: 'PENDING', settlementBasis: 'FINAL_NET', financialSnapshot: withCoproduction({ contract: 'SIM_DELIVERY_ALLOCATION_V1', itemsAmountCents: 10000, deliveryAmountCents: 1000 }, agreement) } });
  await f.service.save(f.owner.id, 'plataformas', platform.id, { basis: 'NET', version: 1, participants: [] });
  const transition = (status: 'COMPLETED' | 'IN_MEDIATION' | 'CHARGEBACK') => db!.$transaction(async tx => settleFinalNet(tx, await tx.transaction.findUniqueOrThrow({ where: { id: row.id } }), status, 'LOCAL_TEST'));
  await transition('COMPLETED'); await transition('COMPLETED');
  expect(await balance(f.partner.id)).toBe('5.00'); expect(await balance(f.owner.id)).toBe('105.00');
+ const { OwnedPlatformReportsService } = await import('../../../application/services/owned-platform-reports.service');
+ const report = await new OwnedPlatformReportsService(db! as never).summary({ sub: f.owner.id, role: 'USER', email: f.owner.email }, { platform: platform.tag });
+ expect(report.summary).toMatchObject({ grossCents: 11537, netCents: 10500, feesCents: 537 });
  await transition('IN_MEDIATION'); expect((await db!.wallet.findUniqueOrThrow({ where: { userId: f.partner.id } })).lockedBalance.toFixed(2)).toBe('5.00');
  await transition('COMPLETED'); expect(await balance(f.owner.id)).toBe('105.00');
  await transition('CHARGEBACK'); expect(await balance(f.partner.id)).toBe('0.00'); expect(await balance(f.owner.id)).toBe('0.00');
