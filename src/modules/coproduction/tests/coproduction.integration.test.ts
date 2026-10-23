@@ -209,7 +209,7 @@ run('platform defaults across all five products, explicit empty OWN and versione
  await expect(f.service.save(f.owner.id, 'plataformas', platform.id, { basis: 'NET', mode: 'INHERIT', version: 1, participants: [] })).rejects.toThrow('não herda');
 });
 run('Delivery item split credits exact wallets, ignores config changes and reverses original allocations', async () => {
- const f = await fixture(); const platform = await db!.platform.create({ data: { tag: `LOCAL-${crypto.randomUUID()}`, name: 'Local delivery', ownerUserId: f.owner.id } });
+ const f = await fixture(); const platform = await db!.platform.create({ data: { tag: `LOCAL-${crypto.randomUUID()}`.toUpperCase(), name: 'Local delivery', ownerUserId: f.owner.id } });
  await f.service.save(f.owner.id, 'plataformas', platform.id, { basis: 'NET', version: 0, participants: [{ email: f.partner.email, percentageBps: 500 }] });
  const agreement = (await captureCoproduction(db!, 'plataformas', platform.id, f.owner.id))!;
  agreement.baseCents = 10000;
