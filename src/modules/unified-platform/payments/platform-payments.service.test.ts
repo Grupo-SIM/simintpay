@@ -101,9 +101,24 @@ describe('canonical card acquirer', () => {
     expect(result.status).toBe('PENDING');
     expect(JSON.parse((transport.mock.calls as any)[0][1].body).payment).toMatchObject({ total: 123.45, credit_card: { installments: 2 } });
     expect(JSON.stringify(prisma.transaction.create.mock.calls)).not.toContain('mock-card-token');
+    const stored = (prisma.transaction.create.mock.calls as any)[0][0].data;
+    expect(stored.description).not.toContain('[REQUEST:');
+    expect(stored.tracking.cardRequestDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(await service.create(context, cardInput)).toEqual(result);
     expect(transport).toHaveBeenCalledTimes(1);
     await expect(service.create(context, { ...cardInput, card: { ...cardInput.card, token: 'other-token' } })).rejects.toThrow();
+  });
+
+  test('legacy card digest still validates replay and rejects changed card', async () => {
+    const { service, prisma } = fixture();
+    const transport = mock(async () => Response.json({ id: 'card-payment', status: 'paid' }));
+    globalThis.fetch = transport as never;
+    const result = await service.create(context, cardInput);
+    const stored = (prisma.transaction.create.mock.calls as any)[0][0].data;
+    await prisma.transaction.update({ data: { description: `${stored.description} [REQUEST:${stored.tracking.cardRequestDigest}]`, tracking: {} } });
+    expect(await service.create(context, cardInput)).toEqual(result);
+    await expect(service.create(context, { ...cardInput, card: { ...cardInput.card, installments: 3 } })).rejects.toMatchObject({ status: 409 });
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   test('unsupported Frendz card fails before draft and never switches to DOM', async () => {

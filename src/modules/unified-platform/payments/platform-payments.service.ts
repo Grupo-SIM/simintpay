@@ -69,12 +69,17 @@ export class PlatformPaymentsService {
     const id = createHash('sha256').update(`${platform.id}\0${merchant?.id ?? ''}\0${input.idempotencyKey}`).digest('hex');
     const marker = `[TENANT:${platform.tag}]`;
     // Persist only a digest of card contract; never persist reusable tokens.
-    const cardDigest = cardAcquirer ? ` [REQUEST:${createHash('sha256').update(JSON.stringify([input.card!.token, input.card!.holderName, input.card!.bin, input.card!.brand, input.card!.installments])).digest('hex')}]` : '';
-    const description = `${adapter.description(input.description)} ${marker}${cardDigest}`;
+    const cardDigest = cardAcquirer ? createHash('sha256').update(JSON.stringify([input.card!.token, input.card!.holderName, input.card!.bin, input.card!.brand, input.card!.installments])).digest('hex') : undefined;
+    const description = `${adapter.description(input.description)} ${marker}`;
     const amount = new Prisma.Decimal(input.amountCents).div(100);
     const existing = await this.prisma.transaction.findUnique({ where: { id } });
     if (existing) {
-      if (existing.userId !== financialUserId || (existing.paymentLinkId ?? undefined) !== input.linkId || !(existing.financialSnapshot ? new Prisma.Decimal(((existing.financialSnapshot as { originalCents?: number; totalAmountCents?: number }).originalCents ?? (existing.financialSnapshot as { totalAmountCents: number }).totalAmountCents)).div(100).equals(amount) : existing.amount.equals(amount)) || existing.description !== description || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== input.paymentMethod) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
+      // Old transactions stored the digest in the description. Accept their replay
+      // without rewriting financial history or weakening card contract validation.
+      const legacyDigest = existing.description?.match(/ \[REQUEST:([a-f0-9]{64})\]$/)?.[1];
+      const savedDigest = (existing.tracking as { cardRequestDigest?: string } | null)?.cardRequestDigest ?? legacyDigest;
+      const savedDescription = legacyDigest ? existing.description!.replace(/ \[REQUEST:[a-f0-9]{64}\]$/, '') : existing.description;
+      if (existing.userId !== financialUserId || (existing.paymentLinkId ?? undefined) !== input.linkId || !(existing.financialSnapshot ? new Prisma.Decimal(((existing.financialSnapshot as { originalCents?: number; totalAmountCents?: number }).originalCents ?? (existing.financialSnapshot as { totalAmountCents: number }).totalAmountCents)).div(100).equals(amount) : existing.amount.equals(amount)) || savedDescription !== description || savedDigest !== cardDigest || existing.customerEmail !== input.customer.email || existing.customerDocument !== input.customer.document || existing.customerName !== input.customer.name || existing.customerPhone !== (input.customer.phone ?? '') || existing.paymentMethod !== input.paymentMethod) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       if (!existing.externalPaymentId) throw new ConflictException({ code: 'PAYMENT_PROCESSING', transactionId: id });
       if (input.allocation && (input.allocation.itemsAmountCents !== (existing.financialSnapshot as any)?.itemsAmountCents || input.allocation.deliveryAmountCents !== (existing.financialSnapshot as any)?.deliveryAmountCents)) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
       if (input.allocation && JSON.stringify([input.allocation.merchantAmountCents, input.allocation.platformFeeCents]) !== JSON.stringify([(existing.financialSnapshot as any)?.merchantAmountCents, (existing.financialSnapshot as any)?.platformFeeCents])) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
@@ -104,7 +109,7 @@ export class PlatformPaymentsService {
     const finalSnapshot = withCoproduction(financialQuote?.financialSnapshot ?? (coproduction ? { originalCents: input.amountCents } : undefined), coproduction);
     try {
       await new PlatformPaymentExecution(this.prisma).reserve({
-        id, userId: financialUserId, tracking: { ...(context.delivery ? { delivery: { credentialId: context.delivery.credentialId, externalCompanyId: context.delivery.externalCompanyId, idempotencyKey: input.idempotencyKey } } : {}), reportAttribution: { platformId: platform.id, ownerUserId: platform.ownerUserId, beneficiaryUserId: financialUserId } }, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...financialFields, ...(finalSnapshot ? { financialSnapshot: finalSnapshot } : {}),
+        id, userId: financialUserId, tracking: { ...(cardDigest ? { cardRequestDigest: cardDigest } : {}), ...(context.delivery ? { delivery: { credentialId: context.delivery.credentialId, externalCompanyId: context.delivery.externalCompanyId, idempotencyKey: input.idempotencyKey } } : {}), reportAttribution: { platformId: platform.id, ownerUserId: platform.ownerUserId, beneficiaryUserId: financialUserId } }, amount, ...(input.linkId ? { paymentLinkId: input.linkId } : {}), ...financialFields, ...(finalSnapshot ? { financialSnapshot: finalSnapshot } : {}),
         status: 'DRAFT', paymentMethod: input.paymentMethod, acquirer: platform.acquirer,
         description, customerName: input.customer.name, customerEmail: input.customer.email,
         customerDocument: input.customer.document, customerPhone: input.customer.phone ?? '', installments: cardAcquirer ? input.card!.installments : 1,

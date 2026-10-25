@@ -19,7 +19,7 @@ function fixture(tag: string) {
   process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = 'a'.repeat(64);
   let stored: any;
   const platform = { id: 'p', tag, ownerUserId: 'owner', isActive: true, acquirer: 'DOM', owner: { isActive: true, isPurged: false }, integrations: [{ key: 'DOM_TOKEN', encryptedValue: encryptPlatformSecret('test-only') }] };
-  const prisma = { financialPolicyRevision: { findMany: async () => [] }, platform: { findUnique: async () => platform }, platformTaxaOverride: { findMany: async () => [] }, wallet: { findUnique: async () => ({ id: 'wallet' }), upsert: mock(async () => ({ id: 'wallet' })), update: mock() },
+  const prisma = { $queryRaw: async () => [], financialPolicyRevision: { findMany: async () => [] }, platform: { findUnique: async () => platform }, platformTaxaOverride: { findMany: async () => [] }, wallet: { findUnique: async () => ({ id: 'wallet' }), upsert: mock(async () => ({ id: 'wallet' })), update: mock() },
     transaction: {
       findUnique: async () => stored ?? null,
       create: mock(async ({ data }: any) => { stored = { id: 'legacy-payment', ...data }; return stored; }),
@@ -30,7 +30,7 @@ function fixture(tag: string) {
 }
 function financial(row: any) {
   return { amount: new Prisma.Decimal(row.amount).toString(), net: new Prisma.Decimal(row.netAmount).toString(), total: new Prisma.Decimal(row.totalFee).toString(), gateway: new Prisma.Decimal(row.domFee).toString(), fee: new Prisma.Decimal(row.platformFee).toString(),
-    settlementBasis: row.settlementBasis, tracking: row.tracking, status: row.status, userId: row.userId, method: row.paymentMethod, installments: row.installments, acquirer: row.acquirer, paymentId: row.domPaymentId };
+    settlementBasis: row.settlementBasis, tracking: row.tracking ? Object.fromEntries(Object.entries(row.tracking).filter(([key]) => key !== 'cardRequestDigest')) : row.tracking, status: row.status, userId: row.userId, method: row.paymentMethod, installments: row.installments, acquirer: row.acquirer, paymentId: row.domPaymentId };
 }
 
 describe('Legacy and canonical payment execution equivalence', () => {
