@@ -322,3 +322,7 @@ Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado concl
   Configuração nova nunca altera histórico/assinaturas ou transfere titular/saldo.
 - Empresas Delivery possuem configurações independentes. Plataforma compartilhada
   historicamente exige regularização antes da habilitação; não habilitar 5% automaticamente.
+
+## Filtros e exclusão do histórico de assinantes
+
+Listagem mescla assinaturas DOM e pausas locais, resolve plataformas e aplica busca, plataforma, primeira cobrança, status e frequência antes de paginar. Mensal/anual exigem intervalo um. Status agrupados: ativo, pausado e desativado; estados ausentes/desconhecidos permanecem na listagem sem autorizar exclusão. Exclusão local do histórico exige admin master e status conhecido CANCELLED/CANCELED/INACTIVE/DISABLED/DEACTIVATED, reconsultado na adquirente; pausa local ou explícita bloqueia exclusão. Nenhuma assinatura é apagada na adquirente.

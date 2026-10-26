@@ -336,7 +336,7 @@ export class ApiDomClient implements IPaymentGateway {
     const activeRaw = obj?.active ?? obj?.actived ?? obj?.activated ?? obj?.is_active ?? obj?.isActive;
     const active = activeRaw === true || activeRaw === 1 || activeRaw === 'true' || activeRaw === '1' || activeRaw === 'active';
     const statusRaw = obj?.status ?? obj?.active_status ?? obj?.status_type;
-    const status = typeof statusRaw === 'string' ? statusRaw.toLowerCase() : statusRaw != null ? String(statusRaw).toLowerCase() : null;
+    const status = typeof statusRaw === 'string' ? statusRaw.trim().toLowerCase() : statusRaw != null ? String(statusRaw).toLowerCase() : null;
 
     const isActuallyActive = active || status === 'active' || status === 'actived' || status === 'activated' || status === '1' || status === 'true';
     
@@ -346,7 +346,8 @@ export class ApiDomClient implements IPaymentGateway {
 
     return {
       id,
-      status: isActuallyActive ? 'active' : 'inactive',
+      // Missing or new provider states must not become a confirmed deactivation.
+      status: isActuallyActive ? 'active' : status || undefined,
       expiresAt: this.pickString(obj, 'next_date_invoice') ?? this.pickString(obj, 'expires_at') ?? this.pickString(obj, 'end_date_invoice'),
       planId: this.pickString(obj, 'plan_id') ?? this.pickString(obj, 'dom_plan_id') ?? this.pickString(obj, 'plano_id'),
       name: this.pickString(obj, 'customer_name') ?? this.pickString(obj, 'name'),

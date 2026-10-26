@@ -1,3 +1,4 @@
+import { subscriptionStatusGroup } from './subscription-status';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
@@ -62,8 +63,7 @@ export class ListSubscribersUseCase {
         sourcePage += 1;
       }
 
-      const visiblePageItems = visibleItems.slice((page - 1) * pageSize, page * pageSize);
-      const hasNextPage = visibleItems.length > page * pageSize;
+      const visiblePageItems = visibleItems;
 
       // Resolve platform metadata for each subscription via its DOM plan ID.
       const planIds = visiblePageItems
@@ -106,19 +106,38 @@ export class ListSubscribersUseCase {
       });
 
       // Adicionar assinaturas pausadas que sumiram da DOM após cancelamento
-      // Só na página 1 para não duplicar ao paginar
-      const pausedRows = page === 1
-        ? await this.buildPausedRows(domIds, input.userId, isAdmin)
-        : [];
+      // Mesclar antes da paginação evita duplicação e mantém total correto.
+      const pausedRows = await this.buildPausedRows(domIds, input.userId, isAdmin);
 
-      const allData = [...mapped, ...pausedRows];
+      const normalize = (value: unknown) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      const query = input.query;
+      const allData = [...mapped, ...pausedRows].filter(row => {
+        if (query.statusGroup && subscriptionStatusGroup(row.status, row.isPaused) !== query.statusGroup) return false;
+        if (query.status && normalize(row.status) !== normalize(query.status)) return false;
+        if (query.planoId && row.planoId !== query.planoId) return false;
+        if (query.frequency) {
+          const frequency = normalize(row.frequencia);
+          const units = query.frequency === 'MONTHLY' ? ['month', 'monthly', 'mensal'] : ['year', 'yearly', 'annual', 'anual'];
+          if (!units.includes(frequency) || (row.intervalo ?? 1) !== 1) return false;
+        }
+        const platforms = 'plataformas' in row ? row.plataformas : [];
+        if (query.platform && ![row.plataforma, ...platforms].some(value => normalize(value) === normalize(query.platform))) return false;
+        if (query.search && !normalize([row.nome, row.descricao, row.cliente?.name, row.cliente?.email].join(' ')).includes(normalize(query.search))) return false;
+        if (query.firstChargeFrom || query.firstChargeTo) {
+          const timestamp = row.primeiraCobranca ? new Date(row.primeiraCobranca).getTime() : NaN;
+          if (!Number.isFinite(timestamp)) return false;
+          if (query.firstChargeFrom && timestamp < new Date(query.firstChargeFrom).getTime()) return false;
+          if (query.firstChargeTo && timestamp > new Date(query.firstChargeTo).getTime()) return false;
+        }
+        return true;
+      });
 
       return {
-        data: allData,
+        data: allData.slice((page - 1) * pageSize, page * pageSize),
         page,
         pageSize,
-        hasNextPage,
-        total: visibleItems.length + (page === 1 ? pausedRows.length : 0),
+        hasNextPage: allData.length > page * pageSize,
+        total: allData.length,
       };
     } catch (err: any) {
       this.logger.error(`[ListSubscribers] Erro ao buscar da DOM: ${err.message}`, err.stack);
@@ -145,13 +164,13 @@ export class ListSubscribersUseCase {
 
   /**
    * Constrói linhas para assinaturas pausadas que já sumiram da listagem da DOM.
-   * Só é chamado na página 1 para não duplicar.
+   * Mescla antes dos filtros e da paginação, sem duplicar IDs da DOM.
    */
   private async buildPausedRows(
     domIdsAlreadyInList: string[],
     userId: string,
     isAdmin: boolean,
-  ): Promise<object[]> {
+  ) {
     const where = isAdmin
       ? { domSubscriptionId: { notIn: domIdsAlreadyInList } }
       : { domSubscriptionId: { notIn: domIdsAlreadyInList }, userId };
@@ -287,9 +306,7 @@ export class ListSubscribersUseCase {
   }
 
   private isActiveSubscription(subscription: DomSubscriptionOutput): boolean {
-    return ['active', 'actived', 'activated', 'true', '1'].includes(
-      String(subscription.status ?? '').trim().toLowerCase(),
-    );
+    return subscriptionStatusGroup(subscription.status) === 'active';
   }
 
   private async resolveDomToken(userId: string, isAdmin: boolean): Promise<string | null> {

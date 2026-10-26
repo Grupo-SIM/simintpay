@@ -1,3 +1,4 @@
+import { subscriptionStatusGroup } from './subscription-status';
 import { BadRequestException, ForbiddenException, Inject, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
@@ -42,8 +43,13 @@ export class RemoveInactiveSubscriptionHistoryUseCase {
     if (status === 'ACTIVE') {
       throw new BadRequestException('Assinaturas ativas não podem ser excluídas do histórico');
     }
-    if (!status) {
-      throw new BadRequestException('Não foi possível confirmar o status da assinatura na DOM');
+    if (subscriptionStatusGroup(status) !== 'deactivated') {
+      throw new BadRequestException('Somente assinaturas comprovadamente desativadas podem ser excluídas do histórico');
+    }
+
+    // A pause can be recorded while the provider request is in flight.
+    if (await this.prisma.subscriptionPause.findUnique({ where: { domSubscriptionId: input.domSubscriptionId } })) {
+      throw new BadRequestException('Assinaturas pausadas não podem ser excluídas do histórico');
     }
 
     await this.prisma.subscriptionHistoryExclusion.upsert({
