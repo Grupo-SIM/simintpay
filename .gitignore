@@ -63,3 +63,18 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .env
+
+# Workspace outputs and local configuration
+**/node_modules/
+**/dist/
+**/dist-watch/
+**/coverage/
+**/*.tsbuildinfo
+**/.turbo/
+.turbo/
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.production.example
+/backend/storage/*
+!/backend/storage/.gitkeep

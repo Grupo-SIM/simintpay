@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import ts from 'typescript';
 import { LEGACY_PLATFORM_CONTRACTS } from './legacy-platform-contracts';
-import matrix from '../../../docs/legacy-platform-equivalence.json';
+import matrix from '../../../../docs/legacy-platform-equivalence.json';
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? sourceFiles(`${dir}/${entry.name}`) : entry.name.endsWith('.controller.ts') ? [`${dir}/${entry.name}`] : []);
@@ -35,7 +35,7 @@ test('all 136 active contracts map uniquely to registered operations and behavio
   const keys = (rows: { method: string; path: string }[]) => rows.map(row => `${row.method} ${row.path}`).sort();
   expect(keys(matrix)).toEqual(keys([...LEGACY_PLATFORM_CONTRACTS]));
   expect(new Set(keys(matrix)).size).toBe(136);
-  const documentation = readFileSync('docs/legacy-platform-equivalence.md', 'utf8');
+  const documentation = readFileSync('../docs/legacy-platform-equivalence.md', 'utf8');
   for (const row of matrix) {
     const [method, path] = row.canonical.split(' ');
     expect(registrations.some(route => route.method === method && matchesRoute(route.path, path))).toBe(true);

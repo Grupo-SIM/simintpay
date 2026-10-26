@@ -1,0 +1,18 @@
+name: simintpay-production
+services:
+  api:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to an immutable image tag}
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: '3333'
+    init: true
+    restart: unless-stopped
+    ports: ['127.0.0.1:3333:3333']
+    volumes: [storage:/app/backend/storage]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+volumes:
+  storage:
+    name: ${STORAGE_VOLUME_NAME:-back-simpay_simpay_storage}
+    external: true

@@ -1,0 +1,21 @@
+assert_lefthook_installed: true
+commit-msg:
+  commands:
+    commitlint:
+      run: bunx --no-install commitlint --edit {1}
+pre-commit:
+  parallel: false
+  commands:
+    1-types:
+      run: bun scripts/validate-staged.ts
+    2-format:
+      glob: '*.{ts,js,mjs,cjs,json,yml,yaml,md}'
+      run: bun scripts/format-staged.ts {staged_files}
+      stage_fixed: true
+    3-lint:
+      glob: '**/*.{ts,js,mjs}'
+      run: bun scripts/lint-staged.ts {staged_files}
+      stage_fixed: true
+    4-unit:
+      glob: 'backend/src/**/*.ts'
+      run: bun run test:unit

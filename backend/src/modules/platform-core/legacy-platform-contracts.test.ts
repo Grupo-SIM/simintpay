@@ -40,6 +40,6 @@ test('inventory preserves 144 historical contracts and 136 active contracts sync
   expect(RETIRED_LEGACY_PLATFORM_CONTRACTS).toHaveLength(8);
   expect(LEGACY_PLATFORM_CONTRACTS).toHaveLength(136);
   expect(new Set(LEGACY_PLATFORM_CONTRACTS.map(c => `${c.method} ${c.path}`)).size).toBe(136);
-  const documentation = readFileSync('docs/legacy-platform-routes.md', 'utf8');
+  const documentation = readFileSync('../docs/legacy-platform-routes.md', 'utf8');
   for (const c of ORIGINAL_LEGACY_PLATFORM_CONTRACTS) expect(documentation).toContain('`' + c.path + '`');
 });

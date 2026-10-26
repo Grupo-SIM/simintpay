@@ -1,102 +1,51 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# SimIntPay
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Payment backend built with NestJS, Prisma and PostgreSQL. Bun manages the workspace and tooling; production runs on Node 22.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Layout
 
-## Description
+- `backend/`: Nest application, Prisma schema/migrations, operational scripts and tests.
+- `packages/`: future shared libraries; no artificial empty SQL/domain package.
+- `scripts/`: workspace validation and test tooling.
+- `docs/`: product rules and integration guides.
+- `plans/`: existing feature execution history.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Development
 
-## Project setup
+Requires Bun 1.4.4, Node 22 and Docker Compose. Run commands from repository root unless stated otherwise.
 
-```bash
-$ npm install
+```sh
+bun install --frozen-lockfile
+cp backend/.env.example backend/.env
+# Start disposable/local dependencies only:
+docker compose up -d
+bun run generate
+# Explicitly initialize the LOCAL database after checking backend/.env:
+bun run --cwd backend migrate:deploy
+bun run dev
 ```
 
-## Compile and run the project
+Existing local `.env`, storage and build outputs moved into `backend/` with the application. Review existing environment before starting: old credentials may still point at shared services. Compose never imports those credentials or starts the application automatically.
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+```sh
+bun run build
+bun run check-types
+bun run test:unit
+bun run --cwd backend test:watch
 ```
 
-## Run tests
+Root `start`, `start:dev` and `start:prod` remain available. Operational scripts now run from `backend/`, for example `cd backend && bun scripts/configure-delivery-profile.ts`. Their effects are unchanged; inspect the target environment before using them.
 
-```bash
-# unit tests
-$ npm run test
+## Tooling
 
-# e2e tests
-$ npm run test:e2e
+One Bun lockfile and workspace graph. Turbo builds/checks affected workspaces; builds generate Prisma before compilation. Lefthook installs on `bun install`, validates Conventional Commits and runs type checks, staged formatting/linting and backend unit tests. Pure renames retain original formatting. Existing ESLint/Prettier rules remain; adopting the template's entire Biome rule set would require a separate source cleanup.
 
-# test coverage
-$ npm run test:cov
-```
+Unit checks run Bun `.test.ts` files in separate processes, then Jest `.spec.ts` suites. Environment credentials are removed and database/broker addresses point at closed loopback ports. Tests under `tests/` remain integration suites and are excluded. Existing end-to-end starter test is obsolete and is not a deployment gate; replace it with disposable-service integration tests before enabling that gate. No test command initializes a database.
+
+CI uses the template's graph-based affected-package detector for type checks, builds and unit tests. Image publication follows successful main-branch CI, or explicit manual dispatch; it never deploys or connects to a database.
 
 ## Deployment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+See [deployment guide](docs/deployment.md). Production configuration contains no embedded credentials. API startup only starts the server; migrations, baseline reconciliation and seeding require explicit operator actions.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
-
-## Delivery — API canônica
-
-[Guia de integração, autenticação, eventos e migração](docs/guides/delivery-canonical-integration.md).
+[Business rules](docs/business-rules.md) · [Canonical Delivery integration](docs/guides/delivery-canonical-integration.md)

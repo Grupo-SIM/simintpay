@@ -1,0 +1,7 @@
+node_modules
+bun.lock
+**/dist
+**/dist-watch
+**/coverage
+.turbo
+backend/prisma/migrations
