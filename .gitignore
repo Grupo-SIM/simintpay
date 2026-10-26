@@ -78,3 +78,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 !**/.env.production.example
 /backend/storage/*
 !/backend/storage/.gitkeep
+
+**/.next/
+**/out/
+
+**/next-env.d.ts

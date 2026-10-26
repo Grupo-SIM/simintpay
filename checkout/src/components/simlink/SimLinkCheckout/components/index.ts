@@ -1,0 +1,1 @@
+export { MethodIcon } from './MethodIcon';

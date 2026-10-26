@@ -12,6 +12,13 @@ services:
     volumes: [storage:/app/backend/storage]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+  checkout:
+    image: ${CHECKOUT_IMAGE:?Set CHECKOUT_IMAGE to an immutable image tag}
+    init: true
+    restart: unless-stopped
+    ports: ['127.0.0.1:3000:3000']
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
 volumes:
   storage:
     name: ${STORAGE_VOLUME_NAME:-back-simpay_simpay_storage}

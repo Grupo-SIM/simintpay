@@ -8,11 +8,12 @@ const diff = Bun.spawnSync([
   '-z',
 ]);
 if (diff.exitCode) process.exit(diff.exitCode);
-const files = diff.stdout
-  .toString()
-  .split('\0')
-  .filter((file) => /^backend\/src\/.*\.ts$/.test(file));
-if (files.length) {
+const staged = diff.stdout.toString().split('\0');
+for (const workspace of ['backend', 'checkout']) {
+  const files = staged.filter((file) =>
+    new RegExp(`^${workspace}/src/.*\\.[cm]?[jt]sx?$`).test(file),
+  );
+  if (!files.length) continue;
   const child = Bun.spawn(
     [
       'bunx',
@@ -20,13 +21,10 @@ if (files.length) {
       'eslint',
       '--quiet',
       '--fix',
-      ...files.map((file) => relative(resolve('backend'), resolve(file))),
+      ...files.map((file) => relative(resolve(workspace), resolve(file))),
     ],
-    {
-      cwd: 'backend',
-      stdout: 'inherit',
-      stderr: 'inherit',
-    },
+    { cwd: workspace, stdout: 'inherit', stderr: 'inherit' },
   );
-  process.exit(await child.exited);
+  const code = await child.exited;
+  if (code) process.exit(code);
 }

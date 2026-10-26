@@ -5,3 +5,7 @@ bun.lock
 **/coverage
 .turbo
 backend/prisma/migrations
+
+**/.next
+**/out
+**/public

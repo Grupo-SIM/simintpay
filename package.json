@@ -4,28 +4,28 @@
   "packageManager": "bun@1.4.4",
   "workspaces": [
     "backend",
+    "checkout",
     "packages/*"
   ],
   "scripts": {
-    "build": "turbo run build",
-    "check-types": "turbo run check-types",
-    "dev": "turbo run dev --env-mode=loose",
-    "start": "bun run --cwd backend start:prod",
-    "start:dev": "bun run dev",
-    "start:prod": "bun run start",
-    "generate": "bun run --cwd backend generate",
-    "test": "turbo run test:unit",
-    "test:unit": "turbo run test:unit",
-    "test:e2e": "bun run --cwd backend test:e2e",
-    "lint": "bun run --cwd backend lint",
-    "format": "prettier --write .",
-    "prepare": "lefthook install"
+    "build": "bun turbo build",
+    "check-types": "bun turbo check-types",
+    "dev": "bun turbo dev",
+    "start": "bun turbo start",
+    "generate": "bun turbo generate",
+    "test": "bun turbo test:unit",
+    "test:unit": "bun turbo test:unit",
+    "test:e2e": "bun turbo test:e2e",
+    "lint": "bun turbo lint",
+    "format": "bun fmt",
+    "prepare": "lefthook install",
+    "format:check": "bun fmt --check",
+    "export": "bun turbo export"
   },
   "devDependencies": {
     "turbo": "^2.9.16",
     "lefthook": "^2.1.9",
     "@commitlint/cli": "^20.5.3",
-    "@commitlint/config-conventional": "^20.5.3",
-    "prettier": "^3.4.2"
+    "@commitlint/config-conventional": "^20.5.3"
   }
 }

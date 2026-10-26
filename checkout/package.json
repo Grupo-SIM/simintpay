@@ -1,0 +1,38 @@
+{
+  "name": "checkout",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --port 3000",
+    "build": "NEXT_TELEMETRY_DISABLED=1 next build --webpack",
+    "check-types": "NEXT_TELEMETRY_DISABLED=1 next typegen && tsc --noEmit",
+    "start": "NEXT_TELEMETRY_DISABLED=1 next start --port 3000",
+    "lint": "eslint . --quiet",
+    "lint:fix": "eslint . --fix",
+    "test:unit": "bun --no-env-file test ./src/lib"
+  },
+  "dependencies": {
+    "crypto-js": "^4.2.0",
+    "lottie-react": "^2.4.1",
+    "lucide-react": "^0.483.0",
+    "next": "^16.1.1",
+    "react": "^19.2.3",
+    "react-credit-cards-2": "^1.2.0",
+    "react-dom": "^19.2.3",
+    "tailwind-merge": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.2",
+    "@types/node": "^22.10.7",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9",
+    "eslint-config-next": "^16.1.1",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5",
+    "@types/bun": "^1.3.14",
+    "backend": "workspace:*"
+  }
+}

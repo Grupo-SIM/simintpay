@@ -1,17 +1,42 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "tasks": {
-    "generate": { "cache": false },
+    "generate": {
+      "cache": false
+    },
     "build": {
       "dependsOn": ["^build", "generate"],
-      "outputs": ["dist/**"]
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
     "check-types": {
       "dependsOn": ["^check-types", "generate"],
       "cache": false
     },
-    "dev": { "dependsOn": ["generate"], "cache": false, "persistent": true },
-    "test:unit": { "dependsOn": ["generate"], "cache": false },
-    "start": { "cache": false, "persistent": true }
+    "dev": {
+      "dependsOn": ["generate"],
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": ["*"]
+    },
+    "test:unit": {
+      "dependsOn": ["generate"],
+      "cache": false
+    },
+    "start": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": ["*"]
+    },
+    "lint": {
+      "cache": false
+    },
+    "export": {
+      "dependsOn": ["generate"],
+      "cache": false,
+      "outputs": ["out/openapi.json"]
+    },
+    "test:e2e": {
+      "cache": false
+    }
   }
 }

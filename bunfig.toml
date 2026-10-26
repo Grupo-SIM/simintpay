@@ -1,0 +1,10 @@
+telemetry = false
+
+[fmt]
+printWidth = 80
+useTabs = false
+tabWidth = 2
+singleQuote = true
+trailingComma = "all"
+sortPackageJson = false
+ignorePatterns = ["**/public/", "**/.next/", "**/dist/", "**/dist-watch/", "**/coverage/", "backend/prisma/migrations/", "bun.lock"]

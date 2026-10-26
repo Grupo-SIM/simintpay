@@ -11,18 +11,13 @@ if (diff.exitCode) process.exit(diff.exitCode);
 const files = diff.stdout
   .toString()
   .split('\0')
-  .filter((file) => /\.(ts|js|mjs|cjs|json|yml|yaml|md)$/.test(file));
-if (files.length) {
-  const child = Bun.spawn(
-    [
-      'bunx',
-      '--no-install',
-      'prettier',
-      '--write',
-      '--ignore-unknown',
-      ...files,
-    ],
-    { stdout: 'inherit', stderr: 'inherit' },
+  .filter((file) =>
+    /\.(ts|tsx|js|jsx|mjs|cjs|json|css|yml|yaml|md)$/.test(file),
   );
+if (files.length) {
+  const child = Bun.spawn(['bun', 'fmt', '--ignore-unknown', ...files], {
+    stdout: 'inherit',
+    stderr: 'inherit',
+  });
   process.exit(await child.exited);
 }
