@@ -2,7 +2,9 @@ import type { NextConfig } from 'next';
 import { resolve } from 'node:path';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   env: {
     // Variáveis de ambiente para configuração mobile
     NEXT_PUBLIC_MOBILE_TIMEOUT: '20000',
