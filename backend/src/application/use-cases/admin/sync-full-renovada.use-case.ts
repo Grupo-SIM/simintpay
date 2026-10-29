@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call --
-   legacy sync consumes untyped acquirer payloads; typing them is tracked separately. */
 import { setWalletBalance } from '../../../modules/wallet-ledger/wallet-ledger';
 import { requireExclusivePlatformWallet } from '../../helpers/exclusive-platform-wallet.helper';
 import { getPlatformOwnerId } from '../../../modules/module.registry';

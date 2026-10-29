@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/require-await, @typescript-eslint/await-thenable, @typescript-eslint/only-throw-error --
-   fixtures mock Prisma and acquirer payloads with `any`. */
 import { expect, mock, test } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import { PlatformLedger } from './platform-ledger';

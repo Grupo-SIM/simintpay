@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return --
-   acquirer payloads (`row`) are untyped external JSON; typing them is tracked separately. */
 import {
   bindLinkPayment,
   linkChargeReference,

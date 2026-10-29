@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/require-await, @typescript-eslint/await-thenable --
-   fixtures mock Prisma and acquirer payloads with `any`. */
 import { Prisma } from '@prisma/client';
 import { initializePlatformRegistryCache } from '../../module.registry';
 import { InternalEbookFinanceService } from './legacy-ebook-finance.service';

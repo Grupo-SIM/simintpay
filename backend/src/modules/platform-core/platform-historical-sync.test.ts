@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/require-await, @typescript-eslint/await-thenable --
-   fixtures mock Prisma and acquirer payloads with `any`. */
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import { PlatformSyncPersistenceService } from './platform-sync-persistence.service';
