@@ -7,6 +7,8 @@ datasource db {
 }
 
 model User {
+  productOwnershipFrom ProductOwnershipChange[] @relation("ProductOwnershipFrom")
+  productOwnershipTo ProductOwnershipChange[] @relation("ProductOwnershipTo")
   coproductionAgreementEdits CoproductionAgreement[] @relation("CoproductionAgreementActor")
   coproductionRevisions CoproductionRevision[] @relation("CoproductionRevisionActor")
   coproductionAllocations CoproductionAllocation[]
@@ -1463,4 +1465,22 @@ model CanonicalMerchantEvent {
   lastError String?
   createdAt DateTime @default(now())
   @@index([deliveredAt, nextAttemptAt])
+}
+
+/// Immutable audit of product owner reassignments. History (transactions, snapshots, ledger) is never rewritten.
+model ProductOwnershipChange {
+  id          String   @id @default(uuid())
+  productType String
+  productId   String
+  fromUserId  String
+  toUserId    String
+  /// 'SCRIPT' or the administrator user id that applied the change.
+  actor       String
+  reason      String
+  mappingHash String
+  createdAt   DateTime @default(now())
+  fromUser    User     @relation("ProductOwnershipFrom", fields: [fromUserId], references: [id], onDelete: Restrict)
+  toUser      User     @relation("ProductOwnershipTo", fields: [toUserId], references: [id], onDelete: Restrict)
+
+  @@index([productType, productId])
 }
