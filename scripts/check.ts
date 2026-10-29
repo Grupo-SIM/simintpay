@@ -5,8 +5,13 @@
  *   bun check --staged        only staged files (pre-commit)
  *   bun check --skip-lint     leave lint to a separate fixing step (pre-commit does this)
  *   bun check --all           full backend unit suite
+ *   bun check --only=backend  one workspace (`bun run check` inside backend/ or checkout/ does this)
  */
+import { resolve } from 'node:path';
+
+process.chdir(resolve(import.meta.dir, '..'));
 const args = process.argv.slice(2);
+const only = args.find((arg) => arg.startsWith('--only='))?.slice(7);
 const staged = args.includes('--staged');
 const all = args.includes('--all');
 const scope = staged ? [] : ['--worktree'];
@@ -19,7 +24,10 @@ const diff = Bun.spawnSync([
   '-z',
 ]);
 if (diff.exitCode) process.exit(diff.exitCode);
-const files = diff.stdout.toString().split('\0').filter(Boolean);
+const files = diff.stdout
+  .toString()
+  .split('\0')
+  .filter((file) => Boolean(file) && (!only || file.startsWith(`${only}/`)));
 const touches = (prefix: string) =>
   files.some((file) => file.startsWith(prefix));
 const shared = files.some(

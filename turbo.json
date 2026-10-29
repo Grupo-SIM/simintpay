@@ -2,7 +2,8 @@
   "$schema": "https://turborepo.dev/schema.json",
   "tasks": {
     "generate": {
-      "cache": false
+      "inputs": ["prisma/schema.prisma", "prisma.config.ts"],
+      "outputs": ["../node_modules/.prisma/client/**"]
     },
     "build": {
       "dependsOn": ["^build", "generate"],
