@@ -19,7 +19,14 @@ Correção pontual já aplicada: `get-me.use-case.ts` passou a usar a carteira p
 - [ ] `adminljl@simpay.com.br`: carteira R$ 4.327,88 contra R$ 3.291,93 no último log (diferença R$ 1.035,95). A carteira foi atualizada às 21:02:31.062, antes do log das 21:02:31.066, que registra `balanceBefore` defasado. Sem ajuste até a causa ser confirmada.
 - [ ] 38 quebras de encadeamento (`balanceBefore` de uma linha diferente do `balanceAfter` da anterior) e a carteira `dono@zerograusorvetesac.com` com R$ −13,31 precisam de análise.
 - [ ] `get-withdraw-summary.use-case.ts` ainda separa Renovada/Bosque só para taxas e configuração de saque (não para saldo). Revisar na etapa 9.
-- Etapas 1 a 4 e 7 a 9 não iniciadas.
+- [x] Etapa 1 (auditoria): escritores de saldo sem `BalanceLog` eram `platform-sync.service`, `platform-sync-persistence.service`, `platform-ledger` e `sync-full-renovada`. Todos migrados. Os demais já gravavam log com o padrão `wallet.update` seguido de `balanceLog.create`.
+- [x] Etapa 2: `modules/wallet-ledger/wallet-ledger.ts` com `applyWalletEntry` (carteira e log na mesma transação, `before` derivado do retorno do update) e `setWalletBalance` (absoluto, registra a diferença).
+- [~] Etapa 3: os 4 escritores sem log usam o serviço. Os escritores que já logam (coprodução, link-settlement, webhooks DOM e assinatura, saques, maquinetas, claims, manutenção) seguem com o padrão antigo e podem migrar depois, sem mudar comportamento.
+- [x] Etapa 4: `wallet-ledger.integration.test.ts` (Postgres local descartável): cadeia encadeada, 12 créditos concorrentes, rollback e saldo absoluto.
+- [x] Etapa 5: `backend/scripts/reconcile-wallets.ts` (somente leitura por padrão; `--apply` exige `--confirm-host`).
+- [x] Etapa 6: 7 lacunas de saldo históricas fechadas com `ADJUSTMENT` / `RECONCILIATION` (Bosque 1, Renovada 5, `contato@simintermediacoes.com` 1, incluindo o par de R$ 996,36 entre Renovada e simintermediacoes). Carteiras intactas. Total de 8 linhas `RECONCILIATION` com a de `saut.pdc`.
+- [ ] Lacunas de `lockedBalance` (14, só reportadas): saques de Renovada/Bosque são aprovados sem log do bloqueio anterior. Não geram diferença de saldo.
+- Etapas 7 a 9 não iniciadas.
 
 ## Princípios
 
