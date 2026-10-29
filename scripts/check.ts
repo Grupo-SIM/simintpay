@@ -30,52 +30,75 @@ const files = diff.stdout
   .filter((file) => Boolean(file) && (!only || file.startsWith(`${only}/`)));
 const touches = (prefix: string) =>
   files.some((file) => file.startsWith(prefix));
-const shared = files.some(
-  (file) =>
-    /^(package.json|bun.lock|turbo.json|bunfig.toml)$/.test(file) ||
-    file.startsWith('scripts/') ||
-    file.startsWith('backend/prisma/'),
-);
+const shared =
+  !only &&
+  files.some(
+    (file) =>
+      /^(package.json|bun.lock|turbo.json|bunfig.toml)$/.test(file) ||
+      file.startsWith('scripts/') ||
+      file.startsWith('backend/prisma/'),
+  );
+const runs = (workspace: string) =>
+  (!only || only === workspace) && (all || shared || touches(`${workspace}/`));
+const turbo = ['bunx', '--no-install', 'turbo', 'run'];
 
 const tasks: { name: string; cmd: string[] }[] = [
-  { name: 'types', cmd: ['bun', 'scripts/validate-staged.ts', ...scope] },
+  {
+    name: 'types',
+    cmd: only
+      ? [...turbo, 'check-types', '--filter', only]
+      : ['bun', 'scripts/validate-staged.ts', ...scope],
+  },
 ];
 if (!args.includes('--skip-lint')) {
   tasks.push({
     name: 'lint',
-    cmd: ['bun', 'scripts/lint-staged.ts', '--no-fix', ...scope],
+    cmd: [
+      'bun',
+      'scripts/lint-staged.ts',
+      '--no-fix',
+      ...scope,
+      ...(only ? [`--only=${only}`] : []),
+    ],
   });
 }
-if (all || shared || touches('backend/')) {
+if (runs('backend')) {
   tasks.push({
     name: 'unit',
     cmd: ['bun', 'scripts/test-unit.ts', ...(all || shared ? ['--all'] : [])],
   });
 }
-if (all || shared || touches('checkout/')) {
+if (runs('checkout')) {
   tasks.push({
     name: 'checkout-unit',
-    cmd: [
-      'bunx',
-      '--no-install',
-      'turbo',
-      'run',
-      'test:unit',
-      '--filter',
-      'checkout',
-    ],
+    cmd: [...turbo, 'test:unit', '--filter', 'checkout'],
   });
+}
+
+const run = async (cmd: string[]) => {
+  const child = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' });
+  const [out, err, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  return { out, err, code };
+};
+
+// Types and unit tests both read the generated Prisma Client. Generate it once, before they run side
+// by side (turbo caches it on the schema, so this is instant unless prisma/schema.prisma changed).
+if (!only || only === 'backend') {
+  const generate = await run([...turbo, 'generate', '--filter', 'backend']);
+  if (generate.code) {
+    console.error(`✖ generate\n${generate.out}${generate.err}`);
+    process.exit(1);
+  }
 }
 
 const results = await Promise.all(
   tasks.map(async ({ name, cmd }) => {
     const started = performance.now();
-    const child = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' });
-    const [out, err, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
+    const { out, err, code } = await run(cmd);
     const seconds = ((performance.now() - started) / 1000).toFixed(1);
     console.log(`${code ? '✖' : '✔'} ${name} (${seconds}s)`);
     if (code) console.error(`${out}${err}`);
