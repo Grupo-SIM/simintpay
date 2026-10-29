@@ -13,6 +13,10 @@ export function BuyerMemoryPreference({
 }: Props) {
   return (
     <div className={className}>
+      <p>
+        Usamos seus dados para emitir o pagamento e enviar seu acesso. Só os
+        guardamos neste navegador se você marcar a opção abaixo.
+      </p>
       <div className="flex items-start gap-2">
         <button
           type="button"
