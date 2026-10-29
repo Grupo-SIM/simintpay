@@ -1,4 +1,3 @@
-import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { WALLET_REPOSITORY } from '../../../core/repositories/wallet.repository.interface';
@@ -7,15 +6,28 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { computeUserNetBalance } from '../../helpers/user-platform-net-balance.helper';
 import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
-import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
-import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
 
-const TAGS_SEM_TAXA_SERVICO = new Set<string>([]);
-const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z');
-const RENOVADA_TAXA_SERVICO_DATE = new Date('2026-05-29T20:40:00.000Z');
+interface MeUser {
+  id: string;
+  name: string;
+  email: string;
+  cpf?: string | null;
+  cnpj?: string | null;
+  role: string;
+  domToken?: string | null;
+  clientStatus?: string | null;
+  isAffiliate?: boolean | null;
+  affiliateCode?: string | null;
+  createdAt: Date;
+  platform?: { tag: string; name: string } | null;
+  ownedPlatforms?: {
+    id: string;
+    tag: string;
+    name: string;
+    isActive: boolean;
+  }[];
+}
 
 @Injectable()
 export class GetMeUseCase {
@@ -42,7 +54,12 @@ export class GetMeUseCase {
     isAffiliate: boolean;
     affiliateCode: string | null;
     platform: { tag: string; name: string } | null;
-    ownedPlatforms: { id: string; tag: string; name: string; isActive: boolean }[];
+    ownedPlatforms: {
+      id: string;
+      tag: string;
+      name: string;
+      isActive: boolean;
+    }[];
     walletScope: 'owner' | 'shared-owner';
     wallet: {
       balance: number;
@@ -52,7 +69,7 @@ export class GetMeUseCase {
     };
     createdAt: string;
   }> {
-    const user = await this.users.findById(input.userId);
+    const user = (await this.users.findById(input.userId)) as MeUser | null;
     if (!user) {
       throw new UnauthorizedException('Usuário não encontrado');
     }
@@ -60,99 +77,36 @@ export class GetMeUseCase {
     const wallet = await this.prisma.wallet.findUnique({
       where: { userId: user.id },
     });
-    
+
     if (!wallet) {
       throw new UnauthorizedException('Wallet não encontrada');
     }
 
-    const ownedPlatforms = (user.ownedPlatforms ?? []).map((platform: { id: string; tag: string; name: string; isActive: boolean }) => ({ id: platform.id, tag: platform.tag, name: platform.name, isActive: platform.isActive }));
-    const sharedWallet = ownedPlatforms.length > 1;
-    const slug = sharedWallet ? '' : (user.platform?.tag || '').toLowerCase();
-    const renovadaId = (getPlatformOwnerId('RENOVADA') ?? '');
-    const useRenovadaWalletLedger =
-      slug === 'renovada' || slug === 'bosque';
-
-    const netBalance = sharedWallet ? Math.max(0, Number(wallet.balance) - Number(wallet.lockedBalance)) : await computeUserNetBalance(
-      this.prisma,
-      user.id,
-      user.platform?.tag,
+    const ownedPlatforms = (user.ownedPlatforms ?? []).map(
+      (platform: {
+        id: string;
+        tag: string;
+        name: string;
+        isActive: boolean;
+      }) => ({
+        id: platform.id,
+        tag: platform.tag,
+        name: platform.name,
+        isActive: platform.isActive,
+      }),
     );
+    const sharedWallet = ownedPlatforms.length > 1;
 
-    let walletResp: {
-      balance: number;
-      lockedBalance: number;
-      availableBalance: number;
-      netBalance: number;
+    // Fonte única: wallet (a mesma da validação do saque). Vale para plataforma própria, coprodução e afiliado.
+    const balance = Number(wallet.balance),
+      lockedBalance = Number(wallet.lockedBalance);
+    const available = Number(Math.max(0, balance - lockedBalance).toFixed(2));
+    const walletResp = {
+      balance: Number(balance.toFixed(2)),
+      lockedBalance: Number(lockedBalance.toFixed(2)),
+      availableBalance: available,
+      netBalance: available,
     };
-
-    if (sharedWallet) {
-      const balance = Number(wallet.balance), lockedBalance = Number(wallet.lockedBalance);
-      walletResp = { balance, lockedBalance, availableBalance: Math.max(0, balance - lockedBalance), netBalance: Math.max(0, balance - lockedBalance) };
-    } else if (useRenovadaWalletLedger) {
-      // wallet.balance armazena o valor líquido diretamente (netAmount já descontado das taxas)
-      const storedNet = Number(wallet.balance);
-      const pendingAggr = await this.prisma.withdrawRequest.aggregate({
-        where: { userId: user.id, status: 'PENDING' },
-        _sum: { grossAmount: true },
-      });
-      const pendingBruto = Number(pendingAggr._sum.grossAmount || 0);
-      const r2 = (n: number) => Number(n.toFixed(2));
-      walletResp = {
-        balance: r2(storedNet),
-        lockedBalance: r2(pendingBruto),
-        availableBalance: r2(netBalance),
-        netBalance: r2(netBalance),
-      };
-    } else {
-      const isBosqueWallet = slug === 'bosque';
-      const fallbackTag = canonicalPlatformTaxaTag(slug.toUpperCase() || 'GLOBAL');
-      const txRows = await this.prisma.transaction.findMany({
-        where: {
-          userId: user.id,
-          status: 'COMPLETED',
-          amount: { gt: 0 },
-          ...(isBosqueWallet ? {
-            NOT: {
-              OR: [
-                { description: { contains: 'Sincronização Bosque', mode: 'insensitive' } },
-                { description: { contains: 'Sincronizacao Bosque', mode: 'insensitive' } },
-                { description: { contains: 'Ajuste Administrativo', mode: 'insensitive' } },
-                { description: { contains: 'balance sync', mode: 'insensitive' } },
-              ],
-            },
-          } : {}),
-        },
-        select: { amount: true, description: true, createdAt: true },
-      });
-      const totalLiquidProfit = txRows.reduce((s, t) => {
-        const rowTag = platformTaxaTagFromText(t.description ?? undefined);
-        const effectiveTag = rowTag !== 'GLOBAL' ? rowTag : fallbackTag;
-        const liqRate = getPlatformTaxaEffective(effectiveTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
-        const svcRate = TAGS_SEM_TAXA_SERVICO.has(effectiveTag)
-          ? 0
-          : getPlatformTaxaEffective(effectiveTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-        const svcEffDate = effectiveTag === 'RENOVADA' || effectiveTag === 'BOSQUE' ? RENOVADA_TAXA_SERVICO_DATE : TAXA_SERVICO_EFFECTIVE_DATE;
-        const svcFee = svcRate > 0 && t.createdAt >= svcEffDate ? svcRate : 0;
-        return s + Number(t.amount) * liqRate - svcFee;
-      }, 0);
-      const completedAggr = await this.prisma.withdrawRequest.aggregate({
-        where: { userId: user.id, status: 'COMPLETED' },
-        _sum: { grossAmount: true },
-      });
-      const totalCompletedGross = Number(completedAggr._sum.grossAmount || 0);
-      const activeAggr = await this.prisma.withdrawRequest.aggregate({
-        where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } },
-        _sum: { grossAmount: true },
-      });
-      const lockedBalanceGross = Number(activeAggr._sum.grossAmount || 0);
-      const currentNetProfit = totalLiquidProfit - totalCompletedGross;
-      walletResp = {
-        balance: Number(currentNetProfit.toFixed(2)),
-        lockedBalance: Number(lockedBalanceGross.toFixed(2)),
-        availableBalance: netBalance,
-        netBalance,
-      };
-    }
 
     const tenant =
       user.platform != null
@@ -179,11 +133,16 @@ export class GetMeUseCase {
             isAdmin: user.role === 'ADMIN',
             isMasterAdmin: master,
             isClient: user.clientStatus != null,
-            clientStatus: (user.clientStatus ?? null) as 'PENDING' | 'APPROVED' | 'REJECTED' | null,
+            clientStatus: (user.clientStatus ?? null) as
+              | 'PENDING'
+              | 'APPROVED'
+              | 'REJECTED'
+              | null,
             isAffiliate: user.isAffiliate ?? false,
             affiliateCode: user.affiliateCode ?? null,
             platform: tenant,
-            ownedPlatforms, walletScope: sharedWallet ? 'shared-owner' : 'owner',
+            ownedPlatforms,
+            walletScope: sharedWallet ? 'shared-owner' : 'owner',
             wallet: walletResp,
             createdAt: user.createdAt.toISOString(),
           };
@@ -203,11 +162,16 @@ export class GetMeUseCase {
       isAdmin: user.role === 'ADMIN',
       isMasterAdmin: master,
       isClient: user.clientStatus != null,
-      clientStatus: (user.clientStatus ?? null) as 'PENDING' | 'APPROVED' | 'REJECTED' | null,
+      clientStatus: (user.clientStatus ?? null) as
+        | 'PENDING'
+        | 'APPROVED'
+        | 'REJECTED'
+        | null,
       isAffiliate: user.isAffiliate ?? false,
       affiliateCode: user.affiliateCode ?? null,
       platform: tenant,
-      ownedPlatforms, walletScope: sharedWallet ? 'shared-owner' : 'owner',
+      ownedPlatforms,
+      walletScope: sharedWallet ? 'shared-owner' : 'owner',
       wallet: walletResp,
       createdAt: user.createdAt.toISOString(),
     };
