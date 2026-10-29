@@ -85,11 +85,7 @@ export class PlatformSyncPersistenceService {
     const adapter = platformSyncAdapter(tag);
     if (!adapter) return;
     if (!adapter.directSync) return;
-    if (
-      getPlatformIntegrationValue(tag, 'DISABLE_SYNC') === 'true' ||
-      getPlatformIntegrationValue(tag, 'ENABLE_DOM_SYNC') !== 'true'
-    )
-      return;
+    if (getPlatformIntegrationValue(tag, 'ENABLE_DOM_SYNC') !== 'true') return;
     const token = getPlatformIntegrationValue(tag, 'DOM_TOKEN');
     if (!token) return;
     let changed = 0;

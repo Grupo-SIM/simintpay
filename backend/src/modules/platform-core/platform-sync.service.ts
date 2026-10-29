@@ -53,12 +53,6 @@ export class PlatformSyncService {
     });
     for (const platform of platforms) {
       if (
-        platform.integrations.some(
-          (row) => row.key === 'DISABLE_SYNC' && row.url === 'true',
-        )
-      )
-        continue;
-      if (
         !platform.integrations.some(
           (row) => row.key === 'ENABLE_DOM_SYNC' && row.url === 'true',
         )
