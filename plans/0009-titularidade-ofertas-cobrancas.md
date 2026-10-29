@@ -78,3 +78,11 @@ Estimativa preliminar: 2–4 semanas para titularidade, identidade/taxas e prepa
 - Este documento não transfere produtos, não redistribui saldos e não aplica migrações.
 - A migração já versionada de `Transaction.platformTag` deve continuar sem aplicação remota até autorização explícita.
 - O saldo atual conciliado não comprova, por si só, que cada venda histórica foi atribuída ao titular correto. Essa é a auditoria separada das fases A e C.
+
+## Progresso da implementação local — 2026-10-29
+
+Em andamento. Resolução comum de titular/executor aplicada aos cinco produtos existentes; seleção administrativa explícita e venda pessoal opcional nos formulários; guarda de edição preserva titular e plataforma. Novos registros recebem autoria, `userId` continua o destinatário financeiro. Tarifas usam identidade `USER:<id>` com fallback legado por conta; migração SQL aditiva preserva overrides existentes e zero. Checkout não usa e-mail/documento do comprador nem descrição para decidir comerciante.
+
+Validação local de tipos/build e cenários adversariais em execução. Migração somente criada, não aplicada remotamente. Auditoria humana de documentos ausentes, contas sombra e destinatários históricos permanece pendente; não há reatribuição de transações ou snapshots. Plano permanece em andamento até concluir esses itens e a validação final.
+
+Validação adicional: testes dos cinco criadores com e sem plataforma, autorização de arquivos e seleção em navegador local passaram. Endpoints comuns de gestão continuam limitados ao titular ou administrador; delegação de criação não concede listagem/edição geral. Reatribuição auditada e relatório de pendências históricas continuam pendentes. Identidade fiscal reutiliza CPF/CNPJ existente, sem novo fluxo de verificação. Credenciais de plataforma usam seu dono cadastrado como executor de usuário; auditoria da credencial é separada.

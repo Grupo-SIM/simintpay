@@ -14,6 +14,11 @@ import {
 } from 'class-validator';
 
 export class CreatePaymentLinkDto {
+  /** Explicit beneficiary; platform selection must agree with its registered owner. */
+  @IsOptional()
+  @IsString()
+  ownerUserId?: string;
+
   @IsOptional()
   @IsObject()
   coproduction?: unknown;
@@ -51,9 +56,6 @@ export class CreatePaymentLinkDto {
   @IsBoolean()
   @IsOptional()
   isStandalone?: boolean;
-
-
-
 
   @IsString()
   @IsOptional()

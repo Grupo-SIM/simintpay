@@ -310,6 +310,8 @@ model IntegrationWebhookDelivery {
 }
 
 model PaymentLink {
+  /// Executor only; userId remains the financial beneficiary. Null for unaudited legacy rows.
+  createdByUserId String?
   id               String        @id @default(uuid())
   userId           String
   code             String        @unique @default(uuid())
@@ -424,6 +426,8 @@ model PaymentLinkOfferSale {
 /// Cobrança por boleto — espelha o Link de Pagamento, mas cobra via boleto (à vista, sem parcelas).
 /// Criado na DOM Pagamentos via set-payment-link com paymentConfig.boleto = true.
 model Boleto {
+  /// Executor only; userId remains the financial beneficiary. Null for unaudited legacy rows.
+  createdByUserId String?
   id               String   @id @default(uuid())
   userId           String
   code             String   @unique @default(uuid())
@@ -465,6 +469,8 @@ model PaymentLinkFile {
 
 // ── Subscription Link (link de assinatura com recorrência) ───────────────────
 model SubscriptionLink {
+  /// Executor only; userId remains the financial beneficiary. Null for unaudited legacy rows.
+  createdByUserId String?
   id            String    @id @default(uuid())
   userId        String
   code          String    @unique @default(uuid())
@@ -636,6 +642,8 @@ model CommunitySubscriptionEvent {
 }
 
 model Plan {
+  /// Executor only; userId remains the financial beneficiary. Null for unaudited legacy rows.
+  createdByUserId String?
   id            String         @id @default(uuid())
   userId        String
   name          String
@@ -1037,6 +1045,8 @@ model ExternalPlatformWallet {
 // ── PIX Credit Plan (crédito de dias via PIX) ─────────────────────────────
 
 model PixCreditPlan {
+  /// Executor only; userId remains the financial beneficiary. Null for unaudited legacy rows.
+  createdByUserId String?
   id          String               @id @default(uuid())
   userId      String
   type        PlanType

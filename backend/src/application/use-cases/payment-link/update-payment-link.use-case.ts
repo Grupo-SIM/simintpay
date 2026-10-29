@@ -1,4 +1,8 @@
-import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
+import { assertOwnershipPreserved } from '../../helpers/financial-owner.helper';
+import {
+  assertExplicitPlatform,
+  platformGatewayToken,
+} from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -22,15 +26,27 @@ export class UpdatePaymentLinkUseCase {
     id: string;
     dto: UpdatePaymentLinkDto;
   }): Promise<{ data: unknown }> {
-    const existing = input.role === 'ADMIN'
-      ? await this.links.findById(input.id)
-      : await this.links.findByIdForUser({ id: input.id, userId: input.userId });
+    const existing =
+      input.role === 'ADMIN'
+        ? await this.links.findById(input.id)
+        : await this.links.findByIdForUser({
+            id: input.id,
+            userId: input.userId,
+          });
     if (!existing) throw new NotFoundException('Link não encontrado');
+    assertOwnershipPreserved(existing, input.dto);
 
-    const selectedTag = input.dto.plataformas !== undefined
-      ? assertExplicitPlatform({ id: input.userId, role: input.role }, input.dto.plataformas, true)
-      : existing.plataformas?.[0] ?? null;
-    const domToken = existing.domPaymentLinkId ? platformGatewayToken(selectedTag, process.env.DOM_TOKEN) : null;
+    const selectedTag =
+      input.dto.plataformas !== undefined
+        ? assertExplicitPlatform(
+            { id: input.userId, role: input.role },
+            input.dto.plataformas,
+            true,
+          )
+        : (existing.plataformas?.[0] ?? null);
+    const domToken = existing.domPaymentLinkId
+      ? platformGatewayToken(selectedTag, process.env.DOM_TOKEN)
+      : null;
 
     // Sincronizar com DOM apenas os campos que o gateway reconhece.
     // isStandalone e platformFeeNx são locais — o DOM não os conhece.
@@ -38,16 +54,20 @@ export class UpdatePaymentLinkUseCase {
     // local continua normalmente para não bloquear campos como isStandalone.
     if (domToken && existing.domPaymentLinkId) {
       try {
-        await this.gateway.updatePaymentLink(domToken, existing.domPaymentLinkId, {
-          title: input.dto.titulo,
-          description: input.dto.descricao ?? undefined,
-          amount: input.dto.valor,
-          maxInstallments: input.dto.parcelasMax,
-          isActive: input.dto.isActive,
-          aceitaCartao: input.dto.aceitaCartao,
-          aceitaPix: input.dto.aceitaPix,
-          redirectUrl: input.dto.redirectUrl,
-        });
+        await this.gateway.updatePaymentLink(
+          domToken,
+          existing.domPaymentLinkId,
+          {
+            title: input.dto.titulo,
+            description: input.dto.descricao ?? undefined,
+            amount: input.dto.valor,
+            maxInstallments: input.dto.parcelasMax,
+            isActive: input.dto.isActive,
+            aceitaCartao: input.dto.aceitaCartao,
+            aceitaPix: input.dto.aceitaPix,
+            redirectUrl: input.dto.redirectUrl,
+          },
+        );
       } catch (err: unknown) {
         // Falha no DOM não bloqueia a atualização local
         this.logger.warn(
@@ -60,7 +80,9 @@ export class UpdatePaymentLinkUseCase {
       title: input.dto.titulo ?? existing.title,
       description: input.dto.descricao ?? existing.description,
       amount: input.dto.valor ?? Number(existing.amount),
-      expiresAt: input.dto.dataExpiracao ? new Date(input.dto.dataExpiracao) : (existing as any).expiresAt ?? null,
+      expiresAt: input.dto.dataExpiracao
+        ? new Date(input.dto.dataExpiracao)
+        : ((existing as any).expiresAt ?? null),
       maxInstallments: input.dto.parcelasMax ?? existing.maxInstallments,
       isActive: input.dto.isActive ?? existing.isActive,
       aceitaCartao: input.dto.aceitaCartao ?? existing.aceitaCartao,
@@ -70,8 +92,12 @@ export class UpdatePaymentLinkUseCase {
       isStandalone: input.dto.isStandalone ?? (existing as any).isStandalone,
       webhookUrl: input.dto.webhookUrl ?? (existing as any).webhookUrl,
       maxUses: input.dto.maxUses ?? (existing as any).maxUses,
-      ...(input.dto.emailBody !== undefined && { emailBody: input.dto.emailBody }),
-      ...(input.dto.plataformas !== undefined && { plataformas: selectedTag ? [selectedTag] : [] }),
+      ...(input.dto.emailBody !== undefined && {
+        emailBody: input.dto.emailBody,
+      }),
+      ...(input.dto.plataformas !== undefined && {
+        plataformas: selectedTag ? [selectedTag] : [],
+      }),
     });
 
     return {
@@ -81,7 +107,9 @@ export class UpdatePaymentLinkUseCase {
         titulo: updated.title,
         descricao: updated.description ?? null,
         valor: Number(updated.amount),
-        dataExpiracao: (updated as any).expiresAt ? (updated as any).expiresAt.toISOString() : null,
+        dataExpiracao: (updated as any).expiresAt
+          ? (updated as any).expiresAt.toISOString()
+          : null,
         parcelasMax: updated.maxInstallments,
         ativo: updated.isActive,
         isStandalone: (updated as any).isStandalone,

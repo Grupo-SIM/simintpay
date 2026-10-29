@@ -10,6 +10,7 @@ export class PrismaPlanRepository implements IPlanRepository {
 
   async create(data: {
     coproduction?: unknown;
+    createdByUserId?: string;
     userId: string;
     name: string;
     description?: string | null;
@@ -27,26 +28,34 @@ export class PrismaPlanRepository implements IPlanRepository {
     emailBody?: string | null;
     plataformas?: string[];
   }): Promise<Plan> {
-    return createWithCoproduction(this.prisma, 'planos', data.userId, data.coproduction, tx => tx.plan.create({
-      data: {
-        userId: data.userId,
-        name: data.name,
-        description: data.description ?? undefined,
-        price: new Prisma.Decimal(data.price),
-        type: data.type,
-        frequency: data.frequency,
-        repetitions: data.repetitions,
-        retryDays: data.retryDays,
-        isActive: data.isActive ?? true,
-        webhookUrl: data.webhookUrl ?? undefined,
-        redirectUrl: data.redirectUrl ?? undefined,
-        domPlanId: data.domPlanId ?? undefined,
-        code: data.code ?? undefined,
-        paymentMethods: data.paymentMethods ?? undefined,
-        emailBody: data.emailBody ?? undefined,
-        plataformas: data.plataformas ?? [],
-      },
-    }));
+    return createWithCoproduction(
+      this.prisma,
+      'planos',
+      data.userId,
+      data.coproduction,
+      (tx) =>
+        tx.plan.create({
+          data: {
+            userId: data.userId,
+            createdByUserId: data.createdByUserId,
+            name: data.name,
+            description: data.description ?? undefined,
+            price: new Prisma.Decimal(data.price),
+            type: data.type,
+            frequency: data.frequency,
+            repetitions: data.repetitions,
+            retryDays: data.retryDays,
+            isActive: data.isActive ?? true,
+            webhookUrl: data.webhookUrl ?? undefined,
+            redirectUrl: data.redirectUrl ?? undefined,
+            domPlanId: data.domPlanId ?? undefined,
+            code: data.code ?? undefined,
+            paymentMethods: data.paymentMethods ?? undefined,
+            emailBody: data.emailBody ?? undefined,
+            plataformas: data.plataformas ?? [],
+          },
+        }),
+    );
   }
 
   async findManyByUserId(userId: string): Promise<Plan[]> {
@@ -87,9 +96,9 @@ export class PrismaPlanRepository implements IPlanRepository {
       description?: string | null;
       price: number;
       type: PlanType;
-    frequency?: number | null;
-    repetitions?: number | null;
-    retryDays?: number | null;
+      frequency?: number | null;
+      repetitions?: number | null;
+      retryDays?: number | null;
       isActive?: boolean;
       webhookUrl?: string | null;
       redirectUrl?: string | null;
@@ -117,7 +126,9 @@ export class PrismaPlanRepository implements IPlanRepository {
         code: data.code ?? undefined,
         paymentMethods: data.paymentMethods ?? undefined,
         ...(data.emailBody !== undefined && { emailBody: data.emailBody }),
-        ...(data.plataformas !== undefined && { plataformas: data.plataformas }),
+        ...(data.plataformas !== undefined && {
+          plataformas: data.plataformas,
+        }),
       },
     });
   }

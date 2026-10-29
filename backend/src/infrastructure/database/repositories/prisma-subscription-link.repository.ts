@@ -27,6 +27,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         tx.subscriptionLink.create({
           data: {
             userId: data.userId,
+            createdByUserId: data.createdByUserId,
             ownerEmail: data.ownerEmail ?? undefined,
             name: data.name,
             description: data.description ?? undefined,

@@ -1,4 +1,8 @@
 import {
+  assertOwnershipPreserved,
+  resolveFinancialOwner,
+} from '../../helpers/financial-owner.helper';
+import {
   captureCoproduction,
   withCoproduction,
 } from '../../../modules/coproduction/coproduction.service';
@@ -37,7 +41,7 @@ import {
 } from '../../../modules/coproduction/coproduction-view';
 import {
   getPlatformTaxaEffective,
-  buildClientTaxaTag,
+  buildUserTaxaTag,
 } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
@@ -109,52 +113,6 @@ export class PixPlanService {
   }
 
   /** Conta Simpay com mesmo documento (CPF ou CNPJ no campo `cpf`) */
-  private async findMerchantUserIdByDocumentDigits(
-    digits: string,
-  ): Promise<string | null> {
-    const variants: string[] = [digits];
-    if (digits.length === 11) {
-      variants.push(
-        digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'),
-      );
-    } else if (digits.length === 14) {
-      variants.push(
-        digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5'),
-      );
-    }
-    const user = await this.prisma.user.findFirst({
-      where: { OR: variants.map((cpf) => ({ cpf })) },
-      select: { id: true },
-    });
-    return user?.id ?? null;
-  }
-
-  /**
-   * Pagatg/integrações criam o plano com userId = usuário técnico (domToken).
-   * Transações e saldo devem ir para o usuário Simpay cujo `cpf` bate com [CPF:...|TAG].
-   */
-  private async resolveTransactionUserIdForPixPlan(plan: {
-    userId: string;
-    description: string | null;
-  }): Promise<string> {
-    const owner = await this.prisma.user.findUnique({
-      where: { id: plan.userId },
-      select: { email: true },
-    });
-    const isPlatformShadow = (owner?.email ?? '')
-      .toLowerCase()
-      .endsWith('@auto.simpay.com');
-    if (!isPlatformShadow) return plan.userId;
-
-    const docDigits = this.extractOwnerDocumentDigitsFromPlanDescription(
-      plan.description,
-    );
-    if (!docDigits) return plan.userId;
-
-    const merchantId = await this.findMerchantUserIdByDocumentDigits(docDigits);
-    return merchantId ?? plan.userId;
-  }
-
   private mapPixTypeToFrequency(
     pixType: string,
   ): 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR' {
@@ -183,8 +141,7 @@ export class PixPlanService {
         body.pixCreditPlanId,
       );
       if (planRow) {
-        effectiveUserId =
-          await this.resolveTransactionUserIdForPixPlan(planRow);
+        effectiveUserId = planRow.userId;
         if (planRow.tenantTag) {
           planTenantTag = planRow.tenantTag.toUpperCase();
         } else {
@@ -193,25 +150,12 @@ export class PixPlanService {
           );
           if (tagMatch) planTenantTag = tagMatch[1].toUpperCase();
         }
-        planOwnerCpf = this.extractOwnerDocumentDigitsFromPlanDescription(
-          planRow.description,
-        );
-        // 1º: nome da tag [NOME_DONO:] gravada na descrição do plano (planos novos via api-pagatg)
-        const nomeDonoMatch = (planRow.description ?? '').match(
-          /\[NOME_DONO:([^\]]+)\]/i,
-        );
-        planOwnerName = nomeDonoMatch ? nomeDonoMatch[1].trim() : null;
-        // 2º fallback: nome da conta Simpay vinculada (quando o merchant já tem conta)
-        if (!planOwnerName) {
-          const ownerUser = await this.prisma.user.findUnique({
-            where: { id: effectiveUserId },
-            select: { name: true, email: true },
-          });
-          const isShadow = (ownerUser?.email ?? '')
-            .toLowerCase()
-            .endsWith('@auto.simpay.com');
-          if (!isShadow) planOwnerName = ownerUser?.name?.trim() || null;
-        }
+        const merchant = await this.prisma.user.findUnique({
+          where: { id: planRow.userId },
+          select: { cpf: true, cnpj: true, name: true },
+        });
+        planOwnerCpf = merchant?.cnpj ?? merchant?.cpf ?? null;
+        planOwnerName = merchant?.name ?? null;
       }
     }
 
@@ -242,17 +186,16 @@ export class PixPlanService {
     if (!domToken)
       throw new UnauthorizedException('Credencial do gateway não configurada');
     // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-    const taxaTag =
-      tenantTag === 'GLOBAL' && body.email?.trim()
-        ? buildClientTaxaTag(body.email)
-        : tenantTag;
+    const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(tenantTag)
+      ? buildUserTaxaTag(effectiveUserId)
+      : tenantTag;
     const mdrPix = getPlatformTaxaEffective(
       taxaTag,
       'MDR_PIX',
       PLATFORM_TAXA_DEFAULTS.MDR_PIX,
     );
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, tenantTag),
+      await loadChargePolicy(this.prisma, taxaTag),
       amount,
       'PIX',
     );
@@ -695,6 +638,7 @@ export class PixPlanService {
   ) {
     const plan = await this.repo.findPixCreditPlanById(planId);
     if (!plan) throw new NotFoundException('Plano PIX não encontrado');
+    assertOwnershipPreserved(plan, body);
     if (role !== 'ADMIN' && plan.userId !== userId)
       throw new BadRequestException('Plano não pertence a este usuário');
 
@@ -823,23 +767,31 @@ export class PixPlanService {
     body: CreatePixCreditPlanDto,
   ) {
     // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
-    const owner = await this.prisma.user.findUnique({ where: { id: userId } });
+    const {
+      owner,
+      platformTag: explicitTag,
+      createdByUserId,
+    } = await resolveFinancialOwner(
+      {
+        findById: (id) =>
+          this.prisma.user.findUnique({
+            where: { id },
+            include: { platform: true },
+          }),
+        findByEmail: (email) =>
+          this.prisma.user.findUnique({ where: { email } }),
+      },
+      userId,
+      { ...body, platforms: body.tenantTag ? [body.tenantTag] : undefined },
+    );
     assertClientCanCreate(owner, body.price);
     const clientTag = clientTaxaTagFor(owner);
-
     const type = this.mapFrequencyToType(body.frequency_type);
-    // O produto de origem (ex.: PAGATG) sempre manda no tenant do plano — a mesma
-    // conta pode ser cliente SimintPay e também dona de um plano em outro produto.
-    // A tag CLIENT:<email> só se aplica quando o chamador não informou um tenant próprio.
-    const explicitTag = assertExplicitPlatform(
-      owner,
-      body.tenantTag ? [body.tenantTag] : undefined,
-      true,
-    );
     const tag = explicitTag ?? clientTag;
     const plan = await this.repo.createPixCreditPlan({
       coproduction: body.coproduction,
-      userId,
+      userId: owner.id,
+      createdByUserId,
       type,
       price: body.price,
       description: body.description,

@@ -6,6 +6,7 @@ export const SUBSCRIPTION_LINK_REPOSITORY = Symbol(
 
 export type CreateSubscriptionLinkData = {
   coproduction?: unknown;
+  createdByUserId?: string;
   userId: string;
   ownerEmail?: string | null;
   name: string;

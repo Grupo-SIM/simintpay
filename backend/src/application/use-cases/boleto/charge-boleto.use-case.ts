@@ -1,9 +1,20 @@
-import { captureCoproduction, withCoproduction } from '../../../modules/coproduction/coproduction.service';
+import {
+  captureCoproduction,
+  withCoproduction,
+} from '../../../modules/coproduction/coproduction.service';
 import { randomUUID } from 'node:crypto';
 import { persistLinkCharge } from '../../../modules/platform-core/link-settlement';
-import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
-import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  loadChargePolicy,
+  quoteFinancialCharge,
+} from '../../../modules/financial-policy/financial-charge';
+import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { BOLETO_REPOSITORY } from '../../../core/repositories/boleto.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
@@ -11,10 +22,9 @@ import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interfac
 import type { IBoletoRepository } from '../../../core/repositories/boleto.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
-import { getModuleDomToken } from '../../../modules/module.registry';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
-import { buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { buildUserTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { calculateBoletoFees } from './boleto-fees.helper';
 
 export type ChargeBoletoInput = {
@@ -57,7 +67,10 @@ export class ChargeBoletoUseCase {
     if (!boleto || !boleto.isActive) {
       throw new NotFoundException('Boleto não encontrado ou inativo');
     }
-    if (boleto.expiresAt && new Date(boleto.expiresAt).getTime() <= Date.now()) {
+    if (
+      boleto.expiresAt &&
+      new Date(boleto.expiresAt).getTime() <= Date.now()
+    ) {
       throw new NotFoundException('Boleto expirado');
     }
     if (boleto.maxUses != null && boleto.currentUses >= boleto.maxUses) {
@@ -65,13 +78,22 @@ export class ChargeBoletoUseCase {
     }
 
     const owner = await this.users.findById(boleto.userId);
-    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes((boleto.plataformas?.[0] ?? 'GLOBAL').toUpperCase()) ? null : clientTaxaTagFor(owner);
+    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(
+      (boleto.plataformas?.[0] ?? 'GLOBAL').toUpperCase(),
+    )
+      ? null
+      : clientTaxaTagFor(owner);
 
-    const domToken = platformGatewayToken(boleto.plataformas?.[0] ?? owner?.platform?.tag, process.env.DOM_TOKEN);
-    if (!domToken) throw new BadRequestException('Token do gateway não configurado');
+    const domToken = platformGatewayToken(
+      boleto.plataformas?.[0],
+      process.env.DOM_TOKEN,
+    );
+    if (!domToken)
+      throw new BadRequestException('Token do gateway não configurado');
 
     const document = input.customerDocument.replace(/\D/g, '');
-    const documentType = input.documentType ?? (document.length === 14 ? 'CNPJ' : 'CPF');
+    const documentType =
+      input.documentType ?? (document.length === 14 ? 'CNPJ' : 'CPF');
     const phone = (input.customerPhone ?? '').replace(/\D/g, '');
     const codExternal = `boleto-${boleto.id}-${Date.now()}`;
     const base = Number(boleto.amount);
@@ -89,35 +111,73 @@ export class ChargeBoletoUseCase {
       );
     }
 
-    const platformTag = (boleto.plataformas?.[0] as string | undefined)?.toUpperCase()
-      || owner?.platform?.tag?.toUpperCase()
-      || 'GLOBAL';
-    const taxaTag = ownerClientTag
-      ?? (platformTag === 'GLOBAL' && input.customerEmail?.trim()
-        ? buildClientTaxaTag(input.customerEmail)
+    const platformTag =
+      (boleto.plataformas?.[0] as string | undefined)?.toUpperCase() ||
+      'GLOBAL';
+    const taxaTag =
+      ownerClientTag ??
+      (['GLOBAL', 'SIMINTPAY'].includes(platformTag)
+        ? buildUserTaxaTag(boleto.userId)
         : platformTag);
 
-    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, platformTag), base, 'BOLETO');
+    const financialQuote = quoteFinancialCharge(
+      await loadChargePolicy(this.prisma, taxaTag),
+      base,
+      'BOLETO',
+    );
     const fees = financialQuote ?? calculateBoletoFees(base, taxaTag);
     const chargeId = randomUUID();
-    const coproduction = await captureCoproduction(this.prisma, 'boletos', boleto.id, boleto.userId, platformTag);
+    const coproduction = await captureCoproduction(
+      this.prisma,
+      'boletos',
+      boleto.id,
+      boleto.userId,
+      platformTag,
+    );
     const finalSettlement = Boolean(financialQuote || coproduction);
     const snapshot = {
-      userId: boleto.userId, amount: new Prisma.Decimal(financialQuote?.totalAmount ?? base), netAmount: new Prisma.Decimal(fees.netAmount),
-      paymentMethod: PaymentMethod.BOLETO, totalFee: new Prisma.Decimal(fees.platformFeeTotal),
-      domFee: new Prisma.Decimal(fees.domFeeAmount), platformFee: new Prisma.Decimal(fees.platformProfit),
-      description: platformTag !== 'GLOBAL' ? `${boleto.description ?? boleto.title} [TENANT:${platformTag}]` : (boleto.description ?? boleto.title),
-      customerName: input.customerName, customerEmail: input.customerEmail, customerDocument: document, customerPhone: phone || null,
-      financialSnapshot: withCoproduction(financialQuote?.financialSnapshot, coproduction),
+      userId: boleto.userId,
+      amount: new Prisma.Decimal(financialQuote?.totalAmount ?? base),
+      netAmount: new Prisma.Decimal(fees.netAmount),
+      paymentMethod: PaymentMethod.BOLETO,
+      totalFee: new Prisma.Decimal(fees.platformFeeTotal),
+      domFee: new Prisma.Decimal(fees.domFeeAmount),
+      platformFee: new Prisma.Decimal(fees.platformProfit),
+      description:
+        platformTag !== 'GLOBAL'
+          ? `${boleto.description ?? boleto.title} [TENANT:${platformTag}]`
+          : (boleto.description ?? boleto.title),
+      customerName: input.customerName,
+      customerEmail: input.customerEmail,
+      customerDocument: document,
+      customerPhone: phone || null,
+      financialSnapshot: withCoproduction(
+        financialQuote?.financialSnapshot,
+        coproduction,
+      ),
     };
-    if (finalSettlement) await this.prisma.$transaction(async tx => {
-      await tx.wallet.upsert({ where: { userId: boleto.userId }, update: {}, create: { userId: boleto.userId, balance: 0 } });
-      await tx.transaction.create({ data: { ...snapshot, id: chargeId, status: 'DRAFT', settlementBasis: 'FINAL_NET' } });
-    });
+    if (finalSettlement)
+      await this.prisma.$transaction(async (tx) => {
+        await tx.wallet.upsert({
+          where: { userId: boleto.userId },
+          update: {},
+          create: { userId: boleto.userId, balance: 0 },
+        });
+        await tx.transaction.create({
+          data: {
+            ...snapshot,
+            id: chargeId,
+            status: 'DRAFT',
+            settlementBasis: 'FINAL_NET',
+          },
+        });
+      });
 
     const result = await this.gateway.chargeBoletoForLink(domToken, {
       amount: financialQuote?.totalAmount ?? base,
-      description: finalSettlement ? `${snapshot.description} [LINK_CHARGE:${chargeId}]` : boleto.title,
+      description: finalSettlement
+        ? `${snapshot.description} [LINK_CHARGE:${chargeId}]`
+        : boleto.title,
       customerName: input.customerName,
       customerEmail: input.customerEmail,
       customerDocument: document,
@@ -147,47 +207,68 @@ export class ChargeBoletoUseCase {
       );
     }
 
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: boleto.userId } });
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: boleto.userId },
+    });
     if (!wallet) {
-      await this.prisma.wallet.create({ data: { userId: boleto.userId, balance: 0 } });
+      await this.prisma.wallet.create({
+        data: { userId: boleto.userId, balance: 0 },
+      });
     }
 
-    const savedTx = finalSettlement ? await this.prisma.$transaction(tx => persistLinkCharge(tx, { ...snapshot, domPaymentId: result.id }, TransactionStatus.PENDING, chargeId)) : await this.prisma.transaction.upsert({
-      where: { domPaymentId: result.id },
-      update: {
-        status: TransactionStatus.PENDING,
-        paymentMethod: PaymentMethod.BOLETO,
-        amount: new Prisma.Decimal(base),
-        netAmount: new Prisma.Decimal(fees.netAmount),
-        totalFee: new Prisma.Decimal(fees.platformFeeTotal),
-        domFee: new Prisma.Decimal(fees.domFeeAmount),
-        platformFee: new Prisma.Decimal(fees.platformProfit),
-        userId: boleto.userId,
-        description: platformTag !== 'GLOBAL' ? `${boleto.description ?? boleto.title} [TENANT:${platformTag}]` : (boleto.description ?? boleto.title),
-        customerName: input.customerName,
-        customerEmail: input.customerEmail,
-        customerDocument: document,
-        customerPhone: phone || null,
-      },
-      create: {
-        userId: boleto.userId,
-        amount: new Prisma.Decimal(base),
-        netAmount: new Prisma.Decimal(fees.netAmount),
-        status: TransactionStatus.PENDING,
-        paymentMethod: PaymentMethod.BOLETO,
-        totalFee: new Prisma.Decimal(fees.platformFeeTotal),
-        domFee: new Prisma.Decimal(fees.domFeeAmount),
-        platformFee: new Prisma.Decimal(fees.platformProfit),
-        domPaymentId: result.id,
-        description: platformTag !== 'GLOBAL' ? `${boleto.description ?? boleto.title} [TENANT:${platformTag}]` : (boleto.description ?? boleto.title),
-        customerName: input.customerName,
-        customerEmail: input.customerEmail,
-        customerDocument: document,
-        customerPhone: phone || null,
-      },
-    });
+    const savedTx = finalSettlement
+      ? await this.prisma.$transaction((tx) =>
+          persistLinkCharge(
+            tx,
+            { ...snapshot, domPaymentId: result.id },
+            TransactionStatus.PENDING,
+            chargeId,
+          ),
+        )
+      : await this.prisma.transaction.upsert({
+          where: { domPaymentId: result.id },
+          update: {
+            status: TransactionStatus.PENDING,
+            paymentMethod: PaymentMethod.BOLETO,
+            amount: new Prisma.Decimal(base),
+            netAmount: new Prisma.Decimal(fees.netAmount),
+            totalFee: new Prisma.Decimal(fees.platformFeeTotal),
+            domFee: new Prisma.Decimal(fees.domFeeAmount),
+            platformFee: new Prisma.Decimal(fees.platformProfit),
+            userId: boleto.userId,
+            description:
+              platformTag !== 'GLOBAL'
+                ? `${boleto.description ?? boleto.title} [TENANT:${platformTag}]`
+                : (boleto.description ?? boleto.title),
+            customerName: input.customerName,
+            customerEmail: input.customerEmail,
+            customerDocument: document,
+            customerPhone: phone || null,
+          },
+          create: {
+            userId: boleto.userId,
+            amount: new Prisma.Decimal(base),
+            netAmount: new Prisma.Decimal(fees.netAmount),
+            status: TransactionStatus.PENDING,
+            paymentMethod: PaymentMethod.BOLETO,
+            totalFee: new Prisma.Decimal(fees.platformFeeTotal),
+            domFee: new Prisma.Decimal(fees.domFeeAmount),
+            platformFee: new Prisma.Decimal(fees.platformProfit),
+            domPaymentId: result.id,
+            description:
+              platformTag !== 'GLOBAL'
+                ? `${boleto.description ?? boleto.title} [TENANT:${platformTag}]`
+                : (boleto.description ?? boleto.title),
+            customerName: input.customerName,
+            customerEmail: input.customerEmail,
+            customerDocument: document,
+            customerPhone: phone || null,
+          },
+        });
 
-    await this.boletos.update(boleto.id, { currentUses: boleto.currentUses + 1 });
+    await this.boletos.update(boleto.id, {
+      currentUses: boleto.currentUses + 1,
+    });
 
     return {
       id: result.id,

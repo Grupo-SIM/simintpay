@@ -9,6 +9,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
 
   async createPixCreditPlan(data: {
     coproduction?: unknown;
+    createdByUserId?: string;
     userId: string;
     type: string;
     price: number;
@@ -27,6 +28,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
         (tx as any).pixCreditPlan.create({
           data: {
             userId: data.userId,
+            createdByUserId: data.createdByUserId,
             type: data.type,
             price: data.price,
             description: data.description,

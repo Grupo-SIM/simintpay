@@ -1,4 +1,8 @@
-import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
+import { assertOwnershipPreserved } from '../../helpers/financial-owner.helper';
+import {
+  assertExplicitPlatform,
+  platformGatewayToken,
+} from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
@@ -12,43 +16,81 @@ import { CommunityManagementService } from '../../services/community-management.
 function frequenciaToPlanType(f: string): PlanType {
   switch (f.toUpperCase()) {
     case 'WEEKLY':
-    case 'SEMANAL': return PlanType.WEEKLY;
-    case 'TRIMESTRAL': return PlanType.TRIMESTRAL;
-    case 'SEMESTRAL': return PlanType.SEMESTRAL;
-    case 'ANUAL': return PlanType.ANUAL;
+    case 'SEMANAL':
+      return PlanType.WEEKLY;
+    case 'TRIMESTRAL':
+      return PlanType.TRIMESTRAL;
+    case 'SEMESTRAL':
+      return PlanType.SEMESTRAL;
+    case 'ANUAL':
+      return PlanType.ANUAL;
     case 'MONTHLY':
     case 'MENSAL':
-    default: return PlanType.MONTHLY;
+    default:
+      return PlanType.MONTHLY;
   }
 }
 
 @Injectable()
 export class UpdateSubscriptionLinkUseCase {
   constructor(
-    @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
+    @Inject(SUBSCRIPTION_LINK_REPOSITORY)
+    private readonly repo: ISubscriptionLinkRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly communities: CommunityManagementService,
   ) {}
 
-  async execute(input: { userId: string; role?: string; id: string; dto: UpdateSubscriptionLinkDto }) {
-    const existing = input.role === 'ADMIN'
-      ? await this.repo.findById(input.id)
-      : await this.repo.findByIdForUser({ id: input.id, userId: input.userId });
-    if (!existing) throw new NotFoundException('Link de assinatura não encontrado');
+  async execute(input: {
+    userId: string;
+    role?: string;
+    id: string;
+    dto: UpdateSubscriptionLinkDto;
+  }) {
+    const existing =
+      input.role === 'ADMIN'
+        ? await this.repo.findById(input.id)
+        : await this.repo.findByIdForUser({
+            id: input.id,
+            userId: input.userId,
+          });
+    if (!existing)
+      throw new NotFoundException('Link de assinatura não encontrado');
+    assertOwnershipPreserved(existing, input.dto);
 
-    const selectedTag = input.dto.plataformas !== undefined || input.dto.platformTag !== undefined
-      ? assertExplicitPlatform({ id: input.userId, role: input.role }, [...(input.dto.plataformas ?? existing.plataformas ?? []), ...((input.dto.platformTag ?? existing.platformTag) ? [input.dto.platformTag ?? existing.platformTag!] : [])], true)
-      : existing.platformTag ?? existing.plataformas?.[0] ?? null;
+    const selectedTag =
+      input.dto.plataformas !== undefined || input.dto.platformTag !== undefined
+        ? assertExplicitPlatform(
+            { id: input.userId, role: input.role },
+            [
+              ...(input.dto.plataformas ?? existing.plataformas ?? []),
+              ...((input.dto.platformTag ?? existing.platformTag)
+                ? [input.dto.platformTag ?? existing.platformTag!]
+                : []),
+            ],
+            true,
+          )
+        : (existing.platformTag ?? existing.plataformas?.[0] ?? null);
     const nextIsActive = input.dto.isActive ?? existing.isActive;
 
     // Propaga o status ativo/inativo para a DOM (bloqueia checkout e reassinatura externa)
     // quando o link tem plano na DOM e o status realmente mudou.
-    if (input.dto.isActive !== undefined && input.dto.isActive !== existing.isActive && existing.domPlanId) {
-      const domToken = platformGatewayToken(existing.platformTag ?? existing.plataformas?.[0], process.env.DOM_TOKEN);
+    if (
+      input.dto.isActive !== undefined &&
+      input.dto.isActive !== existing.isActive &&
+      existing.domPlanId
+    ) {
+      const domToken = platformGatewayToken(
+        existing.platformTag ?? existing.plataformas?.[0],
+        process.env.DOM_TOKEN,
+      );
       if (domToken) {
         try {
-          await this.gateway.updatePaymentLink(domToken, existing.domPlanId, { isActive: nextIsActive });
-        } catch { /* não bloqueia a atualização local */ }
+          await this.gateway.updatePaymentLink(domToken, existing.domPlanId, {
+            isActive: nextIsActive,
+          });
+        } catch {
+          /* não bloqueia a atualização local */
+        }
       }
     }
 
@@ -62,24 +104,36 @@ export class UpdateSubscriptionLinkUseCase {
     // domPlanId para que o próximo checkout de cartão recrie o plano na DOM com os valores
     // novos. (Assinantes atuais continuam no plano antigo; novos assinam pelo plano novo.)
     const planChanged =
-      (input.dto.valor !== undefined && newAmount !== Number(existing.amount)) ||
-      (input.dto.frequencia !== undefined && newFrequency !== (existing as any).frequencyType);
+      (input.dto.valor !== undefined &&
+        newAmount !== Number(existing.amount)) ||
+      (input.dto.frequencia !== undefined &&
+        newFrequency !== (existing as any).frequencyType);
 
     const updated = await this.repo.update(existing.id, {
       name: input.dto.nome ?? existing.name,
       description: input.dto.descricao ?? existing.description,
       amount: newAmount,
       frequencyType: newFrequency,
-      paymentMethods: input.dto.paymentMethods ?? (existing as any).paymentMethods,
+      paymentMethods:
+        input.dto.paymentMethods ?? (existing as any).paymentMethods,
       isActive: nextIsActive,
       isStandalone: input.dto.isStandalone ?? existing.isStandalone,
       redirectUrl: input.dto.redirectUrl ?? existing.redirectUrl,
       webhookUrl: input.dto.webhookUrl ?? existing.webhookUrl,
       maxUses: input.dto.maxUses ?? existing.maxUses,
-      platformTag: input.dto.platformTag !== undefined ? input.dto.platformTag : (existing as any).platformTag,
-      ...(planChanged && (existing as any).domPlanId ? { domPlanId: null } : {}),
-      ...(input.dto.emailBody !== undefined && { emailBody: input.dto.emailBody }),
-      ...(input.dto.plataformas !== undefined && { plataformas: selectedTag ? [selectedTag] : [] }),
+      platformTag:
+        input.dto.platformTag !== undefined
+          ? input.dto.platformTag
+          : (existing as any).platformTag,
+      ...(planChanged && (existing as any).domPlanId
+        ? { domPlanId: null }
+        : {}),
+      ...(input.dto.emailBody !== undefined && {
+        emailBody: input.dto.emailBody,
+      }),
+      ...(input.dto.plataformas !== undefined && {
+        plataformas: selectedTag ? [selectedTag] : [],
+      }),
     });
 
     return {

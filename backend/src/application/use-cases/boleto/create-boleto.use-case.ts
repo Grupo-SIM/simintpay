@@ -1,4 +1,5 @@
-import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
+import { resolveFinancialOwner } from '../../helpers/financial-owner.helper';
+import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { BOLETO_REPOSITORY } from '../../../core/repositories/boleto.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -7,8 +8,10 @@ import type { IBoletoRepository } from '../../../core/repositories/boleto.reposi
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { CreateBoletoDto } from '../../dtos/boleto/create-boleto.dto';
-import { getModuleDomToken } from '../../../modules/module.registry';
-import { assertClientCanCreate, clientTaxaTagFor } from '../../helpers/client-rules.helper';
+import {
+  assertClientCanCreate,
+  clientTaxaTagFor,
+} from '../../helpers/client-rules.helper';
 
 @Injectable()
 export class CreateBoletoUseCase {
@@ -34,15 +37,23 @@ export class CreateBoletoUseCase {
     };
   }> {
     // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
-    const user = await this.users.findById(input.userId);
+    const {
+      owner: user,
+      platformTag: selectedTag,
+      createdByUserId,
+    } = await resolveFinancialOwner(this.users, input.userId, {
+      ...input.dto,
+      platforms: input.dto.plataformas,
+    });
     assertClientCanCreate(user, input.dto.valor);
     const clientTag = clientTaxaTagFor(user);
 
-    const selectedTag = assertExplicitPlatform(user, input.dto.plataformas, true);
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
 
     if (!domToken) {
-      throw new UnauthorizedException('Token DOM não encontrado para este usuário/módulo');
+      throw new UnauthorizedException(
+        'Token DOM não encontrado para este usuário/módulo',
+      );
     }
 
     const vencimentoDias = input.dto.vencimentoDias ?? 3;
@@ -61,11 +72,14 @@ export class CreateBoletoUseCase {
 
     const saved = await this.boletos.create({
       coproduction: input.dto.coproduction,
-      userId: input.userId,
+      userId: user.id,
+      createdByUserId,
       title: input.dto.titulo,
       description: input.dto.descricao ?? null,
       amount: input.dto.valor,
-      expiresAt: input.dto.dataExpiracao ? new Date(input.dto.dataExpiracao) : null,
+      expiresAt: input.dto.dataExpiracao
+        ? new Date(input.dto.dataExpiracao)
+        : null,
       vencimentoDias,
       isActive: true,
       webhookUrl: input.dto.webhookUrl ?? null,

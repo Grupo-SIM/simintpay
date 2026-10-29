@@ -6,7 +6,7 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
 import {
   getPlatformTaxaEffective,
-  buildClientTaxaTag,
+  buildUserTaxaTag,
 } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { splitDocument } from '../../utils/document.util';
@@ -155,10 +155,9 @@ export class SubscriptionWebhookService {
     const effectivePlanTag =
       (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
     // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-    const taxaTag =
-      effectivePlanTag === 'GLOBAL' && subscription.customer?.email?.trim()
-        ? buildClientTaxaTag(subscription.customer.email)
-        : effectivePlanTag;
+    const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(effectivePlanTag)
+      ? buildUserTaxaTag(subscription.plan.userId)
+      : effectivePlanTag;
     // Taxa do vendedor: TAXA_LINK_PERCENT × base + TAXA_LINK_FIXA, cobrada uma vez por renovação
     // Se não tiver plataforma definida, usa as taxas do GLOBAL
     const basePlanPrice =
@@ -340,10 +339,9 @@ export class SubscriptionWebhookService {
     const effectivePlanTag =
       (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
     // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-    const taxaTag =
-      effectivePlanTag === 'GLOBAL' && subscription.customer?.email?.trim()
-        ? buildClientTaxaTag(subscription.customer.email)
-        : effectivePlanTag;
+    const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(effectivePlanTag)
+      ? buildUserTaxaTag(subscription.plan.userId)
+      : effectivePlanTag;
     // Taxa do vendedor: TAXA_LINK_PERCENT × base + TAXA_LINK_FIXA, cobrada uma vez por renovação
     // Se não tiver plataforma definida, usa as taxas do GLOBAL
     const basePlanPrice =
@@ -663,7 +661,7 @@ export class SubscriptionWebhookService {
       // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
       const taxaTag =
         effectivePlatformTag === 'GLOBAL' && linkOrder.customerEmail?.trim()
-          ? buildClientTaxaTag(linkOrder.customerEmail)
+          ? buildUserTaxaTag(linkOrder.subscriptionLink.userId)
           : effectivePlatformTag;
       const baseLinkPrice = Number(link.amount ?? 0);
       const sellerFeePercent = getPlatformTaxaEffective(

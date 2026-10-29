@@ -1,6 +1,7 @@
+import { resolveFinancialOwner } from '../../helpers/financial-owner.helper';
 import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
-import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
@@ -8,13 +9,18 @@ import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interfac
 import type { ISubscriptionLinkRepository } from '../../../core/repositories/subscription-link.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
-import type { CreateSubscriptionLinkDto, FrequencyTypeDto } from '../../dtos/subscription-link/create-subscription-link.dto';
-import { getModuleDomToken } from '../../../modules/module.registry';
+import type {
+  CreateSubscriptionLinkDto,
+  FrequencyTypeDto,
+} from '../../dtos/subscription-link/create-subscription-link.dto';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { CommunityManagementService } from '../../services/community-management.service';
-import { assertClientCanCreate, clientTaxaTagFor } from '../../helpers/client-rules.helper';
+import {
+  assertClientCanCreate,
+  clientTaxaTagFor,
+} from '../../helpers/client-rules.helper';
 
 // Frequências suportadas: apenas Semanal (WEEK), Mensal (MONTH) e Anual (YEAR) — os 3 tipos da DOM.
 function mapFrequency(f: FrequencyTypeDto): {
@@ -22,62 +28,75 @@ function mapFrequency(f: FrequencyTypeDto): {
   domFrequency: 'WEEK' | 'MONTH' | 'YEAR';
 } {
   switch (f) {
-    case 'SEMANAL': return { planType: PlanType.WEEKLY, domFrequency: 'WEEK' };
-    case 'ANUAL':   return { planType: PlanType.ANUAL,  domFrequency: 'YEAR' };
+    case 'SEMANAL':
+      return { planType: PlanType.WEEKLY, domFrequency: 'WEEK' };
+    case 'ANUAL':
+      return { planType: PlanType.ANUAL, domFrequency: 'YEAR' };
     case 'MENSAL':
-    default:        return { planType: PlanType.MONTHLY, domFrequency: 'MONTH' };
+    default:
+      return { planType: PlanType.MONTHLY, domFrequency: 'MONTH' };
   }
 }
 
 @Injectable()
 export class CreateSubscriptionLinkUseCase {
   constructor(
-    @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
+    @Inject(SUBSCRIPTION_LINK_REPOSITORY)
+    private readonly repo: ISubscriptionLinkRepository,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
     private readonly communities: CommunityManagementService,
   ) {}
 
-  async execute(input: { userId: string; role?: string; dto: CreateSubscriptionLinkDto }) {
-    let targetUserId = input.userId;
-    let ownerEmail: string | null = null;
-
-    // Admin criando link para outra conta: resolve userId pelo email informado
-    if (input.role === 'ADMIN' && input.dto.email) {
-      const targetUser = await this.prisma.user.findUnique({
-        where: { email: input.dto.email },
-        select: { id: true, email: true },
-      });
-      if (!targetUser) {
-        throw new NotFoundException(`Usuário com email "${input.dto.email}" não encontrado`);
-      }
-      targetUserId = targetUser.id;
-      ownerEmail = targetUser.email;
-    }
-
-    const owner = await this.users.findById(targetUserId);
-
-    // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
+  async execute(input: {
+    userId: string;
+    role?: string;
+    dto: CreateSubscriptionLinkDto;
+  }) {
+    const {
+      actor,
+      owner,
+      platformTag: selectedTag,
+      createdByUserId,
+    } = await resolveFinancialOwner(this.users, input.userId, {
+      ...input.dto,
+      platforms: [
+        ...(input.dto.plataformas ?? []),
+        ...(input.dto.platformTag ? [input.dto.platformTag] : []),
+      ],
+    });
+    if (input.dto.communityId && actor.role !== 'ADMIN')
+      throw new BadRequestException(
+        'Somente administradores podem vincular comunidades',
+      );
+    const targetUserId = owner.id;
+    const ownerEmail = owner.email;
     assertClientCanCreate(owner, input.dto.valor);
     const clientTag = clientTaxaTagFor(owner);
 
-    const selectedTag = assertExplicitPlatform({ ...owner!, role: input.role }, [...(input.dto.plataformas ?? []), ...(input.dto.platformTag ? [input.dto.platformTag] : [])], true);
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
-    if (!domToken) throw new BadRequestException('Token do gateway não configurado');
+    if (!domToken)
+      throw new BadRequestException('Token do gateway não configurado');
 
     const { planType, domFrequency } = mapFrequency(input.dto.frequencia);
     // Cliente: a taxa do cliente sempre incide → isStandalone=false (não-standalone aplica fee).
-    const isStandalone = clientTag ? false : (input.dto.isStandalone ?? true);
+    const isStandalone =
+      owner.clientStatus != null ? false : (input.dto.isStandalone ?? true);
 
     // Preço que o DOM cobrará do cliente no cartão = base × (1 + MDR_CC_1X + MDR_CC_MASTER_1X)
     // Cliente: resolve a taxa pela tag CLIENT:<email> (herda do GLOBAL).
     const platformTag = selectedTag ?? clientTag ?? 'GLOBAL';
     let domPrice = input.dto.valor;
     if (!isStandalone) {
-      const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+      const mdrDom1x = getPlatformTaxaEffective(
+        platformTag,
+        'MDR_CC_1X',
+        PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
+      );
       const mdrMaster1x = getCustomerInterestRate(platformTag, 1);
-      domPrice = Math.round(input.dto.valor * (1 + mdrDom1x + mdrMaster1x) * 100) / 100;
+      domPrice =
+        Math.round(input.dto.valor * (1 + mdrDom1x + mdrMaster1x) * 100) / 100;
     }
 
     // Sempre precisa de plano DOM para checkout (cartão e PIX), inclusive quando isStandalone=true.
@@ -95,6 +114,7 @@ export class CreateSubscriptionLinkUseCase {
     const saved = await this.repo.create({
       coproduction: input.dto.coproduction,
       userId: targetUserId,
+      createdByUserId,
       ownerEmail,
       name: input.dto.nome,
       description: input.dto.descricao ?? null,
@@ -102,7 +122,11 @@ export class CreateSubscriptionLinkUseCase {
       frequencyType: planType,
       isStandalone,
       platformFee: (() => {
-        const m1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+        const m1x = getPlatformTaxaEffective(
+          platformTag,
+          'MDR_CC_1X',
+          PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
+        );
         const mMaster = getCustomerInterestRate(platformTag, 1);
         return isStandalone ? 0 : Math.round((m1x + mMaster) * 10000) / 100;
       })(),

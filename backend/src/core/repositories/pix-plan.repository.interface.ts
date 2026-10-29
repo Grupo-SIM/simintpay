@@ -4,6 +4,7 @@ export interface IPixPlanRepository {
   // PixCreditPlan
   createPixCreditPlan(data: {
     coproduction?: unknown;
+    createdByUserId?: string;
     userId: string;
     type: string;
     price: number;

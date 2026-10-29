@@ -1,4 +1,3 @@
-import { getPlatformOwnerId } from '../../modules/module.registry';
 import {
   Body,
   Controller,
@@ -21,14 +20,17 @@ import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.st
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import {
-  buildClientTaxaTag,
-  applyPatchToOverrides,
+  buildUserTaxaTag,
   patchPlatformOverrides,
   getPlatformTaxaEffective,
 } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 
-type TaxaBody = { taxaCartao?: number; taxaPix?: number; taxaAssinatura?: number };
+type TaxaBody = {
+  taxaCartao?: number;
+  taxaPix?: number;
+  taxaAssinatura?: number;
+};
 
 /**
  * O painel do PagaTG grava marcações internas de dono/tenant no nome/descrição
@@ -40,7 +42,10 @@ type TaxaBody = { taxaCartao?: number; taxaPix?: number; taxaAssinatura?: number
 function stripInternalOwnerTags(text: string | null | undefined): string {
   if (!text) return text ?? '';
   let clean = text.replace(/\s+\d{11}\s+pagatg$/i, '');
-  clean = clean.replace(/\s*\[(?:CPF|CPF_DONO|NOME_DONO|TENANT)(?::|:\s*)[^\]]*\]/gi, '');
+  clean = clean.replace(
+    /\s*\[(?:CPF|CPF_DONO|NOME_DONO|TENANT)(?::|:\s*)[^\]]*\]/gi,
+    '',
+  );
   clean = clean.replace(/\s+pagatg$/i, '');
   return clean.trim();
 }
@@ -61,16 +66,20 @@ export class AdminClientesController {
         })
       : null;
     if (!requester || !isMasterAdminUser(requester)) {
-      throw new ForbiddenException('Somente o módulo master pode gerenciar clientes');
+      throw new ForbiddenException(
+        'Somente o módulo master pode gerenciar clientes',
+      );
     }
   }
 
-  private async applyTaxa(email: string, body: TaxaBody): Promise<void> {
-    const tag = buildClientTaxaTag(email);
+  private async applyTaxa(userId: string, body: TaxaBody): Promise<void> {
+    const tag = buildUserTaxaTag(userId);
     const patch: Record<string, number | null> = {};
-    if (body.taxaCartao != null) patch['MDR_CC_MASTER_1X'] = Number(body.taxaCartao);
+    if (body.taxaCartao != null)
+      patch['MDR_CC_MASTER_1X'] = Number(body.taxaCartao);
     if (body.taxaPix != null) patch['MDR_PIX'] = Number(body.taxaPix);
-    if (body.taxaAssinatura != null) patch['TAXA_ASSINATURA'] = Number(body.taxaAssinatura);
+    if (body.taxaAssinatura != null)
+      patch['TAXA_ASSINATURA'] = Number(body.taxaAssinatura);
     if (Object.keys(patch).length === 0) return;
     await patchPlatformOverrides(tag, patch);
   }
@@ -78,15 +87,26 @@ export class AdminClientesController {
   // ── Backfill: marca contas avulsas como cliente (clientStatus) ─────────────
   @Post('backfill-client-status')
   @ApiOperation({
-    summary: 'Backfill: marca contas avulsas (cliente direto) sem clientStatus como cliente APROVADO',
+    summary:
+      'Backfill: marca contas avulsas (cliente direto) sem clientStatus como cliente APROVADO',
     description:
       'Sem clientStatus a conta NÃO é reconhecida como cliente: a taxa individual (CLIENT:<email>) ' +
       'que o master configura nunca é aplicada na cobrança. Alvo: role=USER, sem plataforma/módulo e ' +
       'SEM vínculo de vendedor de plataforma externa (marcar esses mudaria a taxa deles de plataforma → CLIENT). ' +
       'Padrão é dry-run (só conta). Use dry=false para aplicar. Opcional: email=<conta> para marcar só uma.',
   })
-  @ApiQuery({ name: 'dry', required: false, description: "'true' (padrão) só simula/conta; 'false' aplica", example: 'true' })
-  @ApiQuery({ name: 'email', required: false, description: 'Marca apenas esta conta (ex.: tz@lucasebarbara.tzviagens.com.br)' })
+  @ApiQuery({
+    name: 'dry',
+    required: false,
+    description: "'true' (padrão) só simula/conta; 'false' aplica",
+    example: 'true',
+  })
+  @ApiQuery({
+    name: 'email',
+    required: false,
+    description:
+      'Marca apenas esta conta (ex.: tz@lucasebarbara.tzviagens.com.br)',
+  })
   async backfillClientStatus(
     @CurrentUser() authUser: JwtPayload,
     @Query('dry') dry = 'true',
@@ -102,7 +122,9 @@ export class AdminClientesController {
     // filtro. Marcá-las como cliente mudaria a taxa delas (tag da plataforma →
     // CLIENT:<email>), marcaria os links como SIMINTPAY e aplicaria o mínimo de
     // cliente. NUNCA podem entrar no backfill.
-    const PLATFORM_ACCOUNT_IDS = (await this.prisma.platform.findMany({ select: { ownerUserId: true } })).map((platform) => platform.ownerUserId);
+    const PLATFORM_ACCOUNT_IDS = (
+      await this.prisma.platform.findMany({ select: { ownerUserId: true } })
+    ).map((platform) => platform.ownerUserId);
 
     const where: Prisma.UserWhereInput = {
       role: Role.USER,
@@ -115,7 +137,9 @@ export class AdminClientesController {
       // Não marca vendedor de plataforma externa: virar "cliente" faria a cobrança
       // resolver a taxa por CLIENT:<email> em vez da tag da plataforma dele.
       externalPlatformUsers: { none: {} },
-      ...(alvoEmail ? { email: { equals: alvoEmail, mode: 'insensitive' } } : {}),
+      ...(alvoEmail
+        ? { email: { equals: alvoEmail, mode: 'insensitive' } }
+        : {}),
     };
 
     const afetados = await this.prisma.user.count({ where });
@@ -123,7 +147,14 @@ export class AdminClientesController {
     if (!apply) {
       const amostra = await this.prisma.user.findMany({
         where,
-        select: { id: true, name: true, email: true, cpf: true, cnpj: true, createdAt: true },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          cpf: true,
+          cnpj: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'desc' },
         take: 20,
       });
@@ -135,20 +166,38 @@ export class AdminClientesController {
         const u = await this.prisma.user.findFirst({
           where: { email: { equals: alvoEmail, mode: 'insensitive' } },
           select: {
-            id: true, email: true, name: true, role: true, cpf: true, cnpj: true,
-            clientStatus: true, platformId: true,
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            cpf: true,
+            cnpj: true,
+            clientStatus: true,
+            platformId: true,
             _count: { select: { externalPlatformUsers: true } },
           },
         });
         if (!u) {
-          diagnostico = { encontrado: false, motivos: ['Nenhuma conta com esse e-mail.'] };
+          diagnostico = {
+            encontrado: false,
+            motivos: ['Nenhuma conta com esse e-mail.'],
+          };
         } else {
           const motivos: string[] = [];
-          if (u.role !== Role.USER) motivos.push(`role é ${u.role} (o alvo é USER)`);
-          if (u.platformId) motivos.push('conta pertence a uma plataforma/módulo (platformId preenchido)');
-          if (u.clientStatus !== null) motivos.push(`clientStatus já é ${u.clientStatus} — nada a fazer, já é cliente`);
+          if (u.role !== Role.USER)
+            motivos.push(`role é ${u.role} (o alvo é USER)`);
+          if (u.platformId)
+            motivos.push(
+              'conta pertence a uma plataforma/módulo (platformId preenchido)',
+            );
+          if (u.clientStatus !== null)
+            motivos.push(
+              `clientStatus já é ${u.clientStatus} — nada a fazer, já é cliente`,
+            );
           if (u._count.externalPlatformUsers > 0) {
-            motivos.push('conta tem vínculo de vendedor de plataforma externa (excluída de propósito: marcar mudaria a taxa dela de plataforma para CLIENT)');
+            motivos.push(
+              'conta tem vínculo de vendedor de plataforma externa (excluída de propósito: marcar mudaria a taxa dela de plataforma para CLIENT)',
+            );
           }
           diagnostico = { encontrado: true, conta: u, motivos };
         }
@@ -159,7 +208,8 @@ export class AdminClientesController {
         afetados,
         amostra,
         ...(diagnostico ? { diagnostico } : {}),
-        comoAplicar: 'Rode de novo com dry=false para gravar (clientStatus=APPROVED).',
+        comoAplicar:
+          'Rode de novo com dry=false para gravar (clientStatus=APPROVED).',
       };
     }
 
@@ -174,13 +224,24 @@ export class AdminClientesController {
   // ── Backfill: plataforma SIMINTPAY em links/planos de clientes ─────────────
   @Post('backfill-plataforma-simintpay')
   @ApiOperation({
-    summary: 'Backfill: atribui plataforma SIMINTPAY aos links/planos de clientes sem plataforma',
+    summary:
+      'Backfill: atribui plataforma SIMINTPAY aos links/planos de clientes sem plataforma',
     description:
       'Só exibição/agrupamento — NÃO altera taxa (a taxa continua por CLIENT:<email> → SIM INT PAY/GLOBAL). ' +
       'Padrão é dry-run (só conta, não grava). Para aplicar de fato, use dry=false.',
   })
-  @ApiQuery({ name: 'dry', required: false, description: "'true' (padrão) só simula/conta; 'false' aplica de fato", example: 'true' })
-  @ApiQuery({ name: 'includeSubscriptions', required: false, description: "'true' inclui links de assinatura (SubscriptionLink)", example: 'false' })
+  @ApiQuery({
+    name: 'dry',
+    required: false,
+    description: "'true' (padrão) só simula/conta; 'false' aplica de fato",
+    example: 'true',
+  })
+  @ApiQuery({
+    name: 'includeSubscriptions',
+    required: false,
+    description: "'true' inclui links de assinatura (SubscriptionLink)",
+    example: 'false',
+  })
   async backfillPlataformaSimintpay(
     @CurrentUser() authUser: JwtPayload,
     @Query('dry') dry = 'true',
@@ -199,7 +260,11 @@ export class AdminClientesController {
     });
     const clientIds = clients.map((c) => c.id);
     if (clientIds.length === 0) {
-      return { dryRun: !apply, clientes: 0, message: 'Nenhum cliente SimintPay encontrado.' };
+      return {
+        dryRun: !apply,
+        clientes: 0,
+        message: 'Nenhum cliente SimintPay encontrado.',
+      };
     }
 
     // Alvo: link/plano de cliente SEM plataforma atribuída.
@@ -208,7 +273,9 @@ export class AdminClientesController {
     const [paymentLinks, plans, subscriptionLinks] = await Promise.all([
       this.prisma.paymentLink.count({ where }),
       this.prisma.plan.count({ where }),
-      withSubs ? this.prisma.subscriptionLink.count({ where }) : Promise.resolve(0),
+      withSubs
+        ? this.prisma.subscriptionLink.count({ where })
+        : Promise.resolve(0),
     ]);
 
     // Amostra (até 10) de links pra você conferir antes de aplicar.
@@ -225,7 +292,9 @@ export class AdminClientesController {
         afetados: {
           paymentLinks,
           plans,
-          subscriptionLinks: withSubs ? subscriptionLinks : 'ignorado (use includeSubscriptions=true)',
+          subscriptionLinks: withSubs
+            ? subscriptionLinks
+            : 'ignorado (use includeSubscriptions=true)',
         },
         amostraPaymentLinks,
         comoAplicar: 'Rode de novo com dry=false para gravar.',
@@ -233,10 +302,16 @@ export class AdminClientesController {
     }
 
     const [linksRes, plansRes, subsRes] = await Promise.all([
-      this.prisma.paymentLink.updateMany({ where, data: { plataformas: [TAG] } }),
+      this.prisma.paymentLink.updateMany({
+        where,
+        data: { plataformas: [TAG] },
+      }),
       this.prisma.plan.updateMany({ where, data: { plataformas: [TAG] } }),
       withSubs
-        ? this.prisma.subscriptionLink.updateMany({ where, data: { plataformas: [TAG] } })
+        ? this.prisma.subscriptionLink.updateMany({
+            where,
+            data: { plataformas: [TAG] },
+          })
         : Promise.resolve({ count: 0 }),
     ]);
 
@@ -247,7 +322,9 @@ export class AdminClientesController {
       atualizados: {
         paymentLinks: linksRes.count,
         plans: plansRes.count,
-        subscriptionLinks: withSubs ? subsRes.count : 'ignorado (use includeSubscriptions=true)',
+        subscriptionLinks: withSubs
+          ? subsRes.count
+          : 'ignorado (use includeSubscriptions=true)',
       },
     };
   }
@@ -255,9 +332,14 @@ export class AdminClientesController {
   // ── Gestão / aprovação ────────────────────────────────────────────────────
 
   @Get()
-  async list(@CurrentUser() authUser?: JwtPayload, @Query('status') status = 'all') {
+  async list(
+    @CurrentUser() authUser?: JwtPayload,
+    @Query('status') status = 'all',
+  ) {
     await this.assertMaster(authUser);
-    const where: { isCompany: boolean; clientStatus?: any } = { isCompany: true };
+    const where: { isCompany: boolean; clientStatus?: any } = {
+      isCompany: true,
+    };
     if (status === 'pending') where.clientStatus = 'PENDING';
     else if (status === 'approved') where.clientStatus = 'APPROVED';
     else if (status === 'rejected') where.clientStatus = 'REJECTED';
@@ -280,17 +362,17 @@ export class AdminClientesController {
     const data = clientes.map((c) => ({
       ...c,
       taxaCartao: getPlatformTaxaEffective(
-        buildClientTaxaTag(c.email),
+        buildUserTaxaTag(c.id),
         'MDR_CC_MASTER_1X',
         PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X,
       ),
       taxaPix: getPlatformTaxaEffective(
-        buildClientTaxaTag(c.email),
+        buildUserTaxaTag(c.id),
         'MDR_PIX',
         PLATFORM_TAXA_DEFAULTS.MDR_PIX,
       ),
       taxaAssinatura: getPlatformTaxaEffective(
-        buildClientTaxaTag(c.email),
+        buildUserTaxaTag(c.id),
         'TAXA_ASSINATURA',
         PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA,
       ),
@@ -311,16 +393,22 @@ export class AdminClientesController {
       where: { id },
       data: { clientStatus: 'APPROVED', clientApprovedAt: new Date() },
     });
-    await this.applyTaxa(user.email, body);
+    await this.applyTaxa(user.id, body);
     return { success: true };
   }
 
   @Patch(':id/rejeitar')
-  async rejeitar(@Param('id') id: string, @CurrentUser() authUser?: JwtPayload) {
+  async rejeitar(
+    @Param('id') id: string,
+    @CurrentUser() authUser?: JwtPayload,
+  ) {
     await this.assertMaster(authUser);
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('Cliente não encontrado');
-    await this.prisma.user.update({ where: { id }, data: { clientStatus: 'REJECTED' } });
+    await this.prisma.user.update({
+      where: { id },
+      data: { clientStatus: 'REJECTED' },
+    });
     return { success: true };
   }
 
@@ -333,17 +421,23 @@ export class AdminClientesController {
     await this.assertMaster(authUser);
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('Cliente não encontrado');
-    await this.applyTaxa(user.email, body);
+    await this.applyTaxa(user.id, body);
     return { success: true };
   }
 
   // ── Auditoria: itens criados por clientes ──────────────────────────────────
 
   @Get('planos')
-  async planos(@CurrentUser() authUser?: JwtPayload, @Query('clientId') clientId?: string) {
+  async planos(
+    @CurrentUser() authUser?: JwtPayload,
+    @Query('clientId') clientId?: string,
+  ) {
     await this.assertMaster(authUser);
     const rows = await this.prisma.plan.findMany({
-      where: { user: { clientStatus: { not: null } }, ...(clientId ? { userId: clientId } : {}) },
+      where: {
+        user: { clientStatus: { not: null } },
+        ...(clientId ? { userId: clientId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
@@ -351,10 +445,16 @@ export class AdminClientesController {
   }
 
   @Get('planos-pix')
-  async planosPix(@CurrentUser() authUser?: JwtPayload, @Query('clientId') clientId?: string) {
+  async planosPix(
+    @CurrentUser() authUser?: JwtPayload,
+    @Query('clientId') clientId?: string,
+  ) {
     await this.assertMaster(authUser);
     const rows = await this.prisma.pixCreditPlan.findMany({
-      where: { user: { clientStatus: { not: null } }, ...(clientId ? { userId: clientId } : {}) },
+      where: {
+        user: { clientStatus: { not: null } },
+        ...(clientId ? { userId: clientId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
@@ -368,10 +468,16 @@ export class AdminClientesController {
   }
 
   @Get('links-pagamento')
-  async linksPagamento(@CurrentUser() authUser?: JwtPayload, @Query('clientId') clientId?: string) {
+  async linksPagamento(
+    @CurrentUser() authUser?: JwtPayload,
+    @Query('clientId') clientId?: string,
+  ) {
     await this.assertMaster(authUser);
     const rows = await this.prisma.paymentLink.findMany({
-      where: { user: { clientStatus: { not: null } }, ...(clientId ? { userId: clientId } : {}) },
+      where: {
+        user: { clientStatus: { not: null } },
+        ...(clientId ? { userId: clientId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
@@ -379,23 +485,37 @@ export class AdminClientesController {
   }
 
   @Get('links-assinatura')
-  async linksAssinatura(@CurrentUser() authUser?: JwtPayload, @Query('clientId') clientId?: string) {
+  async linksAssinatura(
+    @CurrentUser() authUser?: JwtPayload,
+    @Query('clientId') clientId?: string,
+  ) {
     await this.assertMaster(authUser);
     const rows = await this.prisma.subscriptionLink.findMany({
-      where: { user: { clientStatus: { not: null } }, ...(clientId ? { userId: clientId } : {}) },
+      where: {
+        user: { clientStatus: { not: null } },
+        ...(clientId ? { userId: clientId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
     return { data: rows.map((r) => this.attach(r)) };
   }
 
-  private attach<T extends { user: { id: string; name: string; email: string }; name?: string; description?: string | null }>(
-    row: T,
-  ) {
+  private attach<
+    T extends {
+      user: { id: string; name: string; email: string };
+      name?: string;
+      description?: string | null;
+    },
+  >(row: T) {
     return {
       ...row,
-      ...(row.name !== undefined ? { name: stripInternalOwnerTags(row.name) } : {}),
-      ...(row.description !== undefined ? { description: stripInternalOwnerTags(row.description) } : {}),
+      ...(row.name !== undefined
+        ? { name: stripInternalOwnerTags(row.name) }
+        : {}),
+      ...(row.description !== undefined
+        ? { description: stripInternalOwnerTags(row.description) }
+        : {}),
       clientId: row.user.id,
       clientName: row.user.name,
       clientEmail: row.user.email,

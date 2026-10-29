@@ -1,19 +1,25 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { buildClientTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
+import { buildUserTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
 
 /** Valor mínimo (R$) que um cliente SimintPay pode usar ao criar link/plano. Configurável via env CLIENT_MIN_AMOUNT. */
 export const CLIENT_MIN_AMOUNT = Number(process.env.CLIENT_MIN_AMOUNT) || 14.99;
 
-type ClientUserLike = { email: string; clientStatus?: string | null };
+type ClientUserLike = {
+  id?: string;
+  email: string;
+  clientStatus?: string | null;
+};
 
 /** True se a conta é um cliente SimintPay (auto-cadastrado, qualquer status). */
 export function isClientUser(user: ClientUserLike | null | undefined): boolean {
   return !!user && user.clientStatus != null;
 }
 
-/** Tag de taxa do dono quando ele é cliente (CLIENT:<email>); null caso contrário. */
-export function clientTaxaTagFor(user: ClientUserLike | null | undefined): string | null {
-  return isClientUser(user) ? buildClientTaxaTag(user!.email) : null;
+/** Durable fee identity of the merchant; legacy email overrides are fallback only. */
+export function clientTaxaTagFor(
+  user: ClientUserLike | null | undefined,
+): string | null {
+  return user?.id ? buildUserTaxaTag(user.id) : null;
 }
 
 /**
