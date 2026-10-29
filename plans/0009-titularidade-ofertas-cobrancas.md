@@ -81,6 +81,8 @@ Estimativa preliminar: 2–4 semanas para titularidade, identidade/taxas e prepa
 
 ## Progresso da implementação local — 2026-10-29
 
+Invariantes implementados: [docs/product-ownership.md](../docs/product-ownership.md). Documento complementar mantém a regra atual explícita sem sobrescrever alterações concorrentes em `docs/business-rules.md`.
+
 Em andamento. Resolução comum de titular/executor aplicada aos cinco produtos existentes; seleção administrativa explícita e venda pessoal opcional nos formulários; guarda de edição preserva titular e plataforma. Novos registros recebem autoria, `userId` continua o destinatário financeiro. Tarifas usam identidade `USER:<id>` com fallback legado por conta; migração SQL aditiva preserva overrides existentes e zero. Checkout não usa e-mail/documento do comprador nem descrição para decidir comerciante.
 
 Validação local de tipos/build e cenários adversariais em execução. Migração somente criada, não aplicada remotamente. Auditoria humana de documentos ausentes, contas sombra e destinatários históricos permanece pendente; não há reatribuição de transações ou snapshots. Plano permanece em andamento até concluir esses itens e a validação final.
