@@ -12,6 +12,8 @@ export interface WalletLedgerEntry {
   balanceDelta?: Prisma.Decimal.Value;
   /** Change applied to wallet.lockedBalance. */
   lockedDelta?: Prisma.Decimal.Value;
+  /** Logged amount; defaults to the balance change, or the locked change when the balance is untouched. */
+  amount?: Prisma.Decimal.Value;
   transactionId?: string | null;
   description?: string | null;
   metadata?: Prisma.InputJsonValue;
@@ -48,7 +50,12 @@ export async function applyWalletEntry(
       source: entry.source,
       transactionId: entry.transactionId ?? null,
       description: entry.description ?? null,
-      amount: balanceDelta.isZero() ? lockedDelta : balanceDelta,
+      amount:
+        entry.amount === undefined
+          ? balanceDelta.isZero()
+            ? lockedDelta
+            : balanceDelta
+          : new Prisma.Decimal(entry.amount),
       balanceBefore: wallet.balance.sub(balanceDelta),
       balanceAfter: wallet.balance,
       lockedBefore: wallet.lockedBalance.sub(lockedDelta),

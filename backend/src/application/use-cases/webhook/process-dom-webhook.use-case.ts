@@ -1,15 +1,33 @@
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
-import { loadChargePolicy, quoteReportedPos } from '../../../modules/financial-policy/financial-charge';
+import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
+import {
+  loadChargePolicy,
+  quoteReportedPos,
+} from '../../../modules/financial-policy/financial-charge';
 import { isPhysicalDebit } from '../../helpers/dom-fee-estimate.helper';
-import { creditedSettlementAmount, bindLinkPayment, linkChargeReference, settleFinalNet } from '../../../modules/platform-core/link-settlement';
+import {
+  creditedSettlementAmount,
+  bindLinkPayment,
+  linkChargeReference,
+  settleFinalNet,
+} from '../../../modules/platform-core/link-settlement';
 import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
 import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
-import { getPlatformOwnerId, registeredPlatformTags } from '../../../modules/module.registry';
+import {
+  getPlatformOwnerId,
+  registeredPlatformTags,
+} from '../../../modules/module.registry';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
-import { QUEUE_SERVICE, type IQueueService } from '../../../core/services/queue.interface';
+import {
+  QUEUE_SERVICE,
+  type IQueueService,
+} from '../../../core/services/queue.interface';
 import { QueueNames } from '../../../infrastructure/queue/queue-names';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { PAYMENT_GATEWAY, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
+import {
+  PAYMENT_GATEWAY,
+  type IPaymentGateway,
+} from '../../../core/services/payment-gateway.interface';
 import { Prisma, PaymentMethod, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
@@ -23,12 +41,9 @@ import { AffiliateCommissionService } from '../../services/affiliate-commission.
 import {
   appendInternalTags,
   ORIGEM_MAQUINETA_TAG,
-  TENANT_AREAFLIX_TAG,
-  TENANT_BOSQUE_TAG,
   TENANT_CONTROLE_MOTORISTA_TAG,
   TENANT_CONTROLE_PATRIMONIAL_TAG,
   TENANT_EBOOK_TAG,
-  TENANT_RENOVADA_TAG,
 } from '../../utils/internal-tags.util';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
@@ -36,19 +51,34 @@ import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import { getEbookTaxaServico } from '../../../modules/ebooksim/ebooksim.config';
 import { calculateMaquinetaFees } from '../../helpers/maquineta-fee.helper';
 import { StorageService } from '../../../infrastructure/storage/storage.service';
-import { documentType, splitDocument as provisionDocPayload } from '../../utils/document.util';
-import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
+import {
+  documentType,
+  splitDocument as provisionDocPayload,
+} from '../../utils/document.util';
+import {
+  isAreaflixLink,
+  calculateAreaflixSellerNet,
+} from '../../helpers/areaflix-fees.helper';
 import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
-import { resolveLinkDelivery, sendLinkDelivery } from '../payment-link/payment-link-delivery';
+import {
+  resolveLinkDelivery,
+  sendLinkDelivery,
+} from '../payment-link/payment-link-delivery';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
-
 function machineOwners(): Record<string, string> {
-  return Object.fromEntries(registeredPlatformTags().flatMap((tag) => {
-    const owner = getPlatformOwnerId(tag);
-    return owner ? (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '').split(',').filter(Boolean).map((serial) => [serial.trim(), owner]) : [];
-  }));
+  return Object.fromEntries(
+    registeredPlatformTags().flatMap((tag) => {
+      const owner = getPlatformOwnerId(tag);
+      return owner
+        ? (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '')
+            .split(',')
+            .filter(Boolean)
+            .map((serial) => [serial.trim(), owner])
+        : [];
+    }),
+  );
 }
 
 // ─── Interfaces internas ──────────────────────────────────────────────────────
@@ -101,14 +131,16 @@ export class ProcessDomWebhookUseCase {
     @Optional() private readonly renovadaEvents?: RenovadaEventsService,
     @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
-    @Optional() @Inject(PAYMENT_GATEWAY) private readonly paymentGateway?: IPaymentGateway,
+    @Optional()
+    @Inject(PAYMENT_GATEWAY)
+    private readonly paymentGateway?: IPaymentGateway,
     @Optional() private readonly pixPlanService?: PixPlanService,
     @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
     @Optional() private readonly checkoutEvents?: CheckoutEventsService,
     @Optional() private readonly storage?: StorageService,
     @Optional() @Inject(QUEUE_SERVICE) private readonly queue?: IQueueService,
     @Optional() private readonly platformEvents?: PlatformEventsService,
-  ) { }
+  ) {}
 
   async execute(payload: unknown): Promise<void> {
     const event = this.parsePayload(payload);
@@ -122,23 +154,29 @@ export class ProcessDomWebhookUseCase {
       select: { id: true, status: true },
     });
     if (existingEv?.status === 'PROCESSED') {
-      this.logger.log(`[DomWebhook] ${event.signature} já registrado – ignorando`);
+      this.logger.log(
+        `[DomWebhook] ${event.signature} já registrado – ignorando`,
+      );
       return;
     }
 
     let wh: { id: string };
     try {
-      wh = existingEv ?? await this.prisma.webhookEvent.create({
-        data: {
-          eventId: event.signature,
-          source: 'dom-webhook-direct',
-          eventType: event.event,
-          payload: payload as never,
-        },
-      });
+      wh =
+        existingEv ??
+        (await this.prisma.webhookEvent.create({
+          data: {
+            eventId: event.signature,
+            source: 'dom-webhook-direct',
+            eventType: event.event,
+            payload: payload as never,
+          },
+        }));
     } catch (err: any) {
       if (err?.code === 'P2002') {
-        this.logger.log(`[DomWebhook] ${event.signature} corrida duplicada – ignorando`);
+        this.logger.log(
+          `[DomWebhook] ${event.signature} corrida duplicada – ignorando`,
+        );
         return;
       }
       throw err;
@@ -151,7 +189,11 @@ export class ProcessDomWebhookUseCase {
         await this.handleMachineSync(event, serial);
       } else {
         // Verificar se é uma SubscriptionLinkOrder
-        const handled = await this.handleSubscriptionLinkPix(event.data.id, event.data.status, wh.id);
+        const handled = await this.handleSubscriptionLinkPix(
+          event.data.id,
+          event.data.status,
+          wh.id,
+        );
         if (!handled) {
           await this.handleTransaction(event);
         }
@@ -163,7 +205,9 @@ export class ProcessDomWebhookUseCase {
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'unknown';
-      this.logger.error(`[DomWebhook] Erro ao processar ${event.signature}: ${msg}`);
+      this.logger.error(
+        `[DomWebhook] Erro ao processar ${event.signature}: ${msg}`,
+      );
       await this.prisma.webhookEvent.update({
         where: { id: wh.id },
         data: { status: 'FAILED', error: msg, retryCount: { increment: 1 } },
@@ -175,9 +219,11 @@ export class ProcessDomWebhookUseCase {
   // ─── Parsing e helpers ────────────────────────────────────────────────────
 
   private parsePayload(payload: unknown): RawDomWebhook | null {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+      return null;
     const p = payload as Record<string, unknown>;
-    if (typeof p.event !== 'string' || typeof p.signature !== 'string') return null;
+    if (typeof p.event !== 'string' || typeof p.signature !== 'string')
+      return null;
     const d = p.data;
     if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
     if (typeof (d as Record<string, unknown>).id !== 'string') return null;
@@ -234,7 +280,12 @@ export class ProcessDomWebhookUseCase {
     if (liquidAmountReais != null && liquidAmountReais > 0) {
       return new Prisma.Decimal(liquidAmountReais);
     }
-    return calculateSellerNetValue(amountReais, installments, tenantTag || 'GLOBAL', paymentMethod);
+    return calculateSellerNetValue(
+      amountReais,
+      installments,
+      tenantTag || 'GLOBAL',
+      paymentMethod,
+    );
   }
 
   /**
@@ -264,7 +315,11 @@ export class ProcessDomWebhookUseCase {
     if (!tenantTag) {
       return getPlatformTaxaEffective('RENOVADA', 'LIQUIDEZ', 0.91);
     }
-    return getPlatformTaxaEffective(tenantTag.toUpperCase(), 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ ?? 0.91);
+    return getPlatformTaxaEffective(
+      tenantTag.toUpperCase(),
+      'LIQUIDEZ',
+      PLATFORM_TAXA_DEFAULTS.LIQUIDEZ ?? 0.91,
+    );
   }
 
   private calcPaymentMethod(method?: string): PaymentMethod {
@@ -279,22 +334,39 @@ export class ProcessDomWebhookUseCase {
     const { data } = event;
     const nextStatus = this.mapStatus(data.status);
     if (!nextStatus) {
-      this.logger.warn(`[DomWebhook] Status desconhecido "${data.status}" – ignorando`);
+      this.logger.warn(
+        `[DomWebhook] Status desconhecido "${data.status}" – ignorando`,
+      );
       return;
     }
 
     // DOM Pagamentos envia amount e liquid_amount em CENTAVOS → dividir por 100
     const amountDec = new Prisma.Decimal(data.amount / 100);
 
-    const chargeReference = linkChargeReference(data.description ?? data.product_first ?? data.items?.[0]?.description);
+    const chargeReference = linkChargeReference(
+      data.description ?? data.product_first ?? data.items?.[0]?.description,
+    );
     const existing = await this.prisma.transaction.findFirst({
-      where: { OR: [{ domPaymentId: data.id }, ...(chargeReference ? [{ id: chargeReference, settlementBasis: 'FINAL_NET' }] : [])] },
+      where: {
+        OR: [
+          { domPaymentId: data.id },
+          ...(chargeReference
+            ? [{ id: chargeReference, settlementBasis: 'FINAL_NET' }]
+            : []),
+        ],
+      },
     });
 
     if (existing) {
       if (existing.status === nextStatus) {
-        if (this.queue && platformTaxaTagFromText(existing.description) === 'ZERO-GRAU') {
-          await this.queue.publish(QueueNames.ZERO_GRAU_NOTIFICATIONS, { paymentId: data.id, status: nextStatus });
+        if (
+          this.queue &&
+          platformTaxaTagFromText(existing.description) === 'ZERO-GRAU'
+        ) {
+          await this.queue.publish(QueueNames.ZERO_GRAU_NOTIFICATIONS, {
+            paymentId: data.id,
+            status: nextStatus,
+          });
         }
         return;
       }
@@ -313,35 +385,70 @@ export class ProcessDomWebhookUseCase {
         return;
       }
 
-      const isRenovada = platformTaxaTagFromText(existing.description) === 'RENOVADA';
-      const isBosque = platformTaxaTagFromText(existing.description) === 'BOSQUE';
+      const isRenovada =
+        platformTaxaTagFromText(existing.description) === 'RENOVADA';
+      const isBosque =
+        platformTaxaTagFromText(existing.description) === 'BOSQUE';
       // Renovada/Bosque: wallet stores net (DOM liquid_amount). Use liquid from webhook when available,
       // fall back to stored netAmount, then gross as last resort.
       let delta: Prisma.Decimal;
-      if (existing.settlementBasis === 'FINAL_NET' || (/^[a-f0-9]{64}$/.test(existing.id) && existing.netAmount != null)) {
+      if (
+        existing.settlementBasis === 'FINAL_NET' ||
+        (/^[a-f0-9]{64}$/.test(existing.id) && existing.netAmount != null)
+      ) {
         delta = new Prisma.Decimal(existing.netAmount!);
       } else if (isRenovada || isBosque) {
-        const domLiquid = data.liquid_amount != null ? new Prisma.Decimal(data.liquid_amount / 100) : null;
-        delta = domLiquid
-          ?? (existing.netAmount != null ? new Prisma.Decimal(existing.netAmount.toString()) : amountDec);
+        const domLiquid =
+          data.liquid_amount != null
+            ? new Prisma.Decimal(data.liquid_amount / 100)
+            : null;
+        delta =
+          domLiquid ??
+          (existing.netAmount != null
+            ? new Prisma.Decimal(existing.netAmount.toString())
+            : amountDec);
       } else if (existing.description?.includes('[TENANT:AREAFLIX]')) {
         // AREAFLIX: netAmount já é o líquido final do vendedor (% método + fixa
         // descontados na criação da transação) — sem taxas extras aqui.
-        delta = existing.netAmount != null
-          ? new Prisma.Decimal(existing.netAmount.toString())
-          : amountDec;
+        delta =
+          existing.netAmount != null
+            ? new Prisma.Decimal(existing.netAmount.toString())
+            : amountDec;
       } else if (existing.description?.includes('[TENANT:EBOOK]')) {
         // EBOOK: líquido = netAmount (% LIQUIDEZ) − TAXA_SERVICO, as taxas cadastradas exibidas em /taxa.
-        const netAmountDec = existing.netAmount != null
-          ? new Prisma.Decimal(existing.netAmount.toString())
-          : amountDec;
+        const netAmountDec =
+          existing.netAmount != null
+            ? new Prisma.Decimal(existing.netAmount.toString())
+            : amountDec;
         delta = netAmountDec.sub(getEbookTaxaServico());
       } else {
         const feeTag = 'GLOBAL';
-        delta = (existing.netAmount != null ? new Prisma.Decimal(existing.netAmount) : amountDec)
-          .sub(getPlatformTaxaEffective(feeTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO))
-          .sub(getPlatformTaxaEffective(feeTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK))
-          .sub(getPlatformTaxaEffective(feeTag, 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO));
+        delta = (
+          existing.netAmount != null
+            ? new Prisma.Decimal(existing.netAmount)
+            : amountDec
+        )
+          .sub(
+            getPlatformTaxaEffective(
+              feeTag,
+              'TAXA_FIXA_TRANSACAO',
+              PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
+            ),
+          )
+          .sub(
+            getPlatformTaxaEffective(
+              feeTag,
+              'TAXA_CASHBACK',
+              PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
+            ),
+          )
+          .sub(
+            getPlatformTaxaEffective(
+              feeTag,
+              'TAXA_SERVICO',
+              PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+            ),
+          );
       }
 
       const applied = await this.prisma.$transaction(async (p) => {
@@ -349,16 +456,29 @@ export class ProcessDomWebhookUseCase {
           await bindLinkPayment(p, existing, data.id);
           return settleFinalNet(p, existing, nextStatus, 'DOM_WEBHOOK');
         }
-        if (existing.status === TransactionStatus.COMPLETED && [TransactionStatus.REFUNDED, TransactionStatus.CHARGEBACK, TransactionStatus.IN_MEDIATION].includes(nextStatus as never)) {
+        if (
+          existing.status === TransactionStatus.COMPLETED &&
+          [
+            TransactionStatus.REFUNDED,
+            TransactionStatus.CHARGEBACK,
+            TransactionStatus.IN_MEDIATION,
+          ].includes(nextStatus as never)
+        ) {
           delta = await creditedSettlementAmount(p, existing.id, delta);
         }
         // Só aplica se o status ainda for o lido acima: dois webhooks simultâneos não creditam duas vezes.
         const statusChange = await p.transaction.updateMany({
           where: { id: existing.id, status: existing.status },
-          data: { previousStatus: existing.status, status: nextStatus, updatedAt: new Date() },
+          data: {
+            previousStatus: existing.status,
+            status: nextStatus,
+            updatedAt: new Date(),
+          },
         });
         if (statusChange.count === 0) {
-          this.logger.warn(`[DomWebhook] Status da tx ${existing.id} já foi alterado por outro webhook – ignorando`);
+          this.logger.warn(
+            `[DomWebhook] Status da tx ${existing.id} já foi alterado por outro webhook – ignorando`,
+          );
           return;
         }
 
@@ -396,7 +516,9 @@ export class ProcessDomWebhookUseCase {
         if (balanceDelta.isZero() && lockedDelta.isZero()) return;
 
         for (let attempt = 0; attempt < 3; attempt++) {
-          const wallet = await p.wallet.findUnique({ where: { userId: existing.userId } });
+          const wallet = await p.wallet.findUnique({
+            where: { userId: existing.userId },
+          });
           if (!wallet) throw new Error('wallet not found');
 
           const newBalance = wallet.balance.add(balanceDelta);
@@ -404,7 +526,11 @@ export class ProcessDomWebhookUseCase {
 
           const result = await p.wallet.updateMany({
             where: { id: wallet.id, version: wallet.version },
-            data: { balance: newBalance, lockedBalance: newLocked, version: { increment: 1 } },
+            data: {
+              balance: newBalance,
+              lockedBalance: newLocked,
+              version: { increment: 1 },
+            },
           });
 
           if (result.count > 0) {
@@ -439,7 +565,8 @@ export class ProcessDomWebhookUseCase {
             platformFee: existing.platformFee,
           });
         } else if (
-          (nextStatus === TransactionStatus.REFUNDED || nextStatus === TransactionStatus.CHARGEBACK) &&
+          (nextStatus === TransactionStatus.REFUNDED ||
+            nextStatus === TransactionStatus.CHARGEBACK) &&
           existing.status === TransactionStatus.COMPLETED
         ) {
           await this.affiliateCommission.reverseForTransaction(p, existing.id);
@@ -449,22 +576,43 @@ export class ProcessDomWebhookUseCase {
       if (applied === false) return;
 
       const eventTag = platformTaxaTagFromText(existing.description);
-      if (this.platformEvents && eventTag !== 'GLOBAL') this.platformEvents.emit(eventTag, 'transaction', { ...existing, status: nextStatus });
-      const zeroGrauUserId = String((getPlatformOwnerId('ZERO-GRAU') ?? '') ?? '').trim();
-      if (zeroGrauUserId && platformTaxaTagFromText(existing.description) === 'ZERO-GRAU') {
+      if (this.platformEvents && eventTag !== 'GLOBAL')
+        this.platformEvents.emit(eventTag, 'transaction', {
+          ...existing,
+          status: nextStatus,
+        });
+      const zeroGrauUserId = String(
+        getPlatformOwnerId('ZERO-GRAU') ?? '',
+      ).trim();
+      if (
+        zeroGrauUserId &&
+        platformTaxaTagFromText(existing.description) === 'ZERO-GRAU'
+      ) {
         const notification = { paymentId: data.id, status: nextStatus };
         if (this.queue) {
-          await this.queue.publish(QueueNames.ZERO_GRAU_NOTIFICATIONS, notification);
+          await this.queue.publish(
+            QueueNames.ZERO_GRAU_NOTIFICATIONS,
+            notification,
+          );
         } else {
           const result = await notifyZeroGrauPaymentStatus(notification);
           if (result === 'failed') {
-            this.logger.warn(`[DomWebhook][zero-grau] Falha ao notificar pagamento ${data.id}`);
+            this.logger.warn(
+              `[DomWebhook][zero-grau] Falha ao notificar pagamento ${data.id}`,
+            );
           }
         }
       }
 
-      if (platformTaxaTagFromText(existing.description) === 'RENOVADA' && this.renovadaEvents) {
-        if (!this.platformEvents) this.renovadaEvents.emitTransaction({ ...existing, status: nextStatus });
+      if (
+        platformTaxaTagFromText(existing.description) === 'RENOVADA' &&
+        this.renovadaEvents
+      ) {
+        if (!this.platformEvents)
+          this.renovadaEvents.emitTransaction({
+            ...existing,
+            status: nextStatus,
+          });
       }
 
       if (
@@ -478,12 +626,22 @@ export class ProcessDomWebhookUseCase {
 
         if (existing.description?.includes(TENANT_CONTROLE_MOTORISTA_TAG)) {
           void this.tryProvisionControleMotoristaUser(data, existing);
-          void this.upsertPlatformSubscriberAccess('CONTROLE-MOTORISTA', existing.id, data, existing);
+          void this.upsertPlatformSubscriberAccess(
+            'CONTROLE-MOTORISTA',
+            existing.id,
+            data,
+            existing,
+          );
         }
 
         if (existing.description?.includes(TENANT_CONTROLE_PATRIMONIAL_TAG)) {
           void this.tryProvisionControlePatrimonialUser(data, existing);
-          void this.upsertPlatformSubscriberAccess('CONTROLE-PATRIMONIAL', existing.id, data, existing);
+          void this.upsertPlatformSubscriberAccess(
+            'CONTROLE-PATRIMONIAL',
+            existing.id,
+            data,
+            existing,
+          );
         }
 
         // PIX-PLAN: creditar dias se a transação tiver um PixPlanOrder
@@ -497,25 +655,38 @@ export class ProcessDomWebhookUseCase {
               mobile_phone: data.customer?.mobile_phone,
             });
           } catch (pixPlanError: any) {
-            this.logger.error(`[DomWebhook] Erro ao processar PIX-PLAN para tx ${existing.id}: ${pixPlanError.message}`);
+            this.logger.error(
+              `[DomWebhook] Erro ao processar PIX-PLAN para tx ${existing.id}: ${pixPlanError.message}`,
+            );
           }
         }
 
         // SSE: notificar checkout de planos PIX em tempo real
-        this.pixPlanEvents?.emit({ transactionId: existing.id, status: 'COMPLETED' });
+        this.pixPlanEvents?.emit({
+          transactionId: existing.id,
+          status: 'COMPLETED',
+        });
 
         // SSE: notificar checkout genérico (ebook/pagatg) pelo domPaymentId
         if (data.id) {
-          this.checkoutEvents?.emit({ domPaymentId: data.id, status: 'COMPLETED' });
+          this.checkoutEvents?.emit({
+            domPaymentId: data.id,
+            status: 'COMPLETED',
+          });
         }
 
         // VOUCHER: Registrar uso se houver tag [VOUCHER:CODE] na descrição
-        const voucherMatch = (existing.description ?? '').match(/\[VOUCHER:([^\]]+)\]/);
+        const voucherMatch = (existing.description ?? '').match(
+          /\[VOUCHER:([^\]]+)\]/,
+        );
         if (voucherMatch) {
           const code = voucherMatch[1];
           try {
             const voucher = await this.prisma.voucher.findFirst({
-              where: { userId: existing.userId, code: code.toUpperCase().trim() },
+              where: {
+                userId: existing.userId,
+                code: code.toUpperCase().trim(),
+              },
             });
             if (voucher) {
               await this.voucherService.recordUsage({
@@ -524,12 +695,23 @@ export class ProcessDomWebhookUseCase {
                 customerEmail: existing.customerEmail ?? '',
                 customerDocument: existing.customerDocument ?? '',
                 originalAmount: Number(existing.amount),
-                discountAmount: Number(existing.amount) - (Number(existing.netAmount) / getPlatformTaxaEffective(existing.description?.includes(TENANT_EBOOK_TAG) ? 'EBOOK' : 'GLOBAL', 'LIQUIDEZ', 0.91)), // Aproximação do desconto
+                discountAmount:
+                  Number(existing.amount) -
+                  Number(existing.netAmount) /
+                    getPlatformTaxaEffective(
+                      existing.description?.includes(TENANT_EBOOK_TAG)
+                        ? 'EBOOK'
+                        : 'GLOBAL',
+                      'LIQUIDEZ',
+                      0.91,
+                    ), // Aproximação do desconto
                 finalAmount: Number(existing.amount),
               });
             }
           } catch (vErr) {
-            this.logger.error(`Erro ao registrar uso de voucher ${code}: ${vErr.message}`);
+            this.logger.error(
+              `Erro ao registrar uso de voucher ${code}: ${vErr.message}`,
+            );
           }
         }
 
@@ -540,12 +722,21 @@ export class ProcessDomWebhookUseCase {
 
         // Notificar webhook externo configurado no link de pagamento (ex: areaflix)
         if (existing.paymentLinkId) {
-          void this.notifyPaymentLinkExternalWebhook(existing, 'purchase_approved');
+          void this.notifyPaymentLinkExternalWebhook(
+            existing,
+            'purchase_approved',
+          );
         }
 
         // BETAI: pagamento do link de ENTRADA (R$249,99, pagamento único) → provisiona
         // a conta no Betai (cria conta + envia senha por e-mail). Gated pelo id do link.
-        if (existing.paymentLinkId && existing.paymentLinkId === String((getPlatformIntegrationValue('BETAI', 'ENTRY_LINK_ID') ?? undefined) ?? '').trim()) {
+        if (
+          existing.paymentLinkId &&
+          existing.paymentLinkId ===
+            String(
+              getPlatformIntegrationValue('BETAI', 'ENTRY_LINK_ID') ?? '',
+            ).trim()
+        ) {
           void this.tryProvisionBetaiUser(data, existing);
         }
       }
@@ -557,26 +748,35 @@ export class ProcessDomWebhookUseCase {
         existing.status === TransactionStatus.COMPLETED &&
         existing.paymentLinkId
       ) {
-        void this.notifyPaymentLinkExternalWebhook(existing, 'purchase_refunded');
+        void this.notifyPaymentLinkExternalWebhook(
+          existing,
+          'purchase_refunded',
+        );
       }
     } else {
       const amountReais = Number(data.amount) / 100;
-      const topKeys = Object.keys(data as Record<string, unknown>).slice(0, 18).join(',');
+      const topKeys = Object.keys(data as Record<string, unknown>)
+        .slice(0, 18)
+        .join(',');
       this.logger.log(
         `[DomWebhook][ebook] sem tx prévia domPaymentId=${data.id} status=${data.status} amount≈${amountReais} ` +
-          `hasEmail=${Boolean(data.customer?.email)} BACK_EBOOK_URL=${Boolean(String((getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined) ?? '').trim())} ` +
+          `hasEmail=${Boolean(data.customer?.email)} BACK_EBOOK_URL=${Boolean(String(getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? '').trim())} ` +
           `payloadKeys=[${topKeys}]`,
       );
       // Checkout ebook (back-ebook): não cria transação local antes do pagamento → não há domPaymentId na base.
       // Se o payload da DOM trouxer o número do pedido (ORD-AAAA-NNNNNN), notificamos o back-ebook aqui (substitui api-dom).
-      const ebookHandled = await this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
+      const ebookHandled =
+        await this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
       if (ebookHandled) {
         this.logger.log(
           `[DomWebhook] domPaymentId=${data.id} tratado como ebook: back-ebook notificado (sem tx prévia na machine).`,
         );
         // SSE: notificar checkout mesmo sem tx prévia (ebook sem EBOOK_PENDING)
         if (data.id) {
-          this.checkoutEvents?.emit({ domPaymentId: data.id, status: 'COMPLETED' });
+          this.checkoutEvents?.emit({
+            domPaymentId: data.id,
+            status: 'COMPLETED',
+          });
         }
         return;
       }
@@ -589,7 +789,6 @@ export class ProcessDomWebhookUseCase {
         `[DomWebhook] domPaymentId=${data.id} sem transação prévia. Ignorando criação para evitar mistura de tenant.`,
       );
       return;
-
     }
   }
 
@@ -597,7 +796,9 @@ export class ProcessDomWebhookUseCase {
    * Detecta pedido ebook (ORD-AAAA-NNNNNN) no payload da DOM e chama o back-ebook com token interno.
    * Fluxo oficial pós api-dom: api-machine recebe webhook DOM → confirma pedido no back-ebook.
    */
-  private extractEbookOrderNumberFromDomPayload(data: RawDomData): string | null {
+  private extractEbookOrderNumberFromDomPayload(
+    data: RawDomData,
+  ): string | null {
     const chunks: string[] = [];
     const push = (v: unknown) => {
       if (typeof v === 'string') chunks.push(v);
@@ -632,19 +833,33 @@ export class ProcessDomWebhookUseCase {
     if (store === 'ebook' || store === 'ebooksim') return true;
 
     const s = JSON.stringify(data).toLowerCase();
-    if (/["']store["']\s*:\s*["']ebook/.test(s) || /["']store["']\s*:\s*["']ebooksim/.test(s)) {
+    if (
+      /["']store["']\s*:\s*["']ebook/.test(s) ||
+      /["']store["']\s*:\s*["']ebooksim/.test(s)
+    ) {
       return true;
     }
-    const checkoutDomain = process.env.SIMPAY_CHECKOUT_URL
-      ?.replace(/^https?:\/\//i, '')
+    const checkoutDomain = process.env.SIMPAY_CHECKOUT_URL?.replace(
+      /^https?:\/\//i,
+      '',
+    )
       .split(/[/?#]/)[0]
       .toLowerCase();
-    if (checkoutDomain && s.includes(checkoutDomain) && (s.includes('ebook') || s.includes('ebooksim'))) {
+    if (
+      checkoutDomain &&
+      s.includes(checkoutDomain) &&
+      (s.includes('ebook') || s.includes('ebooksim'))
+    ) {
       return true;
     }
     if (s.includes('back.ebooksim.com')) return true;
-    if (/\borderid=/.test(s) && (s.includes('ebook') || s.includes('ebooksim'))) return true;
-    if (/\bordernumber=/.test(s) && (s.includes('ebook') || s.includes('ebooksim'))) return true;
+    if (/\borderid=/.test(s) && (s.includes('ebook') || s.includes('ebooksim')))
+      return true;
+    if (
+      /\bordernumber=/.test(s) &&
+      (s.includes('ebook') || s.includes('ebooksim'))
+    )
+      return true;
     return false;
   }
 
@@ -675,8 +890,11 @@ export class ProcessDomWebhookUseCase {
     }
 
     const relaxed =
-      String((getPlatformIntegrationValue('EBOOK', 'WEBHOOK_RELAXED') ?? undefined) ?? '').toLowerCase() === 'true' ||
-      String((getPlatformIntegrationValue('EBOOK', 'WEBHOOK_RELAXED') ?? undefined) ?? '') === '1';
+      String(
+        getPlatformIntegrationValue('EBOOK', 'WEBHOOK_RELAXED') ?? '',
+      ).toLowerCase() === 'true' ||
+      String(getPlatformIntegrationValue('EBOOK', 'WEBHOOK_RELAXED') ?? '') ===
+        '1';
 
     const suggestsEbook = this.domPayloadSuggestsEbookCheckout(detect);
     const looksEbook = suggestsEbook || relaxed;
@@ -698,7 +916,9 @@ export class ProcessDomWebhookUseCase {
       );
     }
 
-    const title = String(bodySource.product_first || bodySource.description || '').trim();
+    const title = String(
+      bodySource.product_first || bodySource.description || '',
+    ).trim();
     if (!title) {
       this.logger.warn(
         `[DomWebhook][ebook] domPaymentId=${bodySource.id} inferido ebook mas sem product_first/description`,
@@ -730,12 +950,19 @@ export class ProcessDomWebhookUseCase {
   }
 
   /** DOM v3: o webhook é pobre; GET /transactions/:id costuma trazer ORD- na descrição/checkout. */
-  private async fetchDomTransactionDetailJson(domPaymentId: string): Promise<string | null> {
+  private async fetchDomTransactionDetailJson(
+    domPaymentId: string,
+  ): Promise<string | null> {
     if (!this.paymentGateway) return null;
-    const domToken = String(process.env.DOM_TOKEN ?? process.env.API_DOM_MASTER_KEY ?? '').trim();
+    const domToken = String(
+      process.env.DOM_TOKEN ?? process.env.API_DOM_MASTER_KEY ?? '',
+    ).trim();
     if (!domToken) return null;
     try {
-      const detail = await this.paymentGateway.getDomTransactionDetail(domToken, domPaymentId);
+      const detail = await this.paymentGateway.getDomTransactionDetail(
+        domToken,
+        domPaymentId,
+      );
       if (detail == null) return null;
       return typeof detail === 'string' ? detail : JSON.stringify(detail);
     } catch (e) {
@@ -746,25 +973,42 @@ export class ProcessDomWebhookUseCase {
     }
   }
 
-  private async tryProvisionBetaiUser(data: RawDomData, existing: { customerEmail?: string | null; customerName?: string | null }): Promise<void> {
-    const url = String((getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
-    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+  private async tryProvisionBetaiUser(
+    data: RawDomData,
+    existing: { customerEmail?: string | null; customerName?: string | null },
+  ): Promise<void> {
+    const url = String(
+      getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? '',
+    ).replace(/\/+$/, '');
+    const token =
+      process.env.API_MACHINE_INTERNAL_TOKEN ||
+      process.env.INTERNAL_SERVICE_TOKEN ||
+      '';
     if (!url || !token) {
-      this.logger.warn(`[DomWebhook][betai] BETAI_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`);
+      this.logger.warn(
+        `[DomWebhook][betai] BETAI_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`,
+      );
       return;
     }
     const email = data.customer?.email ?? existing.customerEmail ?? '';
     const name = data.customer?.name ?? existing.customerName ?? '';
     if (!email || !name) {
-      this.logger.warn(`[DomWebhook][betai] email ou nome ausente — provisão ignorada domPaymentId=${data.id}`);
+      this.logger.warn(
+        `[DomWebhook][betai] email ou nome ausente — provisão ignorada domPaymentId=${data.id}`,
+      );
       return;
     }
     const endpoint = `${url}/internal/users/provision`;
-    this.logger.log(`[DomWebhook][betai] POST ${endpoint} email=${email} domPaymentId=${data.id}`);
+    this.logger.log(
+      `[DomWebhook][betai] POST ${endpoint} email=${email} domPaymentId=${data.id}`,
+    );
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-internal-token': token },
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-token': token,
+        },
         body: JSON.stringify({
           email,
           name,
@@ -774,34 +1018,57 @@ export class ProcessDomWebhookUseCase {
       });
       const text = await res.text();
       if (!res.ok) {
-        this.logger.error(`[DomWebhook][betai] provision HTTP ${res.status}: ${text.slice(0, 300)}`);
+        this.logger.error(
+          `[DomWebhook][betai] provision HTTP ${res.status}: ${text.slice(0, 300)}`,
+        );
         return;
       }
-      this.logger.log(`[DomWebhook][betai] provision OK email=${email} domPaymentId=${data.id}`);
+      this.logger.log(
+        `[DomWebhook][betai] provision OK email=${email} domPaymentId=${data.id}`,
+      );
     } catch (e: any) {
-      this.logger.error(`[DomWebhook][betai] fetch falhou domPaymentId=${data.id}: ${e?.message}`);
+      this.logger.error(
+        `[DomWebhook][betai] fetch falhou domPaymentId=${data.id}: ${e?.message}`,
+      );
     }
   }
 
-  private async tryProvisionControleMotoristaUser(data: RawDomData, existing: { customerEmail?: string | null; customerName?: string | null }): Promise<void> {
-    const url = String((getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
-    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+  private async tryProvisionControleMotoristaUser(
+    data: RawDomData,
+    existing: { customerEmail?: string | null; customerName?: string | null },
+  ): Promise<void> {
+    const url = String(
+      getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? '',
+    ).replace(/\/+$/, '');
+    const token =
+      process.env.API_MACHINE_INTERNAL_TOKEN ||
+      process.env.INTERNAL_SERVICE_TOKEN ||
+      '';
     if (!url || !token) {
-      this.logger.warn(`[DomWebhook][controle-motorista] CONTROLE_MOTORISTA_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`);
+      this.logger.warn(
+        `[DomWebhook][controle-motorista] CONTROLE_MOTORISTA_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`,
+      );
       return;
     }
     const email = data.customer?.email ?? existing.customerEmail ?? '';
     const name = data.customer?.name ?? existing.customerName ?? '';
     if (!email || !name) {
-      this.logger.warn(`[DomWebhook][controle-motorista] email ou nome ausente — provisão ignorada domPaymentId=${data.id}`);
+      this.logger.warn(
+        `[DomWebhook][controle-motorista] email ou nome ausente — provisão ignorada domPaymentId=${data.id}`,
+      );
       return;
     }
     const endpoint = `${url}/internal/users/provision`;
-    this.logger.log(`[DomWebhook][controle-motorista] POST ${endpoint} email=${email} domPaymentId=${data.id}`);
+    this.logger.log(
+      `[DomWebhook][controle-motorista] POST ${endpoint} email=${email} domPaymentId=${data.id}`,
+    );
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-internal-token': token },
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-token': token,
+        },
         body: JSON.stringify({
           email,
           name,
@@ -811,34 +1078,57 @@ export class ProcessDomWebhookUseCase {
       });
       const text = await res.text();
       if (!res.ok) {
-        this.logger.error(`[DomWebhook][controle-motorista] provision HTTP ${res.status}: ${text.slice(0, 300)}`);
+        this.logger.error(
+          `[DomWebhook][controle-motorista] provision HTTP ${res.status}: ${text.slice(0, 300)}`,
+        );
         return;
       }
-      this.logger.log(`[DomWebhook][controle-motorista] provision OK email=${email} domPaymentId=${data.id}`);
+      this.logger.log(
+        `[DomWebhook][controle-motorista] provision OK email=${email} domPaymentId=${data.id}`,
+      );
     } catch (e: any) {
-      this.logger.error(`[DomWebhook][controle-motorista] fetch falhou domPaymentId=${data.id}: ${e?.message}`);
+      this.logger.error(
+        `[DomWebhook][controle-motorista] fetch falhou domPaymentId=${data.id}: ${e?.message}`,
+      );
     }
   }
 
-  private async tryProvisionControlePatrimonialUser(data: RawDomData, existing: { customerEmail?: string | null; customerName?: string | null }): Promise<void> {
-    const url = String((getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
-    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+  private async tryProvisionControlePatrimonialUser(
+    data: RawDomData,
+    existing: { customerEmail?: string | null; customerName?: string | null },
+  ): Promise<void> {
+    const url = String(
+      getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ?? '',
+    ).replace(/\/+$/, '');
+    const token =
+      process.env.API_MACHINE_INTERNAL_TOKEN ||
+      process.env.INTERNAL_SERVICE_TOKEN ||
+      '';
     if (!url || !token) {
-      this.logger.warn(`[DomWebhook][controle-patrimonial] CONTROLE_PATRIMONIAL_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`);
+      this.logger.warn(
+        `[DomWebhook][controle-patrimonial] CONTROLE_PATRIMONIAL_URL ou token não configurado — provisão ignorada domPaymentId=${data.id}`,
+      );
       return;
     }
     const email = data.customer?.email ?? existing.customerEmail ?? '';
     const name = data.customer?.name ?? existing.customerName ?? '';
     if (!email || !name) {
-      this.logger.warn(`[DomWebhook][controle-patrimonial] email ou nome ausente — provisão ignorada domPaymentId=${data.id}`);
+      this.logger.warn(
+        `[DomWebhook][controle-patrimonial] email ou nome ausente — provisão ignorada domPaymentId=${data.id}`,
+      );
       return;
     }
     const endpoint = `${url}/internal/users/provision`;
-    this.logger.log(`[DomWebhook][controle-patrimonial] POST ${endpoint} email=${email} domPaymentId=${data.id}`);
+    this.logger.log(
+      `[DomWebhook][controle-patrimonial] POST ${endpoint} email=${email} domPaymentId=${data.id}`,
+    );
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-internal-token': token },
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-token': token,
+        },
         body: JSON.stringify({
           email,
           name,
@@ -848,12 +1138,18 @@ export class ProcessDomWebhookUseCase {
       });
       const text = await res.text();
       if (!res.ok) {
-        this.logger.error(`[DomWebhook][controle-patrimonial] provision HTTP ${res.status}: ${text.slice(0, 300)}`);
+        this.logger.error(
+          `[DomWebhook][controle-patrimonial] provision HTTP ${res.status}: ${text.slice(0, 300)}`,
+        );
         return;
       }
-      this.logger.log(`[DomWebhook][controle-patrimonial] provision OK email=${email} domPaymentId=${data.id}`);
+      this.logger.log(
+        `[DomWebhook][controle-patrimonial] provision OK email=${email} domPaymentId=${data.id}`,
+      );
     } catch (e: any) {
-      this.logger.error(`[DomWebhook][controle-patrimonial] fetch falhou domPaymentId=${data.id}: ${e?.message}`);
+      this.logger.error(
+        `[DomWebhook][controle-patrimonial] fetch falhou domPaymentId=${data.id}: ${e?.message}`,
+      );
     }
   }
 
@@ -886,18 +1182,27 @@ export class ProcessDomWebhookUseCase {
     planDays = 30,
   ): Promise<void> {
     const PLAN_DAYS = planDays > 0 ? planDays : 30;
-    const email = (data.customer?.email ?? existing.customerEmail ?? '').toLowerCase().trim();
+    const email = (data.customer?.email ?? existing.customerEmail ?? '')
+      .toLowerCase()
+      .trim();
     if (!email) return;
     const name = data.customer?.name ?? existing.customerName ?? undefined;
     const cpf = data.customer?.document ?? undefined;
     const phone = data.customer?.mobile_phone ?? undefined;
     const rawMethod = (data.payment_method ?? '').toUpperCase();
-    const lastPaymentMethod = rawMethod.includes('CREDIT') || rawMethod.includes('CARD') ? 'CREDIT_CARD' : 'PIX';
+    const lastPaymentMethod =
+      rawMethod.includes('CREDIT') || rawMethod.includes('CARD')
+        ? 'CREDIT_CARD'
+        : 'PIX';
     const now = new Date();
 
     try {
-      const current = await (this.prisma as any).platformSubscriberAccess.findUnique({
-        where: { platformTag_customerEmail: { platformTag, customerEmail: email } },
+      const current = await (
+        this.prisma as any
+      ).platformSubscriberAccess.findUnique({
+        where: {
+          platformTag_customerEmail: { platformTag, customerEmail: email },
+        },
       });
 
       if (current) {
@@ -909,13 +1214,19 @@ export class ProcessDomWebhookUseCase {
         if (current.isActive && current.expiresAt > now) {
           base = current.expiresAt;
         } else if (!current.isActive && current.frozenDays > 0) {
-          base = new Date(now.getTime() + current.frozenDays * 24 * 60 * 60 * 1000);
+          base = new Date(
+            now.getTime() + current.frozenDays * 24 * 60 * 60 * 1000,
+          );
         } else {
           base = now;
         }
-        const newExpiry = new Date(base.getTime() + PLAN_DAYS * 24 * 60 * 60 * 1000);
+        const newExpiry = new Date(
+          base.getTime() + PLAN_DAYS * 24 * 60 * 60 * 1000,
+        );
         await (this.prisma as any).platformSubscriberAccess.update({
-          where: { platformTag_customerEmail: { platformTag, customerEmail: email } },
+          where: {
+            platformTag_customerEmail: { platformTag, customerEmail: email },
+          },
           data: {
             isActive: true,
             expiresAt: newExpiry,
@@ -929,7 +1240,9 @@ export class ProcessDomWebhookUseCase {
           },
         });
       } else {
-        const newExpiry = new Date(now.getTime() + PLAN_DAYS * 24 * 60 * 60 * 1000);
+        const newExpiry = new Date(
+          now.getTime() + PLAN_DAYS * 24 * 60 * 60 * 1000,
+        );
         await (this.prisma as any).platformSubscriberAccess.create({
           data: {
             platformTag,
@@ -946,15 +1259,25 @@ export class ProcessDomWebhookUseCase {
           },
         });
       }
-      this.logger.log(`[DomWebhook][${platformTag}] PlatformSubscriberAccess upserted email=${email} +${PLAN_DAYS}d`);
+      this.logger.log(
+        `[DomWebhook][${platformTag}] PlatformSubscriberAccess upserted email=${email} +${PLAN_DAYS}d`,
+      );
     } catch (e: any) {
-      this.logger.error(`[DomWebhook][${platformTag}] PlatformSubscriberAccess upsert falhou: ${e?.message}`);
+      this.logger.error(
+        `[DomWebhook][${platformTag}] PlatformSubscriberAccess upsert falhou: ${e?.message}`,
+      );
     }
   }
 
-  private async tryNotifyBackEbookOrderPaidFromDomWebhook(data: RawDomData): Promise<boolean> {
+  private async tryNotifyBackEbookOrderPaidFromDomWebhook(
+    data: RawDomData,
+  ): Promise<boolean> {
     const st = String(data.status ?? '').toLowerCase();
-    if (!['paid', 'approved', 'completed', 'revision_paid', 'capture'].includes(st)) {
+    if (
+      !['paid', 'approved', 'completed', 'revision_paid', 'capture'].includes(
+        st,
+      )
+    ) {
       this.logger.log(
         `[DomWebhook][ebook] domPaymentId=${data.id} skip_notify reason=status_not_final status=${data.status}`,
       );
@@ -963,7 +1286,9 @@ export class ProcessDomWebhookUseCase {
 
     const bodySource = data;
     let detect: RawDomData = data;
-    const wantEnrich = Boolean(String((getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined) ?? '').trim());
+    const wantEnrich = Boolean(
+      String(getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? '').trim(),
+    );
     if (wantEnrich) {
       const blob = await this.fetchDomTransactionDetailJson(data.id);
       if (blob) {
@@ -977,7 +1302,8 @@ export class ProcessDomWebhookUseCase {
         );
         detect = {
           ...data,
-          description: `${String(data.description ?? '')} ${blob.slice(0, 20000)}`.trim(),
+          description:
+            `${String(data.description ?? '')} ${blob.slice(0, 20000)}`.trim(),
         };
       } else {
         this.logger.log(
@@ -993,9 +1319,13 @@ export class ProcessDomWebhookUseCase {
 
     const { orderNumber, email, descriptionLine, matchedOrdPattern } = payload;
 
-    const backEbookUrl = String((getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
+    const backEbookUrl = String(
+      getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? '',
+    ).replace(/\/+$/, '');
     const token =
-      process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+      process.env.API_MACHINE_INTERNAL_TOKEN ||
+      process.env.INTERNAL_SERVICE_TOKEN ||
+      '';
     if (!backEbookUrl || !token) {
       this.logger.warn(
         `[DomWebhook][ebook] domPaymentId=${data.id} orderRef=${orderNumber} bloqueado: ` +
@@ -1039,9 +1369,15 @@ export class ProcessDomWebhookUseCase {
       let ownerName: string | null = null;
       try {
         const parsed = JSON.parse(text);
-        ownerCpf = typeof parsed?.ownerCpf === 'string' ? parsed.ownerCpf : null;
-        ownerName = typeof parsed?.ownerName === 'string' ? parsed.ownerName.trim() || null : null;
-      } catch { /* resposta não-JSON, ignorar */ }
+        ownerCpf =
+          typeof parsed?.ownerCpf === 'string' ? parsed.ownerCpf : null;
+        ownerName =
+          typeof parsed?.ownerName === 'string'
+            ? parsed.ownerName.trim() || null
+            : null;
+      } catch {
+        /* resposta não-JSON, ignorar */
+      }
 
       void this.upsertEbookTransaction(data, orderNumber, ownerCpf, ownerName);
 
@@ -1057,13 +1393,20 @@ export class ProcessDomWebhookUseCase {
 
   /** Cria ou garante que existe uma Transaction local para o pedido ebook,
    *  permitindo que /admin/plataformas/ebook/transacoes e /internal/ebook/finance/* funcionem. */
-  private async upsertEbookTransaction(data: RawDomData, orderNumber: string, ownerCpf: string | null, ownerNameFromBack?: string | null): Promise<void> {
+  private async upsertEbookTransaction(
+    data: RawDomData,
+    orderNumber: string,
+    ownerCpf: string | null,
+    ownerNameFromBack?: string | null,
+  ): Promise<void> {
     try {
       const existing = await this.prisma.transaction.findFirst({
         where: { domPaymentId: data.id },
       });
       if (existing) {
-        this.logger.log(`[DomWebhook][ebook] tx local já existe id=${existing.id} para domPaymentId=${data.id}`);
+        this.logger.log(
+          `[DomWebhook][ebook] tx local já existe id=${existing.id} para domPaymentId=${data.id}`,
+        );
         return;
       }
 
@@ -1081,10 +1424,14 @@ export class ProcessDomWebhookUseCase {
       });
       if (pendingTx) {
         if (pendingTx.status === TransactionStatus.COMPLETED) {
-          this.logger.log(`[DomWebhook][ebook] tx ${pendingTx.id} já está COMPLETED – não credita de novo`);
+          this.logger.log(
+            `[DomWebhook][ebook] tx ${pendingTx.id} já está COMPLETED – não credita de novo`,
+          );
           return;
         }
-        this.logger.log(`[DomWebhook][ebook] atualizando tx PENDING → COMPLETED id=${pendingTx.id}`);
+        this.logger.log(
+          `[DomWebhook][ebook] atualizando tx PENDING → COMPLETED id=${pendingTx.id}`,
+        );
         const amountDec = new Prisma.Decimal(data.amount / 100);
         // EBOOK usa só as taxas cadastradas (LIQUIDEZ), não o líquido informado pela DOM
         const netDec = this.calcNet(
@@ -1094,13 +1441,23 @@ export class ProcessDomWebhookUseCase {
           'EBOOK',
           data.payment_method,
         );
-        const custName = (data as any).customer_name || data.customer?.name || null;
-        const custEmail = (data as any).customer_email || data.customer?.email || null;
-        const custDoc = ((data as any).customer_document || data.customer?.document || '').replace(/\D/g, '') || null;
+        const custName =
+          (data as any).customer_name || data.customer?.name || null;
+        const custEmail =
+          (data as any).customer_email || data.customer?.email || null;
+        const custDoc =
+          (
+            (data as any).customer_document ||
+            data.customer?.document ||
+            ''
+          ).replace(/\D/g, '') || null;
         await this.prisma.$transaction(async (p) => {
           // Condicional ao status: webhook repetido/simultâneo não conclui (nem credita) duas vezes
           const completed = await p.transaction.updateMany({
-            where: { id: pendingTx.id, status: { not: TransactionStatus.COMPLETED } },
+            where: {
+              id: pendingTx.id,
+              status: { not: TransactionStatus.COMPLETED },
+            },
             data: {
               status: 'COMPLETED',
               domPaymentId: data.id,
@@ -1116,9 +1473,12 @@ export class ProcessDomWebhookUseCase {
           });
           if (completed.count === 0) return;
           const walletDeltaPending = netDec.sub(getEbookTaxaServico());
-          await p.wallet.update({
-            where: { userId: pendingTx.userId },
-            data: { balance: { increment: walletDeltaPending }, updatedAt: new Date() },
+          await applyWalletEntry(p, {
+            userId: pendingTx.userId,
+            action: 'EBOOK_PENDING_COMPLETED',
+            source: 'DOM_WEBHOOK',
+            balanceDelta: walletDeltaPending,
+            transactionId: pendingTx.id,
           });
         });
         return;
@@ -1136,22 +1496,37 @@ export class ProcessDomWebhookUseCase {
               select: { id: true, name: true },
             })
           : await this.prisma.user.findFirst({
-              where: { cpf: { in: [docClean, docClean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')] } },
+              where: {
+                cpf: {
+                  in: [
+                    docClean,
+                    docClean.replace(
+                      /(\d{3})(\d{3})(\d{3})(\d{2})/,
+                      '$1.$2.$3-$4',
+                    ),
+                  ],
+                },
+              },
               select: { id: true, name: true },
             });
         ebookUserId = author?.id ?? null;
         ownerNameFromSimpay = author?.name?.trim() || null;
         if (ebookUserId) {
-          this.logger.log(`[DomWebhook][ebook] ${isCnpj ? 'CNPJ' : 'CPF'} ${docClean} → userId=${ebookUserId}`);
+          this.logger.log(
+            `[DomWebhook][ebook] ${isCnpj ? 'CNPJ' : 'CPF'} ${docClean} → userId=${ebookUserId}`,
+          );
         } else {
-          this.logger.log(`[DomWebhook][ebook] ${isCnpj ? 'CNPJ' : 'CPF'} ${docClean} sem conta na api-machine — usando conta genérica ebook`);
+          this.logger.log(
+            `[DomWebhook][ebook] ${isCnpj ? 'CNPJ' : 'CPF'} ${docClean} sem conta na api-machine — usando conta genérica ebook`,
+          );
         }
       }
 
       // Autor sem conta ainda: usar conta genérica ebook como placeholder
       if (!ebookUserId) {
-        ebookUserId = (getPlatformOwnerId('EBOOK') ?? '');
-        if (!ebookUserId) throw new Error('Plataforma EBOOK sem dono cadastrado');
+        ebookUserId = getPlatformOwnerId('EBOOK') ?? '';
+        if (!ebookUserId)
+          throw new Error('Plataforma EBOOK sem dono cadastrado');
       }
 
       await this.prisma.wallet.upsert({
@@ -1172,15 +1547,20 @@ export class ProcessDomWebhookUseCase {
 
       // Documento do dono na description garante reconhecimento quando ele criar conta no simpay
       // Prioridade: nome vindo do back-ebook (fonte primária) > nome da conta Simpay
-      const resolvedOwnerName = ownerNameFromBack?.trim() || ownerNameFromSimpay || null;
+      const resolvedOwnerName =
+        ownerNameFromBack?.trim() || ownerNameFromSimpay || null;
       const ownerDocClean = ownerCpf ? ownerCpf.replace(/\D/g, '') : '';
-      const cpfTag = ownerDocClean.length === 14
-        ? ` [CNPJ_DONO:${ownerDocClean}]`
-        : ownerDocClean.length === 11
-          ? ` [CPF_DONO:${ownerDocClean}]`
-          : '';
-      const nomeTag = resolvedOwnerName ? ` [NOME_DONO:${resolvedOwnerName}]` : '';
-      const description = appendInternalTags(orderNumber, [TENANT_EBOOK_TAG]) + cpfTag + nomeTag;
+      const cpfTag =
+        ownerDocClean.length === 14
+          ? ` [CNPJ_DONO:${ownerDocClean}]`
+          : ownerDocClean.length === 11
+            ? ` [CPF_DONO:${ownerDocClean}]`
+            : '';
+      const nomeTag = resolvedOwnerName
+        ? ` [NOME_DONO:${resolvedOwnerName}]`
+        : '';
+      const description =
+        appendInternalTags(orderNumber, [TENANT_EBOOK_TAG]) + cpfTag + nomeTag;
 
       await this.prisma.$transaction(async (p) => {
         const tx = await p.transaction.create({
@@ -1195,10 +1575,17 @@ export class ProcessDomWebhookUseCase {
             paymentMethod: this.calcPaymentMethod(data.payment_method),
             description,
             installments: Number(data.installments ?? 1),
-            customerName: (data as any).customer_name || data.customer?.name || '',
-            customerEmail: (data as any).customer_email || data.customer?.email || '',
-            customerDocument: (((data as any).customer_document || data.customer?.document || '') as string).replace(/\D/g, ''),
-            customerPhone: (data as any).customer_phone || data.customer?.mobile_phone || '',
+            customerName:
+              (data as any).customer_name || data.customer?.name || '',
+            customerEmail:
+              (data as any).customer_email || data.customer?.email || '',
+            customerDocument: (
+              ((data as any).customer_document ||
+                data.customer?.document ||
+                '') as string
+            ).replace(/\D/g, ''),
+            customerPhone:
+              (data as any).customer_phone || data.customer?.mobile_phone || '',
             createdAt: data.created_at ? new Date(data.created_at) : new Date(),
           },
         });
@@ -1215,7 +1602,9 @@ export class ProcessDomWebhookUseCase {
         // Atualizar saldo da wallet do usuário ebook
         const walletDeltaEbook = netDec.sub(getEbookTaxaServico());
         for (let attempt = 0; attempt < 3; attempt++) {
-          const wallet = await p.wallet.findUnique({ where: { userId: ebookUserId } });
+          const wallet = await p.wallet.findUnique({
+            where: { userId: ebookUserId },
+          });
           if (!wallet) break;
           const newBalance = wallet.balance.add(walletDeltaEbook);
           const updated = await p.wallet.updateMany({
@@ -1239,13 +1628,16 @@ export class ProcessDomWebhookUseCase {
             });
             break;
           }
-          if (attempt === 2) throw new Error('Wallet version conflict after 3 retries');
+          if (attempt === 2)
+            throw new Error('Wallet version conflict after 3 retries');
         }
 
         return tx;
       });
 
-      this.logger.log(`[DomWebhook][ebook] Transaction local criada para domPaymentId=${data.id} orderNumber=${orderNumber}`);
+      this.logger.log(
+        `[DomWebhook][ebook] Transaction local criada para domPaymentId=${data.id} orderNumber=${orderNumber}`,
+      );
     } catch (e) {
       this.logger.error(
         `[DomWebhook][ebook] Falha ao criar transaction local domPaymentId=${data.id}: ` +
@@ -1256,23 +1648,36 @@ export class ProcessDomWebhookUseCase {
 
   // ─── Máquinetas físicas ───────────────────────────────────────────────────
 
-  private async handleMachineSync(event: RawDomWebhook, serial: string): Promise<void> {
+  private async handleMachineSync(
+    event: RawDomWebhook,
+    serial: string,
+  ): Promise<void> {
     const { data } = event;
 
     if (data.status !== 'paid') {
-      this.logger.log(`[DomWebhook] Máquineta ${serial} status=${data.status} – sem sincronização`);
+      this.logger.log(
+        `[DomWebhook] Máquineta ${serial} status=${data.status} – sem sincronização`,
+      );
       return;
     }
 
     const userId = machineOwners()[serial];
-    const matches = registeredPlatformTags().filter((tag) => (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '').split(',').map((value) => value.trim()).includes(serial));
-    if (!userId || matches.length !== 1) throw new Error('Terminal sem plataforma única cadastrada');
+    const matches = registeredPlatformTags().filter((tag) =>
+      (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .includes(serial),
+    );
+    if (!userId || matches.length !== 1)
+      throw new Error('Terminal sem plataforma única cadastrada');
 
     const alreadySynced = await this.prisma.transaction.findFirst({
       where: { domPaymentId: data.id, userId },
     });
     if (alreadySynced) {
-      this.logger.log(`[DomWebhook] Máquineta ${serial} tx ${data.id} já sincronizada`);
+      this.logger.log(
+        `[DomWebhook] Máquineta ${serial} tx ${data.id} já sincronizada`,
+      );
       return;
     }
 
@@ -1289,9 +1694,29 @@ export class ProcessDomWebhookUseCase {
       Number(data.installments ?? 1),
       data.card_brand,
     );
-    const financialQuote = data.created_at ? quoteReportedPos(await loadChargePolicy(this.prisma, platformTag, new Date(data.created_at)), amountReais,
-      isPhysicalDebit(data.payment_method, data.card_brand) ? 'DEBIT_CARD' : /card|credit/i.test(data.payment_method ?? '') ? 'CREDIT_CARD' : 'PIX', Number(data.installments ?? 1)) : null;
-    if (financialQuote) fees = { simIntRate: 0, platformFeeAmt: financialQuote.platformProfit, netAmount: financialQuote.netAmount, domFeeAmt: financialQuote.domFeeAmount };
+    const financialQuote = data.created_at
+      ? quoteReportedPos(
+          await loadChargePolicy(
+            this.prisma,
+            platformTag,
+            new Date(data.created_at),
+          ),
+          amountReais,
+          isPhysicalDebit(data.payment_method, data.card_brand)
+            ? 'DEBIT_CARD'
+            : /card|credit/i.test(data.payment_method ?? '')
+              ? 'CREDIT_CARD'
+              : 'PIX',
+          Number(data.installments ?? 1),
+        )
+      : null;
+    if (financialQuote)
+      fees = {
+        simIntRate: 0,
+        platformFeeAmt: financialQuote.platformProfit,
+        netAmount: financialQuote.netAmount,
+        domFeeAmt: financialQuote.domFeeAmount,
+      };
     const amountDec = new Prisma.Decimal(amountReais);
     const netDec = new Prisma.Decimal(fees.netAmount);
 
@@ -1300,7 +1725,12 @@ export class ProcessDomWebhookUseCase {
         data: {
           userId,
           domPaymentId: data.id,
-          ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
+          ...(financialQuote
+            ? {
+                financialSnapshot: financialQuote.financialSnapshot,
+                settlementBasis: 'FINAL_NET' as const,
+              }
+            : {}),
           amount: amountDec,
           netAmount: netDec,
           totalFee: new Prisma.Decimal(fees.domFeeAmt + fees.platformFeeAmt),
@@ -1310,10 +1740,7 @@ export class ProcessDomWebhookUseCase {
           paymentMethod: this.calcPaymentMethod(data.payment_method),
           description: appendInternalTags(
             `Sincronização Automática - Terminal: ${serial}`,
-            [
-              `[TENANT:${platformTag}]`,
-              ORIGEM_MAQUINETA_TAG,
-            ],
+            [`[TENANT:${platformTag}]`, ORIGEM_MAQUINETA_TAG],
           ),
           installments: Number(data.installments ?? 1),
           customerName: data.customer?.name ?? 'Cliente POS',
@@ -1374,7 +1801,9 @@ export class ProcessDomWebhookUseCase {
     if (platformTag === 'RENOVADA' && this.renovadaEvents) {
       this.renovadaEvents.emitTransaction(tx);
     }
-    this.logger.log(`[DomWebhook] Máquineta sincronizada: ${serial} → tx ${tx.id}`);
+    this.logger.log(
+      `[DomWebhook] Máquineta sincronizada: ${serial} → tx ${tx.id}`,
+    );
   }
 
   // ─── SubscriptionLinkOrder ────────────────────────────────────────────────
@@ -1390,7 +1819,18 @@ export class ProcessDomWebhookUseCase {
     });
 
     if (!order) return false;
-    if (domStatus === 'paid' && order.financialSnapshot) await settleFinancialSubscription(this.prisma, { snapshot: order.financialSnapshot, amount: order.amountCharged, paymentId: domPixPaymentId, userId: order.userId, method: 'PIX', name: order.subscriptionLink.name, customerName: order.customerName, customerEmail: order.customerEmail, customerDocument: order.customerDocument });
+    if (domStatus === 'paid' && order.financialSnapshot)
+      await settleFinancialSubscription(this.prisma, {
+        snapshot: order.financialSnapshot,
+        amount: order.amountCharged,
+        paymentId: domPixPaymentId,
+        userId: order.userId,
+        method: 'PIX',
+        name: order.subscriptionLink.name,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        customerDocument: order.customerDocument,
+      });
 
     this.logger.log(
       `[DomWebhook] SubscriptionLinkOrder ${order.id} encontrada para domPixPaymentId=${domPixPaymentId}, status=${domStatus}`,
@@ -1432,7 +1872,10 @@ export class ProcessDomWebhookUseCase {
     });
 
     // SSE: notificar checkout de assinatura em tempo real
-    this.checkoutEvents?.emit({ domPaymentId: domPixPaymentId, status: 'COMPLETED' });
+    this.checkoutEvents?.emit({
+      domPaymentId: domPixPaymentId,
+      status: 'COMPLETED',
+    });
 
     // Ativar acesso à comunidade
     if (this.communities) {
@@ -1450,7 +1893,9 @@ export class ProcessDomWebhookUseCase {
             amountCharged: Number(order.amountCharged),
             subscriptionLinkOrderId: order.id,
           });
-          this.logger.log(`[DomWebhook] Acesso à comunidade ativado para order ${order.id}`);
+          this.logger.log(
+            `[DomWebhook] Acesso à comunidade ativado para order ${order.id}`,
+          );
         }
       } catch (err: unknown) {
         this.logger.error(
@@ -1479,7 +1924,9 @@ export class ProcessDomWebhookUseCase {
             orderId: order.id,
           });
         }
-        this.logger.log(`[DomWebhook] Email de acesso enviado para ${order.customerEmail}`);
+        this.logger.log(
+          `[DomWebhook] Email de acesso enviado para ${order.customerEmail}`,
+        );
       } catch (err: unknown) {
         this.logger.error(
           `[DomWebhook] Erro ao enviar email para order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`,
@@ -1488,11 +1935,13 @@ export class ProcessDomWebhookUseCase {
     }
 
     // AREAFLIX: líquido do vendedor = valor − % do método − taxa fixa (taxas do painel)
-    const isAfSubLink = !order.financialSnapshot && isAreaflixLink({
-      webhookUrl: order.subscriptionLink.webhookUrl,
-      platformTag: (order.subscriptionLink as any).platformTag,
-      plataformas: (order.subscriptionLink as any).plataformas,
-    });
+    const isAfSubLink =
+      !order.financialSnapshot &&
+      isAreaflixLink({
+        webhookUrl: order.subscriptionLink.webhookUrl,
+        platformTag: (order.subscriptionLink as any).platformTag,
+        plataformas: (order.subscriptionLink as any).plataformas,
+      });
     const afSubNet = isAfSubLink
       ? calculateAreaflixSellerNet(Number(order.amountCharged), 'PIX')
       : null;
@@ -1503,7 +1952,10 @@ export class ProcessDomWebhookUseCase {
       const simpayToken = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
       fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-simpay-token': simpayToken },
+        headers: {
+          'content-type': 'application/json',
+          'x-simpay-token': simpayToken,
+        },
         body: JSON.stringify({
           event: 'subscription_activated',
           customerEmail: order.customerEmail,
@@ -1515,7 +1967,10 @@ export class ProcessDomWebhookUseCase {
           netAmount:
             afSubNet ??
             Number(
-              (Number(order.amountCharged) - Number(order.platformFeeAmount ?? 0)).toFixed(2),
+              (
+                Number(order.amountCharged) -
+                Number(order.platformFeeAmount ?? 0)
+              ).toFixed(2),
             ),
           orderId: order.id,
           linkId: order.subscriptionLinkId,
@@ -1523,7 +1978,9 @@ export class ProcessDomWebhookUseCase {
           phone: order.customerPhone ?? undefined,
         }),
       }).catch((err: unknown) => {
-        this.logger.warn(`[DomWebhook] Falha ao notificar webhookUrl ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(
+          `[DomWebhook] Falha ao notificar webhookUrl ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       });
     }
 
@@ -1535,7 +1992,11 @@ export class ProcessDomWebhookUseCase {
       (whAf.includes('areaflix') ? 'AREAFLIX' : '')
     ).toUpperCase();
 
-    if (subPlatformTag && subPlatformTag !== 'GLOBAL' && order.domPixPaymentId) {
+    if (
+      subPlatformTag &&
+      subPlatformTag !== 'GLOBAL' &&
+      order.domPixPaymentId
+    ) {
       // Cria transação com [TENANT:{platform}] para QUALQUER plataforma associada ao link
       const exists = await this.prisma.transaction.findFirst({
         where: { domPaymentId: order.domPixPaymentId },
@@ -1569,29 +2030,16 @@ export class ProcessDomWebhookUseCase {
         if (afSubNet != null) {
           const netDec = new Prisma.Decimal(afSubNet.toFixed(2));
           try {
-            const wallet = await this.prisma.wallet.upsert({
-              where: { userId: order.userId },
-              update: {},
-              create: { userId: order.userId, balance: 0, lockedBalance: 0 },
-            });
-            const after = await this.prisma.wallet.update({
-              where: { userId: order.userId },
-              data: { balance: { increment: netDec }, version: { increment: 1 } },
-            });
-            await this.prisma.balanceLog.create({
-              data: {
+            await this.prisma.$transaction((tx) =>
+              applyWalletEntry(tx, {
                 userId: order.userId,
                 action: 'SUBSCRIPTION_LINK_PIX',
-                transactionId: newTx.id,
-                amount: netDec,
-                balanceBefore: wallet.balance,
-                balanceAfter: after.balance,
-                lockedBefore: wallet.lockedBalance,
-                lockedAfter: wallet.lockedBalance,
                 source: 'SUBSCRIPTION_LINK',
+                balanceDelta: netDec,
+                transactionId: newTx.id,
                 description: `Assinatura areaflix ${order.subscriptionLink.name} subOrder=${order.id}`,
-              },
-            });
+              }),
+            );
           } catch (err: unknown) {
             this.logger.error(
               `[DomWebhook] Falha ao creditar carteira areaflix (order ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
@@ -1616,14 +2064,25 @@ export class ProcessDomWebhookUseCase {
       }
       // CONTROLE-MOTORISTA: provisionar conta no saas-consumo-back
       if (subPlatformTag === 'CONTROLE-MOTORISTA') {
-        const url = String((getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
-        const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+        const url = String(
+          getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ??
+            '',
+        ).replace(/\/+$/, '');
+        const token =
+          process.env.API_MACHINE_INTERNAL_TOKEN ||
+          process.env.INTERNAL_SERVICE_TOKEN ||
+          '';
         if (!url || !token) {
-          this.logger.warn('[DomWebhook][CONTROLE-MOTORISTA] CONTROLE_MOTORISTA_URL ou token não configurado — provisão e acesso ignorados');
+          this.logger.warn(
+            '[DomWebhook][CONTROLE-MOTORISTA] CONTROLE_MOTORISTA_URL ou token não configurado — provisão e acesso ignorados',
+          );
         } else if (order.customerEmail && order.customerName) {
           fetch(`${url}/internal/users/provision`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json', 'x-internal-token': token },
+            headers: {
+              'content-type': 'application/json',
+              'x-internal-token': token,
+            },
             body: JSON.stringify({
               email: order.customerEmail,
               name: order.customerName,
@@ -1631,8 +2090,17 @@ export class ProcessDomWebhookUseCase {
               phone: order.customerPhone ?? undefined,
             }),
           })
-            .then(async (r) => { const t = await r.text(); this.logger.log(`[DomWebhook][CONTROLE-MOTORISTA] provision HTTP ${r.status} email=${order.customerEmail}: ${t.slice(0, 200)}`); })
-            .catch((err: unknown) => { this.logger.warn(`[DomWebhook][CONTROLE-MOTORISTA] provision falhou: ${err instanceof Error ? err.message : String(err)}`); });
+            .then(async (r) => {
+              const t = await r.text();
+              this.logger.log(
+                `[DomWebhook][CONTROLE-MOTORISTA] provision HTTP ${r.status} email=${order.customerEmail}: ${t.slice(0, 200)}`,
+              );
+            })
+            .catch((err: unknown) => {
+              this.logger.warn(
+                `[DomWebhook][CONTROLE-MOTORISTA] provision falhou: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            });
 
           // Registra/estende acesso no PlatformSubscriberAccess
           void this.upsertPlatformSubscriberAccess(
@@ -1650,21 +2118,35 @@ export class ProcessDomWebhookUseCase {
                 mobile_phone: order.customerPhone ?? undefined,
               },
             } as any,
-            { customerEmail: order.customerEmail, customerName: order.customerName },
+            {
+              customerEmail: order.customerEmail,
+              customerName: order.customerName,
+            },
             this.planDaysForFrequency(order.subscriptionLink?.frequencyType),
           );
         }
       }
       // CONTROLE-PATRIMONIAL: provisionar conta no saas-controle-patrimonial-back
       if (subPlatformTag === 'CONTROLE-PATRIMONIAL') {
-        const url = String((getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
-        const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+        const url = String(
+          getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ??
+            '',
+        ).replace(/\/+$/, '');
+        const token =
+          process.env.API_MACHINE_INTERNAL_TOKEN ||
+          process.env.INTERNAL_SERVICE_TOKEN ||
+          '';
         if (!url || !token) {
-          this.logger.warn('[DomWebhook][CONTROLE-PATRIMONIAL] CONTROLE_PATRIMONIAL_URL ou token não configurado — provisão e acesso ignorados');
+          this.logger.warn(
+            '[DomWebhook][CONTROLE-PATRIMONIAL] CONTROLE_PATRIMONIAL_URL ou token não configurado — provisão e acesso ignorados',
+          );
         } else if (order.customerEmail && order.customerName) {
           fetch(`${url}/internal/users/provision`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json', 'x-internal-token': token },
+            headers: {
+              'content-type': 'application/json',
+              'x-internal-token': token,
+            },
             body: JSON.stringify({
               email: order.customerEmail,
               name: order.customerName,
@@ -1672,8 +2154,17 @@ export class ProcessDomWebhookUseCase {
               phone: order.customerPhone ?? undefined,
             }),
           })
-            .then(async (r) => { const t = await r.text(); this.logger.log(`[DomWebhook][CONTROLE-PATRIMONIAL] provision HTTP ${r.status} email=${order.customerEmail}: ${t.slice(0, 200)}`); })
-            .catch((err: unknown) => { this.logger.warn(`[DomWebhook][CONTROLE-PATRIMONIAL] provision falhou: ${err instanceof Error ? err.message : String(err)}`); });
+            .then(async (r) => {
+              const t = await r.text();
+              this.logger.log(
+                `[DomWebhook][CONTROLE-PATRIMONIAL] provision HTTP ${r.status} email=${order.customerEmail}: ${t.slice(0, 200)}`,
+              );
+            })
+            .catch((err: unknown) => {
+              this.logger.warn(
+                `[DomWebhook][CONTROLE-PATRIMONIAL] provision falhou: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            });
 
           // Registra/estende acesso no PlatformSubscriberAccess
           void this.upsertPlatformSubscriberAccess(
@@ -1691,21 +2182,34 @@ export class ProcessDomWebhookUseCase {
                 mobile_phone: order.customerPhone ?? undefined,
               },
             } as any,
-            { customerEmail: order.customerEmail, customerName: order.customerName },
+            {
+              customerEmail: order.customerEmail,
+              customerName: order.customerName,
+            },
             this.planDaysForFrequency(order.subscriptionLink?.frequencyType),
           );
         }
       }
       // BETAI: provisionar conta no betai (investidor) após pagamento
       if (subPlatformTag === 'BETAI') {
-        const url = String((getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
-        const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+        const url = String(
+          getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? '',
+        ).replace(/\/+$/, '');
+        const token =
+          process.env.API_MACHINE_INTERNAL_TOKEN ||
+          process.env.INTERNAL_SERVICE_TOKEN ||
+          '';
         if (!url || !token) {
-          this.logger.warn('[DomWebhook][BETAI] BETAI_URL ou token não configurado — provisão e acesso ignorados');
+          this.logger.warn(
+            '[DomWebhook][BETAI] BETAI_URL ou token não configurado — provisão e acesso ignorados',
+          );
         } else if (order.customerEmail && order.customerName) {
           fetch(`${url}/internal/users/provision`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json', 'x-internal-token': token },
+            headers: {
+              'content-type': 'application/json',
+              'x-internal-token': token,
+            },
             body: JSON.stringify({
               email: order.customerEmail,
               name: order.customerName,
@@ -1713,8 +2217,17 @@ export class ProcessDomWebhookUseCase {
               phone: order.customerPhone ?? undefined,
             }),
           })
-            .then(async (r) => { const t = await r.text(); this.logger.log(`[DomWebhook][BETAI] provision HTTP ${r.status} email=${order.customerEmail}: ${t.slice(0, 200)}`); })
-            .catch((err: unknown) => { this.logger.warn(`[DomWebhook][BETAI] provision falhou: ${err instanceof Error ? err.message : String(err)}`); });
+            .then(async (r) => {
+              const t = await r.text();
+              this.logger.log(
+                `[DomWebhook][BETAI] provision HTTP ${r.status} email=${order.customerEmail}: ${t.slice(0, 200)}`,
+              );
+            })
+            .catch((err: unknown) => {
+              this.logger.warn(
+                `[DomWebhook][BETAI] provision falhou: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            });
 
           // Registra/estende acesso no PlatformSubscriberAccess
           void this.upsertPlatformSubscriberAccess(
@@ -1732,7 +2245,10 @@ export class ProcessDomWebhookUseCase {
                 mobile_phone: order.customerPhone ?? undefined,
               },
             } as any,
-            { customerEmail: order.customerEmail, customerName: order.customerName },
+            {
+              customerEmail: order.customerEmail,
+              customerName: order.customerName,
+            },
             this.planDaysForFrequency(order.subscriptionLink?.frequencyType),
           );
         }
@@ -1806,19 +2322,35 @@ export class ProcessDomWebhookUseCase {
         include: { files: true },
       });
       if (!link) return;
-      const signed = await this.prisma.platformIntegration.findFirst({ where: { key: 'WEBHOOK_SECRET', encryptedValue: { not: null }, platform: { tag: { in: link.plataformas } } } });
+      const signed = await this.prisma.platformIntegration.findFirst({
+        where: {
+          key: 'WEBHOOK_SECRET',
+          encryptedValue: { not: null },
+          platform: { tag: { in: link.plataformas } },
+        },
+      });
       if (signed) return; // Durable platform outbox delivers e-mail and retries.
 
       // Pedido principal: produto + order bumps. Upsell/downsell: só o material da oferta.
       const delivery = await resolveLinkDelivery(this.prisma, tx.id, link);
       await sendLinkDelivery(
-        { email: this.emailService, storage: this.storage, logger: this.logger },
-        { email: tx.customerEmail, name: tx.customerName, transactionId: tx.id },
+        {
+          email: this.emailService,
+          storage: this.storage,
+          logger: this.logger,
+        },
+        {
+          email: tx.customerEmail,
+          name: tx.customerName,
+          transactionId: tx.id,
+        },
         delivery,
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`[DomWebhook] Falha ao enviar PDFs do link ${tx.paymentLinkId} para ${tx.customerEmail}: ${msg}`);
+      this.logger.error(
+        `[DomWebhook] Falha ao enviar PDFs do link ${tx.paymentLinkId} para ${tx.customerEmail}: ${msg}`,
+      );
     }
   }
 
@@ -1849,14 +2381,23 @@ export class ProcessDomWebhookUseCase {
       });
       if (!link?.webhookUrl) return;
 
-      const signed = await this.prisma.platformIntegration.findFirst({ where: { key: 'WEBHOOK_SECRET', encryptedValue: { not: null }, platform: { tag: { in: link.plataformas } } } });
+      const signed = await this.prisma.platformIntegration.findFirst({
+        where: {
+          key: 'WEBHOOK_SECRET',
+          encryptedValue: { not: null },
+          platform: { tag: { in: link.plataformas } },
+        },
+      });
       if (signed) return; // Durable worker owns signed callbacks.
       const simpayToken = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
       // items: o que foi comprado nesta transação (principal + order bumps, ou só o upsell/downsell)
       const delivery = await resolveLinkDelivery(this.prisma, tx.id, link);
       await fetch(link.webhookUrl, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-simpay-token': simpayToken },
+        headers: {
+          'content-type': 'application/json',
+          'x-simpay-token': simpayToken,
+        },
         body: JSON.stringify({
           event,
           customerEmail: tx.customerEmail,
