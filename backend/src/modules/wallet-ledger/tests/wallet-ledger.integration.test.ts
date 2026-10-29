@@ -1,6 +1,8 @@
 import { afterAll, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { Client } from 'pg';
 import { applyWalletEntry, setWalletBalance } from '../wallet-ledger';
 import {
   findWalletLedgerDivergences,
@@ -34,184 +36,270 @@ const newUser = () =>
     },
   });
 
-async function chain(userId: string) {
-  const rows = await db!.balanceLog.findMany({
-    where: { userId },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-  });
-  const wallet = await db!.wallet.findUniqueOrThrow({ where: { userId } });
-  return { rows, wallet };
-}
-
-run('credit, lock and debit keep wallet and log in step', async () => {
-  const user = await newUser();
-  await db!.$transaction(async (tx) => {
-    await applyWalletEntry(tx, {
-      userId: user.id,
-      action: 'CREDIT',
-      source: 'TEST',
-      balanceDelta: 100,
-    });
-    await applyWalletEntry(tx, {
-      userId: user.id,
-      action: 'LOCK',
-      source: 'TEST',
-      lockedDelta: 30,
-    });
-    await applyWalletEntry(tx, {
-      userId: user.id,
-      action: 'DEBIT',
-      source: 'TEST',
-      balanceDelta: -30,
-      lockedDelta: -30,
-    });
-  });
-  const { rows, wallet } = await chain(user.id);
-  expect(rows.map((r) => r.balanceAfter.toFixed(2))).toEqual([
-    '100.00',
-    '100.00',
-    '70.00',
-  ]);
-  expect(rows.map((r) => r.lockedAfter.toFixed(2))).toEqual([
-    '0.00',
-    '30.00',
-    '0.00',
-  ]);
-  expect(wallet.balance.toFixed(2)).toBe('70.00');
-  expect(wallet.lockedBalance.toFixed(2)).toBe('0.00');
-  expect(rows[1].amount.toFixed(2)).toBe('30.00');
-});
-
 run(
-  'concurrent entries produce an unbroken chain that ends at the wallet balance',
+  'signed credit, lock, unlock, debit and reversal reconcile both sums',
   async () => {
     const user = await newUser();
-    await db!.wallet.create({ data: { userId: user.id } });
+    await db!.$transaction(async (tx) => {
+      for (const [action, balanceDelta, lockedDelta] of [
+        ['CREDIT', '100.01', '0'],
+        ['LOCK', '0', '30.01'],
+        ['UNLOCK', '0', '-10'],
+        ['DEBIT', '-20.01', '-20.01'],
+        ['REVERSAL', '20.01', '0'],
+      ])
+        await applyWalletEntry(tx, {
+          userId: user.id,
+          action,
+          source: 'TEST',
+          balanceDelta,
+          lockedDelta,
+        });
+    });
+    const rows = await db!.balanceLog.findMany({ where: { userId: user.id } });
+    expect(
+      rows
+        .map((row) => [
+          row.action,
+          row.balanceDelta.toFixed(2),
+          row.lockedDelta.toFixed(2),
+        ])
+        .sort(),
+    ).toEqual([
+      ['CREDIT', '100.01', '0.00'],
+      ['DEBIT', '-20.01', '-20.01'],
+      ['LOCK', '0.00', '30.01'],
+      ['REVERSAL', '20.01', '0.00'],
+      ['UNLOCK', '0.00', '-10.00'],
+    ]);
+    expect(await getWalletBalance(db!, user.id)).toMatchObject({
+      balance: 100.01,
+      lockedBalance: 0,
+      ledgerBalance: 100.01,
+      ledgerLockedBalance: 0,
+      ledgerDrift: 0,
+      ledgerLockedDrift: 0,
+    });
+  },
+);
+
+run(
+  'parallel entries use atomic increments and rollbacks leave no partial ledger/projection',
+  async () => {
+    const user = await newUser();
+    await db!.$transaction((tx) =>
+      applyWalletEntry(tx, { userId: user.id, action: 'OPEN', source: 'TEST' }),
+    );
     await Promise.all(
-      Array.from({ length: 12 }, () =>
+      Array.from({ length: 20 }, (_, index) =>
         db!.$transaction((tx) =>
           applyWalletEntry(tx, {
             userId: user.id,
-            action: 'CREDIT',
+            action: `CREDIT_${index}`,
             source: 'TEST',
-            balanceDelta: 5,
+            balanceDelta: '0.01',
+            lockedDelta: '0.01',
           }),
         ),
       ),
     );
-    const { rows, wallet } = await chain(user.id);
-    expect(rows).toHaveLength(12);
-    expect(wallet.balance.toFixed(2)).toBe('60.00');
-    const sorted = [...rows].sort((a, b) => a.balanceAfter.cmp(b.balanceAfter));
-    sorted.forEach((row, i) => {
-      expect(row.balanceBefore.toFixed(2)).toBe((i * 5).toFixed(2));
-      expect(row.balanceAfter.toFixed(2)).toBe(((i + 1) * 5).toFixed(2));
-    });
-  },
-);
-
-run(
-  'rolling back the transaction drops both wallet and log changes',
-  async () => {
-    const user = await newUser();
-    let failure: unknown;
-    try {
-      await db!.$transaction(async (tx) => {
+    await expect(
+      db!.$transaction(async (tx) => {
         await applyWalletEntry(tx, {
           userId: user.id,
-          action: 'CREDIT',
+          action: 'ROLLBACK',
           source: 'TEST',
-          balanceDelta: 50,
+          balanceDelta: 99,
+          lockedDelta: 99,
         });
-        throw new Error('boom');
-      });
-    } catch (error) {
-      failure = error;
-    }
-    expect((failure as Error).message).toBe('boom');
-    expect(await db!.balanceLog.count({ where: { userId: user.id } })).toBe(0);
+        throw new Error('rollback');
+      }),
+    ).rejects.toThrow('rollback');
     expect(
-      await db!.wallet.findUnique({ where: { userId: user.id } }),
-    ).toBeNull();
+      await db!.balanceLog.count({
+        where: { userId: user.id, action: 'ROLLBACK' },
+      }),
+    ).toBe(0);
+    expect(await getWalletBalance(db!, user.id)).toMatchObject({
+      balance: 0.2,
+      lockedBalance: 0.2,
+      ledgerBalance: 0.2,
+      ledgerLockedBalance: 0.2,
+      ledgerDrift: 0,
+      ledgerLockedDrift: 0,
+    });
+    await expect(
+      db!.$transaction((tx) =>
+        applyWalletEntry(tx, {
+          userId: user.id,
+          action: 'TOO_LARGE',
+          source: 'TEST',
+          balanceDelta: '100000000000000',
+        }),
+      ),
+    ).rejects.toThrow();
+    expect((await getWalletBalance(db!, user.id)).balance).toBe(0.2);
   },
 );
 
-run('setWalletBalance logs the difference to the absolute value', async () => {
+run('absolute set logs only differences', async () => {
   const user = await newUser();
-  await db!.$transaction(async (tx) => {
-    await applyWalletEntry(tx, {
+  await db!.$transaction((tx) =>
+    applyWalletEntry(tx, {
       userId: user.id,
-      action: 'CREDIT',
+      action: 'OPEN',
       source: 'TEST',
-      balanceDelta: 80,
-    });
-    await setWalletBalance(tx, {
+      balanceDelta: 100,
+    }),
+  );
+  await db!.$transaction((tx) =>
+    setWalletBalance(tx, {
       userId: user.id,
-      action: 'ADJUSTMENT',
-      source: 'RECONCILIATION',
-      balance: 55.5,
-    });
+      balance: '35.55',
+      action: 'SET',
+      source: 'TEST',
+    }),
+  );
+  const row = await db!.balanceLog.findFirstOrThrow({
+    where: { userId: user.id, action: 'SET' },
   });
-  const { rows, wallet } = await chain(user.id);
-  expect(wallet.balance.toFixed(2)).toBe('55.50');
-  expect(rows[1].amount.toFixed(2)).toBe('-24.50');
-  expect(rows[1].balanceBefore.toFixed(2)).toBe('80.00');
-  expect(rows[1].balanceAfter.toFixed(2)).toBe('55.50');
+  expect(row.balanceDelta.toFixed(2)).toBe('-64.45');
+  expect((await getWalletBalance(db!, user.id)).ledgerDrift).toBe(0);
 });
 
 run(
-  'divergence query flags wallets that drifted from the ledger and ignores fee bookkeeping',
+  'empty ledger opens at zero and unsupported opening or locked balances remain drift',
   async () => {
-    const synced = await newUser();
-    const drifted = await newUser();
-    await db!.$transaction(async (tx) => {
-      await applyWalletEntry(tx, {
-        userId: synced.id,
-        action: 'CREDIT',
-        source: 'TEST',
-        balanceDelta: 40,
-      });
-      await applyWalletEntry(tx, {
-        userId: drifted.id,
-        action: 'CREDIT',
-        source: 'TEST',
-        balanceDelta: 40,
-      });
+    const user = await newUser();
+    expect(await getWalletBalance(db!, user.id)).toMatchObject({
+      ledgerBalance: 0,
+      ledgerLockedBalance: 0,
+      ledgerDrift: 0,
+      ledgerLockedDrift: 0,
     });
-    // Fee bookkeeping rows carry zero balances and must not count as the ledger tail.
+    await db!.wallet.create({
+      data: { userId: user.id, balance: '5.01', lockedBalance: '1.01' },
+    });
+    const row = (await findWalletLedgerDivergences(db!)).find(
+      (item) => item.userId === user.id,
+    )!;
+    expect([row.drift.toFixed(2), row.lockedDrift.toFixed(2)]).toEqual([
+      '5.01',
+      '1.01',
+    ]);
     await db!.balanceLog.create({
       data: {
-        userId: synced.id,
-        action: 'ADMIN_WITHDRAW_FEE_INC',
+        userId: user.id,
+        action: 'BOOKKEEPING',
         source: 'MASTER_ADMIN_CONTROL',
-        amount: 3.5,
-        balanceBefore: 0,
-        balanceAfter: 0,
-        lockedBefore: 0,
-        lockedAfter: 0,
+        bookkeepingAmount: 9999,
+        balanceDelta: 0,
+        lockedDelta: 0,
       },
     });
-    await db!.wallet.update({
-      where: { userId: drifted.id },
-      data: { balance: { increment: 10 } },
-    });
-    const found = await findWalletLedgerDivergences(db!);
-    const ids = found.map((row) => row.userId);
-    expect(ids).toContain(drifted.id);
-    expect(ids).not.toContain(synced.id);
-    const row = found.find((item) => item.userId === drifted.id)!;
-    expect([row.walletBalance, row.ledgerBalance]).toEqual(['50.00', '40.00']);
-    const balance = await getWalletBalance(db!, drifted.id);
-    expect(balance).toMatchObject({
-      balance: 50,
-      available: 50,
-      ledgerBalance: 40,
-      ledgerDrift: 10,
+    expect(await getWalletBalance(db!, user.id)).toMatchObject({
+      ledgerBalance: 0,
+      ledgerLockedBalance: 0,
+      ledgerDrift: 5.01,
+      ledgerLockedDrift: 1.01,
     });
   },
 );
 
-run('walletAmounts applies max(0, balance - locked)', async () => {
+run('locked-only drift is detected even when balance agrees', async () => {
+  const user = await newUser();
+  await db!.$transaction((tx) =>
+    applyWalletEntry(tx, {
+      userId: user.id,
+      action: 'OPEN',
+      source: 'TEST',
+      balanceDelta: 10,
+      lockedDelta: 2,
+    }),
+  );
+  await db!.wallet.update({
+    where: { userId: user.id },
+    data: { lockedBalance: 3 },
+  });
+  const found = (await findWalletLedgerDivergences(db!)).find(
+    (row) => row.userId === user.id,
+  )!;
+  expect(found.drift.toFixed(2)).toBe('0.00');
+  expect(found.lockedDrift.toFixed(2)).toBe('1.00');
+});
+
+run(
+  'historical migration uses exact snapshot differences and preserves bookkeeping and metadata',
+  async () => {
+    const pg = new Client({ connectionString: url });
+    await pg.connect();
+    const schema = `ledger_history_${crypto.randomUUID().replaceAll('-', '')}`;
+    try {
+      await pg.query(`CREATE SCHEMA "${schema}"`);
+      await pg.query(`SET search_path TO "${schema}"`);
+      await pg.query(
+        `CREATE TABLE "BalanceLog" (id TEXT PRIMARY KEY, "userId" TEXT, action TEXT, "transactionId" TEXT, source TEXT, description TEXT, metadata JSONB, "createdAt" TIMESTAMP, amount DECIMAL(12,2), "balanceBefore" DECIMAL(12,2) NOT NULL, "balanceAfter" DECIMAL(12,2) NOT NULL, "lockedBefore" DECIMAL(12,2) NOT NULL, "lockedAfter" DECIMAL(12,2) NOT NULL)`,
+      );
+      await pg.query(`INSERT INTO "BalanceLog" VALUES
+      ('credit','u','CREDIT','tx','WEBHOOK','keep', '{"original":true}', '2026-01-01', 999, 100.01, 120.03, 2.01, 2.01),
+      ('lock','u','LOCK',NULL,'WITHDRAW',NULL, NULL, '2026-01-02', -5.05, 120.03, 120.03, 2.01, 7.06),
+      ('fee','admin','ADMIN_WITHDRAW_PROFIT_INC',NULL,'MASTER_ADMIN_CONTROL',NULL, '{"rate":"0.50"}', '2026-01-03', 4.99, 0, 0, 0, 0),
+      ('purge','u','PURGE_ABSORB',NULL,'MASTER_ADMIN_CONTROL',NULL, '{}', '2026-01-04', 120.03, 120.03, 0, 7.06, 0)`);
+      const sql = readFileSync(
+        new URL(
+          '../../../../prisma/migrations/20261029200000_normalize_balance_log_deltas/migration.sql',
+          import.meta.url,
+        ),
+        'utf8',
+      );
+      await pg.query(sql);
+      const result = await pg.query(
+        'SELECT * FROM "BalanceLog" ORDER BY "createdAt"',
+      );
+      expect(
+        result.rows.map((row) => [
+          row.id,
+          row.balanceDelta,
+          row.lockedDelta,
+          row.bookkeepingAmount,
+        ]),
+      ).toEqual([
+        ['credit', '20.02', '0.00', null],
+        ['lock', '0.00', '5.05', null],
+        ['fee', '0.00', '0.00', '4.99'],
+        ['purge', '-120.03', '-7.06', '120.03'],
+      ]);
+      expect(result.rows[0]).toMatchObject({
+        userId: 'u',
+        action: 'CREDIT',
+        transactionId: 'tx',
+        source: 'WEBHOOK',
+        description: 'keep',
+        metadata: { original: true },
+      });
+      expect(result.rows[2].metadata).toEqual({ rate: '0.50' });
+      expect(Object.keys(result.rows[0])).not.toContain('amount');
+      for (const key of [
+        'balanceBefore',
+        'balanceAfter',
+        'lockedBefore',
+        'lockedAfter',
+      ])
+        expect(Object.keys(result.rows[0])).not.toContain(key);
+      const sums = await pg.query(
+        'SELECT SUM("balanceDelta") AS balance, SUM("lockedDelta") AS locked FROM "BalanceLog"',
+      );
+      expect(sums.rows[0]).toEqual({ balance: '-100.01', locked: '-2.01' });
+    } finally {
+      await pg.query('ROLLBACK');
+      await pg.query('SET search_path TO public');
+      await pg.query(`DROP SCHEMA "${schema}" CASCADE`);
+      await pg.end();
+    }
+  },
+);
+
+test('walletAmounts applies max(0, balance - locked)', () => {
   expect(walletAmounts({ balance: '123.45', lockedBalance: '23.45' })).toEqual({
     balance: 123.45,
     lockedBalance: 23.45,

@@ -539,11 +539,11 @@ export class ProcessDomWebhookUseCase {
                 userId: existing.userId,
                 action: `DOM_WEBHOOK_${nextStatus}`,
                 transactionId: existing.id,
-                amount: balanceDelta.abs(),
-                balanceBefore: wallet.balance,
-                balanceAfter: newBalance,
-                lockedBefore: wallet.lockedBalance,
-                lockedAfter: newLocked,
+
+                balanceDelta,
+
+                lockedDelta,
+
                 source: 'DOM_WEBHOOK',
               },
             });
@@ -1617,11 +1617,11 @@ export class ProcessDomWebhookUseCase {
                 userId: ebookUserId,
                 action: 'DOM_WEBHOOK_COMPLETED',
                 transactionId: tx.id,
-                amount: walletDeltaEbook.abs(),
-                balanceBefore: wallet.balance,
-                balanceAfter: newBalance,
-                lockedBefore: wallet.lockedBalance,
-                lockedAfter: wallet.lockedBalance,
+
+                balanceDelta: walletDeltaEbook,
+
+                lockedDelta: 0,
+
                 source: 'EBOOK_WEBHOOK',
                 description: `Pedido ebook: ${orderNumber}`,
               },
@@ -1778,11 +1778,11 @@ export class ProcessDomWebhookUseCase {
               userId,
               action: 'MACHINE_SYNC',
               transactionId: newTx.id,
-              amount: netDec,
-              balanceBefore: wallet.balance,
-              balanceAfter: newBalance,
-              lockedBefore: wallet.lockedBalance,
-              lockedAfter: wallet.lockedBalance,
+
+              balanceDelta: netDec,
+
+              lockedDelta: 0,
+
               source: 'MACHINE_SYNC',
               description: `Terminal: ${serial}`,
             },

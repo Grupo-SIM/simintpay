@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { WithdrawStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
@@ -10,7 +15,11 @@ export class RejectWithdrawalUseCase {
     private readonly realtime: ModuleRealtimeNotifyService,
   ) {}
 
-  async execute(withdrawId: string, reason: string, adminUserId?: string): Promise<{ message: string }> {
+  async execute(
+    withdrawId: string,
+    reason: string,
+    adminUserId?: string,
+  ): Promise<{ message: string }> {
     const withdraw = await this.prisma.withdrawRequest.findUnique({
       where: { id: withdrawId },
       include: { user: { include: { wallet: true } } },
@@ -64,18 +73,18 @@ export class RejectWithdrawalUseCase {
           },
         });
       }
-  
+
       // 3. Registrar log de desbloqueio - Pula se for Atlas
       if (withdraw.platform?.toLowerCase() !== 'atlas') {
         await tx.balanceLog.create({
           data: {
             userId: withdraw.userId,
             action: 'WITHDRAW_REJECTED',
-            amount: new Prisma.Decimal(0), // O saldo total não muda, apenas o bloqueado foi liberado
-            balanceBefore: wallet.balance,
-            balanceAfter: wallet.balance,
-            lockedBefore: wallet.lockedBalance,
-            lockedAfter: new Prisma.Decimal(Number(wallet.lockedBalance) - Number(withdraw.grossAmount)),
+            // O saldo total não muda, apenas o bloqueado foi liberado
+            balanceDelta: 0,
+
+            lockedDelta: new Prisma.Decimal(withdraw.grossAmount).neg(),
+
             source: 'WITHDRAW',
             description: `Saque rejeitado: R$ ${withdraw.grossAmount.toFixed(2)}. Motivo: ${reason}`,
           },
@@ -83,7 +92,10 @@ export class RejectWithdrawalUseCase {
       }
     });
 
-    await this.realtime.notifyWithdrawal(withdraw.userId, { withdrawId, action: 'rejected' });
+    await this.realtime.notifyWithdrawal(withdraw.userId, {
+      withdrawId,
+      action: 'rejected',
+    });
 
     return { message: 'Saque rejeitado e saldo desbloqueado' };
   }

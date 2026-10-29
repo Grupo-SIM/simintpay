@@ -1,5 +1,4 @@
 import { assertExplicitPlatform } from '../../helpers/explicit-platform.helper';
-import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import {
   ConflictException,
@@ -9,10 +8,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma, WithdrawStatus } from '@prisma/client';
-import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.repository.interface';
 import { WITHDRAW_REPOSITORY } from '../../../core/repositories/withdraw.repository.interface';
 import { CACHE_SERVICE } from '../../../core/services/cache.interface';
-import type { IBalanceLogRepository } from '../../../core/repositories/balance-log.repository.interface';
 import type { IWithdrawRepository } from '../../../core/repositories/withdraw.repository.interface';
 import type { ICacheService } from '../../../core/services/cache.interface';
 import type { RequestWithdrawDto } from '../../dtos/withdraw/request-withdraw.dto';
@@ -28,8 +25,6 @@ export class RequestWithdrawUseCase {
     private readonly prisma: PrismaService,
     @Inject(WITHDRAW_REPOSITORY)
     private readonly withdraws: IWithdrawRepository,
-    @Inject(BALANCE_LOG_REPOSITORY)
-    private readonly balanceLogs: IBalanceLogRepository,
     @Inject(CACHE_SERVICE) private readonly cache: ICacheService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly realtime: ModuleRealtimeNotifyService,
@@ -61,21 +56,30 @@ export class RequestWithdrawUseCase {
     });
 
     // Regras do módulo (ou fallback padrão)
-    const selected = dto.platformTag ? [dto.platformTag] : user?.platform?.tag ? [user.platform.tag] : undefined;
-    const moduleSlug = assertExplicitPlatform(user, selected)?.toLowerCase() ?? null;
-    const renovadaId = (getPlatformOwnerId('RENOVADA') ?? '');
+    const selected = dto.platformTag
+      ? [dto.platformTag]
+      : user?.platform?.tag
+        ? [user.platform.tag]
+        : undefined;
+    const moduleSlug =
+      assertExplicitPlatform(user, selected)?.toLowerCase() ?? null;
     const isRenovada = moduleSlug === 'renovada';
     const config = getModuleConfig(moduleSlug);
     const renovadaConfig = getModuleConfig('renovada');
 
     const minValor = isRenovada
-      ? (renovadaConfig?.saque.minValor ?? getPlatformTaxaEffective('GLOBAL', 'SAQUE_MIN', 100))
-      : (config?.saque.minValor ?? getPlatformTaxaEffective('GLOBAL', 'SAQUE_MIN', 100));
-    const calcularTaxa = isRenovada && renovadaConfig
-      ? (v: number) => renovadaConfig.saque.calcularTaxa(v)
-      : config
-        ? (v: number) => config.saque.calcularTaxa(v)
-        : (v: number) => getPlatformTaxaEffective('GLOBAL', 'TAXA_SAQUE_FIXA', 2) + v * getPlatformTaxaEffective('GLOBAL', 'TAXA_SAQUE_PERCENT', 0);
+      ? (renovadaConfig?.saque.minValor ??
+        getPlatformTaxaEffective('GLOBAL', 'SAQUE_MIN', 100))
+      : (config?.saque.minValor ??
+        getPlatformTaxaEffective('GLOBAL', 'SAQUE_MIN', 100));
+    const calcularTaxa =
+      isRenovada && renovadaConfig
+        ? (v: number) => renovadaConfig.saque.calcularTaxa(v)
+        : config
+          ? (v: number) => config.saque.calcularTaxa(v)
+          : (v: number) =>
+              getPlatformTaxaEffective('GLOBAL', 'TAXA_SAQUE_FIXA', 2) +
+              v * getPlatformTaxaEffective('GLOBAL', 'TAXA_SAQUE_PERCENT', 0);
 
     // Valor mínimo de saque
     if (dto.valor < minValor) {
@@ -95,9 +99,9 @@ export class RequestWithdrawUseCase {
       );
     }
 
-    // [MODO SIMPAY SOBERANO] — Gerencia saldo local 
-    let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-    
+    // [MODO SIMPAY SOBERANO] — Gerencia saldo local
+    const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+
     if (!wallet) throw new NotFoundException('Wallet não encontrada');
 
     const walletBalance = new Prisma.Decimal(wallet.balance.toString());
@@ -124,10 +128,6 @@ export class RequestWithdrawUseCase {
     }
 
     const grossToDeduct = requestedGross;
-    const amountToLock = grossToDeduct;
-
-    const beforeLocked = walletLocked;
-    const beforeBalance = walletBalance;
 
     // Cria o saque no banco local (status PENDING)
     let created;
@@ -150,18 +150,6 @@ export class RequestWithdrawUseCase {
       }
       throw e;
     }
-
-    await this.balanceLogs.create({
-      userId,
-      action: 'WITHDRAW_REQUESTED',
-      amount: new Prisma.Decimal(-amountToLock.toNumber()).toFixed(2),
-      balanceBefore: beforeBalance.toFixed(2),
-      balanceAfter: beforeBalance.toFixed(2),
-      lockedBefore: beforeLocked.toFixed(2),
-      lockedAfter: beforeLocked.add(amountToLock).toFixed(2),
-      source: 'WITHDRAW',
-      description: `Solicitação de saque${user?.platform ? ` — ${user.platform.name}` : ''}`,
-    });
 
     await this.cache.delete(`wallet:${userId}`);
     await this.realtime.notifyWithdrawal(userId, { withdrawId: created.id });

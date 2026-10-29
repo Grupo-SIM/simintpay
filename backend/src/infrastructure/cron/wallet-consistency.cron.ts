@@ -22,7 +22,7 @@ export class WalletConsistencyCron {
     }
     for (const drift of drifts) {
       this.logger.error(
-        `Divergência carteira x ledger: userId=${drift.userId} carteira=${drift.walletBalance} ledger=${drift.ledgerBalance}`,
+        `Divergência carteira x ledger: userId=${drift.userId} carteira=${drift.balance} ledger=${drift.ledgerBalance} locked=${drift.lockedBalance} ledgerLocked=${drift.ledgerLockedBalance}`,
       );
     }
     return drifts;

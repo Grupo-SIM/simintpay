@@ -224,10 +224,8 @@ describe('Shared platform finance', () => {
       action: 'WITHDRAW_REQUESTED',
       source: 'WITHDRAW',
     });
-    expect([data.lockedBefore.toFixed(2), data.lockedAfter.toFixed(2)]).toEqual(
-      ['20.00', '120.00'],
-    );
-    expect(data.balanceBefore.toFixed(2)).toBe(data.balanceAfter.toFixed(2));
+    expect(data.lockedDelta.toFixed(2)).toBe('100.00');
+    expect(Number(data.balanceDelta)).toBe(0);
   });
 });
 

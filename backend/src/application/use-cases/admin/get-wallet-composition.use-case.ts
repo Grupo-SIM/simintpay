@@ -95,7 +95,7 @@ export class GetWalletCompositionUseCase {
     const byAction = await this.prisma.balanceLog.groupBy({
       by: ['action'],
       where: { userId: user.id, NOT: { source: 'MASTER_ADMIN_CONTROL' } },
-      _sum: { amount: true },
+      _sum: { balanceDelta: true, lockedDelta: true },
       _count: { _all: true },
       orderBy: { action: 'asc' },
     });
@@ -104,12 +104,15 @@ export class GetWalletCompositionUseCase {
       saldoNaWallet: r2(balance.balance),
       saldoBloqueado: r2(balance.lockedBalance),
       saldoDisponivel: r2(balance.available),
-      saldoNoUltimoLancamentoDoLog: balance.ledgerBalance,
+      saldoSomadoDoLog: balance.ledgerBalance,
+      saldoBloqueadoSomadoDoLog: balance.ledgerLockedBalance,
       divergenciaWalletLog: r2(balance.ledgerDrift),
+      divergenciaBloqueioWalletLog: r2(balance.ledgerLockedDrift),
       lancamentosPorAcao: byAction.map((row) => ({
         acao: row.action,
         quantidade: row._count._all,
-        soma: r2(Number(row._sum.amount ?? 0)),
+        balanceDelta: r2(Number(row._sum.balanceDelta ?? 0)),
+        lockedDelta: r2(Number(row._sum.lockedDelta ?? 0)),
       })),
       nota:
         'Saldo disponível = wallet.balance − wallet.lockedBalance, igual para toda conta (plataforma própria, coprodução e afiliado). ' +

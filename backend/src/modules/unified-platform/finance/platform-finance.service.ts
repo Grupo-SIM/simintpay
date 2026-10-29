@@ -910,13 +910,13 @@ export class PlatformFinanceService {
           data: {
             userId: input.userId,
             action: 'WITHDRAW_REQUESTED',
-            amount: new Prisma.Decimal(input.grossAmount).neg(),
-            balanceBefore: wallet.balance,
-            balanceAfter: wallet.balance,
-            lockedBefore: wallet.lockedBalance,
-            lockedAfter: new Prisma.Decimal(wallet.lockedBalance).plus(
-              input.grossAmount,
-            ),
+
+            balanceDelta: 0,
+
+            lockedDelta: new Prisma.Decimal(
+              new Prisma.Decimal(wallet.lockedBalance).plus(input.grossAmount),
+            ).sub(wallet.lockedBalance),
+
             source: 'WITHDRAW',
             description: `Saque ${input.platform} solicitado: R$ ${new Prisma.Decimal(input.grossAmount).toFixed(2)}`,
           },

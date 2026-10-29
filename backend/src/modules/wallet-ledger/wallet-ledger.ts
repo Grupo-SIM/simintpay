@@ -12,8 +12,6 @@ export interface WalletLedgerEntry {
   balanceDelta?: Prisma.Decimal.Value;
   /** Change applied to wallet.lockedBalance. */
   lockedDelta?: Prisma.Decimal.Value;
-  /** Logged amount; defaults to the balance change, or the locked change when the balance is untouched. */
-  amount?: Prisma.Decimal.Value;
   transactionId?: string | null;
   description?: string | null;
   metadata?: Prisma.InputJsonValue;
@@ -50,16 +48,9 @@ export async function applyWalletEntry(
       source: entry.source,
       transactionId: entry.transactionId ?? null,
       description: entry.description ?? null,
-      amount:
-        entry.amount === undefined
-          ? balanceDelta.isZero()
-            ? lockedDelta
-            : balanceDelta
-          : new Prisma.Decimal(entry.amount),
-      balanceBefore: wallet.balance.sub(balanceDelta),
-      balanceAfter: wallet.balance,
-      lockedBefore: wallet.lockedBalance.sub(lockedDelta),
-      lockedAfter: wallet.lockedBalance,
+
+      balanceDelta,
+      lockedDelta,
       metadata: entry.metadata,
     },
   });
@@ -77,9 +68,24 @@ export async function setWalletBalance(
   },
 ) {
   const { balance, ...entry } = input;
-  const current = await client.wallet.findUnique({
+  await client.wallet.upsert({
+    where: { userId: entry.userId },
+    update: {},
+    create: { userId: entry.userId, balance: 0, lockedBalance: 0 },
+  });
+  const current = await client.wallet.findUniqueOrThrow({
     where: { userId: entry.userId },
   });
-  const delta = new Prisma.Decimal(balance).sub(current?.balance ?? 0);
-  return applyWalletEntry(client, { ...entry, balanceDelta: delta });
+  const wallet = await client.wallet.update({
+    where: { id: current.id, version: current.version },
+    data: { balance: new Prisma.Decimal(balance), version: { increment: 1 } },
+  });
+  await client.balanceLog.create({
+    data: {
+      ...entry,
+      balanceDelta: wallet.balance.sub(current.balance),
+      lockedDelta: 0,
+    },
+  });
+  return wallet;
 }

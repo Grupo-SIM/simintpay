@@ -60,7 +60,6 @@ export class AffiliateCommissionService {
       delta: commissionAmount,
       action: 'AFFILIATE_COMMISSION_CREDIT',
       transactionId: params.transactionId,
-      logAmount: commissionAmount,
       missingWalletMessage: `[AffiliateCommission] Afiliado ${affiliateUserId} sem wallet — pulando crédito`,
       conflictMessage:
         'Wallet version conflict after 3 retries (affiliate commission)',
@@ -113,7 +112,6 @@ export class AffiliateCommissionService {
       delta: commission.commissionAmount.negated(),
       action: 'AFFILIATE_COMMISSION_REVERSE',
       transactionId,
-      logAmount: commission.commissionAmount,
       missingWalletMessage: `[AffiliateCommission] Afiliado ${commission.affiliateUserId} sem wallet — pulando reversão`,
       conflictMessage:
         'Wallet version conflict after 3 retries (affiliate commission reverse)',
@@ -137,7 +135,6 @@ export class AffiliateCommissionService {
       delta: Prisma.Decimal;
       action: string;
       transactionId: string;
-      logAmount: Prisma.Decimal;
       missingWalletMessage: string;
       conflictMessage: string;
     },
@@ -173,11 +170,11 @@ export class AffiliateCommissionService {
             userId: opts.userId,
             action: opts.action,
             transactionId: opts.transactionId,
-            amount: opts.logAmount,
-            balanceBefore: wallet.balance,
-            balanceAfter: newBalance,
-            lockedBefore: wallet.lockedBalance,
-            lockedAfter: wallet.lockedBalance,
+
+            balanceDelta: opts.delta,
+
+            lockedDelta: 0,
+
             source: 'AFFILIATE_COMMISSION',
           },
         });

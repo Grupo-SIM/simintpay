@@ -60,3 +60,11 @@ Correção pontual já aplicada: `get-me.use-case.ts` passou a usar a carteira p
 
 - Nenhuma consulta de escrita, migração ou backfill no banco `vps.simintermediacoes.com` sem autorização explícita.
 - Conciliação e relatórios só leem.
+
+### Normalização autorizada (2026-10-29)
+
+- `BalanceLog` passa a persistir `balanceDelta` e `lockedDelta` assinados. A migração adiciona os campos, calcula diferenças exatas dos snapshots DECIMAL e só depois remove `amount`, `balanceBefore`, `balanceAfter`, `lockedBefore` e `lockedAfter` na mesma transação.
+- `bookkeepingAmount` opcional conserva o nominal administrativo das linhas `MASTER_ADMIN_CONTROL` para relatórios; nunca compõe saldo da carteira. IDs, ações, origem, transação, datas e metadata existentes são preservados. `PURGE_ABSORB` com movimento real mantém seus deltas, mesmo nessa origem.
+- Novas carteiras começam em zero. A migração não inventa saldo de abertura nem aplica ajustes automáticos: diferenças históricas continuam expostas para revisão. Não executada em banco remoto/compartilhado.
+- Reserva canônica de saque e aprovação administrativa em massa agora gravam ledger e projeção na mesma transação; recálculos administrativos usam CAS e diferença do saldo realmente persistido. Conciliação inclui bloqueios e usuários com ledger sem carteira.
+- Busca no frontend não encontrou consumo dos snapshots ou de `wallet-composition`; nenhum arquivo frontend alterado. APIs administrativas de ledger agora expõem deltas explícitos; nominal de relatórios usa somente `bookkeepingAmount`.

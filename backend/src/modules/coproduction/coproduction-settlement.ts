@@ -65,7 +65,6 @@ export async function settleCoproduction(
       source,
       balanceDelta,
       lockedDelta,
-      amount: value,
       transactionId: row.id,
       metadata: {
         product: snapshot.product,

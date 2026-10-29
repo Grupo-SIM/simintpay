@@ -147,11 +147,10 @@ model BalanceLog {
   userId        String
   action        String
   transactionId String?
-  amount        Decimal  @db.Decimal(12, 2)
-  balanceBefore Decimal  @db.Decimal(12, 2)
-  balanceAfter  Decimal  @db.Decimal(12, 2)
-  lockedBefore  Decimal  @db.Decimal(12, 2)
-  lockedAfter   Decimal  @db.Decimal(12, 2)
+  /// Administrative nominal accounting, never included in wallet sums.
+  bookkeepingAmount Decimal? @db.Decimal(12, 2)
+  balanceDelta  Decimal  @db.Decimal(12, 2)
+  lockedDelta   Decimal  @db.Decimal(12, 2)
   description   String?
   source        String
   metadata      Json?
