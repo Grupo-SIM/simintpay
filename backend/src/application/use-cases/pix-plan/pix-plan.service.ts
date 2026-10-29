@@ -1,3 +1,4 @@
+import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import {
   assertOwnershipPreserved,
   resolveFinancialOwner,
@@ -234,6 +235,7 @@ export class PixPlanService {
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFee),
         platformFee: new Prisma.Decimal(platformFee),
+        ...transactionPlatformTagData(planTenantTag),
         description: `${body.description ?? `PIX_PLAN:${body.planType}`}${planTenantTag ? ` [TENANT:${planTenantTag}]` : ''}${planOwnerCpf ? ` [CPF_DONO:${planOwnerCpf}]` : ''}${planOwnerName ? ` [NOME_DONO:${planOwnerName}]` : ''}`,
         customerName: body.name,
         customerEmail: body.email,

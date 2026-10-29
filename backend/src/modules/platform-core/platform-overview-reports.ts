@@ -1,5 +1,5 @@
 import type { PlatformContext } from './platform-context.service';
-import { hasPlatformMarker } from './platform-sync.adapter';
+import { whereTransactionPlatform } from './transaction-platform';
 import { ForbiddenException } from '@nestjs/common';
 import { getPlatformOwnerId } from '../module.registry';
 import { Injectable, Logger } from '@nestjs/common';
@@ -89,29 +89,11 @@ export class PlatformOverviewReports {
       throw new ForbiddenException('Contexto da plataforma mudou');
   }
 
-  private identifiedIds?: Promise<string[]>;
   private async scope(
     where: Prisma.TransactionWhereInput,
   ): Promise<Prisma.TransactionWhereInput> {
     if (!this.context) return where;
-    this.identifiedIds ??= this.prisma.transaction
-      .findMany({
-        where: {
-          description: {
-            contains: `[TENANT:${this.context.tag}]`,
-            mode: 'insensitive',
-          },
-        },
-        select: { id: true, description: true },
-      })
-      .then((rows) =>
-        rows
-          .filter((row) =>
-            hasPlatformMarker(row.description, this.context!.tag),
-          )
-          .map((row) => row.id),
-      );
-    return { AND: [where, { id: { in: await this.identifiedIds } }] };
+    return { AND: [where, whereTransactionPlatform(this.context.tag)] };
   }
 
   private withdrawalScope(
@@ -275,15 +257,7 @@ export class PlatformOverviewReports {
 
     const bosqueTxWhere = {
       status: TransactionStatus.COMPLETED,
-      OR: [
-        {
-          description: {
-            contains: '[TENANT:BOSQUE]',
-            mode: 'insensitive' as const,
-          },
-        },
-        { description: { contains: 'bosque', mode: 'insensitive' as const } },
-      ],
+      ...whereTransactionPlatform('BOSQUE'),
     };
 
     // Carteira/saques Atlas: conta técnica (não usar fallback Renovada no userId)
@@ -334,25 +308,19 @@ export class PlatformOverviewReports {
     const filter: any = isAtlas
       ? {
           status: TransactionStatus.COMPLETED,
-          description: { contains: 'atlas', mode: 'insensitive' as const },
+          ...whereTransactionPlatform('ATLAS'),
         }
       : isBosque
         ? bosqueTxWhere
         : isAreaflix
           ? {
               status: TransactionStatus.COMPLETED,
-              description: {
-                contains: 'areaflix',
-                mode: 'insensitive' as const,
-              },
+              ...whereTransactionPlatform('AREAFLIX'),
             }
           : isTenantTagged
             ? {
                 status: TransactionStatus.COMPLETED,
-                description: {
-                  contains: `[TENANT:${upperTag}]`,
-                  mode: 'insensitive' as const,
-                },
+                ...whereTransactionPlatform(upperTag),
               }
             : upperTag === 'RENOVADA'
               ? // RENOVADA mantém userId puro — o bloco abaixo adiciona filter.OR com keywords
@@ -366,28 +334,10 @@ export class PlatformOverviewReports {
                   OR: [
                     ...(platformId ? [{ userId: platformId }] : []),
                     {
-                      description: {
-                        contains: `[TENANT:${upperTag}]`,
-                        mode: 'insensitive' as const,
-                      },
+                      ...whereTransactionPlatform(upperTag),
                     },
                   ],
                 };
-
-    if (upperTag === 'RENOVADA') {
-      const keywords = [
-        'dizimo',
-        'dízimo',
-        'primicia',
-        'primícia',
-        'oferta',
-        'maquineta',
-        'terminal',
-      ];
-      filter.OR = keywords.map((k) => ({
-        description: { contains: k, mode: 'insensitive' },
-      }));
-    }
 
     const allTransactions = await this.prisma.transaction.findMany({
       where: await this.scope(filter),
@@ -503,41 +453,22 @@ export class PlatformOverviewReports {
     const estornosWhere: Prisma.TransactionWhereInput = isAtlas
       ? {
           status: TransactionStatus.REFUNDED,
-          description: { contains: 'atlas', mode: 'insensitive' as const },
+          ...whereTransactionPlatform('ATLAS'),
         }
       : isBosque
         ? {
             status: TransactionStatus.REFUNDED,
-            OR: [
-              {
-                description: {
-                  contains: '[TENANT:BOSQUE]',
-                  mode: 'insensitive' as const,
-                },
-              },
-              {
-                description: {
-                  contains: 'bosque',
-                  mode: 'insensitive' as const,
-                },
-              },
-            ],
+            ...whereTransactionPlatform('BOSQUE'),
           }
         : isAreaflix
           ? {
               status: TransactionStatus.REFUNDED,
-              description: {
-                contains: 'areaflix',
-                mode: 'insensitive' as const,
-              },
+              ...whereTransactionPlatform('AREAFLIX'),
             }
           : isTenantTagged
             ? {
                 status: TransactionStatus.REFUNDED,
-                description: {
-                  contains: `[TENANT:${upperTag}]`,
-                  mode: 'insensitive' as const,
-                },
+                ...whereTransactionPlatform(upperTag),
               }
             : platformId
               ? {
@@ -550,44 +481,25 @@ export class PlatformOverviewReports {
       ? {
           status: TransactionStatus.CHARGEBACK,
           createdAt: { gte: start, lte: end },
-          description: { contains: 'atlas', mode: 'insensitive' as const },
+          ...whereTransactionPlatform('ATLAS'),
         }
       : isBosque
         ? {
             status: TransactionStatus.CHARGEBACK,
             createdAt: { gte: start, lte: end },
-            OR: [
-              {
-                description: {
-                  contains: '[TENANT:BOSQUE]',
-                  mode: 'insensitive' as const,
-                },
-              },
-              {
-                description: {
-                  contains: 'bosque',
-                  mode: 'insensitive' as const,
-                },
-              },
-            ],
+            ...whereTransactionPlatform('BOSQUE'),
           }
         : isAreaflix
           ? {
               status: TransactionStatus.CHARGEBACK,
               createdAt: { gte: start, lte: end },
-              description: {
-                contains: 'areaflix',
-                mode: 'insensitive' as const,
-              },
+              ...whereTransactionPlatform('AREAFLIX'),
             }
           : isTenantTagged
             ? {
                 status: TransactionStatus.CHARGEBACK,
                 createdAt: { gte: start, lte: end },
-                description: {
-                  contains: `[TENANT:${upperTag}]`,
-                  mode: 'insensitive' as const,
-                },
+                ...whereTransactionPlatform(upperTag),
               }
             : platformId
               ? {
@@ -843,29 +755,10 @@ export class PlatformOverviewReports {
   ): Promise<
     { label: string; value: number; maquinetas: number; offers: number }[]
   > {
-    const renovadaKeywords = [
-      'dizimo',
-      'dízimo',
-      'primicia',
-      'primícia',
-      'oferta',
-      'maquineta',
-      'terminal',
-    ];
     const baseWhere: any = useBosqueDescriptionOr
       ? {
           status: TransactionStatus.COMPLETED,
-          OR: [
-            {
-              description: {
-                contains: '[TENANT:BOSQUE]',
-                mode: 'insensitive' as const,
-              },
-            },
-            {
-              description: { contains: 'bosque', mode: 'insensitive' as const },
-            },
-          ],
+          ...whereTransactionPlatform('BOSQUE'),
         }
       : descriptionContains
         ? {
@@ -878,17 +771,11 @@ export class PlatformOverviewReports {
         : tenantTag
           ? {
               status: TransactionStatus.COMPLETED,
-              description: {
-                contains: `[TENANT:${tenantTag}]`,
-                mode: 'insensitive' as const,
-              },
+              ...whereTransactionPlatform(tenantTag),
             }
           : {
               userId: platformId,
               status: TransactionStatus.COMPLETED,
-              OR: renovadaKeywords.map((k) => ({
-                description: { contains: k, mode: 'insensitive' as const },
-              })),
             };
 
     const txs = await this.prisma.transaction.findMany({
@@ -985,34 +872,11 @@ export class PlatformOverviewReports {
       const d = now.subtract(i, unit);
       const start = d.startOf(unit).toDate();
       const end = d.endOf(unit).toDate();
-
-      const renovadaKeywords = [
-        'dizimo',
-        'dízimo',
-        'primicia',
-        'primícia',
-        'oferta',
-        'maquineta',
-        'terminal',
-      ];
       const chartWhere: any = useBosqueDescriptionOr
         ? {
             status: TransactionStatus.COMPLETED,
             createdAt: { gte: start, lte: end },
-            OR: [
-              {
-                description: {
-                  contains: '[TENANT:BOSQUE]',
-                  mode: 'insensitive' as const,
-                },
-              },
-              {
-                description: {
-                  contains: 'bosque',
-                  mode: 'insensitive' as const,
-                },
-              },
-            ],
+            ...whereTransactionPlatform('BOSQUE'),
           }
         : descriptionContains
           ? {
@@ -1027,18 +891,12 @@ export class PlatformOverviewReports {
             ? {
                 status: TransactionStatus.COMPLETED,
                 createdAt: { gte: start, lte: end },
-                description: {
-                  contains: `[TENANT:${tenantTag}]`,
-                  mode: 'insensitive' as const,
-                },
+                ...whereTransactionPlatform(tenantTag),
               }
             : {
                 userId: platformId,
                 status: TransactionStatus.COMPLETED,
                 createdAt: { gte: start, lte: end },
-                OR: renovadaKeywords.map((k) => ({
-                  description: { contains: k, mode: 'insensitive' as const },
-                })),
               };
       const txs = await this.prisma.transaction.findMany({
         where: await this.scope(chartWhere),

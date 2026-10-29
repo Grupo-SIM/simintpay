@@ -1,3 +1,4 @@
+import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import {
   creditedSettlementAmount,
@@ -20,7 +21,7 @@ import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
-import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
+import { platformTaxaTagForTransaction } from '../../helpers/dom-fee-estimate.helper';
 import {
   getPlatformTaxaEffective,
   canonicalPlatformTaxaTag,
@@ -284,7 +285,7 @@ export class ProcessWebhookUseCase {
           select: { platform: { select: { tag: true } } },
         });
         const tenantSlug = user?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
-        const rowTag = platformTaxaTagFromText(t.description ?? undefined);
+        const rowTag = platformTaxaTagForTransaction(t);
         const feeTag =
           rowTag !== 'GLOBAL' ? rowTag : canonicalPlatformTaxaTag(tenantSlug);
         const fixedTx = getPlatformTaxaEffective(
@@ -459,7 +460,7 @@ export class ProcessWebhookUseCase {
       }
 
       // EMIT EVENT for Real-Time UI (Renovada)
-      const eventTag = platformTaxaTagFromText(t.description);
+      const eventTag = platformTaxaTagForTransaction(t);
       if (eventTag === 'ZERO-GRAU') {
         const outcome = await notifyZeroGrauPaymentStatus({
           paymentId: domPaymentId,
@@ -631,6 +632,7 @@ export class ProcessWebhookUseCase {
             totalFee: 0,
             domFee: 0,
             platformFee: pf,
+            ...transactionPlatformTagData('AREAFLIX'),
             description: `${order.subscriptionLink.name} ${TENANT_AREAFLIX_TAG} subOrder=${order.id}`,
             domPaymentId: order.domPixPaymentId,
             customerName: order.customerName,
@@ -678,6 +680,7 @@ export class ProcessWebhookUseCase {
               totalFee: 0,
               domFee: 0,
               platformFee: pf,
+              ...transactionPlatformTagData(communityTag),
               description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
               domPaymentId: order.domPixPaymentId,
               customerName: order.customerName,

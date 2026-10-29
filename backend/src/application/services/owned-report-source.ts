@@ -8,9 +8,9 @@ type Period = { start?: Date; end?: Date; paymentMethod?: string };
 function canonical(value: Prisma.Sql) {
   return Prisma.sql`CASE WHEN upper(replace(${value}, '_', '-')) = 'EBOOKSIM' THEN 'EBOOK' ELSE upper(replace(${value}, '_', '-')) END`;
 }
+/** Stored Transaction.platformTag is the only platform source; description markers are never parsed. */
 function reportMarkerTags() {
-  return Prisma.sql`ARRAY(SELECT DISTINCT ${canonical(Prisma.sql`m[1]`)}
-    FROM regexp_matches(coalesce(t.description, ''), ${String.raw`\[TENANT:([^\]]+)\]`}, 'gi') m)`;
+  return Prisma.sql`CASE WHEN t."platformTag" IS NULL THEN ARRAY[]::text[] ELSE ARRAY[t."platformTag"] END`;
 }
 function period(alias: Prisma.Sql, filters: Period) {
   return Prisma.sql`${filters.start ? Prisma.sql`AND ${alias}."createdAt" >= ${filters.start}` : Prisma.empty}
@@ -28,8 +28,10 @@ function subscriptionTags() {
 
 /** One projection for cards, charts and details. Reads only; never changes historical wallets. */
 export function ownedReportSource(scope: PlatformScope, filters: Period) {
-  const ids = scope.map(p => p.id);
-  const selected = ids.length ? Prisma.sql`p.id IN (${Prisma.join(ids)})` : Prisma.sql`false`;
+  const ids = scope.map((p) => p.id);
+  const selected = ids.length
+    ? Prisma.sql`p.id IN (${Prisma.join(ids)})`
+    : Prisma.sql`false`;
   return Prisma.sql`
     SELECT t.id, t."userId", t."createdAt", t.status::text AS status, t."paymentMethod"::text AS "paymentMethod",
       t.amount, CASE WHEN t."financialSnapshot" ? 'coproduction' THEN t."netAmount" - coalesce((
@@ -62,13 +64,7 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
         AND t.tracking #>> '{reportAttribution,beneficiaryUserId}' = t."userId"
         AND marker.tags = ARRAY[p.tag]
       ELSE
-        p."ownerUserId" = t."userId" AND (
-          marker.tags = ARRAY[p.tag]
-          OR (cardinality(marker.tags) = 0 AND (
-            (link.tags = ARRAY[p.tag] AND l."userId" = t."userId")
-            OR (t."paymentLinkId" IS NULL AND subscription.tags = ARRAY[p.tag])
-          ))
-        )
+        p."ownerUserId" = t."userId" AND marker.tags = ARRAY[p.tag]
       END
     )
     WHERE ${selected} ${period(Prisma.sql`t`, filters)}
@@ -99,14 +95,17 @@ export function ownedReportSource(scope: PlatformScope, filters: Period) {
 }
 
 /** Unknown single tags and excluded merchant history must not masquerade as complete history. */
-export function reportUnattributedSource(scope: PlatformScope, filters: Period) {
-  const owners = [...new Set(scope.map(p => p.ownerUserId))];
-  const tags = scope.map(p => p.tag);
+export function reportUnattributedSource(
+  scope: PlatformScope,
+  filters: Period,
+) {
+  const owners = [...new Set(scope.map((p) => p.ownerUserId))];
+  const tags = scope.map((p) => p.tag);
   return Prisma.sql`SELECT count(*) AS count FROM "Transaction" t
     WHERE (${owners.length ? Prisma.sql`t."userId" IN (${Prisma.join(owners)})` : Prisma.sql`false`}
       OR (${tags.length ? Prisma.sql`${reportMarkerTags()} && ARRAY[${Prisma.join(tags)}]::text[]` : Prisma.sql`false`}
         AND NOT (coalesce(t.tracking, '{}'::jsonb) ? 'reportAttribution')
-        AND EXISTS (SELECT 1 FROM "IntegrationMerchant" m JOIN "Platform" p ON ${scope.length ? Prisma.sql`p.id IN (${Prisma.join(scope.map(p => p.id))})` : Prisma.sql`false`}
+        AND EXISTS (SELECT 1 FROM "IntegrationMerchant" m JOIN "Platform" p ON ${scope.length ? Prisma.sql`p.id IN (${Prisma.join(scope.map((p) => p.id))})` : Prisma.sql`false`}
           WHERE m."userId" = t."userId" AND (m."integrationKey" = 'platform:' || p.id OR EXISTS (
             SELECT 1 FROM "PlatformIntegration" i WHERE i."platformId" = p.id AND i.key = 'LEGACY_MERCHANT_KEYS'
               AND m."integrationKey" = ANY(regexp_split_to_array(i.url, '\\s*,\\s*'))
@@ -116,5 +115,5 @@ export function reportUnattributedSource(scope: PlatformScope, filters: Period) 
       AND NOT EXISTS (SELECT 1 FROM (${ownedReportSource(scope, filters)}) included WHERE included.id = t.id)
       AND NOT EXISTS (SELECT 1 FROM "Platform" other WHERE other."ownerUserId" = t."userId"
         AND ${reportMarkerTags()} = ARRAY[other.tag]
-        AND ${scope.length ? Prisma.sql`other.id NOT IN (${Prisma.join(scope.map(p => p.id))})` : Prisma.sql`false`})`;
+        AND ${scope.length ? Prisma.sql`other.id NOT IN (${Prisma.join(scope.map((p) => p.id))})` : Prisma.sql`false`})`;
 }

@@ -1,3 +1,4 @@
+import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import {
   captureCoproduction,
   withCoproduction,
@@ -211,6 +212,7 @@ export class ChargePixPaymentLinkUseCase {
         platformTag !== 'GLOBAL'
           ? `${baseDescription} [TENANT:${platformTag}]`
           : baseDescription,
+      ...transactionPlatformTagData(platformTag),
       customerName: input.customerName,
       customerEmail: input.customerEmail,
       customerDocument: document,

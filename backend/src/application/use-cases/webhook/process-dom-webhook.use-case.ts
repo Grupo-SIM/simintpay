@@ -12,7 +12,11 @@ import {
   settleFinalNet,
 } from '../../../modules/platform-core/link-settlement';
 import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
-import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
+import { platformTaxaTagForTransaction } from '../../helpers/dom-fee-estimate.helper';
+import {
+  transactionPlatformTag,
+  transactionPlatformTagData,
+} from '../../../modules/platform-core/transaction-platform';
 import {
   getPlatformOwnerId,
   registeredPlatformTags,
@@ -41,8 +45,6 @@ import { AffiliateCommissionService } from '../../services/affiliate-commission.
 import {
   appendInternalTags,
   ORIGEM_MAQUINETA_TAG,
-  TENANT_CONTROLE_MOTORISTA_TAG,
-  TENANT_CONTROLE_PATRIMONIAL_TAG,
   TENANT_EBOOK_TAG,
 } from '../../utils/internal-tags.util';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
@@ -361,7 +363,7 @@ export class ProcessDomWebhookUseCase {
       if (existing.status === nextStatus) {
         if (
           this.queue &&
-          platformTaxaTagFromText(existing.description) === 'ZERO-GRAU'
+          platformTaxaTagForTransaction(existing) === 'ZERO-GRAU'
         ) {
           await this.queue.publish(QueueNames.ZERO_GRAU_NOTIFICATIONS, {
             paymentId: data.id,
@@ -385,10 +387,8 @@ export class ProcessDomWebhookUseCase {
         return;
       }
 
-      const isRenovada =
-        platformTaxaTagFromText(existing.description) === 'RENOVADA';
-      const isBosque =
-        platformTaxaTagFromText(existing.description) === 'BOSQUE';
+      const isRenovada = platformTaxaTagForTransaction(existing) === 'RENOVADA';
+      const isBosque = platformTaxaTagForTransaction(existing) === 'BOSQUE';
       // Renovada/Bosque: wallet stores net (DOM liquid_amount). Use liquid from webhook when available,
       // fall back to stored netAmount, then gross as last resort.
       let delta: Prisma.Decimal;
@@ -407,14 +407,14 @@ export class ProcessDomWebhookUseCase {
           (existing.netAmount != null
             ? new Prisma.Decimal(existing.netAmount.toString())
             : amountDec);
-      } else if (existing.description?.includes('[TENANT:AREAFLIX]')) {
+      } else if (transactionPlatformTag(existing) === 'AREAFLIX') {
         // AREAFLIX: netAmount já é o líquido final do vendedor (% método + fixa
         // descontados na criação da transação) — sem taxas extras aqui.
         delta =
           existing.netAmount != null
             ? new Prisma.Decimal(existing.netAmount.toString())
             : amountDec;
-      } else if (existing.description?.includes('[TENANT:EBOOK]')) {
+      } else if (transactionPlatformTag(existing) === 'EBOOK') {
         // EBOOK: líquido = netAmount (% LIQUIDEZ) − TAXA_SERVICO, as taxas cadastradas exibidas em /taxa.
         const netAmountDec =
           existing.netAmount != null
@@ -575,7 +575,7 @@ export class ProcessDomWebhookUseCase {
 
       if (applied === false) return;
 
-      const eventTag = platformTaxaTagFromText(existing.description);
+      const eventTag = platformTaxaTagForTransaction(existing);
       if (this.platformEvents && eventTag !== 'GLOBAL')
         this.platformEvents.emit(eventTag, 'transaction', {
           ...existing,
@@ -586,7 +586,7 @@ export class ProcessDomWebhookUseCase {
       ).trim();
       if (
         zeroGrauUserId &&
-        platformTaxaTagFromText(existing.description) === 'ZERO-GRAU'
+        platformTaxaTagForTransaction(existing) === 'ZERO-GRAU'
       ) {
         const notification = { paymentId: data.id, status: nextStatus };
         if (this.queue) {
@@ -605,7 +605,7 @@ export class ProcessDomWebhookUseCase {
       }
 
       if (
-        platformTaxaTagFromText(existing.description) === 'RENOVADA' &&
+        platformTaxaTagForTransaction(existing) === 'RENOVADA' &&
         this.renovadaEvents
       ) {
         if (!this.platformEvents)
@@ -624,7 +624,7 @@ export class ProcessDomWebhookUseCase {
         );
         void this.tryNotifyBackEbookOrderPaidFromDomWebhook(data);
 
-        if (existing.description?.includes(TENANT_CONTROLE_MOTORISTA_TAG)) {
+        if (transactionPlatformTag(existing) === 'CONTROLE-MOTORISTA') {
           void this.tryProvisionControleMotoristaUser(data, existing);
           void this.upsertPlatformSubscriberAccess(
             'CONTROLE-MOTORISTA',
@@ -634,7 +634,7 @@ export class ProcessDomWebhookUseCase {
           );
         }
 
-        if (existing.description?.includes(TENANT_CONTROLE_PATRIMONIAL_TAG)) {
+        if (transactionPlatformTag(existing) === 'CONTROLE-PATRIMONIAL') {
           void this.tryProvisionControlePatrimonialUser(data, existing);
           void this.upsertPlatformSubscriberAccess(
             'CONTROLE-PATRIMONIAL',
@@ -699,7 +699,7 @@ export class ProcessDomWebhookUseCase {
                   Number(existing.amount) -
                   Number(existing.netAmount) /
                     getPlatformTaxaEffective(
-                      existing.description?.includes(TENANT_EBOOK_TAG)
+                      transactionPlatformTag(existing) === 'EBOOK'
                         ? 'EBOOK'
                         : 'GLOBAL',
                       'LIQUIDEZ',
@@ -1573,6 +1573,7 @@ export class ProcessDomWebhookUseCase {
             domFee: new Prisma.Decimal(data.dom_fee ?? 0),
             status: TransactionStatus.COMPLETED,
             paymentMethod: this.calcPaymentMethod(data.payment_method),
+            ...transactionPlatformTagData('EBOOK'),
             description,
             installments: Number(data.installments ?? 1),
             customerName:
@@ -1738,6 +1739,7 @@ export class ProcessDomWebhookUseCase {
           platformFee: new Prisma.Decimal(fees.platformFeeAmt),
           status: TransactionStatus.COMPLETED,
           paymentMethod: this.calcPaymentMethod(data.payment_method),
+          ...transactionPlatformTagData(platformTag),
           description: appendInternalTags(
             `Sincronização Automática - Terminal: ${serial}`,
             [`[TENANT:${platformTag}]`, ORIGEM_MAQUINETA_TAG],
@@ -2278,6 +2280,7 @@ export class ProcessDomWebhookUseCase {
               totalFee: 0,
               domFee: 0,
               platformFee: pf,
+              ...transactionPlatformTagData(communityTag),
               description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
               domPaymentId: order.domPixPaymentId,
               customerName: order.customerName,

@@ -1,3 +1,4 @@
+import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import {
   captureCoproduction,
   withCoproduction,
@@ -259,6 +260,7 @@ export class ChargeBoletoPixUseCase {
               platformTag !== 'GLOBAL'
                 ? `${boleto.description ?? boleto.title} [TENANT:${platformTag}]`
                 : (boleto.description ?? boleto.title),
+            ...transactionPlatformTagData(platformTag),
             customerName: input.customerName,
             customerEmail: input.customerEmail,
             customerDocument: document,

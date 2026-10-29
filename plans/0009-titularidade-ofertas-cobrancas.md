@@ -64,7 +64,7 @@ Inventário somente leitura levantado nesta tarefa, sujeito a mudança: 13 links
 - [ ] Transferir produtos identificados preservando IDs e referências; manter o executor histórico desconhecido quando não houver evidência.
 - [ ] Não transferir automaticamente transações liquidadas nem recalcular taxas/coprodução pelo dono atual. Correção monetária exige decisão específica, lançamentos compensatórios e verificação de duplicidade.
 - [ ] Considerar que a carteira administrativa foi zerada por autorização operacional: isso não prova quitação dos verdadeiros vendedores nem autoriza recrédito. Conferir repasses externos, créditos já recebidos e ajustes anteriores antes de propor compensações.
-- [ ] Migrar leitores de plataforma para `Transaction.platformTag` com política de compatibilidade explícita. Validar alterações manuais de tag sem alterar titular ou ledger.
+- [x] Migrar leitores de plataforma para `Transaction.platformTag` com política de compatibilidade explícita. Validado em PostgreSQL local descartável: alteração manual da tag move somente a associação nos relatórios; descrição, titular e ledger não são reescritos. `null` é sem plataforma; aliases são normalizados. Migração remota continua pendente de autorização.
 - [ ] Conferir conservação de dinheiro, encadeamento do ledger, bloqueios e total por beneficiário antes/depois.
 
 ## 5. Verificação e esforço

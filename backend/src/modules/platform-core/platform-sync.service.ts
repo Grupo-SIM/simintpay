@@ -1,3 +1,4 @@
+import { whereTransactionPlatform } from './transaction-platform';
 import { syncStatus } from './platform-sync.adapter';
 import { applyWalletEntry } from '../wallet-ledger/wallet-ledger';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -95,7 +96,7 @@ export class PlatformSyncService {
       where: {
         status: 'PENDING',
         acquirer: 'DOM',
-        description: { contains: `[TENANT:${context.tag}]` },
+        ...whereTransactionPlatform(context.tag),
         domPaymentId: { not: null },
       },
       take: 100,

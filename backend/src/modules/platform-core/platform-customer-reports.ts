@@ -2,7 +2,7 @@ import { getPlatformOwnerId } from '../module.registry';
 import { getPlatformTaxaEffective } from '../platform-taxas/platform-taxas.store';
 import { ConflictException } from '@nestjs/common';
 import type { PlatformContext } from './platform-context.service';
-import { hasPlatformMarker } from './platform-sync.adapter';
+import { whereTransactionPlatform } from './transaction-platform';
 import { platformDashboardRules } from './platform-dashboard.adapter';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { Prisma, TransactionStatus } from '@prisma/client';
@@ -93,21 +93,19 @@ export class PlatformCustomerReports {
       where: {
         userId: { in: poolIds },
         status: TransactionStatus.COMPLETED,
-        description: {
-          contains: this.context
-            ? `[TENANT:${this.context.tag}]`
-            : dbUser.cpf || 'UNDEFINED_CPF',
-          mode: 'insensitive' as const,
-        },
+        ...(this.context
+          ? whereTransactionPlatform(this.context.tag)
+          : {
+              description: {
+                contains: dbUser.cpf || 'UNDEFINED_CPF',
+                mode: 'insensitive' as const,
+              },
+            }),
       },
       select: { netAmount: true, description: true, createdAt: true },
     });
 
-    const allTransactions = this.context
-      ? candidates.filter((tx) =>
-          hasPlatformMarker(tx.description, this.context!.tag),
-        )
-      : candidates;
+    const allTransactions = candidates;
 
     const getProfit = (txs: any[]) => {
       let total = new Prisma.Decimal(0);
@@ -266,16 +264,11 @@ export class PlatformCustomerReports {
       where: {
         userId: { in: userIds },
         status: TransactionStatus.REFUNDED,
-        description: {
-          contains: `[TENANT:${this.context!.tag}]`,
-          mode: 'insensitive',
-        },
+        ...whereTransactionPlatform(this.context!.tag),
       },
       select: { netAmount: true, description: true },
     });
-    const identified = rows.filter((row) =>
-      hasPlatformMarker(row.description, this.context!.tag),
-    );
+    const identified = rows;
     return {
       _count: { id: identified.length },
       _sum: {
@@ -306,24 +299,17 @@ export class PlatformCustomerReports {
           userId: { in: poolIds },
           status: TransactionStatus.COMPLETED,
           createdAt: { gte: start, lte: end },
-          description: {
-            contains: this.context ? `[TENANT:${this.context.tag}]` : cpf,
-            mode: 'insensitive' as const,
-          },
+          ...(this.context
+            ? whereTransactionPlatform(this.context.tag)
+            : { description: { contains: cpf, mode: 'insensitive' as const } }),
         },
         select: { netAmount: true, description: true },
       });
 
       let val = new Prisma.Decimal(0);
-      txs
-        .filter(
-          (tx) =>
-            !this.context ||
-            hasPlatformMarker(tx.description, this.context.tag),
-        )
-        .forEach((tx) => {
-          val = val.plus(tx.netAmount || 0);
-        });
+      txs.forEach((tx) => {
+        val = val.plus(tx.netAmount || 0);
+      });
 
       data.push({
         label: unit === 'day' ? d.format('DD/MM') : d.format('MMM'),

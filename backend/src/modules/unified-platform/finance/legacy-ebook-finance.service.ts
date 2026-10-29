@@ -1,24 +1,38 @@
+import { whereTransactionPlatform } from '../../platform-core/transaction-platform';
 import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
 import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { BadRequestException, Inject } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { PAYMENT_GATEWAY, type DomTransactionItem, type IPaymentGateway } from '../../../core/services/payment-gateway.interface';
-import { EbookSimConfig, getEbookTaxaServico } from '../../../modules/ebooksim/ebooksim.config';
+import {
+  PAYMENT_GATEWAY,
+  type DomTransactionItem,
+  type IPaymentGateway,
+} from '../../../core/services/payment-gateway.interface';
+import {
+  EbookSimConfig,
+  getEbookTaxaServico,
+} from '../../../modules/ebooksim/ebooksim.config';
 import { calculateSellerNetValue } from '../../../application/helpers/transaction-fee.helper';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
-type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
+type TxStatus =
+  | 'PENDING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'REFUNDED'
+  | 'EXPIRED'
+  | 'DRAFT';
 
 @Injectable()
 export class InternalEbookFinanceService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway, private readonly finance: PlatformFinanceService
+    @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway,
+    private readonly finance: PlatformFinanceService,
   ) {}
-
 
   private normalizeDoc(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
@@ -33,7 +47,9 @@ export class InternalEbookFinanceService {
     return this.resolveUserIdsByDocument(cpf);
   }
 
-  private extractOrderNumberFromText(value: string | null | undefined): string | null {
+  private extractOrderNumberFromText(
+    value: string | null | undefined,
+  ): string | null {
     const raw = String(value ?? '');
     const match = raw.match(/\bORD-\d{4}-\d+\b/i);
     return match ? match[0].toUpperCase() : null;
@@ -48,8 +64,8 @@ export class InternalEbookFinanceService {
     const date = new Date(withTimezone);
     return Number.isNaN(date.getTime()) ? null : date;
   }
-  async summary( cpf: string, internalToken?: string,
-  ) {
+  async summary(cpf: string, _internalToken?: string) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf);
     if (userIds.length === 0) {
       return {
@@ -58,8 +74,14 @@ export class InternalEbookFinanceService {
         lockedBalance: 0,
         minimumWithdrawalAmount: EbookSimConfig.saque.minValor,
         withdrawalFeeBrl: EbookSimConfig.saque.taxaFixa,
-        pixFeePercent: Number(((1 - EbookSimConfig.saque.fatorLiquidez) * 100).toFixed(2)),
-        transactionFeeBrl: getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO),
+        pixFeePercent: Number(
+          ((1 - EbookSimConfig.saque.fatorLiquidez) * 100).toFixed(2),
+        ),
+        transactionFeeBrl: getPlatformTaxaEffective(
+          'EBOOK',
+          'TAXA_SERVICO',
+          PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+        ),
         accountExists: false,
       };
     }
@@ -68,13 +90,16 @@ export class InternalEbookFinanceService {
       where: {
         userId: { in: userIds },
         status: 'COMPLETED',
-        description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' },
+        ...whereTransactionPlatform('EBOOK'),
       },
       select: { netAmount: true, amount: true, description: true },
     });
 
     const wdCompleted = await this.prisma.withdrawRequest.aggregate({
-      where: { userId: { in: userIds }, status: { in: ['APPROVED', 'COMPLETED'] } },
+      where: {
+        userId: { in: userIds },
+        status: { in: ['APPROVED', 'COMPLETED'] },
+      },
       _sum: { amount: true, grossAmount: true },
     });
 
@@ -87,47 +112,79 @@ export class InternalEbookFinanceService {
     const taxaServicoSummary = getEbookTaxaServico();
     const totalReceived = txCompleted.reduce((sum, tx) => {
       const net = Number(tx.netAmount ?? tx.amount ?? 0);
-      const isAffiliateCommission = /\[AFFILIATE_COMMISSION\]/i.test(tx.description ?? '');
+      const isAffiliateCommission = /\[AFFILIATE_COMMISSION\]/i.test(
+        tx.description ?? '',
+      );
       return sum + net - (isAffiliateCommission ? 0 : taxaServicoSummary);
     }, 0);
-    const totalCompletedWithdraw = Number(wdCompleted._sum.grossAmount ?? wdCompleted._sum.amount ?? 0);
+    const totalCompletedWithdraw = Number(
+      wdCompleted._sum.grossAmount ?? wdCompleted._sum.amount ?? 0,
+    );
     const pendingAmount = Number(wdPending._sum.amount ?? 0);
     const pendingGross = Number(wdPending._sum.grossAmount ?? pendingAmount);
 
     return {
-      availableBalance: Number((totalReceived - totalCompletedWithdraw - pendingGross).toFixed(2)),
+      availableBalance: Number(
+        (totalReceived - totalCompletedWithdraw - pendingGross).toFixed(2),
+      ),
       pendingWithdraws: Number(pendingAmount.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
       minimumWithdrawalAmount: EbookSimConfig.saque.minValor,
       withdrawalFeeBrl: EbookSimConfig.saque.taxaFixa,
-      pixFeePercent: Number(((1 - EbookSimConfig.saque.fatorLiquidez) * 100).toFixed(2)),
-      transactionFeeBrl: getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO),
+      pixFeePercent: Number(
+        ((1 - EbookSimConfig.saque.fatorLiquidez) * 100).toFixed(2),
+      ),
+      transactionFeeBrl: getPlatformTaxaEffective(
+        'EBOOK',
+        'TAXA_SERVICO',
+        PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+      ),
       accountExists: userIds.length > 0,
     };
   }
-  async transactions( cpf: string, page = '1', limit = '10', startDate?: string, endDate?: string, status?: string, description?: string, internalToken?: string,
+  async transactions(
+    cpf: string,
+    page = '1',
+    limit = '10',
+    startDate?: string,
+    endDate?: string,
+    status?: string,
+    description?: string,
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf);
     if (userIds.length === 0) {
-      return { transactions: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
+      return {
+        transactions: [],
+        meta: {
+          currentPage: 1,
+          itemsPerPage: 10,
+          totalItems: 0,
+          totalPages: 1,
+        },
+      };
     }
 
     const pageNum = Math.max(1, Number(page || 1));
     const size = Math.min(Math.max(1, Number(limit || 10)), 200);
     const where: any = {
       userId: { in: userIds },
-      description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' },
+      ...whereTransactionPlatform('EBOOK'),
     };
 
     if (status && status !== 'ALL') {
       where.status = String(status).toUpperCase() as TxStatus;
     }
     if (description && description !== 'ALL') {
-      where.AND = [{ description: { contains: description, mode: 'insensitive' } }];
+      where.AND = [
+        { description: { contains: description, mode: 'insensitive' } },
+      ];
     }
     if (startDate || endDate) {
       where.createdAt = {};
-      if (startDate) where.createdAt.gte = new Date(`${startDate}T00:00:00.000Z`);
+      if (startDate)
+        where.createdAt.gte = new Date(`${startDate}T00:00:00.000Z`);
       if (endDate) where.createdAt.lte = new Date(`${endDate}T23:59:59.999Z`);
     }
 
@@ -148,31 +205,45 @@ export class InternalEbookFinanceService {
         if (domToken?.trim()) {
           const parsedDates = items
             .map((t) => t.createdAt)
-            .filter((d): d is Date => d instanceof Date && !Number.isNaN(d.getTime()));
-          const minCreated = parsedDates.length > 0
-            ? new Date(Math.min(...parsedDates.map((d) => d.getTime())))
-            : new Date();
-          const maxCreated = parsedDates.length > 0
-            ? new Date(Math.max(...parsedDates.map((d) => d.getTime())))
-            : new Date();
-          const endMoment = new Date(maxCreated.getTime() + (2 * 24 * 60 * 60 * 1000));
-          const beginCandidate = new Date(minCreated.getTime() - (2 * 24 * 60 * 60 * 1000));
+            .filter(
+              (d): d is Date => d instanceof Date && !Number.isNaN(d.getTime()),
+            );
+          const minCreated =
+            parsedDates.length > 0
+              ? new Date(Math.min(...parsedDates.map((d) => d.getTime())))
+              : new Date();
+          const maxCreated =
+            parsedDates.length > 0
+              ? new Date(Math.max(...parsedDates.map((d) => d.getTime())))
+              : new Date();
+          const endMoment = new Date(
+            maxCreated.getTime() + 2 * 24 * 60 * 60 * 1000,
+          );
+          const beginCandidate = new Date(
+            minCreated.getTime() - 2 * 24 * 60 * 60 * 1000,
+          );
           const minAllowedBegin = new Date(endMoment);
           minAllowedBegin.setMonth(minAllowedBegin.getMonth() - 3);
-          const beginMoment = beginCandidate < minAllowedBegin ? minAllowedBegin : beginCandidate;
+          const beginMoment =
+            beginCandidate < minAllowedBegin ? minAllowedBegin : beginCandidate;
           const beginDate = beginMoment.toISOString().slice(0, 10);
           const endDate = endMoment.toISOString().slice(0, 10);
           const limitDom = 150;
           for (let domPage = 1; domPage <= 12; domPage += 1) {
-            const res = await this.paymentGateway.listDomTransactions(domToken, {
-              page: domPage,
-              limit: limitDom,
-              begin_date: beginDate,
-              end_date: endDate,
-            });
+            const res = await this.paymentGateway.listDomTransactions(
+              domToken,
+              {
+                page: domPage,
+                limit: limitDom,
+                begin_date: beginDate,
+                end_date: endDate,
+              },
+            );
             const batch = res.transactions ?? [];
             for (const tx of batch) {
-              const orderNumber = this.extractOrderNumberFromText(tx.product_first);
+              const orderNumber = this.extractOrderNumberFromText(
+                tx.product_first,
+              );
               if (!orderNumber) continue;
               const arr = domByOrderNumber.get(orderNumber) ?? [];
               arr.push(tx);
@@ -192,14 +263,19 @@ export class InternalEbookFinanceService {
         let name = t.customerName ?? null;
         let email = t.customerEmail ?? null;
         const orderNumber = this.extractOrderNumberFromText(t.description);
-        const domCandidates = orderNumber ? domByOrderNumber.get(orderNumber) ?? [] : [];
+        const domCandidates = orderNumber
+          ? (domByOrderNumber.get(orderNumber) ?? [])
+          : [];
         if (domCandidates.length > 0) {
-          const txCreatedAt = t.createdAt instanceof Date ? t.createdAt.getTime() : Date.now();
+          const txCreatedAt =
+            t.createdAt instanceof Date ? t.createdAt.getTime() : Date.now();
           let best = domCandidates[0];
           let bestDistance = Number.MAX_SAFE_INTEGER;
           for (const candidate of domCandidates) {
             const candDate = this.parseDomCreatedAt(candidate.created_at);
-            const dist = candDate ? Math.abs(candDate.getTime() - txCreatedAt) : Number.MAX_SAFE_INTEGER - 1;
+            const dist = candDate
+              ? Math.abs(candDate.getTime() - txCreatedAt)
+              : Number.MAX_SAFE_INTEGER - 1;
             if (dist < bestDistance) {
               bestDistance = dist;
               best = candidate;
@@ -209,7 +285,9 @@ export class InternalEbookFinanceService {
           email = best.customer_email ?? email;
         }
 
-        const isAffiliateCommission = /\[AFFILIATE_COMMISSION\]/i.test(t.description ?? '');
+        const isAffiliateCommission = /\[AFFILIATE_COMMISSION\]/i.test(
+          t.description ?? '',
+        );
         const netBase = Number(t.netAmount ?? t.amount);
         const taxaServico = isAffiliateCommission ? 0 : getEbookTaxaServico();
 
@@ -242,12 +320,18 @@ export class InternalEbookFinanceService {
       },
     };
   }
-  async withdrawals( cpf: string, page = '1', limit = '10', internalToken?: string,
+  async withdrawals(
+    cpf: string,
+    page = '1',
+    limit = '10',
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf);
     return this.finance.legacyWithdrawals(userIds, page, limit);
   }
-  async createPendingTransaction( body: {
+  async createPendingTransaction(
+    body: {
       orderNumber: string;
       amount: number;
       ownerCpf?: string;
@@ -257,27 +341,36 @@ export class InternalEbookFinanceService {
       buyerEmail?: string;
       buyerDocument?: string;
       installments?: number;
-    }, internalToken?: string,
+    },
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
-    if (!body.orderNumber?.trim()) throw new BadRequestException('orderNumber é obrigatório');
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new BadRequestException('Valor inválido');
+    if (!body.orderNumber?.trim())
+      throw new BadRequestException('orderNumber é obrigatório');
 
     const domPaymentId = `EBOOK_PENDING_${body.orderNumber}`;
 
     let userId = getPlatformOwnerId('EBOOK');
-    if (!userId) throw new BadRequestException('Plataforma EBOOK sem dono ativo');
+    if (!userId)
+      throw new BadRequestException('Plataforma EBOOK sem dono ativo');
     let ownerName: string | null = body.ownerName?.trim() || null;
     if (body.ownerCpf) {
       const cpf = body.ownerCpf.replace(/\D/g, '');
       const cpfFmt = cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-      const author = cpf.length === 14
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ? await (this.prisma.user as any).findFirst({ where: { cnpj: cpf }, select: { id: true, name: true } })
-        : await this.prisma.user.findFirst({
-            where: { cpf: { in: [cpf, cpfFmt] } },
-            select: { id: true, name: true },
-          });
+      const author =
+        cpf.length === 14
+          ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (this.prisma.user as any).findFirst({
+              where: { cnpj: cpf },
+              select: { id: true, name: true },
+            })
+          : await this.prisma.user.findFirst({
+              where: { cpf: { in: [cpf, cpfFmt] } },
+              select: { id: true, name: true },
+            });
       if (author) {
         userId = author.id;
         // Preferir o nome vindo do back-ebook (fonte primária); fallback para o nome da conta Simpay
@@ -285,54 +378,88 @@ export class InternalEbookFinanceService {
       }
     }
 
-    if (!userId) throw new BadRequestException('Plataforma Ebook sem dono cadastrado');
+    if (!userId)
+      throw new BadRequestException('Plataforma Ebook sem dono cadastrado');
     const ownerDoc = body.ownerCpf ? body.ownerCpf.replace(/\D/g, '') : '';
-    const cpfTag = ownerDoc ? ` [${ownerDoc.length === 14 ? 'CNPJ' : 'CPF'}_DONO:${ownerDoc}]` : '';
+    const cpfTag = ownerDoc
+      ? ` [${ownerDoc.length === 14 ? 'CNPJ' : 'CPF'}_DONO:${ownerDoc}]`
+      : '';
     const nomeTag = ownerName ? ` [NOME_DONO:${ownerName}]` : '';
     const description = `${body.orderNumber.trim()} [TENANT:EBOOK]${cpfTag}${nomeTag}`;
     const installments = Number(body.installments || 1);
-    const netAmount = calculateSellerNetValue(amount, installments, 'EBOOK', 'pix');
+    const netAmount = calculateSellerNetValue(
+      amount,
+      installments,
+      'EBOOK',
+      'pix',
+    );
     const method = (body.paymentMethod || 'PIX').toUpperCase();
 
     return this.finance.recordEntry('EBOOK', {
-        userId,
-        amount,
-        netAmount,
-        status: 'PENDING',
-        paymentMethod: method as any,
-        description,
-        domPaymentId,
-        installments,
-        customerName: body.buyerName ?? null,
-        customerEmail: body.buyerEmail ?? null,
-        customerDocument: body.buyerDocument ? body.buyerDocument.replace(/\D/g, '') : null,
+      userId,
+      amount,
+      netAmount,
+      status: 'PENDING',
+      paymentMethod: method as any,
+      description,
+      domPaymentId,
+      installments,
+      customerName: body.buyerName ?? null,
+      customerEmail: body.buyerEmail ?? null,
+      customerDocument: body.buyerDocument
+        ? body.buyerDocument.replace(/\D/g, '')
+        : null,
     });
   }
-  getConfig( internalToken?: string) {
-    const taxaFixaSummary = getPlatformTaxaEffective('EBOOK', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-    const taxaCashbackSummary = getPlatformTaxaEffective('EBOOK', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+  getConfig(_internalToken?: string) {
+    void _internalToken;
+    const taxaFixaSummary = getPlatformTaxaEffective(
+      'EBOOK',
+      'TAXA_FIXA_TRANSACAO',
+      PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
+    );
+    const taxaCashbackSummary = getPlatformTaxaEffective(
+      'EBOOK',
+      'TAXA_CASHBACK',
+      PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
+    );
     return {
       liquidez: EbookSimConfig.saque.fatorLiquidez,
       mdrPix: EbookSimConfig.mdr.pix,
-      transactionFeeBrl: getPlatformTaxaEffective('EBOOK', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO),
+      transactionFeeBrl: getPlatformTaxaEffective(
+        'EBOOK',
+        'TAXA_SERVICO',
+        PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+      ),
       taxaFixaTransacao: taxaFixaSummary,
       taxaCashback: taxaCashbackSummary,
       affiliateCommissionRate: Number(
-        (getPlatformTaxaEffective('EBOOK', 'TAXA_COMISSAO_AFILIADO', PLATFORM_TAXA_DEFAULTS.TAXA_COMISSAO_AFILIADO) * 100).toFixed(2),
+        (
+          getPlatformTaxaEffective(
+            'EBOOK',
+            'TAXA_COMISSAO_AFILIADO',
+            PLATFORM_TAXA_DEFAULTS.TAXA_COMISSAO_AFILIADO,
+          ) * 100
+        ).toFixed(2),
       ),
     };
   }
-  async creditCommission( body: {
+  async creditCommission(
+    body: {
       referenceId: string; // ex: `AFF-<orderId>-<bookId>` — usado para idempotência
       cpf?: string;
       cnpj?: string;
       amount: number;
       description?: string;
-    }, internalToken?: string,
+    },
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
-    if (!body.referenceId?.trim()) throw new BadRequestException('referenceId é obrigatório');
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new BadRequestException('Valor inválido');
+    if (!body.referenceId?.trim())
+      throw new BadRequestException('referenceId é obrigatório');
 
     const doc = body.cnpj?.trim() || body.cpf?.trim();
     if (!doc) throw new BadRequestException('cpf ou cnpj é obrigatório');
@@ -340,35 +467,52 @@ export class InternalEbookFinanceService {
     const domPaymentId = `EBOOK_AFFCOMM_${body.referenceId.trim()}`;
     const userIds = await this.resolveUserIdsByDocument(doc);
     if (userIds.length === 0) {
-      throw new BadRequestException('Nenhuma conta Sim Int Pay encontrada para este CPF/CNPJ');
+      throw new BadRequestException(
+        'Nenhuma conta Sim Int Pay encontrada para este CPF/CNPJ',
+      );
     }
 
     const description = `${body.description?.trim() || 'Comissão de afiliado'} [TENANT:EBOOK][AFFILIATE_COMMISSION]`;
 
     return this.finance.recordEntry('EBOOK', {
-        userId: userIds[0],
-        amount,
-        netAmount: amount,
-        status: 'COMPLETED',
-        paymentMethod: 'PIX' as any,
-        description,
-        domPaymentId,
-        installments: 1,
+      userId: userIds[0],
+      amount,
+      netAmount: amount,
+      status: 'COMPLETED',
+      paymentMethod: 'PIX' as any,
+      description,
+      domPaymentId,
+      installments: 1,
     });
   }
-  async requestWithdraw( body: { cpf: string; amount: number; pixKey: string }, internalToken?: string,
+  async requestWithdraw(
+    body: { cpf: string; amount: number; pixKey: string },
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(body.cpf);
-    if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF');
+    if (userIds.length === 0)
+      throw new BadRequestException('Nenhuma conta encontrada para este CPF');
     const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
-    if (amount < EbookSimConfig.saque.minValor) throw new BadRequestException(`Valor mínimo para saque é de R$ ${EbookSimConfig.saque.minValor}`);
-    if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new BadRequestException('Valor inválido');
+    if (amount < EbookSimConfig.saque.minValor)
+      throw new BadRequestException(
+        `Valor mínimo para saque é de R$ ${EbookSimConfig.saque.minValor}`,
+      );
+    if (!body.pixKey?.trim())
+      throw new BadRequestException('PIX é obrigatório');
 
     const taxaSaque = EbookSimConfig.saque.calcularTaxa(amount);
-    const created = await this.finance.createWithdrawal({ userId: userIds[0], amount, grossAmount: parseFloat((amount + taxaSaque).toFixed(2)), fee: parseFloat(taxaSaque.toFixed(2)), pixKey: body.pixKey.trim(), platform: 'ebook' });
+    const created = await this.finance.createWithdrawal({
+      userId: userIds[0],
+      amount,
+      grossAmount: parseFloat((amount + taxaSaque).toFixed(2)),
+      fee: parseFloat(taxaSaque.toFixed(2)),
+      pixKey: body.pixKey.trim(),
+      platform: 'ebook',
+    });
 
     return { success: true, id: created.id };
   }
-
 }

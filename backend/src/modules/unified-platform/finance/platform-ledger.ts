@@ -1,6 +1,11 @@
 import { applyWalletEntry } from '../../wallet-ledger/wallet-ledger';
 import { hasPlatformMarker } from '../../platform-core/platform-sync.adapter';
 import {
+  canonicalTransactionPlatformTag,
+  transactionPlatformTag,
+  transactionPlatformTagData,
+} from '../../platform-core/transaction-platform';
+import {
   BadRequestException,
   ConflictException,
   UnprocessableEntityException,
@@ -35,7 +40,7 @@ export class PlatformLedger {
       throw new BadRequestException('Valor inválido');
     const replay = (row: Prisma.TransactionGetPayload<object>) => {
       if (
-        !hasPlatformMarker(row.description ?? '', tag) ||
+        transactionPlatformTag(row) !== canonicalTransactionPlatformTag(tag) ||
         row.userId !== data.userId ||
         !new Prisma.Decimal(row.amount).eq(amount) ||
         !new Prisma.Decimal(row.netAmount ?? row.amount).eq(net)
@@ -82,6 +87,7 @@ export class PlatformLedger {
         const row = await p.transaction.create({
           data: {
             ...data,
+            ...transactionPlatformTagData(tag),
             amount,
             netAmount: net,
             totalFee: data.totalFee ?? amount.minus(net),

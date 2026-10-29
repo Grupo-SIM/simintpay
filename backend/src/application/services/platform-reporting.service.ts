@@ -1,3 +1,4 @@
+import { whereTransactionPlatform } from '../../modules/platform-core/transaction-platform';
 import { Injectable } from '@nestjs/common';
 import {
   BillingContractStatus,
@@ -41,7 +42,10 @@ export class PlatformReportingService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getCommunityCustomerStats(platformTag: string, communityId: string) {
-    const customers = await this.loadCommunityCustomers(platformTag, communityId);
+    const customers = await this.loadCommunityCustomers(
+      platformTag,
+      communityId,
+    );
     return {
       totalContas: customers.length,
       sellersAtivos: customers.filter((customer) => customer.active).length,
@@ -53,7 +57,9 @@ export class PlatformReportingService {
     communityId: string,
     options: { page: number; pageSize: number; onlyActive: boolean },
   ) {
-    const customers = (await this.loadCommunityCustomers(platformTag, communityId))
+    const customers = (
+      await this.loadCommunityCustomers(platformTag, communityId)
+    )
       .filter((customer) => !options.onlyActive || customer.active)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     const skip = (options.page - 1) * options.pageSize;
@@ -70,14 +76,19 @@ export class PlatformReportingService {
     );
 
     return {
-      data: paged.map(({ aliases: _aliases, active: _active, ...customer }) => ({
-        ...customer,
-        balance: 0,
-        lockedBalance: 0,
-        isRegisteredInSimIntPay:
-          customer.isRegisteredInSimIntPay ||
-          registeredEmails.has(customer.email.toLowerCase()),
-      })),
+      data: paged.map((entry) => {
+        const { aliases, active, ...customer } = entry;
+        void aliases;
+        void active;
+        return {
+          ...customer,
+          balance: 0,
+          lockedBalance: 0,
+          isRegisteredInSimIntPay:
+            customer.isRegisteredInSimIntPay ||
+            registeredEmails.has(customer.email.toLowerCase()),
+        };
+      }),
       total: customers.length,
       page: options.page,
       pageSize: options.pageSize,
@@ -151,7 +162,9 @@ export class PlatformReportingService {
       .filter((id): id is string => Boolean(id));
     const [orders, contracts] = await Promise.all([
       this.prisma.subscriptionLinkOrder.findMany({
-        where: { subscriptionLinkId: { in: linkIds.length ? linkIds : ['__none__'] } },
+        where: {
+          subscriptionLinkId: { in: linkIds.length ? linkIds : ['__none__'] },
+        },
         select: {
           id: true,
           customerName: true,
@@ -216,7 +229,9 @@ export class PlatformReportingService {
         if (!existing.email) existing.email = candidate.email;
         if (!existing.cpf) existing.cpf = candidate.cpf;
         if (candidate.active) existing.status = candidate.status;
-        existing.aliases = [...new Set([...existing.aliases, ...candidate.aliases])];
+        existing.aliases = [
+          ...new Set([...existing.aliases, ...candidate.aliases]),
+        ];
         for (const alias of existing.aliases) aliases.set(alias, key);
         return;
       }
@@ -230,7 +245,9 @@ export class PlatformReportingService {
         order.customerEmail,
       );
       upsert({
-        aliases: identityAliases.length ? identityAliases : [`order:${order.id}`],
+        aliases: identityAliases.length
+          ? identityAliases
+          : [`order:${order.id}`],
         name: order.customerName,
         email: order.customerEmail,
         cpf: order.customerDocument,
@@ -256,9 +273,7 @@ export class PlatformReportingService {
       );
       upsert({
         aliases: [
-          ...(reportingCustomerId
-            ? [`customer:${reportingCustomerId}`]
-            : []),
+          ...(reportingCustomerId ? [`customer:${reportingCustomerId}`] : []),
           ...identityAliases,
           `contract:${contract.id}`,
         ],
@@ -304,10 +319,7 @@ export class PlatformReportingService {
       }),
       this.prisma.transaction.findMany({
         where: {
-          description: {
-            contains: `[TENANT:${upperTag}]`,
-            mode: 'insensitive',
-          },
+          ...whereTransactionPlatform(upperTag),
           status: 'COMPLETED',
           ...(hasDateFilter ? { createdAt } : {}),
         },
@@ -356,7 +368,9 @@ export class PlatformReportingService {
     email: string | null | undefined,
   ): string[] {
     const digits = String(document ?? '').replace(/\D/g, '');
-    const normalizedEmail = String(email ?? '').trim().toLowerCase();
+    const normalizedEmail = String(email ?? '')
+      .trim()
+      .toLowerCase();
     return [
       ...(digits ? [`document:${digits}`] : []),
       ...(normalizedEmail ? [`email:${normalizedEmail}`] : []),

@@ -1,3 +1,4 @@
+import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import {
   loadChargePolicy,
   quoteReportedPos,
@@ -312,6 +313,7 @@ export class SyncMaquinetasUseCase {
               platformFee: new Prisma.Decimal(fees.platformFeeAmt),
               status: TransactionStatus.COMPLETED,
               paymentMethod,
+              ...transactionPlatformTagData(platform.tag),
               description: appendInternalTags(
                 `Maquineta - Terminal: ${serial}`,
                 [platform.tenantTag, ORIGEM_MAQUINETA_TAG],

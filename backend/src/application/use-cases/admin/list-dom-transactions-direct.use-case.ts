@@ -1,24 +1,50 @@
 import { Injectable, Inject } from '@nestjs/common';
 import dayjs from 'dayjs';
-import type { IPaymentGateway, DomTransactionItem } from '../../../core/services/payment-gateway.interface';
+import type {
+  IPaymentGateway,
+  DomTransactionItem,
+} from '../../../core/services/payment-gateway.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
-import { canonicalPlatformTaxaTag, getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import {
+  canonicalPlatformTaxaTag,
+  getPlatformTaxaEffective,
+} from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
-import { platformTaxaTagFromText, resolveDomFeeReais } from '../../helpers/dom-fee-estimate.helper';
+import {
+  platformTaxaTagForTransaction,
+  platformTaxaTagFromText,
+  resolveDomFeeReais,
+} from '../../helpers/dom-fee-estimate.helper';
 import { isPixLikePayment } from '../../helpers/platform-fee-split.helper';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
 function platformTagFromKeywords(text: string | undefined | null): string {
   const t = String(text ?? '').toLowerCase();
-  if (t.includes('areaflix') || t.includes('área flix') || t.includes('area flix')) return 'AREAFLIX';
+  if (
+    t.includes('areaflix') ||
+    t.includes('área flix') ||
+    t.includes('area flix')
+  )
+    return 'AREAFLIX';
   if (t.includes('pagatg') || t.includes('paga tg')) return 'PAGATG';
   if (t.includes('ebook') || t.includes('e-book')) return 'EBOOK';
   if (t.includes('renovada')) return 'RENOVADA';
   if (t.includes('bosque') || t.includes('ibb')) return 'BOSQUE';
   if (t.includes('revalida')) return 'REVALIDA';
-  if (t.includes('marketing raiz') || t.includes('marketing-raiz')) return 'MARKETING-RAIZ';
-  if (t.includes('controle-motorista') || t.includes('controle motorista') || t.includes('controle de motorista')) return 'CONTROLE-MOTORISTA';
-  if (t.includes('controle-patrimonial') || t.includes('controle patrimonial') || t.includes('controle de patrimonial')) return 'CONTROLE-PATRIMONIAL';
+  if (t.includes('marketing raiz') || t.includes('marketing-raiz'))
+    return 'MARKETING-RAIZ';
+  if (
+    t.includes('controle-motorista') ||
+    t.includes('controle motorista') ||
+    t.includes('controle de motorista')
+  )
+    return 'CONTROLE-MOTORISTA';
+  if (
+    t.includes('controle-patrimonial') ||
+    t.includes('controle patrimonial') ||
+    t.includes('controle de patrimonial')
+  )
+    return 'CONTROLE-PATRIMONIAL';
   if (t.includes('atlas') || t.includes('atlashosting')) return 'ATLAS';
   if (t.includes('frendz')) return 'FRENDZ';
   return 'GLOBAL';
@@ -59,8 +85,9 @@ export class ListDomTransactionsDirectUseCase {
     }
 
     // A API DOM exige datas obrigatoriamente — padrão: últimos 90 dias
-    const end_date   = input.end_date   ?? dayjs().format('YYYY-MM-DD');
-    const begin_date = input.begin_date ?? dayjs().subtract(90, 'day').format('YYYY-MM-DD');
+    const end_date = input.end_date ?? dayjs().format('YYYY-MM-DD');
+    const begin_date =
+      input.begin_date ?? dayjs().subtract(90, 'day').format('YYYY-MM-DD');
 
     // A API DOM ignora o `limit` e pagina em blocos de ~100 (mesmo comportamento
     // documentado em `listSubscriptions`). O admin usa páginas de `limit` (ex.: 20),
@@ -73,7 +100,8 @@ export class ListDomTransactionsDirectUseCase {
     const globalStart = (adminPage - 1) * requestedCount;
     const globalEnd = globalStart + requestedCount;
     const domPageStart = Math.floor(globalStart / DOM_PER_PAGE) + 1;
-    const domPageEnd = Math.floor(Math.max(globalEnd - 1, 0) / DOM_PER_PAGE) + 1;
+    const domPageEnd =
+      Math.floor(Math.max(globalEnd - 1, 0) / DOM_PER_PAGE) + 1;
 
     let allRaw: DomTransactionItem[] = [];
     let total: number | undefined;
@@ -106,7 +134,8 @@ export class ListDomTransactionsDirectUseCase {
     if (reachedEnd) {
       const fullPagesBeforeLast = lastDomPageFetched - domPageStart;
       const lastBlockCount = allRaw.length - fullPagesBeforeLast * DOM_PER_PAGE;
-      const exactTotal = (lastDomPageFetched - 1) * DOM_PER_PAGE + Math.max(0, lastBlockCount);
+      const exactTotal =
+        (lastDomPageFetched - 1) * DOM_PER_PAGE + Math.max(0, lastBlockCount);
       if (typeof total !== 'number' || exactTotal < total) {
         total = exactTotal;
       }
@@ -117,21 +146,30 @@ export class ListDomTransactionsDirectUseCase {
 
     // Enriquece pelo banco: cod_external = Transaction.id (pix-plan) ou domPaymentId (outros).
     // netAmount é gravado na criação (amount × LIQUIDEZ) e nunca muda — snapshot imutável.
-    const codExternals = rawTxs.map((t) => String(t.cod_external ?? '')).filter(Boolean);
+    const codExternals = rawTxs
+      .map((t) => String(t.cod_external ?? ''))
+      .filter(Boolean);
     const domIds = rawTxs.map((t) => String(t.id ?? '')).filter(Boolean);
-    const dbTxs = codExternals.length > 0 || domIds.length > 0
-      ? await this.prisma.transaction.findMany({
-          where: { OR: [{ id: { in: codExternals } }, { domPaymentId: { in: domIds } }] },
-          select: {
-            id: true,
-            domPaymentId: true,
-            description: true,
-            netAmount: true,
-            paymentLinkId: true,
-            user: { select: { platform: { select: { tag: true } } } },
-          },
-        })
-      : [];
+    const dbTxs =
+      codExternals.length > 0 || domIds.length > 0
+        ? await this.prisma.transaction.findMany({
+            where: {
+              OR: [
+                { id: { in: codExternals } },
+                { domPaymentId: { in: domIds } },
+              ],
+            },
+            select: {
+              id: true,
+              domPaymentId: true,
+              description: true,
+              platformTag: true,
+              netAmount: true,
+              paymentLinkId: true,
+              user: { select: { platform: { select: { tag: true } } } },
+            },
+          })
+        : [];
     const dbByCodExternal = new Map(dbTxs.map((t) => [t.id, t]));
     const dbByDomId = new Map(dbTxs.map((t) => [t.domPaymentId ?? '', t]));
 
@@ -146,7 +184,9 @@ export class ListDomTransactionsDirectUseCase {
     const allPayLinkIds = [
       ...new Set([
         ...[...payLinkIdsByCodExternal.values()],
-        ...dbTxs.map((t) => (t as any).paymentLinkId as string | null).filter(Boolean) as string[],
+        ...(dbTxs
+          .map((t) => (t as any).paymentLinkId as string | null)
+          .filter(Boolean) as string[]),
       ]),
     ];
     if (allPayLinkIds.length > 0) {
@@ -177,10 +217,15 @@ export class ListDomTransactionsDirectUseCase {
         where: { id: { in: linkIds } },
         select: { id: true, platformTag: true, plataformas: true },
       });
-      const tagById = new Map(subLinks.map((l) => [
-        l.id,
-        ((l.platformTag || (l.plataformas as string[])?.[0]) ?? '').toUpperCase() || 'GLOBAL',
-      ]));
+      const tagById = new Map(
+        subLinks.map((l) => [
+          l.id,
+          (
+            (l.platformTag || (l.plataformas as string[])?.[0]) ??
+            ''
+          ).toUpperCase() || 'GLOBAL',
+        ]),
+      );
       for (const [ce, linkId] of subLinkIdsByCodExternal) {
         const tag = tagById.get(linkId);
         if (tag && tag !== 'GLOBAL') subLinkTagByCodExternal.set(ce, tag);
@@ -189,12 +234,17 @@ export class ListDomTransactionsDirectUseCase {
 
     const transactions = rawTxs.map((tx) => {
       const amount = Number(tx.amount ?? 0);
-      const dbRecord = dbByCodExternal.get(String(tx.cod_external ?? '')) ?? dbByDomId.get(String(tx.id ?? ''));
+      const dbRecord =
+        dbByCodExternal.get(String(tx.cod_external ?? '')) ??
+        dbByDomId.get(String(tx.id ?? ''));
 
-      /** Plataforma: prioridade → [TENANT:TAG] no produto → DB description → SubscriptionLink.platformTag → keywords → GLOBAL. */
-      let tenantTag = platformTaxaTagFromText(tx.product_first ?? undefined);
-      if (tenantTag === 'GLOBAL' && dbRecord?.description) {
-        tenantTag = platformTaxaTagFromText(dbRecord.description);
+      /**
+       * Plataforma: Transaction.platformTag local (única fonte quando a réplica existe) → [TENANT:TAG] no
+       * produto DOM (texto externo, ainda sem réplica) → conta dona → SubscriptionLink → payment link → keywords → GLOBAL.
+       */
+      let tenantTag = platformTaxaTagForTransaction(dbRecord ?? {});
+      if (tenantTag === 'GLOBAL') {
+        tenantTag = platformTaxaTagFromText(tx.product_first ?? undefined);
       }
       // Vendas legadas podem não trazer [TENANT:*] na descrição da DOM. O
       // dono registrado localmente ainda identifica a plataforma e impede que
@@ -203,23 +253,42 @@ export class ListDomTransactionsDirectUseCase {
         tenantTag = canonicalPlatformTaxaTag(dbRecord.user.platform.tag);
       }
       if (tenantTag === 'GLOBAL') {
-        const subLinkTag = subLinkTagByCodExternal.get(String(tx.cod_external ?? ''));
+        const subLinkTag = subLinkTagByCodExternal.get(
+          String(tx.cod_external ?? ''),
+        );
         if (subLinkTag) tenantTag = subLinkTag;
       }
       if (tenantTag === 'GLOBAL') {
-        const payLinkTagByCe = payLinkTagByCodExternal.get(String(tx.cod_external ?? ''));
+        const payLinkTagByCe = payLinkTagByCodExternal.get(
+          String(tx.cod_external ?? ''),
+        );
         if (payLinkTagByCe) tenantTag = payLinkTagByCe;
       }
-      if (tenantTag === 'GLOBAL' && dbRecord && (dbRecord as any).paymentLinkId) {
-        const payLinkTag = payLinkTagByPaymentLinkId.get((dbRecord as any).paymentLinkId);
+      if (
+        tenantTag === 'GLOBAL' &&
+        dbRecord &&
+        (dbRecord as any).paymentLinkId
+      ) {
+        const payLinkTag = payLinkTagByPaymentLinkId.get(
+          (dbRecord as any).paymentLinkId,
+        );
         if (payLinkTag) tenantTag = payLinkTag;
       }
-      const displayTag = tenantTag !== 'GLOBAL'
-        ? tenantTag
-        : platformTagFromKeywords(tx.product_first ?? undefined);
+      const displayTag =
+        tenantTag !== 'GLOBAL'
+          ? tenantTag
+          : platformTagFromKeywords(tx.product_first ?? undefined);
 
-      const fixedTx = getPlatformTaxaEffective(tenantTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-      const fixedCashback = getPlatformTaxaEffective(tenantTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+      const fixedTx = getPlatformTaxaEffective(
+        tenantTag,
+        'TAXA_FIXA_TRANSACAO',
+        PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
+      );
+      const fixedCashback = getPlatformTaxaEffective(
+        tenantTag,
+        'TAXA_CASHBACK',
+        PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
+      );
       const fixedFees = fixedTx + fixedCashback;
       const mdr = resolveDomFeeReais({
         amountReais: amount,
@@ -233,16 +302,26 @@ export class ListDomTransactionsDirectUseCase {
       const pix = isPixLikePayment(tx.payment_method);
       const paymentMethod = String(tx.payment_method ?? '').toLowerCase();
       const isDebit = paymentMethod.includes('debit');
-      const isCard = !isDebit && (paymentMethod.includes('card') || paymentMethod.includes('credit'));
+      const isCard =
+        !isDebit &&
+        (paymentMethod.includes('card') || paymentMethod.includes('credit'));
 
       // LIQUIDEZ é regra de PIX. Cartão usa as taxas próprias do produto; usar
       // LIQUIDEZ aqui transforma uma configuração de PIX em uma taxa de cartão
       // impossível (por exemplo R$ 3,05 sobre uma venda de R$ 1,00).
       const taxaPercentualSimInt = isCard
-        ? getPlatformTaxaEffective(tenantTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT)
+        ? getPlatformTaxaEffective(
+            tenantTag,
+            'TAXA_LINK_PERCENT',
+            PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT,
+          )
         : isDebit
-        ? getPlatformTaxaEffective(tenantTag, 'TAXA_DEBITO_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_PERCENT)
-        : 1 - L;
+          ? getPlatformTaxaEffective(
+              tenantTag,
+              'TAXA_DEBITO_PERCENT',
+              PLATFORM_TAXA_DEFAULTS.TAXA_DEBITO_PERCENT,
+            )
+          : 1 - L;
 
       let totalFee: number;
       let liquidAmount: number;
@@ -254,7 +333,9 @@ export class ListDomTransactionsDirectUseCase {
         const mdr2 = Number(mdr.toFixed(2));
         taxaDom2 = mdr2;
 
-        taxaVendedor = Number(Math.max(0, amount * taxaPercentualSimInt).toFixed(2));
+        taxaVendedor = Number(
+          Math.max(0, amount * taxaPercentualSimInt).toFixed(2),
+        );
 
         const platformFee = taxaVendedor + fixedFees;
         totalFee = Number((mdr2 + platformFee).toFixed(2));
@@ -263,7 +344,9 @@ export class ListDomTransactionsDirectUseCase {
         const mdr2 = Number(mdr.toFixed(2));
         taxaDom2 = mdr2;
 
-        taxaVendedor = Number(Math.max(0, amount * taxaPercentualSimInt).toFixed(2));
+        taxaVendedor = Number(
+          Math.max(0, amount * taxaPercentualSimInt).toFixed(2),
+        );
 
         const platformFee = taxaVendedor + fixedFees;
         totalFee = Number((mdr2 + platformFee).toFixed(2));
@@ -272,7 +355,12 @@ export class ListDomTransactionsDirectUseCase {
 
       /** P&L do master: lucro da Taxa Vendedor menos custos DOM (MDR + fixas + cashback). */
       const lucroMaster = Number(
-        (taxaVendedor - taxaDom2 - Number(fixedTx.toFixed(2)) - Number(fixedCashback.toFixed(2))).toFixed(2),
+        (
+          taxaVendedor -
+          taxaDom2 -
+          Number(fixedTx.toFixed(2)) -
+          Number(fixedCashback.toFixed(2))
+        ).toFixed(2),
       );
 
       return {

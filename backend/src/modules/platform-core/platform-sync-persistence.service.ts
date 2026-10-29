@@ -7,10 +7,14 @@ import { PlatformHistoricalSync } from './platform-historical-sync';
 import {
   canSyncTransition,
   acceptsPlatformSyncDescription,
-  hasPlatformMarker,
   platformSyncAdapter,
   syncStatus,
 } from './platform-sync.adapter';
+import {
+  canonicalTransactionPlatformTag,
+  transactionPlatformTag,
+  transactionPlatformTagData,
+} from './transaction-platform';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -196,7 +200,8 @@ export class PlatformSyncPersistenceService {
         });
         if (
           existing &&
-          (!hasPlatformMarker(existing.description, platform.tag) ||
+          (transactionPlatformTag(existing) !==
+            canonicalTransactionPlatformTag(platform.tag) ||
             existing.acquirer !== 'DOM')
         )
           return null;
@@ -245,6 +250,7 @@ export class PlatformSyncPersistenceService {
           result = await tx.transaction.create({
             data: {
               ...data,
+              ...transactionPlatformTagData(platform.tag),
               ...(createdAt ? { createdAt } : {}),
               userId,
               domPaymentId: paymentId,

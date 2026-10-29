@@ -1,3 +1,9 @@
+import {
+  transactionPlatformTag,
+  transactionPlatformTagData,
+  whereTransactionHasPlatform,
+  whereTransactionPlatform,
+} from '../../modules/platform-core/transaction-platform';
 import { reportBuyerCpf } from '../../application/helpers/report-buyer.helper';
 import { PlatformAttributedBalance } from '../../modules/platform-core/platform-attributed-balance';
 import { PlatformAdministrationService } from '../../modules/platform-core/platform-administration.service';
@@ -124,10 +130,7 @@ import { LinkExternalPlatformUserService } from '../../application/services/link
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
 import { summarizeRefunds } from '../../application/helpers/refund-report.helper';
-import {
-  TENANT_RENOVADA_TAG,
-  ORIGEM_MAQUINETA_TAG,
-} from '../../application/utils/internal-tags.util';
+import { ORIGEM_MAQUINETA_TAG, TENANT_RENOVADA_TAG } from '../../application/utils/internal-tags.util';
 import { PlatformReportingService } from '../../application/services/platform-reporting.service';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
@@ -199,9 +202,8 @@ function buildConsolidadoScopeOr(
   return {
     OR: [
       { userId: { in: platformIds } },
-      { description: { contains: '[TENANT:', mode: 'insensitive' } },
-      // Bosque legado: transações antigas sem tag, marcadas só pela palavra na descrição.
-      { description: { contains: 'bosque', mode: 'insensitive' } },
+      // Transação com plataforma atribuída (Transaction.platformTag é a única fonte).
+      whereTransactionHasPlatform,
     ],
   };
 }
@@ -212,18 +214,17 @@ function buildConsolidadoScopeOr(
 const TAG_NAO_IDENTIFICADA = 'NAO-IDENTIFICADA';
 
 function consolidadoTagParaTransacao(
-  tx: { userId: string; description: string | null },
+  tx: { userId: string; platformTag: string | null },
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): string {
-  const match = tx.description?.match(/\[TENANT:([A-Z0-9_-]+)\]/i);
-  if (match) {
-    const tag = normalizePlatformTag(match[1]);
+  const stored = transactionPlatformTag(tx);
+  if (stored) {
+    const tag = normalizePlatformTag(stored);
     return platforms.some((platform) => platform.tag === tag)
       ? tag
       : TAG_NAO_IDENTIFICADA;
   }
-  const owners = platforms.filter((platform) => platform.id === tx.userId);
-  return owners.length === 1 ? owners[0].tag : TAG_NAO_IDENTIFICADA;
+  return TAG_NAO_IDENTIFICADA;
 }
 
 type ConsolidadoListQuery = {
@@ -543,6 +544,7 @@ function buildLucroSimpayDetalhePorPlataforma(
     amount: unknown;
     createdAt: Date;
     description: string | null;
+    platformTag: string | null;
     installments: number | null;
     paymentMethod?: string | null;
   }[],
@@ -572,7 +574,7 @@ function buildLucroSimpayDetalhePorPlataforma(
 
   for (const tx of txs) {
     const tag = consolidadoTagParaTransacao(
-      { userId: tx.userId, description: tx.description ?? null },
+      { userId: tx.userId, platformTag: tx.platformTag ?? null },
       platforms,
     );
     const platformEntry = platforms.find((p) => p.tag === tag);
@@ -768,6 +770,7 @@ function lucroSimpayUmaTransacaoConsolidado(
     userId: string;
     amount: unknown;
     description?: string | null;
+    platformTag: string | null;
     installments?: number | null;
     createdAt?: Date;
     paymentMethod?: string | null;
@@ -775,7 +778,7 @@ function lucroSimpayUmaTransacaoConsolidado(
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): number {
   const tag = consolidadoTagParaTransacao(
-    { userId: tx.userId, description: tx.description ?? null },
+    { userId: tx.userId, platformTag: tx.platformTag ?? null },
     platforms,
   );
   const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
@@ -823,6 +826,7 @@ function buildLucroTotalMasterHistoricoDiario(
     amount: unknown;
     createdAt: Date;
     description?: string | null;
+    platformTag: string | null;
   }[],
   withdrawLogs: {
     createdAt: Date;
@@ -878,6 +882,7 @@ function buildLucroTotalMasterHistoricoPorHora(
     amount: unknown;
     createdAt: Date;
     description?: string | null;
+    platformTag: string | null;
   }[],
   withdrawLogs: {
     createdAt: Date;
@@ -992,6 +997,7 @@ function accumTxFinancePorDia(
     netAmount: unknown | null;
     createdAt: Date;
     description?: string | null;
+    platformTag: string | null;
     paymentMethod?: string | null;
     installments?: number | null;
   }[],
@@ -1013,7 +1019,7 @@ function accumTxFinancePorDia(
   for (const tx of txRowsLucro) {
     const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
     const tag = consolidadoTagParaTransacao(
-      { userId: tx.userId, description: tx.description ?? null },
+      { userId: tx.userId, platformTag: tx.platformTag ?? null },
       platforms,
     );
     const b = Number(tx.amount);
@@ -1069,6 +1075,7 @@ function buildDashboardFinanceHistoricoDiario(
     netAmount: unknown | null;
     createdAt: Date;
     description?: string | null;
+    platformTag: string | null;
     paymentMethod?: string | null;
     installments?: number | null;
   }[],
@@ -1109,6 +1116,7 @@ function buildDashboardFinanceHistoricoPorHora(
     netAmount: unknown | null;
     createdAt: Date;
     description?: string | null;
+    platformTag: string | null;
     paymentMethod?: string | null;
     installments?: number | null;
   }[],
@@ -1132,7 +1140,7 @@ function buildDashboardFinanceHistoricoPorHora(
     if (d.format('YYYY-MM-DD') !== ymdTarget) continue;
     const h = d.hour();
     const tag = consolidadoTagParaTransacao(
-      { userId: tx.userId, description: tx.description ?? null },
+      { userId: tx.userId, platformTag: tx.platformTag ?? null },
       platforms,
     );
     const b = Number(tx.amount);
@@ -3376,7 +3384,7 @@ export class AdminController {
         domTransactionId: t.domTransactionId,
         userId: t.userId,
         plataformaTag: consolidadoTagParaTransacao(
-          { userId: t.userId, description: t.description ?? null },
+          { userId: t.userId, platformTag: t.platformTag ?? null },
           platforms,
         ),
         valor: Number(t.amount),
@@ -3460,6 +3468,7 @@ export class AdminController {
           netAmount: true,
           createdAt: true,
           description: true,
+          platformTag: true,
           installments: true,
           paymentMethod: true,
         },
@@ -3499,7 +3508,7 @@ export class AdminController {
       txRowsLucro
         .reduce((s, tx) => {
           const tag = consolidadoTagParaTransacao(
-            { userId: tx.userId, description: tx.description ?? null },
+            { userId: tx.userId, platformTag: tx.platformTag ?? null },
             platforms,
           );
           return s + valorLiquidoTransacaoConsolidado(tx, tag);
@@ -3535,7 +3544,7 @@ export class AdminController {
           const amount = Number(tx.amount);
           if (!Number.isFinite(amount) || amount <= 0) return sum;
           const tag = consolidadoTagParaTransacao(
-            { userId: tx.userId, description: tx.description ?? null },
+            { userId: tx.userId, platformTag: tx.platformTag ?? null },
             platforms,
           );
           const pm = String(
@@ -3672,7 +3681,7 @@ export class AdminController {
         txRowsLucro
           .reduce((s, tx) => {
             const tag = consolidadoTagParaTransacao(
-              { userId: tx.userId, description: tx.description ?? null },
+              { userId: tx.userId, platformTag: tx.platformTag ?? null },
               platforms,
             );
             return s + valorLiquidoTransacaoConsolidado(tx, tag);
@@ -3803,7 +3812,7 @@ export class AdminController {
         12,
       );
       const tag = consolidadoTagParaTransacao(
-        { userId: tx.userId, description: tx.description ?? null },
+        { userId: tx.userId, platformTag: tx.platformTag ?? null },
         platforms,
       );
       const domFee = estimateDomFeeReais({
@@ -3835,7 +3844,7 @@ export class AdminController {
       const amount = Number(tx.amount) || 0;
       if (amount <= 0) continue;
       const tag = consolidadoTagParaTransacao(
-        { userId: tx.userId, description: tx.description ?? null },
+        { userId: tx.userId, platformTag: tx.platformTag ?? null },
         platforms,
       );
       const f = calculateBoletoFees(amount, tag);
@@ -4090,6 +4099,7 @@ export class AdminController {
           netAmount: true,
           createdAt: true,
           description: true,
+          platformTag: true,
           installments: true,
           domFee: true,
         },
@@ -4139,7 +4149,7 @@ export class AdminController {
       const bruto = Number(tx.amount);
       const lucro = lucroSimpayUmaTransacaoConsolidado(tx, platforms);
       const tag = consolidadoTagParaTransacao(
-        { userId: tx.userId, description: tx.description ?? null },
+        { userId: tx.userId, platformTag: tx.platformTag ?? null },
         platforms,
       );
       const liquido = valorLiquidoTransacaoConsolidado(tx, tag);
@@ -4214,6 +4224,7 @@ export class AdminController {
           netAmount: true,
           createdAt: true,
           description: true,
+          platformTag: true,
           installments: true,
         },
         orderBy: { createdAt: 'asc' },
@@ -4244,7 +4255,7 @@ export class AdminController {
         txRowsLucro
           .reduce((s, tx) => {
             const tag = consolidadoTagParaTransacao(
-              { userId: tx.userId, description: tx.description ?? null },
+              { userId: tx.userId, platformTag: tx.platformTag ?? null },
               platforms,
             );
             return s + valorLiquidoTransacaoConsolidado(tx, tag);
@@ -4794,12 +4805,7 @@ export class AdminController {
     const whereEbookImported: Prisma.TransactionWhereInput = {
       AND: [
         {
-          OR: [
-            { userId: EBOOK_ID },
-            {
-              description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' },
-            },
-          ],
+          OR: [{ userId: EBOOK_ID }, whereTransactionPlatform('EBOOK')],
         },
         {
           OR: [
@@ -4934,6 +4940,7 @@ export class AdminController {
           status: 'COMPLETED',
           paymentMethod: order.paymentMethod,
           description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
+          ...transactionPlatformTagData(communityTag),
           domPaymentId: payId,
           customerName: order.customerName,
           customerEmail: order.customerEmail,

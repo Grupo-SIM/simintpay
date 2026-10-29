@@ -1,3 +1,4 @@
+import { whereTransactionPlatform } from '../../platform-core/transaction-platform';
 import { PlatformMaintenanceService } from './platform-maintenance.service';
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
@@ -19,12 +20,20 @@ const BOSQUE_TAXA_SERVICO_DATE = new Date('2026-05-29T20:40:00.000Z');
  */
 const BASELINE_PIXKEY = 'BASELINE_SALDO';
 
-type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
+type TxStatus =
+  | 'PENDING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'REFUNDED'
+  | 'EXPIRED'
+  | 'DRAFT';
 
 @Injectable()
 export class InternalBosqueFinanceService {
-  constructor(private readonly prisma: PrismaService, private readonly finance: PlatformFinanceService) {}
-
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly finance: PlatformFinanceService,
+  ) {}
 
   private normalizeCpf(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
@@ -36,15 +45,26 @@ export class InternalBosqueFinanceService {
     return [cpf, cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
   }
 
-  private resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
-    return this.finance.resolveAccountIds({ document: cpf, userId: directUserId, allowCnpj: false });
+  private resolveUserIdsByCpf(
+    cpf: string,
+    directUserId?: string,
+  ): Promise<string[]> {
+    return this.finance.resolveAccountIds({
+      document: cpf,
+      userId: directUserId,
+      allowCnpj: false,
+    });
   }
 
   /**
    * Resolve a conta única do Bosque (IBB). O módulo é só de gestão (sem CPF de
    * vendedor), então a ordem é: userId → email → cpf → fallback BOSQUE_ID do ambiente.
    */
-  private async resolveBosqueUserId(opts: { userId?: string; email?: string; cpf?: string }): Promise<string | null> {
+  private async resolveBosqueUserId(opts: {
+    userId?: string;
+    email?: string;
+    cpf?: string;
+  }): Promise<string | null> {
     if (opts.userId?.trim()) return opts.userId.trim();
 
     if (opts.email?.trim()) {
@@ -64,7 +84,7 @@ export class InternalBosqueFinanceService {
       if (u) return u.id;
     }
 
-    const envId = (getPlatformOwnerId('BOSQUE') ?? '');
+    const envId = getPlatformOwnerId('BOSQUE') ?? '';
     return envId || null;
   }
 
@@ -77,7 +97,12 @@ export class InternalBosqueFinanceService {
     }
 
     if (cpfClean.length === 11) {
-      conditions.push({ description: { contains: `[CPF_DONO:${cpfClean}]`, mode: 'insensitive' } });
+      conditions.push({
+        description: {
+          contains: `[CPF_DONO:${cpfClean}]`,
+          mode: 'insensitive',
+        },
+      });
     }
 
     if (conditions.length === 0) return null;
@@ -89,26 +114,36 @@ export class InternalBosqueFinanceService {
    * Saldo disponível canônico do Bosque — delega ao helper compartilhado, reutilizado
    * também pelo relatório master (/admin/plataformas/saldos-resumo) para bater com este painel.
    */
-  private computeAvailableSinceLastWithdrawal(userIds: string[]): Promise<number> {
+  private computeAvailableSinceLastWithdrawal(
+    userIds: string[],
+  ): Promise<number> {
     return computeBosqueAvailableSinceLastWithdrawal(this.prisma, userIds);
   }
-  async summary( cpf: string, userId?: string, internalToken?: string,
-  ) {
+  async summary(cpf: string, userId?: string, _internalToken?: string) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
 
     if (userIds.length === 0) {
-      return { availableBalance: 0, pendingWithdraws: 0, lockedBalance: 0, netLockedBalance: 0 };
+      return {
+        availableBalance: 0,
+        pendingWithdraws: 0,
+        lockedBalance: 0,
+        netLockedBalance: 0,
+      };
     }
 
     // Saldo disponível = líquido recebido desde o último saque (fonte canônica).
-    const availableBalance = await this.computeAvailableSinceLastWithdrawal(userIds);
+    const availableBalance =
+      await this.computeAvailableSinceLastWithdrawal(userIds);
 
     // Saque pendente (info para os cards "Saque em processo" / "Em processamento").
     const wdPending = await this.prisma.withdrawRequest.aggregate({
       where: { userId: { in: userIds }, status: 'PENDING' },
       _sum: { grossAmount: true, amount: true },
     });
-    const pendingGross = Number(wdPending._sum.grossAmount ?? wdPending._sum.amount ?? 0);
+    const pendingGross = Number(
+      wdPending._sum.grossAmount ?? wdPending._sum.amount ?? 0,
+    );
     const pendingNet = Number(wdPending._sum.amount ?? 0);
 
     return {
@@ -118,12 +153,30 @@ export class InternalBosqueFinanceService {
       netLockedBalance: Number(pendingNet.toFixed(2)),
     };
   }
-  async transactions( cpf: string, userId?: string, page = '1', limit = '10', startDate?: string, endDate?: string, status?: string, description?: string, internalToken?: string,
+  async transactions(
+    cpf: string,
+    userId?: string,
+    page = '1',
+    limit = '10',
+    startDate?: string,
+    endDate?: string,
+    status?: string,
+    description?: string,
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     const ownerFilter = this.buildOwnerFilter(cpf, userIds);
     if (!ownerFilter) {
-      return { transactions: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
+      return {
+        transactions: [],
+        meta: {
+          currentPage: 1,
+          itemsPerPage: 10,
+          totalItems: 0,
+          totalPages: 1,
+        },
+      };
     }
 
     const pageNum = Math.max(1, Number(page || 1));
@@ -131,7 +184,7 @@ export class InternalBosqueFinanceService {
 
     const andConditions: any[] = [
       ownerFilter,
-      { description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' } },
+      whereTransactionPlatform('BOSQUE'),
     ];
 
     const statusUpper = status ? String(status).toUpperCase() : '';
@@ -140,7 +193,9 @@ export class InternalBosqueFinanceService {
     }
 
     if (description && description !== 'ALL') {
-      andConditions.push({ description: { contains: description, mode: 'insensitive' } });
+      andConditions.push({
+        description: { contains: description, mode: 'insensitive' },
+      });
     }
 
     if (startDate || endDate) {
@@ -166,8 +221,13 @@ export class InternalBosqueFinanceService {
       transactions: items.map((t) => {
         const netBase = Number(t.netAmount ?? t.amount);
         // TAXA_SERVICO (R$4 Sim Int Pay) — BOSQUE cobra a partir de 2026-05-29, igual à Renovada.
-        const svcRaw = getPlatformTaxaEffective('BOSQUE', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
-        const taxaServico = svcRaw > 0 && t.createdAt >= BOSQUE_TAXA_SERVICO_DATE ? svcRaw : 0;
+        const svcRaw = getPlatformTaxaEffective(
+          'BOSQUE',
+          'TAXA_SERVICO',
+          PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+        );
+        const taxaServico =
+          svcRaw > 0 && t.createdAt >= BOSQUE_TAXA_SERVICO_DATE ? svcRaw : 0;
         return {
           id: t.id,
           userId: t.userId,
@@ -195,18 +255,35 @@ export class InternalBosqueFinanceService {
       },
     };
   }
-  async withdrawals( cpf: string, userId?: string, page = '1', limit = '10', internalToken?: string,
+  async withdrawals(
+    cpf: string,
+    userId?: string,
+    page = '1',
+    limit = '10',
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
-    return this.finance.legacyWithdrawals(userIds, page, limit, BASELINE_PIXKEY);
+    return this.finance.legacyWithdrawals(
+      userIds,
+      page,
+      limit,
+      BASELINE_PIXKEY,
+    );
   }
-  async requestWithdraw( body: { cpf?: string; userId?: string; amount: number; pixKey: string }, internalToken?: string,
+  async requestWithdraw(
+    body: { cpf?: string; userId?: string; amount: number; pixKey: string },
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(body.cpf ?? '', body.userId);
-    if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada');
+    if (userIds.length === 0)
+      throw new BadRequestException('Nenhuma conta encontrada');
     const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
-    if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new BadRequestException('Valor inválido');
+    if (!body.pixKey?.trim())
+      throw new BadRequestException('PIX é obrigatório');
 
     const userId = userIds[0];
     // amount = valor bruto solicitado (o que sai do saldo). A taxa sai de DENTRO dele;
@@ -223,7 +300,10 @@ export class InternalBosqueFinanceService {
     }
 
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-    if (!wallet) throw new BadRequestException('Carteira não encontrada para este usuário');
+    if (!wallet)
+      throw new BadRequestException(
+        'Carteira não encontrada para este usuário',
+      );
 
     // Valida contra o disponível canônico (líquido desde o último saque), mesma
     // regra exibida no summary — evita sacar mais do que entrou de fato.
@@ -234,41 +314,100 @@ export class InternalBosqueFinanceService {
       );
     }
 
-    const created = await this.finance.createWithdrawal({ userId, amount: netAmount, grossAmount, fee: parseFloat(taxaSaque.toFixed(2)), pixKey: body.pixKey.trim(), platform: 'bosque', reserveWallet: true });
+    const created = await this.finance.createWithdrawal({
+      userId,
+      amount: netAmount,
+      grossAmount,
+      fee: parseFloat(taxaSaque.toFixed(2)),
+      pixKey: body.pixKey.trim(),
+      platform: 'bosque',
+      reserveWallet: true,
+    });
 
     return { success: true, id: created.id };
   }
-  async zerarDisponivel( body: { userId?: string; email?: string; cpf?: string; reason?: string; valor?: number } = {}, internalToken?: string,
+  async zerarDisponivel(
+    body: {
+      userId?: string;
+      email?: string;
+      cpf?: string;
+      reason?: string;
+      valor?: number;
+    } = {},
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const resolvedId = await this.resolveBosqueUserId(body);
     if (!resolvedId) {
-      throw new BadRequestException('Conta do Bosque não encontrada. Informe userId, email ou cpf.');
+      throw new BadRequestException(
+        'Conta do Bosque não encontrada. Informe userId, email ou cpf.',
+      );
     }
 
     await this.finance.ensureMaintenanceSafe(resolvedId, 'BOSQUE');
-    const available = await this.computeAvailableSinceLastWithdrawal([resolvedId]);
+    const available = await this.computeAvailableSinceLastWithdrawal([
+      resolvedId,
+    ]);
     if (available <= 0.005) {
-      return { success: true, message: 'O disponível já está zerado.', antes: Number(available.toFixed(2)), depois: 0 };
+      return {
+        success: true,
+        message: 'O disponível já está zerado.',
+        antes: Number(available.toFixed(2)),
+        depois: 0,
+      };
     }
 
     // valor opcional: abate só uma parte (o resto continua disponível). Sem valor, zera tudo.
-    const abate = body.valor != null && Number.isFinite(Number(body.valor)) && Number(body.valor) > 0
-      ? Math.min(Number(body.valor), available)
-      : available;
+    const abate =
+      body.valor != null &&
+      Number.isFinite(Number(body.valor)) &&
+      Number(body.valor) > 0
+        ? Math.min(Number(body.valor), available)
+        : available;
     const valor = Number(abate.toFixed(2));
-    const depois = Number((available - valor).toFixed(2));
-    const created = await new PlatformMaintenanceService(this.prisma).baseline(resolvedId, 'BOSQUE', valor, BASELINE_PIXKEY, body.reason?.trim() || 'Baseline: zera o disponível do Bosque (vendas anteriores já liquidadas por fora).');
+    const created = await new PlatformMaintenanceService(this.prisma).baseline(
+      resolvedId,
+      'BOSQUE',
+      valor,
+      BASELINE_PIXKEY,
+      body.reason?.trim() ||
+        'Baseline: zera o disponível do Bosque (vendas anteriores já liquidadas por fora).',
+    );
 
-    if (!created.id) return { success: true, message: 'O disponível já está zerado.', antes: created.availableBefore, depois: 0 };
-    return { success: true, baselineWithdrawId: created.id, antes: created.availableBefore, abatido: created.actualAmount, depois: created.availableAfter };
+    if (!created.id)
+      return {
+        success: true,
+        message: 'O disponível já está zerado.',
+        antes: created.availableBefore,
+        depois: 0,
+      };
+    return {
+      success: true,
+      baselineWithdrawId: created.id,
+      antes: created.availableBefore,
+      abatido: created.actualAmount,
+      depois: created.availableAfter,
+    };
   }
-  async inspectWallet( userId?: string, email?: string, cpf?: string, internalToken?: string,
+  async inspectWallet(
+    userId?: string,
+    email?: string,
+    cpf?: string,
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const resolvedId = await this.resolveBosqueUserId({ userId, email, cpf });
     if (!resolvedId) {
-      return { accountExists: false, balance: 0, lockedBalance: 0, availableBalance: 0 };
+      return {
+        accountExists: false,
+        balance: 0,
+        lockedBalance: 0,
+        availableBalance: 0,
+      };
     }
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: resolvedId } });
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: resolvedId },
+    });
     const balance = Number(wallet?.balance ?? 0);
     const locked = Number(wallet?.lockedBalance ?? 0);
     return {
@@ -279,7 +418,8 @@ export class InternalBosqueFinanceService {
       availableBalance: Number(Math.max(0, balance - locked).toFixed(2)),
     };
   }
-  async fixBalance( body: {
+  async fixBalance(
+    body: {
       userId?: string;
       email?: string;
       cpf?: string;
@@ -287,28 +427,42 @@ export class InternalBosqueFinanceService {
       delta?: number;
       lockedBalance?: number;
       reason?: string;
-    } = {}, internalToken?: string,
+    } = {},
+    _internalToken?: string,
   ) {
-
+    void _internalToken;
     const hasBalance = body.balance !== undefined && body.balance !== null;
     // delta = 0 é no-op (vem assim no exemplo do Swagger) — trata como "não informado".
-    const hasDelta = body.delta !== undefined && body.delta !== null && Number(body.delta) !== 0;
-    const hasLocked = body.lockedBalance !== undefined && body.lockedBalance !== null;
+    const hasDelta =
+      body.delta !== undefined &&
+      body.delta !== null &&
+      Number(body.delta) !== 0;
+    const hasLocked =
+      body.lockedBalance !== undefined && body.lockedBalance !== null;
 
     if (!hasBalance && !hasDelta && !hasLocked) {
-      throw new BadRequestException('Informe "balance" (definir), "delta" (somar/subtrair) ou "lockedBalance".');
+      throw new BadRequestException(
+        'Informe "balance" (definir), "delta" (somar/subtrair) ou "lockedBalance".',
+      );
     }
     if (hasBalance && hasDelta) {
-      throw new BadRequestException('Use apenas um: "balance" (definir) OU "delta" (somar/subtrair).');
+      throw new BadRequestException(
+        'Use apenas um: "balance" (definir) OU "delta" (somar/subtrair).',
+      );
     }
 
     const resolvedId = await this.resolveBosqueUserId(body);
-    if (resolvedId) await this.finance.ensureMaintenanceSafe(resolvedId, 'BOSQUE');
+    if (resolvedId)
+      await this.finance.ensureMaintenanceSafe(resolvedId, 'BOSQUE');
     if (!resolvedId) {
-      throw new BadRequestException('Conta do Bosque não encontrada. Informe userId, email ou cpf.');
+      throw new BadRequestException(
+        'Conta do Bosque não encontrada. Informe userId, email ou cpf.',
+      );
     }
 
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: resolvedId } });
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: resolvedId },
+    });
     if (!wallet) {
       throw new BadRequestException('Carteira não encontrada para esta conta.');
     }
@@ -322,18 +476,31 @@ export class InternalBosqueFinanceService {
     balanceAfter = Math.max(0, Number(balanceAfter.toFixed(2)));
 
     let lockedAfter = lockedBefore;
-    if (hasLocked) lockedAfter = Math.max(0, Number(Number(body.lockedBalance).toFixed(2)));
+    if (hasLocked)
+      lockedAfter = Math.max(0, Number(Number(body.lockedBalance).toFixed(2)));
 
     if (!Number.isFinite(balanceAfter) || !Number.isFinite(lockedAfter)) {
       throw new BadRequestException('Valores inválidos.');
     }
 
-    const reason = body.reason?.trim() || 'Correção manual de saldo (Bosque/IBB)';
+    const reason =
+      body.reason?.trim() || 'Correção manual de saldo (Bosque/IBB)';
 
-    const corrected = await new PlatformMaintenanceService(this.prisma).correct(resolvedId, 'BOSQUE', {
-      ...(hasDelta ? { delta: Number(body.delta), clampNegativeBalance: true } : hasBalance ? { balance: balanceAfter } : {}),
-      ...(hasLocked ? { lockedBalance: lockedAfter } : {}), reason, action: 'ADMIN_BALANCE_FIX', metadata: { via: 'internal/bosque/finance/fix-balance' },
-    });
+    const corrected = await new PlatformMaintenanceService(this.prisma).correct(
+      resolvedId,
+      'BOSQUE',
+      {
+        ...(hasDelta
+          ? { delta: Number(body.delta), clampNegativeBalance: true }
+          : hasBalance
+            ? { balance: balanceAfter }
+            : {}),
+        ...(hasLocked ? { lockedBalance: lockedAfter } : {}),
+        reason,
+        action: 'ADMIN_BALANCE_FIX',
+        metadata: { via: 'internal/bosque/finance/fix-balance' },
+      },
+    );
 
     return {
       success: true,
@@ -341,45 +508,71 @@ export class InternalBosqueFinanceService {
       before: {
         balance: corrected.balanceBefore,
         lockedBalance: corrected.lockedBefore,
-        availableBalance: Number(Math.max(0, corrected.balanceBefore - corrected.lockedBefore).toFixed(2)),
+        availableBalance: Number(
+          Math.max(0, corrected.balanceBefore - corrected.lockedBefore).toFixed(
+            2,
+          ),
+        ),
       },
       after: {
         balance: corrected.balanceAfter,
         lockedBalance: corrected.lockedAfter,
-        availableBalance: Number(Math.max(0, corrected.balanceAfter - corrected.lockedAfter).toFixed(2)),
+        availableBalance: Number(
+          Math.max(0, corrected.balanceAfter - corrected.lockedAfter).toFixed(
+            2,
+          ),
+        ),
       },
     };
   }
-  async reconcile( userId?: string, email?: string, cpf?: string, internalToken?: string,
+  async reconcile(
+    userId?: string,
+    email?: string,
+    cpf?: string,
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const resolvedId = await this.resolveBosqueUserId({ userId, email, cpf });
     if (!resolvedId) {
-      throw new BadRequestException('Conta do Bosque não encontrada. Informe userId, email ou cpf.');
+      throw new BadRequestException(
+        'Conta do Bosque não encontrada. Informe userId, email ou cpf.',
+      );
     }
 
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: resolvedId } });
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: resolvedId },
+    });
     const balanceNow = Number(wallet?.balance ?? 0);
     const lockedNow = Number(wallet?.lockedBalance ?? 0);
 
     const completedWhere: any = {
       userId: resolvedId,
       status: 'COMPLETED',
-      description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' },
+      ...whereTransactionPlatform('BOSQUE'),
     };
 
-    const [creditsAgg, completedCount, nullNetCount, wdApproved, wdPending] = await Promise.all([
-      this.prisma.transaction.aggregate({ where: completedWhere, _sum: { amount: true, netAmount: true } }),
-      this.prisma.transaction.count({ where: completedWhere }),
-      this.prisma.transaction.count({ where: { ...completedWhere, netAmount: null } }),
-      this.prisma.withdrawRequest.aggregate({
-        where: { userId: resolvedId, status: { in: ['APPROVED', 'COMPLETED'] } },
-        _sum: { grossAmount: true },
-      }),
-      this.prisma.withdrawRequest.aggregate({
-        where: { userId: resolvedId, status: 'PENDING' },
-        _sum: { grossAmount: true },
-      }),
-    ]);
+    const [creditsAgg, completedCount, nullNetCount, wdApproved, wdPending] =
+      await Promise.all([
+        this.prisma.transaction.aggregate({
+          where: completedWhere,
+          _sum: { amount: true, netAmount: true },
+        }),
+        this.prisma.transaction.count({ where: completedWhere }),
+        this.prisma.transaction.count({
+          where: { ...completedWhere, netAmount: null },
+        }),
+        this.prisma.withdrawRequest.aggregate({
+          where: {
+            userId: resolvedId,
+            status: { in: ['APPROVED', 'COMPLETED'] },
+          },
+          _sum: { grossAmount: true },
+        }),
+        this.prisma.withdrawRequest.aggregate({
+          where: { userId: resolvedId, status: 'PENDING' },
+          _sum: { grossAmount: true },
+        }),
+      ]);
 
     const round = (n: number) => Number(n.toFixed(2));
     const grossCredits = Number(creditsAgg._sum.amount ?? 0);
@@ -411,11 +604,15 @@ export class InternalBosqueFinanceService {
       suggested: {
         net: {
           balance: suggestedBalanceNet,
-          availableBalance: round(Math.max(0, suggestedBalanceNet - pendingGross)),
+          availableBalance: round(
+            Math.max(0, suggestedBalanceNet - pendingGross),
+          ),
         },
         gross: {
           balance: suggestedBalanceGross,
-          availableBalance: round(Math.max(0, suggestedBalanceGross - pendingGross)),
+          availableBalance: round(
+            Math.max(0, suggestedBalanceGross - pendingGross),
+          ),
         },
       },
       note:

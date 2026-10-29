@@ -6,6 +6,7 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import 'dayjs/locale/pt-br';
 import type { PlatformDashboardRules } from './platform-dashboard.adapter';
+import { whereTransactionPlatform } from './transaction-platform';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -14,27 +15,61 @@ dayjs.locale('pt-br');
 const TZ = 'America/Sao_Paulo';
 
 export class PlatformDashboardReports {
-  constructor(private readonly prisma: PrismaService, private readonly rules: PlatformDashboardRules, private readonly expectedOwnerUserId?: string) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly rules: PlatformDashboardRules,
+    private readonly expectedOwnerUserId?: string,
+  ) {}
 
   private pagination(page: number, limit: number) {
-    if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new BadRequestException('Paginação inválida');
+    if (
+      !Number.isSafeInteger(page) ||
+      page < 1 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 200
+    )
+      throw new BadRequestException('Paginação inválida');
   }
 
   private async ownerId(): Promise<string | null> {
     const platform = await this.prisma.platform.findFirst({
-      where: { tag: this.rules.tag, isActive: true, owner: { isActive: true, isPurged: false } },
+      where: {
+        tag: this.rules.tag,
+        isActive: true,
+        owner: { isActive: true, isPurged: false },
+      },
     });
-    if (platform && this.expectedOwnerUserId && platform.ownerUserId !== this.expectedOwnerUserId) throw new ConflictException('Dono da plataforma mudou');
+    if (
+      platform &&
+      this.expectedOwnerUserId &&
+      platform.ownerUserId !== this.expectedOwnerUserId
+    )
+      throw new ConflictException('Dono da plataforma mudou');
     return platform?.ownerUserId ?? null;
   }
 
-  async getDashboardData(period: string = 'hoje') {
+  async getDashboardData(_period: string = 'hoje') {
+    void _period;
     const userId = await this.ownerId();
     if (!userId) {
       return {
         error: `Usuário ${this.rules.name} não configurado. Cadastre plataforma e dono pelo admin`,
-        profit: { total: 0, today: { total: 0 }, sevenDays: { total: 0 }, fifteenDays: { total: 0 }, thirtyDays: { total: 0 }, charts: { last30Days: [], annualByMonth: [] } },
-        withdrawals: { today: 0, sevenDays: 0, fifteenDays: 0, thirtyDays: 0, annual: 0 },
+        profit: {
+          total: 0,
+          today: { total: 0 },
+          sevenDays: { total: 0 },
+          fifteenDays: { total: 0 },
+          thirtyDays: { total: 0 },
+          charts: { last30Days: [], annualByMonth: [] },
+        },
+        withdrawals: {
+          today: 0,
+          sevenDays: 0,
+          fifteenDays: 0,
+          thirtyDays: 0,
+          annual: 0,
+        },
         estornos: { quantidade: 0, valorLiquido: 0 },
         summary: { availableBalance: 0, balanceInProcessing: 0 },
       };
@@ -48,20 +83,30 @@ export class PlatformDashboardReports {
     const yearStart = now.startOf('year').toDate();
 
     const allTransactions = await this.prisma.transaction.findMany({
-      where: { description: { contains: `[TENANT:${this.rules.tag}]`, mode: 'insensitive' }, userId, status: TransactionStatus.COMPLETED },
+      where: {
+        ...whereTransactionPlatform(this.rules.tag),
+        userId,
+        status: TransactionStatus.COMPLETED,
+      },
       select: { netAmount: true, createdAt: true },
     });
 
     const getProfit = (txs: any[]) => ({
-      total: txs.reduce((sum, tx) => sum.plus(tx.netAmount ?? 0), new Prisma.Decimal(0)).toDecimalPlaces(2).toNumber(),
+      total: txs
+        .reduce((sum, tx) => sum.plus(tx.netAmount ?? 0), new Prisma.Decimal(0))
+        .toDecimalPlaces(2)
+        .toNumber(),
     });
 
     const filterByDate = (from: Date, to: Date = now.toDate()) => {
       const fromD = dayjs(from);
       const toD = dayjs(to);
-      return allTransactions.filter(tx => {
+      return allTransactions.filter((tx) => {
         const d = dayjs(tx.createdAt);
-        return (d.isAfter(fromD) || d.isSame(fromD)) && (d.isBefore(toD) || d.isSame(toD));
+        return (
+          (d.isAfter(fromD) || d.isSame(fromD)) &&
+          (d.isBefore(toD) || d.isSame(toD))
+        );
       });
     };
 
@@ -69,10 +114,16 @@ export class PlatformDashboardReports {
     const balanceVal = Number(wallet?.balance || 0);
     const lockedVal = Number(wallet?.lockedBalance || 0);
     const fatorLiquidez = this.rules.liquidity();
-    const availableBalanceNet = Number(((balanceVal - lockedVal) * fatorLiquidez).toFixed(2));
+    const availableBalanceNet = Number(
+      ((balanceVal - lockedVal) * fatorLiquidez).toFixed(2),
+    );
 
     const estornosAgg = await this.prisma.transaction.aggregate({
-      where: { description: { contains: `[TENANT:${this.rules.tag}]`, mode: 'insensitive' }, userId, status: TransactionStatus.REFUNDED },
+      where: {
+        ...whereTransactionPlatform(this.rules.tag),
+        userId,
+        status: TransactionStatus.REFUNDED,
+      },
       _count: { id: true },
       _sum: { netAmount: true },
     });
@@ -85,9 +136,12 @@ export class PlatformDashboardReports {
     const countWD = (s: Date, e: Date = now.toDate()) => {
       const fromD = dayjs(s);
       const toD = dayjs(e);
-      return withdrawals.filter(w => {
+      return withdrawals.filter((w) => {
         const d = dayjs(w.createdAt);
-        return (d.isAfter(fromD) || d.isSame(fromD)) && (d.isBefore(toD) || d.isSame(toD));
+        return (
+          (d.isAfter(fromD) || d.isSame(fromD)) &&
+          (d.isBefore(toD) || d.isSame(toD))
+        );
       }).length;
     };
 
@@ -109,7 +163,9 @@ export class PlatformDashboardReports {
       },
       estornos: {
         quantidade: estornosAgg._count.id,
-        valorLiquido: Number(Number(estornosAgg._sum.netAmount || 0).toFixed(2)),
+        valorLiquido: Number(
+          Number(estornosAgg._sum.netAmount || 0).toFixed(2),
+        ),
       },
       withdrawals: {
         today: countWD(todayStart),
@@ -124,12 +180,13 @@ export class PlatformDashboardReports {
   async getSales(page: number, limit: number) {
     this.pagination(page, limit);
     const userId = await this.ownerId();
-    if (!userId) return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+    if (!userId)
+      return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
 
     const skip = (page - 1) * limit;
     const [transactions, total] = await Promise.all([
       this.prisma.transaction.findMany({
-        where: { description: { contains: `[TENANT:${this.rules.tag}]`, mode: 'insensitive' }, userId },
+        where: { ...whereTransactionPlatform(this.rules.tag), userId },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
@@ -146,11 +203,13 @@ export class PlatformDashboardReports {
           description: true,
         },
       }),
-      this.prisma.transaction.count({ where: { description: { contains: `[TENANT:${this.rules.tag}]`, mode: 'insensitive' }, userId } }),
+      this.prisma.transaction.count({
+        where: { ...whereTransactionPlatform(this.rules.tag), userId },
+      }),
     ]);
 
     return {
-      data: transactions.map(tx => ({
+      data: transactions.map((tx) => ({
         id: tx.id,
         status: tx.status,
         name: tx.customerName ?? '—',
@@ -168,7 +227,8 @@ export class PlatformDashboardReports {
   async getWithdrawals(page: number, limit: number) {
     this.pagination(page, limit);
     const userId = await this.ownerId();
-    if (!userId) return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+    if (!userId)
+      return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
 
     const skip = (page - 1) * limit;
     const [withdrawals, total] = await Promise.all([
@@ -178,11 +238,13 @@ export class PlatformDashboardReports {
         skip,
         take: limit,
       }),
-      this.prisma.withdrawRequest.count({ where: { platform: this.rules.tag.toLowerCase(), userId } }),
+      this.prisma.withdrawRequest.count({
+        where: { platform: this.rules.tag.toLowerCase(), userId },
+      }),
     ]);
 
     return {
-      data: withdrawals.map(w => ({
+      data: withdrawals.map((w) => ({
         id: w.id,
         amount: Number(w.amount),
         grossAmount: Number(w.grossAmount),
@@ -202,11 +264,19 @@ export class PlatformDashboardReports {
 
     const [vendas, saques, wallet] = await Promise.all([
       this.prisma.transaction.aggregate({
-        where: { description: { contains: `[TENANT:${this.rules.tag}]`, mode: 'insensitive' }, userId, status: TransactionStatus.COMPLETED },
+        where: {
+          ...whereTransactionPlatform(this.rules.tag),
+          userId,
+          status: TransactionStatus.COMPLETED,
+        },
         _sum: { netAmount: true },
       }),
       this.prisma.withdrawRequest.aggregate({
-        where: { platform: this.rules.tag.toLowerCase(), userId, status: { in: ['COMPLETED', 'APPROVED'] as any } },
+        where: {
+          platform: this.rules.tag.toLowerCase(),
+          userId,
+          status: { in: ['COMPLETED', 'APPROVED'] as any },
+        },
         _sum: { amount: true },
       }),
       this.prisma.wallet.findUnique({ where: { userId } }),
@@ -226,7 +296,11 @@ export class PlatformDashboardReports {
     };
   }
 
-  private async getChartData(userId: string, count: number, unit: 'day' | 'month') {
+  private async getChartData(
+    userId: string,
+    count: number,
+    unit: 'day' | 'month',
+  ) {
     const data: { label: string; value: number }[] = [];
     const now = dayjs().tz(TZ);
 
@@ -236,7 +310,8 @@ export class PlatformDashboardReports {
       const end = d.endOf(unit).toDate();
 
       const agg = await this.prisma.transaction.aggregate({
-        where: { description: { contains: `[TENANT:${this.rules.tag}]`, mode: 'insensitive' },
+        where: {
+          ...whereTransactionPlatform(this.rules.tag),
           userId,
           status: TransactionStatus.COMPLETED,
           createdAt: { gte: start, lte: end },

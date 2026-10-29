@@ -17,7 +17,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma, TransactionStatus } from '@prisma/client';
-import { hasPlatformMarker } from '../../platform-core/platform-sync.adapter';
+import { whereTransactionPlatform } from '../../platform-core/transaction-platform';
 import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.store';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
@@ -530,7 +530,7 @@ export class PlatformFinanceService {
       throw new BadRequestException('Status inválido');
     const where: Prisma.TransactionWhereInput = {
       userId: context.ownerUserId,
-      description: { contains: `[TENANT:${context.tag}]`, mode: 'insensitive' },
+      ...whereTransactionPlatform(context.tag),
       ...(options.status
         ? { status: options.status as Prisma.TransactionWhereInput['status'] }
         : {}),
@@ -539,9 +539,7 @@ export class PlatformFinanceService {
       where,
       orderBy: { createdAt: 'desc' },
     });
-    const identified = candidates.filter((row) =>
-      hasPlatformMarker(row.description, context.tag),
-    );
+    const identified = candidates;
     const total = identified.length;
     const rows = identified.slice(skip, skip + limit);
     return {
@@ -602,10 +600,7 @@ export class PlatformFinanceService {
       where: {
         userId: context.ownerUserId,
         status: 'COMPLETED',
-        description: {
-          contains: `[TENANT:${context.tag}]`,
-          mode: 'insensitive',
-        },
+        ...whereTransactionPlatform(context.tag),
       },
       select: {
         description: true,
@@ -615,9 +610,7 @@ export class PlatformFinanceService {
         domFee: true,
       },
     });
-    const rows = candidates.filter((row) =>
-      hasPlatformMarker(row.description, context.tag),
-    );
+    const rows = candidates;
     const sum = (key: 'amount' | 'netAmount' | 'platformFee' | 'domFee') =>
       rows.reduce(
         (total, row) => total.plus(row[key] ?? 0),

@@ -87,12 +87,12 @@ describe('Shared platform finance', () => {
     const { service, prisma } = fixture();
     await service.transactions(context);
     expect(prisma.transaction.findMany.mock.calls[0][0]).toMatchObject({
-      where: { userId: 'owner', description: { contains: '[TENANT:SHOP]' } },
+      where: { userId: 'owner', platformTag: 'SHOP' },
     });
     await service.report(context);
     expect(prisma.transaction.findMany.mock.calls[1][0]).toMatchObject({
       where: {
-        description: { contains: '[TENANT:SHOP]' },
+        platformTag: 'SHOP',
         status: 'COMPLETED',
       },
     });
@@ -264,7 +264,7 @@ test('canonical import uses authenticated wallet and strict cents', async () => 
   expect(record).toHaveBeenCalledTimes(1);
 });
 
-test('ambiguous history excluded before pagination, counts and financial sums', async () => {
+test('platform scope is a database filter on platformTag, so counts and sums only see tagged rows', async () => {
   const { service, prisma } = fixture();
   const row = (id: string, description: string, status = 'COMPLETED') => ({
     id,
@@ -276,11 +276,7 @@ test('ambiguous history excluded before pagination, counts and financial sums', 
     domFee: decimal(0.1),
   });
   prisma.transaction.findMany.mockImplementation(
-    async () =>
-      [
-        row('mixed', '[TENANT:SHOP][TENANT:OTHER]'),
-        row('valid', '[TENANT:SHOP]'),
-      ] as any,
+    async () => [row('valid', '[TENANT:SHOP]')] as any,
   );
   expect(await service.transactions(context, { limit: 1 })).toMatchObject({
     data: [{ id: 'valid', amountCents: 1029 }],
@@ -293,6 +289,10 @@ test('ambiguous history excluded before pagination, counts and financial sums', 
     platformFeeCents: 20,
     acquirerFeeCents: 10,
   });
+  for (const call of prisma.transaction.findMany.mock.calls)
+    expect(JSON.stringify((call as any)[0].where)).toContain(
+      '"platformTag":"SHOP"',
+    );
   for (const status of ['CHARGEBACK', 'IN_MEDIATION'])
     await service.transactions(context, { status });
 });

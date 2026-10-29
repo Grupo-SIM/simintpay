@@ -1,3 +1,4 @@
+import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Logger } from '@nestjs/common';
@@ -185,6 +186,7 @@ export class SubscriptionWebhookService {
       domFee,
       platformFeeAmount,
       domPaymentId: domTransactionId,
+      platformTag: effectivePlanTag,
       description: (() => {
         const d =
           this.getString(data.description) ?? subscription.plan?.name ?? '-';
@@ -369,6 +371,7 @@ export class SubscriptionWebhookService {
       domFee,
       platformFeeAmount,
       domPaymentId: domTransactionId,
+      platformTag: effectivePlanTag,
       description: (() => {
         const d =
           this.getString(data.product_first) ??
@@ -990,6 +993,7 @@ export class SubscriptionWebhookService {
     platformFeeAmount: Prisma.Decimal;
     domPaymentId: string | null;
     description: string;
+    platformTag?: string | null;
   }): Promise<void> {
     const {
       subscription,
@@ -1016,6 +1020,7 @@ export class SubscriptionWebhookService {
         status: TransactionStatus.COMPLETED,
         paymentMethod: PaymentMethod.CREDIT_CARD,
         description,
+        ...transactionPlatformTagData(input.platformTag),
         totalFee: domFee.add(platformFeeAmount).toNumber(),
         domFee: domFee.toNumber(),
         platformFee: platformFeeAmount.toNumber(),

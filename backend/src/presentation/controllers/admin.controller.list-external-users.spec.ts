@@ -37,8 +37,9 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
 
   const isModuleQuery = (arg: any): boolean =>
     Array.isArray(arg?.where?.AND) &&
-    arg.where.AND.some((c: any) =>
-      Array.isArray(c?.OR) && c.OR.some((option: any) => option?.platform),
+    arg.where.AND.some(
+      (c: any) =>
+        Array.isArray(c?.OR) && c.OR.some((option: any) => option?.platform),
     );
 
   function makeMockPrisma(clientUsers: any[], moduleUsers: any[] = []) {
@@ -46,17 +47,26 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       platform: { findMany: jest.fn().mockResolvedValue([]) },
       externalPlatformUser: { findMany: jest.fn().mockResolvedValue([]) },
       user: {
-        findMany: jest
-          .fn()
-          .mockImplementation(async (arg: any) => {
-            if (isClientQuery(arg)) {
-              const flag = arg.where.AND.find((c: any) => typeof c?.isSimintpayClient === 'boolean');
-              return flag ? clientUsers.filter(u => (u.isSimintpayClient ?? false) === flag.isSimintpayClient) : clientUsers;
-            }
-            if (!isModuleQuery(arg)) return [];
-            const activeFilter = arg.where.AND.find((c: any) => typeof c?.isActive === 'boolean');
-            return activeFilter ? moduleUsers.filter((u) => u.isActive === activeFilter.isActive) : moduleUsers;
-          }),
+        findMany: jest.fn().mockImplementation(async (arg: any) => {
+          if (isClientQuery(arg)) {
+            const flag = arg.where.AND.find(
+              (c: any) => typeof c?.isSimintpayClient === 'boolean',
+            );
+            return flag
+              ? clientUsers.filter(
+                  (u) =>
+                    (u.isSimintpayClient ?? false) === flag.isSimintpayClient,
+                )
+              : clientUsers;
+          }
+          if (!isModuleQuery(arg)) return [];
+          const activeFilter = arg.where.AND.find(
+            (c: any) => typeof c?.isActive === 'boolean',
+          );
+          return activeFilter
+            ? moduleUsers.filter((u) => u.isActive === activeFilter.isActive)
+            : moduleUsers;
+        }),
       },
       transaction: { findMany: jest.fn().mockResolvedValue([]) },
       subscriptionLink: { findMany: jest.fn().mockResolvedValue([]) },
@@ -74,7 +84,10 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       search?: string;
     } = {},
   ) {
-    const ctx = Object.assign(Object.create(AdminController.prototype), { prisma, externalPlatformDb: { listAll: jest.fn().mockResolvedValue([]) } });
+    const ctx = Object.assign(Object.create(AdminController.prototype), {
+      prisma,
+      externalPlatformDb: { listAll: jest.fn().mockResolvedValue([]) },
+    });
     return (AdminController.prototype as any).listExternalUsers.call(
       ctx,
       args.platform,
@@ -184,28 +197,93 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
   });
 
   it('uses attributed snapshots for multiple explicit products, preserves shared wallet separately', async () => {
-    const owner = { ...directClient, isActive: true, platform: null, wallet: { balance: 500, lockedBalance: 20 } };
-    const products = ['ATLAS', 'BOSQUE'].map(tag => ({ id: tag, tag, ownerUserId: owner.id, acquirer: 'DOM', isActive: true }));
+    const owner = {
+      ...directClient,
+      isActive: true,
+      platform: null,
+      wallet: { balance: 500, lockedBalance: 20 },
+    };
+    const products = ['ATLAS', 'BOSQUE'].map((tag) => ({
+      id: tag,
+      tag,
+      ownerUserId: owner.id,
+      acquirer: 'DOM',
+      isActive: true,
+    }));
     const prisma: any = makeMockPrisma([], [owner]);
     prisma.platform.findMany.mockResolvedValue(products);
-    prisma.platform.findUnique = jest.fn().mockImplementation(async ({ where }) => ({ ...products.find(p => p.id === where.id), owner: { isActive: true, isPurged: false } }));
+    prisma.platform.findUnique = jest
+      .fn()
+      .mockImplementation(async ({ where }) => ({
+        ...products.find((p) => p.id === where.id),
+        owner: { isActive: true, isPurged: false },
+      }));
     prisma.platform.count = jest.fn().mockResolvedValue(2);
     prisma.wallet = { findUnique: jest.fn().mockResolvedValue(owner.wallet) };
-    prisma.withdrawRequest = { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockImplementation(async ({ where }) => where.platform.in.includes('atlas') ? [{ status: 'APPROVED', grossAmount: 10 }, { status: 'PENDING', grossAmount: 20 }] : []) };
-    prisma.transaction.findMany.mockResolvedValue([{ userId: owner.id, description: '[TENANT:ATLAS]', netAmount: 100 }, { userId: owner.id, description: '[TENANT:BOSQUE]', netAmount: 200 }]);
+    prisma.withdrawRequest = {
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockImplementation(async ({ where }) =>
+        where.platform.in.includes('atlas')
+          ? [
+              { status: 'APPROVED', grossAmount: 10 },
+              { status: 'PENDING', grossAmount: 20 },
+            ]
+          : [],
+      ),
+    };
+    prisma.transaction.findMany.mockResolvedValue([
+      {
+        userId: owner.id,
+        description: '[TENANT:ATLAS]',
+        platformTag: 'ATLAS',
+        netAmount: 100,
+      },
+      {
+        userId: owner.id,
+        description: '[TENANT:BOSQUE]',
+        platformTag: 'BOSQUE',
+        netAmount: 200,
+      },
+    ]);
     prisma.$transaction = async (fn: any) => fn(prisma);
     const result = await invoke(prisma);
     expect(result.data).toHaveLength(1);
-    expect(result.data[0]).toMatchObject({ balance: 290, lockedBalance: 20, walletBalance: 500, walletScope: 'shared-owner' });
-    expect(result.data[0].platformEntries.map((p: any) => p.platform)).toEqual(['atlas', 'bosque']);
+    expect(result.data[0]).toMatchObject({
+      balance: 290,
+      lockedBalance: 20,
+      walletBalance: 500,
+      walletScope: 'shared-owner',
+    });
+    expect(result.data[0].platformEntries.map((p: any) => p.platform)).toEqual([
+      'atlas',
+      'bosque',
+    ]);
     expect(result.data[0].balanceAttribution).toHaveLength(2);
   });
 
   describe('contas marcadas como cliente Simintpay', () => {
-    function invokeFull(prisma: any, args: { deleted?: string; purged?: string; simintpayClients?: string; page?: string; pageSize?: string } = {}) {
+    function invokeFull(
+      prisma: any,
+      args: {
+        deleted?: string;
+        purged?: string;
+        simintpayClients?: string;
+        page?: string;
+        pageSize?: string;
+      } = {},
+    ) {
       return (AdminController.prototype as any).listExternalUsers.call(
-        Object.assign(Object.create(AdminController.prototype), { prisma, externalPlatformDb: { listAll: jest.fn().mockResolvedValue([]) } }),
-        undefined, args.page ?? '1', args.pageSize ?? '20', args.deleted, args.purged, undefined, args.simintpayClients,
+        Object.assign(Object.create(AdminController.prototype), {
+          prisma,
+          externalPlatformDb: { listAll: jest.fn().mockResolvedValue([]) },
+        }),
+        undefined,
+        args.page ?? '1',
+        args.pageSize ?? '20',
+        args.deleted,
+        args.purged,
+        undefined,
+        args.simintpayClients,
       );
     }
 
@@ -213,11 +291,20 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       const prisma = makeMockPrisma([directClient]);
       await invokeFull(prisma);
 
-      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) => isClientQuery(a));
-      expect(clientCall?.[0]?.where?.AND).toContainEqual({ isSimintpayClient: false });
+      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) =>
+        isClientQuery(a),
+      );
+      expect(clientCall?.[0]?.where?.AND).toContainEqual({
+        isSimintpayClient: false,
+      });
       const [[externalCall]] = prisma.externalPlatformUser.findMany.mock.calls;
       expect(externalCall.where.AND).toEqual([
-        { OR: [{ userId: null }, { user: { is: { isSimintpayClient: false } } }] },
+        {
+          OR: [
+            { userId: null },
+            { user: { is: { isSimintpayClient: false } } },
+          ],
+        },
       ]);
     });
 
@@ -225,38 +312,61 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       const prisma = makeMockPrisma([directClient]);
       await invokeFull(prisma, { simintpayClients: 'true' });
 
-      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) => isClientQuery(a));
-      expect(clientCall?.[0]?.where?.AND).toContainEqual({ isSimintpayClient: true });
+      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) =>
+        isClientQuery(a),
+      );
+      expect(clientCall?.[0]?.where?.AND).toContainEqual({
+        isSimintpayClient: true,
+      });
       const [[externalCall]] = prisma.externalPlatformUser.findMany.mock.calls;
-      expect(externalCall.where.AND).toEqual([{ user: { is: { isSimintpayClient: true } } }]);
+      expect(externalCall.where.AND).toEqual([
+        { user: { is: { isSimintpayClient: true } } },
+      ]);
     });
 
     it('any includes both classes; filtering precedes count and pagination', async () => {
       const marked = { ...directClient, id: 'marked', isSimintpayClient: true };
       const prisma = makeMockPrisma([directClient, marked]);
-      const all = await invokeFull(prisma, { simintpayClients: 'any', pageSize: '1' });
-      expect(all.total).toBe(2); expect(all.data).toHaveLength(1);
-      const filtered = await invokeFull(prisma, { simintpayClients: 'true', pageSize: '1' });
-      expect(filtered.total).toBe(1); expect(filtered.data[0].id).toBe('marked');
+      const all = await invokeFull(prisma, {
+        simintpayClients: 'any',
+        pageSize: '1',
+      });
+      expect(all.total).toBe(2);
+      expect(all.data).toHaveLength(1);
+      const filtered = await invokeFull(prisma, {
+        simintpayClients: 'true',
+        pageSize: '1',
+      });
+      expect(filtered.total).toBe(1);
+      expect(filtered.data[0].id).toBe('marked');
       const pageTwo = await invokeFull(prisma, { page: '2', pageSize: '1' });
-      expect(pageTwo.total).toBe(1); expect(pageTwo.data).toHaveLength(0);
+      expect(pageTwo.total).toBe(1);
+      expect(pageTwo.data).toHaveLength(0);
     });
 
     it('purged defaults to both classes', async () => {
       const prisma = makeMockPrisma([]);
       await invokeFull(prisma, { purged: 'true' });
-      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) => isClientQuery(a));
+      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) =>
+        isClientQuery(a),
+      );
       expect(clientCall?.[0].where.AND).toContainEqual({ isPurged: true });
-      expect(clientCall?.[0].where.AND.some((c: any) => 'isSimintpayClient' in c)).toBe(false);
+      expect(
+        clientCall?.[0].where.AND.some((c: any) => 'isSimintpayClient' in c),
+      ).toBe(false);
     });
 
     it('aba de inativas não filtra pela marcação', async () => {
       const prisma = makeMockPrisma([directClient]);
       await invokeFull(prisma, { deleted: 'true' });
 
-      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) => isClientQuery(a));
+      const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) =>
+        isClientQuery(a),
+      );
       expect(
-        clientCall?.[0]?.where?.AND.some((c: any) => c && 'isSimintpayClient' in c),
+        clientCall?.[0]?.where?.AND.some(
+          (c: any) => c && 'isSimintpayClient' in c,
+        ),
       ).toBe(false);
     });
   });
@@ -264,11 +374,33 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
 
 describe('SimintPay classification PATCH', () => {
   it('accepts actual false and rejects string coercion before writing', async () => {
-    const prisma = { user: { findUnique: jest.fn().mockResolvedValue({ id: 'owner' }), update: jest.fn().mockImplementation(async ({ data }) => ({ id: 'owner', ...data })) } };
-    const invoke = (body: any) => AdminController.prototype.setUserIsSimintpayClient.call({ prisma } as any, 'owner', body);
-    await expect(invoke({ isSimintpayClient: 'false' })).rejects.toThrow('booleano');
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'owner' }),
+        update: jest
+          .fn()
+          .mockImplementation(async ({ data }) => ({ id: 'owner', ...data })),
+      },
+    };
+    const invoke = (body: any) =>
+      AdminController.prototype.setUserIsSimintpayClient.call(
+        { prisma } as any,
+        'owner',
+        body,
+      );
+    await expect(invoke({ isSimintpayClient: 'false' })).rejects.toThrow(
+      'booleano',
+    );
     expect(prisma.user.update).not.toHaveBeenCalled();
-    expect(await invoke({ isSimintpayClient: false })).toEqual({ success: true, id: 'owner', isSimintpayClient: false });
-    expect(await invoke({ isSimintpayClient: true })).toEqual({ success: true, id: 'owner', isSimintpayClient: true });
+    expect(await invoke({ isSimintpayClient: false })).toEqual({
+      success: true,
+      id: 'owner',
+      isSimintpayClient: false,
+    });
+    expect(await invoke({ isSimintpayClient: true })).toEqual({
+      success: true,
+      id: 'owner',
+      isSimintpayClient: true,
+    });
   });
 });
