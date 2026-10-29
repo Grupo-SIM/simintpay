@@ -2708,7 +2708,7 @@ const CheckoutForm = () => {
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 ) : (
-                  !pixData && (
+                  !(paymentMethod === 'pix' && pixData) && (
                     <button
                       type="submit"
                       disabled={loading}

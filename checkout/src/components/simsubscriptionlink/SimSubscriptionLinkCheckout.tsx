@@ -961,7 +961,7 @@ export default function SimSubscriptionLinkCheckout() {
 
               <CheckoutStatusCard error={error} items={statusItems} />
 
-              {!(pixContent || pixQrCode) &&
+              {!(paymentMethod === 'pix' && (pixContent || pixQrCode)) &&
                 (loading ? (
                   <div className="mt-1 flex flex-col items-center gap-3 rounded-xl border border-[rgba(246,182,122,.35)] bg-[rgba(245,138,42,.12)] px-4 py-6 text-center">
                     <Loader2 className="h-8 w-8 animate-spin text-[#f6b67a]" />
