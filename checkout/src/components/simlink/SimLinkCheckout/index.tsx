@@ -1164,7 +1164,7 @@ export default function SimLinkCheckout({
                   ? `Cartão de ${methodName}`
                   : 'Pagar com PIX'
           }
-          onBack={step === 'pix' && pixGenerated ? undefined : goBack}
+          onBack={goBack}
         />
         {step === 'dados' && <MobileProgress step={2} />}
         {step === 'forma' && <MobileProgress step={3} />}

@@ -362,9 +362,11 @@ export default function SimBoletoCheckout() {
   });
   const podeSubmeter = dadosOk && (paymentMethod !== 'boleto' || enderecoOk);
 
-  const generated = Boolean(
-    pixContent || pixQrCode || boletoUrl || digitableLine || barcode,
-  );
+  // Considera só o método selecionado: trocar de método libera gerar outra cobrança
+  const generated =
+    paymentMethod === 'pix'
+      ? Boolean(pixContent || pixQrCode)
+      : Boolean(boletoUrl || digitableLine || barcode);
 
   const statusItems = [
     { ok: dadosOk, label: 'Dados para cobrança' },
@@ -485,35 +487,33 @@ export default function SimBoletoCheckout() {
                 onToggle={() => setOpenSection('pagamento')}
               >
                 <div className="flex flex-col gap-3 pt-1">
-                  {!generated && (
-                    <div className="flex flex-wrap items-center gap-4 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
-                      {boleto.aceitaBoleto && (
-                        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
-                          <input
-                            type="radio"
-                            name="paymentMethod"
-                            className="h-4 w-4 accent-[#f58a2a]"
-                            checked={paymentMethod === 'boleto'}
-                            onChange={() => setPaymentMethod('boleto')}
-                          />
-                          <BarcodeIcon className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
-                          Boleto
-                        </label>
-                      )}
-                      {boleto.aceitaPix && (
-                        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
-                          <input
-                            type="radio"
-                            name="paymentMethod"
-                            className="h-4 w-4 accent-[#f58a2a]"
-                            checked={paymentMethod === 'pix'}
-                            onChange={() => setPaymentMethod('pix')}
-                          />
-                          PIX
-                        </label>
-                      )}
-                    </div>
-                  )}
+                  <div className="flex flex-wrap items-center gap-4 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
+                    {boleto.aceitaBoleto && (
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          className="h-4 w-4 accent-[#f58a2a]"
+                          checked={paymentMethod === 'boleto'}
+                          onChange={() => setPaymentMethod('boleto')}
+                        />
+                        <BarcodeIcon className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
+                        Boleto
+                      </label>
+                    )}
+                    {boleto.aceitaPix && (
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          className="h-4 w-4 accent-[#f58a2a]"
+                          checked={paymentMethod === 'pix'}
+                          onChange={() => setPaymentMethod('pix')}
+                        />
+                        PIX
+                      </label>
+                    )}
+                  </div>
 
                   {paymentMethod === 'boleto' && !generated && (
                     <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.04] p-3">
