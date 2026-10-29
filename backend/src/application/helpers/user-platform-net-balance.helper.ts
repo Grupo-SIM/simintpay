@@ -1,10 +1,10 @@
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { getWalletBalance } from '../../modules/wallet-ledger/wallet-balance';
 
 /**
- * Saldo sacável de qualquer conta: `max(0, wallet.balance − wallet.lockedBalance)`.
- * Mesma fonte da validação do saque e do resumo de saque (docs/business-rules.md, "Disponibilidade de saque").
- * Plataforma própria, coprodução e afiliado compartilham a mesma carteira; taxas incidem no lançamento, não na leitura.
- * `tenantSlug` é mantido só para compatibilidade com os chamadores.
+ * Withdrawable balance of any account: `max(0, wallet.balance − wallet.lockedBalance)`.
+ * Kept as the name existing callers use; the rule lives in getWalletBalance.
+ * `tenantSlug` is ignored: there is no per-platform balance formula anymore.
  */
 export async function computeUserNetBalance(
   prisma: PrismaService,
@@ -12,11 +12,5 @@ export async function computeUserNetBalance(
   tenantSlug?: string | null,
 ): Promise<number> {
   void tenantSlug;
-  const wallet = await prisma.wallet.findUnique({ where: { userId } });
-  if (!wallet) return 0;
-  return Number(
-    Math.max(0, Number(wallet.balance) - Number(wallet.lockedBalance)).toFixed(
-      2,
-    ),
-  );
+  return (await getWalletBalance(prisma, userId)).available;
 }

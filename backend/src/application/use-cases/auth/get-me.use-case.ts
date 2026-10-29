@@ -6,6 +6,7 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { walletAmounts } from '../../../modules/wallet-ledger/wallet-balance';
 import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
 
 interface MeUser {
@@ -97,15 +98,13 @@ export class GetMeUseCase {
     );
     const sharedWallet = ownedPlatforms.length > 1;
 
-    // Fonte única: wallet (a mesma da validação do saque). Vale para plataforma própria, coprodução e afiliado.
-    const balance = Number(wallet.balance),
-      lockedBalance = Number(wallet.lockedBalance);
-    const available = Number(Math.max(0, balance - lockedBalance).toFixed(2));
+    // Fonte única de saldo: a mesma da validação do saque. Vale para plataforma própria, coprodução e afiliado.
+    const current = walletAmounts(wallet);
     const walletResp = {
-      balance: Number(balance.toFixed(2)),
-      lockedBalance: Number(lockedBalance.toFixed(2)),
-      availableBalance: available,
-      netBalance: available,
+      balance: current.balance,
+      lockedBalance: current.lockedBalance,
+      availableBalance: current.available,
+      netBalance: current.available,
     };
 
     const tenant =

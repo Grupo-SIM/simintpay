@@ -1,14 +1,11 @@
-import { getPlatformOwnerId } from '../../../modules/module.registry';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import {
   BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { TransactionStatus, WithdrawStatus } from '@prisma/client';
-import { computeUserNetBalance } from '../../helpers/user-platform-net-balance.helper';
+import { TransactionStatus } from '@prisma/client';
+import { getWalletBalance } from '../../../modules/wallet-ledger/wallet-balance';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { getModuleConfig } from '../../../modules/module.registry';
 
 const r2 = (n: number) => Number(n.toFixed(2));
 
@@ -44,25 +41,7 @@ export class GetWalletCompositionUseCase {
       throw new NotFoundException('Wallet não encontrada');
     }
 
-    const netBalance = await computeUserNetBalance(
-      this.prisma,
-      user.id,
-      user.platform?.tag,
-    );
-
-    const fatorLiquidez =
-      getModuleConfig(user.platform?.tag)?.saque?.fatorLiquidez ??
-      getPlatformTaxaEffective('GLOBAL', 'LIQUIDEZ', 0.91);
-
-    const renovadaId =
-      (getPlatformOwnerId('RENOVADA') ?? '');
-    const slug = (user.platform?.tag || '').toLowerCase();
-    const useRenovadaWalletLedger =
-      slug === 'renovada';
-
-    const fatorRenovada =
-      getModuleConfig('renovada')?.saque?.fatorLiquidez ??
-      getPlatformTaxaEffective('RENOVADA', 'LIQUIDEZ', 0.91);
+    const balance = await getWalletBalance(this.prisma, user.id);
 
     const [transactions, withdraws] = await Promise.all([
       this.prisma.transaction.findMany({
@@ -96,18 +75,8 @@ export class GetWalletCompositionUseCase {
       }),
     ]);
 
-    const somaTransacoesLiquidasPadrao = transactions.reduce((s, t) => {
-      const bruto = Number(t.amount);
-      if (bruto <= 0) return s;
-      const liquido =
-        t.netAmount != null ? Number(t.netAmount) : bruto * fatorLiquidez;
-      return s + liquido;
-    }, 0);
-
     const transacoes = transactions.map((t) => {
       const bruto = Number(t.amount);
-      const liquido =
-        t.netAmount != null ? Number(t.netAmount) : bruto * fatorLiquidez;
       return {
         tipo: 'TRANSACAO' as const,
         id: t.id,
@@ -117,91 +86,35 @@ export class GetWalletCompositionUseCase {
         valorBruto: r2(bruto),
         valorLiquidoRegistrado:
           t.netAmount != null ? r2(Number(t.netAmount)) : null,
-        contribuicaoLiquidaNoModoPadrao: bruto > 0 ? r2(liquido) : 0,
         domPaymentId: t.domPaymentId,
         domTransactionId: t.domTransactionId,
         paymentMethod: t.paymentMethod,
       };
     });
 
-    let composicao: Record<string, unknown>;
-
-    if (useRenovadaWalletLedger) {
-      const storedGross = Number(wallet.balance);
-      const [debitedAggr, pendingAggr] = await Promise.all([
-        this.prisma.withdrawRequest.aggregate({
-          where: {
-            userId: user.id,
-            status: {
-              in: [WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED],
-            },
-          },
-          _sum: { grossAmount: true },
-        }),
-        this.prisma.withdrawRequest.aggregate({
-          where: { userId: user.id, status: WithdrawStatus.PENDING },
-          _sum: { grossAmount: true },
-        }),
-      ]);
-      const debitedBruto = Number(debitedAggr._sum.grossAmount || 0);
-      const pendingBruto = Number(pendingAggr._sum.grossAmount || 0);
-      const rawDisplayTotalNet =
-        storedGross * fatorRenovada + debitedBruto * (fatorRenovada - 1);
-      const displayTotalNet = Math.max(0, rawDisplayTotalNet);
-      const availableNet = Math.max(0, displayTotalNet - pendingBruto);
-
-      composicao = {
-        modo: 'RENOVADA_LEDGER',
-        fatorLiquidezRenovada: fatorRenovada,
-        saldoBrutoArmazenadoNaWallet: r2(storedGross),
-        somaSaquesAprovadosOuPagos_brutoRetirado: r2(debitedBruto),
-        termoCorrecaoSaques: r2(debitedBruto * (fatorRenovada - 1)),
-        liquidoAntesReservaPendente: r2(displayTotalNet),
-        somaSaquesPendentes_brutoBloqueado: r2(pendingBruto),
-        saldoLiquidoDisponivelExibido: r2(availableNet),
-        confereComNetBalance: r2(availableNet) === r2(netBalance),
-        somaReferenciaTransacoesLiquidas: r2(somaTransacoesLiquidasPadrao),
-        nota:
-          'Conta Renovada: o saldo exibido vem de wallet.balance (bruto) × fator + correção (fator−1)×saques aprovados/pagos, menos bruto pendente. ' +
-          'A lista de transações é a movimentação COMPLETED no userId; a soma líquida delas pode diferir do saldo por causa desse ledger.',
-      };
-    } else {
-      const [completedAggr, activeAggr] = await Promise.all([
-        this.prisma.withdrawRequest.aggregate({
-          where: { userId: user.id, status: WithdrawStatus.COMPLETED },
-          _sum: { grossAmount: true },
-        }),
-        this.prisma.withdrawRequest.aggregate({
-          where: {
-            userId: user.id,
-            status: {
-              in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED],
-            },
-          },
-          _sum: { grossAmount: true },
-        }),
-      ]);
-      const totalCompletedGross = Number(completedAggr._sum.grossAmount || 0);
-      const lockedBalanceGross = Number(activeAggr._sum.grossAmount || 0);
-      const currentNetProfit = somaTransacoesLiquidasPadrao - totalCompletedGross;
-      const availableBalance = Math.max(
-        0,
-        currentNetProfit - lockedBalanceGross,
-      );
-
-      composicao = {
-        modo: 'PADRAO_TRANSACOES_MENOS_SAQUES',
-        fatorLiquidez,
-        somaTransacoesConcluidas_valorLiquido: r2(somaTransacoesLiquidasPadrao),
-        menosSaqueConcluido_valorBruto: r2(totalCompletedGross),
-        saldoAposSaquesConcluidos: r2(currentNetProfit),
-        menosSaquesPendentesOuAprovados_valorBruto: r2(lockedBalanceGross),
-        saldoLiquidoDisponivelCalculado: r2(availableBalance),
-        confereComNetBalance: r2(availableBalance) === r2(netBalance),
-        nota:
-          'Soma do líquido (netAmount ou bruto × fator) das transações COMPLETED com bruto > 0, menos bruto de saques COMPLETED, menos bruto retido em PENDING/APPROVED.',
-      };
-    }
+    const byAction = await this.prisma.balanceLog.groupBy({
+      by: ['action'],
+      where: { userId: user.id, NOT: { source: 'MASTER_ADMIN_CONTROL' } },
+      _sum: { amount: true },
+      _count: { _all: true },
+      orderBy: { action: 'asc' },
+    });
+    const composicao = {
+      modo: 'WALLET_LEDGER',
+      saldoNaWallet: r2(balance.balance),
+      saldoBloqueado: r2(balance.lockedBalance),
+      saldoDisponivel: r2(balance.available),
+      saldoNoUltimoLancamentoDoLog: balance.ledgerBalance,
+      divergenciaWalletLog: r2(balance.ledgerDrift),
+      lancamentosPorAcao: byAction.map((row) => ({
+        acao: row.action,
+        quantidade: row._count._all,
+        soma: r2(Number(row._sum.amount ?? 0)),
+      })),
+      nota:
+        'Saldo disponível = wallet.balance − wallet.lockedBalance, igual para toda conta (plataforma própria, coprodução e afiliado). ' +
+        'O BalanceLog é o razão: divergenciaWalletLog diferente de zero indica movimentação sem lançamento.',
+    };
 
     return {
       usuario: {
@@ -210,7 +123,7 @@ export class GetWalletCompositionUseCase {
         nome: user.name,
         tenantSlug: user.platform?.tag ?? null,
       },
-      netBalanceExibido: r2(netBalance),
+      netBalanceExibido: r2(balance.available),
       composicao,
       transacoes,
       saques: withdraws.map((w) => ({

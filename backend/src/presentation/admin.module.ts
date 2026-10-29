@@ -11,6 +11,7 @@ import { SyncDomTransactionsCron } from '../infrastructure/cron/sync-dom-transac
 import { SyncMaquinetasCron } from '../infrastructure/cron/sync-maquinetas.cron';
 import { CommunityAccessCron } from '../infrastructure/cron/community-access.cron';
 import { ExpirationReminderCron } from '../infrastructure/cron/expiration-reminder.cron';
+import { WalletConsistencyCron } from '../infrastructure/cron/wallet-consistency.cron';
 import { AdminController } from './controllers/admin.controller';
 import { AdminClientesController } from './controllers/admin-clientes.controller';
 import { AdminAfiliadosController } from './controllers/admin-afiliados.controller';
@@ -50,14 +51,29 @@ import { PlatformReportingModule } from '../application/services/platform-report
 import { ExternalPlatformDbModule } from '../modules/external-platform-db/external-platform-db.module';
 
 @Module({
-  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule, WebhookModule, PlatformReportingModule, ExternalPlatformDbModule],
-  controllers: [PlatformIntegrationsController, PlatformsController, AdminController, AdminClientesController, AdminAfiliadosController],
+  imports: [
+    ApiDomModule,
+    HttpModule,
+    ModuleRealtimeModule,
+    RevalidaModule,
+    WebhookModule,
+    PlatformReportingModule,
+    ExternalPlatformDbModule,
+  ],
+  controllers: [
+    PlatformIntegrationsController,
+    PlatformsController,
+    AdminController,
+    AdminClientesController,
+    AdminAfiliadosController,
+  ],
   providers: [
     PlatformsService,
     SyncDomTransactionsCron,
     SyncMaquinetasCron,
     CommunityAccessCron,
     ExpirationReminderCron,
+    WalletConsistencyCron,
     ListLeadsUseCase,
     ApproveLeadUseCase,
     RejectLeadUseCase,

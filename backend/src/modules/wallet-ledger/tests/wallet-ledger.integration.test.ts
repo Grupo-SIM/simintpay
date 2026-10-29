@@ -2,6 +2,11 @@ import { afterAll, expect, test } from 'bun:test';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { applyWalletEntry, setWalletBalance } from '../wallet-ledger';
+import {
+  findWalletLedgerDivergences,
+  getWalletBalance,
+  walletAmounts,
+} from '../wallet-balance';
 
 const url = process.env.COPRODUCTION_TEST_DATABASE_URL;
 if (
@@ -152,4 +157,65 @@ run('setWalletBalance logs the difference to the absolute value', async () => {
   expect(rows[1].amount.toFixed(2)).toBe('-24.50');
   expect(rows[1].balanceBefore.toFixed(2)).toBe('80.00');
   expect(rows[1].balanceAfter.toFixed(2)).toBe('55.50');
+});
+
+run(
+  'divergence query flags wallets that drifted from the ledger and ignores fee bookkeeping',
+  async () => {
+    const synced = await newUser();
+    const drifted = await newUser();
+    await db!.$transaction(async (tx) => {
+      await applyWalletEntry(tx, {
+        userId: synced.id,
+        action: 'CREDIT',
+        source: 'TEST',
+        balanceDelta: 40,
+      });
+      await applyWalletEntry(tx, {
+        userId: drifted.id,
+        action: 'CREDIT',
+        source: 'TEST',
+        balanceDelta: 40,
+      });
+    });
+    // Fee bookkeeping rows carry zero balances and must not count as the ledger tail.
+    await db!.balanceLog.create({
+      data: {
+        userId: synced.id,
+        action: 'ADMIN_WITHDRAW_FEE_INC',
+        source: 'MASTER_ADMIN_CONTROL',
+        amount: 3.5,
+        balanceBefore: 0,
+        balanceAfter: 0,
+        lockedBefore: 0,
+        lockedAfter: 0,
+      },
+    });
+    await db!.wallet.update({
+      where: { userId: drifted.id },
+      data: { balance: { increment: 10 } },
+    });
+    const found = await findWalletLedgerDivergences(db!);
+    const ids = found.map((row) => row.userId);
+    expect(ids).toContain(drifted.id);
+    expect(ids).not.toContain(synced.id);
+    const row = found.find((item) => item.userId === drifted.id)!;
+    expect([row.walletBalance, row.ledgerBalance]).toEqual(['50.00', '40.00']);
+    const balance = await getWalletBalance(db!, drifted.id);
+    expect(balance).toMatchObject({
+      balance: 50,
+      available: 50,
+      ledgerBalance: 40,
+      ledgerDrift: 10,
+    });
+  },
+);
+
+run('walletAmounts applies max(0, balance - locked)', async () => {
+  expect(walletAmounts({ balance: '123.45', lockedBalance: '23.45' })).toEqual({
+    balance: 123.45,
+    lockedBalance: 23.45,
+    available: 100,
+  });
+  expect(walletAmounts({ balance: 5, lockedBalance: 9 }).available).toBe(0);
 });
