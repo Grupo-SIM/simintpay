@@ -16,6 +16,9 @@ export async function postDomCheckout(
         Authorization: `Bearer ${token}`,
         accept: 'application/json',
         'content-type': 'application/json',
+        ...(process.env.API_BASE_URL
+          ? { Origin: process.env.API_BASE_URL }
+          : {}),
       },
       body: JSON.stringify(request),
     },
