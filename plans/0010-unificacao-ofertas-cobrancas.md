@@ -69,15 +69,12 @@ Métodos específicos continuam em adaptadores: cartão exige autorização/toke
 
 Estimativas de engenharia para uma pessoa familiarizada com os repositórios, incluindo testes e revisão; não são prazo fechado. Dependem da qualidade dos dados, capacidades DOM e decisões comerciais.
 
-| Entrega                                                                          | Complexidade | Faixa indicativa                       |
-| -------------------------------------------------------------------------------- | ------------ | -------------------------------------- |
-| Inventário, contrato de destino e mapa de pendências                             | média        | 2–4 dias úteis                         |
-| Titular/executor, plataforma opcional, permissões e formulários nos cinco fluxos | média/alta   | 5–9 dias úteis                         |
-| Identidade estável, aliases de taxas e ensaio de migração histórica              | alta         | 3–6 dias úteis, além de revisão humana |
-| Núcleo avulso e adaptadores de link/PIX/boleto                                   | alta         | 7–12 dias úteis                        |
-| Ofertas, recorrência, acesso, compatibilidade e regressão completa               | muito alta   | 10–20 dias úteis                       |
+| Entrega                                                            | Complexidade | Faixa indicativa |
+| ------------------------------------------------------------------ | ------------ | ---------------- |
+| Núcleo avulso e adaptadores de link/PIX/boleto                     | alta         | 7–12 dias úteis  |
+| Ofertas, recorrência, acesso, compatibilidade e regressão completa | muito alta   | 10–20 dias úteis |
 
-Ordem de grandeza: **2–4 semanas para corrigir titularidade e preparar migração**, e **6–10 semanas para uma unificação incremental completa**, sem contar esperas externas e a execução integral do plano 0008. Não somar esforço dos planos mecanicamente: identidade e snapshots se sobrepõem e devem ter um desenho compartilhado.
+Titularidade e preparação da migração pertencem ao plano 0009. Ordem de grandeza: **6–10 semanas para uma unificação incremental completa**, sem contar esperas externas e a execução integral do plano 0008. Não somar esforço dos planos mecanicamente: identidade e snapshots se sobrepõem e devem ter um desenho compartilhado.
 
 A persistência vazia de planos ajuda o backfill, mas não justifica apagar suas APIs nem dispensar testes de recorrência. O maior risco não é criar tabelas: é duplicar cobranças/créditos, mudar recebedores de contratos existentes ou perder compatibilidade de URLs e webhooks.
 
