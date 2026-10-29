@@ -40,7 +40,6 @@ function fixture(claim = 1, existingOverride = {}) {
   const bus = new PlatformEventsService();
   const service = new PlatformSyncPersistenceService(
     prisma as never,
-    {} as never,
     bus,
     {} as never,
   );
@@ -165,7 +164,6 @@ describe('Shared sync persistence', () => {
   });
   test('direct legacy polling coalesces same-platform work', async () => {
     const service = new PlatformSyncPersistenceService(
-      {} as never,
       {} as never,
       new PlatformEventsService(),
       {} as never,

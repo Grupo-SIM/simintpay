@@ -81,9 +81,6 @@ import { ListWithdrawalsAdminUseCase } from '../../application/use-cases/admin/l
 import { ApproveWithdrawalUseCase } from '../../application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../../application/use-cases/admin/reject-withdrawal.use-case';
 import { SyncDomWithdrawalsUseCase } from '../../application/use-cases/admin/sync-dom-withdrawals.use-case';
-import { SyncFullRenovadaUseCase } from '../../application/use-cases/admin/sync-full-renovada.use-case';
-import { SyncFullBosqueUseCase } from '../../application/use-cases/admin/sync-full-bosque.use-case';
-import { SyncFullEbookUseCase } from '../../application/use-cases/admin/sync-full-ebook.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/admin/list-dom-transactions-direct.use-case';
 import { SyncMaquinetasUseCase } from '../../application/use-cases/admin/sync-maquinetas.use-case';
@@ -1247,9 +1244,6 @@ export class AdminController {
     private readonly approveWithdrawal: ApproveWithdrawalUseCase,
     private readonly rejectWithdrawal: RejectWithdrawalUseCase,
     private readonly syncWithdrawalsUseCase: SyncDomWithdrawalsUseCase,
-    private readonly syncFullRenovadaUseCase: SyncFullRenovadaUseCase,
-    private readonly syncFullBosqueUseCase: SyncFullBosqueUseCase,
-    private readonly syncFullEbookUseCase: SyncFullEbookUseCase,
     private readonly migrateRenovadaTxsToAdmin: MigrateRenovadaTxsToAdminUseCase,
     private readonly listDomTransactionsDirect: ListDomTransactionsDirectUseCase,
     private readonly syncMaquinetasUseCase: SyncMaquinetasUseCase,
@@ -1484,23 +1478,6 @@ export class AdminController {
         throw new ConflictException('Já existe um usuário com este CNPJ');
     }
 
-    // Tentar registrar na DOM (falha silenciosa)
-    let domUserId: string | null = null;
-    let domToken: string | null = null;
-    try {
-      const name = email.split('@')[0];
-      const domReg = await this.paymentGateway.register({
-        name,
-        email,
-        password,
-      });
-      const domTok = await this.paymentGateway.generateToken(email, password);
-      domUserId = domReg.domUserId ?? null;
-      domToken = domTok.domToken ?? null;
-    } catch {
-      // Segue sem conta DOM
-    }
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user = await (this.prisma.user as any).create({
       data: {
@@ -1510,8 +1487,6 @@ export class AdminController {
         password: hashed,
         ...(cpfClean ? { cpf: cpfClean } : {}),
         ...(cnpjClean ? { cnpj: cnpjClean } : {}),
-        domUserId: domUserId ?? undefined,
-        domToken: domToken ?? undefined,
         // Conta criada pelo master já nasce cliente SimintPay APROVADO. Sem isso
         // (clientStatus null) a conta não é reconhecida como cliente e a taxa
         // individual (CLIENT:<email>) nunca é aplicada na cobrança.
@@ -4820,7 +4795,7 @@ export class AdminController {
       });
 
     return {
-      message: `Limpeza concluída. ${deleted.count} transações removidas. domToken zerado. Execute /admin/sync/full-renovada para re-sincronizar.`,
+      message: `Limpeza concluída. ${deleted.count} transações removidas. domToken zerado.`,
       deletedCount: deleted.count,
       countBefore,
     };
@@ -4900,35 +4875,7 @@ export class AdminController {
       withdrawalsBefore: wdBefore,
       transactionsDeleted: deletedTx.count,
       withdrawalsDeleted: deletedWd.count,
-      nextStep:
-        'Execute /admin/sync/full-ebook para sincronizar novamente com os tokens corretos.',
     };
-  }
-
-  @Post('sync/full-renovada')
-  @ApiOperation({
-    summary:
-      'Sincronização completa de histórico (Renovada 12) - puxa do api-dom',
-  })
-  async syncFullRenovada() {
-    return this.syncFullRenovadaUseCase.execute();
-  }
-
-  @Post('sync/full-bosque')
-  @ApiOperation({
-    summary:
-      'Sincronização completa de histórico (Bosque) - puxa da DOM Pagamentos',
-  })
-  async syncFullBosque() {
-    return this.syncFullBosqueUseCase.execute();
-  }
-
-  @Post('sync/full-ebook')
-  @ApiOperation({
-    summary: 'Sincronização completa de histórico (EBOOK) - legado api-dom',
-  })
-  async syncFullEbook() {
-    return this.syncFullEbookUseCase.execute();
   }
 
   @Post('sync/full-revalida')

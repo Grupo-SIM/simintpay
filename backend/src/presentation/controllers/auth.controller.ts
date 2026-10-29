@@ -8,16 +8,13 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { UnauthorizedException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { LoginDto } from '../../application/dtos/auth/login.dto';
-import { RegisterDto } from '../../application/dtos/auth/register.dto';
 import { RefreshTokenDto } from '../../application/dtos/auth/refresh-token.dto';
 import { LogoutDto } from '../../application/dtos/auth/logout.dto';
 import { ForgotPasswordDto } from '../../application/dtos/auth/forgot-password.dto';
 import { ResetPasswordDto } from '../../application/dtos/auth/reset-password.dto';
 import { LoginUseCase } from '../../application/use-cases/auth/login.use-case';
-import { RegisterUseCase } from '../../application/use-cases/auth/register.use-case';
 import { RefreshTokenUseCase } from '../../application/use-cases/auth/refresh-token.use-case';
 import { LogoutUseCase } from '../../application/use-cases/auth/logout.use-case';
 import { GetMeUseCase } from '../../application/use-cases/auth/get-me.use-case';
@@ -41,7 +38,6 @@ import {
 export class AuthController {
   constructor(
     private readonly login: LoginUseCase,
-    private readonly register: RegisterUseCase,
     private readonly refresh: RefreshTokenUseCase,
     private readonly logout: LogoutUseCase,
     private readonly me: GetMeUseCase,
@@ -76,7 +72,9 @@ export class AuthController {
   })
   @ApiResponse({
     status: 400,
-    schema: { example: { statusCode: 400, message: ['email must be an email'] } },
+    schema: {
+      example: { statusCode: 400, message: ['email must be an email'] },
+    },
   })
   @ApiResponse({
     status: 401,
@@ -89,64 +87,7 @@ export class AuthController {
   ): Promise<{ data: unknown }> {
     const ip = getRequestIp(req) ?? req.ip ?? 'unknown';
 
-    try {
-      const out = await this.login.execute({
-        dto,
-        userAgent: req.headers['user-agent'] ?? null,
-        ipAddress: ip,
-      });
-
-      setAccessTokenCookie(res, out.accessToken);
-
-      return { data: out };
-    } catch (err) {
-      throw err;
-    }
-  }
-
-  @Post('register')
-  @ApiOperation({ summary: 'Criar conta' })
-  @ApiBody({
-    type: RegisterDto,
-    examples: {
-      default: {
-        value: {
-          name: 'João Silva',
-          email: 'joao@empresa.com',
-          password: 'senha123',
-          document: '123.456.789-00',
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    schema: {
-      example: {
-        data: {
-          accessToken: 'jwt-access-token',
-          refreshToken: 'jwt-refresh-token',
-          user: { id: 'uuid-user-1', name: 'João Silva', email: 'joao@empresa.com' },
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: 400,
-    schema: { example: { statusCode: 400, message: ['password must be longer than or equal to 6 characters'] } },
-  })
-  @ApiResponse({
-    status: 409,
-    schema: { example: { statusCode: 409, message: 'E-mail já cadastrado' } },
-  })
-  async registerRoute(
-    @Body() dto: RegisterDto,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<{ data: unknown }> {
-    const ip = getRequestIp(req) ?? req.ip ?? 'unknown';
-
-    const out = await this.register.execute({
+    const out = await this.login.execute({
       dto,
       userAgent: req.headers['user-agent'] ?? null,
       ipAddress: ip,
@@ -211,22 +152,44 @@ export class AuthController {
 
   @Post('forgot-password')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Solicitar redefinição de senha (envia e-mail com link)' })
+  @ApiOperation({
+    summary: 'Solicitar redefinição de senha (envia e-mail com link)',
+  })
   @ApiBody({ type: ForgotPasswordDto })
   @ApiResponse({ status: 200, schema: { example: { data: { sent: true } } } })
-  async forgotPasswordRoute(@Body() dto: ForgotPasswordDto): Promise<{ data: unknown }> {
+  async forgotPasswordRoute(
+    @Body() dto: ForgotPasswordDto,
+  ): Promise<{ data: unknown }> {
     const out = await this.forgotPassword.execute({ email: dto.email });
     return out;
   }
 
   @Post('reset-password')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Redefinir senha usando o token recebido por e-mail' })
+  @ApiOperation({
+    summary: 'Redefinir senha usando o token recebido por e-mail',
+  })
   @ApiBody({ type: ResetPasswordDto })
-  @ApiResponse({ status: 200, schema: { example: { data: { updated: true } } } })
-  @ApiResponse({ status: 400, schema: { example: { statusCode: 400, message: 'Link de redefinição inválido ou expirado. Solicite um novo.' } } })
-  async resetPasswordRoute(@Body() dto: ResetPasswordDto): Promise<{ data: unknown }> {
-    const out = await this.resetPassword.execute({ token: dto.token, newPassword: dto.newPassword });
+  @ApiResponse({
+    status: 200,
+    schema: { example: { data: { updated: true } } },
+  })
+  @ApiResponse({
+    status: 400,
+    schema: {
+      example: {
+        statusCode: 400,
+        message: 'Link de redefinição inválido ou expirado. Solicite um novo.',
+      },
+    },
+  })
+  async resetPasswordRoute(
+    @Body() dto: ResetPasswordDto,
+  ): Promise<{ data: unknown }> {
+    const out = await this.resetPassword.execute({
+      token: dto.token,
+      newPassword: dto.newPassword,
+    });
     return out;
   }
 

@@ -67,23 +67,8 @@ export class CreatePaymentLinkUseCase {
     const maxInstallments = aceitaCartao ? (input.dto.parcelasMax ?? 1) : 1;
     const isStandalone = input.dto.isStandalone ?? true;
 
-    // Taxa de juros DOM para o número máximo de parcelas (para registro no gateway)
-    let interestRate = 0;
-    try {
-      const masterKey = process.env.API_DOM_MASTER_KEY;
-      if (masterKey) {
-        const taxes = await this.gateway.getTaxes(masterKey);
-        const parcelas = taxes?.cartaoCredito?.tabelaParcelas ?? [];
-        const row = parcelas.find(
-          (r) => Number(r.parcelas) === maxInstallments,
-        );
-        if (row) {
-          interestRate = parseFloat(row.taxaDom) || 0;
-        }
-      }
-    } catch {
-      // Se falhar ao buscar taxas, segue com 0 (não bloqueia a criação)
-    }
+    // Sem tabela de juros DOM disponível: taxa de juros do gateway fica em 0.
+    const interestRate = 0;
 
     const created = await this.gateway
       .createPaymentLink(domToken, {

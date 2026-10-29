@@ -14,22 +14,30 @@ function build(lead: any) {
   } as any;
   const wallets = { createForUser: jest.fn().mockResolvedValue({}) } as any;
   const hash = { hash: jest.fn().mockResolvedValue('hashed') } as any;
-  const gateway = {
-    register: jest.fn().mockRejectedValue(new Error('dom indisponível em teste')),
-    generateToken: jest.fn(),
-  } as any;
   const email = { sendWelcome: jest.fn().mockResolvedValue(undefined) } as any;
   const linkExternal = { linkByCpf: jest.fn(), linkByCnpj: jest.fn() } as any;
 
-  const uc = new ApproveLeadUseCase(leads, users, wallets, hash, gateway, email, linkExternal);
+  const uc = new ApproveLeadUseCase(
+    leads,
+    users,
+    wallets,
+    hash,
+    email,
+    linkExternal,
+  );
   return { uc, users };
 }
 
 describe('ApproveLeadUseCase — vínculo automático de afiliado', () => {
   it('vincula referredByUserId quando o lead tem referredByCode válido', async () => {
     const lead = {
-      id: 'lead1', email: 'novo@x.com', name: 'Novo', status: 'PENDING',
-      cpf: '12345678901', cnpj: null, referredByCode: 'ABC123',
+      id: 'lead1',
+      email: 'novo@x.com',
+      name: 'Novo',
+      status: 'PENDING',
+      cpf: '12345678901',
+      cnpj: null,
+      referredByCode: 'ABC123',
     };
     const { uc, users } = build(lead);
     users.findByAffiliateCode.mockResolvedValue({ id: 'affiliate1' });
@@ -42,8 +50,13 @@ describe('ApproveLeadUseCase — vínculo automático de afiliado', () => {
 
   it('não vincula nada quando o lead não tem referredByCode', async () => {
     const lead = {
-      id: 'lead1', email: 'novo@x.com', name: 'Novo', status: 'PENDING',
-      cpf: '12345678901', cnpj: null, referredByCode: null,
+      id: 'lead1',
+      email: 'novo@x.com',
+      name: 'Novo',
+      status: 'PENDING',
+      cpf: '12345678901',
+      cnpj: null,
+      referredByCode: null,
     };
     const { uc, users } = build(lead);
 
@@ -55,8 +68,13 @@ describe('ApproveLeadUseCase — vínculo automático de afiliado', () => {
 
   it('não vincula nada quando o código não bate com nenhum afiliado', async () => {
     const lead = {
-      id: 'lead1', email: 'novo@x.com', name: 'Novo', status: 'PENDING',
-      cpf: '12345678901', cnpj: null, referredByCode: 'CODIGO_INEXISTENTE',
+      id: 'lead1',
+      email: 'novo@x.com',
+      name: 'Novo',
+      status: 'PENDING',
+      cpf: '12345678901',
+      cnpj: null,
+      referredByCode: 'CODIGO_INEXISTENTE',
     };
     const { uc, users } = build(lead);
     users.findByAffiliateCode.mockResolvedValue(null);

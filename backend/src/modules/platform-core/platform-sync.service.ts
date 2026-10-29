@@ -46,7 +46,7 @@ export class PlatformSyncService {
         isActive: true,
         owner: { isActive: true, isPurged: false },
         integrations: {
-          some: { key: { in: ['ENABLE_DOM_SYNC', 'API_DOM_XTOKEN'] } },
+          some: { key: 'ENABLE_DOM_SYNC' },
         },
       },
       include: { integrations: true },
@@ -60,10 +60,7 @@ export class PlatformSyncService {
         continue;
       if (
         !platform.integrations.some(
-          (row) =>
-            (row.key === 'ENABLE_DOM_SYNC' && row.url === 'true') ||
-            (['BOSQUE', 'RENOVADA'].includes(platform.tag) &&
-              row.key === 'API_DOM_XTOKEN'),
+          (row) => row.key === 'ENABLE_DOM_SYNC' && row.url === 'true',
         )
       )
         continue;

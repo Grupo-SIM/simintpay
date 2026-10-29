@@ -1,21 +1,14 @@
 import { HttpService } from '@nestjs/axios';
-import { BadRequestException, Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import type { AxiosError } from 'axios';
 import * as QRCode from 'qrcode';
 import {
-  DomGenerateTokenOutput,
   DomCreatePlanInput,
   DomPaymentLinkInput,
   DomPaymentLinkOutput,
-  DomMonthlyRevenueOutput,
   DomPlanOutput,
   DomSubscriptionOutput,
-  DomTaxesOutput,
-  DomRequestWithdrawOutput,
-  DomMeOutput,
-  DomRegisterInput,
-  DomRegisterOutput,
   DomListTransactionsOutput,
   DomTransactionItem,
   DomWithdrawItem,
@@ -33,7 +26,7 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-ta
 export class ApiDomClient implements IPaymentGateway {
   private readonly logger = new Logger(ApiDomClient.name);
 
-  constructor(private readonly http: HttpService) { }
+  constructor(private readonly http: HttpService) {}
 
   private toSafeString(value: unknown): string | null {
     if (value == null) return null;
@@ -74,22 +67,23 @@ export class ApiDomClient implements IPaymentGateway {
     return this.toSafeString(cur);
   }
 
-  private get baseUrl(): string {
-    const base = process.env.DOM_BACKEND_URL ?? 'https://api-dom.jbmidia.com';
-    return base.replace(/\/$/, '');
-  }
-
   private get paymentsUrl(): string {
-    const base = process.env.DOM_PAYMENTS_API_URL ?? 'https://api-dom.jbmidia.com/payments';
+    const base =
+      process.env.DOM_PAYMENTS_API_URL ??
+      'https://api-dom.jbmidia.com/payments';
     return base.replace(/\/$/, '');
   }
 
   private get domRealApiUrl(): string {
-    const base = process.env.DOM_REAL_API_URL ?? 'https://apiv3.dompagamentos.com.br/checkout/production';
+    const base =
+      process.env.DOM_REAL_API_URL ??
+      'https://apiv3.dompagamentos.com.br/checkout/production';
     return base.replace(/\/$/, '');
   }
 
-  private normalizeDomApiResponse(data: Record<string, unknown>): Record<string, unknown> | null {
+  private normalizeDomApiResponse(
+    data: Record<string, unknown>,
+  ): Record<string, unknown> | null {
     const id = this.pickString(data, 'id');
     if (!id) return null;
 
@@ -100,23 +94,42 @@ export class ApiDomClient implements IPaymentGateway {
     const amount = amountCents / 100;
 
     const rawLiquidCents = this.pickNumber(data, 'liquid_amount');
-    const totalLiquid = (rawLiquidCents != null && rawLiquidCents >= 0)
-      ? rawLiquidCents / 100
-      : amount - feeAmount;
+    const totalLiquid =
+      rawLiquidCents != null && rawLiquidCents >= 0
+        ? rawLiquidCents / 100
+        : amount - feeAmount;
 
     const status = this.pickString(data, 'status') ?? '';
-    const isPaid = status === 'paid' || status === 'approved' || status === 'completed';
+    const isPaid =
+      status === 'paid' || status === 'approved' || status === 'completed';
     const paymentMethod = this.pickString(data, 'payment_method') ?? '';
-    const installments = Math.max(1, Math.round(this.pickNumber(data, 'installments') ?? 1));
+    const installments = Math.max(
+      1,
+      Math.round(this.pickNumber(data, 'installments') ?? 1),
+    );
     const isCard = /card|credit/i.test(paymentMethod);
 
     const CARD_RATES: Record<number, number> = {
-      1: 0.0399, 2: 0.083, 3: 0.0968, 4: 0.1104, 5: 0.1237, 6: 0.1367,
-      7: 0.1495, 8: 0.1621, 9: 0.1744, 10: 0.1864, 11: 0.1983, 12: 0.2099,
+      1: 0.0399,
+      2: 0.083,
+      3: 0.0968,
+      4: 0.1104,
+      5: 0.1237,
+      6: 0.1367,
+      7: 0.1495,
+      8: 0.1621,
+      9: 0.1744,
+      10: 0.1864,
+      11: 0.1983,
+      12: 0.2099,
     };
     const mdrRate = isCard
       ? (CARD_RATES[installments] ?? 0.0399)
-      : getPlatformTaxaEffective('GLOBAL', 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
+      : getPlatformTaxaEffective(
+          'GLOBAL',
+          'MDR_PIX',
+          PLATFORM_TAXA_DEFAULTS.MDR_PIX,
+        );
     const mdrValue = parseFloat((amount * mdrRate).toFixed(2));
 
     const order: Record<string, unknown> = {
@@ -135,20 +148,38 @@ export class ApiDomClient implements IPaymentGateway {
       msg_3ds: null,
     };
 
-    const customer = this.getObject((data as any).customer ?? (data as any).payer ?? null);
+    const customer = this.getObject(
+      (data as any).customer ?? (data as any).payer ?? null,
+    );
     if (customer) {
       order.client_name = this.pickString(customer, 'name');
-      order.client_document = this.pickString(customer, 'document') ?? this.pickString(customer, 'cpf');
+      order.client_document =
+        this.pickString(customer, 'document') ??
+        this.pickString(customer, 'cpf');
       order.client_email = this.pickString(customer, 'email');
-      order.client_phone = this.pickString(customer, 'mobile_phone') ?? this.pickString(customer, 'phone') ?? this.pickString(customer, 'mobile');
+      order.client_phone =
+        this.pickString(customer, 'mobile_phone') ??
+        this.pickString(customer, 'phone') ??
+        this.pickString(customer, 'mobile');
     }
 
     order.pix_content = this.pickString(data, 'pix_content');
 
     const rawItems = Array.isArray(data.items) ? data.items : [];
-    order.items = rawItems.length > 0
-      ? rawItems.map((it: any) => ({ name: it.description ?? it.name ?? 'Produto', quant: it.quantity ?? it.quant ?? 1, price: (it.price ?? it.amount ?? 0) / 100 }))
-      : [{ name: String((data as any).product_first ?? 'Produto'), quant: 1, price: amount }];
+    order.items =
+      rawItems.length > 0
+        ? rawItems.map((it: any) => ({
+            name: it.description ?? it.name ?? 'Produto',
+            quant: it.quantity ?? it.quant ?? 1,
+            price: (it.price ?? it.amount ?? 0) / 100,
+          }))
+        : [
+            {
+              name: String((data as any).product_first ?? 'Produto'),
+              quant: 1,
+              price: amount,
+            },
+          ];
 
     // DOM retorna o campo como "historic_status"; alguns fluxos legados usam "status_history"
     const rawHistory: any[] = Array.isArray((data as any).historic_status)
@@ -158,94 +189,42 @@ export class ApiDomClient implements IPaymentGateway {
         : [];
     order.historic_status = rawHistory.map((h: any) => ({
       status: h.status,
-      type:   h.type ?? h.status,
-      date:   h.date ?? h.created_at ?? h.date_register,
-      color:  h.color ?? '#3fa0e5',
-      msg:    h.msg ?? null,
+      type: h.type ?? h.status,
+      date: h.date ?? h.created_at ?? h.date_register,
+      color: h.color ?? '#3fa0e5',
+      msg: h.msg ?? null,
     }));
 
     return { order };
   }
 
-  async register(input: DomRegisterInput): Promise<DomRegisterOutput> {
-    const url = `${this.baseUrl}/auth/register`;
-    const masterKey = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
-    if (!masterKey) throw new Error('DOM Master Key not configured');
-
-    try {
-      const res = await firstValueFrom(this.http.post<unknown>(url, input, {
-        headers: { 'Authorization': `Bearer ${masterKey}` }
-      }));
-      const root = this.getObject(res.data);
-      const domUserId = this.pickString(root, 'domUserId') ?? this.pickNestedString(root, ['data', 'domUserId']) ?? this.pickString(root, 'id');
-
-      if (!domUserId) throw new Error('api-dom register response missing domUserId');
-      return { domUserId: String(domUserId) };
-    } catch (error: any) {
-      this.logger.error(`Register error: ${error?.response?.status} - ${JSON.stringify(error?.response?.data || error.message)}`);
-      throw error;
-    }
-  }
-
-  async generateToken(email: string, password: string): Promise<DomGenerateTokenOutput> {
-    const url = `${this.baseUrl}/auth/generate-token`;
-    try {
-      const res = await firstValueFrom(this.http.post<any>(url, { email, password }));
-      const root = this.getObject(res.data);
-      const domToken = this.pickString(root, 'token') ?? this.pickString(root, 'accessToken') ?? this.pickNestedString(root, ['data', 'token']);
-      if (!domToken) throw new Error('Login failed: missing token');
-
-      return {
-        domToken: String(domToken),
-        domUserId: this.pickString(root, 'userId') ?? this.pickNestedString(root, ['data', 'userId']) ?? undefined,
-        name: this.pickString(root, 'name') ?? this.pickNestedString(root, ['data', 'name']) ?? undefined,
-        email: this.pickString(root, 'email') ?? this.pickNestedString(root, ['data', 'email']) ?? undefined,
-      };
-    } catch (error: any) {
-      this.logger.error(`Login error: ${error?.response?.status}`);
-      throw new UnauthorizedException('Credenciais inválidas');
-    }
-  }
-
-  async me(domToken: string): Promise<DomMeOutput> {
-    const url = `${this.baseUrl}/auth/me`;
-    try {
-      const res = await firstValueFrom(this.http.get<any>(url, {
-        headers: {
-          'Authorization': `Bearer ${domToken}`,
-          'x-access-token': domToken
-        }
-      }));
-      const payload = this.getObject(res.data?.data ?? res.data);
-      return {
-        id: this.pickString(payload, 'id') ?? undefined,
-        name: this.pickString(payload, 'name') ?? undefined,
-        email: this.pickString(payload, 'email') ?? undefined,
-      };
-    } catch (error: any) {
-      this.logger.error(`Me error: ${error?.response?.status}`);
-      throw error;
-    }
-  }
-
-
   async getDomSummary(domToken: string): Promise<any> {
     const url = `${this.domRealApiUrl}/summary`;
-    this.logger.log(`[DOM Diagnostic] Fetching summary from: ${url} with token: ${domToken.substring(0, 5)}...`);
+    this.logger.log(
+      `[DOM Diagnostic] Fetching summary from: ${url} with token: ${domToken.substring(0, 5)}...`,
+    );
     try {
-      const res = await firstValueFrom(this.http.get<any>(url, {
-        headers: {
-          'Authorization': `Bearer ${domToken}`,
-          'x-access-token': domToken,
-          'Accept': 'application/json'
-        }
-      }));
-      this.logger.log(`[DOM Diagnostic] Summary response status: ${res.status}`);
+      const res = await firstValueFrom(
+        this.http.get<any>(url, {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'x-access-token': domToken,
+            Accept: 'application/json',
+          },
+        }),
+      );
+      this.logger.log(
+        `[DOM Diagnostic] Summary response status: ${res.status}`,
+      );
       return res.data?.data ?? res.data;
     } catch (error: any) {
-      this.logger.error(`[DOM Error] summary URL: ${url} STATUS: ${error?.response?.status}`);
+      this.logger.error(
+        `[DOM Error] summary URL: ${url} STATUS: ${error?.response?.status}`,
+      );
       if (error?.response?.data) {
-        this.logger.error(`[DOM Error] response data: ${JSON.stringify(error.response.data)}`);
+        this.logger.error(
+          `[DOM Error] response data: ${JSON.stringify(error.response.data)}`,
+        );
       }
       throw error;
     }
@@ -254,13 +233,15 @@ export class ApiDomClient implements IPaymentGateway {
   async getSpecificMachineTransactions(domToken: string): Promise<any> {
     const url = `${this.paymentsUrl}/dom/specific-machines-transactions`;
     try {
-      const res = await firstValueFrom(this.http.get<any>(url, {
-        headers: {
-          'Authorization': `Bearer ${domToken}`,
-          'x-access-token': domToken,
-          'Accept': 'application/json'
-        }
-      }));
+      const res = await firstValueFrom(
+        this.http.get<any>(url, {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'x-access-token': domToken,
+            Accept: 'application/json',
+          },
+        }),
+      );
       return res.data?.data ?? res.data;
     } catch (error: any) {
       this.logger.error(`Dom Machines error: ${error?.response?.status}`);
@@ -268,7 +249,10 @@ export class ApiDomClient implements IPaymentGateway {
     }
   }
 
-  private pickNumber(obj: Record<string, unknown> | null, key: string): number | null {
+  private pickNumber(
+    obj: Record<string, unknown> | null,
+    key: string,
+  ): number | null {
     if (!obj) return null;
     const v = obj[key];
     if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -279,7 +263,10 @@ export class ApiDomClient implements IPaymentGateway {
     return null;
   }
 
-  private pickBoolean(obj: Record<string, unknown> | null, key: string): boolean | null {
+  private pickBoolean(
+    obj: Record<string, unknown> | null,
+    key: string,
+  ): boolean | null {
     if (!obj) return null;
     const v = obj[key];
     if (typeof v === 'boolean') return v;
@@ -294,7 +281,9 @@ export class ApiDomClient implements IPaymentGateway {
     return Array.isArray(value) ? value : null;
   }
 
-  private mapPaymentLink(obj: Record<string, unknown> | null): DomPaymentLinkOutput | null {
+  private mapPaymentLink(
+    obj: Record<string, unknown> | null,
+  ): DomPaymentLinkOutput | null {
     const id = this.pickString(obj, 'id');
     if (!id) return null;
     return {
@@ -321,54 +310,135 @@ export class ApiDomClient implements IPaymentGateway {
       repetitions: this.pickNumber(obj, 'repetitions') ?? undefined,
       retry_days: this.pickNumber(obj, 'retry_days') ?? undefined,
       status: this.pickString(obj, 'status') ?? undefined,
-      externalReference: this.pickString(obj, 'external_reference') ?? undefined,
-      paymentMethods: Array.isArray(obj?.payment_methods) ? (obj?.payment_methods as string[]) : undefined,
-      webhookUrl: this.pickString(obj, 'postbackurl') ?? this.pickString(obj, 'webhookUrl'),
+      externalReference:
+        this.pickString(obj, 'external_reference') ?? undefined,
+      paymentMethods: Array.isArray(obj?.payment_methods)
+        ? (obj?.payment_methods as string[])
+        : undefined,
+      webhookUrl:
+        this.pickString(obj, 'postbackurl') ??
+        this.pickString(obj, 'webhookUrl'),
       redirectUrl: this.pickString(obj, 'redirectUrl'),
-      createdAt: this.pickString(obj, 'created_at') ?? this.pickString(obj, 'createdAt') ?? undefined,
+      createdAt:
+        this.pickString(obj, 'created_at') ??
+        this.pickString(obj, 'createdAt') ??
+        undefined,
     };
   }
 
-  private mapSubscription(obj: Record<string, unknown> | null): DomSubscriptionOutput | null {
+  private mapSubscription(
+    obj: Record<string, unknown> | null,
+  ): DomSubscriptionOutput | null {
     const id = this.pickString(obj, 'id');
     if (!id) return null;
 
-    const activeRaw = obj?.active ?? obj?.actived ?? obj?.activated ?? obj?.is_active ?? obj?.isActive;
-    const active = activeRaw === true || activeRaw === 1 || activeRaw === 'true' || activeRaw === '1' || activeRaw === 'active';
+    const activeRaw =
+      obj?.active ??
+      obj?.actived ??
+      obj?.activated ??
+      obj?.is_active ??
+      obj?.isActive;
+    const active =
+      activeRaw === true ||
+      activeRaw === 1 ||
+      activeRaw === 'true' ||
+      activeRaw === '1' ||
+      activeRaw === 'active';
     const statusRaw = obj?.status ?? obj?.active_status ?? obj?.status_type;
-    const status = typeof statusRaw === 'string' ? statusRaw.trim().toLowerCase() : statusRaw != null ? String(statusRaw).toLowerCase() : null;
+    const status =
+      typeof statusRaw === 'string'
+        ? statusRaw.trim().toLowerCase()
+        : statusRaw != null
+          ? String(statusRaw).toLowerCase()
+          : null;
 
-    const isActuallyActive = active || status === 'active' || status === 'actived' || status === 'activated' || status === '1' || status === 'true';
-    
+    const isActuallyActive =
+      active ||
+      status === 'active' ||
+      status === 'actived' ||
+      status === 'activated' ||
+      status === '1' ||
+      status === 'true';
+
     if (!isActuallyActive && activeRaw) {
-      this.logger.warn(`[DOM Mapping] Subscription ${id} mapped as INACTIVE but activeRaw=${activeRaw} status=${status}`);
+      this.logger.warn(
+        `[DOM Mapping] Subscription ${id} mapped as INACTIVE but activeRaw=${activeRaw} status=${status}`,
+      );
     }
 
     return {
       id,
       // Missing or new provider states must not become a confirmed deactivation.
       status: isActuallyActive ? 'active' : status || undefined,
-      expiresAt: this.pickString(obj, 'next_date_invoice') ?? this.pickString(obj, 'expires_at') ?? this.pickString(obj, 'end_date_invoice'),
-      planId: this.pickString(obj, 'plan_id') ?? this.pickString(obj, 'dom_plan_id') ?? this.pickString(obj, 'plano_id'),
-      name: this.pickString(obj, 'customer_name') ?? this.pickString(obj, 'name'),
-      description: this.pickString(obj, 'description') ?? this.pickString(obj, 'plan_name'),
-      amount: this.pickNumber(obj, 'value') ?? this.pickNumber(obj, 'amount') ?? this.pickNumber(obj, 'price'),
-      frequency: this.pickString(obj, 'frequency_type') ?? this.pickString(obj, 'interval_type') ?? this.pickString(obj, 'period'),
-      interval: this.pickNumber(obj, 'interval') ?? this.pickNumber(obj, 'intervals') ?? 1,
-      cycle: this.pickNumber(obj, 'current_cycle') ?? this.pickNumber(obj, 'repetitions') ?? this.pickNumber(obj, 'ciclo') ?? 0,
-      paymentMethod: this.pickString(obj, 'payment_method') ?? this.pickString(obj, 'type_payment') ?? 'credit_card',
-      firstBillingDate: this.pickString(obj, 'start_date_invoice') ?? this.pickString(obj, 'created_at') ?? this.pickString(obj, 'create_date'),
+      expiresAt:
+        this.pickString(obj, 'next_date_invoice') ??
+        this.pickString(obj, 'expires_at') ??
+        this.pickString(obj, 'end_date_invoice'),
+      planId:
+        this.pickString(obj, 'plan_id') ??
+        this.pickString(obj, 'dom_plan_id') ??
+        this.pickString(obj, 'plano_id'),
+      name:
+        this.pickString(obj, 'customer_name') ?? this.pickString(obj, 'name'),
+      description:
+        this.pickString(obj, 'description') ??
+        this.pickString(obj, 'plan_name'),
+      amount:
+        this.pickNumber(obj, 'value') ??
+        this.pickNumber(obj, 'amount') ??
+        this.pickNumber(obj, 'price'),
+      frequency:
+        this.pickString(obj, 'frequency_type') ??
+        this.pickString(obj, 'interval_type') ??
+        this.pickString(obj, 'period'),
+      interval:
+        this.pickNumber(obj, 'interval') ??
+        this.pickNumber(obj, 'intervals') ??
+        1,
+      cycle:
+        this.pickNumber(obj, 'current_cycle') ??
+        this.pickNumber(obj, 'repetitions') ??
+        this.pickNumber(obj, 'ciclo') ??
+        0,
+      paymentMethod:
+        this.pickString(obj, 'payment_method') ??
+        this.pickString(obj, 'type_payment') ??
+        'credit_card',
+      firstBillingDate:
+        this.pickString(obj, 'start_date_invoice') ??
+        this.pickString(obj, 'created_at') ??
+        this.pickString(obj, 'create_date'),
       customer: {
-        name: this.pickString(obj, 'customer_name') ?? this.pickString(obj, 'name') ?? '',
-        email: this.pickString(obj, 'customer_email') ?? this.pickString(obj, 'email') ?? '',
-        document: this.pickString(obj, 'customer_document') ?? this.pickString(obj, 'customer_cpf') ?? this.pickString(obj, 'document') ?? '',
-        phone: this.pickString(obj, 'customer_phone') ?? this.pickString(obj, 'phone') ?? '',
+        name:
+          this.pickString(obj, 'customer_name') ??
+          this.pickString(obj, 'name') ??
+          '',
+        email:
+          this.pickString(obj, 'customer_email') ??
+          this.pickString(obj, 'email') ??
+          '',
+        document:
+          this.pickString(obj, 'customer_document') ??
+          this.pickString(obj, 'customer_cpf') ??
+          this.pickString(obj, 'document') ??
+          '',
+        phone:
+          this.pickString(obj, 'customer_phone') ??
+          this.pickString(obj, 'phone') ??
+          '',
       },
-      createdAt: this.pickString(obj, 'created_at') ?? this.pickString(obj, 'create_date') ?? this.pickString(obj, 'createdAt') ?? undefined,
+      createdAt:
+        this.pickString(obj, 'created_at') ??
+        this.pickString(obj, 'create_date') ??
+        this.pickString(obj, 'createdAt') ??
+        undefined,
     };
   }
 
-  async createPaymentLink(domToken: string, input: DomPaymentLinkInput): Promise<DomPaymentLinkOutput> {
+  async createPaymentLink(
+    domToken: string,
+    input: DomPaymentLinkInput,
+  ): Promise<DomPaymentLinkOutput> {
     const url = `${this.domRealApiUrl}/set-payment-link`;
     const body: any = {
       title: input.title,
@@ -376,7 +446,12 @@ export class ApiDomClient implements IPaymentGateway {
       actived: true,
       limit: 0,
       products: [
-        { name: input.title ?? 'Produto', price: input.amount ?? 0, min: 1, max: 1 },
+        {
+          name: input.title ?? 'Produto',
+          price: input.amount ?? 0,
+          min: 1,
+          max: 1,
+        },
       ],
       paymentConfig: {
         pix: input.aceitaPix ?? true,
@@ -388,14 +463,16 @@ export class ApiDomClient implements IPaymentGateway {
       },
     };
     if (input.redirectUrl) body.redirect_url = input.redirectUrl;
-    const res = await firstValueFrom(this.http.post<any>(url, body, {
-      headers: {
-        'Authorization': `Bearer ${domToken}`,
-        'x-access-token': domToken,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    }));
+    const res = await firstValueFrom(
+      this.http.post<any>(url, body, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          'x-access-token': domToken,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      }),
+    );
     this.logger.log(`[DOM Create Link RAW] ${JSON.stringify(res.data)}`);
     const root = res.data;
     const id = root?.id ?? root?.data?.id;
@@ -413,38 +490,23 @@ export class ApiDomClient implements IPaymentGateway {
     };
   }
 
-  async listPaymentLinks(domToken: string, input: { page?: number; pageSize?: number }): Promise<{ items: DomPaymentLinkOutput[]; total?: number }> {
-    const url = `${this.baseUrl}/payment-links`;
-    const res = await firstValueFrom(this.http.get<any>(url, {
-      headers: { 'Authorization': `Bearer ${domToken}`, 'x-access-token': domToken },
-      params: input,
-    }));
-    const root = this.getObject(res.data?.data ?? res.data);
-    const arr = this.getArray(root?.items ?? root?.data ?? root);
-    const items = (arr ?? []).map(x => this.mapPaymentLink(this.getObject(x))).filter((x): x is DomPaymentLinkOutput => !!x);
-    return { items, total: this.pickNumber(root, 'total') ?? items.length };
-  }
-
-  async getPaymentLink(domToken: string, id: string): Promise<DomPaymentLinkOutput> {
-    const url = `${this.baseUrl}/payment-links/${id}`;
-    const res = await firstValueFrom(this.http.get<any>(url, {
-      headers: { 'Authorization': `Bearer ${domToken}`, 'x-access-token': domToken },
-    }));
-    const mapped = this.mapPaymentLink(this.getObject(res.data?.data ?? res.data));
-    if (!mapped) throw new Error('Invalid payment link response');
-    return mapped;
-  }
-
-  async updatePaymentLink(domToken: string, id: string, input: Partial<DomPaymentLinkInput>): Promise<DomPaymentLinkOutput> {
+  async updatePaymentLink(
+    domToken: string,
+    id: string,
+    input: Partial<DomPaymentLinkInput>,
+  ): Promise<DomPaymentLinkOutput> {
     // Endpoint direto da DOM Pagamentos (api-dom descontinuada para este fluxo)
     const url = `${this.domRealApiUrl}/edit-payment-link/${id}`;
     const payload: Record<string, unknown> = {};
     if (input.title !== undefined) payload.title = input.title;
-    if (input.description !== undefined) payload.description = input.description;
+    if (input.description !== undefined)
+      payload.description = input.description;
     if (input.amount !== undefined) payload.amount = input.amount;
-    if (input.maxInstallments !== undefined) payload.maxInstallments = input.maxInstallments;
+    if (input.maxInstallments !== undefined)
+      payload.maxInstallments = input.maxInstallments;
     if (input.isActive !== undefined) payload.isActive = input.isActive;
-    if (input.redirectUrl !== undefined) payload.redirectUrl = input.redirectUrl;
+    if (input.redirectUrl !== undefined)
+      payload.redirectUrl = input.redirectUrl;
 
     const res = await firstValueFrom(
       this.http.put<any>(url, payload, {
@@ -530,9 +592,7 @@ export class ApiDomClient implements IPaymentGateway {
       },
     };
 
-    this.logger.log(
-      `[DOM PIX Link] POST ${url} amount=${input.amount}`,
-    );
+    this.logger.log(`[DOM PIX Link] POST ${url} amount=${input.amount}`);
 
     const res = await firstValueFrom(
       this.http.post<any>(url, body, {
@@ -547,7 +607,9 @@ export class ApiDomClient implements IPaymentGateway {
     this.logger.log(`[DOM PIX Link RAW] ${JSON.stringify(res.data)}`);
 
     const root = res.data?.data ?? res.data;
-    const id = this.pickString(this.getObject(root), 'id') ?? this.pickString(this.getObject(root), 'transaction_id');
+    const id =
+      this.pickString(this.getObject(root), 'id') ??
+      this.pickString(this.getObject(root), 'transaction_id');
     if (!id) throw new Error('DOM PIX: resposta sem id de transação');
 
     const pixContent =
@@ -643,20 +705,25 @@ export class ApiDomClient implements IPaymentGateway {
           complement: (input.address.complement ?? '').trim().slice(0, 40),
         },
       },
-      items: [{
-        description: input.description,
-        price: input.amount,
-        quantity: 1,
-      }],
+      items: [
+        {
+          description: input.description,
+          price: input.amount,
+          quantity: 1,
+        },
+      ],
       payment: {
         // DOM: dias até o vencimento do boleto (campo correto = boleto_due_days).
-        boleto: input.expireDays > 0 ? { boleto_due_days: input.expireDays } : {},
+        boleto:
+          input.expireDays > 0 ? { boleto_due_days: input.expireDays } : {},
         payment_method: 'boleto',
         total: input.amount,
       },
     };
 
-    this.logger.log(`[DOM Boleto] POST ${url} amount=${input.amount} due=${dueDate}`);
+    this.logger.log(
+      `[DOM Boleto] POST ${url} amount=${input.amount} due=${dueDate}`,
+    );
 
     const res = await firstValueFrom(
       this.http.post<any>(url, body, {
@@ -674,13 +741,18 @@ export class ApiDomClient implements IPaymentGateway {
     // Alguns campos podem vir aninhados em root.boleto — busca nos dois lugares.
     const boletoObj = this.getObject((root as any)?.boleto);
     const pick = (k: string): string | null =>
-      this.pickString(root, k) ?? (boletoObj ? this.pickString(boletoObj, k) : null);
+      this.pickString(root, k) ??
+      (boletoObj ? this.pickString(boletoObj, k) : null);
 
     const id = pick('id') ?? pick('transaction_id');
     if (!id) throw new Error('DOM Boleto: resposta sem id de transação');
 
     const boletoUrl =
-      pick('boleto_url') ?? pick('boletoUrl') ?? pick('url') ?? pick('pdf') ?? null;
+      pick('boleto_url') ??
+      pick('boletoUrl') ??
+      pick('url') ??
+      pick('pdf') ??
+      null;
     // DOM usa boleto_digitable_line (linha digitável); não há barcode separado.
     const digitableLine =
       pick('boleto_digitable_line') ??
@@ -691,7 +763,11 @@ export class ApiDomClient implements IPaymentGateway {
     const barcode =
       pick('barcode') ?? pick('bar_code') ?? pick('boleto_barcode') ?? null;
     const respDueDate =
-      pick('due_date') ?? pick('boleto_due_date') ?? pick('expire_at') ?? pick('boleto_expire') ?? dueDate;
+      pick('due_date') ??
+      pick('boleto_due_date') ??
+      pick('expire_at') ??
+      pick('boleto_expire') ??
+      dueDate;
 
     return {
       id,
@@ -754,14 +830,21 @@ export class ApiDomClient implements IPaymentGateway {
         total: input.amount,
         [input.paymentMethod]: {
           token: input.card.token,
-          installments: input.paymentMethod === 'debit_card' ? 1 : input.installments,
+          installments:
+            input.paymentMethod === 'debit_card' ? 1 : input.installments,
         },
       },
       metadata: JSON.stringify({ paymentLinkId: input.domLinkId }),
     };
-    const res = await firstValueFrom(this.http.post<any>(url, body, {
-      headers: { 'Authorization': `Bearer ${domToken}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    }));
+    const res = await firstValueFrom(
+      this.http.post<any>(url, body, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      }),
+    );
 
     const root = res.data?.data ?? res.data;
     const id = root?.id ?? root?.transaction_id;
@@ -770,7 +853,10 @@ export class ApiDomClient implements IPaymentGateway {
     return { id, status: root?.status, pixContent };
   }
 
-  async createPlan(domToken: string, input: DomCreatePlanInput): Promise<DomPlanOutput> {
+  async createPlan(
+    domToken: string,
+    input: DomCreatePlanInput,
+  ): Promise<DomPlanOutput> {
     const url = `${this.domRealApiUrl}/recurrence/plan`;
     const body: any = {
       description: input.description,
@@ -791,11 +877,20 @@ export class ApiDomClient implements IPaymentGateway {
     // Esses campos continuam armazenados localmente no link/plano.
     let res: any;
     try {
-      res = await firstValueFrom(this.http.post<any>(url, body, {
-        headers: { 'Authorization': `Bearer ${domToken}`, 'Content-Type': 'application/json' },
-      }));
+      res = await firstValueFrom(
+        this.http.post<any>(url, body, {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'Content-Type': 'application/json',
+          },
+        }),
+      );
     } catch (err) {
-      const ax = err as AxiosError<{ msg?: string; message?: string; error?: string }>;
+      const ax = err as AxiosError<{
+        msg?: string;
+        message?: string;
+        error?: string;
+      }>;
       if (ax?.isAxiosError === true && ax.response?.data) {
         const data = ax.response.data as Record<string, unknown>;
         const msg =
@@ -814,18 +909,32 @@ export class ApiDomClient implements IPaymentGateway {
 
   async listPlans(domToken: string): Promise<DomPlanOutput[]> {
     const url = `${this.domRealApiUrl}/recurrence/plan`;
-    const res = await firstValueFrom(this.http.get<any>(url, {
-      headers: { 'Authorization': `Bearer ${domToken}`, 'Accept': 'application/json' },
-    }));
+    const res = await firstValueFrom(
+      this.http.get<any>(url, {
+        headers: {
+          Authorization: `Bearer ${domToken}`,
+          Accept: 'application/json',
+        },
+      }),
+    );
     const arr = this.getArray(res.data?.data ?? res.data);
-    return (arr ?? []).map(x => this.mapPlan(this.getObject(x))).filter((x): x is DomPlanOutput => !!x);
+    return (arr ?? [])
+      .map((x) => this.mapPlan(this.getObject(x)))
+      .filter((x): x is DomPlanOutput => !!x);
   }
 
   async deletePlan(domToken: string, id: string): Promise<void> {
-    await firstValueFrom(this.http.delete(`${this.domRealApiUrl}/recurrence/plan/${id}`, { headers: { 'Authorization': `Bearer ${domToken}` } }));
+    await firstValueFrom(
+      this.http.delete(`${this.domRealApiUrl}/recurrence/plan/${id}`, {
+        headers: { Authorization: `Bearer ${domToken}` },
+      }),
+    );
   }
 
-  async listSubscriptions(domToken: string, input: { page?: number; pageSize?: number }): Promise<{ items: DomSubscriptionOutput[]; total?: number }> {
+  async listSubscriptions(
+    domToken: string,
+    input: { page?: number; pageSize?: number },
+  ): Promise<{ items: DomSubscriptionOutput[]; total?: number }> {
     // DomPagamentos ignora o parâmetro `limit` e sempre retorna ~100 itens por página DOM.
     // O admin-card-machine usa pageSize=20, então precisamos mapear a paginação do admin
     // para a paginação real do DOM (que retorna blocos de 100).
@@ -837,28 +946,43 @@ export class ApiDomClient implements IPaymentGateway {
     const globalEnd = globalStart + requestedCount;
 
     const domPageStart = Math.floor(globalStart / DOM_PER_PAGE) + 1;
-    const domPageEnd = Math.floor(Math.max(globalEnd - 1, 0) / DOM_PER_PAGE) + 1;
+    const domPageEnd =
+      Math.floor(Math.max(globalEnd - 1, 0) / DOM_PER_PAGE) + 1;
 
-    this.logger.log(`[Subscriptions] adminPage=${adminPage} requestedCount=${requestedCount} globalStart=${globalStart} domPages=${domPageStart}-${domPageEnd}`);
+    this.logger.log(
+      `[Subscriptions] adminPage=${adminPage} requestedCount=${requestedCount} globalStart=${globalStart} domPages=${domPageStart}-${domPageEnd}`,
+    );
 
     let allItems: unknown[] = [];
     let total: number | undefined;
 
     for (let domPage = domPageStart; domPage <= domPageEnd; domPage++) {
-      this.logger.log(`[Subscriptions] Buscando DOM page=${domPage} token=${domToken.substring(0, 8)}...`);
-      const res = await firstValueFrom(this.http.get<any>(
-        `${this.domRealApiUrl}/recurrence/subscriptions`,
-        {
-          headers: { 'Authorization': `Bearer ${domToken}`, 'Accept': 'application/json' },
+      this.logger.log(
+        `[Subscriptions] Buscando DOM page=${domPage} token=${domToken.substring(0, 8)}...`,
+      );
+      const res = await firstValueFrom(
+        this.http.get<any>(`${this.domRealApiUrl}/recurrence/subscriptions`, {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            Accept: 'application/json',
+          },
           params: { page: domPage },
-        },
-      ));
+        }),
+      );
       const root = res.data;
       if (domPage === domPageStart) {
-        total = this.pickNumber(this.getObject(root), 'total_results') ?? this.pickNumber(this.getObject(root), 'total') ?? undefined;
+        total =
+          this.pickNumber(this.getObject(root), 'total_results') ??
+          this.pickNumber(this.getObject(root), 'total') ??
+          undefined;
       }
-      const arr = this.getArray(root?.subscriptions ?? root?.data ?? root?.items ?? root) ?? [];
-      this.logger.log(`[Subscriptions] DOM page=${domPage} retornou ${arr.length} itens (total_results=${total ?? 'N/A'})`);
+      const arr =
+        this.getArray(
+          root?.subscriptions ?? root?.data ?? root?.items ?? root,
+        ) ?? [];
+      this.logger.log(
+        `[Subscriptions] DOM page=${domPage} retornou ${arr.length} itens (total_results=${total ?? 'N/A'})`,
+      );
       allItems = allItems.concat(arr);
       if (arr.length < DOM_PER_PAGE) break;
     }
@@ -867,11 +991,13 @@ export class ApiDomClient implements IPaymentGateway {
     const pageSlice = allItems.slice(localStart, localStart + requestedCount);
 
     const items = pageSlice
-      .map(x => this.mapSubscription(this.getObject(x)))
+      .map((x) => this.mapSubscription(this.getObject(x)))
       .filter((x): x is DomSubscriptionOutput => !!x);
 
-    const activeCount = items.filter(i => i.status === 'active').length;
-    this.logger.log(`[Subscriptions] Retornando ${items.length} itens (ativos=${activeCount} inativos=${items.length - activeCount}) localStart=${localStart}`);
+    const activeCount = items.filter((i) => i.status === 'active').length;
+    this.logger.log(
+      `[Subscriptions] Retornando ${items.length} itens (ativos=${activeCount} inativos=${items.length - activeCount}) localStart=${localStart}`,
+    );
 
     return { items, total: total ?? items.length };
   }
@@ -887,7 +1013,12 @@ export class ApiDomClient implements IPaymentGateway {
       }),
     );
     const root = res.data as Record<string, unknown> | undefined;
-    if (root && typeof root === 'object' && 'data' in root && root.data !== undefined) {
+    if (
+      root &&
+      typeof root === 'object' &&
+      'data' in root &&
+      root.data !== undefined
+    ) {
       return root.data;
     }
     return res.data;
@@ -981,7 +1112,8 @@ export class ApiDomClient implements IPaymentGateway {
     const response = this.getObject(res.data);
     const root = this.getObject(response?.data) ?? response;
     const paymentId = this.pickString(root, 'id');
-    if (!paymentId) throw new BadRequestException('Cobrança DOM retornou sem id');
+    if (!paymentId)
+      throw new BadRequestException('Cobrança DOM retornou sem id');
 
     const liquidCents = this.pickNumber(root, 'liquid_amount');
     return {
@@ -1030,22 +1162,39 @@ export class ApiDomClient implements IPaymentGateway {
   }
 
   async cancelSubscription(domToken: string, id: string): Promise<void> {
-    await firstValueFrom(this.http.delete(`${this.domRealApiUrl}/recurrence/subscriptions/${id}`, { headers: { 'Authorization': `Bearer ${domToken}` } }));
+    await firstValueFrom(
+      this.http.delete(`${this.domRealApiUrl}/recurrence/subscriptions/${id}`, {
+        headers: { Authorization: `Bearer ${domToken}` },
+      }),
+    );
   }
 
   async reactivateSubscription(domToken: string, id: string): Promise<void> {
-    await firstValueFrom(this.http.put(
-      `${this.domRealApiUrl}/recurrence/subscriptions/active/${id}`,
-      { reason: 'Solicitado pelo cliente' },
-      { headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' } }
-    ));
+    await firstValueFrom(
+      this.http.put(
+        `${this.domRealApiUrl}/recurrence/subscriptions/active/${id}`,
+        { reason: 'Solicitado pelo cliente' },
+        {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
   }
 
   async createSubscriptionFromCheckout(
     domToken: string,
     input: {
       planId: string;
-      customer: { name: string; email: string; document: string; phone: string; documentType: 'CPF' | 'CNPJ' };
+      customer: {
+        name: string;
+        email: string;
+        document: string;
+        phone: string;
+        documentType: 'CPF' | 'CNPJ';
+      };
       card: {
         token: string;
         brand?: string;
@@ -1060,14 +1209,20 @@ export class ApiDomClient implements IPaymentGateway {
     },
   ): Promise<{ id: string; status?: string; [key: string]: unknown }> {
     const url = `${this.domRealApiUrl}/recurrence/subscriptions`;
-    const appUrl = process.env.URL_APP ?? 'https://simpay-back.simintermediacoes.com';
-    const domCustomerId = await this.getOrCreateDomCustomer(domToken, input.customer);
+    const appUrl =
+      process.env.URL_APP ?? 'https://simpay-back.simintermediacoes.com';
+    const domCustomerId = await this.getOrCreateDomCustomer(
+      domToken,
+      input.customer,
+    );
 
     if (!input.card.number) {
-       this.logger.warn(`[DOM Create Sub] Subscription attempt without card number for customer ${domCustomerId}`);
+      this.logger.warn(
+        `[DOM Create Sub] Subscription attempt without card number for customer ${domCustomerId}`,
+      );
     }
 
-    const cardToken = input.card.number 
+    const cardToken = input.card.number
       ? await this.createCardToken(domToken, domCustomerId, {
           number: input.card.number,
           cvv: input.card.cvv,
@@ -1091,11 +1246,16 @@ export class ApiDomClient implements IPaymentGateway {
       cashback_active: false,
       postbackurl: `${appUrl}/subscription/webhook`,
     };
-    this.logger.log(`[DOM Create Sub] POST ${url} Body: ${JSON.stringify(body)}`);
+    this.logger.log(
+      `[DOM Create Sub] POST ${url} Body: ${JSON.stringify(body)}`,
+    );
     try {
       const res = await firstValueFrom(
         this.http.post<any>(url, body, {
-          headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' },
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'Content-Type': 'application/json',
+          },
         }),
       );
       this.logger.log(`[DOM Create Sub Response] ${JSON.stringify(res.data)}`);
@@ -1116,7 +1276,11 @@ export class ApiDomClient implements IPaymentGateway {
         ...(obj ?? {}),
       };
     } catch (err) {
-      const ax = err as AxiosError<{ msg?: string; message?: string; error?: string }>;
+      const ax = err as AxiosError<{
+        msg?: string;
+        message?: string;
+        error?: string;
+      }>;
       if (ax?.isAxiosError === true && ax.response?.data) {
         const d = ax.response.data as Record<string, unknown>;
         const piece =
@@ -1136,66 +1300,72 @@ export class ApiDomClient implements IPaymentGateway {
     domToken: string,
     input: {
       subscriptionId: string;
-      card: { number: string; exp_month: string; exp_year: string; cvv: string; holder_name: string; holder_document: string };
+      card: {
+        number: string;
+        exp_month: string;
+        exp_year: string;
+        cvv: string;
+        holder_name: string;
+        holder_document: string;
+      };
     },
   ): Promise<{ paymentId?: string; status?: string }> {
-    const snapshot = await this.getSubscriptionBillingSnapshot(domToken, input.subscriptionId);
-    if (!snapshot.customerId) throw new BadRequestException('Assinatura sem cliente DOM');
-    const cardToken = await this.createCardToken(domToken, snapshot.customerId, input.card);
-    await firstValueFrom(this.http.post(
-      `${this.domRealApiUrl}/recurrence/subscriptions/${input.subscriptionId}`,
-      { customer_id: snapshot.customerId, payment_method: 'credit_card', card: { token: cardToken, installments: 1 } },
-      { headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' } },
-    ));
-    const charge = await firstValueFrom(this.http.put<any>(
-      `${this.domRealApiUrl}/recurrence/subscriptions/${input.subscriptionId}/force-charge`,
-      {}, { headers: { Authorization: `Bearer ${domToken}` } },
-    ));
-    const transaction = (charge.data?.transaction ?? charge.data?.data?.transaction ?? {}) as Record<string, unknown>;
+    const snapshot = await this.getSubscriptionBillingSnapshot(
+      domToken,
+      input.subscriptionId,
+    );
+    if (!snapshot.customerId)
+      throw new BadRequestException('Assinatura sem cliente DOM');
+    const cardToken = await this.createCardToken(
+      domToken,
+      snapshot.customerId,
+      input.card,
+    );
+    await firstValueFrom(
+      this.http.post(
+        `${this.domRealApiUrl}/recurrence/subscriptions/${input.subscriptionId}`,
+        {
+          customer_id: snapshot.customerId,
+          payment_method: 'credit_card',
+          card: { token: cardToken, installments: 1 },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    );
+    const charge = await firstValueFrom(
+      this.http.put<any>(
+        `${this.domRealApiUrl}/recurrence/subscriptions/${input.subscriptionId}/force-charge`,
+        {},
+        { headers: { Authorization: `Bearer ${domToken}` } },
+      ),
+    );
+    const transaction = (charge.data?.transaction ??
+      charge.data?.data?.transaction ??
+      {}) as Record<string, unknown>;
     return {
       paymentId: this.pickString(transaction, 'id') ?? undefined,
-      status: this.pickString(transaction, 'status') ?? this.pickString(charge.data, 'status') ?? undefined,
-    };
-  }
-
-
-  async getMonthlyRevenue(domToken: string): Promise<DomMonthlyRevenueOutput> {
-    const url = `${this.baseUrl}/payments/monthly-revenue`;
-    const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${domToken}` } }));
-    const arr = this.getArray(res.data?.data ?? res.data);
-    const items = (arr ?? []).map(x => {
-      const o = this.getObject(x);
-      const date = this.pickString(o, 'date');
-      const value = this.pickNumber(o, 'value');
-      return (date && value != null) ? { date, value } : null;
-    }).filter((x): x is { date: string; value: number } => !!x);
-    return { items };
-  }
-
-  async getTaxes(masterKey: string): Promise<DomTaxesOutput> {
-    const url = `${this.baseUrl}/payments/taxes`;
-    const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${masterKey}` } }));
-    return (res.data?.data ?? res.data) as DomTaxesOutput;
-  }
-
-  async requestWithdraw(domToken: string, input: { amount: number; pixKey: string }): Promise<DomRequestWithdrawOutput> {
-    const url = `${this.baseUrl}/pixout`;
-    const res = await firstValueFrom(this.http.post<any>(url, input, { headers: { 'Authorization': `Bearer ${domToken}` } }));
-    const payload = this.getObject(res.data?.data ?? res.data);
-    const requestId = this.pickString(payload, 'requestId') ?? this.pickString(payload, 'id');
-    if (!requestId) throw new Error('Withdraw failure: missing ID');
-    return {
-      requestId,
-      fee: this.pickNumber(payload, 'fee') ?? 0,
-      netAmount: this.pickNumber(payload, 'netAmount') ?? (input.amount - (this.pickNumber(payload, 'fee') ?? 0)),
-      totalAmount: this.pickNumber(payload, 'totalAmount') ?? input.amount,
-      message: this.pickString(payload, 'message') ?? undefined,
+      status:
+        this.pickString(transaction, 'status') ??
+        this.pickString(charge.data, 'status') ??
+        undefined,
     };
   }
 
   async listDomTransactions(
     domToken: string,
-    input: { page: number; limit: number; status?: string; payment_method?: string; begin_date?: string; end_date?: string },
+    input: {
+      page: number;
+      limit: number;
+      status?: string;
+      payment_method?: string;
+      begin_date?: string;
+      end_date?: string;
+    },
   ): Promise<DomListTransactionsOutput> {
     const url = `${this.domRealApiUrl}/transactions`;
 
@@ -1213,63 +1383,125 @@ export class ApiDomClient implements IPaymentGateway {
     }
 
     try {
-      this.logger.log(`[DOM List] GET ${url} Token=${domToken.substring(0, 5)}... Params=${JSON.stringify(params)}`);
-      const res = await firstValueFrom(this.http.get<any>(url, {
-        headers: {
-          'Authorization': `Bearer ${domToken}`,
-          'x-access-token': domToken, // Alguns legados v2 usam esse header
-          'Accept': 'application/json'
-        },
-        params,
-      }));
+      this.logger.log(
+        `[DOM List] GET ${url} Token=${domToken.substring(0, 5)}... Params=${JSON.stringify(params)}`,
+      );
+      const res = await firstValueFrom(
+        this.http.get<any>(url, {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'x-access-token': domToken, // Alguns legados v2 usam esse header
+            Accept: 'application/json',
+          },
+          params,
+        }),
+      );
 
       const root = res.data;
-      const arr = Array.isArray(root?.data) ? root.data : 
-                  (Array.isArray(root?.transactions) ? root.transactions : 
-                  (Array.isArray(root?.rows) ? root.rows : 
-                  (Array.isArray(root) ? root : [])));
+      const arr = Array.isArray(root?.data)
+        ? root.data
+        : Array.isArray(root?.transactions)
+          ? root.transactions
+          : Array.isArray(root?.rows)
+            ? root.rows
+            : Array.isArray(root)
+              ? root
+              : [];
       this.logger.log(`[DOM List] Received ${arr.length} items from ${url}`);
 
-      const transactions: DomTransactionItem[] = arr.map((o: any) => {
-        const id = this.pickString(o, 'id') ?? this.pickString(o, 'order_id') ?? '';
-        
-        let amt = this.pickNumber(o, 'amount') ?? this.pickNumber(o, 'total') ?? this.pickNumber(o, 'valor_bruto') ?? 0;
-        let liq = this.pickNumber(o, 'liquid_amount') ?? this.pickNumber(o, 'amountWithoutAllFee') ?? this.pickNumber(o, 'total_liquido') ?? this.pickNumber(o, 'amountWithoutFee') ?? amt;
-        
-        // Se amortized_fee_total existe e liquid_amount é 0, calcula
-        if (liq === 0 && amt > 0 && (this.pickNumber(o, 'fee') ?? 0) > 0) {
-           liq = amt - (this.pickNumber(o, 'fee') ?? 0);
-        }
+      const transactions: DomTransactionItem[] = arr
+        .map((o: any) => {
+          const id =
+            this.pickString(o, 'id') ?? this.pickString(o, 'order_id') ?? '';
 
-        const customer = this.getObject(o.customer) || o;
+          const amt =
+            this.pickNumber(o, 'amount') ??
+            this.pickNumber(o, 'total') ??
+            this.pickNumber(o, 'valor_bruto') ??
+            0;
+          let liq =
+            this.pickNumber(o, 'liquid_amount') ??
+            this.pickNumber(o, 'amountWithoutAllFee') ??
+            this.pickNumber(o, 'total_liquido') ??
+            this.pickNumber(o, 'amountWithoutFee') ??
+            amt;
 
-        return {
-          id,
-          order_id: this.pickString(o, 'paymentId') ?? this.pickString(o, 'order_id') ?? this.pickString(o, 'id') ?? id,
-          cod_external: this.pickString(o, 'cod_external') ?? this.pickString(o, 'external_id'),
-          created_at: this.pickString(o, 'created_at') ?? this.pickString(o, 'createdAt') ?? this.pickString(o, 'create_date') ?? new Date().toISOString(),
-          updated_at: this.pickString(o, 'updated_at') ?? this.pickString(o, 'updatedAt'),
-          amount: amt,
-          liquid_amount: liq,
-          status: this.pickString(o, 'status_type') ?? this.pickString(o, 'status') ?? 'pending',
-          payment_method: this.pickString(o, 'payment_method') ?? this.pickString(o, 'method') ?? this.pickString(o, 'type_payment') ?? 'pix',
-          installments: this.pickNumber(o, 'installments') ?? 1,
-          customer_name: this.pickString(customer, 'name') ?? this.pickString(customer, 'customer_name') ?? this.pickString(o, 'client_name'),
-          customer_email: this.pickString(customer, 'email') ?? this.pickString(customer, 'customer_email') ?? this.pickString(o, 'client_email'),
-          customer_phone: this.pickString(customer, 'mobile_phone') ?? this.pickString(customer, 'phone') ?? this.pickString(customer, 'customer_phone') ?? this.pickString(o, 'client_phone'),
-          customer_document: this.pickString(customer, 'document') ?? this.pickString(customer, 'customer_document') ?? this.pickString(o, 'client_document'),
-          product_first: this.pickString(o, 'product_first') || (Array.isArray(o?.items) && o.items.length > 0 ? (o.items[0]?.description || o.items[0]?.name || null) : (this.pickString(o, 'description') || null)),
-          fee_total: amt - liq,
-          dom_fee: this.pickNumber(o, 'dom_fee') ?? this.pickNumber(o, 'fee_dom') ?? 0,
-        };
-      }).filter((tx: DomTransactionItem) => tx.id.length > 0);
+          // Se amortized_fee_total existe e liquid_amount é 0, calcula
+          if (liq === 0 && amt > 0 && (this.pickNumber(o, 'fee') ?? 0) > 0) {
+            liq = amt - (this.pickNumber(o, 'fee') ?? 0);
+          }
+
+          const customer = this.getObject(o.customer) || o;
+
+          return {
+            id,
+            order_id:
+              this.pickString(o, 'paymentId') ??
+              this.pickString(o, 'order_id') ??
+              this.pickString(o, 'id') ??
+              id,
+            cod_external:
+              this.pickString(o, 'cod_external') ??
+              this.pickString(o, 'external_id'),
+            created_at:
+              this.pickString(o, 'created_at') ??
+              this.pickString(o, 'createdAt') ??
+              this.pickString(o, 'create_date') ??
+              new Date().toISOString(),
+            updated_at:
+              this.pickString(o, 'updated_at') ??
+              this.pickString(o, 'updatedAt'),
+            amount: amt,
+            liquid_amount: liq,
+            status:
+              this.pickString(o, 'status_type') ??
+              this.pickString(o, 'status') ??
+              'pending',
+            payment_method:
+              this.pickString(o, 'payment_method') ??
+              this.pickString(o, 'method') ??
+              this.pickString(o, 'type_payment') ??
+              'pix',
+            installments: this.pickNumber(o, 'installments') ?? 1,
+            customer_name:
+              this.pickString(customer, 'name') ??
+              this.pickString(customer, 'customer_name') ??
+              this.pickString(o, 'client_name'),
+            customer_email:
+              this.pickString(customer, 'email') ??
+              this.pickString(customer, 'customer_email') ??
+              this.pickString(o, 'client_email'),
+            customer_phone:
+              this.pickString(customer, 'mobile_phone') ??
+              this.pickString(customer, 'phone') ??
+              this.pickString(customer, 'customer_phone') ??
+              this.pickString(o, 'client_phone'),
+            customer_document:
+              this.pickString(customer, 'document') ??
+              this.pickString(customer, 'customer_document') ??
+              this.pickString(o, 'client_document'),
+            product_first:
+              this.pickString(o, 'product_first') ||
+              (Array.isArray(o?.items) && o.items.length > 0
+                ? o.items[0]?.description || o.items[0]?.name || null
+                : this.pickString(o, 'description') || null),
+            fee_total: amt - liq,
+            dom_fee:
+              this.pickNumber(o, 'dom_fee') ??
+              this.pickNumber(o, 'fee_dom') ??
+              0,
+          };
+        })
+        .filter((tx: DomTransactionItem) => tx.id.length > 0);
 
       return {
         transactions,
         total: this.pickNumber(root, 'total') ?? transactions.length,
       };
     } catch (error: any) {
-      this.logger.error(`[DOM Direct Error] status=${error?.response?.status} error=${JSON.stringify(error?.response?.data || error.message)}`);
+      this.logger.error(
+        `[DOM Direct Error] status=${error?.response?.status} error=${JSON.stringify(error?.response?.data || error.message)}`,
+      );
       throw error;
     }
   }
@@ -1289,18 +1521,24 @@ export class ApiDomClient implements IPaymentGateway {
     }
 
     try {
-      this.logger.log(`[DOM Direct Master] GET ${url} Params: ${JSON.stringify(params)}`);
-      const res = await firstValueFrom(this.http.get<any>(url, {
-        headers: {
-          'Authorization': `Bearer ${domToken}`,
-          'x-access-token': domToken,
-          'Accept': 'application/json'
-        },
-        params
-      }));
+      this.logger.log(
+        `[DOM Direct Master] GET ${url} Params: ${JSON.stringify(params)}`,
+      );
+      const res = await firstValueFrom(
+        this.http.get<any>(url, {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'x-access-token': domToken,
+            Accept: 'application/json',
+          },
+          params,
+        }),
+      );
       return res.data;
     } catch (error: any) {
-      this.logger.error(`[DOM Direct Master Error] status=${error?.response?.status} error=${JSON.stringify(error?.response?.data || error.message)}`);
+      this.logger.error(
+        `[DOM Direct Master Error] status=${error?.response?.status} error=${JSON.stringify(error?.response?.data || error.message)}`,
+      );
       throw error;
     }
   }
@@ -1308,7 +1546,15 @@ export class ApiDomClient implements IPaymentGateway {
   async getDomTransactionDetail(domToken: string, id: string): Promise<any> {
     const url = `${this.domRealApiUrl}/transactions/${id}`;
     try {
-      const res = await firstValueFrom(this.http.get<any>(url, { headers: { 'Authorization': `Bearer ${domToken}`, 'Cache-Control': 'no-cache' }, timeout: 4_000 }));
+      const res = await firstValueFrom(
+        this.http.get<any>(url, {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'Cache-Control': 'no-cache',
+          },
+          timeout: 4_000,
+        }),
+      );
       const obj = this.getObject(res.data);
       if (obj) {
         const normalized = this.normalizeDomApiResponse(obj);
@@ -1320,38 +1566,64 @@ export class ApiDomClient implements IPaymentGateway {
     throw new Error(`Transaction ${id} not found`);
   }
 
-  async listDomWithdraws(domToken: string, input: { page: number; limit: number; status?: string }): Promise<DomListWithdrawsOutput> {
+  async listDomWithdraws(
+    domToken: string,
+    input: { page: number; limit: number; status?: string },
+  ): Promise<DomListWithdrawsOutput> {
     const url = `${this.paymentsUrl}/withdrawals`;
     const params: any = { limit: input.limit, page: input.page };
     if (input.status) params.status = input.status;
 
     try {
-      const res = await firstValueFrom(this.http.get<any>(url, {
-        headers: {
-          'Authorization': `Bearer ${domToken}`,
-          'x-access-token': domToken
-        },
-        params
-      }));
+      const res = await firstValueFrom(
+        this.http.get<any>(url, {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'x-access-token': domToken,
+          },
+          params,
+        }),
+      );
       const root = this.getObject(res.data);
-      const arr = this.getArray(root?.withdrawals) ?? this.getArray(root?.withdraws) ?? this.getArray(root?.pixouts) ?? this.getArray(root?.data) ?? (Array.isArray(root) ? root : []);
+      const arr =
+        this.getArray(root?.withdrawals) ??
+        this.getArray(root?.withdraws) ??
+        this.getArray(root?.pixouts) ??
+        this.getArray(root?.data) ??
+        (Array.isArray(root) ? root : []);
 
-      this.logger.log(`DOM: Encontrados ${arr.length} saques na página ${input.page}`);
+      this.logger.log(
+        `DOM: Encontrados ${arr.length} saques na página ${input.page}`,
+      );
 
-      const withdraws: DomWithdrawItem[] = arr.map(x => {
+      const withdraws: DomWithdrawItem[] = arr.map((x) => {
         const o = this.getObject(x);
         return {
-          id_transfer: this.pickString(o, 'id') ?? this.pickString(o, 'id_transfer') ?? '',
-          value: String(this.pickNumber(o, 'amount') ?? this.pickNumber(o, 'value') ?? 0),
-          create_date: this.pickString(o, 'createdAt') ?? this.pickString(o, 'created_at') ?? this.pickString(o, 'create_date') ?? '',
-          date_transfer: this.pickString(o, 'updatedAt') ?? this.pickString(o, 'updated_at') ?? this.pickString(o, 'date_transfer') ?? '',
+          id_transfer:
+            this.pickString(o, 'id') ?? this.pickString(o, 'id_transfer') ?? '',
+          value: String(
+            this.pickNumber(o, 'amount') ?? this.pickNumber(o, 'value') ?? 0,
+          ),
+          create_date:
+            this.pickString(o, 'createdAt') ??
+            this.pickString(o, 'created_at') ??
+            this.pickString(o, 'create_date') ??
+            '',
+          date_transfer:
+            this.pickString(o, 'updatedAt') ??
+            this.pickString(o, 'updated_at') ??
+            this.pickString(o, 'date_transfer') ??
+            '',
           bank_name: this.pickString(o, 'bank_name'),
           bank_agency: this.pickString(o, 'bank_agency'),
           bank_bill: this.pickString(o, 'bank_bill'),
           obs_client: this.pickString(o, 'obs_client'),
           status: this.pickString(o, 'status') ?? 'pending',
           type_transfer: this.pickString(o, 'type_transfer') ?? 'PIX',
-          pix_key: this.pickString(o, 'pixKey') ?? this.pickString(o, 'pix_key') ?? this.pickString(o, 'recipient_key'),
+          pix_key:
+            this.pickString(o, 'pixKey') ??
+            this.pickString(o, 'pix_key') ??
+            this.pickString(o, 'recipient_key'),
           receivers: Array.isArray(o?.receivers) ? (o as any).receivers : null,
         };
       });
@@ -1364,23 +1636,20 @@ export class ApiDomClient implements IPaymentGateway {
       };
     } catch (error: any) {
       this.logger.error(`Withdraws list error: ${error.message}`);
-      return { withdraws: [], total_results: 0, total_pages: 0, page: input.page };
+      return {
+        withdraws: [],
+        total_results: 0,
+        total_pages: 0,
+        page: input.page,
+      };
     }
   }
 
-  async createLead(_data: {
-    name: string;
-    phone: string;
-    email: string;
-    razaoSocial: string;
-    cnpj: string;
-    faturamento: string;
-    tempoOperacao: string;
-    modeloOperacao?: string;
-    cargo: string;
-    comoConheceu?: string;
-  }): Promise<{ data: { id: string }; message: string }> {
-    return { data: { id: 'local-' + Date.now() }, message: 'Lead created locally' };
+  async createLead(): Promise<{ data: { id: string }; message: string }> {
+    return {
+      data: { id: 'local-' + Date.now() },
+      message: 'Lead created locally',
+    };
   }
 
   async createPixCheckout(
@@ -1407,7 +1676,10 @@ export class ApiDomClient implements IPaymentGateway {
 
     const expireAt = new Date();
     expireAt.setHours(expireAt.getHours() + 24);
-    const pixExpireFormatted = expireAt.toISOString().slice(0, 16).replace('T', ' ');
+    const pixExpireFormatted = expireAt
+      .toISOString()
+      .slice(0, 16)
+      .replace('T', ' ');
 
     const body = {
       cod_external: input.codExternal,
@@ -1484,7 +1756,13 @@ export class ApiDomClient implements IPaymentGateway {
 
   private async getOrCreateDomCustomer(
     domToken: string,
-    customer: { name: string; email: string; document: string; phone: string; documentType: 'CPF' | 'CNPJ' },
+    customer: {
+      name: string;
+      email: string;
+      document: string;
+      phone: string;
+      documentType: 'CPF' | 'CNPJ';
+    },
   ): Promise<string> {
     const url = `${this.domRealApiUrl}/customers`;
     const body = {
@@ -1513,11 +1791,16 @@ export class ApiDomClient implements IPaymentGateway {
       if (ax?.response?.data?.id) {
         return String(ax.response.data.id);
       }
-      if (typeof ax?.response?.data?.message === 'string' && ax.response.data.message.includes('E-mail existente')) {
-         // Se o email já existe mas não retornou o ID no erro, poderíamos tentar buscar por email se houvesse endpoint.
-         // No api-dom vemos que ele tenta um GET no ID que vem no erro.
+      if (
+        typeof ax?.response?.data?.message === 'string' &&
+        ax.response.data.message.includes('E-mail existente')
+      ) {
+        // Se o email já existe mas não retornou o ID no erro, poderíamos tentar buscar por email se houvesse endpoint.
+        // No api-dom vemos que ele tenta um GET no ID que vem no erro.
       }
-      this.logger.error(`[DOM Customer] Error creating customer: status=${ax?.response?.status} data=${JSON.stringify(ax?.response?.data ?? err.message)}`);
+      this.logger.error(
+        `[DOM Customer] Error creating customer: status=${ax?.response?.status} data=${JSON.stringify(ax?.response?.data ?? err.message)}`,
+      );
       throw err;
     }
     throw new Error('Could not create or find DOM customer');
@@ -1541,7 +1824,10 @@ export class ApiDomClient implements IPaymentGateway {
       number: card.number.replace(/\s+/g, '').replace(/\D/g, ''),
       cvv: card.cvv.replace(/\s/g, ''),
       exp_month: parseInt(card.exp_month),
-      exp_year: parseInt(card.exp_year) < 100 ? parseInt(card.exp_year) + 2000 : parseInt(card.exp_year),
+      exp_year:
+        parseInt(card.exp_year) < 100
+          ? parseInt(card.exp_year) + 2000
+          : parseInt(card.exp_year),
       holder_name: card.holder_name,
       holder_document: card.holder_document.replace(/\D/g, ''),
     };
@@ -1549,47 +1835,23 @@ export class ApiDomClient implements IPaymentGateway {
     try {
       const res = await firstValueFrom(
         this.http.post<any>(url, body, {
-          headers: { Authorization: `Bearer ${domToken}`, 'Content-Type': 'application/json' },
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'Content-Type': 'application/json',
+          },
         }),
       );
       const token = res.data?.token ?? res.data?.data?.token;
       if (token) return String(token);
     } catch (err) {
       const ax = err as AxiosError<any>;
-      this.logger.error(`[DOM Card Token] Error: ${JSON.stringify(ax?.response?.data ?? err.message)}`);
-      throw new BadRequestException(ax?.response?.data?.message || 'Erro ao processar cartão de crédito.');
+      this.logger.error(
+        `[DOM Card Token] Error: ${JSON.stringify(ax?.response?.data ?? err.message)}`,
+      );
+      throw new BadRequestException(
+        ax?.response?.data?.message || 'Erro ao processar cartão de crédito.',
+      );
     }
     throw new Error('Could not generate card token in DOM');
-  }
-
-  async validateVoucher(
-    domToken: string,
-    input: {
-      code: string;
-      amount: number;
-      userId: string;
-      channel?: string;
-      groupPageId?: string;
-    },
-  ): Promise<{
-    valid: boolean;
-    discountAmount: number;
-    finalAmount: number;
-    voucherId: string;
-    discountType: 'PERCENTAGE' | 'FIXED';
-    discountValue: number;
-    message: string;
-  }> {
-    const url = `${this.baseUrl}/voucher/validate`;
-    const res = await firstValueFrom(
-      this.http.post<any>(url, input, {
-        headers: {
-          Authorization: `Bearer ${domToken}`,
-          'x-access-token': domToken,
-          'Content-Type': 'application/json',
-        },
-      }),
-    );
-    return res.data;
   }
 }

@@ -10,12 +10,10 @@ import { LEAD_REPOSITORY } from '../../../core/repositories/lead.repository.inte
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { WALLET_REPOSITORY } from '../../../core/repositories/wallet.repository.interface';
 import { HASH_SERVICE } from '../../../core/services/hash.interface';
-import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { ILeadRepository } from '../../../core/repositories/lead.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
 import type { IHashService } from '../../../core/services/hash.interface';
-import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { LinkExternalPlatformUserService } from '../../services/link-external-platform-user.service';
 
@@ -28,7 +26,6 @@ export class ApproveLeadUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(WALLET_REPOSITORY) private readonly wallets: IWalletRepository,
     @Inject(HASH_SERVICE) private readonly hash: IHashService,
-    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly email: EmailService,
     private readonly linkExternal: LinkExternalPlatformUserService,
   ) {}
@@ -64,30 +61,6 @@ export class ApproveLeadUseCase {
     });
 
     await this.wallets.createForUser(user.id);
-
-    // Register user in Dom Pagamentos and save credentials
-    try {
-      const domReg = await this.gateway.register({
-        name: lead.name,
-        email: lead.email,
-        password: tempPassword,
-      });
-
-      const domTok = await this.gateway.generateToken(
-        lead.email,
-        tempPassword,
-      );
-
-      await this.users.updateDomData(user.id, {
-        domUserId: domReg.domUserId ?? null,
-        domToken: domTok.domToken,
-      });
-    } catch (err) {
-      this.logger.warn(
-        `Falha ao registrar usuário ${lead.email} na Dom: ${String(err)}. ` +
-          'Usuário criado localmente, Dom pode ser associada depois.',
-      );
-    }
 
     await this.leads.approve(input.leadId, user.id);
 

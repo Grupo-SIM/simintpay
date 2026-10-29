@@ -24,9 +24,6 @@ import { ListWithdrawalsAdminUseCase } from '../application/use-cases/admin/list
 import { ApproveWithdrawalUseCase } from '../application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../application/use-cases/admin/reject-withdrawal.use-case';
 import { SyncDomWithdrawalsUseCase } from '../application/use-cases/admin/sync-dom-withdrawals.use-case';
-import { SyncFullRenovadaUseCase } from '../application/use-cases/admin/sync-full-renovada.use-case';
-import { SyncFullBosqueUseCase } from '../application/use-cases/admin/sync-full-bosque.use-case';
-import { SyncFullEbookUseCase } from '../application/use-cases/admin/sync-full-ebook.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../application/use-cases/admin/list-dom-transactions-direct.use-case';
 import { SyncMaquinetasUseCase } from '../application/use-cases/admin/sync-maquinetas.use-case';
@@ -83,9 +80,6 @@ import { ExternalPlatformDbModule } from '../modules/external-platform-db/extern
     ApproveWithdrawalUseCase,
     RejectWithdrawalUseCase,
     SyncDomWithdrawalsUseCase,
-    SyncFullRenovadaUseCase,
-    SyncFullBosqueUseCase,
-    SyncFullEbookUseCase,
     MigrateRenovadaTxsToAdminUseCase,
     ListDomTransactionsDirectUseCase,
     SyncMaquinetasUseCase,

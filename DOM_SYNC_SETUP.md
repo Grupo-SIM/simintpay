@@ -21,6 +21,7 @@ environment:
 ```
 
 **Variáveis obrigatórias:**
+
 - `DOM_TOKEN`: Token master da conta DOM
 - `API_DOM_MASTER_KEY`: Chave master da API DOM
 - `DISABLED_DOM_SYNC`: Deve ser `false` para ativar o cron
@@ -43,6 +44,7 @@ node scripts/test-sync.js
 ### 3. Como Funciona
 
 #### Cron Automático
+
 - **Frequência**: A cada minuto (`@Cron(CronExpression.EVERY_MINUTE)`)
 - **Período**: Busca transações da última hora
 - **Mapeamento**: Tenta associar transações a usuários locais
@@ -57,6 +59,7 @@ node scripts/test-sync.js
 ### 4. Endpoints para Teste
 
 #### Sincronização Manual
+
 ```bash
 # Sincronizar transações de um usuário específico
 POST /admin/sync-transactions
@@ -65,13 +68,10 @@ Authorization: Bearer {token}
 # Testar o cron manualmente (mesma lógica do automático)
 POST /admin/sync/test-cron
 Authorization: Bearer {token}
-
-# Sincronização completa da Renovada
-POST /admin/sync/full-renovada
-Authorization: Bearer {token}
 ```
 
 #### Listar Transações
+
 ```bash
 GET /transactions?page=1&pageSize=20
 Authorization: Bearer {token}
@@ -80,17 +80,20 @@ Authorization: Bearer {token}
 ## 🚀 Deploy
 
 ### 1. Atualizar Imagem Docker
+
 ```bash
 docker build -t brenolima1706/back-simpay:latest .
 docker push brenolima1706/back-simpay:latest
 ```
 
 ### 2. Atualizar Stack
+
 ```bash
 docker stack deploy -c docker-compose.yml nome-do-stack
 ```
 
 ### 3. Verificar Logs
+
 ```bash
 docker service logs nome-do-stack_api_donate
 ```
@@ -98,17 +101,21 @@ docker service logs nome-do-stack_api_donate
 ## 🔍 Debug
 
 ### Verificar se o Cron está Ativo
+
 Procure nos logs:
+
 ```
 🔄 [CRON] Starting automatic transaction sync from DOM Pagamentos...
 ```
 
 ### Verificar Variáveis de Ambiente
+
 ```bash
 docker exec -it $(docker ps -q -f name=api_donate) env | grep DOM
 ```
 
 ### Testar Conexão Manual
+
 ```bash
 curl -X POST "http://simpay-back.simintermediacoes.com/admin/sync/test-cron" \
   -H "Authorization: Bearer SEU_TOKEN"
@@ -117,11 +124,13 @@ curl -X POST "http://simpay-back.simintermediacoes.com/admin/sync/test-cron" \
 ## 📊 Monitoramento
 
 ### Logs Importantes
+
 - `[CRON] Starting automatic transaction sync` - Início da sincronização
 - `[CRON] Received X transactions from DOM` - Transações recebidas
 - `[CRON] Sync Results: X created, Y updated, Z skipped` - Resultado
 
 ### Métricas
+
 - Transações criadas/atualizadas por minuto
 - Falhas de mapeamento
 - Erros de conexão com DOM
@@ -129,16 +138,19 @@ curl -X POST "http://simpay-back.simintermediacoes.com/admin/sync/test-cron" \
 ## 🛠️ Troubleshooting
 
 ### Problema: Transações não aparecem
+
 1. Verifique se `DISABLED_DOM_SYNC=false`
 2. Confira se `DOM_TOKEN` está correto
 3. Teste com `/admin/sync/test-cron`
 
 ### Problema: Transações sem usuário
+
 1. Execute `node scripts/check-dom-mapping.js`
 2. Configure `domUserId` nos usuários
 3. Verifique fallbacks no código
 
 ### Problema: Erro de conexão DOM
+
 1. Verifique token no painel DOM
 2. Confira se IP está liberado
 3. Teste com Postman/curl
@@ -146,8 +158,9 @@ curl -X POST "http://simpay-back.simintermediacoes.com/admin/sync/test-cron" \
 ## 📝 Exemplo de Configuração Completa
 
 ### docker-compose.yml
+
 ```yaml
-version: "3.8"
+version: '3.8'
 services:
   api_donate:
     image: brenolima1706/back-simpay:latest
@@ -164,6 +177,7 @@ services:
 ```
 
 ### Scripts de Manutenção
+
 ```bash
 # Verificar sincronização
 curl -X POST "http://simpay-back.simintermediacoes.com/admin/sync/test-cron"

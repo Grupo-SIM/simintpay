@@ -20,7 +20,6 @@ describe('Account owning multiple platform products', () => {
     const service = new GetMeUseCase(
       { findById: async () => user } as never,
       {} as never,
-      {} as never,
       {
         wallet: {
           findUnique: async () => ({

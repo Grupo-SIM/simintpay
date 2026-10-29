@@ -11,21 +11,12 @@ import type { AxiosError } from 'axios';
 import * as QRCode from 'qrcode';
 import {
   IPaymentGateway,
-  DomRegisterInput,
-  DomRegisterOutput,
-  DomGenerateTokenOutput,
-  DomMeOutput,
-  DomPaymentLinkInput,
   DomPaymentLinkOutput,
-  DomCreatePlanInput,
   DomPlanOutput,
   DomSubscriptionOutput,
-  DomMonthlyRevenueOutput,
-  DomTaxesOutput,
   DomRequestWithdrawOutput,
   DomListTransactionsOutput,
   DomListWithdrawsOutput,
-  StoredPaymentChargeInput,
   StoredPaymentChargeOutput,
   SubscriptionBillingSnapshot,
   SubscriptionPlanChangeOutput,
@@ -71,7 +62,8 @@ export class FrendzClient implements IPaymentGateway {
    * global de env — nunca hard-coded.
    */
   private resolveToken(maybeToken?: string | null): string {
-    const token = maybeToken && maybeToken.length > 0 ? maybeToken : getFrendzApiToken();
+    const token =
+      maybeToken && maybeToken.length > 0 ? maybeToken : getFrendzApiToken();
     if (!token) {
       throw new BadRequestException(
         'Frendz: api_token não configurado (defina FRENDZ_API_TOKEN ou {SLUG}_FRENDZ_TOKEN).',
@@ -86,7 +78,10 @@ export class FrendzClient implements IPaymentGateway {
       : null;
   }
 
-  private pickString(obj: Record<string, unknown> | null, key: string): string | null {
+  private pickString(
+    obj: Record<string, unknown> | null,
+    key: string,
+  ): string | null {
     if (!obj) return null;
     const v = obj[key];
     if (typeof v === 'string') return v.length ? v : null;
@@ -141,7 +136,10 @@ export class FrendzClient implements IPaymentGateway {
       // postback_url diz à Frendz para onde enviar a confirmação de pagamento.
       // Definido por env para apontar ao endpoint público desta API.
       ...((getPlatformIntegrationValue('FRENDZ', 'WEBHOOK_URL') ?? undefined)
-        ? { postback_url: (getPlatformIntegrationValue('FRENDZ', 'WEBHOOK_URL') ?? undefined) }
+        ? {
+            postback_url:
+              getPlatformIntegrationValue('FRENDZ', 'WEBHOOK_URL') ?? undefined,
+          }
         : {}),
       customer: {
         name: input.customerName,
@@ -161,11 +159,16 @@ export class FrendzClient implements IPaymentGateway {
       res = await firstValueFrom(
         this.http.post<any>(url, body, {
           params: { api_token: token },
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
         }),
       );
     } catch (err) {
-      this.logger.error(`[Frendz PIX] falha ao criar transação: ${this.errMsg(err)}`);
+      this.logger.error(
+        `[Frendz PIX] falha ao criar transação: ${this.errMsg(err)}`,
+      );
       throw new BadRequestException(`Frendz: ${this.errMsg(err)}`);
     }
 
@@ -177,7 +180,8 @@ export class FrendzClient implements IPaymentGateway {
       this.pickString(obj, 'hash') ??
       this.pickString(obj, 'id') ??
       this.pickString(obj, 'transaction_hash');
-    if (!id) throw new BadRequestException('Frendz: resposta sem hash de transação');
+    if (!id)
+      throw new BadRequestException('Frendz: resposta sem hash de transação');
 
     // Campos PIX podem vir na raiz ou aninhados em `pix`.
     const pixObj = this.getObject(obj?.pix) ?? obj;
@@ -230,7 +234,9 @@ export class FrendzClient implements IPaymentGateway {
       );
       return res.data?.data ?? res.data;
     } catch (err) {
-      this.logger.error(`[Frendz] getTransactionDetail falhou: ${this.errMsg(err)}`);
+      this.logger.error(
+        `[Frendz] getTransactionDetail falhou: ${this.errMsg(err)}`,
+      );
       throw new BadRequestException(`Frendz: ${this.errMsg(err)}`);
     }
   }
@@ -259,7 +265,10 @@ export class FrendzClient implements IPaymentGateway {
           { amount: input.amount },
           {
             params: { api_token: token },
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
           },
         ),
       );
@@ -293,44 +302,16 @@ export class FrendzClient implements IPaymentGateway {
     );
   }
 
-  register(_input: DomRegisterInput): Promise<DomRegisterOutput> {
-    return this.notYet('register');
-  }
-  generateToken(_email: string, _password: string): Promise<DomGenerateTokenOutput> {
-    return this.notYet('generateToken');
-  }
-  me(_token: string): Promise<DomMeOutput> {
-    return this.notYet('me');
-  }
-  createPaymentLink(
-    _t: string,
-    _i: DomPaymentLinkInput,
-  ): Promise<DomPaymentLinkOutput> {
+  createPaymentLink(): Promise<DomPaymentLinkOutput> {
     return this.notYet('createPaymentLink');
   }
-  listPaymentLinks(
-    _t: string,
-    _i: { page?: number; pageSize?: number },
-  ): Promise<{ items: DomPaymentLinkOutput[]; total?: number }> {
-    return this.notYet('listPaymentLinks');
-  }
-  getPaymentLink(_t: string, _id: string): Promise<DomPaymentLinkOutput> {
-    return this.notYet('getPaymentLink');
-  }
-  updatePaymentLink(
-    _t: string,
-    _id: string,
-    _i: Partial<DomPaymentLinkInput>,
-  ): Promise<DomPaymentLinkOutput> {
+  updatePaymentLink(): Promise<DomPaymentLinkOutput> {
     return this.notYet('updatePaymentLink');
   }
-  deletePaymentLink(_t: string, _id: string): Promise<void> {
+  deletePaymentLink(): Promise<void> {
     return this.notYet('deletePaymentLink');
   }
-  chargePixForLink(
-    _t: string,
-    _i: any,
-  ): Promise<{
+  chargePixForLink(): Promise<{
     id: string;
     status: string;
     pixContent: string | null;
@@ -340,10 +321,7 @@ export class FrendzClient implements IPaymentGateway {
   }> {
     return this.notYet('chargePixForLink');
   }
-  chargeBoletoForLink(
-    _t: string,
-    _i: any,
-  ): Promise<{
+  chargeBoletoForLink(): Promise<{
     id: string;
     status: string;
     boletoUrl: string | null;
@@ -354,44 +332,35 @@ export class FrendzClient implements IPaymentGateway {
   }> {
     return this.notYet('chargeBoletoForLink');
   }
-  chargePaymentLink(
-    _t: string,
-    _i: any,
-  ): Promise<{ id: string; status?: string; pixContent?: string | null }> {
+  chargePaymentLink(): Promise<{
+    id: string;
+    status?: string;
+    pixContent?: string | null;
+  }> {
     return this.notYet('chargePaymentLink');
   }
-  createPlan(_t: string, _i: DomCreatePlanInput): Promise<DomPlanOutput> {
+  createPlan(): Promise<DomPlanOutput> {
     return this.notYet('createPlan');
   }
-  listPlans(_t: string): Promise<DomPlanOutput[]> {
+  listPlans(): Promise<DomPlanOutput[]> {
     return this.notYet('listPlans');
   }
-  deletePlan(_t: string, _id: string): Promise<void> {
+  deletePlan(): Promise<void> {
     return this.notYet('deletePlan');
   }
-  listSubscriptions(
-    _t: string,
-    _i: { page?: number; pageSize?: number },
-  ): Promise<{ items: DomSubscriptionOutput[]; total?: number }> {
+  listSubscriptions(): Promise<{
+    items: DomSubscriptionOutput[];
+    total?: number;
+  }> {
     return this.notYet('listSubscriptions');
   }
-  getSubscription(_t: string, _id: string): Promise<unknown> {
+  getSubscription(): Promise<unknown> {
     return this.notYet('getSubscription');
   }
-  getSubscriptionBillingSnapshot(
-    _t: string,
-    _id: string,
-  ): Promise<SubscriptionBillingSnapshot> {
-    void _t;
-    void _id;
+  getSubscriptionBillingSnapshot(): Promise<SubscriptionBillingSnapshot> {
     return this.notYet('getSubscriptionBillingSnapshot');
   }
-  chargeSubscriptionPaymentMethod(
-    _t: string,
-    _input: StoredPaymentChargeInput,
-  ): Promise<StoredPaymentChargeOutput> {
-    void _t;
-    void _input;
+  chargeSubscriptionPaymentMethod(): Promise<StoredPaymentChargeOutput> {
     return this.notYet('chargeSubscriptionPaymentMethod');
   }
   changeSubscriptionPlan(
@@ -402,51 +371,32 @@ export class FrendzClient implements IPaymentGateway {
     void _input;
     return this.notYet('changeSubscriptionPlan');
   }
-  cancelSubscription(_t: string, _id: string): Promise<void> {
+  cancelSubscription(): Promise<void> {
     return this.notYet('cancelSubscription');
   }
-  reactivateSubscription(_t: string, _id: string): Promise<void> {
+  reactivateSubscription(): Promise<void> {
     return this.notYet('reactivateSubscription');
   }
-  getSpecificMachineTransactions(_t: string): Promise<any> {
+  getSpecificMachineTransactions(): Promise<any> {
     return this.notYet('getSpecificMachineTransactions');
   }
-  getMonthlyRevenue(_t: string): Promise<DomMonthlyRevenueOutput> {
-    return this.notYet('getMonthlyRevenue');
-  }
-  getTaxes(_masterKey: string): Promise<DomTaxesOutput> {
-    return this.notYet('getTaxes');
-  }
-  listDomTransactions(_t: string, _i: any): Promise<DomListTransactionsOutput> {
+  listDomTransactions(): Promise<DomListTransactionsOutput> {
     return this.notYet('listDomTransactions');
   }
-  listAllTransactionsDirectlyFromDom(_p: any): Promise<any> {
+  listAllTransactionsDirectlyFromDom(): Promise<any> {
     return this.notYet('listAllTransactionsDirectlyFromDom');
   }
-  listDomWithdraws(_t: string, _i: any): Promise<DomListWithdrawsOutput> {
+  listDomWithdraws(): Promise<DomListWithdrawsOutput> {
     return this.notYet('listDomWithdraws');
   }
-  createSubscriptionFromCheckout(
-    _t: string,
-    _i: any,
-  ): Promise<{ id: string; status?: string; [key: string]: unknown }> {
+  createSubscriptionFromCheckout(): Promise<{
+    id: string;
+    status?: string;
+    [key: string]: unknown;
+  }> {
     return this.notYet('createSubscriptionFromCheckout');
   }
-  createLead(_data: any): Promise<{ data: { id: string }; message: string }> {
+  createLead(): Promise<{ data: { id: string }; message: string }> {
     return this.notYet('createLead');
-  }
-  validateVoucher(
-    _t: string,
-    _i: any,
-  ): Promise<{
-    valid: boolean;
-    discountAmount: number;
-    finalAmount: number;
-    voucherId: string;
-    discountType: 'PERCENTAGE' | 'FIXED';
-    discountValue: number;
-    message: string;
-  }> {
-    return this.notYet('validateVoucher');
   }
 }

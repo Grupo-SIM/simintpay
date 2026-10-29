@@ -269,22 +269,10 @@ export type DomListWithdrawsOutput = {
 };
 
 export interface IPaymentGateway {
-  register(input: DomRegisterInput): Promise<DomRegisterOutput>;
-  generateToken(
-    email: string,
-    password: string,
-  ): Promise<DomGenerateTokenOutput>;
-  me(domToken: string): Promise<DomMeOutput>;
-
   createPaymentLink(
     domToken: string,
     input: DomPaymentLinkInput,
   ): Promise<DomPaymentLinkOutput>;
-  listPaymentLinks(
-    domToken: string,
-    input: { page?: number; pageSize?: number },
-  ): Promise<{ items: DomPaymentLinkOutput[]; total?: number }>;
-  getPaymentLink(domToken: string, id: string): Promise<DomPaymentLinkOutput>;
   updatePaymentLink(
     domToken: string,
     id: string,
@@ -400,14 +388,6 @@ export interface IPaymentGateway {
   reactivateSubscription(domToken: string, id: string): Promise<void>;
   getDomSummary(domToken: string): Promise<any>;
   getSpecificMachineTransactions(domToken: string): Promise<any>;
-  getMonthlyRevenue(domToken: string): Promise<DomMonthlyRevenueOutput>;
-  getTaxes(masterKey: string): Promise<DomTaxesOutput>;
-
-  requestWithdraw(
-    domToken: string,
-    input: { amount: number; pixKey: string },
-  ): Promise<DomRequestWithdrawOutput>;
-
   listDomTransactions(
     domToken: string,
     input: {
@@ -460,10 +440,20 @@ export interface IPaymentGateway {
     },
   ): Promise<{ id: string; status?: string; [key: string]: unknown }>;
 
-  recoverSubscriptionCard?(domToken: string, input: {
-    subscriptionId: string;
-    card: { number: string; exp_month: string; exp_year: string; cvv: string; holder_name: string; holder_document: string };
-  }): Promise<{ paymentId?: string; status?: string }>;
+  recoverSubscriptionCard?(
+    domToken: string,
+    input: {
+      subscriptionId: string;
+      card: {
+        number: string;
+        exp_month: string;
+        exp_year: string;
+        cvv: string;
+        holder_name: string;
+        holder_document: string;
+      };
+    },
+  ): Promise<{ paymentId?: string; status?: string }>;
 
   createLead(data: {
     name: string;
@@ -497,24 +487,6 @@ export interface IPaymentGateway {
     qrCode: string | null;
     pixExpire: string | null;
     amount: number;
-  }>;
-  validateVoucher(
-    domToken: string,
-    input: {
-      code: string;
-      amount: number;
-      userId: string;
-      channel?: string;
-      groupPageId?: string;
-    },
-  ): Promise<{
-    valid: boolean;
-    discountAmount: number;
-    finalAmount: number;
-    voucherId: string;
-    discountType: 'PERCENTAGE' | 'FIXED';
-    discountValue: number;
-    message: string;
   }>;
 }
 
