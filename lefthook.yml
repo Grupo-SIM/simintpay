@@ -6,19 +6,13 @@ commit-msg:
 pre-commit:
   parallel: false
   commands:
-    1-types:
-      run: bun scripts/validate-staged.ts
-    2-format:
+    1-format:
       glob: '*.{ts,tsx,js,jsx,mjs,cjs,json,css,yml,yaml,md}'
       run: bun scripts/format-staged.ts {staged_files}
       stage_fixed: true
-    3-lint:
+    2-lint:
       glob: '**/*.{ts,tsx,js,jsx,mjs}'
       run: bun scripts/lint-staged.ts {staged_files}
       stage_fixed: true
-    4-unit:
-      glob: 'backend/src/**/*.ts'
-      run: bunx --no-install turbo run test:unit --filter backend
-    5-checkout-unit:
-      glob: 'checkout/src/**/*.{ts,tsx}'
-      run: bunx --no-install turbo run test:unit --filter checkout
+    3-check:
+      run: bun check --staged --skip-lint

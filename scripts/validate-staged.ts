@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 
-const diff = Bun.spawnSync(['git', 'diff', '--cached', '--name-only', '-z']);
+// --worktree: everything changed since HEAD (manual `bun check`); default: staged files (pre-commit).
+const source = process.argv.includes('--worktree') ? 'HEAD' : '--cached';
+const diff = Bun.spawnSync(['git', 'diff', source, '--name-only', '-z']);
 if (diff.exitCode) process.exit(diff.exitCode);
 const files = diff.stdout.toString().split('\0').filter(Boolean);
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'));

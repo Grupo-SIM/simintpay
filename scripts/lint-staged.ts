@@ -1,8 +1,11 @@
 import { relative, resolve } from 'node:path';
+// --worktree: files changed since HEAD; --no-fix: report only (used by `bun check`).
+const source = process.argv.includes('--worktree') ? 'HEAD' : '--cached';
+const fix = !process.argv.includes('--no-fix');
 const diff = Bun.spawnSync([
   'git',
   'diff',
-  '--cached',
+  source,
   '--name-only',
   '--diff-filter=AM',
   '-z',
@@ -20,7 +23,7 @@ for (const workspace of ['backend', 'checkout']) {
       '--no-install',
       'eslint',
       '--quiet',
-      '--fix',
+      ...(fix ? ['--fix'] : []),
       ...files.map((file) => relative(resolve(workspace), resolve(file))),
     ],
     { cwd: workspace, stdout: 'inherit', stderr: 'inherit' },

@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "build": "bun turbo build",
+    "check": "bun scripts/check.ts",
     "check-types": "bun turbo check-types",
     "dev": "bun turbo dev",
     "start": "bun turbo start",
