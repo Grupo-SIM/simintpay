@@ -16,7 +16,10 @@ export interface IPixPlanRepository {
 
   findPixCreditPlanById(id: string): Promise<any>;
 
-  updatePixCreditPlanStatus(id: string, status: 'ACTIVE' | 'INACTIVE'): Promise<void>;
+  updatePixCreditPlanStatus(
+    id: string,
+    status: 'ACTIVE' | 'INACTIVE',
+  ): Promise<void>;
 
   findPixCreditPlansByUserId(userId: string): Promise<any[]>;
   findPixCreditPlansByUserIdPaginated(params: {
@@ -25,6 +28,7 @@ export interface IPixPlanRepository {
     limit: number;
     status?: 'ACTIVE' | 'INACTIVE';
     search?: string;
+    sharedIds?: string[];
   }): Promise<{ items: any[]; total: number }>;
 
   deletePixCreditPlan(id: string): Promise<void>;
@@ -56,11 +60,14 @@ export interface IPixPlanRepository {
 
   findPixPlanOrderByTransactionId(transactionId: string): Promise<any>;
 
-  updatePixPlanOrderPaid(transactionId: string, data: {
-    paid: boolean;
-    creditedAt: Date;
-    customerId: string;
-  }): Promise<void>;
+  updatePixPlanOrderPaid(
+    transactionId: string,
+    data: {
+      paid: boolean;
+      creditedAt: Date;
+      customerId: string;
+    },
+  ): Promise<void>;
 
   // CustomerPlanAccess
   findCustomerPlanAccess(params: {
@@ -87,25 +94,31 @@ export interface IPixPlanRepository {
     lastTransactionId: string;
   }): Promise<any>;
 
-  updateCustomerPlanAccess(params: {
-    userId: string;
-    customerDocument: string;
-    pixPlanId: string;
-  }, data: {
-    isActive?: boolean;
-    expiresAt?: Date;
-    totalDaysCredited?: number;
-    lastTransactionId?: string;
-    customerId?: string;
-    pixPlanCode?: string | null;
-  }): Promise<void>;
+  updateCustomerPlanAccess(
+    params: {
+      userId: string;
+      customerDocument: string;
+      pixPlanId: string;
+    },
+    data: {
+      isActive?: boolean;
+      expiresAt?: Date;
+      totalDaysCredited?: number;
+      lastTransactionId?: string;
+      customerId?: string;
+      pixPlanCode?: string | null;
+    },
+  ): Promise<void>;
 
-  updateCustomerPlanAccessById(id: string, data: {
-    isActive?: boolean;
-    expiresAt?: Date;
-    totalDaysCredited?: number;
-    createdAt?: Date;
-  }): Promise<void>;
+  updateCustomerPlanAccessById(
+    id: string,
+    data: {
+      isActive?: boolean;
+      expiresAt?: Date;
+      totalDaysCredited?: number;
+      createdAt?: Date;
+    },
+  ): Promise<void>;
 
   findCustomerPlanAccessById(id: string): Promise<any>;
 

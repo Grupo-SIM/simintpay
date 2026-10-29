@@ -71,7 +71,6 @@ Testes de interface simulam API para os cinco produtos, edição/descarte, erros
 
 Migração local: `simintpay-back/prisma/migrations/20261021000000_coproduction/migration.sql`. Aplicação no ambiente de produção fica a cargo do responsável.
 
-
 ## Coprodutores no cadastro
 
 Os cinco endpoints de criação aceitam `coproduction: { basis: "NET", version: 0, participants: [{ email, percentageBps }, ...] }` opcional. O proprietário é determinado pelo fluxo autenticado existente, nunca pelo objeto de coprodução. Validação de contas, criação local do produto, acordo inicial (versão 1) e revisão compartilham transação; erro não deixa produto local sem a divisão enviada. Falha no cadastro preserva rascunho no formulário. Produtos existentes continuam usando GET/PUT versionados.
@@ -132,3 +131,9 @@ detalhamento; publicar interface SimIntPay; auditar vínculos e só então confi
 acordos. Campos novos são aditivos. Tentativas antigas conservam contrato original,
 sem preenchimento retroativo. Não mover saldos ou reescrever histórico. Validação da
 implementação usa exclusivamente gateways simulados e PostgreSQL local isolado.
+
+## Visibilidade para coprodutores (somente leitura)
+
+- Listagens de links de pagamento, links de assinatura, boletos, planos e planos PIX incluem, além dos produtos do usuário, os de outros donos cujo acordo próprio (`mode: "OWN"`) o lista como participante. Cada item traz `coproducao: { role: "OWNER" | "COPRODUCER", readOnly, participantsCount, myPercentageBps } | null`. `myPercentageBps` só é preenchido para coprodutor; nenhum e-mail ou percentual de terceiros é exposto. Edição, status e exclusão continuam restritos ao dono no servidor.
+- `GET /transacoes` inclui vendas em que o usuário tem `CoproductionAllocation`, e `GET /transacoes/:id` permite a transação completa, somente leitura. Ambos retornam `coproducao: { role, readOnly, product, myAmountCents, state } | null`, com o valor exato da alocação do usuário.
+- `GET /relatorios/dashboard` e o dashboard do cliente (`/admin/plataformas/cliente/dashboard`) retornam `coproducao: { count, creditedCents, lockedCents, reversedCents }` no período, apenas para participações em produtos de terceiros. Valores informativos: já integram a carteira.

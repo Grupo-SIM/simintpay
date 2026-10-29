@@ -1,9 +1,11 @@
 import type { SubscriptionLink, SubscriptionLinkOrder } from '@prisma/client';
 
-export const SUBSCRIPTION_LINK_REPOSITORY = Symbol('SUBSCRIPTION_LINK_REPOSITORY');
+export const SUBSCRIPTION_LINK_REPOSITORY = Symbol(
+  'SUBSCRIPTION_LINK_REPOSITORY',
+);
 
 export type CreateSubscriptionLinkData = {
-    coproduction?: unknown;
+  coproduction?: unknown;
   userId: string;
   ownerEmail?: string | null;
   name: string;
@@ -45,12 +47,41 @@ export interface ISubscriptionLinkRepository {
   create(data: CreateSubscriptionLinkData): Promise<SubscriptionLink>;
   findById(id: string): Promise<SubscriptionLink | null>;
   findByCode(code: string): Promise<SubscriptionLink | null>;
-  findByIdForUser(input: { id: string; userId: string }): Promise<SubscriptionLink | null>;
-  findManyByUserId(input: { userId: string; page: number; pageSize: number }): Promise<{ total: number; items: SubscriptionLink[] }>;
-  findAll(input: { page: number; pageSize: number }): Promise<{ total: number; items: SubscriptionLink[] }>;
-  update(id: string, data: Partial<Omit<CreateSubscriptionLinkData, 'userId'> & { isActive: boolean; currentUses: number }>): Promise<SubscriptionLink>;
+  findByIdForUser(input: {
+    id: string;
+    userId: string;
+  }): Promise<SubscriptionLink | null>;
+  findManyByUserId(input: {
+    userId: string;
+    page: number;
+    pageSize: number;
+    sharedIds?: string[];
+  }): Promise<{ total: number; items: SubscriptionLink[] }>;
+  findAll(input: {
+    page: number;
+    pageSize: number;
+  }): Promise<{ total: number; items: SubscriptionLink[] }>;
+  update(
+    id: string,
+    data: Partial<
+      Omit<CreateSubscriptionLinkData, 'userId'> & {
+        isActive: boolean;
+        currentUses: number;
+      }
+    >,
+  ): Promise<SubscriptionLink>;
   delete(id: string): Promise<void>;
-  createOrder(data: CreateSubscriptionLinkOrderData): Promise<SubscriptionLinkOrder>;
-  findOrdersByLinkId(input: { linkId: string; page: number; pageSize: number }): Promise<{ total: number; items: SubscriptionLinkOrder[] }>;
-  findOrdersByUserId(input: { userId: string; page: number; pageSize: number }): Promise<{ total: number; items: any[] }>;
+  createOrder(
+    data: CreateSubscriptionLinkOrderData,
+  ): Promise<SubscriptionLinkOrder>;
+  findOrdersByLinkId(input: {
+    linkId: string;
+    page: number;
+    pageSize: number;
+  }): Promise<{ total: number; items: SubscriptionLinkOrder[] }>;
+  findOrdersByUserId(input: {
+    userId: string;
+    page: number;
+    pageSize: number;
+  }): Promise<{ total: number; items: any[] }>;
 }
