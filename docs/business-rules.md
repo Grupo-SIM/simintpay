@@ -72,7 +72,6 @@ Sincronização ignora status desconhecidos e valores inválidos. Pagamento conc
 
 Correções administrativas de carteira usam transação serializável, revalidam dono/plataforma ativos e impedem carteira compartilhada mesmo quando outra plataforma está inativa. Comparação da versão evita sobrescrever saldo concorrente. Auditoria inclui valores anteriores/posteriores e motivo; histórico de transações não é apagado. Atlas, Revalida e Bosque delegam suas correções ao mesmo núcleo.
 
-
 ## Capacidades corporativas canônicas
 
 `POST /platforms/:tag/subscriptions/plans` aceita `{ name, amountCents, frequency, description? }` para BETAI, PAGATG, CONTROLE-MOTORISTA e CONTROLE-PATRIMONIAL. Frequência: SEMANAL/MENSAL/ANUAL. Delega ao mesmo caso de uso de assinatura existente, fixa dono/tag e exige DOM; Frendz retorna 422 antes de qualquer gravação. `GET /platforms/:tag/subscriptions/:code/status` consulta somente assinatura identificada pela plataforma e dono atual. `GET /platforms/:tag/saas/access?email=...` consulta acesso SaaS da tag, sem misturar clientes de mesmo dono. Acesso continua sendo concedido pelos fluxos compartilhados de pagamento/webhook.
@@ -82,7 +81,6 @@ PAGATG expõe `/platforms/PAGATG/vouchers`: GET lista, POST cria, POST `/validat
 BETAI expõe POST `/platforms/BETAI/billing` com `{ amountCents, title?, dueDate?, email? }`, GET `/billing/:code/status` e POST `/billing/subscriptions/cancel` com `{ code }`. Cobrança delega ao núcleo de links e registra Cobranca PAYABLE; não lança saldo diretamente. Registro opcional do link DOM pode falhar mantendo checkout local, como no contrato antigo, sem trocar adquirente. Configuração ausente continua erro explícito. Cancelamento usa DOM_TOKEN da plataforma e retorna quantidade de cancelamentos remotos bem-sucedidos, permitindo tentativa explícita dos restantes.
 
 Aliases `/internal/betai/*` preservam header interno, campos em reais e respostas antigas; apenas traduzem contrato e delegam ao mesmo serviço. Dono vem de BETAI cadastrada, nunca de MASTER_ADMIN_EMAILS ou conta técnica. Histórico avulso sem identificação explícita BETAI não é atribuído automaticamente à plataforma. Associação/configuração precisa ser feita pelo admin. Novas rotas usam `billing:read`, `billing:write`, `subscriptions:read`, `subscriptions:write`, `vouchers:read` ou `vouchers:write`, cadastrados explicitamente em INBOUND_OPERATIONS; nenhuma permissão legada é herdada.
-
 
 ## Painel do cliente e notificações de vendas
 
@@ -137,7 +135,6 @@ Relatórios administrativos de plataformas, consolidado e vendedores usam o mesm
 
 Histórico sem marca, marcas conflitantes, saques sem plataforma e transações sem líquido persistido não são distribuídos entre produtos. Contadores e `historicalAttributionComplete` tornam essas lacunas explícitas. Saldo atribuído pode ser negativo; disponibilidade projetada tem piso zero. Regras de saque continuam aplicando disponibilidade da carteira compartilhada.
 
-
 Streams legados de Atlas/Bosque/Renovada/Revalida usam projeção única do barramento, preservando headers, nomes, IDs e heartbeat imediato/a cada 20 segundos. Eventos permanecem isolados por produto.
 
 Espelhamento administrativo de Atlas/Revalida usa núcleo transacional único. Espelha carteira do dono como projeção de compatibilidade; não cria plataforma, usuário técnico ou carteira financeira. API canônica `POST /platforms/:tag/sync/owner-mirror` exige `sync:run`, revalida dono e retorna centavos; aliases conservam reais e autenticação histórica.
@@ -183,8 +180,7 @@ Filtro textual de histórico Ebook é combinado com tag da plataforma, nunca a s
 - Links novos: líquido de crédito = total cobrado − custo gateway calculado − taxa do vendedor. Juros pagos pelo comprador permanecem na receita da plataforma. PIX preserva sua regra específica de gateway. Cashback e fixa adicionais são zero no breakdown; débito conserva seus descontos próprios.
 - Defaults de `TAXA_LINK_PERCENT` e `LINK_COST_1X…12X`: 9%. Default global de saque: R$ 3,50. Overrides cadastrados, inclusive zero, prevalecem.
 - `Transaction.settlementBasis=FINAL_NET` identifica snapshots finais dos links novos. NULL preserva contratos históricos, sem backfill financeiro. Draft fixa snapshot e dono antes da cobrança. Resposta, callback e polling liquidam com CAS, carteira e auditoria na mesma transação; estorno usa crédito efetivamente registrado. Falha incerta conserva draft para reconciliação, sem repetir automaticamente cobrança.
-- Disponibilidade de saque usa `max(0, wallet.balance − wallet.lockedBalance)`; reserva não é abatida novamente. Saldo administrativo por produto reutiliza líquidos persistidos, saques explicitamente identificados e indicadores de lacunas. Bosque inclui baseline no adapter existente; carteira compartilhada continua separada da projeção.
-
+- Disponibilidade de saque usa `max(0, wallet.balance − wallet.lockedBalance)`; reserva não é abatida novamente. A regra é a mesma para toda conta (plataforma própria, coprodução, afiliado), em `/me`, resumo e validação do saque. Toda alteração de `wallet.balance` grava `BalanceLog` na mesma transação (`applyWalletEntry`); diferenças históricas entram como `ADJUSTMENT` com origem `RECONCILIATION`, nunca editando linhas antigas. Um job diário somente leitura registra carteiras que divergem do fim do log, ignorando lançamentos contábeis de taxa (`MASTER_ADMIN_CONTROL`). Saldo administrativo por produto reutiliza líquidos persistidos, saques explicitamente identificados e indicadores de lacunas. Bosque inclui baseline no adapter existente; carteira compartilhada continua separada da projeção.
 
 ## Consulta administrativa dos bancos externos
 
@@ -231,11 +227,9 @@ Resumo canônico de comerciante mantém carteira por usuário e disponibilidade 
 - Histórico, saldos e lançamentos existentes não são recalculados. Novas cobranças congelam revisão/snapshot; recorrências restauram essas revisões. Importação POS resolve configuração na data da venda e inverte total informado sem deduzir custo duas vezes. Liquidação e estorno usam lançamento final idempotente.
 - Migração `20261019000000_financial_policy` validada somente em PostgreSQL temporário local. Nenhuma aplicação em banco externo, publicação ou ativação contratual real integra esta execução.
 
-
 ## Padrões de juros e taxas
 
 Novas plataformas absorvem custos por padrão (`absorbCustomerInterest=true`); no motor financeiro, ausência de regra do dono implica adicional zero e `passInterestPpm=0`. Overrides explícitos continuam válidos. Juros padrão de 1 parcela são zero. Os 9% SimIntPay são custo do vendedor (`LINK_COST_*` / `sim.ratePpm`), nunca juros do comprador. Campos legados `PaymentLink.platformFee*` permanecem por compatibilidade, mas não determinam juros no cálculo atual. Migração de padrões não recalcula cobranças, saldos nem configurações explícitas de plataformas existentes.
-
 
 ## Repasse exclusivo dos juros ao comprador
 
@@ -244,7 +238,6 @@ Novas simulações e cobranças permitem somente repasse de 0% a 100% dos juros 
 Documentos novos recebem `interestOnly=true`. Snapshots novos também congelam esse indicador, inclusive quando usam uma revisão anterior à mudança. Restauração de cobrança/assinatura histórica sem indicador mantém o cálculo original da revisão. Nenhuma revisão, transação ou saldo anterior é reescrito. A API não permite ao cliente desativar essa regra por save ou draft.
 
 - Nomenclatura financeira apresentada ao dono: custos e juros SimIntPay. SimIntPay cobre custos das adquirentes; composição por adquirente é informação interna do administrador, sem contratação separada pelo dono da plataforma.
-
 
 ## Relatórios por plataforma para sessões de donos
 
@@ -255,18 +248,15 @@ Documentos novos recebem `interestOnly=true`. Snapshots novos também congelam e
 - `/admin/relatorios/saldos-plataformas` é exclusivo do admin, com catálogo completo paginado por nome/tag. Saldo atribuído, disponível projetado e reservas vêm da mesma projeção no card/detalhe. Carteira do dono é informação separada; carteira compartilhada nunca é somada entre produtos. Histórico inativo é legível; operações financeiras continuam bloqueadas.
 - Valores monetários das novas APIs são centavos; saldo atribuído negativo permanece explícito e disponível tem piso zero. Projeção não autoriza saque nem recalcula carteira.
 
-
 ## Saldo restante após saque
 
 `saldoRestanteAposSaque` nas listagens administrativa e do usuário é snapshot persistido do disponível (saldo menos bloqueios). Solicitação com reserva registra disponível após bloquear o bruto; aprovação com débito local atualiza o snapshot com o disponível retornado pela carteira dentro da mesma transação. Movimentações posteriores não alteram o histórico. Histórico anterior, importações e operações sem reserva/débito confiável retornam `null`; saques recusados retornam `null`. Nenhum saldo histórico é estimado a partir da carteira atual. Migração somente preparada localmente, sem aplicação em banco.
-
 
 ### Coleta dos relatórios próprios
 
 - Resumo, séries e transações compartilham a mesma projeção SQL e filtros. Ordens pagas de assinatura com plataforma exclusiva (catálogo do link ou comunidade vinculada) entram pelo beneficiário original; referência `subOrder` ou pagamento PIX já representado por transação impede duplicação, inclusive após estorno.
 - Taxas totais são bruto menos líquido persistido. Sem líquido, conserva-se `totalFee` e sinaliza-se falta do snapshot; nunca se inventa líquido com taxa atual. Importações novas preenchem taxa ausente pela diferença bruto/líquido.
 - Histórico de vendedor sem snapshot do dono não é atribuído retroativamente usando vínculo atual. Marcadores desconhecidos e histórico de integração sem atribuição segura sinalizam incompletude. Saques sem plataforma não são rateados; filtro de método aplica-se às vendas, não aos saques.
-
 
 ## Plataformas próprias e catálogo de adquirentes
 
@@ -283,7 +273,6 @@ PIX e cartão enviam a descrição do produto seguida de `[TENANT:TAG]` também 
 Aliases de criação retornam status financeiro persistido. Resposta `paid` da adquirente, sozinha, não faz Atlas anunciar `COMPLETED` antes da liquidação local; webhook ou reconciliação confirmam status e crédito atomicamente.
 
 - Relatórios próprios: juros sem registro contam como zero, preservando a soma dos juros registrados. Custos incluem taxas persistidas dos saques aprovados/concluídos, no mesmo escopo de dono, plataforma e período; saques pendentes/recusados não entram. Filtro de método aplica-se somente às vendas.
-
 
 ## Divisão de cobranças Sim Delivery
 
