@@ -16,7 +16,6 @@ import {
   DomSubscriptionOutput,
   DomRequestWithdrawOutput,
   DomListTransactionsOutput,
-  DomListWithdrawsOutput,
   StoredPaymentChargeOutput,
   SubscriptionBillingSnapshot,
   SubscriptionPlanChangeOutput,
@@ -377,17 +376,11 @@ export class FrendzClient implements IPaymentGateway {
   reactivateSubscription(): Promise<void> {
     return this.notYet('reactivateSubscription');
   }
-  getSpecificMachineTransactions(): Promise<any> {
-    return this.notYet('getSpecificMachineTransactions');
-  }
   listDomTransactions(): Promise<DomListTransactionsOutput> {
     return this.notYet('listDomTransactions');
   }
   listAllTransactionsDirectlyFromDom(): Promise<any> {
     return this.notYet('listAllTransactionsDirectlyFromDom');
-  }
-  listDomWithdraws(): Promise<DomListWithdrawsOutput> {
-    return this.notYet('listDomWithdraws');
   }
   createSubscriptionFromCheckout(): Promise<{
     id: string;

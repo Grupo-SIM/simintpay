@@ -80,7 +80,6 @@ import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases
 import { ListWithdrawalsAdminUseCase } from '../../application/use-cases/admin/list-withdrawals-admin.use-case';
 import { ApproveWithdrawalUseCase } from '../../application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../../application/use-cases/admin/reject-withdrawal.use-case';
-import { SyncDomWithdrawalsUseCase } from '../../application/use-cases/admin/sync-dom-withdrawals.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/admin/list-dom-transactions-direct.use-case';
 import { SyncMaquinetasUseCase } from '../../application/use-cases/admin/sync-maquinetas.use-case';
@@ -88,7 +87,6 @@ import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-tran
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
 import { getPlatformOwnerId } from '../../modules/module.registry';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
-import { SyncWithdrawalsDto } from '../../application/dtos/admin/sync-withdrawals.dto';
 import { TestEbookEmailDto } from '../../application/dtos/admin/test-ebook-email.dto';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import { EmailService } from '../../infrastructure/email/email.service';
@@ -1243,7 +1241,6 @@ export class AdminController {
     private readonly listWithdrawalsAdmin: ListWithdrawalsAdminUseCase,
     private readonly approveWithdrawal: ApproveWithdrawalUseCase,
     private readonly rejectWithdrawal: RejectWithdrawalUseCase,
-    private readonly syncWithdrawalsUseCase: SyncDomWithdrawalsUseCase,
     private readonly migrateRenovadaTxsToAdmin: MigrateRenovadaTxsToAdminUseCase,
     private readonly listDomTransactionsDirect: ListDomTransactionsDirectUseCase,
     private readonly syncMaquinetasUseCase: SyncMaquinetasUseCase,
@@ -3598,7 +3595,7 @@ export class AdminController {
     const totalRepasseReal = totalRepasseConsolidado;
 
     // ── Saques: calcula direto na withdrawRequest para cobrir histórico sem BalanceLog ──
-    // fee > 0: exclui registros importados pelo SyncDomWithdrawalsUseCase (fee=0, histórico DOM)
+    // fee > 0: exclui registros importados do histórico DOM (fee=0)
     // que não representam saques com taxa Simintpay cobrada.
     const withdrawApprovalFilter: Prisma.WithdrawRequestWhereInput = {
       status: 'APPROVED',
@@ -4722,22 +4719,6 @@ export class AdminController {
     const sinceHours = horas ? Math.max(1, Number(horas)) : undefined;
     const result = await this.reconcilePendingTransactions.execute({
       sinceHours,
-    });
-    return { data: result };
-  }
-
-  @Post('sync-withdrawals')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Importar saques da conta Dom para o banco local' })
-  @ApiBody({ type: SyncWithdrawalsDto })
-  async syncWithdrawalsRoute(
-    @CurrentUser() user: JwtPayload | undefined,
-    @Body() body: SyncWithdrawalsDto,
-  ) {
-    const userId = body?.userId ?? user?.sub ?? '';
-    const result = await this.syncWithdrawalsUseCase.execute({
-      userId,
-      domToken: body?.domToken,
     });
     return { data: result };
   }

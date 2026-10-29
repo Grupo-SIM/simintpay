@@ -1,24 +1,12 @@
 # Saques DOM centralizados no administrador
 
-Use `DOM_TOKEN` ou `API_DOM_MASTER_KEY` já presentes em `.env` conforme token
-que consulta `/payments/withdrawals`. Não copie valor do token para o comando
-ou arquivo. `--admin-email` identifica a conta local administradora, não o
-beneficiário do saque.
+O exportador da API DOM desativada foi removido. Este script mantém apenas a
+importação de arquivo previamente revisado, sem consultar a API externa.
+`--admin-email` identifica a conta local administradora, não o beneficiário do
+saque. Execute somente contra banco explicitamente autorizado.
 
-```sh
-bun scripts/recover-dom-withdrawals.ts \
-  --database-name=simpay --admin-email=adminljl@simpay.com.br \
-  --token-env=DOM_TOKEN --output=saques-dom.json
-```
-
-Exportação consulta DOM por GET e banco por SELECT. Arquivo novo usa permissão
-`0600`; script não sobrescreve arquivo existente. `rawValue` e `rawStatus`
-preservam resposta DOM sem assumir unidade monetária ou taxa. `existing` mostra
-o vínculo local quando `domWithdrawId` já existe.
-
-DOM não informa a qual cliente SimIntPay pertence cada repasse. Para importar,
-faça conciliação e atribua `userId` **beneficiário** a cada saque. Exemplo de
-arquivo revisado:
+Para importar, faça conciliação com fonte confiável e atribua `userId`
+**beneficiário** a cada saque. Exemplo de arquivo revisado:
 
 ```json
 {
@@ -54,18 +42,3 @@ bun scripts/recover-dom-withdrawals.ts \
 
 Arquivos contêm chave PIX e valores financeiros. Guarde em local privado;
 não comite.
-
-## Certificados TLS
-
-HTTPS usa certificados raiz do runtime. Para CA privada ou proxy corporativo,
-adicione certificado CA PEM obtido de fonte confiável:
-
-```sh
-DOM_CA_FILE=/caminho/ca-confiavel.pem bun scripts/recover-dom-withdrawals.ts \
-  --database-name=simpay --admin-email=adminljl@simpay.com.br \
-  --token-env=DOM_TOKEN --output=saques-dom.json
-```
-
-Verificação TLS permanece ativa. Se servidor não apresentar cadeia completa,
-corrija configuração TLS do servidor. Não use certificado obtido da conexão
-que falhou como raiz confiável sem verificar sua origem.

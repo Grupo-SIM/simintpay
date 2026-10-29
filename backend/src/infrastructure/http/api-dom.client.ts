@@ -11,8 +11,6 @@ import {
   DomSubscriptionOutput,
   DomListTransactionsOutput,
   DomTransactionItem,
-  DomWithdrawItem,
-  DomListWithdrawsOutput,
   IPaymentGateway,
   StoredPaymentChargeInput,
   StoredPaymentChargeOutput,
@@ -65,13 +63,6 @@ export class ApiDomClient implements IPaymentGateway {
       cur = o[k];
     }
     return this.toSafeString(cur);
-  }
-
-  private get paymentsUrl(): string {
-    const base =
-      process.env.DOM_PAYMENTS_API_URL ??
-      'https://api-dom.jbmidia.com/payments';
-    return base.replace(/\/$/, '');
   }
 
   private get domRealApiUrl(): string {
@@ -226,25 +217,6 @@ export class ApiDomClient implements IPaymentGateway {
           `[DOM Error] response data: ${JSON.stringify(error.response.data)}`,
         );
       }
-      throw error;
-    }
-  }
-
-  async getSpecificMachineTransactions(domToken: string): Promise<any> {
-    const url = `${this.paymentsUrl}/dom/specific-machines-transactions`;
-    try {
-      const res = await firstValueFrom(
-        this.http.get<any>(url, {
-          headers: {
-            Authorization: `Bearer ${domToken}`,
-            'x-access-token': domToken,
-            Accept: 'application/json',
-          },
-        }),
-      );
-      return res.data?.data ?? res.data;
-    } catch (error: any) {
-      this.logger.error(`Dom Machines error: ${error?.response?.status}`);
       throw error;
     }
   }
@@ -1564,85 +1536,6 @@ export class ApiDomClient implements IPaymentGateway {
       this.logger.warn(`Detail error ${id}: ${err.message}`);
     }
     throw new Error(`Transaction ${id} not found`);
-  }
-
-  async listDomWithdraws(
-    domToken: string,
-    input: { page: number; limit: number; status?: string },
-  ): Promise<DomListWithdrawsOutput> {
-    const url = `${this.paymentsUrl}/withdrawals`;
-    const params: any = { limit: input.limit, page: input.page };
-    if (input.status) params.status = input.status;
-
-    try {
-      const res = await firstValueFrom(
-        this.http.get<any>(url, {
-          headers: {
-            Authorization: `Bearer ${domToken}`,
-            'x-access-token': domToken,
-          },
-          params,
-        }),
-      );
-      const root = this.getObject(res.data);
-      const arr =
-        this.getArray(root?.withdrawals) ??
-        this.getArray(root?.withdraws) ??
-        this.getArray(root?.pixouts) ??
-        this.getArray(root?.data) ??
-        (Array.isArray(root) ? root : []);
-
-      this.logger.log(
-        `DOM: Encontrados ${arr.length} saques na página ${input.page}`,
-      );
-
-      const withdraws: DomWithdrawItem[] = arr.map((x) => {
-        const o = this.getObject(x);
-        return {
-          id_transfer:
-            this.pickString(o, 'id') ?? this.pickString(o, 'id_transfer') ?? '',
-          value: String(
-            this.pickNumber(o, 'amount') ?? this.pickNumber(o, 'value') ?? 0,
-          ),
-          create_date:
-            this.pickString(o, 'createdAt') ??
-            this.pickString(o, 'created_at') ??
-            this.pickString(o, 'create_date') ??
-            '',
-          date_transfer:
-            this.pickString(o, 'updatedAt') ??
-            this.pickString(o, 'updated_at') ??
-            this.pickString(o, 'date_transfer') ??
-            '',
-          bank_name: this.pickString(o, 'bank_name'),
-          bank_agency: this.pickString(o, 'bank_agency'),
-          bank_bill: this.pickString(o, 'bank_bill'),
-          obs_client: this.pickString(o, 'obs_client'),
-          status: this.pickString(o, 'status') ?? 'pending',
-          type_transfer: this.pickString(o, 'type_transfer') ?? 'PIX',
-          pix_key:
-            this.pickString(o, 'pixKey') ??
-            this.pickString(o, 'pix_key') ??
-            this.pickString(o, 'recipient_key'),
-          receivers: Array.isArray(o?.receivers) ? (o as any).receivers : null,
-        };
-      });
-
-      return {
-        withdraws,
-        total_results: this.pickNumber(root, 'total') ?? withdraws.length,
-        total_pages: this.pickNumber(root, 'total_pages') ?? 1,
-        page: input.page,
-      };
-    } catch (error: any) {
-      this.logger.error(`Withdraws list error: ${error.message}`);
-      return {
-        withdraws: [],
-        total_results: 0,
-        total_pages: 0,
-        page: input.page,
-      };
-    }
   }
 
   async createLead(): Promise<{ data: { id: string }; message: string }> {
