@@ -315,3 +315,5 @@ Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado concl
 ## Filtros e exclusão do histórico de assinantes
 
 Listagem mescla assinaturas DOM e pausas locais, resolve plataformas e aplica busca, plataforma, primeira cobrança, status e frequência antes de paginar. Mensal/anual exigem intervalo um. Status agrupados: ativo, pausado e desativado; estados ausentes/desconhecidos permanecem na listagem sem autorizar exclusão. Exclusão local do histórico exige admin master e status conhecido CANCELLED/CANCELED/INACTIVE/DISABLED/DEACTIVATED, reconsultado na adquirente; pausa local ou explícita bloqueia exclusão. Nenhuma assinatura é apagada na adquirente.
+
+Novas plataformas de integração automática Delivery usam tag derivada do nome: maiúsculas, sem acentos e com espaços/separadores convertidos em hífen, sem hífens repetidos ou nas extremidades (`Zero Grau` → `ZERO-GRAU`). Nome sem letras/números é inválido. Colisão com plataforma de outro dono retorna conflito; não acrescenta hash ou sufixo. Plataformas já vinculadas preservam tag e histórico, inclusive após mudança de nome.
