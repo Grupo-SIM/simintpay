@@ -1,15 +1,25 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call --
+   legacy sync consumes untyped acquirer payloads; typing them is tracked separately. */
+import { setWalletBalance } from '../../../modules/wallet-ledger/wallet-ledger';
 import { requireExclusivePlatformWallet } from '../../helpers/exclusive-platform-wallet.helper';
 import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { TransactionStatus, WithdrawStatus, PaymentMethod, Prisma } from '@prisma/client';
+import {
+  TransactionStatus,
+  WithdrawStatus,
+  PaymentMethod,
+  Prisma,
+} from '@prisma/client';
 import { HASH_SERVICE } from '../../../core/services/hash.interface';
 import type { IHashService } from '../../../core/services/hash.interface';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import dayjs from 'dayjs';
-import { appendInternalTags, TENANT_RENOVADA_TAG } from '../../utils/internal-tags.util';
+import {
+  appendInternalTags,
+  TENANT_RENOVADA_TAG,
+} from '../../utils/internal-tags.util';
 import { RenovadaConfig } from '../../../modules/renovada/renovada.config';
 
 @Injectable()
@@ -23,33 +33,48 @@ export class SyncFullRenovadaUseCase {
   ) {}
 
   async execute() {
-    const RENOVADA_ID = (getPlatformOwnerId('RENOVADA') ?? '');
-    const RENOVADA_NAME = 'Renovada 12';
+    const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     /**
      * Usamos o api-dom para buscar transações da Renovada,
      * porque o token DOM (55ac4...) é da CONTA MASTER e retorna transações
      * de TODAS as plataformas.
-     * 
+     *
      * O api-dom já tem a separação por userId correta no banco dele.
      * O x-access-token "4a29df01..." mapeia para o user da Renovada no api-dom.
      */
-    const API_DOM_URL = getPlatformIntegrationValue('RENOVADA', 'DOM_BACKEND_URL');
+    const API_DOM_URL = getPlatformIntegrationValue(
+      'RENOVADA',
+      'DOM_BACKEND_URL',
+    );
     // x-access-token do api-dom para a Renovada (NÃO é o token da DOM Pagamentos!)
     // Usar RENOVADA_APIDOM_XTOKEN para não confundir com RENOVADA_DOM_TOKEN (que em prod é o master)
-    const RENOVADA_API_DOM_TOKEN = (getPlatformIntegrationValue('RENOVADA', 'API_DOM_XTOKEN') ?? undefined);
+    const RENOVADA_API_DOM_TOKEN =
+      getPlatformIntegrationValue('RENOVADA', 'API_DOM_XTOKEN') ?? undefined;
 
-    if (!API_DOM_URL || !RENOVADA_API_DOM_TOKEN) throw new Error('Integração da plataforma não configurada');
+    if (!API_DOM_URL || !RENOVADA_API_DOM_TOKEN)
+      throw new Error('Integração da plataforma não configurada');
 
     this.logger.log(`=== SINCRONIZAÇÃO COMPLETA RENOVADA ===`);
     this.logger.log(`RENOVADA_ID: ${RENOVADA_ID}`);
     this.logger.log(`API_DOM_URL: ${API_DOM_URL}`);
 
-
     // 1. Upsert Usuário & Carteira (NÃO setar domToken — é master e traria tudo)
-    const assignedOwner = await this.prisma.platform.findUnique({ where: { tag: 'RENOVADA' }, include: { owner: true } });
-    if (!assignedOwner?.isActive || !assignedOwner.owner.isActive || assignedOwner.owner.isPurged) throw new Error('Plataforma sem dono ativo cadastrado');
-    await requireExclusivePlatformWallet(this.prisma, assignedOwner.ownerUserId, 'RENOVADA');
+    const assignedOwner = await this.prisma.platform.findUnique({
+      where: { tag: 'RENOVADA' },
+      include: { owner: true },
+    });
+    if (
+      !assignedOwner?.isActive ||
+      !assignedOwner.owner.isActive ||
+      assignedOwner.owner.isPurged
+    )
+      throw new Error('Plataforma sem dono ativo cadastrado');
+    await requireExclusivePlatformWallet(
+      this.prisma,
+      assignedOwner.ownerUserId,
+      'RENOVADA',
+    );
 
     await this.prisma.wallet.upsert({
       where: { userId: RENOVADA_ID },
@@ -60,16 +85,20 @@ export class SyncFullRenovadaUseCase {
     // 2. Testar conexão com api-dom primeiro
     this.logger.log('Testando conexão com api-dom...');
     try {
-      const testRes = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/history`, {
-        headers: {
-          'x-access-token': RENOVADA_API_DOM_TOKEN,
-          'Accept': 'application/json',
-        },
-        params: { page: 1, limit: 1 },
-        timeout: 10000,
-      }));
-      
-      this.logger.log(`Conexão OK! Total de transações no api-dom: ${testRes.data?.meta?.totalItems ?? 'desconhecido'}`);
+      const testRes = await firstValueFrom(
+        this.http.get<any>(`${API_DOM_URL}/payments/history`, {
+          headers: {
+            'x-access-token': RENOVADA_API_DOM_TOKEN,
+            Accept: 'application/json',
+          },
+          params: { page: 1, limit: 1 },
+          timeout: 10000,
+        }),
+      );
+
+      this.logger.log(
+        `Conexão OK! Total de transações no api-dom: ${testRes.data?.meta?.totalItems ?? 'desconhecido'}`,
+      );
       this.logger.log(`Resposta test: ${JSON.stringify(testRes.data?.meta)}`);
     } catch (testErr: any) {
       this.logger.error(`FALHA na conexão com api-dom: ${testErr.message}`);
@@ -95,14 +124,16 @@ export class SyncFullRenovadaUseCase {
       try {
         this.logger.log(`Buscando página ${page}...`);
 
-        const res = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/history`, {
-          headers: {
-            'x-access-token': RENOVADA_API_DOM_TOKEN,
-            'Accept': 'application/json',
-          },
-          params: { page, limit: LIMIT },
-          timeout: 30000,
-        }));
+        const res = await firstValueFrom(
+          this.http.get<any>(`${API_DOM_URL}/payments/history`, {
+            headers: {
+              'x-access-token': RENOVADA_API_DOM_TOKEN,
+              Accept: 'application/json',
+            },
+            params: { page, limit: LIMIT },
+            timeout: 30000,
+          }),
+        );
 
         const data = res.data;
         const txList: any[] = data?.transactions ?? [];
@@ -115,7 +146,9 @@ export class SyncFullRenovadaUseCase {
           break;
         }
 
-        this.logger.log(`Página ${page}/${totalPages}: ${txList.length} transações (total: ${totalItems})`);
+        this.logger.log(
+          `Página ${page}/${totalPages}: ${txList.length} transações (total: ${totalItems})`,
+        );
 
         for (const tx of txList) {
           try {
@@ -134,7 +167,7 @@ export class SyncFullRenovadaUseCase {
 
             const mappedStatus = this.mapTransactionStatus(tx.status);
             const amount = new Prisma.Decimal(tx.amount || 0);
-            
+
             const liquidez = RenovadaConfig.saque.fatorLiquidez;
             const netAmountVal = Number(tx.amount || 0) * liquidez;
             const netAmount = new Prisma.Decimal(netAmountVal);
@@ -142,9 +175,14 @@ export class SyncFullRenovadaUseCase {
             const totalFeeVal = Number(tx.amount || 0) - netAmountVal;
             const totalFee = new Prisma.Decimal(totalFeeVal);
 
-            const domFeeVal = Math.min(totalFeeVal, Number(tx.dom_fee || totalFeeVal * 0.4));
+            const domFeeVal = Math.min(
+              totalFeeVal,
+              Number(tx.dom_fee || totalFeeVal * 0.4),
+            );
             const domFee = new Prisma.Decimal(domFeeVal);
-            const platformFee = new Prisma.Decimal(Math.max(0, totalFeeVal - domFeeVal));
+            const platformFee = new Prisma.Decimal(
+              Math.max(0, totalFeeVal - domFeeVal),
+            );
             const internalDescription = appendInternalTags(
               tx.description || existing?.description || 'Migração API-DOM',
               [TENANT_RENOVADA_TAG],
@@ -193,7 +231,9 @@ export class SyncFullRenovadaUseCase {
                 platformFee,
                 installments: tx.installments || 1,
                 createdAt: new Date(tx.createdAt),
-                updatedAt: tx.updatedAt ? new Date(tx.updatedAt) : new Date(tx.createdAt),
+                updatedAt: tx.updatedAt
+                  ? new Date(tx.updatedAt)
+                  : new Date(tx.createdAt),
               },
             });
             totalSynced++;
@@ -219,12 +259,16 @@ export class SyncFullRenovadaUseCase {
       } catch (err: any) {
         this.logger.error(`Erro ao buscar página ${page}: ${err.message}`);
         this.logger.error(`Response status: ${err.response?.status}`);
-        this.logger.error(`Response data: ${JSON.stringify(err.response?.data)}`);
+        this.logger.error(
+          `Response data: ${JSON.stringify(err.response?.data)}`,
+        );
         hasMore = false;
       }
     }
 
-    this.logger.log(`Transações: ${totalSynced} novas, ${totalSkipped} atualizadas, ${totalErrors} erros`);
+    this.logger.log(
+      `Transações: ${totalSynced} novas, ${totalSkipped} atualizadas, ${totalErrors} erros`,
+    );
 
     // 4. Sincronizar Saques
     this.logger.log('Sincronizando saques...');
@@ -234,24 +278,31 @@ export class SyncFullRenovadaUseCase {
       let wdHasMore = true;
 
       while (wdHasMore) {
-        const res = await firstValueFrom(this.http.get<any>(`${API_DOM_URL}/payments/withdrawals`, {
-          headers: {
-            'x-access-token': RENOVADA_API_DOM_TOKEN,
-            'Accept': 'application/json',
-          },
-          params: { page: wdPage, limit: 100 },
-          timeout: 30000,
-        }));
+        const res = await firstValueFrom(
+          this.http.get<any>(`${API_DOM_URL}/payments/withdrawals`, {
+            headers: {
+              'x-access-token': RENOVADA_API_DOM_TOKEN,
+              Accept: 'application/json',
+            },
+            params: { page: wdPage, limit: 100 },
+            timeout: 30000,
+          }),
+        );
 
         const wdData = res.data;
         const withdrawals: any[] = wdData?.withdrawals ?? wdData?.data ?? [];
 
-        if (withdrawals.length === 0) { wdHasMore = false; break; }
+        if (withdrawals.length === 0) {
+          wdHasMore = false;
+          break;
+        }
 
         for (const w of withdrawals) {
           try {
             const existing = await this.prisma.withdrawRequest.findFirst({
-              where: { OR: [...(w.id ? [{ domWithdrawId: w.id }, { id: w.id }] : [])] },
+              where: {
+                OR: [...(w.id ? [{ domWithdrawId: w.id }, { id: w.id }] : [])],
+              },
             });
             if (existing) continue;
 
@@ -270,12 +321,17 @@ export class SyncFullRenovadaUseCase {
             });
             totalWithdrawalsSynced++;
           } catch (err: any) {
-            if (err.code !== 'P2002') this.logger.warn(`Erro saque: ${err.message}`);
+            if (err.code !== 'P2002')
+              this.logger.warn(`Erro saque: ${err.message}`);
           }
         }
 
         const wdTotalPages = wdData?.meta?.totalPages ?? 1;
-        if (wdPage >= wdTotalPages) { wdHasMore = false; } else { wdPage++; }
+        if (wdPage >= wdTotalPages) {
+          wdHasMore = false;
+        } else {
+          wdPage++;
+        }
         if (wdPage > 100) wdHasMore = false;
       }
     } catch (err: any) {
@@ -292,10 +348,19 @@ export class SyncFullRenovadaUseCase {
       { description: { contains: 'oferta', mode: 'insensitive' as const } },
       { description: { contains: 'fundacao', mode: 'insensitive' as const } },
       { description: { contains: 'fundação', mode: 'insensitive' as const } },
-      { description: { contains: TENANT_RENOVADA_TAG, mode: 'insensitive' as const } },
+      {
+        description: {
+          contains: TENANT_RENOVADA_TAG,
+          mode: 'insensitive' as const,
+        },
+      },
     ];
     const completedTxs = await this.prisma.transaction.aggregate({
-      where: { userId: RENOVADA_ID, status: TransactionStatus.COMPLETED, OR: renovadaKeywords },
+      where: {
+        userId: RENOVADA_ID,
+        status: TransactionStatus.COMPLETED,
+        OR: renovadaKeywords,
+      },
       _sum: { netAmount: true },
     });
 
@@ -311,17 +376,25 @@ export class SyncFullRenovadaUseCase {
     const totalWithdrawn = Number(completedWithdraws._sum.amount || 0);
     const calculatedBalance = Math.max(0, totalReceived - totalWithdrawn);
 
-    await this.prisma.wallet.update({
-      where: { userId: RENOVADA_ID },
-      data: { balance: calculatedBalance },
-    });
+    await this.prisma.$transaction((tx) =>
+      setWalletBalance(tx, {
+        userId: RENOVADA_ID,
+        action: 'ADMIN_SYNC_BALANCE',
+        source: 'SYNC_FULL_RENOVADA',
+        balance: calculatedBalance,
+        description: 'Saldo recalculado por líquidos recebidos menos saques',
+        metadata: { totalReceived, totalWithdrawn },
+      }),
+    );
 
     const totalRenovadaTxs = await this.prisma.transaction.count({
       where: { userId: RENOVADA_ID },
     });
 
     this.logger.log(`=== SINCRONIZAÇÃO CONCLUÍDA ===`);
-    this.logger.log(`  Transações: ${totalSynced} novas, ${totalSkipped} atualizadas`);
+    this.logger.log(
+      `  Transações: ${totalSynced} novas, ${totalSkipped} atualizadas`,
+    );
     this.logger.log(`  Total no banco: ${totalRenovadaTxs}`);
     this.logger.log(`  Saques: ${totalWithdrawalsSynced}`);
     this.logger.log(`  Saldo: R$ ${calculatedBalance.toFixed(2)}`);
@@ -341,9 +414,18 @@ export class SyncFullRenovadaUseCase {
 
   private mapTransactionStatus(domStatus: string): TransactionStatus {
     const s = (domStatus || '').toUpperCase();
-    if (s === 'PAID' || s === 'APPROVED' || s === 'COMPLETED') return TransactionStatus.COMPLETED;
-    if (s === 'PENDING' || s === 'WAITING' || s === 'AUTHORIZED') return TransactionStatus.PENDING;
-    if (s === 'REFUSED' || s === 'CANCELED' || s === 'FAILED' || s === 'ERROR' || s === 'NOT_AUTHORIZED') return TransactionStatus.FAILED;
+    if (s === 'PAID' || s === 'APPROVED' || s === 'COMPLETED')
+      return TransactionStatus.COMPLETED;
+    if (s === 'PENDING' || s === 'WAITING' || s === 'AUTHORIZED')
+      return TransactionStatus.PENDING;
+    if (
+      s === 'REFUSED' ||
+      s === 'CANCELED' ||
+      s === 'FAILED' ||
+      s === 'ERROR' ||
+      s === 'NOT_AUTHORIZED'
+    )
+      return TransactionStatus.FAILED;
     if (s === 'REFUNDED') return TransactionStatus.REFUNDED;
     if (s === 'EXPIRED') return TransactionStatus.EXPIRED;
     if (s === 'CHARGEBACK') return TransactionStatus.CHARGEBACK;
@@ -353,14 +435,21 @@ export class SyncFullRenovadaUseCase {
   private mapPaymentMethod(domMethod: string): PaymentMethod {
     const m = (domMethod || '').toLowerCase();
     if (m.includes('pix')) return PaymentMethod.PIX;
-    if (m.includes('card') || m.includes('credit')) return PaymentMethod.CREDIT_CARD;
+    if (m.includes('card') || m.includes('credit'))
+      return PaymentMethod.CREDIT_CARD;
     return PaymentMethod.PIX;
   }
 
   private mapWithdrawStatus(domStatus: string): WithdrawStatus {
     const s = (domStatus || '').toLowerCase();
-    if (s.includes('paid') || s.includes('completed') || s.includes('approved')) return WithdrawStatus.APPROVED;
-    if (s.includes('rejected') || s.includes('canceled') || s.includes('failed')) return WithdrawStatus.REJECTED;
+    if (s.includes('paid') || s.includes('completed') || s.includes('approved'))
+      return WithdrawStatus.APPROVED;
+    if (
+      s.includes('rejected') ||
+      s.includes('canceled') ||
+      s.includes('failed')
+    )
+      return WithdrawStatus.REJECTED;
     return WithdrawStatus.PENDING;
   }
 }
