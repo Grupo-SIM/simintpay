@@ -2,7 +2,7 @@
 
 Plano proposto em 2026-10-29. Implementação autorizada em 2026-10-29, sem unificação de produtos e sem executar migrações remotas.
 
-Relacionados: [0002 — plataformas explícitas](0002-explicit-owned-platforms.md), [0007 — ledger](0007-balance-ledger-source-of-truth.md) e [0008 — taxas, adquirentes e lucro](0008-taxas-adquirentes-lucro.md). O plano 0008 define o cálculo financeiro; este define a quem ele pertence e quem executou a operação. A unificação foi separada no [plano 0010](0010-unificacao-ofertas-cobrancas.md).
+Relacionados: [0002 — plataformas explícitas](done/0002-explicit-owned-platforms.md), [0007 — ledger](0007-balance-ledger-source-of-truth.md) e [0008 — taxas, adquirentes e lucro](0008-taxas-adquirentes-lucro.md). O plano 0008 define o cálculo financeiro; este define a quem ele pertence e quem executou a operação. A unificação foi separada no [plano 0010](0010-unificacao-ofertas-cobrancas.md).
 
 ## 1. Diagnóstico verificado
 

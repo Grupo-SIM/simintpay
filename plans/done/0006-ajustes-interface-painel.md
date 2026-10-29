@@ -1,6 +1,6 @@
 # Ajustes de interface e filtros do painel — backend
 
-Execução local do [plano aprovado no frontend](../../simintpay-front/plans/0006-ajustes-interface-painel.md).
+Execução local do [plano aprovado no frontend](../../../simintpay-front/plans/0006-ajustes-interface-painel.md).
 
 - [x] Contrato `GET /assinantes`: busca, plataforma, primeira cobrança, status agrupado e frequência.
 - [x] Mesclar pausas locais e resolver plataformas antes de filtrar/paginar conjunto completo.
