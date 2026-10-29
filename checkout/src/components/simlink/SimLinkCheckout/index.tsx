@@ -104,7 +104,9 @@ type LinkData = {
 };
 
 import type { PaymentMethod } from './types';
-import { MethodIcon } from './components';
+import { previewLink } from '@/lib/payment-link-preview-adapter';
+import type { PaymentLinkPreviewDraft } from '@/lib/payment-link-preview';
+import { MethodIcon, PreviewNotice } from './components';
 type Step = 'pedido' | 'dados' | 'forma' | 'cartao' | 'pix';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -151,13 +153,22 @@ const PIX_BENEFITS = [
   { Icon: Smartphone, text: 'Pague pelo app de qualquer banco' },
 ];
 
-export default function SimLinkCheckout() {
+export default function SimLinkCheckout({
+  previewDraft,
+  onPreviewLoaded,
+}: {
+  previewDraft?: PaymentLinkPreviewDraft;
+  onPreviewLoaded?: () => void;
+}) {
+  const preview = previewDraft !== undefined;
   const router = useRouter();
   const searchParams = useSearchParams();
   const simLinkCode = searchParams.get('simLinkCode');
 
-  const [link, setLink] = useState<LinkData | null>(null);
-  const [fetching, setFetching] = useState(true);
+  const [link, setLink] = useState<LinkData | null>(() =>
+    previewDraft ? previewLink(previewDraft) : null,
+  );
+  const [fetching, setFetching] = useState(!preview);
   const [linkError, setLinkError] = useState('');
   const [step, setStep] = useState<Step>('pedido');
   const [loading, setLoading] = useState(false);
@@ -196,7 +207,13 @@ export default function SimLinkCheckout() {
   >([]);
 
   // Forma de pagamento selecionada
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() =>
+    !previewDraft || previewDraft.methods.pix
+      ? 'pix'
+      : previewDraft.methods.credit
+        ? 'credit'
+        : 'debit',
+  );
 
   // Dados do cliente
   const [name, setName] = useState('');
@@ -217,7 +234,12 @@ export default function SimLinkCheckout() {
 
   // Ao confirmar o pagamento (ex.: PIX), abre o redirect em uma NOVA aba — só depois do funil de ofertas.
   useEffect(() => {
-    if (paymentConfirmed && funnelStage === 'done' && link?.redirectUrl) {
+    if (
+      !preview &&
+      paymentConfirmed &&
+      funnelStage === 'done' &&
+      link?.redirectUrl
+    ) {
       window.open(link.redirectUrl, '_blank', 'noopener,noreferrer');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -228,13 +250,18 @@ export default function SimLinkCheckout() {
     window.scrollTo({ top: 0 });
   }, [step, declined, funnelStage]);
 
-  usePixConfirmation(pixDomId, paymentConfirmed, () => {
+  usePixConfirmation(preview ? null : pixDomId, paymentConfirmed, () => {
+    if (preview) return;
     setPaymentConfirmed(true);
     setPaidAt(new Date());
     setFunnelStage(link?.ofertas?.upsell ? 'upsell' : 'done');
   });
 
   useEffect(() => {
+    if (preview) {
+      onPreviewLoaded?.();
+      return;
+    }
     if (!simLinkCode) {
       setFetching(false);
       return;
@@ -255,11 +282,11 @@ export default function SimLinkCheckout() {
         setLinkError(err.message || 'Erro ao carregar link de pagamento'),
       )
       .finally(() => setFetching(false));
-  }, [simLinkCode]);
+  }, [simLinkCode, preview, onPreviewLoaded]);
 
   /** Marca/desmarca um order bump e recalcula valores e parcelas no backend. */
   async function toggleOrderBump(offerId: string) {
-    if (!link) return;
+    if (preview || !link) return;
     const previous = selectedBumps;
     const next = previous.includes(offerId)
       ? previous.filter((id) => id !== offerId)
@@ -290,6 +317,7 @@ export default function SimLinkCheckout() {
 
   /** Tokeniza de novo o cartão já digitado (tokens são de uso único) para o upsell/downsell. */
   const buildCardBody: BuildCardBody = async () => {
+    if (preview) return { error: 'Pagamento desabilitado na prévia.' };
     const tokenRes = await getTokenCard(
       GATEWAY_PUBLIC_KEY,
       {
@@ -323,6 +351,7 @@ export default function SimLinkCheckout() {
     reference: string;
     redirectUrl: string | null;
   }) {
+    if (preview) return;
     if (finish.redirectUrl) {
       window.open(finish.redirectUrl, '_blank', 'noopener,noreferrer');
     }
@@ -330,6 +359,7 @@ export default function SimLinkCheckout() {
   }
 
   function advanceFunnel(accepted: boolean) {
+    if (preview) return;
     // Recusou o upsell e existe downsell → oferece o downsell; senão encerra o funil.
     if (!accepted && funnelStage === 'upsell' && link?.ofertas?.downsell) {
       setFunnelStage('downsell');
@@ -340,7 +370,7 @@ export default function SimLinkCheckout() {
   }
 
   async function handleSubmit() {
-    if (!link || loading) return;
+    if (preview || !link || loading) return;
     setError('');
     setLoading(true);
 
@@ -494,6 +524,7 @@ export default function SimLinkCheckout() {
 
   if (
     (funnelStage === 'upsell' || funnelStage === 'downsell') &&
+    !preview &&
     link &&
     mainTxId
   ) {
@@ -537,6 +568,7 @@ export default function SimLinkCheckout() {
   // ───────────────────────── Sucesso PIX (3c / 7b) ─────────────────────────
 
   if (
+    !preview &&
     paymentConfirmed &&
     funnelStage !== 'upsell' &&
     funnelStage !== 'downsell'
@@ -760,7 +792,12 @@ export default function SimLinkCheckout() {
 
   function onPrimary(e?: { preventDefault(): void }) {
     e?.preventDefault();
-    if (loading || quoting) return;
+    if (
+      loading ||
+      quoting ||
+      (preview && (step === 'cartao' || step === 'pix'))
+    )
+      return;
     setError('');
     switch (step) {
       case 'pedido':
@@ -768,9 +805,10 @@ export default function SimLinkCheckout() {
         return;
       case 'dados':
         setShowDadosErrors(true);
-        if (dadosOk) setStep('forma');
+        if (preview || dadosOk) setStep('forma');
         return;
       case 'forma':
+        if (!methods.length) return;
         goToPayment(paymentMethod);
         return;
       case 'cartao':
@@ -1050,8 +1088,10 @@ export default function SimLinkCheckout() {
 
   // ───────────────────────── Etapas ─────────────────────────
 
-  const ctaLabel =
-    step === 'pedido'
+  const previewPaymentStep = preview && (step === 'cartao' || step === 'pix');
+  const ctaLabel = previewPaymentStep
+    ? 'Pagamento desabilitado na prévia'
+    : step === 'pedido'
       ? 'Continuar'
       : step === 'dados'
         ? 'Continuar para pagamento'
@@ -1067,7 +1107,12 @@ export default function SimLinkCheckout() {
     step === 'pix' && pixGenerated ? null : (
       <CtaButton
         type="submit"
-        disabled={loading || quoting}
+        disabled={
+          loading ||
+          quoting ||
+          previewPaymentStep ||
+          (step === 'forma' && !methods.length)
+        }
         className={className}
       >
         {loading && <Spinner size={18} width={3} />}
@@ -1121,6 +1166,7 @@ export default function SimLinkCheckout() {
 
   return (
     <Screen>
+      {preview && <PreviewNotice noMethods={!methods.length} />}
       <DesktopHeader step={desktopStep} />
       {mobileHeader}
 
