@@ -1,4 +1,4 @@
-export const BUYER_MEMORY_KEY = 'simintpay:buyer-contact:v2';
+export const BUYER_MEMORY_KEY = 'simintpay:buyer-contact:v3';
 
 export type BuyerContact = {
   name: string;
@@ -24,14 +24,30 @@ export function contactOnly(value: BuyerContact): BuyerContact {
   };
 }
 
+export function removeBuyerMemory(): boolean {
+  try {
+    window.localStorage.removeItem(BUYER_MEMORY_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Earlier versions saved without asking; their records are discarded, never restored.
+const LEGACY_KEYS = [
+  'simintpay:buyer-contact:v1',
+  'simintpay:buyer-contact:v2',
+];
+
 export function readBuyerMemory(): BuyerContact | null {
   try {
+    LEGACY_KEYS.forEach((key) => window.localStorage.removeItem(key));
     const raw = window.localStorage.getItem(BUYER_MEMORY_KEY);
     if (!raw || raw.length > 2048) return null;
     const value = JSON.parse(raw);
     const contact = value?.contact;
     if (
-      value?.version !== 2 ||
+      value?.version !== 3 ||
       !contact ||
       typeof contact !== 'object' ||
       Array.isArray(contact) ||
@@ -51,7 +67,7 @@ export function writeBuyerMemory(contact: BuyerContact): boolean {
   try {
     window.localStorage.setItem(
       BUYER_MEMORY_KEY,
-      JSON.stringify({ version: 2, contact: contactOnly(contact) }),
+      JSON.stringify({ version: 3, contact: contactOnly(contact) }),
     );
     return true;
   } catch {

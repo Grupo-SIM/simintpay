@@ -1,5 +1,6 @@
 'use client';
 import { useBuyerMemory } from '@/hooks/use-buyer-memory';
+import { BuyerMemoryPreference } from '@/components/checkout/BuyerMemoryPreference';
 import { EBOOK_API_URL, PAGATG_API_URL, SIM_API_URL } from '@/lib/api-config';
 
 import { EmailNoticeModal } from '@/components/checkout/EmailNoticeModal';
@@ -131,7 +132,7 @@ const CheckoutForm = () => {
     [],
   ); // Opções de parcelas para ebook (MDR_CC_MASTER)
   const [mounted, setMounted] = useState(false);
-  useBuyerMemory(
+  const buyerMemory = useBuyerMemory(
     {
       name: formData.name,
       email: formData.email,
@@ -2242,6 +2243,7 @@ const CheckoutForm = () => {
                       </p>
                     )}
                   </CheckoutGlassField>
+                  <BuyerMemoryPreference {...buyerMemory} />
                 </div>
               </CheckoutAccordionSection>
 
