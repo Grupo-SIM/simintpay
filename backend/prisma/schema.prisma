@@ -1277,8 +1277,8 @@ model Platform {
   users          User[] @relation("PlatformMembers")
   customerInterestRates Json @default("{}")
   absorbCustomerInterest Boolean @default(true)
-  /// SIM Delivery only: which fee sets apply to its payments. ADDITIVE_ONLY keeps the historical behavior.
-  deliveryFeeMode DeliveryFeeMode @default(ADDITIVE_ONLY)
+  /// SIM Delivery only: which fee sets apply to its payments. SIMINTPAY_ONLY is the default; Delivery itself is set to ADDITIVE_ONLY by hand.
+  deliveryFeeMode DeliveryFeeMode @default(SIMINTPAY_ONLY)
   integrations   PlatformIntegration[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
