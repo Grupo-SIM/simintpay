@@ -4,7 +4,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, Role, type DeliveryFeeMode } from '@prisma/client';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import {
@@ -68,11 +68,16 @@ export async function loadFinancialPolicy(
 }
 
 /** No internal acquirer fields leave this projection. */
-export function projectPolicy(policy: ResolvedPolicy, admin: boolean) {
+export function projectPolicy(
+  policy: ResolvedPolicy,
+  admin: boolean,
+  feeMode: DeliveryFeeMode | null = null,
+) {
   const { version, sources } = policy;
   return {
     version,
     sources,
+    feeMode,
     ownerOverrides: policy.own.owner,
     globalOwner: policy.global.owner,
     owner: policy.document.owner,
@@ -114,13 +119,32 @@ async function authorize(prisma: PrismaService, tag: string, user: JwtPayload) {
   return admin;
 }
 
+/** GLOBAL has no platform row, so it carries no fee mode. */
+async function platformFeeMode(
+  prisma: Pick<Prisma.TransactionClient, 'platform'>,
+  tag: string,
+): Promise<DeliveryFeeMode | null> {
+  if (tag === 'GLOBAL') return null;
+  const platform = await prisma.platform.findUnique({
+    where: { tag },
+    select: { deliveryFeeMode: true },
+  });
+  return platform?.deliveryFeeMode ?? null;
+}
+
 export async function getFinancialPolicy(
   prisma: PrismaService,
   tag: string,
   user: JwtPayload,
 ) {
   const admin = await authorize(prisma, tag, user);
-  return { data: projectPolicy(await loadFinancialPolicy(prisma, tag), admin) };
+  return {
+    data: projectPolicy(
+      await loadFinancialPolicy(prisma, tag),
+      admin,
+      await platformFeeMode(prisma, tag),
+    ),
+  };
 }
 
 export async function saveFinancialPolicy(
@@ -137,10 +161,12 @@ export async function saveFinancialPolicy(
     owner?: unknown;
     interestFree?: unknown;
     lanes?: unknown;
+    feeMode?: unknown;
   };
   if (
     Object.keys(body).some(
-      (key) => !['version', 'owner', 'interestFree', 'lanes'].includes(key),
+      (key) =>
+        !['version', 'owner', 'interestFree', 'lanes', 'feeMode'].includes(key),
     )
   )
     throw new BadRequestException('Campo não permitido');
@@ -148,6 +174,17 @@ export async function saveFinancialPolicy(
     throw new ForbiddenException(
       'Custos SimIntPay exclusivos do administrador',
     );
+  if (input.feeMode !== undefined) {
+    if (!admin)
+      throw new ForbiddenException('Modo de taxas exclusivo do administrador');
+    if (
+      tag === 'GLOBAL' ||
+      !['SIMINTPAY_ONLY', 'ADDITIVE_ONLY', 'BOTH'].includes(
+        String(input.feeMode),
+      )
+    )
+      throw new BadRequestException('Modo de taxas inválido');
+  }
   try {
     return await prisma.$transaction(
       async (tx) => {
@@ -172,6 +209,11 @@ export async function saveFinancialPolicy(
           document.lanes = input.lanes as Policy['lanes'];
         document.interestOnly = true;
         validatePolicy(document);
+        if (input.feeMode !== undefined)
+          await tx.platform.update({
+            where: { tag },
+            data: { deliveryFeeMode: input.feeMode as DeliveryFeeMode },
+          });
         if (input.lanes !== undefined) {
           const codes = [
             ...new Set(
@@ -196,7 +238,11 @@ export async function saveFinancialPolicy(
           },
         });
         return {
-          data: projectPolicy(await loadFinancialPolicy(tx, tag), admin),
+          data: projectPolicy(
+            await loadFinancialPolicy(tx, tag),
+            admin,
+            await platformFeeMode(tx, tag),
+          ),
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
