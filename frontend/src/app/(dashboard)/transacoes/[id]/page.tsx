@@ -32,7 +32,6 @@ import { ActionButton } from '../../relatorio/components/ActionButton';
 
 import { useTransacaoDetail } from '@/features/transacoes/hooks/use-transacao-detail';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { useEffect } from 'react';
 
 function formatBRL(
   value: number | string | undefined | null,
@@ -82,12 +81,6 @@ export default function TransacaoDetailPage() {
   const { user, loading: loadingUser } = useCurrentUser();
   const isAdmin = user?.isAdmin ?? false;
 
-  useEffect(() => {
-    if (!loading && !loadingUser && !isAdmin) {
-      router.replace('/transacoes');
-    }
-  }, [isAdmin, loading, loadingUser, router]);
-
   const order = data?.order;
 
   const timelineItems = useMemo(() => {
@@ -119,8 +112,6 @@ export default function TransacaoDetailPage() {
       </div>
     );
   }
-
-  if (!isAdmin) return null;
 
   if (error || !order) {
     return (
