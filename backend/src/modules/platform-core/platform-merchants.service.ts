@@ -13,8 +13,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PlatformPaymentsService } from '../unified-platform/payments/platform-payments.service';
-import { listAcquirerFees } from '../financial-policy/acquirer-fees';
-import type { Method } from '../financial-policy/financial-policy';
+import { acquirerCostFloor } from '../financial-policy/acquirer-fees';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
 import { CreatePlatformPaymentDto } from '../unified-platform/payments/platform-payment.dto';
 import type { PlatformContext } from './platform-context.service';
@@ -185,34 +184,7 @@ export class PlatformMerchantsService {
   /** Custo global das adquirentes ativas (ONLINE): piso das taxas cobradas de qualquer lojista. */
   async acquirerCosts(context: PlatformContext, externalMerchantId: string) {
     await this.resolve(context, externalMerchantId);
-    const lanes: { method: Method; installments: number }[] = [
-      { method: 'PIX' as Method, installments: 1 },
-      { method: 'DEBIT_CARD' as Method, installments: 1 },
-      ...Array.from({ length: 12 }, (_, i) => ({
-        method: 'CREDIT_CARD' as Method,
-        installments: i + 1,
-      })),
-    ];
-    const costs = await Promise.all(
-      lanes.map(async ({ method, installments }) => {
-        const fees = await listAcquirerFees(
-          this.prisma,
-          method,
-          'ONLINE',
-          installments,
-        );
-        if (!fees.length) return null;
-        // The most expensive active acquirer sets the floor, whichever one routes the payment.
-        return {
-          method,
-          channel: 'ONLINE' as const,
-          installments,
-          fixedCents: Math.max(...fees.map((fee) => fee.fixedCents)),
-          ratePpm: Math.max(...fees.map((fee) => fee.ratePpm)),
-        };
-      }),
-    );
-    return { costs: costs.filter(Boolean) };
+    return { costs: await acquirerCostFloor(this.prisma) };
   }
   async quote(
     context: PlatformContext,

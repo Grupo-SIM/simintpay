@@ -2,6 +2,14 @@ import { BadRequestException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { Channel, Method } from './financial-policy';
 
+export type CostFloor = {
+  method: Method;
+  channel: 'ONLINE';
+  installments: number;
+  fixedCents: number;
+  ratePpm: number;
+};
+
 type Client = Pick<
   Prisma.TransactionClient,
   'acquirerCatalogue' | 'acquirerFeeSchedule'
@@ -102,4 +110,35 @@ export function orderByCost(
         estimatedCost(b, originalCents, buyerTotalCents) ||
       a.acquirer.localeCompare(b.acquirer),
   );
+}
+
+/** Acquirer costs are global: the most expensive active acquirer per lane is the floor for every merchant. */
+export async function acquirerCostFloor(prisma: Client): Promise<CostFloor[]> {
+  const lanes: { method: Method; installments: number }[] = [
+    { method: 'PIX', installments: 1 },
+    { method: 'DEBIT_CARD', installments: 1 },
+    ...Array.from({ length: 12 }, (_, i) => ({
+      method: 'CREDIT_CARD' as Method,
+      installments: i + 1,
+    })),
+  ];
+  const floors = await Promise.all(
+    lanes.map(async ({ method, installments }): Promise<CostFloor | null> => {
+      const fees = await listAcquirerFees(
+        prisma,
+        method,
+        'ONLINE',
+        installments,
+      );
+      if (!fees.length) return null;
+      return {
+        method,
+        channel: 'ONLINE',
+        installments,
+        fixedCents: Math.max(...fees.map((fee) => fee.fixedCents)),
+        ratePpm: Math.max(...fees.map((fee) => fee.ratePpm)),
+      };
+    }),
+  );
+  return floors.filter((floor): floor is CostFloor => floor !== null);
 }
