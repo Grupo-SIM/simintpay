@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { useToast } from '@/components/ui/Toast';
 import { CustomSelect } from '@/components/ui/CustomSelect';
+import { FeeModeField } from './FeeModeField';
 import { FinancialBulkInterestField } from './FinancialBulkInterestField';
 import { FinancialNumberField } from './FinancialNumberField';
 import { FinancialContractModal } from './FinancialContractModal';
@@ -14,6 +15,7 @@ import { useFinancialSimulation } from './use-financial-simulation';
 import {
   defaultLane,
   defaultOwner,
+  type FeeMode,
   type FinancialConfiguration,
   type Lane,
   type OwnerRule,
@@ -33,6 +35,9 @@ export function FinancialPolicyDraft({
   const api = useClienteApi(),
     queryClient = useQueryClient(),
     { toast } = useToast();
+  const [feeMode, setFeeMode] = useState<FeeMode | null>(
+    configuration.feeMode ?? null,
+  );
   const [owner, setOwner] = useState(() => {
     if (
       admin ||
@@ -119,7 +124,8 @@ export function FinancialPolicyDraft({
     /^[A-Z][A-Z0-9_-]{0,39}$/.test(acquirer);
   const changed = admin
     ? JSON.stringify(lanes) !==
-      JSON.stringify(configuration.laneOverrides ?? {})
+        JSON.stringify(configuration.laneOverrides ?? {}) ||
+      feeMode !== (configuration.feeMode ?? null)
     : JSON.stringify(owner) !== JSON.stringify(configuration.ownerOverrides) ||
       JSON.stringify(lanes) !==
         JSON.stringify(configuration.laneOverrides ?? {}) ||
@@ -144,7 +150,13 @@ export function FinancialPolicyDraft({
         {
           version: configuration.version,
           ...(admin
-            ? { lanes }
+            ? {
+                lanes,
+                ...(feeMode !== null &&
+                feeMode !== (configuration.feeMode ?? null)
+                  ? { feeMode }
+                  : {}),
+              }
             : { owner, interestFree: interestFreeOverride }),
         },
       ),
@@ -328,6 +340,9 @@ export function FinancialPolicyDraft({
               : ' Cliente paga somente o valor original.'}
           </p>
         </fieldset>
+      )}
+      {admin && feeMode !== null && (
+        <FeeModeField value={feeMode} onChange={setFeeMode} />
       )}
       {admin && (
         <p className="text-sm text-zinc-500">

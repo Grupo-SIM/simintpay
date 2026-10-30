@@ -11,7 +11,10 @@ export type Lane = {
   };
   sim: Addition & { interestPpm: number };
 };
+export type FeeMode = 'SIMINTPAY_ONLY' | 'ADDITIVE_ONLY' | 'BOTH';
 export type FinancialConfiguration = {
+  /** Null for GLOBAL, which has no platform row. */
+  feeMode?: FeeMode | null;
   interestFreeOverride?: boolean | null;
   globalInterestFree?: boolean;
   ownerOverrides: Record<string, OwnerRule>;
