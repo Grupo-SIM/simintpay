@@ -1,7 +1,4 @@
-import {
-  isDefinitiveDomStatus,
-  markDefinitiveDomRejection,
-} from './dom-rejection';
+import { markChargeAttempt } from './dom-rejection';
 import { postDomCheckout } from './dom-checkout.acquirer';
 import {
   BadGatewayException,
@@ -67,13 +64,24 @@ export function resolveCardAcquirer(acquirer: string) {
         const failure = new BadGatewayException({
           code: 'ACQUIRER_PAYMENT_FAILED',
         });
-        throw isDefinitiveDomStatus(response.status)
-          ? markDefinitiveDomRejection(failure)
-          : failure;
+        throw markChargeAttempt(failure, {
+          provider: 'DOM',
+          httpStatus: response.status,
+          providerCode:
+            response.data &&
+            typeof response.data === 'object' &&
+            'code' in response.data &&
+            typeof response.data.code === 'string'
+              ? response.data.code
+              : undefined,
+        });
       }
       const payment = response.data;
-      if (typeof payment.id !== 'string' || !payment.id)
-        throw new BadGatewayException({ code: 'ACQUIRER_INVALID_RESPONSE' });
+      if (typeof payment?.id !== 'string' || !payment.id)
+        throw markChargeAttempt(
+          new BadGatewayException({ code: 'ACQUIRER_INVALID_RESPONSE' }),
+          { provider: 'DOM', httpStatus: response.status },
+        );
       return {
         id: payment.id,
         status: String(payment.status ?? '').toLowerCase(),

@@ -2,6 +2,11 @@ import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import { PlatformPaymentsService } from './platform-payments.service';
 import { encryptPlatformSecret } from '../../platform-integrations/platform-secrets';
+import {
+  CircuitOpenException,
+  CircuitUnavailableException,
+} from '../../../infrastructure/resilience/payment-circuit-breaker';
+import { markDefinitiveDomRejection } from './dom-rejection';
 
 const context = {
   id: 'platform',
@@ -47,8 +52,13 @@ function fixture(acquirer: 'DOM' | 'FRENDZ' = 'DOM') {
       findUnique: mock(async () => ({ id: 'wallet' })),
       upsert: mock(async () => ({ id: 'wallet' })),
     },
+    paymentAttempt: {
+      findFirst: mock(async () => null),
+    },
     transaction: {
+      findFirst: mock(async () => stored ?? null),
       findUnique: mock(async () => stored ?? null),
+      findUniqueOrThrow: mock(async () => stored),
       create: mock(async ({ data }: any) => {
         stored = data;
         return stored;
@@ -72,13 +82,84 @@ function fixture(acquirer: 'DOM' | 'FRENDZ' = 'DOM') {
     pixExpire: null,
   }));
   const gateways = { byAcquirer: mock(() => ({ createPixCheckout: charge })) };
+  const attempts = {
+    reserve: mock(async (transactionId: string, provider: string) => {
+      const sequence = attempts.reserve.mock.calls.length;
+      return {
+        kind: 'reserved' as const,
+        attempt: {
+          id: `${transactionId}:${sequence}`,
+          transactionId,
+          provider,
+          sequence,
+          externalReference: `pay_${transactionId}_${sequence}`,
+        },
+      };
+    }),
+    claimDispatch: mock(async (attemptId: string) => ({
+      kind: 'claimed' as const,
+      attempt: { id: attemptId },
+      leaseToken: 'test-lease',
+    })),
+    recordProviderResponse: mock(async () => true),
+    markUnknown: mock(async () => true),
+    markPreCreationFailed: mock(async () => true),
+    markReservedPreDispatchFailed: mock(async () => true),
+    inspectRetryEligibility: mock(async () => ({
+      kind: 'eligible' as const,
+      nextSequence: 2,
+    })),
+  };
+  const webhookProcessor = { execute: mock(async () => undefined) };
+  const breaker = {
+    begin: mock(async (provider: string, operation: string) => ({
+      provider,
+      operation,
+      token: 'test-permit',
+      fence: 1n,
+      probe: false,
+    })),
+    complete: mock(async () => undefined),
+  };
   return {
-    service: new PlatformPaymentsService(prisma as never, gateways as never),
+    service: new PlatformPaymentsService(
+      prisma as never,
+      gateways as never,
+      attempts as never,
+      breaker as never,
+      webhookProcessor as never,
+    ),
     prisma,
     platform,
     charge,
     gateways,
+    attempts,
+    breaker,
+    webhookProcessor,
   };
+}
+
+function allowFallback(f: ReturnType<typeof fixture>) {
+  f.platform.integrations.push({
+    key: 'FRENDZ_TOKEN',
+    encryptedValue: encryptPlatformSecret('frendz-token'),
+  });
+  f.prisma.acquirerCatalogue.findMany.mockResolvedValue([
+    { code: 'DOM', active: true },
+    { code: 'FRENDZ', active: true },
+  ]);
+  f.prisma.acquirerFeeSchedule.findMany.mockResolvedValue(
+    (['DOM', 'FRENDZ'] as const).map((acquirerCode, index) => ({
+      id: acquirerCode,
+      acquirerCode,
+      fixedCents: index * 10,
+      ratePpm: 0,
+      interestPpm: 0,
+      base: 'ORIGINAL',
+      source: 'manual',
+      createdAt: new Date('2026-01-01'),
+    })),
+  );
 }
 
 describe('platform payment core', () => {
@@ -89,6 +170,9 @@ describe('platform payment core', () => {
       paymentId: 'gateway-payment',
     });
     expect((charge.mock.calls as any)[0][1].amount).toBe(123.45);
+    expect((charge.mock.calls as any)[0][1].codExternal).toBe(
+      `pay_${(prisma.transaction.create.mock.calls as any)[0][0].data.id}_1`,
+    );
     expect(
       (prisma.transaction.create.mock.calls as any)[0][0].data.amount,
     ).toEqual(new Prisma.Decimal('123.45'));
@@ -155,15 +239,18 @@ describe('platform payment core', () => {
     expect(charge).not.toHaveBeenCalled();
   });
 
-  test('same key replays stored payment without another charge', async () => {
-    const { service, charge } = fixture();
+  test('same key replays stored payment without another attempt or charge', async () => {
+    const { service, charge, attempts, breaker } = fixture();
     const result = await service.create(context, input);
     expect(await service.create(context, input)).toEqual(result);
     expect(charge).toHaveBeenCalledTimes(1);
+    expect(attempts.reserve).toHaveBeenCalledTimes(1);
+    expect(breaker.begin).toHaveBeenCalledTimes(1);
     await expect(
       service.create(context, { ...input, amountCents: 12346 }),
     ).rejects.toThrow();
     expect(charge).toHaveBeenCalledTimes(1);
+    expect(attempts.reserve).toHaveBeenCalledTimes(1);
   });
 
   test('corporate contract without adapter cannot silently fall back to generic payment', async () => {
@@ -202,14 +289,202 @@ describe('platform payment core', () => {
     expect(prisma.transaction.create).not.toHaveBeenCalled();
   });
 
-  test('uncertain gateway failure blocks retries instead of issuing another charge', async () => {
-    const { service, charge } = fixture();
-    charge.mockImplementation(async () => {
+  test('open circuit before dispatch tries another provider with a distinct reference', async () => {
+    const f = fixture();
+    allowFallback(f);
+    f.breaker.begin.mockImplementation(
+      async (provider: string, operation: string) => {
+        if (provider === 'DOM')
+          throw new CircuitOpenException(provider, operation);
+        return {
+          provider,
+          operation,
+          token: 'fallback-permit',
+          fence: 1n,
+          probe: false,
+        };
+      },
+    );
+    const result = await f.service.create(context, input);
+    expect(result.paymentId).toBe('gateway-payment');
+    expect(f.attempts.reserve).toHaveBeenCalledTimes(2);
+    expect(f.attempts.markReservedPreDispatchFailed).toHaveBeenCalledTimes(1);
+    expect(f.attempts.claimDispatch).toHaveBeenCalledTimes(1);
+    expect(f.gateways.byAcquirer).toHaveBeenCalledWith('FRENDZ');
+    expect((f.charge.mock.calls as any)[0][1]).toMatchObject({
+      codExternal: `pay_${(f.prisma.transaction.create.mock.calls as any)[0][0].data.id}_2`,
+      amount: 12345,
+    });
+    expect(f.breaker.complete).toHaveBeenCalledTimes(1);
+    expect(await f.service.create(context, input)).toEqual(result);
+    expect(f.attempts.reserve).toHaveBeenCalledTimes(2);
+  });
+
+  test('fallback snapshots actual provider cost without repricing buyer or settlement', async () => {
+    const baseline = fixture();
+    allowFallback(baseline);
+    const fallback = fixture();
+    allowFallback(fallback);
+    for (const f of [baseline, fallback]) {
+      f.prisma.acquirerFeeSchedule.findMany.mockResolvedValue([
+        {
+          id: 'dom-fee',
+          acquirerCode: 'DOM',
+          fixedCents: 80,
+          ratePpm: 10000,
+          interestPpm: 0,
+          base: 'ORIGINAL',
+          source: 'manual',
+          createdAt: new Date('2026-01-01'),
+        },
+        {
+          id: 'frendz-fee',
+          acquirerCode: 'FRENDZ',
+          fixedCents: 150,
+          ratePpm: 30000,
+          interestPpm: 0,
+          base: 'ORIGINAL',
+          source: 'manual',
+          createdAt: new Date('2026-01-01'),
+        },
+      ]);
+    }
+    fallback.breaker.begin.mockImplementation(
+      async (provider: string, operation: string) => {
+        if (provider === 'DOM')
+          throw new CircuitOpenException(provider, operation);
+        return {
+          provider,
+          operation,
+          token: 'fallback-permit',
+          fence: 1n,
+          probe: false,
+        };
+      },
+    );
+    const original = await baseline.service.create(context, input);
+    const actual = await fallback.service.create(context, input);
+    const before = (baseline.prisma.transaction.create.mock.calls as any)[0][0]
+      .data;
+    const fallbackDraft = (
+      fallback.prisma.transaction.create.mock.calls as any
+    )[0][0].data;
+    expect(actual).toMatchObject({
+      amountCents: original.amountCents,
+      netAmountCents: original.netAmountCents,
+    });
+    expect(fallbackDraft.amount).toEqual(before.amount);
+    expect(fallbackDraft.netAmount).toEqual(before.netAmount);
+    expect(fallbackDraft.settlementBasis).toEqual(before.settlementBasis);
+    expect(fallbackDraft.financialSnapshot.originalCents).toBe(
+      before.financialSnapshot.originalCents,
+    );
+    expect(fallbackDraft.financialSnapshot.acquirerCost).toMatchObject({
+      acquirer: 'DOM',
+      realizedCents: 203,
+    });
+    const persisted = (await fallback.prisma.transaction.findUnique({})) as any;
+    expect(persisted).toMatchObject({ acquirer: 'FRENDZ' });
+    expect(persisted.amount).toEqual(before.amount);
+    expect(persisted.netAmount).toEqual(before.netAmount);
+    expect(persisted.settlementBasis).toEqual(before.settlementBasis);
+    expect(persisted.financialSnapshot).toMatchObject({
+      originalCents: before.financialSnapshot.originalCents,
+      acquirerCost: {
+        acquirer: 'FRENDZ',
+        fixedCents: 150,
+        ratePpm: 30000,
+        realizedCents: 520,
+      },
+    });
+    expect((fallback.charge.mock.calls as any)[0][1].amount).toBe(
+      (baseline.charge.mock.calls as any)[0][1].amount * 100,
+    );
+  });
+
+  test('failed reserved-to-pre-dispatch CAS stops fallback without dispatch', async () => {
+    const f = fixture();
+    allowFallback(f);
+    f.breaker.begin.mockRejectedValue(
+      new CircuitOpenException('DOM', 'CREATE_PIX'),
+    );
+    f.attempts.markReservedPreDispatchFailed.mockResolvedValue(false);
+    await expect(f.service.create(context, input)).rejects.toMatchObject({
+      response: { code: 'PAYMENT_PROCESSING' },
+    });
+    expect(f.attempts.markReservedPreDispatchFailed).toHaveBeenCalledTimes(1);
+    expect(f.attempts.reserve).toHaveBeenCalledTimes(1);
+    expect(f.attempts.claimDispatch).not.toHaveBeenCalled();
+    expect(f.charge).not.toHaveBeenCalled();
+  });
+
+  test('unavailable circuit fails closed without trying another provider', async () => {
+    const f = fixture();
+    allowFallback(f);
+    f.breaker.begin.mockRejectedValue(new CircuitUnavailableException());
+    await expect(f.service.create(context, input)).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(f.attempts.markReservedPreDispatchFailed).toHaveBeenCalledTimes(1);
+    expect(f.attempts.reserve).toHaveBeenCalledTimes(1);
+    expect(f.charge).not.toHaveBeenCalled();
+  });
+
+  test('verified no-charge rejection permits fallback but keeps the original financial amount', async () => {
+    const f = fixture();
+    allowFallback(f);
+    f.charge.mockImplementationOnce(async () => {
+      throw markDefinitiveDomRejection(new Error('verified no charge'));
+    });
+    expect(await f.service.create(context, input)).toMatchObject({
+      paymentId: 'gateway-payment',
+      amountCents: input.amountCents,
+    });
+    expect(f.attempts.markPreCreationFailed).toHaveBeenCalledTimes(1);
+    expect(f.attempts.reserve).toHaveBeenCalledTimes(2);
+    expect(f.charge).toHaveBeenCalledTimes(2);
+    const calls = f.charge.mock.calls as any;
+    expect(calls[0][1]).toMatchObject({ amount: 123.45 });
+    expect(calls[1][1]).toMatchObject({ amount: 12345 });
+    expect(calls[0][1].codExternal).not.toBe(calls[1][1].codExternal);
+    expect(
+      (f.prisma.transaction.create.mock.calls as any)[0][0].data.amount,
+    ).toEqual(new Prisma.Decimal('123.45'));
+  });
+
+  test('failed provider-response CAS never marks the draft paid or retries', async () => {
+    const f = fixture();
+    allowFallback(f);
+    f.attempts.recordProviderResponse.mockResolvedValue(false);
+    await expect(f.service.create(context, input)).rejects.toMatchObject({
+      response: { code: 'PAYMENT_PROCESSING' },
+    });
+    expect(f.attempts.recordProviderResponse).toHaveBeenCalledTimes(1);
+    expect(f.prisma.transaction.updateMany).not.toHaveBeenCalled();
+    expect(f.attempts.reserve).toHaveBeenCalledTimes(1);
+    expect(f.charge).toHaveBeenCalledTimes(1);
+    await expect(f.service.create(context, input)).rejects.toMatchObject({
+      response: { code: 'PAYMENT_PROCESSING' },
+    });
+    expect(f.charge).toHaveBeenCalledTimes(1);
+  });
+
+  test('ambiguous gateway failure blocks fallback and idempotent retry', async () => {
+    const f = fixture();
+    allowFallback(f);
+    f.charge.mockImplementation(async () => {
       throw new Error('timeout');
     });
-    await expect(service.create(context, input)).rejects.toThrow('timeout');
-    await expect(service.create(context, input)).rejects.toThrow();
-    expect(charge).toHaveBeenCalledTimes(1);
+    await expect(f.service.create(context, input)).rejects.toMatchObject({
+      response: { code: 'PAYMENT_PROCESSING' },
+    });
+    await expect(f.service.create(context, input)).rejects.toMatchObject({
+      response: { code: 'PAYMENT_PROCESSING' },
+    });
+    expect(f.attempts.markUnknown).toHaveBeenCalledTimes(1);
+    expect(f.attempts.markPreCreationFailed).not.toHaveBeenCalled();
+    expect(f.attempts.reserve).toHaveBeenCalledTimes(1);
+    expect(f.charge).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -296,8 +571,12 @@ describe('canonical card acquirer', () => {
       throw new Error('timeout');
     });
     globalThis.fetch = transport as never;
-    await expect(service.create(context, cardInput)).rejects.toThrow('timeout');
-    await expect(service.create(context, cardInput)).rejects.toThrow();
+    await expect(service.create(context, cardInput)).rejects.toMatchObject({
+      response: { code: 'PAYMENT_PROCESSING' },
+    });
+    await expect(service.create(context, cardInput)).rejects.toMatchObject({
+      response: { code: 'PAYMENT_PROCESSING' },
+    });
     expect(transport).toHaveBeenCalledTimes(1);
   });
 
@@ -403,6 +682,13 @@ test('canonical Delivery allocation charges exact total, freezes shares and reje
   });
   expect(f.prisma.financialPolicyRevision.findMany).not.toHaveBeenCalled();
   await f.service.createForMerchant(ctx, 'company', request);
+  const withoutAllocation = { ...request, allocation: undefined };
+  await expect(
+    f.service.createForMerchant(ctx, 'company', withoutAllocation),
+  ).rejects.toMatchObject({
+    status: 422,
+    response: { code: 'DELIVERY_ALLOCATION_REQUIRED' },
+  });
   await expect(
     f.service.createForMerchant(ctx, 'company', {
       ...request,

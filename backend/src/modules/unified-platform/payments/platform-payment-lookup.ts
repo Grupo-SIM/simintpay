@@ -24,7 +24,6 @@ export class PlatformPaymentLookup {
       throw new ForbiddenException('Plataforma ou dono alterado/inativo');
     const payment = await this.prisma.transaction.findFirst({
       where: {
-        acquirer: platform.acquirer,
         ...(merchantUserId ? { userId: merchantUserId } : {}),
         AND: [
           whereTransactionPlatform(platform.tag),

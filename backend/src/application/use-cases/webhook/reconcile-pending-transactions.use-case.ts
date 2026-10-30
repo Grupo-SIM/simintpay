@@ -11,6 +11,7 @@ import type {
   IPaymentGateway,
 } from '../../../core/services/payment-gateway.interface';
 import { ProcessDomWebhookUseCase } from './process-dom-webhook.use-case';
+import { PaymentAttemptsService } from '../../../modules/unified-platform/payments/payment-attempts.service';
 
 /** Status da DOM que significam "pago" (mesma lista do mapStatus do webhook). */
 const PAID_STATUSES = new Set([
@@ -339,6 +340,56 @@ export class ReconcilePendingTransactionsUseCase {
             action: 'kept-pending',
           });
           continue;
+        }
+
+        // A paginated list is only positive evidence when a matching row exists. It
+        // never proves non-creation, even when the payment is absent from every page.
+        const attempt = await this.prisma.paymentAttempt.findFirst({
+          where: {
+            transactionId: tx.id,
+            provider: 'DOM',
+            providerPaymentId: domPaymentId,
+          },
+        });
+        if (attempt) {
+          const correlated = await new PaymentAttemptsService(
+            this.prisma,
+          ).resolveCorrelated({
+            transactionId: tx.id,
+            provider: 'DOM',
+            providerPaymentId: domPaymentId,
+            externalReference: attempt.externalReference,
+            outcome: expectedStatus === 'COMPLETED' ? 'SUCCEEDED' : 'FAILED',
+            evidence: {
+              source: 'dom_reconciliation',
+              providerStatus: domStatus,
+              paymentId: domPaymentId,
+            },
+          });
+          if (correlated.kind === 'incident') {
+            this.logger.error(
+              `${prefix} late-success incident: tx=${tx.id} attempt=${attempt.id}`,
+            );
+            details.push({
+              id: tx.id,
+              domPaymentId,
+              domStatus,
+              action: 'incident',
+            });
+            continue;
+          }
+          if (correlated.kind === 'not_found') {
+            this.logger.warn(
+              `${prefix} attempt identifiers changed: tx=${tx.id}`,
+            );
+            details.push({
+              id: tx.id,
+              domPaymentId,
+              domStatus,
+              action: 'kept-pending',
+            });
+            continue;
+          }
         }
 
         // Reprocessa pelo caminho do webhook (credita carteira + SSE, idempotente via signature).

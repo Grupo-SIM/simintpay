@@ -211,6 +211,7 @@ model Transaction {
   user             User                       @relation(fields: [userId], references: [id])
   salePushEvents SalePushEvent[]
   statusHistory    TransactionStatusHistory[]
+  paymentAttempts  PaymentAttempt[]
   pixPlanOrder     PixPlanOrder?
   billingQuantityChange BillingQuantityChange?
 
@@ -222,6 +223,64 @@ model Transaction {
   @@index([acquirer])
   @@index([acquirer, externalPaymentId])
   @@index([platformTag])
+}
+
+enum PaymentAttemptStatus {
+  RESERVED
+  DISPATCHING
+  UNKNOWN
+  PRE_CREATION_FAILED
+  TERMINAL_NONPAYABLE
+  ACCEPTED
+  SUCCEEDED
+  FAILED
+}
+
+model PaymentAttempt {
+  id                String               @id @default(cuid())
+  transactionId     String
+  transaction       Transaction          @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  sequence          Int
+  externalReference String               @unique
+  provider          Acquirer
+  status            PaymentAttemptStatus
+  evidence          Json?
+  leaseToken        String?
+  leaseExpiresAt    DateTime?
+  providerPaymentId String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@unique([transactionId, sequence])
+  @@index([transactionId, status])
+  @@unique([provider, providerPaymentId])
+}
+
+/// Durable per-lane circuit state shared by every backend replica.
+model PaymentCircuitState {
+  provider       String
+  operation      String
+  status         String   @default("CLOSED")
+  fence          BigInt   @default(0)
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+  cooldownUntil  DateTime?
+  openedAt       DateTime?
+  updatedAt      DateTime @updatedAt
+
+  @@id([provider, operation])
+}
+
+/// Immutable outcomes for the rolling failure window and operational inspection.
+model PaymentCircuitEvent {
+  token     String   @id
+  provider  String
+  operation String
+  outcome   String
+  probe     Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([provider, operation, createdAt])
 }
 
 model TransactionStatusHistory {

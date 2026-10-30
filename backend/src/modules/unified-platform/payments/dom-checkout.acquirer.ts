@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { markPreDispatchNoCharge } from './dom-rejection';
 
 /** DOM transport only. Business rules, credentials and financial writes stay outside. */
 export async function postDomCheckout(
@@ -6,7 +7,9 @@ export async function postDomCheckout(
   request: unknown,
 ) {
   if (!token)
-    throw new BadRequestException('Credencial da plataforma não configurada');
+    throw markPreDispatchNoCharge(
+      new BadRequestException('Credencial da plataforma não configurada'),
+    );
   const response = await fetch(
     'https://apiv3.dompagamentos.com.br/checkout/production/transactions',
     {

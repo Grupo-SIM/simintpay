@@ -29,9 +29,53 @@ import { PlatformAuthGuard } from './platform-auth.guard';
 import { PlatformOperationsController } from './platform-operations.controller';
 import { PlatformSyncService } from './platform-sync.service';
 import { PlatformPaymentsService } from '../unified-platform/payments/platform-payments.service';
+import { PaymentAttemptsService } from '../unified-platform/payments/payment-attempts.service';
 import { PlatformEventsModule } from './platform-events.module';
 
-@Module({ imports: [PaymentLinkModule, PlatformReportingModule, WebhookModule, PrismaModule, ApiDomModule, AuthModule, CheckoutModule, PlatformEventsModule],
-  controllers: [CanonicalCardsController, PlatformLinksController, PlatformSalesEventsController, PlatformReturnBetController, PlatformReportProjectionsController, PlatformBetaiController, PlatformSubscriptionCapabilitiesController, PlatformVoucherCapabilitiesController, PlatformCorporateController, PlatformOperationsController, PlatformWebhookController, PlatformMerchantsController], providers: [CanonicalCardsService, ReportSessionGuard, PlatformSalesEventsService, PlatformBetaiService, PlatformSubscriptionCapabilitiesService, PlatformVoucherCapabilitiesService, PlatformContextService, PlatformAuthGuard, PlatformSyncService, PlatformPaymentsService, PlatformMerchantsService],
-  exports: [PlatformBetaiService, PlatformContextService, PlatformPaymentsService, PlatformSyncService] })
+@Module({
+  imports: [
+    PaymentLinkModule,
+    PlatformReportingModule,
+    WebhookModule,
+    PrismaModule,
+    ApiDomModule,
+    AuthModule,
+    CheckoutModule,
+    PlatformEventsModule,
+  ],
+  controllers: [
+    CanonicalCardsController,
+    PlatformLinksController,
+    PlatformSalesEventsController,
+    PlatformReturnBetController,
+    PlatformReportProjectionsController,
+    PlatformBetaiController,
+    PlatformSubscriptionCapabilitiesController,
+    PlatformVoucherCapabilitiesController,
+    PlatformCorporateController,
+    PlatformOperationsController,
+    PlatformWebhookController,
+    PlatformMerchantsController,
+  ],
+  providers: [
+    CanonicalCardsService,
+    ReportSessionGuard,
+    PlatformSalesEventsService,
+    PlatformBetaiService,
+    PlatformSubscriptionCapabilitiesService,
+    PlatformVoucherCapabilitiesService,
+    PlatformContextService,
+    PlatformAuthGuard,
+    PlatformSyncService,
+    PaymentAttemptsService,
+    PlatformPaymentsService,
+    PlatformMerchantsService,
+  ],
+  exports: [
+    PlatformBetaiService,
+    PlatformContextService,
+    PlatformPaymentsService,
+    PlatformSyncService,
+  ],
+})
 export class PlatformCoreModule {}

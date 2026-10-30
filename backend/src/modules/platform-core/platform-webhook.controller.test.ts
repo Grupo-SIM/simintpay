@@ -14,6 +14,7 @@ function fixture() {
   };
   const transaction = {
     id: 'local',
+    acquirer: 'DOM',
     description: '[TENANT:SHOP]',
     platformTag: 'SHOP',
     netAmount: new Prisma.Decimal(9),
@@ -27,6 +28,7 @@ function fixture() {
       })),
     },
     transaction: { findFirst: mock(async () => transaction) },
+    paymentAttempt: { findFirst: mock(async () => null) },
   };
   const processor = { execute: mock(async () => {}) };
   return {
@@ -49,16 +51,26 @@ describe('PlatformWebhookController', () => {
     const { controller, prisma, processor } = fixture();
     await controller.handle('SHOP', 'dom', signature, { rawBody }, body);
     expect(prisma.transaction.findFirst.mock.calls[0][0].where).toMatchObject({
-      acquirer: 'DOM',
       platformTag: 'SHOP',
+      OR: expect.arrayContaining([
+        { acquirer: 'DOM', externalPaymentId: 'payment' },
+      ]),
     });
     expect(
       processor.execute.mock.calls[0][0].payload.data.amountWithoutAllFee,
     ).toBe(9);
   });
   test('Frendz validates configured payload token without permissive fallback', async () => {
-    const { controller, platform, processor } = fixture();
+    const { controller, platform, prisma, processor } = fixture();
     platform.acquirer = 'FRENDZ';
+    prisma.transaction.findFirst.mockResolvedValue({
+      id: 'local',
+      acquirer: 'FRENDZ',
+      description: '[TENANT:SHOP]',
+      platformTag: 'SHOP',
+      netAmount: new Prisma.Decimal(9),
+      amount: new Prisma.Decimal(10),
+    } as never);
     await controller.handle(
       'SHOP',
       'frendz',

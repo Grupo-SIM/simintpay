@@ -17,6 +17,15 @@ import {
 import { platformMerchant } from '../../platform-core/platform-merchant-lookup';
 import { PlatformPaymentLookup } from './platform-payment-lookup';
 import { PlatformPaymentExecution } from './platform-payment-execution';
+import { PaymentAttemptsService } from './payment-attempts.service';
+import {
+  PaymentCircuitBreaker,
+  CircuitOpenException,
+  CircuitUnavailableException,
+} from '../../../infrastructure/resilience/payment-circuit-breaker';
+import { classifyChargeOutcome } from './dom-rejection';
+import { ProcessWebhookUseCase } from '../../../application/use-cases/webhook/process-webhook.use-case';
+import { PlatformWebhookSettlement } from '../../platform-core/platform-webhook-settlement';
 import { createHash } from 'node:crypto';
 import {
   ConflictException,
@@ -47,6 +56,9 @@ export class PlatformPaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gateways: PaymentGatewayResolver,
+    private readonly attempts: PaymentAttemptsService,
+    private readonly breaker: PaymentCircuitBreaker,
+    private readonly webhookProcessor: ProcessWebhookUseCase,
   ) {}
 
   async read(context: PaymentPlatformContext, reference: string) {
@@ -231,14 +243,15 @@ export class PlatformPaymentsService {
         existing.customerDocument !== input.customer.document ||
         existing.customerName !== input.customer.name ||
         existing.customerPhone !== (input.customer.phone ?? '') ||
-        existing.paymentMethod !== input.paymentMethod
+        existing.paymentMethod !== input.paymentMethod ||
+        (input.paymentMethod === 'CREDIT_CARD' &&
+          (existing.installments !== input.card!.installments ||
+            existing.cardBin !== input.card!.bin ||
+            existing.cardBrand !== input.card!.brand)) ||
+        !!input.allocation !==
+          !!(existing.tracking as { delivery?: unknown } | null)?.delivery
       )
         throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
-      if (!existing.externalPaymentId)
-        throw new ConflictException({
-          code: 'PAYMENT_PROCESSING',
-          transactionId: id,
-        });
       if (
         input.allocation &&
         (input.allocation.itemsAmountCents !==
@@ -259,6 +272,11 @@ export class PlatformPaymentsService {
           ])
       )
         throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT' });
+      if (!existing.externalPaymentId)
+        throw new ConflictException({
+          code: 'PAYMENT_PROCESSING',
+          transactionId: id,
+        });
       return this.result(existing);
     }
     await this.prisma.wallet.upsert({
@@ -359,10 +377,12 @@ export class PlatformPaymentsService {
         code: 'PLATFORM_CAPABILITY_UNAVAILABLE',
         capability: `payments.${input.paymentMethod}`,
       });
-    const selectedAcquirer =
-      acquiring || existing
-        ? platform.acquirer
-        : (configured[0]?.acquirer ?? platform.acquirer);
+    const rankedAcquirers = acquiring
+      ? [platform.acquirer]
+      : configured.length
+        ? [...new Set(configured.map((fee) => fee.acquirer))]
+        : [platform.acquirer];
+    const selectedAcquirer = rankedAcquirers[0];
     if (
       !supported.includes(selectedAcquirer) ||
       (catalogue.length > 0 &&
@@ -549,36 +569,186 @@ export class PlatformPaymentsService {
         });
       throw error;
     }
-    // Frendz's current transport expects cents; DOM's expects reais.
-    const { transaction: stored } = await new PlatformPaymentExecution(
-      this.prisma,
-    ).charge({
-      transactionId: id,
-      charge: async () =>
-        cardAcquirer
-          ? cardAcquirer.charge(token, {
-              id,
-              amountCents: chargeCents,
-              description: `${adapter.description(input.description)} ${marker}`,
-              customer: input.customer,
-              card: input.card!,
+    return this.dispatchAttempts({
+      id,
+      platform,
+      input,
+      adapter,
+      marker,
+      rankedAcquirers,
+      chargeAmount,
+      chargeCents,
+      fees,
+      originalCents: input.amountCents,
+      initialToken: token,
+      initialCardAcquirer: cardAcquirer,
+      platformContext: context,
+    });
+  }
+
+  private async dispatchAttempts(args: {
+    id: string;
+    platform: {
+      integrations: { key: string; encryptedValue: string | null }[];
+    };
+    input: CreatePlatformPaymentDto;
+    adapter: ReturnType<typeof resolvePaymentAdapter>;
+    marker: string;
+    rankedAcquirers: string[];
+    chargeAmount: Prisma.Decimal;
+    chargeCents: number;
+    fees: Awaited<ReturnType<typeof listAcquirerFees>>;
+    originalCents: number;
+    initialToken: string;
+    initialCardAcquirer: ReturnType<typeof resolveCardAcquirer> | undefined;
+    platformContext: PaymentPlatformContext;
+  }) {
+    for (const [index, provider] of args.rankedAcquirers.entries()) {
+      const integration = args.platform.integrations.find(
+        (row) => row.key === `${provider}_TOKEN` && !!row.encryptedValue,
+      );
+      if (index > 0 && !integration) continue;
+      const token =
+        index === 0
+          ? args.initialToken
+          : decryptPlatformSecret(integration!.encryptedValue!);
+      const cardAcquirer =
+        index === 0
+          ? args.initialCardAcquirer
+          : args.input.paymentMethod === 'CREDIT_CARD'
+            ? resolveCardAcquirer(provider)
+            : undefined;
+      const reservation = await this.attempts.reserve(
+        args.id,
+        provider as Acquirer,
+      );
+      if (reservation.kind !== 'reserved')
+        throw new ConflictException({
+          code: 'PAYMENT_PROCESSING',
+          transactionId: args.id,
+        });
+      const attempt = reservation.attempt;
+      const operation =
+        args.input.paymentMethod === 'PIX' ? 'CREATE_PIX' : 'CREATE_CARD';
+      let permit: Awaited<ReturnType<PaymentCircuitBreaker['begin']>>;
+      try {
+        permit = await this.breaker.begin(provider, operation);
+      } catch (error) {
+        if (
+          !(
+            error instanceof CircuitOpenException ||
+            error instanceof CircuitUnavailableException
+          )
+        )
+          throw error;
+        // An open/unavailable circuit cannot have sent a provider request.
+        // Only an open circuit permits trying a different healthy provider.
+        const saved = await this.attempts.markReservedPreDispatchFailed(
+          attempt.id,
+          {
+            reason:
+              error instanceof CircuitOpenException
+                ? 'circuit_open'
+                : 'circuit_unavailable',
+            requestDispatched: false,
+          },
+        );
+        if (!saved)
+          throw new ConflictException({
+            code: 'PAYMENT_PROCESSING',
+            transactionId: args.id,
+          });
+        if (error instanceof CircuitUnavailableException) throw error;
+        continue;
+      }
+      let claim: Awaited<ReturnType<PaymentAttemptsService['claimDispatch']>>;
+      try {
+        claim = await this.attempts.claimDispatch(attempt.id);
+      } catch (error) {
+        await this.breaker.complete(permit, 'IGNORE');
+        throw error;
+      }
+      if (claim.kind === 'blocked') {
+        await this.breaker.complete(permit, 'IGNORE');
+        throw new ConflictException({
+          code: 'PAYMENT_PROCESSING',
+          transactionId: args.id,
+        });
+      }
+      let payment: {
+        id: string;
+        status: string;
+        pixContent?: string | null;
+        qrCode?: string | null;
+        pixExpire?: string | null;
+      };
+      try {
+        payment = cardAcquirer
+          ? await cardAcquirer.charge(token, {
+              id: attempt.externalReference,
+              amountCents: args.chargeCents,
+              description: `${args.adapter.description(args.input.description)} ${args.marker}`,
+              customer: args.input.customer,
+              card: args.input.card!,
             })
-          : this.gateways
-              .byAcquirer(selectedAcquirer as Acquirer)
+          : await this.gateways
+              .byAcquirer(provider as Acquirer)
               .createPixCheckout(token, {
-                codExternal: id,
+                codExternal: attempt.externalReference,
                 amount:
-                  selectedAcquirer === 'FRENDZ'
-                    ? chargeCents
-                    : chargeAmount.toNumber(),
-                description: `${adapter.description(input.description)} ${marker}`,
-                customerName: input.customer.name,
-                customerEmail: input.customer.email,
-                customerDocument: input.customer.document,
-                customerPhone: input.customer.phone ?? '',
-                documentType: input.customer.documentType,
-              }),
-      rejection: (payment) =>
+                  provider === 'FRENDZ'
+                    ? args.chargeCents
+                    : args.chargeAmount.toNumber(),
+                description: `${args.adapter.description(args.input.description)} ${args.marker}`,
+                customerName: args.input.customer.name,
+                customerEmail: args.input.customer.email,
+                customerDocument: args.input.customer.document,
+                customerPhone: args.input.customer.phone ?? '',
+                documentType: args.input.customer.documentType,
+              });
+      } catch (error) {
+        const outcome = classifyChargeOutcome(error);
+        // Persist uncertainty before circuit telemetry: a failed breaker write must
+        // never leave a dispatched attempt looking retryable.
+        const evidence = {
+          reason: outcome.evidenceType,
+          provider: outcome.provider ?? provider,
+          ...(outcome.httpStatus ? { httpStatus: outcome.httpStatus } : {}),
+          // Provider codes may contain arbitrary untrusted text; never persist them.
+        };
+        if (outcome.safeToRetry) {
+          const saved = await this.attempts.markPreCreationFailed(
+            attempt.id,
+            claim.leaseToken,
+            evidence,
+          );
+          if (!saved)
+            throw new ConflictException({
+              code: 'PAYMENT_PROCESSING',
+              transactionId: args.id,
+            });
+          await this.breaker.complete(permit, 'IGNORE');
+          continue;
+        }
+        await this.attempts.markUnknown(attempt.id, claim.leaseToken, evidence);
+        await this.breaker.complete(permit, 'FAILURE');
+        throw new ConflictException({
+          code: 'PAYMENT_PROCESSING',
+          transactionId: args.id,
+        });
+      }
+      if (!payment?.id) {
+        await this.attempts.markUnknown(attempt.id, claim.leaseToken, {
+          reason: 'missing_provider_payment_id',
+          provider,
+        });
+        await this.breaker.complete(permit, 'FAILURE');
+        throw new ConflictException({
+          code: 'PAYMENT_PROCESSING',
+          transactionId: args.id,
+        });
+      }
+      const rejected =
         !!cardAcquirer &&
         [
           'not_authorized',
@@ -587,16 +757,98 @@ export class PlatformPaymentsService {
           'refused',
           'canceled',
           'expired',
-        ].includes(payment.status),
-      references: (payment) => ({
-        externalPaymentId: payment.id,
-        ...(selectedAcquirer === 'DOM' ? { domPaymentId: payment.id } : {}),
-        pixQrCode: payment.qrCode,
-        pixContent: payment.pixContent,
-        pixExpire: payment.pixExpire ? new Date(payment.pixExpire) : null,
-      }),
+        ].includes(payment.status);
+      const recorded = await this.attempts.recordProviderResponse(
+        attempt.id,
+        claim.leaseToken,
+        {
+          status: rejected ? 'FAILED' : 'ACCEPTED',
+          providerPaymentId: payment.id,
+          evidence: {
+            reason: rejected
+              ? 'provider_rejected_with_id'
+              : 'provider_accepted',
+            provider,
+          },
+        },
+      );
+      if (!recorded)
+        throw new ConflictException({
+          code: 'PAYMENT_PROCESSING',
+          transactionId: args.id,
+        });
+      await this.breaker.complete(permit, 'SUCCESS');
+      const financialSnapshot = await this.prisma.transaction.findUniqueOrThrow(
+        {
+          where: { id: args.id },
+          select: { financialSnapshot: true },
+        },
+      );
+      const snapshot = financialSnapshot.financialSnapshot as Record<
+        string,
+        unknown
+      > | null;
+      const providerFee = args.fees.find((fee) => fee.acquirer === provider);
+      const currentCost = providerFee
+        ? {
+            acquirer: provider,
+            fixedCents: providerFee.fixedCents,
+            ratePpm: providerFee.ratePpm,
+            interestPpm: providerFee.interestPpm,
+            base: providerFee.base,
+            source: providerFee.source,
+            createdAt: providerFee.createdAt.toISOString(),
+            realizedCents: estimatedCost(
+              providerFee,
+              args.originalCents,
+              args.chargeCents,
+            ),
+          }
+        : null;
+      const updated = await this.prisma.transaction.updateMany({
+        where: { id: args.id, status: 'DRAFT', externalPaymentId: null },
+        data: {
+          acquirer: provider as Acquirer,
+          externalPaymentId: payment.id,
+          ...(provider === 'DOM' ? { domPaymentId: payment.id } : {}),
+          status: rejected ? 'FAILED' : 'PENDING',
+          pixQrCode: payment.qrCode ?? null,
+          pixContent: payment.pixContent ?? null,
+          pixExpire: payment.pixExpire ? new Date(payment.pixExpire) : null,
+          ...(snapshot && currentCost
+            ? {
+                financialSnapshot: {
+                  ...snapshot,
+                  acquirerCost: currentCost,
+                } as Prisma.InputJsonValue,
+                domFee: new Prisma.Decimal(currentCost.realizedCents).div(100),
+              }
+            : {}),
+        },
+      });
+      if (updated.count !== 1)
+        throw new ConflictException({
+          code: 'PAYMENT_PROCESSING',
+          transactionId: args.id,
+        });
+      // An authenticated paid webhook may have beaten the POST response. Replay
+      // its durable attempt evidence only after the parent has a bound provider ID.
+      await new PlatformWebhookSettlement(
+        this.prisma,
+        this.webhookProcessor,
+      ).reconcileBoundAttempt(
+        { ...args.platformContext, acquirer: provider as Acquirer },
+        args.id,
+      );
+      const stored = await this.prisma.transaction.findUniqueOrThrow({
+        where: { id: args.id },
+      });
+      return this.result(stored);
+    }
+    throw new UnprocessableEntityException({
+      code: 'PLATFORM_CAPABILITY_UNAVAILABLE',
+      capability: `payments.${args.input.paymentMethod}`,
     });
-    return this.result(stored);
   }
 
   private result(transaction: {

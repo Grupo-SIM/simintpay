@@ -8,6 +8,10 @@ import {
 } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import type { AxiosError } from 'axios';
+import {
+  markChargeAttempt,
+  markPreDispatchNoCharge,
+} from '../../modules/unified-platform/payments/dom-rejection';
 import * as QRCode from 'qrcode';
 import {
   IPaymentGateway,
@@ -64,8 +68,10 @@ export class FrendzClient implements IPaymentGateway {
     const token =
       maybeToken && maybeToken.length > 0 ? maybeToken : getFrendzApiToken();
     if (!token) {
-      throw new BadRequestException(
-        'Frendz: api_token não configurado (defina FRENDZ_API_TOKEN ou {SLUG}_FRENDZ_TOKEN).',
+      throw markPreDispatchNoCharge(
+        new BadRequestException(
+          'Frendz: api_token não configurado (defina FRENDZ_API_TOKEN ou {SLUG}_FRENDZ_TOKEN).',
+        ),
       );
     }
     return token;
@@ -165,10 +171,24 @@ export class FrendzClient implements IPaymentGateway {
         }),
       );
     } catch (err) {
+      const axiosError = err as AxiosError<unknown>;
+      const status = axiosError.response?.status;
+      const data = axiosError.response?.data;
+      const code =
+        data && typeof data === 'object' && 'code' in data
+          ? data.code
+          : undefined;
       this.logger.error(
-        `[Frendz PIX] falha ao criar transação: ${this.errMsg(err)}`,
+        `[Frendz PIX] falha ao criar transação status=${status ?? 'unknown'}`,
       );
-      throw new BadRequestException(`Frendz: ${this.errMsg(err)}`);
+      throw markChargeAttempt(
+        new BadRequestException({ code: 'ACQUIRER_PAYMENT_FAILED' }),
+        {
+          provider: 'FRENDZ',
+          httpStatus: status,
+          providerCode: typeof code === 'string' ? code : undefined,
+        },
+      );
     }
 
     const root = res.data?.data ?? res.data;
@@ -180,7 +200,10 @@ export class FrendzClient implements IPaymentGateway {
       this.pickString(obj, 'id') ??
       this.pickString(obj, 'transaction_hash');
     if (!id)
-      throw new BadRequestException('Frendz: resposta sem hash de transação');
+      throw markChargeAttempt(
+        new BadRequestException('Frendz: resposta sem hash de transação'),
+        { provider: 'FRENDZ' },
+      );
 
     // Campos PIX podem vir na raiz ou aninhados em `pix`.
     const pixObj = this.getObject(obj?.pix) ?? obj;

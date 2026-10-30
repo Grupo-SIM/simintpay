@@ -19,7 +19,7 @@ function fixture(description = '[TENANT:FIRST]') {
   return { lookup, query, platform, row };
 }
 describe('Shared payment reference lookup', () => {
-  test('status lookup scopes platform and acquirer without moving historical owner', async () => {
+  test('status lookup scopes platform without hiding a payment routed to another acquirer', async () => {
     const f = fixture();
     expect(
       await f.lookup.find(
@@ -28,7 +28,6 @@ describe('Shared payment reference lookup', () => {
       ),
     ).toBe(f.row);
     expect((f.query.mock.calls as any)[0][0].where).toMatchObject({
-      acquirer: 'DOM',
       AND: [
         { platformTag: 'FIRST' },
         {

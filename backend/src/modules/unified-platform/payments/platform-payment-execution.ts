@@ -25,8 +25,8 @@ export class PlatformPaymentExecution {
   }) {
     // No automatic retries after an uncertain charge. Its draft remains available
     // to reconciliation/idempotent replay rather than issuing a second charge.
-    // A definitive DOM refusal (400/401/422) means nothing exists there: discard the
-    // draft. Uncertain failures (timeout, network, 5xx) keep it for reconciliation.
+    // Discard only when provider-specific evidence proves no payment was created.
+    // HTTP status alone cannot establish that; uncertain outcomes remain for reconciliation.
     let payment: T;
     try {
       payment = await input.charge();

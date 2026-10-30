@@ -65,8 +65,13 @@ function fixture(tag: string) {
       upsert: mock(async () => ({ id: 'wallet' })),
       update: mock(),
     },
+    paymentAttempt: {
+      findFirst: async () => null,
+    },
     transaction: {
+      findFirst: async () => stored ?? null,
       findUnique: async () => stored ?? null,
+      findUniqueOrThrow: async () => stored,
       create: mock(async ({ data }: any) => {
         stored = { id: 'legacy-payment', ...data };
         return stored;
@@ -82,7 +87,50 @@ function fixture(tag: string) {
       }),
     },
   };
-  return { prisma, platform, stored: () => stored };
+  const attempts = {
+    reserve: mock(async (transactionId: string, provider: string) => ({
+      kind: 'reserved' as const,
+      attempt: {
+        id: `${transactionId}:1`,
+        transactionId,
+        provider,
+        sequence: 1,
+        externalReference: `pay_${transactionId}_1`,
+      },
+    })),
+    claimDispatch: mock(async (attemptId: string) => ({
+      kind: 'claimed' as const,
+      attempt: { id: attemptId },
+      leaseToken: 'test-lease',
+    })),
+    recordProviderResponse: mock(async () => true),
+    markUnknown: mock(async () => true),
+    markPreCreationFailed: mock(async () => true),
+    markReservedPreDispatchFailed: mock(async () => true),
+    inspectRetryEligibility: mock(async () => ({
+      kind: 'eligible' as const,
+      nextSequence: 2,
+    })),
+  };
+  const breaker = {
+    begin: mock(async (provider: string, operation: string) => ({
+      provider,
+      operation,
+      token: 'test-permit',
+      fence: 1n,
+      probe: false,
+    })),
+    complete: mock(async () => undefined),
+  };
+  const webhookProcessor = { execute: mock(async () => undefined) };
+  return {
+    prisma,
+    platform,
+    attempts,
+    breaker,
+    webhookProcessor,
+    stored: () => stored,
+  };
 }
 function financial(row: any) {
   return {
@@ -164,6 +212,9 @@ describe('Legacy and canonical payment execution equivalence', () => {
                 }),
               }),
             } as never,
+            canonical.attempts as never,
+            canonical.breaker as never,
+            canonical.webhookProcessor as never,
           );
           globalThis.fetch = mock(
             async () => new Response(JSON.stringify(remote), { status: 200 }),
