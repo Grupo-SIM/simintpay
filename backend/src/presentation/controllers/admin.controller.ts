@@ -1684,7 +1684,7 @@ export class AdminController {
       }
       return {
         nome: u.user?.name?.trim() || u.name,
-        cpf: u.cpf,
+        cpf: u.cpf || u.cnpj || '',
         plataforma: u.platform,
         saldo: Number(u.wallet?.balance ?? 0),
         saldoBloqueado: Number(u.wallet?.lockedBalance ?? 0),
@@ -1906,7 +1906,7 @@ export class AdminController {
     // Deduplicate by document (cpf ?? cnpj) — keep latest createdAt row per owner
     const extDocSeen = new Set<string>();
     const extAllRows = extAllRowsRaw.filter((r) => {
-      const doc = r.cpf ?? r.cnpj ?? '';
+      const doc = r.cpf || r.cnpj || '';
       if (!doc || extDocSeen.has(doc)) return false;
       extDocSeen.add(doc);
       return true;
@@ -2242,7 +2242,7 @@ export class AdminController {
       ...extAllRows
         .map((e) => ({
           source: 'ext' as const,
-          document: e.cpf ?? e.cnpj ?? '',
+          document: e.cpf || e.cnpj || '',
           createdAt: e.createdAt,
         }))
         .filter((e) => e.document !== ''),
@@ -2311,7 +2311,7 @@ export class AdminController {
 
     const byDoc = new Map<string, typeof allExtRecords>();
     for (const r of allExtRecords) {
-      const key = r.cpf ?? r.cnpj ?? '';
+      const key = r.cpf || r.cnpj || '';
       if (!key) continue;
       if (!byDoc.has(key)) byDoc.set(key, []);
       byDoc.get(key)!.push(r);
@@ -2463,7 +2463,7 @@ export class AdminController {
 
           return {
             id: primary.id,
-            cpf: primary.cpf ?? identity.document ?? '',
+            cpf: primary.cpf || identity.document || '',
             cnpj: primary.cnpj ?? '',
             name: simpayUser?.name?.trim() || primary.name,
             platformEntries: records.map((r) => ({
@@ -2557,7 +2557,7 @@ export class AdminController {
             }));
           return {
             id: u.id,
-            cpf: u.cpf ?? '',
+            cpf: u.cpf || u.cnpj || '',
             cnpj: u.cnpj ?? '',
             name: u.name,
             platformEntries: [...baseEntries, ...extraEntries],
