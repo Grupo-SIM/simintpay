@@ -6,23 +6,51 @@ import { Prisma } from '@prisma/client';
 import { platformMerchant } from './platform-merchant-lookup';
 import { PlatformPaymentLookup } from '../unified-platform/payments/platform-payment-lookup';
 import { IntegrationFinanceService } from '../integrations/integration-finance.service';
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PlatformPaymentsService } from '../unified-platform/payments/platform-payments.service';
+import { listAcquirerFees } from '../financial-policy/acquirer-fees';
+import type { Method } from '../financial-policy/financial-policy';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
 import { CreatePlatformPaymentDto } from '../unified-platform/payments/platform-payment.dto';
 import type { PlatformContext } from './platform-context.service';
 
 @Injectable()
 export class PlatformMerchantsService {
-  constructor(private readonly prisma: PrismaService, private readonly payments: PlatformPaymentsService, private readonly finance: PlatformFinanceService, @Optional() private readonly reconciler?: ReconcilePendingTransactionsUseCase) {}
-  private namespace(context: PlatformContext) { return `platform:${context.id}`; }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly payments: PlatformPaymentsService,
+    private readonly finance: PlatformFinanceService,
+    @Optional()
+    private readonly reconciler?: ReconcilePendingTransactionsUseCase,
+  ) {}
+  private namespace(context: PlatformContext) {
+    return `platform:${context.id}`;
+  }
 
-  async provision(context: PlatformContext, externalMerchantId: string, body: { cnpj: string; legalName: string }) {
+  async provision(
+    context: PlatformContext,
+    externalMerchantId: string,
+    body: { cnpj: string; legalName: string },
+  ) {
     let namespace = this.namespace(context);
-    try { namespace = (await this.resolve(context, externalMerchantId)).integrationKey; }
-    catch (error) { if (!(error instanceof NotFoundException)) throw error; }
-    const { integrationKey, ...result } = await new PlatformMerchantProvisioning(this.prisma).provision(namespace, externalMerchantId, body);
+    try {
+      namespace = (await this.resolve(context, externalMerchantId))
+        .integrationKey;
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) throw error;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- integrationKey is internal and must not leak
+    const { integrationKey, ...result } =
+      await new PlatformMerchantProvisioning(this.prisma).provision(
+        namespace,
+        externalMerchantId,
+        body,
+      );
     return result;
   }
 
@@ -30,55 +58,223 @@ export class PlatformMerchantsService {
     return platformMerchant(this.prisma, context, externalMerchantId);
   }
 
-  createPayment(context: PlatformContext, externalMerchantId: string, input: CreatePlatformPaymentDto) { return this.payments.createForMerchant(context, externalMerchantId, input); }
+  createPayment(
+    context: PlatformContext,
+    externalMerchantId: string,
+    input: CreatePlatformPaymentDto,
+  ) {
+    return this.payments.createForMerchant(context, externalMerchantId, input);
+  }
   async summary(context: PlatformContext, externalMerchantId: string) {
     const merchant = await this.resolve(context, externalMerchantId);
-    const { feePolicy, ...processing } = await new IntegrationFinanceService(this.prisma).summary(merchant.integrationKey, externalMerchantId, true);
-    return { ...await this.finance.summary({ ...context, ownerUserId: merchant.userId }), ...processing, feePolicy: { fixedCents: feePolicy.fixedCents, rate: new Prisma.Decimal(feePolicy.percentBasisPoints).div(10000).toNumber() }, walletScope: 'merchant-user' };
+    const { feePolicy, ...processing } = await new IntegrationFinanceService(
+      this.prisma,
+    ).summary(merchant.integrationKey, externalMerchantId, true);
+    return {
+      ...(await this.finance.summary({
+        ...context,
+        ownerUserId: merchant.userId,
+      })),
+      ...processing,
+      feePolicy: {
+        fixedCents: feePolicy.fixedCents,
+        rate: new Prisma.Decimal(feePolicy.percentBasisPoints)
+          .div(10000)
+          .toNumber(),
+      },
+      walletScope: 'merchant-user',
+    };
   }
-  async paymentAttempt(context: PlatformContext, externalMerchantId: string, key: string) {
-    const result = await this.payments.readByKey(context, externalMerchantId, key);
+  async paymentAttempt(
+    context: PlatformContext,
+    externalMerchantId: string,
+    key: string,
+  ) {
+    const result = await this.payments.readByKey(
+      context,
+      externalMerchantId,
+      key,
+    );
     return this.payment(context, externalMerchantId, result.transactionId);
   }
-  async payment(context: PlatformContext, externalMerchantId: string, paymentId: string) {
+  async payment(
+    context: PlatformContext,
+    externalMerchantId: string,
+    paymentId: string,
+  ) {
     const merchant = await this.resolve(context, externalMerchantId);
-    const payment = await new PlatformPaymentLookup(this.prisma).find(context, paymentId, merchant.userId);
+    const payment = await new PlatformPaymentLookup(this.prisma).find(
+      context,
+      paymentId,
+      merchant.userId,
+    );
     if (!payment) throw new NotFoundException('Pagamento não encontrado');
-    if (context.delivery && this.reconciler && ['DRAFT', 'PENDING'].includes(payment.status) && payment.externalPaymentId) {
+    if (
+      context.delivery &&
+      this.reconciler &&
+      ['DRAFT', 'PENDING'].includes(payment.status) &&
+      payment.externalPaymentId
+    ) {
       const { token } = await deliveryProfile(this.prisma, context);
-      const remote = await this.reconciler.reconcilePayment(payment.externalPaymentId, merchant.userId, token);
+      const remote = await this.reconciler.reconcilePayment(
+        payment.externalPaymentId,
+        merchant.userId,
+        token,
+      );
       payment.status = remote.status as typeof payment.status;
     }
-    return { transactionId: payment.id, paymentId: payment.externalPaymentId, status: payment.status, amountCents: this.finance.cents(payment.amount), pixContent: payment.pixContent, qrCode: payment.pixQrCode, pixExpire: payment.pixExpire };
+    return {
+      transactionId: payment.id,
+      paymentId: payment.externalPaymentId,
+      status: payment.status,
+      amountCents: this.finance.cents(payment.amount),
+      pixContent: payment.pixContent,
+      qrCode: payment.pixQrCode,
+      pixExpire: payment.pixExpire,
+    };
   }
-  async withdrawals(context: PlatformContext, externalMerchantId: string, page = 1, limit = 20) {
-    if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new BadRequestException('Paginação inválida');
+  async withdrawals(
+    context: PlatformContext,
+    externalMerchantId: string,
+    page = 1,
+    limit = 20,
+  ) {
+    if (
+      !Number.isSafeInteger(page) ||
+      page < 1 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    )
+      throw new BadRequestException('Paginação inválida');
     const merchant = await this.resolve(context, externalMerchantId);
-    const result = await new IntegrationFinanceService(this.prisma).listWithdrawals(merchant.integrationKey, externalMerchantId, page, limit);
-    return { unit: 'cents', data: result.items.map(({ netAmountCents, ...row }) => ({ ...row, requestId: this.clientRequestId(context, merchant.id, row.requestId), amountCents: netAmountCents })), meta: { page, limit, total: result.meta.totalItems, totalPages: result.meta.totalPages } };
+    const result = await new IntegrationFinanceService(
+      this.prisma,
+    ).listWithdrawals(merchant.integrationKey, externalMerchantId, page, limit);
+    return {
+      unit: 'cents',
+      data: result.items.map(({ netAmountCents, ...row }) => ({
+        ...row,
+        requestId: this.clientRequestId(context, merchant.id, row.requestId),
+        amountCents: netAmountCents,
+      })),
+      meta: {
+        page,
+        limit,
+        total: result.meta.totalItems,
+        totalPages: result.meta.totalPages,
+      },
+    };
   }
-  async withdrawal(context: PlatformContext, externalMerchantId: string, withdrawalId: string) {
+  async withdrawal(
+    context: PlatformContext,
+    externalMerchantId: string,
+    withdrawalId: string,
+  ) {
     const merchant = await this.resolve(context, externalMerchantId);
-    const { netAmountCents, ...row } = await new IntegrationFinanceService(this.prisma).getWithdrawal(merchant.integrationKey, externalMerchantId, withdrawalId);
-    return { unit: 'cents', ...row, requestId: this.clientRequestId(context, merchant.id, row.requestId), amountCents: netAmountCents };
+    const { netAmountCents, ...row } = await new IntegrationFinanceService(
+      this.prisma,
+    ).getWithdrawal(merchant.integrationKey, externalMerchantId, withdrawalId);
+    return {
+      unit: 'cents',
+      ...row,
+      requestId: this.clientRequestId(context, merchant.id, row.requestId),
+      amountCents: netAmountCents,
+    };
   }
-  async quote(context: PlatformContext, externalMerchantId: string, amountCents: number) {
+  /** Custo global das adquirentes ativas (ONLINE): piso das taxas cobradas de qualquer lojista. */
+  async acquirerCosts(context: PlatformContext, externalMerchantId: string) {
     await this.resolve(context, externalMerchantId);
-    return new IntegrationFinanceService(this.prisma).quote(amountCents, context.tag);
+    const lanes: { method: Method; installments: number }[] = [
+      { method: 'PIX' as Method, installments: 1 },
+      { method: 'DEBIT_CARD' as Method, installments: 1 },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        method: 'CREDIT_CARD' as Method,
+        installments: i + 1,
+      })),
+    ];
+    const costs = await Promise.all(
+      lanes.map(async ({ method, installments }) => {
+        const fees = await listAcquirerFees(
+          this.prisma,
+          method,
+          'ONLINE',
+          installments,
+        );
+        if (!fees.length) return null;
+        // The most expensive active acquirer sets the floor, whichever one routes the payment.
+        return {
+          method,
+          channel: 'ONLINE' as const,
+          installments,
+          fixedCents: Math.max(...fees.map((fee) => fee.fixedCents)),
+          ratePpm: Math.max(...fees.map((fee) => fee.ratePpm)),
+        };
+      }),
+    );
+    return { costs: costs.filter(Boolean) };
   }
-  async reconcile(context: PlatformContext, externalMerchantId: string, paymentIds: string[], dryRun: boolean) {
-    if (!Array.isArray(paymentIds) || paymentIds.length > 500 || paymentIds.some(id => typeof id !== 'string' || !id.trim()) || typeof dryRun !== 'boolean') throw new BadRequestException('Contrato inválido');
+  async quote(
+    context: PlatformContext,
+    externalMerchantId: string,
+    amountCents: number,
+  ) {
+    await this.resolve(context, externalMerchantId);
+    return new IntegrationFinanceService(this.prisma).quote(
+      amountCents,
+      context.tag,
+    );
+  }
+  async reconcile(
+    context: PlatformContext,
+    externalMerchantId: string,
+    paymentIds: string[],
+    dryRun: boolean,
+  ) {
+    if (
+      !Array.isArray(paymentIds) ||
+      paymentIds.length > 500 ||
+      paymentIds.some((id) => typeof id !== 'string' || !id.trim()) ||
+      typeof dryRun !== 'boolean'
+    )
+      throw new BadRequestException('Contrato inválido');
     const merchant = await this.resolve(context, externalMerchantId);
-    return new IntegrationFinanceService(this.prisma).reconcilePayments(merchant.integrationKey, externalMerchantId, paymentIds, dryRun);
+    return new IntegrationFinanceService(this.prisma).reconcilePayments(
+      merchant.integrationKey,
+      externalMerchantId,
+      paymentIds,
+      dryRun,
+    );
   }
-  private clientRequestId(context: PlatformContext, merchantId: string, key: string | null) {
+  private clientRequestId(
+    context: PlatformContext,
+    merchantId: string,
+    key: string | null,
+  ) {
     const prefix = `platform:${context.id}:${merchantId}:`;
     return key?.startsWith(prefix) ? key.slice(prefix.length) : key;
   }
-  async withdraw(context: PlatformContext, externalMerchantId: string, body: { amountCents: number; pixKey: string; idempotencyKey: string }) {
+  async withdraw(
+    context: PlatformContext,
+    externalMerchantId: string,
+    body: { amountCents: number; pixKey: string; idempotencyKey: string },
+  ) {
     const merchant = await this.resolve(context, externalMerchantId);
-    const result = await this.finance.requestWithdrawal(context, body, merchant);
-    const row = await this.prisma.withdrawRequest.findUniqueOrThrow({ where: { id: result.id } });
-    return { ...result, pixKey: row.pixKey, rejectionReason: row.rejectionReason, requestId: body.idempotencyKey, createdAt: row.createdAt, updatedAt: row.updatedAt };
+    const result = await this.finance.requestWithdrawal(
+      context,
+      body,
+      merchant,
+    );
+    const row = await this.prisma.withdrawRequest.findUniqueOrThrow({
+      where: { id: result.id },
+    });
+    return {
+      ...result,
+      pixKey: row.pixKey,
+      rejectionReason: row.rejectionReason,
+      requestId: body.idempotencyKey,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
   }
 }
