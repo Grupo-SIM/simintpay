@@ -605,6 +605,7 @@ export class PlatformPaymentsService {
     status: string;
     amount: Prisma.Decimal;
     netAmount?: Prisma.Decimal | null;
+    financialSnapshot?: unknown;
     pixContent: string | null;
     pixQrCode: string | null;
     pixExpire: Date | null;
@@ -615,6 +616,11 @@ export class PlatformPaymentsService {
       status: transaction.status,
       amountCents: transaction.amount.mul(100).toNumber(),
       netAmountCents: transaction.netAmount?.mul(100).toNumber() ?? null,
+      // Frozen with the Delivery allocation; zero for additive-only and for every non-Delivery payment.
+      simintpayFeeCents: Number(
+        (transaction.financialSnapshot as { simFeeCents?: unknown } | null)
+          ?.simFeeCents ?? 0,
+      ),
       pixContent: transaction.pixContent,
       qrCode: transaction.pixQrCode,
       pixExpire: transaction.pixExpire,
