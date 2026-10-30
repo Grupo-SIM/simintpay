@@ -83,7 +83,10 @@ export async function requestSaque(
 
 export async function getWithdrawSummary(api: ApiClient) {
   const res = await api.get<{
-    data: { config: { minValor: number; taxaFixa: number } };
+    data: {
+      availableBalance: number;
+      config: { minValor: number; taxaFixa: number };
+    };
   }>(endpoints.saque.summary);
   return res.data;
 }

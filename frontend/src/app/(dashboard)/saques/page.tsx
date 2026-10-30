@@ -237,6 +237,12 @@ function RequestSaqueModal({
       setFormError(`O valor mínimo para saque é ${formatBRL(minValor)}.`);
       return;
     }
+    if (summaryData && parsed > summaryData.availableBalance) {
+      setFormError(
+        `Saldo insuficiente. Seu saldo disponível é ${formatBRL(summaryData.availableBalance)}.`,
+      );
+      return;
+    }
     if (!chavePix.trim()) {
       setFormError('Informe sua chave Pix.');
       return;
@@ -337,6 +343,28 @@ function RequestSaqueModal({
           variant={fieldTheme === 'dark' ? 'navbar' : 'default'}
           disabled={isPending}
         />
+        {summaryData ? (
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-white/40">
+            <span>
+              Saldo disponível: {formatBRL(summaryData.availableBalance)}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setValor(
+                  summaryData.availableBalance.toLocaleString('pt-BR', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }),
+                )
+              }
+              disabled={isPending || summaryData.availableBalance <= 0}
+              className="font-semibold text-violet-600 hover:text-violet-500 disabled:opacity-50 dark:text-violet-400"
+            >
+              Usar saldo total
+            </button>
+          </div>
+        ) : null}
         <p className="text-xs text-zinc-500 dark:text-white/40 text-center">
           Valor mínimo: {formatBRL(summaryData?.config?.minValor ?? 100)} ·
           Taxa: {formatBRL(summaryData?.config?.taxaFixa ?? 2)}
