@@ -19,7 +19,7 @@ Plano (aguardando aprovação). Parte frontend: [../../simintpay-front/plans/000
   - Juros entram nos dois lados: no custo/excedente de juros, nunca como "lucro" isolado. A tela do usuário mostra só `T`, `C_sim` e repasse (nunca `C_adq`); o admin vê os três mais `C_adq`.
 - **Roteamento**: tentar primeiro a adquirente mais barata da lane (entre ativas e habilitadas para a plataforma) e, em falha, a seguinte por custo crescente. Gravar na transação **apenas a adquirente que efetivamente processou** e o custo efetivo dela (`processedBy`, custo fixo/%/juros em centavos); relatórios calculam lucro real a partir disso, nunca de estimativa.
 - Compatibilidade: snapshots existentes (`restoreFinancialCharge`) continuam recalculando pelo documento antigo; novo cálculo versionado (`schemaVersion: 2`), cobranças novas apenas.
-- Contrato de simulação/cotação passa a devolver: `chargedRate`, `effectiveAcquirerCost{acquirer,fixed,rate,interest}`, `profit`, `interestPassThrough`, `fallback`.
+- Contrato de simulação/cotação passa a devolver campos sem ambiguidade: `chargedRate`, `referenceAcquirerCost{acquirer,fixed,rate,interest}`, `platformCharges`, `sellerPayout`, `estimatedAdminProfit`, `fallback`; transação liquidada registra `processedBy`, `actualAcquirerCost`, `actualAdminProfit`. Preservar snapshots para auditoria e evitar tratar estimativa como lucro realizado.
 
 ## Sincronização com adquirentes
 
@@ -32,8 +32,8 @@ Plano (aguardando aprovação). Parte frontend: [../../simintpay-front/plans/000
 - [ ] Migração Prisma: `AcquirerFeeSchedule`, campos de `AcquirerCatalogue`; migrar custos `contract` atuais das lanes (revisão auditável).
 - [ ] Motor v2 em `financial-policy.ts` + `quoteFinancialCharge` com maior-custo/fallback 2× e `profit` correto; testes de arredondamento e regressão com snapshots v1.
 - [ ] Endpoints CRUD de adquirentes/custos e simulação com o novo contrato.
-- [ ] Adapter DOM + cron + alertas + aprovação.
-- [ ] Corrigir lucro em relatórios/`platformProfit`/liquidação para excluir repasse de juros.
+- [ ] Adapter DOM + cron + alertas e aplicação automática auditável (sem aprovação manual).
+- [ ] Corrigir repasse e lucro em relatórios/`platformProfit`/liquidação: usuário = `T − C_sim`; admin = `C_sim − C_adq`, inclusive excedente de juros, considerando somente a adquirente que processou.
 - [ ] Regras de negócio (`docs/business-rules.md`), testes Bun, build.
 
 ## Decisões do usuário
@@ -46,13 +46,13 @@ Plano (aguardando aprovação). Parte frontend: [../../simintpay-front/plans/000
 
 ## Mapeamento verificado da resposta DOM (crédito online)
 
-- `mdr` = 3,99 (%): constante em todas as parcelas, incide sobre o **total cobrado** (`contract.base = BUYER_TOTAL`).
-- `fees` = 4,51 … 20,48 (%): acréscimo da parcela sobre o valor base (igual à tabela `DOM_FEE_RATES` que está hardcoded em `payment-link-fees.helper.ts`).
-- `interest_rate_our` = `fees / (1 + fees)` (conferido: 4,51→4,31; 12x 20,48→17,00): é o juros como % do total cobrado.
+- `mdr` = 3,99 (%): constante em todas as parcelas, incide sobre o **total cobrado** (`contract.base = BUYER_TOTAL`). A tela da DOM confirma 3,99% + R$ 1,00 em 1x na modalidade "absorver juros".
+- `fees` = 4,51 … 20,48 (%): coluna **taxa link de pagamento** da DOM. Não equivale automaticamente ao custo efetivo quando absorvemos juros; nesse caso a coluna da DOM é `effective_rate` (8,30% em 2x, 20,99% em 12x). A tabela `DOM_FEE_RATES` hardcoded repete `fees`: distinguir as modalidades ao integrar.
+- `interest_rate_our` = `effective_rate − mdr` na resposta (conferido: 8,30 − 3,99 = 4,31; 20,99 − 3,99 = 17,00). A proximidade com `fees / (1 + fees)` não comprova que seja essa a fórmula contratual; usar os campos da API diretamente e validar arredondamentos em testes.
 - `effective_rate` = `mdr + interest_rate_our` (8,30 em 2x; 20,99 em 12x): custo percentual total sobre o total cobrado.
-- `credit.fee_transaction` = R$ 1,00 fixo. Hoje o código aplica R$ 0 em 1x e R$ 1 em 2x+: confirmar com uma transação real de 1x (`fee_details`) antes de espelhar.
+- `credit.fee_transaction` = R$ 1,00 fixo também em 1x: confirmado pelo usuário e pela tela da DOM (3,99% + R$ 1,00 ao absorver juros). Hoje o código aplica R$ 0 em 1x e R$ 1 em 2x+: corrigir os caminhos afetados e testar. Conferir `fee_details` na conciliação para validar valores efetivamente debitados.
 - Mapeamento: `contract.ratePpm = mdr`, `contract.interestPpm = interest_rate_our`, `contract.fixedCents = fee_transaction`, base `BUYER_TOTAL`.
-- Fora do crédito: `pix_online` 0,98% + R$ 1; `boleto` mdr 3,49 com `mdr_type: FIXED` (valor fixo em R$ ou %? ambíguo); débito/crédito físico por bandeira (3,99). Sincronizar só crédito online e PIX no início; boleto e POS ficam manuais até a unidade do `FIXED` ser confirmada.
+- Fora do crédito: `pix_online` 0,98% + R$ 1; boleto **R$ 3,49 + R$ 1 por transação**, confirmado pela tela da DOM (`mdr_type: FIXED`); débito/crédito físico por bandeira (3,99). Sincronizar crédito online, PIX e boleto com parsing específico para `FIXED`; POS permanece manual até validar modalidade e roteamento por bandeira.
 
 ## Pontos a validar na implementação
 
