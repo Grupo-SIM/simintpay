@@ -1261,6 +1261,12 @@ model DeliveryPlatformRegistration {
   @@index([platformId])
 }
 
+enum DeliveryFeeMode {
+  SIMINTPAY_ONLY
+  ADDITIVE_ONLY
+  BOTH
+}
+
 model Platform {
   id             String @id @default(uuid())
   tag            String @unique
@@ -1271,6 +1277,8 @@ model Platform {
   users          User[] @relation("PlatformMembers")
   customerInterestRates Json @default("{}")
   absorbCustomerInterest Boolean @default(true)
+  /// SIM Delivery only: which fee sets apply to its payments. ADDITIVE_ONLY keeps the historical behavior.
+  deliveryFeeMode DeliveryFeeMode @default(ADDITIVE_ONLY)
   integrations   PlatformIntegration[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

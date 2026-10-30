@@ -18,6 +18,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsOptional,
   IsString,
   Matches,
   Max,
@@ -54,6 +55,10 @@ class FeeLaneDto {
   @IsInt() @Min(0) @Max(1_000_000) ratePpm!: number;
 }
 class FeesDto {
+  @IsOptional() @IsIn(['SIMINTPAY_ONLY', 'ADDITIVE_ONLY', 'BOTH']) mode?:
+    | 'SIMINTPAY_ONLY'
+    | 'ADDITIVE_ONLY'
+    | 'BOTH';
   @IsString() version!: string;
   @IsArray()
   @ArrayMaxSize(14)

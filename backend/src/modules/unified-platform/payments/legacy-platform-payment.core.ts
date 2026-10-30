@@ -2,6 +2,7 @@ import {
   isDefinitiveDomStatus,
   markDefinitiveDomRejection,
 } from './dom-rejection';
+import { loadDeliverySimFee } from '../../integrations/delivery-sim-fee';
 import { quoteDeliveryCharge } from '../../integrations/delivery-payment-allocation';
 import type { DeliveryAllocationDto } from '../../integrations/integration-checkout.dto';
 import {
@@ -211,7 +212,17 @@ export class LegacyPlatformPaymentCore {
 
       const platform = await this.assertPlatformOwner(userId);
       const financialQuote = this.deliveryAllocation
-        ? quoteDeliveryCharge(body.price, this.deliveryAllocation)
+        ? quoteDeliveryCharge(
+            body.price,
+            this.deliveryAllocation,
+            await loadDeliverySimFee(
+              this.prisma,
+              this.tag,
+              this.deliveryAllocation,
+              'PIX',
+              1,
+            ),
+          )
         : quoteFinancialCharge(
             await loadChargePolicy(this.prisma, this.tag),
             body.price,
@@ -373,7 +384,17 @@ export class LegacyPlatformPaymentCore {
 
       const platform = await this.assertPlatformOwner(userId);
       const financialQuote = this.deliveryAllocation
-        ? quoteDeliveryCharge(body.price, this.deliveryAllocation)
+        ? quoteDeliveryCharge(
+            body.price,
+            this.deliveryAllocation,
+            await loadDeliverySimFee(
+              this.prisma,
+              this.tag,
+              this.deliveryAllocation,
+              'CREDIT_CARD',
+              body.installments ?? 1,
+            ),
+          )
         : quoteFinancialCharge(
             await loadChargePolicy(this.prisma, this.tag),
             body.price,

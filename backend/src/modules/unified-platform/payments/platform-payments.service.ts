@@ -4,6 +4,7 @@ import {
   withCoproduction,
 } from '../../coproduction/coproduction.service';
 import { quoteDeliveryCharge } from '../../integrations/delivery-payment-allocation';
+import { loadDeliverySimFee } from '../../integrations/delivery-sim-fee';
 import { deliveryProfile } from '../../platform-core/delivery-profile';
 import type { PlatformContext } from '../../platform-core/platform-context.service';
 import { loadFinancialPolicy } from '../../financial-policy/financial-policy.service';
@@ -390,10 +391,24 @@ export class PlatformPaymentsService {
       });
     const token =
       acquiring?.token ?? decryptPlatformSecret(integration!.encryptedValue!);
-    const financialQuote = input.allocation
+    const deliveryQuote = input.allocation
+      ? quoteDeliveryCharge(
+          amount.toNumber(),
+          input.allocation,
+          await loadDeliverySimFee(
+            this.prisma,
+            platform.tag,
+            input.allocation,
+            input.paymentMethod as 'PIX' | 'CREDIT_CARD',
+            installments,
+          ),
+        )
+      : undefined;
+    const financialQuote = deliveryQuote
       ? {
-          ...quoteDeliveryCharge(amount.toNumber(), input.allocation),
-          platformProfit: input.allocation.platformFeeCents / 100,
+          ...deliveryQuote,
+          // Additive surcharge plus SimIntPay's own fee is platform revenue; acquirer cost is booked separately.
+          platformProfit: deliveryQuote.totalFeeAmount,
         }
       : quoteFinancialCharge(
           {
@@ -412,10 +427,10 @@ export class PlatformPaymentsService {
       financialQuote?.totalAmount ?? amount,
     );
     const chargeCents = chargeAmount.mul(100).toNumber();
-    const realizedCostCents =
-      selectedFee && !input.allocation
-        ? estimatedCost(selectedFee, input.amountCents, chargeCents)
-        : undefined;
+    // Acquirer cost is recorded for every payment, Delivery included: it is a platform cost, never charged to the merchant.
+    const realizedCostCents = selectedFee
+      ? estimatedCost(selectedFee, input.amountCents, chargeCents)
+      : undefined;
     const costSnapshot =
       selectedFee && realizedCostCents !== undefined
         ? {
@@ -434,7 +449,11 @@ export class PlatformPaymentsService {
           amount: chargeAmount,
           netAmount: new Prisma.Decimal(financialQuote.netAmount),
           totalFee: new Prisma.Decimal(financialQuote.totalFeeAmount),
-          domFee: new Prisma.Decimal(financialQuote.domFeeAmount),
+          domFee: new Prisma.Decimal(
+            deliveryQuote && realizedCostCents !== undefined
+              ? realizedCostCents / 100
+              : financialQuote.domFeeAmount,
+          ),
           platformFee: new Prisma.Decimal(financialQuote.platformProfit),
           financialSnapshot: financialQuote.financialSnapshot,
           settlementBasis: 'FINAL_NET' as const,

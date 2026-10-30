@@ -3,7 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { DeliveryFeeMode, Prisma } from '@prisma/client';
 import { acquirerCostFloor } from '../financial-policy/acquirer-fees';
 import { loadFinancialPolicy } from '../financial-policy/financial-policy.service';
 import {
@@ -41,7 +41,7 @@ async function platformOf(tx: Prisma.TransactionClient, companyId: string) {
     throw new NotFoundException('Empresa sem plataforma financeira');
   const platform = await tx.platform.findUniqueOrThrow({
     where: { id: registration.platformId },
-    select: { ownerUserId: true, tag: true },
+    select: { deliveryFeeMode: true, id: true, ownerUserId: true, tag: true },
   });
   return platform;
 }
@@ -51,7 +51,7 @@ export async function readDeliveryFees(
   tx: Prisma.TransactionClient,
   companyId: string,
 ) {
-  const { tag } = await platformOf(tx, companyId);
+  const { deliveryFeeMode, tag } = await platformOf(tx, companyId);
   const policy = await loadFinancialPolicy(tx, tag);
   const lanes = new Map<string, DeliveryFeeLane>();
   for (const [key, lane] of Object.entries(policy.document.lanes).sort(
@@ -71,6 +71,7 @@ export async function readDeliveryFees(
       });
   }
   return {
+    mode: deliveryFeeMode,
     version: policy.version,
     lanes: [...lanes.values()],
     costs: await acquirerCostFloor(tx),
@@ -80,14 +81,21 @@ export async function readDeliveryFees(
 export async function saveDeliveryFees(
   tx: Prisma.TransactionClient,
   companyId: string,
-  input: { version: string; lanes: DeliveryFeeLane[] },
+  input: { version: string; lanes: DeliveryFeeLane[]; mode?: DeliveryFeeMode },
 ) {
-  const { ownerUserId, tag } = await platformOf(tx, companyId);
+  const { id: platformId, ownerUserId, tag } = await platformOf(tx, companyId);
   const current = await loadFinancialPolicy(tx, tag);
   if (input.version !== current.version)
     throw new ConflictException(
       'Configuração alterada. Recarregue antes de salvar.',
     );
+  if (input.mode !== undefined)
+    await tx.platform.update({
+      where: { id: platformId },
+      data: { deliveryFeeMode: input.mode },
+    });
+  // A mode-only change must not create an empty policy revision.
+  if (!input.lanes.length) return readDeliveryFees(tx, companyId);
   const previous = await tx.financialPolicyRevision.findFirst({
     where: { tag },
     orderBy: { version: 'desc' },
