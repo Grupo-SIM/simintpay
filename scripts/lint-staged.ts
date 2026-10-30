@@ -13,7 +13,7 @@ const diff = Bun.spawnSync([
 if (diff.exitCode) process.exit(diff.exitCode);
 const staged = diff.stdout.toString().split('\0');
 const only = process.argv.find((arg) => arg.startsWith('--only='))?.slice(7);
-for (const workspace of ['backend', 'checkout'].filter(
+for (const workspace of ['backend', 'checkout', 'frontend'].filter(
   (name) => !only || name === only,
 )) {
   const files = staged.filter((file) =>

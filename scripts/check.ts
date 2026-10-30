@@ -5,7 +5,7 @@
  *   bun check --staged        only staged files (pre-commit)
  *   bun check --skip-lint     leave lint to a separate fixing step (pre-commit does this)
  *   bun check --all           full backend unit suite
- *   bun check --only=backend  one workspace (`bun run check` inside backend/ or checkout/ does this)
+ *   bun check --only=backend  one workspace (`bun run check` inside backend/, checkout/ or frontend/ does this)
  */
 import { resolve } from 'node:path';
 

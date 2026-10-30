@@ -53,3 +53,11 @@ See [deployment guide](docs/deployment.md). Production configuration contains no
 [Business rules](docs/business-rules.md) · [Canonical Delivery integration](docs/guides/delivery-canonical-integration.md)
 
 Checkout setup and public build-time API variables: [checkout guide](checkout/README.md). `bun dev` runs both workspaces. Checkout declares backend as a development dependency; its local Turbo configuration waits for backend OpenAPI export and runs backend dev alongside checkout. `bun turbo -F checkout dev` follows the same dependencies without workspace-specific root aliases. Export runs offline in Nest preview mode and writes `backend/out/openapi.json`.
+
+## Frontend administrativo (Next.js)
+
+O workspace `frontend/` foi importado de `simintpay-front` sem modificar páginas, componentes, estilos, middleware ou assets. A origem não foi removida. Next.js/React foram mantidos; não há migração para Vite. Instale somente na raiz com `bun install --frozen-lockfile`; não crie lockfiles por workspace. Copie `frontend/.env.example` para `frontend/.env.local` e use `bun run --cwd frontend dev --port 3002` (checkout usa 3000).
+
+`bun run --cwd frontend check-types` gera os tipos de rotas Next e chama o type checker nativo `bun check --no-script`, como o Bun 1.4.4 usado pelo template. A flag evita a colisão com o script `check` deste projeto, que é um orquestrador de alterações (tipos/lint/testes), não o compilador nativo. `bun run --cwd frontend check` usa esse orquestrador. `bun run build --filter=frontend` gera o servidor standalone; CI e CD descobrem o workspace pelo grafo Turbo. ESLint Next permanece para preservar as regras da aplicação existente.
+
+CD aceita `frontend` no dispatch e publica a imagem `_frontend` separadamente. Configure as variáveis de repositório `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_CHECKOUT_BASE_URL`, `NEXT_PUBLIC_CLIENT_MIN_AMOUNT` e `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` antes de publicar; valores públicos entram no build/cache Turbo. SMTP é exclusivamente runtime (`frontend/.env.production`, ignorado pelo Git); credenciais não entram na imagem. Compose production expõe frontend em 3002 por padrão. Docker usa contexto raiz e `frontend/Dockerfile`, com Bun fixado na versão do monorepo e Node no runtime standalone, preservando o runtime anterior.

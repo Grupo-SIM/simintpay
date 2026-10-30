@@ -1,0 +1,2179 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@1,600&display=swap');
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css');
+
+.sim-landing,
+.sim-landing * {
+  box-sizing: border-box;
+}
+
+.sim-landing ::selection {
+  background: rgba(118, 31, 227, 0.4);
+  color: #fff;
+}
+
+@keyframes simfloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+/* Scroll reveal — elements fade/slide in as they enter the viewport */
+.sim-reveal {
+  opacity: 0;
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.sim-reveal--up {
+  transform: translateY(40px);
+}
+.sim-reveal--down {
+  transform: translateY(-40px);
+}
+.sim-reveal--left {
+  transform: translateX(40px);
+}
+.sim-reveal--right {
+  transform: translateX(-40px);
+}
+.sim-reveal--fade {
+  transform: none;
+}
+.sim-reveal--zoom {
+  transform: scale(0.92);
+}
+
+.sim-reveal--in {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sim-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* ---- Interaction / hover micro-animations ---- */
+/* Soft, slow, elegant glide. Shared easing: gentle ease-out. */
+
+/* Shared CTA button: subtle lift + glow on hover, press on click */
+.sim-btn {
+  transition:
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    background 0.5s ease,
+    border-color 0.5s ease,
+    filter 0.5s ease;
+  will-change: transform;
+}
+.sim-btn:hover {
+  transform: translateY(-2px);
+}
+.sim-btn:active {
+  transform: translateY(-1px) scale(0.99);
+  transition-duration: 0.18s;
+}
+
+/* Solid (accent-filled) buttons get a soft colored glow */
+.sim-btn--solid:hover {
+  background: #6a1bcc;
+  box-shadow: 0 14px 34px -12px rgba(118, 31, 227, 0.5);
+  filter: brightness(1.03);
+}
+
+/* Outline / ghost buttons fill softly on hover */
+.sim-btn--ghost:hover {
+  background: rgba(118, 31, 227, 0.1);
+  border-color: var(--accent) !important;
+}
+
+/* Arrow icon inside a button glides forward on hover */
+.sim-btn .fa-arrow-right {
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sim-btn:hover .fa-arrow-right {
+  transform: translateX(4px);
+}
+
+/* Service cards: gentle lift + soft icon settle */
+.sim-service-card {
+  position: relative;
+  transition:
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sim-service-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 26px 50px -22px rgba(0, 0, 0, 0.6);
+}
+.sim-service-icon {
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sim-service-card:hover .sim-service-icon {
+  transform: scale(1.05) rotate(-3deg);
+}
+
+/* CTA service card */
+.sim-service-card-cta {
+  transition:
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sim-service-card-cta:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 26px 54px -20px rgba(118, 31, 227, 0.45);
+}
+
+/* Step cards: subtle lift + brighten */
+.sim-steps-grid > .sim-reveal {
+  transition:
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    background 0.6s ease;
+}
+.sim-steps-grid > .sim-reveal:hover {
+  transform: translateY(-4px);
+  background: rgba(255, 255, 255, 0.14) !important;
+}
+
+/* Feature cards: gentle lift; tiles settle individually */
+.sim-feature-card {
+  transition:
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sim-feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 28px 54px -24px rgba(0, 0, 0, 0.6);
+}
+.sim-feature-card-tile {
+  transition:
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    background 0.5s ease;
+}
+.sim-feature-card-tile:hover {
+  transform: translateY(-3px) scale(1.02);
+}
+.sim-feature-card-tile-icon {
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sim-feature-card-tile:hover .sim-feature-card-tile-icon {
+  transform: scale(1.1);
+}
+
+/* Support checklist rows: soft nudge right on hover */
+.sim-support-row {
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sim-support-row:hover {
+  transform: translateX(4px);
+}
+.sim-support-row .sim-support-check {
+  transition:
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    background 0.5s ease;
+}
+.sim-support-row:hover .sim-support-check {
+  transform: scale(1.1);
+  background: rgba(118, 31, 227, 0.35);
+}
+
+/* Final CTA artwork: gentle lift */
+.sim-cta-svg-wrap {
+  transition: transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sim-cta-wrap:hover .sim-cta-svg-wrap {
+  transform: translateY(-4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sim-btn,
+  .sim-btn:hover,
+  .sim-btn:active,
+  .sim-service-card:hover,
+  .sim-service-card-cta:hover,
+  .sim-feature-card:hover,
+  .sim-feature-card-tile:hover,
+  .sim-support-row:hover,
+  .sim-steps-grid > .sim-reveal:hover,
+  .sim-cta-wrap:hover .sim-cta-svg-wrap {
+    transform: none;
+  }
+}
+
+.sim-landing a {
+  text-decoration: none;
+}
+
+.sim-hero-visual {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.sim-hero-visual::before {
+  content: '';
+  position: absolute;
+  left: -6%;
+  top: 42%;
+  transform: translateY(-50%);
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 132, 72, 0.32) 0%,
+    rgba(255, 98, 45, 0.18) 42%,
+    rgba(255, 80, 30, 0.06) 62%,
+    transparent 78%
+  );
+  filter: blur(32px);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.sim-hero-inner {
+  position: relative;
+  z-index: 2;
+}
+
+.sim-hero-dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 320px;
+  pointer-events: none;
+  z-index: 1;
+  background-image: url('/assets/dots.svg');
+  background-repeat: no-repeat;
+  background-position: bottom center;
+  background-size: 100% auto;
+  mask-image: linear-gradient(to top, #000 50%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to top, #000 50%, transparent 100%);
+}
+
+.sim-hero-wave {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 100%;
+  line-height: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.sim-hero-wave svg {
+  display: block;
+  width: 100%;
+  height: 72px;
+}
+
+@media (min-width: 768px) {
+  .sim-hero-wave svg {
+    height: 100px;
+  }
+}
+
+.sim-hero-visual img {
+  position: relative;
+  z-index: 2;
+}
+
+.sim-medal-float {
+  animation: simfloat 4s ease-in-out infinite;
+}
+
+.sim-service-card,
+.sim-service-card-cta {
+  position: relative;
+  overflow: hidden;
+}
+
+.sim-service-card-shadow {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 58%;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: 0 0 12px 12px;
+  background: linear-gradient(
+    to top,
+    #141414 0%,
+    #141414 28%,
+    rgba(20, 20, 20, 0.92) 48%,
+    rgba(20, 20, 20, 0.5) 68%,
+    transparent 100%
+  );
+}
+
+.sim-service-card-num,
+.sim-service-card-action,
+.sim-service-card-content {
+  position: relative;
+  z-index: 3;
+}
+
+.sim-service-card-num {
+  margin-top: auto;
+  padding-top: 22px;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.22);
+}
+
+.sim-benefits-heading {
+  max-width: 1120px;
+}
+
+.sim-benefits-title {
+  font-size: 48px;
+  line-height: 1.18;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+  margin: 0 0 18px;
+}
+
+.sim-benefits-title-line {
+  display: block;
+  white-space: nowrap;
+}
+
+.sim-benefits-underline {
+  border-bottom: 4px solid #761fe3;
+  padding-bottom: 2px;
+}
+
+.sim-benefits-subtitle {
+  font-size: 18px;
+  line-height: 1.6;
+  color: #a3a3a3;
+  margin: 0;
+}
+
+.sim-benefits-subtitle-line {
+  display: block;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .sim-benefits-title {
+    font-size: 32px;
+  }
+
+  .sim-benefits-title-line,
+  .sim-benefits-subtitle-line {
+    white-space: normal;
+  }
+}
+
+.sim-feature-card {
+  position: relative;
+  width: 100%;
+  border-radius: 8px;
+  padding: 44px 34px 48px;
+  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: linear-gradient(
+    180deg,
+    #701ed7 0%,
+    #4a14a8 38%,
+    #2a0d5c 68%,
+    #12082a 100%
+  );
+  overflow: visible;
+  z-index: 1;
+  box-shadow: 0 32px 64px -22px rgba(0, 0, 0, 0.72);
+}
+
+.sim-feature-card::after {
+  content: '';
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 0;
+  height: 48%;
+  transform: translateY(42%);
+  background: radial-gradient(
+    ellipse 85% 100% at 50% 0%,
+    rgba(0, 0, 0, 0.55) 0%,
+    transparent 74%
+  );
+  pointer-events: none;
+  z-index: -1;
+}
+
+.sim-feature-card-badge {
+  display: inline-block;
+  width: fit-content;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  padding: 7px 16px;
+  border-radius: 50px;
+  background: #0a0a0a;
+  margin-bottom: 16px;
+}
+
+.sim-feature-card-title {
+  font-size: 26px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  line-height: 1.2;
+}
+
+.sim-feature-card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.sim-feature-card-header .sim-feature-card-badge {
+  margin-bottom: 12px;
+}
+
+.sim-feature-card-title--prominent {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  font-size: 22px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  margin: 0 0 12px;
+  padding: 0;
+  color: #fff;
+}
+
+.sim-feature-card-subtitle {
+  font-size: 15px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.78);
+  margin: 0 0 28px;
+}
+
+.sim-feature-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  padding: 32px;
+  border-radius: 6px;
+  background: #0d0d0d;
+  flex: 1;
+  width: 100%;
+  align-self: stretch;
+}
+
+.sim-feature-card-tile {
+  border-radius: 8px;
+  background: transparent;
+  border: 2px solid #1f1f1f;
+  padding: 32px 18px;
+  min-height: 158px;
+}
+
+.sim-feature-card-tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(
+    135deg,
+    rgba(118, 31, 227, 0.55),
+    rgba(208, 147, 232, 0.45)
+  );
+  margin-bottom: 14px;
+}
+
+.sim-feature-card-tile-icon i {
+  font-size: 17px;
+  color: #fff;
+}
+
+.sim-feature-card-tile-label {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.sim-features-layout {
+  position: relative;
+  max-width: 1520px;
+  margin: 0 auto;
+  padding: 0 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: stretch;
+}
+
+.sim-features-left {
+  position: relative;
+  min-height: 100%;
+  padding: 30px 20px;
+}
+
+.sim-features-intro {
+  position: relative;
+  z-index: 2;
+  max-width: 92%;
+  margin-top: -36px;
+}
+
+.sim-features-eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: var(--accent-light);
+  margin-bottom: 14px;
+}
+
+.sim-features-title {
+  font-size: 36px;
+  line-height: 1.14;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+  margin: 0 0 18px;
+}
+
+.sim-features-title-accent {
+  font-family: var(--font-landing-lora), Lora, serif;
+  font-style: italic;
+  font-weight: 600;
+}
+
+.sim-features-cta {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  padding: 14px 28px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-top-width: 4px;
+  display: inline-block;
+  transition:
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    background 0.5s ease,
+    border-color 0.5s ease;
+}
+
+.sim-features-cta:hover {
+  background: rgba(118, 31, 227, 0.08);
+}
+
+.sim-features-left-card {
+  position: absolute;
+  top: 50%;
+  left: 20px;
+  right: 20px;
+  transform: translateY(-50%);
+  z-index: 1;
+  padding-bottom: 28px;
+}
+
+.sim-features-right {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-bottom: 28px;
+}
+
+@media (max-width: 960px) {
+  .sim-features-layout {
+    grid-template-columns: 1fr;
+    padding: 0 12px;
+  }
+
+  .sim-features-left {
+    padding-bottom: 0;
+  }
+
+  .sim-features-left-card {
+    position: static;
+    transform: none;
+    margin-top: 24px;
+  }
+
+  .sim-features-intro {
+    margin-top: 0;
+  }
+
+  .sim-features-title {
+    font-size: 32px;
+  }
+
+  .sim-feature-card-title--prominent {
+    font-size: 18px;
+  }
+
+  .sim-features-left {
+    padding: 24px 12px 0;
+  }
+
+  .sim-features-intro {
+    max-width: 100%;
+  }
+
+  /* Give the feature cards room so the inner tile grid doesn't overflow */
+  .sim-feature-card {
+    min-height: auto;
+    padding: 32px 20px 36px;
+  }
+
+  .sim-feature-card-grid {
+    padding: 20px;
+    gap: 14px;
+  }
+
+  .sim-feature-card-tile {
+    padding: 22px 14px;
+    min-height: 130px;
+  }
+}
+
+@media (max-width: 420px) {
+  /* Very narrow phones: stack the inner tiles to a single column */
+  .sim-feature-card {
+    padding: 28px 16px 32px;
+  }
+
+  .sim-feature-card-grid {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .sim-feature-card-tile {
+    min-height: auto;
+    padding: 20px 16px;
+  }
+
+  .sim-feature-card-title {
+    font-size: 22px;
+  }
+}
+
+.sim-marquee {
+  overflow: hidden;
+  width: 100%;
+  padding: 20px 0;
+  margin-top: 12px;
+  background: #141414;
+}
+
+.sim-marquee .sim-marquee-track {
+  display: flex;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  width: max-content;
+  will-change: transform;
+  animation: sim-marquee-scroll 24s linear infinite;
+}
+
+.sim-marquee .sim-marquee-item {
+  display: flex;
+  align-items: center;
+  gap: 60px;
+  flex-shrink: 0;
+  padding-right: 60px;
+}
+
+.sim-marquee .sim-marquee-txt {
+  font-family: var(--font-landing-poppins), Poppins, sans-serif;
+  font-weight: 800;
+  font-size: 80px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.sim-marquee .sim-marquee-txt--fill {
+  color: #701ed7;
+  -webkit-text-fill-color: #701ed7;
+}
+
+.sim-marquee .sim-marquee-txt--outline {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 2px rgba(112, 30, 215, 0.65);
+}
+
+.sim-marquee .sim-marquee-star {
+  color: rgba(112, 30, 215, 0.75);
+  font-size: 50px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+@keyframes sim-marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 960px) {
+  .sim-marquee .sim-marquee-item {
+    gap: 30px;
+    padding-right: 30px;
+  }
+
+  .sim-marquee .sim-marquee-txt {
+    font-size: 48px;
+  }
+
+  .sim-marquee .sim-marquee-txt--outline {
+    -webkit-text-stroke-width: 1.5px;
+  }
+
+  .sim-marquee .sim-marquee-star {
+    font-size: 32px;
+  }
+}
+
+@media (max-width: 640px) {
+  .sim-marquee .sim-marquee-txt {
+    font-size: 36px;
+  }
+
+  .sim-marquee .sim-marquee-txt--outline {
+    -webkit-text-stroke-width: 1px;
+  }
+
+  .sim-marquee .sim-marquee-star {
+    font-size: 26px;
+  }
+}
+
+.sim-reviews-section {
+  width: 100%;
+  background: #141414;
+  padding: 40px 0 96px;
+}
+
+.sim-reviews-wrap {
+  max-width: 1520px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.sim-reviews-panel {
+  position: relative;
+  border-radius: 18px;
+  padding: 100px 64px;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#1e1e1e, #1e1e1e) padding-box,
+    linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.05) 0%,
+        rgba(255, 255, 255, 0.05) 50%,
+        rgba(255, 255, 255, 0.03) 75%,
+        rgba(255, 255, 255, 0.02) 88%,
+        #1c1c1c 100%
+      )
+      border-box;
+}
+
+.sim-reviews-header {
+  text-align: center;
+  margin-bottom: 64px;
+}
+
+.sim-reviews-eyebrow {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: #a3a3a3;
+  margin-bottom: 14px;
+}
+
+.sim-reviews-title {
+  font-size: 44px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  line-height: 1.15;
+  margin: 0;
+  color: #fff;
+}
+
+.sim-reviews-carousel-wrap {
+  position: relative;
+}
+
+.sim-reviews-carousel {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.sim-reviews-carousel-glow {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  z-index: 0;
+  width: 580px;
+  height: 480px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse 340px 280px at 50% 42%,
+      rgba(255, 132, 72, 0.18) 0%,
+      rgba(255, 98, 45, 0.08) 45%,
+      transparent 72%
+    ),
+    radial-gradient(
+      ellipse 460px 360px at 50% 42%,
+      rgba(255, 98, 45, 0.1) 0%,
+      transparent 68%
+    );
+}
+
+.sim-reviews-track {
+  display: flex;
+  transition: transform 0.45s ease;
+}
+
+.sim-reviews-slide {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  gap: 24px;
+  min-width: 100%;
+  width: 100%;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
+.sim-review-card {
+  position: relative;
+  border-radius: 14px;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#1e1e1e, #1e1e1e) padding-box,
+    linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.05) 0%,
+        rgba(255, 255, 255, 0.05) 50%,
+        rgba(255, 255, 255, 0.03) 75%,
+        rgba(255, 255, 255, 0.02) 88%,
+        #1c1c1c 100%
+      )
+      border-box;
+  padding: 52px 36px;
+  min-height: 380px;
+  flex: 0 0 calc(30% - 16px);
+  max-width: 380px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sim-review-stars {
+  color: #fcca18;
+  font-size: 15px;
+  letter-spacing: 3px;
+  margin-bottom: 18px;
+}
+
+.sim-review-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.7;
+  color: #bdbdbd;
+  margin: 0 0 26px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.sim-review-author {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: auto;
+  min-width: 0;
+}
+
+.sim-review-author > div {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.sim-review-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.sim-review-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.sim-review-role {
+  font-size: 13px;
+  color: #a3a3a3;
+  margin-top: 2px;
+}
+
+.sim-reviews-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 48px;
+}
+
+.sim-reviews-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.sim-reviews-dot--active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (max-width: 960px) {
+  .sim-reviews-wrap {
+    padding: 0 16px;
+  }
+
+  .sim-reviews-panel {
+    padding: 48px 20px;
+  }
+
+  /* One card per slide: card fills the slide exactly, no peeking neighbor */
+  .sim-reviews-slide {
+    gap: 0;
+  }
+
+  .sim-review-card {
+    min-height: auto;
+    padding: 36px 24px;
+    flex: 0 0 100%;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .sim-reviews-title {
+    font-size: 32px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sim-reviews-panel {
+    padding: 40px 14px;
+  }
+
+  .sim-review-card {
+    padding: 28px 20px;
+  }
+
+  .sim-review-text {
+    font-size: 15px;
+  }
+
+  .sim-reviews-title {
+    font-size: 26px;
+  }
+}
+
+.sim-logos-box {
+  position: relative;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 8px 0;
+  background: #0c1020;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.sim-logos-strip {
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+  width: 100%;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+}
+
+.sim-logos-track {
+  display: flex;
+  align-items: center;
+  gap: 60px;
+  width: max-content;
+  animation: sim-logos-scroll 32s linear infinite;
+}
+
+.sim-logos-track-img {
+  height: 38px;
+  width: auto;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+  opacity: 0.65;
+  flex-shrink: 0;
+  transition: opacity 0.2s;
+}
+
+.sim-logos-track-img:hover {
+  opacity: 1;
+}
+
+.sim-logos-track-img.sim-logo-sm {
+  height: 28px;
+}
+
+.sim-logos-track-img.sim-logo-xl {
+  height: 84px;
+  max-width: 150px;
+}
+
+.sim-logos-track-img.sim-logo-xxl {
+  height: 118px;
+}
+
+.sim-logos-track-img.sim-logo-dark {
+  filter: invert(1);
+  opacity: 0.8;
+}
+
+.sim-logos-track-img.sim-logo-native {
+  filter: none;
+  opacity: 0.92;
+}
+
+.sim-logos-track-img.sim-logo-native:not(.sim-logo-new) {
+  height: 44px;
+  max-width: 44px;
+}
+
+.sim-logos-track-img.sim-logo-new {
+  height: 130px;
+  max-width: 320px;
+}
+
+@keyframes sim-logos-scroll {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 960px) {
+  .sim-logos-track {
+    gap: 40px;
+  }
+
+  .sim-logos-track-img.sim-logo-new {
+    height: 100px;
+    max-width: 240px;
+  }
+
+  .sim-logos-track-img.sim-logo-xl {
+    height: 62px;
+    max-width: 120px;
+  }
+
+  .sim-logos-track-img.sim-logo-xxl {
+    height: 84px;
+  }
+}
+
+.sim-cta-section {
+  overflow: visible;
+}
+
+.sim-cta-wrap {
+  position: relative;
+  width: 100%;
+  overflow: visible;
+}
+
+.sim-cta-svg-wrap {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 410px;
+  overflow: hidden;
+  border-radius: 24px;
+  background: linear-gradient(110deg, #6d14d5 0%, #8a28e5 48%, #b05bea 100%);
+}
+
+.sim-cta-content {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  min-height: 410px;
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 42px 5.3%;
+}
+
+.sim-cta-title {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(34px, 4.9vw, 64px);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+}
+
+.sim-cta-title span {
+  font-family: var(--font-landing-lora), Lora, serif;
+  font-style: italic;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 7px;
+}
+
+.sim-cta-button {
+  margin-top: 30px;
+  border-radius: 10px;
+  background: #fff;
+  padding: 15px 25px;
+  color: #741de2;
+  font-size: 16px;
+  font-weight: 700;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.sim-cta-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(58, 8, 125, 0.24);
+}
+
+.sim-cta-person {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: min(48%, 520px);
+  height: auto;
+  z-index: 2;
+  pointer-events: none;
+  transform: translateY(0.5%);
+  object-fit: contain;
+  object-position: right bottom;
+}
+
+@media (max-width: 960px) {
+  .sim-cta-person {
+    width: min(50%, 320px);
+    right: 0;
+    transform: translateY(0);
+  }
+}
+
+.sim-footer {
+  width: 100%;
+  background: linear-gradient(90deg, #0f0021 0%, #4a3169 100%);
+  padding: 24px 24px;
+}
+
+.sim-footer-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.sim-footer-logo {
+  display: flex;
+  align-items: flex-start;
+  height: 38px;
+  overflow: hidden;
+}
+
+.sim-footer-logo img {
+  height: 88px;
+  width: auto;
+  display: block;
+  margin-top: -25px;
+}
+
+.sim-footer-legal {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #a1a1aa;
+}
+
+.sim-footer-legal-accent {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+@media (max-width: 960px) {
+  .sim-footer {
+    padding: 18px 20px;
+  }
+
+  .sim-footer-logo {
+    height: 32px;
+  }
+
+  .sim-footer-logo img {
+    height: 74px;
+    margin-top: -21px;
+  }
+
+  .sim-footer-legal {
+    font-size: 11px;
+  }
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.sim-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  width: 100%;
+  background: transparent;
+}
+
+.sim-header-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 18px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.sim-header-logo {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.sim-header-logo-img {
+  height: 82px;
+  width: auto;
+  display: block;
+}
+
+.sim-header-nav {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  padding: 13px 26px;
+  border-radius: 10px;
+  background: rgba(41, 41, 41, 0.55);
+  border: 0.5px solid rgba(214, 214, 214, 0.16);
+}
+
+.sim-header-nav-link {
+  position: relative;
+  font-size: 15px;
+  color: #cfcfcf;
+  white-space: nowrap;
+  transition: color 0.2s;
+}
+
+.sim-header-nav-link::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -6px;
+  width: 100%;
+  height: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sim-header-nav-link:hover {
+  color: #fff;
+}
+
+.sim-header-nav-link:hover::after {
+  transform: scaleX(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sim-header-nav-link::after {
+    transition: none;
+  }
+}
+
+.sim-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.sim-header-btn-login {
+  font-size: 15px;
+  font-weight: 500;
+  color: #fff;
+  padding: 13px 26px;
+  border-radius: 10px;
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  white-space: nowrap;
+  transition:
+    background 0.5s ease,
+    border-color 0.5s ease;
+}
+
+.sim-header-btn-login:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sim-header-btn-signup {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  padding: 13px 26px;
+  border-radius: 10px;
+  background: var(--accent);
+  white-space: nowrap;
+  transition:
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    background 0.5s ease,
+    box-shadow 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+    filter 0.5s ease;
+}
+
+.sim-header-btn-signup:hover {
+  background: #6a1bcc;
+  box-shadow: 0 14px 34px -12px rgba(118, 31, 227, 0.5);
+  filter: brightness(1.03);
+}
+
+/* Hamburger — hidden on desktop */
+.sim-header-burger {
+  display: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  border: 0.5px solid rgba(255, 255, 255, 0.2);
+  background: rgba(41, 41, 41, 0.55);
+  color: #fff;
+  font-size: 20px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.sim-header-burger:hover {
+  background: rgba(60, 60, 60, 0.7);
+}
+
+/* Mobile menu — hidden on desktop */
+.sim-header-mobile {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .sim-header-inner {
+    padding: 14px 20px;
+  }
+
+  .sim-header-logo-img {
+    height: 60px;
+  }
+
+  /* Collapse desktop nav + actions, show hamburger */
+  .sim-header-nav,
+  .sim-header-actions {
+    display: none;
+  }
+
+  .sim-header-burger {
+    display: inline-flex;
+  }
+
+  .sim-header-mobile {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+  }
+
+  .sim-header-mobile.is-open {
+    pointer-events: auto;
+  }
+
+  .sim-header-mobile-backdrop {
+    position: absolute;
+    inset: 0;
+    border: none;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    cursor: pointer;
+  }
+
+  .sim-header-mobile.is-open .sim-header-mobile-backdrop {
+    opacity: 1;
+  }
+
+  .sim-header-mobile-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: min(82vw, 320px);
+    background: #1a1a1a;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: -16px 0 48px rgba(0, 0, 0, 0.5);
+    padding: 96px 28px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    transform: translateX(100%);
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .sim-header-mobile.is-open .sim-header-mobile-panel {
+    transform: translateX(0);
+  }
+
+  .sim-header-mobile-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .sim-header-mobile-link {
+    font-size: 17px;
+    font-weight: 500;
+    color: #e5e5e5;
+    padding: 14px 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    transition: color 0.2s;
+  }
+
+  .sim-header-mobile-link:hover {
+    color: #fff;
+  }
+
+  .sim-header-mobile-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: auto;
+  }
+
+  .sim-header-mobile-actions .sim-header-btn-login,
+  .sim-header-mobile-actions .sim-header-btn-signup {
+    text-align: center;
+    padding: 15px 26px;
+    font-size: 16px;
+  }
+}
+
+/* ============================================================
+   HERO
+   ============================================================ */
+@media (max-width: 768px) {
+  .sim-hero-inner {
+    padding: 32px 20px 80px !important;
+    gap: 36px !important;
+  }
+
+  .sim-hero-title {
+    font-size: 34px !important;
+    letter-spacing: -0.5px !important;
+  }
+
+  .sim-hero-subtitle {
+    font-size: 16px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .sim-hero-title {
+    font-size: 28px !important;
+  }
+}
+
+/* ============================================================
+   SERVICES GRID (Benefícios)
+   ============================================================ */
+.sim-services-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+@media (max-width: 960px) {
+  .sim-services-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .sim-services-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   STEPS BOX (Do cadastro à primeira venda)
+   ============================================================ */
+.sim-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  /* Drop the negative-margin full-bleed trick that overflowed on mobile */
+  .sim-steps-box {
+    width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding: 36px 24px !important;
+  }
+
+  .sim-steps-title {
+    font-size: 30px !important;
+  }
+
+  .sim-steps-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   SECTION PADDING + HEADINGS (small screens)
+   ============================================================ */
+@media (max-width: 600px) {
+  .sim-section-inner {
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+  }
+}
+
+/* ============================================================
+   PARTNERS ORBIT (integrations marquee + central orb)
+   ============================================================ */
+.sim-orbit {
+  position: relative;
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+}
+
+/* Two horizontal marquee rows; edges fade out so tiles emerge/dissolve. */
+.sim-orbit-rows {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 14%,
+    #000 86%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 14%,
+    #000 86%,
+    transparent 100%
+  );
+}
+
+.sim-orbit-row {
+  width: 100%;
+  overflow: hidden;
+}
+
+.sim-orbit-track {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  width: max-content;
+  animation: sim-orbit-scroll 40s linear infinite;
+}
+
+.sim-orbit-track--reverse {
+  animation-direction: reverse;
+  animation-duration: 46s;
+}
+
+@keyframes sim-orbit-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sim-orbit-track {
+    animation: none;
+  }
+}
+
+.sim-orbit-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 150px;
+  height: 120px;
+  border-radius: 18px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.035) 0%,
+    rgba(255, 255, 255, 0.012) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition:
+    border-color 0.25s ease,
+    background 0.25s ease;
+}
+
+.sim-orbit-tile:hover {
+  border-color: rgba(118, 31, 227, 0.5);
+  background: linear-gradient(
+    180deg,
+    rgba(118, 31, 227, 0.12) 0%,
+    rgba(118, 31, 227, 0.03) 100%
+  );
+}
+
+.sim-orbit-logo {
+  max-width: 111%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+  opacity: 0.78;
+  transition: opacity 0.25s ease;
+}
+
+.sim-orbit-tile:hover .sim-orbit-logo {
+  opacity: 1;
+}
+
+/* Logos that should keep their native colors (already white / branded). */
+.sim-orbit-logo.sim-logo-native {
+  filter: none;
+  opacity: 0.92;
+}
+
+.sim-orbit-logo.sim-logo-dark {
+  filter: invert(1);
+  opacity: 0.85;
+}
+
+/* ---- Center orb (sits on top of the marquee rows) ---- */
+.sim-orbit-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 340px;
+  height: 340px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.sim-orbit-glow {
+  position: absolute;
+  inset: -30px;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      #141414 0%,
+      #141414 24%,
+      rgba(20, 20, 20, 0.85) 38%,
+      transparent 64%
+    ),
+    radial-gradient(
+      circle at 50% 50%,
+      rgba(118, 31, 227, 0.3) 14%,
+      rgba(118, 31, 227, 0.1) 40%,
+      transparent 66%
+    );
+  pointer-events: none;
+}
+
+.sim-orbit-ring {
+  position: absolute;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(28, 20, 48, 0.7) 0%,
+    rgba(20, 14, 38, 0.35) 55%,
+    transparent 73%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 70px rgba(118, 31, 227, 0.2);
+  pointer-events: none;
+}
+
+.sim-orbit-core {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  height: 100px;
+  border-radius: 26px;
+  background: linear-gradient(160deg, #8b3df0 0%, #6417c2 100%);
+  box-shadow:
+    0 0 0 7px rgba(118, 31, 227, 0.18),
+    0 14px 44px rgba(118, 31, 227, 0.55);
+}
+
+.sim-orbit-core-img {
+  width: 52%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* ---- Tablet ---- */
+@media (max-width: 900px) {
+  .sim-orbit {
+    min-height: 300px;
+  }
+
+  .sim-orbit-tile {
+    width: 120px;
+    height: 100px;
+    border-radius: 16px;
+  }
+
+  .sim-orbit-track {
+    gap: 16px;
+  }
+
+  .sim-orbit-center {
+    width: 250px;
+    height: 250px;
+  }
+
+  .sim-orbit-ring {
+    width: 220px;
+    height: 220px;
+  }
+
+  .sim-orbit-core {
+    width: 84px;
+    height: 84px;
+    border-radius: 22px;
+  }
+}
+
+/* ---- Mobile ---- */
+@media (max-width: 600px) {
+  .sim-orbit {
+    min-height: 260px;
+  }
+
+  .sim-orbit-rows {
+    gap: 16px;
+  }
+
+  .sim-orbit-tile {
+    width: 96px;
+    height: 84px;
+    border-radius: 14px;
+  }
+
+  .sim-orbit-track {
+    gap: 12px;
+  }
+
+  .sim-orbit-center {
+    width: 190px;
+    height: 190px;
+  }
+
+  .sim-orbit-ring {
+    width: 168px;
+    height: 168px;
+  }
+
+  .sim-orbit-core {
+    width: 72px;
+    height: 72px;
+    border-radius: 18px;
+  }
+}
+
+/* ---- Support chat card ---- */
+.sim-support-chat-card {
+  position: relative;
+  width: min(100%, 560px);
+  aspect-ratio: 699 / 545;
+  color: #f4f2f6;
+  font-family:
+    var(--font-landing-inter),
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+}
+.sim-support-chat-card-shadow,
+.sim-support-chat-card-panel {
+  position: absolute;
+  width: 62.2%;
+  height: 82.9%;
+  border-radius: 30px;
+}
+.sim-support-chat-card-shadow {
+  top: 11.7%;
+  left: 24.6%;
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+}
+.sim-support-chat-card-panel {
+  top: 8.1%;
+  left: 21.7%;
+  background:
+    radial-gradient(
+      circle at 15% 20%,
+      rgba(255, 255, 255, 0.55),
+      transparent 13%
+    ),
+    radial-gradient(
+      circle at 80% 15%,
+      rgba(120, 80, 160, 0.12),
+      transparent 16%
+    ),
+    radial-gradient(
+      circle at 60% 80%,
+      rgba(120, 80, 160, 0.1),
+      transparent 20%
+    ),
+    radial-gradient(
+      circle at 30% 70%,
+      rgba(255, 255, 255, 0.35),
+      transparent 15%
+    ),
+    linear-gradient(160deg, #efe9f5, #e6dff0 55%, #ded5ec);
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.55);
+}
+.sim-support-chat-avatar {
+  position: absolute;
+  z-index: 3;
+  top: 13.9%;
+  left: 8.3%;
+  width: 11.2%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 4px solid #f1ecf7;
+  border-radius: 50%;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+.sim-support-chat-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sim-support-chat-bubble {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+}
+.sim-support-chat-bubble--customer {
+  top: 18.2%;
+  left: 21.5%;
+  width: 48.6%;
+  min-height: 12.5%;
+  display: flex;
+  align-items: center;
+  padding: 12px 20px;
+  border-radius: 20px 20px 20px 8px;
+  background: #242226;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+  font-size: clamp(10px, 2.2vw, 15.5px);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.sim-support-chat-bubble--agent {
+  top: 36.3%;
+  left: 26.6%;
+  width: 52.2%;
+  height: 32.7%;
+  border-radius: 18px;
+  background: #141216;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
+}
+.sim-support-chat-mark {
+  position: absolute;
+  top: -12.4%;
+  right: -6%;
+  width: 17.5%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #a578f2, #7c3aed 60%, #5b21b6);
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.5);
+}
+.sim-support-chat-mark img {
+  width: 47%;
+  height: 58%;
+  object-fit: contain;
+}
+.sim-support-chat-agent-message {
+  position: absolute;
+  top: 39.3%;
+  left: 9.3%;
+  right: 6%;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: clamp(10px, 2.2vw, 15.5px);
+  font-weight: 500;
+  line-height: 1.42;
+}
+.sim-support-chat-icon {
+  color: #7c3aed;
+  flex: 0 0 24px;
+}
+.sim-support-chat-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.sim-support-chat-bubble--reply {
+  top: 76.1%;
+  left: 23.8%;
+  width: 52.2%;
+  height: 8.3%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 18px;
+  border-radius: 16px;
+  background: #f0eaf6;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+  color: #3a3540;
+  font-size: clamp(9px, 2.05vw, 14.5px);
+  font-weight: 500;
+  line-height: 1.2;
+}
+.sim-support-chat-bubble--reply > span {
+  flex: 1;
+}
+.sim-support-chat-search {
+  width: 19px;
+  flex: 0 0 19px;
+}
+.sim-support-chat-arrow {
+  width: 20px;
+  flex: 0 0 20px;
+}
+
+@media (max-width: 600px) {
+  .sim-support-chat-card {
+    width: min(100%, 440px);
+  }
+  .sim-support-chat-avatar {
+    border-width: 2px;
+  }
+  .sim-support-chat-bubble--customer {
+    padding: 7px 10px;
+    border-radius: 12px 12px 12px 5px;
+  }
+  .sim-support-chat-bubble--reply {
+    padding: 5px 8px;
+    gap: 6px;
+    border-radius: 10px;
+  }
+  .sim-support-chat-search {
+    width: 14px;
+    flex-basis: 14px;
+  }
+  .sim-support-chat-arrow {
+    width: 14px;
+    flex-basis: 14px;
+  }
+  .sim-support-chat-icon {
+    flex-basis: 15px;
+  }
+  .sim-support-chat-icon svg {
+    width: 15px;
+    height: 15px;
+  }
+}
+
+@media (max-width: 700px) {
+  .sim-cta-svg-wrap,
+  .sim-cta-content {
+    min-height: 300px;
+  }
+  .sim-cta-content {
+    padding: 34px 7%;
+    justify-content: flex-start;
+  }
+  .sim-cta-title {
+    max-width: 78%;
+    font-size: clamp(29px, 7.5vw, 44px);
+  }
+  .sim-cta-button {
+    margin-top: 22px;
+    padding: 12px 19px;
+    font-size: 14px;
+  }
+}
+.sim-hero-artwork {
+  position: relative;
+  width: min(185%, 1200px);
+  max-width: none;
+  top: 120px;
+  transform: scale(1.2);
+  transform-origin: center bottom;
+}
+
+.sim-hero-artwork > img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.sim-hero-approval-card {
+  position: absolute;
+  top: 11%;
+  right: 4%;
+  z-index: 2;
+  display: flex;
+  min-width: clamp(104px, 15vw, 150px);
+  min-height: clamp(50px, 6.5vw, 64px);
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #a65eff 0%, #5b139b 100%);
+  box-shadow: 0 16px 26px rgba(67, 14, 125, 0.34);
+  color: #fff;
+  animation: sim-approval-card-jump 1.8s ease-in-out infinite;
+}
+
+.sim-hero-approval-card strong {
+  font-size: clamp(20px, 3vw, 28px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.sim-hero-approval-card span {
+  margin-top: 5px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: clamp(8px, 1.2vw, 11px);
+}
+
+@keyframes sim-approval-card-jump {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(-16px);
+  }
+  60% {
+    transform: translateY(-10px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sim-hero-approval-card {
+    animation: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .sim-hero-artwork {
+    width: min(160%, 760px);
+    top: 45px;
+    transform: scale(1.12);
+  }
+  .sim-hero-approval-card {
+    top: 15%;
+    right: 1%;
+    border-radius: 13px;
+  }
+}

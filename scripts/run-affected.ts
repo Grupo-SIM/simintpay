@@ -1,5 +1,5 @@
 const task = process.env.TASK;
-if (!task || !['check-types', 'build', 'test:unit'].includes(task))
+if (!task || !['check-types', 'build', 'test:unit', 'test:e2e'].includes(task))
   throw new Error('Invalid task');
 const packages: string[] = JSON.parse(process.env.TASKS ?? '{}')[task] ?? [];
 if (packages.length) {

@@ -6,7 +6,8 @@ def plan():
     affected = json.loads(os.environ["TASKS"]).get("build", [])
     target = os.environ.get("TARGET", "affected")
     services = [("backend", "backend", "backend/Dockerfile"),
-                ("checkout", "checkout", "checkout/Dockerfile")]
+                ("checkout", "checkout", "checkout/Dockerfile"),
+                ("frontend", "frontend", "frontend/Dockerfile")]
     return [dict(service=s, dockerfile=d)
             for s, p, d in services
             if target in ("all", s) or target == "affected" and p in affected]

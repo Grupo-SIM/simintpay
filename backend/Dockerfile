@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY backend/package.json backend/package.json
 COPY checkout/package.json checkout/package.json
+COPY frontend/package.json frontend/package.json
 RUN bun install --frozen-lockfile --ignore-scripts --filter backend
 
 FROM dependencies AS build
@@ -27,6 +28,7 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY backend/package.json backend/package.json
 COPY checkout/package.json checkout/package.json
+COPY frontend/package.json frontend/package.json
 RUN bun install --frozen-lockfile --production --ignore-scripts --filter backend
 
 FROM node:22-bookworm-slim AS runtime

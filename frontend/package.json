@@ -1,0 +1,54 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "check": "bun ../scripts/check.ts --only=frontend",
+    "check-types": "next typegen && bun check --no-script",
+    "test:unit": "bun test $(find src -name \"*.test.ts\" -print)",
+    "test:e2e": "bun test src/components/coproduction/tests/coproduction.browser.test.mjs"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.91.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "lottie-react": "^2.4.1",
+    "lucide-react": "^0.574.0",
+    "next": "~16.1.6",
+    "next-themes": "^0.4.6",
+    "nextjs-toploader": "^3.9.17",
+    "nodemailer": "^8.0.3",
+    "radix-ui": "^1.4.3",
+    "react": "~19.2.3",
+    "react-dom": "~19.2.3",
+    "react-google-recaptcha": "^3.1.0",
+    "recharts": "^2.15.4",
+    "tailwind-merge": "^3.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/nodemailer": "^7.0.11",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/react-google-recaptcha": "^2.1.9",
+    "eslint": "^9",
+    "eslint-config-next": "~16.1.6",
+    "playwright-core": "1.60.0",
+    "shadcn": "^3.8.5",
+    "tailwindcss": "^4",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^5",
+    "@types/bun": "^1.3.14"
+  },
+  "trustedDependencies": [
+    "sharp",
+    "unrs-resolver"
+  ],
+  "packageManager": "bun@1.4.4"
+}

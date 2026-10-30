@@ -23,3 +23,10 @@ volumes:
   storage:
     name: ${STORAGE_VOLUME_NAME:-back-simpay_simpay_storage}
     external: true
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/owner/repository_frontend:latest}
+    restart: unless-stopped
+    env_file: [./frontend/.env.production]
+    ports: ['${FRONTEND_PORT:-3002}:3000']
+    depends_on: [backend]
