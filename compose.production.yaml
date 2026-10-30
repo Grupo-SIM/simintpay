@@ -1,7 +1,22 @@
 name: simintpay-production
+x-backend-image: &backend-image ${BACKEND_IMAGE:-ghcr.io/grupo-sim/simintpay-back_backend:latest}
+x-after-migrate: &after-migrate
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
 services:
+  migrate:
+    image: ${MIGRATE_IMAGE:-ghcr.io/grupo-sim/simintpay-back_migrate:latest}
+    env_file: .env
+    init: true
+    restart: 'no'
+    working_dir: /app/backend
+    command: ['bun', 'run', 'migrate:deploy']
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
   api:
-    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to an immutable image tag}
+    <<: *after-migrate
+    image: *backend-image
     env_file: .env
     environment:
       NODE_ENV: production
@@ -19,14 +34,13 @@ services:
     ports: ['127.0.0.1:3000:3000']
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/grupo-sim/simintpay-back_frontend:latest}
+    restart: unless-stopped
+    env_file: [./frontend/.env.production]
+    ports: ['${FRONTEND_PORT:-3002}:3000']
+    depends_on: [api]
 volumes:
   storage:
     name: ${STORAGE_VOLUME_NAME:-back-simpay_simpay_storage}
     external: true
-
-  frontend:
-    image: ${FRONTEND_IMAGE:-ghcr.io/owner/repository_frontend:latest}
-    restart: unless-stopped
-    env_file: [./frontend/.env.production]
-    ports: ['${FRONTEND_PORT:-3002}:3000']
-    depends_on: [backend]

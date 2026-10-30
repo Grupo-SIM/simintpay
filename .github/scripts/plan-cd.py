@@ -5,12 +5,14 @@ import os
 def plan():
     affected = json.loads(os.environ["TASKS"]).get("build", [])
     target = os.environ.get("TARGET", "affected")
-    services = [("backend", "backend", "backend/Dockerfile"),
-                ("checkout", "checkout", "checkout/Dockerfile"),
-                ("frontend", "frontend", "frontend/Dockerfile")]
-    return [dict(service=s, dockerfile=d)
-            for s, p, d in services
-            if target in ("all", s) or target == "affected" and p in affected]
+    # (image service, project, Dockerfile, build target). `migrate` ships with backend.
+    services = [("backend", "backend", "backend/Dockerfile", ""),
+                ("migrate", "backend", "backend/Dockerfile", "migrate"),
+                ("checkout", "checkout", "checkout/Dockerfile", ""),
+                ("frontend", "frontend", "frontend/Dockerfile", "")]
+    return [dict(service=s, dockerfile=d, target=t)
+            for s, p, d, t in services
+            if target in ("all", p) or target == "affected" and p in affected]
 
 if __name__ == "__main__":
     matrix = plan()

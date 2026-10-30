@@ -23,6 +23,18 @@ USER node
 ENTRYPOINT ["node", "../node_modules/prisma/build/index.js"]
 CMD ["--help"]
 
+# Published one-shot image: compose runs it before the API starts. Node runs the
+# Prisma CLI (its shebang); Bun runs the package script like the other projects.
+FROM node:22-bookworm-slim AS migrate
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=oven/bun:1.4.4 /usr/local/bin/bun /usr/local/bin/bun
+WORKDIR /app
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/backend ./backend
+WORKDIR /app/backend
+USER node
+CMD ["bun", "run", "migrate:deploy"]
+
 FROM oven/bun:1.4.4 AS production-dependencies
 WORKDIR /app
 COPY package.json bun.lock ./

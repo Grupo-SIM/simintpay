@@ -48,7 +48,7 @@ CI uses the template's graph-based affected-package detector for type checks, bu
 
 ## Deployment
 
-See [deployment guide](docs/deployment.md). Production configuration contains no embedded credentials. API startup only starts the server; migrations, baseline reconciliation and seeding require explicit operator actions.
+See [deployment guide](docs/deployment.md). Production configuration contains no embedded credentials. API startup only starts the server; production migrations run in the Compose `migrate` service before it, while baseline reconciliation and seeding require explicit operator actions.
 
 [Business rules](docs/business-rules.md) · [Canonical Delivery integration](docs/guides/delivery-canonical-integration.md)
 
