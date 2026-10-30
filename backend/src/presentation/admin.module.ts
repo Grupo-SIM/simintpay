@@ -45,6 +45,9 @@ import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
 import { WebhookModule } from './webhook.module';
 import { PlatformReportingModule } from '../application/services/platform-reporting.module';
 import { ExternalPlatformDbModule } from '../modules/external-platform-db/external-platform-db.module';
+import { AcquirerFeesController } from '../modules/financial-policy/acquirer-fees.controller';
+import { AcquirerFeesService } from '../modules/financial-policy/acquirer-fees.service';
+import { SyncAcquirerFeesCron } from '../infrastructure/cron/sync-acquirer-fees.cron';
 
 @Module({
   imports: [
@@ -59,12 +62,15 @@ import { ExternalPlatformDbModule } from '../modules/external-platform-db/extern
   controllers: [
     PlatformIntegrationsController,
     PlatformsController,
+    AcquirerFeesController,
     AdminController,
     AdminClientesController,
     AdminAfiliadosController,
   ],
   providers: [
     PlatformsService,
+    AcquirerFeesService,
+    SyncAcquirerFeesCron,
     SyncDomTransactionsCron,
     SyncMaquinetasCron,
     CommunityAccessCron,

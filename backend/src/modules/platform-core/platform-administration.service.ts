@@ -44,6 +44,37 @@ import {
   TAGS_SEM_TAXA_SERVICO,
 } from './platform-administration.helpers';
 
+function snapshotAcquirerProfit(tx: {
+  financialSnapshot?: unknown;
+  amount: unknown;
+  netAmount?: unknown | null;
+}): number | undefined {
+  const snapshot = tx.financialSnapshot;
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot))
+    return undefined;
+  const fields = snapshot as Record<string, unknown>;
+  const cost = fields.acquirerCost;
+  if (!cost || typeof cost !== 'object' || Array.isArray(cost))
+    return undefined;
+  const realized = (cost as Record<string, unknown>).realizedCents;
+  if (
+    typeof realized !== 'number' ||
+    !Number.isSafeInteger(realized) ||
+    realized < 0
+  )
+    return undefined;
+  const buyerCents = fields.buyerTotalCents;
+  const buyerTotal =
+    typeof buyerCents === 'number' &&
+    Number.isSafeInteger(buyerCents) &&
+    buyerCents >= 0
+      ? buyerCents / 100
+      : Number(tx.amount);
+  return Number(
+    (buyerTotal - Number(tx.netAmount ?? 0) - realized / 100).toFixed(2),
+  );
+}
+
 /** Shared administration projections. Legacy HTTP permissions stay at alias boundary. */
 export class PlatformAdministrationService {
   constructor(
@@ -940,8 +971,10 @@ export class PlatformAdministrationService {
             t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
               ? Number(taxaServicoRate.toFixed(2))
               : 0;
+          const snapshotProfit = snapshotAcquirerProfit(t);
           const lucroPrejuizo = isCompleted
-            ? Number(
+            ? (snapshotProfit ??
+              Number(
                 (
                   taxaSimIntPay +
                   taxaServico -
@@ -949,7 +982,7 @@ export class PlatformAdministrationService {
                   taxaFixa -
                   taxaCashback
                 ).toFixed(2),
-              )
+              ))
             : 0;
           const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
           const cashbackDeduction =
@@ -979,17 +1012,20 @@ export class PlatformAdministrationService {
             id: t.id,
             valorBruto,
             valorLiquido,
-            lucroAdmin: isStandalonePix
-              ? lucroPrejuizo
-              : isCompleted
-                ? Number(
-                    (
-                      taxaSimIntPay -
-                      (pmStr === 'boleto' ? taxaDom : fixedFee) -
-                      cashbackDeduction
-                    ).toFixed(2),
-                  )
-                : 0,
+            lucroAdmin:
+              isCompleted && snapshotProfit !== undefined
+                ? snapshotProfit
+                : isStandalonePix
+                  ? lucroPrejuizo
+                  : isCompleted
+                    ? Number(
+                        (
+                          taxaSimIntPay -
+                          (pmStr === 'boleto' ? taxaDom : fixedFee) -
+                          cashbackDeduction
+                        ).toFixed(2),
+                      )
+                    : 0,
             taxaDom,
             taxaSimIntPay,
             taxaFixa,
@@ -1277,8 +1313,10 @@ export class PlatformAdministrationService {
         t.createdAt >= getTaxaServicoEffectiveDate(upperTag)
           ? Number(taxaServicoRate.toFixed(2))
           : 0;
+      const snapshotProfit = snapshotAcquirerProfit(t);
       const lucroPrejuizo = isCompleted
-        ? Number(
+        ? (snapshotProfit ??
+          Number(
             (
               taxaSimIntPay +
               taxaServico -
@@ -1286,7 +1324,7 @@ export class PlatformAdministrationService {
               taxaFixa -
               taxaCashback
             ).toFixed(2),
-          )
+          ))
         : 0;
 
       const cashbackDeduction =
@@ -1304,7 +1342,10 @@ export class PlatformAdministrationService {
           ? taxaDom + taxaFixa
           : fixedFee;
       const lucroAdmin = isCompleted
-        ? Number((taxaSimIntPay - custoDomLucro - cashbackDeduction).toFixed(2))
+        ? (snapshotProfit ??
+          Number(
+            (taxaSimIntPay - custoDomLucro - cashbackDeduction).toFixed(2),
+          ))
         : 0;
       const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
       // Alguns registros antigos/com erro ficaram COMPLETED com netAmount=0.

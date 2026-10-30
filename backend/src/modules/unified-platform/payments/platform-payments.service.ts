@@ -8,6 +8,11 @@ import { deliveryProfile } from '../../platform-core/delivery-profile';
 import type { PlatformContext } from '../../platform-core/platform-context.service';
 import { loadFinancialPolicy } from '../../financial-policy/financial-policy.service';
 import { quoteFinancialCharge } from '../../financial-policy/financial-charge';
+import {
+  estimatedCost,
+  listAcquirerFees,
+  orderByCost,
+} from '../../financial-policy/acquirer-fees';
 import { platformMerchant } from '../../platform-core/platform-merchant-lookup';
 import { PlatformPaymentLookup } from './platform-payment-lookup';
 import { PlatformPaymentExecution } from './platform-payment-execution';
@@ -125,12 +130,8 @@ export class PlatformPaymentsService {
           code: 'INVALID_LINK_PAYMENT',
         });
     }
-    const cardAcquirer =
-      input.paymentMethod === 'CREDIT_CARD'
-        ? resolveCardAcquirer(platform.acquirer)
-        : undefined;
     if (
-      cardAcquirer &&
+      input.paymentMethod === 'CREDIT_CARD' &&
       (!input.card ||
         !input.card.token ||
         !input.card.holderName ||
@@ -168,18 +169,6 @@ export class PlatformPaymentsService {
     const acquiring = context.delivery
       ? await deliveryProfile(this.prisma, context)
       : null;
-    const integration = platform.integrations.find(
-      (row) =>
-        row.key ===
-        (platform.acquirer === 'DOM' ? 'DOM_TOKEN' : 'FRENDZ_TOKEN'),
-    );
-    if (!acquiring && !integration?.encryptedValue)
-      throw new UnprocessableEntityException({
-        code: 'PLATFORM_CONFIGURATION_MISSING',
-        key: platform.acquirer === 'DOM' ? 'DOM_TOKEN' : 'FRENDZ_TOKEN',
-      });
-    const token =
-      acquiring?.token ?? decryptPlatformSecret(integration!.encryptedValue!);
     const adapter = resolvePaymentAdapter(platform.tag);
     const financialUserId = merchant?.userId ?? platform.ownerUserId;
     const id = createHash('sha256')
@@ -187,19 +176,20 @@ export class PlatformPaymentsService {
       .digest('hex');
     const marker = `[TENANT:${platform.tag}]`;
     // Persist only a digest of card contract; never persist reusable tokens.
-    const cardDigest = cardAcquirer
-      ? createHash('sha256')
-          .update(
-            JSON.stringify([
-              input.card!.token,
-              input.card!.holderName,
-              input.card!.bin,
-              input.card!.brand,
-              input.card!.installments,
-            ]),
-          )
-          .digest('hex')
-      : undefined;
+    const cardDigest =
+      input.paymentMethod === 'CREDIT_CARD'
+        ? createHash('sha256')
+            .update(
+              JSON.stringify([
+                input.card!.token,
+                input.card!.holderName,
+                input.card!.bin,
+                input.card!.brand,
+                input.card!.installments,
+              ]),
+            )
+            .digest('hex')
+        : undefined;
     const description = `${adapter.description(input.description)} ${marker}`;
     const amount = new Prisma.Decimal(input.amountCents).div(100);
     const existing = await this.prisma.transaction.findUnique({
@@ -287,6 +277,119 @@ export class PlatformPaymentsService {
       rates[row.key] = row.value;
     for (const row of overrides.filter((row) => row.tag !== 'GLOBAL'))
       rates[row.key] = row.value;
+    // Delivery credentials are tied to their configured acquirer; never route them
+    // through another integration. For ordinary checkout, consider only gateways
+    // that can actually process this method and have a usable credential.
+    const policy = input.allocation
+      ? undefined
+      : await loadFinancialPolicy(this.prisma, platform.tag);
+    const installments =
+      input.paymentMethod === 'CREDIT_CARD' ? input.card!.installments : 1;
+    const supported =
+      input.paymentMethod === 'CREDIT_CARD' ? ['DOM'] : ['DOM', 'FRENDZ'];
+    const candidates = supported.filter((code) =>
+      platform.integrations.some(
+        (row) => row.key === `${code}_TOKEN` && !!row.encryptedValue,
+      ),
+    );
+    const catalogue =
+      !acquiring && !existing
+        ? await this.prisma.acquirerCatalogue.findMany({
+            select: { code: true, active: true },
+          })
+        : [];
+    const fees =
+      !acquiring && !existing
+        ? await listAcquirerFees(
+            this.prisma,
+            input.paymentMethod as 'PIX' | 'CREDIT_CARD',
+            'ONLINE',
+            installments,
+          )
+        : [];
+    const feeContext = {
+      feesByLane: { [`${input.paymentMethod}/ONLINE/${installments}`]: fees },
+    };
+    // The quote engine prices every candidate from the same active schedule,
+    // including buyer-total bases and the shared price floor.
+    const pricingFee = fees.find(
+      (fee) =>
+        candidates.includes(fee.acquirer) &&
+        !!policy?.document.lanes[
+          `${fee.acquirer}/${input.paymentMethod}/ONLINE/${installments}`
+        ],
+    );
+    const priced =
+      !acquiring && !existing && policy && pricingFee
+        ? quoteFinancialCharge(
+            {
+              policy,
+              acquirer: pricingFee.acquirer,
+              tag: platform.tag,
+              ...feeContext,
+            },
+            amount.toNumber(),
+            input.paymentMethod as 'PIX' | 'CREDIT_CARD',
+            installments,
+          )
+        : null;
+    const buyerTotalCents = priced
+      ? Math.round(priced.totalAmount * 100)
+      : input.amountCents;
+    const configured = orderByCost(
+      fees.filter(
+        (fee) =>
+          candidates.includes(fee.acquirer) &&
+          (!policy ||
+            !Object.keys(policy.document.lanes).length ||
+            !!policy.document.lanes[
+              `${fee.acquirer}/${input.paymentMethod}/ONLINE/${installments}`
+            ]),
+      ),
+      input.amountCents,
+      buyerTotalCents,
+    );
+    // A candidate with an unknown cost must never undercut a known fee.
+    // Once this lane has active schedules, only an active, scheduled and
+    // credentialed provider may process it. Missing schedules retain historical
+    // platform routing while financial policy is being configured.
+    if (!acquiring && !existing && fees.length && !configured.length)
+      throw new UnprocessableEntityException({
+        code: 'PLATFORM_CAPABILITY_UNAVAILABLE',
+        capability: `payments.${input.paymentMethod}`,
+      });
+    const selectedAcquirer =
+      acquiring || existing
+        ? platform.acquirer
+        : (configured[0]?.acquirer ?? platform.acquirer);
+    if (
+      !supported.includes(selectedAcquirer) ||
+      (catalogue.length > 0 &&
+        !catalogue.some(
+          (provider) => provider.code === selectedAcquirer && provider.active,
+        ))
+    )
+      throw new UnprocessableEntityException({
+        code: 'PLATFORM_CAPABILITY_UNAVAILABLE',
+        capability: `payments.${input.paymentMethod}`,
+        acquirer: selectedAcquirer,
+      });
+    const selectedFee = fees.find((fee) => fee.acquirer === selectedAcquirer);
+    const scheduledFees = selectedFee ? fees : [];
+    const cardAcquirer =
+      input.paymentMethod === 'CREDIT_CARD'
+        ? resolveCardAcquirer(selectedAcquirer)
+        : undefined;
+    const integration = platform.integrations.find(
+      (row) => row.key === `${selectedAcquirer}_TOKEN`,
+    );
+    if (!acquiring && !integration?.encryptedValue)
+      throw new UnprocessableEntityException({
+        code: 'PLATFORM_CONFIGURATION_MISSING',
+        key: `${selectedAcquirer}_TOKEN`,
+      });
+    const token =
+      acquiring?.token ?? decryptPlatformSecret(integration!.encryptedValue!);
     const financialQuote = input.allocation
       ? {
           ...quoteDeliveryCharge(amount.toNumber(), input.allocation),
@@ -294,9 +397,12 @@ export class PlatformPaymentsService {
         }
       : quoteFinancialCharge(
           {
-            policy: await loadFinancialPolicy(this.prisma, platform.tag),
-            acquirer: platform.acquirer,
+            policy: policy!,
+            acquirer: selectedAcquirer,
             tag: platform.tag,
+            feesByLane: {
+              [`${input.paymentMethod}/ONLINE/${installments}`]: scheduledFees,
+            },
           },
           amount.toNumber(),
           input.paymentMethod as 'PIX' | 'CREDIT_CARD',
@@ -306,6 +412,23 @@ export class PlatformPaymentsService {
       financialQuote?.totalAmount ?? amount,
     );
     const chargeCents = chargeAmount.mul(100).toNumber();
+    const realizedCostCents =
+      selectedFee && !input.allocation
+        ? estimatedCost(selectedFee, input.amountCents, chargeCents)
+        : undefined;
+    const costSnapshot =
+      selectedFee && realizedCostCents !== undefined
+        ? {
+            acquirer: selectedAcquirer,
+            fixedCents: selectedFee.fixedCents,
+            ratePpm: selectedFee.ratePpm,
+            interestPpm: selectedFee.interestPpm,
+            base: selectedFee.base,
+            source: selectedFee.source,
+            createdAt: selectedFee.createdAt.toISOString(),
+            realizedCents: realizedCostCents,
+          }
+        : undefined;
     const financialFields = financialQuote
       ? {
           amount: chargeAmount,
@@ -350,7 +473,11 @@ export class PlatformPaymentsService {
       coproduction.baseCents = financialFields.netAmount.mul(100).toNumber();
     const finalSnapshot = withCoproduction(
       financialQuote?.financialSnapshot ??
-        (coproduction ? { originalCents: input.amountCents } : undefined),
+        (costSnapshot
+          ? { acquirerCost: costSnapshot, originalCents: input.amountCents }
+          : coproduction
+            ? { originalCents: input.amountCents }
+            : undefined),
       coproduction,
     );
     try {
@@ -380,7 +507,7 @@ export class PlatformPaymentsService {
         ...(finalSnapshot ? { financialSnapshot: finalSnapshot } : {}),
         status: 'DRAFT',
         paymentMethod: input.paymentMethod,
-        acquirer: platform.acquirer,
+        acquirer: selectedAcquirer as Acquirer,
         description,
         ...transactionPlatformTagData(platform.tag),
         customerName: input.customer.name,
@@ -418,11 +545,11 @@ export class PlatformPaymentsService {
               card: input.card!,
             })
           : this.gateways
-              .byAcquirer(platform.acquirer as Acquirer)
+              .byAcquirer(selectedAcquirer as Acquirer)
               .createPixCheckout(token, {
                 codExternal: id,
                 amount:
-                  platform.acquirer === 'FRENDZ'
+                  selectedAcquirer === 'FRENDZ'
                     ? chargeCents
                     : chargeAmount.toNumber(),
                 description: `${adapter.description(input.description)} ${marker}`,
@@ -444,7 +571,7 @@ export class PlatformPaymentsService {
         ].includes(payment.status),
       references: (payment) => ({
         externalPaymentId: payment.id,
-        ...(platform.acquirer === 'DOM' ? { domPaymentId: payment.id } : {}),
+        ...(selectedAcquirer === 'DOM' ? { domPaymentId: payment.id } : {}),
         pixQrCode: payment.qrCode,
         pixContent: payment.pixContent,
         pixExpire: payment.pixExpire ? new Date(payment.pixExpire) : null,

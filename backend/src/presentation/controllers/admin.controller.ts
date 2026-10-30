@@ -130,7 +130,10 @@ import { LinkExternalPlatformUserService } from '../../application/services/link
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
 import { summarizeRefunds } from '../../application/helpers/refund-report.helper';
-import { ORIGEM_MAQUINETA_TAG, TENANT_RENOVADA_TAG } from '../../application/utils/internal-tags.util';
+import {
+  ORIGEM_MAQUINETA_TAG,
+  TENANT_RENOVADA_TAG,
+} from '../../application/utils/internal-tags.util';
 import { PlatformReportingService } from '../../application/services/platform-reporting.service';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
@@ -542,11 +545,13 @@ function buildLucroSimpayDetalhePorPlataforma(
     id: string;
     userId: string;
     amount: unknown;
+    netAmount?: unknown | null;
     createdAt: Date;
     description: string | null;
     platformTag: string | null;
     installments: number | null;
     paymentMethod?: string | null;
+    financialSnapshot?: unknown;
   }[],
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): { totalLucroSimpay: number; plataformas: LucroSimpayPorPlataforma[] } {
@@ -596,13 +601,20 @@ function buildLucroSimpayDetalhePorPlataforma(
         : 0;
 
     const bruto = Number(tx.amount);
-    const parteAdmin = bruto * (1 - liquidezLojista);
+    const realized = realizedAcquirerCost(tx);
+    const parteAdmin =
+      realized === undefined
+        ? bruto * (1 - liquidezLojista)
+        : snapshotBuyerTotal(tx) - Number(tx.netAmount ?? 0);
     const pm = String(tx.paymentMethod ?? 'PIX');
     const inst = Number(tx.installments ?? 1);
-    const taxaMdr = mdrDomPct(pm, inst, bruto, tag);
-    // taxaServico é receita (cobrado do vendedor); taxaFixa, taxaCashback e taxaMdr são custos DOM.
+    const taxaMdr = realized ?? mdrDomPct(pm, inst, bruto, tag);
+    // Snapshot buyer total and recorded net are the actual buyer charge and
+    // seller repass; current platform rates are only for legacy transactions.
     const lucroTx =
-      parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback;
+      realized === undefined
+        ? parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback
+        : parteAdmin - realized;
     totalLucroSimpay += lucroTx;
 
     if (!byTag.has(tag)) {
@@ -625,12 +637,20 @@ function buildLucroSimpayDetalhePorPlataforma(
     }
     const agg = byTag.get(tag)!;
 
-    const formulaParte = `${bruto.toFixed(2)} × (1 − ${liquidezLojista}) = ${parteAdmin.toFixed(2)}`;
-    const mdrLabel = taxaMdr > 0 ? ` − ${taxaMdr.toFixed(4)}(MDR)` : '';
+    const formulaParte =
+      realized === undefined
+        ? `${bruto.toFixed(2)} × (1 − ${liquidezLojista}) = ${parteAdmin.toFixed(2)}`
+        : `${snapshotBuyerTotal(tx).toFixed(2)} − ${Number(tx.netAmount ?? 0).toFixed(2)} = ${parteAdmin.toFixed(2)}`;
+    const mdrLabel =
+      taxaMdr > 0
+        ? ` − ${taxaMdr.toFixed(4)}(${realized === undefined ? 'MDR' : 'custo adquirente'})`
+        : '';
+    const fixedLabel =
+      realized === undefined ? ` − ${taxaFixa} − ${taxaCashback}` : '';
     const formulaLucro =
-      taxaServico > 0
-        ? `${parteAdmin.toFixed(2)} + ${taxaServico}(serv)${mdrLabel} − ${taxaFixa} − ${taxaCashback} = ${lucroTx.toFixed(2)}`
-        : `${parteAdmin.toFixed(2)}${mdrLabel} − ${taxaFixa} − ${taxaCashback} = ${lucroTx.toFixed(2)}`;
+      realized === undefined && taxaServico > 0
+        ? `${parteAdmin.toFixed(2)} + ${taxaServico}(serv)${mdrLabel}${fixedLabel} = ${lucroTx.toFixed(2)}`
+        : `${parteAdmin.toFixed(2)}${mdrLabel}${fixedLabel} = ${lucroTx.toFixed(2)}`;
 
     agg.transacoes.push({
       id: tx.id,
@@ -640,9 +660,9 @@ function buildLucroSimpayDetalhePorPlataforma(
       liquidezLojista,
       parteAdminMasterBruto: Number(parteAdmin.toFixed(2)),
       formulaParteAdmin: formulaParte,
-      taxaFixaTransacao: taxaFixa,
-      taxaCashback,
-      taxaServico,
+      taxaFixaTransacao: realized === undefined ? taxaFixa : 0,
+      taxaCashback: realized === undefined ? taxaCashback : 0,
+      taxaServico: realized === undefined ? taxaServico : 0,
       lucroTransacao: Number(lucroTx.toFixed(2)),
       formulaLucro,
       installments: Number(tx.installments ?? 1),
@@ -650,7 +670,7 @@ function buildLucroSimpayDetalhePorPlataforma(
     agg.subtotalBruto += bruto;
     agg.subtotalParte += parteAdmin;
     agg.subtotalLucro += lucroTx;
-    agg.subtotalTaxaServico += taxaServico;
+    agg.subtotalTaxaServico += realized === undefined ? taxaServico : 0;
   }
 
   const platformTagsResolvidas = new Set(platforms.map((p) => p.tag));
@@ -765,15 +785,43 @@ function buildLucroSimpayDetalhePorPlataforma(
 }
 
 /** Lucro Simpay de uma transação (mesma fórmula que buildLucroSimpayDetalhePorPlataforma). */
+function realizedAcquirerCost(tx: object): number | undefined {
+  const snapshot = 'financialSnapshot' in tx ? tx.financialSnapshot : undefined;
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot))
+    return undefined;
+  const cost = (snapshot as Record<string, unknown>).acquirerCost;
+  if (!cost || typeof cost !== 'object' || Array.isArray(cost))
+    return undefined;
+  const cents = (cost as Record<string, unknown>).realizedCents;
+  return typeof cents === 'number' && Number.isSafeInteger(cents) && cents >= 0
+    ? cents / 100
+    : undefined;
+}
+
+function snapshotBuyerTotal(tx: {
+  financialSnapshot?: unknown;
+  amount: unknown;
+}): number {
+  const snapshot = tx.financialSnapshot;
+  if (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
+    const cents = (snapshot as Record<string, unknown>).buyerTotalCents;
+    if (typeof cents === 'number' && Number.isSafeInteger(cents) && cents >= 0)
+      return cents / 100;
+  }
+  return Number(tx.amount);
+}
+
 function lucroSimpayUmaTransacaoConsolidado(
   tx: {
     userId: string;
     amount: unknown;
+    netAmount?: unknown | null;
     description?: string | null;
     platformTag: string | null;
     installments?: number | null;
     createdAt?: Date;
     paymentMethod?: string | null;
+    financialSnapshot?: unknown;
   },
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): number {
@@ -794,11 +842,13 @@ function lucroSimpayUmaTransacaoConsolidado(
       ? taxaServicoRate
       : 0;
   const bruto = Number(tx.amount);
+  const realized = realizedAcquirerCost(tx);
+  if (realized !== undefined)
+    return snapshotBuyerTotal(tx) - Number(tx.netAmount ?? 0) - realized;
   const parteAdmin = bruto * (1 - liquidezLojista);
   const pm = String(tx.paymentMethod ?? 'PIX');
   const inst = Number(tx.installments ?? 1);
   const taxaMdr = mdrDomPct(pm, inst, bruto, tag);
-  // taxaServico é receita (cobrado do vendedor); taxaFixa, taxaCashback e taxaMdr são custos DOM.
   return parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback;
 }
 
@@ -3471,6 +3521,7 @@ export class AdminController {
           platformTag: true,
           installments: true,
           paymentMethod: true,
+          financialSnapshot: true,
         },
         orderBy: { createdAt: 'asc' },
       }),
@@ -3794,7 +3845,8 @@ export class AdminController {
       }
     }
 
-    // Parcelamento global: apenas transações de cartão de crédito (exclui débito e PIX)
+    // Parcelamento global de cartão: snapshot imutável quando disponível; linhas
+    // legadas ou sem campos de juros continuam com estimativas das taxas atuais.
     let totalParcelamentoBruto = 0;
     let totalParcelamentoSimIntPay = 0;
     for (const tx of txRowsLucro) {
@@ -3804,6 +3856,34 @@ export class AdminController {
       if (!pm.includes('credit')) continue;
       const amount = Number(tx.amount);
       if (!Number.isFinite(amount) || amount <= 0) continue;
+      const snapshot =
+        'financialSnapshot' in tx ? tx.financialSnapshot : undefined;
+      if (
+        snapshot &&
+        typeof snapshot === 'object' &&
+        !Array.isArray(snapshot)
+      ) {
+        const values = snapshot as Record<string, unknown>;
+        const buyerInterest = values.buyerInterestCents;
+        const acquirerInterest = values.acquirerInterestCents;
+        const realized = realizedAcquirerCost(tx);
+        // UNCONFIGURED stores an unmeasured acquirer interest as zero. Only
+        // calculate an interest spread when its realized cost is known.
+        if (
+          realized !== undefined &&
+          typeof buyerInterest === 'number' &&
+          Number.isSafeInteger(buyerInterest) &&
+          buyerInterest >= 0 &&
+          typeof acquirerInterest === 'number' &&
+          Number.isSafeInteger(acquirerInterest) &&
+          acquirerInterest >= 0
+        ) {
+          totalParcelamentoBruto += buyerInterest / 100;
+          totalParcelamentoSimIntPay +=
+            (buyerInterest - acquirerInterest) / 100;
+          continue;
+        }
+      }
       const inst = Math.min(
         Math.max(
           Number((tx as { installments?: number }).installments ?? 1) || 1,
@@ -3870,6 +3950,7 @@ export class AdminController {
       boleto,
       taxaServico: taxaServicoConsolidado,
       custoCashback,
+      // Totais mistos: snapshots usam juros capturados; legado usa estimativa atual.
       taxaParcelamentoBruto: Math.round(totalParcelamentoBruto * 100) / 100,
       taxaParcelamentoSimIntPay:
         Math.round(totalParcelamentoSimIntPay * 100) / 100,
@@ -3936,7 +4017,7 @@ export class AdminController {
 
       payload.lucroSimpayDetalhe = {
         formula:
-          'Por transação: lucro = bruto × (1 − LIQUIDEZ_LOJISTA) + TAXA_SERVICO − TAXA_FIXA_TRANSACAO − TAXA_CASHBACK. TAXA_SERVICO é receita da Sim Int Pay cobrada do vendedor (R$4 padrão; 0 para BOSQUE/RENOVADA e antes de 2026-05-18). LIQUIDEZ_LOJISTA vem do .env (*_LIQUIDEZ, ex. 0,91 → 9% do bruto para o master).',
+          'Com custo adquirido realizado: lucro = total cobrado do comprador (snapshot) − repasse do vendedor (netAmount) − custo realizado da adquirente. Sem custo realizado no snapshot, mantém a estimativa legada baseada em LIQUIDEZ_LOJISTA, TAXA_SERVICO, MDR, TAXA_FIXA_TRANSACAO e TAXA_CASHBACK.',
         exclusoesDoCalculo: {
           regra:
             'Não entram: bruto ≤ 0; ou descrição contendo "Sincronização de Saldo", "Ajuste Administrativo" ou "balance sync" (ajustes internos, não venda).',
@@ -4102,6 +4183,7 @@ export class AdminController {
           platformTag: true,
           installments: true,
           domFee: true,
+          financialSnapshot: true,
         },
         orderBy: { createdAt: 'asc' },
       }),
@@ -4166,7 +4248,9 @@ export class AdminController {
         liquido: prev.liquido + liquido,
         count: prev.count + 1,
         acquirerFees:
-          prev.acquirerFees + ('domFee' in tx ? Number(tx.domFee ?? 0) : 0),
+          prev.acquirerFees +
+          (realizedAcquirerCost(tx) ??
+            ('domFee' in tx ? Number(tx.domFee ?? 0) : 0)),
       });
     }
 
@@ -4226,6 +4310,7 @@ export class AdminController {
           description: true,
           platformTag: true,
           installments: true,
+          financialSnapshot: true,
         },
         orderBy: { createdAt: 'asc' },
       }),

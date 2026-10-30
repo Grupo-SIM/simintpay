@@ -181,6 +181,32 @@ test('administrative community and transaction detail projections preserve count
     Math.round(transactions.data[0].taxas.total * 100),
   );
 });
+test('platform transaction profit uses captured buyer charge and seller repass, including coproduction', async () => {
+  const f = fixture();
+  Object.assign(f.rows[0], {
+    amount: 100,
+    netAmount: 70,
+    platformFee: 5,
+    domFee: 2,
+    financialSnapshot: {
+      buyerTotalCents: 12000,
+      acquirerCost: { realizedCents: 600 },
+      coproduction: {
+        basis: 'NET',
+        version: 1,
+        product: 'plataformas',
+        productId: 'p',
+        ownerUserId: 'owner',
+        participants: [{ userId: 'co', percentageBps: 2000 }],
+      },
+    },
+  });
+  const result = await f.core.listPlataformaTransacoes('ATLAS');
+  expect(result.data[0].lucroPrejuizo).toBe(44);
+  expect(result.data[0].lucroAdmin).toBe(44);
+  expect(result.data[0].valorLiquido).toBe(56);
+});
+
 test('canonical administration excludes conflicting history and rejects transferred ownership', async () => {
   const f = fixture();
   f.rows.push({
