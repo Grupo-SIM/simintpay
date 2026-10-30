@@ -27,6 +27,7 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { buildUserTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { calculateBoletoFees } from './boleto-fees.helper';
+import { discardDraftOnRejection } from '../../../modules/unified-platform/payments/dom-rejection';
 
 export type ChargeBoletoInput = {
   boletoId: string;
@@ -175,28 +176,30 @@ export class ChargeBoletoUseCase {
         });
       });
 
-    const result = await this.gateway.chargeBoletoForLink(domToken, {
-      amount: financialQuote?.totalAmount ?? base,
-      description: finalSettlement
-        ? `${snapshot.description} [LINK_CHARGE:${chargeId}]`
-        : boleto.title,
-      customerName: input.customerName,
-      customerEmail: input.customerEmail,
-      customerDocument: document,
-      customerPhone: phone,
-      documentType,
-      codExternal,
-      expireDays: boleto.vencimentoDias,
-      address: {
-        street: rua,
-        number: numero || 'S/N',
-        neighborhood: bairro,
-        zipCode: cep,
-        city: cidade,
-        uf,
-        complement: (input.complemento ?? '').trim(),
-      },
-    });
+    const result = await discardDraftOnRejection(this.prisma, chargeId, () =>
+      this.gateway.chargeBoletoForLink(domToken, {
+        amount: financialQuote?.totalAmount ?? base,
+        description: finalSettlement
+          ? `${snapshot.description} [LINK_CHARGE:${chargeId}]`
+          : boleto.title,
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+        customerDocument: document,
+        customerPhone: phone,
+        documentType,
+        codExternal,
+        expireDays: boleto.vencimentoDias,
+        address: {
+          street: rua,
+          number: numero || 'S/N',
+          neighborhood: bairro,
+          zipCode: cep,
+          city: cidade,
+          uf,
+          complement: (input.complemento ?? '').trim(),
+        },
+      }),
+    );
 
     // Se a DOM não gerou o boleto (status failed ou sem link/linha digitável), não
     // salva transação órfã e devolve erro claro para o checkout exibir.

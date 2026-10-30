@@ -1,3 +1,7 @@
+import {
+  isDefinitiveDomStatus,
+  markDefinitiveDomRejection,
+} from './dom-rejection';
 import { quoteDeliveryCharge } from '../../integrations/delivery-payment-allocation';
 import type { DeliveryAllocationDto } from '../../integrations/integration-checkout.dto';
 import {
@@ -592,12 +596,15 @@ export class LegacyPlatformPaymentCore {
           502: 'Serviço de pagamento temporariamente indisponível',
           503: 'Serviço de pagamento temporariamente indisponível',
         };
-        throw new BadRequestException(
+        const rejection = new BadRequestException(
           messages[response.status] ??
             (kind === 'PIX'
               ? 'Erro ao processar pagamento PIX'
               : 'Erro ao processar pagamento com cartão'),
         );
+        throw isDefinitiveDomStatus(response.status)
+          ? markDefinitiveDomRejection(rejection)
+          : rejection;
       }
       return response.data as DomPagamentosResponse;
     } catch (error) {

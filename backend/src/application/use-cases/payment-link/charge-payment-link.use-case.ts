@@ -48,6 +48,7 @@ import {
 import { resolveLinkDelivery, sendLinkDelivery } from './payment-link-delivery';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { StorageService } from '../../../infrastructure/storage/storage.service';
+import { discardDraftOnRejection } from '../../../modules/unified-platform/payments/dom-rejection';
 
 export type ChargePaymentLinkInput = {
   tracking?: Record<string, string>;
@@ -300,18 +301,21 @@ export class ChargePaymentLinkUseCase {
         },
       });
     });
-    const result = await this.gateway.chargePaymentLink(domToken, {
-      domLinkId: link.domPaymentLinkId,
-      amount: totalAmount,
-      description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,
-      customerName: input.customerName,
-      customerEmail: input.customerEmail,
-      customerDocument: input.customerDocument.replace(/\D/g, ''),
-      customerPhone: input.customerPhone.replace(/\D/g, ''),
-      paymentMethod: input.paymentMethod ?? 'credit_card',
-      installments,
-      card: input.card,
-    });
+    const domLinkId = link.domPaymentLinkId;
+    const result = await discardDraftOnRejection(this.prisma, chargeId, () =>
+      this.gateway.chargePaymentLink(domToken, {
+        domLinkId,
+        amount: totalAmount,
+        description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+        customerDocument: input.customerDocument.replace(/\D/g, ''),
+        customerPhone: input.customerPhone.replace(/\D/g, ''),
+        paymentMethod: input.paymentMethod ?? 'credit_card',
+        installments,
+        card: input.card,
+      }),
+    );
     const tx = await this.prisma.$transaction((p) =>
       persistLinkCharge(
         p,

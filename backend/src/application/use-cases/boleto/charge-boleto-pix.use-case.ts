@@ -30,6 +30,7 @@ import {
   getPlatformTaxaEffective,
 } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { discardDraftOnRejection } from '../../../modules/unified-platform/payments/dom-rejection';
 
 export type ChargeBoletoPixInput = {
   boletoId: string;
@@ -189,19 +190,22 @@ export class ChargeBoletoPixUseCase {
         });
       });
 
-    const result = await this.gateway.chargePixForLink(domToken, {
-      domLinkId: boleto.domPaymentLinkId,
-      amount: financialQuote?.totalAmount ?? base,
-      description: finalSettlement
-        ? `${snapshot.description} [LINK_CHARGE:${chargeId}]`
-        : boleto.title,
-      customerName: input.customerName,
-      customerEmail: input.customerEmail,
-      customerDocument: document,
-      customerPhone: phone,
-      documentType,
-      codExternal,
-    });
+    const domLinkId = boleto.domPaymentLinkId;
+    const result = await discardDraftOnRejection(this.prisma, chargeId, () =>
+      this.gateway.chargePixForLink(domToken, {
+        domLinkId,
+        amount: financialQuote?.totalAmount ?? base,
+        description: finalSettlement
+          ? `${snapshot.description} [LINK_CHARGE:${chargeId}]`
+          : boleto.title,
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+        customerDocument: document,
+        customerPhone: phone,
+        documentType,
+        codExternal,
+      }),
+    );
 
     const wallet = await this.prisma.wallet.findUnique({
       where: { userId: boleto.userId },

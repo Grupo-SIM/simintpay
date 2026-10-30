@@ -39,6 +39,7 @@ import {
   resolveOrderBumps,
   sumOffers,
 } from './payment-link-offers.helper';
+import { discardDraftOnRejection } from '../../../modules/unified-platform/payments/dom-rejection';
 
 export type ChargePixPaymentLinkInput = {
   tracking?: Record<string, string>;
@@ -235,17 +236,20 @@ export class ChargePixPaymentLinkUseCase {
         },
       });
     });
-    const result = await this.gateway.chargePixForLink(domToken, {
-      domLinkId: link.domPaymentLinkId,
-      amount: totalAmount,
-      description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,
-      customerName: input.customerName,
-      customerEmail: input.customerEmail,
-      customerDocument: document,
-      customerPhone: phone,
-      documentType,
-      codExternal: chargeId,
-    });
+    const domLinkId = link.domPaymentLinkId;
+    const result = await discardDraftOnRejection(this.prisma, chargeId, () =>
+      this.gateway.chargePixForLink(domToken, {
+        domLinkId,
+        amount: totalAmount,
+        description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+        customerDocument: document,
+        customerPhone: phone,
+        documentType,
+        codExternal: chargeId,
+      }),
+    );
     const savedTx = await this.prisma.$transaction((p) =>
       persistLinkCharge(
         p,
