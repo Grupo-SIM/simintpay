@@ -20,7 +20,6 @@ import {
   UserPlus,
   Percent,
   UsersRound,
-  UserCircle,
   Receipt,
   Barcode,
 } from 'lucide-react';
@@ -521,9 +520,9 @@ export function Sidebar() {
           open={open}
           pathname={pathname}
           labelStyle={labelStyle}
-          href="/configuracoes/meu-perfil"
-          icon={UserCircle}
-          label="Meu Perfil"
+          href="/configuracoes/perfil"
+          icon={Settings}
+          label="Configurações"
         />
         {!user?.isAdmin && (
           <NavLink
@@ -533,16 +532,6 @@ export function Sidebar() {
             href="/taxas"
             icon={Percent}
             label="Taxas"
-          />
-        )}
-        {user?.isAdmin && (
-          <NavLink
-            open={open}
-            pathname={pathname}
-            labelStyle={labelStyle}
-            href="/configuracoes/perfil"
-            icon={Settings}
-            label="Configurações"
           />
         )}
 

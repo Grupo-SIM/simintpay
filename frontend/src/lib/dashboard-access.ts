@@ -9,7 +9,7 @@ const CLIENT_SHARED_ROUTES = [
   '/relatorio',
   '/plataformas',
   '/taxas',
-  '/configuracoes/meu-perfil',
+  '/configuracoes/perfil',
 ];
 
 export function canClientAccessPath(pathname: string): boolean {

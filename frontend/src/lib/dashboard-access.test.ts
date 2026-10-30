@@ -14,7 +14,7 @@ describe('client dashboard route boundary', () => {
       '/transacoes/123',
       '/painel',
       '/cobrancas',
-      '/configuracoes/meu-perfil',
+      '/configuracoes/perfil',
     ])
       assert.equal(canClientAccessPath(route), true, route);
   });
@@ -27,7 +27,6 @@ describe('client dashboard route boundary', () => {
       '/assinantes',
       '/planos/criar',
       '/planos-pix/123/assinantes',
-      '/configuracoes/perfil',
       '/transacoes-admin',
     ])
       assert.equal(canClientAccessPath(route), false, route);
