@@ -14,22 +14,29 @@ const baseDto: any = {
 
 function build() {
   const leads = {
-    findByEmailOrCnpj: jest.fn().mockResolvedValue(null),
+    hasIdentityConflict: jest.fn().mockResolvedValue(false),
     create: jest.fn().mockResolvedValue({ id: 'lead1' }),
   } as any;
-  return { uc: new CreateLeadUseCase(leads), leads };
+  const users = {
+    hasIdentityConflict: jest.fn().mockResolvedValue(false),
+  } as any;
+  return { uc: new CreateLeadUseCase(leads, users), leads };
 }
 
 describe('CreateLeadUseCase — referredByCode', () => {
   it('repassa referredByCode pro repositório quando informado', async () => {
     const { uc, leads } = build();
     await uc.execute({ ...baseDto, referredByCode: 'ABC123' });
-    expect(leads.create).toHaveBeenCalledWith(expect.objectContaining({ referredByCode: 'ABC123' }));
+    expect(leads.create).toHaveBeenCalledWith(
+      expect.objectContaining({ referredByCode: 'ABC123' }),
+    );
   });
 
   it('não quebra quando referredByCode não é informado', async () => {
     const { uc, leads } = build();
     await uc.execute({ ...baseDto });
-    expect(leads.create).toHaveBeenCalledWith(expect.objectContaining({ referredByCode: undefined }));
+    expect(leads.create).toHaveBeenCalledWith(
+      expect.objectContaining({ referredByCode: undefined }),
+    );
   });
 });

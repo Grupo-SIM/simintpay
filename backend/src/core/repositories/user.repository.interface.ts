@@ -20,6 +20,11 @@ export type CreateUserData = {
 export interface IUserRepository {
   findById(id: string): Promise<any | null>;
   findByEmail(email: string): Promise<User | null>;
+  hasIdentityConflict(
+    email: string,
+    cpf: string,
+    cnpj: string,
+  ): Promise<boolean>;
   create(data: CreateUserData): Promise<User>;
   updateProfile(
     id: string,

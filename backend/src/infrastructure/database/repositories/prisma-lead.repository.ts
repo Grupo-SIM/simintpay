@@ -14,10 +14,23 @@ export class PrismaLeadRepository implements ILeadRepository {
     return this.prisma.lead.create({ data });
   }
 
-  async findByEmailOrCnpj(email: string, cnpj: string): Promise<Lead | null> {
-    return this.prisma.lead.findFirst({
-      where: { OR: [{ email }, { cnpj }] },
-    });
+  async hasIdentityConflict(
+    email: string,
+    cpf: string,
+    cnpj: string,
+  ): Promise<boolean> {
+    const [result] = await this.prisma.$queryRaw<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM "Lead"
+        WHERE "status" IN ('PENDING', 'APPROVED')
+          AND (
+            lower(trim("email")) = ${email}
+            OR regexp_replace("cpf", '[^0-9]', '', 'g') IN (${cpf}, ${cnpj})
+            OR regexp_replace("cnpj", '[^0-9]', '', 'g') IN (${cpf}, ${cnpj})
+          )
+      ) AS "exists"
+    `;
+    return result.exists;
   }
 
   async findById(id: string): Promise<Lead | null> {

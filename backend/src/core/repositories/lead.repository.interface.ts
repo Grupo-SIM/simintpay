@@ -19,7 +19,11 @@ export type CreateLeadData = {
 
 export interface ILeadRepository {
   create(data: CreateLeadData): Promise<Lead>;
-  findByEmailOrCnpj(email: string, cnpj: string): Promise<Lead | null>;
+  hasIdentityConflict(
+    email: string,
+    cpf: string,
+    cnpj: string,
+  ): Promise<boolean>;
   findById(id: string): Promise<Lead | null>;
   findByIds(ids: string[]): Promise<Lead[]>;
   list(query: {

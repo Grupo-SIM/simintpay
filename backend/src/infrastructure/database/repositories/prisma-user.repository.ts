@@ -13,12 +13,33 @@ export class PrismaUserRepository implements IUserRepository {
   async findById(id: string): Promise<any | null> {
     return this.prisma.user.findUnique({
       where: { id },
-      include: { platform: true, ownedPlatforms: { select: { id: true, tag: true, name: true, isActive: true } } },
+      include: {
+        platform: true,
+        ownedPlatforms: {
+          select: { id: true, tag: true, name: true, isActive: true },
+        },
+      },
     });
   }
 
   async findByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { email } });
+  }
+
+  async hasIdentityConflict(
+    email: string,
+    cpf: string,
+    cnpj: string,
+  ): Promise<boolean> {
+    const [result] = await this.prisma.$queryRaw<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM "User"
+        WHERE lower(trim("email")) = ${email}
+          OR regexp_replace("cpf", '[^0-9]', '', 'g') IN (${cpf}, ${cnpj})
+          OR regexp_replace("cnpj", '[^0-9]', '', 'g') IN (${cpf}, ${cnpj})
+      ) AS "exists"
+    `;
+    return result.exists;
   }
 
   async create(data: CreateUserData): Promise<User> {
