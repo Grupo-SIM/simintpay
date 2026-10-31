@@ -1,4 +1,6 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDefined,
   IsEmail,
   IsIn,
@@ -13,6 +15,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { DeliveryAllocationItemDto } from '../../integrations/integration-checkout.dto';
 
 export class PlatformPaymentCustomerDto {
   @IsString() @MinLength(2) @MaxLength(200) name!: string;
@@ -31,6 +34,13 @@ export class PlatformPaymentCardDto {
 }
 
 export class PlatformPaymentAllocationDto {
+  /** Order lines used to recompute the additive surcharge; absent keeps the legacy trusted `platformFeeCents`. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => DeliveryAllocationItemDto)
+  items?: DeliveryAllocationItemDto[];
   @IsOptional() @IsInt() @Min(0) itemsAmountCents?: number;
   @IsOptional() @IsInt() @Min(0) deliveryAmountCents?: number;
   @IsInt() @Min(0) merchantAmountCents!: number;

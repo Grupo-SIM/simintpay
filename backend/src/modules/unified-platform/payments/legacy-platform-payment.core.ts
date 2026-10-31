@@ -5,6 +5,7 @@ import {
 import {
   loadDeliveryFeeMode,
   loadDeliverySimFee,
+  loadDeliverySurcharges,
 } from '../../integrations/delivery-sim-fee';
 import { quoteDeliveryCharge } from '../../integrations/delivery-payment-allocation';
 import type { DeliveryAllocationDto } from '../../integrations/integration-checkout.dto';
@@ -227,6 +228,12 @@ export class LegacyPlatformPaymentCore {
                 feeMode,
                 'PIX',
                 1,
+              ),
+              await loadDeliverySurcharges(
+                this.prisma,
+                this.tag,
+                this.deliveryAllocation!,
+                feeMode,
               ),
             );
           })()

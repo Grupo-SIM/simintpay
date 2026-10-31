@@ -22,6 +22,12 @@ import {
   type Policy,
   type ResolvedPolicy,
 } from './financial-policy';
+import {
+  listCompanyAdditiveFees,
+  saveAdditiveAssociations,
+  type AdditiveAssociationInput,
+  type CompanyAdditiveFee,
+} from '../additive-fees/additive-fees.service';
 import { listAcquirerFees } from './acquirer-fees';
 
 type Client = Pick<
@@ -73,6 +79,7 @@ export function projectPolicy(
   admin: boolean,
   feeMode: DeliveryFeeMode | null = null,
   disabledLanes: string[] | null = null,
+  additiveFees: CompanyAdditiveFee[] | null = null,
 ) {
   const { version, sources } = policy;
   return {
@@ -92,6 +99,7 @@ export function projectPolicy(
           lanes: policy.document.lanes,
           laneOverrides: policy.own.lanes,
           globalLanes: policy.global.lanes,
+          ...(additiveFees ? { additiveFees } : {}),
         }
       : {}),
   };
@@ -134,6 +142,24 @@ async function platformFeeMode(
   return platform?.deliveryFeeMode ?? null;
 }
 
+/** Admin view of the additive catalog: platform association/overrides, or the plain catalog for GLOBAL. */
+async function adminAdditiveFees(
+  prisma: Pick<
+    Prisma.TransactionClient,
+    'additiveFee' | 'platform' | 'platformAdditiveFee'
+  >,
+  tag: string,
+  admin: boolean,
+): Promise<CompanyAdditiveFee[] | null> {
+  if (!admin) return null;
+  if (tag === 'GLOBAL') return listCompanyAdditiveFees(prisma, null);
+  const platform = await prisma.platform.findUnique({
+    where: { tag },
+    select: { id: true },
+  });
+  return listCompanyAdditiveFees(prisma, platform?.id ?? null);
+}
+
 /** Lanes (`METHOD/installments`) the platform does not accept. GLOBAL has none. */
 async function platformDisabledLanes(
   prisma: Pick<Prisma.TransactionClient, 'platform'>,
@@ -159,6 +185,7 @@ export async function getFinancialPolicy(
       admin,
       await platformFeeMode(prisma, tag),
       await platformDisabledLanes(prisma, tag),
+      await adminAdditiveFees(prisma, tag, admin),
     ),
   };
 }
@@ -179,6 +206,7 @@ export async function saveFinancialPolicy(
     lanes?: unknown;
     feeMode?: unknown;
     disabledLanes?: unknown;
+    additiveFees?: unknown;
   };
   if (
     Object.keys(body).some(
@@ -190,6 +218,7 @@ export async function saveFinancialPolicy(
           'lanes',
           'feeMode',
           'disabledLanes',
+          'additiveFees',
         ].includes(key),
     )
   )
@@ -208,6 +237,24 @@ export async function saveFinancialPolicy(
       )
     )
       throw new BadRequestException('Modo de taxas inválido');
+  }
+  if (input.additiveFees !== undefined) {
+    if (!admin)
+      throw new ForbiddenException(
+        'Taxas aditivas exclusivas do administrador',
+      );
+    if (
+      tag === 'GLOBAL' ||
+      !Array.isArray(input.additiveFees) ||
+      input.additiveFees.length > 500 ||
+      input.additiveFees.some(
+        (entry) =>
+          !entry ||
+          typeof entry !== 'object' ||
+          typeof (entry as { feeId?: unknown }).feeId !== 'string',
+      )
+    )
+      throw new BadRequestException('Taxas aditivas inválidas');
   }
   if (input.disabledLanes !== undefined) {
     // Admins and the platform owner (checked by `authorize`) both choose which lanes the platform offers.
@@ -261,6 +308,17 @@ export async function saveFinancialPolicy(
               ].sort(),
             },
           });
+        if (input.additiveFees !== undefined) {
+          const platform = await tx.platform.findUniqueOrThrow({
+            where: { tag },
+            select: { id: true },
+          });
+          await saveAdditiveAssociations(
+            tx,
+            platform.id,
+            input.additiveFees as AdditiveAssociationInput[],
+          );
+        }
         if (input.lanes !== undefined) {
           const codes = [
             ...new Set(
@@ -290,6 +348,7 @@ export async function saveFinancialPolicy(
             admin,
             await platformFeeMode(tx, tag),
             await platformDisabledLanes(tx, tag),
+            await adminAdditiveFees(tx, tag, admin),
           ),
         };
       },

@@ -7,6 +7,17 @@ import type { DeliveryFeeMode, Prisma } from '@prisma/client';
 import { acquirerCostFloor } from '../financial-policy/acquirer-fees';
 import { loadFinancialPolicy } from '../financial-policy/financial-policy.service';
 import {
+  evaluateCoverage,
+  hasShortfall,
+  surchargeComponents,
+} from '../additive-fees/additive-fee-calculation';
+import {
+  listCompanyAdditiveFees,
+  listPlatformSurcharges,
+  saveAdditiveAssociations,
+  type AdditiveAssociationInput,
+} from '../additive-fees/additive-fees.service';
+import {
   emptyPolicy,
   validatePolicy,
   type Method,
@@ -116,18 +127,30 @@ export async function readDeliveryFees(
   tx: Prisma.TransactionClient,
   companyId: string,
 ) {
-  const { deliveryDisabledLanes, deliveryFeeMode, tag } = await platformOf(
+  const { deliveryDisabledLanes, deliveryFeeMode, id, tag } = await platformOf(
     tx,
     companyId,
   );
   const policy = await loadFinancialPolicy(tx, tag);
   const lanes = policyLanes(policy.document);
+  const costs = (await acquirerCostFloor(tx)).sort(compareLanes);
+  const disabledLanes = [...deliveryDisabledLanes].sort();
+  const coverage = evaluateCoverage({
+    costs,
+    disabledLanes,
+    mode: deliveryFeeMode,
+    simintpay: lanes,
+    surcharges: surchargeComponents(await listPlatformSurcharges(tx, id)),
+  });
   return {
     mode: deliveryFeeMode,
     version: policy.version,
-    disabledLanes: [...deliveryDisabledLanes].sort(),
+    disabledLanes,
     lanes,
-    costs: (await acquirerCostFloor(tx)).sort(compareLanes),
+    costs,
+    additiveFees: await listCompanyAdditiveFees(tx, id),
+    coverage,
+    underCovered: hasShortfall(coverage),
   };
 }
 
@@ -139,6 +162,7 @@ export async function saveDeliveryFees(
     lanes: DeliveryFeeLane[];
     mode?: DeliveryFeeMode;
     disabledLanes?: string[];
+    additiveFees?: AdditiveAssociationInput[];
   },
 ) {
   const { id: platformId, ownerUserId, tag } = await platformOf(tx, companyId);
@@ -157,6 +181,9 @@ export async function saveDeliveryFees(
       where: { id: platformId },
       data: { deliveryDisabledLanes: [...new Set(input.disabledLanes)].sort() },
     });
+  // Same transaction and version check as the lanes, so mode, lanes and additive fees land together or not at all.
+  if (input.additiveFees?.length)
+    await saveAdditiveAssociations(tx, platformId, input.additiveFees);
   // A mode-only change must not create an empty policy revision.
   if (!input.lanes.length) return readDeliveryFees(tx, companyId);
   const previous = await tx.financialPolicyRevision.findFirst({

@@ -2,6 +2,8 @@ import { UnprocessableEntityException } from '@nestjs/common';
 import type { DeliveryFeeMode } from '@prisma/client';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { loadFinancialPolicy } from '../financial-policy/financial-policy.service';
+import { listPlatformSurcharges } from '../additive-fees/additive-fees.service';
+import type { EffectiveFee } from '../additive-fees/additive-fee-calculation';
 import type { DeliverySimFee } from './delivery-payment-allocation';
 
 /** The platform's mode, read at charge time so the platform (never the caller) dictates the fees. */
@@ -50,4 +52,19 @@ export async function loadDeliverySimFee(
     }
   }
   return undefined;
+}
+
+/** Additive fees associated with the platform; only needed when the allocation carries order lines. */
+export async function loadDeliverySurcharges(
+  prisma: PrismaService,
+  tag: string,
+  allocation: { items?: unknown[] },
+  feeMode: DeliveryFeeMode,
+): Promise<EffectiveFee[]> {
+  if (!allocation.items || feeMode === 'SIMINTPAY_ONLY') return [];
+  const platform = await prisma.platform.findUnique({
+    where: { tag },
+    select: { id: true },
+  });
+  return platform ? listPlatformSurcharges(prisma, platform.id) : [];
 }

@@ -46,6 +46,13 @@ import {
   type PlataformaTaxaKey,
 } from '../../modules/platform-taxas/platform-taxas.keys';
 import type { PaymentLink } from '@prisma/client';
+import {
+  createAdditiveFee,
+  deleteAdditiveFee,
+  listAdditiveFees,
+  updateAdditiveFee,
+  type AdditiveFeeInput,
+} from '../../modules/additive-fees/additive-fees.service';
 import { calculatePaymentLinkFees } from '../use-cases/payment-link/payment-link-fees.helper';
 
 const publicSelect = {
@@ -219,6 +226,36 @@ export class PlatformsService {
         };
       }),
     };
+  }
+
+  private async requireAdmin(user: JwtPayload) {
+    const actor = await this.requireSession(user);
+    if (actor.role !== Role.ADMIN)
+      throw new ForbiddenException('Exige administrador');
+  }
+
+  async additiveFees(user: JwtPayload) {
+    await this.requireAdmin(user);
+    return { data: await listAdditiveFees(this.prisma) };
+  }
+
+  async createAdditiveFee(user: JwtPayload, body: AdditiveFeeInput) {
+    await this.requireAdmin(user);
+    return { data: await createAdditiveFee(this.prisma, body) };
+  }
+
+  async updateAdditiveFee(
+    user: JwtPayload,
+    id: string,
+    body: AdditiveFeeInput,
+  ) {
+    await this.requireAdmin(user);
+    return { data: await updateAdditiveFee(this.prisma, id, body) };
+  }
+
+  async deleteAdditiveFee(user: JwtPayload, id: string) {
+    await this.requireAdmin(user);
+    await deleteAdditiveFee(this.prisma, id);
   }
 
   async acquirers(user: JwtPayload) {

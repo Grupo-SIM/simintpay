@@ -4,7 +4,10 @@ import {
   withCoproduction,
 } from '../../coproduction/coproduction.service';
 import { quoteDeliveryCharge } from '../../integrations/delivery-payment-allocation';
-import { loadDeliverySimFee } from '../../integrations/delivery-sim-fee';
+import {
+  loadDeliverySimFee,
+  loadDeliverySurcharges,
+} from '../../integrations/delivery-sim-fee';
 import { deliveryProfile } from '../../platform-core/delivery-profile';
 import type { PlatformContext } from '../../platform-core/platform-context.service';
 import { loadFinancialPolicy } from '../../financial-policy/financial-policy.service';
@@ -426,6 +429,12 @@ export class PlatformPaymentsService {
               deliveryFeeMode,
               input.paymentMethod as 'PIX' | 'CREDIT_CARD',
               installments,
+            ),
+            await loadDeliverySurcharges(
+              this.prisma,
+              platform.tag,
+              input.allocation,
+              deliveryFeeMode,
             ),
           )
         : undefined;

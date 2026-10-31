@@ -36,6 +36,8 @@ describe('delivery fee lanes', () => {
           deliveryFeeMode: 'ADDITIVE_ONLY',
         }),
       },
+      additiveFee: { findMany: async () => [] },
+      platformAdditiveFee: { findMany: async () => [] },
       financialPolicyRevision: { findMany: async () => [] },
       acquirerCatalogue: { findMany: async () => [{ code: 'DOM' }] },
       acquirerFeeSchedule: {
@@ -61,10 +63,13 @@ describe('delivery fee lanes', () => {
     } as unknown as Parameters<typeof readDeliveryFees>[0];
     const result = await readDeliveryFees(tx, 'company');
     expect(Object.keys(result).sort()).toEqual([
+      'additiveFees',
       'costs',
+      'coverage',
       'disabledLanes',
       'lanes',
       'mode',
+      'underCovered',
       'version',
     ]);
     expect(result.costs).toHaveLength(13);

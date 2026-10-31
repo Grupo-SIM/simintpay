@@ -1,6 +1,10 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { DeliveryFeeMode } from '@prisma/client';
+import {
+  calculatePlatformFees,
+  type EffectiveFee,
+} from '../additive-fees/additive-fee-calculation';
 import type { DeliveryAllocationDto } from './integration-checkout.dto';
 
 /** SimIntPay's own fee for a lane, charged on the buyer total and deducted from the merchant share. */
@@ -52,6 +56,16 @@ export function deliveryAllocation(
           deliveryAmountCents: allocation.deliveryAmountCents,
         }
       : {}),
+    // Plain objects so the frozen snapshot stays JSON-serializable.
+    ...(allocation.items
+      ? {
+          items: allocation.items.map((item) => ({
+            key: item.key,
+            quantity: item.quantity,
+            unitPriceCents: item.unitPriceCents,
+          })),
+        }
+      : {}),
     merchantAmountCents: allocation.merchantAmountCents,
     platformFeeCents: allocation.platformFeeCents,
   };
@@ -66,6 +80,7 @@ export function quoteDeliveryCharge(
   allocation: DeliveryAllocationDto,
   feeMode: DeliveryFeeMode,
   sim?: DeliverySimFee,
+  surcharges: EffectiveFee[] = [],
 ) {
   const valid = deliveryAllocation('sim-delivery_quote', allocation)!;
   const total = valid.merchantAmountCents + valid.platformFeeCents;
@@ -87,6 +102,27 @@ export function quoteDeliveryCharge(
       code: 'FEE_MODE_CHANGED',
       message: 'O modo de taxas da plataforma mudou; recalcule o pedido',
     });
+  // With order lines SimIntPay is the source of truth for the surcharge: recompute it from the platform's associated
+  // additive fees instead of trusting the caller. Without lines the legacy trusted `platformFeeCents` applies.
+  if (valid.items) {
+    const expected =
+      feeMode === 'SIMINTPAY_ONLY'
+        ? 0
+        : calculatePlatformFees(
+            surcharges,
+            valid.items.map((item) => ({
+              key: item.key,
+              quantity: item.quantity,
+              unitPrice: item.unitPriceCents,
+            })),
+          ).feeTotalCents;
+    if (expected !== valid.platformFeeCents)
+      throw new ConflictException({
+        code: 'FEE_MISMATCH',
+        message: 'As taxas aditivas mudaram; recalcule o pedido',
+        expectedPlatformFeeCents: expected,
+      });
+  }
   const deducts = feeMode !== 'ADDITIVE_ONLY';
   if (deducts && !sim)
     throw new BadRequestException({
@@ -118,6 +154,12 @@ export function quoteDeliveryCharge(
       feeMode,
       simFeeCents,
       ...valid,
+      // Plain objects so the frozen snapshot stays JSON-serializable.
+      items: valid.items?.map((item) => ({
+        key: item.key,
+        quantity: item.quantity,
+        unitPriceCents: item.unitPriceCents,
+      })),
     },
   };
 }
