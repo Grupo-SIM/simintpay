@@ -10,6 +10,7 @@ import { FeeModeField } from './FeeModeField';
 import { FinancialBulkInterestField } from './FinancialBulkInterestField';
 import { FinancialNumberField } from './FinancialNumberField';
 import { FinancialContractModal } from './FinancialContractModal';
+import { AcquirerManualFeeForm } from './AcquirerManualFeeForm';
 import { FinancialSimulationCard } from './FinancialSimulationCard';
 import { useFinancialSimulation } from './use-financial-simulation';
 import {
@@ -210,6 +211,9 @@ export function FinancialPolicyDraft({
       ),
     ),
   ];
+  const missingFeeKeys = keys.filter((key) =>
+    simulation.rows[key]?.error?.includes('sem tabela ativa'),
+  );
   if (admin && acquirers.isPending)
     return (
       <div
@@ -361,6 +365,18 @@ export function FinancialPolicyDraft({
         <p className="text-sm text-amber-700 dark:text-amber-400">
           Simulação do rascunho ainda não salvo.
         </p>
+      )}
+      {admin && missingFeeKeys.length > 0 && (
+        <AcquirerManualFeeForm
+          key={`${acquirer}/${method}/${channel}`}
+          acquirer={acquirer}
+          method={method}
+          channel={channel}
+          installments={missingFeeKeys.map((key) => Number(key.split('/')[3]))}
+          onSaved={() =>
+            missingFeeKeys.forEach((key) => simulation.retryRow(key))
+          }
+        />
       )}
       {errors.map((error) => (
         <div
