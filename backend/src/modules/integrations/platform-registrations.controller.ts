@@ -38,7 +38,11 @@ import {
   ensureDeliveryAccess,
 } from './delivery-canonical-access';
 import { PlatformPaymentLookup } from '../unified-platform/payments/platform-payment-lookup';
-import { readDeliveryFees, saveDeliveryFees } from './delivery-fee-settings';
+import {
+  readDeliveryFeeDefaults,
+  readDeliveryFees,
+  saveDeliveryFees,
+} from './delivery-fee-settings';
 import { platformMerchant } from '../platform-core/platform-merchant-lookup';
 
 class CompatibilityDto {
@@ -174,6 +178,12 @@ export class PlatformRegistrationsController {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+  @Get('fees/defaults')
+  @Header('Cache-Control', 'no-store')
+  async feeDefaults(@Headers('x-provisioning-token') token?: string) {
+    assertDeliveryProvisioningToken(token);
+    return this.prisma.$transaction((tx) => readDeliveryFeeDefaults(tx));
   }
   @Get(':companyId/fees')
   @Header('Cache-Control', 'no-store')

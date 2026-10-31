@@ -75,6 +75,39 @@ async function platformOf(tx: Prisma.TransactionClient, companyId: string) {
   return platform;
 }
 
+/** One SimIntPay fee per `METHOD/installments`; acquirers share it, so the first (alphabetical) represents it. */
+function policyLanes(document: Policy): DeliveryFeeLane[] {
+  const lanes = new Map<string, DeliveryFeeLane>();
+  for (const [key, lane] of Object.entries(document.lanes).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    const [, method, channel, n] = key.split('/');
+    if (channel !== 'ONLINE') continue;
+    const id = `${method}/${n}`;
+    if (!lanes.has(id))
+      lanes.set(id, {
+        method: method as Method,
+        channel: 'ONLINE',
+        installments: Number(n),
+        fixedCents: lane.sim.fixedCents,
+        ratePpm: lane.sim.ratePpm,
+      });
+  }
+  return [...lanes.values()].sort(compareLanes);
+}
+
+/**
+ * Global SimIntPay fees (before any company override) next to the highest acquirer cost per lane. Admin-only: platform
+ * owners never see acquirers, so this is not part of `readDeliveryFees`.
+ */
+export async function readDeliveryFeeDefaults(tx: Prisma.TransactionClient) {
+  const policy = await loadFinancialPolicy(tx, 'GLOBAL');
+  return {
+    costs: (await acquirerCostFloor(tx)).sort(compareLanes),
+    lanes: policyLanes(policy.document),
+  };
+}
+
 /**
  * SimIntPay fees (`sim`) effective for one Delivery company, plus the global acquirer cost floor. Every lane is
  * listed; `disabledLanes` (`METHOD/installments`) are the ones the platform does not accept, which consumers skip.
@@ -88,28 +121,12 @@ export async function readDeliveryFees(
     companyId,
   );
   const policy = await loadFinancialPolicy(tx, tag);
-  const lanes = new Map<string, DeliveryFeeLane>();
-  for (const [key, lane] of Object.entries(policy.document.lanes).sort(
-    ([a], [b]) => a.localeCompare(b),
-  )) {
-    const [, method, channel, n] = key.split('/');
-    if (channel !== 'ONLINE') continue;
-    const id = `${method}/${n}`;
-    // Acquirers share one SimIntPay fee per lane; the first (alphabetical) represents it.
-    if (!lanes.has(id))
-      lanes.set(id, {
-        method: method as Method,
-        channel: 'ONLINE',
-        installments: Number(n),
-        fixedCents: lane.sim.fixedCents,
-        ratePpm: lane.sim.ratePpm,
-      });
-  }
+  const lanes = policyLanes(policy.document);
   return {
     mode: deliveryFeeMode,
     version: policy.version,
     disabledLanes: [...deliveryDisabledLanes].sort(),
-    lanes: [...lanes.values()].sort(compareLanes),
+    lanes,
     costs: (await acquirerCostFloor(tx)).sort(compareLanes),
   };
 }
