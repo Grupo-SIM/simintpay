@@ -5,9 +5,8 @@ import os
 def plan():
     affected = json.loads(os.environ["TASKS"]).get("build", [])
     target = os.environ.get("TARGET", "affected")
-    # (image service, project, Dockerfile, build target). `migrate` ships with backend.
+    # (image service, project, Dockerfile, build target). Migrations run from the backend image.
     services = [("backend", "backend", "backend/Dockerfile", ""),
-                ("migrate", "backend", "backend/Dockerfile", "migrate"),
                 ("checkout", "checkout", "checkout/Dockerfile", ""),
                 ("frontend", "frontend", "frontend/Dockerfile", "")]
     return [dict(service=s, dockerfile=d, target=t)

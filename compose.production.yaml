@@ -6,12 +6,13 @@ x-after-migrate: &after-migrate
       condition: service_completed_successfully
 services:
   migrate:
-    image: ${MIGRATE_IMAGE:-ghcr.io/grupo-sim/simintpay-back_migrate:latest}
+    image: *backend-image
     env_file: .env
     init: true
     restart: 'no'
     working_dir: /app/backend
-    command: ['bun', 'run', 'migrate:deploy']
+    command:
+      ['node', '../node_modules/prisma/build/index.js', 'migrate', 'deploy']
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
   api:
