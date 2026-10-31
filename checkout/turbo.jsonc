@@ -1,0 +1,15 @@
+{
+	"extends": ["//"],
+	"tasks": {
+		"build": {
+			"env": ["NEXT_PUBLIC_SIM_API_URL", "NEXT_PUBLIC_API_PAGATG_URL", "NEXT_PUBLIC_EBOOK_API_URL"],
+			"outputs": [".next/**", "!.next/cache/**"]
+		},
+		"dev": {
+			"cache": false,
+			"passThroughEnv": ["*"],
+			"persistent": true,
+			"with": ["backend#dev"]
+		}
+	}
+}

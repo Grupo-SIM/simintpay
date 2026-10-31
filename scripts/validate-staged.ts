@@ -22,7 +22,7 @@ for (const pattern of manifest.workspaces as string[]) {
 }
 const shared = files.some(
   (file) =>
-    /^(package.json|bun.lock|turbo.json|bunfig.toml)$/.test(file) ||
+    /^(package.json|bun.lock|turbo.jsonc?|bunfig.toml)$/.test(file) ||
     file.startsWith('scripts/'),
 );
 const affected = new Set(

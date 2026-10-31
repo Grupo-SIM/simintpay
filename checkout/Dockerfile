@@ -12,7 +12,7 @@ WORKDIR /app
 COPY --from=dependencies /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=dependencies /app/package.json ./package.json
-COPY bun.lock turbo.json bunfig.toml ./
+COPY bun.lock turbo.jsonc bunfig.toml ./
 COPY backend ./backend
 COPY checkout ./checkout
 ENV NEXT_TELEMETRY_DISABLED=1

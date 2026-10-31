@@ -22,7 +22,7 @@ Production builds enforce TypeScript. `check-types` generates Next route types b
 
 Imported forms retain existing state synchronization in effects. Next's `set-state-in-effect` rule remains a warning for those eight files; other hook correctness checks stay enforced. Gateway payloads retain existing dynamic types.
 
-Root `bun dev` delegates to `bun turbo dev` and runs both applications. Filtered checkout dev follows `checkout/turbo.json`: backend export finishes first, while backend dev runs as a persistent companion. Backend is a development-only workspace dependency; checkout never imports backend runtime code. Builds also wait for backend export. Export writes controller metadata offline without connecting to services.
+Root `bun dev` delegates to `bun turbo dev` and runs both applications. Filtered checkout dev follows `checkout/turbo.jsonc` and starts backend dev as a persistent companion. Checkout has no dependency on the backend package, so backend-only changes do not rebuild or republish the checkout image.
 
 ## Prévia de links de pagamento
 
