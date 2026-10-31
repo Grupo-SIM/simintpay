@@ -1818,18 +1818,18 @@ export class AdminController {
     // 3 abas: ativas | inativas (deleted, não purgadas) | excluídas permanentemente (purged).
     const showPurged = purged === 'true';
     const showDeleted = deleted === 'true' && !showPurged;
+    const filterActiveStatus = deleted === 'true' || deleted === 'false';
     const searchTerm = search?.trim() ?? '';
     const cpfDigits = searchTerm.replace(/\D/g, '');
     const platformLower = platform?.trim().toLowerCase();
 
-    // Contas marcadas como cliente Simintpay (já listadas em "Clientes Simintpay")
-    // saem da aba de ativos e ganham aba própria. Inativas/purgadas mostram todas.
+    // Legacy classification is opt-in; the accounts view includes both groups.
     const simintpayClientMode: 'exclude' | 'only' | 'any' =
       simintpayClients === 'true'
         ? 'only'
-        : simintpayClients === 'any' || showPurged || showDeleted
-          ? 'any'
-          : 'exclude';
+        : simintpayClients === 'false'
+          ? 'exclude'
+          : 'any';
     const userSimintpayClientFilter =
       simintpayClientMode === 'any'
         ? []
@@ -1888,10 +1888,21 @@ export class AdminController {
       // Purgadas: aba própria. Inativas: isDeleted mas NÃO purgadas. Ativas: nenhum dos dois.
       ...(showPurged
         ? { isPurged: true }
-        : { isDeleted: showDeleted, isPurged: false }),
+        : {
+            ...(filterActiveStatus ? { isDeleted: showDeleted } : {}),
+            isPurged: false,
+          }),
       ...externalTechnicalUserFilter,
       ...extSearchFilter,
-      AND: extSimintpayClientFilter,
+      AND: [
+        {
+          OR: [
+            { userId: null },
+            { user: { is: { clientStatus: 'APPROVED' as const } } },
+          ],
+        },
+        ...extSimintpayClientFilter,
+      ],
     };
 
     const extAllRowsRaw = await this.prisma.externalPlatformUser.findMany({
@@ -1994,16 +2005,27 @@ export class AdminController {
                   ? { tag: { equals: platformLower, mode: 'insensitive' } }
                   : { isNot: null },
               },
+              {
+                ownedPlatforms: {
+                  some: platformLower
+                    ? { tag: { equals: platformLower, mode: 'insensitive' } }
+                    : {},
+                },
+              },
               ...(knownIds.length > 0 ? [{ id: { in: knownIds } }] : []),
             ],
           },
           // 3 abas: ativa (isActive, não purgada) | inativa (!isActive, não purgada) | purgada.
           ...(showPurged
             ? [{ isPurged: true }]
-            : [{ isActive: !showDeleted }, { isPurged: false }]),
+            : [
+                ...(filterActiveStatus ? [{ isActive: !showDeleted }] : []),
+                { isPurged: false },
+              ]),
           ...(linkedUserIds.size > 0
             ? [{ id: { notIn: [...linkedUserIds] } }]
             : []),
+          { clientStatus: 'APPROVED' },
           ...userSimintpayClientFilter,
           ...(moduleSearchFilter ? [moduleSearchFilter] : []),
         ],
@@ -2071,8 +2093,6 @@ export class AdminController {
         AND: [
           { role: 'USER' },
           { platformId: null },
-          // Marcada como empresa pelo admin master: passa a viver só em /admin/clientes.
-          { isCompany: false },
           // Contas-sombra de integrações são criadas pelo JwtAuthGuard e não
           // representam clientes reais; mantê-las fora da tela de Leads.
           {
@@ -2083,8 +2103,12 @@ export class AdminController {
           // 3 abas: ativa (isActive, não purgada) | inativa (!isActive, não purgada) | purgada.
           ...(showPurged
             ? [{ isPurged: true }]
-            : [{ isActive: !showDeleted }, { isPurged: false }]),
+            : [
+                ...(filterActiveStatus ? [{ isActive: !showDeleted }] : []),
+                { isPurged: false },
+              ]),
           ...(excludeIds.length > 0 ? [{ id: { notIn: excludeIds } }] : []),
+          { clientStatus: 'APPROVED' },
           ...userSimintpayClientFilter,
           ...(clientSearchFilter ? [clientSearchFilter] : []),
         ],
@@ -2151,6 +2175,7 @@ export class AdminController {
         const matchedUsers = (await this.prisma.user.findMany({
           where: {
             AND: [
+              { clientStatus: 'APPROVED' },
               {
                 OR: [
                   ...(emails.length > 0
@@ -2172,6 +2197,7 @@ export class AdminController {
                 },
               },
               ...(alreadyIds.length > 0 ? [{ id: { notIn: alreadyIds } }] : []),
+              { clientStatus: 'APPROVED' },
               ...userSimintpayClientFilter,
             ],
           },
@@ -2291,9 +2317,20 @@ export class AdminController {
               ],
               ...(showPurged
                 ? { isPurged: true }
-                : { isDeleted: showDeleted, isPurged: false }),
+                : {
+                    ...(filterActiveStatus ? { isDeleted: showDeleted } : {}),
+                    isPurged: false,
+                  }),
               ...externalTechnicalUserFilter,
-              AND: extSimintpayClientFilter,
+              AND: [
+                {
+                  OR: [
+                    { userId: null },
+                    { user: { is: { clientStatus: 'APPROVED' as const } } },
+                  ],
+                },
+                ...extSimintpayClientFilter,
+              ],
             },
             include: {
               wallet: true,

@@ -120,7 +120,7 @@ function ContasContent() {
           ))}
         </div>
 
-        {tab !== 'plataformas' && (
+        {tab === 'afiliados' && (
           <div className="flex items-start gap-2.5 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100">
             <Info
               size={16}

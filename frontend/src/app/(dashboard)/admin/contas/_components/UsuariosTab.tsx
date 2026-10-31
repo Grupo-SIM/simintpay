@@ -507,8 +507,8 @@ export default function UsuariosTab({
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [showDeleted, setShowDeleted] = useState(false);
-  const [showPurged, setShowPurged] = useState(false);
+  const showDeleted = false;
+  const showPurged = false;
   const [accessingId, setAccessingId] = useState<string | null>(null);
   const [confirmDeleteUser, setConfirmDeleteUser] =
     useState<ExternalUser | null>(null);
@@ -1035,16 +1035,6 @@ export default function UsuariosTab({
     }
   }
 
-  function switchTab(tab: 'ativas' | 'inativas' | 'purgadas') {
-    const deleted = tab === 'inativas';
-    const purged = tab === 'purgadas';
-    setShowDeleted(deleted);
-    setShowPurged(purged);
-    setPage(1);
-    setSearch('');
-    fetchUsers(1, platform, deleted, '', purged);
-  }
-
   async function handlePurge() {
     const u = confirmPurgeUser;
     if (!u || !alvo) return;
@@ -1472,40 +1462,6 @@ export default function UsuariosTab({
       )}
 
       <div className="leads-page flex flex-1 flex-col gap-6">
-        {/* Tabs */}
-        {
-          <div className="flex items-center gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1 w-fit dark:border-white/10 dark:bg-white/5">
-            {(
-              [
-                {
-                  id: 'ativas',
-                  label: 'Ativos',
-                  on: !showDeleted && !showPurged,
-                },
-                {
-                  id: 'inativas',
-                  label: 'Contas Inativas',
-                  on: showDeleted && !showPurged,
-                },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.id}
-                onClick={() => switchTab(t.id)}
-                className={cn(
-                  'rounded-lg px-4 py-1.5 text-sm font-medium transition',
-                  t.on
-                    ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100'
-                    : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200',
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        }
-
-        {/* Controles */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Busca */}
           <div className="relative flex-1 min-w-[200px] max-w-xs">
@@ -1523,6 +1479,7 @@ export default function UsuariosTab({
           </div>
 
           <PlatformFilterSelect
+            theme="dark"
             label="Plataforma"
             value={platform}
             onChange={(value) => {
@@ -1743,7 +1700,7 @@ export default function UsuariosTab({
                           <span className="text-xs text-zinc-400 dark:text-zinc-500">
                             Excluída permanentemente
                           </span>
-                        ) : showDeleted ? (
+                        ) : u.isDeleted ? (
                           <>
                             <IconAction
                               label="Reativar"

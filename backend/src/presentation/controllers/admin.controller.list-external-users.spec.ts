@@ -187,7 +187,7 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
     };
     const prisma = makeMockPrisma([], [inactiveModuleUser]);
 
-    const active = await invoke(prisma);
+    const active = await invoke(prisma, { deleted: 'false' });
     const inactive = await invoke(prisma, { deleted: 'true' });
 
     expect(active.data).toHaveLength(0);
@@ -287,22 +287,28 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       );
     }
 
-    it('aba de ativos esconde contas marcadas', async () => {
+    it('default includes both classes and both activity states, but only approved accounts', async () => {
       const prisma = makeMockPrisma([directClient]);
       await invokeFull(prisma);
-
       const clientCall = prisma.user.findMany.mock.calls.find(([a]: any[]) =>
         isClientQuery(a),
       );
       expect(clientCall?.[0]?.where?.AND).toContainEqual({
-        isSimintpayClient: false,
+        clientStatus: 'APPROVED',
       });
+      expect(
+        clientCall?.[0]?.where?.AND.some(
+          (c: any) =>
+            'isSimintpayClient' in c || 'isActive' in c || 'isCompany' in c,
+        ),
+      ).toBe(false);
       const [[externalCall]] = prisma.externalPlatformUser.findMany.mock.calls;
+      expect(externalCall.where.isDeleted).toBeUndefined();
       expect(externalCall.where.AND).toEqual([
         {
           OR: [
             { userId: null },
-            { user: { is: { isSimintpayClient: false } } },
+            { user: { is: { clientStatus: 'APPROVED' } } },
           ],
         },
       ]);
@@ -320,6 +326,12 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       });
       const [[externalCall]] = prisma.externalPlatformUser.findMany.mock.calls;
       expect(externalCall.where.AND).toEqual([
+        {
+          OR: [
+            { userId: null },
+            { user: { is: { clientStatus: 'APPROVED' } } },
+          ],
+        },
         { user: { is: { isSimintpayClient: true } } },
       ]);
     });
@@ -340,8 +352,8 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
       expect(filtered.total).toBe(1);
       expect(filtered.data[0].id).toBe('marked');
       const pageTwo = await invokeFull(prisma, { page: '2', pageSize: '1' });
-      expect(pageTwo.total).toBe(1);
-      expect(pageTwo.data).toHaveLength(0);
+      expect(pageTwo.total).toBe(2);
+      expect(pageTwo.data).toHaveLength(1);
     });
 
     it('purged defaults to both classes', async () => {
