@@ -7,6 +7,7 @@ import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { useToast } from '@/components/ui/Toast';
 import { CustomSelect } from '@/components/ui/CustomSelect';
 import { FeeModeField } from './FeeModeField';
+import { LaneAcceptanceField } from './LaneAcceptanceField';
 import { FinancialBulkInterestField } from './FinancialBulkInterestField';
 import { FinancialNumberField } from './FinancialNumberField';
 import { FinancialContractModal } from './FinancialContractModal';
@@ -39,6 +40,13 @@ export function FinancialPolicyDraft({
   const [feeMode, setFeeMode] = useState<FeeMode | null>(
     configuration.feeMode ?? null,
   );
+  const [disabledLanes, setDisabledLanes] = useState<string[]>(
+    configuration.disabledLanes ?? [],
+  );
+  const disabledLanesChanged =
+    configuration.disabledLanes != null &&
+    JSON.stringify(disabledLanes) !==
+      JSON.stringify(configuration.disabledLanes);
   const [owner, setOwner] = useState(() => {
     if (
       admin ||
@@ -126,7 +134,8 @@ export function FinancialPolicyDraft({
   const changed = admin
     ? JSON.stringify(lanes) !==
         JSON.stringify(configuration.laneOverrides ?? {}) ||
-      feeMode !== (configuration.feeMode ?? null)
+      feeMode !== (configuration.feeMode ?? null) ||
+      disabledLanesChanged
     : JSON.stringify(owner) !== JSON.stringify(configuration.ownerOverrides) ||
       JSON.stringify(lanes) !==
         JSON.stringify(configuration.laneOverrides ?? {}) ||
@@ -157,6 +166,7 @@ export function FinancialPolicyDraft({
                 feeMode !== (configuration.feeMode ?? null)
                   ? { feeMode }
                   : {}),
+                ...(disabledLanesChanged ? { disabledLanes } : {}),
               }
             : { owner, interestFree: interestFreeOverride }),
         },
@@ -347,6 +357,12 @@ export function FinancialPolicyDraft({
       )}
       {admin && feeMode !== null && (
         <FeeModeField value={feeMode} onChange={setFeeMode} />
+      )}
+      {admin && configuration.disabledLanes != null && (
+        <LaneAcceptanceField
+          disabled={disabledLanes}
+          onChange={setDisabledLanes}
+        />
       )}
       {admin && (
         <p className="text-sm text-zinc-500">

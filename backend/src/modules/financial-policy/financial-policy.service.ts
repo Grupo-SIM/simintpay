@@ -72,12 +72,14 @@ export function projectPolicy(
   policy: ResolvedPolicy,
   admin: boolean,
   feeMode: DeliveryFeeMode | null = null,
+  disabledLanes: string[] | null = null,
 ) {
   const { version, sources } = policy;
   return {
     version,
     sources,
     feeMode,
+    disabledLanes,
     ownerOverrides: policy.own.owner,
     globalOwner: policy.global.owner,
     owner: policy.document.owner,
@@ -132,6 +134,19 @@ async function platformFeeMode(
   return platform?.deliveryFeeMode ?? null;
 }
 
+/** Lanes (`METHOD/installments`) the platform does not accept. GLOBAL has none. */
+async function platformDisabledLanes(
+  prisma: Pick<Prisma.TransactionClient, 'platform'>,
+  tag: string,
+): Promise<string[] | null> {
+  if (tag === 'GLOBAL') return null;
+  const platform = await prisma.platform.findUnique({
+    where: { tag },
+    select: { deliveryDisabledLanes: true },
+  });
+  return platform?.deliveryDisabledLanes ?? null;
+}
+
 export async function getFinancialPolicy(
   prisma: PrismaService,
   tag: string,
@@ -143,6 +158,7 @@ export async function getFinancialPolicy(
       await loadFinancialPolicy(prisma, tag),
       admin,
       await platformFeeMode(prisma, tag),
+      await platformDisabledLanes(prisma, tag),
     ),
   };
 }
@@ -162,11 +178,19 @@ export async function saveFinancialPolicy(
     interestFree?: unknown;
     lanes?: unknown;
     feeMode?: unknown;
+    disabledLanes?: unknown;
   };
   if (
     Object.keys(body).some(
       (key) =>
-        !['version', 'owner', 'interestFree', 'lanes', 'feeMode'].includes(key),
+        ![
+          'version',
+          'owner',
+          'interestFree',
+          'lanes',
+          'feeMode',
+          'disabledLanes',
+        ].includes(key),
     )
   )
     throw new BadRequestException('Campo não permitido');
@@ -184,6 +208,23 @@ export async function saveFinancialPolicy(
       )
     )
       throw new BadRequestException('Modo de taxas inválido');
+  }
+  if (input.disabledLanes !== undefined) {
+    if (!admin)
+      throw new ForbiddenException(
+        'Modalidades aceitas exclusivas do administrador',
+      );
+    if (
+      tag === 'GLOBAL' ||
+      !Array.isArray(input.disabledLanes) ||
+      input.disabledLanes.length > 14 ||
+      input.disabledLanes.some(
+        (lane) =>
+          typeof lane !== 'string' ||
+          !/^(PIX|BOLETO|DEBIT_CARD|CREDIT_CARD)\/\d{1,2}$/.test(lane),
+      )
+    )
+      throw new BadRequestException('Modalidades desabilitadas inválidas');
   }
   try {
     return await prisma.$transaction(
@@ -214,6 +255,15 @@ export async function saveFinancialPolicy(
             where: { tag },
             data: { deliveryFeeMode: input.feeMode as DeliveryFeeMode },
           });
+        if (input.disabledLanes !== undefined)
+          await tx.platform.update({
+            where: { tag },
+            data: {
+              deliveryDisabledLanes: [
+                ...new Set(input.disabledLanes as string[]),
+              ].sort(),
+            },
+          });
         if (input.lanes !== undefined) {
           const codes = [
             ...new Set(
@@ -242,6 +292,7 @@ export async function saveFinancialPolicy(
             await loadFinancialPolicy(tx, tag),
             admin,
             await platformFeeMode(tx, tag),
+            await platformDisabledLanes(tx, tag),
           ),
         };
       },
