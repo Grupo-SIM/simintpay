@@ -747,33 +747,6 @@ function TransacoesContent() {
         ),
       },
       {
-        key: 'descricao',
-        header: 'Descrição',
-        grow: true,
-        className: 'text-left',
-        headerClassName: 'text-left',
-        render: (row: Transacao) => (
-          <span className="text-sm text-zinc-600 dark:text-zinc-400">
-            {formatTransacaoDescricaoUi(row.descricao) || '—'}
-            <CoproductionTransactionBadge info={row.coproducao} />
-          </span>
-        ),
-      },
-      {
-        key: 'paymentMethod',
-        header: 'Forma de pagamento',
-        render: (row: Transacao) => <PaymentMethodCell row={row} />,
-      },
-      {
-        key: 'status',
-        header: 'Status',
-        render: (row: Transacao) => (
-          <Badge value={String(row.status)}>
-            {mapStatusLabel(String(row.status))}
-          </Badge>
-        ),
-      },
-      {
         key: 'platformAssign',
         header: 'Plataforma',
         className: 'whitespace-nowrap',
@@ -809,6 +782,33 @@ function TransacoesContent() {
             <span className="text-xs text-zinc-400">-</span>
           );
         },
+      },
+      {
+        key: 'descricao',
+        header: 'Descrição',
+        grow: true,
+        className: 'text-left',
+        headerClassName: 'text-left',
+        render: (row: Transacao) => (
+          <span className="text-sm text-zinc-600 dark:text-zinc-400">
+            {formatTransacaoDescricaoUi(row.descricao) || '—'}
+            <CoproductionTransactionBadge info={row.coproducao} />
+          </span>
+        ),
+      },
+      {
+        key: 'paymentMethod',
+        header: 'Forma de pagamento',
+        render: (row: Transacao) => <PaymentMethodCell row={row} />,
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        render: (row: Transacao) => (
+          <Badge value={String(row.status)}>
+            {mapStatusLabel(String(row.status))}
+          </Badge>
+        ),
       },
       {
         key: 'amount',
