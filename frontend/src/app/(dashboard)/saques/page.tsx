@@ -1281,30 +1281,6 @@ function SaquesContent() {
         },
       },
       {
-        key: 'saldoRestanteAposSaque',
-        header: 'Saldo restante após saque',
-        render: (row: Saque) => {
-          const saldo = row.saldoRestanteAposSaque;
-          if (saldo == null) {
-            return (
-              <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                Não informado
-              </span>
-            );
-          }
-          return (
-            <span
-              className={cn(
-                'font-semibold text-emerald-600 dark:text-emerald-400',
-                negativeMoneyClass(saldo),
-              )}
-            >
-              {formatBRL(saldo)}
-            </span>
-          );
-        },
-      },
-      {
         key: 'chavePix',
         header: 'Chave PIX',
         render: (row: Saque) => (
