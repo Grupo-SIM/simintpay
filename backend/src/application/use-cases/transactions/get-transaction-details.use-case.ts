@@ -241,7 +241,11 @@ export class GetTransactionDetailsUseCase {
 
   /** Coprodutores veem a transação completa, somente leitura; `coproducao` identifica o papel. */
   async execute(input: { userId: string; role: string; id: string }) {
-    const detail = await this.load(input);
+    const loaded = await this.load(input);
+    const detail =
+      input.role === 'ADMIN'
+        ? loaded
+        : { ...loaded, order: this.toCustomerOrder((loaded as any).order) };
     const tx = await this.prisma.transaction.findUnique({
       where: { id: input.id },
       select: { id: true, userId: true, financialSnapshot: true },
@@ -252,6 +256,40 @@ export class GetTransactionDetailsUseCase {
         ).get(tx.id) ?? null)
       : null;
     return { ...detail, coproducao };
+  }
+
+  /**
+   * Clientes só enxergam o universo SimIntPay: campos próprios da adquirente
+   * (taxa/MDR, 3DS, lucro master) e qualquer campo cru do gateway ficam de fora.
+   */
+  private toCustomerOrder(order: any): any {
+    if (!order) return order;
+    const allowed = [
+      'client_document',
+      'client_email',
+      'client_name',
+      'client_phone',
+      'date_register',
+      'fee_total_value',
+      'historic_status',
+      'id_transaction',
+      'items',
+      'origin',
+      'paid_date',
+      'pix_content',
+      'taxa_cashback',
+      'taxa_fixa_transacao',
+      'taxa_vendedor',
+      'total',
+      'total_liquid',
+      'type',
+      'type_payment',
+      'valor_bruto_venda',
+      'valor_liquido_vendedor',
+    ];
+    return Object.fromEntries(
+      allowed.filter((k) => k in order).map((k) => [k, order[k]]),
+    );
   }
 
   private async load(input: { userId: string; role: string; id: string }) {

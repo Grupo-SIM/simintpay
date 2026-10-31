@@ -1,5 +1,9 @@
 # Plataformas e configuração financeira
 
+## Detalhe da transação para clientes
+
+O detalhe `GET /transacoes/:id` só entrega a clientes (donos e coprodutores) campos do universo SimIntPay; MDR/taxa da adquirente, 3DS, lucro master e campos crus do gateway são exclusivos do admin.
+
 ## Piso efetivo de custo da adquirente
 
 O piso por método/canal/parcela considera somente adquirentes ativas e a tabela mais recente de cada uma. O percentual efetivo é o maior `ratePpm + interestPpm` de uma mesma adquirente, nunca a soma dos máximos separados; o custo fixo usa seu próprio máximo. Na DOM, MDR de 3,99% mais juros de 4,31% resulta em piso de 8,30%, sem capitalização ou nova multiplicação pelas parcelas. Juros zero preservam o MDR. Esse piso alimenta `finance/acquirer-costs` do núcleo de plataformas e `costs` da integração Delivery, sem alterar tabelas brutas nem a base e o arredondamento do estimador de custo monetário.
