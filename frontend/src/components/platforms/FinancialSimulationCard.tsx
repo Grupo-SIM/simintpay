@@ -39,10 +39,16 @@ export function FinancialSimulationCard({
     : undefined;
   const pct = (ppm: number) =>
     `${(ppm / 10_000).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}%`;
+  const noInterest =
+    !!result &&
+    result.buyerInterestCents === 0 &&
+    result.interestRatePpm === 0 &&
+    result.buyerInterestRatePpm === 0;
+  const showInterest = credit && !(admin && noInterest);
   const metrics: { label: string; value?: number; rate?: boolean }[] = [
     { label: 'Total comprador', value: result?.buyerTotalCents },
     { label: 'Custos SimIntPay', value: result?.processingCostCents },
-    ...(credit
+    ...(showInterest
       ? [
           {
             label: 'Juros pagos pelo cliente',
@@ -71,7 +77,7 @@ export function FinancialSimulationCard({
             formatCents(simRule.fixedCents),
           ],
           ['Percentual', pct(lane.contract.ratePpm), pct(simRule.ratePpm)],
-          ...(credit
+          ...(showInterest
             ? [
                 [
                   'Juros',
@@ -205,10 +211,7 @@ export function FinancialSimulationCard({
       )}
       {admin && result && !state?.pending && (
         <details className="group mt-3 border-t pt-2 text-xs">
-          <summary className="cursor-pointer font-medium">
-            Composição <span className="group-open:hidden">· Expandir</span>
-            <span className="hidden group-open:inline">· Minimizar</span>
-          </summary>
+          <summary className="cursor-pointer font-medium">Composição</summary>
           <dl className="mt-2 space-y-1">
             {[
               ['Adquirente', result.acquirerProcessingCents],
@@ -216,14 +219,16 @@ export function FinancialSimulationCard({
               ['Juros adquirente', result.acquirerInterestCents],
               ['Adicional de juros', result.simInterestCents],
               ['Margem SimIntPay', result.simMarginCents],
-            ].map(([label, value]) => (
-              <div key={label} className="flex justify-between gap-2">
-                <dt>{label}</dt>
-                <dd className="m-0 tabular-nums">
-                  {formatCents(Number(value ?? 0))}
-                </dd>
-              </div>
-            ))}
+            ]
+              .filter(([, value]) => Number(value ?? 0) !== 0)
+              .map(([label, value]) => (
+                <div key={label} className="flex justify-between gap-2">
+                  <dt>{label}</dt>
+                  <dd className="m-0 tabular-nums">
+                    {formatCents(Number(value ?? 0))}
+                  </dd>
+                </div>
+              ))}
           </dl>
         </details>
       )}
