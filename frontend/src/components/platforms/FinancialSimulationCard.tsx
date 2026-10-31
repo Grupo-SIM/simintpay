@@ -5,7 +5,12 @@ import { Button } from '@/components/ui/Button';
 import { FinancialNumberField } from './FinancialNumberField';
 import {
   defaultOwner,
+  effectiveFee,
+  feeShortfall,
   formatCents,
+  formatPpm,
+  type CompanyAdditiveFee,
+  type FeeMode,
   type Lane,
   type OwnerRule,
   type RowState,
@@ -15,6 +20,8 @@ export function FinancialSimulationCard({
   rowKey,
   rule,
   lane,
+  feeMode,
+  additiveFees,
   state,
   admin,
   credit,
@@ -25,6 +32,8 @@ export function FinancialSimulationCard({
   rowKey: string;
   rule?: OwnerRule;
   lane?: Lane;
+  feeMode?: FeeMode | null;
+  additiveFees?: CompanyAdditiveFee[];
   state?: RowState;
   admin: boolean;
   credit: boolean;
@@ -34,9 +43,6 @@ export function FinancialSimulationCard({
 }) {
   const owner = rule ?? { ...defaultOwner(), passInterestPpm: 1_000_000 },
     result = state?.result;
-  const differenceCents = result
-    ? result.netCents - result.originalCents
-    : undefined;
   const pct = (ppm: number) =>
     `${(ppm / 10_000).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}%`;
   const noInterest =
@@ -45,27 +51,32 @@ export function FinancialSimulationCard({
     result.interestRatePpm === 0 &&
     result.buyerInterestRatePpm === 0;
   const showInterest = credit && !(admin && noInterest);
-  const metrics: { label: string; value?: number; rate?: boolean }[] = [
-    { label: 'Total comprador', value: result?.buyerTotalCents },
-    { label: 'Custos SimIntPay', value: result?.processingCostCents },
-    ...(showInterest
-      ? [
-          {
-            label: 'Juros pagos pelo cliente',
-            value: result?.buyerInterestCents,
-          },
-          {
-            label: 'Taxa de juros definida (SimIntPay)',
-            value: result?.interestRatePpm,
-            rate: true,
-          },
-          {
-            label: 'Taxa de juros repassada (cliente)',
-            value: result?.buyerInterestRatePpm,
-            rate: true,
-          },
-        ]
-      : []),
+  const additiveCents =
+    result && feeMode && feeMode !== 'SIMINTPAY_ONLY'
+      ? (additiveFees ?? [])
+          .filter((fee) => fee.associated && fee.active)
+          .reduce(
+            (sum, fee) =>
+              sum +
+              Math.round(
+                (result.originalCents * fee.effectivePercentageValue) / 10_000,
+              ) +
+              fee.effectiveFixedValue,
+            0,
+          )
+      : result
+        ? 0
+        : undefined;
+  const metrics: { label: string; value?: number }[] = [
+    { label: 'Custos da adquirente', value: result?.acquirerCostCents },
+    {
+      label: 'Adicional SimIntPay',
+      value: result
+        ? (result.simAdditionCents ?? 0) + (result.simInterestCents ?? 0)
+        : undefined,
+    },
+    { label: 'Taxas aditivas', value: additiveCents },
+    { label: 'Valor repassado', value: result?.netCents },
   ];
   const simRule = lane ? (lane.total ?? lane.sim) : undefined;
   const contractRows: [string, string, string][] =
@@ -88,8 +99,17 @@ export function FinancialSimulationCard({
             : []),
         ]
       : [];
-  const format = (value?: number, rate?: boolean) =>
-    value === undefined ? '—' : rate ? pct(value) : formatCents(value);
+  const effective =
+    lane && feeMode !== undefined && feeMode !== null
+      ? effectiveFee(lane, feeMode, additiveFees)
+      : undefined;
+  const shortfall =
+    lane && effective ? feeShortfall(effective, lane.contract) : undefined;
+  const short =
+    !!shortfall &&
+    (shortfall.rateShortfallPpm > 0 || shortfall.fixedShortfallCents > 0);
+  const format = (value?: number) =>
+    value === undefined ? '—' : formatCents(value);
   const skeleton = (
     <span
       aria-label="Calculando"
@@ -173,64 +193,74 @@ export function FinancialSimulationCard({
           </tbody>
         </table>
       )}
+      {admin && effective && shortfall && lane && (
+        <div
+          className={`mb-3 rounded-lg border p-2 text-xs ${short ? 'border-amber-500 bg-amber-50 text-amber-800 dark:border-amber-400/60 dark:bg-amber-400/10 dark:text-amber-300' : 'border-zinc-200 text-zinc-600 dark:border-white/10 dark:text-zinc-300'}`}
+        >
+          <div className="flex justify-between gap-2">
+            <span>Taxa efetiva do lojista</span>
+            <span className="font-medium tabular-nums">
+              {formatPpm(effective.ratePpm)} +{' '}
+              {formatCents(effective.fixedCents)}
+            </span>
+          </div>
+          <div
+            role={short ? 'alert' : undefined}
+            className={`mt-1 ${short ? 'font-medium' : ''}`}
+          >
+            {short
+              ? `Cobertura insuficiente${
+                  shortfall.rateShortfallPpm > 0
+                    ? `: faltam ${formatPpm(shortfall.rateShortfallPpm)}`
+                    : ''
+                }${
+                  shortfall.fixedShortfallCents > 0
+                    ? `${shortfall.rateShortfallPpm > 0 ? ' e' : ': faltam'} ${formatCents(shortfall.fixedShortfallCents)}`
+                    : ''
+                } sobre o custo da adquirente`
+              : 'Cobre o custo da adquirente'}
+          </div>
+        </div>
+      )}
       <div className="mb-3 grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            Líquido
-          </div>
+          <div className="text-xs text-zinc-500 dark:text-zinc-400">Total</div>
           <div className="text-base font-semibold tabular-nums">
-            {state?.pending ? skeleton : format(result?.netCents)}
+            {state?.pending ? skeleton : format(result?.buyerTotalCents)}
           </div>
         </div>
-        <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            Diferença
+        {admin && (
+          <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">
+              Margem
+            </div>
+            <div
+              className={`text-base font-semibold tabular-nums ${result?.simMarginCents !== undefined && result.simMarginCents < 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}
+            >
+              {state?.pending ? skeleton : format(result?.simMarginCents)}
+            </div>
           </div>
-          <div
-            className={`text-base font-semibold tabular-nums ${differenceCents !== undefined && differenceCents < 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}
-          >
-            {state?.pending ? skeleton : format(differenceCents)}
-          </div>
-        </div>
+        )}
       </div>
       <dl className="divide-y divide-zinc-200 text-xs dark:divide-white/10">
-        {metrics.map((metric) => (
-          <div
-            key={metric.label}
-            className="flex items-baseline justify-between gap-3 py-1"
-          >
-            <dt className="text-zinc-500 dark:text-zinc-400">{metric.label}</dt>
-            <dd className="m-0 shrink-0 tabular-nums">
-              {state?.pending ? skeleton : format(metric.value, metric.rate)}
-            </dd>
-          </div>
-        ))}
+        {metrics
+          .filter((metric) => admin || metric.label === 'Valor repassado')
+          .map((metric) => (
+            <div
+              key={metric.label}
+              className="flex items-baseline justify-between gap-3 py-1"
+            >
+              <dt className="text-zinc-500 dark:text-zinc-400">
+                {metric.label}
+              </dt>
+              <dd className="m-0 shrink-0 tabular-nums">
+                {state?.pending ? skeleton : format(metric.value)}
+              </dd>
+            </div>
+          ))}
       </dl>
       {admin && !lane && !state?.pending && (
         <p className="mt-3 text-xs text-amber-600">Taxas não configuradas</p>
-      )}
-      {admin && result && !state?.pending && (
-        <details className="group mt-3 border-t pt-2 text-xs">
-          <summary className="cursor-pointer font-medium">Composição</summary>
-          <dl className="mt-2 space-y-1">
-            {[
-              ['Adquirente', result.acquirerProcessingCents],
-              ['Adicional SimIntPay', result.simAdditionCents],
-              ['Juros adquirente', result.acquirerInterestCents],
-              ['Adicional de juros', result.simInterestCents],
-              ['Margem SimIntPay', result.simMarginCents],
-            ]
-              .filter(([, value]) => Number(value ?? 0) !== 0)
-              .map(([label, value]) => (
-                <div key={label} className="flex justify-between gap-2">
-                  <dt>{label}</dt>
-                  <dd className="m-0 tabular-nums">
-                    {formatCents(Number(value ?? 0))}
-                  </dd>
-                </div>
-              ))}
-          </dl>
-        </details>
       )}
     </article>
   );

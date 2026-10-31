@@ -7,6 +7,8 @@ import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { useToast } from '@/components/ui/Toast';
 import { CustomSelect } from '@/components/ui/CustomSelect';
 import { FeeModeField } from './FeeModeField';
+import { AdditiveFeeCatalog } from './AdditiveFeeCatalog';
+import { AdditiveFeesSection } from './AdditiveFeesSection';
 import { LaneAcceptanceField } from './LaneAcceptanceField';
 import { FinancialBulkInterestField } from './FinancialBulkInterestField';
 import { FinancialNumberField } from './FinancialNumberField';
@@ -15,8 +17,10 @@ import { AcquirerManualFeeForm } from './AcquirerManualFeeForm';
 import { FinancialSimulationCard } from './FinancialSimulationCard';
 import { useFinancialSimulation } from './use-financial-simulation';
 import {
+  applyAdditiveEdit,
   defaultLane,
   defaultOwner,
+  type AdditiveFeeEdit,
   type FeeMode,
   type FinancialConfiguration,
   type Lane,
@@ -43,6 +47,22 @@ export function FinancialPolicyDraft({
   const [disabledLanes, setDisabledLanes] = useState<string[]>(
     configuration.disabledLanes ?? [],
   );
+  const [additiveEdits, setAdditiveEdits] = useState<
+    Record<string, AdditiveFeeEdit>
+  >({});
+  const additiveFees = (configuration.additiveFees ?? []).map((fee) =>
+    applyAdditiveEdit(fee, additiveEdits[fee.id]),
+  );
+  const additiveEditList = Object.values(additiveEdits);
+  const editAdditive = (edit: AdditiveFeeEdit) =>
+    setAdditiveEdits((previous) => {
+      const base = previous[edit.feeId] ?? { feeId: edit.feeId };
+      // A reset discards earlier overrides but later edits apply on top of it.
+      const next: AdditiveFeeEdit = edit.reset
+        ? { feeId: edit.feeId, associated: base.associated, reset: true }
+        : { ...base, ...edit };
+      return { ...previous, [edit.feeId]: next };
+    });
   const disabledLanesChanged =
     configuration.disabledLanes != null &&
     JSON.stringify(disabledLanes) !==
@@ -135,6 +155,7 @@ export function FinancialPolicyDraft({
     ? JSON.stringify(lanes) !==
         JSON.stringify(configuration.laneOverrides ?? {}) ||
       feeMode !== (configuration.feeMode ?? null) ||
+      additiveEditList.length > 0 ||
       disabledLanesChanged
     : JSON.stringify(owner) !== JSON.stringify(configuration.ownerOverrides) ||
       JSON.stringify(lanes) !==
@@ -149,6 +170,7 @@ export function FinancialPolicyDraft({
     owner,
     lanes,
     interestFree: false,
+    additiveFees: additiveEditList,
     valid,
     admin,
   });
@@ -166,6 +188,9 @@ export function FinancialPolicyDraft({
                 ...(feeMode !== null &&
                 feeMode !== (configuration.feeMode ?? null)
                   ? { feeMode }
+                  : {}),
+                ...(additiveEditList.length > 0
+                  ? { additiveFees: additiveEditList }
                   : {}),
               }
             : { owner, interestFree: interestFreeOverride }),
@@ -359,6 +384,14 @@ export function FinancialPolicyDraft({
       {admin && feeMode !== null && (
         <FeeModeField value={feeMode} onChange={setFeeMode} />
       )}
+      {admin && feeMode === null && <AdditiveFeeCatalog />}
+      {feeMode !== null && (
+        <AdditiveFeesSection
+          fees={additiveFees}
+          admin={admin}
+          onEdit={editAdditive}
+        />
+      )}
       {configuration.disabledLanes != null && (
         <LaneAcceptanceField
           disabled={disabledLanes}
@@ -436,6 +469,8 @@ export function FinancialPolicyDraft({
             rowKey={key}
             rule={owner[key] ?? configuration.globalOwner[key]}
             lane={lanes[key] ?? configuration.globalLanes?.[key]}
+            feeMode={feeMode}
+            additiveFees={additiveFees}
             state={
               simulation.rows[key] ?? {
                 installments: Number(key.split('/')[3]),
