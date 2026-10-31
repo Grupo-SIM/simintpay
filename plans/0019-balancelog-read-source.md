@@ -176,3 +176,18 @@ Contando um registro por linha de escrita de carteira em produção (excluindo a
 - A lista de suspeitos do 0007 estava defasada: `platform-sync*`, `platform-ledger` e `coproduction-settlement` já usam `applyWalletEntry`; `legacy-platform-payment.core`, `pix-plan.service` e `payment-platform` só provisionam; o grosso dos escritores diretos está em webhooks, saques, `admin.controller.ts` (12 pontos) e `platform-link-claim`.
 - `BalanceLog` sem trigger append-only: a etapa 3 deve incluir `UPDATE`/`DELETE` bloqueados, não só a regra de lint.
 - `request-withdraw` decide saldo fora da transação; após o cutover precisa do `SUM` sob lock dentro da tx para não haver saque duplo.
+
+## Fase 1: BalanceLog dirige a Wallet (trigger)
+
+Decisão do dono (final): o `BalanceLog` dirige a `Wallet`; ele **não** vira append-only.
+
+Desenho:
+
+- Migration `20261031130000_balance_log_drives_wallet`: trigger `AFTER INSERT ... FOR EACH ROW` em `"BalanceLog"` que toma `pg_advisory_xact_lock(hashtext('wallet-ledger:' || userId))`, recalcula `SUM(balanceDelta)`/`SUM(lockedDelta)` do usuário e faz upsert da `Wallet` (cria se faltar). O upsert só escreve (e só incrementa `version`) se a soma mudou; linhas de delta zero e escritores legados que já atualizaram a `Wallet` na mesma transação ficam idempotentes.
+- Índice cobrindo `"BalanceLog"("userId") INCLUDE (balanceDelta, lockedDelta)` (mesmo nome do `@@index([userId])`, schema.prisma inalterado).
+- Bloco `DO` no topo da migration aborta com `RAISE EXCEPTION` listando a contagem de carteiras divergentes. **O start do container roda `prisma migrate deploy`: enquanto houver divergência, a nova versão não sobe (a antiga continua servindo).** Nunca reescreve saldo automaticamente; reconciliar com `reconcile-wallets.ts --apply`.
+- Escritores passarão a só inserir linha de log; guard da `Wallet` por último.
+
+Progresso:
+
+- [x] Migration (trigger, índice, guarda de divergência).
