@@ -139,7 +139,8 @@ export function FinancialPolicyDraft({
     : JSON.stringify(owner) !== JSON.stringify(configuration.ownerOverrides) ||
       JSON.stringify(lanes) !==
         JSON.stringify(configuration.laneOverrides ?? {}) ||
-      interestFreeOverride !== (configuration.interestFreeOverride ?? null);
+      interestFreeOverride !== (configuration.interestFreeOverride ?? null) ||
+      disabledLanesChanged;
   const simulation = useFinancialSimulation({
     tag,
     configuration,
@@ -166,9 +167,9 @@ export function FinancialPolicyDraft({
                 feeMode !== (configuration.feeMode ?? null)
                   ? { feeMode }
                   : {}),
-                ...(disabledLanesChanged ? { disabledLanes } : {}),
               }
             : { owner, interestFree: interestFreeOverride }),
+          ...(disabledLanesChanged ? { disabledLanes } : {}),
         },
       ),
     onSuccess: async (response) => {
@@ -358,7 +359,7 @@ export function FinancialPolicyDraft({
       {admin && feeMode !== null && (
         <FeeModeField value={feeMode} onChange={setFeeMode} />
       )}
-      {admin && configuration.disabledLanes != null && (
+      {configuration.disabledLanes != null && (
         <LaneAcceptanceField
           disabled={disabledLanes}
           onChange={setDisabledLanes}

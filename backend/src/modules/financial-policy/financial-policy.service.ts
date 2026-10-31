@@ -210,10 +210,7 @@ export async function saveFinancialPolicy(
       throw new BadRequestException('Modo de taxas inválido');
   }
   if (input.disabledLanes !== undefined) {
-    if (!admin)
-      throw new ForbiddenException(
-        'Modalidades aceitas exclusivas do administrador',
-      );
+    // Admins and the platform owner (checked by `authorize`) both choose which lanes the platform offers.
     if (
       tag === 'GLOBAL' ||
       !Array.isArray(input.disabledLanes) ||

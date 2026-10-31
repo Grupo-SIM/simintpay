@@ -358,3 +358,43 @@ describe('delivery fee mode', () => {
     ).rejects.toThrow('Modo de taxas inválido');
   });
 });
+
+describe('accepted payment lanes', () => {
+  test('owner persists a sorted, deduplicated list and invalid lanes are rejected', async () => {
+    const { prisma } = fixture();
+    prisma.platform.update = mock(async () => ({}));
+    await saveFinancialPolicy(prisma, 'SHOP', user, {
+      version: '1:1',
+      disabledLanes: ['PIX/1', 'BOLETO/1', 'CREDIT_CARD/2', 'BOLETO/1'],
+    });
+    expect(prisma.platform.update).toHaveBeenCalledWith({
+      where: { tag: 'SHOP' },
+      data: {
+        deliveryDisabledLanes: ['BOLETO/1', 'CREDIT_CARD/2', 'PIX/1'],
+      },
+    });
+    await expect(
+      saveFinancialPolicy(prisma, 'SHOP', user, {
+        version: '1:2',
+        disabledLanes: ['CARD/1'],
+      }),
+    ).rejects.toThrow('Modalidades desabilitadas inválidas');
+    await expect(
+      saveFinancialPolicy(prisma, 'GLOBAL', user, {
+        version: '1:0',
+        disabledLanes: ['PIX/1'],
+      }),
+    ).rejects.toBeDefined();
+  });
+  test('a user who does not own the platform cannot change accepted lanes', async () => {
+    const { prisma } = fixture('USER', 'someone-else');
+    prisma.platform.update = mock(async () => ({}));
+    await expect(
+      saveFinancialPolicy(prisma, 'SHOP', user, {
+        version: '1:1',
+        disabledLanes: ['PIX/1'],
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.platform.update).not.toHaveBeenCalled();
+  });
+});
