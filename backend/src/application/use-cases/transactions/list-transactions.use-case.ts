@@ -152,6 +152,7 @@ export class ListTransactionsUseCase {
           previousStatus: transaction.previousStatus,
           paymentMethod: transaction.paymentMethod,
           description: transaction.description,
+          platformTag: transaction.platformTag,
           installments: transaction.installments,
           totalFee: transaction.totalFee.toString(),
           domFee: transaction.domFee.toString(),

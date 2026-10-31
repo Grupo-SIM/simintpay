@@ -29,7 +29,8 @@ import { ActionButton } from '../relatorio/components/ActionButton';
 import { DateRangePickerField } from '../relatorio/components/DateRangePickerField';
 import type { DateRange } from '../relatorio/types';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useProductPlatforms } from '@/hooks/use-product-platforms';
 import { useTransacoes } from '@/features/transacoes/hooks/use-transacoes';
 import { listTransacoes } from '@/features/transacoes/services/transacoes.service';
 import {
@@ -194,6 +195,8 @@ function TransacoesContent() {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { platforms: catalogPlatforms } = useProductPlatforms();
   const { resolvedTheme } = useTheme();
   const { user, loading: loadingUser } = useCurrentUser();
   const isAdmin = user?.isAdmin ?? false;
@@ -415,6 +418,35 @@ function TransacoesContent() {
     queryFn: () =>
       api.get<{ data: { tag: string }[] }>(endpoints.admin.plataformas.list),
   });
+
+  const platformNames = useMemo(
+    () =>
+      new Map(
+        catalogPlatforms.map((p) => [p.tag.trim().toUpperCase(), p.name]),
+      ),
+    [catalogPlatforms],
+  );
+  const platformName = useCallback(
+    (tag: string) =>
+      platformNames.get(tag.trim().toUpperCase()) ?? getPlatformLabel(tag),
+    [platformNames],
+  );
+  const assignPlatform = useCallback(
+    async (id: string, tag: string) => {
+      try {
+        await api.patch(`/transacoes/${encodeURIComponent(id)}/plataforma`, {
+          platformTag: tag || null,
+        });
+        await queryClient.invalidateQueries({ queryKey: ['transacoes'] });
+      } catch {
+        toast({
+          type: 'error',
+          title: 'Não foi possível associar a plataforma',
+        });
+      }
+    },
+    [api, queryClient, toast],
+  );
 
   const uniquePlatforms = useMemo(() => {
     const seen = new Set<string>();
@@ -742,15 +774,6 @@ function TransacoesContent() {
           <span className="text-sm text-zinc-600 dark:text-zinc-400">
             {formatTransacaoDescricaoUi(row.descricao) || '—'}
             <CoproductionTransactionBadge info={row.coproducao} />
-            {transacaoPlataformaUi(row.plataforma, row.descricao) && (
-              <span
-                className={`ml-2 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getPlatformBadgeClass(transacaoPlataformaUi(row.plataforma, row.descricao))}`}
-              >
-                {getPlatformLabel(
-                  transacaoPlataformaUi(row.plataforma, row.descricao)!,
-                )}
-              </span>
-            )}
           </span>
         ),
       },
@@ -767,6 +790,41 @@ function TransacoesContent() {
             {mapStatusLabel(String(row.status))}
           </Badge>
         ),
+      },
+      {
+        key: 'platformAssign',
+        header: 'Plataforma',
+        className: 'whitespace-nowrap',
+        render: (row: Transacao) => {
+          const tag = transacaoPlataformaUi(row.plataforma, row.descricao);
+          if (isAdmin)
+            return (
+              <Dropdown
+                value={row.plataforma ?? ''}
+                onChange={(v) => void assignPlatform(row.id, v)}
+                theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+                variant="navbar"
+                searchable
+                searchPlaceholder="Buscar plataforma..."
+                options={[
+                  { value: '', label: 'Sem plataforma' },
+                  ...catalogPlatforms.map((p) => ({
+                    value: p.tag,
+                    label: p.name,
+                  })),
+                ]}
+              />
+            );
+          return tag ? (
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap ${getPlatformBadgeClass(tag)}`}
+            >
+              {platformName(tag)}
+            </span>
+          ) : (
+            <span className="text-xs text-zinc-400">-</span>
+          );
+        },
       },
       {
         key: 'amount',
@@ -806,7 +864,16 @@ function TransacoesContent() {
       },
       dateColumn,
     ],
-    [isAdmin, baseColumns, valorLiquidoColumn, dateColumn],
+    [
+      isAdmin,
+      baseColumns,
+      valorLiquidoColumn,
+      dateColumn,
+      catalogPlatforms,
+      platformName,
+      assignPlatform,
+      resolvedTheme,
+    ],
   );
 
   return (
