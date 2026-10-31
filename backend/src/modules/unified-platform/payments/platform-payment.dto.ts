@@ -31,10 +31,6 @@ export class PlatformPaymentCardDto {
 }
 
 export class PlatformPaymentAllocationDto {
-  @IsOptional() @IsIn(['SIMINTPAY_ONLY', 'ADDITIVE_ONLY', 'BOTH']) feeMode?:
-    | 'SIMINTPAY_ONLY'
-    | 'ADDITIVE_ONLY'
-    | 'BOTH';
   @IsOptional() @IsInt() @Min(0) itemsAmountCents?: number;
   @IsOptional() @IsInt() @Min(0) deliveryAmountCents?: number;
   @IsInt() @Min(0) merchantAmountCents!: number;

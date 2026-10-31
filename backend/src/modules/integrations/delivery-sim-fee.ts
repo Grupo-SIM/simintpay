@@ -1,7 +1,19 @@
+import type { DeliveryFeeMode } from '@prisma/client';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { loadFinancialPolicy } from '../financial-policy/financial-policy.service';
-import type { DeliveryAllocationDto } from './integration-checkout.dto';
 import type { DeliverySimFee } from './delivery-payment-allocation';
+
+/** The platform's mode, read at charge time so the platform (never the caller) dictates the fees. */
+export async function loadDeliveryFeeMode(
+  prisma: Pick<PrismaService, 'platform'>,
+  tag: string,
+): Promise<DeliveryFeeMode> {
+  const platform = await prisma.platform.findUnique({
+    where: { tag },
+    select: { deliveryFeeMode: true },
+  });
+  return platform?.deliveryFeeMode ?? 'SIMINTPAY_ONLY';
+}
 
 /**
  * The `sim` fee of the first (alphabetical) acquirer lane for this method/installments, matching what
@@ -10,12 +22,11 @@ import type { DeliverySimFee } from './delivery-payment-allocation';
 export async function loadDeliverySimFee(
   prisma: PrismaService,
   tag: string,
-  allocation: Pick<DeliveryAllocationDto, 'feeMode'>,
+  feeMode: DeliveryFeeMode,
   method: 'PIX' | 'CREDIT_CARD',
   installments: number,
 ): Promise<DeliverySimFee | undefined> {
-  if ((allocation.feeMode ?? 'ADDITIVE_ONLY') === 'ADDITIVE_ONLY')
-    return undefined;
+  if (feeMode === 'ADDITIVE_ONLY') return undefined;
   const { document } = await loadFinancialPolicy(prisma, tag);
   for (const key of Object.keys(document.lanes).sort()) {
     const [, laneMethod, channel, n] = key.split('/');

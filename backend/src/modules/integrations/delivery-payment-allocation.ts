@@ -1,9 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import {
-  DELIVERY_FEE_MODES,
-  type DeliveryAllocationDto,
-} from './integration-checkout.dto';
+import type { DeliveryFeeMode } from '@prisma/client';
+import type { DeliveryAllocationDto } from './integration-checkout.dto';
 
 /** SimIntPay's own fee for a lane, charged on the buyer total and deducted from the merchant share. */
 export type DeliverySimFee = { fixedCents: number; ratePpm: number };
@@ -47,18 +45,7 @@ export function deliveryAllocation(
       code: 'COPRODUCTION_BASE_INVALID',
       message: 'Detalhamento comercial inválido',
     });
-  if (
-    allocation.feeMode !== undefined &&
-    !DELIVERY_FEE_MODES.includes(allocation.feeMode)
-  )
-    throw new BadRequestException('Modo de taxa inválido');
-  const feeMode = allocation.feeMode ?? 'ADDITIVE_ONLY';
-  if (feeMode === 'SIMINTPAY_ONLY' && allocation.platformFeeCents !== 0)
-    throw new BadRequestException(
-      'Modo somente SimIntPay não admite taxa aditiva',
-    );
   return {
-    feeMode,
     ...(hasBreakdown
       ? {
           itemsAmountCents: allocation.itemsAmountCents,
@@ -77,6 +64,7 @@ export function deliveryAllocation(
 export function quoteDeliveryCharge(
   price: number,
   allocation: DeliveryAllocationDto,
+  feeMode: DeliveryFeeMode,
   sim?: DeliverySimFee,
 ) {
   const valid = deliveryAllocation('sim-delivery_quote', allocation)!;
@@ -92,7 +80,14 @@ export function quoteDeliveryCharge(
       'Total da cobrança difere da divisão Sim Delivery',
     );
   }
-  const deducts = valid.feeMode !== 'ADDITIVE_ONLY';
+  // The platform decides the mode; Delivery only prices accordingly. A surcharge sent under SIMINTPAY_ONLY means the
+  // mode changed after the order was priced, so it must be repriced rather than silently charged.
+  if (feeMode === 'SIMINTPAY_ONLY' && valid.platformFeeCents !== 0)
+    throw new ConflictException({
+      code: 'FEE_MODE_CHANGED',
+      message: 'O modo de taxas da plataforma mudou; recalcule o pedido',
+    });
+  const deducts = feeMode !== 'ADDITIVE_ONLY';
   if (deducts && !sim)
     throw new BadRequestException({
       code: 'DELIVERY_SIM_FEE_UNCONFIGURED',
@@ -120,6 +115,7 @@ export function quoteDeliveryCharge(
     financialSnapshot: {
       contract: 'SIM_DELIVERY_ALLOCATION_V1',
       totalAmountCents: total,
+      feeMode,
       simFeeCents,
       ...valid,
     },

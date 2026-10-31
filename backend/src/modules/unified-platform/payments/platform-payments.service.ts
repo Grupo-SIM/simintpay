@@ -411,19 +411,24 @@ export class PlatformPaymentsService {
       });
     const token =
       acquiring?.token ?? decryptPlatformSecret(integration!.encryptedValue!);
-    const deliveryQuote = input.allocation
-      ? quoteDeliveryCharge(
-          amount.toNumber(),
-          input.allocation,
-          await loadDeliverySimFee(
-            this.prisma,
-            platform.tag,
-            input.allocation,
-            input.paymentMethod as 'PIX' | 'CREDIT_CARD',
-            installments,
-          ),
-        )
+    const deliveryFeeMode = input.allocation
+      ? platform.deliveryFeeMode
       : undefined;
+    const deliveryQuote =
+      input.allocation && deliveryFeeMode
+        ? quoteDeliveryCharge(
+            amount.toNumber(),
+            input.allocation,
+            deliveryFeeMode,
+            await loadDeliverySimFee(
+              this.prisma,
+              platform.tag,
+              deliveryFeeMode,
+              input.paymentMethod as 'PIX' | 'CREDIT_CARD',
+              installments,
+            ),
+          )
+        : undefined;
     const financialQuote = deliveryQuote
       ? {
           ...deliveryQuote,
