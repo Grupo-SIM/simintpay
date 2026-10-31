@@ -74,22 +74,6 @@ function formatDateTime(value: string | undefined | null) {
   });
 }
 
-function dateToApiStartIso(d: Date | null | undefined) {
-  if (!d) return undefined;
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}T00:00:00.000Z`;
-}
-
-function dateToApiEndIso(d: Date | null | undefined) {
-  if (!d) return undefined;
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}T23:59:59.999Z`;
-}
-
 function toLocalYmd(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -217,14 +201,11 @@ function TransacoesContent() {
     resolvedTheme === 'dark' ? 'dark' : 'light';
 
   // Local state for filter inputs (initialized from URL)
-  const [_page, setPage] = useState(() =>
-    Number(searchParams.get('page') ?? 1),
-  );
   const [pageSize] = useState(20);
 
   function parseQueryDate(s: string | null) {
     if (!s) return null;
-    const [y, m, d] = s.split('-').map(Number);
+    const [y, m, d] = s.slice(0, 10).split('-').map(Number);
     if (!y || !m || !d) return new Date(s);
     return new Date(y, m - 1, d);
   }
@@ -270,7 +251,6 @@ function TransacoesContent() {
   const [previousSearchKey, setPreviousSearchKey] = useState(searchKey);
   if (searchKey !== previousSearchKey) {
     setPreviousSearchKey(searchKey);
-    setPage(Number(searchParams.get('page') ?? 1));
     setDateRange({
       start: parseQueryDate(searchParams.get('dataInicio')),
       end: parseQueryDate(searchParams.get('dataFim')),
@@ -293,7 +273,7 @@ function TransacoesContent() {
       const params = new URLSearchParams(searchParams.toString());
       Object.entries(newParams).forEach(([key, value]) => {
         if (value instanceof Date) {
-          params.set(key, value.toISOString().split('T')[0]);
+          params.set(key, toLocalYmd(value));
         } else if (value) {
           params.set(key, String(value));
         } else {
@@ -349,18 +329,19 @@ function TransacoesContent() {
     const startDate = dataInicio ? new Date(dataInicio) : null;
     const endDate = dataFim ? new Date(dataFim) : null;
     return {
-      page: Number(searchParams.get('page') ?? 1),
+      page: Math.max(1, Number(searchParams.get('page')) || 1),
       pageSize,
       status: searchParams.get('status') || undefined,
       paymentMethod: searchParams.get('paymentMethod') || undefined,
       acquirer: isAdmin ? searchParams.get('acquirer') || undefined : undefined,
-      id: searchParams.get('codigoTransacao') || undefined,
+      q: searchParams.get('codigoTransacao') || undefined,
       domTransactionId: searchParams.get('codigoReferencia') || undefined,
       customerName: searchParams.get('compradorNome') || undefined,
       customerDocument: searchParams.get('compradorDocumento') || undefined,
       customerEmail: searchParams.get('compradorEmail') || undefined,
-      dataInicio,
-      dataFim,
+      dataInicio: dataInicio?.slice(0, 10),
+      dataFim: dataFim?.slice(0, 10),
+      plataforma: searchParams.get('plataforma') || undefined,
       tipoTransacao: searchParams.get('tipoTransacao') || undefined,
       enabled: !loadingUser && !exceedsTreseMeses(startDate, endDate),
     };
@@ -370,9 +351,9 @@ function TransacoesContent() {
 
   // Corrige página fora do intervalo (ex.: URL apontando para página inexistente depois
   // que o total mudou/encolheu) — evita ficar preso em "página 2 de 1" vazia ao paginar
-  // com filtros. Só quando não há filtro de plataforma (esse é aplicado no cliente).
+  // com filtros, incluindo plataforma.
   useEffect(() => {
-    if (isPending || !data || plataforma) return;
+    if (isPending || !data) return;
     const size = data.pageSize || pageSize || 20;
     const totalPages = Math.max(1, Math.ceil((data.total ?? 0) / size));
     const current = Number(searchParams.get('page') ?? 1);
@@ -493,12 +474,7 @@ function TransacoesContent() {
   // Admin sempre vê o filtro; usuário comum só se tem transações em 2+ plataformas
   const showPlataformaFilter = false;
 
-  const filteredRows = useMemo(() => {
-    const rows = data?.data ?? [];
-    if (!plataforma) return rows;
-    const p = plataforma.toLowerCase();
-    return rows.filter((t) => (t.plataforma ?? '').toLowerCase().includes(p));
-  }, [data?.data, plataforma]);
+  const filteredRows = data?.data ?? [];
 
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -507,12 +483,15 @@ function TransacoesContent() {
     end: null,
   });
 
-  const exportScope = `${isExportOpen}:${dateRange.start?.getTime() ?? ''}:${dateRange.end?.getTime() ?? ''}`;
+  const exportScope = `${isExportOpen}:${queryParams.dataInicio ?? ''}:${queryParams.dataFim ?? ''}`;
   const [previousExportScope, setPreviousExportScope] = useState(exportScope);
   if (exportScope !== previousExportScope) {
     setPreviousExportScope(exportScope);
     if (isExportOpen)
-      setExportDateRange({ start: dateRange.start, end: dateRange.end });
+      setExportDateRange({
+        start: parseQueryDate(queryParams.dataInicio ?? null),
+        end: parseQueryDate(queryParams.dataFim ?? null),
+      });
   }
 
   const handleExportCSV = async (
@@ -527,9 +506,12 @@ function TransacoesContent() {
       });
 
       const tipoParam =
-        exportTipoTransacao === 'todos' ? undefined : exportTipoTransacao;
+        exportTipoTransacao === 'todos'
+          ? undefined
+          : (exportTipoTransacao ?? queryParams.tipoTransacao);
 
       const exportQuery = {
+        ...queryParams,
         page: 1,
         pageSize: EXPORT_PAGE_SIZE,
         dataInicio: exportDateRange.start
@@ -987,6 +969,7 @@ function TransacoesContent() {
             />
           )}
           <DateRangePickerField
+            key={`${searchParams.get('dataInicio')}:${searchParams.get('dataFim')}`}
             label="Data inicial e final:"
             value={dateRange}
             onChange={(next) => {
@@ -1034,6 +1017,8 @@ function TransacoesContent() {
                 { value: '', label: 'Todos' },
                 { value: 'PIX', label: 'Pix' },
                 { value: 'CREDIT_CARD', label: 'Cartão de crédito' },
+                { value: 'DEBIT_CARD', label: 'Cartão de débito' },
+                { value: 'BOLETO', label: 'Boleto' },
               ]}
             />
           }
@@ -1115,7 +1100,6 @@ function TransacoesContent() {
               setCompradorNome('');
               setCompradorDocumento('');
               setCompradorEmail('');
-              setPage(1);
               router.push(pathname);
             }}
           >
@@ -1157,7 +1141,7 @@ function TransacoesContent() {
         loading={isPending || loadingUser}
         page={data?.page ?? 1}
         pageSize={data?.pageSize ?? 20}
-        total={plataforma ? filteredRows.length : (data?.total ?? 0)}
+        total={data?.total ?? 0}
         onPageChange={(p) => updateUrl({ page: p })}
         onRowClick={(row) =>
           router.push(`/transacoes/${encodeURIComponent(row.id)}`)
@@ -1197,6 +1181,7 @@ function TransacoesContent() {
             será gerado em formato .csv.
           </p>
           <DateRangePickerField
+            key={`${searchParams.get('dataInicio')}:${searchParams.get('dataFim')}`}
             label="Data inicial e final"
             value={exportDateRange}
             onChange={setExportDateRange}

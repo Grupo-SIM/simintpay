@@ -235,11 +235,19 @@ export async function listTransacoes(
   const apiQuery: Record<string, string | number | undefined> = {
     page: query.page,
     limit: pageSize,
-    begin_date: dataInicio,
-    end_date: dataFim,
+    begin_date: dataInicio?.slice(0, 10),
+    end_date: dataFim?.slice(0, 10),
+    status: query.status,
+    id: query.id,
+    domTransactionId: query.domTransactionId,
+    customerName: query.customerName?.trim(),
+    customerEmail: query.customerEmail?.trim(),
+    customerDocument: query.customerDocument?.trim(),
+    plataforma: query.plataforma,
     payment_method: paymentMethod,
     acquirer,
-    q: qParam || id,
+    tipoTransacao: query.tipoTransacao,
+    q: qParam?.trim() || id?.trim(),
   };
   const res = await api.get<LedgerTransactionsResponse>(
     endpoints.transacoes.list,

@@ -115,6 +115,7 @@ export type ListTransacoesQuery = {
   dataInicio?: string;
   dataFim?: string;
   periodType?: string;
+  plataforma?: string;
   tipoTransacao?: string;
   paymentMethod?: string;
   acquirer?: string;
