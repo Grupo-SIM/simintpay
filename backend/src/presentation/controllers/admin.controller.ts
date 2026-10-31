@@ -1899,6 +1899,7 @@ export class AdminController {
           OR: [
             { userId: null },
             { user: { is: { clientStatus: 'APPROVED' as const } } },
+            { user: { is: { ownedPlatforms: { some: {} } } } },
           ],
         },
         ...extSimintpayClientFilter,
@@ -2025,7 +2026,14 @@ export class AdminController {
           ...(linkedUserIds.size > 0
             ? [{ id: { notIn: [...linkedUserIds] } }]
             : []),
-          { clientStatus: 'APPROVED' },
+          // Donos de plataforma (inclui os provisionados automaticamente) não passam
+          // pela aprovação de cliente.
+          {
+            OR: [
+              { clientStatus: 'APPROVED' },
+              { ownedPlatforms: { some: {} } },
+            ],
+          },
           ...userSimintpayClientFilter,
           ...(moduleSearchFilter ? [moduleSearchFilter] : []),
         ],
@@ -2327,6 +2335,7 @@ export class AdminController {
                   OR: [
                     { userId: null },
                     { user: { is: { clientStatus: 'APPROVED' as const } } },
+                    { user: { is: { ownedPlatforms: { some: {} } } } },
                   ],
                 },
                 ...extSimintpayClientFilter,
@@ -2505,21 +2514,41 @@ export class AdminController {
             cpf: primary.cpf || identity.document || '',
             cnpj: primary.cnpj ?? '',
             name: simpayUser?.name?.trim() || primary.name,
-            platformEntries: records.map((r) => ({
-              id: r.id,
-              platform: r.platform,
-              name: r.name,
-              email: r.user?.email ?? null,
-              role:
-                r.userId &&
+            platformEntries: [
+              ...records.map((r) => ({
+                id: r.id,
+                platform: r.platform,
+                name: r.name,
+                email: r.user?.email ?? null,
+                role: (r.userId &&
                 registered.some(
                   (p) =>
                     p.ownerUserId === r.userId &&
-                    p.tag.toLowerCase() === r.platform.toLowerCase(),
+                    normPlatform(p.tag) === normPlatform(r.platform),
                 )
                   ? 'owner'
-                  : 'user',
-            })),
+                  : 'user') as 'owner' | 'user',
+              })),
+              // Plataformas possuídas que não têm registro externo próprio.
+              ...registered
+                .filter(
+                  (p) =>
+                    !!simpayUser &&
+                    p.ownerUserId === simpayUser.id &&
+                    !records.some(
+                      (r) => normPlatform(r.platform) === normPlatform(p.tag),
+                    ) &&
+                    (!platformLower ||
+                      normPlatform(p.tag) === normPlatform(platformLower)),
+                )
+                .map((p) => ({
+                  id: `${simpayUser!.id}:${normPlatform(p.tag)}`,
+                  platform: normPlatform(p.tag),
+                  name: simpayUser!.name,
+                  email: simpayUser!.email,
+                  role: 'owner' as const,
+                })),
+            ],
             balanceAttribution: records.map((r) =>
               r.userId
                 ? (liveBalances.get(liveKey(r.userId, r.platform))

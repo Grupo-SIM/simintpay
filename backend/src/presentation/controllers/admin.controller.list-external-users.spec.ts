@@ -309,6 +309,7 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
           OR: [
             { userId: null },
             { user: { is: { clientStatus: 'APPROVED' } } },
+            { user: { is: { ownedPlatforms: { some: {} } } } },
           ],
         },
       ]);
@@ -330,6 +331,7 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
           OR: [
             { userId: null },
             { user: { is: { clientStatus: 'APPROVED' } } },
+            { user: { is: { ownedPlatforms: { some: {} } } } },
           ],
         },
         { user: { is: { isSimintpayClient: true } } },
