@@ -5,6 +5,10 @@ export type Platform = PlatformOwnership & {
   tag: string;
   name: string;
   isActive: boolean;
+  coproducao?: {
+    role: 'OWNER' | 'COPRODUCER';
+    readOnly: boolean;
+  };
   ownerUserId: string;
   customerInterestRates: Record<string, number> | null;
   effectiveCustomerInterestRates?: Record<string, number>;

@@ -885,3 +885,124 @@ test('owner profit chart loads every page, preserves filters and retries without
     server.stop(true);
   }
 }, 180000);
+
+test('shared-only report shows filtered participation without requesting owner data', async () => {
+  const build = await Bun.build({
+    entrypoints: [import.meta.dir + '/report-browser-entry.tsx'],
+    target: 'browser',
+    define: {
+      'process.env': '{}',
+      'process.env.NEXT_PUBLIC_API_BASE_URL': '"/api"',
+      'process.env.NODE_ENV': '"test"',
+    },
+  });
+  if (!build.success) throw new Error(build.logs.join('\n'));
+  const script = await build.outputs[0].text();
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: (req) =>
+      new Response(
+        new URL(req.url).pathname === '/app.js'
+          ? script
+          : '<div id="root"></div><script src="/app.js"></script>',
+        {
+          headers: {
+            'Content-Type':
+              new URL(req.url).pathname === '/app.js'
+                ? 'text/javascript'
+                : 'text/html; charset=utf-8',
+          },
+        },
+      ),
+  });
+  const browser = await chromium.launch({
+    executablePath: '/opt/google/chrome/chrome',
+    headless: true,
+    args: ['--no-sandbox'],
+  });
+  try {
+    const page = await browser.newPage();
+    const calls = [];
+    await page.route('**/api/**', (route) => {
+      const url = new URL(route.request().url());
+      calls.push(url);
+      if (url.pathname === '/api/auth/me')
+        return route.fulfill({
+          json: { data: { id: 'partner', isAdmin: false, isClient: true } },
+        });
+      if (url.pathname === '/api/relatorios/plataformas')
+        return route.fulfill({
+          json: {
+            data: [
+              {
+                id: 'shared',
+                tag: 'SHARED',
+                name: 'Compartilhada',
+                isActive: true,
+              },
+            ],
+            total: 1,
+            page: 1,
+            pageSize: 20,
+          },
+        });
+      if (url.pathname === '/api/coproducao/recebimentos')
+        return route.fulfill({
+          json: {
+            data: [],
+            total: 0,
+            page: 1,
+            pageSize: 10,
+            summary: {
+              creditedCents: 1234,
+              lockedCents: 500,
+              reversedCents: 100,
+            },
+          },
+        });
+      if (url.pathname === '/api/relatorios/financeiro')
+        return route.fulfill({
+          json: {
+            unit: 'cents',
+            platformsCount: 0,
+            participationOnly: true,
+            summary: {},
+            coproducao: {
+              count: 1,
+              creditedCents: 1234,
+              lockedCents: 500,
+              reversedCents: 100,
+            },
+          },
+        });
+      return route.fulfill({ json: { data: [] } });
+    });
+    await page.goto(`http://127.0.0.1:${server.port}`);
+    await page
+      .getByRole('combobox', { name: 'Plataforma', exact: true })
+      .click();
+    await page
+      .getByRole('option', { name: 'Compartilhada', exact: true })
+      .click();
+    await page.getByText(/Somente sua participação de coprodução/).waitFor();
+    await page.getByText('R$ 12,34', { exact: true }).waitFor();
+    expect(
+      calls.some((url) =>
+        /\/(mensal|metodos|status|transacoes)$/.test(url.pathname),
+      ),
+    ).toBe(false);
+    expect(
+      calls.some(
+        (url) =>
+          url.pathname === '/api/coproducao/recebimentos' &&
+          url.searchParams.get('platform') === 'SHARED' &&
+          url.searchParams.has('startDate') &&
+          url.searchParams.has('endDate'),
+      ),
+    ).toBe(true);
+  } finally {
+    await browser.close();
+    server.stop(true);
+  }
+}, 180000);

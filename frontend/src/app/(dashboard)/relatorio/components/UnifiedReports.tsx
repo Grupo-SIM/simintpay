@@ -149,7 +149,12 @@ export function UnifiedReports() {
               onAccessLost={clearSelection}
             />
           )}
-          {!admin && <CoproductionReceipts />}
+          {!admin && (
+            <CoproductionReceipts
+              key={JSON.stringify(filters)}
+              filters={filters}
+            />
+          )}
         </>
       )}
     </ReportsLayout>

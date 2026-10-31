@@ -1699,7 +1699,22 @@ export default function PainelPage() {
         .dash-tab-btn.active { background: #6d28d9; border-color: #6d28d9; color: #fff; }
       `}</style>
 
-      {isOwnedDashboard && <CoproductionSummaryCard />}
+      {!isAdmin && (
+        <CoproductionSummaryCard
+          filters={{
+            startDate: formatYmd(
+              customRange.start && customRange.end
+                ? customRange.start
+                : periodToInclusiveRange(selectedPeriod).start,
+            ),
+            endDate: formatYmd(
+              customRange.start && customRange.end
+                ? customRange.end
+                : periodToInclusiveRange(selectedPeriod).end,
+            ),
+          }}
+        />
+      )}
 
       {/* ── Tab switcher (apenas módulo master/admin) ── */}
       {isAdmin && (

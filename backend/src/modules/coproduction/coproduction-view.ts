@@ -1,9 +1,30 @@
+import { canonicalTransactionPlatformTag } from '../platform-core/transaction-platform';
 import { Prisma } from '@prisma/client';
-import type { Product } from './coproduction';
+import { productTables, type Product } from './coproduction';
+
+/** Match settlement inheritance, including an explicit empty OWN override. */
+function effectiveAgreements(product: Product) {
+  if (product === 'plataformas')
+    return Prisma.sql`SELECT "productId", participants FROM "CoproductionAgreement" WHERE product = ${product} AND mode = 'OWN'`;
+  const table = Prisma.raw(`"${productTables[product]}"`);
+  const tag = Prisma.raw(
+    product === 'planos-pix'
+      ? 'p."tenantTag"'
+      : product === 'links-assinatura'
+        ? 'coalesce(p."platformTag", p.plataformas[1])'
+        : 'p.plataformas[1]',
+  );
+  return Prisma.sql`SELECT p.id AS "productId", CASE WHEN own.mode = 'OWN' THEN own.participants ELSE inherited.participants END AS participants
+    FROM ${table} p JOIN "User" u ON u.id = p."userId"
+    LEFT JOIN "Platform" fallback ON fallback.id = u."platformId"
+    LEFT JOIN "CoproductionAgreement" own ON own.product = ${product} AND own."productId" = p.id
+    LEFT JOIN "Platform" platform ON platform.tag = coalesce(${tag}, fallback.tag) AND platform."ownerUserId" = p."userId"
+    LEFT JOIN "CoproductionAgreement" inherited ON inherited.product = 'plataformas' AND inherited."productId" = platform.id AND inherited.mode = 'OWN'`;
+}
 
 type Db = Pick<Prisma.TransactionClient, '$queryRaw'>;
 
-/** Read-only projection of a product's own agreement for listings; never includes other participants' identities. */
+/** Read-only projection of the effective agreement; never includes other participants' identities. */
 export type CoproductionInfo = {
   role: 'OWNER' | 'COPRODUCER';
   readOnly: boolean;
@@ -11,7 +32,7 @@ export type CoproductionInfo = {
   myPercentageBps: number | null;
 };
 
-/** Products of other owners whose own agreement lists the user as a participant. */
+/** Products whose effective agreement lists the user as a participant. */
 export async function sharedProductIds(
   db: Db,
   product: Product,
@@ -19,8 +40,8 @@ export async function sharedProductIds(
 ): Promise<string[]> {
   const rows = await db.$queryRaw<
     { productId: string }[]
-  >`SELECT "productId" FROM "CoproductionAgreement"
-    WHERE product = ${product} AND mode = 'OWN' AND participants @> ${JSON.stringify([{ userId }])}::jsonb`;
+  >(Prisma.sql`SELECT "productId" FROM (${effectiveAgreements(product)}) effective
+    WHERE participants @> ${JSON.stringify([{ userId }])}::jsonb`);
   return rows.map((row) => row.productId);
 }
 
@@ -39,7 +60,7 @@ export async function coproductionInfo(
       participants: { userId: string; percentageBps: number }[];
     }[]
   >(Prisma.sql`SELECT "productId", participants
-    FROM "CoproductionAgreement" WHERE product = ${product} AND mode = 'OWN' AND "productId" IN (${Prisma.join(items.map((item) => item.id))})`);
+    FROM (${effectiveAgreements(product)}) effective WHERE "productId" IN (${Prisma.join(items.map((item) => item.id))}) AND participants IS NOT NULL`);
   for (const row of rows) {
     if (!row.participants.length) continue;
     const item = items.find((candidate) => candidate.id === row.productId)!;
@@ -122,11 +143,18 @@ export async function transactionCoproductionInfo(
 export async function coproductionTotals(
   db: Db,
   userId: string,
-  range?: { start: Date; end: Date },
+  range?: {
+    start?: Date;
+    end?: Date;
+    platform?: string;
+    paymentMethod?: string;
+  },
 ) {
-  const period = range
-    ? Prisma.sql`AND a."createdAt" BETWEEN ${range.start} AND ${range.end}`
-    : Prisma.empty;
+  const period = Prisma.sql`
+    ${range?.start ? Prisma.sql`AND t."createdAt" >= ${range.start}` : Prisma.empty}
+    ${range?.end ? Prisma.sql`AND t."createdAt" <= ${range.end}` : Prisma.empty}
+    ${range?.platform ? Prisma.sql`AND t."platformTag" = ${canonicalTransactionPlatformTag(range.platform)}` : Prisma.empty}
+    ${range?.paymentMethod ? Prisma.sql`AND t."paymentMethod"::text = ${range.paymentMethod}` : Prisma.empty}`;
   const [row] = await db.$queryRaw<
     {
       count: bigint;

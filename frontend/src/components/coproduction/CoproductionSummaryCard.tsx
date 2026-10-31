@@ -13,17 +13,21 @@ import type { CoproductionReceipts } from '@/features/coproduction/types';
 const money = (cents: number) =>
   (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-/** Totais históricos das participações em produtos de terceiros; só aparece para quem já recebeu como coprodutor. */
-export function CoproductionSummaryCard() {
+/** Participações em produtos de terceiros, separadas da receita de vendas próprias. */
+export function CoproductionSummaryCard({
+  filters = {},
+}: {
+  filters?: Record<string, string | undefined>;
+} = {}) {
   const { user } = useCurrentUser();
   const query = useQuery({
-    queryKey: ['coproduction-receipts', user?.id, 1],
+    queryKey: ['coproduction-receipts', user?.id, 1, filters],
     queryFn: () =>
       createApiClient({
         baseUrl: getDefaultApiBaseUrl(),
         getToken: () => localStorage.getItem('access_token'),
       }).get<CoproductionReceipts>(endpoints.coproduction.receipts, {
-        query: { page: 1 },
+        query: { ...filters, page: 1 },
         cache: 'no-store',
       }),
     enabled: Boolean(user?.id && !user.isAdmin),

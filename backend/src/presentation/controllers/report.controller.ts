@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
@@ -29,7 +29,8 @@ export class ReportController {
   })
   async dashboardRoute(
     @CurrentUser() user: JwtPayload | undefined,
+    @Query('period') period?: string,
   ): Promise<{ data: unknown }> {
-    return this.dashboard.execute({ userId: user?.sub ?? '' });
+    return this.dashboard.execute({ userId: user?.sub ?? '', period });
   }
 }

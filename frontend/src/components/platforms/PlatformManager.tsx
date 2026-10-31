@@ -64,28 +64,33 @@ export function PlatformManager({
           onSelect={setSelection}
         />
       )}
-      {selected?.id && (
-        <div className="flex justify-end gap-3">
-          <CoproductionButton product="plataformas" productId={selected.id} />
-          <Button
-            type="button"
-            variant="outline"
-            className="cursor-pointer"
-            onClick={() => setSettingsId(selected.id)}
-          >
-            <Settings size={16} />
-            Configurações
-          </Button>
-        </div>
-      )}
-      {selected?.id && settingsId === selected.id && (
-        <PlatformSettingsModal
-          key={selected.id}
-          platformId={selected.id}
-          name={selected.name}
-          onClose={() => setSettingsId(null)}
-        />
-      )}
+      {selected?.id &&
+        !selected.coproducao?.readOnly &&
+        selected.coproducao?.role !== 'COPRODUCER' && (
+          <div className="flex justify-end gap-3">
+            <CoproductionButton product="plataformas" productId={selected.id} />
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              onClick={() => setSettingsId(selected.id)}
+            >
+              <Settings size={16} />
+              Configurações
+            </Button>
+          </div>
+        )}
+      {selected?.id &&
+        !selected.coproducao?.readOnly &&
+        selected.coproducao?.role !== 'COPRODUCER' &&
+        settingsId === selected.id && (
+          <PlatformSettingsModal
+            key={selected.id}
+            platformId={selected.id}
+            name={selected.name}
+            onClose={() => setSettingsId(null)}
+          />
+        )}
       {selected ? (
         <PlatformRateEditor
           key={`${selected.tag}-${selected.absorbCustomerInterest}`}
