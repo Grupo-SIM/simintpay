@@ -43,6 +43,8 @@ import { PlatformTaxasService } from '../application/services/platform-taxas.ser
 import { PlatformAccessService } from '../application/services/platform-access.service';
 import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
 import { WebhookModule } from './webhook.module';
+import { AuthModule } from './auth.module';
+import { AuthTokensService } from '../application/use-cases/auth/auth-tokens.service';
 import { PlatformReportingModule } from '../application/services/platform-reporting.module';
 import { ExternalPlatformDbModule } from '../modules/external-platform-db/external-platform-db.module';
 import { AcquirerFeesController } from '../modules/financial-policy/acquirer-fees.controller';
@@ -58,6 +60,7 @@ import { SyncAcquirerFeesCron } from '../infrastructure/cron/sync-acquirer-fees.
     WebhookModule,
     PlatformReportingModule,
     ExternalPlatformDbModule,
+    AuthModule,
   ],
   controllers: [
     PlatformIntegrationsController,
@@ -91,6 +94,7 @@ import { SyncAcquirerFeesCron } from '../infrastructure/cron/sync-acquirer-fees.
     CommunityManagementService,
     PlatformTaxasService,
     PlatformAccessService,
+    AuthTokensService,
     RolesGuard,
     ScanPlatformOwnersUseCase,
     GetWalletCompositionUseCase,

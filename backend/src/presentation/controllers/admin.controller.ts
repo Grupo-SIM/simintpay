@@ -1,3 +1,4 @@
+import { AuthTokensService } from '../../application/use-cases/auth/auth-tokens.service';
 import {
   transactionPlatformTag,
   transactionPlatformTagData,
@@ -1318,6 +1319,7 @@ export class AdminController {
     private readonly getWalletComposition: GetWalletCompositionUseCase,
     private readonly platformReporting: PlatformReportingService,
     private readonly externalPlatformDb: ExternalPlatformDbService,
+    private readonly authTokens: AuthTokensService,
   ) {}
 
   /**
@@ -2471,6 +2473,15 @@ export class AdminController {
               platform: r.platform,
               name: r.name,
               email: r.user?.email ?? null,
+              role:
+                r.userId &&
+                registered.some(
+                  (p) =>
+                    p.ownerUserId === r.userId &&
+                    p.tag.toLowerCase() === r.platform.toLowerCase(),
+                )
+                  ? 'owner'
+                  : 'user',
             })),
             balanceAttribution: records.map((r) =>
               r.userId
@@ -2536,6 +2547,7 @@ export class AdminController {
                 platform: p.tag.toLowerCase(),
                 name: u.name,
                 email: u.email,
+                role: 'owner' as const,
               }))
             : matches.length > 0 && !clientUserIds.has(u.id)
               ? []
@@ -2545,6 +2557,7 @@ export class AdminController {
                     platform: moduleSlug,
                     name: u.name,
                     email: u.email,
+                    role: 'user' as const,
                   },
                 ];
           const extraEntries = matches
@@ -2554,6 +2567,7 @@ export class AdminController {
               platform: m.platform,
               name: m.name ?? u.name,
               email: m.email ?? u.email,
+              role: 'user' as const,
             }));
           return {
             id: u.id,
@@ -2739,6 +2753,43 @@ export class AdminController {
       isCompany: updated.isCompany,
       clientStatus: updated.clientStatus,
     };
+  }
+
+  @Post('usuarios/:userId/acessar-como')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Gera um token de acesso como o usuário informado (somente admin master).',
+  })
+  async accessAsUser(
+    @Param('userId') userId: string,
+    @CurrentUser() authUser?: JwtPayload,
+  ) {
+    const requester = authUser?.sub
+      ? await this.prisma.user.findUnique({
+          where: { id: authUser.sub },
+          include: { platform: true },
+        })
+      : null;
+    if (!requester || !isMasterAdminUser(requester)) {
+      throw new ForbiddenException(
+        'Somente admin master pode acessar como outro usuário',
+      );
+    }
+    const target = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, role: true },
+    });
+    if (!target) throw new NotFoundException('Usuário não encontrado');
+    const { token, expiresIn } = await this.authTokens.signAccessToken({
+      sub: target.id,
+      email: target.email,
+      role: target.role,
+    });
+    return { accessToken: token, expiresIn };
   }
 
   @Patch('usuarios/:userId/cliente-simintpay')
