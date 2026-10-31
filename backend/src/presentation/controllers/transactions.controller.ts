@@ -17,6 +17,8 @@ import { ListTransactionsUseCase } from '../../application/use-cases/transaction
 import { GetTransactionDetailsUseCase } from '../../application/use-cases/transactions/get-transaction-details.use-case';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { canonicalTransactionPlatformTag } from '../../modules/platform-core/transaction-platform';
+import { applyWalletEntry } from '../../modules/wallet-ledger/wallet-ledger';
+import { Prisma } from '@prisma/client';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -137,24 +139,73 @@ export class TransactionsController {
     if (user?.role !== 'ADMIN')
       throw new ForbiddenException('Exige administrador');
     const platformTag = canonicalTransactionPlatformTag(body?.platformTag);
-    if (
-      platformTag &&
-      !(await this.prisma.platform.findUnique({
-        where: { tag: platformTag },
-        select: { id: true },
-      }))
-    ) {
+    const target = platformTag
+      ? await this.prisma.platform.findUnique({
+          where: { tag: platformTag },
+          select: { id: true, ownerUserId: true },
+        })
+      : null;
+    if (platformTag && !target)
       throw new NotFoundException('Plataforma não encontrada');
-    }
     const found = await this.prisma.transaction.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, userId: true, platformTag: true },
     });
     if (!found) throw new NotFoundException('Transação não encontrada');
-    return this.prisma.transaction.update({
-      where: { id },
-      data: { platformTag },
-      select: { id: true, platformTag: true },
-    });
+    const previousTag = found.platformTag ?? null;
+    if (previousTag === platformTag) return { id, platformTag };
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const updated = await tx.transaction.update({
+          where: { id },
+          data: { platformTag },
+          select: { id: true, platformTag: true },
+        });
+        // O crédito da transação acompanha a plataforma: estorna de quem o
+        // detém hoje no BalanceLog e lança no dono da nova plataforma (ou no
+        // vendedor da transação quando a plataforma é removida).
+        const logs = await tx.balanceLog.groupBy({
+          by: ['userId'],
+          where: { transactionId: id },
+          _sum: { balanceDelta: true },
+        });
+        const held = new Map(
+          logs.map((l) => [
+            l.userId,
+            new Prisma.Decimal(l._sum.balanceDelta ?? 0),
+          ]),
+        );
+        const total = [...held.values()].reduce(
+          (acc, v) => acc.plus(v),
+          new Prisma.Decimal(0),
+        );
+        if (total.isZero()) return updated;
+        const targetUserId = target?.ownerUserId ?? found.userId;
+        const holders = new Set([...held.keys(), targetUserId]);
+        for (const userId of holders) {
+          const desired =
+            userId === targetUserId ? total : new Prisma.Decimal(0);
+          const delta = desired.minus(held.get(userId) ?? 0);
+          if (delta.isZero()) continue;
+          await applyWalletEntry(tx, {
+            userId,
+            action: delta.isNegative()
+              ? 'PLATFORM_REASSIGN_REVERSAL'
+              : 'PLATFORM_REASSIGN_CREDIT',
+            source: 'ADMIN_PLATFORM_REASSIGN',
+            transactionId: id,
+            balanceDelta: delta,
+            description: `Plataforma alterada: ${previousTag ?? 'nenhuma'} → ${platformTag ?? 'nenhuma'}`,
+            metadata: {
+              fromPlatformTag: previousTag,
+              toPlatformTag: platformTag,
+            },
+          });
+        }
+        return updated;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 }

@@ -781,21 +781,23 @@ function TransacoesContent() {
           const tag = transacaoPlataformaUi(row.plataforma, row.descricao);
           if (isAdmin)
             return (
-              <Dropdown
-                value={row.plataforma ?? ''}
-                onChange={(v) => void assignPlatform(row.id, v)}
-                theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
-                variant="navbar"
-                searchable
-                searchPlaceholder="Buscar plataforma..."
-                options={[
-                  { value: '', label: 'Sem plataforma' },
-                  ...catalogPlatforms.map((p) => ({
-                    value: p.tag,
-                    label: p.name,
-                  })),
-                ]}
-              />
+              <div onClick={(e) => e.stopPropagation()}>
+                <Dropdown
+                  value={row.plataforma ?? ''}
+                  onChange={(v) => void assignPlatform(row.id, v)}
+                  theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+                  variant="navbar"
+                  searchable
+                  searchPlaceholder="Buscar plataforma..."
+                  options={[
+                    { value: '', label: 'Sem plataforma' },
+                    ...catalogPlatforms.map((p) => ({
+                      value: p.tag,
+                      label: p.name,
+                    })),
+                  ]}
+                />
+              </div>
             );
           return tag ? (
             <span
