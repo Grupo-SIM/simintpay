@@ -1,0 +1,1980 @@
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  RefreshCw,
+  Search,
+  CheckCircle2,
+  XCircle,
+  Trash2,
+  Pencil,
+  Download,
+  MoreVertical,
+  Building2,
+  Undo2,
+  Wallet,
+  Receipt,
+} from 'lucide-react';
+import { useCurrentUser } from '@/hooks/use-current-user';
+import {
+  createApiClient,
+  getDefaultApiBaseUrl,
+} from '@/services/api/api.client';
+import { endpoints } from '@/services/api/endpoints';
+import { useToast } from '@/components/ui/Toast';
+import { Input } from '@/components/ui/Input';
+import { Spinner } from '@/components/ui/Loading';
+import { Modal } from '@/components/ui/Modal';
+import { HelpTooltip } from '@/components/ui/HelpTooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn, getPlatformBadgeClass, formatDocument } from '@/lib/utils';
+
+import { PlatformFilterSelect } from '@/components/product-platforms/PlatformFilterSelect';
+import { AccountPlatformsButton } from '../components';
+import { ClientChargesModal } from './charges';
+import type { ChargeClient } from './charges/types';
+
+// ── Tipos: aba "Aprovação e Taxas" (ex-/admin/clientes) ──
+type ClientStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+type Cliente = {
+  id: string;
+  name: string;
+  email: string;
+  clientStatus: ClientStatus;
+  clientApprovedAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+  taxaCartao: number | null;
+  taxaPix: number | null;
+  taxaAssinatura: number | null;
+};
+
+/** Decimal (0.0152) → texto de porcentagem para exibição ("1,52%"). */
+function decimalToPercentDisplay(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—';
+  const pct = value * 100;
+  return `${parseFloat(pct.toFixed(2)).toLocaleString('pt-BR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
+/** Decimal (0.0152) → valor para input em porcentagem ("1.52"); vazio se nulo. */
+function decimalToPercentInput(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '';
+  const pct = value * 100;
+  return String(parseFloat(pct.toFixed(4)));
+}
+
+/** Texto de porcentagem do input ("1,52" ou "1.52") → decimal (0.0152); NaN se inválido/vazio. */
+function percentInputToDecimal(raw: string): number {
+  const cleaned = raw.trim().replace(',', '.');
+  if (cleaned === '') return NaN;
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return NaN;
+  return n / 100;
+}
+
+const CLIENTE_STATUS_BADGE: Record<
+  ClientStatus,
+  { label: string; className: string }
+> = {
+  PENDING: {
+    label: 'Pendente',
+    className:
+      'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
+  },
+  APPROVED: {
+    label: 'Aprovado',
+    className:
+      'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
+  },
+  REJECTED: {
+    label: 'Rejeitado',
+    className: 'bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400',
+  },
+};
+
+type FeeModalMode = 'approve' | 'edit';
+
+function FeeModal({
+  open,
+  mode,
+  cliente,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  mode: FeeModalMode;
+  cliente: Cliente | null;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (payload: {
+    taxaCartao?: number;
+    taxaPix?: number;
+    taxaAssinatura?: number;
+  }) => void;
+}) {
+  const [taxaCartao, setTaxaCartao] = useState('');
+  const [taxaPix, setTaxaPix] = useState('');
+  const [taxaAssinatura, setTaxaAssinatura] = useState('');
+  const [seeded, setSeeded] = useState<string | null>(null);
+
+  if (open && cliente && seeded !== cliente.id) {
+    setTaxaCartao(decimalToPercentInput(cliente.taxaCartao));
+    setTaxaPix(decimalToPercentInput(cliente.taxaPix));
+    setTaxaAssinatura(decimalToPercentInput(cliente.taxaAssinatura));
+    setSeeded(cliente.id);
+  }
+  if (!open && seeded !== null) {
+    setSeeded(null);
+  }
+
+  function buildField(raw: string): { ok: boolean; value?: number } {
+    if (raw.trim() === '') return { ok: true };
+    const dec = percentInputToDecimal(raw);
+    if (Number.isNaN(dec) || dec < 0) return { ok: false };
+    return { ok: true, value: dec };
+  }
+
+  function handleSubmit() {
+    const c = buildField(taxaCartao);
+    const p = buildField(taxaPix);
+    const a = buildField(taxaAssinatura);
+    if (!c.ok || !p.ok || !a.ok) return;
+    const payload: {
+      taxaCartao?: number;
+      taxaPix?: number;
+      taxaAssinatura?: number;
+    } = {};
+    if (c.value !== undefined) payload.taxaCartao = c.value;
+    if (p.value !== undefined) payload.taxaPix = p.value;
+    if (a.value !== undefined) payload.taxaAssinatura = a.value;
+    onSubmit(payload);
+  }
+
+  const invalid =
+    !buildField(taxaCartao).ok ||
+    !buildField(taxaPix).ok ||
+    !buildField(taxaAssinatura).ok;
+
+  const title = mode === 'approve' ? 'Aprovar cliente' : 'Editar taxas';
+
+  const field = (
+    label: string,
+    value: string,
+    setValue: (v: string) => void,
+  ) => (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        {label}
+      </span>
+      <div className="relative">
+        <Input
+          type="text"
+          inputMode="decimal"
+          theme="dark"
+          variant="navbar"
+          value={value}
+          onChange={(v) => setValue(v)}
+          className="h-10 w-full font-mono text-sm pr-8"
+          placeholder="0"
+        />
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-500">
+          %
+        </span>
+      </div>
+    </label>
+  );
+
+  return (
+    <Modal open={open} onClose={onClose} title={title} maxWidth="max-w-md">
+      <div className="flex flex-col gap-4">
+        {cliente && (
+          <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 dark:border-white/5 dark:bg-white/5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+              Cliente
+            </p>
+            <p className="mt-0.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+              {cliente.name}
+            </p>
+            <p className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+              {cliente.email}
+            </p>
+          </div>
+        )}
+
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Informe as taxas em porcentagem (ex.:{' '}
+          <span className="font-mono">1,52</span> = 1,52%). Deixe um campo vazio
+          para não alterá-lo.
+        </p>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {field('Taxa cartão', taxaCartao, setTaxaCartao)}
+          {field('Taxa PIX', taxaPix, setTaxaPix)}
+          {field('Taxa assinatura', taxaAssinatura, setTaxaAssinatura)}
+        </div>
+
+        <div className="mt-2 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving || invalid}
+            className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:opacity-60"
+          >
+            {saving ? <Spinner size={14} className="text-white" /> : null}
+            {mode === 'approve' ? 'Aprovar' : 'Salvar taxas'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+type SimpayUser = {
+  id: string;
+  name: string;
+  email: string;
+  isCompany?: boolean;
+  clientStatus?: ClientStatus | null;
+  taxaCartao?: number | null;
+};
+
+type PlatformEntry = {
+  id: string;
+  platform: string;
+  name: string;
+  email: string | null;
+};
+
+type ExternalUser = {
+  id: string;
+  cpf: string;
+  name: string;
+  platformEntries: PlatformEntry[];
+  balance: number;
+  lockedBalance: number;
+  vinculado: boolean;
+  isAtivo: boolean | null;
+  isDeleted: boolean;
+  deletedAt: string | null;
+  simpayUser: SimpayUser | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ApiResponse = {
+  data: ExternalUser[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+const PLATFORM_LABELS: Record<string, string> = {
+  ebook: 'EbookSim',
+  renovada: 'Renovada',
+  revalida: 'Revalida',
+  bosque: 'Bosque',
+  pagatg: 'PagaTG',
+  atlas: 'AtlasHosting',
+  'zero-grau': 'Zero Grau',
+  areaflix: 'Áreaflix',
+  simintpay: 'Simintpay',
+};
+
+// Mantida para quando a coluna "Saldo líquido" (comentada na tabela de Leads) voltar.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value);
+}
+
+/**
+ * Escolhe QUAL plataforma a ação atinge (ou todas). Mostrar os nomes é essencial:
+ * com "só esta plataforma" genérico, o master confirmava sem saber qual das 3
+ * seria afetada. Com 1 plataforma, não há escolha — só destaca qual é.
+ */
+function AlvoPicker({
+  entries,
+  value,
+  onChange,
+  disabled,
+  tom,
+}: {
+  entries: PlatformEntry[];
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  /** Cor de destaque da opção "todas" — vermelho ao inativar, verde ao reativar. */
+  tom: 'perigo' | 'ok';
+}) {
+  const lista = entries ?? [];
+
+  if (lista.length <= 1) {
+    const e = lista[0];
+    return (
+      <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-white/10 dark:bg-white/5">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+          Plataforma afetada
+        </p>
+        {e ? (
+          <span
+            className={`mt-1.5 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getPlatformBadgeClass(e.platform)}`}
+          >
+            {PLATFORM_LABELS[e.platform.toLowerCase()] ?? e.platform}
+          </span>
+        ) : (
+          <p className="mt-1 text-xs text-zinc-500">A conta inteira</p>
+        )}
+      </div>
+    );
+  }
+
+  const todasAtiva = value === 'todas';
+  const corTodas =
+    tom === 'perigo'
+      ? 'border-red-400 bg-red-50 text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400'
+      : 'border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/10 dark:text-emerald-400';
+
+  return (
+    <div className="mt-4">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+        Escolha a plataforma ({lista.length} vinculadas)
+      </p>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {lista.map((e) => (
+          <button
+            key={e.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(e.id)}
+            className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left transition disabled:opacity-50 ${
+              value === e.id
+                ? 'border-violet-400 bg-violet-50 dark:border-violet-400/40 dark:bg-violet-500/10'
+                : 'border-zinc-200 bg-white hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10'
+            }`}
+          >
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getPlatformBadgeClass(e.platform)}`}
+            >
+              {PLATFORM_LABELS[e.platform.toLowerCase()] ?? e.platform}
+            </span>
+            {value === e.id && (
+              <CheckCircle2 size={14} className="text-violet-500" />
+            )}
+          </button>
+        ))}
+
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange('todas')}
+          className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-xs font-semibold transition disabled:opacity-50 ${
+            todasAtiva
+              ? corTodas
+              : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10'
+          }`}
+        >
+          Todas as {lista.length} plataformas
+          {todasAtiva && <CheckCircle2 size={14} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function makeApi() {
+  return createApiClient({
+    baseUrl: getDefaultApiBaseUrl(),
+    getToken: () => localStorage.getItem('access_token'),
+  });
+}
+
+// Estado da varredura automática (módulo): sobrevive a troca de aba dentro de /admin/contas.
+const SCAN_COOLDOWN_MS = 5 * 60 * 1000;
+let lastScanAt = 0;
+let scanInFlight = false;
+
+export default function UsuariosTab({
+  mode = 'usuarios',
+  refreshKey = 0,
+}: {
+  mode?: 'usuarios' | 'clientes';
+  refreshKey?: number;
+}) {
+  const router = useRouter();
+  const { toast } = useToast();
+  const { user, loading: loadingUser } = useCurrentUser();
+  const queryClient = useQueryClient();
+  const isMaster = Boolean(user?.isMasterAdmin);
+
+  const [chargeClient, setChargeClient] = useState<ChargeClient | null>(null);
+
+  // Ações de aprovação/rejeição/taxa (acessíveis pelo menu "..." de cada usuário).
+  const [feeModal, setFeeModal] = useState<{
+    mode: FeeModalMode;
+    cliente: Cliente;
+  } | null>(null);
+  const [confirmReject, setConfirmReject] = useState<Cliente | null>(null);
+
+  const [items, setItems] = useState<ExternalUser[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const [platform, setPlatform] = useState('');
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [showPurged, setShowPurged] = useState(false);
+  /** Aba "Clientes Simintpay": contas que já aparecem na aba Clientes e saíram da lista de ativos. */
+  const [showSimintpayClients, setShowSimintpayClients] = useState(
+    mode === 'clientes',
+  );
+  const [togglingClientId, setTogglingClientId] = useState<string | null>(null);
+  const [confirmDeleteUser, setConfirmDeleteUser] =
+    useState<ExternalUser | null>(null);
+  const [confirmReactivateUser, setConfirmReactivateUser] =
+    useState<ExternalUser | null>(null);
+  const [confirmPurgeUser, setConfirmPurgeUser] = useState<ExternalUser | null>(
+    null,
+  );
+  const [carteiraUser, setCarteiraUser] = useState<ExternalUser | null>(null);
+  const [purging, setPurging] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
+  /**
+   * Alvo da ação: o `id` da entrada de plataforma escolhida, ou "todas".
+   * Com 1 plataforma já vem escolhida; com várias, fica vazio até o master decidir
+   * (assim ninguém confirma sem saber qual plataforma será afetada).
+   */
+  const [alvo, setAlvo] = useState<string>('');
+
+  function abrirInativar(u: ExternalUser) {
+    setAlvo(u.platformEntries?.length === 1 ? u.platformEntries[0].id : '');
+    setConfirmDeleteUser(u);
+  }
+
+  function abrirReativar(u: ExternalUser) {
+    setAlvo(u.platformEntries?.length === 1 ? u.platformEntries[0].id : '');
+    setConfirmReactivateUser(u);
+  }
+
+  function abrirPurge(u: ExternalUser) {
+    setAlvo(u.platformEntries?.length === 1 ? u.platformEntries[0].id : '');
+    setConfirmPurgeUser(u);
+  }
+  const [deleting, setDeleting] = useState(false);
+  const [editUser, setEditUser] = useState<ExternalUser | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', cpf: '', email: '' });
+  const [saving, setSaving] = useState(false);
+  const searchMountedRef = useRef(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<'todas' | 'plataforma'>(
+    'todas',
+  );
+  const [exportPlatform, setExportPlatform] = useState('');
+  const [exportPeriod, setExportPeriod] = useState<
+    'mensal' | 'trimestral' | 'semestral' | 'anual'
+  >('mensal');
+  const [exporting, setExporting] = useState(false);
+  const [markingCompanyId, setMarkingCompanyId] = useState<string | null>(null);
+
+  function getApi() {
+    const token = localStorage.getItem('access_token');
+    return createApiClient({
+      baseUrl: getDefaultApiBaseUrl(),
+      getToken: () => token ?? undefined,
+    });
+  }
+
+  async function marcarComoEmpresa(u: ExternalUser) {
+    if (!u.simpayUser) return;
+    setMarkingCompanyId(u.simpayUser.id);
+    try {
+      const api = getApi();
+      await api.patch(endpoints.admin.usuarios.marcarEmpresa(u.simpayUser.id), {
+        isCompany: true,
+      });
+      toast({
+        type: 'success',
+        title: 'Movido para Clientes',
+        description: `${u.name} agora aparece na listagem de clientes SimintPay.`,
+      });
+      fetchUsers();
+    } catch (err: unknown) {
+      toast({
+        type: 'error',
+        title: 'Erro',
+        description:
+          (err instanceof Error ? err.message : undefined) ??
+          'Não foi possível marcar como empresa.',
+      });
+    } finally {
+      setMarkingCompanyId(null);
+    }
+  }
+
+  async function marcarClienteSimintpay(
+    u: ExternalUser,
+    isSimintpayClient: boolean,
+  ) {
+    if (!u.simpayUser) return;
+    setTogglingClientId(u.simpayUser.id);
+    try {
+      await getApi().patch(
+        endpoints.admin.usuarios.clienteSimintpay(u.simpayUser.id),
+        { isSimintpayClient },
+      );
+      toast(
+        isSimintpayClient
+          ? {
+              type: 'success',
+              title: 'Marcado como cliente Simintpay',
+              description: `${u.name} saiu desta lista. Você encontra a conta na aba "Clientes Simintpay".`,
+            }
+          : {
+              type: 'success',
+              title: 'Voltou para Usuários',
+              description: `${u.name} aparece de novo na lista de ativos.`,
+            },
+      );
+      fetchUsers();
+    } catch (err: unknown) {
+      toast({
+        type: 'error',
+        title: 'Erro',
+        description:
+          (err instanceof Error ? err.message : undefined) ??
+          'Não foi possível atualizar a conta.',
+      });
+    } finally {
+      setTogglingClientId(null);
+    }
+  }
+
+  const fetchUsers = useCallback(
+    async (
+      p = page,
+      plat = platform,
+      deleted = showDeleted,
+      q = search,
+      purged = showPurged,
+      clients = showSimintpayClients,
+    ) => {
+      try {
+        const api = getApi();
+        const params = new URLSearchParams({
+          page: String(p),
+          pageSize: String(pageSize),
+          ...(plat ? { platform: plat } : {}),
+          ...(purged
+            ? { purged: 'true' }
+            : deleted
+              ? { deleted: 'true' }
+              : clients
+                ? { simintpayClients: 'true' }
+                : {}),
+          ...(q.trim() ? { search: q.trim() } : {}),
+        });
+        const res = await api.get<ApiResponse>(
+          `${endpoints.admin.usuarios.list}?${params}`,
+        );
+        setItems(res.data ?? []);
+        setTotal(res.total ?? 0);
+      } catch (err: unknown) {
+        toast({
+          type: 'error',
+          title: 'Erro',
+          description:
+            (err instanceof Error ? err.message : undefined) ??
+            'Erro ao carregar leads.',
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [page, platform, showDeleted, showPurged, showSimintpayClients, search],
+  );
+
+  // Sempre aponta pro fetchUsers mais recente (a varredura termina bem depois do render que a iniciou).
+  const fetchUsersRef = useRef(fetchUsers);
+  useEffect(() => {
+    fetchUsersRef.current = fetchUsers;
+  }, [fetchUsers]);
+
+  useEffect(() => {
+    if (!loadingUser && user?.isAdmin) {
+      fetchUsers(page, platform, showDeleted, search, showPurged);
+    }
+  }, [page, platform, showDeleted, showPurged, loadingUser, refreshKey]);
+
+  useEffect(() => {
+    if (!searchMountedRef.current) {
+      searchMountedRef.current = true;
+      return;
+    }
+    if (loadingUser || !user?.isAdmin) return;
+    const timer = setTimeout(() => {
+      setPage(1);
+      fetchUsers(1, platform, showDeleted, search);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const approveMutation = useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: {
+        taxaCartao?: number;
+        taxaPix?: number;
+        taxaAssinatura?: number;
+      };
+    }) => makeApi().patch(endpoints.admin.clientes.approve(id), payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['admin', 'clientes', 'list'],
+      });
+      fetchUsers();
+      toast({
+        type: 'success',
+        title: 'Cliente aprovado',
+        description: 'Taxas salvas com sucesso.',
+      });
+      setFeeModal(null);
+    },
+    onError: (e: unknown) => {
+      toast({
+        type: 'error',
+        title: 'Erro ao aprovar',
+        description: e instanceof Error ? e.message : 'Tente novamente.',
+      });
+    },
+  });
+
+  const taxaMutation = useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: {
+        taxaCartao?: number;
+        taxaPix?: number;
+        taxaAssinatura?: number;
+      };
+    }) => makeApi().patch(endpoints.admin.clientes.taxa(id), payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['admin', 'clientes', 'list'],
+      });
+      fetchUsers();
+      toast({
+        type: 'success',
+        title: 'Taxas atualizadas',
+        description: 'Alterações salvas com sucesso.',
+      });
+      setFeeModal(null);
+    },
+    onError: (e: unknown) => {
+      toast({
+        type: 'error',
+        title: 'Erro ao salvar taxas',
+        description: e instanceof Error ? e.message : 'Tente novamente.',
+      });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (id: string) =>
+      makeApi().patch(endpoints.admin.clientes.reject(id)),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['admin', 'clientes', 'list'],
+      });
+      fetchUsers();
+      toast({ type: 'success', title: 'Cliente rejeitado' });
+      setConfirmReject(null);
+    },
+    onError: (e: unknown) => {
+      toast({
+        type: 'error',
+        title: 'Erro ao rejeitar',
+        description: e instanceof Error ? e.message : 'Tente novamente.',
+      });
+    },
+  });
+
+  function handleFeeSubmit(payload: {
+    taxaCartao?: number;
+    taxaPix?: number;
+    taxaAssinatura?: number;
+  }) {
+    if (!feeModal) return;
+    if (
+      payload.taxaCartao === undefined &&
+      payload.taxaPix === undefined &&
+      payload.taxaAssinatura === undefined
+    ) {
+      toast({
+        type: 'error',
+        title: 'Informe ao menos uma taxa',
+        description: 'Preencha um dos campos.',
+      });
+      return;
+    }
+    if (feeModal.mode === 'approve') {
+      approveMutation.mutate({ id: feeModal.cliente.id, payload });
+    } else {
+      taxaMutation.mutate({ id: feeModal.cliente.id, payload });
+    }
+  }
+
+  const feeSaving = approveMutation.isPending || taxaMutation.isPending;
+
+  /**
+   * Varredura automática de donos de plataforma: roda ao abrir a tela (em segundo plano,
+   * sem bloquear a lista) e no máximo 1x a cada SCAN_COOLDOWN_MS por sessão do navegador.
+   * Só avisa o usuário quando de fato criou/vinculou contas; falhas ficam silenciosas
+   * porque a lista continua válida com o saldo ao vivo.
+   */
+  async function runAutoScan() {
+    const now = Date.now();
+    if (scanInFlight || now - lastScanAt < SCAN_COOLDOWN_MS) return;
+    scanInFlight = true;
+    try {
+      const api = getApi();
+      const res = await api.post<{
+        data: {
+          scanned: number;
+          created: number;
+          linked: number;
+          walletsUpdated: number;
+        };
+      }>(endpoints.admin.usuarios.scan, {});
+      lastScanAt = Date.now();
+      const d = res.data;
+      if (d.created > 0 || d.linked > 0) {
+        toast({
+          type: 'success',
+          title: 'Contas sincronizadas',
+          description: `${d.created} novos • ${d.linked} vinculados`,
+        });
+      }
+      if (d.created > 0 || d.linked > 0 || d.walletsUpdated > 0) {
+        fetchUsersRef.current();
+      }
+    } catch {
+      // silencioso: a próxima abertura da tela tenta de novo
+    } finally {
+      scanInFlight = false;
+      setScanning(false);
+    }
+  }
+
+  // Varredura automática ao entrar na tela (uma vez por montagem; respeita o cooldown).
+  useEffect(() => {
+    if (!loadingUser && user?.isAdmin) void runAutoScan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingUser, user?.isAdmin]);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const api = getApi();
+      const params = new URLSearchParams({ period: exportPeriod });
+      if (exportScope === 'plataforma' && exportPlatform)
+        params.set('platform', exportPlatform);
+
+      const data = await api.get<
+        Array<{
+          nome: string;
+          cpf: string;
+          plataforma: string;
+          saldo: number;
+          saldoBloqueado: number;
+          vinculado: boolean;
+          status: string;
+          email: string;
+          cadastro: string;
+        }>
+      >(`${endpoints.admin.usuarios.export}?${params}`);
+
+      const header = [
+        'Nome',
+        'CPF/CNPJ',
+        'Plataforma',
+        'Saldo (R$)',
+        'Saldo Bloqueado (R$)',
+        'Vinculado',
+        'Status',
+        'E-mail Simintpay',
+        'Data Cadastro',
+      ];
+      const rows = data.map((u) => [
+        `"${u.nome.replace(/"/g, '""')}"`,
+        u.cpf,
+        u.plataforma,
+        u.saldo.toFixed(2).replace('.', ','),
+        u.saldoBloqueado.toFixed(2).replace('.', ','),
+        u.vinculado ? 'Sim' : 'Não',
+        u.status,
+        u.email,
+        u.cadastro,
+      ]);
+      const csv = '﻿' + [header, ...rows].map((r) => r.join(';')).join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const scope =
+        exportScope === 'plataforma' && exportPlatform
+          ? exportPlatform
+          : 'todas-plataformas';
+      a.href = url;
+      a.download = `leads-${scope}-${exportPeriod}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setExportOpen(false);
+    } catch (err: unknown) {
+      toast({
+        type: 'error',
+        title: 'Erro ao exportar',
+        description:
+          (err instanceof Error ? err.message : undefined) ??
+          'Tente novamente.',
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function openEdit(u: ExternalUser) {
+    setEditUser(u);
+    setEditForm({
+      name: u.name,
+      cpf: formatDocument(u.cpf),
+      email: u.simpayUser?.email ?? '',
+    });
+  }
+
+  async function handleSave() {
+    if (!editUser) return;
+    setSaving(true);
+    try {
+      const api = getApi();
+      await api.patch(endpoints.admin.usuarios.update(editUser.id), {
+        name: editForm.name.trim() || undefined,
+        cpf: editForm.cpf.replace(/\D/g, '') || undefined,
+      });
+      toast({
+        type: 'success',
+        title: 'Dados atualizados',
+        description: 'As informações foram salvas com sucesso.',
+      });
+      setEditUser(null);
+      fetchUsers(page, platform, showDeleted, search);
+    } catch (err: unknown) {
+      toast({
+        type: 'error',
+        title: 'Erro ao salvar',
+        description:
+          (err instanceof Error ? err.message : undefined) ??
+          'Tente novamente.',
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** Traduz o `alvo` escolhido no modal para (id da entrada, escopo) da API. */
+  function resolverAlvo(
+    u: ExternalUser,
+  ): { id: string; escopo: 'plataforma' | 'todas' } | null {
+    if (!alvo) return null;
+    if (alvo === 'todas') {
+      // Em "todas", o backend expande a partir de qualquer entrada do mesmo CPF/CNPJ.
+      return { id: u.platformEntries?.[0]?.id ?? u.id, escopo: 'todas' };
+    }
+    return { id: alvo, escopo: 'plataforma' };
+  }
+
+  function nomePlataforma(u: ExternalUser, entryId: string): string {
+    const e = u.platformEntries?.find((p) => p.id === entryId);
+    if (!e) return 'esta plataforma';
+    return PLATFORM_LABELS[e.platform.toLowerCase()] ?? e.platform;
+  }
+
+  async function handleDelete() {
+    const u = confirmDeleteUser;
+    const resolvido = u && resolverAlvo(u);
+    if (!u || !resolvido) return;
+
+    setDeleting(true);
+    try {
+      const api = getApi();
+      await api.delete(
+        `${endpoints.admin.usuarios.delete(resolvido.id)}?escopo=${resolvido.escopo}`,
+      );
+      toast({
+        type: 'success',
+        title: 'Conta inativada',
+        description:
+          resolvido.escopo === 'todas'
+            ? 'Inativada em todas as plataformas. O saldo foi preservado.'
+            : `Inativada em ${nomePlataforma(u, resolvido.id)}. As demais seguem ativas e o saldo foi preservado.`,
+      });
+      setConfirmDeleteUser(null);
+      setAlvo('');
+      fetchUsers(page, platform, showDeleted, search);
+    } catch (err: unknown) {
+      toast({
+        type: 'error',
+        title: 'Erro ao inativar',
+        description:
+          (err instanceof Error ? err.message : undefined) ??
+          'Tente novamente.',
+      });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function handleReactivate() {
+    const u = confirmReactivateUser;
+    const resolvido = u && resolverAlvo(u);
+    if (!u || !resolvido) return;
+
+    setReactivating(true);
+    try {
+      const api = getApi();
+      await api.post(
+        `${endpoints.admin.usuarios.reativar(resolvido.id)}?escopo=${resolvido.escopo}`,
+        {},
+      );
+      toast({
+        type: 'success',
+        title: 'Conta reativada',
+        description:
+          resolvido.escopo === 'todas'
+            ? 'Reativada em todas as plataformas. O saldo voltou intacto.'
+            : `Reativada em ${nomePlataforma(u, resolvido.id)}. O saldo voltou intacto.`,
+      });
+      setConfirmReactivateUser(null);
+      setAlvo('');
+      fetchUsers(page, platform, showDeleted, search);
+    } catch (err: unknown) {
+      toast({
+        type: 'error',
+        title: 'Erro ao reativar',
+        description:
+          (err instanceof Error ? err.message : undefined) ??
+          'Tente novamente.',
+      });
+    } finally {
+      setReactivating(false);
+    }
+  }
+
+  function switchTab(tab: 'ativas' | 'inativas' | 'purgadas' | 'clientes') {
+    const deleted = tab === 'inativas';
+    const purged = tab === 'purgadas';
+    const clients = tab === 'clientes';
+    setShowDeleted(deleted);
+    setShowPurged(purged);
+    setShowSimintpayClients(clients);
+    setPage(1);
+    setSearch('');
+    fetchUsers(1, platform, deleted, '', purged, clients);
+  }
+
+  async function handlePurge() {
+    const u = confirmPurgeUser;
+    if (!u || !alvo) return;
+    const { todas, id } = (() => {
+      const t = alvo === 'todas';
+      return { todas: t, id: t ? (u.platformEntries?.[0]?.id ?? u.id) : alvo };
+    })();
+    setPurging(true);
+    try {
+      const api = getApi();
+      const res = await api.delete<{ saldoAbsorvido?: number }>(
+        `${endpoints.admin.usuarios.permanente(id)}?escopo=${todas ? 'todas' : 'plataforma'}`,
+      );
+      toast({
+        type: 'success',
+        title: 'Conta excluída permanentemente',
+        description: `Saldo absorvido pelo master: ${formatCurrency(Number(res?.saldoAbsorvido ?? 0))}.`,
+      });
+      setConfirmPurgeUser(null);
+      setAlvo('');
+      fetchUsers(page, platform, showDeleted, search, showPurged);
+    } catch (err: unknown) {
+      toast({
+        type: 'error',
+        title: 'Erro ao excluir',
+        description:
+          (err instanceof Error ? err.message : undefined) ??
+          'Tente novamente.',
+      });
+    } finally {
+      setPurging(false);
+    }
+  }
+
+  const filtered = items;
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const colSpan = mode === 'clientes' ? 3 : 8; // Ambas as abas têm a coluna "Ações" (reativar na de excluídas)
+
+  if (!loadingUser && !user?.isAdmin) {
+    router.replace('/painel');
+    return null;
+  }
+
+  if (loadingUser || !user?.isAdmin) return null;
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        .leads-page { font-family: 'Inter', sans-serif; }
+      `}</style>
+
+      {/* Export modal */}
+      {exportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-900">
+            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              Exportar CSV
+            </h2>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              Escolha o escopo e o período.
+            </p>
+
+            <div className="mt-4 flex flex-col gap-4">
+              {/* Escopo */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  Plataformas
+                </span>
+                <div className="flex gap-2">
+                  {(['todas', 'plataforma'] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setExportScope(s)}
+                      className={cn(
+                        'flex-1 rounded-xl border py-2 text-xs font-medium transition',
+                        exportScope === s
+                          ? 'border-violet-500 bg-violet-600 text-white'
+                          : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300',
+                      )}
+                    >
+                      {s === 'todas'
+                        ? 'Todas as plataformas'
+                        : 'Plataforma específica'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Seletor de plataforma específica */}
+              {exportScope === 'plataforma' && (
+                <div className="flex flex-col gap-1.5">
+                  <PlatformFilterSelect
+                    label="Plataforma"
+                    value={exportPlatform}
+                    onChange={(value) => setExportPlatform(value.toLowerCase())}
+                    placeholder="Selecione uma plataforma"
+                    options={Object.entries(PLATFORM_LABELS).map(
+                      ([value, label]) => ({ value, label }),
+                    )}
+                  />
+                </div>
+              )}
+
+              {/* Período */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  Período
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { value: 'mensal', label: 'Mensal' },
+                      { value: 'trimestral', label: 'Trimestral' },
+                      { value: 'semestral', label: 'Semestral' },
+                      { value: 'anual', label: 'Anual' },
+                    ] as const
+                  ).map((p) => (
+                    <button
+                      key={p.value}
+                      onClick={() => setExportPeriod(p.value)}
+                      className={cn(
+                        'rounded-xl border py-2 text-xs font-medium transition',
+                        exportPeriod === p.value
+                          ? 'border-violet-500 bg-violet-600 text-white'
+                          : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300',
+                      )}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setExportOpen(false)}
+                disabled={exporting}
+                className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={
+                  exporting || (exportScope === 'plataforma' && !exportPlatform)
+                }
+                className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:opacity-60"
+              >
+                {exporting ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Download size={13} />
+                )}
+                {exporting ? 'Exportando...' : 'Baixar CSV'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-900">
+            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              Editar lead
+            </h2>
+            <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-500/20 dark:bg-amber-500/10">
+              <span className="mt-px text-amber-500 shrink-0">⚠</span>
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                As alterações feitas aqui afetam{' '}
+                <strong>somente o Simintpay</strong>. Os dados na plataforma de
+                origem do usuário não são alterados.
+              </p>
+            </div>
+            <div className="mt-4 flex flex-col gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  Nome
+                </span>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, name: e.target.value }))
+                  }
+                  className="h-9 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  CPF
+                </span>
+                <input
+                  type="text"
+                  value={editForm.cpf}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, cpf: e.target.value }))
+                  }
+                  className="h-9 rounded-xl border border-zinc-200 bg-white px-3 font-mono text-sm text-zinc-900 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100"
+                />
+              </label>
+              {editUser.simpayUser && (
+                <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 dark:border-white/5 dark:bg-white/5">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                    Conta Simintpay vinculada
+                  </p>
+                  <p className="mt-0.5 text-sm text-zinc-700 dark:text-zinc-300">
+                    {editUser.simpayUser.email}
+                  </p>
+                  <p className="text-[11px] text-zinc-400">
+                    E-mail de login — não editável por aqui
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setEditUser(null)}
+                disabled={saving}
+                className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:opacity-60"
+              >
+                {saving ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : null}
+                {saving ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm delete modal */}
+      {confirmDeleteUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-900">
+            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              Inativar conta
+            </h2>
+            <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+              {confirmDeleteUser.name}
+            </p>
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+              A conta vai para <strong>Contas inativas</strong> e pode ser
+              reativada depois. O <strong>saldo é preservado</strong> e volta ao
+              reativar.
+            </p>
+
+            <AlvoPicker
+              entries={confirmDeleteUser.platformEntries ?? []}
+              value={alvo}
+              onChange={setAlvo}
+              disabled={deleting}
+              tom="perigo"
+            />
+
+            <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
+              {alvo === 'todas'
+                ? 'O acesso sai de todas as plataformas deste CPF/CNPJ e o login é desativado.'
+                : 'Só a plataforma escolhida é afetada. Havendo outras ativas, o login continua funcionando.'}
+            </p>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setConfirmDeleteUser(null);
+                  setAlvo('');
+                }}
+                disabled={deleting}
+                className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting || !alvo}
+                title={
+                  !alvo ? 'Escolha qual plataforma será afetada' : undefined
+                }
+                className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-60"
+              >
+                {deleting ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Trash2 size={13} />
+                )}
+                {deleting ? 'Inativando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm reactivate modal */}
+      {confirmReactivateUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-zinc-900">
+            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              Reativar conta
+            </h2>
+            <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+              {confirmReactivateUser.name}
+            </p>
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+              A conta volta a ficar ativa e o cliente recupera o acesso. O{' '}
+              <strong>saldo volta intacto</strong>.
+            </p>
+
+            <AlvoPicker
+              entries={confirmReactivateUser.platformEntries ?? []}
+              value={alvo}
+              onChange={setAlvo}
+              disabled={reactivating}
+              tom="ok"
+            />
+
+            <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
+              {alvo === 'todas'
+                ? 'Reativa em todas as plataformas inativas deste CPF/CNPJ.'
+                : 'Reativa só a plataforma escolhida. As demais continuam como estão.'}
+            </p>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setConfirmReactivateUser(null);
+                  setAlvo('');
+                }}
+                disabled={reactivating}
+                className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleReactivate}
+                disabled={reactivating || !alvo}
+                title={
+                  !alvo ? 'Escolha qual plataforma será reativada' : undefined
+                }
+                className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-60"
+              >
+                {reactivating ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <CheckCircle2 size={13} />
+                )}
+                {reactivating ? 'Reativando...' : 'Confirmar reativação'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm permanent-delete modal */}
+      {confirmPurgeUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-red-200 bg-white p-6 shadow-2xl dark:border-red-500/30 dark:bg-zinc-900">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-red-700 dark:text-red-400">
+              <Trash2 size={16} />
+              Excluir permanentemente
+            </h2>
+            <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+              {confirmPurgeUser.name}
+            </p>
+
+            <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-500/20 dark:bg-red-500/10">
+              <p className="text-sm text-red-700 dark:text-red-300">
+                Ação <strong>irreversível</strong>. A conta não poderá ser
+                reativada.
+              </p>
+              <p className="mt-1.5 text-sm text-red-700 dark:text-red-300">
+                O saldo de{' '}
+                <strong>{formatCurrency(confirmPurgeUser.balance ?? 0)}</strong>{' '}
+                será <strong>absorvido pelo master</strong>.
+              </p>
+            </div>
+
+            <AlvoPicker
+              entries={confirmPurgeUser.platformEntries ?? []}
+              value={alvo}
+              onChange={setAlvo}
+              disabled={purging}
+              tom="perigo"
+            />
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setConfirmPurgeUser(null);
+                  setAlvo('');
+                }}
+                disabled={purging}
+                className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handlePurge}
+                disabled={purging || !alvo}
+                title={
+                  !alvo ? 'Escolha qual plataforma será excluída' : undefined
+                }
+                className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-60"
+              >
+                {purging ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Trash2 size={13} />
+                )}
+                {purging ? 'Excluindo...' : 'Excluir permanentemente'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="leads-page flex flex-1 flex-col gap-6">
+        {/* Tabs */}
+        {mode === 'usuarios' && (
+          <div className="flex items-center gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1 w-fit dark:border-white/10 dark:bg-white/5">
+            {(
+              [
+                {
+                  id: 'ativas',
+                  label: 'Ativos',
+                  on: !showDeleted && !showPurged && !showSimintpayClients,
+                },
+                {
+                  id: 'inativas',
+                  label: 'Contas Inativas',
+                  on: showDeleted && !showPurged,
+                },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => switchTab(t.id)}
+                className={cn(
+                  'rounded-lg px-4 py-1.5 text-sm font-medium transition',
+                  t.on
+                    ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100'
+                    : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200',
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Controles */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Busca */}
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+            />
+            <input
+              type="text"
+              placeholder="Nome, CPF ou e-mail..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 w-full rounded-xl border border-zinc-200 bg-white pl-9 pr-4 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+            />
+          </div>
+
+          <PlatformFilterSelect
+            label="Plataforma"
+            value={platform}
+            onChange={(value) => {
+              setPlatform(value.toLowerCase());
+              setPage(1);
+            }}
+            options={[
+              { value: '', label: 'Todas as plataformas' },
+              ...Object.entries(PLATFORM_LABELS).map(([value, label]) => ({
+                value,
+                label,
+              })),
+            ]}
+            className="h-9 min-w-[200px]"
+          />
+
+          {/* Refresh */}
+          <button
+            onClick={() => fetchUsers(page, platform, showDeleted, search)}
+            disabled={loading}
+            className="flex h-9 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            Atualizar
+          </button>
+
+          {/* Exportar CSV */}
+          {!showDeleted && (
+            <button
+              onClick={() => setExportOpen(true)}
+              className="flex h-9 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10"
+            >
+              <Download size={14} />
+              Exportar CSV
+            </button>
+          )}
+
+          {scanning && (
+            <span className="flex items-center gap-1.5 text-xs text-zinc-400 dark:text-zinc-500">
+              <RefreshCw size={12} className="animate-spin" />
+              Sincronizando contas...
+            </span>
+          )}
+        </div>
+
+        {/* Tabela */}
+        <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white dark:border-white/10 dark:bg-white/5">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-zinc-100 dark:border-white/10">
+                <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
+                  Nome
+                </th>
+                {/* Coluna CPF oculta na aba "Clientes Simintpay" */}
+                {mode !== 'clientes' && (
+                  <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
+                    CPF/CNPJ
+                  </th>
+                )}
+                <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
+                  Plataforma
+                </th>
+                {/* Coluna "Saldo líquido" comentada temporariamente — pode voltar futuramente.
+                <th className="px-4 py-3 text-right font-semibold text-zinc-500 dark:text-zinc-400">Saldo líquido</th>
+                */}
+                {/* Colunas Vinculado / Usuário Simintpay / Aprovação / Taxa cartão ocultas em "Clientes Simintpay" */}
+                {mode !== 'clientes' && (
+                  <>
+                    <th className="px-4 py-3 text-center font-semibold text-zinc-500 dark:text-zinc-400">
+                      <span className="inline-flex items-center justify-center gap-1">
+                        Vinculado
+                        <HelpTooltip>
+                          Indica se o lead possui uma conta ativa na Simintpay
+                          vinculada ao CPF cadastrado. Usuários vinculados podem
+                          solicitar saques e acessar o painel.
+                        </HelpTooltip>
+                      </span>
+                    </th>
+                    {/* Coluna "Atividade" (transacionou no mês corrente) comentada temporariamente — confundia com o status da aba (ativo/inativo). */}
+                    <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
+                      Usuário Simintpay
+                    </th>
+                    <th className="px-4 py-3 text-center font-semibold text-zinc-500 dark:text-zinc-400">
+                      Aprovação
+                    </th>
+                    <th className="px-4 py-3 text-right font-semibold text-zinc-500 dark:text-zinc-400">
+                      Taxa cartão
+                    </th>
+                  </>
+                )}
+                <th className="px-4 py-3 text-center font-semibold text-zinc-500 dark:text-zinc-400">
+                  Ações
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={colSpan}
+                    className="px-4 py-12 text-center text-zinc-400 dark:text-zinc-500"
+                  >
+                    <RefreshCw
+                      size={20}
+                      className="mx-auto animate-spin mb-2"
+                    />
+                    Carregando...
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={colSpan}
+                    className="px-4 py-12 text-center text-zinc-400 dark:text-zinc-500"
+                  >
+                    {showDeleted
+                      ? 'Nenhuma conta inativa.'
+                      : showSimintpayClients
+                        ? 'Nenhuma conta marcada como cliente Simintpay.'
+                        : 'Nenhum lead encontrado.'}
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((u) => (
+                  <tr
+                    key={u.id}
+                    className="border-b border-zinc-50 last:border-0 transition hover:bg-zinc-50/50 dark:border-white/5 dark:hover:bg-white/5"
+                  >
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                        {u.name}
+                      </span>
+                    </td>
+                    {mode !== 'clientes' && (
+                      <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                        {formatDocument(u.cpf)}
+                      </td>
+                    )}
+                    <td className="px-4 py-3">
+                      <AccountPlatformsButton
+                        name={u.name}
+                        entries={u.platformEntries ?? []}
+                      />
+                    </td>
+                    {/* Coluna "Saldo líquido" comentada temporariamente — pode voltar futuramente.
+                    <td className="px-4 py-3 text-right">
+                      <span className={`font-semibold tabular-nums ${u.balance > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500 dark:text-zinc-400"}`}>
+                        {formatCurrency(u.balance)}
+                      </span>
+                    </td>
+                    */}
+                    {mode !== 'clientes' && (
+                      <>
+                        <td className="px-4 py-3 text-center">
+                          {u.vinculado ? (
+                            <CheckCircle2
+                              size={16}
+                              className="mx-auto text-emerald-500"
+                            />
+                          ) : (
+                            <XCircle
+                              size={16}
+                              className="mx-auto text-zinc-300 dark:text-zinc-600"
+                            />
+                          )}
+                        </td>
+                      </>
+                    )}
+                    {/* Coluna "Atividade" (transacionou no mês corrente) comentada temporariamente — confundia com o status da aba (ativo/inativo).
+                    <td className="px-4 py-3 text-center">
+                      {u.isAtivo === null ? (
+                        <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
+                          —
+                        </span>
+                      ) : u.isAtivo ? (
+                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+                          Ativo
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-600 dark:bg-red-500/15 dark:text-red-400">
+                          Inativo
+                        </span>
+                      )}
+                    </td>
+                    */}
+                    {mode !== 'clientes' && (
+                      <>
+                        <td className="px-4 py-3">
+                          {u.simpayUser ? (
+                            <div className="flex flex-col">
+                              <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
+                                {u.simpayUser.name}
+                              </span>
+                              <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                                {u.simpayUser.email}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                              —
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {u.simpayUser?.clientStatus ? (
+                            <span
+                              className={cn(
+                                'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                                CLIENTE_STATUS_BADGE[u.simpayUser.clientStatus]
+                                  .className,
+                              )}
+                            >
+                              {
+                                CLIENTE_STATUS_BADGE[u.simpayUser.clientStatus]
+                                  .label
+                              }
+                            </span>
+                          ) : (
+                            <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                              —
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-700 dark:text-zinc-300">
+                          {u.simpayUser?.clientStatus ? (
+                            decimalToPercentDisplay(
+                              u.simpayUser.taxaCartao ?? null,
+                            )
+                          ) : (
+                            <span className="text-zinc-400 dark:text-zinc-500">
+                              —
+                            </span>
+                          )}
+                        </td>
+                      </>
+                    )}
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        {showPurged ? (
+                          <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                            Excluída permanentemente
+                          </span>
+                        ) : showDeleted ? (
+                          <>
+                            <button
+                              onClick={() => abrirReativar(u)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
+                            >
+                              <CheckCircle2 size={12} />
+                              Reativar
+                            </button>
+                            <button
+                              onClick={() => abrirPurge(u)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-200 dark:border-red-500/30 dark:bg-red-500/20 dark:text-red-300 dark:hover:bg-red-500/30"
+                            >
+                              <Trash2 size={12} />
+                              Excluir permanente
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {/* Sem conta Simintpay vinculada não há o que marcar; o botão fica invisível
+                                (mas ocupa espaço) para manter Editar/Excluir alinhados entre as linhas. */}
+                            {mode === 'clientes' && u.simpayUser && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setChargeClient({
+                                    id: u.simpayUser!.id,
+                                    name: u.simpayUser!.name,
+                                    email: u.simpayUser!.email,
+                                    saldoDisponivel: u.balance,
+                                  })
+                                }
+                                className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-300"
+                              >
+                                <Receipt size={12} /> Cobranças
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setCarteiraUser(u)}
+                              title="Ver carteira"
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                            >
+                              <Wallet size={12} />
+                              Carteira
+                            </button>
+                            <button
+                              onClick={() =>
+                                marcarClienteSimintpay(u, !showSimintpayClients)
+                              }
+                              disabled={
+                                !u.simpayUser ||
+                                togglingClientId === u.simpayUser.id
+                              }
+                              aria-hidden={!u.simpayUser}
+                              tabIndex={u.simpayUser ? undefined : -1}
+                              title={
+                                showSimintpayClients
+                                  ? 'Volta a aparecer na lista de usuários ativos'
+                                  : 'Já é cliente Simintpay: tira desta lista'
+                              }
+                              className={cn(
+                                'inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:bg-violet-100 disabled:opacity-50 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20',
+                                !u.simpayUser && 'invisible',
+                              )}
+                            >
+                              {showSimintpayClients ? (
+                                <Undo2 size={12} />
+                              ) : (
+                                <Building2 size={12} />
+                              )}
+                              {showSimintpayClients
+                                ? 'Voltar para usuários'
+                                : 'É cliente'}
+                            </button>
+                            <button
+                              onClick={() => openEdit(u)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10"
+                            >
+                              <Pencil size={12} />
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => abrirInativar(u)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 transition hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"
+                            >
+                              <Trash2 size={12} />
+                              Excluir
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Paginação */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between text-sm text-zinc-500 dark:text-zinc-400">
+            <span>
+              {total} lead{total !== 1 ? 's' : ''} no total
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1 || loading}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white transition hover:bg-zinc-50 disabled:opacity-40 dark:border-white/10 dark:bg-white/5"
+              >
+                ‹
+              </button>
+              <span className="px-2">
+                {page} / {totalPages}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages || loading}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white transition hover:bg-zinc-50 disabled:opacity-40 dark:border-white/10 dark:bg-white/5"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {chargeClient && (
+        <ClientChargesModal
+          client={chargeClient}
+          onClose={() => setChargeClient(null)}
+          onChanged={() => {
+            void fetchUsers();
+          }}
+        />
+      )}
+
+      {/* Modal de aprovar / editar taxas (aba "Aprovação e Taxas") */}
+      <FeeModal
+        open={feeModal !== null}
+        mode={feeModal?.mode ?? 'approve'}
+        cliente={feeModal?.cliente ?? null}
+        saving={feeSaving}
+        onClose={() => setFeeModal(null)}
+        onSubmit={handleFeeSubmit}
+      />
+
+      {/* Confirmação de rejeição de cliente */}
+      <Modal
+        open={carteiraUser !== null}
+        onClose={() => setCarteiraUser(null)}
+        title="Carteira"
+        maxWidth="max-w-sm"
+      >
+        {carteiraUser && (
+          <div className="flex flex-col gap-4">
+            <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 dark:border-white/5 dark:bg-white/5">
+              <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                {carteiraUser.name}
+              </p>
+              {carteiraUser.simpayUser?.email && (
+                <p className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                  {carteiraUser.simpayUser.email}
+                </p>
+              )}
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {(carteiraUser.platformEntries ?? []).map((p) => (
+                  <span
+                    key={p.id}
+                    className={cn(
+                      'rounded-md px-1.5 py-0.5 text-[10px] font-semibold',
+                      getPlatformBadgeClass(p.platform),
+                    )}
+                  >
+                    {PLATFORM_LABELS[p.platform.toLowerCase()] ?? p.platform}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-500/20 dark:bg-emerald-500/10">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
+                  Disponível
+                </p>
+                <p className="mt-1 text-lg font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+                  {formatCurrency(carteiraUser.balance ?? 0)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-500/20 dark:bg-amber-500/10">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700 dark:text-amber-300">
+                  Bloqueado
+                </p>
+                <p className="mt-1 text-lg font-semibold tabular-nums text-amber-700 dark:text-amber-300">
+                  {formatCurrency(carteiraUser.lockedBalance ?? 0)}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={confirmReject !== null}
+        onClose={() => setConfirmReject(null)}
+        title="Rejeitar cliente"
+        maxWidth="max-w-sm"
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Tem certeza que deseja rejeitar{' '}
+            <span className="font-semibold text-zinc-700 dark:text-zinc-200">
+              {confirmReject?.name}
+            </span>
+            ? O cliente não poderá acessar a plataforma.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmReject(null)}
+              disabled={rejectMutation.isPending}
+              className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                confirmReject && rejectMutation.mutate(confirmReject.id)
+              }
+              disabled={rejectMutation.isPending}
+              className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-60"
+            >
+              {rejectMutation.isPending ? (
+                <Spinner size={14} className="text-white" />
+              ) : (
+                <XCircle size={14} />
+              )}
+              Rejeitar
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}

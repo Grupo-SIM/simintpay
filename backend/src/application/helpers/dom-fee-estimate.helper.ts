@@ -1,11 +1,29 @@
-import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
+import { transactionPlatformTag } from '../../modules/platform-core/transaction-platform';
+import {
+  getPlatformTaxaEffective,
+  canonicalPlatformTaxaTag,
+} from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 import { isMaquinetaDescription } from '../utils/internal-tags.util';
 
 /** Extrai `[TENANT:FOO]` da descrição/produto para taxas efetivas (MDR PIX etc.). */
-export function platformTaxaTagFromText(text: string | null | undefined): string {
+export function platformTaxaTagFromText(
+  text: string | null | undefined,
+): string {
   const m = String(text ?? '').match(/\[TENANT:([^\]]+)\]/i);
   return m ? canonicalPlatformTaxaTag(m[1].trim()) : 'GLOBAL';
+}
+
+/**
+ * Tag de taxas de uma Transaction JÁ gravada: vem exclusivamente de `Transaction.platformTag`
+ * (nunca da descrição). Sem tag → GLOBAL. `platformTaxaTagFromText` fica só para texto vindo de fora
+ * (produto DOM, itens do checkout) antes de existir uma Transaction.
+ */
+export function platformTaxaTagForTransaction(tx: {
+  platformTag?: string | null;
+}): string {
+  const tag = transactionPlatformTag(tx);
+  return tag ? canonicalPlatformTaxaTag(tag) : 'GLOBAL';
 }
 
 /** Taxa DOM cartão crédito por parcelas (mesmo padrão do checkout / api-dom.client). */
@@ -53,8 +71,12 @@ export function isPhysicalDebit(
 }
 
 /** true quando a transação é venda física (maquineta / POS). */
-export function isPhysicalSale(input: { isPhysical?: boolean | null; description?: string | null }): boolean {
-  if (input.isPhysical !== undefined && input.isPhysical !== null) return Boolean(input.isPhysical);
+export function isPhysicalSale(input: {
+  isPhysical?: boolean | null;
+  description?: string | null;
+}): boolean {
+  if (input.isPhysical !== undefined && input.isPhysical !== null)
+    return Boolean(input.isPhysical);
   return isMaquinetaDescription(input.description);
 }
 
@@ -76,7 +98,11 @@ export function estimatePhysicalDomFeeReais(input: {
   const pm = String(input.paymentMethod ?? 'pix').toLowerCase();
   const inst = Math.min(Math.max(Number(input.installments ?? 1) || 1, 1), 12);
   const taxa = (key: string) =>
-    getPlatformTaxaEffective(tag, key, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[key] ?? 0);
+    getPlatformTaxaEffective(
+      tag,
+      key,
+      (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[key] ?? 0,
+    );
 
   // PIX físico: só percentual, sem taxa fixa.
   if (!pm.includes('card') && !pm.includes('credit') && !pm.includes('debit')) {
@@ -131,19 +157,32 @@ export function estimateDomFeeReais(input: {
 
   if (pm.includes('boleto')) {
     // Boleto: custo DOM fixo por boleto pago = TAXA_BOLETO_DOM + TAXA_BOLETO_DOM_FIXA (padrão 3,49 + 1,00).
-    const domFixa = getPlatformTaxaEffective(tag, 'TAXA_BOLETO_DOM', PLATFORM_TAXA_DEFAULTS.TAXA_BOLETO_DOM);
-    const domTransacao = getPlatformTaxaEffective(tag, 'TAXA_BOLETO_DOM_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_BOLETO_DOM_FIXA);
+    const domFixa = getPlatformTaxaEffective(
+      tag,
+      'TAXA_BOLETO_DOM',
+      PLATFORM_TAXA_DEFAULTS.TAXA_BOLETO_DOM,
+    );
+    const domTransacao = getPlatformTaxaEffective(
+      tag,
+      'TAXA_BOLETO_DOM_FIXA',
+      PLATFORM_TAXA_DEFAULTS.TAXA_BOLETO_DOM_FIXA,
+    );
     return round2(domFixa + domTransacao);
   }
   if (pm.includes('debit')) {
     return round2(amount * 0.0349 + 1.0);
   }
   if (pm.includes('card') || pm.includes('credit')) {
-    const rate = DOM_CC_RATE_BY_INSTALLMENT[inst] ?? DOM_CC_RATE_BY_INSTALLMENT[1];
+    const rate =
+      DOM_CC_RATE_BY_INSTALLMENT[inst] ?? DOM_CC_RATE_BY_INSTALLMENT[1];
     const fixed = inst > 1 ? 1.0 : 0;
     return round2(amount * rate + fixed);
   }
-  const mdrPix = getPlatformTaxaEffective(tag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
+  const mdrPix = getPlatformTaxaEffective(
+    tag,
+    'MDR_PIX',
+    PLATFORM_TAXA_DEFAULTS.MDR_PIX,
+  );
   return round4(amount * mdrPix);
 }
 
@@ -164,16 +203,18 @@ export function resolveDomFeeReais(input: {
   const amount = Number(input.amountReais) || 0;
   const fromApi = Number(input.mdrFromGateway ?? input.domFeeFromGateway ?? 0);
   const pm = String(input.paymentMethod ?? 'pix').toLowerCase();
-  const isPixLike = !pm.includes('debit') && !pm.includes('card') && !pm.includes('credit');
-  const estimate = () => estimateDomFeeReais({
-    amountReais: input.amountReais,
-    paymentMethod: input.paymentMethod,
-    installments: input.installments,
-    tenantTag: input.tenantTag,
-    isPhysical: input.isPhysical,
-    description: input.description,
-    cardBrand: input.cardBrand,
-  });
+  const isPixLike =
+    !pm.includes('debit') && !pm.includes('card') && !pm.includes('credit');
+  const estimate = () =>
+    estimateDomFeeReais({
+      amountReais: input.amountReais,
+      paymentMethod: input.paymentMethod,
+      installments: input.installments,
+      tenantTag: input.tenantTag,
+      isPhysical: input.isPhysical,
+      description: input.description,
+      cardBrand: input.cardBrand,
+    });
 
   if (Number.isFinite(fromApi) && fromApi > 0) {
     if (isPixLike && amount > 0 && !isPhysicalSale(input)) {

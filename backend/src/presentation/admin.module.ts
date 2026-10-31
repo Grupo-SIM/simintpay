@@ -11,6 +11,7 @@ import { SyncDomTransactionsCron } from '../infrastructure/cron/sync-dom-transac
 import { SyncMaquinetasCron } from '../infrastructure/cron/sync-maquinetas.cron';
 import { CommunityAccessCron } from '../infrastructure/cron/community-access.cron';
 import { ExpirationReminderCron } from '../infrastructure/cron/expiration-reminder.cron';
+import { WalletConsistencyCron } from '../infrastructure/cron/wallet-consistency.cron';
 import { AdminController } from './controllers/admin.controller';
 import { AdminClientesController } from './controllers/admin-clientes.controller';
 import { AdminAfiliadosController } from './controllers/admin-afiliados.controller';
@@ -22,10 +23,6 @@ import { SyncDomTransactionsUseCase } from '../application/use-cases/admin/sync-
 import { ListWithdrawalsAdminUseCase } from '../application/use-cases/admin/list-withdrawals-admin.use-case';
 import { ApproveWithdrawalUseCase } from '../application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../application/use-cases/admin/reject-withdrawal.use-case';
-import { SyncDomWithdrawalsUseCase } from '../application/use-cases/admin/sync-dom-withdrawals.use-case';
-import { SyncFullRenovadaUseCase } from '../application/use-cases/admin/sync-full-renovada.use-case';
-import { SyncFullBosqueUseCase } from '../application/use-cases/admin/sync-full-bosque.use-case';
-import { SyncFullEbookUseCase } from '../application/use-cases/admin/sync-full-ebook.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../application/use-cases/admin/list-dom-transactions-direct.use-case';
 import { SyncMaquinetasUseCase } from '../application/use-cases/admin/sync-maquinetas.use-case';
@@ -48,16 +45,37 @@ import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
 import { WebhookModule } from './webhook.module';
 import { PlatformReportingModule } from '../application/services/platform-reporting.module';
 import { ExternalPlatformDbModule } from '../modules/external-platform-db/external-platform-db.module';
+import { AcquirerFeesController } from '../modules/financial-policy/acquirer-fees.controller';
+import { AcquirerFeesService } from '../modules/financial-policy/acquirer-fees.service';
+import { SyncAcquirerFeesCron } from '../infrastructure/cron/sync-acquirer-fees.cron';
 
 @Module({
-  imports: [ApiDomModule, HttpModule, ModuleRealtimeModule, RevalidaModule, WebhookModule, PlatformReportingModule, ExternalPlatformDbModule],
-  controllers: [PlatformIntegrationsController, PlatformsController, AdminController, AdminClientesController, AdminAfiliadosController],
+  imports: [
+    ApiDomModule,
+    HttpModule,
+    ModuleRealtimeModule,
+    RevalidaModule,
+    WebhookModule,
+    PlatformReportingModule,
+    ExternalPlatformDbModule,
+  ],
+  controllers: [
+    PlatformIntegrationsController,
+    PlatformsController,
+    AcquirerFeesController,
+    AdminController,
+    AdminClientesController,
+    AdminAfiliadosController,
+  ],
   providers: [
     PlatformsService,
+    AcquirerFeesService,
+    SyncAcquirerFeesCron,
     SyncDomTransactionsCron,
     SyncMaquinetasCron,
     CommunityAccessCron,
     ExpirationReminderCron,
+    WalletConsistencyCron,
     ListLeadsUseCase,
     ApproveLeadUseCase,
     RejectLeadUseCase,
@@ -66,10 +84,6 @@ import { ExternalPlatformDbModule } from '../modules/external-platform-db/extern
     ListWithdrawalsAdminUseCase,
     ApproveWithdrawalUseCase,
     RejectWithdrawalUseCase,
-    SyncDomWithdrawalsUseCase,
-    SyncFullRenovadaUseCase,
-    SyncFullBosqueUseCase,
-    SyncFullEbookUseCase,
     MigrateRenovadaTxsToAdminUseCase,
     ListDomTransactionsDirectUseCase,
     SyncMaquinetasUseCase,

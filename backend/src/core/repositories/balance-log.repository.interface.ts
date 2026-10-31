@@ -7,11 +7,8 @@ export interface IBalanceLogRepository {
     userId: string;
     action: string;
     transactionId?: string | null;
-    amount: string;
-    balanceBefore: string;
-    balanceAfter: string;
-    lockedBefore: string;
-    lockedAfter: string;
+    balanceDelta: string;
+    lockedDelta: string;
     description?: string | null;
     source: string;
     metadata?: unknown;

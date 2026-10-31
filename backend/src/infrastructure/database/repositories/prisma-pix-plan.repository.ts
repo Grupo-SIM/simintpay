@@ -9,6 +9,7 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
 
   async createPixCreditPlan(data: {
     coproduction?: unknown;
+    createdByUserId?: string;
     userId: string;
     type: string;
     price: number;
@@ -18,18 +19,26 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     tenantTag?: string | null;
     emailBody?: string | null;
   }) {
-    return createWithCoproduction(this.prisma, 'planos-pix', data.userId, data.coproduction, tx => (tx as any).pixCreditPlan.create({
-      data: {
-        userId: data.userId,
-        type: data.type,
-        price: data.price,
-        description: data.description,
-        redirectUrl: data.redirectUrl,
-        webhookUrl: data.webhookUrl,
-        tenantTag: data.tenantTag ?? null,
-        emailBody: data.emailBody ?? null,
-      },
-    }));
+    return createWithCoproduction(
+      this.prisma,
+      'planos-pix',
+      data.userId,
+      data.coproduction,
+      (tx) =>
+        (tx as any).pixCreditPlan.create({
+          data: {
+            userId: data.userId,
+            createdByUserId: data.createdByUserId,
+            type: data.type,
+            price: data.price,
+            description: data.description,
+            redirectUrl: data.redirectUrl,
+            webhookUrl: data.webhookUrl,
+            tenantTag: data.tenantTag ?? null,
+            emailBody: data.emailBody ?? null,
+          },
+        }),
+    );
   }
 
   async findPixCreditPlanById(id: string) {
@@ -65,13 +74,17 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     limit: number;
     status?: 'ACTIVE' | 'INACTIVE';
     search?: string;
+    /** Plans of other owners shown read-only through a coproduction agreement. */
+    sharedIds?: string[];
   }) {
-    const { userId, page, limit, status, search } = params;
+    const { userId, page, limit, status, search, sharedIds } = params;
     const skip = (page - 1) * limit;
     const where: any = {};
 
     if (userId) {
-      where.userId = userId;
+      if (sharedIds?.length)
+        where.AND = [{ OR: [{ userId }, { id: { in: sharedIds } }] }];
+      else where.userId = userId;
     }
 
     if (status) {
@@ -284,7 +297,16 @@ export class PrismaPixPlanRepository implements IPixPlanRepository {
     dateFrom?: Date;
     dateTo?: Date;
   }) {
-    const { page, limit, userId, isActive, pixPlanId, search, dateFrom, dateTo } = params;
+    const {
+      page,
+      limit,
+      userId,
+      isActive,
+      pixPlanId,
+      search,
+      dateFrom,
+      dateTo,
+    } = params;
     const skip = (page - 1) * limit;
     const where: any = {};
 

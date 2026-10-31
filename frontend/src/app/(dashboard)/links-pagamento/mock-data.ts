@@ -1,0 +1,40 @@
+import type { LinkPagamentoRow } from './types';
+
+export const linksPagamentoMock: LinkPagamentoRow[] = [
+  {
+    id: '45283',
+    titulo: 'Teste',
+    produto: 'Ex: Camisa personalizada',
+    valor: 49.9,
+    criadoPor: 'Operador 1',
+    metodoPagamento: 'all-methods',
+    status: 'Ativo',
+    link: 'https://conta.dompagamentos.com.br/link/45283',
+    cpfDono: '123.456.789-00',
+    plataformas: [],
+  },
+  {
+    id: '45284',
+    titulo: 'Plano Premium',
+    produto: 'Plano Premium Mensal',
+    valor: 99.9,
+    criadoPor: 'Gabriel',
+    metodoPagamento: 'pix',
+    status: 'Ativo',
+    link: 'https://conta.dompagamentos.com.br/link/45284',
+    cpfDono: null,
+    plataformas: [],
+  },
+  {
+    id: '45285',
+    titulo: 'Assinatura Start',
+    produto: 'Plano Start',
+    valor: 29.9,
+    criadoPor: 'Operador 2',
+    metodoPagamento: 'card',
+    status: 'Inativo',
+    link: 'https://conta.dompagamentos.com.br/link/45285',
+    cpfDono: '987.654.321-00',
+    plataformas: [],
+  },
+];

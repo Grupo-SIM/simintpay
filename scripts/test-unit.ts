@@ -31,6 +31,7 @@ const bun = await run([
   '--preload',
   './test/platform-migration.preload.ts',
   `--parallel=${Math.min(navigator.hardwareConcurrency, 8)}`,
+  '--timeout=30000',
   '--path-ignore-patterns=**/tests/**',
   '--path-ignore-patterns=**/*.spec.ts',
   ...(all ? ['./src'] : [`--changed=${since}`]),

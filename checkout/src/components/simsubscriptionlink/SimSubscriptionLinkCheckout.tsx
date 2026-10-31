@@ -1,4 +1,6 @@
 'use client';
+import { useBuyerMemory } from '@/hooks/use-buyer-memory';
+import { BuyerMemoryPreference } from '@/components/checkout/BuyerMemoryPreference';
 import { SIM_API_URL } from '@/lib/api-config';
 
 import React, { useEffect, useState } from 'react';
@@ -208,6 +210,15 @@ export default function SimSubscriptionLinkCheckout() {
   const [document, setDocument] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const buyerMemory = useBuyerMemory(
+    { name, email, document, phone },
+    (saved) => {
+      setName((current) => current || saved.name);
+      setEmail((current) => current || saved.email);
+      setDocument((current) => current || maskCpfCnpj(saved.document));
+      setPhone((current) => current || maskPhoneBr(saved.phone));
+    },
+  );
 
   // Cartão
   const [cardNumber, setCardNumber] = useState('');
@@ -743,6 +754,7 @@ export default function SimSubscriptionLinkCheckout() {
                     />
                   </CheckoutGlassField>
                 </div>
+                <BuyerMemoryPreference {...buyerMemory} />
               </CheckoutAccordionSection>
 
               {isPagatg && (
@@ -961,7 +973,7 @@ export default function SimSubscriptionLinkCheckout() {
 
               <CheckoutStatusCard error={error} items={statusItems} />
 
-              {!(pixContent || pixQrCode) &&
+              {!(paymentMethod === 'pix' && (pixContent || pixQrCode)) &&
                 (loading ? (
                   <div className="mt-1 flex flex-col items-center gap-3 rounded-xl border border-[rgba(246,182,122,.35)] bg-[rgba(245,138,42,.12)] px-4 py-6 text-center">
                     <Loader2 className="h-8 w-8 animate-spin text-[#f6b67a]" />

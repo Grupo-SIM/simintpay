@@ -12,6 +12,11 @@ import {
 } from 'class-validator';
 
 export class CreateBoletoDto {
+  /** Explicit beneficiary; platform selection must agree with its registered owner. */
+  @IsOptional()
+  @IsString()
+  ownerUserId?: string;
+
   @IsOptional()
   @IsObject()
   coproduction?: unknown;

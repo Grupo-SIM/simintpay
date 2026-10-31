@@ -9,9 +9,9 @@ docker build -f backend/Dockerfile --target runtime -t simintpay:local .
 docker build -f backend/Dockerfile --target maintenance -t simintpay-maintenance:local .
 ```
 
-Bun installs frozen dependencies; Node 22 runs Nest's compiled JavaScript. Runtime is non-root and installs production dependencies only. Bun also installs optional production peers, including Prisma CLI and TypeScript; Nest CLI, Jest and repository tooling stay outside the runtime image. Prisma client is generated during the build without a database connection. Maintenance image contains Prisma CLI and migration sources. Neither image changes a database on startup.
+Bun installs frozen dependencies; Node 22 runs Nest's compiled JavaScript. Runtime is non-root and installs production dependencies only. Bun also installs optional production peers, including Prisma CLI and TypeScript; Nest CLI, Jest and repository tooling stay outside the runtime image. Prisma client is generated during the build without a database connection. The maintenance and migrate images contain Prisma CLI and migration sources; the migrate image also ships Bun. The runtime image never changes a database on startup.
 
-CI checks main and pull requests. CD publishes immutable `sha-<full commit>` runtime tags at `ghcr.io/<owner>/<repository>` and maintenance tags at `ghcr.io/<owner>/<repository>-maintenance`. CD checks out the validated commit and publishes only trusted main push runs or manual dispatches. No workflow deploys services, migrates databases or seeds accounts.
+CI checks main and pull requests. CD runs on pushes to `main` and manual dispatches, rebuilding only the images of affected projects. Each project is published as `ghcr.io/<owner>/<repository>_<project>` (`_backend`, `_migrate`, `_checkout`, `_frontend`) with `latest` and immutable `sha-<full commit>` tags. `_migrate` is built together with `_backend`. The maintenance image is not published; build it locally from the release commit. No workflow deploys services, migrates databases or seeds accounts; migrations run on the server through Compose (see below).
 
 ## Production configuration
 
@@ -26,16 +26,13 @@ The existing `back-simpay_simpay_storage` external volume is preserved by defaul
 Review environment and backup policy first. The following commands are operator instructions, never agent-authorized remote actions:
 
 ```sh
-# Maintenance operation: changes the configured database. Run once per release,
-# after approval, with the exact same commit as the runtime image.
-docker run --rm --env-file .env \
-  ghcr.io/OWNER/REPOSITORY-maintenance:sha-COMMIT migrate deploy
-
-# Only after migration succeeds:
+docker compose -f compose.production.yaml pull
 docker compose -f compose.production.yaml up -d
 ```
 
-Adapt container network flags if the database requires a private Docker network. Baseline reconciliation is not automatic: verify existing migration history before any `migrate resolve`. Seeding is not part of rollout; use a separately reviewed operation only when needed. A failed migration blocks rollout. Roll back the application by selecting the previous immutable image; schema rollback requires its own reviewed procedure.
+`compose.production.yaml` runs a one-shot `migrate` service (the published `_migrate` image, built from the `migrate` target of `backend/Dockerfile`) that executes `bun run migrate:deploy` in `backend/` before the API starts. `api` depends on it with `service_completed_successfully`, so a failed migration aborts `up` and keeps the previous containers running. `BACKEND_IMAGE`, `MIGRATE_IMAGE` and `FRONTEND_IMAGE` override the images and default to `latest`; pin all of them to the same `sha-<full commit>` tag for real rollouts, since the migration must match the API version. Adapt network settings if the database requires a private Docker network.
+
+Migrations run before the new API starts, so the previous version briefly serves traffic against the new schema: keep migrations backward compatible (expand, then contract in a later release). Baseline reconciliation is not automatic: if the database predates Prisma history, `migrate deploy` fails and blocks rollout; verify existing migration history before any `migrate resolve`. Seeding is not part of rollout; use a separately reviewed operation only when needed. Roll back the application by selecting the previous immutable image; schema rollback requires its own reviewed procedure.
 
 ## Follow-up improvements
 
@@ -58,6 +55,6 @@ docker build -f checkout/Dockerfile -t simintpay-checkout:local \
 
 Checkout image builds through its Turbo graph, including offline backend OpenAPI export. Backend is a development-only workspace dependency; Next.js standalone tracing includes only required checkout runtime dependencies. Runtime starts `checkout/server.js` as UID 1000 and serves checkout assets on port 3000. No readiness endpoints are added.
 
-CD additionally publishes `ghcr.io/<owner>/<repository>-checkout:sha-<full commit>`. Set repository variables `NEXT_PUBLIC_SIM_API_URL`, `NEXT_PUBLIC_API_PAGATG_URL` and `NEXT_PUBLIC_EBOOK_API_URL` before image publication. They are public build inputs; changing runtime environment does not update browser bundles. Missing values retain the imported application's production defaults.
+CD also publishes `ghcr.io/<owner>/<repository>_checkout` with the same tags. Set repository variables `NEXT_PUBLIC_SIM_API_URL`, `NEXT_PUBLIC_API_PAGATG_URL` and `NEXT_PUBLIC_EBOOK_API_URL` before image publication. They are public build inputs; changing runtime environment does not update browser bundles. Missing values retain the imported application's production defaults.
 
 Set `CHECKOUT_IMAGE` alongside `BACKEND_IMAGE` in production `.env`. Compose binds checkout to `127.0.0.1:3000`; configure its reverse proxy and backend CORS separately. Checkout-only updates use `docker compose -f compose.production.yaml up -d checkout`. No command here authorizes an agent to publish or deploy.

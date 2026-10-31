@@ -3,7 +3,8 @@ import type { Boleto } from '@prisma/client';
 export const BOLETO_REPOSITORY = Symbol('BOLETO_REPOSITORY');
 
 export type CreateBoletoData = {
-    coproduction?: unknown;
+  coproduction?: unknown;
+  createdByUserId?: string;
   userId: string;
   title: string;
   description?: string | null;
@@ -32,7 +33,10 @@ export interface IBoletoRepository {
   }): Promise<{ total: number; items: Boleto[] }>;
   findById(id: string): Promise<Boleto | null>;
   findByCode(code: string): Promise<Boleto | null>;
-  findByIdForUser(input: { id: string; userId: string }): Promise<Boleto | null>;
+  findByIdForUser(input: {
+    id: string;
+    userId: string;
+  }): Promise<Boleto | null>;
   update(
     id: string,
     data: Partial<Omit<CreateBoletoData, 'userId'> & { currentUses: number }>,

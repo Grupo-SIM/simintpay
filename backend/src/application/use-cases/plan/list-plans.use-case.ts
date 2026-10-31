@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
+import {
+  coproductionInfo,
+  sharedProductIds,
+} from '../../../modules/coproduction/coproduction-view';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
 function mapPlanTypeToPt(
@@ -23,11 +27,17 @@ function mapPlanTypeToPt(
 function extractPlatformFromName(name: string): string | null {
   const n = name.toLowerCase();
   if (n.includes('pagatg') || n.includes('paga tg')) return 'PagaTG';
-  if (n.includes('areaflix') || n.includes('área flix') || n.includes('area flix')) return 'Areaflix';
+  if (
+    n.includes('areaflix') ||
+    n.includes('área flix') ||
+    n.includes('area flix')
+  )
+    return 'Areaflix';
   if (n.includes('ebook') || n.includes('e-book')) return 'Ebook';
   if (n.includes('renovada')) return 'Renovada';
   if (n.includes('bosque') || n.includes('ibb')) return 'Bosque';
-  if (n.includes('marketing raiz') || n.includes('marketing-raiz')) return 'Marketing Raiz';
+  if (n.includes('marketing raiz') || n.includes('marketing-raiz'))
+    return 'Marketing Raiz';
   if (n.includes('revalida') || n.includes('révali')) return 'Revalida';
   if (n.includes('comunidade') || n.includes('community')) return 'Comunidade';
   return null;
@@ -46,10 +56,16 @@ function formatCpf(cpf: string | null | undefined): string | null {
 export class ListPlansUseCase {
   constructor(private readonly prisma: PrismaService) {}
 
-  async execute(input: { userId: string; role: string; onlyMine?: boolean }): Promise<{ data: unknown }> {
+  async execute(input: {
+    userId: string;
+    role: string;
+    onlyMine?: boolean;
+  }): Promise<{ data: unknown }> {
     let items: any[];
 
-    const userSelect = { select: { cpf: true, name: true, email: true, clientStatus: true } };
+    const userSelect = {
+      select: { cpf: true, name: true, email: true, clientStatus: true },
+    };
 
     if (input.role === 'ADMIN' && !input.onlyMine) {
       items = await this.prisma.plan.findMany({
@@ -57,12 +73,26 @@ export class ListPlansUseCase {
         include: { user: userSelect },
       });
     } else {
+      const shared = await sharedProductIds(
+        this.prisma,
+        'planos',
+        input.userId,
+      );
       items = await this.prisma.plan.findMany({
-        where: { userId: input.userId },
+        where: shared.length
+          ? { OR: [{ userId: input.userId }, { id: { in: shared } }] }
+          : { userId: input.userId },
         orderBy: { createdAt: 'desc' },
         include: { user: userSelect },
       });
     }
+
+    const coproducao = await coproductionInfo(
+      this.prisma,
+      'planos',
+      input.userId,
+      items,
+    );
 
     return {
       data: items.map((p) => ({
@@ -78,9 +108,11 @@ export class ListPlansUseCase {
         cpfDono: formatCpf(p.user?.cpf),
         donoNome: p.user?.name ?? null,
         donoEmail: p.user?.email ?? null,
+        coproducao: coproducao.get(p.id) ?? null,
         plataforma: extractPlatformFromName(p.name),
         // Plano de cliente SimintPay → exibe SIMINTPAY (planos antigos podem ter GLOBAL/vazio).
-        plataformas: p.user?.clientStatus != null ? ['SIMINTPAY'] : (p.plataformas ?? []),
+        plataformas:
+          p.user?.clientStatus != null ? ['SIMINTPAY'] : (p.plataformas ?? []),
       })),
     };
   }

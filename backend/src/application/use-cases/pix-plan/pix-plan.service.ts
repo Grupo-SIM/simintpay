@@ -1,6 +1,20 @@
-import { captureCoproduction, withCoproduction } from '../../../modules/coproduction/coproduction.service';
-import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
-import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
+import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
+import {
+  assertOwnershipPreserved,
+  resolveFinancialOwner,
+} from '../../helpers/financial-owner.helper';
+import {
+  captureCoproduction,
+  withCoproduction,
+} from '../../../modules/coproduction/coproduction.service';
+import {
+  loadChargePolicy,
+  quoteFinancialCharge,
+} from '../../../modules/financial-policy/financial-charge';
+import {
+  assertExplicitPlatform,
+  platformGatewayToken,
+} from '../../helpers/explicit-platform.helper';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import {
   BadRequestException,
@@ -22,11 +36,20 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import type { PixPlanCheckoutDto } from '../../dtos/pix-plan/pix-plan-checkout.dto';
 import type { PixPlanCheckoutByCodeDto } from '../../dtos/pix-plan/pix-plan-checkout-by-code.dto';
 import type { CreatePixCreditPlanDto } from '../../dtos/pix-plan/create-pix-credit-plan.dto';
-import { PagaTGConfig } from '../../../modules/pagatg/pagatg.config';
-import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import {
+  coproductionInfo,
+  sharedProductIds,
+} from '../../../modules/coproduction/coproduction-view';
+import {
+  getPlatformTaxaEffective,
+  buildUserTaxaTag,
+} from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
-import { assertClientCanCreate, clientTaxaTagFor } from '../../helpers/client-rules.helper';
+import {
+  assertClientCanCreate,
+  clientTaxaTagFor,
+} from '../../helpers/client-rules.helper';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { Optional } from '@nestjs/common';
 
@@ -39,7 +62,7 @@ export class PixPlanService {
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
     @Optional() private readonly emailService?: EmailService,
-  ) { }
+  ) {}
 
   private getDaysForPlan(planType: string): number {
     const daysMapping: Record<string, number> = {
@@ -76,10 +99,13 @@ export class PixPlanService {
     }
   }
 
-  private static readonly PLAN_PLATFORM_CPF_REGEX = /\[CPF:([^\]|]*)\|([^\]]+)\]/;
+  private static readonly PLAN_PLATFORM_CPF_REGEX =
+    /\[CPF:([^\]|]*)\|([^\]]+)\]/;
 
   /** CPF/CNPJ só com dígitos a partir do trecho [CPF:...|TAG] da descrição do plano */
-  private extractOwnerDocumentDigitsFromPlanDescription(description: string | null | undefined): string | null {
+  private extractOwnerDocumentDigitsFromPlanDescription(
+    description: string | null | undefined,
+  ): string | null {
     const m = (description ?? '').match(PixPlanService.PLAN_PLATFORM_CPF_REGEX);
     if (!m) return null;
     const digits = m[1].replace(/\D/g, '');
@@ -88,42 +114,6 @@ export class PixPlanService {
   }
 
   /** Conta Simpay com mesmo documento (CPF ou CNPJ no campo `cpf`) */
-  private async findMerchantUserIdByDocumentDigits(digits: string): Promise<string | null> {
-    const variants: string[] = [digits];
-    if (digits.length === 11) {
-      variants.push(digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'));
-    } else if (digits.length === 14) {
-      variants.push(digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5'));
-    }
-    const user = await this.prisma.user.findFirst({
-      where: { OR: variants.map((cpf) => ({ cpf })) },
-      select: { id: true },
-    });
-    return user?.id ?? null;
-  }
-
-  /**
-   * Pagatg/integrações criam o plano com userId = usuário técnico (domToken).
-   * Transações e saldo devem ir para o usuário Simpay cujo `cpf` bate com [CPF:...|TAG].
-   */
-  private async resolveTransactionUserIdForPixPlan(plan: {
-    userId: string;
-    description: string | null;
-  }): Promise<string> {
-    const owner = await this.prisma.user.findUnique({
-      where: { id: plan.userId },
-      select: { email: true },
-    });
-    const isPlatformShadow = (owner?.email ?? '').toLowerCase().endsWith('@auto.simpay.com');
-    if (!isPlatformShadow) return plan.userId;
-
-    const docDigits = this.extractOwnerDocumentDigitsFromPlanDescription(plan.description);
-    if (!docDigits) return plan.userId;
-
-    const merchantId = await this.findMerchantUserIdByDocumentDigits(docDigits);
-    return merchantId ?? plan.userId;
-  }
-
   private mapPixTypeToFrequency(
     pixType: string,
   ): 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR' {
@@ -143,39 +133,37 @@ export class PixPlanService {
   // ── POST /payments/pix-plan/checkout ─────────────────────────────────────
 
   async createPixPlanPayment(userId: string, body: PixPlanCheckoutDto) {
-
     let effectiveUserId = userId;
     let planTenantTag: string | null = null;
     let planOwnerCpf: string | null = null;
     let planOwnerName: string | null = null;
     if (body.pixCreditPlanId) {
-      const planRow = await this.repo.findPixCreditPlanById(body.pixCreditPlanId);
+      const planRow = await this.repo.findPixCreditPlanById(
+        body.pixCreditPlanId,
+      );
       if (planRow) {
-        effectiveUserId = await this.resolveTransactionUserIdForPixPlan(planRow);
+        effectiveUserId = planRow.userId;
         if (planRow.tenantTag) {
           planTenantTag = planRow.tenantTag.toUpperCase();
         } else {
-          const tagMatch = (planRow.description ?? '').match(/\|([A-Z0-9]+)\]/i);
+          const tagMatch = (planRow.description ?? '').match(
+            /\|([A-Z0-9]+)\]/i,
+          );
           if (tagMatch) planTenantTag = tagMatch[1].toUpperCase();
         }
-        planOwnerCpf = this.extractOwnerDocumentDigitsFromPlanDescription(planRow.description);
-        // 1º: nome da tag [NOME_DONO:] gravada na descrição do plano (planos novos via api-pagatg)
-        const nomeDonoMatch = (planRow.description ?? '').match(/\[NOME_DONO:([^\]]+)\]/i);
-        planOwnerName = nomeDonoMatch ? nomeDonoMatch[1].trim() : null;
-        // 2º fallback: nome da conta Simpay vinculada (quando o merchant já tem conta)
-        if (!planOwnerName) {
-          const ownerUser = await this.prisma.user.findUnique({
-            where: { id: effectiveUserId },
-            select: { name: true, email: true },
-          });
-          const isShadow = (ownerUser?.email ?? '').toLowerCase().endsWith('@auto.simpay.com');
-          if (!isShadow) planOwnerName = ownerUser?.name?.trim() || null;
-        }
+        const merchant = await this.prisma.user.findUnique({
+          where: { id: planRow.userId },
+          select: { cpf: true, cnpj: true, name: true },
+        });
+        planOwnerCpf = merchant?.cnpj ?? merchant?.cpf ?? null;
+        planOwnerName = merchant?.name ?? null;
       }
     }
 
     if (!body.document || !body.document_type)
-      throw new BadRequestException('Documento e tipo de documento são obrigatórios');
+      throw new BadRequestException(
+        'Documento e tipo de documento são obrigatórios',
+      );
     if (!body.price || body.price <= 0)
       throw new BadRequestException('Preço deve ser maior que zero');
     if (!body.email || !body.email.includes('@'))
@@ -183,7 +171,9 @@ export class PixPlanService {
     if (!body.name || body.name.trim().length < 2)
       throw new BadRequestException('Nome deve ter pelo menos 2 caracteres');
 
-    let wallet = await this.prisma.wallet.findUnique({ where: { userId: effectiveUserId } });
+    let wallet = await this.prisma.wallet.findUnique({
+      where: { userId: effectiveUserId },
+    });
     if (!wallet) {
       wallet = await this.prisma.wallet.create({
         data: { userId: effectiveUserId, balance: 0 },
@@ -194,25 +184,50 @@ export class PixPlanService {
     // Usa taxas configuradas para o tenant do plano; fallback para PAGATG se não identificado
     const tenantTag = planTenantTag ?? 'GLOBAL';
     const domToken = platformGatewayToken(tenantTag, process.env.DOM_TOKEN);
-    if (!domToken) throw new UnauthorizedException('Credencial do gateway não configurada');
+    if (!domToken)
+      throw new UnauthorizedException('Credencial do gateway não configurada');
     // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-    const taxaTag = tenantTag === 'GLOBAL' && body.email?.trim()
-      ? buildClientTaxaTag(body.email)
+    const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(tenantTag)
+      ? buildUserTaxaTag(effectiveUserId)
       : tenantTag;
-    const mdrPix = getPlatformTaxaEffective(taxaTag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
-    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, tenantTag), amount, 'PIX');
+    const mdrPix = getPlatformTaxaEffective(
+      taxaTag,
+      'MDR_PIX',
+      PLATFORM_TAXA_DEFAULTS.MDR_PIX,
+    );
+    const financialQuote = quoteFinancialCharge(
+      await loadChargePolicy(this.prisma, taxaTag),
+      amount,
+      'PIX',
+    );
     amount = financialQuote?.totalAmount ?? amount;
-    const netAmount = financialQuote?.netAmount ?? Number(calculateSellerNetValue(amount, 1, taxaTag, 'pix').toFixed(2));
+    const netAmount =
+      financialQuote?.netAmount ??
+      Number(calculateSellerNetValue(amount, 1, taxaTag, 'pix').toFixed(2));
     const totalFee = parseFloat((amount - netAmount).toFixed(2));
-    const domFee = financialQuote?.domFeeAmount ?? parseFloat((amount * mdrPix).toFixed(2));
+    const domFee =
+      financialQuote?.domFeeAmount ?? parseFloat((amount * mdrPix).toFixed(2));
     const platformFee = parseFloat((totalFee - domFee).toFixed(2));
 
-    const coproduction = body.pixCreditPlanId ? await captureCoproduction(this.prisma, 'planos-pix', body.pixCreditPlanId, effectiveUserId, tenantTag) : null;
+    const coproduction = body.pixCreditPlanId
+      ? await captureCoproduction(
+          this.prisma,
+          'planos-pix',
+          body.pixCreditPlanId,
+          effectiveUserId,
+          tenantTag,
+        )
+      : null;
     const transaction = await this.prisma.transaction.create({
       data: {
         userId: effectiveUserId,
-        financialSnapshot: withCoproduction(financialQuote?.financialSnapshot, coproduction),
-        ...((financialQuote || coproduction) ? { settlementBasis: 'FINAL_NET' as const } : {}),
+        financialSnapshot: withCoproduction(
+          financialQuote?.financialSnapshot,
+          coproduction,
+        ),
+        ...(financialQuote || coproduction
+          ? { settlementBasis: 'FINAL_NET' as const }
+          : {}),
         amount: new Prisma.Decimal(amount),
         netAmount: new Prisma.Decimal(netAmount),
         status: 'DRAFT',
@@ -220,6 +235,7 @@ export class PixPlanService {
         totalFee: new Prisma.Decimal(totalFee),
         domFee: new Prisma.Decimal(domFee),
         platformFee: new Prisma.Decimal(platformFee),
+        ...transactionPlatformTagData(planTenantTag),
         description: `${body.description ?? `PIX_PLAN:${body.planType}`}${planTenantTag ? ` [TENANT:${planTenantTag}]` : ''}${planOwnerCpf ? ` [CPF_DONO:${planOwnerCpf}]` : ''}${planOwnerName ? ` [NOME_DONO:${planOwnerName}]` : ''}`,
         customerName: body.name,
         customerEmail: body.email,
@@ -287,7 +303,9 @@ export class PixPlanService {
     } catch (error) {
       this.logger.error('Erro ao criar pagamento de plano PIX:', error);
       if (error instanceof HttpException) throw error;
-      throw new BadRequestException('Erro ao processar compra do plano via PIX');
+      throw new BadRequestException(
+        'Erro ao processar compra do plano via PIX',
+      );
     }
   }
 
@@ -296,7 +314,9 @@ export class PixPlanService {
   async getPixPlanLinkCode(code: string) {
     const link = await this.repo.findPixPlanLinkCodeByCode(code);
     if (!link || !link.isActive) {
-      throw new NotFoundException('Link-code PIX-PLAN não encontrado ou inativo');
+      throw new NotFoundException(
+        'Link-code PIX-PLAN não encontrado ou inativo',
+      );
     }
     return link;
   }
@@ -323,10 +343,15 @@ export class PixPlanService {
       plan: {
         id: link.pixCreditPlan.id,
         value: link.pixCreditPlan.price,
-        frequencyType: this.mapPixTypeToFrequency(String(link.pixCreditPlan.type)),
+        frequencyType: this.mapPixTypeToFrequency(
+          String(link.pixCreditPlan.type),
+        ),
         paymentMethods: ['pix'],
         userId: link.pixCreditPlan.userId,
-        description: (link.pixCreditPlan.description ?? '').replace(/\s*\[CPF:[^\]]*\|PAGATG\]/g, ''),
+        description: (link.pixCreditPlan.description ?? '').replace(
+          /\s*\[CPF:[^\]]*\|PAGATG\]/g,
+          '',
+        ),
         externalReference: null,
         redirectUrl: link.pixCreditPlan.redirectUrl,
         webhookUrl: link.pixCreditPlan.webhookUrl,
@@ -353,7 +378,9 @@ export class PixPlanService {
 
     if (body.voucherCode && body.voucherCode.trim()) {
       try {
-        const API_PAGATG_URL = (getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '';
+        const API_PAGATG_URL =
+          (getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) ||
+          '';
         const voucherResponse = await fetch(
           `${API_PAGATG_URL}/webhook/validate-voucher-by-plan`,
           {
@@ -392,7 +419,11 @@ export class PixPlanService {
 
   // ── POST /payments/pix-plan/:id/link-code ────────────────────────────────
 
-  async createPixPlanLinkCodeForPlan(userId: string, pixPlanId: string, role?: string) {
+  async createPixPlanLinkCodeForPlan(
+    userId: string,
+    pixPlanId: string,
+    role?: string,
+  ) {
     const plan = await this.repo.findPixCreditPlanById(pixPlanId);
     if (!plan || plan.status !== 'ACTIVE')
       throw new NotFoundException('Plano PIX não encontrado ou inativo');
@@ -434,87 +465,113 @@ export class PixPlanService {
     search?: string;
     onlyMine?: boolean;
   }) {
-    const safePage = Number.isFinite(params.page) ? Math.max(1, params.page) : 1;
+    const safePage = Number.isFinite(params.page)
+      ? Math.max(1, params.page)
+      : 1;
     const safeLimit = Number.isFinite(params.limit)
       ? Math.min(Math.max(1, params.limit), 100)
       : 10;
 
     const isAdmin = params.role === 'ADMIN' && !params.onlyMine;
 
-    const { items, total } = await this.repo.findPixCreditPlansByUserIdPaginated({
-      userId: isAdmin ? undefined : params.userId,
-      page: safePage,
-      limit: safeLimit,
-      status: params.status,
-      search: params.search,
-    });
+    const { items, total } =
+      await this.repo.findPixCreditPlansByUserIdPaginated({
+        userId: isAdmin ? undefined : params.userId,
+        page: safePage,
+        limit: safeLimit,
+        status: params.status,
+        search: params.search,
+        sharedIds: isAdmin
+          ? undefined
+          : await sharedProductIds(this.prisma, 'planos-pix', params.userId),
+      });
+    const coproducao = await coproductionInfo(
+      this.prisma,
+      'planos-pix',
+      params.userId,
+      items,
+    );
 
-    const mappedItems = await Promise.all(items.map(async (p: any) => {
-      const desc: string = p.description ?? '';
+    const mappedItems = await Promise.all(
+      items.map(async (p: any) => {
+        const desc: string = p.description ?? '';
 
-      // CPF do dono: extrair da descrição ([CPF:xxx|TAG]) — o userId do plano é conta técnica
-      let cpfDono: string | null = null;
-      let donoNome: string | null = null;
-      let donoEmail: string | null = null;
+        // CPF do dono: extrair da descrição ([CPF:xxx|TAG]) — o userId do plano é conta técnica
+        let cpfDono: string | null = null;
+        let donoNome: string | null = null;
+        let donoEmail: string | null = null;
 
-      const descCpf = this.extractOwnerDocumentDigitsFromPlanDescription(desc);
-      if (descCpf) {
-        cpfDono = descCpf.length === 11
-          ? descCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
-          : descCpf;
-        // Nome extraído de [NOME_DONO:...] na description (formato legado dos planos antigos)
-        const nomeDono = desc.match(/\[NOME_DONO:([^\]]+)\]/i)?.[1]?.trim() ?? null;
-        donoNome = nomeDono;
-        // Email: tentar encontrar o usuário pelo CPF no banco
-        const userByCpf = await (this.prisma as any).user.findUnique({
-          where: { cpf: descCpf },
-          select: { email: true, name: true },
-        }).catch(() => null);
-        if (userByCpf) {
-          donoEmail = userByCpf.email ?? null;
-          if (!donoNome) donoNome = userByCpf.name ?? null;
+        const descCpf =
+          this.extractOwnerDocumentDigitsFromPlanDescription(desc);
+        if (descCpf) {
+          cpfDono =
+            descCpf.length === 11
+              ? descCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
+              : descCpf;
+          // Nome extraído de [NOME_DONO:...] na description (formato legado dos planos antigos)
+          const nomeDono =
+            desc.match(/\[NOME_DONO:([^\]]+)\]/i)?.[1]?.trim() ?? null;
+          donoNome = nomeDono;
+          // Email: tentar encontrar o usuário pelo CPF no banco
+          const userByCpf = await (this.prisma as any).user
+            .findUnique({
+              where: { cpf: descCpf },
+              select: { email: true, name: true },
+            })
+            .catch(() => null);
+          if (userByCpf) {
+            donoEmail = userByCpf.email ?? null;
+            if (!donoNome) donoNome = userByCpf.name ?? null;
+          }
+        } else {
+          // Fallback: CPF do user dono (quando o plano foi criado pelo próprio merchant)
+          const cpfRaw: string | null | undefined = p.user?.cpf;
+          if (cpfRaw) {
+            const digits = cpfRaw.replace(/\D/g, '');
+            cpfDono =
+              digits.length === 11
+                ? digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
+                : cpfRaw;
+          }
+          donoNome = p.user?.name ?? p.user?.nome ?? null;
+          donoEmail = p.user?.email ?? null;
         }
-      } else {
-        // Fallback: CPF do user dono (quando o plano foi criado pelo próprio merchant)
-        const cpfRaw: string | null | undefined = p.user?.cpf;
-        if (cpfRaw) {
-          const digits = cpfRaw.replace(/\D/g, '');
-          cpfDono = digits.length === 11
-            ? digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
-            : cpfRaw;
-        }
-        donoNome = p.user?.name ?? p.user?.nome ?? null;
-        donoEmail = p.user?.email ?? null;
-      }
 
-      return {
-        id: p.id,
-        userId: p.userId,
-        type: p.type,
-        price: p.price,
-        description: p.description,
-        redirectUrl: p.redirectUrl,
-        webhookUrl: p.webhookUrl,
-        status: p.status,
-        createdAt: p.createdAt,
-        updatedAt: p.updatedAt,
-        linkCode: p.linkCodes?.[0]?.code ?? null,
-        subscriberCount: (p._count?.accesses ?? 0) as number,
-        cpfDono,
-        donoNome,
-        donoEmail,
-        tenantTag: (() => {
-          const raw = p.tenantTag
-            ? p.tenantTag.toUpperCase()
-            : (p.description ?? '').match(/\[TENANT:([^\]]+)\]/i)?.[1]?.toUpperCase()
-            ?? (p.description ?? '').match(/\[CPF:[^\]|]*\|([^\]]+)\]/i)?.[1]?.toUpperCase()
-            ?? null;
-          // Plano de cliente SimintPay (tag CLIENT:<email>) ou GLOBAL → exibe SIMINTPAY (GLOBAL = SimintPay).
-          if (raw?.startsWith('CLIENT:') || raw === 'GLOBAL') return 'SIMINTPAY';
-          return raw;
-        })(),
-      };
-    }));
+        return {
+          id: p.id,
+          userId: p.userId,
+          type: p.type,
+          price: p.price,
+          description: p.description,
+          redirectUrl: p.redirectUrl,
+          webhookUrl: p.webhookUrl,
+          status: p.status,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+          linkCode: p.linkCodes?.[0]?.code ?? null,
+          subscriberCount: (p._count?.accesses ?? 0) as number,
+          coproducao: coproducao.get(p.id) ?? null,
+          cpfDono,
+          donoNome,
+          donoEmail,
+          tenantTag: (() => {
+            const raw = p.tenantTag
+              ? p.tenantTag.toUpperCase()
+              : ((p.description ?? '')
+                  .match(/\[TENANT:([^\]]+)\]/i)?.[1]
+                  ?.toUpperCase() ??
+                (p.description ?? '')
+                  .match(/\[CPF:[^\]|]*\|([^\]]+)\]/i)?.[1]
+                  ?.toUpperCase() ??
+                null);
+            // Plano de cliente SimintPay (tag CLIENT:<email>) ou GLOBAL → exibe SIMINTPAY (GLOBAL = SimintPay).
+            if (raw?.startsWith('CLIENT:') || raw === 'GLOBAL')
+              return 'SIMINTPAY';
+            return raw;
+          })(),
+        };
+      }),
+    );
 
     return {
       items: mappedItems,
@@ -552,9 +609,13 @@ export class PixPlanService {
         emailBody: plan.emailBody ?? null,
         tenantTag: plan.tenantTag
           ? plan.tenantTag.toUpperCase()
-          : (plan.description ?? '').match(/\[TENANT:([^\]]+)\]/i)?.[1]?.toUpperCase()
-          ?? (plan.description ?? '').match(/\[CPF:[^\]|]*\|([^\]]+)\]/i)?.[1]?.toUpperCase()
-          ?? null,
+          : ((plan.description ?? '')
+              .match(/\[TENANT:([^\]]+)\]/i)?.[1]
+              ?.toUpperCase() ??
+            (plan.description ?? '')
+              .match(/\[CPF:[^\]|]*\|([^\]]+)\]/i)?.[1]
+              ?.toUpperCase() ??
+            null),
         linkCode: linkCode?.code ?? null,
         createdAt: plan.createdAt,
       },
@@ -579,32 +640,61 @@ export class PixPlanService {
   ) {
     const plan = await this.repo.findPixCreditPlanById(planId);
     if (!plan) throw new NotFoundException('Plano PIX não encontrado');
+    assertOwnershipPreserved(plan, body);
     if (role !== 'ADMIN' && plan.userId !== userId)
       throw new BadRequestException('Plano não pertence a este usuário');
 
     let description = body.description;
-    if (description !== undefined && typeof description !== 'string') throw new BadRequestException('Descrição inválida');
+    if (description !== undefined && typeof description !== 'string')
+      throw new BadRequestException('Descrição inválida');
     if (role !== 'ADMIN' && description !== undefined) {
       const metadataPattern = /\[(?:CPF_DONO|CPF|TENANT|NOME_DONO):[^\]]*\]/gi;
       const original = plan.description?.match(metadataPattern) ?? [];
       const supplied = description.match(metadataPattern) ?? [];
-      if (supplied.length && JSON.stringify(supplied) !== JSON.stringify(original)) {
-        throw new ForbiddenException('Metadados de proprietário e plataforma não podem ser alterados');
+      if (
+        supplied.length &&
+        JSON.stringify(supplied) !== JSON.stringify(original)
+      ) {
+        throw new ForbiddenException(
+          'Metadados de proprietário e plataforma não podem ser alterados',
+        );
       }
-      description = [description.replace(metadataPattern, '').trim(), ...original].filter(Boolean).join(' ');
+      description = [
+        description.replace(metadataPattern, '').trim(),
+        ...original,
+      ]
+        .filter(Boolean)
+        .join(' ');
     }
 
-    const selectedTag = body.tenantTag !== undefined ? assertExplicitPlatform({ id: userId, role }, body.tenantTag ? [body.tenantTag] : undefined, true) : undefined;
+    const selectedTag =
+      body.tenantTag !== undefined
+        ? assertExplicitPlatform(
+            { id: userId, role },
+            body.tenantTag ? [body.tenantTag] : undefined,
+            true,
+          )
+        : undefined;
     const updated = await this.prisma.pixCreditPlan.update({
       where: { id: planId },
       data: {
         ...(description !== undefined && { description }),
         ...(body.price !== undefined && { price: body.price }),
-        ...(body.frequency_type !== undefined && { type: this.mapFrequencyToType(body.frequency_type as 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR') }),
-        ...(body.redirectUrl !== undefined && { redirectUrl: body.redirectUrl || null }),
-        ...(body.webhookUrl !== undefined && { webhookUrl: body.webhookUrl || null }),
+        ...(body.frequency_type !== undefined && {
+          type: this.mapFrequencyToType(
+            body.frequency_type as 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR',
+          ),
+        }),
+        ...(body.redirectUrl !== undefined && {
+          redirectUrl: body.redirectUrl || null,
+        }),
+        ...(body.webhookUrl !== undefined && {
+          webhookUrl: body.webhookUrl || null,
+        }),
         ...(body.tenantTag !== undefined && { tenantTag: selectedTag }),
-        ...(body.emailBody !== undefined && { emailBody: body.emailBody || null }),
+        ...(body.emailBody !== undefined && {
+          emailBody: body.emailBody || null,
+        }),
       },
     });
 
@@ -627,27 +717,40 @@ export class PixPlanService {
     return { success: true, message: 'Plano PIX deletado com sucesso' };
   }
 
-  async togglePixCreditPlanStatus(userId: string, planId: string, role?: string) {
+  async togglePixCreditPlanStatus(
+    userId: string,
+    planId: string,
+    role?: string,
+  ) {
     const plan = await this.repo.findPixCreditPlanById(planId);
     if (!plan) throw new NotFoundException('Plano não encontrado');
 
     if (role !== 'ADMIN' && plan.userId !== userId) {
-      throw new BadRequestException('Você não tem permissão para alterar este plano');
+      throw new BadRequestException(
+        'Você não tem permissão para alterar este plano',
+      );
     }
 
     const newStatus = plan.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     await this.repo.updatePixCreditPlanStatus(planId, newStatus);
 
     // Agora buscamos todos os acessos associados a este plano para suspender/reativar
-    const associatedAccesses = await this.repo.findCustomerPlanAccessByPlanId(planId);
+    const associatedAccesses =
+      await this.repo.findCustomerPlanAccessByPlanId(planId);
 
     const results = [];
     for (const access of associatedAccesses) {
       try {
-        const toggleResult = await this.toggleCustomerPlanAccessStatus(access.id);
+        const toggleResult = await this.toggleCustomerPlanAccessStatus(
+          access.id,
+        );
         results.push({ accessId: access.id, ...toggleResult });
       } catch (error) {
-        results.push({ accessId: access.id, success: false, error: (error as any).message });
+        results.push({
+          accessId: access.id,
+          success: false,
+          error: (error as any).message,
+        });
       }
     }
 
@@ -666,19 +769,31 @@ export class PixPlanService {
     body: CreatePixCreditPlanDto,
   ) {
     // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
-    const owner = await this.prisma.user.findUnique({ where: { id: userId } });
+    const {
+      owner,
+      platformTag: explicitTag,
+      createdByUserId,
+    } = await resolveFinancialOwner(
+      {
+        findById: (id) =>
+          this.prisma.user.findUnique({
+            where: { id },
+            include: { platform: true },
+          }),
+        findByEmail: (email) =>
+          this.prisma.user.findUnique({ where: { email } }),
+      },
+      userId,
+      { ...body, platforms: body.tenantTag ? [body.tenantTag] : undefined },
+    );
     assertClientCanCreate(owner, body.price);
     const clientTag = clientTaxaTagFor(owner);
-
     const type = this.mapFrequencyToType(body.frequency_type);
-    // O produto de origem (ex.: PAGATG) sempre manda no tenant do plano — a mesma
-    // conta pode ser cliente SimintPay e também dona de um plano em outro produto.
-    // A tag CLIENT:<email> só se aplica quando o chamador não informou um tenant próprio.
-    const explicitTag = assertExplicitPlatform(owner, body.tenantTag ? [body.tenantTag] : undefined, true);
     const tag = explicitTag ?? clientTag;
     const plan = await this.repo.createPixCreditPlan({
       coproduction: body.coproduction,
-      userId,
+      userId: owner.id,
+      createdByUserId,
       type,
       price: body.price,
       description: body.description,
@@ -825,12 +940,14 @@ export class PixPlanService {
     for (const plan of activePlans) {
       try {
         const beforeDays = Math.ceil(
-          (new Date(plan.expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000),
+          (new Date(plan.expiresAt).getTime() - Date.now()) /
+            (24 * 60 * 60 * 1000),
         );
         await this.decrementPlanDays(plan);
         const updatedPlan = await this.repo.findCustomerPlanAccessById(plan.id);
         const afterDays = Math.ceil(
-          (new Date(updatedPlan.expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000),
+          (new Date(updatedPlan.expiresAt).getTime() - Date.now()) /
+            (24 * 60 * 60 * 1000),
         );
         results.processed++;
         if (!updatedPlan.isActive) {
@@ -874,10 +991,18 @@ export class PixPlanService {
       for (const access of accesses) {
         const expiresAt = new Date(access.expiresAt);
         const diffTime = expiresAt.getTime() - now.getTime();
-        const days = remainingDays > 0 ? remainingDays : Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+        const days =
+          remainingDays > 0
+            ? remainingDays
+            : Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
         await (this.prisma as any).customerPlanAccess.update({
           where: { id: access.id },
-          data: { isActive: false, expiresAt: now, totalDaysCredited: days, createdAt: now },
+          data: {
+            isActive: false,
+            expiresAt: now,
+            totalDaysCredited: days,
+            createdAt: now,
+          },
         });
       }
       return { success: true, updated: accesses.length };
@@ -887,9 +1012,12 @@ export class PixPlanService {
         where: { customerId, isActive: false },
       });
       for (const access of accesses) {
-        const days = remainingDays > 0 ? remainingDays : (access.totalDaysCredited ?? 0);
+        const days =
+          remainingDays > 0 ? remainingDays : (access.totalDaysCredited ?? 0);
         if (days <= 0) continue;
-        const newExpiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+        const newExpiresAt = new Date(
+          now.getTime() + days * 24 * 60 * 60 * 1000,
+        );
         await (this.prisma as any).customerPlanAccess.update({
           where: { id: access.id },
           data: { isActive: true, expiresAt: newExpiresAt, createdAt: now },
@@ -899,18 +1027,22 @@ export class PixPlanService {
     }
   }
 
-  async toggleCustomerPlanAccessStatus(id: string, requesterRole?: string) {
+  async toggleCustomerPlanAccessStatus(id: string) {
     const access = await this.repo.findCustomerPlanAccessById(id);
     if (!access) throw new NotFoundException('Acesso ao plano não encontrado');
 
     const now = new Date();
-    const isCurrentlyActive = access.isActive && new Date(access.expiresAt) > now;
+    const isCurrentlyActive =
+      access.isActive && new Date(access.expiresAt) > now;
 
     if (isCurrentlyActive) {
       // SUSPENDER
       const expiresAt = new Date(access.expiresAt);
       const diffTime = expiresAt.getTime() - now.getTime();
-      const remainingDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+      const remainingDays = Math.max(
+        0,
+        Math.ceil(diffTime / (1000 * 60 * 60 * 24)),
+      );
 
       await this.repo.updateCustomerPlanAccessById(id, {
         isActive: false,
@@ -927,13 +1059,21 @@ export class PixPlanService {
 
       // Notificar api-pagatg da mudança de status
       try {
-        const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
-        const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
+        const apiPagatgUrl = (
+          (getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) ||
+          ''
+        ).replace(/\/+$/, '');
+        const pagatgInternalToken =
+          (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ??
+            undefined) ||
+          '';
         await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+            ...(pagatgInternalToken
+              ? { 'x-pagatg-internal-token': pagatgInternalToken }
+              : {}),
           },
           body: JSON.stringify({
             code: access.pixPlanCode || 'STATUS_UPDATE',
@@ -944,7 +1084,9 @@ export class PixPlanService {
           }),
         });
       } catch (webhookError: any) {
-        this.logger.error(`Erro ao notificar api-pagatg (SUSPENDED): ${webhookError.message}`);
+        this.logger.error(
+          `Erro ao notificar api-pagatg (SUSPENDED): ${webhookError.message}`,
+        );
       }
 
       return result;
@@ -952,10 +1094,14 @@ export class PixPlanService {
       // REATIVAR
       const daysToReturn = access.totalDaysCredited;
       if (daysToReturn <= 0) {
-        throw new BadRequestException('Não há dias restantes para reativar este acesso');
+        throw new BadRequestException(
+          'Não há dias restantes para reativar este acesso',
+        );
       }
 
-      const newExpiresAt = new Date(now.getTime() + daysToReturn * 24 * 60 * 60 * 1000);
+      const newExpiresAt = new Date(
+        now.getTime() + daysToReturn * 24 * 60 * 60 * 1000,
+      );
 
       await this.repo.updateCustomerPlanAccessById(id, {
         isActive: true,
@@ -972,13 +1118,21 @@ export class PixPlanService {
 
       // Notificar api-pagatg da mudança de status
       try {
-        const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
-        const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
+        const apiPagatgUrl = (
+          (getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) ||
+          ''
+        ).replace(/\/+$/, '');
+        const pagatgInternalToken =
+          (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ??
+            undefined) ||
+          '';
         await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+            ...(pagatgInternalToken
+              ? { 'x-pagatg-internal-token': pagatgInternalToken }
+              : {}),
           },
           body: JSON.stringify({
             code: access.pixPlanCode || 'STATUS_UPDATE',
@@ -989,7 +1143,9 @@ export class PixPlanService {
           }),
         });
       } catch (webhookError: any) {
-        this.logger.error(`Erro ao notificar api-pagatg (ACTIVE): ${webhookError.message}`);
+        this.logger.error(
+          `Erro ao notificar api-pagatg (ACTIVE): ${webhookError.message}`,
+        );
       }
 
       return result;
@@ -1001,17 +1157,27 @@ export class PixPlanService {
     const expiresAt = new Date(access.expiresAt);
 
     if (expiresAt <= now && access.isActive) {
-      await this.repo.updateCustomerPlanAccessById(access.id, { isActive: false });
-      
+      await this.repo.updateCustomerPlanAccessById(access.id, {
+        isActive: false,
+      });
+
       // Notificar api-pagatg da expiração automática
       try {
-        const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
-        const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
+        const apiPagatgUrl = (
+          (getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) ||
+          ''
+        ).replace(/\/+$/, '');
+        const pagatgInternalToken =
+          (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ??
+            undefined) ||
+          '';
         await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+            ...(pagatgInternalToken
+              ? { 'x-pagatg-internal-token': pagatgInternalToken }
+              : {}),
           },
           body: JSON.stringify({
             code: access.pixPlanCode || 'STATUS_UPDATE',
@@ -1022,7 +1188,9 @@ export class PixPlanService {
           }),
         });
       } catch (webhookError: any) {
-        this.logger.error(`Erro ao notificar api-pagatg de expiração (SUSPENDED): ${webhookError.message}`);
+        this.logger.error(
+          `Erro ao notificar api-pagatg de expiração (SUSPENDED): ${webhookError.message}`,
+        );
       }
       return;
     }
@@ -1033,7 +1201,10 @@ export class PixPlanService {
     const daysSinceCreation = Math.floor(
       (now.getTime() - createdAt.getTime()) / (24 * 60 * 60 * 1000),
     );
-    const remainingDays = Math.max(access.totalDaysCredited - daysSinceCreation, 0);
+    const remainingDays = Math.max(
+      access.totalDaysCredited - daysSinceCreation,
+      0,
+    );
 
     if (remainingDays <= 0 && access.isActive) {
       await this.repo.updateCustomerPlanAccessById(access.id, {
@@ -1043,13 +1214,21 @@ export class PixPlanService {
 
       // Notificar api-pagatg da expiração automática por dias consumidos
       try {
-        const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
-        const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
+        const apiPagatgUrl = (
+          (getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) ||
+          ''
+        ).replace(/\/+$/, '');
+        const pagatgInternalToken =
+          (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ??
+            undefined) ||
+          '';
         await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+            ...(pagatgInternalToken
+              ? { 'x-pagatg-internal-token': pagatgInternalToken }
+              : {}),
           },
           body: JSON.stringify({
             code: access.pixPlanCode || 'STATUS_UPDATE',
@@ -1060,14 +1239,18 @@ export class PixPlanService {
           }),
         });
       } catch (webhookError: any) {
-        this.logger.error(`Erro ao notificar api-pagatg de expiração por dias (SUSPENDED): ${webhookError.message}`);
+        this.logger.error(
+          `Erro ao notificar api-pagatg de expiração por dias (SUSPENDED): ${webhookError.message}`,
+        );
       }
       return;
     }
 
     if (remainingDays <= 0) return;
 
-    const newExpiresAt = new Date(now.getTime() + remainingDays * 24 * 60 * 60 * 1000);
+    const newExpiresAt = new Date(
+      now.getTime() + remainingDays * 24 * 60 * 60 * 1000,
+    );
     await this.repo.updateCustomerPlanAccessById(access.id, {
       expiresAt: newExpiresAt,
       isActive: remainingDays > 0,
@@ -1085,16 +1268,31 @@ export class PixPlanService {
     });
 
     // Se ainda PENDING, consulta DOM diretamente para status em tempo real
-    if (transaction?.status === 'PENDING' && transaction.domPaymentId && transaction.user?.domToken) {
+    if (
+      transaction?.status === 'PENDING' &&
+      transaction.domPaymentId &&
+      transaction.user?.domToken
+    ) {
       try {
-        const domTx = await this.gateway.getDomTransactionDetail(transaction.user.domToken, transaction.domPaymentId);
+        const domTx = await this.gateway.getDomTransactionDetail(
+          transaction.user.domToken,
+          transaction.domPaymentId,
+        );
         const domStatus: string = domTx?.status ?? '';
-        const isPaid = ['paid', 'approved', 'completed', 'revision_paid', 'capture'].includes(domStatus.toLowerCase());
+        const isPaid = [
+          'paid',
+          'approved',
+          'completed',
+          'revision_paid',
+          'capture',
+        ].includes(domStatus.toLowerCase());
         if (isPaid) {
           // Só reflete o status na resposta. Persistir COMPLETED aqui sem creditar a wallet fazia o
           // webhook/cron DOM (que só creditam na transição PENDING → COMPLETED) nunca creditarem a venda.
           transaction = { ...transaction, status: 'COMPLETED' as any };
-          this.logger.log(`[getPurchaseDetails] tx ${transaction.id} paga na DOM; crédito da wallet segue pelo webhook/cron`);
+          this.logger.log(
+            `[getPurchaseDetails] tx ${transaction.id} paga na DOM; crédito da wallet segue pelo webhook/cron`,
+          );
         }
       } catch {
         // ignora erro — retorna status local
@@ -1117,11 +1315,11 @@ export class PixPlanService {
             status: subscription.status,
             customer: subscription.customer
               ? {
-                id: subscription.customer.id,
-                name: subscription.customer.name,
-                email: subscription.customer.email,
-                document: subscription.customer.document,
-              }
+                  id: subscription.customer.id,
+                  name: subscription.customer.name,
+                  email: subscription.customer.email,
+                  document: subscription.customer.document,
+                }
               : null,
             plan: {
               id: subscription.plan.id,
@@ -1137,10 +1335,14 @@ export class PixPlanService {
       throw new NotFoundException('Transação não encontrada');
     }
 
-    const pixPlanOrder = await this.repo.findPixPlanOrderByTransactionId(transaction.id);
+    const pixPlanOrder = await this.repo.findPixPlanOrderByTransactionId(
+      transaction.id,
+    );
 
     if (pixPlanOrder) {
-      const planAccess = await (this.prisma as any).customerPlanAccess.findFirst({
+      const planAccess = await (
+        this.prisma as any
+      ).customerPlanAccess.findFirst({
         where: { lastTransactionId: transaction.id },
         include: { customer: true },
       });
@@ -1150,7 +1352,10 @@ export class PixPlanService {
         const now = new Date();
         const expiresAt = new Date(planAccess.expiresAt);
         const diffTime = expiresAt.getTime() - now.getTime();
-        remainingDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+        remainingDays = Math.max(
+          0,
+          Math.ceil(diffTime / (1000 * 60 * 60 * 24)),
+        );
       }
 
       return {
@@ -1169,20 +1374,23 @@ export class PixPlanService {
           name: planAccess?.customer?.name || null,
         },
         plan: {
-          name: pixPlanOrder.pixCreditPlan?.description || `Plano ${pixPlanOrder.planType}`,
+          name:
+            pixPlanOrder.pixCreditPlan?.description ||
+            `Plano ${pixPlanOrder.planType}`,
           type: pixPlanOrder.planType,
           daysCredited: pixPlanOrder.daysCredited,
-          price: pixPlanOrder.pixCreditPlan?.price || Number(transaction.amount),
+          price:
+            pixPlanOrder.pixCreditPlan?.price || Number(transaction.amount),
           code: pixPlanOrder.pixCreditPlan?.linkCodes?.[0]?.code || null,
         },
         planAccess: planAccess
           ? {
-            id: planAccess.id,
-            isActive: planAccess.isActive,
-            expiresAt: planAccess.expiresAt,
-            remainingDays,
-            totalDaysCredited: planAccess.totalDaysCredited,
-          }
+              id: planAccess.id,
+              isActive: planAccess.isActive,
+              expiresAt: planAccess.expiresAt,
+              remainingDays,
+              totalDaysCredited: planAccess.totalDaysCredited,
+            }
           : null,
       };
     }
@@ -1208,11 +1416,11 @@ export class PixPlanService {
           status: subscription.status,
           customer: subscription.customer
             ? {
-              id: subscription.customer.id,
-              name: subscription.customer.name,
-              email: subscription.customer.email,
-              document: subscription.customer.document,
-            }
+                id: subscription.customer.id,
+                name: subscription.customer.name,
+                email: subscription.customer.email,
+                document: subscription.customer.document,
+              }
             : null,
           plan: {
             id: subscription.plan.id,
@@ -1251,10 +1459,13 @@ export class PixPlanService {
       mobile_phone?: string;
     },
   ) {
-    const pixOrder = await this.repo.findPixPlanOrderByTransactionId(transactionId);
+    const pixOrder =
+      await this.repo.findPixPlanOrderByTransactionId(transactionId);
     if (!pixOrder || pixOrder.paid) return;
 
-    this.logger.log(`PIX-PLAN: Creditando ${pixOrder.daysCredited} dias (${pixOrder.planType})`);
+    this.logger.log(
+      `PIX-PLAN: Creditando ${pixOrder.daysCredited} dias (${pixOrder.planType})`,
+    );
 
     const doc = customerData.document.replace(/[.-]/g, '');
     const now = new Date();
@@ -1281,7 +1492,9 @@ export class PixPlanService {
 
     let pixPlanLinkCode: string | null = null;
     if (pixOrder.pixCreditPlanId) {
-      const pixPlan = await this.repo.findPixCreditPlanById(pixOrder.pixCreditPlanId);
+      const pixPlan = await this.repo.findPixCreditPlanById(
+        pixOrder.pixCreditPlanId,
+      );
       if (pixPlan) {
         const linkCodes = await (this.prisma as any).pixPlanLinkCode.findFirst({
           where: { pixCreditPlanId: pixOrder.pixCreditPlanId },
@@ -1299,8 +1512,11 @@ export class PixPlanService {
     const additionalDays = pixOrder.daysCredited;
 
     if (existing) {
-      const base = new Date(existing.expiresAt) > now ? new Date(existing.expiresAt) : now;
-      const newExpiresAt = new Date(base.getTime() + additionalDays * 24 * 60 * 60 * 1000);
+      const base =
+        new Date(existing.expiresAt) > now ? new Date(existing.expiresAt) : now;
+      const newExpiresAt = new Date(
+        base.getTime() + additionalDays * 24 * 60 * 60 * 1000,
+      );
 
       await this.repo.updateCustomerPlanAccess(
         {
@@ -1318,7 +1534,9 @@ export class PixPlanService {
         },
       );
     } else {
-      const newExpiresAt = new Date(now.getTime() + additionalDays * 24 * 60 * 60 * 1000);
+      const newExpiresAt = new Date(
+        now.getTime() + additionalDays * 24 * 60 * 60 * 1000,
+      );
 
       await this.repo.createCustomerPlanAccess({
         userId: pixOrder.userId,
@@ -1344,19 +1562,29 @@ export class PixPlanService {
     try {
       let linkCodeForNotification = pixPlanLinkCode;
       if (!linkCodeForNotification && pixOrder.pixCreditPlanId) {
-        const foundLinkCode = await (this.prisma as any).pixPlanLinkCode.findFirst({
+        const foundLinkCode = await (
+          this.prisma as any
+        ).pixPlanLinkCode.findFirst({
           where: { pixCreditPlanId: pixOrder.pixCreditPlanId },
         });
         linkCodeForNotification = foundLinkCode?.code || null;
       }
       if (linkCodeForNotification) {
-        const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
-        const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
+        const apiPagatgUrl = (
+          (getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) ||
+          ''
+        ).replace(/\/+$/, '');
+        const pagatgInternalToken =
+          (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ??
+            undefined) ||
+          '';
         await fetch(`${apiPagatgUrl}/webhook/pix-credit`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+            ...(pagatgInternalToken
+              ? { 'x-pagatg-internal-token': pagatgInternalToken }
+              : {}),
           },
           body: JSON.stringify({
             code: linkCodeForNotification,
@@ -1374,7 +1602,9 @@ export class PixPlanService {
     // E-mail de acesso personalizado (qualquer plataforma com corpo definido)
     if (this.emailService && pixOrder.pixCreditPlanId) {
       try {
-        const plan = await this.repo.findPixCreditPlanById(pixOrder.pixCreditPlanId);
+        const plan = await this.repo.findPixCreditPlanById(
+          pixOrder.pixCreditPlanId,
+        );
         if (plan && plan.emailBody?.trim()) {
           await this.emailService.sendEbookAccessEmail({
             to: pixOrder.customerEmail,
@@ -1385,7 +1615,9 @@ export class PixPlanService {
           });
         }
       } catch (emailErr: any) {
-        this.logger.error(`PIX-PLAN: falha ao enviar e-mail de ebook: ${emailErr?.message ?? emailErr}`);
+        this.logger.error(
+          `PIX-PLAN: falha ao enviar e-mail de ebook: ${emailErr?.message ?? emailErr}`,
+        );
       }
     }
 

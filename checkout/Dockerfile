@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY backend/package.json backend/package.json
 COPY checkout/package.json checkout/package.json
+COPY frontend/package.json frontend/package.json
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile --ignore-scripts
 
 FROM node:22-bookworm-slim AS build

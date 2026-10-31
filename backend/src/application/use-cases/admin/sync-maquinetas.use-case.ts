@@ -1,6 +1,13 @@
-import { loadChargePolicy, quoteReportedPos } from '../../../modules/financial-policy/financial-charge';
+import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
+import {
+  loadChargePolicy,
+  quoteReportedPos,
+} from '../../../modules/financial-policy/financial-charge';
 import { isPhysicalDebit } from '../../helpers/dom-fee-estimate.helper';
-import { registeredPlatformTags, getPlatformOwnerId } from '../../../modules/module.registry';
+import {
+  registeredPlatformTags,
+  getPlatformOwnerId,
+} from '../../../modules/module.registry';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, TransactionStatus, PaymentMethod } from '@prisma/client';
@@ -8,7 +15,10 @@ import dayjs from 'dayjs';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { appendInternalTags, ORIGEM_MAQUINETA_TAG, TENANT_RENOVADA_TAG } from '../../utils/internal-tags.util';
+import {
+  appendInternalTags,
+  ORIGEM_MAQUINETA_TAG,
+} from '../../utils/internal-tags.util';
 import { calculateMaquinetaFees } from '../../helpers/maquineta-fee.helper';
 
 /**
@@ -36,9 +46,23 @@ type MaquinetaPlatform = {
 
 function configuredMachinePlatforms(): MaquinetaPlatform[] {
   return registeredPlatformTags().flatMap((tag) => {
-    const serials = (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+    const serials = (getPlatformIntegrationValue(tag, 'MACHINE_SERIALS') ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
     if (!serials.length) return [];
-    return [{ tag, tenantTag: `[TENANT:${tag}]`, documents: (getPlatformIntegrationValue(tag, 'MACHINE_DOCUMENTS') ?? '').split(',').filter(Boolean), serials, isDefault: false, fallbackSerial: `POS-${tag}` }];
+    return [
+      {
+        tag,
+        tenantTag: `[TENANT:${tag}]`,
+        documents: (getPlatformIntegrationValue(tag, 'MACHINE_DOCUMENTS') ?? '')
+          .split(',')
+          .filter(Boolean),
+        serials,
+        isDefault: false,
+        fallbackSerial: `POS-${tag}`,
+      },
+    ];
   });
 }
 
@@ -68,19 +92,26 @@ export class SyncMaquinetasUseCase {
     }
 
     // Carteira de cada plataforma com maquineta — sem carteira, a plataforma é ignorada.
-    const platformsComCarteira: Array<{ platform: MaquinetaPlatform; userId: string }> = [];
+    const platformsComCarteira: Array<{
+      platform: MaquinetaPlatform;
+      userId: string;
+    }> = [];
     for (const platform of configuredMachinePlatforms()) {
       const userId = getPlatformOwnerId(platform.tag);
       if (!userId) continue;
       const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
       if (!wallet) {
-        this.logger.warn(`[SyncMaquinetas] Wallet de ${platform.tag} não encontrada — plataforma ignorada`);
+        this.logger.warn(
+          `[SyncMaquinetas] Wallet de ${platform.tag} não encontrada — plataforma ignorada`,
+        );
         continue;
       }
       platformsComCarteira.push({ platform, userId });
     }
     if (platformsComCarteira.length === 0) {
-      throw new Error('Nenhuma plataforma com maquineta possui carteira configurada');
+      throw new Error(
+        'Nenhuma plataforma com maquineta possui carteira configurada',
+      );
     }
 
     const allMachineTxs = await this.fetchAllMachineTxsFromDom(
@@ -88,7 +119,9 @@ export class SyncMaquinetasUseCase {
       platformsComCarteira.map((p) => p.platform),
       daysBack,
     );
-    this.logger.log(`[SyncMaquinetas] Encontradas ${allMachineTxs.length} transações de maquinetas na DOM`);
+    this.logger.log(
+      `[SyncMaquinetas] Encontradas ${allMachineTxs.length} transações de maquinetas na DOM`,
+    );
 
     let synced = 0;
     let skipped = 0;
@@ -96,11 +129,19 @@ export class SyncMaquinetasUseCase {
     let totalAmount = 0;
 
     for (const { tx, platform } of allMachineTxs) {
-      const userId = platformsComCarteira.find((p) => p.platform.tag === platform.tag)!.userId;
+      const userId = platformsComCarteira.find(
+        (p) => p.platform.tag === platform.tag,
+      )!.userId;
       try {
         const amountReais = tx.amount; // DOM envia em Reais (ex: 25.00) para máquinas
         const serial = tx.serial;
-        let fees = calculateMaquinetaFees(platform.tag, amountReais, tx.payment_method, tx.installments, tx.card_brand);
+        let fees = calculateMaquinetaFees(
+          platform.tag,
+          amountReais,
+          tx.payment_method,
+          tx.installments,
+          tx.card_brand,
+        );
 
         // Verificar se já existe no banco (pela domPaymentId que é UNICA)
         const existing = await this.prisma.transaction.findUnique({
@@ -110,7 +151,10 @@ export class SyncMaquinetasUseCase {
         if (existing) {
           const oldAmount = existing.amount.toNumber();
           const diff = amountReais - oldAmount;
-          const hasMissingFields = !existing.customerDocument || !existing.domTransactionId || !(existing as any).cardCodeAuth;
+          const hasMissingFields =
+            !existing.customerDocument ||
+            !existing.domTransactionId ||
+            !(existing as any).cardCodeAuth;
 
           // SEM RETROATIVIDADE: transação já sincronizada nunca é reprecificada com as
           // taxas novas. Se o bruto está correto, o netAmount e a carteira não são tocados.
@@ -120,7 +164,9 @@ export class SyncMaquinetasUseCase {
                 where: { id: existing.id },
                 data: {
                   // Só atualiza domTransactionId se ainda não está preenchido (evita unique constraint)
-                  ...(!existing.domTransactionId && tx.cod_external ? { domTransactionId: tx.cod_external } : {}),
+                  ...(!existing.domTransactionId && tx.cod_external
+                    ? { domTransactionId: tx.cod_external }
+                    : {}),
                   customerEmail: tx.customer_email,
                   customerDocument: tx.customer_document,
                   customerPhone: tx.customer_phone,
@@ -140,12 +186,16 @@ export class SyncMaquinetasUseCase {
           // o líquido é escalado na mesma proporção do bruto, nunca recalculado com as
           // taxas novas. Só o custo DOM é reestimado (não afeta o cliente nem a carteira).
           const oldNet = existing.netAmount?.toNumber() ?? null;
-          const ratio = oldAmount !== 0 && oldNet !== null ? amountReais / oldAmount : null;
-          const netCorrigido = ratio !== null ? round2(oldNet! * ratio) : fees.netAmount;
+          const ratio =
+            oldAmount !== 0 && oldNet !== null ? amountReais / oldAmount : null;
+          const netCorrigido =
+            ratio !== null ? round2(oldNet! * ratio) : fees.netAmount;
           const platformFeeCorrigido = round2(amountReais - netCorrigido);
           const domFeeCorrigido = fees.domFeeAmt;
 
-          this.logger.log(`[SyncMaquinetas] Corrigindo transação ${tx.id}: R$${oldAmount} -> R$${amountReais} (Dif: R$${diff.toFixed(2)})`);
+          this.logger.log(
+            `[SyncMaquinetas] Corrigindo transação ${tx.id}: R$${oldAmount} -> R$${amountReais} (Dif: R$${diff.toFixed(2)})`,
+          );
 
           await this.prisma.$transaction(async (p) => {
             // 1. Atualizar a transação
@@ -154,7 +204,9 @@ export class SyncMaquinetasUseCase {
               data: {
                 amount: new Prisma.Decimal(amountReais),
                 netAmount: new Prisma.Decimal(netCorrigido),
-                totalFee: new Prisma.Decimal(domFeeCorrigido + platformFeeCorrigido),
+                totalFee: new Prisma.Decimal(
+                  domFeeCorrigido + platformFeeCorrigido,
+                ),
                 domFee: new Prisma.Decimal(domFeeCorrigido),
                 platformFee: new Prisma.Decimal(platformFeeCorrigido),
                 description: appendInternalTags(
@@ -170,11 +222,15 @@ export class SyncMaquinetasUseCase {
 
             // 2. Ajustar saldo da carteira com a DIFERENÇA de líquido.
             // wallet.balance acumula o netAmount; oldNet é o que foi creditado na última sync.
-            const currentWallet = await p.wallet.findUnique({ where: { userId } });
+            const currentWallet = await p.wallet.findUnique({
+              where: { userId },
+            });
             if (currentWallet) {
               const baseNet = oldNet ?? netCorrigido;
               const diffNet = netCorrigido - baseNet;
-              const newBalance = currentWallet.balance.add(new Prisma.Decimal(diffNet));
+              const newBalance = currentWallet.balance.add(
+                new Prisma.Decimal(diffNet),
+              );
               await p.wallet.updateMany({
                 where: { id: currentWallet.id, version: currentWallet.version },
                 data: { balance: newBalance, version: { increment: 1 } },
@@ -185,11 +241,13 @@ export class SyncMaquinetasUseCase {
                   userId,
                   action: 'MAQUINETA_CORRECTION',
                   transactionId: existing.id,
-                  amount: new Prisma.Decimal(diffNet),
-                  balanceBefore: currentWallet.balance,
-                  balanceAfter: newBalance,
-                  lockedBefore: currentWallet.lockedBalance,
-                  lockedAfter: currentWallet.lockedBalance,
+
+                  balanceDelta: new Prisma.Decimal(newBalance).sub(
+                    currentWallet.balance,
+                  ),
+
+                  lockedDelta: 0,
+
                   source: 'MAQUINETA_SYNC',
                   description: `Ajuste net: R$${baseNet.toFixed(2)} -> R$${netCorrigido.toFixed(2)} (diff: R$${diffNet.toFixed(2)})`,
                 },
@@ -202,31 +260,60 @@ export class SyncMaquinetasUseCase {
           continue;
         }
 
-        const financialQuote = tx.created_at ? quoteReportedPos(await loadChargePolicy(this.prisma, platform.tag, new Date(tx.created_at)), amountReais,
-          isPhysicalDebit(tx.payment_method, tx.card_brand) ? 'DEBIT_CARD' : /card|credit/i.test(tx.payment_method ?? '') ? 'CREDIT_CARD' : 'PIX', Number(tx.installments ?? 1)) : null;
-        if (financialQuote) fees = { simIntRate: 0, platformFeeAmt: financialQuote.platformProfit, netAmount: financialQuote.netAmount, domFeeAmt: financialQuote.domFeeAmount };
+        const financialQuote = tx.created_at
+          ? quoteReportedPos(
+              await loadChargePolicy(
+                this.prisma,
+                platform.tag,
+                new Date(tx.created_at),
+              ),
+              amountReais,
+              isPhysicalDebit(tx.payment_method, tx.card_brand)
+                ? 'DEBIT_CARD'
+                : /card|credit/i.test(tx.payment_method ?? '')
+                  ? 'CREDIT_CARD'
+                  : 'PIX',
+              Number(tx.installments ?? 1),
+            )
+          : null;
+        if (financialQuote)
+          fees = {
+            simIntRate: 0,
+            platformFeeAmt: financialQuote.platformProfit,
+            netAmount: financialQuote.netAmount,
+            domFeeAmt: financialQuote.domFeeAmount,
+          };
         // --- NOVA TRANSAÇÃO ---
         const pm = String(tx.payment_method ?? '').toLowerCase();
         // TODO: mudar CREDIT_CARD para DEBIT_CARD quando rodar: prisma migrate dev + prisma generate
-        const paymentMethod = (pm.includes('card') || pm.includes('debit') || pm.includes('credit'))
-          ? PaymentMethod.CREDIT_CARD
-          : PaymentMethod.PIX;
+        const paymentMethod =
+          pm.includes('card') || pm.includes('debit') || pm.includes('credit')
+            ? PaymentMethod.CREDIT_CARD
+            : PaymentMethod.PIX;
 
         await this.prisma.$transaction(async (p) => {
           const newTx = await p.transaction.create({
             data: {
               userId,
               domPaymentId: tx.id,
-              ...(financialQuote ? { financialSnapshot: financialQuote.financialSnapshot, settlementBasis: 'FINAL_NET' as const } : {}),
+              ...(financialQuote
+                ? {
+                    financialSnapshot: financialQuote.financialSnapshot,
+                    settlementBasis: 'FINAL_NET' as const,
+                  }
+                : {}),
               domTransactionId: tx.cod_external || null, // null para PIX sem cod_external
               amount: new Prisma.Decimal(amountReais),
               // Cliente só perde a taxa Sim Int Pay — o MDR da DOM sai da margem da casa.
               netAmount: new Prisma.Decimal(fees.netAmount),
-              totalFee: new Prisma.Decimal(fees.domFeeAmt + fees.platformFeeAmt),
+              totalFee: new Prisma.Decimal(
+                fees.domFeeAmt + fees.platformFeeAmt,
+              ),
               domFee: new Prisma.Decimal(fees.domFeeAmt),
               platformFee: new Prisma.Decimal(fees.platformFeeAmt),
               status: TransactionStatus.COMPLETED,
               paymentMethod,
+              ...transactionPlatformTagData(platform.tag),
               description: appendInternalTags(
                 `Maquineta - Terminal: ${serial}`,
                 [platform.tenantTag, ORIGEM_MAQUINETA_TAG],
@@ -248,14 +335,22 @@ export class SyncMaquinetasUseCase {
               transactionId: newTx.id,
               fromStatus: TransactionStatus.DRAFT,
               toStatus: TransactionStatus.COMPLETED,
-              metadata: { reason: 'sync-maquinetas', serial, plataforma: platform.tag },
+              metadata: {
+                reason: 'sync-maquinetas',
+                serial,
+                plataforma: platform.tag,
+              },
             },
           });
 
           // wallet.balance armazena o líquido do cliente = amount × (1 − taxa Sim Int Pay)
-          const currentWallet = await p.wallet.findUnique({ where: { userId } });
+          const currentWallet = await p.wallet.findUnique({
+            where: { userId },
+          });
           if (currentWallet) {
-            const newBalance = currentWallet.balance.add(new Prisma.Decimal(fees.netAmount));
+            const newBalance = currentWallet.balance.add(
+              new Prisma.Decimal(fees.netAmount),
+            );
             await p.wallet.updateMany({
               where: { id: currentWallet.id, version: currentWallet.version },
               data: { balance: newBalance, version: { increment: 1 } },
@@ -265,11 +360,13 @@ export class SyncMaquinetasUseCase {
                 userId,
                 action: 'MAQUINETA_SYNC',
                 transactionId: newTx.id,
-                amount: new Prisma.Decimal(fees.netAmount),
-                balanceBefore: currentWallet.balance,
-                balanceAfter: newBalance,
-                lockedBefore: currentWallet.lockedBalance,
-                lockedAfter: currentWallet.lockedBalance,
+
+                balanceDelta: new Prisma.Decimal(newBalance).sub(
+                  currentWallet.balance,
+                ),
+
+                lockedDelta: 0,
+
                 source: 'MAQUINETA_SYNC',
                 description: `Terminal: ${serial}`,
               },
@@ -281,19 +378,20 @@ export class SyncMaquinetasUseCase {
         totalAmount += amountReais;
         this.logger.log(
           `[SyncMaquinetas] Sincronizada: domId=${tx.id}, plataforma=${platform.tag}, serial=${serial}, ` +
-          `valor=R$${amountReais.toFixed(2)}, taxa=${(fees.simIntRate * 100).toFixed(2)}%, ` +
-          `líquido=R$${fees.netAmount.toFixed(2)}, custoDOM=R$${fees.domFeeAmt.toFixed(2)}`,
+            `valor=R$${amountReais.toFixed(2)}, taxa=${(fees.simIntRate * 100).toFixed(2)}%, ` +
+            `líquido=R$${fees.netAmount.toFixed(2)}, custoDOM=R$${fees.domFeeAmt.toFixed(2)}`,
         );
       } catch (err: any) {
         if (err?.code === 'P2002') {
           skipped++;
         } else {
           errors++;
-          this.logger.error(`[SyncMaquinetas] Erro ao sincronizar ${tx.id}: ${err.message}`);
+          this.logger.error(
+            `[SyncMaquinetas] Erro ao sincronizar ${tx.id}: ${err.message}`,
+          );
         }
       }
     }
-
 
     const message = `Sincronização concluída: ${synced} novas, ${skipped} já existentes, ${errors} erros. Total: R$${totalAmount.toFixed(2)}`;
     this.logger.log(`[SyncMaquinetas] ${message}`);
@@ -309,7 +407,10 @@ export class SyncMaquinetasUseCase {
     platforms: MaquinetaPlatform[],
     daysBack?: number,
   ): Promise<Array<{ tx: any; platform: MaquinetaPlatform }>> {
-    const baseUrl = (process.env.DOM_REAL_API_URL ?? 'https://apiv3.dompagamentos.com.br/checkout/production').replace(/\/$/, '');
+    const baseUrl = (
+      process.env.DOM_REAL_API_URL ??
+      'https://apiv3.dompagamentos.com.br/checkout/production'
+    ).replace(/\/$/, '');
     const url = `${baseUrl}/transactions`;
 
     let beginDate: string;
@@ -318,14 +419,17 @@ export class SyncMaquinetasUseCase {
     } else {
       // Forçar 30 dias se não houver data no env, ou se a data do env for muito antiga (2024, etc)
       const envDate = process.env.MAQUINETA_SYNC_BEGIN_DATE;
-      beginDate = (envDate && !envDate.startsWith('2024'))
-        ? envDate
-        : dayjs().subtract(30, 'day').format('YYYY-MM-DD');
+      beginDate =
+        envDate && !envDate.startsWith('2024')
+          ? envDate
+          : dayjs().subtract(30, 'day').format('YYYY-MM-DD');
     }
 
     const endDate = dayjs().format('YYYY-MM-DD');
 
-    this.logger.log(`[SyncMaquinetas] Rodando busca na DOM: ${beginDate} até ${endDate} (URL: ${url})`);
+    this.logger.log(
+      `[SyncMaquinetas] Rodando busca na DOM: ${beginDate} até ${endDate} (URL: ${url})`,
+    );
 
     const headers = {
       Authorization: `Bearer ${domToken}`,
@@ -346,7 +450,9 @@ export class SyncMaquinetasUseCase {
           end_date: endDate,
         };
 
-        this.logger.debug(`[SyncMaquinetas] GET Page ${page} Params: ${JSON.stringify(params)}`);
+        this.logger.debug(
+          `[SyncMaquinetas] GET Page ${page} Params: ${JSON.stringify(params)}`,
+        );
 
         const res = await firstValueFrom(
           this.http.get<any>(url, {
@@ -356,20 +462,24 @@ export class SyncMaquinetasUseCase {
         );
 
         const root = res.data;
-        const items = root?.transactions || root?.data || (Array.isArray(root) ? root : []);
+        const items =
+          root?.transactions || root?.data || (Array.isArray(root) ? root : []);
 
         if (!items || items.length === 0) {
           this.logger.log(`[SyncMaquinetas] Página ${page} sem itens.`);
           break;
         }
 
-        this.logger.log(`[SyncMaquinetas] Página ${page}: Recebidos ${items.length} itens brutos.`);
+        this.logger.log(
+          `[SyncMaquinetas] Página ${page}: Recebidos ${items.length} itens brutos.`,
+        );
 
         // Filtrar apenas transações de maquinetas e atribuir à plataforma dona
         let machineCountInPage = 0;
         for (const item of items) {
           const s = String(item.status ?? '').toLowerCase();
-          const isSuccessful = s === 'paid' || s === 'approved' || s === 'completed';
+          const isSuccessful =
+            s === 'paid' || s === 'approved' || s === 'completed';
           if (!isSuccessful) continue;
 
           const platform = this.matchMachinePlatform(item, platforms);
@@ -379,7 +489,9 @@ export class SyncMaquinetasUseCase {
           machineCountInPage++;
         }
 
-        this.logger.log(`[SyncMaquinetas] Página ${page}: ${machineCountInPage} identificados como máquina (pagas/aprovadas).`);
+        this.logger.log(
+          `[SyncMaquinetas] Página ${page}: ${machineCountInPage} identificados como máquina (pagas/aprovadas).`,
+        );
 
         if (items.length < limit) break;
 
@@ -392,9 +504,13 @@ export class SyncMaquinetasUseCase {
           break;
         }
       } catch (err: any) {
-        this.logger.error(`[SyncMaquinetas] Erro na página ${page}: ${err?.response?.status ?? err.message}`);
+        this.logger.error(
+          `[SyncMaquinetas] Erro na página ${page}: ${err?.response?.status ?? err.message}`,
+        );
         if (err?.response?.data) {
-          this.logger.error(`[SyncMaquinetas] Detalhes do erro: ${JSON.stringify(err.response.data)}`);
+          this.logger.error(
+            `[SyncMaquinetas] Detalhes do erro: ${JSON.stringify(err.response.data)}`,
+          );
         }
         break;
       }
@@ -407,12 +523,23 @@ export class SyncMaquinetasUseCase {
    * Identifica se uma transação da DOM é de maquineta (POS) e de qual plataforma.
    * Retorna null quando não é venda física de nenhuma plataforma configurada.
    */
-  private matchMachinePlatform(item: any, platforms: MaquinetaPlatform[]): MaquinetaPlatform | null {
+  private matchMachinePlatform(
+    item: any,
+    platforms: MaquinetaPlatform[],
+  ): MaquinetaPlatform | null {
     const typeOp = String(item.type_operation ?? '').toLowerCase();
-    const doc = String(item.customer_document ?? item.customer?.document ?? '').replace(/\D/g, '');
-    const email = String(item.customer_email ?? item.customer?.email ?? '').toLowerCase();
-    const serial = String(item.serial_number ?? item.terminal_serial ?? '').toUpperCase();
-    const name = String(item.customer?.name ?? item.customer_name ?? '').toUpperCase();
+    const doc = String(
+      item.customer_document ?? item.customer?.document ?? '',
+    ).replace(/\D/g, '');
+    const email = String(
+      item.customer_email ?? item.customer?.email ?? '',
+    ).toLowerCase();
+    const serial = String(
+      item.serial_number ?? item.terminal_serial ?? '',
+    ).toUpperCase();
+    const name = String(
+      item.customer?.name ?? item.customer_name ?? '',
+    ).toUpperCase();
 
     // 1. Prioridade: operação física + CNPJ da plataforma
     // (Para PIX via POS, customer_document pode ser o CPF do pagador — não o CNPJ da plataforma)
@@ -440,10 +567,14 @@ export class SyncMaquinetasUseCase {
   }
 
   private extractSerial(item: any, platform: MaquinetaPlatform): string {
-    const serial = String(item.serial_number ?? item.terminal_serial ?? '').toUpperCase();
+    const serial = String(
+      item.serial_number ?? item.terminal_serial ?? '',
+    ).toUpperCase();
     if (serial && serial !== 'SEM-SERIAL') return serial;
 
-    const name = String(item.customer?.name ?? item.customer_name ?? '').toUpperCase();
+    const name = String(
+      item.customer?.name ?? item.customer_name ?? '',
+    ).toUpperCase();
     const m = name.match(/Terminal:\s*([A-Z0-9]+)/i);
     if (m) return m[1];
 
@@ -472,11 +603,20 @@ export class SyncMaquinetasUseCase {
       card_code_auth: item.card_code_auth ?? null,
       customer_name: item.customer?.name ?? item.customer_name ?? 'Cliente POS',
       customer_email: item.customer?.email ?? item.customer_email ?? '',
-      customer_document: item.customer?.document ?? item.customer_document ?? platform.documents[0] ?? '',
+      customer_document:
+        item.customer?.document ??
+        item.customer_document ??
+        platform.documents[0] ??
+        '',
       customer_phone: item.customer?.mobile_phone ?? item.customer_phone ?? '',
       // Para PIX via POS, cod_external é null — usa o E2E ID (card_code_auth) como referência única
       // Nunca usar '' como fallback: string vazia viola o unique constraint de domTransactionId
-      cod_external: item.cod_external || item.external_id || item.nsu || item.card_code_auth || null,
+      cod_external:
+        item.cod_external ||
+        item.external_id ||
+        item.nsu ||
+        item.card_code_auth ||
+        null,
       type_operation: item.type_operation ?? 'fisical',
       serial: this.extractSerial(item, platform),
     };

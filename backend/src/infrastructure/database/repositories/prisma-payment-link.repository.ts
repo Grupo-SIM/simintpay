@@ -1,7 +1,10 @@
 import { createWithCoproduction } from '../../../modules/coproduction/coproduction.service';
 import { Injectable } from '@nestjs/common';
 import { PaymentLink, Prisma } from '@prisma/client';
-import type { CreatePaymentLinkData, IPaymentLinkRepository } from '../../../core/repositories/payment-link.repository.interface';
+import type {
+  CreatePaymentLinkData,
+  IPaymentLinkRepository,
+} from '../../../core/repositories/payment-link.repository.interface';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -9,41 +12,49 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(data: CreatePaymentLinkData): Promise<PaymentLink> {
-    return createWithCoproduction(this.prisma, 'links-pagamento', data.userId, data.coproduction, tx => tx.paymentLink.create({
-      data: {
-        ...(data.id ? { id: data.id } : {}),
-        userId: data.userId,
-        title: data.title,
-        description: data.description ?? undefined,
-        amount: new Prisma.Decimal(data.amount),
-        expiresAt: data.expiresAt ?? undefined,
-        maxInstallments: data.maxInstallments,
-        aceitaCartao: data.aceitaCartao ?? true,
-        aceitaPix: data.aceitaPix ?? true,
-        aceitaDebito: data.aceitaDebito ?? true,
-        isActive: data.isActive ?? true,
-        isStandalone: data.isStandalone ?? true,
-        platformFee1x: data.platformFee1x ?? 9.00,
-        platformFee2x: data.platformFee2x ?? 13.30,
-        platformFee3x: data.platformFee3x ?? 14.68,
-        platformFee4x: data.platformFee4x ?? 16.04,
-        platformFee5x: data.platformFee5x ?? 17.37,
-        platformFee6x: data.platformFee6x ?? 18.67,
-        platformFee7x: data.platformFee7x ?? 19.95,
-        platformFee8x: data.platformFee8x ?? 21.21,
-        platformFee9x: data.platformFee9x ?? 22.44,
-        platformFee10x: data.platformFee10x ?? 23.64,
-        platformFee11x: data.platformFee11x ?? 24.83,
-        platformFee12x: data.platformFee12x ?? 25.99,
-        cashbackFee: data.cashbackFee ?? 3.00,
-        webhookUrl: data.webhookUrl ?? undefined,
-        redirectUrl: data.redirectUrl ?? undefined,
-        maxUses: data.maxUses ?? undefined,
-        domPaymentLinkId: data.domPaymentLinkId ?? undefined,
-        emailBody: data.emailBody ?? undefined,
-        plataformas: data.plataformas ?? [],
-      },
-    }));
+    return createWithCoproduction(
+      this.prisma,
+      'links-pagamento',
+      data.userId,
+      data.coproduction,
+      (tx) =>
+        tx.paymentLink.create({
+          data: {
+            ...(data.id ? { id: data.id } : {}),
+            userId: data.userId,
+            createdByUserId: data.createdByUserId,
+            title: data.title,
+            description: data.description ?? undefined,
+            amount: new Prisma.Decimal(data.amount),
+            expiresAt: data.expiresAt ?? undefined,
+            maxInstallments: data.maxInstallments,
+            aceitaCartao: data.aceitaCartao ?? true,
+            aceitaPix: data.aceitaPix ?? true,
+            aceitaDebito: data.aceitaDebito ?? true,
+            isActive: data.isActive ?? true,
+            isStandalone: data.isStandalone ?? true,
+            platformFee1x: data.platformFee1x ?? 9.0,
+            platformFee2x: data.platformFee2x ?? 13.3,
+            platformFee3x: data.platformFee3x ?? 14.68,
+            platformFee4x: data.platformFee4x ?? 16.04,
+            platformFee5x: data.platformFee5x ?? 17.37,
+            platformFee6x: data.platformFee6x ?? 18.67,
+            platformFee7x: data.platformFee7x ?? 19.95,
+            platformFee8x: data.platformFee8x ?? 21.21,
+            platformFee9x: data.platformFee9x ?? 22.44,
+            platformFee10x: data.platformFee10x ?? 23.64,
+            platformFee11x: data.platformFee11x ?? 24.83,
+            platformFee12x: data.platformFee12x ?? 25.99,
+            cashbackFee: data.cashbackFee ?? 3.0,
+            webhookUrl: data.webhookUrl ?? undefined,
+            redirectUrl: data.redirectUrl ?? undefined,
+            maxUses: data.maxUses ?? undefined,
+            domPaymentLinkId: data.domPaymentLinkId ?? undefined,
+            emailBody: data.emailBody ?? undefined,
+            plataformas: data.plataformas ?? [],
+          },
+        }),
+    );
   }
 
   async findManyByUserId(input: {
@@ -137,7 +148,8 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
       data: {
         title: data.title,
         description: data.description ?? undefined,
-        amount: data.amount != null ? new Prisma.Decimal(data.amount) : undefined,
+        amount:
+          data.amount != null ? new Prisma.Decimal(data.amount) : undefined,
         expiresAt: data.expiresAt ?? undefined,
         maxInstallments: data.maxInstallments,
         aceitaCartao: data.aceitaCartao,
@@ -164,7 +176,9 @@ export class PrismaPaymentLinkRepository implements IPaymentLinkRepository {
         currentUses: data.currentUses,
         domPaymentLinkId: data.domPaymentLinkId ?? undefined,
         ...(data.emailBody !== undefined && { emailBody: data.emailBody }),
-        ...(data.plataformas !== undefined && { plataformas: data.plataformas }),
+        ...(data.plataformas !== undefined && {
+          plataformas: data.plataformas,
+        }),
       },
     });
   }

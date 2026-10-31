@@ -1,5 +1,15 @@
 import { initializePlatformRegistryCache } from '../../modules/module.registry';
-beforeEach(async () => { await initializePlatformRegistryCache({ platform: { findMany: async () => ['ATLAS', 'RENOVADA', 'BOSQUE'].map(tag => ({ tag, ownerUserId: tag.toLowerCase() + '-1' })) } } as never); });
+beforeEach(async () => {
+  await initializePlatformRegistryCache({
+    platform: {
+      findMany: async () =>
+        ['ATLAS', 'RENOVADA', 'BOSQUE'].map((tag) => ({
+          tag,
+          ownerUserId: tag.toLowerCase() + '-1',
+        })),
+    },
+  } as never);
+});
 // `uuid` (v13) é ESM-only e o jest não o transforma por padrão.
 jest.mock('uuid', () => ({
   v4: () => 'test-uuid',
@@ -9,7 +19,8 @@ jest.mock('uuid', () => ({
 }));
 
 jest.mock('../../modules/platform-taxas/platform-taxas.store', () => ({
-  getPlatformTaxaEffective: (_tag: string, _key: string, fallback: number) => fallback,
+  getPlatformTaxaEffective: (_tag: string, _key: string, fallback: number) =>
+    fallback,
   invalidatePlatformTaxaCache: jest.fn(),
   buildClientTaxaTag: (email: string) => `CLIENT:${email}`,
   canonicalPlatformTaxaTag: (tag: string) => tag,
@@ -40,7 +51,9 @@ describe('AdminController.getPlataformaConsolidado', () => {
       },
     } as any;
 
-    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+    const result = await (
+      AdminController.prototype as any
+    ).getPlataformaConsolidado.call(
       ctx,
       'RENOVADA',
       '2026-09-01',
@@ -59,27 +72,109 @@ describe('AdminController.getPlataformaConsolidado', () => {
       totalRepasse: -3.08,
     });
 
-    expect(result.taxaSimIntPctBruta + result.taxaSimIntFixa).toBeCloseTo(4.08, 2);
+    expect(result.taxaSimIntPctBruta + result.taxaSimIntFixa).toBeCloseTo(
+      4.08,
+      2,
+    );
   });
 
   it('separa POS das taxas online e fecha receita menos repasse com todas as taxas Sim Int Pay', async () => {
     const createdAt = new Date('2026-09-08T20:00:00Z');
     const ctx = {
       findLocalPlatformReportTransactions: jest.fn().mockResolvedValue([
-        { amount: 52, paymentMethod: 'PIX', installments: 1, description: 'dizimo', netAmount: 47.83, domFee: 0.51, platformFee: 4.17, createdAt, cardBrand: null, acquirer: 'DOM' },
-        { amount: 110, paymentMethod: 'PIX', installments: 1, description: 'dizimo', netAmount: 101.18, domFee: 1.08, platformFee: 8.82, createdAt, cardBrand: null, acquirer: 'DOM' },
-        { amount: 55, paymentMethod: 'PIX', installments: 1, description: 'primicia', netAmount: 50.59, domFee: 0.54, platformFee: 4.41, createdAt, cardBrand: null, acquirer: 'DOM' },
-        { amount: 163, paymentMethod: 'PIX', installments: 1, description: 'dizimo', netAmount: 149.93, domFee: 1.6, platformFee: 13.07, createdAt, cardBrand: null, acquirer: 'DOM' },
-        { amount: 28.99, paymentMethod: 'PIX', installments: 1, description: 'Maquineta - Terminal: pix-1', netAmount: 26.38, domFee: 0.29, platformFee: 2.61, createdAt, cardBrand: null, acquirer: 'DOM' },
-        { amount: 20, paymentMethod: 'PIX', installments: 1, description: 'Maquineta - Terminal: pix-2', netAmount: 18.2, domFee: 0.2, platformFee: 1.8, createdAt, cardBrand: null, acquirer: 'DOM' },
-        { amount: 30, paymentMethod: 'CREDIT_CARD', installments: 1, description: 'Maquineta - Terminal: card-1', netAmount: 27.3, domFee: 2.05, platformFee: 2.7, createdAt, cardBrand: 'VISA', acquirer: 'DOM' },
+        {
+          amount: 52,
+          paymentMethod: 'PIX',
+          installments: 1,
+          description: 'dizimo',
+          netAmount: 47.83,
+          domFee: 0.51,
+          platformFee: 4.17,
+          createdAt,
+          cardBrand: null,
+          acquirer: 'DOM',
+        },
+        {
+          amount: 110,
+          paymentMethod: 'PIX',
+          installments: 1,
+          description: 'dizimo',
+          netAmount: 101.18,
+          domFee: 1.08,
+          platformFee: 8.82,
+          createdAt,
+          cardBrand: null,
+          acquirer: 'DOM',
+        },
+        {
+          amount: 55,
+          paymentMethod: 'PIX',
+          installments: 1,
+          description: 'primicia',
+          netAmount: 50.59,
+          domFee: 0.54,
+          platformFee: 4.41,
+          createdAt,
+          cardBrand: null,
+          acquirer: 'DOM',
+        },
+        {
+          amount: 163,
+          paymentMethod: 'PIX',
+          installments: 1,
+          description: 'dizimo',
+          netAmount: 149.93,
+          domFee: 1.6,
+          platformFee: 13.07,
+          createdAt,
+          cardBrand: null,
+          acquirer: 'DOM',
+        },
+        {
+          amount: 28.99,
+          paymentMethod: 'PIX',
+          installments: 1,
+          description: 'Maquineta - Terminal: pix-1',
+          netAmount: 26.38,
+          domFee: 0.29,
+          platformFee: 2.61,
+          createdAt,
+          cardBrand: null,
+          acquirer: 'DOM',
+        },
+        {
+          amount: 20,
+          paymentMethod: 'PIX',
+          installments: 1,
+          description: 'Maquineta - Terminal: pix-2',
+          netAmount: 18.2,
+          domFee: 0.2,
+          platformFee: 1.8,
+          createdAt,
+          cardBrand: null,
+          acquirer: 'DOM',
+        },
+        {
+          amount: 30,
+          paymentMethod: 'CREDIT_CARD',
+          installments: 1,
+          description: 'Maquineta - Terminal: card-1',
+          netAmount: 27.3,
+          domFee: 2.05,
+          platformFee: 2.7,
+          createdAt,
+          cardBrand: 'VISA',
+          acquirer: 'DOM',
+        },
       ]),
       prisma: {
         community: { findUnique: jest.fn().mockResolvedValue(null) },
       },
     } as any;
 
-    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+    const result = await (
+      AdminController.prototype as any
+    ).getPlataformaConsolidado.call(
       ctx,
       'RENOVADA',
       '2026-09-01',
@@ -106,7 +201,10 @@ describe('AdminController.getPlataformaConsolidado', () => {
       totalTaxasSimIntGeral: 53.58,
       totalTaxasDomGeral: 22.27,
     });
-    expect(result.receitaTotal - result.totalRepasse).toBeCloseTo(result.totalTaxasSimIntGeral, 2);
+    expect(result.receitaTotal - result.totalRepasse).toBeCloseTo(
+      result.totalTaxasSimIntGeral,
+      2,
+    );
   });
 
   it('não estima MDR atual quando a venda não tem taxa DOM persistida', async () => {
@@ -130,7 +228,9 @@ describe('AdminController.getPlataformaConsolidado', () => {
       },
     } as any;
 
-    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+    const result = await (
+      AdminController.prototype as any
+    ).getPlataformaConsolidado.call(
       ctx,
       'RENOVADA',
       '2026-06-01',
@@ -173,7 +273,9 @@ describe('AdminController.getPlataformaConsolidado', () => {
       },
     } as any;
 
-    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+    const result = await (
+      AdminController.prototype as any
+    ).getPlataformaConsolidado.call(
       ctx,
       'REVALIDA',
       '2026-02-01',
@@ -215,7 +317,9 @@ describe('AdminController.getPlataformaConsolidado', () => {
       },
     } as any;
 
-    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+    const result = await (
+      AdminController.prototype as any
+    ).getPlataformaConsolidado.call(
       ctx,
       'RENOVADA',
       '2026-04-01',
@@ -240,6 +344,7 @@ describe('AdminController.getPlataformaConsolidado', () => {
           installments: 1,
           createdAt: new Date('2026-08-17T12:00:00Z'),
           description: 'Teron workspace (1 integrante) [TENANT:TERON]',
+          platformTag: 'TERON',
           netAmount: 1,
           domFee: 0,
           platformFee: 0,
@@ -252,7 +357,9 @@ describe('AdminController.getPlataformaConsolidado', () => {
       },
     } as any;
 
-    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+    const result = await (
+      AdminController.prototype as any
+    ).getPlataformaConsolidado.call(
       ctx,
       'TERON',
       '2026-08-01',
@@ -280,7 +387,9 @@ describe('AdminController.getPlataformaConsolidado', () => {
       amount,
       paymentMethod: 'PIX',
       installments: 1,
-      createdAt: new Date(`2026-08-${String(index + 1).padStart(2, '0')}T07:02:00Z`),
+      createdAt: new Date(
+        `2026-08-${String(index + 1).padStart(2, '0')}T07:02:00Z`,
+      ),
       description: `[TENANT:COMBO-DE-COMUNIDADES] subOrder=order-${index + 1}`,
       netAmount: 54.51,
       domFee: 0,
@@ -294,17 +403,25 @@ describe('AdminController.getPlataformaConsolidado', () => {
       amountCharged: amount,
       platformFeeAmount: 0,
       paymentMethod: 'PIX',
-      createdAt: new Date(`2026-08-${String(index + 1).padStart(2, '0')}T07:02:00Z`),
+      createdAt: new Date(
+        `2026-08-${String(index + 1).padStart(2, '0')}T07:02:00Z`,
+      ),
     }));
     const ctx = {
-      findLocalPlatformReportTransactions: jest.fn().mockResolvedValue(transactions),
+      findLocalPlatformReportTransactions: jest
+        .fn()
+        .mockResolvedValue(transactions),
       prisma: {
-        community: { findUnique: jest.fn().mockResolvedValue({ id: 'community-1' }) },
+        community: {
+          findUnique: jest.fn().mockResolvedValue({ id: 'community-1' }),
+        },
         communityLinkBinding: {
-          findMany: jest.fn().mockResolvedValue([{
-            subscriptionLinkId: 'link-1',
-            subscriptionLink: { isStandalone: true },
-          }]),
+          findMany: jest.fn().mockResolvedValue([
+            {
+              subscriptionLinkId: 'link-1',
+              subscriptionLink: { isStandalone: true },
+            },
+          ]),
         },
         subscriptionLinkOrder: {
           findMany: jest.fn().mockResolvedValue(orders),
@@ -312,7 +429,9 @@ describe('AdminController.getPlataformaConsolidado', () => {
       },
     } as any;
 
-    const result = await (AdminController.prototype as any).getPlataformaConsolidado.call(
+    const result = await (
+      AdminController.prototype as any
+    ).getPlataformaConsolidado.call(
       ctx,
       'COMBO-DE-COMUNIDADES',
       '2026-07-01',
@@ -348,7 +467,11 @@ describe('AdminController.listPlataformaTransacoes — comunidade standalone', (
       customerName: null,
       customerEmail: null,
       customerDocument: null,
-      subscriptionLink: { name: 'Combo de Comunidades', userId: 'owner-1', isStandalone: true },
+      subscriptionLink: {
+        name: 'Combo de Comunidades',
+        userId: 'owner-1',
+        isStandalone: true,
+      },
     };
     const transaction = {
       id: 'tx-1',
@@ -369,16 +492,24 @@ describe('AdminController.listPlataformaTransacoes — comunidade standalone', (
     };
     const ctx = {
       prisma: {
-        community: { findUnique: jest.fn().mockResolvedValue({ id: 'community-1' }) },
-        communityLinkBinding: {
-          findMany: jest.fn().mockResolvedValue([{ subscriptionLinkId: 'link-1' }]),
+        community: {
+          findUnique: jest.fn().mockResolvedValue({ id: 'community-1' }),
         },
-        subscriptionLinkOrder: { findMany: jest.fn().mockResolvedValue([order]) },
+        communityLinkBinding: {
+          findMany: jest
+            .fn()
+            .mockResolvedValue([{ subscriptionLinkId: 'link-1' }]),
+        },
+        subscriptionLinkOrder: {
+          findMany: jest.fn().mockResolvedValue([order]),
+        },
         transaction: { findMany: jest.fn().mockResolvedValue([transaction]) },
       },
     } as any;
 
-    const result = await (AdminController.prototype as any).listPlataformaTransacoes.call(
+    const result = await (
+      AdminController.prototype as any
+    ).listPlataformaTransacoes.call(
       ctx,
       'COMBO-DE-COMUNIDADES',
       '1',
@@ -408,14 +539,40 @@ describe('AdminController.listPlataformaTransacoes — maquineta', () => {
     const createdAt = new Date('2026-09-08T20:00:00Z');
     const transactions = [
       {
-        id: 'pix-pos', amount: 28.99, netAmount: 26.38, status: 'COMPLETED', paymentMethod: 'PIX', installments: 1,
-        description: 'Maquineta - Terminal: pix-1', totalFee: 0, domFee: 0.29, platformFee: 2.61,
-        cardBrand: null, customerName: null, customerEmail: null, customerDocument: null, createdAt, updatedAt: createdAt,
+        id: 'pix-pos',
+        amount: 28.99,
+        netAmount: 26.38,
+        status: 'COMPLETED',
+        paymentMethod: 'PIX',
+        installments: 1,
+        description: 'Maquineta - Terminal: pix-1',
+        totalFee: 0,
+        domFee: 0.29,
+        platformFee: 2.61,
+        cardBrand: null,
+        customerName: null,
+        customerEmail: null,
+        customerDocument: null,
+        createdAt,
+        updatedAt: createdAt,
       },
       {
-        id: 'card-pos', amount: 30, netAmount: 27.3, status: 'COMPLETED', paymentMethod: 'CREDIT_CARD', installments: 1,
-        description: 'Maquineta - Terminal: card-1', totalFee: 0, domFee: 2.05, platformFee: 2.7,
-        cardBrand: 'VISA', customerName: null, customerEmail: null, customerDocument: null, createdAt, updatedAt: createdAt,
+        id: 'card-pos',
+        amount: 30,
+        netAmount: 27.3,
+        status: 'COMPLETED',
+        paymentMethod: 'CREDIT_CARD',
+        installments: 1,
+        description: 'Maquineta - Terminal: card-1',
+        totalFee: 0,
+        domFee: 2.05,
+        platformFee: 2.7,
+        cardBrand: 'VISA',
+        customerName: null,
+        customerEmail: null,
+        customerDocument: null,
+        createdAt,
+        updatedAt: createdAt,
       },
     ];
     const ctx = {
@@ -430,7 +587,9 @@ describe('AdminController.listPlataformaTransacoes — maquineta', () => {
       }),
     } as any;
 
-    const result = await (AdminController.prototype as any).listPlataformaTransacoes.call(
+    const result = await (
+      AdminController.prototype as any
+    ).listPlataformaTransacoes.call(
       ctx,
       'RENOVADA',
       '1',
@@ -442,30 +601,45 @@ describe('AdminController.listPlataformaTransacoes — maquineta', () => {
 
     expect(result.data).toHaveLength(2);
     expect(result.data[0]).toMatchObject({
-      id: 'pix-pos', valorLiquido: 26.38, taxaDom: 0.29, taxaFixa: 0, taxaCashback: 0, taxaServico: 0,
+      id: 'pix-pos',
+      valorLiquido: 26.38,
+      taxaDom: 0.29,
+      taxaFixa: 0,
+      taxaCashback: 0,
+      taxaServico: 0,
       taxas: { dom: 0.29, plataforma: 2.61, total: 2.9 },
     });
     expect(result.data[1]).toMatchObject({
-      id: 'card-pos', valorLiquido: 27.3, taxaDom: 1.05, taxaFixa: 1, taxaCashback: 0, taxaServico: 0,
+      id: 'card-pos',
+      valorLiquido: 27.3,
+      taxaDom: 1.05,
+      taxaFixa: 1,
+      taxaCashback: 0,
+      taxaServico: 0,
       taxas: { dom: 2.05, plataforma: 2.7, total: 4.75 },
     });
   });
 });
 
 describe('AdminController.getAtlasConsolidado', () => {
-  it('filtra TENANT:ATLAS sem incluir outras plataformas do mesmo dono', async () => {
+  it('filtra platformTag ATLAS sem incluir outras plataformas do mesmo dono', async () => {
     const ctx = {
       prisma: {
-        platform: { findUnique: jest.fn().mockResolvedValue({ tag: 'ATLAS', ownerUserId: 'atlas-1' }), findFirst: jest.fn().mockResolvedValue({ ownerUserId: 'atlas-1' }) },
-          user: { findFirst: jest.fn().mockResolvedValue({ id: 'atlas-1' }) },
+        platform: {
+          findUnique: jest
+            .fn()
+            .mockResolvedValue({ tag: 'ATLAS', ownerUserId: 'atlas-1' }),
+          findFirst: jest.fn().mockResolvedValue({ ownerUserId: 'atlas-1' }),
+        },
+        user: { findFirst: jest.fn().mockResolvedValue({ id: 'atlas-1' }) },
       },
     } as any;
 
-    const scope = await (AdminController.prototype as any).getPlatformTransactionScope.call(ctx, 'ATLAS');
+    const scope = await (
+      AdminController.prototype as any
+    ).getPlatformTransactionScope.call(ctx, 'ATLAS');
 
-    expect(scope).toEqual({
-      description: { contains: '[TENANT:ATLAS]', mode: 'insensitive' },
-    });
+    expect(scope).toEqual({ platformTag: 'ATLAS' });
   });
 
   it('reutiliza o cálculo comum dos cards financeiros', async () => {
@@ -475,7 +649,12 @@ describe('AdminController.getAtlasConsolidado', () => {
     try {
       const ctx = {
         prisma: {
-          platform: { findUnique: jest.fn().mockResolvedValue({ tag: 'ATLAS', ownerUserId: 'atlas-1' }), findFirst: jest.fn().mockResolvedValue({ ownerUserId: 'atlas-1' }) },
+          platform: {
+            findUnique: jest
+              .fn()
+              .mockResolvedValue({ tag: 'ATLAS', ownerUserId: 'atlas-1' }),
+            findFirst: jest.fn().mockResolvedValue({ ownerUserId: 'atlas-1' }),
+          },
           user: { findFirst: jest.fn().mockResolvedValue({ id: 'atlas-1' }) },
           transaction: {
             count: jest.fn().mockResolvedValue(0),
@@ -496,11 +675,9 @@ describe('AdminController.getAtlasConsolidado', () => {
         }),
       } as any;
 
-      const result = await (HttpAdminController.prototype as any).getAtlasConsolidado.call(
-        ctx,
-        '2026-09-01',
-        '2026-09-30',
-      );
+      const result = await (
+        HttpAdminController.prototype as any
+      ).getAtlasConsolidado.call(ctx, '2026-09-01', '2026-09-30');
 
       expect(result).toMatchObject({
         receitaTotalAtlas: 100,

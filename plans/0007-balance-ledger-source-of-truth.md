@@ -17,16 +17,19 @@ Correção pontual já aplicada: `get-me.use-case.ts` passou a usar a carteira p
 - [x] Conciliação em leitura (14 carteiras): Bosque e Renovada batem com o último log que move saldo. Os logs `ADMIN_WITHDRAW_*_INC` são lançamentos contábeis de taxa (`balanceBefore = balanceAfter = 0`) e não mexem na carteira. Eles precisam sair da conciliação ou ter ação própria.
 - [x] `saut.pdc`: ajuste de R$ 156,54 gravado no `BalanceLog` (`ADJUSTMENT` / `RECONCILIATION`), a pedido do dono do sistema, confirmando o ajuste manual da última coprodução. Log e carteira agora fecham em R$ 1.035,95.
 - [ ] `adminljl@simpay.com.br`: carteira R$ 4.327,88 contra R$ 3.291,93 no último log (diferença R$ 1.035,95). A carteira foi atualizada às 21:02:31.062, antes do log das 21:02:31.066, que registra `balanceBefore` defasado. Sem ajuste até a causa ser confirmada.
-- [ ] 38 quebras de encadeamento (`balanceBefore` de uma linha diferente do `balanceAfter` da anterior) e a carteira `dono@zerograusorvetesac.com` com R$ −13,31 precisam de análise.
-- [ ] `get-withdraw-summary.use-case.ts` ainda separa Renovada/Bosque só para taxas e configuração de saque (não para saldo). Revisar na etapa 9.
+- [x] Quebras de encadeamento: das 38 aparentes, 31 eram lançamentos de taxa (`MASTER_ADMIN_CONTROL`); as 7 reais foram fechadas na etapa 6. Segue em aberto a carteira `dono@zerograusorvetesac.com` com R$ −13,31, sem análise.
+- [x] `get-withdraw-summary.use-case.ts` mantém a separação Renovada/Bosque só para taxas e configuração de saque; o saldo já vem da carteira. Revisado na etapa 9.
 - [x] Etapa 1 (auditoria): escritores de saldo sem `BalanceLog` eram `platform-sync.service`, `platform-sync-persistence.service`, `platform-ledger` e `sync-full-renovada`. Todos migrados. Os demais já gravavam log com o padrão `wallet.update` seguido de `balanceLog.create`.
 - [x] Etapa 2: `modules/wallet-ledger/wallet-ledger.ts` com `applyWalletEntry` (carteira e log na mesma transação, `before` derivado do retorno do update) e `setWalletBalance` (absoluto, registra a diferença).
-- [~] Etapa 3: os 4 escritores sem log usam o serviço. Os escritores que já logam (coprodução, link-settlement, webhooks DOM e assinatura, saques, maquinetas, claims, manutenção) seguem com o padrão antigo e podem migrar depois, sem mudar comportamento.
+- [x] Etapa 3: migrados para `applyWalletEntry`/`setWalletBalance` todos os escritores que movem saldo por incremento ou sem log: sync de plataforma, `platform-ledger`, `sync-full-renovada`, `coproduction-settlement`, renovação e pagamento de assinatura (`subscription-webhook`, antes sem transação e com `balanceBefore` lido antes da escrita) e, no `process-dom-webhook`, o crédito de ebook pendente (não gravava log) e o crédito Areaflix por PIX (fora de transação). Ficam de fora, de propósito, os escritores com bloqueio otimista por `version` (`link-settlement`, `platform-link-claim`, `platform-maintenance`, `sync-maquinetas` e os laços de retry do `process-dom-webhook`): gravam valor absoluto, tratam conflito pelo `count` e já logam com `before` vindo da versão lida. Migrá-los muda a semântica de concorrência.
 - [x] Etapa 4: `wallet-ledger.integration.test.ts` (Postgres local descartável): cadeia encadeada, 12 créditos concorrentes, rollback e saldo absoluto.
 - [x] Etapa 5: `backend/scripts/reconcile-wallets.ts` (somente leitura por padrão; `--apply` exige `--confirm-host`).
 - [x] Etapa 6: 7 lacunas de saldo históricas fechadas com `ADJUSTMENT` / `RECONCILIATION` (Bosque 1, Renovada 5, `contato@simintermediacoes.com` 1, incluindo o par de R$ 996,36 entre Renovada e simintermediacoes). Carteiras intactas. Total de 8 linhas `RECONCILIATION` com a de `saut.pdc`.
-- [ ] Lacunas de `lockedBalance` (14, só reportadas): saques de Renovada/Bosque são aprovados sem log do bloqueio anterior. Não geram diferença de saldo.
-- Etapas 7 a 9 não iniciadas.
+- [x] Lacunas de `lockedBalance` (14): causa raiz em `PlatformFinanceService.createWithdrawal`. As rotas legadas (`legacy-renovada-finance`, `legacy-bosque-finance`) e `integration-finance` reservam o saldo (`reserveWallet: true`) sem passar `logBalance`, então só a rota canônica gravava `WITHDRAW_REQUESTED`. Corrigido: toda reserva grava o log (`logBalance` ficou como campo obsoleto e ignorado). As 14 lacunas históricas foram fechadas com `ADJUSTMENT`/`RECONCILIATION` (`reason: lock-gap`), cada uma ligada ao `WithdrawRequest` de mesmo valor bruto. Carteiras intactas; 22 linhas `RECONCILIATION` no total.
+- [x] Etapa 7: `WalletConsistencyCron` (diário, 6h de São Paulo, somente leitura) registra cada carteira cujo saldo difere do fim do log; lançamentos `MASTER_ADMIN_CONTROL` são ignorados. Hoje aponta só `adminljl@simpay.com.br` (R$ 1.035,95), deixada de fora a pedido.
+- [x] Etapa 8: `getWalletBalance` (com divergência contra o log) e `walletAmounts` (pura, sem consulta extra, usada pelo `/me`) concentram a regra `max(0, balance − lockedBalance)`. A leitura continua pela carteira. Só passa a ler o log depois de um período com a conciliação limpa.
+- [x] Etapa 9: removidos o ramo por `Transaction` e `useRenovadaWalletLedger` do `get-me`, o cálculo por plataforma do helper e as fórmulas da composição administrativa (agora carteira + log por ação). `get-withdraw-summary` mantém a separação Renovada/Bosque só para taxas e configuração de saque.
+- Pendências conhecidas: conta admin (R$ 1.035,95 de diferença; o script aceita `--adjust-tail=<email>` para alinhar o ledger à carteira quando a carteira for a verdade), carteira negativa de `dono@zerograusorvetesac.com` (R$ −13,31, aguardando decisão sobre o valor correto) e migrar para log como fonte de leitura após um período conciliado.
 
 ## Princípios
 
@@ -57,3 +60,11 @@ Correção pontual já aplicada: `get-me.use-case.ts` passou a usar a carteira p
 
 - Nenhuma consulta de escrita, migração ou backfill no banco `vps.simintermediacoes.com` sem autorização explícita.
 - Conciliação e relatórios só leem.
+
+### Normalização autorizada (2026-10-29)
+
+- `BalanceLog` passa a persistir `balanceDelta` e `lockedDelta` assinados. A migração adiciona os campos, calcula diferenças exatas dos snapshots DECIMAL e só depois remove `amount`, `balanceBefore`, `balanceAfter`, `lockedBefore` e `lockedAfter` na mesma transação.
+- `bookkeepingAmount` opcional conserva o nominal administrativo das linhas `MASTER_ADMIN_CONTROL` para relatórios; nunca compõe saldo da carteira. IDs, ações, origem, transação, datas e metadata existentes são preservados. `PURGE_ABSORB` com movimento real mantém seus deltas, mesmo nessa origem.
+- Novas carteiras começam em zero. A migração não inventa saldo de abertura nem aplica ajustes automáticos: diferenças históricas continuam expostas para revisão. Não executada em banco remoto/compartilhado.
+- Reserva canônica de saque e aprovação administrativa em massa agora gravam ledger e projeção na mesma transação; recálculos administrativos usam CAS e diferença do saldo realmente persistido. Conciliação inclui bloqueios e usuários com ledger sem carteira.
+- Busca no frontend não encontrou consumo dos snapshots ou de `wallet-composition`; nenhum arquivo frontend alterado. APIs administrativas de ledger agora expõem deltas explícitos; nominal de relatórios usa somente `bookkeepingAmount`.

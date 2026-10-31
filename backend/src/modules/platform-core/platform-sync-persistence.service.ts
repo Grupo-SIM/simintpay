@@ -7,13 +7,15 @@ import { PlatformHistoricalSync } from './platform-historical-sync';
 import {
   canSyncTransition,
   acceptsPlatformSyncDescription,
-  hasPlatformMarker,
   platformSyncAdapter,
   syncStatus,
 } from './platform-sync.adapter';
+import {
+  canonicalTransactionPlatformTag,
+  transactionPlatformTag,
+  transactionPlatformTagData,
+} from './transaction-platform';
 import { Inject, Injectable } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import {
@@ -29,7 +31,6 @@ import { applyWalletEntry } from '../wallet-ledger/wallet-ledger';
 export class PlatformSyncPersistenceService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly http: HttpService,
     private readonly events: PlatformEventsService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
   ) {}
@@ -87,43 +88,23 @@ export class PlatformSyncPersistenceService {
       return;
     const adapter = platformSyncAdapter(tag);
     if (!adapter) return;
-    const direct = adapter.transport === 'DOM';
-    if (
-      getPlatformIntegrationValue(tag, 'DISABLE_SYNC') === 'true' ||
-      (direct && getPlatformIntegrationValue(tag, 'ENABLE_DOM_SYNC') !== 'true')
-    )
-      return;
-    const token = getPlatformIntegrationValue(
-      tag,
-      direct ? 'DOM_TOKEN' : 'API_DOM_XTOKEN',
-    );
-    const base = getPlatformIntegrationValue(tag, 'DOM_BACKEND_URL');
-    if (!token || (!direct && !base)) return;
+    if (!adapter.directSync) return;
+    if (getPlatformIntegrationValue(tag, 'ENABLE_DOM_SYNC') !== 'true') return;
+    const token = getPlatformIntegrationValue(tag, 'DOM_TOKEN');
+    if (!token) return;
     let changed = 0;
     for (let page = 1; page <= 3; page++) {
-      const rows: any[] = direct
-        ? ((
-            await this.gateway.listDomTransactions(token, {
-              page,
-              limit: 100,
-              begin_date: new Date(Date.now() - 90 * 86400000)
-                .toISOString()
-                .slice(0, 10),
-              end_date: new Date().toISOString().slice(0, 10),
-            })
-          ).transactions ?? [])
-        : ((
-            await firstValueFrom(
-              this.http.get<any>(`${base}/payments/history`, {
-                headers: {
-                  'x-access-token': token,
-                  Accept: 'application/json',
-                },
-                params: { page, limit: 100 },
-                timeout: 15000,
-              }),
-            )
-          ).data?.transactions ?? []);
+      const rows: any[] =
+        (
+          await this.gateway.listDomTransactions(token, {
+            page,
+            limit: 100,
+            begin_date: new Date(Date.now() - 90 * 86400000)
+              .toISOString()
+              .slice(0, 10),
+            end_date: new Date().toISOString().slice(0, 10),
+          })
+        ).transactions ?? [];
       for (const row of rows) {
         const description = String(row.product_first ?? row.description ?? '');
         if (!acceptsPlatformSyncDescription(description, tag)) continue;
@@ -219,7 +200,8 @@ export class PlatformSyncPersistenceService {
         });
         if (
           existing &&
-          (!hasPlatformMarker(existing.description, platform.tag) ||
+          (transactionPlatformTag(existing) !==
+            canonicalTransactionPlatformTag(platform.tag) ||
             existing.acquirer !== 'DOM')
         )
           return null;
@@ -268,6 +250,7 @@ export class PlatformSyncPersistenceService {
           result = await tx.transaction.create({
             data: {
               ...data,
+              ...transactionPlatformTagData(platform.tag),
               ...(createdAt ? { createdAt } : {}),
               userId,
               domPaymentId: paymentId,

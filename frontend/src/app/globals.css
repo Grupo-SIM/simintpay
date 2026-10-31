@@ -1,0 +1,719 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* Espaço reservado ao lado da sidebar fixa; a sidebar atualiza via JS para não re-renderizar o conteúdo ao expandir. */
+:root {
+  --dashboard-sidebar-width: 62px;
+}
+
+/* Explicit themes via data-theme take precedence over media query */
+:root[data-theme='light'] {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+:root[data-theme='dark'] {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+input.acm-input-dark:-webkit-autofill,
+input.acm-input-dark:-webkit-autofill:hover,
+input.acm-input-dark:-webkit-autofill:focus,
+textarea.acm-input-dark:-webkit-autofill,
+textarea.acm-input-dark:-webkit-autofill:hover,
+textarea.acm-input-dark:-webkit-autofill:focus,
+select.acm-input-dark:-webkit-autofill,
+select.acm-input-dark:-webkit-autofill:hover,
+select.acm-input-dark:-webkit-autofill:focus {
+  -webkit-text-fill-color: #ffffff !important;
+  transition: background-color 9999s ease-in-out 0s;
+  background-color: transparent !important;
+  box-shadow: inset 0 0 0px 1000px rgba(0, 0, 0, 0.65) !important;
+  caret-color: #ffffff !important;
+}
+
+/* Scrollbar — tema claro (padrão) */
+html:not(.dark) ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+html:not(.dark) ::-webkit-scrollbar-track {
+  background: #f4f4f5;
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb {
+  background-color: #d4d4d8;
+  border-radius: 4px;
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb:hover {
+  background-color: #a1a1aa;
+}
+
+/* Scrollbar — tema escuro (inalterado) */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: #333333;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: #555555;
+}
+
+/* Dropdowns: entrada suave (opacidade + leve movimento + escala) */
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Abre para cima (ex.: linhas por página) */
+@keyframes dropdown-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.dropdown-animate {
+  animation: dropdown-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top center;
+  will-change: transform, opacity;
+}
+
+.dropdown-animate-up {
+  animation: dropdown-in-up 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: bottom center;
+  will-change: transform, opacity;
+}
+
+/* Portais (fixed): mesma curva, sem depender do stacking do pai */
+.dropdown-animate-portal {
+  animation: dropdown-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top center;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dropdown-animate,
+  .dropdown-animate-up,
+  .dropdown-animate-portal {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    will-change: auto;
+  }
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+/*
+ * Chrome do app (shell, sidebar, navbar, auth, login).
+ * Light = :root; dark = mesmas cores que antes nos componentes (sem alterar tokens shadcn .dark acima).
+ */
+:root {
+  /* Alinha superfície global ao painel claro (tokens shadcn do primeiro :root permanecem; estes refinam o light) */
+  --background: #f1f5f9;
+  --muted: oklch(0.96 0.005 270);
+  --secondary: oklch(0.96 0.005 270);
+  --dashboard-shell-bg: #f1f5f9;
+  --dashboard-sidebar-bg: #ffffff;
+  --dashboard-sidebar-border: rgba(15, 23, 42, 0.08);
+  --dashboard-sidebar-shadow-open: 4px 0 24px rgba(15, 23, 42, 0.08);
+  --dashboard-header-border: rgba(15, 23, 42, 0.08);
+  --dash-sidebar-divider: rgba(15, 23, 42, 0.08);
+  --dash-section-label: rgba(15, 23, 42, 0.45);
+  --dash-theme-rail-bg: #f4f4f5;
+  --dash-theme-btn-active-light-bg: rgba(124, 58, 237, 0.12);
+  --dash-theme-btn-active-light-fg: #5b21b6;
+  --dash-theme-btn-active-dark-bg: rgba(124, 58, 237, 0.3);
+  --dash-theme-btn-active-dark-fg: #a78bfa;
+  --dash-theme-btn-muted-fg: rgba(15, 23, 42, 0.4);
+  --dash-theme-collapsed-btn-bg: #f4f4f5;
+  --dash-theme-collapsed-btn-fg: rgba(15, 23, 42, 0.5);
+  --dash-nav-fg: #52525b;
+  --dash-nav-fg-active: #ffffff;
+  --dash-nav-bg-active: #6d28d9;
+  --dash-nav-bg-active-hover: #7c3aed;
+  --dash-nav-bg-hover: #f4f4f5;
+  --dash-nav-fg-hover: #18181b;
+  --nb-header-bg: #ffffff;
+  --nb-search-bg: #f4f4f5;
+  --nb-search-bg-focus: #f4f4f5;
+  --nb-search-border: rgba(15, 23, 42, 0.1);
+  --nb-search-border-focus: rgba(124, 58, 237, 0.45);
+  --nb-search-input: #3f3f46;
+  --nb-search-placeholder: rgba(15, 23, 42, 0.35);
+  --nb-kbd-bg: #e4e4e7;
+  --nb-kbd-fg: rgba(15, 23, 42, 0.4);
+  --nb-icon-default: rgba(15, 23, 42, 0.35);
+  --nb-icon-btn-bg: #f4f4f5;
+  --nb-icon-btn-border: rgba(15, 23, 42, 0.1);
+  --nb-icon-btn-fg: #52525b;
+  --nb-icon-btn-hover-bg: #e4e4e7;
+  --nb-icon-btn-hover-fg: #18181b;
+  --nb-icon-btn-hover-border: rgba(15, 23, 42, 0.14);
+  --nb-user-btn-bg: #f4f4f5;
+  --nb-user-btn-border: rgba(15, 23, 42, 0.1);
+  --nb-user-btn-hover-bg: #e4e4e7;
+  --nb-user-btn-hover-border: rgba(15, 23, 42, 0.14);
+  --nb-user-name: #18181b;
+  --nb-user-email: rgba(15, 23, 42, 0.5);
+  --nb-chevron: rgba(15, 23, 42, 0.4);
+  --auth-root-bg: #f8fafc;
+  --auth-root-grad-1: rgba(124, 58, 237, 0.06);
+  --auth-root-grad-2: rgba(109, 40, 217, 0.08);
+  --auth-left-panel-bg: #ffffff;
+  --auth-left-panel-shadow: 0 10px 40px rgba(15, 23, 42, 0.08);
+  --auth-right-panel-shadow: 0 10px 40px rgba(15, 23, 42, 0.06);
+  --auth-left-overlay: linear-gradient(
+    to bottom,
+    transparent 55%,
+    rgba(248, 250, 252, 0.92) 100%
+  );
+  --auth-tagline-color: #0f172a;
+  --auth-tagline-shadow: none;
+  --auth-dot: rgba(15, 23, 42, 0.2);
+  --auth-dot-active: #7c3aed;
+  --auth-dot-active-shadow: 0 0 12px rgba(124, 58, 237, 0.35);
+  --auth-right-panel-bg: #ffffff;
+  --auth-right-panel-grad: linear-gradient(
+    135deg,
+    rgba(124, 58, 237, 0.08) 0%,
+    transparent 100%
+  );
+  --auth-right-grid: radial-gradient(
+    circle at 1px 1px,
+    rgba(15, 23, 42, 0.06) 1px,
+    transparent 0
+  );
+  --auth-blob-1: rgba(124, 58, 237, 0.12);
+  --auth-blob-2: rgba(167, 139, 250, 0.1);
+  --lp-title: #0f172a;
+  --lp-subtitle: #64748b;
+  --lp-link: #6d28d9;
+  --lp-link-hover: #5b21b6;
+  --lp-label: #52525b;
+  --lp-input-border: rgba(15, 23, 42, 0.12);
+  --lp-input-bg: #ffffff;
+  --lp-input-fg: #18181b;
+  --lp-input-placeholder: rgba(15, 23, 42, 0.35);
+  --lp-input-focus-border: #7c3aed;
+  --lp-input-focus-bg: rgba(124, 58, 237, 0.04);
+  --lp-input-focus-ring: rgba(124, 58, 237, 0.18);
+  --lp-eye: rgba(15, 23, 42, 0.45);
+  --lp-eye-hover: rgba(15, 23, 42, 0.75);
+  --lp-forgot: rgba(109, 40, 217, 0.85);
+  --lp-forgot-hover: #6d28d9;
+  --lp-spinner-border: rgba(255, 255, 255, 0.35);
+  --lp-spinner-top: #ffffff;
+  /* /painel — tema claro */
+  --painel-fg: #3f3f46;
+  --painel-fg-strong: #18181b;
+  --painel-heading: #0f172a;
+  --painel-muted: rgba(15, 23, 42, 0.5);
+  --painel-muted-2: rgba(15, 23, 42, 0.62);
+  --painel-subtle: rgba(15, 23, 42, 0.4);
+  --painel-faint: rgba(15, 23, 42, 0.35);
+  --painel-card-bg: #ffffff;
+  --painel-card-border: rgba(15, 23, 42, 0.1);
+  --painel-stat-bg: #ffffff;
+  --painel-stat-bg-hover: #f4f4f5;
+  --painel-stat-border: rgba(15, 23, 42, 0.1);
+  --painel-period-border: rgba(15, 23, 42, 0.14);
+  --painel-period-fg: #52525b;
+  --painel-period-hover-bg: #f4f4f5;
+  --painel-period-hover-fg: #18181b;
+  --painel-eye-bg: #f4f4f5;
+  --painel-eye-border: rgba(15, 23, 42, 0.12);
+  --painel-eye-fg: #52525b;
+  --painel-eye-hover-bg: #e4e4e7;
+  --painel-eye-hover-fg: #18181b;
+  --painel-chart-grid: #e4e4e7;
+  --painel-chart-tick: #71717a;
+  --painel-chart-ref: rgba(15, 23, 42, 0.22);
+  --painel-chart-tooltip-bg: #ffffff;
+  --painel-chart-tooltip-border: rgba(15, 23, 42, 0.12);
+  --painel-chart-tooltip-title: #52525b;
+  --painel-chart-tooltip-label: #64748b;
+  --painel-chart-tooltip-value: #0f172a;
+  --painel-radix-tooltip-bg: #ffffff;
+  --painel-radix-tooltip-border: rgba(15, 23, 42, 0.14);
+  --painel-radix-tooltip-fg: #27272a;
+  --painel-series-pill-on-border: rgba(15, 23, 42, 0.22);
+  --painel-series-pill-off-border: rgba(15, 23, 42, 0.1);
+  --painel-series-pill-on-bg: #f4f4f5;
+  --painel-series-pill-on-fg: #18181b;
+  --painel-series-pill-off-fg: #71717a;
+  --painel-toggle-off: #d4d4d8;
+  --painel-glow-1: rgba(124, 58, 237, 0.06);
+  --painel-glow-2: rgba(59, 130, 246, 0.05);
+  --painel-help-bg: #f4f4f5;
+  --painel-help-border: rgba(15, 23, 42, 0.12);
+  --painel-help-icon: #52525b;
+  --painel-cb-row-border: rgba(15, 23, 42, 0.08);
+  --painel-bar-track: #e4e4e7;
+  --painel-stat-tooltip-heading: #0f172a;
+  --painel-stat-tooltip-fg: #3f3f46;
+  --painel-stat-tooltip-strong: #18181b;
+  --painel-stat-tooltip-note: #64748b;
+  --painel-empty: #a1a1aa;
+  --painel-label-soft: rgba(15, 23, 42, 0.55);
+}
+
+/*
+ * /login e /cadastro: fundo escuro fixo; não seguem o tema escolhido no painel.
+ */
+.auth-root {
+  --auth-root-bg: #0f0a1e;
+  --auth-root-grad-1: rgba(124, 58, 237, 0.08);
+  --auth-root-grad-2: rgba(109, 40, 217, 0.12);
+  --auth-left-panel-bg: #0f0a1e;
+  --auth-left-panel-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  --auth-right-panel-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  --auth-left-overlay: linear-gradient(
+    to bottom,
+    transparent 60%,
+    rgba(15, 10, 30, 0.8) 100%
+  );
+  --auth-tagline-color: #fff;
+  --auth-tagline-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --auth-dot: rgba(255, 255, 255, 0.4);
+  --auth-dot-active: #fff;
+  --auth-dot-active-shadow: 0 0 12px rgba(255, 255, 255, 0.4);
+  --auth-right-panel-bg: #0f0a1e;
+  --auth-right-panel-grad: linear-gradient(
+    135deg,
+    rgba(124, 58, 237, 0.22) 0%,
+    transparent 100%
+  );
+  --auth-right-grid: radial-gradient(
+    circle at 1px 1px,
+    rgba(255, 255, 255, 0.12) 1px,
+    transparent 0
+  );
+  --auth-blob-1: rgba(124, 58, 237, 0.15);
+  --auth-blob-2: rgba(167, 139, 250, 0.1);
+  --lp-title: #f0eeff;
+  --lp-subtitle: rgba(220, 215, 255, 0.55);
+  --lp-link: #a78bfa;
+  --lp-link-hover: #c4b5fd;
+  --lp-label: rgba(220, 215, 255, 0.65);
+  --lp-input-border: rgba(255, 255, 255, 0.09);
+  --lp-input-bg: rgba(255, 255, 255, 0.04);
+  --lp-input-fg: #f0eeff;
+  --lp-input-placeholder: rgba(200, 195, 240, 0.3);
+  --lp-input-focus-border: #7c3aed;
+  --lp-input-focus-bg: rgba(124, 58, 237, 0.06);
+  --lp-input-focus-ring: rgba(124, 58, 237, 0.15);
+  --lp-eye: rgba(200, 195, 240, 0.45);
+  --lp-eye-hover: rgba(200, 195, 240, 0.8);
+  --lp-forgot: rgba(167, 139, 250, 0.7);
+  --lp-forgot-hover: #a78bfa;
+  --lp-spinner-border: rgba(255, 255, 255, 0.3);
+  --lp-spinner-top: #fff;
+}
+
+.dark {
+  --dashboard-shell-bg: #0b0918;
+  --dashboard-sidebar-bg: #0f0c1e;
+  --dashboard-sidebar-border: rgba(255, 255, 255, 0.06);
+  --dashboard-sidebar-shadow-open: 4px 0 24px rgba(0, 0, 0, 0.3);
+  --dashboard-header-border: rgba(255, 255, 255, 0.06);
+  --dash-sidebar-divider: rgba(255, 255, 255, 0.06);
+  --dash-section-label: rgba(255, 255, 255, 0.28);
+  --dash-theme-rail-bg: rgba(255, 255, 255, 0.05);
+  --dash-theme-btn-active-light-bg: rgba(255, 255, 255, 0.12);
+  --dash-theme-btn-active-light-fg: #fff;
+  --dash-theme-btn-active-dark-bg: rgba(124, 58, 237, 0.3);
+  --dash-theme-btn-active-dark-fg: #a78bfa;
+  --dash-theme-btn-muted-fg: rgba(255, 255, 255, 0.35);
+  --dash-theme-collapsed-btn-bg: rgba(255, 255, 255, 0.05);
+  --dash-theme-collapsed-btn-fg: rgba(255, 255, 255, 0.45);
+  --dash-nav-fg: rgba(255, 255, 255, 0.5);
+  --dash-nav-fg-active: #ffffff;
+  --dash-nav-bg-active: #6d28d9;
+  --dash-nav-bg-active-hover: #7c3aed;
+  --dash-nav-bg-hover: rgba(255, 255, 255, 0.06);
+  --dash-nav-fg-hover: rgba(255, 255, 255, 0.85);
+  --nb-header-bg: #0f0c1e;
+  --nb-search-bg: rgba(255, 255, 255, 0.05);
+  --nb-search-bg-focus: rgba(255, 255, 255, 0.07);
+  --nb-search-border: rgba(255, 255, 255, 0.08);
+  --nb-search-border-focus: rgba(124, 58, 237, 0.4);
+  --nb-search-input: rgba(255, 255, 255, 0.75);
+  --nb-search-placeholder: rgba(255, 255, 255, 0.28);
+  --nb-kbd-bg: rgba(255, 255, 255, 0.07);
+  --nb-kbd-fg: rgba(255, 255, 255, 0.22);
+  --nb-icon-default: rgba(255, 255, 255, 0.28);
+  --nb-icon-btn-bg: rgba(255, 255, 255, 0.04);
+  --nb-icon-btn-border: rgba(255, 255, 255, 0.08);
+  --nb-icon-btn-fg: rgba(255, 255, 255, 0.5);
+  --nb-icon-btn-hover-bg: rgba(255, 255, 255, 0.09);
+  --nb-icon-btn-hover-fg: rgba(255, 255, 255, 0.9);
+  --nb-icon-btn-hover-border: rgba(255, 255, 255, 0.13);
+  --nb-user-btn-bg: rgba(255, 255, 255, 0.04);
+  --nb-user-btn-border: rgba(255, 255, 255, 0.08);
+  --nb-user-btn-hover-bg: rgba(255, 255, 255, 0.08);
+  --nb-user-btn-hover-border: rgba(255, 255, 255, 0.13);
+  --nb-user-name: #e2e8f0;
+  --nb-user-email: rgba(255, 255, 255, 0.4);
+  --nb-chevron: rgba(255, 255, 255, 0.35);
+  --auth-root-bg: #0f0a1e;
+  --auth-root-grad-1: rgba(124, 58, 237, 0.08);
+  --auth-root-grad-2: rgba(109, 40, 217, 0.12);
+  --auth-left-panel-bg: #0f0a1e;
+  --auth-left-panel-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  --auth-right-panel-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  --auth-left-overlay: linear-gradient(
+    to bottom,
+    transparent 60%,
+    rgba(15, 10, 30, 0.8) 100%
+  );
+  --auth-tagline-color: #fff;
+  --auth-tagline-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --auth-dot: rgba(255, 255, 255, 0.4);
+  --auth-dot-active: #fff;
+  --auth-dot-active-shadow: 0 0 12px rgba(255, 255, 255, 0.4);
+  --auth-right-panel-bg: #0f0a1e;
+  --auth-right-panel-grad: linear-gradient(
+    135deg,
+    rgba(124, 58, 237, 0.22) 0%,
+    transparent 100%
+  );
+  --auth-right-grid: radial-gradient(
+    circle at 1px 1px,
+    rgba(255, 255, 255, 0.12) 1px,
+    transparent 0
+  );
+  --auth-blob-1: rgba(124, 58, 237, 0.15);
+  --auth-blob-2: rgba(167, 139, 250, 0.1);
+  --lp-title: #f0eeff;
+  --lp-subtitle: rgba(220, 215, 255, 0.55);
+  --lp-link: #a78bfa;
+  --lp-link-hover: #c4b5fd;
+  --lp-label: rgba(220, 215, 255, 0.65);
+  --lp-input-border: rgba(255, 255, 255, 0.09);
+  --lp-input-bg: rgba(255, 255, 255, 0.04);
+  --lp-input-fg: #f0eeff;
+  --lp-input-placeholder: rgba(200, 195, 240, 0.3);
+  --lp-input-focus-border: #7c3aed;
+  --lp-input-focus-bg: rgba(124, 58, 237, 0.06);
+  --lp-input-focus-ring: rgba(124, 58, 237, 0.15);
+  --lp-eye: rgba(200, 195, 240, 0.45);
+  --lp-eye-hover: rgba(200, 195, 240, 0.8);
+  --lp-forgot: rgba(167, 139, 250, 0.7);
+  --lp-forgot-hover: #a78bfa;
+  --lp-spinner-border: rgba(255, 255, 255, 0.3);
+  --lp-spinner-top: #fff;
+  /* /painel — tema escuro (como antes) */
+  --painel-fg: #e2e8f0;
+  --painel-fg-strong: #f1f5f9;
+  --painel-heading: #f1f5f9;
+  --painel-muted: rgba(255, 255, 255, 0.45);
+  --painel-muted-2: rgba(255, 255, 255, 0.6);
+  --painel-subtle: rgba(255, 255, 255, 0.4);
+  --painel-faint: rgba(255, 255, 255, 0.35);
+  --painel-card-bg: rgba(255, 255, 255, 0.04);
+  --painel-card-border: rgba(255, 255, 255, 0.07);
+  --painel-stat-bg: rgba(255, 255, 255, 0.04);
+  --painel-stat-bg-hover: rgba(255, 255, 255, 0.06);
+  --painel-stat-border: rgba(255, 255, 255, 0.07);
+  --painel-period-border: rgba(255, 255, 255, 0.1);
+  --painel-period-fg: rgba(255, 255, 255, 0.45);
+  --painel-period-hover-bg: rgba(255, 255, 255, 0.06);
+  --painel-period-hover-fg: rgba(255, 255, 255, 0.85);
+  --painel-eye-bg: rgba(255, 255, 255, 0.06);
+  --painel-eye-border: rgba(255, 255, 255, 0.08);
+  --painel-eye-fg: rgba(255, 255, 255, 0.5);
+  --painel-eye-hover-bg: rgba(255, 255, 255, 0.1);
+  --painel-eye-hover-fg: rgba(255, 255, 255, 0.9);
+  --painel-chart-grid: rgba(255, 255, 255, 0.08);
+  --painel-chart-tick: rgba(255, 255, 255, 0.45);
+  --painel-chart-ref: rgba(255, 255, 255, 0.2);
+  --painel-chart-tooltip-bg: #1e1b4b;
+  --painel-chart-tooltip-border: rgba(255, 255, 255, 0.1);
+  --painel-chart-tooltip-title: rgba(255, 255, 255, 0.6);
+  --painel-chart-tooltip-label: rgba(255, 255, 255, 0.55);
+  --painel-chart-tooltip-value: #f1f5f9;
+  --painel-radix-tooltip-bg: #1e1b4b;
+  --painel-radix-tooltip-border: rgba(255, 255, 255, 0.12);
+  --painel-radix-tooltip-fg: rgba(241, 245, 249, 0.92);
+  --painel-series-pill-on-border: rgba(255, 255, 255, 0.2);
+  --painel-series-pill-off-border: rgba(255, 255, 255, 0.08);
+  --painel-series-pill-on-bg: rgba(255, 255, 255, 0.08);
+  --painel-series-pill-on-fg: rgba(248, 250, 252, 0.95);
+  --painel-series-pill-off-fg: rgba(255, 255, 255, 0.35);
+  --painel-toggle-off: rgba(255, 255, 255, 0.12);
+  --painel-glow-1: rgba(124, 58, 237, 0.07);
+  --painel-glow-2: rgba(59, 130, 246, 0.06);
+  --painel-help-bg: rgba(255, 255, 255, 0.06);
+  --painel-help-border: rgba(255, 255, 255, 0.08);
+  --painel-help-icon: rgba(255, 255, 255, 0.45);
+  --painel-cb-row-border: rgba(255, 255, 255, 0.05);
+  --painel-bar-track: rgba(255, 255, 255, 0.07);
+  --painel-stat-tooltip-heading: #f1f5f9;
+  --painel-stat-tooltip-fg: rgba(226, 232, 240, 0.9);
+  --painel-stat-tooltip-strong: #e2e8f0;
+  --painel-stat-tooltip-note: rgba(148, 163, 184, 0.95);
+  --painel-empty: rgba(255, 255, 255, 0.3);
+  --painel-label-soft: rgba(255, 255, 255, 0.7);
+}
+
+/* Sidebar: links (hover via CSS; cores por tema) */
+a.dashboard-nav-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  font-size: 13px;
+  border-radius: 10px;
+  overflow: hidden;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    padding 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    justify-content 0s;
+  color: var(--dash-nav-fg);
+  background: transparent;
+  font-weight: 400;
+}
+
+a.dashboard-nav-link[data-active='true'] {
+  color: var(--dash-nav-fg-active);
+  background: var(--dash-nav-bg-active);
+  font-weight: 600;
+}
+
+a.dashboard-nav-link[data-active='false']:hover {
+  background: var(--dash-nav-bg-hover);
+  color: var(--dash-nav-fg-hover);
+}
+
+a.dashboard-nav-link[data-active='true']:hover {
+  background: var(--dash-nav-bg-active-hover);
+}
+
+/* Logo branca → versão escura no tema claro (painel expandido) */
+html:not(.dark) .dashboard-sidebar-logo-full img {
+  filter: brightness(0) saturate(100%);
+  opacity: 0.92;
+}
+
+/* Auth sempre escuro: logo branca (não inverter como no sidebar claro) */
+html:not(.dark) .auth-root .auth-left-topbar .auth-logo-img {
+  filter: drop-shadow(0 2px 12px rgba(0, 0, 0, 0.4));
+  opacity: 1;
+}
+
+html:not(.dark) .auth-root .auth-left-topbar .auth-logo-img:hover {
+  opacity: 0.85;
+}
+
+@layer base {
+  html,
+  body {
+    scroll-behavior: smooth;
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role='button'][aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+}
+
+@keyframes apple-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes apple-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* Hero: dobra distorcendo o campo, cartão vem de lado */
+@keyframes hero-flip {
+  0% {
+    transform: rotateY(0deg) scale(1, 1);
+  }
+  35% {
+    transform: rotateY(0deg) scale(1, 1);
+  }
+  50% {
+    transform: rotateY(-180deg) scale(1.08, 0.96);
+  }
+  85% {
+    transform: rotateY(-180deg) scale(1, 1);
+  }
+  100% {
+    transform: rotateY(-360deg) scale(1, 1);
+  }
+}
+
+@layer utilities {
+  .apple-fade-up {
+    animation: apple-fade-up 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .apple-float {
+    animation: apple-float 6s ease-in-out infinite;
+  }
+
+  .hero-flip-animate {
+    animation: hero-flip 10s ease-in-out infinite;
+    transform-origin: 0% 50%;
+  }
+}

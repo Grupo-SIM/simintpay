@@ -1,11 +1,20 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import {
+  coproductionInfo,
+  sharedProductIds,
+} from '../../../modules/coproduction/coproduction-view';
 import type { ISubscriptionLinkRepository } from '../../../core/repositories/subscription-link.repository.interface';
 
 function mapFreq(t: PlanType): string {
   const m: Record<PlanType, string> = {
-    WEEKLY: 'SEMANAL', MONTHLY: 'MENSAL', TRIMESTRAL: 'TRIMESTRAL', SEMESTRAL: 'SEMESTRAL', ANUAL: 'ANUAL',
+    WEEKLY: 'SEMANAL',
+    MONTHLY: 'MENSAL',
+    TRIMESTRAL: 'TRIMESTRAL',
+    SEMESTRAL: 'SEMESTRAL',
+    ANUAL: 'ANUAL',
   };
   return m[t] ?? 'MENSAL';
 }
@@ -13,15 +22,39 @@ function mapFreq(t: PlanType): string {
 @Injectable()
 export class ListSubscriptionLinksUseCase {
   constructor(
-    @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
+    @Inject(SUBSCRIPTION_LINK_REPOSITORY)
+    private readonly repo: ISubscriptionLinkRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
-  async execute(input: { userId: string; role?: string; onlyMine?: boolean; page?: number; pageSize?: number }) {
+  async execute(input: {
+    userId: string;
+    role?: string;
+    onlyMine?: boolean;
+    page?: number;
+    pageSize?: number;
+  }) {
     const page = input.page ?? 1;
     const pageSize = input.pageSize ?? 20;
-    const result = input.role === 'ADMIN' && !input.onlyMine
-      ? await this.repo.findAll({ page, pageSize })
-      : await this.repo.findManyByUserId({ userId: input.userId, page, pageSize });
+    const result =
+      input.role === 'ADMIN' && !input.onlyMine
+        ? await this.repo.findAll({ page, pageSize })
+        : await this.repo.findManyByUserId({
+            userId: input.userId,
+            page,
+            pageSize,
+            sharedIds: await sharedProductIds(
+              this.prisma,
+              'links-assinatura',
+              input.userId,
+            ),
+          });
+    const coproducao = await coproductionInfo(
+      this.prisma,
+      'links-assinatura',
+      input.userId,
+      result.items,
+    );
 
     return {
       data: result.items.map((l) => {
@@ -29,7 +62,9 @@ export class ListSubscriptionLinksUseCase {
         // (o master aplica a taxa via CLIENT:<email>). Quando o cliente escolheu uma
         // plataforma própria explicitamente, respeita o valor gravado em vez de sobrescrever.
         const plataformasGravadas = (l as any).plataformas ?? [];
-        const isCliente = (l as any).user?.clientStatus != null && plataformasGravadas.length === 0;
+        const isCliente =
+          (l as any).user?.clientStatus != null &&
+          plataformasGravadas.length === 0;
         return {
           id: l.id,
           codigo: l.code,
@@ -44,6 +79,7 @@ export class ListSubscriptionLinksUseCase {
           maxUsos: l.maxUses ?? null,
           criadoEm: l.createdAt.toISOString(),
           // Quem criou o link (cliente ou master) — para a coluna "Criado por".
+          coproducao: coproducao.get(l.id) ?? null,
           donoNome: (l as any).user?.name ?? null,
           donoEmail: (l as any).user?.email ?? null,
           plataformas: isCliente ? ['SIMINTPAY'] : plataformasGravadas,

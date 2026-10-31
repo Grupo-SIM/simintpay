@@ -1,0 +1,1 @@
+export { DashboardPageSkeleton } from './DashboardPageSkeleton';

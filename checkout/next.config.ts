@@ -38,11 +38,16 @@ const nextConfig: NextConfig = {
             key: 'X-XSS-Protection',
             value: '1; mode=block',
           },
-          // Headers para melhor performance mobile
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=31536000, immutable',
-          },
+          // Headers para melhor performance mobile (só em produção: em dev
+          // o navegador passa a servir chunks antigos do Turbopack)
+          ...(process.env.NODE_ENV === 'production'
+            ? [
+                {
+                  key: 'Cache-Control',
+                  value: 'public, max-age=31536000, immutable',
+                },
+              ]
+            : []),
         ],
       },
     ];

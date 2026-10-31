@@ -1,3 +1,4 @@
+import { whereTransactionPlatform } from '../../platform-core/transaction-platform';
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
 import { BadRequestException } from '@nestjs/common';
@@ -9,12 +10,20 @@ import { ORIGEM_MAQUINETA_TAG } from '../../../application/utils/internal-tags.u
 
 const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-29T20:40:00.000Z');
 
-type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
+type TxStatus =
+  | 'PENDING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'REFUNDED'
+  | 'EXPIRED'
+  | 'DRAFT';
 
 @Injectable()
 export class InternalRenovadaFinanceService {
-  constructor(private readonly prisma: PrismaService, private readonly finance: PlatformFinanceService) {}
-
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly finance: PlatformFinanceService,
+  ) {}
 
   private normalizeCpf(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
@@ -26,8 +35,15 @@ export class InternalRenovadaFinanceService {
     return [cpf, cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
   }
 
-  private resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
-    return this.finance.resolveAccountIds({ document: cpf, userId: directUserId, allowCnpj: false });
+  private resolveUserIdsByCpf(
+    cpf: string,
+    directUserId?: string,
+  ): Promise<string[]> {
+    return this.finance.resolveAccountIds({
+      document: cpf,
+      userId: directUserId,
+      allowCnpj: false,
+    });
   }
 
   private buildOwnerFilter(cpf: string, userIds: string[]): any {
@@ -39,15 +55,20 @@ export class InternalRenovadaFinanceService {
     }
 
     if (cpfClean.length === 11) {
-      conditions.push({ description: { contains: `[CPF_DONO:${cpfClean}]`, mode: 'insensitive' } });
+      conditions.push({
+        description: {
+          contains: `[CPF_DONO:${cpfClean}]`,
+          mode: 'insensitive',
+        },
+      });
     }
 
     if (conditions.length === 0) return null;
     if (conditions.length === 1) return conditions[0];
     return { OR: conditions };
   }
-  async summary( cpf: string, userId?: string, internalToken?: string,
-  ) {
+  async summary(cpf: string, userId?: string, _internalToken?: string) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
 
     if (userIds.length === 0) {
@@ -66,20 +87,43 @@ export class InternalRenovadaFinanceService {
       where: { userId: { in: userIds }, status: 'PENDING' },
       _sum: { grossAmount: true, amount: true },
     });
-    const pendingGross = Number(wdPending._sum.grossAmount ?? wdPending._sum.amount ?? 0);
+    const pendingGross = Number(
+      wdPending._sum.grossAmount ?? wdPending._sum.amount ?? 0,
+    );
 
     return {
-      availableBalance: Math.max(0, Number((balanceNet - lockedNet).toFixed(2))),
+      availableBalance: Math.max(
+        0,
+        Number((balanceNet - lockedNet).toFixed(2)),
+      ),
       pendingWithdraws: Number(pendingGross.toFixed(2)),
       lockedBalance: Number(lockedNet.toFixed(2)),
     };
   }
-  async transactions( cpf: string, userId?: string, page = '1', limit = '10', startDate?: string, endDate?: string, status?: string, description?: string, internalToken?: string,
+  async transactions(
+    cpf: string,
+    userId?: string,
+    page = '1',
+    limit = '10',
+    startDate?: string,
+    endDate?: string,
+    status?: string,
+    description?: string,
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     const ownerFilter = this.buildOwnerFilter(cpf, userIds);
     if (!ownerFilter) {
-      return { transactions: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
+      return {
+        transactions: [],
+        meta: {
+          currentPage: 1,
+          itemsPerPage: 10,
+          totalItems: 0,
+          totalPages: 1,
+        },
+      };
     }
 
     const pageNum = Math.max(1, Number(page || 1));
@@ -87,10 +131,14 @@ export class InternalRenovadaFinanceService {
 
     const andConditions: any[] = [
       ownerFilter,
-      { description: { contains: '[TENANT:RENOVADA]', mode: 'insensitive' } },
+      whereTransactionPlatform('RENOVADA'),
       // Transações de maquineta têm página própria (/admin/machines); não devem
       // aparecer na listagem de Ofertas App, mesmo estando sincronizadas na carteira.
-      { NOT: { description: { contains: ORIGEM_MAQUINETA_TAG, mode: 'insensitive' } } },
+      {
+        NOT: {
+          description: { contains: ORIGEM_MAQUINETA_TAG, mode: 'insensitive' },
+        },
+      },
     ];
 
     const statusUpper = status ? String(status).toUpperCase() : '';
@@ -99,7 +147,9 @@ export class InternalRenovadaFinanceService {
     }
 
     if (description && description !== 'ALL') {
-      andConditions.push({ description: { contains: description, mode: 'insensitive' } });
+      andConditions.push({
+        description: { contains: description, mode: 'insensitive' },
+      });
     }
 
     if (startDate || endDate) {
@@ -121,12 +171,17 @@ export class InternalRenovadaFinanceService {
       }),
     ]);
 
-    const svcRaw = getPlatformTaxaEffective('RENOVADA', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+    const svcRaw = getPlatformTaxaEffective(
+      'RENOVADA',
+      'TAXA_SERVICO',
+      PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+    );
 
     return {
       transactions: items.map((t) => {
         const netBase = Number(t.netAmount ?? t.amount);
-        const taxaServico = svcRaw > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? svcRaw : 0;
+        const taxaServico =
+          svcRaw > 0 && t.createdAt >= TAXA_SERVICO_EFFECTIVE_DATE ? svcRaw : 0;
         return {
           id: t.id,
           userId: t.userId,
@@ -154,41 +209,70 @@ export class InternalRenovadaFinanceService {
       },
     };
   }
-  async withdrawals( cpf: string, userId?: string, page = '1', limit = '10', internalToken?: string,
+  async withdrawals(
+    cpf: string,
+    userId?: string,
+    page = '1',
+    limit = '10',
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     return this.finance.legacyWithdrawals(userIds, page, limit);
   }
-  async requestWithdraw( body: { cpf?: string; userId?: string; amount: number; pixKey: string }, internalToken?: string,
+  async requestWithdraw(
+    body: { cpf?: string; userId?: string; amount: number; pixKey: string },
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(body.cpf ?? '', body.userId);
-    if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada');
+    if (userIds.length === 0)
+      throw new BadRequestException('Nenhuma conta encontrada');
     const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
-    if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new BadRequestException('Valor inválido');
+    if (!body.pixKey?.trim())
+      throw new BadRequestException('PIX é obrigatório');
 
     const userId = userIds[0];
     // Fee is deducted FROM the entered amount (not added on top).
     // amount = total deducted from balance; user receives amount - fee.
-    const fee = parseFloat(RenovadaConfig.saque.calcularTaxa(amount).toFixed(2));
+    const fee = parseFloat(
+      RenovadaConfig.saque.calcularTaxa(amount).toFixed(2),
+    );
     const grossAmount = amount; // amount entered = total locked/deducted
     const netPayout = parseFloat((amount - fee).toFixed(2));
 
     if (netPayout <= 0) {
-      throw new BadRequestException(`Valor insuficiente para cobrir a taxa de R$ ${fee.toFixed(2)}`);
+      throw new BadRequestException(
+        `Valor insuficiente para cobrir a taxa de R$ ${fee.toFixed(2)}`,
+      );
     }
 
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-    if (!wallet) throw new BadRequestException('Carteira não encontrada para este usuário');
+    if (!wallet)
+      throw new BadRequestException(
+        'Carteira não encontrada para este usuário',
+      );
 
-    const available = parseFloat((Number(wallet.balance) - Number(wallet.lockedBalance)).toFixed(2));
+    const available = parseFloat(
+      (Number(wallet.balance) - Number(wallet.lockedBalance)).toFixed(2),
+    );
     if (available < grossAmount) {
       throw new BadRequestException(
         `Saldo insuficiente. Disponível: R$ ${available.toFixed(2)}, solicitado: R$ ${grossAmount.toFixed(2)}`,
       );
     }
 
-    const created = await this.finance.createWithdrawal({ userId, amount: netPayout, grossAmount, fee, pixKey: body.pixKey.trim(), platform: 'renovada', reserveWallet: true });
+    const created = await this.finance.createWithdrawal({
+      userId,
+      amount: netPayout,
+      grossAmount,
+      fee,
+      pixKey: body.pixKey.trim(),
+      platform: 'renovada',
+      reserveWallet: true,
+    });
 
     return { success: true, id: created.id, netPayout };
   }

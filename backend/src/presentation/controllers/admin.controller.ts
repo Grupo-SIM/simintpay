@@ -1,7 +1,22 @@
+import {
+  transactionPlatformTag,
+  transactionPlatformTagData,
+  whereTransactionHasPlatform,
+  whereTransactionPlatform,
+} from '../../modules/platform-core/transaction-platform';
 import { reportBuyerCpf } from '../../application/helpers/report-buyer.helper';
 import { PlatformAttributedBalance } from '../../modules/platform-core/platform-attributed-balance';
 import { PlatformAdministrationService } from '../../modules/platform-core/platform-administration.service';
-import { resolveConsolidadoPlatforms, getComunidadeOrderRows, FIXED_PLATFORM_TAGS, parseYmdSp, normalizePlatformTag, TZ, getTaxaServicoEffectiveDate, TAGS_SEM_TAXA_SERVICO, ConsolidadoPlatformEntry, TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA, TAXA_SERVICO_EFFECTIVE_DATE } from '../../modules/platform-core/platform-administration.helpers';
+import {
+  resolveConsolidadoPlatforms,
+  getComunidadeOrderRows,
+  parseYmdSp,
+  normalizePlatformTag,
+  TZ,
+  getTaxaServicoEffectiveDate,
+  TAGS_SEM_TAXA_SERVICO,
+  ConsolidadoPlatformEntry,
+} from '../../modules/platform-core/platform-administration.helpers';
 import { PlatformSaasAccessService } from '../../modules/platform-core/platform-saas-access.service';
 import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
@@ -27,11 +42,22 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { LeadStatus, PaymentMethod, Prisma, Role, TransactionStatus, WithdrawStatus } from '@prisma/client';
-import { getEbookTaxaServico } from '../../modules/ebooksim/ebooksim.config';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
+import {
+  LeadStatus,
+  PaymentMethod,
+  Prisma,
+  Role,
+  TransactionStatus,
+  WithdrawStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
-import { getAtlasProductType } from '../../modules/atlas/utils/atlas-product-description.util';
 import { ExternalPlatformDbService } from '../../modules/external-platform-db/external-platform-db.service';
 import type { ExternalPlatformSlug } from '../../modules/external-platform-db/external-platform-db.types';
 import dayjs from 'dayjs';
@@ -42,16 +68,6 @@ import customParseFormat from 'dayjs/plugin/customParseFormat';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 dayjs.extend(customParseFormat);
-
-
-type DomTransactionReportRow = DomTransactionItem & {
-  tenant_tag: string;
-  valor_bruto_venda: number;
-  taxa_dom: number;
-  taxa_vendedor: number;
-  taxa_fixa_transacao: number;
-  taxa_cashback: number;
-};
 
 /** dataInicio/dataFim no formato YYYY-MM-DD interpretados no fuso SP. */
 
@@ -70,151 +86,61 @@ import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases
 import { ListWithdrawalsAdminUseCase } from '../../application/use-cases/admin/list-withdrawals-admin.use-case';
 import { ApproveWithdrawalUseCase } from '../../application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../../application/use-cases/admin/reject-withdrawal.use-case';
-import { SyncDomWithdrawalsUseCase } from '../../application/use-cases/admin/sync-dom-withdrawals.use-case';
-import { SyncFullRenovadaUseCase } from '../../application/use-cases/admin/sync-full-renovada.use-case';
-import { SyncFullBosqueUseCase } from '../../application/use-cases/admin/sync-full-bosque.use-case';
-import { SyncFullEbookUseCase } from '../../application/use-cases/admin/sync-full-ebook.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/admin/list-dom-transactions-direct.use-case';
 import { SyncMaquinetasUseCase } from '../../application/use-cases/admin/sync-maquinetas.use-case';
 import { SyncDomTransactionsCron } from '../../infrastructure/cron/sync-dom-transactions.cron';
 import { RejectLeadDto } from '../../application/dtos/admin/reject-lead.dto';
-import { getModuleConfig, getPlatformOwnerId, getRegisteredPlatform } from '../../modules/module.registry';
+import { getPlatformOwnerId } from '../../modules/module.registry';
 import { RejectWithdrawalDto } from '../../application/dtos/admin/reject-withdrawal.dto';
-import { SyncWithdrawalsDto } from '../../application/dtos/admin/sync-withdrawals.dto';
 import { TestEbookEmailDto } from '../../application/dtos/admin/test-ebook-email.dto';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import { EmailService } from '../../infrastructure/email/email.service';
 import { RevalidaSyncService } from '../../modules/revalida/services/revalida-sync.service';
-import { HASH_SERVICE, type IHashService } from '../../core/services/hash.interface';
+import {
+  HASH_SERVICE,
+  type IHashService,
+} from '../../core/services/hash.interface';
 import {
   PAYMENT_GATEWAY,
   type DomTransactionItem,
   type IPaymentGateway,
 } from '../../core/services/payment-gateway.interface';
-import { WALLET_REPOSITORY, type IWalletRepository } from '../../core/repositories/wallet.repository.interface';
+import {
+  WALLET_REPOSITORY,
+  type IWalletRepository,
+} from '../../core/repositories/wallet.repository.interface';
 import { CommunityManagementService } from '../../application/services/community-management.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
-import { getPlatformTaxaEffective, invalidatePlatformTaxaCache, buildClientTaxaTag, canonicalPlatformTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from '../../modules/platform-taxas/platform-taxas.keys';
-import { estimateDomFeeReais, estimatePhysicalDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
+import {
+  getPlatformTaxaEffective,
+  invalidatePlatformTaxaCache,
+  buildUserTaxaTag,
+  canonicalPlatformTaxaTag,
+} from '../../modules/platform-taxas/platform-taxas.store';
+import {
+  PLATFORM_TAXA_DEFAULTS,
+  type PlataformaTaxaKey,
+} from '../../modules/platform-taxas/platform-taxas.keys';
+import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
 import { calculateBoletoFees } from '../../application/use-cases/boleto/boleto-fees.helper';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import { LinkExternalPlatformUserService } from '../../application/services/link-external-platform-user.service';
 import { ScanPlatformOwnersUseCase } from '../../application/use-cases/admin/scan-platform-owners.use-case';
 import { GetWalletCompositionUseCase } from '../../application/use-cases/admin/get-wallet-composition.use-case';
 import { summarizeRefunds } from '../../application/helpers/refund-report.helper';
-import { TENANT_EBOOK_TAG, TENANT_AREAFLIX_TAG, TENANT_RENOVADA_TAG, TENANT_CONTROLE_MOTORISTA_TAG, TENANT_CONTROLE_PATRIMONIAL_TAG, ORIGEM_MAQUINETA_TAG, isMaquinetaDescription } from '../../application/utils/internal-tags.util';
+import {
+  ORIGEM_MAQUINETA_TAG,
+  TENANT_RENOVADA_TAG,
+} from '../../application/utils/internal-tags.util';
 import { PlatformReportingService } from '../../application/services/platform-reporting.service';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
   if (!description) return '-';
-  const m = description.match(/Terminal:\s*([^\s\[]+)/i);
+  const m = description.match(/Terminal:\s*([^\s[]+)/i);
   return m ? m[1] : '-';
-}
-
-const PLAN_PLATFORM_CPF_REGEX = /\[CPF:([^\]|]*)\|([^\]]+)\]/;
-
-
-
-function extractOwnerDocDigitsFromPlanDescription(description: string | null | undefined): string | null {
-  const m = (description ?? '').match(PLAN_PLATFORM_CPF_REGEX);
-  if (!m) return null;
-  const digits = m[1].replace(/\D/g, '');
-  if (digits.length < 11) return null;
-  return digits;
-}
-
-/** userIds dos planos técnicos + contas Simpay (CPF) para listar todas as transações da plataforma */
-/** Extrai todos os CPFs/CNPJs (11-14 dígitos) presentes em uma string */
-function extractAllDocDigitsFromText(text: string | null | undefined): string[] {
-  if (!text) return [];
-  const matches = (text).match(/\d{11,14}/g) ?? [];
-  return [...new Set(matches.filter(d => d.length >= 11 && d.length <= 14))];
-}
-
-function normalizeDocDigits(raw: string | null | undefined): string {
-  return String(raw ?? '').replace(/\D/g, '');
-}
-
-function docVariants(doc: string | null | undefined): string[] {
-  const digits = normalizeDocDigits(doc);
-  if (!digits) return [];
-  if (digits.length === 11) {
-    return [digits, digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')];
-  }
-  if (digits.length === 14) {
-    return [digits, digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')];
-  }
-  return [digits];
-}
-
-async function expandPlatformTransactionUserIds(
-  prisma: PrismaService,
-  plans: { userId: string; description: string | null }[],
-): Promise<string[]> {
-  const ids = new Set(plans.map((p) => p.userId));
-  if (plans.length === 0) return [];
-
-  // Coleta todos os dígitos de documento presentes nas descrições dos planos
-  // (tanto no formato [CPF:xxx|TAG] quanto em texto livre)
-  const digitsToResolve = new Set<string>();
-
-  for (const p of plans) {
-    // Tenta o formato padrão primeiro
-    const tagged = extractOwnerDocDigitsFromPlanDescription(p.description);
-    if (tagged) {
-      digitsToResolve.add(tagged);
-      continue;
-    }
-    // Fallback: qualquer sequência de 11-14 dígitos na descrição
-    for (const d of extractAllDocDigitsFromText(p.description)) {
-      digitsToResolve.add(d);
-    }
-  }
-
-  if (digitsToResolve.size === 0) return [...ids];
-
-  const orClause = [...digitsToResolve].flatMap((d) => {
-    const row: { cpf: string }[] = [{ cpf: d }];
-    if (d.length === 11) {
-      row.push({ cpf: d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') });
-    } else if (d.length === 14) {
-      row.push({ cpf: d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') });
-    }
-    return row;
-  });
-
-  const merchants = await prisma.user.findMany({
-    where: { OR: orClause },
-    select: { id: true },
-  });
-  for (const m of merchants) ids.add(m.id);
-  return [...ids];
-}
-
-async function expandUserIdsByCpf(
-  prisma: PrismaService,
-  baseUserIds: string[],
-): Promise<string[]> {
-  const ids = new Set(baseUserIds);
-  if (baseUserIds.length === 0) return [];
-
-  const baseUsers = await prisma.user.findMany({
-    where: { id: { in: baseUserIds } },
-    select: { cpf: true },
-  });
-  const variants = [...new Set(baseUsers.flatMap((u) => docVariants(u.cpf ?? null)))];
-  if (variants.length === 0) return [...ids];
-
-  const relatedUsers = await prisma.user.findMany({
-    where: { cpf: { in: variants } },
-    select: { id: true },
-  });
-  for (const u of relatedUsers) ids.add(u.id);
-  return [...ids];
 }
 
 /**
@@ -222,21 +148,25 @@ async function expandUserIdsByCpf(
  * Mesmo default de `EBOOK_ID` nos endpoints de limpeza/sync do ebook.
  */
 
-
-async function resolveRegisteredOwner(prisma: PrismaService, _envKey: string, slugs: string[], _fallback = ''): Promise<string> {
+async function resolveRegisteredOwner(
+  prisma: PrismaService,
+  _envKey: string,
+  slugs: string[],
+): Promise<string> {
   const tags = slugs.map((slug) => normalizePlatformTag(slug));
-  const platform = await prisma.platform.findFirst({ where: { tag: { in: tags }, isActive: true }, select: { ownerUserId: true } });
+  const platform = await prisma.platform.findFirst({
+    where: { tag: { in: tags }, isActive: true },
+    select: { ownerUserId: true },
+  });
   return platform?.ownerUserId ?? '';
 }
 
 /** Resolve todos os user IDs das plataformas do consolidado em paralelo. */
 
-
 /**
  * Busca ordens de assinatura de comunidade pagas no período, via CommunityLinkBinding.
  * Retorna rows no mesmo formato de txRowsLucro para serem mescladas no consolidado.
  */
-
 
 /**
  * Remove as ordens de comunidade sintéticas (`comunidade_order_<X>`) que JÁ possuem uma
@@ -269,56 +199,35 @@ function dedupeComunidadeRows<T extends { id: string }>(
  * [TENANT:ZERO_GRAU]/[TENANT:SIMINTPAY]/comunidades quando o userId não era de conta
  * plataforma — as vendas apareciam na listagem do produto mas não nos cards/consolidado.
  */
-function buildConsolidadoScopeOr(platformIds: string[]): Prisma.TransactionWhereInput {
+function buildConsolidadoScopeOr(
+  platformIds: string[],
+): Prisma.TransactionWhereInput {
   return {
     OR: [
       { userId: { in: platformIds } },
-      { description: { contains: '[TENANT:', mode: 'insensitive' } },
-      // Bosque legado: transações antigas sem tag, marcadas só pela palavra na descrição.
-      { description: { contains: 'bosque', mode: 'insensitive' } },
+      // Transação com plataforma atribuída (Transaction.platformTag é a única fonte).
+      whereTransactionHasPlatform,
     ],
   };
 }
 
-/** Prioridade Bosque pela descrição (alinha com /plataformas/bosque). */
-function transacaoAtribuiBosquePorDescricao(description: string | null | undefined): boolean {
-  if (!description) return false;
-  if (/\[\s*TENANT\s*:\s*BOSQUE\s*\]/i.test(description)) return true;
-  return description.toLowerCase().includes('bosque') || description.toLowerCase().includes('ibb');
-}
-
-function transacaoAtribuiAreaflixPorDescricao(description: string | null | undefined): boolean {
-  if (!description) return false;
-  return /\[\s*TENANT\s*:\s*AREAFLIX\s*\]/i.test(description);
-}
-
-function transacaoAtribuiPagatgPorDescricao(description: string | null | undefined): boolean {
-  if (!description) return false;
-  return /\[\s*TENANT\s*:\s*PAGATG\s*\]/i.test(description);
-}
-
-function transacaoAtribuiEbookPorDescricao(description: string | null | undefined): boolean {
-  if (!description) return false;
-  return description.includes(TENANT_EBOOK_TAG);
-}
-
 /** Tags de plataformas fixas — qualquer [TENANT:X] fora deste conjunto é uma comunidade individual. */
-
 
 /** Tag sentinela para transações sem plataforma/produto atribuível — nada fica de fora do relatório. */
 const TAG_NAO_IDENTIFICADA = 'NAO-IDENTIFICADA';
 
 function consolidadoTagParaTransacao(
-  tx: { userId: string; description: string | null },
+  tx: { userId: string; platformTag: string | null },
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): string {
-  const match = tx.description?.match(/\[TENANT:([A-Z0-9_-]+)\]/i);
-  if (match) {
-    const tag = normalizePlatformTag(match[1]);
-    return platforms.some((platform) => platform.tag === tag) ? tag : TAG_NAO_IDENTIFICADA;
+  const stored = transactionPlatformTag(tx);
+  if (stored) {
+    const tag = normalizePlatformTag(stored);
+    return platforms.some((platform) => platform.tag === tag)
+      ? tag
+      : TAG_NAO_IDENTIFICADA;
   }
-  const owners = platforms.filter((platform) => platform.id === tx.userId);
-  return owners.length === 1 ? owners[0].tag : TAG_NAO_IDENTIFICADA;
+  return TAG_NAO_IDENTIFICADA;
 }
 
 type ConsolidadoListQuery = {
@@ -337,7 +246,9 @@ function buildConsolidadoTransactionWhere(
 ): Prisma.TransactionWhereInput {
   const platformIds = platforms.map((p) => p.id);
 
-  const and: Prisma.TransactionWhereInput[] = [buildConsolidadoScopeOr(platformIds)];
+  const and: Prisma.TransactionWhereInput[] = [
+    buildConsolidadoScopeOr(platformIds),
+  ];
 
   let statusFilter: Prisma.TransactionWhereInput['status'] = 'COMPLETED';
   if (input.transactionType === 'out') {
@@ -363,12 +274,20 @@ function buildConsolidadoTransactionWhere(
   }
 
   if (input.customerName?.trim()) {
-    and.push({ customerName: { contains: input.customerName.trim(), mode: 'insensitive' } });
+    and.push({
+      customerName: {
+        contains: input.customerName.trim(),
+        mode: 'insensitive',
+      },
+    });
   }
 
   if (input.transactionId?.trim()) {
     and.push({
-      OR: [{ id: input.transactionId.trim() }, { domTransactionId: input.transactionId.trim() }],
+      OR: [
+        { id: input.transactionId.trim() },
+        { domTransactionId: input.transactionId.trim() },
+      ],
     });
   }
 
@@ -377,7 +296,9 @@ function buildConsolidadoTransactionWhere(
   }
 
   if (input.planName?.trim()) {
-    and.push({ description: { contains: input.planName.trim(), mode: 'insensitive' } });
+    and.push({
+      description: { contains: input.planName.trim(), mode: 'insensitive' },
+    });
   }
 
   return { AND: and };
@@ -452,14 +373,22 @@ function buildConsolidadoResumoWhere(
  */
 type DomStatusBucket = 'PENDING' | 'COMPLETED' | 'REFUNDED' | 'FAILED';
 
-function domRawStatusToBucket(status: string | undefined | null): DomStatusBucket {
+function domRawStatusToBucket(
+  status: string | undefined | null,
+): DomStatusBucket {
   const s = String(status ?? 'pending').toLowerCase();
-  if (s === 'paid' || s === 'approved' || s === 'completed' || s === 'revision_paid') {
+  if (
+    s === 'paid' ||
+    s === 'approved' ||
+    s === 'completed' ||
+    s === 'revision_paid'
+  ) {
     return 'COMPLETED';
   }
   if (s === 'refunded' || s === 'pending_refund') return 'REFUNDED';
   if (s === 'chargeback') return 'REFUNDED';
-  if (s === 'failed' || s === 'not_authorized' || s === 'expired') return 'FAILED';
+  if (s === 'failed' || s === 'not_authorized' || s === 'expired')
+    return 'FAILED';
   return 'PENDING';
 }
 
@@ -473,11 +402,20 @@ const DOM_DIST_STATUS_LABEL: Record<DomStatusBucket, string> = {
 
 type DomMethodBucket = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
 
-function domPaymentMethodToBucket(method: string | undefined | null): DomMethodBucket {
+function domPaymentMethodToBucket(
+  method: string | undefined | null,
+): DomMethodBucket {
   const m = String(method ?? 'pix').toLowerCase();
-  if (m.includes('boleto') || m.includes('ticket') || m.includes('bank_slip') || m.includes('bankslip')) return 'BOLETO';
+  if (
+    m.includes('boleto') ||
+    m.includes('ticket') ||
+    m.includes('bank_slip') ||
+    m.includes('bankslip')
+  )
+    return 'BOLETO';
   if (m.includes('debit')) return 'DEBIT_CARD';
-  if (m.includes('credit') || m.includes('cartao') || m.includes('card')) return 'CREDIT_CARD';
+  if (m.includes('credit') || m.includes('cartao') || m.includes('card'))
+    return 'CREDIT_CARD';
   return 'PIX';
 }
 
@@ -489,12 +427,19 @@ const DOM_DIST_METHOD_LABEL: Record<DomMethodBucket, string> = {
 };
 
 /** Mesmo padrão de datas que o hook admin em `use-transacoes` (listTransacoesAdmin). */
-function relatorioDomDateRange(dataInicio?: string, dataFim?: string): { begin_date: string; end_date: string } {
+function relatorioDomDateRange(
+  dataInicio?: string,
+  dataFim?: string,
+): { begin_date: string; end_date: string } {
   const endDay = dataFim?.trim() || dayjs().tz(TZ).format('YYYY-MM-DD');
-  const beginDay = dataInicio?.trim() || dayjs().tz(TZ).subtract(90, 'day').format('YYYY-MM-DD');
+  const beginDay =
+    dataInicio?.trim() ||
+    dayjs().tz(TZ).subtract(90, 'day').format('YYYY-MM-DD');
   return {
     begin_date: dataInicio?.trim() ? `${dataInicio.trim()} 00:00:00` : beginDay,
-    end_date: dataFim?.trim() ? `${dataFim.trim()} 23:59:59` : `${endDay} 23:59:59`,
+    end_date: dataFim?.trim()
+      ? `${dataFim.trim()} 23:59:59`
+      : `${endDay} 23:59:59`,
   };
 }
 
@@ -543,7 +488,9 @@ async function aggregateProductRefunds(
   });
 
   return summarizeRefunds(transactions, {
-    start: dataInicio ? parseYmdSp(dataInicio).startOf('day').toDate() : undefined,
+    start: dataInicio
+      ? parseYmdSp(dataInicio).startOf('day').toDate()
+      : undefined,
     end: dataFim ? parseYmdSp(dataFim).endOf('day').toDate() : undefined,
   });
 }
@@ -567,11 +514,10 @@ type LucroSimpayLinhaTx = {
 /** Nenhuma plataforma isenta; RENOVADA e BOSQUE migraram para TAXA_SERVICO em 2026-05-29 (data abaixo). */
 
 /** Transações anteriores a esta data não são cobradas a TAXA_SERVICO (fee retroativo não aplicado). */
- // 2026-05-18 meia-noite BRT
+// 2026-05-18 meia-noite BRT
 /** RENOVADA e BOSQUE: início do TAXA_SERVICO — mesma data dos internal-*-finance.controller.ts. */
 
 /** Retorna a data efetiva do TAXA_SERVICO por plataforma (RENOVADA/BOSQUE migraram em 2026-05-29). */
-
 
 type LucroSimpayPorPlataforma = {
   tag: string;
@@ -599,10 +545,13 @@ function buildLucroSimpayDetalhePorPlataforma(
     id: string;
     userId: string;
     amount: unknown;
+    netAmount?: unknown | null;
     createdAt: Date;
     description: string | null;
+    platformTag: string | null;
     installments: number | null;
     paymentMethod?: string | null;
+    financialSnapshot?: unknown;
   }[],
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): { totalLucroSimpay: number; plataformas: LucroSimpayPorPlataforma[] } {
@@ -630,7 +579,7 @@ function buildLucroSimpayDetalhePorPlataforma(
 
   for (const tx of txs) {
     const tag = consolidadoTagParaTransacao(
-      { userId: tx.userId, description: tx.description ?? null },
+      { userId: tx.userId, platformTag: tx.platformTag ?? null },
       platforms,
     );
     const platformEntry = platforms.find((p) => p.tag === tag);
@@ -643,16 +592,29 @@ function buildLucroSimpayDetalhePorPlataforma(
     const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
     const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
     const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
-    const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
-    const taxaServico = taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag) ? taxaServicoRate : 0;
+    const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag)
+      ? 0
+      : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
+    const taxaServico =
+      taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag)
+        ? taxaServicoRate
+        : 0;
 
     const bruto = Number(tx.amount);
-    const parteAdmin = bruto * (1 - liquidezLojista);
+    const realized = realizedAcquirerCost(tx);
+    const parteAdmin =
+      realized === undefined
+        ? bruto * (1 - liquidezLojista)
+        : snapshotBuyerTotal(tx) - Number(tx.netAmount ?? 0);
     const pm = String(tx.paymentMethod ?? 'PIX');
     const inst = Number(tx.installments ?? 1);
-    const taxaMdr = mdrDomPct(pm, inst, bruto, tag);
-    // taxaServico é receita (cobrado do vendedor); taxaFixa, taxaCashback e taxaMdr são custos DOM.
-    const lucroTx = parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback;
+    const taxaMdr = realized ?? mdrDomPct(pm, inst, bruto, tag);
+    // Snapshot buyer total and recorded net are the actual buyer charge and
+    // seller repass; current platform rates are only for legacy transactions.
+    const lucroTx =
+      realized === undefined
+        ? parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback
+        : parteAdmin - realized;
     totalLucroSimpay += lucroTx;
 
     if (!byTag.has(tag)) {
@@ -675,11 +637,20 @@ function buildLucroSimpayDetalhePorPlataforma(
     }
     const agg = byTag.get(tag)!;
 
-    const formulaParte = `${bruto.toFixed(2)} × (1 − ${liquidezLojista}) = ${parteAdmin.toFixed(2)}`;
-    const mdrLabel = taxaMdr > 0 ? ` − ${taxaMdr.toFixed(4)}(MDR)` : '';
-    const formulaLucro = taxaServico > 0
-      ? `${parteAdmin.toFixed(2)} + ${taxaServico}(serv)${mdrLabel} − ${taxaFixa} − ${taxaCashback} = ${lucroTx.toFixed(2)}`
-      : `${parteAdmin.toFixed(2)}${mdrLabel} − ${taxaFixa} − ${taxaCashback} = ${lucroTx.toFixed(2)}`;
+    const formulaParte =
+      realized === undefined
+        ? `${bruto.toFixed(2)} × (1 − ${liquidezLojista}) = ${parteAdmin.toFixed(2)}`
+        : `${snapshotBuyerTotal(tx).toFixed(2)} − ${Number(tx.netAmount ?? 0).toFixed(2)} = ${parteAdmin.toFixed(2)}`;
+    const mdrLabel =
+      taxaMdr > 0
+        ? ` − ${taxaMdr.toFixed(4)}(${realized === undefined ? 'MDR' : 'custo adquirente'})`
+        : '';
+    const fixedLabel =
+      realized === undefined ? ` − ${taxaFixa} − ${taxaCashback}` : '';
+    const formulaLucro =
+      realized === undefined && taxaServico > 0
+        ? `${parteAdmin.toFixed(2)} + ${taxaServico}(serv)${mdrLabel}${fixedLabel} = ${lucroTx.toFixed(2)}`
+        : `${parteAdmin.toFixed(2)}${mdrLabel}${fixedLabel} = ${lucroTx.toFixed(2)}`;
 
     agg.transacoes.push({
       id: tx.id,
@@ -689,9 +660,9 @@ function buildLucroSimpayDetalhePorPlataforma(
       liquidezLojista,
       parteAdminMasterBruto: Number(parteAdmin.toFixed(2)),
       formulaParteAdmin: formulaParte,
-      taxaFixaTransacao: taxaFixa,
-      taxaCashback,
-      taxaServico,
+      taxaFixaTransacao: realized === undefined ? taxaFixa : 0,
+      taxaCashback: realized === undefined ? taxaCashback : 0,
+      taxaServico: realized === undefined ? taxaServico : 0,
       lucroTransacao: Number(lucroTx.toFixed(2)),
       formulaLucro,
       installments: Number(tx.installments ?? 1),
@@ -699,47 +670,25 @@ function buildLucroSimpayDetalhePorPlataforma(
     agg.subtotalBruto += bruto;
     agg.subtotalParte += parteAdmin;
     agg.subtotalLucro += lucroTx;
-    agg.subtotalTaxaServico += taxaServico;
-
+    agg.subtotalTaxaServico += realized === undefined ? taxaServico : 0;
   }
 
   const platformTagsResolvidas = new Set(platforms.map((p) => p.tag));
 
-  const plataformas: LucroSimpayPorPlataforma[] = platforms.map(
-    (p) => {
-      const hit = byTag.get(p.tag);
-      const liquidezKey = `${p.tag}_LIQUIDEZ`;
-      const fixaKey = `${p.tag}_TAXA_FIXA_TRANSACAO`;
-      const cbKey = `${p.tag}_TAXA_CASHBACK`;
-      const servicoKey = `${p.tag}_TAXA_SERVICO`;
-      const L = getPlatformTaxaEffective(p.tag, 'LIQUIDEZ', 0.91);
-      const tf = getPlatformTaxaEffective(p.tag, 'TAXA_FIXA_TRANSACAO', 1.0);
-      const tc = getPlatformTaxaEffective(p.tag, 'TAXA_CASHBACK', 3.0);
-      const ts = TAGS_SEM_TAXA_SERVICO.has(p.tag) ? 0 : getPlatformTaxaEffective(p.tag, 'TAXA_SERVICO', 4.0);
+  const plataformas: LucroSimpayPorPlataforma[] = platforms.map((p) => {
+    const hit = byTag.get(p.tag);
+    const liquidezKey = `${p.tag}_LIQUIDEZ`;
+    const fixaKey = `${p.tag}_TAXA_FIXA_TRANSACAO`;
+    const cbKey = `${p.tag}_TAXA_CASHBACK`;
+    const servicoKey = `${p.tag}_TAXA_SERVICO`;
+    const L = getPlatformTaxaEffective(p.tag, 'LIQUIDEZ', 0.91);
+    const tf = getPlatformTaxaEffective(p.tag, 'TAXA_FIXA_TRANSACAO', 1.0);
+    const tc = getPlatformTaxaEffective(p.tag, 'TAXA_CASHBACK', 3.0);
+    const ts = TAGS_SEM_TAXA_SERVICO.has(p.tag)
+      ? 0
+      : getPlatformTaxaEffective(p.tag, 'TAXA_SERVICO', 4.0);
 
-      if (!hit) {
-        return {
-          tag: p.tag,
-          userId: p.id,
-          envLiquidez: liquidezKey,
-          envTaxaFixa: fixaKey,
-          envTaxaCashback: cbKey,
-          envTaxaServico: servicoKey,
-          liquidezLojista: L,
-          taxaFixaTransacao: tf,
-          taxaCashback: tc,
-          taxaServico: ts,
-          quantidadeTransacoes: 0,
-          subtotalBruto: 0,
-          subtotalParteAdminMaster: 0,
-          subtotalDeducaoTaxaFixa: 0,
-          subtotalDeducaoTaxaCashback: 0,
-          subtotalDeducaoTaxaServico: 0,
-          subtotalLucro: 0,
-          transacoes: [],
-        };
-      }
-
+    if (!hit) {
       return {
         tag: p.tag,
         userId: p.id,
@@ -747,24 +696,49 @@ function buildLucroSimpayDetalhePorPlataforma(
         envTaxaFixa: fixaKey,
         envTaxaCashback: cbKey,
         envTaxaServico: servicoKey,
-        liquidezLojista: hit.liquidezLojista,
-        taxaFixaTransacao: hit.taxaFixa,
-        taxaCashback: hit.taxaCashback,
-        taxaServico: hit.taxaServico,
-        quantidadeTransacoes: hit.transacoes.length,
-        subtotalBruto: Number(hit.subtotalBruto.toFixed(2)),
-        subtotalParteAdminMaster: Number(hit.subtotalParte.toFixed(2)),
-        subtotalDeducaoTaxaFixa: Number((hit.transacoes.length * hit.taxaFixa).toFixed(2)),
-        subtotalDeducaoTaxaCashback: Number((hit.transacoes.length * hit.taxaCashback).toFixed(2)),
-        subtotalDeducaoTaxaServico: Number(hit.subtotalTaxaServico.toFixed(2)),
-        subtotalLucro: Number(hit.subtotalLucro.toFixed(2)),
-        transacoes: hit.transacoes.sort(
-          (a, b) =>
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-        ),
+        liquidezLojista: L,
+        taxaFixaTransacao: tf,
+        taxaCashback: tc,
+        taxaServico: ts,
+        quantidadeTransacoes: 0,
+        subtotalBruto: 0,
+        subtotalParteAdminMaster: 0,
+        subtotalDeducaoTaxaFixa: 0,
+        subtotalDeducaoTaxaCashback: 0,
+        subtotalDeducaoTaxaServico: 0,
+        subtotalLucro: 0,
+        transacoes: [],
       };
-    },
-  );
+    }
+
+    return {
+      tag: p.tag,
+      userId: p.id,
+      envLiquidez: liquidezKey,
+      envTaxaFixa: fixaKey,
+      envTaxaCashback: cbKey,
+      envTaxaServico: servicoKey,
+      liquidezLojista: hit.liquidezLojista,
+      taxaFixaTransacao: hit.taxaFixa,
+      taxaCashback: hit.taxaCashback,
+      taxaServico: hit.taxaServico,
+      quantidadeTransacoes: hit.transacoes.length,
+      subtotalBruto: Number(hit.subtotalBruto.toFixed(2)),
+      subtotalParteAdminMaster: Number(hit.subtotalParte.toFixed(2)),
+      subtotalDeducaoTaxaFixa: Number(
+        (hit.transacoes.length * hit.taxaFixa).toFixed(2),
+      ),
+      subtotalDeducaoTaxaCashback: Number(
+        (hit.transacoes.length * hit.taxaCashback).toFixed(2),
+      ),
+      subtotalDeducaoTaxaServico: Number(hit.subtotalTaxaServico.toFixed(2)),
+      subtotalLucro: Number(hit.subtotalLucro.toFixed(2)),
+      transacoes: hit.transacoes.sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
+    };
+  });
 
   // Plataformas identificadas apenas por tag de descrição (sem userId resolvido) — ex.: PAGATG, COMUNIDADE
   for (const [tag, hit] of byTag.entries()) {
@@ -787,12 +761,19 @@ function buildLucroSimpayDetalhePorPlataforma(
       quantidadeTransacoes: hit.transacoes.length,
       subtotalBruto: Number(hit.subtotalBruto.toFixed(2)),
       subtotalParteAdminMaster: Number(hit.subtotalParte.toFixed(2)),
-      subtotalDeducaoTaxaFixa: Number((hit.transacoes.length * hit.taxaFixa).toFixed(2)),
-      subtotalDeducaoTaxaCashback: Number((hit.transacoes.length * hit.taxaCashback).toFixed(2)),
-      subtotalDeducaoTaxaServico: Number((hit.transacoes.length * hit.taxaServico).toFixed(2)),
+      subtotalDeducaoTaxaFixa: Number(
+        (hit.transacoes.length * hit.taxaFixa).toFixed(2),
+      ),
+      subtotalDeducaoTaxaCashback: Number(
+        (hit.transacoes.length * hit.taxaCashback).toFixed(2),
+      ),
+      subtotalDeducaoTaxaServico: Number(
+        (hit.transacoes.length * hit.taxaServico).toFixed(2),
+      ),
       subtotalLucro: Number(hit.subtotalLucro.toFixed(2)),
       transacoes: hit.transacoes.sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       ),
     });
   }
@@ -804,34 +785,70 @@ function buildLucroSimpayDetalhePorPlataforma(
 }
 
 /** Lucro Simpay de uma transação (mesma fórmula que buildLucroSimpayDetalhePorPlataforma). */
+function realizedAcquirerCost(tx: object): number | undefined {
+  const snapshot = 'financialSnapshot' in tx ? tx.financialSnapshot : undefined;
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot))
+    return undefined;
+  const cost = (snapshot as Record<string, unknown>).acquirerCost;
+  if (!cost || typeof cost !== 'object' || Array.isArray(cost))
+    return undefined;
+  const cents = (cost as Record<string, unknown>).realizedCents;
+  return typeof cents === 'number' && Number.isSafeInteger(cents) && cents >= 0
+    ? cents / 100
+    : undefined;
+}
+
+function snapshotBuyerTotal(tx: {
+  financialSnapshot?: unknown;
+  amount: unknown;
+}): number {
+  const snapshot = tx.financialSnapshot;
+  if (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
+    const cents = (snapshot as Record<string, unknown>).buyerTotalCents;
+    if (typeof cents === 'number' && Number.isSafeInteger(cents) && cents >= 0)
+      return cents / 100;
+  }
+  return Number(tx.amount);
+}
+
 function lucroSimpayUmaTransacaoConsolidado(
   tx: {
     userId: string;
     amount: unknown;
+    netAmount?: unknown | null;
     description?: string | null;
+    platformTag: string | null;
     installments?: number | null;
     createdAt?: Date;
     paymentMethod?: string | null;
+    financialSnapshot?: unknown;
   },
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): number {
   const tag = consolidadoTagParaTransacao(
-    { userId: tx.userId, description: tx.description ?? null },
+    { userId: tx.userId, platformTag: tx.platformTag ?? null },
     platforms,
   );
   const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
   const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
   const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
-  const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag) ? 0 : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
-  const taxaServico = taxaServicoRate > 0 && tx.createdAt != null && tx.createdAt >= getTaxaServicoEffectiveDate(tag)
-    ? taxaServicoRate
-    : 0;
+  const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag)
+    ? 0
+    : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
+  const taxaServico =
+    taxaServicoRate > 0 &&
+    tx.createdAt != null &&
+    tx.createdAt >= getTaxaServicoEffectiveDate(tag)
+      ? taxaServicoRate
+      : 0;
   const bruto = Number(tx.amount);
+  const realized = realizedAcquirerCost(tx);
+  if (realized !== undefined)
+    return snapshotBuyerTotal(tx) - Number(tx.netAmount ?? 0) - realized;
   const parteAdmin = bruto * (1 - liquidezLojista);
   const pm = String(tx.paymentMethod ?? 'PIX');
   const inst = Number(tx.installments ?? 1);
   const taxaMdr = mdrDomPct(pm, inst, bruto, tag);
-  // taxaServico é receita (cobrado do vendedor); taxaFixa, taxaCashback e taxaMdr são custos DOM.
   return parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback;
 }
 
@@ -854,8 +871,18 @@ function listYmdInclusiveSp(dataInicio: string, dataFim: string): string[] {
  * logs ADMIN_WITHDRAW_PROFIT_INC − ADMIN_WITHDRAW_FEE_INC (por dia do log), fuso America/Sao_Paulo.
  */
 function buildLucroTotalMasterHistoricoDiario(
-  txRowsLucro: { userId: string; amount: unknown; createdAt: Date; description?: string | null }[],
-  withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
+  txRowsLucro: {
+    userId: string;
+    amount: unknown;
+    createdAt: Date;
+    description?: string | null;
+    platformTag: string | null;
+  }[],
+  withdrawLogs: {
+    createdAt: Date;
+    bookkeepingAmount: unknown;
+    action: string;
+  }[],
   dataInicio: string,
   dataFim: string,
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
@@ -870,7 +897,7 @@ function buildLucroTotalMasterHistoricoDiario(
   const profitPorDia = new Map<string, number>();
   for (const log of withdrawLogs) {
     const ymd = dayjs(log.createdAt).tz(TZ).format('YYYY-MM-DD');
-    const amt = Number(log.amount);
+    const amt = Number(log.bookkeepingAmount);
     if (!Number.isFinite(amt)) continue;
     if (log.action === 'ADMIN_WITHDRAW_FEE_INC') {
       feePorDia.set(ymd, (feePorDia.get(ymd) ?? 0) + amt);
@@ -900,8 +927,18 @@ function isSingleCalendarDaySp(dataInicio: string, dataFim: string): boolean {
  * Mesma fórmula do consolidado diário, mas com um ponto por hora (0–23) em America/Sao_Paulo.
  */
 function buildLucroTotalMasterHistoricoPorHora(
-  txRowsLucro: { userId: string; amount: unknown; createdAt: Date; description?: string | null }[],
-  withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
+  txRowsLucro: {
+    userId: string;
+    amount: unknown;
+    createdAt: Date;
+    description?: string | null;
+    platformTag: string | null;
+  }[],
+  withdrawLogs: {
+    createdAt: Date;
+    bookkeepingAmount: unknown;
+    action: string;
+  }[],
   dataInicio: string,
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): Array<{ label: string; valor: number }> {
@@ -920,7 +957,7 @@ function buildLucroTotalMasterHistoricoPorHora(
     const d = dayjs(log.createdAt).tz(TZ);
     if (d.format('YYYY-MM-DD') !== ymd) continue;
     const h = d.hour();
-    const amt = Number(log.amount);
+    const amt = Number(log.bookkeepingAmount);
     if (!Number.isFinite(amt)) continue;
     if (log.action === 'ADMIN_WITHDRAW_FEE_INC') {
       feePorHora.set(h, (feePorHora.get(h) ?? 0) + amt);
@@ -961,13 +998,27 @@ type DashboardFinanceHistoricoRow = {
  * que zeraria o custo e inflaria o lucro.
  */
 const DOM_CC_RATE_BY_INSTALLMENT_ADM: Record<number, number> = {
-  1: 0.0399, 2: 0.083, 3: 0.0968, 4: 0.1104, 5: 0.1237,
-  6: 0.1367, 7: 0.1495, 8: 0.1621, 9: 0.1744, 10: 0.1864,
-  11: 0.1983, 12: 0.2099,
+  1: 0.0399,
+  2: 0.083,
+  3: 0.0968,
+  4: 0.1104,
+  5: 0.1237,
+  6: 0.1367,
+  7: 0.1495,
+  8: 0.1621,
+  9: 0.1744,
+  10: 0.1864,
+  11: 0.1983,
+  12: 0.2099,
 };
 
 /** Taxa MDR que a DOM cobra (somente a parte percentual, sem taxas fixas). */
-function mdrDomPct(paymentMethod: string, installments: number, amount: number, tag: string): number {
+function mdrDomPct(
+  paymentMethod: string,
+  installments: number,
+  amount: number,
+  tag: string,
+): number {
   const inst = Math.min(Math.max(installments || 1, 1), 12);
   if (String(paymentMethod).toUpperCase().includes('BOLETO')) {
     // Boleto: custo DOM é FIXO por boleto (TAXA_BOLETO_DOM + TAXA_BOLETO_DOM_FIXA), não % do valor.
@@ -981,7 +1032,11 @@ function mdrDomPct(paymentMethod: string, installments: number, amount: number, 
     const ccFallback = DOM_CC_RATE_BY_INSTALLMENT_ADM[inst] ?? 0.0399;
     return amount * getPlatformTaxaEffective(tag, ccKey, ccFallback);
   }
-  const mdrPix = getPlatformTaxaEffective(tag, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
+  const mdrPix = getPlatformTaxaEffective(
+    tag,
+    'MDR_PIX',
+    PLATFORM_TAXA_DEFAULTS.MDR_PIX,
+  );
   return amount * mdrPix;
 }
 
@@ -992,6 +1047,7 @@ function accumTxFinancePorDia(
     netAmount: unknown | null;
     createdAt: Date;
     description?: string | null;
+    platformTag: string | null;
     paymentMethod?: string | null;
     installments?: number | null;
   }[],
@@ -1013,7 +1069,7 @@ function accumTxFinancePorDia(
   for (const tx of txRowsLucro) {
     const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
     const tag = consolidadoTagParaTransacao(
-      { userId: tx.userId, description: tx.description ?? null },
+      { userId: tx.userId, platformTag: tx.platformTag ?? null },
       platforms,
     );
     const b = Number(tx.amount);
@@ -1032,20 +1088,26 @@ function accumTxFinancePorDia(
       ? 0
       : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
     const taxaServicoTx =
-      taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag) ? taxaServicoRate : 0;
+      taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag)
+        ? taxaServicoRate
+        : 0;
     taxaServico.set(ymd, (taxaServico.get(ymd) ?? 0) + taxaServicoTx);
   }
   return { bruto, liquido, lucro, cashback, taxaAdquirente, taxaServico };
 }
 
 function accumWithdrawPorDia(
-  withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
+  withdrawLogs: {
+    createdAt: Date;
+    bookkeepingAmount: unknown;
+    action: string;
+  }[],
 ): { fee: Map<string, number>; profit: Map<string, number> } {
   const fee = new Map<string, number>();
   const profit = new Map<string, number>();
   for (const log of withdrawLogs) {
     const ymd = dayjs(log.createdAt).tz(TZ).format('YYYY-MM-DD');
-    const amt = Number(log.amount);
+    const amt = Number(log.bookkeepingAmount);
     if (!Number.isFinite(amt)) continue;
     if (log.action === 'ADMIN_WITHDRAW_FEE_INC') {
       fee.set(ymd, (fee.get(ymd) ?? 0) + amt);
@@ -1063,15 +1125,21 @@ function buildDashboardFinanceHistoricoDiario(
     netAmount: unknown | null;
     createdAt: Date;
     description?: string | null;
+    platformTag: string | null;
     paymentMethod?: string | null;
     installments?: number | null;
   }[],
-  withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
+  withdrawLogs: {
+    createdAt: Date;
+    bookkeepingAmount: unknown;
+    action: string;
+  }[],
   dataInicio: string,
   dataFim: string,
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): DashboardFinanceHistoricoRow[] {
-  const { bruto, liquido, lucro, cashback, taxaAdquirente, taxaServico } = accumTxFinancePorDia(txRowsLucro, platforms);
+  const { bruto, liquido, lucro, cashback, taxaAdquirente, taxaServico } =
+    accumTxFinancePorDia(txRowsLucro, platforms);
   const { fee, profit } = accumWithdrawPorDia(withdrawLogs);
   const dias = listYmdInclusiveSp(dataInicio, dataFim);
   return dias.map((ymd) => {
@@ -1098,10 +1166,15 @@ function buildDashboardFinanceHistoricoPorHora(
     netAmount: unknown | null;
     createdAt: Date;
     description?: string | null;
+    platformTag: string | null;
     paymentMethod?: string | null;
     installments?: number | null;
   }[],
-  withdrawLogs: { createdAt: Date; amount: unknown; action: string }[],
+  withdrawLogs: {
+    createdAt: Date;
+    bookkeepingAmount: unknown;
+    action: string;
+  }[],
   dataInicio: string,
   platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): DashboardFinanceHistoricoRow[] {
@@ -1117,15 +1190,21 @@ function buildDashboardFinanceHistoricoPorHora(
     if (d.format('YYYY-MM-DD') !== ymdTarget) continue;
     const h = d.hour();
     const tag = consolidadoTagParaTransacao(
-      { userId: tx.userId, description: tx.description ?? null },
+      { userId: tx.userId, platformTag: tx.platformTag ?? null },
       platforms,
     );
     const b = Number(tx.amount);
     if (Number.isFinite(b)) {
       bruto.set(h, (bruto.get(h) ?? 0) + b);
     }
-    liquido.set(h, (liquido.get(h) ?? 0) + valorLiquidoTransacaoConsolidado(tx, tag));
-    lucro.set(h, (lucro.get(h) ?? 0) + lucroSimpayUmaTransacaoConsolidado(tx, platforms));
+    liquido.set(
+      h,
+      (liquido.get(h) ?? 0) + valorLiquidoTransacaoConsolidado(tx, tag),
+    );
+    lucro.set(
+      h,
+      (lucro.get(h) ?? 0) + lucroSimpayUmaTransacaoConsolidado(tx, platforms),
+    );
     const tc = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
     cashback.set(h, (cashback.get(h) ?? 0) + tc);
     const tf = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
@@ -1134,7 +1213,9 @@ function buildDashboardFinanceHistoricoPorHora(
       ? 0
       : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
     const taxaServicoTx =
-      taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag) ? taxaServicoRate : 0;
+      taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag)
+        ? taxaServicoRate
+        : 0;
     taxaServico.set(h, (taxaServico.get(h) ?? 0) + taxaServicoTx);
   }
   const fee = new Map<number, number>();
@@ -1143,7 +1224,7 @@ function buildDashboardFinanceHistoricoPorHora(
     const d = dayjs(log.createdAt).tz(TZ);
     if (d.format('YYYY-MM-DD') !== ymdTarget) continue;
     const h = d.hour();
-    const amt = Number(log.amount);
+    const amt = Number(log.bookkeepingAmount);
     if (!Number.isFinite(amt)) continue;
     if (log.action === 'ADMIN_WITHDRAW_FEE_INC') {
       fee.set(h, (fee.get(h) ?? 0) + amt);
@@ -1195,7 +1276,10 @@ function formatConsolidadoDoc(doc: string | null | undefined): string | null {
     return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
   }
   if (digits.length === 14) {
-    return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+    return digits.replace(
+      /(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,
+      '$1.$2.$3/$4-$5',
+    );
   }
   return doc;
 }
@@ -1215,10 +1299,6 @@ export class AdminController {
     private readonly listWithdrawalsAdmin: ListWithdrawalsAdminUseCase,
     private readonly approveWithdrawal: ApproveWithdrawalUseCase,
     private readonly rejectWithdrawal: RejectWithdrawalUseCase,
-    private readonly syncWithdrawalsUseCase: SyncDomWithdrawalsUseCase,
-    private readonly syncFullRenovadaUseCase: SyncFullRenovadaUseCase,
-    private readonly syncFullBosqueUseCase: SyncFullBosqueUseCase,
-    private readonly syncFullEbookUseCase: SyncFullEbookUseCase,
     private readonly migrateRenovadaTxsToAdmin: MigrateRenovadaTxsToAdminUseCase,
     private readonly listDomTransactionsDirect: ListDomTransactionsDirectUseCase,
     private readonly syncMaquinetasUseCase: SyncMaquinetasUseCase,
@@ -1230,14 +1310,15 @@ export class AdminController {
     private readonly prisma: PrismaService,
     @Inject(HASH_SERVICE) private readonly hashService: IHashService,
     @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: IPaymentGateway,
-    @Inject(WALLET_REPOSITORY) private readonly walletRepository: IWalletRepository,
+    @Inject(WALLET_REPOSITORY)
+    private readonly walletRepository: IWalletRepository,
     private readonly platformTaxas: PlatformTaxasService,
     private readonly linkExternal: LinkExternalPlatformUserService,
     private readonly scanPlatformOwners: ScanPlatformOwnersUseCase,
     private readonly getWalletComposition: GetWalletCompositionUseCase,
     private readonly platformReporting: PlatformReportingService,
     private readonly externalPlatformDb: ExternalPlatformDbService,
-  ) { }
+  ) {}
 
   /**
    * Todas as páginas da listagem DOM no intervalo — mesma fonte que GET /admin/transacoes-dom.
@@ -1248,7 +1329,9 @@ export class AdminController {
   ): Promise<DomTransactionItem[]> {
     const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
     if (!domToken?.trim()) {
-      throw new BadRequestException('DOM_TOKEN / API_DOM_MASTER_KEY não configurado');
+      throw new BadRequestException(
+        'DOM_TOKEN / API_DOM_MASTER_KEY não configurado',
+      );
     }
     const { begin_date, end_date } = relatorioDomDateRange(dataInicio, dataFim);
     const limit = 150;
@@ -1276,13 +1359,29 @@ export class AdminController {
    * devem sempre considerar ambas as origens.
    */
   private async requireExclusivePlatformWallet(tag: string): Promise<void> {
-    const platform = await this.prisma.platform.findUnique({ where: { tag }, select: { ownerUserId: true } });
+    const platform = await this.prisma.platform.findUnique({
+      where: { tag },
+      select: { ownerUserId: true },
+    });
     if (!platform) throw new NotFoundException('Plataforma não cadastrada');
-    const count = await this.prisma.platform.count({ where: { ownerUserId: platform.ownerUserId } });
-    if (count > 1) throw new BadRequestException('Carteira compartilhada entre plataformas; manutenção por plataforma indisponível');
+    const count = await this.prisma.platform.count({
+      where: { ownerUserId: platform.ownerUserId },
+    });
+    if (count > 1)
+      throw new BadRequestException(
+        'Carteira compartilhada entre plataformas; manutenção por plataforma indisponível',
+      );
   }
 
-  private async getPlatformTransactionScope(tag: string): Promise<Prisma.TransactionWhereInput> { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).getPlatformTransactionScope(tag); }
+  private async getPlatformTransactionScope(
+    tag: string,
+  ): Promise<Prisma.TransactionWhereInput> {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).getPlatformTransactionScope(tag);
+  }
 
   /**
    * Fonte única dos relatórios por produto: o ledger local.
@@ -1296,11 +1395,36 @@ export class AdminController {
     startDate: string,
     endDate?: string,
     paymentMethod?: string,
-  ) { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).findLocalPlatformReportTransactions(tag, startDate, endDate, paymentMethod); }
+  ) {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).findLocalPlatformReportTransactions(
+      tag,
+      startDate,
+      endDate,
+      paymentMethod,
+    );
+  }
 
-  private extractOrderNumberFromText(value: string | null | undefined): string | null { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).extractOrderNumberFromText(value); }
+  private extractOrderNumberFromText(
+    value: string | null | undefined,
+  ): string | null {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).extractOrderNumberFromText(value);
+  }
 
-  private parseDomCreatedAt(raw: string | null | undefined): Date | null { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).parseDomCreatedAt(raw); }
+  private parseDomCreatedAt(raw: string | null | undefined): Date | null {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).parseDomCreatedAt(raw);
+  }
 
   // ──────────── LEADS ────────────
 
@@ -1352,7 +1476,9 @@ export class AdminController {
   @Delete('leads')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Excluir solicitações de cadastro aprovadas ou rejeitadas' })
+  @ApiOperation({
+    summary: 'Excluir solicitações de cadastro aprovadas ou rejeitadas',
+  })
   async deleteLeadsRoute(@Body() body: DeleteLeadsDto) {
     return this.deleteLeads.execute({ leadIds: body.ids });
   }
@@ -1361,9 +1487,17 @@ export class AdminController {
 
   @Post('criar-conta')
   @HttpCode(201)
-  @ApiOperation({ summary: 'Criar conta diretamente (admin master) — suporta CPF ou CNPJ' })
+  @ApiOperation({
+    summary: 'Criar conta diretamente (admin master) — suporta CPF ou CNPJ',
+  })
   async criarConta(
-    @Body() body: { email: string; password: string; cpf?: string; cnpj?: string },
+    @Body()
+    body: {
+      email: string;
+      password: string;
+      cpf?: string;
+      cnpj?: string;
+    },
   ) {
     const { email, password, cpf, cnpj } = body;
 
@@ -1384,26 +1518,19 @@ export class AdminController {
     if (cpf) {
       cpfClean = cpf.replace(/\D/g, '');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const existingCpf = await (this.prisma.user as any).findFirst({ where: { cpf: cpfClean } });
-      if (existingCpf) throw new ConflictException('Já existe um usuário com este CPF');
+      const existingCpf = await (this.prisma.user as any).findFirst({
+        where: { cpf: cpfClean },
+      });
+      if (existingCpf)
+        throw new ConflictException('Já existe um usuário com este CPF');
     } else if (cnpj) {
       cnpjClean = cnpj.replace(/\D/g, '');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const existingCnpj = await (this.prisma.user as any).findFirst({ where: { cnpj: cnpjClean } });
-      if (existingCnpj) throw new ConflictException('Já existe um usuário com este CNPJ');
-    }
-
-    // Tentar registrar na DOM (falha silenciosa)
-    let domUserId: string | null = null;
-    let domToken: string | null = null;
-    try {
-      const name = email.split('@')[0];
-      const domReg = await this.paymentGateway.register({ name, email, password });
-      const domTok = await this.paymentGateway.generateToken(email, password);
-      domUserId = domReg.domUserId ?? null;
-      domToken = domTok.domToken ?? null;
-    } catch (err: any) {
-      // Segue sem conta DOM
+      const existingCnpj = await (this.prisma.user as any).findFirst({
+        where: { cnpj: cnpjClean },
+      });
+      if (existingCnpj)
+        throw new ConflictException('Já existe um usuário com este CNPJ');
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1415,8 +1542,6 @@ export class AdminController {
         password: hashed,
         ...(cpfClean ? { cpf: cpfClean } : {}),
         ...(cnpjClean ? { cnpj: cnpjClean } : {}),
-        domUserId: domUserId ?? undefined,
-        domToken: domToken ?? undefined,
         // Conta criada pelo master já nasce cliente SimintPay APROVADO. Sem isso
         // (clientStatus null) a conta não é reconhecida como cliente e a taxa
         // individual (CLIENT:<email>) nunca é aplicada na cobrança.
@@ -1450,7 +1575,10 @@ export class AdminController {
 
   @Post('usuarios/scan')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Dispara varredura manual de donos de plataformas (extrai CPF_DONO das transações)' })
+  @ApiOperation({
+    summary:
+      'Dispara varredura manual de donos de plataformas (extrai CPF_DONO das transações)',
+  })
   async scanPlatformOwnersManual() {
     const result = await this.scanPlatformOwners.execute();
     return { data: result };
@@ -1459,19 +1587,29 @@ export class AdminController {
   @Get('usuarios/export')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Exporta leads como JSON para geração de CSV no frontend' })
+  @ApiOperation({
+    summary: 'Exporta leads como JSON para geração de CSV no frontend',
+  })
   @ApiQuery({ name: 'platform', required: false })
-  @ApiQuery({ name: 'period', required: false, description: 'mensal | trimestral | semestral | anual' })
+  @ApiQuery({
+    name: 'period',
+    required: false,
+    description: 'mensal | trimestral | semestral | anual',
+  })
   async exportExternalUsers(
     @Query('platform') platform?: string,
     @Query('period') period?: string,
   ) {
     const now = new Date();
     let dateFrom: Date | undefined;
-    if (period === 'mensal')     dateFrom = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-    if (period === 'trimestral') dateFrom = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
-    if (period === 'semestral')  dateFrom = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
-    if (period === 'anual')      dateFrom = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+    if (period === 'mensal')
+      dateFrom = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    if (period === 'trimestral')
+      dateFrom = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+    if (period === 'semestral')
+      dateFrom = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+    if (period === 'anual')
+      dateFrom = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
 
     const where: any = { isDeleted: false };
     if (platform) where.platform = platform;
@@ -1490,27 +1628,50 @@ export class AdminController {
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    const sellerUserIds = items.filter((u) => u.userId && u.platform.toUpperCase() !== 'AREAFLIX').map((u) => u.userId!);
-    const areaflixEmails = items.filter((u) => u.platform.toUpperCase() === 'AREAFLIX' && u.user?.email).map((u) => u.user!.email);
+    const sellerUserIds = items
+      .filter((u) => u.userId && u.platform.toUpperCase() !== 'AREAFLIX')
+      .map((u) => u.userId!);
+    const areaflixEmails = items
+      .filter((u) => u.platform.toUpperCase() === 'AREAFLIX' && u.user?.email)
+      .map((u) => u.user!.email);
 
     const [activeTxUserIds, activeAreaflixEmails] = await Promise.all([
       sellerUserIds.length > 0
-        ? this.prisma.transaction.findMany({
-            where: { userId: { in: sellerUserIds }, status: TransactionStatus.COMPLETED, createdAt: { gte: startOfMonth } },
-            select: { userId: true }, distinct: ['userId'],
-          }).then((rows) => new Set(rows.map((r) => r.userId)))
+        ? this.prisma.transaction
+            .findMany({
+              where: {
+                userId: { in: sellerUserIds },
+                status: TransactionStatus.COMPLETED,
+                createdAt: { gte: startOfMonth },
+              },
+              select: { userId: true },
+              distinct: ['userId'],
+            })
+            .then((rows) => new Set(rows.map((r) => r.userId)))
         : Promise.resolve(new Set<string>()),
       areaflixEmails.length > 0
-        ? this.prisma.subscriptionLink.findMany({
-            where: { webhookUrl: { contains: 'areaflix', mode: 'insensitive' } }, select: { id: true },
-          }).then((links) => {
-            const ids = links.map((l) => l.id);
-            if (ids.length === 0) return new Set<string>();
-            return this.prisma.subscriptionLinkOrder.findMany({
-              where: { subscriptionLinkId: { in: ids }, customerEmail: { in: areaflixEmails }, status: { in: ['paid', 'active', 'approved'] } },
-              select: { customerEmail: true }, distinct: ['customerEmail'],
-            }).then((rows) => new Set(rows.map((r) => r.customerEmail)));
-          })
+        ? this.prisma.subscriptionLink
+            .findMany({
+              where: {
+                webhookUrl: { contains: 'areaflix', mode: 'insensitive' },
+              },
+              select: { id: true },
+            })
+            .then((links) => {
+              const ids = links.map((l) => l.id);
+              if (ids.length === 0) return new Set<string>();
+              return this.prisma.subscriptionLinkOrder
+                .findMany({
+                  where: {
+                    subscriptionLinkId: { in: ids },
+                    customerEmail: { in: areaflixEmails },
+                    status: { in: ['paid', 'active', 'approved'] },
+                  },
+                  select: { customerEmail: true },
+                  distinct: ['customerEmail'],
+                })
+                .then((rows) => new Set(rows.map((r) => r.customerEmail)));
+            })
         : Promise.resolve(new Set<string>()),
     ]);
 
@@ -1523,12 +1684,13 @@ export class AdminController {
       }
       return {
         nome: u.user?.name?.trim() || u.name,
-        cpf: u.cpf,
+        cpf: u.cpf || u.cnpj || '',
         plataforma: u.platform,
         saldo: Number(u.wallet?.balance ?? 0),
         saldoBloqueado: Number(u.wallet?.lockedBalance ?? 0),
         vinculado: !!u.userId,
-        status: isAtivo === null ? 'Não determinado' : isAtivo ? 'Ativo' : 'Inativo',
+        status:
+          isAtivo === null ? 'Não determinado' : isAtivo ? 'Ativo' : 'Inativo',
         email: u.user?.email ?? '',
         cadastro: u.createdAt.toISOString().split('T')[0],
       };
@@ -1544,7 +1706,10 @@ export class AdminController {
   @Get('plataformas-externas/usuarios')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Lista usuários de cada plataforma externa, separados em vendedores/usuários comuns' })
+  @ApiOperation({
+    summary:
+      'Lista usuários de cada plataforma externa, separados em vendedores/usuários comuns',
+  })
   async listExternalPlatformDbUsers() {
     const data = await this.externalPlatformDb.listAll();
     return { data };
@@ -1553,15 +1718,24 @@ export class AdminController {
   @Get('plataformas-externas/:slug/usuarios')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Lista usuários de uma plataforma externa específica' })
-  async listExternalPlatformDbUsersBySlug(@Param('slug') slug: ExternalPlatformSlug) {
+  @ApiOperation({
+    summary: 'Lista usuários de uma plataforma externa específica',
+  })
+  async listExternalPlatformDbUsersBySlug(
+    @Param('slug') slug: ExternalPlatformSlug,
+  ) {
     const data = await this.externalPlatformDb.listUsers(slug);
     return { data };
   }
 
   private externalPeopleCache?: {
     at: number;
-    data: { platform: string; name: string | null; email: string | null; doc: string | null }[];
+    data: {
+      platform: string;
+      name: string | null;
+      email: string | null;
+      doc: string | null;
+    }[];
   };
 
   /**
@@ -1571,7 +1745,10 @@ export class AdminController {
    */
   private async listExternalPeopleCached() {
     const ttlMs = 60_000;
-    if (this.externalPeopleCache && Date.now() - this.externalPeopleCache.at < ttlMs) {
+    if (
+      this.externalPeopleCache &&
+      Date.now() - this.externalPeopleCache.at < ttlMs
+    ) {
       return this.externalPeopleCache.data;
     }
     const doc = (cpf?: string | null, cnpj?: string | null) => {
@@ -1592,19 +1769,39 @@ export class AdminController {
         .filter((p) => p.email || p.doc),
     );
     // Só guarda se ao menos uma plataforma respondeu; senão tenta de novo na próxima.
-    if (results.some((r) => r.state === 'available')) this.externalPeopleCache = { at: Date.now(), data };
+    if (results.some((r) => r.state === 'available'))
+      this.externalPeopleCache = { at: Date.now(), data };
     return data;
   }
 
   @Get('usuarios')
-  @ApiOperation({ summary: 'Lista usuários externos agrupados por CPF com todas as plataformas' })
+  @ApiOperation({
+    summary:
+      'Lista usuários externos agrupados por CPF com todas as plataformas',
+  })
   @ApiQuery({ name: 'platform', required: false })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, example: 20 })
-  @ApiQuery({ name: 'deleted', required: false, description: 'true = contas inativas' })
-  @ApiQuery({ name: 'purged', required: false, description: 'true = contas excluídas permanentemente' })
-  @ApiQuery({ name: 'search', required: false, description: 'Buscar por nome, CPF ou e-mail Simintpay' })
-  @ApiQuery({ name: 'simintpayClients', required: false, description: 'true = só contas marcadas como cliente Simintpay' })
+  @ApiQuery({
+    name: 'deleted',
+    required: false,
+    description: 'true = contas inativas',
+  })
+  @ApiQuery({
+    name: 'purged',
+    required: false,
+    description: 'true = contas excluídas permanentemente',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Buscar por nome, CPF ou e-mail Simintpay',
+  })
+  @ApiQuery({
+    name: 'simintpayClients',
+    required: false,
+    description: 'true = só contas marcadas como cliente Simintpay',
+  })
   async listExternalUsers(
     @Query('platform') platform?: string,
     @Query('page') page = '1',
@@ -1626,14 +1823,27 @@ export class AdminController {
     // Contas marcadas como cliente Simintpay (já listadas em "Clientes Simintpay")
     // saem da aba de ativos e ganham aba própria. Inativas/purgadas mostram todas.
     const simintpayClientMode: 'exclude' | 'only' | 'any' =
-      simintpayClients === 'true' ? 'only' : simintpayClients === 'any' || showPurged || showDeleted ? 'any' : 'exclude';
+      simintpayClients === 'true'
+        ? 'only'
+        : simintpayClients === 'any' || showPurged || showDeleted
+          ? 'any'
+          : 'exclude';
     const userSimintpayClientFilter =
-      simintpayClientMode === 'any' ? [] : [{ isSimintpayClient: simintpayClientMode === 'only' }];
+      simintpayClientMode === 'any'
+        ? []
+        : [{ isSimintpayClient: simintpayClientMode === 'only' }];
     const extSimintpayClientFilter: Prisma.ExternalPlatformUserWhereInput[] =
       simintpayClientMode === 'only'
         ? [{ user: { is: { isSimintpayClient: true } } }]
         : simintpayClientMode === 'exclude'
-          ? [{ OR: [{ userId: null }, { user: { is: { isSimintpayClient: false } } }] }]
+          ? [
+              {
+                OR: [
+                  { userId: null },
+                  { user: { is: { isSimintpayClient: false } } },
+                ],
+              },
+            ]
           : [];
 
     // ── 1. ExternalPlatformUser identities (CPF-tag-identified sellers) ──────
@@ -1644,9 +1854,16 @@ export class AdminController {
             // Documento: casa CPF **e** CNPJ — contas PJ só têm cnpj preenchido,
             // e olhar só cpf as tornava invisíveis na busca.
             ...(cpfDigits.length > 0
-              ? [{ cpf: { contains: cpfDigits } }, { cnpj: { contains: cpfDigits } }]
+              ? [
+                  { cpf: { contains: cpfDigits } },
+                  { cnpj: { contains: cpfDigits } },
+                ]
               : []),
-            { user: { email: { contains: searchTerm, mode: 'insensitive' as const } } },
+            {
+              user: {
+                email: { contains: searchTerm, mode: 'insensitive' as const },
+              },
+            },
           ],
         }
       : {};
@@ -1663,7 +1880,9 @@ export class AdminController {
     };
 
     const extMatchWhere = {
-      ...(platformLower ? { platform: { equals: platformLower, mode: 'insensitive' as const } } : {}),
+      ...(platformLower
+        ? { platform: { equals: platformLower, mode: 'insensitive' as const } }
+        : {}),
       // Purgadas: aba própria. Inativas: isDeleted mas NÃO purgadas. Ativas: nenhum dos dois.
       ...(showPurged
         ? { isPurged: true }
@@ -1680,12 +1899,14 @@ export class AdminController {
     });
 
     // userIds already represented in ExternalPlatformUser (skip them in module query)
-    const linkedUserIds = new Set(extAllRowsRaw.filter((r) => r.userId).map((r) => r.userId!));
+    const linkedUserIds = new Set(
+      extAllRowsRaw.filter((r) => r.userId).map((r) => r.userId!),
+    );
 
     // Deduplicate by document (cpf ?? cnpj) — keep latest createdAt row per owner
     const extDocSeen = new Set<string>();
     const extAllRows = extAllRowsRaw.filter((r) => {
-      const doc = r.cpf ?? r.cnpj ?? '';
+      const doc = r.cpf || r.cnpj || '';
       if (!doc || extDocSeen.has(doc)) return false;
       extDocSeen.add(doc);
       return true;
@@ -1696,9 +1917,16 @@ export class AdminController {
     // mesma separação de abas das contas diretas: ativos na principal e inativos
     // em "Contas inativas".
     type ModuleUser = {
-      id: string; name: string; cpf: string | null; cnpj: string | null; email: string;
-      isActive: boolean; isCompany: boolean; clientStatus: string | null;
-      createdAt: Date; updatedAt: Date;
+      id: string;
+      name: string;
+      cpf: string | null;
+      cnpj: string | null;
+      email: string;
+      isActive: boolean;
+      isCompany: boolean;
+      clientStatus: string | null;
+      createdAt: Date;
+      updatedAt: Date;
       wallet: { balance: any; lockedBalance: any } | null;
       platform: { tag: string } | null;
     };
@@ -1706,8 +1934,21 @@ export class AdminController {
     // Known platform master accounts identified by env var or fallback UUID.
     // These users may not have platformId set (sync never assigns it) so the
     // platform relation query alone won't find them.
-    const registered = await this.prisma.platform.findMany({ select: { id: true, tag: true, ownerUserId: true, acquirer: true, isActive: true } });
-    const KNOWN_PLATFORM_IDS: Record<string, string> = Object.fromEntries(registered.map((platform) => [platform.tag.toLowerCase(), platform.ownerUserId]));
+    const registered = await this.prisma.platform.findMany({
+      select: {
+        id: true,
+        tag: true,
+        ownerUserId: true,
+        acquirer: true,
+        isActive: true,
+      },
+    });
+    const KNOWN_PLATFORM_IDS: Record<string, string> = Object.fromEntries(
+      registered.map((platform) => [
+        platform.tag.toLowerCase(),
+        platform.ownerUserId,
+      ]),
+    );
 
     // Map knownId → platformSlug so we can label entries found via this path.
     const knownIdToPlatform = new Map<string, string>(
@@ -1726,7 +1967,10 @@ export class AdminController {
               { name: { contains: searchTerm, mode: 'insensitive' as const } },
               // Documento: casa CPF **e** CNPJ (contas PJ só têm cnpj preenchido).
               ...(cpfDigits.length > 0
-                ? [{ cpf: { contains: cpfDigits } }, { cnpj: { contains: cpfDigits } }]
+                ? [
+                    { cpf: { contains: cpfDigits } },
+                    { cnpj: { contains: cpfDigits } },
+                  ]
                 : []),
               { email: { contains: searchTerm, mode: 'insensitive' as const } },
             ],
@@ -1752,8 +1996,12 @@ export class AdminController {
             ],
           },
           // 3 abas: ativa (isActive, não purgada) | inativa (!isActive, não purgada) | purgada.
-          ...(showPurged ? [{ isPurged: true }] : [{ isActive: !showDeleted }, { isPurged: false }]),
-          ...(linkedUserIds.size > 0 ? [{ id: { notIn: [...linkedUserIds] } }] : []),
+          ...(showPurged
+            ? [{ isPurged: true }]
+            : [{ isActive: !showDeleted }, { isPurged: false }]),
+          ...(linkedUserIds.size > 0
+            ? [{ id: { notIn: [...linkedUserIds] } }]
+            : []),
           ...userSimintpayClientFilter,
           ...(moduleSearchFilter ? [moduleSearchFilter] : []),
         ],
@@ -1762,9 +2010,16 @@ export class AdminController {
       moduleUsers = (await this.prisma.user.findMany({
         where: moduleWhere,
         select: {
-          id: true, name: true, cpf: true, cnpj: true, email: true,
-          isActive: true, isCompany: true, clientStatus: true,
-          createdAt: true, updatedAt: true,
+          id: true,
+          name: true,
+          cpf: true,
+          cnpj: true,
+          email: true,
+          isActive: true,
+          isCompany: true,
+          clientStatus: true,
+          createdAt: true,
+          updatedAt: true,
           wallet: { select: { balance: true, lockedBalance: true } },
           platform: { select: { tag: true } },
         },
@@ -1793,7 +2048,10 @@ export class AdminController {
               { name: { contains: searchTerm, mode: 'insensitive' as const } },
               // Documento: casa CPF **e** CNPJ (contas PJ só têm cnpj preenchido).
               ...(cpfDigits.length > 0
-                ? [{ cpf: { contains: cpfDigits } }, { cnpj: { contains: cpfDigits } }]
+                ? [
+                    { cpf: { contains: cpfDigits } },
+                    { cnpj: { contains: cpfDigits } },
+                  ]
                 : []),
               { email: { contains: searchTerm, mode: 'insensitive' as const } },
             ],
@@ -1815,9 +2073,15 @@ export class AdminController {
           { isCompany: false },
           // Contas-sombra de integrações são criadas pelo JwtAuthGuard e não
           // representam clientes reais; mantê-las fora da tela de Leads.
-          { NOT: { email: { endsWith: '@auto.simpay.com', mode: 'insensitive' } } },
+          {
+            NOT: {
+              email: { endsWith: '@auto.simpay.com', mode: 'insensitive' },
+            },
+          },
           // 3 abas: ativa (isActive, não purgada) | inativa (!isActive, não purgada) | purgada.
-          ...(showPurged ? [{ isPurged: true }] : [{ isActive: !showDeleted }, { isPurged: false }]),
+          ...(showPurged
+            ? [{ isPurged: true }]
+            : [{ isActive: !showDeleted }, { isPurged: false }]),
           ...(excludeIds.length > 0 ? [{ id: { notIn: excludeIds } }] : []),
           ...userSimintpayClientFilter,
           ...(clientSearchFilter ? [clientSearchFilter] : []),
@@ -1827,9 +2091,16 @@ export class AdminController {
       const clientUsers = (await this.prisma.user.findMany({
         where: clientWhere,
         select: {
-          id: true, name: true, cpf: true, cnpj: true, email: true,
-          isActive: true, isCompany: true, clientStatus: true,
-          createdAt: true, updatedAt: true,
+          id: true,
+          name: true,
+          cpf: true,
+          cnpj: true,
+          email: true,
+          isActive: true,
+          isCompany: true,
+          clientStatus: true,
+          createdAt: true,
+          updatedAt: true,
           wallet: { select: { balance: true, lockedBalance: true } },
           platform: { select: { tag: true } },
         },
@@ -1843,21 +2114,36 @@ export class AdminController {
     // ── 2c. Contas Simintpay que também existem no banco de alguma plataforma ──
     // Lê (somente leitura) os bancos das plataformas e cruza e-mail ou CPF/CNPJ com
     // `User`. Nada é gravado: o vínculo é calculado na hora. Só na aba de ativos.
-    const externalMatches = new Map<string, { platform: string; name: string | null; email: string | null }[]>();
+    const externalMatches = new Map<
+      string,
+      { platform: string; name: string | null; email: string | null }[]
+    >();
     if (!showPurged && !showDeleted) {
-      const slugToPlatform: Record<string, string> = { ebooksim: 'ebook', patrimonial: 'controle-patrimonial' };
+      const slugToPlatform: Record<string, string> = {
+        ebooksim: 'ebook',
+        patrimonial: 'controle-patrimonial',
+      };
       const digits = (v?: string | null) => (v ?? '').replace(/\D/g, '');
       const people = (await this.listExternalPeopleCached())
-        .map((p) => ({ ...p, platform: slugToPlatform[p.platform] ?? p.platform }))
+        .map((p) => ({
+          ...p,
+          platform: slugToPlatform[p.platform] ?? p.platform,
+        }))
         .filter((p) => !platformLower || p.platform === platformLower);
 
-      const emails = [...new Set(people.map((p) => p.email).filter((e): e is string => !!e))];
-      const docs = [...new Set(people.map((p) => p.doc).filter((d): d is string => !!d))];
+      const emails = [
+        ...new Set(people.map((p) => p.email).filter((e): e is string => !!e)),
+      ];
+      const docs = [
+        ...new Set(people.map((p) => p.doc).filter((d): d is string => !!d)),
+      ];
 
       if (emails.length > 0 || docs.length > 0) {
         const alreadyIds = [
           ...linkedUserIds,
-          ...moduleUsers.filter((u) => !clientUserIds.has(u.id)).map((u) => u.id),
+          ...moduleUsers
+            .filter((u) => !clientUserIds.has(u.id))
+            .map((u) => u.id),
           ...knownIdToPlatform.keys(),
         ];
         const matchedUsers = (await this.prisma.user.findMany({
@@ -1865,21 +2151,39 @@ export class AdminController {
             AND: [
               {
                 OR: [
-                  ...(emails.length > 0 ? [{ email: { in: emails, mode: 'insensitive' as const } }] : []),
-                  ...(docs.length > 0 ? [{ cpf: { in: docs } }, { cnpj: { in: docs } }] : []),
+                  ...(emails.length > 0
+                    ? [{ email: { in: emails, mode: 'insensitive' as const } }]
+                    : []),
+                  ...(docs.length > 0
+                    ? [{ cpf: { in: docs } }, { cnpj: { in: docs } }]
+                    : []),
                 ],
               },
               { isActive: true },
               { isPurged: false },
-              { NOT: { email: { endsWith: '@auto.simpay.com', mode: 'insensitive' as const } } },
+              {
+                NOT: {
+                  email: {
+                    endsWith: '@auto.simpay.com',
+                    mode: 'insensitive' as const,
+                  },
+                },
+              },
               ...(alreadyIds.length > 0 ? [{ id: { notIn: alreadyIds } }] : []),
               ...userSimintpayClientFilter,
             ],
           },
           select: {
-            id: true, name: true, cpf: true, cnpj: true, email: true,
-            isActive: true, isCompany: true, clientStatus: true,
-            createdAt: true, updatedAt: true,
+            id: true,
+            name: true,
+            cpf: true,
+            cnpj: true,
+            email: true,
+            isActive: true,
+            isCompany: true,
+            clientStatus: true,
+            createdAt: true,
+            updatedAt: true,
             wallet: { select: { balance: true, lockedBalance: true } },
             platform: { select: { tag: true } },
           },
@@ -1890,22 +2194,36 @@ export class AdminController {
         for (const u of matchedUsers) {
           const uEmail = u.email.trim().toLowerCase();
           const uDocs = [digits(u.cpf), digits(u.cnpj)].filter(Boolean);
-          const hits = people.filter((p) => p.email === uEmail || (p.doc !== null && uDocs.includes(p.doc)));
+          const hits = people.filter(
+            (p) =>
+              p.email === uEmail || (p.doc !== null && uDocs.includes(p.doc)),
+          );
           if (hits.length === 0) continue;
           // CPF já representado por uma linha ExternalPlatformUser (mesmo sem vínculo): não duplica.
-          if (!clientUserIds.has(u.id) && uDocs.some((d) => extDocSeen.has(d))) continue;
-          if (term && !(
-            u.name.toLowerCase().includes(term) ||
-            uEmail.includes(term) ||
-            (cpfDigits.length > 0 && uDocs.some((d) => d.includes(cpfDigits)))
-          )) continue;
+          if (!clientUserIds.has(u.id) && uDocs.some((d) => extDocSeen.has(d)))
+            continue;
+          if (
+            term &&
+            !(
+              u.name.toLowerCase().includes(term) ||
+              uEmail.includes(term) ||
+              (cpfDigits.length > 0 && uDocs.some((d) => d.includes(cpfDigits)))
+            )
+          )
+            continue;
 
           const seen = new Set<string>();
           externalMatches.set(
             u.id,
             hits
-              .filter((h) => (seen.has(h.platform) ? false : (seen.add(h.platform), true)))
-              .map((h) => ({ platform: h.platform, name: h.name, email: h.email })),
+              .filter((h) =>
+                seen.has(h.platform) ? false : (seen.add(h.platform), true),
+              )
+              .map((h) => ({
+                platform: h.platform,
+                name: h.name,
+                email: h.email,
+              })),
           );
           // Cliente direto já está na lista (2b): só ganha as plataformas extras.
           if (!clientUserIds.has(u.id)) moduleUsers.push(u);
@@ -1922,13 +2240,24 @@ export class AdminController {
 
     const allIdentities: Identity[] = [
       ...extAllRows
-        .map((e) => ({ source: 'ext' as const, document: e.cpf ?? e.cnpj ?? '', createdAt: e.createdAt }))
+        .map((e) => ({
+          source: 'ext' as const,
+          document: e.cpf || e.cnpj || '',
+          createdAt: e.createdAt,
+        }))
         .filter((e) => e.document !== ''),
-      ...moduleUsers.map((u) => ({ source: 'mod' as const, userId: u.id, createdAt: u.createdAt })),
+      ...moduleUsers.map((u) => ({
+        source: 'mod' as const,
+        userId: u.id,
+        createdAt: u.createdAt,
+      })),
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     const combinedTotal = allIdentities.length;
-    const pagedIdentities = allIdentities.slice((pageNum - 1) * size, pageNum * size);
+    const pagedIdentities = allIdentities.slice(
+      (pageNum - 1) * size,
+      pageNum * size,
+    );
 
     if (pagedIdentities.length === 0) {
       return { data: [], total: combinedTotal, page: pageNum, pageSize: size };
@@ -1946,30 +2275,43 @@ export class AdminController {
     const pagedExtCpfs = pagedExtDocs.filter((d) => d.length === 11);
     const pagedExtCnpjs = pagedExtDocs.filter((d) => d.length === 14);
 
-    const allExtRecords = pagedExtDocs.length > 0
-      ? await this.prisma.externalPlatformUser.findMany({
-          where: {
-            OR: [
-              ...(pagedExtCpfs.length > 0 ? [{ cpf: { in: pagedExtCpfs } }] : []),
-              ...(pagedExtCnpjs.length > 0 ? [{ cnpj: { in: pagedExtCnpjs } }] : []),
-            ],
-            ...(showPurged
-              ? { isPurged: true }
-              : { isDeleted: showDeleted, isPurged: false }),
-            ...externalTechnicalUserFilter,
-            AND: extSimintpayClientFilter,
-          },
-          include: {
-            wallet: true,
-            user: { select: { id: true, name: true, email: true, isCompany: true, clientStatus: true } },
-          },
-          orderBy: { createdAt: 'asc' },
-        })
-      : [];
+    const allExtRecords =
+      pagedExtDocs.length > 0
+        ? await this.prisma.externalPlatformUser.findMany({
+            where: {
+              OR: [
+                ...(pagedExtCpfs.length > 0
+                  ? [{ cpf: { in: pagedExtCpfs } }]
+                  : []),
+                ...(pagedExtCnpjs.length > 0
+                  ? [{ cnpj: { in: pagedExtCnpjs } }]
+                  : []),
+              ],
+              ...(showPurged
+                ? { isPurged: true }
+                : { isDeleted: showDeleted, isPurged: false }),
+              ...externalTechnicalUserFilter,
+              AND: extSimintpayClientFilter,
+            },
+            include: {
+              wallet: true,
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  isCompany: true,
+                  clientStatus: true,
+                },
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+          })
+        : [];
 
     const byDoc = new Map<string, typeof allExtRecords>();
     for (const r of allExtRecords) {
-      const key = r.cpf ?? r.cnpj ?? '';
+      const key = r.cpf || r.cnpj || '';
       if (!key) continue;
       if (!byDoc.has(key)) byDoc.set(key, []);
       byDoc.get(key)!.push(r);
@@ -2009,7 +2351,9 @@ export class AdminController {
       areaflixEmails.length > 0
         ? this.prisma.subscriptionLink
             .findMany({
-              where: { webhookUrl: { contains: 'areaflix', mode: 'insensitive' } },
+              where: {
+                webhookUrl: { contains: 'areaflix', mode: 'insensitive' },
+              },
               select: { id: true },
             })
             .then((links) => {
@@ -2031,16 +2375,32 @@ export class AdminController {
     ]);
 
     // Product projections reuse persisted snapshots and explicit ownership.
-    const normPlatform = (p: string) => p.toLowerCase() === 'ebooksim' ? 'ebook' : p.toLowerCase();
-    const liveKey = (userId: string, tag: string) => `${userId}:${normPlatform(tag)}`;
-    const liveBalances = new Map<string, { balance: number; locked: number; attribution: unknown }>();
+    const normPlatform = (p: string) =>
+      p.toLowerCase() === 'ebooksim' ? 'ebook' : p.toLowerCase();
+    const liveKey = (userId: string, tag: string) =>
+      `${userId}:${normPlatform(tag)}`;
+    const liveBalances = new Map<
+      string,
+      { balance: number; locked: number; attribution: unknown }
+    >();
     const relevantUsers = new Set([
-      ...pagedIdentities.filter((i): i is ModId => i.source === 'mod').map(i => i.userId),
-      ...pagedIdentities.filter((i): i is ExtId => i.source === 'ext').flatMap(i => byDoc.get(i.document) ?? []).flatMap(r => r.userId ? [r.userId] : []),
+      ...pagedIdentities
+        .filter((i): i is ModId => i.source === 'mod')
+        .map((i) => i.userId),
+      ...pagedIdentities
+        .filter((i): i is ExtId => i.source === 'ext')
+        .flatMap((i) => byDoc.get(i.document) ?? [])
+        .flatMap((r) => (r.userId ? [r.userId] : [])),
     ]);
     for (const platform of registered) {
-      if (!relevantUsers.has(platform.ownerUserId) || platform.isActive === false) continue;
-      const attribution = await new PlatformAttributedBalance(this.prisma).read(platform);
+      if (
+        !relevantUsers.has(platform.ownerUserId) ||
+        platform.isActive === false
+      )
+        continue;
+      const attribution = await new PlatformAttributedBalance(this.prisma).read(
+        platform,
+      );
       liveBalances.set(liveKey(platform.ownerUserId, platform.tag), {
         balance: attribution.balanceCents / 100,
         locked: attribution.pendingWithdrawalsGrossCents / 100,
@@ -2061,16 +2421,23 @@ export class AdminController {
             ? allRecords.filter((r) => r.isPurged)
             : allRecords.filter((r) => r.isDeleted === showDeleted);
           if (records.length === 0) return null;
-          const primary = records.find((r) => !!r.userId) ?? records[records.length - 1];
+          const primary =
+            records.find((r) => !!r.userId) ?? records[records.length - 1];
           const simpayUser = primary?.user ?? null;
 
           const totalBalance = records.reduce((s, r) => {
-            const live = r.userId ? liveBalances.get(liveKey(r.userId, r.platform)) : undefined;
+            const live = r.userId
+              ? liveBalances.get(liveKey(r.userId, r.platform))
+              : undefined;
             return s + (live ? live.balance : Number(r.wallet?.balance ?? 0));
           }, 0);
           const totalLocked = records.reduce((s, r) => {
-            const live = r.userId ? liveBalances.get(liveKey(r.userId, r.platform)) : undefined;
-            return s + (live ? live.locked : Number(r.wallet?.lockedBalance ?? 0));
+            const live = r.userId
+              ? liveBalances.get(liveKey(r.userId, r.platform))
+              : undefined;
+            return (
+              s + (live ? live.locked : Number(r.wallet?.lockedBalance ?? 0))
+            );
           }, 0);
 
           let isAtivo: boolean | null = null;
@@ -2078,19 +2445,25 @@ export class AdminController {
             if (r.platform.toUpperCase() === 'AREAFLIX') {
               if (r.user?.email) {
                 const active = activeAreaflixEmails.has(r.user.email);
-                if (active) { isAtivo = true; break; }
+                if (active) {
+                  isAtivo = true;
+                  break;
+                }
                 if (isAtivo === null) isAtivo = false;
               }
             } else if (r.userId) {
               const active = activeTxUserIds.has(r.userId);
-              if (active) { isAtivo = true; break; }
+              if (active) {
+                isAtivo = true;
+                break;
+              }
               if (isAtivo === null) isAtivo = false;
             }
           }
 
           return {
             id: primary.id,
-            cpf: primary.cpf ?? (identity.document ?? ''),
+            cpf: primary.cpf || identity.document || '',
             cnpj: primary.cnpj ?? '',
             name: simpayUser?.name?.trim() || primary.name,
             platformEntries: records.map((r) => ({
@@ -2099,7 +2472,12 @@ export class AdminController {
               name: r.name,
               email: r.user?.email ?? null,
             })),
-            balanceAttribution: records.map(r => r.userId ? liveBalances.get(liveKey(r.userId, r.platform))?.attribution ?? { state: 'unidentified' } : { state: 'unidentified' }),
+            balanceAttribution: records.map((r) =>
+              r.userId
+                ? (liveBalances.get(liveKey(r.userId, r.platform))
+                    ?.attribution ?? { state: 'unidentified' })
+                : { state: 'unidentified' },
+            ),
             balance: totalBalance,
             lockedBalance: totalLocked,
             vinculado: records.some((r) => !!r.userId),
@@ -2115,7 +2493,7 @@ export class AdminController {
                   clientStatus: simpayUser.clientStatus,
                   taxaCartao: simpayUser.clientStatus
                     ? getPlatformTaxaEffective(
-                        buildClientTaxaTag(simpayUser.email),
+                        buildUserTaxaTag(simpayUser.id),
                         'MDR_CC_MASTER_1X',
                         PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X,
                       )
@@ -2135,34 +2513,71 @@ export class AdminController {
           // Module user (platform-based)
           const u = moduleUserMap.get(identity.userId);
           if (!u) return null;
-          const products = registered.filter(p => p.ownerUserId === u.id && (!platformLower || normPlatform(p.tag) === normPlatform(platformLower)));
+          const products = registered.filter(
+            (p) =>
+              p.ownerUserId === u.id &&
+              (!platformLower ||
+                normPlatform(p.tag) === normPlatform(platformLower)),
+          );
           const matches = externalMatches.get(u.id) ?? [];
           // Conta que só entrou por existir em outra plataforma: o rótulo vem do banco dela.
-          const moduleSlug = products[0]?.tag?.toLowerCase() ?? u.platform?.tag?.toLowerCase()
-            ?? (clientUserIds.has(u.id) ? 'simintpay' : matches[0]?.platform ?? 'unknown');
-          const projections = products.map(p => liveBalances.get(liveKey(u.id, p.tag))).filter((p): p is NonNullable<typeof p> => !!p);
+          const moduleSlug =
+            products[0]?.tag?.toLowerCase() ??
+            u.platform?.tag?.toLowerCase() ??
+            (clientUserIds.has(u.id)
+              ? 'simintpay'
+              : (matches[0]?.platform ?? 'unknown'));
+          const projections = products
+            .map((p) => liveBalances.get(liveKey(u.id, p.tag)))
+            .filter((p): p is NonNullable<typeof p> => !!p);
           const baseEntries = products.length
-            ? products.map(p => ({ id: p.id, platform: p.tag.toLowerCase(), name: u.name, email: u.email }))
+            ? products.map((p) => ({
+                id: p.id,
+                platform: p.tag.toLowerCase(),
+                name: u.name,
+                email: u.email,
+              }))
             : matches.length > 0 && !clientUserIds.has(u.id)
               ? []
-              : [{ id: u.id, platform: moduleSlug, name: u.name, email: u.email }];
+              : [
+                  {
+                    id: u.id,
+                    platform: moduleSlug,
+                    name: u.name,
+                    email: u.email,
+                  },
+                ];
           const extraEntries = matches
             .filter((m) => !baseEntries.some((e) => e.platform === m.platform))
-            .map((m) => ({ id: `${u.id}:${m.platform}`, platform: m.platform, name: m.name ?? u.name, email: m.email ?? u.email }));
+            .map((m) => ({
+              id: `${u.id}:${m.platform}`,
+              platform: m.platform,
+              name: m.name ?? u.name,
+              email: m.email ?? u.email,
+            }));
           return {
             id: u.id,
-            cpf: u.cpf ?? '',
+            cpf: u.cpf || u.cnpj || '',
             cnpj: u.cnpj ?? '',
             name: u.name,
             platformEntries: [...baseEntries, ...extraEntries],
-            walletScope: registered.filter(p => p.ownerUserId === u.id).length > 1 ? 'shared-owner' : 'owner',
+            walletScope:
+              registered.filter((p) => p.ownerUserId === u.id).length > 1
+                ? 'shared-owner'
+                : 'owner',
             walletBalance: Number(u.wallet?.balance ?? 0),
             walletLockedBalance: Number(u.wallet?.lockedBalance ?? 0),
-            balanceAttribution: projections.map(p => p.attribution),
-            balance: projections.length ? projections.reduce((sum, p) => sum + p.balance, 0) : Number(u.wallet?.balance ?? 0),
-            lockedBalance: projections.length ? projections.reduce((sum, p) => sum + p.locked, 0) : Number(u.wallet?.lockedBalance ?? 0),
+            balanceAttribution: projections.map((p) => p.attribution),
+            balance: projections.length
+              ? projections.reduce((sum, p) => sum + p.balance, 0)
+              : Number(u.wallet?.balance ?? 0),
+            lockedBalance: projections.length
+              ? projections.reduce((sum, p) => sum + p.locked, 0)
+              : Number(u.wallet?.lockedBalance ?? 0),
             vinculado: true,
-            isAtivo: activeTxUserIds.has(u.id) ? true : (null as boolean | null),
+            isAtivo: activeTxUserIds.has(u.id)
+              ? true
+              : (null as boolean | null),
             // Cliente direto não tem isDeleted próprio — quem marca é o User.isActive.
             isDeleted: !u.isActive,
             deletedAt: null,
@@ -2174,7 +2589,7 @@ export class AdminController {
               clientStatus: u.clientStatus,
               taxaCartao: u.clientStatus
                 ? getPlatformTaxaEffective(
-                    buildClientTaxaTag(u.email),
+                    buildUserTaxaTag(u.id),
                     'MDR_CC_MASTER_1X',
                     PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X,
                   )
@@ -2190,17 +2605,28 @@ export class AdminController {
     // Registros "completos" (CPF preenchido + status de atividade conhecido +
     // vinculado a uma conta Simintpay) sobem para o topo da página atual.
     // Ordenação estável: dentro de cada grupo mantém a ordem original (createdAt desc).
-    const isComplete = (row: any) => !!row.cpf && row.isAtivo !== null && row.vinculado === true;
-    const sortedData = [...data].sort((a: any, b: any) => Number(isComplete(b)) - Number(isComplete(a)));
+    const isComplete = (row: any) =>
+      !!row.cpf && row.isAtivo !== null && row.vinculado === true;
+    const sortedData = [...data].sort(
+      (a: any, b: any) => Number(isComplete(b)) - Number(isComplete(a)),
+    );
 
-    return { data: sortedData, total: combinedTotal, page: pageNum, pageSize: size };
+    return {
+      data: sortedData,
+      total: combinedTotal,
+      page: pageNum,
+      pageSize: size,
+    };
   }
 
   @Patch('usuarios/:id')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Edita dados de um usuário externo e propaga para a plataforma de origem' })
+  @ApiOperation({
+    summary:
+      'Edita dados de um usuário externo e propaga para a plataforma de origem',
+  })
   async updateExternalUser(
     @Param('id') id: string,
     @Body() body: { name?: string; cpf?: string; email?: string },
@@ -2223,7 +2649,10 @@ export class AdminController {
     if (!externalUser) {
       // Conta de módulo / cliente direto: a linha da listagem usa o User.id e não
       // tem ExternalPlatformUser. A edição vale só para a conta Simintpay.
-      const account = await this.prisma.user.findUnique({ where: { id }, select: { id: true } });
+      const account = await this.prisma.user.findUnique({
+        where: { id },
+        select: { id: true },
+      });
       if (!account) throw new NotFoundException('Usuário não encontrado');
       const accountData: Record<string, any> = {};
       if (body.name?.trim()) accountData.name = body.name.trim();
@@ -2234,15 +2663,15 @@ export class AdminController {
       return { success: true };
     }
 
-    const oldCpf = externalUser.cpf;
-    const oldEmail = externalUser.user?.email;
-
     // Atualiza ExternalPlatformUser na api-machine
     const extData: Record<string, any> = {};
     if (body.name?.trim()) extData.name = body.name.trim();
     if (body.cpf) extData.cpf = body.cpf.replace(/\D/g, '');
     if (Object.keys(extData).length > 0) {
-      await this.prisma.externalPlatformUser.update({ where: { id }, data: extData });
+      await this.prisma.externalPlatformUser.update({
+        where: { id },
+        data: extData,
+      });
     }
 
     // CPF mudou → atualiza também no User vinculado para manter o vínculo íntegro
@@ -2264,7 +2693,10 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Marca/desmarca a conta Simintpay (User) como empresa cliente — move entre as listagens de usuários e clientes. Somente admin master.' })
+  @ApiOperation({
+    summary:
+      'Marca/desmarca a conta Simintpay (User) como empresa cliente — move entre as listagens de usuários e clientes. Somente admin master.',
+  })
   async setUserIsCompany(
     @Param('userId') userId: string,
     @Body() body: { isCompany: boolean },
@@ -2276,12 +2708,17 @@ export class AdminController {
         include: { platform: true },
       });
       if (!requester || !isMasterAdminUser(requester)) {
-        throw new ForbiddenException('Somente admin master pode marcar contas como empresa');
+        throw new ForbiddenException(
+          'Somente admin master pode marcar contas como empresa',
+        );
       }
     }
 
     const target = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!target) throw new NotFoundException('Conta Simintpay não encontrada para este usuário');
+    if (!target)
+      throw new NotFoundException(
+        'Conta Simintpay não encontrada para este usuário',
+      );
 
     const isCompany = !!body.isCompany;
     const updated = await this.prisma.user.update({
@@ -2290,11 +2727,18 @@ export class AdminController {
         isCompany,
         // Vira empresa → precisa passar pela fila de aprovação/taxa como cliente.
         // Deixa de ser empresa → mantém histórico de clientStatus (não some da auditoria).
-        ...(isCompany && target.clientStatus == null ? { clientStatus: 'PENDING' as const } : {}),
+        ...(isCompany && target.clientStatus == null
+          ? { clientStatus: 'PENDING' as const }
+          : {}),
       },
     });
 
-    return { success: true, id: updated.id, isCompany: updated.isCompany, clientStatus: updated.clientStatus };
+    return {
+      success: true,
+      id: updated.id,
+      isCompany: updated.isCompany,
+      clientStatus: updated.clientStatus,
+    };
   }
 
   @Patch('usuarios/:userId/cliente-simintpay')
@@ -2302,14 +2746,24 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Marca/desmarca a conta Simintpay (User) como cliente Simintpay — tira/devolve da lista de usuários ativos.' })
+  @ApiOperation({
+    summary:
+      'Marca/desmarca a conta Simintpay (User) como cliente Simintpay — tira/devolve da lista de usuários ativos.',
+  })
   async setUserIsSimintpayClient(
     @Param('userId') userId: string,
     @Body() body: { isSimintpayClient: boolean },
   ) {
-    if (typeof body?.isSimintpayClient !== 'boolean') throw new BadRequestException('isSimintpayClient deve ser booleano');
-    const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-    if (!target) throw new NotFoundException('Conta Simintpay não encontrada para este usuário');
+    if (typeof body?.isSimintpayClient !== 'boolean')
+      throw new BadRequestException('isSimintpayClient deve ser booleano');
+    const target = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!target)
+      throw new NotFoundException(
+        'Conta Simintpay não encontrada para este usuário',
+      );
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
@@ -2325,8 +2779,16 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Inativa uma conta — nesta plataforma ou em todas do mesmo CPF/CNPJ (reversível; não toca no saldo)' })
-  @ApiQuery({ name: 'escopo', required: false, description: "'plataforma' (padrão) ou 'todas'", example: 'plataforma' })
+  @ApiOperation({
+    summary:
+      'Inativa uma conta — nesta plataforma ou em todas do mesmo CPF/CNPJ (reversível; não toca no saldo)',
+  })
+  @ApiQuery({
+    name: 'escopo',
+    required: false,
+    description: "'plataforma' (padrão) ou 'todas'",
+    example: 'plataforma',
+  })
   async deleteExternalUser(
     @Param('id') id: string,
     @Query('escopo') escopo = 'plataforma',
@@ -2338,7 +2800,9 @@ export class AdminController {
         include: { platform: true },
       });
       if (!requester || !isMasterAdminUser(requester)) {
-        throw new ForbiddenException('Somente admin master pode excluir contas');
+        throw new ForbiddenException(
+          'Somente admin master pode excluir contas',
+        );
       }
     }
 
@@ -2351,11 +2815,17 @@ export class AdminController {
     // User.id nessas linhas. Aí "inativar" age direto no acesso da conta.
     if (!externalUser) {
       await this.setContaDiretaAtiva(id, false);
-      return { success: true, escopo: 'conta', inativadas: [], loginDesativado: true };
+      return {
+        success: true,
+        escopo: 'conta',
+        inativadas: [],
+        loginDesativado: true,
+      };
     }
 
     const alvos = await this.resolveEscopoEntries(externalUser, escopo, false);
-    if (alvos.length === 0) throw new BadRequestException('Conta já está inativa neste escopo');
+    if (alvos.length === 0)
+      throw new BadRequestException('Conta já está inativa neste escopo');
 
     await this.prisma.externalPlatformUser.updateMany({
       where: { id: { in: alvos.map((a) => a.id) } },
@@ -2366,7 +2836,9 @@ export class AdminController {
     // Antes, inativar UMA plataforma derrubava o acesso a todas.
     const loginDesativado = await this.syncLoginAtivo(externalUser.userId);
 
-    await Promise.all(alvos.map((a) => this.setPlatformUserState(a, 'deactivate')));
+    await Promise.all(
+      alvos.map((a) => this.setPlatformUserState(a, 'deactivate')),
+    );
 
     return {
       success: true,
@@ -2381,8 +2853,16 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Reativa uma conta inativa — nesta plataforma ou em todas do mesmo CPF/CNPJ' })
-  @ApiQuery({ name: 'escopo', required: false, description: "'plataforma' (padrão) ou 'todas'", example: 'plataforma' })
+  @ApiOperation({
+    summary:
+      'Reativa uma conta inativa — nesta plataforma ou em todas do mesmo CPF/CNPJ',
+  })
+  @ApiQuery({
+    name: 'escopo',
+    required: false,
+    description: "'plataforma' (padrão) ou 'todas'",
+    example: 'plataforma',
+  })
   async reactivateExternalUser(
     @Param('id') id: string,
     @Query('escopo') escopo = 'plataforma',
@@ -2394,7 +2874,9 @@ export class AdminController {
         include: { platform: true },
       });
       if (!requester || !isMasterAdminUser(requester)) {
-        throw new ForbiddenException('Somente admin master pode reativar contas');
+        throw new ForbiddenException(
+          'Somente admin master pode reativar contas',
+        );
       }
     }
 
@@ -2406,11 +2888,17 @@ export class AdminController {
     // Cliente direto (avulso): sem entrada de plataforma — reativa o acesso da conta.
     if (!externalUser) {
       await this.setContaDiretaAtiva(id, true);
-      return { success: true, escopo: 'conta', reativadas: [], loginAtivo: true };
+      return {
+        success: true,
+        escopo: 'conta',
+        reativadas: [],
+        loginAtivo: true,
+      };
     }
 
     const alvos = await this.resolveEscopoEntries(externalUser, escopo, true);
-    if (alvos.length === 0) throw new BadRequestException('Conta já está ativa neste escopo');
+    if (alvos.length === 0)
+      throw new BadRequestException('Conta já está ativa neste escopo');
 
     await this.prisma.externalPlatformUser.updateMany({
       where: { id: { in: alvos.map((a) => a.id) } },
@@ -2420,7 +2908,9 @@ export class AdminController {
     // Voltou a ter plataforma ativa → o login volta. O saldo nunca foi tocado.
     const loginDesativado = await this.syncLoginAtivo(externalUser.userId);
 
-    await Promise.all(alvos.map((a) => this.setPlatformUserState(a, 'activate')));
+    await Promise.all(
+      alvos.map((a) => this.setPlatformUserState(a, 'activate')),
+    );
 
     return {
       success: true,
@@ -2436,9 +2926,15 @@ export class AdminController {
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Exclui permanentemente (irreversível) — nesta plataforma ou em todas. O saldo é absorvido pelo master.',
+    summary:
+      'Exclui permanentemente (irreversível) — nesta plataforma ou em todas. O saldo é absorvido pelo master.',
   })
-  @ApiQuery({ name: 'escopo', required: false, description: "'plataforma' (padrão) ou 'todas'", example: 'plataforma' })
+  @ApiQuery({
+    name: 'escopo',
+    required: false,
+    description: "'plataforma' (padrão) ou 'todas'",
+    example: 'plataforma',
+  })
   async purgeExternalUser(
     @Param('id') id: string,
     @Query('escopo') escopo = 'plataforma',
@@ -2451,7 +2947,9 @@ export class AdminController {
         include: { platform: true },
       });
       if (!requester || !isMasterAdminUser(requester)) {
-        throw new ForbiddenException('Somente admin master pode excluir contas permanentemente');
+        throw new ForbiddenException(
+          'Somente admin master pode excluir contas permanentemente',
+        );
       }
       requesterId = requester.id;
     }
@@ -2471,12 +2969,16 @@ export class AdminController {
     const docOr: Prisma.ExternalPlatformUserWhereInput[] = [];
     if (todas && externalUser.cpf) docOr.push({ cpf: externalUser.cpf });
     if (todas && externalUser.cnpj) docOr.push({ cnpj: externalUser.cnpj });
-    const alvos = todas && docOr.length > 0
-      ? await this.prisma.externalPlatformUser.findMany({
-          where: { OR: docOr, isPurged: false },
-          include: { user: { select: { id: true, email: true } }, wallet: true },
-        })
-      : [externalUser];
+    const alvos =
+      todas && docOr.length > 0
+        ? await this.prisma.externalPlatformUser.findMany({
+            where: { OR: docOr, isPurged: false },
+            include: {
+              user: { select: { id: true, email: true } },
+              wallet: true,
+            },
+          })
+        : [externalUser];
 
     let totalAbsorvido = 0;
 
@@ -2496,14 +2998,21 @@ export class AdminController {
               data: {
                 userId: alvo.userId,
                 action: 'PURGE_ABSORB',
-                amount: saldo,
-                balanceBefore: saldo,
-                balanceAfter: 0,
-                lockedBefore: Number(alvo.wallet.lockedBalance ?? 0),
-                lockedAfter: 0,
+                bookkeepingAmount: saldo,
+
+                balanceDelta: new Prisma.Decimal(0).sub(saldo),
+
+                lockedDelta: new Prisma.Decimal(0).sub(
+                  Number(alvo.wallet.lockedBalance ?? 0),
+                ),
+
                 source: 'MASTER_ADMIN_CONTROL',
                 description: `Saldo absorvido pelo master ao excluir permanentemente a conta na plataforma ${alvo.platform}`,
-                metadata: { platform: alvo.platform, externalUserId: alvo.id, purgedBy: requesterId ?? null },
+                metadata: {
+                  platform: alvo.platform,
+                  externalUserId: alvo.id,
+                  purgedBy: requesterId ?? null,
+                },
               },
             });
           }
@@ -2524,7 +3033,9 @@ export class AdminController {
 
     // Purgar é um caso de inativação — reavalia o login.
     const loginDesativado = await this.syncLoginAtivo(externalUser.userId);
-    await Promise.all(alvos.map((a) => this.setPlatformUserState(a, 'deactivate')));
+    await Promise.all(
+      alvos.map((a) => this.setPlatformUserState(a, 'deactivate')),
+    );
 
     return {
       success: true,
@@ -2542,7 +3053,12 @@ export class AdminController {
    * `alvoDeletado` filtra pelo estado atual (inativar pega as ativas; reativar, as inativas).
    */
   private async resolveEscopoEntries(
-    base: { id: string; cpf: string | null; cnpj: string | null; isDeleted: boolean },
+    base: {
+      id: string;
+      cpf: string | null;
+      cnpj: string | null;
+      isDeleted: boolean;
+    },
     escopo: string,
     alvoDeletado: boolean,
   ) {
@@ -2575,9 +3091,14 @@ export class AdminController {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
     if (user.isActive === ativa) {
-      throw new BadRequestException(ativa ? 'Conta já está ativa' : 'Conta já está inativa');
+      throw new BadRequestException(
+        ativa ? 'Conta já está ativa' : 'Conta já está inativa',
+      );
     }
-    await this.prisma.user.update({ where: { id: userId }, data: { isActive: ativa } });
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { isActive: ativa },
+    });
     return user;
   }
 
@@ -2587,9 +3108,13 @@ export class AdminController {
    * `purgeExternalUser` faz para contas de plataforma externa.
    */
   private async purgeContaDireta(userId: string, requesterId?: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, include: { wallet: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { wallet: true },
+    });
     if (!user) throw new NotFoundException('Usuário não encontrado');
-    if (user.isPurged) throw new BadRequestException('Conta já foi excluída permanentemente');
+    if (user.isPurged)
+      throw new BadRequestException('Conta já foi excluída permanentemente');
 
     const saldo = Number(user.wallet?.balance ?? 0);
 
@@ -2603,13 +3128,17 @@ export class AdminController {
           data: {
             userId: user.id,
             action: 'PURGE_ABSORB',
-            amount: saldo,
-            balanceBefore: saldo,
-            balanceAfter: 0,
-            lockedBefore: Number(user.wallet.lockedBalance ?? 0),
-            lockedAfter: 0,
+            bookkeepingAmount: saldo,
+
+            balanceDelta: new Prisma.Decimal(0).sub(saldo),
+
+            lockedDelta: new Prisma.Decimal(0).sub(
+              Number(user.wallet.lockedBalance ?? 0),
+            ),
+
             source: 'MASTER_ADMIN_CONTROL',
-            description: 'Saldo absorvido pelo master ao excluir permanentemente a conta direta',
+            description:
+              'Saldo absorvido pelo master ao excluir permanentemente a conta direta',
             metadata: { userId: user.id, purgedBy: requesterId ?? null },
           },
         });
@@ -2654,11 +3183,21 @@ export class AdminController {
 
   /** Chama o endpoint interno da plataforma para ativar/desativar (falha não bloqueia). */
   private async setPlatformUserState(
-    extUser: { platform: string; cpf: string | null; user?: { email: string | null } | null },
+    extUser: {
+      platform: string;
+      cpf: string | null;
+      user?: { email: string | null } | null;
+    },
     state: 'activate' | 'deactivate',
   ): Promise<void> {
-    const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
-    const headers = { 'x-internal-token': internalToken, 'Content-Type': 'application/json' };
+    const internalToken =
+      process.env.API_MACHINE_INTERNAL_TOKEN ||
+      process.env.INTERNAL_SERVICE_TOKEN ||
+      '';
+    const headers = {
+      'x-internal-token': internalToken,
+      'Content-Type': 'application/json',
+    };
     const platform = extUser.platform.toUpperCase();
     const cpf = extUser.cpf;
     const email = extUser.user?.email;
@@ -2675,16 +3214,40 @@ export class AdminController {
 
     const calls: (Promise<unknown> | null)[] = [];
     if ((platform === 'EBOOK' || platform === 'EBOOKSIM') && cpf) {
-      calls.push(call((getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined), '/internal/users', { cpf }));
+      calls.push(
+        call(
+          getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined,
+          '/internal/users',
+          { cpf },
+        ),
+      );
     }
     if (platform === 'PAGATG' && cpf) {
-      calls.push(call((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined), '/internal/users', { cpf }));
+      calls.push(
+        call(
+          getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined,
+          '/internal/users',
+          { cpf },
+        ),
+      );
     }
     if (platform === 'AREAFLIX' && email) {
-      calls.push(call((getPlatformIntegrationValue('AREAFLIX', 'BACKEND_URL') ?? undefined), '/internal/users', { email }));
+      calls.push(
+        call(
+          getPlatformIntegrationValue('AREAFLIX', 'BACKEND_URL') ?? undefined,
+          '/internal/users',
+          { email },
+        ),
+      );
     }
     if (platform === 'ATLAS' && email) {
-      calls.push(call((getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined), '/api/internal/users', { email }));
+      calls.push(
+        call(
+          getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined,
+          '/api/internal/users',
+          { email },
+        ),
+      );
     }
 
     await Promise.all(calls.filter(Boolean));
@@ -2692,7 +3255,11 @@ export class AdminController {
 
   @Get('users')
   @ApiOperation({ summary: 'Listar usuários para autocomplete (admin master)' })
-  @ApiQuery({ name: 'search', required: false, description: 'Prefixo do e-mail' })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Prefixo do e-mail',
+  })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, example: 20 })
   async listUsers(
@@ -2707,9 +3274,13 @@ export class AdminController {
         include: { platform: true },
       });
       const requesterIsAdmin = requester?.role === 'ADMIN';
-      const requesterIsMaster = requester ? isMasterAdminUser(requester) : false;
+      const requesterIsMaster = requester
+        ? isMasterAdminUser(requester)
+        : false;
       if (!requesterIsAdmin || !requesterIsMaster) {
-        throw new ForbiddenException('Somente admin do módulo master pode consultar usuários');
+        throw new ForbiddenException(
+          'Somente admin do módulo master pode consultar usuários',
+        );
       }
     }
 
@@ -2719,11 +3290,11 @@ export class AdminController {
 
     const where = term
       ? {
-        email: {
-          startsWith: term,
-          mode: 'insensitive' as const,
-        },
-      }
+          email: {
+            startsWith: term,
+            mode: 'insensitive' as const,
+          },
+        }
       : {};
 
     const [users, total] = await Promise.all([
@@ -2763,16 +3334,26 @@ export class AdminController {
     const baseWhere = {};
     const where = search.trim()
       ? {
-        AND: [
-          baseWhere,
-          {
-            OR: [
-              { name: { contains: search.trim(), mode: 'insensitive' as const } },
-              { slug: { contains: search.trim(), mode: 'insensitive' as const } },
-            ],
-          },
-        ],
-      }
+          AND: [
+            baseWhere,
+            {
+              OR: [
+                {
+                  name: {
+                    contains: search.trim(),
+                    mode: 'insensitive' as const,
+                  },
+                },
+                {
+                  slug: {
+                    contains: search.trim(),
+                    mode: 'insensitive' as const,
+                  },
+                },
+              ],
+            },
+          ],
+        }
       : baseWhere;
 
     const [items, total] = await Promise.all([
@@ -2795,7 +3376,8 @@ export class AdminController {
 
   @Get('relatorios/consolidado/transacoes')
   @ApiOperation({
-    summary: 'Listar transações que entram no consolidado (base do cálculo do Lucro Simpay)',
+    summary:
+      'Listar transações que entram no consolidado (base do cálculo do Lucro Simpay)',
   })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
@@ -2825,7 +3407,12 @@ export class AdminController {
       platforms,
     );
     if (metodoPagamento) {
-      if (!['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'].includes(metodoPagamento)) throw new BadRequestException('Método inválido');
+      if (
+        !['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'].includes(
+          metodoPagamento,
+        )
+      )
+        throw new BadRequestException('Método inválido');
       where.paymentMethod = metodoPagamento as PaymentMethod;
     }
     const pageNum = Math.max(1, Number(page));
@@ -2847,7 +3434,7 @@ export class AdminController {
         domTransactionId: t.domTransactionId,
         userId: t.userId,
         plataformaTag: consolidadoTagParaTransacao(
-          { userId: t.userId, description: t.description ?? null },
+          { userId: t.userId, platformTag: t.platformTag ?? null },
           platforms,
         ),
         valor: Number(t.amount),
@@ -2892,7 +3479,11 @@ export class AdminController {
     description:
       'Com detalharLucro: se true, omite a lista de transações e mantém só subtotais por plataforma.',
   })
-  @ApiQuery({ name: 'metodoPagamento', required: false, description: 'PIX | CREDIT_CARD | DEBIT_CARD' })
+  @ApiQuery({
+    name: 'metodoPagamento',
+    required: false,
+    description: 'PIX | CREDIT_CARD | DEBIT_CARD',
+  })
   async getConsolidado(
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
@@ -2907,8 +3498,14 @@ export class AdminController {
   ) {
     const platforms = await resolveConsolidadoPlatforms(this.prisma);
     const platformIds = platforms.map((p) => p.id);
-    const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
-    if (metodoPagamento) whereResumo.paymentMethod = metodoPagamento as Prisma.TransactionWhereInput['paymentMethod'];
+    const whereResumo = buildConsolidadoResumoWhere(
+      dataInicio,
+      dataFim,
+      platforms,
+    );
+    if (metodoPagamento)
+      whereResumo.paymentMethod =
+        metodoPagamento as Prisma.TransactionWhereInput['paymentMethod'];
 
     const [txRowsTodas, comunidadeRows] = await Promise.all([
       this.prisma.transaction.findMany({
@@ -2921,8 +3518,10 @@ export class AdminController {
           netAmount: true,
           createdAt: true,
           description: true,
+          platformTag: true,
           installments: true,
           paymentMethod: true,
+          financialSnapshot: true,
         },
         orderBy: { createdAt: 'asc' },
       }),
@@ -2932,7 +3531,10 @@ export class AdminController {
       getComunidadeOrderRows(this.prisma, dataInicio, dataFim, metodoPagamento),
     ]);
 
-    const txRowsComComunidade = [...txRowsTodas, ...dedupeComunidadeRows(txRowsTodas, comunidadeRows)];
+    const txRowsComComunidade = [
+      ...txRowsTodas,
+      ...dedupeComunidadeRows(txRowsTodas, comunidadeRows),
+    ];
 
     const txRowsLucro = txRowsComComunidade.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
@@ -2946,16 +3548,18 @@ export class AdminController {
       buildLucroSimpayDetalhePorPlataforma(txRowsLucro, platforms);
 
     const totalTransacoes = txRowsLucro.length;
-    const customersCount = new Set(txRowsLucro
-      .map(t => reportBuyerCpf(t.customerDocument))
-      .filter((cpf): cpf is string => cpf !== null)).size;
+    const customersCount = new Set(
+      txRowsLucro
+        .map((t) => reportBuyerCpf(t.customerDocument))
+        .filter((cpf): cpf is string => cpf !== null),
+    ).size;
     // taxaSimInt = valorBruto − valorLiquido por transação (mesma fórmula do tooltip do gráfico no painel)
     // Usa netAmount quando disponível, senão bruto × LIQUIDEZ — idêntico ao acumulado diário do gráfico.
     const valorLiquidoTxBase = Number(
       txRowsLucro
         .reduce((s, tx) => {
           const tag = consolidadoTagParaTransacao(
-            { userId: tx.userId, description: tx.description ?? null },
+            { userId: tx.userId, platformTag: tx.platformTag ?? null },
             platforms,
           );
           return s + valorLiquidoTransacaoConsolidado(tx, tag);
@@ -2965,7 +3569,11 @@ export class AdminController {
     const taxaSimInt = Number((brutoTotal - valorLiquidoTxBase).toFixed(2));
     const taxaDom = Number(
       plataformasLucroDetalhe
-        .reduce((s, p) => s + p.subtotalDeducaoTaxaFixa + p.subtotalDeducaoTaxaCashback, 0)
+        .reduce(
+          (s, p) =>
+            s + p.subtotalDeducaoTaxaFixa + p.subtotalDeducaoTaxaCashback,
+          0,
+        )
         .toFixed(2),
     );
     // Custo cashback = soma da TAXA_CASHBACK por transação por plataforma (padrão R$3, configurável)
@@ -2987,25 +3595,30 @@ export class AdminController {
           const amount = Number(tx.amount);
           if (!Number.isFinite(amount) || amount <= 0) return sum;
           const tag = consolidadoTagParaTransacao(
-            { userId: tx.userId, description: tx.description ?? null },
+            { userId: tx.userId, platformTag: tx.platformTag ?? null },
             platforms,
           );
-          const pm = String((tx as { paymentMethod?: string }).paymentMethod ?? 'PIX');
-          const inst = Number((tx as { installments?: number }).installments ?? 1);
+          const pm = String(
+            (tx as { paymentMethod?: string }).paymentMethod ?? 'PIX',
+          );
+          const inst = Number(
+            (tx as { installments?: number }).installments ?? 1,
+          );
           return sum + mdrDomPct(pm, inst, amount, tag);
         }, 0)
         .toFixed(4),
     );
     // Total de repasse = tudo que sobra após a retirada da taxa sim int (= valorBruto − taxaSimInt)
-    const totalRepasseConsolidado = Number((brutoTotal - taxaSimInt).toFixed(2));
+    const totalRepasseConsolidado = Number(
+      (brutoTotal - taxaSimInt).toFixed(2),
+    );
 
     const querDetalhe =
       detalharLucro === '1' ||
       detalharLucro === 'true' ||
       detalharLucro?.toLowerCase() === 'sim';
     const soloResumo =
-      detalharLucroSoloResumo === '1' ||
-      detalharLucroSoloResumo === 'true';
+      detalharLucroSoloResumo === '1' || detalharLucroSoloResumo === 'true';
 
     const logDt = masterLogDateFilter(dataInicio, dataFim);
     const masterWithdrawLogBase: Prisma.BalanceLogWhereInput = {
@@ -3016,16 +3629,19 @@ export class AdminController {
     const [feeIncAgg, profitIncAgg] = await Promise.all([
       this.prisma.balanceLog.aggregate({
         where: { ...masterWithdrawLogBase, action: 'ADMIN_WITHDRAW_FEE_INC' },
-        _sum: { amount: true },
+        _sum: { bookkeepingAmount: true },
       }),
       this.prisma.balanceLog.aggregate({
-        where: { ...masterWithdrawLogBase, action: 'ADMIN_WITHDRAW_PROFIT_INC' },
-        _sum: { amount: true },
+        where: {
+          ...masterWithdrawLogBase,
+          action: 'ADMIN_WITHDRAW_PROFIT_INC',
+        },
+        _sum: { bookkeepingAmount: true },
       }),
     ]);
 
-    const totalTaxaSaque = Number(feeIncAgg._sum.amount || 0);
-    const totalLucroSaque = Number(profitIncAgg._sum.amount || 0);
+    const totalTaxaSaque = Number(feeIncAgg._sum.bookkeepingAmount || 0);
+    const totalLucroSaque = Number(profitIncAgg._sum.bookkeepingAmount || 0);
     const lucroSimpayNum = Number(totalLucroSimpay.toFixed(2));
     const lucroTotalMaster = Number(
       (lucroSimpayNum + totalLucroSaque - totalTaxaSaque).toFixed(2),
@@ -3039,22 +3655,22 @@ export class AdminController {
     const totalRepasseReal = totalRepasseConsolidado;
 
     // ── Saques: calcula direto na withdrawRequest para cobrir histórico sem BalanceLog ──
-    // fee > 0: exclui registros importados pelo SyncDomWithdrawalsUseCase (fee=0, histórico DOM)
+    // fee > 0: exclui registros importados do histórico DOM (fee=0)
     // que não representam saques com taxa Simintpay cobrada.
     const withdrawApprovalFilter: Prisma.WithdrawRequestWhereInput = {
       status: 'APPROVED',
       fee: { gt: 0 },
       ...(dataInicio || dataFim
         ? {
-          updatedAt: {
-            ...(dataInicio
-              ? { gte: dayjs.tz(dataInicio, TZ).startOf('day').toDate() }
-              : {}),
-            ...(dataFim
-              ? { lte: dayjs.tz(dataFim, TZ).endOf('day').toDate() }
-              : {}),
-          },
-        }
+            updatedAt: {
+              ...(dataInicio
+                ? { gte: dayjs.tz(dataInicio, TZ).startOf('day').toDate() }
+                : {}),
+              ...(dataFim
+                ? { lte: dayjs.tz(dataFim, TZ).endOf('day').toDate() }
+                : {}),
+            },
+          }
         : {}),
     };
 
@@ -3077,7 +3693,9 @@ export class AdminController {
     // saquesPorDia: lucro de saque agregado por dia (updatedAt SP) e tag da plataforma
     const saquesPorDiaMap = new Map<string, number>(); // key = `${ymd}|${tag}`
     for (const w of withdrawsAprovados) {
-      const platformTag = normalizePlatformTag(w.platform ?? w.user?.platform?.tag ?? 'GLOBAL');
+      const platformTag = normalizePlatformTag(
+        w.platform ?? w.user?.platform?.tag ?? 'GLOBAL',
+      );
       const taxaSaqueFixa = getPlatformTaxaEffective(
         platformTag,
         'TAXA_SAQUE_FIXA',
@@ -3114,7 +3732,7 @@ export class AdminController {
         txRowsLucro
           .reduce((s, tx) => {
             const tag = consolidadoTagParaTransacao(
-              { userId: tx.userId, description: tx.description ?? null },
+              { userId: tx.userId, platformTag: tx.platformTag ?? null },
               platforms,
             );
             return s + valorLiquidoTransacaoConsolidado(tx, tag);
@@ -3130,11 +3748,7 @@ export class AdminController {
       });
       let snap = 0;
       for (const u of platformUsers) {
-        snap += await computeUserNetBalance(
-          this.prisma,
-          u.id,
-          u.platform?.tag,
-        );
+        snap += await computeUserNetBalance(this.prisma, u.id, u.platform?.tag);
       }
       valorLiquidoPlataformas = Number(snap.toFixed(2));
       valorLiquidoCriterio =
@@ -3149,19 +3763,30 @@ export class AdminController {
     );
 
     const chargebackDateWhere: Prisma.DateTimeFilter = {};
-    if (dataInicio) chargebackDateWhere.gte = dayjs.tz(dataInicio, TZ).startOf('day').toDate();
-    if (dataFim) chargebackDateWhere.lte = dayjs.tz(dataFim, TZ).endOf('day').toDate();
+    if (dataInicio)
+      chargebackDateWhere.gte = dayjs
+        .tz(dataInicio, TZ)
+        .startOf('day')
+        .toDate();
+    if (dataFim)
+      chargebackDateWhere.lte = dayjs.tz(dataFim, TZ).endOf('day').toDate();
     const chargebackTxs = await this.prisma.transaction.findMany({
       where: {
         status: TransactionStatus.CHARGEBACK,
         ...buildConsolidadoScopeOr(platformIds),
-        ...(Object.keys(chargebackDateWhere).length > 0 ? { createdAt: chargebackDateWhere } : {}),
+        ...(Object.keys(chargebackDateWhere).length > 0
+          ? { createdAt: chargebackDateWhere }
+          : {}),
       },
       select: { amount: true },
     });
     const chargebacks = {
       quantidade: chargebackTxs.length,
-      valor: Math.round(chargebackTxs.reduce((acc, t) => acc + Number(t.amount ?? 0), 0) * 100) / 100,
+      valor:
+        Math.round(
+          chargebackTxs.reduce((acc, t) => acc + Number(t.amount ?? 0), 0) *
+            100,
+        ) / 100,
     };
 
     let lucroTotalMasterHistorico: Array<{ label: string; valor: number }> = [];
@@ -3185,7 +3810,7 @@ export class AdminController {
             in: ['ADMIN_WITHDRAW_FEE_INC', 'ADMIN_WITHDRAW_PROFIT_INC'],
           },
         },
-        select: { createdAt: true, amount: true, action: true },
+        select: { createdAt: true, bookkeepingAmount: true, action: true },
       });
       if (isSingleCalendarDaySp(di, df)) {
         lucroTotalMasterHistorico = buildLucroTotalMasterHistoricoPorHora(
@@ -3220,29 +3845,77 @@ export class AdminController {
       }
     }
 
-    // Parcelamento global: apenas transações de cartão de crédito (exclui débito e PIX)
+    // Parcelamento global de cartão: snapshot imutável quando disponível; linhas
+    // legadas ou sem campos de juros continuam com estimativas das taxas atuais.
     let totalParcelamentoBruto = 0;
     let totalParcelamentoSimIntPay = 0;
     for (const tx of txRowsLucro) {
-      const pm = String((tx as { paymentMethod?: string }).paymentMethod ?? '').toLowerCase();
+      const pm = String(
+        (tx as { paymentMethod?: string }).paymentMethod ?? '',
+      ).toLowerCase();
       if (!pm.includes('credit')) continue;
       const amount = Number(tx.amount);
       if (!Number.isFinite(amount) || amount <= 0) continue;
-      const inst = Math.min(Math.max(Number((tx as { installments?: number }).installments ?? 1) || 1, 1), 12);
+      const snapshot =
+        'financialSnapshot' in tx ? tx.financialSnapshot : undefined;
+      if (
+        snapshot &&
+        typeof snapshot === 'object' &&
+        !Array.isArray(snapshot)
+      ) {
+        const values = snapshot as Record<string, unknown>;
+        const buyerInterest = values.buyerInterestCents;
+        const acquirerInterest = values.acquirerInterestCents;
+        const realized = realizedAcquirerCost(tx);
+        // UNCONFIGURED stores an unmeasured acquirer interest as zero. Only
+        // calculate an interest spread when its realized cost is known.
+        if (
+          realized !== undefined &&
+          typeof buyerInterest === 'number' &&
+          Number.isSafeInteger(buyerInterest) &&
+          buyerInterest >= 0 &&
+          typeof acquirerInterest === 'number' &&
+          Number.isSafeInteger(acquirerInterest) &&
+          acquirerInterest >= 0
+        ) {
+          totalParcelamentoBruto += buyerInterest / 100;
+          totalParcelamentoSimIntPay +=
+            (buyerInterest - acquirerInterest) / 100;
+          continue;
+        }
+      }
+      const inst = Math.min(
+        Math.max(
+          Number((tx as { installments?: number }).installments ?? 1) || 1,
+          1,
+        ),
+        12,
+      );
       const tag = consolidadoTagParaTransacao(
-        { userId: tx.userId, description: tx.description ?? null },
+        { userId: tx.userId, platformTag: tx.platformTag ?? null },
         platforms,
       );
-      const domFee = estimateDomFeeReais({ amountReais: amount, paymentMethod: (tx as { paymentMethod?: string }).paymentMethod, installments: inst, tenantTag: tag });
+      const domFee = estimateDomFeeReais({
+        amountReais: amount,
+        paymentMethod: (tx as { paymentMethod?: string }).paymentMethod,
+        installments: inst,
+        tenantTag: tag,
+      });
       const masterKey = `MDR_CC_MASTER_${inst}X` as PlataformaTaxaKey;
-      const masterRate = getPlatformTaxaEffective(tag, masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0);
+      const masterRate = getPlatformTaxaEffective(
+        tag,
+        masterKey,
+        (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0,
+      );
       totalParcelamentoBruto += domFee + amount * masterRate;
       totalParcelamentoSimIntPay += amount * masterRate;
     }
 
     // Recorte só de boleto para os cards do relatório (quantidade, bruto, DOM, SimIntPay, lucro).
     const boletoRows = txRowsLucro.filter((tx) =>
-      String((tx as { paymentMethod?: string | null }).paymentMethod ?? '').toUpperCase().includes('BOLETO'),
+      String((tx as { paymentMethod?: string | null }).paymentMethod ?? '')
+        .toUpperCase()
+        .includes('BOLETO'),
     );
     let boletoBruto = 0;
     let boletoDom = 0;
@@ -3250,7 +3923,10 @@ export class AdminController {
     for (const tx of boletoRows) {
       const amount = Number(tx.amount) || 0;
       if (amount <= 0) continue;
-      const tag = consolidadoTagParaTransacao({ userId: tx.userId, description: tx.description ?? null }, platforms);
+      const tag = consolidadoTagParaTransacao(
+        { userId: tx.userId, platformTag: tx.platformTag ?? null },
+        platforms,
+      );
       const f = calculateBoletoFees(amount, tag);
       boletoBruto += amount;
       boletoDom += f.domFeeAmount;
@@ -3274,8 +3950,10 @@ export class AdminController {
       boleto,
       taxaServico: taxaServicoConsolidado,
       custoCashback,
+      // Totais mistos: snapshots usam juros capturados; legado usa estimativa atual.
       taxaParcelamentoBruto: Math.round(totalParcelamentoBruto * 100) / 100,
-      taxaParcelamentoSimIntPay: Math.round(totalParcelamentoSimIntPay * 100) / 100,
+      taxaParcelamentoSimIntPay:
+        Math.round(totalParcelamentoSimIntPay * 100) / 100,
       totalRepasseConsolidado,
       totalRepasseReal,
       lucroPlataformasSemRepasse,
@@ -3307,7 +3985,9 @@ export class AdminController {
       // Transações sem plataforma/produto atribuível (tag NAO-IDENTIFICADA) — sempre
       // presente (0 quando tudo identificado), para o card do relatório nunca "esconder" nada.
       naoIdentificadas: (() => {
-        const ni = plataformasLucroDetalhe.find((p) => p.tag === TAG_NAO_IDENTIFICADA);
+        const ni = plataformasLucroDetalhe.find(
+          (p) => p.tag === TAG_NAO_IDENTIFICADA,
+        );
         return {
           quantidade: ni?.quantidadeTransacoes ?? 0,
           valor: Number((ni?.subtotalBruto ?? 0).toFixed(2)),
@@ -3315,18 +3995,20 @@ export class AdminController {
       })(),
       ...(dashboardFinanceHistorico && dashboardFinanceHistorico.length > 0
         ? {
-          dashboardFinanceHistorico,
-          dashboardFinanceHistoricoCriterio,
-        }
+            dashboardFinanceHistorico,
+            dashboardFinanceHistoricoCriterio,
+          }
         : {}),
     };
 
     if (querDetalhe) {
       const plats = soloResumo
         ? plataformasLucroDetalhe.map((row) => {
-          const { transacoes: _lista, ...semLista } = row;
-          return semLista;
-        })
+            const semLista = Object.fromEntries(
+              Object.entries(row).filter(([key]) => key !== 'transacoes'),
+            );
+            return semLista;
+          })
         : plataformasLucroDetalhe;
 
       const excluidas = txRowsTodas.filter(
@@ -3335,7 +4017,7 @@ export class AdminController {
 
       payload.lucroSimpayDetalhe = {
         formula:
-          'Por transação: lucro = bruto × (1 − LIQUIDEZ_LOJISTA) + TAXA_SERVICO − TAXA_FIXA_TRANSACAO − TAXA_CASHBACK. TAXA_SERVICO é receita da Sim Int Pay cobrada do vendedor (R$4 padrão; 0 para BOSQUE/RENOVADA e antes de 2026-05-18). LIQUIDEZ_LOJISTA vem do .env (*_LIQUIDEZ, ex. 0,91 → 9% do bruto para o master).',
+          'Com custo adquirido realizado: lucro = total cobrado do comprador (snapshot) − repasse do vendedor (netAmount) − custo realizado da adquirente. Sem custo realizado no snapshot, mantém a estimativa legada baseada em LIQUIDEZ_LOJISTA, TAXA_SERVICO, MDR, TAXA_FIXA_TRANSACAO e TAXA_CASHBACK.',
         exclusoesDoCalculo: {
           regra:
             'Não entram: bruto ≤ 0; ou descrição contendo "Sincronização de Saldo", "Ajuste Administrativo" ou "balance sync" (ajustes internos, não venda).',
@@ -3385,11 +4067,11 @@ export class AdminController {
         source: 'MASTER_ADMIN_CONTROL',
         ...(logDt ? { createdAt: logDt } : {}),
       },
-      _sum: { amount: true },
+      _sum: { bookkeepingAmount: true },
     });
 
     return {
-      totalTaxaSaque: Number(feeInc._sum.amount || 0),
+      totalTaxaSaque: Number(feeInc._sum.bookkeepingAmount || 0),
     };
   }
 
@@ -3406,11 +4088,11 @@ export class AdminController {
         source: 'MASTER_ADMIN_CONTROL',
         ...(logDt ? { createdAt: logDt } : {}),
       },
-      _sum: { amount: true },
+      _sum: { bookkeepingAmount: true },
     });
 
     return {
-      totalLucroSaque: Number(profitInc._sum.amount || 0),
+      totalLucroSaque: Number(profitInc._sum.bookkeepingAmount || 0),
     };
   }
 
@@ -3428,10 +4110,22 @@ export class AdminController {
   }
 
   @Get('relatorios/mensal')
-  @ApiOperation({ summary: 'Resultados mensais (últimos N meses ou intervalo YYYY-MM)' })
+  @ApiOperation({
+    summary: 'Resultados mensais (últimos N meses ou intervalo YYYY-MM)',
+  })
   @ApiQuery({ name: 'meses', required: false, example: '12' })
-  @ApiQuery({ name: 'dataInicio', required: false, description: 'Mês inicial no formato YYYY-MM', example: '2026-01' })
-  @ApiQuery({ name: 'dataFim', required: false, description: 'Mês final no formato YYYY-MM', example: '2026-04' })
+  @ApiQuery({
+    name: 'dataInicio',
+    required: false,
+    description: 'Mês inicial no formato YYYY-MM',
+    example: '2026-01',
+  })
+  @ApiQuery({
+    name: 'dataFim',
+    required: false,
+    description: 'Mês final no formato YYYY-MM',
+    example: '2026-04',
+  })
   async getRelatorioMensal(
     @Query('meses') mesesParam?: string,
     @Query('dataInicio') dataInicioMes?: string,
@@ -3445,8 +4139,13 @@ export class AdminController {
     let fimJanela: dayjs.Dayjs;
     let meses: number;
 
-    if (dataInicioMes?.match(/^\d{4}-\d{2}(-\d{2})?$/) && dataFimMes?.match(/^\d{4}-\d{2}(-\d{2})?$/)) {
-      inicioJanela = dayjs.tz(`${dataInicioMes.slice(0, 7)}-01`, TZ).startOf('month');
+    if (
+      dataInicioMes?.match(/^\d{4}-\d{2}(-\d{2})?$/) &&
+      dataFimMes?.match(/^\d{4}-\d{2}(-\d{2})?$/)
+    ) {
+      inicioJanela = dayjs
+        .tz(`${dataInicioMes.slice(0, 7)}-01`, TZ)
+        .startOf('month');
       fimJanela = dayjs.tz(`${dataFimMes.slice(0, 7)}-01`, TZ).endOf('month');
       meses = fimJanela.diff(inicioJanela, 'month') + 1;
     } else {
@@ -3456,13 +4155,20 @@ export class AdminController {
     }
 
     const where = buildConsolidadoResumoWhere(
-      dataInicioMes?.length === 10 ? dataInicioMes : inicioJanela.format('YYYY-MM-DD'),
+      dataInicioMes?.length === 10
+        ? dataInicioMes
+        : inicioJanela.format('YYYY-MM-DD'),
       dataFimMes?.length === 10 ? dataFimMes : fimJanela.format('YYYY-MM-DD'),
       platforms,
     );
 
     if (metodoPagamento) {
-      if (!['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'].includes(metodoPagamento)) throw new BadRequestException('Método inválido');
+      if (
+        !['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'].includes(
+          metodoPagamento,
+        )
+      )
+        throw new BadRequestException('Método inválido');
       where.paymentMethod = metodoPagamento as PaymentMethod;
     }
     const [txRowsBase, comunidadeRowsMensal] = await Promise.all([
@@ -3474,15 +4180,29 @@ export class AdminController {
           netAmount: true,
           createdAt: true,
           description: true,
+          platformTag: true,
           installments: true,
           domFee: true,
+          financialSnapshot: true,
         },
         orderBy: { createdAt: 'asc' },
       }),
-      getComunidadeOrderRows(this.prisma, dataInicioMes?.length === 10 ? dataInicioMes : inicioJanela.format('YYYY-MM-DD'), dataFimMes?.length === 10 ? dataFimMes : fimJanela.format('YYYY-MM-DD'), metodoPagamento),
+      getComunidadeOrderRows(
+        this.prisma,
+        dataInicioMes?.length === 10
+          ? dataInicioMes
+          : inicioJanela.format('YYYY-MM-DD'),
+        dataFimMes?.length === 10 ? dataFimMes : fimJanela.format('YYYY-MM-DD'),
+        metodoPagamento,
+      ),
     ]);
 
-    const txRows = [...txRowsBase, ...dedupeComunidadeRows(txRowsBase, comunidadeRowsMensal).filter(tx => !metodoPagamento || tx.paymentMethod === metodoPagamento)];
+    const txRows = [
+      ...txRowsBase,
+      ...dedupeComunidadeRows(txRowsBase, comunidadeRowsMensal).filter(
+        (tx) => !metodoPagamento || tx.paymentMethod === metodoPagamento,
+      ),
+    ];
 
     type MesRow = {
       mes: string;
@@ -3493,25 +4213,44 @@ export class AdminController {
       totalRepassado: number;
     };
 
-    const byMonth = new Map<string, { bruto: number; lucro: number; liquido: number; count: number; acquirerFees: number }>();
+    const byMonth = new Map<
+      string,
+      {
+        bruto: number;
+        lucro: number;
+        liquido: number;
+        count: number;
+        acquirerFees: number;
+      }
+    >();
 
     for (const tx of txRows) {
-      if (!transacaoEntraNoLucroSimpayConsolidado(tx.amount, tx.description)) continue;
+      if (!transacaoEntraNoLucroSimpayConsolidado(tx.amount, tx.description))
+        continue;
       const mes = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM');
       const bruto = Number(tx.amount);
       const lucro = lucroSimpayUmaTransacaoConsolidado(tx, platforms);
       const tag = consolidadoTagParaTransacao(
-        { userId: tx.userId, description: tx.description ?? null },
+        { userId: tx.userId, platformTag: tx.platformTag ?? null },
         platforms,
       );
       const liquido = valorLiquidoTransacaoConsolidado(tx, tag);
-      const prev = byMonth.get(mes) ?? { bruto: 0, lucro: 0, liquido: 0, count: 0, acquirerFees: 0 };
+      const prev = byMonth.get(mes) ?? {
+        bruto: 0,
+        lucro: 0,
+        liquido: 0,
+        count: 0,
+        acquirerFees: 0,
+      };
       byMonth.set(mes, {
         bruto: prev.bruto + bruto,
         lucro: prev.lucro + lucro,
         liquido: prev.liquido + liquido,
         count: prev.count + 1,
-        acquirerFees: prev.acquirerFees + ('domFee' in tx ? Number(tx.domFee ?? 0) : 0),
+        acquirerFees:
+          prev.acquirerFees +
+          (realizedAcquirerCost(tx) ??
+            ('domFee' in tx ? Number(tx.domFee ?? 0) : 0)),
       });
     }
 
@@ -3519,7 +4258,13 @@ export class AdminController {
     const resultado: MesRow[] = [];
     for (let i = 0; i < meses; i++) {
       const mes = fimJanela.subtract(i, 'month').format('YYYY-MM');
-      const agg = byMonth.get(mes) ?? { bruto: 0, lucro: 0, liquido: 0, count: 0, acquirerFees: 0 };
+      const agg = byMonth.get(mes) ?? {
+        bruto: 0,
+        lucro: 0,
+        liquido: 0,
+        count: 0,
+        acquirerFees: 0,
+      };
       resultado.push({
         mes,
         vendas: agg.count,
@@ -3547,7 +4292,11 @@ export class AdminController {
   ) {
     const platforms = await resolveConsolidadoPlatforms(this.prisma);
     const platformIds = platforms.map((p) => p.id);
-    const whereResumo = buildConsolidadoResumoWhere(dataInicio, dataFim, platforms);
+    const whereResumo = buildConsolidadoResumoWhere(
+      dataInicio,
+      dataFim,
+      platforms,
+    );
 
     const [txRowsTodas, comunidadeRowsRepasse] = await Promise.all([
       this.prisma.transaction.findMany({
@@ -3559,19 +4308,27 @@ export class AdminController {
           netAmount: true,
           createdAt: true,
           description: true,
+          platformTag: true,
           installments: true,
+          financialSnapshot: true,
         },
         orderBy: { createdAt: 'asc' },
       }),
       getComunidadeOrderRows(this.prisma, dataInicio, dataFim),
     ]);
 
-    const txRowsAll = [...txRowsTodas, ...dedupeComunidadeRows(txRowsTodas, comunidadeRowsRepasse)];
+    const txRowsAll = [
+      ...txRowsTodas,
+      ...dedupeComunidadeRows(txRowsTodas, comunidadeRowsRepasse),
+    ];
     const txRowsLucro = txRowsAll.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
     );
 
-    const { totalLucroSimpay } = buildLucroSimpayDetalhePorPlataforma(txRowsLucro, platforms);
+    const { totalLucroSimpay } = buildLucroSimpayDetalhePorPlataforma(
+      txRowsLucro,
+      platforms,
+    );
     const lucroSimpayNum = Number(totalLucroSimpay.toFixed(2));
 
     const temFiltroData = Boolean(dataInicio?.trim() || dataFim?.trim());
@@ -3583,7 +4340,7 @@ export class AdminController {
         txRowsLucro
           .reduce((s, tx) => {
             const tag = consolidadoTagParaTransacao(
-              { userId: tx.userId, description: tx.description ?? null },
+              { userId: tx.userId, platformTag: tx.platformTag ?? null },
               platforms,
             );
             return s + valorLiquidoTransacaoConsolidado(tx, tag);
@@ -3599,18 +4356,16 @@ export class AdminController {
       });
       let snap = 0;
       for (const u of platformUsers) {
-        snap += await computeUserNetBalance(
-          this.prisma,
-          u.id,
-          u.platform?.tag,
-        );
+        snap += await computeUserNetBalance(this.prisma, u.id, u.platform?.tag);
       }
       valorLiquidoPlataformas = Number(snap.toFixed(2));
       valorLiquidoCriterio =
         'Sem dataInicio/dataFim: soma dos saldos líquidos atuais (netBalance) das contas plataforma — igual ao consolidado; combine com período explícito para repasse alinhado ao lucro Simpay do intervalo.';
     }
 
-    const totalRepasse = Number((valorLiquidoPlataformas - lucroSimpayNum).toFixed(2));
+    const totalRepasse = Number(
+      (valorLiquidoPlataformas - lucroSimpayNum).toFixed(2),
+    );
 
     return {
       totalRepasse,
@@ -3624,9 +4379,16 @@ export class AdminController {
 
   @Get('plataformas/saldos-resumo')
   @ApiOperation({
-    summary: 'Saldo disponível (ao vivo) por plataforma — cards de "Saldos por Plataforma".',
+    summary:
+      'Saldo disponível (ao vivo) por plataforma — cards de "Saldos por Plataforma".',
   })
-  async getPlataformasSaldosResumo() { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).getPlataformasSaldosResumo(); }
+  async getPlataformasSaldosResumo() {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).getPlataformasSaldosResumo();
+  }
 
   @Get('relatorios/transacoes-por-status')
   @ApiOperation({
@@ -3641,18 +4403,27 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const txs = await this.fetchAllDomTransactionsForRelatorio(dataInicio, dataFim);
+    const txs = await this.fetchAllDomTransactionsForRelatorio(
+      dataInicio,
+      dataFim,
+    );
     const mapCount = new Map<DomStatusBucket, number>();
     for (const tx of txs) {
       const bucket = domRawStatusToBucket(tx.status);
       mapCount.set(bucket, (mapCount.get(bucket) ?? 0) + 1);
     }
     const total = txs.length;
-    const buckets: DomStatusBucket[] = ['PENDING', 'COMPLETED', 'REFUNDED', 'FAILED'];
+    const buckets: DomStatusBucket[] = [
+      'PENDING',
+      'COMPLETED',
+      'REFUNDED',
+      'FAILED',
+    ];
     const items = buckets
       .map((codigo) => {
         const quantidade = mapCount.get(codigo) ?? 0;
-        const percentual = total > 0 ? Number(((quantidade / total) * 100).toFixed(2)) : 0;
+        const percentual =
+          total > 0 ? Number(((quantidade / total) * 100).toFixed(2)) : 0;
         return {
           codigo,
           nome: DOM_DIST_STATUS_LABEL[codigo],
@@ -3677,18 +4448,27 @@ export class AdminController {
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
   ) {
-    const txs = await this.fetchAllDomTransactionsForRelatorio(dataInicio, dataFim);
+    const txs = await this.fetchAllDomTransactionsForRelatorio(
+      dataInicio,
+      dataFim,
+    );
     const mapCount = new Map<DomMethodBucket, number>();
     for (const tx of txs) {
       const bucket = domPaymentMethodToBucket(tx.payment_method);
       mapCount.set(bucket, (mapCount.get(bucket) ?? 0) + 1);
     }
     const total = txs.length;
-    const buckets: DomMethodBucket[] = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'];
+    const buckets: DomMethodBucket[] = [
+      'PIX',
+      'CREDIT_CARD',
+      'DEBIT_CARD',
+      'BOLETO',
+    ];
     const items = buckets
       .map((codigo) => {
         const quantidade = mapCount.get(codigo) ?? 0;
-        const percentual = total > 0 ? Number(((quantidade / total) * 100).toFixed(2)) : 0;
+        const percentual =
+          total > 0 ? Number(((quantidade / total) * 100).toFixed(2)) : 0;
         return {
           codigo,
           nome: DOM_DIST_METHOD_LABEL[codigo],
@@ -3704,18 +4484,33 @@ export class AdminController {
   @Post('comunidades')
   @ApiOperation({ summary: 'Criar comunidade manualmente' })
   async createComunidade(
-    @Body() body: { name: string; slug?: string; description?: string; isActive?: boolean },
+    @Body()
+    body: {
+      name: string;
+      slug?: string;
+      description?: string;
+      isActive?: boolean;
+    },
   ) {
     const name = body.name?.trim();
-    if (!name) throw new BadRequestException('Nome da comunidade é obrigatório');
-    const slugBase = (body.slug ?? name).trim().toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!name)
+      throw new BadRequestException('Nome da comunidade é obrigatório');
+    const slugBase = (body.slug ?? name)
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
     if (!slugBase) throw new BadRequestException('Slug inválido');
 
-    const already = await this.prisma.community.findUnique({ where: { slug: slugBase } });
+    const already = await this.prisma.community.findUnique({
+      where: { slug: slugBase },
+    });
     if (already) {
-      throw new ConflictException(`Já existe uma comunidade com slug "${slugBase}"`);
+      throw new ConflictException(
+        `Já existe uma comunidade com slug "${slugBase}"`,
+      );
     }
 
     const created = await this.prisma.community.create({
@@ -3782,12 +4577,21 @@ export class AdminController {
     if (!community) throw new NotFoundException('Comunidade não encontrada');
 
     const now = new Date();
-    const activeAccesses = community.accesses.filter(a => a.isActive && a.expiresAt > now);
-    const expiredAccesses = community.accesses.filter(a => !a.isActive || a.expiresAt <= now);
+    const activeAccesses = community.accesses.filter(
+      (a) => a.isActive && a.expiresAt > now,
+    );
+    const expiredAccesses = community.accesses.filter(
+      (a) => !a.isActive || a.expiresAt <= now,
+    );
     const minDays = activeAccesses.length
       ? Math.min(
-        ...activeAccesses.map(a => Math.max(0, Math.floor((a.expiresAt.getTime() - now.getTime()) / 86400000))),
-      )
+          ...activeAccesses.map((a) =>
+            Math.max(
+              0,
+              Math.floor((a.expiresAt.getTime() - now.getTime()) / 86400000),
+            ),
+          ),
+        )
       : 0;
 
     return {
@@ -3853,13 +4657,33 @@ export class AdminController {
       return link.subscriptions.map((sub) => {
         const createdAt = sub.createdAt;
         const normalized = (sub.status ?? '').toLowerCase();
-        const isPaidOrActive = ['active', 'completed', 'approved', 'paid', 'success', 'trial'].includes(normalized);
-        const isPending = ['pending', 'waiting', 'waiting_payment', 'processing', 'pix_pending'].includes(normalized);
+        const isPaidOrActive = [
+          'active',
+          'completed',
+          'approved',
+          'paid',
+          'success',
+          'trial',
+        ].includes(normalized);
+        const isPending = [
+          'pending',
+          'waiting',
+          'waiting_payment',
+          'processing',
+          'pix_pending',
+        ].includes(normalized);
         const renewAt = isPaidOrActive
-          ? new Date(createdAt.getTime() + mapFrequencyToDays(link.frequencyType) * 86400000)
+          ? new Date(
+              createdAt.getTime() +
+                mapFrequencyToDays(link.frequencyType) * 86400000,
+            )
           : null;
 
-        const statusLabel = isPaidOrActive ? 'Ativo' : isPending ? 'Pendente' : 'Inativo';
+        const statusLabel = isPaidOrActive
+          ? 'Ativo'
+          : isPending
+            ? 'Pendente'
+            : 'Inativo';
         return {
           id: sub.id,
           nome: sub.customerName,
@@ -3874,18 +4698,25 @@ export class AdminController {
     });
 
     const filtered = allRows.filter((row) => {
-      const nomeMatch = !nome?.trim() || row.nome?.toLowerCase().includes(nome.trim().toLowerCase());
-      const emailMatch = !email?.trim() || row.email?.toLowerCase().includes(email.trim().toLowerCase());
-      const cpfDigits = (cpf ?? "").replace(/\D/g, "");
-      const rowCpfDigits = (row.cpf ?? "").replace(/\D/g, "");
+      const nomeMatch =
+        !nome?.trim() ||
+        row.nome?.toLowerCase().includes(nome.trim().toLowerCase());
+      const emailMatch =
+        !email?.trim() ||
+        row.email?.toLowerCase().includes(email.trim().toLowerCase());
+      const cpfDigits = (cpf ?? '').replace(/\D/g, '');
+      const rowCpfDigits = (row.cpf ?? '').replace(/\D/g, '');
       const cpfMatch = !cpfDigits || rowCpfDigits.includes(cpfDigits);
 
       const start = dataInicio ? new Date(`${dataInicio}T00:00:00`) : null;
       const end = dataFim ? new Date(`${dataFim}T23:59:59`) : null;
-      const assinaturaDate = row.dataAssinatura ? new Date(row.dataAssinatura) : null;
+      const assinaturaDate = row.dataAssinatura
+        ? new Date(row.dataAssinatura)
+        : null;
       const dateMatch = !assinaturaDate
         ? true
-        : (!start || assinaturaDate >= start) && (!end || assinaturaDate <= end);
+        : (!start || assinaturaDate >= start) &&
+          (!end || assinaturaDate <= end);
 
       return Boolean(nomeMatch && emailMatch && cpfMatch && dateMatch);
     });
@@ -3905,9 +4736,12 @@ export class AdminController {
   @ApiOperation({ summary: 'Vincular link manualmente a uma comunidade' })
   async bindComunidade(
     @Param('id') communityId: string,
-    @Body() body: { type: 'SUBSCRIPTION_LINK' | 'PAYMENT_LINK'; linkId: string },
+    @Body()
+    body: { type: 'SUBSCRIPTION_LINK' | 'PAYMENT_LINK'; linkId: string },
   ) {
-    const community = await this.prisma.community.findUnique({ where: { id: communityId } });
+    const community = await this.prisma.community.findUnique({
+      where: { id: communityId },
+    });
     if (!community) throw new NotFoundException('Comunidade não encontrada');
     if (!body?.linkId) throw new BadRequestException('linkId é obrigatório');
 
@@ -3959,7 +4793,9 @@ export class AdminController {
 
   @Post('sync-transactions')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Importar transações DOM do mês atual para o banco local' })
+  @ApiOperation({
+    summary: 'Importar transações DOM do mês atual para o banco local',
+  })
   async syncTransactionsRoute(@CurrentUser() user: JwtPayload | undefined) {
     const result = await this.syncTransactions.execute({
       userId: user?.sub ?? '',
@@ -3977,38 +4813,36 @@ export class AdminController {
   })
   async reconciliarPendentesRoute(@Query('horas') horas?: string) {
     const sinceHours = horas ? Math.max(1, Number(horas)) : undefined;
-    const result = await this.reconcilePendingTransactions.execute({ sinceHours });
-    return { data: result };
-  }
-
-  @Post('sync-withdrawals')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Importar saques da conta Dom para o banco local' })
-  @ApiBody({ type: SyncWithdrawalsDto })
-  async syncWithdrawalsRoute(
-    @CurrentUser() user: JwtPayload | undefined,
-    @Body() body: SyncWithdrawalsDto,
-  ) {
-    const userId = body?.userId ?? user?.sub ?? '';
-    const result = await this.syncWithdrawalsUseCase.execute({ userId, domToken: body?.domToken });
+    const result = await this.reconcilePendingTransactions.execute({
+      sinceHours,
+    });
     return { data: result };
   }
 
   @Post('sync/cleanup-renovada')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Limpar transações incorretas da Renovada (vindas do master token) antes de re-sincronizar' })
+  @ApiOperation({
+    summary:
+      'Limpar transações incorretas da Renovada (vindas do master token) antes de re-sincronizar',
+  })
   async cleanupRenovada() {
     await this.requireExclusivePlatformWallet('RENOVADA');
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     // Contar antes
-    const countBefore = await this.prisma.transaction.count({ where: { userId: RENOVADA_ID } });
+    const countBefore = await this.prisma.transaction.count({
+      where: { userId: RENOVADA_ID },
+    });
 
     // Limpar domToken do user (era master token, causava sync de TODAS plataformas)
-    await this.prisma.user.update({
-      where: { id: RENOVADA_ID },
-      data: { domToken: null },
-    }).catch(() => { /* user pode não existir ainda */ });
+    await this.prisma.user
+      .update({
+        where: { id: RENOVADA_ID },
+        data: { domToken: null },
+      })
+      .catch(() => {
+        /* user pode não existir ainda */
+      });
 
     // Deletar histórico de status dessas transações
     const renovadaTxIds = await this.prisma.transaction.findMany({
@@ -4018,7 +4852,7 @@ export class AdminController {
 
     if (renovadaTxIds.length > 0) {
       await this.prisma.transactionStatusHistory.deleteMany({
-        where: { transactionId: { in: renovadaTxIds.map(t => t.id) } },
+        where: { transactionId: { in: renovadaTxIds.map((t) => t.id) } },
       });
     }
 
@@ -4028,13 +4862,17 @@ export class AdminController {
     });
 
     // Zerar carteira
-    await this.prisma.wallet.update({
-      where: { userId: RENOVADA_ID },
-      data: { balance: 0, lockedBalance: 0, version: { increment: 1 } },
-    }).catch(() => { /* wallet pode não existir */ });
+    await this.prisma.wallet
+      .update({
+        where: { userId: RENOVADA_ID },
+        data: { balance: 0, lockedBalance: 0, version: { increment: 1 } },
+      })
+      .catch(() => {
+        /* wallet pode não existir */
+      });
 
     return {
-      message: `Limpeza concluída. ${deleted.count} transações removidas. domToken zerado. Execute /admin/sync/full-renovada para re-sincronizar.`,
+      message: `Limpeza concluída. ${deleted.count} transações removidas. domToken zerado.`,
       deletedCount: deleted.count,
       countBefore,
     };
@@ -4042,7 +4880,9 @@ export class AdminController {
 
   @Post('sync/cleanup-ebook')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Remover transações do EBOOK importadas via legado api-dom' })
+  @ApiOperation({
+    summary: 'Remover transações do EBOOK importadas via legado api-dom',
+  })
   async cleanupEbook() {
     await this.requireExclusivePlatformWallet('EBOOK');
     const EBOOK_ID = getPlatformOwnerId('EBOOK') ?? '';
@@ -4050,10 +4890,7 @@ export class AdminController {
     const whereEbookImported: Prisma.TransactionWhereInput = {
       AND: [
         {
-          OR: [
-            { userId: EBOOK_ID },
-            { description: { contains: '[TENANT:EBOOK]', mode: 'insensitive' } },
-          ],
+          OR: [{ userId: EBOOK_ID }, whereTransactionPlatform('EBOOK')],
         },
         {
           OR: [
@@ -4064,7 +4901,9 @@ export class AdminController {
       ],
     };
 
-    const txBefore = await this.prisma.transaction.count({ where: whereEbookImported });
+    const txBefore = await this.prisma.transaction.count({
+      where: whereEbookImported,
+    });
     const wdBefore = await this.prisma.withdrawRequest.count({
       where: { userId: EBOOK_ID, domWithdrawId: { not: null } },
     });
@@ -4092,10 +4931,14 @@ export class AdminController {
       where: { userId: EBOOK_ID, domWithdrawId: { not: null } },
     });
 
-    await this.prisma.wallet.update({
-      where: { userId: EBOOK_ID },
-      data: { balance: 0, lockedBalance: 0, version: { increment: 1 } },
-    }).catch(() => { /* wallet pode não existir */ });
+    await this.prisma.wallet
+      .update({
+        where: { userId: EBOOK_ID },
+        data: { balance: 0, lockedBalance: 0, version: { increment: 1 } },
+      })
+      .catch(() => {
+        /* wallet pode não existir */
+      });
 
     return {
       message: `Limpeza EBOOK concluída. ${deletedTx.count} transações e ${deletedWd.count} saques removidos.`,
@@ -4104,45 +4947,38 @@ export class AdminController {
       withdrawalsBefore: wdBefore,
       transactionsDeleted: deletedTx.count,
       withdrawalsDeleted: deletedWd.count,
-      nextStep: 'Execute /admin/sync/full-ebook para sincronizar novamente com os tokens corretos.',
     };
   }
 
-  @Post('sync/full-renovada')
-  @ApiOperation({ summary: 'Sincronização completa de histórico (Renovada 12) - puxa do api-dom' })
-  async syncFullRenovada() {
-    return this.syncFullRenovadaUseCase.execute();
-  }
-
-  @Post('sync/full-bosque')
-  @ApiOperation({ summary: 'Sincronização completa de histórico (Bosque) - puxa da DOM Pagamentos' })
-  async syncFullBosque() {
-    return this.syncFullBosqueUseCase.execute();
-  }
-
-  @Post('sync/full-ebook')
-  @ApiOperation({ summary: 'Sincronização completa de histórico (EBOOK) - legado api-dom' })
-  async syncFullEbook() {
-    return this.syncFullEbookUseCase.execute();
-  }
-
   @Post('sync/full-revalida')
-  @ApiOperation({ summary: 'Sincronização completa de histórico (Revalida) - puxa da DOM Pagamentos' })
+  @ApiOperation({
+    summary:
+      'Sincronização completa de histórico (Revalida) - puxa da DOM Pagamentos',
+  })
   async syncFullRevalida() {
     return this.revalidaSyncService.syncFull();
   }
 
   @Post('sync/backfill-comunidade')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Backfill: cria Transaction com [TENANT:SLUG] para ordens de assinatura de comunidade sem Transaction correspondente' })
+  @ApiOperation({
+    summary:
+      'Backfill: cria Transaction com [TENANT:SLUG] para ordens de assinatura de comunidade sem Transaction correspondente',
+  })
   async backfillComunidadeTransactions() {
     const communityLinkIds = await this.prisma.communityLinkBinding.findMany({
       where: { subscriptionLinkId: { not: null } },
-      select: { subscriptionLinkId: true, community: { select: { slug: true } } },
+      select: {
+        subscriptionLinkId: true,
+        community: { select: { slug: true } },
+      },
       distinct: ['subscriptionLinkId'],
     });
     const linkToSlug = new Map(
-      communityLinkIds.map((b) => [b.subscriptionLinkId!, b.community.slug.toUpperCase()])
+      communityLinkIds.map((b) => [
+        b.subscriptionLinkId!,
+        b.community.slug.toUpperCase(),
+      ]),
     );
     const subscriptionLinkIds = [...linkToSlug.keys()].filter(Boolean);
 
@@ -4161,13 +4997,18 @@ export class AdminController {
     let skipped = 0;
 
     for (const order of orders) {
-      const communityTag = linkToSlug.get(order.subscriptionLinkId ?? '') ?? 'UNKNOWN';
-      const payId = order.domPixPaymentId?.trim() || `SL_${communityTag}_${order.id}`;
+      const communityTag =
+        linkToSlug.get(order.subscriptionLinkId ?? '') ?? 'UNKNOWN';
+      const payId =
+        order.domPixPaymentId?.trim() || `SL_${communityTag}_${order.id}`;
       const exists = await this.prisma.transaction.findFirst({
         where: { domPaymentId: payId },
         select: { id: true },
       });
-      if (exists) { skipped++; continue; }
+      if (exists) {
+        skipped++;
+        continue;
+      }
 
       const gross = Number(order.amountCharged);
       const pf = Number(order.platformFeeAmount);
@@ -4184,6 +5025,7 @@ export class AdminController {
           status: 'COMPLETED',
           paymentMethod: order.paymentMethod,
           description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
+          ...transactionPlatformTagData(communityTag),
           domPaymentId: payId,
           customerName: order.customerName,
           customerEmail: order.customerEmail,
@@ -4201,17 +5043,25 @@ export class AdminController {
   @Post('sync/sync-wallet-renovada')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Definir saldo base da carteira Renovada (execução única para inicializar o saldo correto)',
+    summary:
+      'Definir saldo base da carteira Renovada (execução única para inicializar o saldo correto)',
     description:
       'Define wallet em bruto = balance/fator. Remove saques APPROVED/COMPLETED antigos para não distorcer o /auth/me (fórmula com debitedBruto). Saques PENDING são mantidos.',
   })
-  @ApiQuery({ name: 'balance', required: true, description: 'Saldo base a definir (ex: 3840.70)', example: 3840.70 })
+  @ApiQuery({
+    name: 'balance',
+    required: true,
+    description: 'Saldo base a definir (ex: 3840.70)',
+    example: 3840.7,
+  })
   async syncWalletRenovada(@Query('balance') balanceParam?: string) {
     await this.requireExclusivePlatformWallet('RENOVADA');
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     try {
-      const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId: RENOVADA_ID },
+      });
       if (!wallet) {
         return { message: 'Wallet da Renovada não encontrada no simpay' };
       }
@@ -4220,14 +5070,19 @@ export class AdminController {
 
       if (!balanceParam) {
         return {
-          message: 'Forneça o saldo base via query: ?balance=3840.70. Este endpoint define o saldo inicial; a partir daí o saldo é gerenciado incrementalmente.',
+          message:
+            'Forneça o saldo base via query: ?balance=3840.70. Este endpoint define o saldo inicial; a partir daí o saldo é gerenciado incrementalmente.',
           currentBalance: oldBalance,
         };
       }
 
       // O valor informado é o netBalance desejado (saldo líquido exibido).
       // wallet.balance armazena o valor bruto: netBalance / fatorLiquidez.
-      const fatorLiquidez = getPlatformTaxaEffective('RENOVADA', 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+      const fatorLiquidez = getPlatformTaxaEffective(
+        'RENOVADA',
+        'LIQUIDEZ',
+        PLATFORM_TAXA_DEFAULTS.LIQUIDEZ,
+      );
       const netBalance = Number(balanceParam);
       const grossBalance = netBalance / fatorLiquidez;
 
@@ -4239,8 +5094,11 @@ export class AdminController {
           },
         });
 
-        await tx.wallet.update({
+        const before = await tx.wallet.findUniqueOrThrow({
           where: { userId: RENOVADA_ID },
+        });
+        const after = await tx.wallet.update({
+          where: { id: before.id, version: before.version },
           data: { balance: String(grossBalance), version: { increment: 1 } },
         });
 
@@ -4248,11 +5106,11 @@ export class AdminController {
           data: {
             userId: RENOVADA_ID,
             action: 'WALLET_RECALCULATE',
-            amount: grossBalance - oldBalance,
-            balanceBefore: oldBalance,
-            balanceAfter: grossBalance,
-            lockedBefore: wallet.lockedBalance,
-            lockedAfter: wallet.lockedBalance,
+
+            balanceDelta: after.balance.sub(before.balance),
+
+            lockedDelta: 0,
+
             description: `Saldo base definido manualmente. netBalance: R$ ${netBalance.toFixed(2)}, bruto armazenado: R$ ${grossBalance.toFixed(2)}`,
             source: 'ADMIN_SYNC',
             metadata: {
@@ -4270,7 +5128,8 @@ export class AdminController {
       });
 
       return {
-        message: 'Saldo base definido com sucesso. A partir de agora o saldo é atualizado incrementalmente (novas transações e saques).',
+        message:
+          'Saldo base definido com sucesso. A partir de agora o saldo é atualizado incrementalmente (novas transações e saques).',
         before: { balance: oldBalance },
         after: { grossBalance, netBalance },
         removedApprovedOrCompletedWithdraws: removedWithdraws,
@@ -4282,14 +5141,25 @@ export class AdminController {
 
   @Post('sync/sync-wallet-bosque')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Definir saldo base da carteira Bosque (execução única para inicializar o saldo correto)' })
-  @ApiQuery({ name: 'balance', required: true, description: 'Saldo líquido (netBalance) a exibir (ex: 554.08). Será convertido para bruto internamente.', example: 554.08 })
+  @ApiOperation({
+    summary:
+      'Definir saldo base da carteira Bosque (execução única para inicializar o saldo correto)',
+  })
+  @ApiQuery({
+    name: 'balance',
+    required: true,
+    description:
+      'Saldo líquido (netBalance) a exibir (ex: 554.08). Será convertido para bruto internamente.',
+    example: 554.08,
+  })
   async syncWalletBosque(@Query('balance') balanceParam?: string) {
     await this.requireExclusivePlatformWallet('BOSQUE');
     const BOSQUE_ID = getPlatformOwnerId('BOSQUE') ?? '';
 
     try {
-      const wallet = await this.prisma.wallet.findUnique({ where: { userId: BOSQUE_ID } });
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId: BOSQUE_ID },
+      });
       if (!wallet) {
         return { message: 'Wallet do Bosque não encontrada no simpay' };
       }
@@ -4298,39 +5168,55 @@ export class AdminController {
 
       if (!balanceParam) {
         return {
-          message: 'Forneça o saldo líquido via query: ?balance=554.08. Será convertido para bruto (netBalance / fatorLiquidez).',
+          message:
+            'Forneça o saldo líquido via query: ?balance=554.08. Será convertido para bruto (netBalance / fatorLiquidez).',
           currentBalance: oldBalance,
         };
       }
 
       // O valor informado é o netBalance desejado (saldo líquido exibido).
       // wallet.balance armazena o valor bruto: netBalance / fatorLiquidez.
-      const fatorLiquidez = getPlatformTaxaEffective('BOSQUE', 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+      const fatorLiquidez = getPlatformTaxaEffective(
+        'BOSQUE',
+        'LIQUIDEZ',
+        PLATFORM_TAXA_DEFAULTS.LIQUIDEZ,
+      );
       const netBalance = Number(balanceParam);
       const grossBalance = netBalance / fatorLiquidez;
 
-      await this.prisma.wallet.update({
-        where: { userId: BOSQUE_ID },
-        data: { balance: String(grossBalance), version: { increment: 1 } },
-      });
+      await this.prisma.$transaction(async (tx) => {
+        const before = await tx.wallet.findUniqueOrThrow({
+          where: { userId: BOSQUE_ID },
+        });
+        const after = await tx.wallet.update({
+          where: { id: before.id, version: before.version },
+          data: { balance: String(grossBalance), version: { increment: 1 } },
+        });
+        await tx.balanceLog.create({
+          data: {
+            userId: BOSQUE_ID,
+            action: 'WALLET_RECALCULATE',
 
-      await this.prisma.balanceLog.create({
-        data: {
-          userId: BOSQUE_ID,
-          action: 'WALLET_RECALCULATE',
-          amount: grossBalance - oldBalance,
-          balanceBefore: oldBalance,
-          balanceAfter: grossBalance,
-          lockedBefore: wallet.lockedBalance,
-          lockedAfter: wallet.lockedBalance,
-          description: `Saldo base Bosque definido manualmente. netBalance: R$ ${netBalance.toFixed(2)}, bruto armazenado: R$ ${grossBalance.toFixed(2)}`,
-          source: 'ADMIN_SYNC',
-          metadata: { oldBalance, netBalance, grossBalance, fatorLiquidez, setManually: true },
-        },
+            balanceDelta: after.balance.sub(before.balance),
+
+            lockedDelta: 0,
+
+            description: `Saldo base Bosque definido manualmente. netBalance: R$ ${netBalance.toFixed(2)}, bruto armazenado: R$ ${grossBalance.toFixed(2)}`,
+            source: 'ADMIN_SYNC',
+            metadata: {
+              oldBalance,
+              netBalance,
+              grossBalance,
+              fatorLiquidez,
+              setManually: true,
+            },
+          },
+        });
       });
 
       return {
-        message: 'Saldo base do Bosque definido com sucesso. A partir de agora o saldo é atualizado incrementalmente.',
+        message:
+          'Saldo base do Bosque definido com sucesso. A partir de agora o saldo é atualizado incrementalmente.',
         before: { balance: oldBalance },
         after: { grossBalance, netBalance },
       };
@@ -4341,10 +5227,18 @@ export class AdminController {
 
   @Post('sync/sync-wallet-revalida')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Definir saldo base da carteira Revalida (execução única)' })
-  @ApiQuery({ name: 'balance', required: true, description: 'Saldo líquido (ex: 1200.50)', example: 1200.50 })
+  @ApiOperation({
+    summary: 'Definir saldo base da carteira Revalida (execução única)',
+  })
+  @ApiQuery({
+    name: 'balance',
+    required: true,
+    description: 'Saldo líquido (ex: 1200.50)',
+    example: 1200.5,
+  })
   async syncWalletRevalida(@Query('balance') balanceParam?: string) {
-    if (!balanceParam) return { message: 'Informe o saldo via query ?balance=...' };
+    if (!balanceParam)
+      return { message: 'Informe o saldo via query ?balance=...' };
     return this.revalidaSyncService.setWalletBalance(Number(balanceParam));
   }
 
@@ -4360,13 +5254,34 @@ export class AdminController {
   }
 
   @Get('transacoes-dom')
-  @ApiOperation({ summary: 'Lista transações diretamente da API DOM (conta master) sem passar pelo banco' })
+  @ApiOperation({
+    summary:
+      'Lista transações diretamente da API DOM (conta master) sem passar pelo banco',
+  })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 50 })
-  @ApiQuery({ name: 'begin_date', required: false, example: '2025-01-01', description: 'yyyy-mm-dd' })
-  @ApiQuery({ name: 'end_date', required: false, example: '2025-12-31', description: 'yyyy-mm-dd' })
-  @ApiQuery({ name: 'status', required: false, description: 'paid | pending | failed | refunded | expired' })
-  @ApiQuery({ name: 'payment_method', required: false, description: 'pix | credit_card' })
+  @ApiQuery({
+    name: 'begin_date',
+    required: false,
+    example: '2025-01-01',
+    description: 'yyyy-mm-dd',
+  })
+  @ApiQuery({
+    name: 'end_date',
+    required: false,
+    example: '2025-12-31',
+    description: 'yyyy-mm-dd',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description: 'paid | pending | failed | refunded | expired',
+  })
+  @ApiQuery({
+    name: 'payment_method',
+    required: false,
+    description: 'pix | credit_card',
+  })
   async transacoesDom(
     @Query('page') page = '1',
     @Query('limit') limit = '50',
@@ -4388,9 +5303,22 @@ export class AdminController {
 
   @Post('sync/reparar-status-transacoes-dom')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Repara status histórico das réplicas locais usando a listagem DOM' })
-  @ApiQuery({ name: 'dataInicio', required: true, example: '2026-05-01', description: 'yyyy-mm-dd' })
-  @ApiQuery({ name: 'dataFim', required: true, example: '2026-06-30', description: 'yyyy-mm-dd' })
+  @ApiOperation({
+    summary:
+      'Repara status histórico das réplicas locais usando a listagem DOM',
+  })
+  @ApiQuery({
+    name: 'dataInicio',
+    required: true,
+    example: '2026-05-01',
+    description: 'yyyy-mm-dd',
+  })
+  @ApiQuery({
+    name: 'dataFim',
+    required: true,
+    example: '2026-06-30',
+    description: 'yyyy-mm-dd',
+  })
   async repararStatusTransacoesDom(
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
@@ -4406,19 +5334,22 @@ export class AdminController {
 
   @Post('sync/test-cron')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Testar sincronização automática do cron (executa mesma lógica do cron)' })
+  @ApiOperation({
+    summary:
+      'Testar sincronização automática do cron (executa mesma lógica do cron)',
+  })
   async testCronSync() {
     try {
       await this.syncDomTransactionsCron.handleSync();
       return {
         success: true,
-        message: 'Sincronização do cron executada com sucesso'
+        message: 'Sincronização do cron executada com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         message: 'Erro na sincronização',
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -4430,8 +5361,16 @@ export class AdminController {
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, example: 20 })
   @ApiQuery({ name: 'status', required: false, enum: WithdrawStatus })
-  @ApiQuery({ name: 'modulo', required: false, description: 'Slug do módulo (ex: revalida)' })
-  @ApiQuery({ name: 'search', required: false, description: 'Buscar por id, nome ou email do usuário' })
+  @ApiQuery({
+    name: 'modulo',
+    required: false,
+    description: 'Slug do módulo (ex: revalida)',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Buscar por id, nome ou email do usuário',
+  })
   async saques(
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
@@ -4451,7 +5390,9 @@ export class AdminController {
   }
 
   @Get('saques/user')
-  @ApiOperation({ summary: 'Listar saques de um específico usuário (conforme API DOM)' })
+  @ApiOperation({
+    summary: 'Listar saques de um específico usuário (conforme API DOM)',
+  })
   async saquesUser(
     @Query('page') page = '1',
     @Query('limit') limit = '10',
@@ -4479,7 +5420,10 @@ export class AdminController {
     let finalUrl = receiptImageUrl;
 
     if (file) {
-      finalUrl = await this.storageService.uploadFile(file, 'comprovantes-saque');
+      finalUrl = await this.storageService.uploadFile(
+        file,
+        'comprovantes-saque',
+      );
     }
 
     return this.approveWithdrawal.execute(id, finalUrl, user?.sub);
@@ -4497,15 +5441,20 @@ export class AdminController {
   }
 
   @Get('saques/:id/comprovante')
-  @ApiOperation({ summary: 'Servir arquivo do comprovante via S3 (bucket privado)' })
-  async serveComprovanteSaque(
-    @Param('id') id: string,
-    @Res() res: Response,
-  ) {
-    const withdraw = await this.prisma.withdrawRequest.findUnique({ where: { id } });
-    if (!withdraw?.receiptImage) throw new NotFoundException('Comprovante não encontrado');
+  @ApiOperation({
+    summary: 'Servir arquivo do comprovante via S3 (bucket privado)',
+  })
+  async serveComprovanteSaque(@Param('id') id: string, @Res() res: Response) {
+    const withdraw = await this.prisma.withdrawRequest.findUnique({
+      where: { id },
+    });
+    if (!withdraw?.receiptImage)
+      throw new NotFoundException('Comprovante não encontrado');
     try {
-      const { buffer, contentType } = await this.storageService.getReceiptBufferByStoredUrl(withdraw.receiptImage);
+      const { buffer, contentType } =
+        await this.storageService.getReceiptBufferByStoredUrl(
+          withdraw.receiptImage,
+        );
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', 'inline');
       res.setHeader('Cache-Control', 'private, max-age=3600');
@@ -4517,18 +5466,26 @@ export class AdminController {
 
   @Patch('saques/:id/comprovante')
   @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: 'Adicionar ou trocar comprovante de saque (aceita arquivo ou URL)' })
+  @ApiOperation({
+    summary: 'Adicionar ou trocar comprovante de saque (aceita arquivo ou URL)',
+  })
   async atualizarComprovanteSaque(
     @Param('id') id: string,
     @UploadedFile() file?: Express.Multer.File,
     @Body('receiptImage') receiptImageUrl?: string,
   ) {
-    const withdraw = await this.prisma.withdrawRequest.findUnique({ where: { id } });
+    const withdraw = await this.prisma.withdrawRequest.findUnique({
+      where: { id },
+    });
     if (!withdraw) throw new NotFoundException('Saque não encontrado');
 
-    let finalUrl: string | null = receiptImageUrl ?? withdraw.receiptImage ?? null;
+    let finalUrl: string | null =
+      receiptImageUrl ?? withdraw.receiptImage ?? null;
     if (file) {
-      finalUrl = await this.storageService.uploadFile(file, 'comprovantes-saque');
+      finalUrl = await this.storageService.uploadFile(
+        file,
+        'comprovantes-saque',
+      );
     }
 
     await this.prisma.withdrawRequest.update({
@@ -4541,12 +5498,16 @@ export class AdminController {
 
   @Patch('saques/:id/visibilidade')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Alternar visibilidade do comprovante para o cliente' })
+  @ApiOperation({
+    summary: 'Alternar visibilidade do comprovante para o cliente',
+  })
   async toggleVisibilidadeSaque(
     @Param('id') id: string,
     @Body() body: { comprovanteVisivel: boolean },
   ) {
-    const withdraw = await this.prisma.withdrawRequest.findUnique({ where: { id } });
+    const withdraw = await this.prisma.withdrawRequest.findUnique({
+      where: { id },
+    });
     if (!withdraw) throw new NotFoundException('Saque não encontrado');
 
     await this.prisma.withdrawRequest.update({
@@ -4561,7 +5522,10 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Registrar manualmente taxa de saque DOM para uma plataforma (+R$1)' })
+  @ApiOperation({
+    summary:
+      'Registrar manualmente taxa de saque DOM para uma plataforma (+R$1)',
+  })
   async applyDomFee(
     @Body() body: { platformTag?: string },
     @CurrentUser() user: JwtPayload | undefined,
@@ -4574,11 +5538,12 @@ export class AdminController {
       data: {
         userId: adminUserId,
         action: 'ADMIN_WITHDRAW_FEE_INC',
-        amount: new Prisma.Decimal(domFee),
-        balanceBefore: 0,
-        balanceAfter: 0,
-        lockedBefore: 0,
-        lockedAfter: 0,
+        bookkeepingAmount: new Prisma.Decimal(domFee),
+
+        balanceDelta: 0,
+
+        lockedDelta: 0,
+
         source: 'MASTER_ADMIN_CONTROL',
         description: `Taxa DOM manual — plataforma: ${platformTag}`,
         metadata: { platformTag, domFee, manual: true },
@@ -4592,10 +5557,14 @@ export class AdminController {
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
   @ApiBody({ type: TestEbookEmailDto })
-  @ApiOperation({ summary: 'Testar o envio do e-mail de ebook personalizado (admin)' })
+  @ApiOperation({
+    summary: 'Testar o envio do e-mail de ebook personalizado (admin)',
+  })
   async testEbookEmail(@Body() body: TestEbookEmailDto) {
-    if (!body?.to?.trim()) throw new BadRequestException('Informe "to" (e-mail de destino)');
-    if (!body?.body?.trim()) throw new BadRequestException('Informe "body" (corpo do e-mail)');
+    if (!body?.to?.trim())
+      throw new BadRequestException('Informe "to" (e-mail de destino)');
+    if (!body?.body?.trim())
+      throw new BadRequestException('Informe "body" (corpo do e-mail)');
     await this.emailService.sendEbookAccessEmail({
       to: body.to.trim(),
       customerName: body.customerName?.trim() || 'Cliente',
@@ -4610,7 +5579,9 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Desfazer taxa de saque DOM registrada manualmente (-R$1)' })
+  @ApiOperation({
+    summary: 'Desfazer taxa de saque DOM registrada manualmente (-R$1)',
+  })
   async undoDomFee(
     @Body() body: { platformTag?: string },
     @CurrentUser() user: JwtPayload | undefined,
@@ -4623,11 +5594,12 @@ export class AdminController {
       data: {
         userId: adminUserId,
         action: 'ADMIN_WITHDRAW_FEE_INC',
-        amount: new Prisma.Decimal(-domFee),
-        balanceBefore: 0,
-        balanceAfter: 0,
-        lockedBefore: 0,
-        lockedAfter: 0,
+        bookkeepingAmount: new Prisma.Decimal(-domFee),
+
+        balanceDelta: 0,
+
+        lockedDelta: 0,
+
         source: 'MASTER_ADMIN_CONTROL',
         description: `Taxa DOM desfeita — plataforma: ${platformTag}`,
         metadata: { platformTag, domFee: -domFee, manual: true, undo: true },
@@ -4640,10 +5612,17 @@ export class AdminController {
   // Equivalente ao api-dom GET /payments/history
 
   @Get('renovada/transactions')
-  @ApiOperation({ summary: 'Listar transações da Renovada (equivalente ao api-dom /payments/history)' })
+  @ApiOperation({
+    summary:
+      'Listar transações da Renovada (equivalente ao api-dom /payments/history)',
+  })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
-  @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'COMPLETED', 'FAILED', 'REFUNDED', 'EXPIRED'] })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['PENDING', 'COMPLETED', 'FAILED', 'REFUNDED', 'EXPIRED'],
+  })
   @ApiQuery({ name: 'startDate', required: false, description: 'YYYY-MM-DD' })
   @ApiQuery({ name: 'endDate', required: false, description: 'YYYY-MM-DD' })
   @ApiQuery({ name: 'description', required: false })
@@ -4663,14 +5642,18 @@ export class AdminController {
     const where: any = {
       userId: RENOVADA_ID,
       ...(status ? { status: status as TransactionStatus } : {}),
-      ...(description && description !== 'ALL' ? { description: { contains: description, mode: 'insensitive' } } : {}),
+      ...(description && description !== 'ALL'
+        ? { description: { contains: description, mode: 'insensitive' } }
+        : {}),
       ...(startDate || endDate
         ? {
-          createdAt: {
-            ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
-            ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
-          },
-        }
+            createdAt: {
+              ...(startDate
+                ? { gte: dayjs(startDate).startOf('day').toDate() }
+                : {}),
+              ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
+            },
+          }
         : {}),
     };
 
@@ -4716,7 +5699,9 @@ export class AdminController {
   }
 
   @Get('renovada/transactions/export')
-  @ApiOperation({ summary: 'Exportar todas as transações da Renovada (sem paginação)' })
+  @ApiOperation({
+    summary: 'Exportar todas as transações da Renovada (sem paginação)',
+  })
   @ApiQuery({ name: 'startDate', required: false })
   @ApiQuery({ name: 'endDate', required: false })
   @ApiQuery({ name: 'status', required: false })
@@ -4731,15 +5716,21 @@ export class AdminController {
 
     const where: any = {
       userId: RENOVADA_ID,
-      ...(status && status !== 'ALL' ? { status: status as TransactionStatus } : {}),
-      ...(description && description !== 'ALL' ? { description: { contains: description, mode: 'insensitive' } } : {}),
+      ...(status && status !== 'ALL'
+        ? { status: status as TransactionStatus }
+        : {}),
+      ...(description && description !== 'ALL'
+        ? { description: { contains: description, mode: 'insensitive' } }
+        : {}),
       ...(startDate || endDate
         ? {
-          createdAt: {
-            ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
-            ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
-          },
-        }
+            createdAt: {
+              ...(startDate
+                ? { gte: dayjs(startDate).startOf('day').toDate() }
+                : {}),
+              ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
+            },
+          }
         : {}),
     };
 
@@ -4766,7 +5757,10 @@ export class AdminController {
 
   // Equivalente ao api-dom GET /payments/summary
   @Get('renovada/summary')
-  @ApiOperation({ summary: 'Resumo financeiro da Renovada (equivalente ao api-dom /payments/summary)' })
+  @ApiOperation({
+    summary:
+      'Resumo financeiro da Renovada (equivalente ao api-dom /payments/summary)',
+  })
   async renovadaSummary() {
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
@@ -4818,7 +5812,10 @@ export class AdminController {
 
   @Post('sync/maquinetas')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Sincronizar transações históricas de maquinetas direto da DOM Pagamentos' })
+  @ApiOperation({
+    summary:
+      'Sincronizar transações históricas de maquinetas direto da DOM Pagamentos',
+  })
   async syncMaquinetas() {
     return this.syncMaquinetasUseCase.execute();
   }
@@ -4826,7 +5823,8 @@ export class AdminController {
   @Post('sync/recalcular-balance-maquinetas')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Recalcular balance da Renovada do zero baseado nas transações de maquineta (amount - domFee)',
+    summary:
+      'Recalcular balance da Renovada do zero baseado nas transações de maquineta (amount - domFee)',
     description:
       'Soma amount - domFee de todas as transações COMPLETED de maquineta, desconta saques aprovados/completos e define o wallet.balance correto.',
   })
@@ -4834,7 +5832,9 @@ export class AdminController {
     await this.requireExclusivePlatformWallet('RENOVADA');
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: RENOVADA_ID },
+    });
     if (!wallet) {
       return { message: 'Wallet da Renovada não encontrada' };
     }
@@ -4861,23 +5861,27 @@ export class AdminController {
     const newBalance = Math.max(0, totalNet - totalSaques);
     const oldBalance = Number(wallet.balance);
 
-    await this.prisma.wallet.update({
-      where: { userId: RENOVADA_ID },
-      data: { balance: newBalance, version: { increment: 1 } },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      const before = await tx.wallet.findUniqueOrThrow({
+        where: { userId: RENOVADA_ID },
+      });
+      const after = await tx.wallet.update({
+        where: { id: before.id, version: before.version },
+        data: { balance: newBalance, version: { increment: 1 } },
+      });
+      await tx.balanceLog.create({
+        data: {
+          userId: RENOVADA_ID,
+          action: 'WALLET_RECALCULATE',
 
-    await this.prisma.balanceLog.create({
-      data: {
-        userId: RENOVADA_ID,
-        action: 'WALLET_RECALCULATE',
-        amount: newBalance - oldBalance,
-        balanceBefore: oldBalance,
-        balanceAfter: newBalance,
-        lockedBefore: wallet.lockedBalance,
-        lockedAfter: wallet.lockedBalance,
-        source: 'ADMIN_RECALC',
-        description: `Recálculo: netTotal=${totalNet.toFixed(2)}, saques=${totalSaques.toFixed(2)}`,
-      },
+          balanceDelta: after.balance.sub(before.balance),
+
+          lockedDelta: 0,
+
+          source: 'ADMIN_RECALC',
+          description: `Recálculo: netTotal=${totalNet.toFixed(2)}, saques=${totalSaques.toFixed(2)}`,
+        },
+      });
     });
 
     return {
@@ -4893,7 +5897,9 @@ export class AdminController {
   }
 
   @Get('renovada/machines')
-  @ApiOperation({ summary: 'Transações de maquinetas da Renovada (lê do banco local)' })
+  @ApiOperation({
+    summary: 'Transações de maquinetas da Renovada (lê do banco local)',
+  })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
   @ApiQuery({ name: 'startDate', required: false })
@@ -4908,7 +5914,9 @@ export class AdminController {
   }
 
   @Get('maquinetas')
-  @ApiOperation({ summary: 'Transações de maquinetas centralizadas (lê do banco local)' })
+  @ApiOperation({
+    summary: 'Transações de maquinetas centralizadas (lê do banco local)',
+  })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
   @ApiQuery({ name: 'startDate', required: false })
@@ -4930,29 +5938,44 @@ export class AdminController {
   ) {
     const platform = await this.prisma.platform.findUnique({
       where: { tag: 'RENOVADA' },
-      select: { ownerUserId: true, isActive: true, owner: { select: { isActive: true, isPurged: true } } },
+      select: {
+        ownerUserId: true,
+        isActive: true,
+        owner: { select: { isActive: true, isPurged: true } },
+      },
     });
     const pageNum = Math.max(1, Math.floor(Number(page) || 1));
     const limitNum = Math.max(1, Math.min(Number(limit) || 20, 100));
     const skip = (pageNum - 1) * limitNum;
-    if (!platform?.isActive || !platform.owner.isActive || platform.owner.isPurged) {
-      return { transactions: [], meta: { page: pageNum, limit: limitNum, total: 0, totalPages: 0 } };
+    if (
+      !platform?.isActive ||
+      !platform.owner.isActive ||
+      platform.owner.isPurged
+    ) {
+      return {
+        transactions: [],
+        meta: { page: pageNum, limit: limitNum, total: 0, totalPages: 0 },
+      };
     }
 
     const where: Prisma.TransactionWhereInput = {
       userId: platform.ownerUserId,
       OR: [
-        { description: { contains: ORIGEM_MAQUINETA_TAG, mode: 'insensitive' } },
+        {
+          description: { contains: ORIGEM_MAQUINETA_TAG, mode: 'insensitive' },
+        },
         { description: { contains: 'Terminal:', mode: 'insensitive' } },
         { description: { contains: 'Maquineta', mode: 'insensitive' } },
       ],
       ...(startDate || endDate
         ? {
-          createdAt: {
-            ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
-            ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
-          },
-        }
+            createdAt: {
+              ...(startDate
+                ? { gte: dayjs(startDate).startOf('day').toDate() }
+                : {}),
+              ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
+            },
+          }
         : {}),
     };
 
@@ -4969,11 +5992,16 @@ export class AdminController {
     const mapped = transactions.map((tx) => {
       const netAmt = Number(tx.netAmount);
       const amt = Number(tx.amount);
-      const sLabel = tx.status === 'COMPLETED' ? 'Aprovado'
-        : tx.status === 'PENDING' ? 'Pendente'
-          : tx.status === 'FAILED' ? 'Falhou'
-            : tx.status === 'REFUNDED' ? 'Estornado'
-              : tx.status;
+      const sLabel =
+        tx.status === 'COMPLETED'
+          ? 'Aprovado'
+          : tx.status === 'PENDING'
+            ? 'Pendente'
+            : tx.status === 'FAILED'
+              ? 'Falhou'
+              : tx.status === 'REFUNDED'
+                ? 'Estornado'
+                : tx.status;
 
       return {
         // Camel case
@@ -5019,13 +6047,21 @@ export class AdminController {
 
     return {
       transactions: mapped,
-      meta: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+      meta: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum),
+      },
     };
   }
 
   @Delete('renovada/transactions/cleanup-plan-txs')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Deletar transações PIX_PLAN_CODE incorretamente atribuídas à Renovada' })
+  @ApiOperation({
+    summary:
+      'Deletar transações PIX_PLAN_CODE incorretamente atribuídas à Renovada',
+  })
   async cleanupRenovadaPlanTxs() {
     await this.requireExclusivePlatformWallet('RENOVADA');
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
@@ -5039,10 +6075,14 @@ export class AdminController {
     });
 
     if (txs.length === 0) {
-      return { success: true, deletedCount: 0, message: 'Nenhuma transação PIX_PLAN_CODE encontrada' };
+      return {
+        success: true,
+        deletedCount: 0,
+        message: 'Nenhuma transação PIX_PLAN_CODE encontrada',
+      };
     }
 
-    const ids = txs.map(t => t.id);
+    const ids = txs.map((t) => t.id);
 
     await this.prisma.transactionStatusHistory.deleteMany({
       where: { transactionId: { in: ids } },
@@ -5089,25 +6129,41 @@ export class AdminController {
   @Post('renovada/recalcular-saldo-por-data')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Recalcula o saldo da Renovada a partir de uma data e adiciona ao saldo atual',
+    summary:
+      'Recalcula o saldo da Renovada a partir de uma data e adiciona ao saldo atual',
     description:
       'Soma netAmount das transações COMPLETED (regulares + maquinetas) a partir da dataInicio informada, desconta saques aprovados/completos após essa data, e incrementa o saldo atual da wallet com esse delta.',
   })
-  @ApiQuery({ name: 'dataInicio', required: true, description: 'Data de início no formato YYYY-MM-DD', example: '2026-01-01' })
-  async recalcularSaldoRenovadaPorData(@Query('dataInicio') dataInicio: string) {
+  @ApiQuery({
+    name: 'dataInicio',
+    required: true,
+    description: 'Data de início no formato YYYY-MM-DD',
+    example: '2026-01-01',
+  })
+  async recalcularSaldoRenovadaPorData(
+    @Query('dataInicio') dataInicio: string,
+  ) {
     await this.requireExclusivePlatformWallet('RENOVADA');
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     if (!dataInicio) {
-      return { success: false, error: 'Parâmetro dataInicio obrigatório (formato YYYY-MM-DD)' };
+      return {
+        success: false,
+        error: 'Parâmetro dataInicio obrigatório (formato YYYY-MM-DD)',
+      };
     }
 
     const fromDate = new Date(`${dataInicio}T00:00:00.000Z`);
     if (isNaN(fromDate.getTime())) {
-      return { success: false, error: 'dataInicio inválida. Use o formato YYYY-MM-DD' };
+      return {
+        success: false,
+        error: 'dataInicio inválida. Use o formato YYYY-MM-DD',
+      };
     }
 
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: RENOVADA_ID },
+    });
     if (!wallet) {
       return { success: false, error: 'Wallet da Renovada não encontrada' };
     }
@@ -5121,7 +6177,12 @@ export class AdminController {
       { description: { contains: 'oferta', mode: 'insensitive' as const } },
       { description: { contains: 'fundacao', mode: 'insensitive' as const } },
       { description: { contains: 'fundação', mode: 'insensitive' as const } },
-      { description: { contains: TENANT_RENOVADA_TAG, mode: 'insensitive' as const } },
+      {
+        description: {
+          contains: TENANT_RENOVADA_TAG,
+          mode: 'insensitive' as const,
+        },
+      },
     ];
 
     const txsAgg = await this.prisma.transaction.aggregate({
@@ -5158,31 +6219,44 @@ export class AdminController {
 
     const oldBalance = Number(wallet.balance);
 
-    await this.prisma.wallet.update({
-      where: { userId: RENOVADA_ID },
-      data: { balance: new Prisma.Decimal(newBalance), version: { increment: 1 } },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      const before = await tx.wallet.findUniqueOrThrow({
+        where: { userId: RENOVADA_ID },
+      });
+      const after = await tx.wallet.update({
+        where: { id: before.id, version: before.version },
+        data: {
+          balance: new Prisma.Decimal(newBalance),
+          version: { increment: 1 },
+        },
+      });
+      await tx.balanceLog.create({
+        data: {
+          userId: RENOVADA_ID,
+          action: 'WALLET_RECALCULATE',
 
-    await this.prisma.balanceLog.create({
-      data: {
-        userId: RENOVADA_ID,
-        action: 'WALLET_RECALCULATE',
-        amount: newBalance - oldBalance,
-        balanceBefore: oldBalance,
-        balanceAfter: newBalance,
-        lockedBefore: Number(wallet.lockedBalance),
-        lockedAfter: Number(wallet.lockedBalance),
-        source: 'ADMIN_RECALC',
-        description: `Recálculo desde ${dataInicio}: txs=${totalTxs.toFixed(2)}, maquinetas=${totalMaquinetas.toFixed(2)}, saldoNovo=${newBalance.toFixed(2)}`,
-      },
+          balanceDelta: after.balance.sub(before.balance),
+
+          lockedDelta: 0,
+
+          source: 'ADMIN_RECALC',
+          description: `Recálculo desde ${dataInicio}: txs=${totalTxs.toFixed(2)}, maquinetas=${totalMaquinetas.toFixed(2)}, saldoNovo=${newBalance.toFixed(2)}`,
+        },
+      });
     });
 
     return {
       success: true,
       dataInicio,
       detalhes: {
-        transacoesRegulares: { count: txsAgg._count, netAmount: totalTxs.toFixed(2) },
-        maquinetas: { count: maquinetaAgg._count, netAmount: totalMaquinetas.toFixed(2) },
+        transacoesRegulares: {
+          count: txsAgg._count,
+          netAmount: totalTxs.toFixed(2),
+        },
+        maquinetas: {
+          count: maquinetaAgg._count,
+          netAmount: totalMaquinetas.toFixed(2),
+        },
         saldoAntes: oldBalance.toFixed(2),
         saldoNovo: newBalance.toFixed(2),
       },
@@ -5193,7 +6267,10 @@ export class AdminController {
 
   @Post('renovada/recalcular')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Remove transações sem dízimo/primícia/oferta do pool Renovada e recalcula o saldo' })
+  @ApiOperation({
+    summary:
+      'Remove transações sem dízimo/primícia/oferta do pool Renovada e recalcula o saldo',
+  })
   async renovadaRecalcular() {
     await this.requireExclusivePlatformWallet('RENOVADA');
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
@@ -5216,7 +6293,7 @@ export class AdminController {
 
     if (txsToDelete.length > 0) {
       await this.prisma.transactionStatusHistory.deleteMany({
-        where: { transactionId: { in: txsToDelete.map(t => t.id) } },
+        where: { transactionId: { in: txsToDelete.map((t) => t.id) } },
       });
     }
 
@@ -5228,7 +6305,11 @@ export class AdminController {
     // 2. Recalcular saldo com as transações COMPLETED restantes
     // IMPORTANTE: wallet.balance armazena o valor BRUTO (amount).
     const completedTxs = await this.prisma.transaction.aggregate({
-      where: { userId: RENOVADA_ID, status: TransactionStatus.COMPLETED, OR: keywordOr },
+      where: {
+        userId: RENOVADA_ID,
+        status: TransactionStatus.COMPLETED,
+        OR: keywordOr,
+      },
       _sum: { amount: true },
     });
 
@@ -5245,9 +6326,24 @@ export class AdminController {
     const calculatedBalance = Math.max(0, totalReceived - totalWithdrawn);
     const netEquivalent = calculatedBalance * 0.91; // Só informativo
 
-    await this.prisma.wallet.update({
-      where: { userId: RENOVADA_ID },
-      data: { balance: calculatedBalance },
+    await this.prisma.$transaction(async (tx) => {
+      const before = await tx.wallet.findUniqueOrThrow({
+        where: { userId: RENOVADA_ID },
+      });
+      const after = await tx.wallet.update({
+        where: { id: before.id, version: before.version },
+        data: { balance: calculatedBalance, version: { increment: 1 } },
+      });
+      await tx.balanceLog.create({
+        data: {
+          userId: RENOVADA_ID,
+          action: 'WALLET_RECALCULATE',
+          source: 'ADMIN_SYNC',
+          balanceDelta: after.balance.sub(before.balance),
+          lockedDelta: 0,
+          description: 'Saldo recalculado após limpeza explícita de transações',
+        },
+      });
     });
 
     return {
@@ -5265,22 +6361,43 @@ export class AdminController {
   @Post('renovada/fix-wallet-balance')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Recalcula o saldo da wallet da Renovada: ofertas/dízimos (31/03-06/04) usando amount + maquinetas (05/04-06/04) usando netAmount, excluindo ajustes',
+    summary:
+      'Recalcula o saldo da wallet da Renovada: ofertas/dízimos (31/03-06/04) usando amount + maquinetas (05/04-06/04) usando netAmount, excluindo ajustes',
   })
   async fixRenovadaWalletBalance() {
     await this.requireExclusivePlatformWallet('RENOVADA');
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     const periodoOfertasInicio = new Date('2026-03-31T00:00:00-03:00');
-    const periodoFim           = new Date('2026-04-06T23:59:59-03:00');
+    const periodoFim = new Date('2026-04-06T23:59:59-03:00');
     const periodoMaquinetasInicio = new Date('2026-04-05T00:00:00-03:00');
 
     const AJUSTES_NOT = {
       OR: [
-        { description: { contains: 'sincronizacao de saldo', mode: 'insensitive' as const } },
-        { description: { contains: 'sincronização de saldo', mode: 'insensitive' as const } },
-        { description: { contains: 'ajuste administrativo', mode: 'insensitive' as const } },
-        { description: { contains: 'balance sync', mode: 'insensitive' as const } },
+        {
+          description: {
+            contains: 'sincronizacao de saldo',
+            mode: 'insensitive' as const,
+          },
+        },
+        {
+          description: {
+            contains: 'sincronização de saldo',
+            mode: 'insensitive' as const,
+          },
+        },
+        {
+          description: {
+            contains: 'ajuste administrativo',
+            mode: 'insensitive' as const,
+          },
+        },
+        {
+          description: {
+            contains: 'balance sync',
+            mode: 'insensitive' as const,
+          },
+        },
       ],
     };
 
@@ -5301,10 +6418,12 @@ export class AdminController {
         ],
         NOT: [
           AJUSTES_NOT,
-          { OR: [
-            { description: { contains: 'maquineta', mode: 'insensitive' } },
-            { description: { contains: 'terminal:', mode: 'insensitive' } },
-          ]},
+          {
+            OR: [
+              { description: { contains: 'maquineta', mode: 'insensitive' } },
+              { description: { contains: 'terminal:', mode: 'insensitive' } },
+            ],
+          },
         ],
       },
       _sum: { netAmount: true },
@@ -5327,7 +6446,7 @@ export class AdminController {
       _count: { id: true },
     });
 
-    const totalOfertas   = Number(ofertasAgg._sum.netAmount ?? 0);
+    const totalOfertas = Number(ofertasAgg._sum.netAmount ?? 0);
     const totalMaquinetas = Number(maquinetasAgg._sum.netAmount ?? 0);
 
     const completedWithdraws = await this.prisma.withdrawRequest.aggregate({
@@ -5340,32 +6459,38 @@ export class AdminController {
     });
 
     const totalSacado = Number(completedWithdraws._sum.amount ?? 0);
-    const novoBalance = Math.max(0, totalOfertas + totalMaquinetas - totalSacado);
+    const novoBalance = Math.max(
+      0,
+      totalOfertas + totalMaquinetas - totalSacado,
+    );
 
     const walletAntes = await this.prisma.wallet.findUnique({
       where: { userId: RENOVADA_ID },
       select: { balance: true, lockedBalance: true },
     });
     const balanceAntes = Number(walletAntes?.balance || 0);
-    const lockedAntes = Number(walletAntes?.lockedBalance || 0);
 
-    await this.prisma.wallet.update({
-      where: { userId: RENOVADA_ID },
-      data: { balance: novoBalance, version: { increment: 1 } },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      const before = await tx.wallet.findUniqueOrThrow({
+        where: { userId: RENOVADA_ID },
+      });
+      const after = await tx.wallet.update({
+        where: { id: before.id, version: before.version },
+        data: { balance: novoBalance, version: { increment: 1 } },
+      });
+      await tx.balanceLog.create({
+        data: {
+          userId: RENOVADA_ID,
 
-    await this.prisma.balanceLog.create({
-      data: {
-        userId: RENOVADA_ID,
-        amount: novoBalance - balanceAntes,
-        balanceBefore: balanceAntes,
-        balanceAfter: novoBalance,
-        lockedBefore: lockedAntes,
-        lockedAfter: lockedAntes,
-        action: 'WALLET_RECALCULATE',
-        source: 'ADMIN_FIX_WALLET',
-        description: `fix-wallet-balance 31/03-06/04/2026: ofertas=${totalOfertas.toFixed(2)} (${ofertasAgg._count.id}tx), maquinetas=${totalMaquinetas.toFixed(2)} (${maquinetasAgg._count.id}tx), saques=${totalSacado.toFixed(2)}`,
-      },
+          balanceDelta: after.balance.sub(before.balance),
+
+          lockedDelta: 0,
+
+          action: 'WALLET_RECALCULATE',
+          source: 'ADMIN_FIX_WALLET',
+          description: `fix-wallet-balance 31/03-06/04/2026: ofertas=${totalOfertas.toFixed(2)} (${ofertasAgg._count.id}tx), maquinetas=${totalMaquinetas.toFixed(2)} (${maquinetasAgg._count.id}tx), saques=${totalSacado.toFixed(2)}`,
+        },
+      });
     });
 
     return {
@@ -5384,7 +6509,10 @@ export class AdminController {
 
   @Post('renovada/fix-withdraw-logs')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Registra retroativamente os logs de taxa e lucro de saque para um withdrawId já aprovado' })
+  @ApiOperation({
+    summary:
+      'Registra retroativamente os logs de taxa e lucro de saque para um withdrawId já aprovado',
+  })
   async fixWithdrawLogs(@Query('withdrawId') withdrawId: string) {
     if (!withdrawId?.trim()) {
       throw new BadRequestException('withdrawId é obrigatório');
@@ -5409,7 +6537,10 @@ export class AdminController {
     });
 
     if (existing) {
-      return { message: 'Logs já existem para este saque, nada foi alterado.', withdrawId };
+      return {
+        message: 'Logs já existem para este saque, nada foi alterado.',
+        withdrawId,
+      };
     }
 
     const logDate = withdraw.updatedAt; // data da aprovação
@@ -5419,11 +6550,12 @@ export class AdminController {
         data: {
           userId: withdraw.userId,
           action: 'ADMIN_WITHDRAW_FEE_INC',
-          amount: new Prisma.Decimal(1),
-          balanceBefore: 0,
-          balanceAfter: 0,
-          lockedBefore: 0,
-          lockedAfter: 0,
+          bookkeepingAmount: new Prisma.Decimal(1),
+
+          balanceDelta: 0,
+
+          lockedDelta: 0,
+
           source: 'MASTER_ADMIN_CONTROL',
           description: `Taxa de saque (retroativo)`,
           metadata: { withdrawId },
@@ -5435,11 +6567,12 @@ export class AdminController {
         data: {
           userId: withdraw.userId,
           action: 'ADMIN_WITHDRAW_PROFIT_INC',
-          amount: new Prisma.Decimal(2),
-          balanceBefore: 0,
-          balanceAfter: 0,
-          lockedBefore: 0,
-          lockedAfter: 0,
+          bookkeepingAmount: new Prisma.Decimal(2),
+
+          balanceDelta: 0,
+
+          lockedDelta: 0,
+
           source: 'MASTER_ADMIN_CONTROL',
           description: `Lucro de saque (retroativo)`,
           metadata: { withdrawId },
@@ -5462,13 +6595,14 @@ export class AdminController {
   @Post('bosque/fix-wallet-balance')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Recalcula o saldo da wallet do Bosque somando netAmount das transações reais (15/03–06/04/2026), excluindo sincronizações e ajustes',
+    summary:
+      'Recalcula o saldo da wallet do Bosque somando netAmount das transações reais (15/03–06/04/2026), excluindo sincronizações e ajustes',
   })
   async fixBosqueWalletBalance() {
     const BOSQUE_ID = getPlatformOwnerId('BOSQUE') ?? '';
 
     const periodoInicio = new Date('2026-03-15T00:00:00-03:00');
-    const periodoFim    = new Date('2026-04-06T23:59:59-03:00');
+    const periodoFim = new Date('2026-04-06T23:59:59-03:00');
 
     const txsAgg = await this.prisma.transaction.aggregate({
       where: {
@@ -5477,9 +6611,24 @@ export class AdminController {
         createdAt: { gte: periodoInicio, lte: periodoFim },
         NOT: {
           OR: [
-            { description: { contains: 'Sincronização Bosque', mode: 'insensitive' } },
-            { description: { contains: 'Sincronizacao Bosque', mode: 'insensitive' } },
-            { description: { contains: 'Ajuste Administrativo', mode: 'insensitive' } },
+            {
+              description: {
+                contains: 'Sincronização Bosque',
+                mode: 'insensitive',
+              },
+            },
+            {
+              description: {
+                contains: 'Sincronizacao Bosque',
+                mode: 'insensitive',
+              },
+            },
+            {
+              description: {
+                contains: 'Ajuste Administrativo',
+                mode: 'insensitive',
+              },
+            },
             { description: { contains: 'balance sync', mode: 'insensitive' } },
           ],
         },
@@ -5507,25 +6656,28 @@ export class AdminController {
       select: { balance: true, lockedBalance: true },
     });
     const balanceAntes = Number(walletAntes?.balance ?? 0);
-    const lockedAntes  = Number(walletAntes?.lockedBalance ?? 0);
 
-    await this.prisma.wallet.update({
-      where: { userId: BOSQUE_ID },
-      data: { balance: novoBalance, version: { increment: 1 } },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      const before = await tx.wallet.findUniqueOrThrow({
+        where: { userId: BOSQUE_ID },
+      });
+      const after = await tx.wallet.update({
+        where: { id: before.id, version: before.version },
+        data: { balance: novoBalance, version: { increment: 1 } },
+      });
+      await tx.balanceLog.create({
+        data: {
+          userId: BOSQUE_ID,
 
-    await this.prisma.balanceLog.create({
-      data: {
-        userId: BOSQUE_ID,
-        amount: novoBalance - balanceAntes,
-        balanceBefore: balanceAntes,
-        balanceAfter: novoBalance,
-        lockedBefore: lockedAntes,
-        lockedAfter: lockedAntes,
-        action: 'WALLET_RECALCULATE',
-        source: 'ADMIN_FIX_WALLET',
-        description: `fix-wallet-balance Bosque 15/03-06/04/2026: recebido=${totalRecebido.toFixed(2)}, saques=${totalSacado.toFixed(2)}, txs=${txsAgg._count.id} (sem sincronizações/ajustes)`,
-      },
+          balanceDelta: after.balance.sub(before.balance),
+
+          lockedDelta: 0,
+
+          action: 'WALLET_RECALCULATE',
+          source: 'ADMIN_FIX_WALLET',
+          description: `fix-wallet-balance Bosque 15/03-06/04/2026: recebido=${totalRecebido.toFixed(2)}, saques=${totalSacado.toFixed(2)}, txs=${txsAgg._count.id} (sem sincronizações/ajustes)`,
+        },
+      });
     });
 
     return {
@@ -5544,7 +6696,8 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiOperation({
-    summary: 'Custos SimIntPay por plataforma cadastrada (banco e padrão global)',
+    summary:
+      'Custos SimIntPay por plataforma cadastrada (banco e padrão global)',
   })
   async listPlatformTaxas() {
     return this.platformTaxas.getTaxasResponse();
@@ -5568,7 +6721,10 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Buscar clientes (e-mail/nome) para taxa personalizada SIM INT PAY' })
+  @ApiOperation({
+    summary:
+      'Buscar clientes (e-mail/nome) para taxa personalizada SIM INT PAY',
+  })
   async listSimIntPayClientes(
     @Query('search') search?: string,
     @Query('page') page?: string,
@@ -5633,7 +6789,10 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Lista contas (clientes) com saldo disponível para a tela de Cobranças' })
+  @ApiOperation({
+    summary:
+      'Lista contas (clientes) com saldo disponível para a tela de Cobranças',
+  })
   async listCobrancaClientes(
     @Query('search') search?: string,
     @Query('page') page?: string,
@@ -5664,7 +6823,12 @@ export class AdminController {
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
         where,
-        select: { id: true, name: true, email: true, wallet: { select: { balance: true, lockedBalance: true } } },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          wallet: { select: { balance: true, lockedBalance: true } },
+        },
         orderBy: { name: 'asc' },
         skip: (pageNum - 1) * size,
         take: size,
@@ -5675,7 +6839,12 @@ export class AdminController {
       data: users.map((u) => {
         const bal = Number(u.wallet?.balance ?? 0);
         const locked = Number(u.wallet?.lockedBalance ?? 0);
-        return { id: u.id, name: u.name, email: u.email, saldoDisponivel: Number((bal - locked).toFixed(2)) };
+        return {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          saldoDisponivel: Number((bal - locked).toFixed(2)),
+        };
       }),
       page: pageNum,
       pageSize: size,
@@ -5689,7 +6858,10 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Remove uma conta da lista de cobranças sem apagar conta, saldo ou histórico' })
+  @ApiOperation({
+    summary:
+      'Remove uma conta da lista de cobranças sem apagar conta, saldo ou histórico',
+  })
   async excludeCobrancaCliente(@Param('id') id: string) {
     await this.prisma.user.update({
       where: { id },
@@ -5723,27 +6895,42 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Debita do saldo dos clientes selecionados (modo cobrança por débito). Permite saldo negativo.' })
+  @ApiOperation({
+    summary:
+      'Debita do saldo dos clientes selecionados (modo cobrança por débito). Permite saldo negativo.',
+  })
   async debitarCobrancas(
-    @Body() body: { itens?: { userId: string; amount: number }[]; descricao?: string },
+    @Body()
+    body: { itens?: { userId: string; amount: number }[]; descricao?: string },
     @CurrentUser() master?: JwtPayload,
   ) {
     const masterId = master?.sub ?? '';
     const itens = (body?.itens ?? []).filter(
-      (i) => i?.userId && Number.isFinite(Number(i.amount)) && Number(i.amount) > 0,
+      (i) =>
+        i?.userId && Number.isFinite(Number(i.amount)) && Number(i.amount) > 0,
     );
-    if (itens.length === 0) throw new BadRequestException('Nenhum item de cobrança válido.');
+    if (itens.length === 0)
+      throw new BadRequestException('Nenhum item de cobrança válido.');
 
     await this.assertClientesCobraveis(itens.map((i) => i.userId));
 
     const descricao = body?.descricao?.trim() || 'Cobrança (débito do saldo)';
-    const resultados: Array<{ userId: string; ok: boolean; amount: number; saldoDepois?: number; ficouNegativo?: boolean; erro?: string }> = [];
+    const resultados: Array<{
+      userId: string;
+      ok: boolean;
+      amount: number;
+      saldoDepois?: number;
+      ficouNegativo?: boolean;
+      erro?: string;
+    }> = [];
 
     for (const item of itens) {
       const amount = Number(Number(item.amount).toFixed(2));
       try {
         const res = await this.prisma.$transaction(async (tx) => {
-          const wallet = await tx.wallet.findUnique({ where: { userId: item.userId } });
+          const wallet = await tx.wallet.findUnique({
+            where: { userId: item.userId },
+          });
           if (!wallet) throw new Error('Carteira não encontrada');
           const locked = Number(wallet.lockedBalance);
           const after = Number((Number(wallet.balance) - amount).toFixed(2));
@@ -5756,11 +6943,15 @@ export class AdminController {
             data: {
               userId: item.userId,
               action: 'COBRANCA_DEBIT',
-              amount: new Prisma.Decimal(-amount),
-              balanceBefore: wallet.balance,
-              balanceAfter: updated.balance,
-              lockedBefore: wallet.lockedBalance,
-              lockedAfter: updated.lockedBalance,
+
+              balanceDelta: new Prisma.Decimal(updated.balance).sub(
+                wallet.balance,
+              ),
+
+              lockedDelta: new Prisma.Decimal(updated.lockedBalance).sub(
+                wallet.lockedBalance,
+              ),
+
               source: 'MASTER_COBRANCA',
               description: descricao,
               metadata: { via: 'admin/cobrancas/debitar', masterId },
@@ -5781,9 +6972,20 @@ export class AdminController {
           });
           return { after, ficouNegativo };
         });
-        resultados.push({ userId: item.userId, ok: true, amount, saldoDepois: res.after, ficouNegativo: res.ficouNegativo });
+        resultados.push({
+          userId: item.userId,
+          ok: true,
+          amount,
+          saldoDepois: res.after,
+          ficouNegativo: res.ficouNegativo,
+        });
       } catch (e) {
-        resultados.push({ userId: item.userId, ok: false, amount, erro: e instanceof Error ? e.message : 'Falha' });
+        resultados.push({
+          userId: item.userId,
+          ok: false,
+          amount,
+          erro: e instanceof Error ? e.message : 'Falha',
+        });
       }
     }
 
@@ -5800,8 +7002,16 @@ export class AdminController {
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Histórico de cobranças lançadas pelo Master' })
-  @ApiQuery({ name: 'search', required: false, description: 'Nome ou e-mail do cliente' })
-  @ApiQuery({ name: 'status', required: false, description: 'PENDING | VENCIDA | PAID | CANCELED | APPLIED' })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Nome ou e-mail do cliente',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description: 'PENDING | VENCIDA | PAID | CANCELED | APPLIED',
+  })
   @ApiQuery({ name: 'dataInicio', required: false, description: 'YYYY-MM-DD' })
   @ApiQuery({ name: 'dataFim', required: false, description: 'YYYY-MM-DD' })
   async listCobrancas(
@@ -5839,8 +7049,15 @@ export class AdminController {
     if (statusUpper === 'VENCIDA') {
       and.push({ status: 'PENDING', dueDate: { lt: new Date() } });
     } else if (statusUpper === 'PENDING') {
-      and.push({ status: 'PENDING', OR: [{ dueDate: null }, { dueDate: { gte: new Date() } }] });
-    } else if (statusUpper === 'PAID' || statusUpper === 'CANCELED' || statusUpper === 'APPLIED') {
+      and.push({
+        status: 'PENDING',
+        OR: [{ dueDate: null }, { dueDate: { gte: new Date() } }],
+      });
+    } else if (
+      statusUpper === 'PAID' ||
+      statusUpper === 'CANCELED' ||
+      statusUpper === 'APPLIED'
+    ) {
       and.push({ status: statusUpper as any });
     }
 
@@ -5907,19 +7124,28 @@ export class AdminController {
       'Cria automaticamente um link de pagamento (checkout) por cliente, dono = master, plataforma SIMINTPAY.',
   })
   async gerarCobrancas(
-    @Body() body: { itens?: { userId: string; amount: number }[]; descricao?: string; dueDate?: string },
+    @Body()
+    body: {
+      itens?: { userId: string; amount: number }[];
+      descricao?: string;
+      dueDate?: string;
+    },
     @CurrentUser() master?: JwtPayload,
   ) {
     const masterId = master?.sub ?? '';
     const itens = (body?.itens ?? []).filter(
-      (i) => i?.userId && Number.isFinite(Number(i.amount)) && Number(i.amount) > 0,
+      (i) =>
+        i?.userId && Number.isFinite(Number(i.amount)) && Number(i.amount) > 0,
     );
-    if (itens.length === 0) throw new BadRequestException('Nenhum item de cobrança válido.');
+    if (itens.length === 0)
+      throw new BadRequestException('Nenhum item de cobrança válido.');
     const descricao = body?.descricao?.trim() || 'Cobrança';
     // Vencimento é obrigatório: é ele que define quando a cobrança vira "Vencida".
     const dueDate = body?.dueDate ? new Date(body.dueDate) : null;
     if (!dueDate || Number.isNaN(dueDate.getTime())) {
-      throw new BadRequestException('Informe a data de vencimento da cobrança.');
+      throw new BadRequestException(
+        'Informe a data de vencimento da cobrança.',
+      );
     }
 
     await this.assertClientesCobraveis(itens.map((i) => i.userId));
@@ -5930,7 +7156,8 @@ export class AdminController {
       select: { id: true, name: true, email: true },
     });
     const clienteById = new Map(clientesRows.map((c) => [c.id, c]));
-    const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY || '';
+    const domToken =
+      process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY || '';
 
     const cobrancas: Array<{
       userId: string;
@@ -5949,15 +7176,18 @@ export class AdminController {
       let domPaymentLinkId: string | null = null;
       if (domToken) {
         try {
-          const created = await this.paymentGateway.createPaymentLink(domToken, {
-            title: titulo,
-            description: titulo,
-            amount,
-            maxInstallments: 12,
-            interestRateInstallment: 0,
-            aceitaCartao: true,
-            aceitaPix: true,
-          });
+          const created = await this.paymentGateway.createPaymentLink(
+            domToken,
+            {
+              title: titulo,
+              description: titulo,
+              amount,
+              maxInstallments: 12,
+              interestRateInstallment: 0,
+              aceitaCartao: true,
+              aceitaPix: true,
+            },
+          );
           domPaymentLinkId = created?.id ?? null;
         } catch {
           // segue sem registro DOM
@@ -6011,7 +7241,9 @@ export class AdminController {
    * (ex.: geradas antes do link automático existir). Cria o PaymentLink com dono =
    * master que lançou a cobrança, plataforma SIMINTPAY, e grava o paymentRef.
    */
-  private async ensureCobrancaPaymentLinks(where: Prisma.CobrancaWhereInput = {}) {
+  private async ensureCobrancaPaymentLinks(
+    where: Prisma.CobrancaWhereInput = {},
+  ) {
     const semLink = await this.prisma.cobranca.findMany({
       where: { ...where, mode: 'PAYABLE', status: 'PENDING', paymentRef: null },
       include: { user: { select: { id: true, name: true, email: true } } },
@@ -6019,7 +7251,8 @@ export class AdminController {
     });
     if (semLink.length === 0) return;
 
-    const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY || '';
+    const domToken =
+      process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY || '';
 
     for (const cob of semLink) {
       const amount = Number(cob.amount);
@@ -6028,15 +7261,18 @@ export class AdminController {
       let domPaymentLinkId: string | null = null;
       if (domToken) {
         try {
-          const created = await this.paymentGateway.createPaymentLink(domToken, {
-            title: titulo,
-            description: titulo,
-            amount,
-            maxInstallments: 12,
-            interestRateInstallment: 0,
-            aceitaCartao: true,
-            aceitaPix: true,
-          });
+          const created = await this.paymentGateway.createPaymentLink(
+            domToken,
+            {
+              title: titulo,
+              description: titulo,
+              amount,
+              maxInstallments: 12,
+              interestRateInstallment: 0,
+              aceitaCartao: true,
+              aceitaPix: true,
+            },
+          );
           domPaymentLinkId = created?.id ?? null;
         } catch {
           // segue sem registro DOM — o checkout PIX usa o link local
@@ -6067,8 +7303,13 @@ export class AdminController {
   }
 
   /** true se a cobrança pendente já passou do vencimento (exibida como "Vencida"). */
-  private cobrancaVencida(c: { status: string; dueDate: Date | null }): boolean {
-    return c.status === 'PENDING' && !!c.dueDate && c.dueDate.getTime() < Date.now();
+  private cobrancaVencida(c: {
+    status: string;
+    dueDate: Date | null;
+  }): boolean {
+    return (
+      c.status === 'PENDING' && !!c.dueDate && c.dueDate.getTime() < Date.now()
+    );
   }
 
   /**
@@ -6078,12 +7319,17 @@ export class AdminController {
    */
   private async reconcileCobrancasPagas(where: Prisma.CobrancaWhereInput = {}) {
     const pendentes = await this.prisma.cobranca.findMany({
-      where: { ...where, mode: 'PAYABLE', status: 'PENDING', paymentRef: { not: null } },
+      where: {
+        ...where,
+        mode: 'PAYABLE',
+        status: 'PENDING',
+        paymentRef: { not: null },
+      },
       select: { id: true, paymentRef: true },
     });
     if (pendentes.length === 0) return;
 
-    const refs = pendentes.map((p) => p.paymentRef!) ;
+    const refs = pendentes.map((p) => p.paymentRef!);
     const pagas = await this.prisma.transaction.findMany({
       where: { paymentLinkId: { in: refs }, status: 'COMPLETED' },
       select: { paymentLinkId: true, createdAt: true },
@@ -6098,7 +7344,10 @@ export class AdminController {
       quitadas.map((p) =>
         this.prisma.cobranca.update({
           where: { id: p.id },
-          data: { status: 'PAID', paidAt: pagoEm.get(p.paymentRef!) ?? new Date() },
+          data: {
+            status: 'PAID',
+            paidAt: pagoEm.get(p.paymentRef!) ?? new Date(),
+          },
         }),
       ),
     );
@@ -6107,7 +7356,9 @@ export class AdminController {
   @Get('cobrancas/minhas')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Cobranças a pagar do cliente logado (painel do cliente)' })
+  @ApiOperation({
+    summary: 'Cobranças a pagar do cliente logado (painel do cliente)',
+  })
   async minhasCobrancas(@CurrentUser() user?: JwtPayload) {
     if (!user?.sub) throw new BadRequestException('Não autenticado');
     // Garante link de pagamento nas antigas + reflete pagamentos do checkout.
@@ -6139,7 +7390,9 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Atualiza status de uma cobrança a pagar (marcar paga / cancelar)' })
+  @ApiOperation({
+    summary: 'Atualiza status de uma cobrança a pagar (marcar paga / cancelar)',
+  })
   async atualizarStatusCobranca(
     @Param('id') id: string,
     @Body() body: { status?: 'PAID' | 'CANCELED' },
@@ -6160,7 +7413,10 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Taxas resolvidas de uma única tag (inclui clientes CLIENT:<email>)' })
+  @ApiOperation({
+    summary:
+      'Taxas resolvidas de uma única tag (inclui clientes CLIENT:<email>)',
+  })
   async getPlatformTaxasByTag(@Param('tag') tag: string) {
     return this.platformTaxas.getTaxasResponse([tag]);
   }
@@ -6168,7 +7424,9 @@ export class AdminController {
   @Get('plataformas/minhas-taxas')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Taxas resolvidas do cliente logado (somente leitura)' })
+  @ApiOperation({
+    summary: 'Taxas resolvidas do cliente logado (somente leitura)',
+  })
   async getMinhasTaxas(@CurrentUser() user: JwtPayload | undefined) {
     if (!user?.sub) throw new BadRequestException('Usuário não autenticado');
 
@@ -6179,10 +7437,12 @@ export class AdminController {
     if (!u) throw new BadRequestException('Usuário não encontrado');
 
     // Plataforma (renovada/bosque/...) usa a tag do módulo; cliente SIM INT PAY
-    // (sem módulo) usa CLIENT:<email>, que herda o GLOBAL e reflete o que o master
+    // (sem módulo) usa USER:<id>, que herda o GLOBAL e reflete o que o master
     // personalizou para ele na página de Taxas.
     const slug = u.platform?.tag?.trim();
-    const tag = slug ? canonicalPlatformTaxaTag(slug.toUpperCase()) : buildClientTaxaTag(u.email);
+    const tag = slug
+      ? canonicalPlatformTaxaTag(slug.toUpperCase())
+      : buildUserTaxaTag(u.id);
 
     const resolved = this.platformTaxas.getResolvedTaxaForTag(tag);
 
@@ -6199,30 +7459,62 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Listar plataformas cadastradas e seus donos' })
-  async listPlataformas() { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).listPlataformas(); }
+  async listPlataformas() {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).listPlataformas();
+  }
 
   @Get('plataformas/:tag/comunidades')
-  @ApiOperation({ summary: 'Listar comunidades vinculadas a links de assinatura de uma plataforma' })
-  async listPlataformaComunidades(@Param('tag') tag: string) { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).listPlataformaComunidades(tag); }
+  @ApiOperation({
+    summary:
+      'Listar comunidades vinculadas a links de assinatura de uma plataforma',
+  })
+  async listPlataformaComunidades(@Param('tag') tag: string) {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).listPlataformaComunidades(tag);
+  }
 
   @Get('plataformas/atlas/breakdown')
-  @ApiOperation({ summary: 'Breakdown de receita Atlas: domínios vs hospedagem, por produto' })
+  @ApiOperation({
+    summary: 'Breakdown de receita Atlas: domínios vs hospedagem, por produto',
+  })
   @ApiQuery({ name: 'dataInicio', required: false })
   @ApiQuery({ name: 'dataFim', required: false })
   async getAtlasBreakdown(
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
-  ) { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).getAtlasBreakdown(dataInicio, dataFim); }
+  ) {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).getAtlasBreakdown(dataInicio, dataFim);
+  }
 
   @Get('plataformas/:tag/distribuicao-metodo')
-  @ApiOperation({ summary: 'Distribuição de pagamentos por método para uma plataforma (COMPLETED)' })
+  @ApiOperation({
+    summary:
+      'Distribuição de pagamentos por método para uma plataforma (COMPLETED)',
+  })
   @ApiQuery({ name: 'dataInicio', required: false })
   @ApiQuery({ name: 'dataFim', required: false })
   async getPlataformaDistribuicaoMetodo(
     @Param('tag') tag: string,
     @Query('dataInicio') dataInicio?: string,
     @Query('dataFim') dataFim?: string,
-  ) { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).getPlataformaDistribuicaoMetodo(tag, dataInicio, dataFim); }
+  ) {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).getPlataformaDistribuicaoMetodo(tag, dataInicio, dataFim);
+  }
 
   @Get('plataformas/:tag/transacoes')
   @ApiOperation({ summary: 'Listar transações de uma plataforma (por tag)' })
@@ -6237,7 +7529,11 @@ export class AdminController {
   @ApiQuery({ name: 'compradorDocumento', required: false })
   @ApiQuery({ name: 'compradorEmail', required: false })
   @ApiQuery({ name: 'periodType', required: false })
-  @ApiQuery({ name: 'metodoPagamento', required: false, description: 'PIX | CREDIT_CARD | DEBIT_CARD' })
+  @ApiQuery({
+    name: 'metodoPagamento',
+    required: false,
+    description: 'PIX | CREDIT_CARD | DEBIT_CARD',
+  })
   async listPlataformaTransacoes(
     @Param('tag') tag: string,
     @Query('page') page = '1',
@@ -6253,11 +7549,35 @@ export class AdminController {
     @Query('periodType') periodType?: string,
     @Query('tipoTransacao') tipoTransacao?: string,
     @Query('metodoPagamento') metodoPagamento?: string,
-  ) { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).listPlataformaTransacoes(tag, page, pageSize, status, dataInicio, dataFim, codigoTransacao, codigoReferencia, compradorNome, compradorDocumento, compradorEmail, periodType, tipoTransacao, metodoPagamento); }
+  ) {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).listPlataformaTransacoes(
+      tag,
+      page,
+      pageSize,
+      status,
+      dataInicio,
+      dataFim,
+      codigoTransacao,
+      codigoReferencia,
+      compradorNome,
+      compradorDocumento,
+      compradorEmail,
+      periodType,
+      tipoTransacao,
+      metodoPagamento,
+    );
+  }
 
   @Post('withdrawals/approve-all')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Marcar todos os saques PENDENTES e APROVADOS como CONCLUÍDOS (Bulk Approval)' })
+  @ApiOperation({
+    summary:
+      'Marcar todos os saques PENDENTES e APROVADOS como CONCLUÍDOS (Bulk Approval)',
+  })
   async approveAllWithdrawals() {
     // 1. Saques PENDENTES (precisam debitar o saldo e desbloquear)
     const pendingWiths = await this.prisma.withdrawRequest.findMany({
@@ -6275,9 +7595,21 @@ export class AdminController {
     for (const w of pendingWiths) {
       try {
         await this.prisma.$transaction(async (tx) => {
-          await tx.withdrawRequest.update({
-            where: { id: w.id },
+          const claimed = await tx.withdrawRequest.updateMany({
+            where: { id: w.id, status: WithdrawStatus.PENDING },
             data: { status: WithdrawStatus.COMPLETED, updatedAt: new Date() },
+          });
+          if (claimed.count !== 1)
+            throw new ConflictException('Saque alterado por outra operação');
+          await tx.balanceLog.create({
+            data: {
+              userId: w.userId,
+              action: 'WITHDRAW_APPROVED',
+              source: 'ADMIN_BULK',
+              balanceDelta: w.grossAmount.neg(),
+              lockedDelta: w.grossAmount.neg(),
+              metadata: { withdrawId: w.id },
+            },
           });
           await tx.wallet.update({
             where: { userId: w.userId },
@@ -6296,18 +7628,26 @@ export class AdminController {
 
     // Processar APROVADOS (apenas mudar status)
     const approvedUpdate = await this.prisma.withdrawRequest.updateMany({
-      where: { id: { in: approvedWiths.map(aw => aw.id) } },
+      where: {
+        id: { in: approvedWiths.map((aw) => aw.id) },
+        status: WithdrawStatus.APPROVED,
+      },
       data: { status: WithdrawStatus.COMPLETED, updatedAt: new Date() },
     });
     updated += approvedUpdate.count;
 
-    return { success: true, count: updated, message: `${updated} saques marcados como concluídos.` };
+    return {
+      success: true,
+      count: updated,
+      message: `${updated} saques marcados como concluídos.`,
+    };
   }
 
   @Post('renovada/reset-wallet')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Zerar saldo e bloqueios da carteira Renovada (sem saque sintético)',
+    summary:
+      'Zerar saldo e bloqueios da carteira Renovada (sem saque sintético)',
     description:
       'Zera wallet, remove todos os saques. O /auth/me Renovada usa wallet + saques COMPLETED/APPROVED; um saque sintético COMPLETED quebrava o saldo (gross × (fator−1) ficava negativo). Transações permanecem no banco.',
   })
@@ -6329,20 +7669,22 @@ export class AdminController {
         data: {
           userId: RENOVADA_ID,
           action: 'WALLET_RESET_FINAL',
-          amount: 0,
-          balanceBefore: 0,
-          balanceAfter: 0,
-          lockedBefore: 0,
-          lockedAfter: 0,
+
+          balanceDelta: 0,
+
+          lockedDelta: 0,
+
           source: 'ADMIN_FORCE',
-          description: 'Reset Renovada: wallet zerada e histórico de saques removido.',
+          description:
+            'Reset Renovada: wallet zerada e histórico de saques removido.',
         },
       });
     });
 
     return {
       success: true,
-      message: 'Saldo zerado com sucesso (0,00). Histórico de transações mantido.',
+      message:
+        'Saldo zerado com sucesso (0,00). Histórico de transações mantido.',
     };
   }
 
@@ -6358,7 +7700,11 @@ export class AdminController {
       type: 'object',
       required: ['balance'],
       properties: {
-        balance: { type: 'number', example: 3238.84, description: 'Novo saldo líquido em reais' },
+        balance: {
+          type: 'number',
+          example: 3238.84,
+          description: 'Novo saldo líquido em reais',
+        },
       },
     },
   })
@@ -6369,23 +7715,29 @@ export class AdminController {
       throw new BadRequestException('balance deve ser um número positivo');
     }
 
-    const wallet = await this.prisma.wallet.findUnique({ where: { userId: RENOVADA_ID } });
-    if (!wallet) throw new NotFoundException('Wallet não encontrada para Renovada');
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: RENOVADA_ID },
+    });
+    if (!wallet)
+      throw new NotFoundException('Wallet não encontrada para Renovada');
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.wallet.update({
+      const before = await tx.wallet.findUniqueOrThrow({
         where: { userId: RENOVADA_ID },
+      });
+      const after = await tx.wallet.update({
+        where: { id: before.id, version: before.version },
         data: { balance: newBalance, version: { increment: 1 } },
       });
       await tx.balanceLog.create({
         data: {
           userId: RENOVADA_ID,
           action: 'WALLET_MANUAL_SET',
-          amount: newBalance,
-          balanceBefore: wallet.balance,
-          balanceAfter: newBalance,
-          lockedBefore: wallet.lockedBalance,
-          lockedAfter: wallet.lockedBalance,
+
+          balanceDelta: after.balance.sub(before.balance),
+
+          lockedDelta: 0,
+
           source: 'ADMIN_FORCE',
           description: `Ajuste manual de saldo: R$ ${newBalance.toFixed(2)}`,
         },
@@ -6406,7 +7758,9 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Listar todas as ordens de subscription links (Areaflix)' })
+  @ApiOperation({
+    summary: 'Listar todas as ordens de subscription links (Areaflix)',
+  })
   async listAreaflixOrders(
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
@@ -6427,8 +7781,10 @@ export class AdminController {
 
     const where: any = { subscriptionLinkId: { in: areaflixLinkIds } };
     if (status) where.status = status;
-    if (customerEmail) where.customerEmail = { contains: customerEmail, mode: 'insensitive' };
-    if (customerName) where.customerName = { contains: customerName, mode: 'insensitive' };
+    if (customerEmail)
+      where.customerEmail = { contains: customerEmail, mode: 'insensitive' };
+    if (customerName)
+      where.customerName = { contains: customerName, mode: 'insensitive' };
 
     const [total, items] = await this.prisma.$transaction([
       this.prisma.subscriptionLinkOrder.count({ where }),
@@ -6438,12 +7794,22 @@ export class AdminController {
         skip,
         take: ps,
         include: {
-          subscriptionLink: { select: { name: true, amount: true, platformFee: true, frequencyType: true } },
+          subscriptionLink: {
+            select: {
+              name: true,
+              amount: true,
+              platformFee: true,
+              frequencyType: true,
+            },
+          },
         },
       }),
     ]);
 
-    const areaflixPaidWhere = { subscriptionLinkId: { in: areaflixLinkIds }, status: { in: ['paid', 'active', 'approved'] } };
+    const areaflixPaidWhere = {
+      subscriptionLinkId: { in: areaflixLinkIds },
+      status: { in: ['paid', 'active', 'approved'] },
+    };
     const totalRevenue = await this.prisma.subscriptionLinkOrder.aggregate({
       where: areaflixPaidWhere,
       _sum: { amountCharged: true, platformFeeAmount: true },
@@ -6461,13 +7827,15 @@ export class AdminController {
 
   // ── Gestão de usuários das plataformas SaaS (PlatformSubscriberAccess) ───────
 
-  
-
-  
-
   @Get('plataformas/:tag/usuarios')
-  @ApiOperation({ summary: 'Listar assinantes de uma plataforma SaaS com dias restantes' })
-  @ApiQuery({ name: 'status', required: false, description: 'all | active | inactive' })
+  @ApiOperation({
+    summary: 'Listar assinantes de uma plataforma SaaS com dias restantes',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description: 'all | active | inactive',
+  })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   async listPlataformaUsuarios(
@@ -6475,14 +7843,26 @@ export class AdminController {
     @Query('status') status = 'all',
     @Query('page') page = '1',
     @Query('limit') limit = '20',
-  ) { return new PlatformSaasAccessService(this.prisma).list(tag, status, page, limit); }
+  ) {
+    return new PlatformSaasAccessService(this.prisma).list(
+      tag,
+      status,
+      page,
+      limit,
+    );
+  }
 
   @Patch('plataformas/:tag/usuarios/:userId/toggle')
-  @ApiOperation({ summary: 'Pausar/retomar acesso de assinante (freeze de dias + notifica SaaS backend)' })
+  @ApiOperation({
+    summary:
+      'Pausar/retomar acesso de assinante (freeze de dias + notifica SaaS backend)',
+  })
   async togglePlataformaUsuario(
     @Param('tag') tag: string,
     @Param('userId') userId: string,
-  ) { return new PlatformSaasAccessService(this.prisma).toggle(tag, userId); }
+  ) {
+    return new PlatformSaasAccessService(this.prisma).toggle(tag, userId);
+  }
 
   @Get('relatorios/atlas-consolidado')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -6491,23 +7871,52 @@ export class AdminController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
-    const atlasUserId = await resolveRegisteredOwner(this.prisma, 'ATLAS_USER_ID', ['atlas']);
-    const effectiveStart = startDate ?? dayjs().tz(TZ).startOf('month').format('YYYY-MM-DD');
+    const atlasUserId = await resolveRegisteredOwner(
+      this.prisma,
+      'ATLAS_USER_ID',
+      ['atlas'],
+    );
+    const effectiveStart =
+      startDate ?? dayjs().tz(TZ).startOf('month').format('YYYY-MM-DD');
     // Os cards financeiros comuns são calculados pelo mesmo caminho de todas
     // as plataformas. Este endpoint só acrescenta dados próprios do Atlas.
-    const cards = await this.getPlataformaConsolidado('ATLAS', effectiveStart, endDate, undefined, true);
+    const cards = await this.getPlataformaConsolidado(
+      'ATLAS',
+      effectiveStart,
+      endDate,
+      undefined,
+      true,
+    );
     if ('error' in cards) throw new Error(cards.error);
 
-    const TAXA_SAQUE_FIXA = getPlatformTaxaEffective('ATLAS', 'TAXA_SAQUE_FIXA',     PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA);
+    const TAXA_SAQUE_FIXA = getPlatformTaxaEffective(
+      'ATLAS',
+      'TAXA_SAQUE_FIXA',
+      PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA,
+    );
 
-    const atlasBaseUrl = String((getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
+    const atlasBaseUrl = String(
+      getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? '',
+    ).replace(/\/+$/, '');
     const internalToken = process.env.API_MACHINE_INTERNAL_TOKEN ?? '';
 
     let atlasData: {
-      domains: { totalRevenue: number; totalNamecheapCost: number; count: number };
+      domains: {
+        totalRevenue: number;
+        totalNamecheapCost: number;
+        count: number;
+      };
       vps: { totalRevenue: number; totalContaboCost: number; count: number };
-      affiliates: { totalAvailable: number; totalWithdrawn: number; commissionGeneratedInPeriod: number };
-      withdrawals: { pendingCount: number; approvedInPeriodCount: number; approvedInPeriodFeeSum: number };
+      affiliates: {
+        totalAvailable: number;
+        totalWithdrawn: number;
+        commissionGeneratedInPeriod: number;
+      };
+      withdrawals: {
+        pendingCount: number;
+        approvedInPeriodCount: number;
+        approvedInPeriodFeeSum: number;
+      };
     } | null = null;
 
     if (atlasBaseUrl) {
@@ -6515,9 +7924,12 @@ export class AdminController {
       if (startDate) params.set('startDate', startDate);
       if (endDate) params.set('endDate', endDate);
 
-      const resp = await fetch(`${atlasBaseUrl}/api/internal/report?${params.toString()}`, {
-        headers: { 'x-internal-token': internalToken },
-      }).catch(() => null);
+      const resp = await fetch(
+        `${atlasBaseUrl}/api/internal/report?${params.toString()}`,
+        {
+          headers: { 'x-internal-token': internalToken },
+        },
+      ).catch(() => null);
 
       if (resp?.ok) {
         atlasData = await resp.json().catch(() => null);
@@ -6528,32 +7940,65 @@ export class AdminController {
     const custoHospedagem = atlasData?.vps.totalContaboCost ?? 0;
     const lucroAfiliado = atlasData?.affiliates.totalWithdrawn ?? 0;
     const totalRepasseAfiliado = atlasData?.affiliates.totalAvailable ?? 0;
-    const custoAfiliadoPeriodo = atlasData?.affiliates.commissionGeneratedInPeriod ?? 0;
+    const custoAfiliadoPeriodo =
+      atlasData?.affiliates.commissionGeneratedInPeriod ?? 0;
     const saquePendente = atlasData?.withdrawals.pendingCount ?? 0;
-    const qtdSaquesAprovados = atlasData?.withdrawals.approvedInPeriodCount ?? 0;
+    const qtdSaquesAprovados =
+      atlasData?.withdrawals.approvedInPeriodCount ?? 0;
     const lucroSimpayDeSaque = qtdSaquesAprovados * TAXA_SAQUE_FIXA;
 
     const receitaLiquidaSimintpay = cards.taxaSimIntPctNet + lucroSimpayDeSaque;
-    const lucroLiquidoDominio = (atlasData?.domains.totalRevenue ?? 0) - custoDominio;
-    const lucroLiquidoVps = (atlasData?.vps.totalRevenue ?? 0) - custoHospedagem;
+    const lucroLiquidoDominio =
+      (atlasData?.domains.totalRevenue ?? 0) - custoDominio;
+    const lucroLiquidoVps =
+      (atlasData?.vps.totalRevenue ?? 0) - custoHospedagem;
 
-    const receitaBrutaAtlas = (atlasData?.domains.totalRevenue ?? 0) + (atlasData?.vps.totalRevenue ?? 0);
-    const receitaLiquidaAtlas = receitaBrutaAtlas - cards.totalTaxasSimInt - custoDominio - custoHospedagem - custoAfiliadoPeriodo;
+    const receitaBrutaAtlas =
+      (atlasData?.domains.totalRevenue ?? 0) +
+      (atlasData?.vps.totalRevenue ?? 0);
+    const receitaLiquidaAtlas =
+      receitaBrutaAtlas -
+      cards.totalTaxasSimInt -
+      custoDominio -
+      custoHospedagem -
+      custoAfiliadoPeriodo;
 
-    const roiSimintpay = cards.receitaTotal > 0 ? (receitaLiquidaSimintpay / cards.receitaTotal) * 100 : 0;
-    const roiDominios = (atlasData?.domains.totalRevenue ?? 0) > 0 ? (lucroLiquidoDominio / atlasData!.domains.totalRevenue) * 100 : 0;
-    const roiHospedagem = (atlasData?.vps.totalRevenue ?? 0) > 0 ? (lucroLiquidoVps / atlasData!.vps.totalRevenue) * 100 : 0;
-    const roiAtlas = receitaBrutaAtlas > 0 ? (receitaLiquidaAtlas / receitaBrutaAtlas) * 100 : 0;
+    const roiSimintpay =
+      cards.receitaTotal > 0
+        ? (receitaLiquidaSimintpay / cards.receitaTotal) * 100
+        : 0;
+    const roiDominios =
+      (atlasData?.domains.totalRevenue ?? 0) > 0
+        ? (lucroLiquidoDominio / atlasData!.domains.totalRevenue) * 100
+        : 0;
+    const roiHospedagem =
+      (atlasData?.vps.totalRevenue ?? 0) > 0
+        ? (lucroLiquidoVps / atlasData!.vps.totalRevenue) * 100
+        : 0;
+    const roiAtlas =
+      receitaBrutaAtlas > 0
+        ? (receitaLiquidaAtlas / receitaBrutaAtlas) * 100
+        : 0;
 
-    const dateWhere: any = { gte: parseYmdSp(effectiveStart).startOf('day').toDate() };
+    const dateWhere: any = {
+      gte: parseYmdSp(effectiveStart).startOf('day').toDate(),
+    };
     if (endDate) dateWhere.lte = parseYmdSp(endDate).endOf('day').toDate();
 
     const [estornoCount, chargebackCount] = await Promise.all([
       this.prisma.transaction.count({
-        where: { userId: atlasUserId, status: 'REFUNDED', createdAt: dateWhere },
+        where: {
+          userId: atlasUserId,
+          status: 'REFUNDED',
+          createdAt: dateWhere,
+        },
       }),
       this.prisma.transaction.count({
-        where: { userId: atlasUserId, status: 'CHARGEBACK', createdAt: dateWhere },
+        where: {
+          userId: atlasUserId,
+          status: 'CHARGEBACK',
+          createdAt: dateWhere,
+        },
       }),
     ]);
 
@@ -6590,16 +8035,34 @@ export class AdminController {
   @Get('relatorios/plataforma-consolidado')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Breakdown DOM/SimIntPay de uma plataforma (exceto ATLAS)' })
+  @ApiOperation({
+    summary: 'Breakdown DOM/SimIntPay de uma plataforma (exceto ATLAS)',
+  })
   @ApiQuery({ name: 'tag', required: true })
   @ApiQuery({ name: 'startDate', required: false })
   @ApiQuery({ name: 'endDate', required: false })
-  @ApiQuery({ name: 'metodoPagamento', required: false, description: 'PIX | CREDIT_CARD | DEBIT_CARD' })
+  @ApiQuery({
+    name: 'metodoPagamento',
+    required: false,
+    description: 'PIX | CREDIT_CARD | DEBIT_CARD',
+  })
   async getPlataformaConsolidado(
     @Query('tag') tagParam?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('metodoPagamento') metodoPagamento?: string,
     allowAtlasInternally = false,
-  ) { return new PlatformAdministrationService(this.prisma, this.paymentGateway, this.platformReporting).getPlataformaConsolidado(tagParam, startDate, endDate, metodoPagamento, allowAtlasInternally); }
+  ) {
+    return new PlatformAdministrationService(
+      this.prisma,
+      this.paymentGateway,
+      this.platformReporting,
+    ).getPlataformaConsolidado(
+      tagParam,
+      startDate,
+      endDate,
+      metodoPagamento,
+      allowAtlasInternally,
+    );
+  }
 }

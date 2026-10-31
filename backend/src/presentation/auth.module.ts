@@ -5,7 +5,6 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthController } from './controllers/auth.controller';
 import { HealthController } from './controllers/health.controller';
 import { LoginUseCase } from '../application/use-cases/auth/login.use-case';
-import { RegisterUseCase } from '../application/use-cases/auth/register.use-case';
 import { LinkExternalPlatformUserService } from '../application/services/link-external-platform-user.service';
 import { RefreshTokenUseCase } from '../application/use-cases/auth/refresh-token.use-case';
 import { LogoutUseCase } from '../application/use-cases/auth/logout.use-case';
@@ -39,7 +38,6 @@ import { PrismaWalletRepository } from '../infrastructure/database/repositories/
     JwtStrategy,
     AuthTokensService,
     LoginUseCase,
-    RegisterUseCase,
     RefreshTokenUseCase,
     LogoutUseCase,
     GetMeUseCase,
@@ -54,4 +52,4 @@ import { PrismaWalletRepository } from '../infrastructure/database/repositories/
   ],
   exports: [JwtModule, USER_REPOSITORY, WALLET_REPOSITORY],
 })
-export class AuthModule { }
+export class AuthModule {}

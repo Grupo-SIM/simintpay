@@ -9,6 +9,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './infrastructure/database/prisma/prisma.module';
+import { PaymentCircuitModule } from './infrastructure/resilience/payment-circuit.module';
 import { AuthModule } from './presentation/auth.module';
 import { WebhookModule } from './presentation/webhook.module';
 import { RabbitMqModule } from './infrastructure/queue/rabbitmq.module';
@@ -60,6 +61,7 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
       ],
     }),
     PrismaModule,
+    PaymentCircuitModule,
     RabbitMqModule,
     AuthModule,
     WebhookModule,
@@ -101,4 +103,4 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
     },
   ],
 })
-export class AppModule { }
+export class AppModule {}

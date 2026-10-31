@@ -124,12 +124,7 @@ function fixture(tag: string, description = tag.toLowerCase()) {
     }),
   };
   const events = new PlatformEventsService();
-  const core = new PlatformSyncPersistenceService(
-    p,
-    {} as any,
-    events,
-    gateway,
-  );
+  const core = new PlatformSyncPersistenceService(p, events, gateway);
   return { context, platform, wallet, rows, p, gateway, core, events };
 }
 for (const [tag, Service] of [

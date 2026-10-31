@@ -10,6 +10,7 @@ function fixture(claim = 1, existingOverride = {}) {
     userId: 'original-owner',
     acquirer: 'DOM',
     description: '[TENANT:ATLAS]',
+    platformTag: 'ATLAS',
     amount: new Prisma.Decimal(100),
     netAmount: new Prisma.Decimal(91),
     ...existingOverride,
@@ -40,7 +41,6 @@ function fixture(claim = 1, existingOverride = {}) {
   const bus = new PlatformEventsService();
   const service = new PlatformSyncPersistenceService(
     prisma as never,
-    {} as never,
     bus,
     {} as never,
   );
@@ -85,7 +85,7 @@ describe('Shared sync persistence', () => {
     subscription.unsubscribe();
   });
   test('cannot update another platform even when gateway ids match', async () => {
-    const { persist, tx } = fixture(1, { description: '[TENANT:OTHER]' });
+    const { persist, tx } = fixture(1, { platformTag: 'OTHER' });
     expect(await persist({ id: 'gateway', status: 'paid', amount: 100 })).toBe(
       false,
     );
@@ -165,7 +165,6 @@ describe('Shared sync persistence', () => {
   });
   test('direct legacy polling coalesces same-platform work', async () => {
     const service = new PlatformSyncPersistenceService(
-      {} as never,
       {} as never,
       new PlatformEventsService(),
       {} as never,

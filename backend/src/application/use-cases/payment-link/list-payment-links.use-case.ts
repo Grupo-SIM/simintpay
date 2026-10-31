@@ -1,6 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import {
+  coproductionInfo,
+  sharedProductIds,
+} from '../../../modules/coproduction/coproduction-view';
 import type { IPaymentLinkRepository } from '../../../core/repositories/payment-link.repository.interface';
 import type { ListPaymentLinksQueryDto } from '../../dtos/payment-link/list-payment-links.query.dto';
 
@@ -45,21 +49,54 @@ export class ListPaymentLinksUseCase {
           orderBy: { createdAt: 'desc' },
           skip,
           take: pageSize,
-          include: { user: { select: { cpf: true, name: true, email: true, clientStatus: true } } },
+          include: {
+            user: {
+              select: {
+                cpf: true,
+                name: true,
+                email: true,
+                clientStatus: true,
+              },
+            },
+          },
         }),
       ]);
     } else {
+      const shared = await sharedProductIds(
+        this.prisma,
+        'links-pagamento',
+        input.userId,
+      );
+      const where = shared.length
+        ? { OR: [{ userId: input.userId }, { id: { in: shared } }] }
+        : { userId: input.userId };
       [total, items] = await this.prisma.$transaction([
-        this.prisma.paymentLink.count({ where: { userId: input.userId } }),
+        this.prisma.paymentLink.count({ where }),
         this.prisma.paymentLink.findMany({
-          where: { userId: input.userId },
+          where,
           orderBy: { createdAt: 'desc' },
           skip,
           take: pageSize,
-          include: { user: { select: { cpf: true, name: true, email: true, clientStatus: true } } },
+          include: {
+            user: {
+              select: {
+                cpf: true,
+                name: true,
+                email: true,
+                clientStatus: true,
+              },
+            },
+          },
         }),
       ]);
     }
+
+    const coproducao = await coproductionInfo(
+      this.prisma,
+      'links-pagamento',
+      input.userId,
+      items,
+    );
 
     return {
       data: items.map((l) => ({
@@ -77,7 +114,9 @@ export class ListPaymentLinksUseCase {
         donoNome: l.user?.name ?? null,
         donoEmail: l.user?.email ?? null,
         // Link de cliente SimintPay → exibe SIMINTPAY (links antigos podem ter GLOBAL/vazio gravado).
-        plataformas: l.user?.clientStatus != null ? ['SIMINTPAY'] : (l.plataformas ?? []),
+        coproducao: coproducao.get(l.id) ?? null,
+        plataformas:
+          l.user?.clientStatus != null ? ['SIMINTPAY'] : (l.plataformas ?? []),
       })),
       page,
       pageSize,

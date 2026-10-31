@@ -15,6 +15,11 @@ import {
 export type PlanTipoDto = 'SEMANAL' | 'MENSAL' | 'ANUAL';
 
 export class CreatePlanDto {
+  /** Explicit beneficiary; platform selection must agree with its registered owner. */
+  @IsOptional()
+  @IsString()
+  ownerUserId?: string;
+
   @IsOptional()
   @IsObject()
   coproduction?: unknown;

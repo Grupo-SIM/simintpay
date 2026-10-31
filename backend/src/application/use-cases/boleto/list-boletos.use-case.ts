@@ -1,6 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { BOLETO_REPOSITORY } from '../../../core/repositories/boleto.repository.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import {
+  coproductionInfo,
+  sharedProductIds,
+} from '../../../modules/coproduction/coproduction-view';
 import type { IBoletoRepository } from '../../../core/repositories/boleto.repository.interface';
 import type { ListBoletosQueryDto } from '../../dtos/boleto/list-boletos.query.dto';
 
@@ -45,21 +49,54 @@ export class ListBoletosUseCase {
           orderBy: { createdAt: 'desc' },
           skip,
           take: pageSize,
-          include: { user: { select: { cpf: true, name: true, email: true, clientStatus: true } } },
+          include: {
+            user: {
+              select: {
+                cpf: true,
+                name: true,
+                email: true,
+                clientStatus: true,
+              },
+            },
+          },
         }),
       ]);
     } else {
+      const shared = await sharedProductIds(
+        this.prisma,
+        'boletos',
+        input.userId,
+      );
+      const where = shared.length
+        ? { OR: [{ userId: input.userId }, { id: { in: shared } }] }
+        : { userId: input.userId };
       [total, items] = await this.prisma.$transaction([
-        this.prisma.boleto.count({ where: { userId: input.userId } }),
+        this.prisma.boleto.count({ where }),
         this.prisma.boleto.findMany({
-          where: { userId: input.userId },
+          where,
           orderBy: { createdAt: 'desc' },
           skip,
           take: pageSize,
-          include: { user: { select: { cpf: true, name: true, email: true, clientStatus: true } } },
+          include: {
+            user: {
+              select: {
+                cpf: true,
+                name: true,
+                email: true,
+                clientStatus: true,
+              },
+            },
+          },
         }),
       ]);
     }
+
+    const coproducao = await coproductionInfo(
+      this.prisma,
+      'boletos',
+      input.userId,
+      items,
+    );
 
     return {
       data: items.map((b) => ({
@@ -78,7 +115,9 @@ export class ListBoletosUseCase {
         donoNome: b.user?.name ?? null,
         donoEmail: b.user?.email ?? null,
         // Boleto de cliente SimintPay → exibe SIMINTPAY.
-        plataformas: b.user?.clientStatus != null ? ['SIMINTPAY'] : (b.plataformas ?? []),
+        coproducao: coproducao.get(b.id) ?? null,
+        plataformas:
+          b.user?.clientStatus != null ? ['SIMINTPAY'] : (b.plataformas ?? []),
       })),
       page,
       pageSize,

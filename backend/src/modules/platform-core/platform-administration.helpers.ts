@@ -5,14 +5,19 @@ import { getRegisteredPlatform } from '../../modules/module.registry';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
-dayjs.extend(utc); dayjs.extend(timezone); dayjs.extend(customParseFormat);
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.extend(customParseFormat);
 export async function resolveConsolidadoPlatforms(
   prisma: PrismaService,
 ): Promise<ConsolidadoPlatformEntry[]> {
   const platforms = await prisma.platform.findMany({
     select: { tag: true, ownerUserId: true },
   });
-  return platforms.map((platform) => ({ tag: platform.tag, id: platform.ownerUserId }));
+  return platforms.map((platform) => ({
+    tag: platform.tag,
+    id: platform.ownerUserId,
+  }));
 }
 
 export async function getComunidadeOrderRows(
@@ -20,7 +25,20 @@ export async function getComunidadeOrderRows(
   dataInicio?: string,
   dataFim?: string,
   metodoPagamento?: string,
-): Promise<Array<{ id: string; userId: string; amount: unknown; netAmount: unknown; createdAt: Date; description: string; installments: number; paymentMethod: string | null; customerDocument: string | null }>> {
+): Promise<
+  Array<{
+    id: string;
+    userId: string;
+    amount: unknown;
+    netAmount: unknown;
+    createdAt: Date;
+    description: string;
+    platformTag: string;
+    installments: number;
+    paymentMethod: string | null;
+    customerDocument: string | null;
+  }>
+> {
   const bindings = await prisma.communityLinkBinding.findMany({
     where: { subscriptionLinkId: { not: null } },
     select: {
@@ -31,7 +49,10 @@ export async function getComunidadeOrderRows(
   });
   // Map linkId → community slug (uppercased) for per-community tagging
   const linkIdToTag = new Map(
-    bindings.map((b) => [b.subscriptionLinkId!, b.community.slug.toUpperCase()])
+    bindings.map((b) => [
+      b.subscriptionLinkId!,
+      b.community.slug.toUpperCase(),
+    ]),
   );
   const linkIds = [...linkIdToTag.keys()].filter(Boolean);
   if (linkIds.length === 0) return [];
@@ -68,21 +89,26 @@ export async function getComunidadeOrderRows(
   return orders.flatMap((o) => {
     const tag = linkIdToTag.get(o.subscriptionLinkId ?? '');
     if (!tag) return [];
-    return [{
-      id: `comunidade_order_${o.id}`,
-      userId: o.subscriptionLink.userId,
-      amount: o.amountCharged,
-      customerDocument: o.customerDocument,
-      netAmount: Number(o.amountCharged) - Number(o.platformFeeAmount),
-      createdAt: o.createdAt,
-      description: `${o.subscriptionLink.name} [TENANT:${tag}]`,
-      installments: 1,
-      paymentMethod: o.paymentMethod ?? null,
-    }];
+    return [
+      {
+        id: `comunidade_order_${o.id}`,
+        userId: o.subscriptionLink.userId,
+        amount: o.amountCharged,
+        customerDocument: o.customerDocument,
+        netAmount: Number(o.amountCharged) - Number(o.platformFeeAmount),
+        createdAt: o.createdAt,
+        description: `${o.subscriptionLink.name} [TENANT:${tag}]`,
+        platformTag: tag,
+        installments: 1,
+        paymentMethod: o.paymentMethod ?? null,
+      },
+    ];
   });
 }
 
-export const FIXED_PLATFORM_TAGS = { has: (tag: string) => getRegisteredPlatform(tag) !== null };
+export const FIXED_PLATFORM_TAGS = {
+  has: (tag: string) => getRegisteredPlatform(tag) !== null,
+};
 
 export function parseYmdSp(s: string): dayjs.Dayjs {
   const t = s.trim();
@@ -93,21 +119,27 @@ export function parseYmdSp(s: string): dayjs.Dayjs {
 export function normalizePlatformTag(tag: string): string {
   const upper = String(tag || '').toUpperCase();
   if (upper === 'EBOOKSIM' || upper === 'EBOOK') return 'EBOOK';
-  if (upper === 'CONTROLE_MOTORISTA' || upper === 'CONTROLE-MOTORISTA') return 'CONTROLE-MOTORISTA';
-  if (upper === 'CONTROLE_PATRIMONIAL' || upper === 'CONTROLE-PATRIMONIAL') return 'CONTROLE-PATRIMONIAL';
+  if (upper === 'CONTROLE_MOTORISTA' || upper === 'CONTROLE-MOTORISTA')
+    return 'CONTROLE-MOTORISTA';
+  if (upper === 'CONTROLE_PATRIMONIAL' || upper === 'CONTROLE-PATRIMONIAL')
+    return 'CONTROLE-PATRIMONIAL';
   return upper;
 }
 
 export const TZ = 'America/Sao_Paulo';
 
 export function getTaxaServicoEffectiveDate(tag: string): Date {
-  return tag === 'RENOVADA' || tag === 'BOSQUE' ? TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA : TAXA_SERVICO_EFFECTIVE_DATE;
+  return tag === 'RENOVADA' || tag === 'BOSQUE'
+    ? TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA
+    : TAXA_SERVICO_EFFECTIVE_DATE;
 }
 
 export const TAGS_SEM_TAXA_SERVICO = new Set<string>([]);
 
 export type ConsolidadoPlatformEntry = { tag: string; id: string };
 
-export const TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA = new Date('2026-05-29T20:40:00.000Z');
+export const TAXA_SERVICO_EFFECTIVE_DATE_RENOVADA = new Date(
+  '2026-05-29T20:40:00.000Z',
+);
 
 export const TAXA_SERVICO_EFFECTIVE_DATE = new Date('2026-05-18T03:00:00.000Z');

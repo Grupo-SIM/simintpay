@@ -11,11 +11,8 @@ export class PrismaBalanceLogRepository implements IBalanceLogRepository {
     userId: string;
     action: string;
     transactionId?: string | null;
-    amount: string;
-    balanceBefore: string;
-    balanceAfter: string;
-    lockedBefore: string;
-    lockedAfter: string;
+    balanceDelta: string;
+    lockedDelta: string;
     description?: string | null;
     source: string;
     metadata?: unknown;
@@ -25,11 +22,11 @@ export class PrismaBalanceLogRepository implements IBalanceLogRepository {
         userId: data.userId,
         action: data.action,
         transactionId: data.transactionId ?? undefined,
-        amount: data.amount,
-        balanceBefore: data.balanceBefore,
-        balanceAfter: data.balanceAfter,
-        lockedBefore: data.lockedBefore,
-        lockedAfter: data.lockedAfter,
+
+        balanceDelta: data.balanceDelta,
+
+        lockedDelta: data.lockedDelta,
+
         description: data.description ?? undefined,
         source: data.source,
         metadata: data.metadata as never,

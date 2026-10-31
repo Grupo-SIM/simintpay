@@ -105,7 +105,8 @@ describe('AffiliateCommissionService.applyForTransaction', () => {
       data: expect.objectContaining({
         userId: 'aff1',
         transactionId: 'tx1',
-        amount: new Prisma.Decimal(2),
+        balanceDelta: new Prisma.Decimal(2),
+        lockedDelta: 0,
         source: 'AFFILIATE_COMMISSION',
       }),
     });
@@ -296,7 +297,8 @@ describe('AffiliateCommissionService.reverseForTransaction', () => {
       data: expect.objectContaining({
         userId: 'aff1',
         transactionId: 'tx1',
-        amount: new Prisma.Decimal(2),
+        balanceDelta: new Prisma.Decimal(-2),
+        lockedDelta: 0,
         source: 'AFFILIATE_COMMISSION',
       }),
     });

@@ -1,0 +1,90 @@
+'use client';
+
+import Link from 'next/link';
+import { Dropdown } from '@/components/ui/Dropdown';
+import { useProductPlatforms } from '@/hooks/use-product-platforms';
+
+type Props = {
+  catalog: ReturnType<typeof useProductPlatforms>;
+  value: string | null;
+  onChange: (value: string) => void;
+  theme: 'light' | 'dark';
+  disabled?: boolean;
+};
+
+export function ProductPlatformSelect({
+  catalog,
+  value,
+  onChange,
+  theme,
+  disabled,
+}: Props) {
+  if (catalog.isLoading) {
+    return (
+      <div
+        className="h-12 animate-pulse rounded-xl border border-zinc-200 bg-zinc-100 dark:border-white/10 dark:bg-white/10"
+        aria-label="Carregando plataformas"
+      />
+    );
+  }
+  if (catalog.isError) {
+    return (
+      <div role="alert" className="text-sm text-red-500">
+        Não foi possível carregar as plataformas.
+        <button
+          type="button"
+          onClick={catalog.retry}
+          className="ml-2 cursor-pointer rounded border border-current px-2 py-1"
+        >
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {catalog.user?.isAdmin && !disabled && (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Destino financeiro obrigatório: selecione um titular ou uma
+          plataforma.
+        </p>
+      )}
+      <Dropdown
+        theme={theme}
+        variant="navbar"
+        portal
+        searchable
+        searchPlaceholder="Buscar plataforma ou proprietário..."
+        value={value ?? ''}
+        onChange={onChange}
+        options={[
+          {
+            value: '',
+            label: catalog.user?.isAdmin
+              ? 'Selecionar titular sem plataforma'
+              : 'Venda pessoal (sem plataforma)',
+          },
+          ...catalog.options,
+        ]}
+        placeholder="Selecione uma plataforma"
+        disabled={disabled}
+      />
+      {catalog.options.length === 0 && (
+        <p className="text-sm text-zinc-500">
+          Nenhuma plataforma ativa disponível para sua conta.{' '}
+          <Link
+            href="/plataformas"
+            className="cursor-pointer font-medium text-emerald-600 underline dark:text-emerald-400"
+          >
+            Criar plataforma
+          </Link>
+        </p>
+      )}
+      {disabled && (
+        <p className="text-xs text-zinc-500">
+          A plataforma vinculada será preservada.
+        </p>
+      )}
+    </div>
+  );
+}

@@ -81,10 +81,10 @@ test('duplicate provider reference cannot cross platforms/accounts or change val
     { userId: 'foreign' },
     { amount: '11' },
     { netAmount: '8' },
-    { description: '[TENANT:OTHER]' },
+    { platformTag: 'OTHER' },
   ]) {
     const { p, ledger, set } = fixture();
-    set({ id: 'prior', ...input, ...change });
+    set({ id: 'prior', ...input, platformTag: 'PAGATG', ...change });
     await expect(ledger.record('PAGATG', input, true)).rejects.toThrow(
       'Referência já vinculada',
     );
@@ -94,7 +94,7 @@ test('duplicate provider reference cannot cross platforms/accounts or change val
 test('concurrent unique winner replays without second wallet credit', async () => {
   const { p, ledger, set } = fixture();
   p.transaction.create.mockImplementation(async () => {
-    set({ id: 'winner', ...input });
+    set({ id: 'winner', ...input, platformTag: 'PAGATG' });
     throw { code: 'P2002' };
   });
   expect(await ledger.record('PAGATG', input, true)).toMatchObject({

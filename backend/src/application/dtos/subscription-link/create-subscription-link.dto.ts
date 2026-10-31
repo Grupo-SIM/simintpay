@@ -20,13 +20,19 @@ function normalizeOptionalUrl(value: unknown): unknown {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (/^[\w.-]+\.[a-z]{2,}([/:?#].*)?$/i.test(trimmed)) return `https://${trimmed}`;
+  if (/^[\w.-]+\.[a-z]{2,}([/:?#].*)?$/i.test(trimmed))
+    return `https://${trimmed}`;
   return trimmed;
 }
 
 export type FrequencyTypeDto = 'SEMANAL' | 'MENSAL' | 'ANUAL';
 
 export class CreateSubscriptionLinkDto {
+  /** Explicit beneficiary; platform selection must agree with its registered owner. */
+  @IsOptional()
+  @IsString()
+  ownerUserId?: string;
+
   @IsOptional()
   @IsObject()
   coproduction?: unknown;

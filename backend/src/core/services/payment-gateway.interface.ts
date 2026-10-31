@@ -237,54 +237,11 @@ export type DomListTransactionsOutput = {
   last_page?: number;
 };
 
-export type DomWithdrawReceiver = {
-  name: string | null;
-  total: number;
-  status: string;
-  pix_key: string | null;
-  external_id: string | null;
-  receipt_url: string | null;
-};
-
-export type DomWithdrawItem = {
-  id_transfer: string;
-  create_date: string;
-  date_transfer: string;
-  value: string;
-  bank_name: string | null;
-  bank_agency: string | null;
-  bank_bill: string | null;
-  obs_client: string | null;
-  status: string;
-  type_transfer: string;
-  pix_key: string | null;
-  receivers: DomWithdrawReceiver[] | null;
-};
-
-export type DomListWithdrawsOutput = {
-  withdraws: DomWithdrawItem[];
-  total_results: number;
-  total_pages: number;
-  page: number;
-};
-
 export interface IPaymentGateway {
-  register(input: DomRegisterInput): Promise<DomRegisterOutput>;
-  generateToken(
-    email: string,
-    password: string,
-  ): Promise<DomGenerateTokenOutput>;
-  me(domToken: string): Promise<DomMeOutput>;
-
   createPaymentLink(
     domToken: string,
     input: DomPaymentLinkInput,
   ): Promise<DomPaymentLinkOutput>;
-  listPaymentLinks(
-    domToken: string,
-    input: { page?: number; pageSize?: number },
-  ): Promise<{ items: DomPaymentLinkOutput[]; total?: number }>;
-  getPaymentLink(domToken: string, id: string): Promise<DomPaymentLinkOutput>;
   updatePaymentLink(
     domToken: string,
     id: string,
@@ -399,15 +356,6 @@ export interface IPaymentGateway {
   cancelSubscription(domToken: string, id: string): Promise<void>;
   reactivateSubscription(domToken: string, id: string): Promise<void>;
   getDomSummary(domToken: string): Promise<any>;
-  getSpecificMachineTransactions(domToken: string): Promise<any>;
-  getMonthlyRevenue(domToken: string): Promise<DomMonthlyRevenueOutput>;
-  getTaxes(masterKey: string): Promise<DomTaxesOutput>;
-
-  requestWithdraw(
-    domToken: string,
-    input: { amount: number; pixKey: string },
-  ): Promise<DomRequestWithdrawOutput>;
-
   listDomTransactions(
     domToken: string,
     input: {
@@ -429,11 +377,6 @@ export interface IPaymentGateway {
   }): Promise<any>;
 
   getDomTransactionDetail(domToken: string, id: string): Promise<any>;
-
-  listDomWithdraws(
-    domToken: string,
-    input: { page: number; limit: number; status?: string },
-  ): Promise<DomListWithdrawsOutput>;
 
   createSubscriptionFromCheckout(
     domToken: string,
@@ -460,10 +403,20 @@ export interface IPaymentGateway {
     },
   ): Promise<{ id: string; status?: string; [key: string]: unknown }>;
 
-  recoverSubscriptionCard?(domToken: string, input: {
-    subscriptionId: string;
-    card: { number: string; exp_month: string; exp_year: string; cvv: string; holder_name: string; holder_document: string };
-  }): Promise<{ paymentId?: string; status?: string }>;
+  recoverSubscriptionCard?(
+    domToken: string,
+    input: {
+      subscriptionId: string;
+      card: {
+        number: string;
+        exp_month: string;
+        exp_year: string;
+        cvv: string;
+        holder_name: string;
+        holder_document: string;
+      };
+    },
+  ): Promise<{ paymentId?: string; status?: string }>;
 
   createLead(data: {
     name: string;
@@ -498,24 +451,6 @@ export interface IPaymentGateway {
     pixExpire: string | null;
     amount: number;
   }>;
-  validateVoucher(
-    domToken: string,
-    input: {
-      code: string;
-      amount: number;
-      userId: string;
-      channel?: string;
-      groupPageId?: string;
-    },
-  ): Promise<{
-    valid: boolean;
-    discountAmount: number;
-    finalAmount: number;
-    voucherId: string;
-    discountType: 'PERCENTAGE' | 'FIXED';
-    discountValue: number;
-    message: string;
-  }>;
 }
 
 /**
@@ -535,7 +470,6 @@ export type SubscriptionOutput = DomSubscriptionOutput;
 export type TransactionItem = DomTransactionItem;
 export type ListTransactionsOutput = DomListTransactionsOutput;
 export type RequestWithdrawOutput = DomRequestWithdrawOutput;
-export type ListWithdrawsOutput = DomListWithdrawsOutput;
 export type TaxesOutput = DomTaxesOutput;
 export type MonthlyRevenueOutput = DomMonthlyRevenueOutput;
 

@@ -1,4 +1,17 @@
-import { IsDefined, IsEmail, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
+import {
+  IsDefined,
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateIf,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PlatformPaymentCustomerDto {
@@ -18,18 +31,32 @@ export class PlatformPaymentCardDto {
 }
 
 export class PlatformPaymentAllocationDto {
+  @IsOptional() @IsIn(['SIMINTPAY_ONLY', 'ADDITIVE_ONLY', 'BOTH']) feeMode?:
+    | 'SIMINTPAY_ONLY'
+    | 'ADDITIVE_ONLY'
+    | 'BOTH';
   @IsOptional() @IsInt() @Min(0) itemsAmountCents?: number;
   @IsOptional() @IsInt() @Min(0) deliveryAmountCents?: number;
   @IsInt() @Min(0) merchantAmountCents!: number;
   @IsInt() @Min(0) platformFeeCents!: number;
 }
 export class CreatePlatformPaymentDto {
-  @IsOptional() @ValidateNested() @Type(() => PlatformPaymentAllocationDto) allocation?: PlatformPaymentAllocationDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PlatformPaymentAllocationDto)
+  allocation?: PlatformPaymentAllocationDto;
   @IsOptional() @IsString() @MaxLength(128) linkId?: string;
   @IsInt() @Min(1) @Max(999999999999) amountCents!: number;
   @IsIn(['PIX', 'CREDIT_CARD']) paymentMethod!: 'PIX' | 'CREDIT_CARD';
   @IsString() @MinLength(1) @MaxLength(128) idempotencyKey!: string;
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
-  @IsDefined() @ValidateNested() @Type(() => PlatformPaymentCustomerDto) customer!: PlatformPaymentCustomerDto;
-  @ValidateIf(value => value.paymentMethod === 'CREDIT_CARD') @IsDefined() @ValidateNested() @Type(() => PlatformPaymentCardDto) card?: PlatformPaymentCardDto;
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => PlatformPaymentCustomerDto)
+  customer!: PlatformPaymentCustomerDto;
+  @ValidateIf((value) => value.paymentMethod === 'CREDIT_CARD')
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => PlatformPaymentCardDto)
+  card?: PlatformPaymentCardDto;
 }

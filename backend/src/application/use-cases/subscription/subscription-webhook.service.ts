@@ -1,18 +1,22 @@
+import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, TransactionStatus, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
 import {
-  BALANCE_LOG_REPOSITORY,
-} from '../../../core/repositories/balance-log.repository.interface';
-import type { IBalanceLogRepository } from '../../../core/repositories/balance-log.repository.interface';
-import { getPlatformTaxaEffective, buildClientTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+  getPlatformTaxaEffective,
+  buildUserTaxaTag,
+} from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { splitDocument } from '../../utils/document.util';
-import { isAreaflixLink, calculateAreaflixSellerNet } from '../../helpers/areaflix-fees.helper';
+import {
+  isAreaflixLink,
+  calculateAreaflixSellerNet,
+} from '../../helpers/areaflix-fees.helper';
 import { PlatformAccessService } from '../../services/platform-access.service';
+import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import { advanceSubscriptionPeriod } from '../../helpers/subscription-period.helper';
 import { buildBillingTransactionDescription } from '../../helpers/billing-transaction-description.helper';
 
@@ -22,8 +26,6 @@ export class SubscriptionWebhookService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(BALANCE_LOG_REPOSITORY)
-    private readonly balanceLogs: IBalanceLogRepository,
     private readonly platformAccess: PlatformAccessService,
   ) {}
 
@@ -51,21 +53,29 @@ export class SubscriptionWebhookService {
         this.logger.log('[SubscriptionWebhook] SIGNATURE-CREATED acknowledged');
         break;
       case 'SIGNATURE-INVOICE-CREATED':
-        this.logger.log('[SubscriptionWebhook] SIGNATURE-INVOICE-CREATED acknowledged');
+        this.logger.log(
+          '[SubscriptionWebhook] SIGNATURE-INVOICE-CREATED acknowledged',
+        );
         break;
       default:
         this.logger.warn(`[SubscriptionWebhook] Unhandled event: ${event}`);
     }
   }
 
-  private async handleInvoicePaid(payload: Record<string, unknown>): Promise<void> {
+  private async handleInvoicePaid(
+    payload: Record<string, unknown>,
+  ): Promise<void> {
     const data = payload.data as Record<string, unknown> | undefined;
     if (!data) return;
 
-    const transactions = data.transactions as Array<Record<string, unknown>> | undefined;
+    const transactions = data.transactions as
+      | Array<Record<string, unknown>>
+      | undefined;
     const tx = transactions?.[0];
     if (!tx) {
-      this.logger.warn('[handleInvoicePaid] SIGNATURE-INVOICE-PAID sem transactions, ignorando.');
+      this.logger.warn(
+        '[handleInvoicePaid] SIGNATURE-INVOICE-PAID sem transactions, ignorando.',
+      );
       return;
     }
 
@@ -73,7 +83,8 @@ export class SubscriptionWebhookService {
     const amount = new Prisma.Decimal(rawAmount).div(100);
 
     const feeDetails = tx.fee_details as Record<string, unknown> | undefined;
-    const domFeeRaw = typeof feeDetails?.amount === 'number' ? feeDetails.amount : 0;
+    const domFeeRaw =
+      typeof feeDetails?.amount === 'number' ? feeDetails.amount : 0;
     const domFee = new Prisma.Decimal(domFeeRaw).div(100);
 
     const relations = data.relations as Record<string, unknown> | undefined;
@@ -90,7 +101,9 @@ export class SubscriptionWebhookService {
         select: { id: true },
       });
       if (exists) {
-        this.logger.warn(`[handleInvoicePaid] Transação ${domTransactionId} já existe, ignorando.`);
+        this.logger.warn(
+          `[handleInvoicePaid] Transação ${domTransactionId} já existe, ignorando.`,
+        );
         return;
       }
     }
@@ -101,7 +114,13 @@ export class SubscriptionWebhookService {
       include: { subscriptionLink: true },
     });
     if (linkOrder) {
-      await this.handleSubscriptionLinkRenewal(linkOrder, amount, domFee, domTransactionId, 'SIGNATURE-INVOICE-PAID');
+      await this.handleSubscriptionLinkRenewal(
+        linkOrder,
+        amount,
+        domFee,
+        domTransactionId,
+        'SIGNATURE-INVOICE-PAID',
+      );
       return;
     }
 
@@ -114,25 +133,50 @@ export class SubscriptionWebhookService {
       },
     });
     if (!subscription) {
-      this.logger.warn(`[handleInvoicePaid] Subscription não encontrada para ${subscriberId}`);
+      this.logger.warn(
+        `[handleInvoicePaid] Subscription não encontrada para ${subscriberId}`,
+      );
       return;
     }
 
     if (subscription.financialSnapshot && domTransactionId) {
-      await settleFinancialSubscription(this.prisma, { snapshot: subscription.financialSnapshot, amount, paymentId: domTransactionId, userId: subscription.userId, method: 'CREDIT_CARD', name: subscription.plan.name, customerName: subscription.customer?.name, customerEmail: subscription.customer?.email, customerDocument: subscription.customer?.document });
+      await settleFinancialSubscription(this.prisma, {
+        snapshot: subscription.financialSnapshot,
+        amount,
+        paymentId: domTransactionId,
+        userId: subscription.userId,
+        method: 'CREDIT_CARD',
+        name: subscription.plan.name,
+        customerName: subscription.customer?.name,
+        customerEmail: subscription.customer?.email,
+        customerDocument: subscription.customer?.document,
+      });
       return;
     }
-    const effectivePlanTag = (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
+    const effectivePlanTag =
+      (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
     // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-    const taxaTag = effectivePlanTag === 'GLOBAL' && subscription.customer?.email?.trim()
-      ? buildClientTaxaTag(subscription.customer.email)
+    const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(effectivePlanTag)
+      ? buildUserTaxaTag(subscription.plan.userId)
       : effectivePlanTag;
     // Taxa do vendedor: TAXA_LINK_PERCENT × base + TAXA_LINK_FIXA, cobrada uma vez por renovação
     // Se não tiver plataforma definida, usa as taxas do GLOBAL
-    const basePlanPrice = Number((subscription.plan as any)?.price ?? 0) || amount.toNumber();
-    const sellerFeePercent = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-    const sellerFeeFixed = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
-    const platformFeeAmount = new Prisma.Decimal(Math.round((basePlanPrice * sellerFeePercent + sellerFeeFixed) * 100) / 100);
+    const basePlanPrice =
+      Number((subscription.plan as any)?.price ?? 0) || amount.toNumber();
+    const sellerFeePercent = getPlatformTaxaEffective(
+      taxaTag,
+      'TAXA_LINK_PERCENT',
+      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT,
+    );
+    const sellerFeeFixed = getPlatformTaxaEffective(
+      taxaTag,
+      'TAXA_LINK_FIXA',
+      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA,
+    );
+    const platformFeeAmount = new Prisma.Decimal(
+      Math.round((basePlanPrice * sellerFeePercent + sellerFeeFixed) * 100) /
+        100,
+    );
     const netAmount = amount.sub(domFee).sub(platformFeeAmount);
 
     await this.createTransactionAndCreditWallet({
@@ -142,17 +186,28 @@ export class SubscriptionWebhookService {
       domFee,
       platformFeeAmount,
       domPaymentId: domTransactionId,
-      description: (() => { const d = this.getString(data.description) ?? subscription.plan?.name ?? '-'; return effectivePlanTag !== 'GLOBAL' ? `${d} [TENANT:${effectivePlanTag}]` : d; })(),
+      platformTag: effectivePlanTag,
+      description: (() => {
+        const d =
+          this.getString(data.description) ?? subscription.plan?.name ?? '-';
+        return effectivePlanTag !== 'GLOBAL'
+          ? `${d} [TENANT:${effectivePlanTag}]`
+          : d;
+      })(),
     });
   }
 
-  private async handleChargeApproved(payload: Record<string, unknown>): Promise<void> {
+  private async handleChargeApproved(
+    payload: Record<string, unknown>,
+  ): Promise<void> {
     const data = payload.data as Record<string, unknown> | undefined;
     if (!data) return;
 
     const domTransactionId = this.getString(data.id);
     if (!domTransactionId) {
-      this.logger.warn('[handleChargeApproved] CHARGE-APPROVED sem data.id, ignorando.');
+      this.logger.warn(
+        '[handleChargeApproved] CHARGE-APPROVED sem data.id, ignorando.',
+      );
       return;
     }
 
@@ -161,7 +216,9 @@ export class SubscriptionWebhookService {
       select: { id: true },
     });
     if (exists) {
-      this.logger.warn(`[handleChargeApproved] Transação ${domTransactionId} já existe, ignorando.`);
+      this.logger.warn(
+        `[handleChargeApproved] Transação ${domTransactionId} já existe, ignorando.`,
+      );
       return;
     }
 
@@ -169,15 +226,23 @@ export class SubscriptionWebhookService {
     const relations = data.relations as Record<string, unknown> | undefined;
     const subscriberId = this.getString(relations?.id_subscriber);
     if (!subscriberId) {
-      this.logger.warn('[handleChargeApproved] CHARGE-APPROVED sem id_subscriber, ignorando.');
+      this.logger.warn(
+        '[handleChargeApproved] CHARGE-APPROVED sem id_subscriber, ignorando.',
+      );
       return;
     }
 
-    if (chargeStatus === 'not_authorized' || chargeStatus === 'failed' || chargeStatus === 'expired') {
-      const failedLinkOrder = await this.prisma.subscriptionLinkOrder.findFirst({
-        where: { domSubscriptionId: subscriberId },
-        select: { id: true, issueStartedAt: true },
-      });
+    if (
+      chargeStatus === 'not_authorized' ||
+      chargeStatus === 'failed' ||
+      chargeStatus === 'expired'
+    ) {
+      const failedLinkOrder = await this.prisma.subscriptionLinkOrder.findFirst(
+        {
+          where: { domSubscriptionId: subscriberId },
+          select: { id: true, issueStartedAt: true },
+        },
+      );
       if (failedLinkOrder) {
         await this.prisma.subscriptionLinkOrder.update({
           where: { id: failedLinkOrder.id },
@@ -201,7 +266,9 @@ export class SubscriptionWebhookService {
           where: { id: failedSub.id },
           data: { status: 'inactive' },
         });
-        this.logger.warn(`[handleChargeApproved] Pagamento negado (${chargeStatus}), subscription ${failedSub.id} -> inactive`);
+        this.logger.warn(
+          `[handleChargeApproved] Pagamento negado (${chargeStatus}), subscription ${failedSub.id} -> inactive`,
+        );
       }
       return;
     }
@@ -209,7 +276,8 @@ export class SubscriptionWebhookService {
     const rawAmount = typeof data.amount === 'number' ? data.amount : 0;
     const amount = new Prisma.Decimal(rawAmount).div(100);
     const feeDetails = data.fee_details as Record<string, unknown> | undefined;
-    const domFeeRaw = typeof feeDetails?.amount === 'number' ? feeDetails.amount : 0;
+    const domFeeRaw =
+      typeof feeDetails?.amount === 'number' ? feeDetails.amount : 0;
     const domFee = new Prisma.Decimal(domFeeRaw).div(100);
 
     // Verificar se é uma SubscriptionLinkOrder (link de assinatura)
@@ -218,18 +286,26 @@ export class SubscriptionWebhookService {
       include: { subscriptionLink: true },
     });
     if (linkOrder) {
-      await this.handleSubscriptionLinkRenewal(linkOrder, amount, domFee, domTransactionId, 'CHARGE-APPROVED');
+      await this.handleSubscriptionLinkRenewal(
+        linkOrder,
+        amount,
+        domFee,
+        domTransactionId,
+        'CHARGE-APPROVED',
+      );
       return;
     }
 
-    if (await this.recordBillingContractCharge({
-      subscriberId,
-      domPaymentId: domTransactionId,
-      chargeStatus,
-      amount,
-      domFee,
-      data,
-    })) {
+    if (
+      await this.recordBillingContractCharge({
+        subscriberId,
+        domPaymentId: domTransactionId,
+        chargeStatus,
+        amount,
+        domFee,
+        data,
+      })
+    ) {
       return;
     }
 
@@ -242,25 +318,50 @@ export class SubscriptionWebhookService {
       },
     });
     if (!subscription) {
-      this.logger.warn(`[handleChargeApproved] Subscription não encontrada para ${subscriberId}`);
+      this.logger.warn(
+        `[handleChargeApproved] Subscription não encontrada para ${subscriberId}`,
+      );
       return;
     }
 
     if (subscription.financialSnapshot && domTransactionId) {
-      await settleFinancialSubscription(this.prisma, { snapshot: subscription.financialSnapshot, amount, paymentId: domTransactionId, userId: subscription.userId, method: 'CREDIT_CARD', name: subscription.plan.name, customerName: subscription.customer?.name, customerEmail: subscription.customer?.email, customerDocument: subscription.customer?.document });
+      await settleFinancialSubscription(this.prisma, {
+        snapshot: subscription.financialSnapshot,
+        amount,
+        paymentId: domTransactionId,
+        userId: subscription.userId,
+        method: 'CREDIT_CARD',
+        name: subscription.plan.name,
+        customerName: subscription.customer?.name,
+        customerEmail: subscription.customer?.email,
+        customerDocument: subscription.customer?.document,
+      });
       return;
     }
-    const effectivePlanTag = (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
+    const effectivePlanTag =
+      (subscription.plan as any)?.plataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
     // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-    const taxaTag = effectivePlanTag === 'GLOBAL' && subscription.customer?.email?.trim()
-      ? buildClientTaxaTag(subscription.customer.email)
+    const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(effectivePlanTag)
+      ? buildUserTaxaTag(subscription.plan.userId)
       : effectivePlanTag;
     // Taxa do vendedor: TAXA_LINK_PERCENT × base + TAXA_LINK_FIXA, cobrada uma vez por renovação
     // Se não tiver plataforma definida, usa as taxas do GLOBAL
-    const basePlanPrice = Number((subscription.plan as any)?.price ?? 0) || amount.toNumber();
-    const sellerFeePercent = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-    const sellerFeeFixed = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
-    const platformFeeAmount = new Prisma.Decimal(Math.round((basePlanPrice * sellerFeePercent + sellerFeeFixed) * 100) / 100);
+    const basePlanPrice =
+      Number((subscription.plan as any)?.price ?? 0) || amount.toNumber();
+    const sellerFeePercent = getPlatformTaxaEffective(
+      taxaTag,
+      'TAXA_LINK_PERCENT',
+      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT,
+    );
+    const sellerFeeFixed = getPlatformTaxaEffective(
+      taxaTag,
+      'TAXA_LINK_FIXA',
+      PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA,
+    );
+    const platformFeeAmount = new Prisma.Decimal(
+      Math.round((basePlanPrice * sellerFeePercent + sellerFeeFixed) * 100) /
+        100,
+    );
     const netAmount = amount.sub(domFee).sub(platformFeeAmount);
 
     await this.createTransactionAndCreditWallet({
@@ -270,7 +371,17 @@ export class SubscriptionWebhookService {
       domFee,
       platformFeeAmount,
       domPaymentId: domTransactionId,
-      description: (() => { const d = this.getString(data.product_first) ?? this.getString(data.description) ?? subscription.plan?.name ?? '-'; return effectivePlanTag !== 'GLOBAL' ? `${d} [TENANT:${effectivePlanTag}]` : d; })(),
+      platformTag: effectivePlanTag,
+      description: (() => {
+        const d =
+          this.getString(data.product_first) ??
+          this.getString(data.description) ??
+          subscription.plan?.name ??
+          '-';
+        return effectivePlanTag !== 'GLOBAL'
+          ? `${d} [TENANT:${effectivePlanTag}]`
+          : d;
+      })(),
     });
   }
 
@@ -300,15 +411,20 @@ export class SubscriptionWebhookService {
     });
     if (!contract) return false;
 
-    const status = ['not_authorized', 'failed', 'expired', 'refused', 'error']
-      .includes((input.chargeStatus ?? '').toLowerCase())
+    const status = [
+      'not_authorized',
+      'failed',
+      'expired',
+      'refused',
+      'error',
+    ].includes((input.chargeStatus ?? '').toLowerCase())
       ? TransactionStatus.FAILED
       : TransactionStatus.COMPLETED;
     const amount = input.amount.isPositive()
       ? input.amount
       : new Prisma.Decimal(contract.baseAmount).plus(
-        new Prisma.Decimal(contract.unitAmount).times(contract.quantity),
-      );
+          new Prisma.Decimal(contract.unitAmount).times(contract.quantity),
+        );
     const description = buildBillingTransactionDescription(
       contract.description,
       contract.metadata,
@@ -320,19 +436,19 @@ export class SubscriptionWebhookService {
     const initialAttempt = existing
       ? null
       : await this.prisma.transaction.findFirst({
-        where: {
-          externalPaymentId: input.subscriberId,
-          domPaymentId: null,
-          status: {
-            in: [
-              TransactionStatus.PENDING,
-              TransactionStatus.COMPLETED,
-              TransactionStatus.FAILED,
-            ],
+          where: {
+            externalPaymentId: input.subscriberId,
+            domPaymentId: null,
+            status: {
+              in: [
+                TransactionStatus.PENDING,
+                TransactionStatus.COMPLETED,
+                TransactionStatus.FAILED,
+              ],
+            },
           },
-        },
-        select: { id: true, status: true },
-      });
+          select: { id: true, status: true },
+        });
     const customer = input.data.customer as Record<string, unknown> | undefined;
     const values = {
       amount,
@@ -343,10 +459,18 @@ export class SubscriptionWebhookService {
       domFee: input.domFee,
       platformFee: new Prisma.Decimal(0),
       description,
-      customerName: this.getString(customer?.name) ?? this.getString(input.data.customer_name),
-      customerEmail: this.getString(customer?.email) ?? this.getString(input.data.customer_email),
-      customerDocument: this.getString(customer?.document) ?? this.getString(input.data.customer_document),
-      customerPhone: this.getString(customer?.phone) ?? this.getString(input.data.customer_phone),
+      customerName:
+        this.getString(customer?.name) ??
+        this.getString(input.data.customer_name),
+      customerEmail:
+        this.getString(customer?.email) ??
+        this.getString(input.data.customer_email),
+      customerDocument:
+        this.getString(customer?.document) ??
+        this.getString(input.data.customer_document),
+      customerPhone:
+        this.getString(customer?.phone) ??
+        this.getString(input.data.customer_phone),
       updatedAt: new Date(),
     };
     const matchingTransaction = existing ?? initialAttempt;
@@ -381,34 +505,58 @@ export class SubscriptionWebhookService {
    */
   private async provisionSaasUserForLink(
     link: any,
-    order: { customerEmail?: string | null; customerName?: string | null; customerDocument?: string | null; customerPhone?: string | null },
+    order: {
+      customerEmail?: string | null;
+      customerName?: string | null;
+      customerDocument?: string | null;
+      customerPhone?: string | null;
+    },
   ): Promise<void> {
-    const tag = ((link?.platformTag ?? link?.plataformas?.[0] ?? '') as string).toString().toUpperCase();
+    const tag = ((link?.platformTag ?? link?.plataformas?.[0] ?? '') as string)
+      .toString()
+      .toUpperCase();
     let url = '';
     if (tag === 'CONTROLE-MOTORISTA') {
-      url = String((getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
+      url = String(
+        getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? '',
+      ).replace(/\/+$/, '');
     } else if (tag === 'CONTROLE-PATRIMONIAL') {
-      url = String((getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
+      url = String(
+        getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ??
+          '',
+      ).replace(/\/+$/, '');
     } else if (tag === 'BETAI') {
-      url = String((getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? undefined) ?? '').replace(/\/+$/, '');
+      url = String(
+        getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? '',
+      ).replace(/\/+$/, '');
     } else {
       return; // plataforma sem provisionamento de conta automática
     }
 
-    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    const token =
+      process.env.API_MACHINE_INTERNAL_TOKEN ||
+      process.env.INTERNAL_SERVICE_TOKEN ||
+      '';
     if (!url || !token) {
-      this.logger.warn(`[SubscriptionLink][${tag}] URL ou token interno não configurado — provisão ignorada`);
+      this.logger.warn(
+        `[SubscriptionLink][${tag}] URL ou token interno não configurado — provisão ignorada`,
+      );
       return;
     }
     if (!order.customerEmail || !order.customerName) {
-      this.logger.warn(`[SubscriptionLink][${tag}] email ou nome do cliente ausente — provisão ignorada`);
+      this.logger.warn(
+        `[SubscriptionLink][${tag}] email ou nome do cliente ausente — provisão ignorada`,
+      );
       return;
     }
 
     try {
       const res = await fetch(`${url}/internal/users/provision`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-internal-token': token },
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-token': token,
+        },
         body: JSON.stringify({
           email: order.customerEmail,
           name: order.customerName,
@@ -417,9 +565,13 @@ export class SubscriptionWebhookService {
         }),
       });
       const text = await res.text();
-      this.logger.log(`[SubscriptionLink][${tag}] provision HTTP ${res.status} email=${order.customerEmail}: ${text.slice(0, 200)}`);
+      this.logger.log(
+        `[SubscriptionLink][${tag}] provision HTTP ${res.status} email=${order.customerEmail}: ${text.slice(0, 200)}`,
+      );
     } catch (err: unknown) {
-      this.logger.warn(`[SubscriptionLink][${tag}] provision falhou: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn(
+        `[SubscriptionLink][${tag}] provision falhou: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -431,16 +583,29 @@ export class SubscriptionWebhookService {
     source: string,
   ): Promise<void> {
     const link = linkOrder.subscriptionLink;
-    const financialQuote = linkOrder.financialSnapshot && domTransactionId ? await settleFinancialSubscription(this.prisma, {
-      snapshot: linkOrder.financialSnapshot, amount, paymentId: domTransactionId, userId: linkOrder.userId, method: 'CREDIT_CARD', name: link.name,
-      customerName: linkOrder.customerName, customerEmail: linkOrder.customerEmail, customerDocument: linkOrder.customerDocument,
-    }) : null;
+    const financialQuote =
+      linkOrder.financialSnapshot && domTransactionId
+        ? await settleFinancialSubscription(this.prisma, {
+            snapshot: linkOrder.financialSnapshot,
+            amount,
+            paymentId: domTransactionId,
+            userId: linkOrder.userId,
+            method: 'CREDIT_CARD',
+            name: link.name,
+            customerName: linkOrder.customerName,
+            customerEmail: linkOrder.customerEmail,
+            customerDocument: linkOrder.customerDocument,
+          })
+        : null;
     const now = new Date();
     const periodBase =
       linkOrder.currentPeriodEndsAt && linkOrder.currentPeriodEndsAt > now
         ? linkOrder.currentPeriodEndsAt
         : now;
-    const currentPeriodEndsAt = advanceSubscriptionPeriod(periodBase, link.frequencyType);
+    const currentPeriodEndsAt = advanceSubscriptionPeriod(
+      periodBase,
+      link.frequencyType,
+    );
 
     await this.prisma.subscriptionLinkOrder.update({
       where: { id: linkOrder.id },
@@ -461,8 +626,14 @@ export class SubscriptionWebhookService {
     // Credita/estende a janela de acesso (PlatformSubscriberAccess) também no cartão — antes só
     // o PIX fazia isso. Sem esta janela o cron de expiração não teria como avisar/bloquear o
     // cartão. Dias conforme a frequência do link (MENSAL 30 … ANUAL 365).
-    const accessTag = ((link?.platformTag ?? link?.plataformas?.[0] ?? '') as string).toUpperCase();
-    if (accessTag === 'CONTROLE-MOTORISTA' || accessTag === 'CONTROLE-PATRIMONIAL' || accessTag === 'BETAI') {
+    const accessTag = (
+      (link?.platformTag ?? link?.plataformas?.[0] ?? '') as string
+    ).toUpperCase();
+    if (
+      accessTag === 'CONTROLE-MOTORISTA' ||
+      accessTag === 'CONTROLE-PATRIMONIAL' ||
+      accessTag === 'BETAI'
+    ) {
       void this.platformAccess.creditAccess({
         platformTag: accessTag,
         email: linkOrder.customerEmail,
@@ -483,24 +654,47 @@ export class SubscriptionWebhookService {
 
     let platformFeeAmount = 0;
     if (!link.isStandalone && !isAfLink) {
-      const effectivePlatformTag = ((link as any).platformTag ?? (link as any).plataformas?.[0] ?? 'GLOBAL').toString().toUpperCase();
+      const effectivePlatformTag = (
+        (link as any).platformTag ??
+        (link as any).plataformas?.[0] ??
+        'GLOBAL'
+      )
+        .toString()
+        .toUpperCase();
       // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-      const taxaTag = effectivePlatformTag === 'GLOBAL' && linkOrder.customerEmail?.trim()
-        ? buildClientTaxaTag(linkOrder.customerEmail)
-        : effectivePlatformTag;
+      const taxaTag =
+        effectivePlatformTag === 'GLOBAL' && linkOrder.customerEmail?.trim()
+          ? buildUserTaxaTag(linkOrder.subscriptionLink.userId)
+          : effectivePlatformTag;
       const baseLinkPrice = Number(link.amount ?? 0);
-      const sellerFeePercent = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT);
-      const sellerFeeFixed = getPlatformTaxaEffective(taxaTag, 'TAXA_LINK_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA);
-      platformFeeAmount = Math.round((baseLinkPrice * sellerFeePercent + sellerFeeFixed) * 100) / 100;
+      const sellerFeePercent = getPlatformTaxaEffective(
+        taxaTag,
+        'TAXA_LINK_PERCENT',
+        PLATFORM_TAXA_DEFAULTS.TAXA_LINK_PERCENT,
+      );
+      const sellerFeeFixed = getPlatformTaxaEffective(
+        taxaTag,
+        'TAXA_LINK_FIXA',
+        PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA,
+      );
+      platformFeeAmount =
+        Math.round((baseLinkPrice * sellerFeePercent + sellerFeeFixed) * 100) /
+        100;
     }
 
     // AREAFLIX: líquido do vendedor = valor − % do método − taxa fixa (taxas do painel).
     // Renovação de assinatura é cobrada no cartão (1x).
-    const netAmount = financialQuote ? new Prisma.Decimal(financialQuote.netAmount) : isAfLink
-      ? new Prisma.Decimal(
-          calculateAreaflixSellerNet(amount.toNumber(), 'CREDIT_CARD', 1).toFixed(2),
-        )
-      : amount.sub(domFee).sub(new Prisma.Decimal(platformFeeAmount));
+    const netAmount = financialQuote
+      ? new Prisma.Decimal(financialQuote.netAmount)
+      : isAfLink
+        ? new Prisma.Decimal(
+            calculateAreaflixSellerNet(
+              amount.toNumber(),
+              'CREDIT_CARD',
+              1,
+            ).toFixed(2),
+          )
+        : amount.sub(domFee).sub(new Prisma.Decimal(platformFeeAmount));
 
     // Criar nova ordem para registro da renovação
     const newOrder = await this.prisma.subscriptionLinkOrder.create({
@@ -514,15 +708,24 @@ export class SubscriptionWebhookService {
         paymentMethod: 'CREDIT_CARD',
         status: 'paid',
         amountCharged: amount.toNumber(),
-        ...(financialQuote ? { financialSnapshot: linkOrder.financialSnapshot as Prisma.InputJsonValue } : {}),
+        ...(financialQuote
+          ? {
+              financialSnapshot:
+                linkOrder.financialSnapshot as Prisma.InputJsonValue,
+            }
+          : {}),
         platformFeeAmount: financialQuote?.totalFeeAmount ?? platformFeeAmount,
         currentPeriodEndsAt,
       },
     });
 
     if (financialQuote && domTransactionId) {
-      await this.prisma.transaction.updateMany({ where: { domPaymentId: domTransactionId, userId: linkOrder.userId },
-        data: { description: `${link.name} [TENANT:${financialQuote.financialSnapshot.policyTag}] subOrder=${newOrder.id}` } });
+      await this.prisma.transaction.updateMany({
+        where: { domPaymentId: domTransactionId, userId: linkOrder.userId },
+        data: {
+          description: `${link.name} [TENANT:${financialQuote.financialSnapshot.policyTag}] subOrder=${newOrder.id}`,
+        },
+      });
     }
 
     // Creditar wallet do dono do link
@@ -531,24 +734,17 @@ export class SubscriptionWebhookService {
       include: { wallet: true },
     });
     if (owner?.wallet && !financialQuote) {
-      const walletBefore = await this.prisma.wallet.findUnique({ where: { userId: owner.id } });
-      const walletAfter = await this.prisma.wallet.update({
-        where: { userId: owner.id },
-        data: { version: { increment: 1 }, balance: { increment: netAmount.toNumber() } },
-      });
-      await this.balanceLogs.create({
-        userId: owner.id,
-        action: 'SUBSCRIPTION_LINK_RENEWAL',
-        transactionId: newOrder.id,
-        amount: netAmount.toString(),
-        balanceBefore: (walletBefore?.balance ?? new Prisma.Decimal(0)).toString(),
-        balanceAfter: walletAfter.balance.toString(),
-        lockedBefore: (walletBefore?.lockedBalance ?? new Prisma.Decimal(0)).toString(),
-        lockedAfter: walletAfter.lockedBalance.toString(),
-        description: `Renovação ${link.name}`,
-        source: 'SUBSCRIPTION_LINK',
-        metadata: { orderId: newOrder.id, source },
-      });
+      await this.prisma.$transaction((tx) =>
+        applyWalletEntry(tx, {
+          userId: owner.id,
+          action: 'SUBSCRIPTION_LINK_RENEWAL',
+          source: 'SUBSCRIPTION_LINK',
+          balanceDelta: netAmount,
+          transactionId: newOrder.id,
+          description: `Renovação ${link.name}`,
+          metadata: { orderId: newOrder.id, source },
+        }),
+      );
     }
 
     // Notificar webhook externo (saas-netflix-back) com evento subscription_renewed
@@ -557,7 +753,10 @@ export class SubscriptionWebhookService {
       const token = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
       fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-simpay-token': token },
+        headers: {
+          'content-type': 'application/json',
+          'x-simpay-token': token,
+        },
         body: JSON.stringify({
           event: 'subscription_renewed',
           customerEmail: linkOrder.customerEmail,
@@ -573,11 +772,15 @@ export class SubscriptionWebhookService {
           phone: linkOrder.customerPhone ?? undefined,
         }),
       }).catch((err: unknown) => {
-        this.logger.warn(`[SubscriptionLinkRenewal] Falha ao notificar ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(
+          `[SubscriptionLinkRenewal] Falha ao notificar ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       });
     }
 
-    this.logger.log(`[SubscriptionLinkRenewal] Renovação processada para ${linkOrder.customerEmail}, orderId=${newOrder.id}, source=${source}`);
+    this.logger.log(
+      `[SubscriptionLinkRenewal] Renovação processada para ${linkOrder.customerEmail}, orderId=${newOrder.id}, source=${source}`,
+    );
 
     // Consolidado / relatórios: assinatura por link não criava Transaction (só Order + wallet).
     const wh = (link.webhookUrl ?? '').toLowerCase();
@@ -612,9 +815,19 @@ export class SubscriptionWebhookService {
       // prioridade; senão, comunidade vinculada. A Transaction [TENANT:<tag>] é necessária
       // para os relatórios por produto e para o dedup por domPaymentId nos handlers acima
       // (evita crédito de wallet e provisão de conta em duplicidade quando o DOM reenvia o webhook).
-      const linkTag = ((link as any).platformTag ?? (link as any).plataformas?.[0] ?? '').toString().toUpperCase();
+      const linkTag = (
+        (link as any).platformTag ??
+        (link as any).plataformas?.[0] ??
+        ''
+      )
+        .toString()
+        .toUpperCase();
       let tenantTag: string | null = null;
-      if (linkTag === 'CONTROLE-MOTORISTA' || linkTag === 'CONTROLE-PATRIMONIAL' || linkTag === 'BETAI') {
+      if (
+        linkTag === 'CONTROLE-MOTORISTA' ||
+        linkTag === 'CONTROLE-PATRIMONIAL' ||
+        linkTag === 'BETAI'
+      ) {
         tenantTag = linkTag;
       } else {
         const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
@@ -624,7 +837,8 @@ export class SubscriptionWebhookService {
         if (hasCommunity) tenantTag = hasCommunity.community.slug.toUpperCase();
       }
       if (tenantTag) {
-        const payId = domTransactionId?.trim() || `SL_${tenantTag}_${newOrder.id}`;
+        const payId =
+          domTransactionId?.trim() || `SL_${tenantTag}_${newOrder.id}`;
         const dup = await this.prisma.transaction.findFirst({
           where: { domPaymentId: payId },
           select: { id: true },
@@ -653,7 +867,9 @@ export class SubscriptionWebhookService {
     }
   }
 
-  private async handleCancelled(payload: Record<string, unknown>): Promise<void> {
+  private async handleCancelled(
+    payload: Record<string, unknown>,
+  ): Promise<void> {
     const data = payload.data as Record<string, unknown> | undefined;
     if (!data) return;
 
@@ -671,7 +887,9 @@ export class SubscriptionWebhookService {
       select: { id: true },
     });
     if (isPaused) {
-      this.logger.log(`[handleCancelled] ${subscriberId} está pausada — webhook de cancelamento ignorado`);
+      this.logger.log(
+        `[handleCancelled] ${subscriberId} está pausada — webhook de cancelamento ignorado`,
+      );
       return;
     }
 
@@ -689,7 +907,10 @@ export class SubscriptionWebhookService {
           cancelledAt: now,
           currentPeriodEndsAt:
             linkOrder.currentPeriodEndsAt ??
-            advanceSubscriptionPeriod(linkOrder.createdAt, linkOrder.subscriptionLink.frequencyType),
+            advanceSubscriptionPeriod(
+              linkOrder.createdAt,
+              linkOrder.subscriptionLink.frequencyType,
+            ),
         },
       });
       const webhookUrl = linkOrder.subscriptionLink?.webhookUrl ?? null;
@@ -697,7 +918,10 @@ export class SubscriptionWebhookService {
         const token = process.env.SIMPAY_WEBHOOK_TOKEN ?? '';
         fetch(webhookUrl, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-simpay-token': token },
+          headers: {
+            'content-type': 'application/json',
+            'x-simpay-token': token,
+          },
           body: JSON.stringify({
             event: 'subscription_expired',
             customerEmail: linkOrder.customerEmail,
@@ -711,10 +935,14 @@ export class SubscriptionWebhookService {
             linkId: linkOrder.subscriptionLinkId,
           }),
         }).catch((err: unknown) => {
-          this.logger.warn(`[handleCancelled] Falha ao notificar ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`);
+          this.logger.warn(
+            `[handleCancelled] Falha ao notificar ${webhookUrl}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         });
       }
-      this.logger.log(`[handleCancelled] SubscriptionLinkOrder ${linkOrder.id} cancelada e webhook externo notificado`);
+      this.logger.log(
+        `[handleCancelled] SubscriptionLinkOrder ${linkOrder.id} cancelada e webhook externo notificado`,
+      );
       return;
     }
 
@@ -723,7 +951,9 @@ export class SubscriptionWebhookService {
       select: { id: true },
     });
     if (!subscription) {
-      this.logger.warn(`[handleCancelled] Subscription não encontrada para ${subscriberId}`);
+      this.logger.warn(
+        `[handleCancelled] Subscription não encontrada para ${subscriberId}`,
+      );
       return;
     }
 
@@ -731,16 +961,31 @@ export class SubscriptionWebhookService {
       where: { id: subscription.id },
       data: { status: 'cancelled' },
     });
-    this.logger.log(`[handleCancelled] Subscription ${subscription.id} cancelada`);
+    this.logger.log(
+      `[handleCancelled] Subscription ${subscription.id} cancelada`,
+    );
   }
 
   private async createTransactionAndCreditWallet(input: {
     subscription: {
       id: string;
       userId: string;
-      customer: { name: string; email: string; document: string; phone?: string | null } | null;
+      customer: {
+        name: string;
+        email: string;
+        document: string;
+        phone?: string | null;
+      } | null;
       plan: { name: string; webhookUrl?: string | null } | null;
-      user: { wallet: { id: string; userId: string; balance: Prisma.Decimal; lockedBalance: Prisma.Decimal; version: number } | null };
+      user: {
+        wallet: {
+          id: string;
+          userId: string;
+          balance: Prisma.Decimal;
+          lockedBalance: Prisma.Decimal;
+          version: number;
+        } | null;
+      };
     };
     amount: Prisma.Decimal;
     netAmount: Prisma.Decimal;
@@ -748,11 +993,22 @@ export class SubscriptionWebhookService {
     platformFeeAmount: Prisma.Decimal;
     domPaymentId: string | null;
     description: string;
+    platformTag?: string | null;
   }): Promise<void> {
-    const { subscription, amount, netAmount, domFee, platformFeeAmount, domPaymentId, description } = input;
+    const {
+      subscription,
+      amount,
+      netAmount,
+      domFee,
+      platformFeeAmount,
+      domPaymentId,
+      description,
+    } = input;
 
     if (!subscription.user.wallet) {
-      this.logger.error(`[createTransactionAndCreditWallet] Wallet não encontrada para userId=${subscription.userId}`);
+      this.logger.error(
+        `[createTransactionAndCreditWallet] Wallet não encontrada para userId=${subscription.userId}`,
+      );
       return;
     }
 
@@ -764,6 +1020,7 @@ export class SubscriptionWebhookService {
         status: TransactionStatus.COMPLETED,
         paymentMethod: PaymentMethod.CREDIT_CARD,
         description,
+        ...transactionPlatformTagData(input.platformTag),
         totalFee: domFee.add(platformFeeAmount).toNumber(),
         domFee: domFee.toNumber(),
         platformFee: platformFeeAmount.toNumber(),
@@ -780,31 +1037,17 @@ export class SubscriptionWebhookService {
       data: { status: 'active' },
     });
 
-    const walletBefore = await this.prisma.wallet.findUnique({
-      where: { userId: subscription.userId },
-    });
-
-    const walletAfter = await this.prisma.wallet.update({
-      where: { userId: subscription.userId },
-      data: {
-        version: { increment: 1 },
-        balance: { increment: netAmount.toNumber() },
-      },
-    });
-
-    await this.balanceLogs.create({
-      userId: subscription.userId,
-      action: 'SUBSCRIPTION_PAID',
-      transactionId: transaction.id,
-      amount: netAmount.toString(),
-      balanceBefore: (walletBefore?.balance ?? new Prisma.Decimal(0)).toString(),
-      balanceAfter: walletAfter.balance.toString(),
-      lockedBefore: (walletBefore?.lockedBalance ?? new Prisma.Decimal(0)).toString(),
-      lockedAfter: walletAfter.lockedBalance.toString(),
-      description,
-      source: 'SUBSCRIPTION',
-      metadata: { subscriptionId: subscription.id },
-    });
+    await this.prisma.$transaction((tx) =>
+      applyWalletEntry(tx, {
+        userId: subscription.userId,
+        action: 'SUBSCRIPTION_PAID',
+        source: 'SUBSCRIPTION',
+        balanceDelta: netAmount,
+        transactionId: transaction.id,
+        description,
+        metadata: { subscriptionId: subscription.id },
+      }),
+    );
 
     this.logger.log(
       `[SubscriptionWebhook] Crédito R$${netAmount.toFixed(2)} para userId=${subscription.userId}, txId=${transaction.id}`,

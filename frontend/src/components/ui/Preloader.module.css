@@ -1,0 +1,108 @@
+/* Preloader "LOADING" — replica exata do tema Braine
+   (letras com contorno + preenchimento girando em rotateY escalonado) */
+
+.loaderWrap {
+  position: fixed;
+  inset: 0;
+  z-index: 9999999;
+}
+
+.handlePreloader {
+  /* roxo da marca */
+  background-color: #7c3aed;
+  background-image: linear-gradient(160deg, #7c3aed 0%, #5b21b6 100%);
+  align-items: center;
+  display: flex;
+  height: 100%;
+  justify-content: center;
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100%;
+  z-index: 9999999;
+}
+
+.animationPreloader {
+  position: absolute;
+  z-index: 100;
+}
+
+.txtLoading {
+  text-align: center;
+  user-select: none;
+}
+
+.lettersLoading {
+  font-weight: 500;
+  letter-spacing: 15px;
+  display: inline-block;
+  position: relative;
+  font-size: 70px;
+  line-height: 70px;
+  font-family: 'Inter', sans-serif;
+  color: transparent;
+  -webkit-text-stroke-width: 1px;
+  -webkit-text-stroke-color: rgba(255, 255, 255, 0.3);
+}
+
+.lettersLoading::before {
+  animation: letters-loading 4s infinite;
+  content: attr(data-text-preloader);
+  text-transform: capitalize;
+  left: 0;
+  opacity: 0;
+  top: 0;
+  position: absolute;
+  font-family: 'Inter', sans-serif;
+  color: #fff;
+}
+
+.lettersLoading:nth-child(2)::before {
+  animation-delay: 0.2s;
+}
+.lettersLoading:nth-child(3)::before {
+  animation-delay: 0.4s;
+}
+.lettersLoading:nth-child(4)::before {
+  animation-delay: 0.6s;
+}
+.lettersLoading:nth-child(5)::before {
+  animation-delay: 0.8s;
+}
+.lettersLoading:nth-child(6)::before {
+  animation-delay: 1s;
+}
+.lettersLoading:nth-child(7)::before {
+  animation-delay: 1.2s;
+}
+.lettersLoading:nth-child(8)::before {
+  animation-delay: 1.4s;
+}
+
+/* estado de saída (fade-out ao terminar) */
+.loaded {
+  opacity: 0;
+  transition: 0.3s ease-out;
+  pointer-events: none;
+}
+
+@keyframes letters-loading {
+  0%,
+  75%,
+  100% {
+    opacity: 0;
+    transform: rotateY(-90deg);
+  }
+  25%,
+  50% {
+    opacity: 1;
+    transform: rotateY(0deg);
+  }
+}
+
+@media screen and (max-width: 500px) {
+  .lettersLoading {
+    font-size: 30px;
+    letter-spacing: 10px;
+  }
+}

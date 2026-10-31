@@ -1,9 +1,14 @@
+import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
-import { creditedSettlementAmount, bindLinkPayment, linkChargeReference, settleFinalNet } from '../../../modules/platform-core/link-settlement';
+import {
+  creditedSettlementAmount,
+  bindLinkPayment,
+  linkChargeReference,
+  settleFinalNet,
+} from '../../../modules/platform-core/link-settlement';
 import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
 import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
-import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { TRANSACTION_REPOSITORY } from '../../../core/repositories/transaction.repository.interface';
@@ -16,8 +21,11 @@ import { PixPlanEventsService } from '../../services/pix-plan-events.service';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
-import { platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
-import { getPlatformTaxaEffective, canonicalPlatformTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
+import { platformTaxaTagForTransaction } from '../../helpers/dom-fee-estimate.helper';
+import {
+  getPlatformTaxaEffective,
+  canonicalPlatformTaxaTag,
+} from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { AffiliateCommissionService } from '../../services/affiliate-commission.service';
 
@@ -72,7 +80,7 @@ export class ProcessWebhookUseCase {
     @Optional() private readonly emailService?: EmailService,
     @Optional() private readonly platformEvents?: PlatformEventsService,
     @Optional() private readonly checkoutEvents?: CheckoutEventsService,
-  ) { }
+  ) {}
 
   private getObject(v: unknown): Record<string, unknown> | null {
     if (v && typeof v === 'object' && !Array.isArray(v))
@@ -157,7 +165,12 @@ export class ProcessWebhookUseCase {
     to: TransactionStatus,
   ): boolean {
     const allowed: Record<TransactionStatus, TransactionStatus[]> = {
-      [TransactionStatus.DRAFT]: [TransactionStatus.PENDING, TransactionStatus.COMPLETED, TransactionStatus.FAILED, TransactionStatus.EXPIRED],
+      [TransactionStatus.DRAFT]: [
+        TransactionStatus.PENDING,
+        TransactionStatus.COMPLETED,
+        TransactionStatus.FAILED,
+        TransactionStatus.EXPIRED,
+      ],
       [TransactionStatus.PENDING]: [
         TransactionStatus.COMPLETED,
         TransactionStatus.FAILED,
@@ -183,7 +196,10 @@ export class ProcessWebhookUseCase {
     return allowed[from]?.includes(to) ?? false;
   }
 
-  async execute(input: { payload: WebhookPayload; transactionId?: string }): Promise<void> {
+  async execute(input: {
+    payload: WebhookPayload;
+    transactionId?: string;
+  }): Promise<void> {
     const parsed = this.parseDomPayload(input.payload);
     if (!parsed) {
       return;
@@ -198,25 +214,36 @@ export class ProcessWebhookUseCase {
 
     const eventType = parsed.event;
 
-    const event = exists ?? await this.events.create({
-      eventId,
-      source: 'api-dom',
-      eventType,
-      payload: input.payload,
-    });
+    const event =
+      exists ??
+      (await this.events.create({
+        eventId,
+        source: 'api-dom',
+        eventType,
+        payload: input.payload,
+      }));
 
     try {
       const domPaymentId = parsed.data.paymentId;
 
-      const reference = input.transactionId ?? linkChargeReference(parsed.data.description);
-      const trx = reference ? await this.prisma.transaction.findUnique({ where: { id: reference } }) : await this.transactions.findByDomPaymentId(domPaymentId);
+      const reference =
+        input.transactionId ?? linkChargeReference(parsed.data.description);
+      const trx = reference
+        ? await this.prisma.transaction.findUnique({ where: { id: reference } })
+        : await this.transactions.findByDomPaymentId(domPaymentId);
 
       if (!trx) {
         // Check if this is a subscription link PIX payment
-        const handled = await this.handleSubscriptionLinkPix(domPaymentId, parsed.data.status, event.id);
+        const handled = await this.handleSubscriptionLinkPix(
+          domPaymentId,
+          parsed.data.status,
+          event.id,
+        );
         if (handled) return;
 
-        this.logger.log(`[WEBHOOK] Transaction ${domPaymentId} not found, ignoring because we cannot determine the tenant user.`);
+        this.logger.log(
+          `[WEBHOOK] Transaction ${domPaymentId} not found, ignoring because we cannot determine the tenant user.`,
+        );
         return;
       }
 
@@ -246,7 +273,11 @@ export class ProcessWebhookUseCase {
       );
 
       let creditAmount: Prisma.Decimal;
-      if (t.settlementBasis === 'FINAL_NET' || (/^[a-f0-9]{64}$/.test(t.id) && t.netAmount != null)) creditAmount = new Prisma.Decimal(t.netAmount!);
+      if (
+        t.settlementBasis === 'FINAL_NET' ||
+        (/^[a-f0-9]{64}$/.test(t.id) && t.netAmount != null)
+      )
+        creditAmount = new Prisma.Decimal(t.netAmount!);
       else {
         // Legacy entries retain their characterized pre-fixed-fee contract.
         const user = await this.prisma.user.findUnique({
@@ -254,11 +285,22 @@ export class ProcessWebhookUseCase {
           select: { platform: { select: { tag: true } } },
         });
         const tenantSlug = user?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
-        const rowTag = platformTaxaTagFromText(t.description ?? undefined);
-        const feeTag = rowTag !== 'GLOBAL' ? rowTag : canonicalPlatformTaxaTag(tenantSlug);
-        const fixedTx = getPlatformTaxaEffective(feeTag, 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-        const fixedCashback = getPlatformTaxaEffective(feeTag, 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
-        creditAmount = amountWithoutAllFee.sub(new Prisma.Decimal(fixedTx + fixedCashback));
+        const rowTag = platformTaxaTagForTransaction(t);
+        const feeTag =
+          rowTag !== 'GLOBAL' ? rowTag : canonicalPlatformTaxaTag(tenantSlug);
+        const fixedTx = getPlatformTaxaEffective(
+          feeTag,
+          'TAXA_FIXA_TRANSACAO',
+          PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
+        );
+        const fixedCashback = getPlatformTaxaEffective(
+          feeTag,
+          'TAXA_CASHBACK',
+          PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
+        );
+        creditAmount = amountWithoutAllFee.sub(
+          new Prisma.Decimal(fixedTx + fixedCashback),
+        );
       }
 
       const status = parsed.data.status;
@@ -268,8 +310,15 @@ export class ProcessWebhookUseCase {
           await bindLinkPayment(p, t, domPaymentId);
           return settleFinalNet(p, t, nextStatus, 'WEBHOOK');
         }
-        if (t.status === TransactionStatus.COMPLETED && ['refunded', 'chargeback', 'in_mediation'].includes(status)) creditAmount = await creditedSettlementAmount(p, t.id, creditAmount);
-        const claimed = await p.transaction.updateMany({ where: { id: t.id, status: t.status }, data: { previousStatus: t.status, status: nextStatus } });
+        if (
+          t.status === TransactionStatus.COMPLETED &&
+          ['refunded', 'chargeback', 'in_mediation'].includes(status)
+        )
+          creditAmount = await creditedSettlementAmount(p, t.id, creditAmount);
+        const claimed = await p.transaction.updateMany({
+          where: { id: t.id, status: t.status },
+          data: { previousStatus: t.status, status: nextStatus },
+        });
         if (claimed.count !== 1) return false;
         const walletUpdates: {
           balance?: Prisma.Decimal;
@@ -337,7 +386,6 @@ export class ProcessWebhookUseCase {
           }
         }
 
-
         await p.transactionStatusHistory.create({
           data: {
             transactionId: t.id,
@@ -359,11 +407,11 @@ export class ProcessWebhookUseCase {
               userId: t.userId,
               action: `WEBHOOK_${eventType}`,
               transactionId: t.id,
-              amount: creditAmount,
-              balanceBefore: walletBeforeBalance,
-              balanceAfter: walletAfterBalance,
-              lockedBefore: walletBeforeLocked,
-              lockedAfter: walletAfterLocked,
+
+              balanceDelta: walletAfterBalance.sub(walletBeforeBalance),
+
+              lockedDelta: walletAfterLocked.sub(walletBeforeLocked),
+
               source: 'WEBHOOK',
               metadata: input.payload as never,
             },
@@ -376,7 +424,10 @@ export class ProcessWebhookUseCase {
             referredUserId: t.userId,
             platformFee: t.platformFee,
           });
-        } else if (nextStatus === TransactionStatus.REFUNDED || nextStatus === TransactionStatus.CHARGEBACK) {
+        } else if (
+          nextStatus === TransactionStatus.REFUNDED ||
+          nextStatus === TransactionStatus.CHARGEBACK
+        ) {
           await this.affiliateCommission.reverseForTransaction(p, t.id);
         }
         return true;
@@ -402,21 +453,41 @@ export class ProcessWebhookUseCase {
             mobile_phone: customer?.mobile_phone,
           });
         } catch (pixPlanError: any) {
-          this.logger.error(`Erro ao processar PIX-PLAN para tx ${t.id}: ${pixPlanError.message}`);
+          this.logger.error(
+            `Erro ao processar PIX-PLAN para tx ${t.id}: ${pixPlanError.message}`,
+          );
         }
       }
 
       // EMIT EVENT for Real-Time UI (Renovada)
-      const eventTag = platformTaxaTagFromText(t.description);
+      const eventTag = platformTaxaTagForTransaction(t);
       if (eventTag === 'ZERO-GRAU') {
-        const outcome = await notifyZeroGrauPaymentStatus({ paymentId: domPaymentId, status: nextStatus });
-        if (outcome === 'failed') this.logger.warn(`Callback Zero Grau pendente para ${t.id}`);
+        const outcome = await notifyZeroGrauPaymentStatus({
+          paymentId: domPaymentId,
+          status: nextStatus,
+        });
+        if (outcome === 'failed')
+          this.logger.warn(`Callback Zero Grau pendente para ${t.id}`);
       }
-      if (t.domPaymentId && ['COMPLETED', 'FAILED', 'EXPIRED'].includes(nextStatus)) this.checkoutEvents?.emit({ domPaymentId: t.domPaymentId, status: nextStatus as 'COMPLETED' | 'FAILED' | 'EXPIRED' });
-      if (this.platformEvents && eventTag !== 'GLOBAL') this.platformEvents.emit(eventTag, 'transaction', { ...t, status: nextStatus });
-      else if (eventTag === 'RENOVADA') this.renovadaEvents.emitTransaction({ ...t, status: nextStatus });
+      if (
+        t.domPaymentId &&
+        ['COMPLETED', 'FAILED', 'EXPIRED'].includes(nextStatus)
+      )
+        this.checkoutEvents?.emit({
+          domPaymentId: t.domPaymentId,
+          status: nextStatus as 'COMPLETED' | 'FAILED' | 'EXPIRED',
+        });
+      if (this.platformEvents && eventTag !== 'GLOBAL')
+        this.platformEvents.emit(eventTag, 'transaction', {
+          ...t,
+          status: nextStatus,
+        });
+      else if (eventTag === 'RENOVADA')
+        this.renovadaEvents.emitTransaction({ ...t, status: nextStatus });
     } catch (e: unknown) {
-      this.logger.error(`Error processing webhook ${event.id}: ${e instanceof Error ? e.message : 'unknown error'}`);
+      this.logger.error(
+        `Error processing webhook ${event.id}: ${e instanceof Error ? e.message : 'unknown error'}`,
+      );
       await this.events.markFailed(
         event.id,
         e instanceof Error ? e.message : 'unknown error',
@@ -438,9 +509,22 @@ export class ProcessWebhookUseCase {
     });
 
     if (!order) return false;
-    if (domStatus === 'paid' && order.financialSnapshot) await settleFinancialSubscription(this.prisma, { snapshot: order.financialSnapshot, amount: order.amountCharged, paymentId: domPixPaymentId, userId: order.userId, method: 'PIX', name: order.subscriptionLink.name, customerName: order.customerName, customerEmail: order.customerEmail, customerDocument: order.customerDocument });
+    if (domStatus === 'paid' && order.financialSnapshot)
+      await settleFinancialSubscription(this.prisma, {
+        snapshot: order.financialSnapshot,
+        amount: order.amountCharged,
+        paymentId: domPixPaymentId,
+        userId: order.userId,
+        method: 'PIX',
+        name: order.subscriptionLink.name,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        customerDocument: order.customerDocument,
+      });
 
-    this.logger.log(`[WEBHOOK] Found SubscriptionLinkOrder ${order.id} for domPixPaymentId ${domPixPaymentId}, status=${domStatus}`);
+    this.logger.log(
+      `[WEBHOOK] Found SubscriptionLinkOrder ${order.id} for domPixPaymentId ${domPixPaymentId}, status=${domStatus}`,
+    );
 
     if (domStatus !== 'paid') {
       // Update order status for other statuses (expired, failed, etc.)
@@ -488,10 +572,14 @@ export class ProcessWebhookUseCase {
             amountCharged: Number(order.amountCharged),
             subscriptionLinkOrderId: order.id,
           });
-          this.logger.log(`[WEBHOOK] Community access activated for order ${order.id}`);
+          this.logger.log(
+            `[WEBHOOK] Community access activated for order ${order.id}`,
+          );
         }
       } catch (err: unknown) {
-        this.logger.error(`[WEBHOOK] Error activating community for order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`);
+        this.logger.error(
+          `[WEBHOOK] Error activating community for order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`,
+        );
       }
     }
 
@@ -515,9 +603,13 @@ export class ProcessWebhookUseCase {
             orderId: order.id,
           });
         }
-        this.logger.log(`[WEBHOOK] Access email sent to ${order.customerEmail} for order ${order.id}`);
+        this.logger.log(
+          `[WEBHOOK] Access email sent to ${order.customerEmail} for order ${order.id}`,
+        );
       } catch (err: unknown) {
-        this.logger.error(`[WEBHOOK] Error sending email for order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`);
+        this.logger.error(
+          `[WEBHOOK] Error sending email for order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`,
+        );
       }
     }
 
@@ -540,6 +632,7 @@ export class ProcessWebhookUseCase {
             totalFee: 0,
             domFee: 0,
             platformFee: pf,
+            ...transactionPlatformTagData('AREAFLIX'),
             description: `${order.subscriptionLink.name} ${TENANT_AREAFLIX_TAG} subOrder=${order.id}`,
             domPaymentId: order.domPixPaymentId,
             customerName: order.customerName,
@@ -587,6 +680,7 @@ export class ProcessWebhookUseCase {
               totalFee: 0,
               domFee: 0,
               platformFee: pf,
+              ...transactionPlatformTagData(communityTag),
               description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
               domPaymentId: order.domPixPaymentId,
               customerName: order.customerName,

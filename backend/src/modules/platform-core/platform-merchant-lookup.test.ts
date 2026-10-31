@@ -74,8 +74,11 @@ test('merchant payment status alias and canonical preserve scoped historical fin
     domPaymentId: 'remote',
     externalPaymentId: 'remote',
     description: '[TENANT:SHOP]',
+    platformTag: 'SHOP',
+    acquirer: 'DOM',
     status: 'COMPLETED',
-  };
+  } as any;
+  const { matches } = await import('./tests/platform-query-fixture');
   (merchant.user as any).wallet = {};
   p.platform = {
     findUnique: async () => ({
@@ -84,7 +87,10 @@ test('merchant payment status alias and canonical preserve scoped historical fin
       owner: { isActive: true },
     }),
   };
-  p.transaction = { findFirst: async () => payment };
+  p.transaction = {
+    findFirst: async ({ where }: any) =>
+      matches(payment, where) ? payment : null,
+  };
   p.integrationMerchant.findUnique = async (q: any) =>
     q.where.integrationKey_externalMerchantId?.integrationKey === 'platform:p'
       ? null
@@ -124,7 +130,7 @@ test('merchant payment status alias and canonical preserve scoped historical fin
       coproductionCents: 0,
     });
     expect(payment.userId).toBe('seller');
-    payment.description = '[TENANT:SHOP][TENANT:OTHER]';
+    payment.platformTag = 'OTHER';
     expect(await legacy.status('old-key', 'external', 'remote')).toEqual({
       paymentId: 'remote',
       status: 'NOT_FOUND',

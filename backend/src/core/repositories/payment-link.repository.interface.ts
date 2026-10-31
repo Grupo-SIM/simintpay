@@ -3,8 +3,9 @@ import type { PaymentLink } from '@prisma/client';
 export const PAYMENT_LINK_REPOSITORY = Symbol('PAYMENT_LINK_REPOSITORY');
 
 export type CreatePaymentLinkData = {
-    coproduction?: unknown;
+  coproduction?: unknown;
   id?: string;
+  createdByUserId?: string;
   userId: string;
   title: string;
   description?: string | null;
@@ -58,7 +59,9 @@ export interface IPaymentLinkRepository {
   }): Promise<PaymentLink | null>;
   update(
     id: string,
-    data: Partial<Omit<CreatePaymentLinkData, 'userId'> & { currentUses: number }>,
+    data: Partial<
+      Omit<CreatePaymentLinkData, 'userId'> & { currentUses: number }
+    >,
   ): Promise<PaymentLink>;
   delete(id: string): Promise<void>;
 }

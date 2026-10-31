@@ -5,6 +5,7 @@ import { initializePlatformIntegrationsCache } from '../src/modules/platform-int
 // Match the Bun preload: unit tests never refresh caches from a real database.
 beforeAll(async () => {
   await initializePlatformTaxasCache({
+    user: { findMany: async () => [] },
     platformTaxaOverride: { findMany: async () => [] },
   } as any);
   await initializePlatformRegistryCache({

@@ -2,11 +2,19 @@
   "$schema": "https://turborepo.dev/schema.json",
   "tasks": {
     "generate": {
-      "cache": false
+      "inputs": ["prisma/schema.prisma", "prisma.config.ts"],
+      "outputs": ["../node_modules/.prisma/client/**"]
     },
     "build": {
       "dependsOn": ["^build", "generate"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
+      "env": [
+        "NEXT_PUBLIC_BACKEND_URL",
+        "NEXT_PUBLIC_API_BASE_URL",
+        "NEXT_PUBLIC_CHECKOUT_BASE_URL",
+        "NEXT_PUBLIC_CLIENT_MIN_AMOUNT",
+        "NEXT_PUBLIC_RECAPTCHA_SITE_KEY"
+      ]
     },
     "check-types": {
       "dependsOn": ["^check-types", "generate"],

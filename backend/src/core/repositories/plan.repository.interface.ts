@@ -3,7 +3,8 @@ import type { Plan, PlanType } from '@prisma/client';
 export const PLAN_REPOSITORY = Symbol('PLAN_REPOSITORY');
 
 export type CreatePlanData = {
-    coproduction?: unknown;
+  coproduction?: unknown;
+  createdByUserId?: string;
   userId: string;
   name: string;
   description?: string | null;
@@ -29,6 +30,9 @@ export interface IPlanRepository {
   findById(id: string): Promise<Plan | null>;
   findByIdForUser(input: { id: string; userId: string }): Promise<Plan | null>;
   findByCode(code: string): Promise<Plan | null>;
-  update(id: string, data: Partial<Omit<CreatePlanData, 'userId'>>): Promise<Plan>;
+  update(
+    id: string,
+    data: Partial<Omit<CreatePlanData, 'userId'>>,
+  ): Promise<Plan>;
   delete(id: string): Promise<void>;
 }

@@ -4,9 +4,16 @@ import { initializePlatformRegistryCache } from '../src/modules/module.registry'
 import { initializePlatformIntegrationsCache } from '../src/modules/platform-integrations/platform-integrations.store';
 
 // Standalone tests must not refresh application caches against configured external services.
-await initializePlatformTaxasCache({ platformTaxaOverride: { findMany: async () => [] } } as any);
-await initializePlatformRegistryCache({ platform: { findMany: async () => [] } } as any);
-await initializePlatformIntegrationsCache({ platformIntegration: { findMany: async () => [] } } as any);
+await initializePlatformTaxasCache({
+  user: { findMany: async () => [] },
+  platformTaxaOverride: { findMany: async () => [] },
+} as any);
+await initializePlatformRegistryCache({
+  platform: { findMany: async () => [] },
+} as any);
+await initializePlatformIntegrationsCache({
+  platformIntegration: { findMany: async () => [] },
+} as any);
 let unexpectedHttpRequests = 0;
 globalThis.fetch = (() => {
   unexpectedHttpRequests++;
@@ -15,5 +22,6 @@ globalThis.fetch = (() => {
 afterEach(() => {
   const count = unexpectedHttpRequests;
   unexpectedHttpRequests = 0;
-  if (count) throw new Error(`${count} HTTP request(s) attempted without a test mock`);
+  if (count)
+    throw new Error(`${count} HTTP request(s) attempted without a test mock`);
 });

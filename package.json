@@ -5,6 +5,7 @@
   "workspaces": [
     "backend",
     "checkout",
+    "frontend",
     "packages/*"
   ],
   "scripts": {

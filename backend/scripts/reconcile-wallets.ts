@@ -1,109 +1,90 @@
 /**
- * Reconciles Wallet against BalanceLog.
- *
- *   bun scripts/reconcile-wallets.ts            read-only report
- *   bun scripts/reconcile-wallets.ts --apply    appends ADJUSTMENT rows for chain gaps (writes!)
- *
- * Rows from source MASTER_ADMIN_CONTROL are fee bookkeeping (balanceBefore = balanceAfter = 0) and
- * never move the wallet, so they are ignored. Locked-balance gaps are only reported. Existing rows are never edited; gaps are closed with
- * ADJUSTMENT / RECONCILIATION rows placed 1 ms before the row that exposed the gap.
- * The target database comes from DATABASE_URL; --apply requires --confirm-host=<hostname> to match it.
+ * Read-only: bun scripts/reconcile-wallets.ts
+ * Explicit correction: --apply --adjust-ledger=<email> --confirm-host=<hostname>
+ * Append both signed deltas; never modify the wallet or historical rows.
+ * Remote/shared operations require separate explicit authorization.
  */
 import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { findWalletLedgerDivergences } from '../src/modules/wallet-ledger/wallet-balance';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL is required');
 const host = new URL(url).hostname;
 const apply = process.argv.includes('--apply');
-if (apply && !process.argv.includes(`--confirm-host=${host}`)) {
-  throw new Error(`--apply needs --confirm-host=${host}`);
+const email = process.argv
+  .find((arg) => arg.startsWith('--adjust-ledger='))
+  ?.slice(16);
+if (apply && (!email || !process.argv.includes(`--confirm-host=${host}`))) {
+  throw new Error(
+    `--apply needs --adjust-ledger=<email> --confirm-host=${host}`,
+  );
+}
+if (process.argv.some((arg) => arg.startsWith('--adjust-tail='))) {
+  throw new Error(
+    '--adjust-tail removed; review SUM-based drift and use --adjust-ledger',
+  );
 }
 const db = new PrismaClient({
   adapter: new PrismaPg({ connectionString: url }),
 });
 
-const ZERO = new Prisma.Decimal(0);
-const fmt = (d: Prisma.Decimal) => d.toFixed(2);
-
 async function main() {
   console.log(`database host: ${host} (${apply ? 'APPLY' : 'read-only'})`);
-  const wallets = await db.wallet.findMany({
-    include: { user: { select: { email: true } } },
-  });
-  let tail = 0;
-  let gaps = 0;
-  let lockGaps = 0;
-  for (const wallet of wallets) {
-    const rows = await db.balanceLog.findMany({
-      where: { userId: wallet.userId, NOT: { source: 'MASTER_ADMIN_CONTROL' } },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
-    const fixes: Prisma.BalanceLogCreateManyInput[] = [];
-    let prev: Prisma.Decimal | null = null;
-    let prevLocked: Prisma.Decimal | null = null;
-    for (const row of rows) {
-      if (prev && !prevLocked!.eq(row.lockedBefore)) {
-        lockGaps++;
-        console.log(
-          `LOCK  ${wallet.user.email} ${row.createdAt.toISOString()} ${row.action}: locked ${fmt(prevLocked!)} -> ${fmt(row.lockedBefore)} (report only)`,
-        );
-      }
-      if (prev && !prev.eq(row.balanceBefore)) {
-        gaps++;
-        const gap = row.balanceBefore.sub(prev);
-        console.log(
-          `GAP   ${wallet.user.email} ${row.createdAt.toISOString()} ${row.action}: ${fmt(prev)} -> ${fmt(row.balanceBefore)} (${fmt(gap)})`,
-        );
-        fixes.push({
-          userId: wallet.userId,
-          action: 'ADJUSTMENT',
-          source: 'RECONCILIATION',
-          amount: gap,
-          balanceBefore: prev,
-          balanceAfter: row.balanceBefore,
-          lockedBefore: row.lockedBefore,
-          lockedAfter: row.lockedBefore,
-          description:
-            'Conciliação: movimentação sem lançamento anterior no ledger (plano 0007)',
-          metadata: { reason: 'chain-gap', before: row.id, plan: '0007' },
-          createdAt: new Date(row.createdAt.getTime() - 1),
-        });
-      }
-      prev = row.balanceAfter;
-      prevLocked = row.lockedAfter;
-    }
-    const lastBalance = prev ?? ZERO;
-    const lastLocked = prevLocked ?? ZERO;
-    if (
-      !wallet.balance.eq(lastBalance) ||
-      !wallet.lockedBalance.eq(lastLocked)
-    ) {
-      tail++;
-      console.log(
-        `TAIL  ${wallet.user.email} wallet ${fmt(wallet.balance)}/${fmt(wallet.lockedBalance)} log ${fmt(lastBalance)}/${fmt(lastLocked)}`,
-      );
-    }
-    if (apply && fixes.length) {
-      await db.$transaction(async (tx) => {
-        const current = await tx.wallet.findUniqueOrThrow({
-          where: { userId: wallet.userId },
-        });
-        if (
-          !current.balance.eq(wallet.balance) ||
-          current.version !== wallet.version
-        )
-          throw new Error(`wallet changed: ${wallet.user.email}`);
-        await tx.balanceLog.createMany({ data: fixes });
-      });
-      console.log(
-        `APPLIED ${fixes.length} adjustment(s) for ${wallet.user.email}`,
-      );
-    }
+  const drifts = await findWalletLedgerDivergences(db);
+  for (const drift of drifts) {
+    console.log(
+      `${drift.email} balance=${drift.balance} ledger=${drift.ledgerBalance} locked=${drift.lockedBalance} ledgerLocked=${drift.ledgerLockedBalance}`,
+    );
   }
-  console.log(
-    `wallets: ${wallets.length}, balance chain gaps: ${gaps}, locked chain gaps (report only): ${lockGaps}, wallet/log tail mismatches: ${tail}`,
-  );
+  if (!apply) return;
+  await db.$transaction(async (tx) => {
+    const user = await tx.user.findUniqueOrThrow({ where: { email } });
+    // Serialize correction with all production wallet writers before reading ledger sums.
+    const wallets = await tx.$queryRaw<
+      Array<{ balance: Prisma.Decimal; lockedBalance: Prisma.Decimal }>
+    >`
+      SELECT balance, "lockedBalance" FROM "Wallet" WHERE "userId" = ${user.id} FOR UPDATE
+    `;
+    const wallet = wallets[0];
+    if (!wallet) throw new Error('Wallet missing');
+    const totals = await tx.balanceLog.aggregate({
+      where: { userId: user.id },
+      _sum: { balanceDelta: true, lockedDelta: true },
+    });
+    const balanceDelta = wallet.balance.sub(totals._sum.balanceDelta ?? 0);
+    const lockedDelta = wallet.lockedBalance.sub(totals._sum.lockedDelta ?? 0);
+    if (balanceDelta.isZero() && lockedDelta.isZero()) return;
+    await tx.balanceLog.create({
+      data: {
+        userId: user.id,
+        action: 'ADJUSTMENT',
+        source: 'RECONCILIATION',
+        balanceDelta,
+        lockedDelta,
+        description:
+          'Correção explícita do ledger para a projeção atual; histórico preservado',
+        metadata: {
+          databaseHost: host,
+          reason: 'Explicit operator-reviewed projection reconciliation',
+          walletBalance: wallet.balance.toFixed(2),
+          walletLockedBalance: wallet.lockedBalance.toFixed(2),
+          priorLedgerBalance: (
+            totals._sum.balanceDelta ?? new Prisma.Decimal(0)
+          ).toFixed(2),
+          priorLedgerLockedBalance: (
+            totals._sum.lockedDelta ?? new Prisma.Decimal(0)
+          ).toFixed(2),
+          balanceDelta: balanceDelta.toFixed(2),
+          lockedDelta: lockedDelta.toFixed(2),
+        },
+      },
+    });
+  });
 }
-
-main().finally(() => db.$disconnect());
+main()
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(() => db.$disconnect());

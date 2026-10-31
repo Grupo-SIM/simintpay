@@ -1,5 +1,6 @@
-import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
-import { Inject, Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
+import { resolveFinancialOwner } from '../../helpers/financial-owner.helper';
+import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
@@ -7,8 +8,10 @@ import type { IPaymentLinkRepository } from '../../../core/repositories/payment-
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { CreatePaymentLinkDto } from '../../dtos/payment-link/create-payment-link.dto';
-import { getModuleDomToken } from '../../../modules/module.registry';
-import { assertClientCanCreate, clientTaxaTagFor } from '../../helpers/client-rules.helper';
+import {
+  assertClientCanCreate,
+  clientTaxaTagFor,
+} from '../../helpers/client-rules.helper';
 
 @Injectable()
 export class CreatePaymentLinkUseCase {
@@ -19,7 +22,12 @@ export class CreatePaymentLinkUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
   ) {}
 
-  async execute(input: { userId: string; id?: string; dto: CreatePaymentLinkDto; allowLocalCheckout?: boolean }): Promise<{
+  async execute(input: {
+    userId: string;
+    id?: string;
+    dto: CreatePaymentLinkDto;
+    allowLocalCheckout?: boolean;
+  }): Promise<{
     data: {
       id: string;
       codigo: string;
@@ -34,15 +42,23 @@ export class CreatePaymentLinkUseCase {
     };
   }> {
     // Cliente SimintPay: bloqueia não-aprovado e exige mínimo.
-    const user = await this.users.findById(input.userId);
+    const {
+      owner: user,
+      platformTag: selectedTag,
+      createdByUserId,
+    } = await resolveFinancialOwner(this.users, input.userId, {
+      ...input.dto,
+      platforms: input.dto.plataformas,
+    });
     assertClientCanCreate(user, input.dto.valor);
-    const selectedTag = assertExplicitPlatform(user, input.dto.plataformas, true);
     const clientTag = selectedTag ? null : clientTaxaTagFor(user);
 
-    const domToken = platformGatewayToken(selectedTag ?? user?.platform?.tag, process.env.DOM_TOKEN);
+    const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
 
     if (!domToken) {
-      throw new UnauthorizedException('Token DOM não encontrado para este usuário/módulo');
+      throw new UnauthorizedException(
+        'Token DOM não encontrado para este usuário/módulo',
+      );
     }
 
     const aceitaCartao = input.dto.aceitaCartao ?? true;
@@ -51,45 +67,37 @@ export class CreatePaymentLinkUseCase {
     const maxInstallments = aceitaCartao ? (input.dto.parcelasMax ?? 1) : 1;
     const isStandalone = input.dto.isStandalone ?? true;
 
-    // Taxa de juros DOM para o número máximo de parcelas (para registro no gateway)
-    let interestRate = 0;
-    try {
-      const masterKey = process.env.API_DOM_MASTER_KEY;
-      if (masterKey) {
-        const taxes = await this.gateway.getTaxes(masterKey);
-        const parcelas = taxes?.cartaoCredito?.tabelaParcelas ?? [];
-        const row = parcelas.find((r) => Number(r.parcelas) === maxInstallments);
-        if (row) {
-          interestRate = parseFloat(row.taxaDom) || 0;
-        }
-      }
-    } catch {
-      // Se falhar ao buscar taxas, segue com 0 (não bloqueia a criação)
-    }
+    // Sem tabela de juros DOM disponível: taxa de juros do gateway fica em 0.
+    const interestRate = 0;
 
-    const created = await this.gateway.createPaymentLink(domToken, {
-      title: input.dto.titulo,
-      description: input.dto.descricao ?? null,
-      amount: input.dto.valor,
-      maxInstallments,
-      interestRateInstallment: interestRate,
-      aceitaCartao,
-      aceitaPix,
-    }).catch(error => {
-      // BetAI's registered-platform contract keeps a local checkout if optional
-      // DOM link registration fails. It never switches acquirer or owner.
-      if (!input.allowLocalCheckout) throw error;
-      return null;
-    });
+    const created = await this.gateway
+      .createPaymentLink(domToken, {
+        title: input.dto.titulo,
+        description: input.dto.descricao ?? null,
+        amount: input.dto.valor,
+        maxInstallments,
+        interestRateInstallment: interestRate,
+        aceitaCartao,
+        aceitaPix,
+      })
+      .catch((error) => {
+        // BetAI's registered-platform contract keeps a local checkout if optional
+        // DOM link registration fails. It never switches acquirer or owner.
+        if (!input.allowLocalCheckout) throw error;
+        return null;
+      });
 
     const saved = await this.links.create({
       coproduction: input.dto.coproduction,
       ...(input.id ? { id: input.id } : {}),
-      userId: input.userId,
+      userId: user.id,
+      createdByUserId,
       title: input.dto.titulo,
       description: input.dto.descricao ?? null,
       amount: input.dto.valor,
-      expiresAt: input.dto.dataExpiracao ? new Date(input.dto.dataExpiracao) : null,
+      expiresAt: input.dto.dataExpiracao
+        ? new Date(input.dto.dataExpiracao)
+        : null,
       maxInstallments,
       aceitaCartao,
       aceitaDebito,
@@ -114,7 +122,9 @@ export class CreatePaymentLinkUseCase {
         titulo: saved.title,
         descricao: saved.description ?? null,
         valor: Number(saved.amount),
-        dataExpiracao: (saved as any).expiresAt ? (saved as any).expiresAt.toISOString() : null,
+        dataExpiracao: (saved as any).expiresAt
+          ? (saved as any).expiresAt.toISOString()
+          : null,
         parcelasMax: saved.maxInstallments,
         ativo: saved.isActive,
         isStandalone: saved.isStandalone,

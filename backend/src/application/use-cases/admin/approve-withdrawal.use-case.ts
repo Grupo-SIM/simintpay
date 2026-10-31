@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { WithdrawStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
@@ -13,7 +18,11 @@ export class ApproveWithdrawalUseCase {
     private readonly realtime: ModuleRealtimeNotifyService,
   ) {}
 
-  async execute(withdrawId: string, receiptImage?: string, adminUserId?: string): Promise<{ message: string }> {
+  async execute(
+    withdrawId: string,
+    receiptImage?: string,
+    adminUserId?: string,
+  ): Promise<{ message: string }> {
     const withdraw = await this.prisma.withdrawRequest.findUnique({
       where: { id: withdrawId },
       include: { user: { include: { wallet: true } } },
@@ -23,7 +32,10 @@ export class ApproveWithdrawalUseCase {
       throw new NotFoundException('Saque não encontrado');
     }
 
-    if (withdraw.status === WithdrawStatus.APPROVED || withdraw.status === WithdrawStatus.COMPLETED) {
+    if (
+      withdraw.status === WithdrawStatus.APPROVED ||
+      withdraw.status === WithdrawStatus.COMPLETED
+    ) {
       return { message: 'Saque já aprovado' };
     }
 
@@ -35,7 +47,9 @@ export class ApproveWithdrawalUseCase {
 
     const wallet = withdraw.user.wallet;
     if (!wallet) {
-      throw new NotFoundException('Carteira (Wallet) não encontrada para este usuário');
+      throw new NotFoundException(
+        'Carteira (Wallet) não encontrada para este usuário',
+      );
     }
 
     // Identifica se o admin é do módulo master
@@ -83,48 +97,55 @@ export class ApproveWithdrawalUseCase {
         await tx.withdrawRequest.update({
           where: { id: withdrawId },
           data: {
-            remainingBalanceAfterWithdrawal: updatedWallet.balance.minus(updatedWallet.lockedBalance),
+            remainingBalanceAfterWithdrawal: updatedWallet.balance.minus(
+              updatedWallet.lockedBalance,
+            ),
           },
         });
       }
-  
+
       // 3. Deduz também da carteira externa (se houver/vincular via tenant) - Pula se for Atlas
       const userWithExt = await tx.user.findUnique({
         where: { id: withdraw.userId },
-        include: { 
+        include: {
           platform: true,
-          externalPlatformUsers: { include: { wallet: true } }
-        }
+          externalPlatformUsers: { include: { wallet: true } },
+        },
       });
-  
-      if (withdraw.platform?.toLowerCase() !== 'atlas' && userWithExt?.externalPlatformUsers.length) {
+
+      if (
+        withdraw.platform?.toLowerCase() !== 'atlas' &&
+        userWithExt?.externalPlatformUsers.length
+      ) {
         const slug = userWithExt.platform?.tag?.toLowerCase();
-        const extUser = slug 
-          ? userWithExt.externalPlatformUsers.find(u => u.platform.toLowerCase() === slug)
+        const extUser = slug
+          ? userWithExt.externalPlatformUsers.find(
+              (u) => u.platform.toLowerCase() === slug,
+            )
           : userWithExt.externalPlatformUsers[0];
-            
+
         if (extUser?.wallet) {
           await tx.externalPlatformWallet.update({
             where: { id: extUser.wallet.id },
             data: {
               balance: { decrement: withdraw.grossAmount },
               updatedAt: new Date(),
-            }
+            },
           });
         }
       }
-  
+
       // 4. Registra log financeiro da operação - Pula se for Atlas
       if (withdraw.platform?.toLowerCase() !== 'atlas') {
         await tx.balanceLog.create({
           data: {
             userId: withdraw.userId,
             action: 'WITHDRAW_APPROVED',
-            amount: new Prisma.Decimal(-withdraw.grossAmount),
-            balanceBefore: wallet.balance,
-            balanceAfter: new Prisma.Decimal(Number(wallet.balance) - Number(withdraw.grossAmount)),
-            lockedBefore: wallet.lockedBalance,
-            lockedAfter: new Prisma.Decimal(Number(wallet.lockedBalance) - Number(withdraw.grossAmount)),
+
+            balanceDelta: new Prisma.Decimal(withdraw.grossAmount).neg(),
+
+            lockedDelta: new Prisma.Decimal(withdraw.grossAmount).neg(),
+
             source: 'WITHDRAW',
             description: `Saque aprovado: R$ ${withdraw.grossAmount.toFixed(2)}`,
           },
@@ -150,11 +171,12 @@ export class ApproveWithdrawalUseCase {
         data: {
           userId: logUserId,
           action: 'ADMIN_WITHDRAW_PROFIT_INC',
-          amount: new Prisma.Decimal(lucroSimpay),
-          balanceBefore: 0,
-          balanceAfter: 0,
-          lockedBefore: 0,
-          lockedAfter: 0,
+          bookkeepingAmount: lucroSimpay,
+
+          balanceDelta: 0,
+
+          lockedDelta: 0,
+
           source: 'MASTER_ADMIN_CONTROL',
           description: `Taxa de saque Simintpay${isMasterAdmin ? ' (Master)' : ''} — plataforma: ${platformTag} (${taxaSaqueFixa} − 1 = ${lucroSimpay})`,
           metadata: { withdrawId, platformTag, taxaSaqueFixa, lucroSimpay },
@@ -162,7 +184,10 @@ export class ApproveWithdrawalUseCase {
       });
     });
 
-    await this.realtime.notifyWithdrawal(withdraw.userId, { withdrawId, action: 'approved' });
+    await this.realtime.notifyWithdrawal(withdraw.userId, {
+      withdrawId,
+      action: 'approved',
+    });
 
     return { message: 'Saque aprovado com sucesso e saldo debitado' };
   }

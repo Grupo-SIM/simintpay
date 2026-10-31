@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PlatformPaymentsService } from '../unified-platform/payments/platform-payments.service';
+import { acquirerCostFloor } from '../financial-policy/acquirer-fees';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
 import { CreatePlatformPaymentDto } from '../unified-platform/payments/platform-payment.dto';
 import type { PlatformContext } from './platform-context.service';
@@ -43,8 +44,8 @@ export class PlatformMerchantsService {
     } catch (error) {
       if (!(error instanceof NotFoundException)) throw error;
     }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- strips the internal key from the response
-    const { integrationKey: _integrationKey, ...result } =
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- integrationKey is internal and must not leak
+    const { integrationKey, ...result } =
       await new PlatformMerchantProvisioning(this.prisma).provision(
         namespace,
         externalMerchantId,
@@ -193,6 +194,11 @@ export class PlatformMerchantsService {
       requestId: this.clientRequestId(context, merchant.id, row.requestId),
       amountCents: netAmountCents,
     };
+  }
+  /** Custo global das adquirentes ativas (ONLINE): piso das taxas cobradas de qualquer lojista. */
+  async acquirerCosts(context: PlatformContext, externalMerchantId: string) {
+    await this.resolve(context, externalMerchantId);
+    return { costs: await acquirerCostFloor(this.prisma) };
   }
   async quote(
     context: PlatformContext,

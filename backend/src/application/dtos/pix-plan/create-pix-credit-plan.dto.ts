@@ -10,6 +10,11 @@ import {
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreatePixCreditPlanDto {
+  /** Explicit beneficiary; platform selection must agree with its registered owner. */
+  @IsOptional()
+  @IsString()
+  ownerUserId?: string;
+
   @IsOptional()
   @IsObject()
   coproduction?: unknown;
@@ -39,12 +44,17 @@ export class CreatePixCreditPlanDto {
   @IsIn(['MONTH', 'QUARTER', 'SEMESTER', 'YEAR'])
   frequency_type?: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR';
 
-  @ApiPropertyOptional({ description: 'Tag da plataforma vinculada (ex: PAGATG, RENOVADA)' })
+  @ApiPropertyOptional({
+    description: 'Tag da plataforma vinculada (ex: PAGATG, RENOVADA)',
+  })
   @IsOptional()
   @IsString()
   tenantTag?: string;
 
-  @ApiPropertyOptional({ description: 'Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook)' })
+  @ApiPropertyOptional({
+    description:
+      'Corpo de e-mail personalizado enviado ao comprador (apenas itens de ebook)',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(2000)

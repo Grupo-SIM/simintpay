@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import timezone from 'dayjs/plugin/timezone';
 import utc from 'dayjs/plugin/utc';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { transactionCoproductionInfo } from '../../../modules/coproduction/coproduction-view';
 import type { ListTransactionsQueryDto } from '../../dtos/transactions/list-transactions.query.dto';
 
 dayjs.extend(utc);
@@ -17,7 +18,11 @@ export class ListTransactionsUseCase {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Ledger local only. Cron and webhooks synchronize acquirers separately. */
-  async execute(input: { userId: string; role: string; query: ListTransactionsQueryDto }) {
+  async execute(input: {
+    userId: string;
+    role: string;
+    query: ListTransactionsQueryDto;
+  }) {
     const page = input.query.page ?? 1;
     const limit = input.query.limit ?? 20;
     const and: Prisma.TransactionWhereInput[] = [];
@@ -31,17 +36,31 @@ export class ListTransactionsUseCase {
 
       const cpfDigits = user.cpf?.replace(/\D/g, '');
       if (cpfDigits) {
-        const cpfFormatted = cpfDigits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+        const cpfFormatted = cpfDigits.replace(
+          /(\d{3})(\d{3})(\d{3})(\d{2})/,
+          '$1.$2.$3-$4',
+        );
         and.push({
           OR: [
             { userId: input.userId },
+            { coproductionAllocations: { some: { userId: input.userId } } },
             {
               AND: [
-                { userId: (getPlatformOwnerId('RENOVADA') ?? '') },
+                { userId: getPlatformOwnerId('RENOVADA') ?? '' },
                 {
                   OR: [
-                    { description: { contains: cpfDigits, mode: Prisma.QueryMode.insensitive } },
-                    { description: { contains: cpfFormatted, mode: Prisma.QueryMode.insensitive } },
+                    {
+                      description: {
+                        contains: cpfDigits,
+                        mode: Prisma.QueryMode.insensitive,
+                      },
+                    },
+                    {
+                      description: {
+                        contains: cpfFormatted,
+                        mode: Prisma.QueryMode.insensitive,
+                      },
+                    },
                   ],
                 },
               ],
@@ -49,12 +68,18 @@ export class ListTransactionsUseCase {
           ],
         });
       } else {
-        and.push({ userId: input.userId });
+        and.push({
+          OR: [
+            { userId: input.userId },
+            { coproductionAllocations: { some: { userId: input.userId } } },
+          ],
+        });
       }
     }
 
     if (input.query.status) and.push({ status: input.query.status });
-    if (input.query.payment_method) and.push({ paymentMethod: input.query.payment_method });
+    if (input.query.payment_method)
+      and.push({ paymentMethod: input.query.payment_method });
     if (input.query.acquirer) and.push({ acquirer: input.query.acquirer });
 
     const q = input.query.q?.trim();
@@ -62,10 +87,25 @@ export class ListTransactionsUseCase {
       and.push({
         OR: [
           { id: { contains: q, mode: Prisma.QueryMode.insensitive } },
-          { domTransactionId: { contains: q, mode: Prisma.QueryMode.insensitive } },
+          {
+            domTransactionId: {
+              contains: q,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
           { domPaymentId: { contains: q, mode: Prisma.QueryMode.insensitive } },
-          { externalTransactionId: { contains: q, mode: Prisma.QueryMode.insensitive } },
-          { externalPaymentId: { contains: q, mode: Prisma.QueryMode.insensitive } },
+          {
+            externalTransactionId: {
+              contains: q,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+          {
+            externalPaymentId: {
+              contains: q,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
           { description: { contains: q, mode: Prisma.QueryMode.insensitive } },
         ],
       });
@@ -87,8 +127,19 @@ export class ListTransactionsUseCase {
     const where: Prisma.TransactionWhereInput = and.length ? { AND: and } : {};
     const [total, transactions] = await Promise.all([
       this.prisma.transaction.count({ where }),
-      this.prisma.transaction.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      this.prisma.transaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
     ]);
+
+    const coproducao = await transactionCoproductionInfo(
+      this.prisma,
+      input.userId,
+      transactions,
+    );
 
     return {
       data: {
@@ -121,6 +172,7 @@ export class ListTransactionsUseCase {
           customerDocument: transaction.customerDocument,
           customerPhone: transaction.customerPhone,
           paymentLinkId: transaction.paymentLinkId,
+          coproducao: coproducao.get(transaction.id) ?? null,
           createdAt: transaction.createdAt.toISOString(),
           updatedAt: transaction.updatedAt.toISOString(),
         })),

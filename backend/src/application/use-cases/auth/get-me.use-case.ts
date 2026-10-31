@@ -1,11 +1,10 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { WALLET_REPOSITORY } from '../../../core/repositories/wallet.repository.interface';
-import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IWalletRepository } from '../../../core/repositories/wallet.repository.interface';
-import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { walletAmounts } from '../../../modules/wallet-ledger/wallet-balance';
 import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
 
 interface MeUser {
@@ -34,7 +33,6 @@ export class GetMeUseCase {
   constructor(
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(WALLET_REPOSITORY) private readonly wallets: IWalletRepository,
-    @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -97,15 +95,13 @@ export class GetMeUseCase {
     );
     const sharedWallet = ownedPlatforms.length > 1;
 
-    // Fonte única: wallet (a mesma da validação do saque). Vale para plataforma própria, coprodução e afiliado.
-    const balance = Number(wallet.balance),
-      lockedBalance = Number(wallet.lockedBalance);
-    const available = Number(Math.max(0, balance - lockedBalance).toFixed(2));
+    // Fonte única de saldo: a mesma da validação do saque. Vale para plataforma própria, coprodução e afiliado.
+    const current = walletAmounts(wallet);
     const walletResp = {
-      balance: Number(balance.toFixed(2)),
-      lockedBalance: Number(lockedBalance.toFixed(2)),
-      availableBalance: available,
-      netBalance: available,
+      balance: current.balance,
+      lockedBalance: current.lockedBalance,
+      availableBalance: current.available,
+      netBalance: current.available,
     };
 
     const tenant =
@@ -118,39 +114,6 @@ export class GetMeUseCase {
       email: user.email,
       platform: user.platform,
     });
-
-    if (user.domToken) {
-      try {
-        const domMe = await this.gateway.me(user.domToken);
-        if (domMe.name || domMe.email) {
-          return {
-            id: user.id,
-            name: domMe.name ?? user.name,
-            email: domMe.email ?? user.email,
-            cpf: user.cpf ?? null,
-            cnpj: user.cnpj ?? null,
-            role: user.role,
-            isAdmin: user.role === 'ADMIN',
-            isMasterAdmin: master,
-            isClient: user.clientStatus != null,
-            clientStatus: (user.clientStatus ?? null) as
-              | 'PENDING'
-              | 'APPROVED'
-              | 'REJECTED'
-              | null,
-            isAffiliate: user.isAffiliate ?? false,
-            affiliateCode: user.affiliateCode ?? null,
-            platform: tenant,
-            ownedPlatforms,
-            walletScope: sharedWallet ? 'shared-owner' : 'owner',
-            wallet: walletResp,
-            createdAt: user.createdAt.toISOString(),
-          };
-        }
-      } catch {
-        // ignore enrichment failure
-      }
-    }
 
     return {
       id: user.id,

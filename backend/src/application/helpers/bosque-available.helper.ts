@@ -1,3 +1,4 @@
+import { whereTransactionPlatform } from '../../modules/platform-core/transaction-platform';
 import { WithdrawStatus, TransactionStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
@@ -25,17 +26,24 @@ export async function computeBosqueAvailableSinceLastWithdrawal(
 ): Promise<number> {
   if (userIds.length === 0) return 0;
 
-  const svcRate = getPlatformTaxaEffective('BOSQUE', 'TAXA_SERVICO', PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO);
+  const svcRate = getPlatformTaxaEffective(
+    'BOSQUE',
+    'TAXA_SERVICO',
+    PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+  );
 
   const baseWhere: Prisma.TransactionWhereInput = {
     userId: { in: userIds },
     status: TransactionStatus.COMPLETED,
-    description: { contains: '[TENANT:BOSQUE]', mode: 'insensitive' },
+    ...whereTransactionPlatform('BOSQUE'),
   };
 
   const [creditsAgg, svcCount, withdrawals] = await Promise.all([
     // Crédito líquido de TODAS as transações concluídas (não só desde o último saque).
-    prisma.transaction.aggregate({ where: baseWhere, _sum: { netAmount: true } }),
+    prisma.transaction.aggregate({
+      where: baseWhere,
+      _sum: { netAmount: true },
+    }),
     // TAXA_SERVICO incide nas transações criadas a partir de 2026-05-29.
     svcRate > 0
       ? prisma.transaction.count({
@@ -47,7 +55,13 @@ export async function computeBosqueAvailableSinceLastWithdrawal(
     prisma.withdrawRequest.findMany({
       where: {
         userId: { in: userIds },
-        status: { in: [WithdrawStatus.PENDING, WithdrawStatus.APPROVED, WithdrawStatus.COMPLETED] },
+        status: {
+          in: [
+            WithdrawStatus.PENDING,
+            WithdrawStatus.APPROVED,
+            WithdrawStatus.COMPLETED,
+          ],
+        },
       },
       select: { grossAmount: true, amount: true },
     }),

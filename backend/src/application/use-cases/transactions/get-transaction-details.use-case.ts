@@ -4,10 +4,14 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { stripInternalTags } from '../../utils/internal-tags.util';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
-import { estimateDomFeeReais, platformTaxaTagFromText } from '../../helpers/dom-fee-estimate.helper';
+import {
+  estimateDomFeeReais,
+  platformTaxaTagFromText,
+} from '../../helpers/dom-fee-estimate.helper';
 import { isPixLikePayment } from '../../helpers/platform-fee-split.helper';
 import { PaymentGatewayResolver } from '../../../infrastructure/http/payment-gateway.resolver';
 import { toAcquirer } from '../../../core/services/acquirer.enum';
+import { transactionCoproductionInfo } from '../../../modules/coproduction/coproduction-view';
 
 @Injectable()
 export class GetTransactionDetailsUseCase {
@@ -18,27 +22,43 @@ export class GetTransactionDetailsUseCase {
 
   private mapStatusToLabel(status: TransactionStatus): string {
     switch (status) {
-      case TransactionStatus.COMPLETED: return 'Aprovado';
-      case TransactionStatus.REFUNDED: return 'Estornado';
-      case TransactionStatus.CHARGEBACK: return 'Chargeback';
-      case TransactionStatus.FAILED: return 'Recusado';
-      case TransactionStatus.EXPIRED: return 'Expirado';
-      case TransactionStatus.IN_MEDIATION: return 'Em mediação';
-      case TransactionStatus.PENDING_REFUND: return 'Estorno pendente';
-      case TransactionStatus.PENDING: return 'Pendente';
-      default: return 'Rascunho';
+      case TransactionStatus.COMPLETED:
+        return 'Aprovado';
+      case TransactionStatus.REFUNDED:
+        return 'Estornado';
+      case TransactionStatus.CHARGEBACK:
+        return 'Chargeback';
+      case TransactionStatus.FAILED:
+        return 'Recusado';
+      case TransactionStatus.EXPIRED:
+        return 'Expirado';
+      case TransactionStatus.IN_MEDIATION:
+        return 'Em mediação';
+      case TransactionStatus.PENDING_REFUND:
+        return 'Estorno pendente';
+      case TransactionStatus.PENDING:
+        return 'Pendente';
+      default:
+        return 'Rascunho';
     }
   }
 
   private mapStatusToType(status: TransactionStatus): string {
     switch (status) {
-      case TransactionStatus.COMPLETED: return 'approved';
-      case TransactionStatus.REFUNDED: return 'refunded';
-      case TransactionStatus.CHARGEBACK: return 'chargeback';
-      case TransactionStatus.FAILED: return 'failed';
-      case TransactionStatus.EXPIRED: return 'expired';
-      case TransactionStatus.PENDING: return 'pending';
-      default: return 'draft';
+      case TransactionStatus.COMPLETED:
+        return 'approved';
+      case TransactionStatus.REFUNDED:
+        return 'refunded';
+      case TransactionStatus.CHARGEBACK:
+        return 'chargeback';
+      case TransactionStatus.FAILED:
+        return 'failed';
+      case TransactionStatus.EXPIRED:
+        return 'expired';
+      case TransactionStatus.PENDING:
+        return 'pending';
+      default:
+        return 'draft';
     }
   }
 
@@ -48,9 +68,21 @@ export class GetTransactionDetailsUseCase {
     return brt.toISOString().replace('T', ' ').slice(0, 19);
   }
 
-  private fixedFees(): { transactionFixedFee: number; cashbackFee: number; total: number } {
-    const fixedTx = getPlatformTaxaEffective('GLOBAL', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-    const fixedCashback = getPlatformTaxaEffective('GLOBAL', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+  private fixedFees(): {
+    transactionFixedFee: number;
+    cashbackFee: number;
+    total: number;
+  } {
+    const fixedTx = getPlatformTaxaEffective(
+      'GLOBAL',
+      'TAXA_FIXA_TRANSACAO',
+      PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
+    );
+    const fixedCashback = getPlatformTaxaEffective(
+      'GLOBAL',
+      'TAXA_CASHBACK',
+      PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
+    );
     return {
       transactionFixedFee: fixedTx,
       cashbackFee: fixedCashback,
@@ -62,9 +94,10 @@ export class GetTransactionDetailsUseCase {
     const total = Number(order?.total ?? 0);
     let mdr = Number(order?.mdr_value ?? 0);
     const installmentFee = Number(order?.fee_installment_value ?? 0);
-    const itemsFirstName = Array.isArray(order?.items) && order.items.length > 0
-      ? String(order.items[0]?.name ?? '')
-      : '';
+    const itemsFirstName =
+      Array.isArray(order?.items) && order.items.length > 0
+        ? String(order.items[0]?.name ?? '')
+        : '';
     const tenantTag = platformTaxaTagFromText(itemsFirstName);
     if (mdr <= 0 && installmentFee <= 0) {
       mdr = estimateDomFeeReais({
@@ -74,8 +107,16 @@ export class GetTransactionDetailsUseCase {
         tenantTag,
       });
     }
-    const { transactionFixedFee, cashbackFee, total: minPlatformFee } = this.fixedFees();
-    const L = getPlatformTaxaEffective(tenantTag, 'LIQUIDEZ', PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
+    const {
+      transactionFixedFee,
+      cashbackFee,
+      total: minPlatformFee,
+    } = this.fixedFees();
+    const L = getPlatformTaxaEffective(
+      tenantTag,
+      'LIQUIDEZ',
+      PLATFORM_TAXA_DEFAULTS.LIQUIDEZ,
+    );
     const typePay = String(order?.type_payment ?? '');
     const pix = isPixLikePayment(typePay);
     const domInstallSum = mdr + installmentFee;
@@ -90,20 +131,29 @@ export class GetTransactionDetailsUseCase {
       const platformFee = taxaPlataformaPct + minPlatformFee;
       totalFee = Number((dom2 + platformFee).toFixed(2));
       totalLiquid = Number((total - totalFee).toFixed(2));
-      taxaVendedor = Number(Math.max(0, taxaPlataformaPct + installmentFee).toFixed(2));
+      taxaVendedor = Number(
+        Math.max(0, taxaPlataformaPct + installmentFee).toFixed(2),
+      );
     } else {
       const existingTotalFee = Number(order?.fee_total_value ?? 0);
-      const currentPlatformFee = Math.max(0, existingTotalFee - mdr - installmentFee);
+      const currentPlatformFee = Math.max(
+        0,
+        existingTotalFee - mdr - installmentFee,
+      );
       const platformFee = Math.max(currentPlatformFee, minPlatformFee);
       totalFee = Number((mdr + installmentFee + platformFee).toFixed(2));
       totalLiquid = Number((total - totalFee).toFixed(2));
-      taxaVendedor = Number(Math.max(0, installmentFee + platformFee - minPlatformFee).toFixed(2));
+      taxaVendedor = Number(
+        Math.max(0, installmentFee + platformFee - minPlatformFee).toFixed(2),
+      );
     }
 
     const taxaDomTotal = dom2;
     /** P&L do master: Taxa Vendedor − (DOM + taxa fixa + cashback). */
     const lucroMaster = Number(
-      (taxaVendedor - taxaDomTotal - transactionFixedFee - cashbackFee).toFixed(2),
+      (taxaVendedor - taxaDomTotal - transactionFixedFee - cashbackFee).toFixed(
+        2,
+      ),
     );
 
     return {
@@ -124,7 +174,8 @@ export class GetTransactionDetailsUseCase {
     const amount = Number(tx.amount ?? 0);
     const netAmount = Number(tx.netAmount ?? 0);
     // Prefer stored totalFee; calculate from amount-netAmount as fallback
-    const totalFee = Number(tx.totalFee ?? 0) || Math.max(0, amount - netAmount);
+    const totalFee =
+      Number(tx.totalFee ?? 0) || Math.max(0, amount - netAmount);
     const domFee = Number(tx.domFee ?? 0);
 
     const historicStatus = tx.statusHistory?.length
@@ -132,7 +183,8 @@ export class GetTransactionDetailsUseCase {
           status: this.mapStatusToLabel(h.toStatus),
           type: this.mapStatusToType(h.toStatus),
           date: this.toBRT(h.createdAt),
-          color: h.toStatus === TransactionStatus.COMPLETED ? '#40a083' : '#3fa0e5',
+          color:
+            h.toStatus === TransactionStatus.COMPLETED ? '#40a083' : '#3fa0e5',
         }))
       : [
           {
@@ -142,12 +194,14 @@ export class GetTransactionDetailsUseCase {
             color: '#3fa0e5',
           },
           ...(tx.status === TransactionStatus.COMPLETED
-            ? [{
-                status: 'Aprovado',
-                type: 'approved',
-                date: this.toBRT(tx.updatedAt),
-                color: '#40a083',
-              }]
+            ? [
+                {
+                  status: 'Aprovado',
+                  type: 'approved',
+                  date: this.toBRT(tx.updatedAt),
+                  color: '#40a083',
+                },
+              ]
             : []),
         ];
 
@@ -155,7 +209,8 @@ export class GetTransactionDetailsUseCase {
       order_id: tx.domPaymentId ?? tx.id,
       id_transaction: tx.domTransactionId ?? tx.id,
       type: this.mapStatusToType(tx.status),
-      type_payment: tx.paymentMethod === 'CREDIT_CARD' ? 'Cartão de Crédito' : 'PIX',
+      type_payment:
+        tx.paymentMethod === 'CREDIT_CARD' ? 'Cartão de Crédito' : 'PIX',
       date_register: this.toBRT(tx.createdAt),
       origin: 'SimPay',
       total: amount,
@@ -167,20 +222,51 @@ export class GetTransactionDetailsUseCase {
       client_document: tx.customerDocument ?? '',
       client_phone: tx.customerPhone ?? '',
       client_email: tx.customerEmail ?? '',
-      paid_date: tx.status === TransactionStatus.COMPLETED ? this.toBRT(tx.updatedAt) : null,
+      paid_date:
+        tx.status === TransactionStatus.COMPLETED
+          ? this.toBRT(tx.updatedAt)
+          : null,
       msg_3ds: null,
       pix_content: tx.pixContent ?? null,
-      items: [{ name: stripInternalTags(tx.description) ?? 'Produto', quant: 1, price: amount }],
+      items: [
+        {
+          name: stripInternalTags(tx.description) ?? 'Produto',
+          quant: 1,
+          price: amount,
+        },
+      ],
       historic_status: historicStatus,
     });
   }
 
+  /** Coprodutores veem a transação completa, somente leitura; `coproducao` identifica o papel. */
   async execute(input: { userId: string; role: string; id: string }) {
+    const detail = await this.load(input);
+    const tx = await this.prisma.transaction.findUnique({
+      where: { id: input.id },
+      select: { id: true, userId: true, financialSnapshot: true },
+    });
+    const coproducao = tx
+      ? ((
+          await transactionCoproductionInfo(this.prisma, input.userId, [tx])
+        ).get(tx.id) ?? null)
+      : null;
+    return { ...detail, coproducao };
+  }
+
+  private async load(input: { userId: string; role: string; id: string }) {
     // 1. Find local transaction
     const tx = await this.prisma.transaction.findFirst({
       where: {
         id: input.id,
-        ...(input.role === 'ADMIN' ? {} : { userId: input.userId }),
+        ...(input.role === 'ADMIN'
+          ? {}
+          : {
+              OR: [
+                { userId: input.userId },
+                { coproductionAllocations: { some: { userId: input.userId } } },
+              ],
+            }),
       },
       include: {
         statusHistory: { orderBy: { createdAt: 'asc' } },
@@ -194,10 +280,9 @@ export class GetTransactionDetailsUseCase {
 
     // 2. Try Dom API using all available IDs
     const domToken = tx.user?.domToken;
-    const domIdsToTry = [
-      tx.domPaymentId,
-      tx.domTransactionId,
-    ].filter(Boolean) as string[];
+    const domIdsToTry = [tx.domPaymentId, tx.domTransactionId].filter(
+      Boolean,
+    ) as string[];
 
     if (domToken && domIdsToTry.length > 0) {
       const gateway = this.gatewayResolver.byAcquirer(toAcquirer(tx.acquirer));
@@ -209,10 +294,12 @@ export class GetTransactionDetailsUseCase {
             // Cache mdr_value in domFee column for future fallbacks
             const mdrVal = Number(detail.order.mdr_value ?? 0);
             if (mdrVal > 0) {
-              this.prisma.transaction.update({
-                where: { id: tx.id },
-                data: { domFee: new Prisma.Decimal(mdrVal) },
-              }).catch(() => {});
+              this.prisma.transaction
+                .update({
+                  where: { id: tx.id },
+                  data: { domFee: new Prisma.Decimal(mdrVal) },
+                })
+                .catch(() => {});
             }
             // API real não retorna status_history — injetar do banco local
             if (!detail.order.historic_status?.length) {
@@ -221,12 +308,27 @@ export class GetTransactionDetailsUseCase {
                     status: this.mapStatusToLabel(h.toStatus),
                     type: this.mapStatusToType(h.toStatus),
                     date: this.toBRT(h.createdAt),
-                    color: h.toStatus === TransactionStatus.COMPLETED ? '#40a083' : '#3fa0e5',
+                    color:
+                      h.toStatus === TransactionStatus.COMPLETED
+                        ? '#40a083'
+                        : '#3fa0e5',
                   }))
                 : [
-                    { status: 'Pendente', type: 'pending', date: this.toBRT(tx.createdAt), color: '#3fa0e5' },
+                    {
+                      status: 'Pendente',
+                      type: 'pending',
+                      date: this.toBRT(tx.createdAt),
+                      color: '#3fa0e5',
+                    },
                     ...(tx.status === TransactionStatus.COMPLETED
-                      ? [{ status: 'Aprovado', type: 'approved', date: this.toBRT(tx.updatedAt), color: '#40a083' }]
+                      ? [
+                          {
+                            status: 'Aprovado',
+                            type: 'approved',
+                            date: this.toBRT(tx.updatedAt),
+                            color: '#40a083',
+                          },
+                        ]
                       : []),
                   ];
             }

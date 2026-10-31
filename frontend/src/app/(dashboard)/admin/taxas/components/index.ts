@@ -1,0 +1,1 @@
+export { TaxaInput } from './TaxaInput';

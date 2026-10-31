@@ -83,3 +83,9 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 **/out/
 
 **/next-env.d.ts
+
+# Imported Next frontend runtime/build output
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+*.tsbuildinfo

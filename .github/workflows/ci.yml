@@ -25,7 +25,7 @@ jobs:
       - id: affected
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: echo "tasks=$(bun scripts/affected-packages.ts "$BASE_SHA" check-types build test:unit)" >> "$GITHUB_OUTPUT"
+        run: echo "tasks=$(bun scripts/affected-packages.ts "$BASE_SHA" check-types build test:unit test:e2e)" >> "$GITHUB_OUTPUT"
   validate:
     needs: detect
     if: needs.detect.outputs.tasks != ''
@@ -34,13 +34,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [check-types, build, test:unit]
+        task: [check-types, build, test:unit, test:e2e]
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Install browser for affected frontend scenarios
+        if: matrix.task == 'test:e2e' && contains(fromJSON(needs.detect.outputs.tasks)['test:e2e'], 'frontend')
+        run: |
+          bunx --no-install playwright-core install --with-deps chromium
+          printf 'CHROME_PATH=%s\n' "$(find ~/.cache/ms-playwright -path '*/chrome-linux*/chrome' -type f | sort | tail -n 1)" >> "$GITHUB_ENV"
       - name: Run affected workspaces
         env:
           TASKS: ${{ needs.detect.outputs.tasks }}

@@ -1,3 +1,4 @@
+import { whereTransactionPlatform } from '../../platform-core/transaction-platform';
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
 import { BadRequestException } from '@nestjs/common';
@@ -5,21 +6,31 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PagaTGConfig } from '../../../modules/pagatg/pagatg.config';
 import { VoucherService } from '../../../application/use-cases/voucher/voucher.service';
-import { CreateVoucherDto, UpdateVoucherDto, ValidateVoucherDto } from '../../../application/dtos/voucher/voucher.dto';
+import {
+  CreateVoucherDto,
+  UpdateVoucherDto,
+  ValidateVoucherDto,
+} from '../../../application/dtos/voucher/voucher.dto';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 const TENANT_PAGATG_TAG = '[TENANT:PAGATG]';
 
-type TxStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED' | 'EXPIRED' | 'DRAFT';
+type TxStatus =
+  | 'PENDING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'REFUNDED'
+  | 'EXPIRED'
+  | 'DRAFT';
 
 @Injectable()
 export class InternalPagatgFinanceService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly voucherService: VoucherService, private readonly finance: PlatformFinanceService
+    private readonly voucherService: VoucherService,
+    private readonly finance: PlatformFinanceService,
   ) {}
-
 
   private normalizeDoc(raw: string): string {
     return String(raw ?? '').replace(/\D/g, '');
@@ -28,8 +39,14 @@ export class InternalPagatgFinanceService {
   /**
    * Retorna os userIds associados ao CPF ou CNPJ na tabela User do simpay.
    */
-  private resolveUserIdsByCpf(cpf: string, directUserId?: string): Promise<string[]> {
-    return this.finance.resolveAccountIds({ document: cpf, userId: directUserId });
+  private resolveUserIdsByCpf(
+    cpf: string,
+    directUserId?: string,
+  ): Promise<string[]> {
+    return this.finance.resolveAccountIds({
+      document: cpf,
+      userId: directUserId,
+    });
   }
 
   /**
@@ -46,17 +63,21 @@ export class InternalPagatgFinanceService {
     }
 
     if (clean.length === 14) {
-      conditions.push({ description: { contains: `[CNPJ_DONO:${clean}]`, mode: 'insensitive' } });
+      conditions.push({
+        description: { contains: `[CNPJ_DONO:${clean}]`, mode: 'insensitive' },
+      });
     } else if (clean.length === 11) {
-      conditions.push({ description: { contains: `[CPF_DONO:${clean}]`, mode: 'insensitive' } });
+      conditions.push({
+        description: { contains: `[CPF_DONO:${clean}]`, mode: 'insensitive' },
+      });
     }
 
     if (conditions.length === 0) return null;
     if (conditions.length === 1) return conditions[0];
     return { OR: conditions };
   }
-  async summary( cpf: string, userId?: string, internalToken?: string,
-  ) {
+  async summary(cpf: string, userId?: string, _internalToken?: string) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     const ownerFilter = this.buildOwnerFilter(cpf, userIds);
     if (!ownerFilter) {
@@ -68,7 +89,7 @@ export class InternalPagatgFinanceService {
         AND: [
           ownerFilter,
           { status: 'COMPLETED' },
-          { description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' } },
+          whereTransactionPlatform('PAGATG'),
         ],
       },
       select: { netAmount: true, amount: true },
@@ -90,8 +111,16 @@ export class InternalPagatgFinanceService {
         })
       : { _sum: { amount: null, grossAmount: null } };
 
-    const taxaFixaSummary = getPlatformTaxaEffective('PAGATG', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-    const taxaCashbackSummary = getPlatformTaxaEffective('PAGATG', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const taxaFixaSummary = getPlatformTaxaEffective(
+      'PAGATG',
+      'TAXA_FIXA_TRANSACAO',
+      PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
+    );
+    const taxaCashbackSummary = getPlatformTaxaEffective(
+      'PAGATG',
+      'TAXA_CASHBACK',
+      PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
+    );
     const taxaServicoSummary = taxaFixaSummary + taxaCashbackSummary;
     const totalReceived = txCompleted.reduce((sum, tx) => {
       const net = Number(tx.netAmount ?? tx.amount ?? 0);
@@ -102,7 +131,9 @@ export class InternalPagatgFinanceService {
     const pendingGross = Number(wdPending._sum.grossAmount ?? pendingAmount);
 
     return {
-      availableBalance: Number((totalReceived - totalCompletedWithdraw - pendingAmount).toFixed(2)),
+      availableBalance: Number(
+        (totalReceived - totalCompletedWithdraw - pendingAmount).toFixed(2),
+      ),
       pendingWithdraws: Number(pendingAmount.toFixed(2)),
       lockedBalance: Number(pendingGross.toFixed(2)),
       minimumWithdrawalAmount: PagaTGConfig.saque.minValor,
@@ -110,12 +141,30 @@ export class InternalPagatgFinanceService {
       accountExists: userIds.length > 0,
     };
   }
-  async transactions( cpf: string, userId?: string, page = '1', limit = '10', startDate?: string, endDate?: string, status?: string, description?: string, internalToken?: string,
+  async transactions(
+    cpf: string,
+    userId?: string,
+    page = '1',
+    limit = '10',
+    startDate?: string,
+    endDate?: string,
+    status?: string,
+    description?: string,
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     const ownerFilter = this.buildOwnerFilter(cpf, userIds);
     if (!ownerFilter) {
-      return { transactions: [], meta: { currentPage: 1, itemsPerPage: 10, totalItems: 0, totalPages: 1 } };
+      return {
+        transactions: [],
+        meta: {
+          currentPage: 1,
+          itemsPerPage: 10,
+          totalItems: 0,
+          totalPages: 1,
+        },
+      };
     }
 
     const pageNum = Math.max(1, Number(page || 1));
@@ -123,7 +172,7 @@ export class InternalPagatgFinanceService {
 
     const andConditions: any[] = [
       ownerFilter,
-      { description: { contains: '[TENANT:PAGATG]', mode: 'insensitive' } },
+      whereTransactionPlatform('PAGATG'),
     ];
 
     const statusUpper = status ? String(status).toUpperCase() : '';
@@ -132,7 +181,9 @@ export class InternalPagatgFinanceService {
     }
 
     if (description && description !== 'ALL') {
-      andConditions.push({ description: { contains: description, mode: 'insensitive' } });
+      andConditions.push({
+        description: { contains: description, mode: 'insensitive' },
+      });
     }
 
     if (startDate || endDate) {
@@ -155,8 +206,16 @@ export class InternalPagatgFinanceService {
       }),
     ]);
 
-    const taxaFixa = getPlatformTaxaEffective('PAGATG', 'TAXA_FIXA_TRANSACAO', PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO);
-    const taxaCashback = getPlatformTaxaEffective('PAGATG', 'TAXA_CASHBACK', PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK);
+    const taxaFixa = getPlatformTaxaEffective(
+      'PAGATG',
+      'TAXA_FIXA_TRANSACAO',
+      PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
+    );
+    const taxaCashback = getPlatformTaxaEffective(
+      'PAGATG',
+      'TAXA_CASHBACK',
+      PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
+    );
     const taxaServico = taxaFixa + taxaCashback;
 
     return {
@@ -193,26 +252,49 @@ export class InternalPagatgFinanceService {
       },
     };
   }
-  async withdrawals( cpf: string, userId?: string, page = '1', limit = '10', internalToken?: string,
+  async withdrawals(
+    cpf: string,
+    userId?: string,
+    page = '1',
+    limit = '10',
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     return this.finance.legacyWithdrawals(userIds, page, limit);
   }
-  async requestWithdraw( body: { cpf: string; userId?: string; amount: number; pixKey: string }, internalToken?: string,
+  async requestWithdraw(
+    body: { cpf: string; userId?: string; amount: number; pixKey: string },
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
-    if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF');
+    if (userIds.length === 0)
+      throw new BadRequestException('Nenhuma conta encontrada para este CPF');
     const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Valor inválido');
-    if (amount < PagaTGConfig.saque.minValor) throw new BadRequestException(`Valor mínimo para saque é de R$ ${PagaTGConfig.saque.minValor}`);
-    if (!body.pixKey?.trim()) throw new BadRequestException('PIX é obrigatório');
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new BadRequestException('Valor inválido');
+    if (amount < PagaTGConfig.saque.minValor)
+      throw new BadRequestException(
+        `Valor mínimo para saque é de R$ ${PagaTGConfig.saque.minValor}`,
+      );
+    if (!body.pixKey?.trim())
+      throw new BadRequestException('PIX é obrigatório');
 
     const taxaSaque = PagaTGConfig.saque.calcularTaxa(amount);
-    const created = await this.finance.createWithdrawal({ userId: userIds[0], amount, grossAmount: parseFloat((amount + taxaSaque).toFixed(2)), fee: parseFloat(taxaSaque.toFixed(2)), pixKey: body.pixKey.trim(), platform: 'pagatg' });
+    const created = await this.finance.createWithdrawal({
+      userId: userIds[0],
+      amount,
+      grossAmount: parseFloat((amount + taxaSaque).toFixed(2)),
+      fee: parseFloat(taxaSaque.toFixed(2)),
+      pixKey: body.pixKey.trim(),
+      platform: 'pagatg',
+    });
 
     return { success: true, id: created.id };
   }
-  async upsertPlan( body: {
+  async upsertPlan(
+    body: {
       cpf: string;
       userId?: string;
       code: string;
@@ -224,14 +306,16 @@ export class InternalPagatgFinanceService {
       webhookUrl?: string | null;
       paymentMethods?: string | null;
       isActive?: boolean;
-    }, internalToken?: string,
+    },
+    _internalToken?: string,
   ) {
-
+    void _internalToken;
     if (!body.code?.trim()) throw new BadRequestException('code é obrigatório');
     // if (!body.domPlanId?.trim()) throw new BadRequestException('domPlanId é obrigatório'); // Desativado para descontinuar api-dom
     if (!body.name?.trim()) throw new BadRequestException('name é obrigatório');
     const price = Number(body.price);
-    if (!Number.isFinite(price) || price <= 0) throw new BadRequestException('price inválido');
+    if (!Number.isFinite(price) || price <= 0)
+      throw new BadRequestException('price inválido');
 
     const typeMap: Record<string, string> = {
       MENSAL: 'MONTHLY',
@@ -243,18 +327,26 @@ export class InternalPagatgFinanceService {
 
     // Resolver userId pelo CPF — o dono do plano no api-machine
     const userIds = await this.resolveUserIdsByCpf(body.cpf ?? '', body.userId);
-    if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF/userId');
+    if (userIds.length === 0)
+      throw new BadRequestException(
+        'Nenhuma conta encontrada para este CPF/userId',
+      );
     const userId = userIds[0];
 
     return this.finance.mirrorPlan('PAGATG', userId, body.code.trim(), {
-      name: body.name.trim(), price, type: planType,
+      name: body.name.trim(),
+      price,
+      type: planType,
       domPlanId: body.domPlanId?.trim() || null,
-      redirectUrl: body.redirectUrl ?? undefined, webhookUrl: body.webhookUrl ?? undefined,
-      isActive: body.isActive ?? true, paymentMethods: body.paymentMethods?.trim() || 'CREDIT_CARD',
+      redirectUrl: body.redirectUrl ?? undefined,
+      webhookUrl: body.webhookUrl ?? undefined,
+      isActive: body.isActive ?? true,
+      paymentMethods: body.paymentMethods?.trim() || 'CREDIT_CARD',
     });
   }
 
-  async recordTransaction( body: {
+  async recordTransaction(
+    body: {
       cpf: string;
       userId?: string;
       domPaymentId: string;
@@ -266,67 +358,106 @@ export class InternalPagatgFinanceService {
       customerEmail?: string;
       customerDocument?: string;
       paymentMethod?: string;
-    }, internalToken?: string,
+    },
+    _internalToken?: string,
   ) {
-
-    if (!body.domPaymentId?.trim()) throw new BadRequestException('domPaymentId é obrigatório');
+    void _internalToken;
+    if (!body.domPaymentId?.trim())
+      throw new BadRequestException('domPaymentId é obrigatório');
     const amount = Number(body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('amount inválido');
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new BadRequestException('amount inválido');
 
     const userIds = await this.resolveUserIdsByCpf(body.cpf ?? '', body.userId);
-    if (userIds.length === 0) throw new BadRequestException('Nenhuma conta encontrada para este CPF/userId');
+    if (userIds.length === 0)
+      throw new BadRequestException(
+        'Nenhuma conta encontrada para este CPF/userId',
+      );
     const userId = userIds[0];
 
     // Calcular netAmount: valor fornecido ou aplicar fatorLiquidez (LIQUIDEZ configurado no admin)
-    const netAmount = body.netAmount != null
-      ? Number(body.netAmount)
-      : parseFloat((amount * PagaTGConfig.saque.fatorLiquidez).toFixed(2));
+    const netAmount =
+      body.netAmount != null
+        ? Number(body.netAmount)
+        : parseFloat((amount * PagaTGConfig.saque.fatorLiquidez).toFixed(2));
 
     const amountDec = new Prisma.Decimal(amount);
     const netDec = new Prisma.Decimal(netAmount);
     const cpfClean = this.normalizeDoc(body.cpf ?? '');
-    const cpfTag = cpfClean.length === 14 ? ` [CNPJ_DONO:${cpfClean}]` : cpfClean.length === 11 ? ` [CPF_DONO:${cpfClean}]` : '';
+    const cpfTag =
+      cpfClean.length === 14
+        ? ` [CNPJ_DONO:${cpfClean}]`
+        : cpfClean.length === 11
+          ? ` [CPF_DONO:${cpfClean}]`
+          : '';
     const description = `${body.planDescription} ${TENANT_PAGATG_TAG}${cpfTag}`;
 
-    return this.finance.recordEntry('PAGATG', {
-      userId, domPaymentId: body.domPaymentId.trim(),
-      externalTransactionId: body.domSubscriptionId?.trim() || null,
-      amount: amountDec, netAmount: netDec, totalFee: amountDec.sub(netDec),
-      status: 'COMPLETED', paymentMethod: body.paymentMethod === 'PIX' ? 'PIX' : 'CREDIT_CARD',
-      description, customerName: body.customerName ?? '', customerEmail: body.customerEmail ?? '',
-      customerDocument: (body.customerDocument ?? '').replace(/\D/g, ''),
-    }, true);
+    return this.finance.recordEntry(
+      'PAGATG',
+      {
+        userId,
+        domPaymentId: body.domPaymentId.trim(),
+        externalTransactionId: body.domSubscriptionId?.trim() || null,
+        amount: amountDec,
+        netAmount: netDec,
+        totalFee: amountDec.sub(netDec),
+        status: 'COMPLETED',
+        paymentMethod: body.paymentMethod === 'PIX' ? 'PIX' : 'CREDIT_CARD',
+        description,
+        customerName: body.customerName ?? '',
+        customerEmail: body.customerEmail ?? '',
+        customerDocument: (body.customerDocument ?? '').replace(/\D/g, ''),
+      },
+      true,
+    );
   }
 
-  async listVouchers( cpf: string, userId?: string, internalToken?: string,
-  ) {
+  async listVouchers(cpf: string, userId?: string, _internalToken?: string) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(cpf, userId);
     if (userIds.length === 0) return [];
     return this.voucherService.listVouchers(userIds[0], 'USER');
   }
-  async createVoucher( body: { cpf: string; userId?: string; dto: CreateVoucherDto }, internalToken?: string,
+  async createVoucher(
+    body: { cpf: string; userId?: string; dto: CreateVoucherDto },
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
-    if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
+    if (userIds.length === 0)
+      throw new BadRequestException('Usuário não encontrado');
     return this.voucherService.createVoucher(userIds[0], body.dto);
   }
-  async validateVoucher( body: { cpf: string; userId?: string; dto: ValidateVoucherDto }, internalToken?: string,
+  async validateVoucher(
+    body: { cpf: string; userId?: string; dto: ValidateVoucherDto },
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
-    if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
+    if (userIds.length === 0)
+      throw new BadRequestException('Usuário não encontrado');
     return this.voucherService.validateVoucher(userIds[0], body.dto);
   }
-  async updateVoucher( id: string, body: { cpf: string; userId?: string; dto: UpdateVoucherDto }, internalToken?: string,
+  async updateVoucher(
+    id: string,
+    body: { cpf: string; userId?: string; dto: UpdateVoucherDto },
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
-    if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
+    if (userIds.length === 0)
+      throw new BadRequestException('Usuário não encontrado');
     return this.voucherService.updateVoucher(userIds[0], 'USER', id, body.dto);
   }
-  async deleteVoucher( id: string, body: { cpf: string; userId?: string }, internalToken?: string,
+  async deleteVoucher(
+    id: string,
+    body: { cpf: string; userId?: string },
+    _internalToken?: string,
   ) {
+    void _internalToken;
     const userIds = await this.resolveUserIdsByCpf(body.cpf, body.userId);
-    if (userIds.length === 0) throw new BadRequestException('Usuário não encontrado');
+    if (userIds.length === 0)
+      throw new BadRequestException('Usuário não encontrado');
     return this.voucherService.deleteVoucher(userIds[0], 'USER', id);
   }
-
 }
