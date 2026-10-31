@@ -207,6 +207,7 @@ export const endpoints = {
       delete: (id: string) => `/admin/usuarios/${id}`,
       reativar: (id: string) => `/admin/usuarios/${id}/reativar`,
       permanente: (id: string) => `/admin/usuarios/${id}/permanente`,
+      acessarComo: (userId: string) => `/admin/usuarios/${userId}/acessar-como`,
       marcarEmpresa: (userId: string) =>
         `/admin/usuarios/${userId}/marcar-empresa`,
       clienteSimintpay: (userId: string) =>

@@ -2,14 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import {
-  Building2,
-  UserPlus,
-  UsersRound,
-  Handshake,
-  Info,
-  Layers,
-} from 'lucide-react';
+import { UserPlus, UsersRound, Handshake, Info, Layers } from 'lucide-react';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { cn } from '@/lib/utils';
 import { CreateAccountDialog } from './components';
@@ -17,7 +10,7 @@ import UsuariosTab from './_components/UsuariosTab';
 import AfiliadosTab from './_components/AfiliadosTab';
 import PlataformasExternasTab from './_components/PlataformasExternasTab';
 
-type TabKey = 'usuarios' | 'clientes' | 'afiliados' | 'plataformas';
+type TabKey = 'usuarios' | 'afiliados' | 'plataformas';
 
 const TABS: {
   key: TabKey;
@@ -31,14 +24,7 @@ const TABS: {
     label: 'Usuários',
     icon: UsersRound,
     description:
-      'Veja todas as pessoas que recebem vendas pelas plataformas e quanto cada uma tem de saldo. Se a conta já é um cliente Simintpay, use o botão "É cliente" para tirá-la desta lista.',
-  },
-  {
-    key: 'clientes',
-    label: 'Clientes Simintpay',
-    icon: Building2,
-    description:
-      'Contas marcadas como cliente Simintpay, com saldo e carteira. Use "Remover de clientes" para devolver a conta à lista de Usuários.',
+      'Veja todas as pessoas que recebem vendas pelas plataformas e quanto cada uma tem de saldo.',
   },
   {
     key: 'afiliados',
@@ -134,7 +120,7 @@ function ContasContent() {
           ))}
         </div>
 
-        {tab !== 'plataformas' && tab !== 'clientes' && (
+        {tab !== 'plataformas' && (
           <div className="flex items-start gap-2.5 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900 dark:border-violet-400/20 dark:bg-violet-500/10 dark:text-violet-100">
             <Info
               size={16}
@@ -146,7 +132,6 @@ function ContasContent() {
       </div>
 
       {tab === 'usuarios' && <UsuariosTab refreshKey={refreshKey} />}
-      {tab === 'clientes' && <UsuariosTab mode="clientes" />}
       {tab === 'afiliados' && <AfiliadosTab />}
       {tab === 'plataformas' && <PlataformasExternasTab />}
       {createOpen && (

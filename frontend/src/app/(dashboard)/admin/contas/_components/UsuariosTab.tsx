@@ -1,6 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,10 +18,9 @@ import {
   Pencil,
   Download,
   MoreVertical,
-  Building2,
-  Undo2,
   Wallet,
   Receipt,
+  DoorOpen,
 } from 'lucide-react';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import {
@@ -28,6 +33,7 @@ import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { HelpTooltip } from '@/components/ui/HelpTooltip';
+import { PortalTooltip } from '@/components/ui/PortalTooltip';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -263,6 +269,7 @@ type PlatformEntry = {
   platform: string;
   name: string;
   email: string | null;
+  role?: 'owner' | 'user';
 };
 
 type ExternalUser = {
@@ -415,11 +422,66 @@ const SCAN_COOLDOWN_MS = 5 * 60 * 1000;
 let lastScanAt = 0;
 let scanInFlight = false;
 
+function storeAccessToken(token: string, maxAge: number) {
+  localStorage.setItem('access_token', token);
+  document.cookie = `access_token=${token}; path=/; max-age=${maxAge}; samesite=lax`;
+}
+
+const ICON_ACTION_TONES = {
+  neutral:
+    'border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10',
+  emerald:
+    'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20',
+  violet:
+    'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20',
+  amber:
+    'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20',
+  red: 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20',
+  redStrong:
+    'border-red-300 bg-red-100 text-red-700 hover:bg-red-200 dark:border-red-500/30 dark:bg-red-500/20 dark:text-red-300 dark:hover:bg-red-500/30',
+} as const;
+
+/** Botão de ação só com ícone; o rótulo aparece no tooltip e vira aria-label. */
+function IconAction({
+  label,
+  tone,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string;
+  tone: keyof typeof ICON_ACTION_TONES;
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <PortalTooltip
+      content={
+        <div className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
+          {label}
+        </div>
+      }
+    >
+      <button
+        type="button"
+        aria-label={label}
+        disabled={disabled}
+        onClick={onClick}
+        className={cn(
+          'inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-50',
+          ICON_ACTION_TONES[tone],
+        )}
+      >
+        {children}
+      </button>
+    </PortalTooltip>
+  );
+}
+
 export default function UsuariosTab({
-  mode = 'usuarios',
   refreshKey = 0,
 }: {
-  mode?: 'usuarios' | 'clientes';
   refreshKey?: number;
 }) {
   const router = useRouter();
@@ -447,11 +509,7 @@ export default function UsuariosTab({
   const [scanning, setScanning] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
   const [showPurged, setShowPurged] = useState(false);
-  /** Aba "Clientes Simintpay": contas que já aparecem na aba Clientes e saíram da lista de ativos. */
-  const [showSimintpayClients, setShowSimintpayClients] = useState(
-    mode === 'clientes',
-  );
-  const [togglingClientId, setTogglingClientId] = useState<string | null>(null);
+  const [accessingId, setAccessingId] = useState<string | null>(null);
   const [confirmDeleteUser, setConfirmDeleteUser] =
     useState<ExternalUser | null>(null);
   const [confirmReactivateUser, setConfirmReactivateUser] =
@@ -534,41 +592,25 @@ export default function UsuariosTab({
     }
   }
 
-  async function marcarClienteSimintpay(
-    u: ExternalUser,
-    isSimintpayClient: boolean,
-  ) {
+  async function acessarComo(u: ExternalUser) {
     if (!u.simpayUser) return;
-    setTogglingClientId(u.simpayUser.id);
+    setAccessingId(u.simpayUser.id);
     try {
-      await getApi().patch(
-        endpoints.admin.usuarios.clienteSimintpay(u.simpayUser.id),
-        { isSimintpayClient },
-      );
-      toast(
-        isSimintpayClient
-          ? {
-              type: 'success',
-              title: 'Marcado como cliente Simintpay',
-              description: `${u.name} saiu desta lista. Você encontra a conta na aba "Clientes Simintpay".`,
-            }
-          : {
-              type: 'success',
-              title: 'Voltou para Usuários',
-              description: `${u.name} aparece de novo na lista de ativos.`,
-            },
-      );
-      fetchUsers();
+      const res = await getApi().post<{
+        accessToken: string;
+        expiresIn?: number;
+      }>(endpoints.admin.usuarios.acessarComo(u.simpayUser.id), {});
+      storeAccessToken(res.accessToken, res.expiresIn ?? 24 * 60 * 60);
+      window.location.assign('/painel');
     } catch (err: unknown) {
       toast({
         type: 'error',
         title: 'Erro',
         description:
           (err instanceof Error ? err.message : undefined) ??
-          'Não foi possível atualizar a conta.',
+          'Não foi possível acessar como este usuário.',
       });
-    } finally {
-      setTogglingClientId(null);
+      setAccessingId(null);
     }
   }
 
@@ -579,7 +621,6 @@ export default function UsuariosTab({
       deleted = showDeleted,
       q = search,
       purged = showPurged,
-      clients = showSimintpayClients,
     ) => {
       try {
         const api = getApi();
@@ -587,13 +628,7 @@ export default function UsuariosTab({
           page: String(p),
           pageSize: String(pageSize),
           ...(plat ? { platform: plat } : {}),
-          ...(purged
-            ? { purged: 'true' }
-            : deleted
-              ? { deleted: 'true' }
-              : clients
-                ? { simintpayClients: 'true' }
-                : {}),
+          ...(purged ? { purged: 'true' } : deleted ? { deleted: 'true' } : {}),
           ...(q.trim() ? { search: q.trim() } : {}),
         });
         const res = await api.get<ApiResponse>(
@@ -613,7 +648,7 @@ export default function UsuariosTab({
         setLoading(false);
       }
     },
-    [page, platform, showDeleted, showPurged, showSimintpayClients, search],
+    [page, platform, showDeleted, showPurged, search],
   );
 
   // Sempre aponta pro fetchUsers mais recente (a varredura termina bem depois do render que a iniciou).
@@ -1000,16 +1035,14 @@ export default function UsuariosTab({
     }
   }
 
-  function switchTab(tab: 'ativas' | 'inativas' | 'purgadas' | 'clientes') {
+  function switchTab(tab: 'ativas' | 'inativas' | 'purgadas') {
     const deleted = tab === 'inativas';
     const purged = tab === 'purgadas';
-    const clients = tab === 'clientes';
     setShowDeleted(deleted);
     setShowPurged(purged);
-    setShowSimintpayClients(clients);
     setPage(1);
     setSearch('');
-    fetchUsers(1, platform, deleted, '', purged, clients);
+    fetchUsers(1, platform, deleted, '', purged);
   }
 
   async function handlePurge() {
@@ -1049,7 +1082,7 @@ export default function UsuariosTab({
   const filtered = items;
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const colSpan = mode === 'clientes' ? 3 : 8; // Ambas as abas têm a coluna "Ações" (reativar na de excluídas)
+  const colSpan = 8; // Ambas as abas têm a coluna "Ações" (reativar na de excluídas)
 
   if (!loadingUser && !user?.isAdmin) {
     router.replace('/painel');
@@ -1440,14 +1473,14 @@ export default function UsuariosTab({
 
       <div className="leads-page flex flex-1 flex-col gap-6">
         {/* Tabs */}
-        {mode === 'usuarios' && (
+        {
           <div className="flex items-center gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1 w-fit dark:border-white/10 dark:bg-white/5">
             {(
               [
                 {
                   id: 'ativas',
                   label: 'Ativos',
-                  on: !showDeleted && !showPurged && !showSimintpayClients,
+                  on: !showDeleted && !showPurged,
                 },
                 {
                   id: 'inativas',
@@ -1470,7 +1503,7 @@ export default function UsuariosTab({
               </button>
             ))}
           </div>
-        )}
+        }
 
         {/* Controles */}
         <div className="flex flex-wrap items-center gap-3">
@@ -1543,43 +1576,35 @@ export default function UsuariosTab({
                 <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
                   Nome
                 </th>
-                {/* Coluna CPF oculta na aba "Clientes Simintpay" */}
-                {mode !== 'clientes' && (
-                  <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
-                    CPF/CNPJ
-                  </th>
-                )}
                 <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
-                  Plataforma
+                  CPF/CNPJ
+                </th>
+                <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
+                  Plataformas
                 </th>
                 {/* Coluna "Saldo líquido" comentada temporariamente — pode voltar futuramente.
                 <th className="px-4 py-3 text-right font-semibold text-zinc-500 dark:text-zinc-400">Saldo líquido</th>
                 */}
-                {/* Colunas Vinculado / Usuário Simintpay / Aprovação / Taxa cartão ocultas em "Clientes Simintpay" */}
-                {mode !== 'clientes' && (
-                  <>
-                    <th className="px-4 py-3 text-center font-semibold text-zinc-500 dark:text-zinc-400">
-                      <span className="inline-flex items-center justify-center gap-1">
-                        Vinculado
-                        <HelpTooltip>
-                          Indica se o lead possui uma conta ativa na Simintpay
-                          vinculada ao CPF cadastrado. Usuários vinculados podem
-                          solicitar saques e acessar o painel.
-                        </HelpTooltip>
-                      </span>
-                    </th>
-                    {/* Coluna "Atividade" (transacionou no mês corrente) comentada temporariamente — confundia com o status da aba (ativo/inativo). */}
-                    <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
-                      Usuário Simintpay
-                    </th>
-                    <th className="px-4 py-3 text-center font-semibold text-zinc-500 dark:text-zinc-400">
-                      Aprovação
-                    </th>
-                    <th className="px-4 py-3 text-right font-semibold text-zinc-500 dark:text-zinc-400">
-                      Taxa cartão
-                    </th>
-                  </>
-                )}
+                <th className="px-4 py-3 text-center font-semibold text-zinc-500 dark:text-zinc-400">
+                  <span className="inline-flex items-center justify-center gap-1">
+                    Vinculado
+                    <HelpTooltip>
+                      Indica se o lead possui uma conta ativa na Simintpay
+                      vinculada ao CPF cadastrado. Usuários vinculados podem
+                      solicitar saques e acessar o painel.
+                    </HelpTooltip>
+                  </span>
+                </th>
+                {/* Coluna "Atividade" (transacionou no mês corrente) comentada temporariamente — confundia com o status da aba (ativo/inativo). */}
+                <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
+                  Usuário Simintpay
+                </th>
+                <th className="px-4 py-3 text-center font-semibold text-zinc-500 dark:text-zinc-400">
+                  Aprovação
+                </th>
+                <th className="px-4 py-3 text-right font-semibold text-zinc-500 dark:text-zinc-400">
+                  Taxa cartão
+                </th>
                 <th className="px-4 py-3 text-center font-semibold text-zinc-500 dark:text-zinc-400">
                   Ações
                 </th>
@@ -1607,9 +1632,7 @@ export default function UsuariosTab({
                   >
                     {showDeleted
                       ? 'Nenhuma conta inativa.'
-                      : showSimintpayClients
-                        ? 'Nenhuma conta marcada como cliente Simintpay.'
-                        : 'Nenhum lead encontrado.'}
+                      : 'Nenhum lead encontrado.'}
                   </td>
                 </tr>
               ) : (
@@ -1623,11 +1646,9 @@ export default function UsuariosTab({
                         {u.name}
                       </span>
                     </td>
-                    {mode !== 'clientes' && (
-                      <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                        {formatDocument(u.cpf)}
-                      </td>
-                    )}
+                    <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                      {formatDocument(u.cpf)}
+                    </td>
                     <td className="px-4 py-3">
                       <AccountPlatformsButton
                         name={u.name}
@@ -1641,23 +1662,19 @@ export default function UsuariosTab({
                       </span>
                     </td>
                     */}
-                    {mode !== 'clientes' && (
-                      <>
-                        <td className="px-4 py-3 text-center">
-                          {u.vinculado ? (
-                            <CheckCircle2
-                              size={16}
-                              className="mx-auto text-emerald-500"
-                            />
-                          ) : (
-                            <XCircle
-                              size={16}
-                              className="mx-auto text-zinc-300 dark:text-zinc-600"
-                            />
-                          )}
-                        </td>
-                      </>
-                    )}
+                    <td className="px-4 py-3 text-center">
+                      {u.vinculado ? (
+                        <CheckCircle2
+                          size={16}
+                          className="mx-auto text-emerald-500"
+                        />
+                      ) : (
+                        <XCircle
+                          size={16}
+                          className="mx-auto text-zinc-300 dark:text-zinc-600"
+                        />
+                      )}
+                    </td>
                     {/* Coluna "Atividade" (transacionou no mês corrente) comentada temporariamente — confundia com o status da aba (ativo/inativo).
                     <td className="px-4 py-3 text-center">
                       {u.isAtivo === null ? (
@@ -1675,87 +1692,90 @@ export default function UsuariosTab({
                       )}
                     </td>
                     */}
-                    {mode !== 'clientes' && (
-                      <>
-                        <td className="px-4 py-3">
-                          {u.simpayUser ? (
-                            <div className="flex flex-col">
-                              <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
-                                {u.simpayUser.name}
-                              </span>
-                              <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                                {u.simpayUser.email}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                              —
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {u.simpayUser?.clientStatus ? (
-                            <span
-                              className={cn(
-                                'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                                CLIENTE_STATUS_BADGE[u.simpayUser.clientStatus]
-                                  .className,
-                              )}
-                            >
-                              {
-                                CLIENTE_STATUS_BADGE[u.simpayUser.clientStatus]
-                                  .label
-                              }
-                            </span>
-                          ) : (
-                            <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                              —
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-700 dark:text-zinc-300">
-                          {u.simpayUser?.clientStatus ? (
-                            decimalToPercentDisplay(
-                              u.simpayUser.taxaCartao ?? null,
-                            )
-                          ) : (
-                            <span className="text-zinc-400 dark:text-zinc-500">
-                              —
-                            </span>
-                          )}
-                        </td>
-                      </>
-                    )}
+                    <td className="px-4 py-3">
+                      {u.simpayUser ? (
+                        <div className="flex flex-col">
+                          <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
+                            {u.simpayUser.name}
+                          </span>
+                          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                            {u.simpayUser.email}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                          —
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-2">
+                      {u.simpayUser?.clientStatus ? (
+                        <span
+                          className={cn(
+                            'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                            CLIENTE_STATUS_BADGE[u.simpayUser.clientStatus]
+                              .className,
+                          )}
+                        >
+                          {
+                            CLIENTE_STATUS_BADGE[u.simpayUser.clientStatus]
+                              .label
+                          }
+                        </span>
+                      ) : (
+                        <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                          —
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-700 dark:text-zinc-300">
+                      {u.simpayUser?.clientStatus ? (
+                        decimalToPercentDisplay(u.simpayUser.taxaCartao ?? null)
+                      ) : (
+                        <span className="text-zinc-400 dark:text-zinc-500">
+                          —
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
                         {showPurged ? (
                           <span className="text-xs text-zinc-400 dark:text-zinc-500">
                             Excluída permanentemente
                           </span>
                         ) : showDeleted ? (
                           <>
-                            <button
+                            <IconAction
+                              label="Reativar"
+                              tone="emerald"
                               onClick={() => abrirReativar(u)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20"
                             >
-                              <CheckCircle2 size={12} />
-                              Reativar
-                            </button>
-                            <button
+                              <CheckCircle2 size={14} />
+                            </IconAction>
+                            <IconAction
+                              label="Excluir permanente"
+                              tone="redStrong"
                               onClick={() => abrirPurge(u)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-200 dark:border-red-500/30 dark:bg-red-500/20 dark:text-red-300 dark:hover:bg-red-500/30"
                             >
-                              <Trash2 size={12} />
-                              Excluir permanente
-                            </button>
+                              <Trash2 size={14} />
+                            </IconAction>
                           </>
                         ) : (
                           <>
-                            {/* Sem conta Simintpay vinculada não há o que marcar; o botão fica invisível
-                                (mas ocupa espaço) para manter Editar/Excluir alinhados entre as linhas. */}
-                            {mode === 'clientes' && u.simpayUser && (
-                              <button
-                                type="button"
+                            {isMaster && u.simpayUser && (
+                              <IconAction
+                                label="Acessar como"
+                                tone="amber"
+                                disabled={accessingId === u.simpayUser.id}
+                                onClick={() => acessarComo(u)}
+                              >
+                                <DoorOpen size={14} />
+                              </IconAction>
+                            )}
+                            {u.simpayUser && (
+                              <IconAction
+                                label="Cobranças"
+                                tone="violet"
                                 onClick={() =>
                                   setChargeClient({
                                     id: u.simpayUser!.id,
@@ -1764,62 +1784,31 @@ export default function UsuariosTab({
                                     saldoDisponivel: u.balance,
                                   })
                                 }
-                                className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-300"
                               >
-                                <Receipt size={12} /> Cobranças
-                              </button>
+                                <Receipt size={14} />
+                              </IconAction>
                             )}
-                            <button
+                            <IconAction
+                              label="Carteira"
+                              tone="emerald"
                               onClick={() => setCarteiraUser(u)}
-                              title="Ver carteira"
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
                             >
-                              <Wallet size={12} />
-                              Carteira
-                            </button>
-                            <button
-                              onClick={() =>
-                                marcarClienteSimintpay(u, !showSimintpayClients)
-                              }
-                              disabled={
-                                !u.simpayUser ||
-                                togglingClientId === u.simpayUser.id
-                              }
-                              aria-hidden={!u.simpayUser}
-                              tabIndex={u.simpayUser ? undefined : -1}
-                              title={
-                                showSimintpayClients
-                                  ? 'Volta a aparecer na lista de usuários ativos'
-                                  : 'Já é cliente Simintpay: tira desta lista'
-                              }
-                              className={cn(
-                                'inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:bg-violet-100 disabled:opacity-50 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20',
-                                !u.simpayUser && 'invisible',
-                              )}
-                            >
-                              {showSimintpayClients ? (
-                                <Undo2 size={12} />
-                              ) : (
-                                <Building2 size={12} />
-                              )}
-                              {showSimintpayClients
-                                ? 'Voltar para usuários'
-                                : 'É cliente'}
-                            </button>
-                            <button
+                              <Wallet size={14} />
+                            </IconAction>
+                            <IconAction
+                              label="Editar"
+                              tone="neutral"
                               onClick={() => openEdit(u)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10"
                             >
-                              <Pencil size={12} />
-                              Editar
-                            </button>
-                            <button
+                              <Pencil size={14} />
+                            </IconAction>
+                            <IconAction
+                              label="Excluir"
+                              tone="red"
                               onClick={() => abrirInativar(u)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 transition hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"
                             >
-                              <Trash2 size={12} />
-                              Excluir
-                            </button>
+                              <Trash2 size={14} />
+                            </IconAction>
                           </>
                         )}
                       </div>
