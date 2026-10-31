@@ -319,10 +319,12 @@ export default function TransacaoDetailPage() {
                 order.paid_date ? formatDateTime(order.paid_date) : 'Não pago'
               }
             />
-            <InfoRow
-              label="Status 3DS"
-              value={order.msg_3ds || 'Não solicitado'}
-            />
+            {isAdmin && (
+              <InfoRow
+                label="Status 3DS"
+                value={order.msg_3ds || 'Não solicitado'}
+              />
+            )}
 
             {isPix && order.pix_content && (
               <InfoRow
