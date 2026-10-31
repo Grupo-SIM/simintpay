@@ -84,7 +84,7 @@ export const reportMoney = (cents: number) =>
 export const reportStatus: Record<string, string> = {
   DRAFT: 'Rascunho',
   PENDING: 'Pendente',
-  COMPLETED: 'Concluída',
+  COMPLETED: 'Aprovada',
   FAILED: 'Falhou',
   REFUNDED: 'Estornada',
   EXPIRED: 'Expirada',

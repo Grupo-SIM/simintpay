@@ -239,7 +239,7 @@ test('owner scope, searchable database catalog, inactive history, pagination, fa
       await page.getByRole('cell', { name: 'R$ 0,33', exact: true }).count(),
     ).toBe(1);
     expect(
-      await page.getByRole('cell', { name: 'Concluída', exact: true }).count(),
+      await page.getByRole('cell', { name: 'Aprovada', exact: true }).count(),
     ).toBe(1);
     expect(
       await page.getByRole('cell', { name: 'Aprovada', exact: true }).count(),

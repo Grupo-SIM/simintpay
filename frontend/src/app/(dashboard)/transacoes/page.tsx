@@ -996,7 +996,7 @@ function TransacoesContent() {
               { value: '', label: 'Todos' },
               { value: 'DRAFT', label: 'Rascunho' },
               { value: 'PENDING', label: 'Pendente' },
-              { value: 'COMPLETED', label: 'Concluído' },
+              { value: 'COMPLETED', label: 'Aprovado' },
               { value: 'FAILED', label: 'Recusado' },
               { value: 'REFUNDED', label: 'Estornado' },
               { value: 'EXPIRED', label: 'Expirado' },
