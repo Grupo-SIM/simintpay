@@ -28,7 +28,11 @@ const products = {
   'planos-pix': 'Plano PIX',
 };
 
-export function CoproductionReceipts() {
+export function CoproductionReceipts({
+  filters = {},
+}: {
+  filters?: Record<string, string | undefined>;
+} = {}) {
   const { user } = useCurrentUser();
   const [page, setPage] = useState(1);
   const api = createApiClient({
@@ -36,10 +40,10 @@ export function CoproductionReceipts() {
     getToken: () => localStorage.getItem('access_token'),
   });
   const query = useQuery({
-    queryKey: ['coproduction-receipts', user?.id, page],
+    queryKey: ['coproduction-receipts', user?.id, page, filters],
     queryFn: () =>
       api.get<Receipts>(endpoints.coproduction.receipts, {
-        query: { page },
+        query: { ...filters, page },
         cache: 'no-store',
       }),
     enabled: Boolean(user?.id && !user.isAdmin),

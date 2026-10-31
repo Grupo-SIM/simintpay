@@ -29,7 +29,7 @@ export function PlatformSelectionHeader({
         description={
           admin
             ? 'Configure taxas e juros SimIntPay, comparando custos internos das adquirentes.'
-            : 'Crie plataformas, ajuste juros do comprador e confira custos antes de vender.'
+            : 'Gerencie suas plataformas e consulte plataformas compartilhadas em coprodução, somente leitura.'
         }
         selectedName={selectedName}
         open={open}

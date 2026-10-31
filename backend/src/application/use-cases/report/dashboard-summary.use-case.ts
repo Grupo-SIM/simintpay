@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import dayjs from 'dayjs';
+import { Prisma } from '@prisma/client';
+import { coproductionOwnerNet } from '../../../modules/coproduction/coproduction';
 import { coproductionTotals } from '../../../modules/coproduction/coproduction-view';
 
 @Injectable()
@@ -74,7 +76,14 @@ export class DashboardSummaryUseCase {
     );
     // Para Renovada, mostramos lucro líquido em "Vendas"
     const totalSales = paidTxs.reduce(
-      (acc, t) => acc + Number(t.netAmount || 0),
+      (acc, t) =>
+        acc +
+        Number(
+          coproductionOwnerNet(
+            t.financialSnapshot,
+            new Prisma.Decimal(t.netAmount || 0),
+          ),
+        ),
       0,
     );
 
@@ -91,7 +100,12 @@ export class DashboardSummaryUseCase {
     };
 
     paidTxs.forEach((tx) => {
-      const amt = Number(tx.amount || 0); // Keep original amount for payment method stats
+      const amt = Number(
+        coproductionOwnerNet(
+          tx.financialSnapshot,
+          new Prisma.Decimal(tx.netAmount || 0),
+        ),
+      );
       const method = tx.paymentMethod.toLowerCase();
       if (method.includes('pix')) {
         pmStats.pix.count++;
@@ -120,11 +134,25 @@ export class DashboardSummaryUseCase {
     );
 
     const onlineAmount = paidOnline.reduce(
-      (acc, t) => acc + Number(t.netAmount || 0),
+      (acc, t) =>
+        acc +
+        Number(
+          coproductionOwnerNet(
+            t.financialSnapshot,
+            new Prisma.Decimal(t.netAmount || 0),
+          ),
+        ),
       0,
     );
     const physicalAmount = paidPhysical.reduce(
-      (acc, t) => acc + Number(t.netAmount || 0),
+      (acc, t) =>
+        acc +
+        Number(
+          coproductionOwnerNet(
+            t.financialSnapshot,
+            new Prisma.Decimal(t.netAmount || 0),
+          ),
+        ),
       0,
     );
 
@@ -142,10 +170,30 @@ export class DashboardSummaryUseCase {
         );
         const online = pointTxs
           .filter((t) => !t.description?.includes('Terminal:'))
-          .reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+          .reduce(
+            (acc, t) =>
+              acc +
+              Number(
+                coproductionOwnerNet(
+                  t.financialSnapshot,
+                  new Prisma.Decimal(t.netAmount || 0),
+                ),
+              ),
+            0,
+          );
         const physical = pointTxs
           .filter((t) => t.description?.includes('Terminal:'))
-          .reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+          .reduce(
+            (acc, t) =>
+              acc +
+              Number(
+                coproductionOwnerNet(
+                  t.financialSnapshot,
+                  new Prisma.Decimal(t.netAmount || 0),
+                ),
+              ),
+            0,
+          );
         chartData.push({
           label: dayAnchor.add(h, 'hour').format('HH:00'),
           online,
@@ -163,10 +211,30 @@ export class DashboardSummaryUseCase {
         );
         const online = pointTxs
           .filter((t) => !t.description?.includes('Terminal:'))
-          .reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+          .reduce(
+            (acc, t) =>
+              acc +
+              Number(
+                coproductionOwnerNet(
+                  t.financialSnapshot,
+                  new Prisma.Decimal(t.netAmount || 0),
+                ),
+              ),
+            0,
+          );
         const physical = pointTxs
           .filter((t) => t.description?.includes('Terminal:'))
-          .reduce((acc, t) => acc + Number(t.netAmount || 0), 0);
+          .reduce(
+            (acc, t) =>
+              acc +
+              Number(
+                coproductionOwnerNet(
+                  t.financialSnapshot,
+                  new Prisma.Decimal(t.netAmount || 0),
+                ),
+              ),
+            0,
+          );
         chartData.push({
           label: cur.format('DD/MM'),
           online,

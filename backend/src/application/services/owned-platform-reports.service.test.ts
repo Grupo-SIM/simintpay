@@ -9,28 +9,39 @@ import { ReportSessionGuard } from '../../modules/platform-core/report-session.g
 const user = { sub: 'owner', email: 'owner@test.local', role: 'USER' };
 function fixture() {
   const raw = mock(async (query: any) =>
-    query.text.includes('SELECT p.id')
+    query.text.includes('FROM "CoproductionAllocation"')
       ? [
           {
-            id: 'p',
-            tag: 'OWN',
-            name: 'Minha Loja',
-            ownerUserId: 'owner',
-            isActive: false,
+            count: 0n,
+            available: new Prisma.Decimal(0),
+            locked: new Prisma.Decimal(0),
+            reversed: new Prisma.Decimal(0),
           },
         ]
-      : [
-          {
-            count: 0n,
-            gross: 0,
-            fees: 0,
-            net: 0,
-            refunds: 0,
-            refundCount: 0n,
-            missing: 0n,
-            total: 1n,
-          },
-        ],
+      : query.text.includes('FROM (SELECT "productId", participants')
+        ? []
+        : query.text.includes('SELECT p.id')
+          ? [
+              {
+                id: 'p',
+                tag: 'OWN',
+                name: 'Minha Loja',
+                ownerUserId: 'owner',
+                isActive: false,
+              },
+            ]
+          : [
+              {
+                count: 0n,
+                gross: 0,
+                fees: 0,
+                net: 0,
+                refunds: 0,
+                refundCount: 0n,
+                missing: 0n,
+                total: 1n,
+              },
+            ],
   );
   const db: any = {
     user: {
@@ -98,7 +109,14 @@ test('rejects third-party filters before reading data, including after transfer'
     () => service.transactionDetails(user, { platform: 'OTHER' }),
   ])
     await expect(action()).rejects.toThrow('Plataforma indisponível');
-  expect(db.$queryRaw).not.toHaveBeenCalled();
+  expect(db.$queryRaw.mock.calls).toHaveLength(2);
+  expect(
+    db.$queryRaw.mock.calls.every(
+      ([query]: any[]) =>
+        query.text.includes('CoproductionAgreement') ||
+        query.text.includes('CoproductionAllocation'),
+    ),
+  ).toBe(true);
   expect(db.withdrawRequest.findMany).not.toHaveBeenCalled();
 });
 test('empty ownership returns empty totals and cannot scan global transactions', async () => {
@@ -106,7 +124,10 @@ test('empty ownership returns empty totals and cannot scan global transactions',
   db.platform.findMany = async () => [];
   const result = await service.summary(user, {});
   expect(result.platformsCount).toBe(0);
-  expect(db.$queryRaw.mock.calls[0][0].text).toContain('WHERE false');
+  expect(db.$queryRaw.mock.calls[0][0].text).toContain('a."userId" =');
+  expect(db.$queryRaw.mock.calls[0][0].values).toContain('owner');
+  expect(db.$queryRaw.mock.calls[1][0].text).toContain('WHERE false');
+  expect(result.coproducao?.creditedCents).toBe(0);
   expect(JSON.stringify(result)).not.toMatch(
     /domFee|platformFee|lucro|acquirer|Wallet/,
   );

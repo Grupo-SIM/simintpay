@@ -36,6 +36,14 @@ export function OwnedReportContent({
   }, [query.error, onAccessLost]);
   if (query.isPending) return <ReportSkeleton />;
   if (query.isError) return <ReportError retry={() => void query.refetch()} />;
+  if (query.data.participationOnly)
+    return (
+      <p className="rounded-xl border p-6 text-sm">
+        Plataforma compartilhada · Somente sua participação de coprodução é
+        exibida abaixo. Vendas, clientes e dados financeiros do proprietário não
+        estão disponíveis.
+      </p>
+    );
   if (!query.data.platformsCount)
     return (
       <p className="rounded-xl border p-6 text-sm">

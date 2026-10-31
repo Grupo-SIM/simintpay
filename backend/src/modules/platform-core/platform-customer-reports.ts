@@ -10,6 +10,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import 'dayjs/locale/pt-br';
+import { coproductionOwnerNet } from '../coproduction/coproduction';
 import { coproductionTotals } from '../coproduction/coproduction-view';
 import { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 
@@ -102,7 +103,12 @@ export class PlatformCustomerReports {
               },
             }),
       },
-      select: { netAmount: true, description: true, createdAt: true },
+      select: {
+        netAmount: true,
+        financialSnapshot: true,
+        description: true,
+        createdAt: true,
+      },
     });
 
     const allTransactions = candidates;
@@ -112,7 +118,10 @@ export class PlatformCustomerReports {
       let maquinetas = new Prisma.Decimal(0);
       let offers = new Prisma.Decimal(0);
       txs.forEach((tx) => {
-        const net = new Prisma.Decimal(tx.netAmount || 0);
+        const net = coproductionOwnerNet(
+          tx.financialSnapshot,
+          new Prisma.Decimal(tx.netAmount || 0),
+        );
         total = total.plus(net);
         if (
           tx.description?.includes('Maquineta') ||
@@ -266,14 +275,20 @@ export class PlatformCustomerReports {
         status: TransactionStatus.REFUNDED,
         ...whereTransactionPlatform(this.context!.tag),
       },
-      select: { netAmount: true, description: true },
+      select: { netAmount: true, financialSnapshot: true, description: true },
     });
     const identified = rows;
     return {
       _count: { id: identified.length },
       _sum: {
         netAmount: identified.reduce(
-          (total, row) => total.plus(row.netAmount ?? 0),
+          (total, row) =>
+            total.plus(
+              coproductionOwnerNet(
+                row.financialSnapshot,
+                new Prisma.Decimal(row.netAmount ?? 0),
+              ),
+            ),
           new Prisma.Decimal(0),
         ),
       },
@@ -303,12 +318,17 @@ export class PlatformCustomerReports {
             ? whereTransactionPlatform(this.context.tag)
             : { description: { contains: cpf, mode: 'insensitive' as const } }),
         },
-        select: { netAmount: true, description: true },
+        select: { netAmount: true, financialSnapshot: true, description: true },
       });
 
       let val = new Prisma.Decimal(0);
       txs.forEach((tx) => {
-        val = val.plus(tx.netAmount || 0);
+        val = val.plus(
+          coproductionOwnerNet(
+            tx.financialSnapshot,
+            new Prisma.Decimal(tx.netAmount || 0),
+          ),
+        );
       });
 
       data.push({

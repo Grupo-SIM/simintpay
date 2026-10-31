@@ -12,6 +12,13 @@ export type ReportPage<T> = {
 };
 export type ReportSummary = {
   unit: 'cents';
+  participationOnly?: boolean;
+  coproducao?: {
+    count: number;
+    creditedCents: number;
+    lockedCents: number;
+    reversedCents: number;
+  };
   platformsCount: number;
   summary: {
     salesCount: number;

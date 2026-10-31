@@ -529,3 +529,83 @@ test('all five products accept several coproducers before creation and preserve 
     server.stop(true);
   }
 }, 300000);
+
+test('dashboard participation summary follows period changes without adding wallet revenue', async () => {
+  const build = await Bun.build({
+    entrypoints: [import.meta.dir + '/browser-entry.tsx'],
+    target: 'browser',
+    define: {
+      'process.env': '{}',
+      'process.env.NEXT_PUBLIC_API_BASE_URL': '"/api"',
+      'process.env.NODE_ENV': '"test"',
+    },
+  });
+  if (!build.success) throw new Error(build.logs.join('\n'));
+  const script = await build.outputs[0].text();
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: (req) =>
+      new Response(
+        new URL(req.url).pathname === '/app.js'
+          ? script
+          : '<div id="root"></div><script src="/app.js"></script>',
+        {
+          headers: {
+            'Content-Type':
+              new URL(req.url).pathname === '/app.js'
+                ? 'text/javascript'
+                : 'text/html; charset=utf-8',
+          },
+        },
+      ),
+  });
+  const browser = await chromium.launch({
+    executablePath: '/usr/bin/google-chrome-stable',
+    headless: true,
+    args: ['--no-sandbox'],
+  });
+  try {
+    const page = await browser.newPage();
+    const calls = [];
+    await page.route('**/api/**', (route) => {
+      const url = new URL(route.request().url());
+      calls.push(url);
+      if (url.pathname === '/api/auth/me')
+        return route.fulfill({
+          json: { data: { id: 'partner', isAdmin: false } },
+        });
+      return route.fulfill({
+        json: {
+          data: [],
+          total: 1,
+          page: 1,
+          pageSize: 10,
+          summary: {
+            creditedCents:
+              url.searchParams.get('startDate') === '2026-10-15' ? 200 : 100,
+            lockedCents: 0,
+            reversedCents: 0,
+          },
+        },
+      });
+    });
+    await page.goto(`http://127.0.0.1:${server.port}/?view=summary`);
+    await page.getByText('R$ 1,00', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Alterar período' }).click();
+    await page.getByText('R$ 2,00', { exact: true }).waitFor();
+    expect(
+      calls.some(
+        (url) =>
+          url.searchParams.get('startDate') === '2026-10-15' &&
+          url.searchParams.get('endDate') === '2026-10-31',
+      ),
+    ).toBe(true);
+    expect(
+      await page.getByText(/Créditos já integram sua carteira/).count(),
+    ).toBe(1);
+  } finally {
+    await browser.close();
+    server.stop(true);
+  }
+}, 180000);

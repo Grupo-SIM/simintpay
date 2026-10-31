@@ -148,6 +148,12 @@ export function PlatformPickerModal({
                       ? label(platform)
                       : `${platform.name}${!platform.isActive ? ' (Inativa)' : ''}`}
                   </span>
+                  {(platform.coproducao?.readOnly ||
+                    platform.coproducao?.role === 'COPRODUCER') && (
+                    <span className="block text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                      Coprodução · Somente leitura
+                    </span>
+                  )}
                   {user?.isAdmin && (
                     <span className="mt-1 block break-words text-xs text-zinc-500 dark:text-zinc-400">
                       {owners.isLoading
@@ -160,20 +166,22 @@ export function PlatformPickerModal({
                   <Check size={18} className="shrink-0 text-violet-500" />
                 )}
               </button>
-              {!admin && (
-                <ConfirmActionButton
-                  variant="outline"
-                  size="icon"
-                  className="cursor-pointer text-red-500 disabled:cursor-not-allowed"
-                  disabled={remove.isPending}
-                  label={`Excluir ${platform.name}`}
-                  confirmation="Excluir permanentemente esta plataforma?"
-                  confirmContent={<Check size={16} />}
-                  onConfirm={() => remove.mutate(platform.tag)}
-                >
-                  <Trash2 size={16} />
-                </ConfirmActionButton>
-              )}
+              {!admin &&
+                !platform.coproducao?.readOnly &&
+                platform.coproducao?.role !== 'COPRODUCER' && (
+                  <ConfirmActionButton
+                    variant="outline"
+                    size="icon"
+                    className="cursor-pointer text-red-500 disabled:cursor-not-allowed"
+                    disabled={remove.isPending}
+                    label={`Excluir ${platform.name}`}
+                    confirmation="Excluir permanentemente esta plataforma?"
+                    confirmContent={<Check size={16} />}
+                    onConfirm={() => remove.mutate(platform.tag)}
+                  >
+                    <Trash2 size={16} />
+                  </ConfirmActionButton>
+                )}
             </div>
           ))}
           {filtered.length === 0 && (
