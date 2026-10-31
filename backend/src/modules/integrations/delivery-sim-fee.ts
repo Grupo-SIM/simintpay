@@ -1,3 +1,4 @@
+import { UnprocessableEntityException } from '@nestjs/common';
 import type { DeliveryFeeMode } from '@prisma/client';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { loadFinancialPolicy } from '../financial-policy/financial-policy.service';
@@ -26,6 +27,15 @@ export async function loadDeliverySimFee(
   method: 'PIX' | 'CREDIT_CARD',
   installments: number,
 ): Promise<DeliverySimFee | undefined> {
+  const platform = await prisma.platform.findUnique({
+    where: { tag },
+    select: { deliveryDisabledLanes: true },
+  });
+  if (platform?.deliveryDisabledLanes?.includes(`${method}/${installments}`))
+    throw new UnprocessableEntityException({
+      code: 'PAYMENT_LANE_DISABLED',
+      lane: `${method}/${installments}`,
+    });
   if (feeMode === 'ADDITIVE_ONLY') return undefined;
   const { document } = await loadFinancialPolicy(prisma, tag);
   for (const key of Object.keys(document.lanes).sort()) {

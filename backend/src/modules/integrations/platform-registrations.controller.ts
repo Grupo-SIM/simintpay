@@ -65,6 +65,11 @@ class FeesDto {
   @ValidateNested({ each: true })
   @Type(() => FeeLaneDto)
   lanes!: FeeLaneDto[];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(14)
+  @Matches(/^(PIX|BOLETO|DEBIT_CARD|CREDIT_CARD)\/\d{1,2}$/, { each: true })
+  disabledLanes?: string[];
 }
 class RegistrationDto {
   @IsString() @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/) slug!: string;

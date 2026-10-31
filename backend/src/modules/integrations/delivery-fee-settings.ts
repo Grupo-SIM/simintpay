@@ -33,6 +33,29 @@ function laneMatches(
   );
 }
 
+const METHOD_ORDER: Record<string, number> = {
+  CREDIT_CARD: 0,
+  DEBIT_CARD: 1,
+  PIX: 2,
+  BOLETO: 3,
+};
+
+/** Lane identity used by `disabledLanes`: `METHOD/installments`. */
+export const deliveryLaneId = (
+  lane: Pick<DeliveryFeeLane, 'method' | 'installments'>,
+) => `${lane.method}/${lane.installments}`;
+
+/** Methods in a fixed order, then installments numerically (10x must come after 2x). */
+export function compareLanes(
+  a: Pick<DeliveryFeeLane, 'method' | 'installments'>,
+  b: Pick<DeliveryFeeLane, 'method' | 'installments'>,
+) {
+  return (
+    (METHOD_ORDER[a.method] ?? 99) - (METHOD_ORDER[b.method] ?? 99) ||
+    a.installments - b.installments
+  );
+}
+
 async function platformOf(tx: Prisma.TransactionClient, companyId: string) {
   const registration = await tx.deliveryPlatformRegistration.findUnique({
     where: { externalMerchantId: companyId },
@@ -41,17 +64,29 @@ async function platformOf(tx: Prisma.TransactionClient, companyId: string) {
     throw new NotFoundException('Empresa sem plataforma financeira');
   const platform = await tx.platform.findUniqueOrThrow({
     where: { id: registration.platformId },
-    select: { deliveryFeeMode: true, id: true, ownerUserId: true, tag: true },
+    select: {
+      deliveryDisabledLanes: true,
+      deliveryFeeMode: true,
+      id: true,
+      ownerUserId: true,
+      tag: true,
+    },
   });
   return platform;
 }
 
-/** SimIntPay fees (`sim`) effective for one Delivery company, plus the global acquirer cost floor. */
+/**
+ * SimIntPay fees (`sim`) effective for one Delivery company, plus the global acquirer cost floor. Every lane is
+ * listed; `disabledLanes` (`METHOD/installments`) are the ones the platform does not accept, which consumers skip.
+ */
 export async function readDeliveryFees(
   tx: Prisma.TransactionClient,
   companyId: string,
 ) {
-  const { deliveryFeeMode, tag } = await platformOf(tx, companyId);
+  const { deliveryDisabledLanes, deliveryFeeMode, tag } = await platformOf(
+    tx,
+    companyId,
+  );
   const policy = await loadFinancialPolicy(tx, tag);
   const lanes = new Map<string, DeliveryFeeLane>();
   for (const [key, lane] of Object.entries(policy.document.lanes).sort(
@@ -73,15 +108,21 @@ export async function readDeliveryFees(
   return {
     mode: deliveryFeeMode,
     version: policy.version,
-    lanes: [...lanes.values()],
-    costs: await acquirerCostFloor(tx),
+    disabledLanes: [...deliveryDisabledLanes].sort(),
+    lanes: [...lanes.values()].sort(compareLanes),
+    costs: (await acquirerCostFloor(tx)).sort(compareLanes),
   };
 }
 
 export async function saveDeliveryFees(
   tx: Prisma.TransactionClient,
   companyId: string,
-  input: { version: string; lanes: DeliveryFeeLane[]; mode?: DeliveryFeeMode },
+  input: {
+    version: string;
+    lanes: DeliveryFeeLane[];
+    mode?: DeliveryFeeMode;
+    disabledLanes?: string[];
+  },
 ) {
   const { id: platformId, ownerUserId, tag } = await platformOf(tx, companyId);
   const current = await loadFinancialPolicy(tx, tag);
@@ -93,6 +134,11 @@ export async function saveDeliveryFees(
     await tx.platform.update({
       where: { id: platformId },
       data: { deliveryFeeMode: input.mode },
+    });
+  if (input.disabledLanes !== undefined)
+    await tx.platform.update({
+      where: { id: platformId },
+      data: { deliveryDisabledLanes: [...new Set(input.disabledLanes)].sort() },
     });
   // A mode-only change must not create an empty policy revision.
   if (!input.lanes.length) return readDeliveryFees(tx, companyId);
