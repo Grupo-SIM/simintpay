@@ -1015,10 +1015,10 @@ function TransacoesContent() {
               variant="navbar"
               options={[
                 { value: '', label: 'Todos' },
-                { value: 'PIX', label: 'Pix' },
+                { value: 'BOLETO', label: 'Boleto' },
                 { value: 'CREDIT_CARD', label: 'Cartão de crédito' },
                 { value: 'DEBIT_CARD', label: 'Cartão de débito' },
-                { value: 'BOLETO', label: 'Boleto' },
+                { value: 'PIX', label: 'Pix' },
               ]}
             />
           }
