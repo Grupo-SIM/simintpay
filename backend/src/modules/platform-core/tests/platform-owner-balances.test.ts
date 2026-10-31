@@ -83,6 +83,7 @@ test('owner reads independent product projections against one shared wallet', as
     {} as any,
     {} as any,
     {} as any,
+    {} as any,
   );
   expect(
     Reflect.getMetadata('platform-operation', controller.platformBalance),

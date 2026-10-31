@@ -459,7 +459,38 @@ export class PlatformFinanceService {
     };
   }
 
+  /** Same resolver the legacy taxas/fees endpoints use; money converted to cents. */
+  private withdrawalPolicy(tag: string) {
+    const fixed = getPlatformTaxaEffective(
+      tag,
+      'TAXA_SAQUE_FIXA',
+      PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA,
+    );
+    const percent = getPlatformTaxaEffective(
+      tag,
+      'TAXA_SAQUE_PERCENT',
+      PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_PERCENT,
+    );
+    const minimum = getPlatformTaxaEffective(
+      tag,
+      'SAQUE_MIN',
+      PLATFORM_TAXA_DEFAULTS.SAQUE_MIN,
+    );
+    if (![fixed, percent, minimum].every((v) => Number.isFinite(v) && v >= 0))
+      throw new UnprocessableEntityException({
+        code: 'PLATFORM_CAPABILITY_UNAVAILABLE',
+        capability: 'finance.config',
+      });
+    return {
+      minimumCents: this.cents(minimum),
+      fixedFeeCents: this.cents(fixed),
+      percentFee: percent,
+    };
+  }
+
   config(context: FinancePlatformContext) {
+    if (context.tag === 'BOSQUE' || context.tag === 'RENOVADA')
+      return { unit: 'cents', withdrawal: this.withdrawalPolicy(context.tag) };
     if (context.tag !== 'EBOOK')
       throw new UnprocessableEntityException({
         code: 'PLATFORM_CAPABILITY_UNAVAILABLE',
@@ -505,6 +536,7 @@ export class PlatformFinanceService {
         userId: context.ownerUserId,
         platform: context.tag.toLowerCase(),
       },
+      include: { user: { select: { name: true, email: true } } },
     });
     if (!row) throw new NotFoundException('Saque não encontrado');
     return {
@@ -517,7 +549,34 @@ export class PlatformFinanceService {
       pixKey: row.pixKey,
       rejectionReason: row.rejectionReason,
       createdAt: row.createdAt,
+      ...this.withdrawalExtras(row),
     };
+  }
+
+  private withdrawalExtras(row: any) {
+    return {
+      receiptAvailable:
+        !!row.receiptImage?.trim() && row.comprovanteVisivel !== false,
+      customer: row.user
+        ? { name: row.user.name ?? null, email: row.user.email ?? null }
+        : null,
+    };
+  }
+
+  /** Stored receipt reference, only for a withdrawal of this owner on this platform. */
+  async withdrawalReceiptRef(context: FinancePlatformContext, id: string) {
+    const row = await this.prisma.withdrawRequest.findFirst({
+      where: {
+        id,
+        userId: context.ownerUserId,
+        platform: context.tag.toLowerCase(),
+      },
+      select: { receiptImage: true, comprovanteVisivel: true },
+    });
+    const url = row?.receiptImage?.trim();
+    if (!row || !url || row.comprovanteVisivel === false)
+      throw new NotFoundException('Comprovante não disponível para este saque');
+    return url;
   }
 
   async transactions(
@@ -585,6 +644,7 @@ export class PlatformFinanceService {
         pixKey: row.pixKey,
         rejectionReason: row.rejectionReason,
         createdAt: row.createdAt,
+        ...this.withdrawalExtras(row),
       })),
       meta: {
         page,
