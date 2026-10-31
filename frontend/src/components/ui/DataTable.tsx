@@ -113,6 +113,11 @@ export function DataTable<T>({
     canSelect && rows.length > 0 && selectedCount === rows.length;
   const someSelected = canSelect && selectedCount > 0 && !allSelected;
   const extraCols = canSelect ? 1 : 0;
+  const columnsWidth = columns.reduce(
+    (total, column) =>
+      total + (widths[column.key] ?? column.defaultWidth ?? 150),
+    canSelect ? 48 : 0,
+  );
 
   return (
     <div className="flex w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-2xl border border-white/40 bg-zinc-50/50 shadow-[0_12px_44px_-24px_rgba(15,23,42,0.45)] backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
@@ -123,6 +128,7 @@ export function DataTable<T>({
           className={`w-full ${minWidth}`}
           style={{
             tableLayout: 'fixed',
+            minWidth: columnsWidth,
           }}
         >
           <colgroup>
@@ -164,7 +170,9 @@ export function DataTable<T>({
                     .filter(Boolean)
                     .join(' ')}
                 >
-                  {c.header}
+                  <span className="block truncate" title={c.header}>
+                    {c.header}
+                  </span>
                   {/* resize handle */}
                   <span
                     onMouseDown={(e) => onMouseDown(c.key, e)}
