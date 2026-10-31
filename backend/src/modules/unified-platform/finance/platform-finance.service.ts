@@ -6,6 +6,7 @@ import { PlatformAttributedBalance } from '../../platform-core/platform-attribut
 import { PlatformDashboardReports } from '../../platform-core/platform-dashboard-reports';
 import { platformDashboardRules } from '../../platform-core/platform-dashboard.adapter';
 import { PlatformLedger } from './platform-ledger';
+import { platformMachines, MachinesQuery } from './platform-machines';
 import { PlatformMaintenanceService } from './platform-maintenance.service';
 import { platformWithdrawalQuote } from '../../platform-core/platform-withdrawal.adapter';
 import {
@@ -653,6 +654,10 @@ export class PlatformFinanceService {
         totalPages: Math.max(1, Math.ceil(total / limit)),
       },
     };
+  }
+
+  machines(context: FinancePlatformContext, query: MachinesQuery = {}) {
+    return platformMachines(this.prisma, context.id, query);
   }
 
   async report(context: FinancePlatformContext) {

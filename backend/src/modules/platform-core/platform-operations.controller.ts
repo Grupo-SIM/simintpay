@@ -151,6 +151,23 @@ export class PlatformOperationsController {
     return this.finance.summary(request.platformContext);
   }
 
+  @Get('finance/machines')
+  @Operation('finance:read')
+  machines(
+    @Req() request: PlatformRequest,
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.finance.machines(request.platformContext, {
+      page: Number(page),
+      limit: Number(limit),
+      startDate,
+      endDate,
+    });
+  }
+
   @Get('finance/transactions')
   @Operation('finance:read')
   transactions(
