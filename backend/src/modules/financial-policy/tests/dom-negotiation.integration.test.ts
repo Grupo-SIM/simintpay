@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { parseDomNegotiation } from '../dom-negotiation';
 import {
+  acquirerCostFloor,
   estimatedCost,
   orderByCost,
   validateFee,
@@ -26,6 +27,96 @@ const response = {
 };
 
 describe('DOM negotiation import', () => {
+  test('floors use latest active provider combined rates and independent fixed maxima', async () => {
+    const imported = parseDomNegotiation(response).map((fee) => ({
+      ...fee,
+      acquirerCode: 'DOM',
+      source: 'SYNC',
+      createdAt: new Date('2026-10-01'),
+      id: 'latest',
+    }));
+    const rows = [
+      ...imported,
+      ...imported.map((fee) => ({
+        ...fee,
+        id: 'older',
+        createdAt: new Date('2026-09-01'),
+        ratePpm: 900_000,
+      })),
+      ...imported.map((fee) => ({
+        ...fee,
+        acquirerCode: 'INACTIVE',
+        ratePpm: 950_000,
+      })),
+      ...imported.map((fee) => ({
+        ...fee,
+        acquirerCode: 'OTHER',
+        ratePpm: 60_000,
+        interestPpm: 10_000,
+        fixedCents: 250,
+      })),
+    ];
+    const client = {
+      acquirerCatalogue: {
+        findMany: async ({ where }: { where: { active: boolean } }) => {
+          expect(where).toEqual({ active: true });
+          return [{ code: 'DOM' }, { code: 'OTHER' }];
+        },
+      },
+      acquirerFeeSchedule: {
+        findMany: async ({
+          where,
+          orderBy,
+        }: {
+          where: {
+            acquirerCode: { in: string[] };
+            method: string;
+            channel: string;
+            installments: number;
+          };
+          orderBy: unknown;
+        }) => {
+          expect(orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
+          return rows
+            .filter(
+              (row) =>
+                where.acquirerCode.in.includes(row.acquirerCode) &&
+                row.method === where.method &&
+                row.channel === where.channel &&
+                row.installments === where.installments,
+            )
+            .sort(
+              (a, b) =>
+                b.createdAt.getTime() - a.createdAt.getTime() ||
+                b.id.localeCompare(a.id),
+            );
+        },
+      },
+    } as unknown as Parameters<typeof acquirerCostFloor>[0];
+    const floors = await acquirerCostFloor(client);
+    for (const installments of [2, 6, 12]) {
+      expect(
+        floors.find(
+          (fee) =>
+            fee.method === 'CREDIT_CARD' && fee.installments === installments,
+        ),
+      ).toEqual({
+        method: 'CREDIT_CARD',
+        channel: 'ONLINE',
+        installments,
+        fixedCents: 250,
+        ratePpm: 83_000,
+      });
+    }
+    expect(
+      floors.find(
+        (fee) => fee.method === 'CREDIT_CARD' && fee.installments === 1,
+      )?.ratePpm,
+    ).toBe(70_000);
+    // DOM has zero interest for PIX; OTHER's combined rate remains the floor.
+    expect(floors.find((fee) => fee.method === 'PIX')?.ratePpm).toBe(70_000);
+  });
+
   test('maps credit 1x, installment interest, PIX and fixed boleto without identity data', () => {
     const fees = parseDomNegotiation(response);
     expect(fees).toHaveLength(14);

@@ -1,5 +1,9 @@
 # Plataformas e configuração financeira
 
+## Piso efetivo de custo da adquirente
+
+O piso por método/canal/parcela considera somente adquirentes ativas e a tabela mais recente de cada uma. O percentual efetivo é o maior `ratePpm + interestPpm` de uma mesma adquirente, nunca a soma dos máximos separados; o custo fixo usa seu próprio máximo. Na DOM, MDR de 3,99% mais juros de 4,31% resulta em piso de 8,30%, sem capitalização ou nova multiplicação pelas parcelas. Juros zero preservam o MDR. Esse piso alimenta `finance/acquirer-costs` do núcleo de plataformas e `costs` da integração Delivery, sem alterar tabelas brutas nem a base e o arredondamento do estimador de custo monetário.
+
 ## Cadastro e dono
 
 Plataforma existe somente após cadastro explícito em `Platform`, com dono obrigatório em `User`. Usuário ativo cria plataformas próprias; administrador atribui e transfere para outro usuário ativo. Uma pessoa pode possuir várias plataformas. Tags `GLOBAL`, `SIMINTPAY` e `CLIENT:<email>` são contextos financeiros reservados, não plataformas descobertas.

@@ -136,7 +136,7 @@ export async function acquirerCostFloor(prisma: Client): Promise<CostFloor[]> {
         channel: 'ONLINE',
         installments,
         fixedCents: Math.max(...fees.map((fee) => fee.fixedCents)),
-        ratePpm: Math.max(...fees.map((fee) => fee.ratePpm)),
+        ratePpm: Math.max(...fees.map((fee) => fee.ratePpm + fee.interestPpm)),
       };
     }),
   );
