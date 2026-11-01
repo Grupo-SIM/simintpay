@@ -1,11 +1,11 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
+import { lockWalletLedger } from '../wallet-ledger/wallet-ledger';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 
 export type LinkClaim = {
@@ -112,41 +112,30 @@ export class PlatformLinkClaim {
               code: 'SHARED_WALLET_MAINTENANCE_BLOCKED',
             });
           const amount = new Prisma.Decimal(cents).div(100);
-          if (
-            source.wallet.balance.minus(source.wallet.lockedBalance).lt(amount)
-          )
-            throw new BadRequestException('Saldo de origem insuficiente');
-          const target = await p.wallet.upsert({
+          await p.wallet.upsert({
             where: { userId: targetUserId },
             update: {},
             create: { userId: targetUserId, balance: 0, lockedBalance: 0 },
           });
-          const debit = await p.wallet.updateMany({
-            where: {
-              id: source.wallet.id,
-              version: source.wallet.version,
-              balance: { gte: amount.plus(source.wallet.lockedBalance) },
-            },
-            data: { balance: { decrement: amount }, version: { increment: 1 } },
+          // Both ledgers are locked in a stable order (no deadlock between opposite claims) before
+          // the source balance used for the decision is read; the logs then move the wallets.
+          for (const id of [source.id, targetUserId].sort())
+            await lockWalletLedger(p, id);
+          const sourceWallet = await p.wallet.findUniqueOrThrow({
+            where: { userId: source.id },
           });
-          const credit = await p.wallet.updateMany({
-            where: { id: target.id, version: target.version },
-            data: { balance: { increment: amount }, version: { increment: 1 } },
-          });
-          if (debit.count !== 1 || credit.count !== 1)
-            throw new ConflictException('Carteira alterada por outra operação');
-          for (const [wallet, delta, id] of [
-            [source.wallet, amount.neg(), `${logId}-source`],
-            [target, amount, logId],
+          if (sourceWallet.balance.minus(sourceWallet.lockedBalance).lt(amount))
+            throw new BadRequestException('Saldo de origem insuficiente');
+          for (const [userId, delta, id] of [
+            [source.id, amount.neg(), `${logId}-source`],
+            [targetUserId, amount, logId],
           ] as const) {
             await p.balanceLog.create({
               data: {
                 id,
-                userId: wallet.userId,
+                userId,
                 action: 'AREAFLIX_CLAIM_TRANSFER',
-                balanceDelta: new Prisma.Decimal(
-                  wallet.balance.plus(delta),
-                ).sub(wallet.balance),
+                balanceDelta: delta,
                 lockedDelta: 0,
                 source: tag,
                 description:

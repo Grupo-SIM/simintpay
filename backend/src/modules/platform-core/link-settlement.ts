@@ -1,5 +1,6 @@
 import { settleCoproduction } from '../coproduction/coproduction-settlement';
 import { AffiliateCommissionService } from '../../application/services/affiliate-commission.service';
+import { applyWalletEntry } from '../wallet-ledger/wallet-ledger';
 import { ConflictException } from '@nestjs/common';
 import { Prisma, TransactionStatus, type Transaction } from '@prisma/client';
 
@@ -48,36 +49,18 @@ export async function settleFinalNet(
     else balance = value.neg();
   }
   if (!distributed && (!balance.isZero() || !locked.isZero())) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const wallet = await p.wallet.findUnique({
-        where: { userId: row.userId },
-      });
-      if (!wallet) throw new ConflictException('Carteira ausente');
-      const after = wallet.balance.add(balance),
-        lockedAfter = wallet.lockedBalance.add(locked);
-      const updated = await p.wallet.updateMany({
-        where: { id: wallet.id, version: wallet.version },
-        data: {
-          balance: after,
-          lockedBalance: lockedAfter,
-          version: { increment: 1 },
-        },
-      });
-      if (updated.count === 1) {
-        await p.balanceLog.create({
-          data: {
-            userId: row.userId,
-            transactionId: row.id,
-            action: `LINK_SETTLEMENT_${status}`,
-            balanceDelta: balance,
-            lockedDelta: locked,
-            source,
-          },
-        });
-        break;
-      }
-      if (attempt === 2) throw new ConflictException('Conflito de carteira');
-    }
+    const wallet = await p.wallet.findUnique({
+      where: { userId: row.userId },
+    });
+    if (!wallet) throw new ConflictException('Carteira ausente');
+    await applyWalletEntry(p, {
+      userId: row.userId,
+      transactionId: row.id,
+      action: `LINK_SETTLEMENT_${status}`,
+      balanceDelta: balance,
+      lockedDelta: locked,
+      source,
+    });
   }
   const commissions = new AffiliateCommissionService();
   if (status === 'COMPLETED')

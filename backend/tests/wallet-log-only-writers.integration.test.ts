@@ -318,3 +318,93 @@ run(
     expect(await expectConsistent(affiliate.id)).toEqual(['50.00', '0.00']);
   },
 );
+
+run(
+  'settleFinalNet credits, mediates and refunds through the log only',
+  async () => {
+    const user = await newUser();
+    await fund(user.id, '10');
+    const tx = await db!.transaction.create({
+      data: {
+        userId: user.id,
+        amount: '100',
+        netAmount: '87',
+        settlementBasis: 'FINAL_NET',
+        status: 'PENDING',
+        domPaymentId: crypto.randomUUID(),
+      },
+    });
+    const settle = (status: TransactionStatus) =>
+      db!.$transaction(async (p) =>
+        settleFinalNet(
+          p,
+          await p.transaction.findUniqueOrThrow({ where: { id: tx.id } }),
+          status,
+          'WEBHOOK',
+        ),
+      );
+    const results = await Promise.allSettled([
+      settle('COMPLETED'),
+      settle('COMPLETED'),
+    ]);
+    expect(
+      results.filter((r) => r.status === 'fulfilled' && r.value),
+    ).toHaveLength(1);
+    expect(await expectConsistent(user.id)).toEqual(['97.00', '0.00']);
+    await settle('IN_MEDIATION');
+    expect(await expectConsistent(user.id)).toEqual(['10.00', '87.00']);
+    await settle('REFUNDED');
+    expect(await expectConsistent(user.id)).toEqual(['10.00', '0.00']);
+  },
+);
+
+const newPlatform = async (ownerUserId: string, tag: string) =>
+  db!.platform.create({
+    data: { tag, name: tag, ownerUserId },
+  });
+
+run(
+  'platform withdrawal reservation cannot overdraw under concurrency',
+  async () => {
+    const owner = await newUser();
+    await fund(owner.id, '100');
+    const tag = `SHOP${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    await newPlatform(owner.id, tag);
+    const service = new PlatformFinanceService(prismaService);
+    const request = () =>
+      service.createWithdrawal({
+        userId: owner.id,
+        platform: tag,
+        amount: 78,
+        grossAmount: 80,
+        fee: 2,
+        pixKey: 'k',
+        reserveWallet: true,
+      });
+    const results = await Promise.allSettled([request(), request()]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(await expectConsistent(owner.id)).toEqual(['100.00', '80.00']);
+  },
+);
+
+run('link claim moves the balance once through the logs', async () => {
+  const source = await newUser();
+  const target = await newUser();
+  await fund(source.id, '100');
+  await db!.platform.deleteMany({ where: { tag: 'AREAFLIX' } });
+  const platform = await newPlatform(target.id, 'AREAFLIX');
+  await db!.platformIntegration.create({
+    data: {
+      platformId: platform.id,
+      key: 'CLAIM_SOURCE_USER_ID',
+      url: source.id,
+    },
+  });
+  const claim = new PlatformLinkClaim(prismaService);
+  const run1 = () =>
+    claim.claim('AREAFLIX', target.id, { retroactiveAmountCents: 4000 });
+  await Promise.allSettled([run1(), run1()]);
+  await run1();
+  expect(await expectConsistent(source.id)).toEqual(['60.00', '0.00']);
+  expect(await expectConsistent(target.id)).toEqual(['40.00', '0.00']);
+});

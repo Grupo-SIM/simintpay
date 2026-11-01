@@ -32,7 +32,7 @@ function fixture() {
         lockedBalance: decimal(20),
         version: 3,
       })),
-      updateMany: mock(async () => ({ count: 1 })),
+      findUniqueOrThrow: mock(async () => ({})),
     },
     platform: {
       findUnique: mock(async () => ({
@@ -64,6 +64,7 @@ function fixture() {
       })),
     },
     balanceLog: { create: mock(async () => ({})) },
+    $executeRaw: mock(async () => 1),
     $transaction: mock(async (callback: any) => callback(prisma)),
   };
   return {
@@ -116,10 +117,10 @@ describe('Shared platform finance', () => {
       feeCents: 350,
       amountCents: 9650,
     });
-    expect(prisma.wallet.updateMany.mock.calls[0][0]).toMatchObject({
-      where: { version: 3 },
-      data: { lockedBalance: { increment: decimal(100) } },
-    });
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+    const log = (prisma.balanceLog.create.mock.calls as any)[0][0].data;
+    expect(log).toMatchObject({ action: 'WITHDRAW_REQUESTED' });
+    expect(log.lockedDelta).toEqual(decimal(100));
     expect(prisma.withdrawRequest.create.mock.calls[0][0].data).toMatchObject({
       remainingBalanceAfterWithdrawal: decimal(380),
       acquirer: 'FRENDZ',
@@ -147,7 +148,7 @@ describe('Shared platform finance', () => {
         })
       ).id,
     ).toBe('prior');
-    expect(prisma.wallet.updateMany).not.toHaveBeenCalled();
+    expect(prisma.balanceLog.create).not.toHaveBeenCalled();
     await expect(
       service.requestWithdrawal(context, {
         amountCents: 12000,
@@ -156,17 +157,28 @@ describe('Shared platform finance', () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
-  test('optimistic wallet conflict blocks withdrawal persistence', async () => {
+  test('ledger lock is taken before the balance used for the decision is read', async () => {
     const { service, prisma } = fixture();
-    prisma.wallet.updateMany.mockImplementation(async () => ({ count: 0 }));
-    await expect(
-      service.requestWithdrawal(context, {
-        amountCents: 10000,
-        pixKey: 'key',
-        idempotencyKey: 'order-1',
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
-    expect(prisma.withdrawRequest.create).not.toHaveBeenCalled();
+    const order: string[] = [];
+    prisma.$executeRaw.mockImplementation(async () => {
+      order.push('lock');
+      return 1;
+    });
+    prisma.wallet.findUnique.mockImplementation(async () => {
+      order.push('read');
+      return {
+        id: 'wallet',
+        balance: decimal(500),
+        lockedBalance: decimal(20),
+        version: 3,
+      };
+    });
+    await service.requestWithdrawal(context, {
+      amountCents: 10000,
+      pixKey: 'key',
+      idempotencyKey: 'order-1',
+    });
+    expect(order.indexOf('lock')).toBeLessThan(order.indexOf('read'));
   });
   test('rejects fractional cents before persistence', async () => {
     const { service, prisma } = fixture();

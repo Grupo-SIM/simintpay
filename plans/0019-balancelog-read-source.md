@@ -22,7 +22,8 @@ Continuação do [plano 0007](0007-balance-ledger-source-of-truth.md). O 0007 un
   - [x] saque: `request-withdraw` + `createWithWalletLock`, `approve-withdrawal`, `reject-withdrawal`
   - [x] webhooks: `process-webhook`, `process-dom-webhook` (ebook e máquina sem teste de integração próprio)
   - [x] `affiliate-commission.service`, `sync-maquinetas` (sem teste de integração próprio para a sync de maquinetas)
-  - [ ] `platform-finance.service` (saque), `link-settlement`, `platform-link-claim`
+  - [x] `platform-finance.service` (saque), `link-settlement`, `platform-link-claim`
+  - [ ] fora do lote A: `return-bet-withdrawal` (decisão do responsável), `admin.controller`, scripts, `platform-maintenance` (lote B)
 
 - [ ] **3. Trava contra regressão.** Regra de lint (ou teste de repositório) que falha em `wallet.update|upsert|create` fora de `wallet-ledger`. Opcional: constraint/trigger no banco que rejeite alteração de `Wallet.balance` sem `BalanceLog` correspondente na mesma transação.
 - [ ] **4. Leitura em sombra.** `getWalletBalance` passa a calcular também por `SUM(balanceDelta/lockedDelta)` e loga divergência (sem alterar a resposta). Medir latência; se necessário, índice composto `(userId)` já existe, avaliar `INCLUDE (balanceDelta, lockedDelta)` ou saldo de checkpoint por usuário.

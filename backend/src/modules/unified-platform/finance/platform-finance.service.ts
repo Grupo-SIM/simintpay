@@ -5,6 +5,10 @@ import { PlatformOwnerMirror } from '../../platform-core/platform-owner-mirror';
 import { PlatformAttributedBalance } from '../../platform-core/platform-attributed-balance';
 import { PlatformDashboardReports } from '../../platform-core/platform-dashboard-reports';
 import { platformDashboardRules } from '../../platform-core/platform-dashboard.adapter';
+import {
+  applyWalletEntry,
+  lockWalletLedger,
+} from '../../wallet-ledger/wallet-ledger';
 import { PlatformLedger } from './platform-ledger';
 import { platformMachines, MachinesQuery } from './platform-machines';
 import { PlatformMaintenanceService } from './platform-maintenance.service';
@@ -912,6 +916,8 @@ export class PlatformFinanceService {
         throw new ConflictException('Já existe saque em processamento');
       let remainingBalanceAfterWithdrawal: Prisma.Decimal | null = null;
       if (input.reserveWallet) {
+        // Serialize with every other ledger writer of this user before reading the balance.
+        await lockWalletLedger(tx, input.userId);
         const wallet = await tx.wallet.findUnique({
           where: { userId: input.userId },
         });
@@ -921,31 +927,15 @@ export class PlatformFinanceService {
         );
         if (available.lt(input.grossAmount))
           throw new BadRequestException('Saldo insuficiente');
-        const updated = await tx.wallet.updateMany({
-          where: { id: wallet.id, version: wallet.version },
-          data: {
-            lockedBalance: { increment: input.grossAmount },
-            version: { increment: 1 },
-          },
-        });
-        if (updated.count !== 1)
-          throw new ConflictException('Carteira alterada; tente novamente');
         remainingBalanceAfterWithdrawal = available.minus(input.grossAmount);
         // Every reservation is logged, whichever route created the withdrawal (plan 0007).
-        await tx.balanceLog.create({
-          data: {
-            userId: input.userId,
-            action: 'WITHDRAW_REQUESTED',
-
-            balanceDelta: 0,
-
-            lockedDelta: new Prisma.Decimal(
-              new Prisma.Decimal(wallet.lockedBalance).plus(input.grossAmount),
-            ).sub(wallet.lockedBalance),
-
-            source: 'WITHDRAW',
-            description: `Saque ${input.platform} solicitado: R$ ${new Prisma.Decimal(input.grossAmount).toFixed(2)}`,
-          },
+        await applyWalletEntry(tx, {
+          userId: input.userId,
+          action: 'WITHDRAW_REQUESTED',
+          balanceDelta: 0,
+          lockedDelta: new Prisma.Decimal(input.grossAmount),
+          source: 'WITHDRAW',
+          description: `Saque ${input.platform} solicitado: R$ ${new Prisma.Decimal(input.grossAmount).toFixed(2)}`,
         });
       }
       const created = await tx.withdrawRequest.create({

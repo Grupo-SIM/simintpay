@@ -41,16 +41,20 @@ function fixture(early = false, fail = false, financial = false) {
     wallet: {
       upsert: async () => wallet,
       findUnique: async () => ({ ...wallet }),
-      updateMany: async ({ data }: any) => {
-        Object.assign(wallet, data, { version: wallet.version + 1 });
-        return { count: 1 };
-      },
+      findUniqueOrThrow: async () => ({ ...wallet }),
     },
     balanceLog: {
       findFirst: async () => logs[0],
       create: async ({ data }: any) => {
         if (fail) throw new Error('audit failure');
         logs.push(data);
+        // Stands in for the BalanceLog insert trigger that recomputes the wallet.
+        wallet = {
+          ...wallet,
+          balance: wallet.balance.add(data.balanceDelta ?? 0),
+          lockedBalance: wallet.lockedBalance.add(data.lockedDelta ?? 0),
+          version: wallet.version + 1,
+        };
       },
     },
     transactionStatusHistory: { create: async () => {} },
