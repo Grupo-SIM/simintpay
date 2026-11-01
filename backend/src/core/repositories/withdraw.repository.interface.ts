@@ -24,7 +24,6 @@ export interface IWithdrawRepository {
     domWithdrawId?: string | null;
     platform?: string | null;
     amountToLock: number;
-    currentWalletVersion: number;
   }): Promise<WithdrawRequest>;
   sumPendingByUserId(userId: string): Promise<number>;
 }

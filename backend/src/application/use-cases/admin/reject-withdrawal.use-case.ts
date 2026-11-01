@@ -5,6 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { WithdrawStatus, Prisma } from '@prisma/client';
+import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
 
@@ -62,32 +63,16 @@ export class RejectWithdrawalUseCase {
         throw new ConflictException('Saque alterado por outro administrador.');
       }
 
-      // 2. Desbloquear saldo (decrementar de lockedBalance, mantendo balance intacto) - Pula se for Atlas
+      // 2. Registrar o desbloqueio (a trigger do BalanceLog atualiza lockedBalance) - Pula se for Atlas
       if (withdraw.platform?.toLowerCase() !== 'atlas') {
-        await tx.wallet.update({
-          where: { id: wallet.id },
-          data: {
-            lockedBalance: { decrement: withdraw.grossAmount },
-            version: { increment: 1 },
-            updatedAt: new Date(),
-          },
-        });
-      }
-
-      // 3. Registrar log de desbloqueio - Pula se for Atlas
-      if (withdraw.platform?.toLowerCase() !== 'atlas') {
-        await tx.balanceLog.create({
-          data: {
-            userId: withdraw.userId,
-            action: 'WITHDRAW_REJECTED',
-            // O saldo total não muda, apenas o bloqueado foi liberado
-            balanceDelta: 0,
-
-            lockedDelta: new Prisma.Decimal(withdraw.grossAmount).neg(),
-
-            source: 'WITHDRAW',
-            description: `Saque rejeitado: R$ ${withdraw.grossAmount.toFixed(2)}. Motivo: ${reason}`,
-          },
+        await applyWalletEntry(tx, {
+          userId: withdraw.userId,
+          action: 'WITHDRAW_REJECTED',
+          // O saldo total não muda, apenas o bloqueado foi liberado
+          balanceDelta: 0,
+          lockedDelta: new Prisma.Decimal(withdraw.grossAmount).neg(),
+          source: 'WITHDRAW',
+          description: `Saque rejeitado: R$ ${withdraw.grossAmount.toFixed(2)}. Motivo: ${reason}`,
         });
       }
     });

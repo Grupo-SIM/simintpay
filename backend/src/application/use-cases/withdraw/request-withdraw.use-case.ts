@@ -13,6 +13,7 @@ import { CACHE_SERVICE } from '../../../core/services/cache.interface';
 import type { IWithdrawRepository } from '../../../core/repositories/withdraw.repository.interface';
 import type { ICacheService } from '../../../core/services/cache.interface';
 import type { RequestWithdrawDto } from '../../dtos/withdraw/request-withdraw.dto';
+import { InsufficientWithdrawBalanceError } from '../../../infrastructure/database/repositories/prisma-withdraw.repository';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { getModuleConfig } from '../../../modules/module.registry';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -140,12 +141,11 @@ export class RequestWithdrawUseCase {
         pixKey: dto.chavePix,
         platform: moduleSlug,
         amountToLock: grossToDeduct.toNumber(),
-        currentWalletVersion: wallet.version,
       });
     } catch (e) {
-      if (e instanceof Error && e.message.includes('Wallet version conflict')) {
+      if (e instanceof InsufficientWithdrawBalanceError) {
         throw new UnprocessableEntityException(
-          'Conflito ao atualizar wallet. Tente novamente.',
+          `Saldo insuficiente para realizar o saque de R$ ${requestedGross.toFixed(2).replace('.', ',')}. Seu saldo disponível é R$ ${e.available.toFixed(2).replace('.', ',')}`,
         );
       }
       throw e;

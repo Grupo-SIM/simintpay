@@ -5,6 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { WithdrawStatus, Prisma } from '@prisma/client';
+import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
 import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
@@ -84,14 +85,14 @@ export class ApproveWithdrawalUseCase {
 
       // 2. Deduz os valores da wallet (Total e Bloqueado) - Pula se for Atlas
       if (withdraw.platform?.toLowerCase() !== 'atlas') {
-        const updatedWallet = await tx.wallet.update({
-          where: { id: wallet.id },
-          data: {
-            balance: { decrement: withdraw.grossAmount },
-            lockedBalance: { decrement: withdraw.grossAmount },
-            version: { increment: 1 },
-            updatedAt: new Date(),
-          },
+        // The BalanceLog insert (trigger) debits the wallet; the returned wallet already reflects it.
+        const updatedWallet = await applyWalletEntry(tx, {
+          userId: withdraw.userId,
+          action: 'WITHDRAW_APPROVED',
+          balanceDelta: new Prisma.Decimal(withdraw.grossAmount).neg(),
+          lockedDelta: new Prisma.Decimal(withdraw.grossAmount).neg(),
+          source: 'WITHDRAW',
+          description: `Saque aprovado: R$ ${withdraw.grossAmount.toFixed(2)}`,
         });
         // Freeze the available balance returned by this debit, including concurrent wallet changes.
         await tx.withdrawRequest.update({
@@ -133,23 +134,6 @@ export class ApproveWithdrawalUseCase {
             },
           });
         }
-      }
-
-      // 4. Registra log financeiro da operação - Pula se for Atlas
-      if (withdraw.platform?.toLowerCase() !== 'atlas') {
-        await tx.balanceLog.create({
-          data: {
-            userId: withdraw.userId,
-            action: 'WITHDRAW_APPROVED',
-
-            balanceDelta: new Prisma.Decimal(withdraw.grossAmount).neg(),
-
-            lockedDelta: new Prisma.Decimal(withdraw.grossAmount).neg(),
-
-            source: 'WITHDRAW',
-            description: `Saque aprovado: R$ ${withdraw.grossAmount.toFixed(2)}`,
-          },
-        });
       }
 
       // 4. Sempre incrementa taxa e lucro no log administrativo (independente de quem aprova)

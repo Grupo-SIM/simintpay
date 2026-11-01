@@ -5,6 +5,17 @@ import type {
   WithdrawWithUser,
 } from '../../../core/repositories/withdraw.repository.interface';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  applyWalletEntry,
+  lockWalletLedger,
+} from '../../../modules/wallet-ledger/wallet-ledger';
+
+/** Thrown when the wallet no longer covers the requested gross amount once the ledger lock is held. */
+export class InsufficientWithdrawBalanceError extends Error {
+  constructor(readonly available: Prisma.Decimal) {
+    super('Insufficient available balance');
+  }
+}
 
 @Injectable()
 export class PrismaWithdrawRepository implements IWithdrawRepository {
@@ -49,12 +60,21 @@ export class PrismaWithdrawRepository implements IWithdrawRepository {
     domWithdrawId?: string | null;
     platform?: string | null;
     amountToLock: number;
-    currentWalletVersion: number;
   }): Promise<WithdrawRequest> {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize with every other ledger writer of this user before reading the balance.
+      await lockWalletLedger(tx, input.userId);
       const wallet = await tx.wallet.findUniqueOrThrow({
         where: { userId: input.userId },
       });
+      const available = new Prisma.Decimal(wallet.balance).minus(
+        wallet.lockedBalance,
+      );
+      if (
+        new Prisma.Decimal(input.amountToLock).toDP(2).gt(available.toDP(2))
+      ) {
+        throw new InsufficientWithdrawBalanceError(available);
+      }
       const created = await tx.withdrawRequest.create({
         data: {
           userId: input.userId,
@@ -71,27 +91,13 @@ export class PrismaWithdrawRepository implements IWithdrawRepository {
         },
       });
 
-      const updated = await tx.wallet.updateMany({
-        where: { userId: input.userId, version: input.currentWalletVersion },
-        data: {
-          lockedBalance: { increment: new Prisma.Decimal(input.amountToLock) },
-          version: { increment: 1 },
-        },
-      });
-
-      if (updated.count === 0) {
-        throw new Error('Wallet version conflict — retry');
-      }
-
-      await tx.balanceLog.create({
-        data: {
-          userId: input.userId,
-          action: 'WITHDRAW_REQUESTED',
-          balanceDelta: 0,
-          lockedDelta: new Prisma.Decimal(input.amountToLock),
-          source: 'WITHDRAW',
-          metadata: { withdrawId: created.id, pixKey: input.pixKey },
-        },
+      await applyWalletEntry(tx, {
+        userId: input.userId,
+        action: 'WITHDRAW_REQUESTED',
+        balanceDelta: 0,
+        lockedDelta: new Prisma.Decimal(input.amountToLock),
+        source: 'WITHDRAW',
+        metadata: { withdrawId: created.id, pixKey: input.pixKey },
       });
       return created;
     });

@@ -4,7 +4,8 @@ import { Prisma } from '@prisma/client';
 mock.module('../../../modules/platform-taxas/platform-taxas.store', () => ({
   getPlatformTaxaEffective: () => 2,
 }));
-const { ApproveWithdrawalUseCase } = await import('./approve-withdrawal.use-case');
+const { ApproveWithdrawalUseCase } =
+  await import('./approve-withdrawal.use-case');
 
 describe('withdrawal approval historical balance', () => {
   for (const remaining of [125, 0, -10]) {
@@ -13,34 +14,59 @@ describe('withdrawal approval historical balance', () => {
       const tx = {
         withdrawRequest: {
           updateMany: async () => ({ count: 1 }),
-          update: async (args: unknown) => { snapshots.push(args); },
+          update: async (args: unknown) => {
+            snapshots.push(args);
+          },
         },
         wallet: {
-          update: async () => ({
+          findUniqueOrThrow: async () => ({
             balance: new Prisma.Decimal(remaining + 20),
             lockedBalance: new Prisma.Decimal(20),
           }),
         },
-        user: { findUnique: async () => ({ externalPlatformUsers: [], platform: null }) },
+        user: {
+          findUnique: async () => ({
+            externalPlatformUsers: [],
+            platform: null,
+          }),
+        },
         balanceLog: { create: async () => ({}) },
       };
       const prisma = {
-        withdrawRequest: { findUnique: async () => ({
-          id: 'withdrawal', userId: 'user', status: 'PENDING', platform: 'renovada',
-          grossAmount: new Prisma.Decimal(100),
-          user: { wallet: {
-            id: 'wallet', balance: new Prisma.Decimal(100), lockedBalance: new Prisma.Decimal(100),
-          } },
-        }) },
-        $transaction: async (callback: (transaction: typeof tx) => Promise<void>) => callback(tx),
+        withdrawRequest: {
+          findUnique: async () => ({
+            id: 'withdrawal',
+            userId: 'user',
+            status: 'PENDING',
+            platform: 'renovada',
+            grossAmount: new Prisma.Decimal(100),
+            user: {
+              wallet: {
+                id: 'wallet',
+                balance: new Prisma.Decimal(100),
+                lockedBalance: new Prisma.Decimal(100),
+              },
+            },
+          }),
+        },
+        $transaction: async (
+          callback: (transaction: typeof tx) => Promise<void>,
+        ) => callback(tx),
       };
       const realtime = { notifyWithdrawal: async () => {} };
-      const useCase = new ApproveWithdrawalUseCase(prisma as never, realtime as never);
+      const useCase = new ApproveWithdrawalUseCase(
+        prisma as never,
+        realtime as never,
+      );
       await useCase.execute('withdrawal');
-      expect(snapshots).toEqual([{
-        where: { id: 'withdrawal' },
-        data: { remainingBalanceAfterWithdrawal: new Prisma.Decimal(remaining) },
-      }]);
+      expect(snapshots).toEqual([
+        {
+          where: { id: 'withdrawal' },
+          data: {
+            remainingBalanceAfterWithdrawal: new Prisma.Decimal(remaining),
+          },
+        },
+      ]);
     });
   }
 });
