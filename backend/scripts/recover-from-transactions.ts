@@ -10,6 +10,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { readFileSync } from 'node:fs';
 import { hash } from 'bcryptjs';
+import { lockWalletLedger } from '../src/modules/wallet-ledger/wallet-ledger';
 import {
   domPatch,
   provenUser,
@@ -792,6 +793,8 @@ async function main() {
       await prisma.$transaction(
         async (tx) => {
           for (const row of balances) {
+            // Lock before reading the balance used to compute the log difference.
+            await lockWalletLedger(tx, row.userId);
             const wallet = await tx.wallet.findUnique({
               where: { userId: row.userId },
             });
@@ -808,13 +811,6 @@ async function main() {
                 throw new Error(
                   `Carteira ausente com saldo anterior esperado diferente de zero: ${row.userId}`,
                 );
-              await tx.wallet.create({
-                data: {
-                  userId: row.userId,
-                  balance: new Prisma.Decimal(row.balance),
-                  lockedBalance: new Prisma.Decimal(row.lockedBalance),
-                },
-              });
               counters.walletsCreated++;
               await tx.balanceLog.create({
                 data: {
@@ -833,20 +829,10 @@ async function main() {
               });
               continue;
             }
-            const changed = await tx.wallet.updateMany({
-              where: {
-                userId: row.userId,
-                version: wallet.version,
-                balance: new Prisma.Decimal(row.expectedBalance),
-                lockedBalance: new Prisma.Decimal(row.expectedLockedBalance),
-              },
-              data: {
-                balance: new Prisma.Decimal(row.balance),
-                lockedBalance: new Prisma.Decimal(row.lockedBalance),
-                version: { increment: 1 },
-              },
-            });
-            if (changed.count !== 1)
+            if (
+              !wallet.balance.eq(row.expectedBalance) ||
+              !wallet.lockedBalance.eq(row.expectedLockedBalance)
+            )
               throw new Error(
                 `Conflito de saldo: ${row.userId}; operação de saldos revertida.`,
               );

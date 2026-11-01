@@ -1,58 +1,90 @@
+/**
+ * Deducts APPROVED-but-undebited withdrawals from one user's wallet.
+ * Dry run: bun scripts/fix-wallet.ts --user-id=<id>
+ * Apply:   --apply --user-id=<id> --confirm-host=<hostname>
+ * Only appends an ADJUSTMENT BalanceLog row; the database trigger moves the Wallet.
+ * Remote/shared operations require separate explicit authorization.
+ */
 import 'dotenv/config';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
+import { lockWalletLedger } from '../src/modules/wallet-ledger/wallet-ledger';
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL não está definida');
+const host = new URL(connectionString).hostname;
+const apply = process.argv.includes('--apply');
+const userId = process.argv
+  .find((arg) => arg.startsWith('--user-id='))
+  ?.slice('--user-id='.length);
+if (!userId) throw new Error('--user-id=<id> é obrigatório');
+if (apply && !process.argv.includes(`--confirm-host=${host}`)) {
+  throw new Error(`--apply exige --confirm-host=${host}`);
+}
 
-const pool = new Pool({ connectionString });
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString }),
+});
 
 async function main() {
-  const userId = '52111898-de87-4c40-90dd-7cbf5b6ac421';
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: { wallet: true },
-  });
-
-  if (!user || !user.wallet) {
-    console.error('Usuário não encontrado ou sem carteira.');
-    return;
-  }
-
-  // Busca saques aprovados desse usuário
   const approvedWithdraws = await prisma.withdrawRequest.findMany({
     where: { userId, status: 'APPROVED' },
   });
 
   if (approvedWithdraws.length === 0) {
-    console.log('Nenhum saque em estado "APPROVED" encontrado para este usuário.');
+    console.log(
+      'Nenhum saque em estado "APPROVED" encontrado para este usuário.',
+    );
     return;
   }
 
-  const totalToDeduct = approvedWithdraws.reduce((acc, w) => acc + Number(w.grossAmount), 0);
-
+  const totalToDeduct = approvedWithdraws.reduce(
+    (acc, w) => acc.add(w.grossAmount),
+    new Prisma.Decimal(0),
+  );
   console.log(`Encontrados ${approvedWithdraws.length} saques aprovados.`);
   console.log(`Total a deduzir: R$ ${totalToDeduct.toFixed(2)}`);
+  if (!apply) {
+    console.log('Dry run: nada foi alterado (use --apply --confirm-host).');
+    return;
+  }
 
-  // Ajusta a carteira
-  const newBalance = Number(user.wallet.balance) - totalToDeduct;
-  const newLockedBalance = Number(user.wallet.lockedBalance) - totalToDeduct;
-
-  await prisma.wallet.update({
-    where: { id: user.wallet.id },
-    data: {
-      balance: newBalance,
-      lockedBalance: Math.max(0, newLockedBalance),
-      version: { increment: 1 },
-    },
+  await prisma.$transaction(async (tx) => {
+    // Lock before reading the balance used to compute the deltas.
+    await lockWalletLedger(tx, userId);
+    const wallet = await tx.wallet.findUnique({ where: { userId } });
+    if (!wallet) throw new Error('Usuário sem carteira.');
+    const balanceDelta = totalToDeduct.neg();
+    // lockedBalance never goes below zero.
+    const lockedDelta = Prisma.Decimal.min(
+      wallet.lockedBalance,
+      totalToDeduct,
+    ).neg();
+    await tx.balanceLog.create({
+      data: {
+        userId,
+        action: 'ADJUSTMENT',
+        source: 'FIX_WALLET_SCRIPT',
+        balanceDelta,
+        lockedDelta,
+        description: 'Dedução de saques APPROVED não debitados',
+        metadata: {
+          databaseHost: host,
+          withdrawIds: approvedWithdraws.map((w) => w.id),
+          priorBalance: wallet.balance.toFixed(2),
+          priorLockedBalance: wallet.lockedBalance.toFixed(2),
+        },
+      },
+    });
   });
-
-  console.log(`✓ Carteira atualizada: balance: ${newBalance}, lockedBalance: ${Math.max(0, newLockedBalance)}`);
+  console.log(
+    '✓ Ajuste registrado no BalanceLog; carteira recalculada pelo trigger.',
+  );
 }
 
 main()
-  .catch(console.error)
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
   .finally(() => prisma.$disconnect());

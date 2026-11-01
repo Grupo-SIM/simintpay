@@ -31,7 +31,7 @@ Continuação do [plano 0007](0007-balance-ledger-source-of-truth.md). O 0007 un
   - [x] `admin.controller`: ajustes absolutos de saldo (Renovada/Bosque set, recalcular, fix-wallet, reset) por diferença
   - [x] `admin.controller`: purge/absorção, limpezas (`cleanup-*`), débito de cobrança
   - [x] `platform-maintenance.service` (correct/baseline) só com log
-  - [ ] scripts: `fix-wallet`, `recover-from-transactions`, `backfill-ebook-transactions` (outro banco)
+  - [x] scripts: `fix-wallet`, `recover-from-transactions`, `backfill-ebook-transactions` (outro banco)
   - [ ] testes de integração do lote B
 
 - [ ] **3. Trava contra regressão.** Regra de lint (ou teste de repositório) que falha em `wallet.update|upsert|create` fora de `wallet-ledger`. Opcional: constraint/trigger no banco que rejeite alteração de `Wallet.balance` sem `BalanceLog` correspondente na mesma transação.

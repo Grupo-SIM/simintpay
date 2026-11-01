@@ -18,7 +18,8 @@ import { Client as PgClient } from 'pg';
 
 const simpay = new SimpayPrisma();
 
-const EBOOK_USER_ID = process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
+const EBOOK_USER_ID =
+  process.env.EBOOK_ID || 'd4fbf80f-6f13-4bc6-8e15-ebook00000001';
 const TENANT_EBOOK_TAG = '[TENANT:EBOOK]';
 
 async function main() {
@@ -106,7 +107,10 @@ async function main() {
       // Resolver userId pelo CPF do autor
       let ebookUserId = EBOOK_USER_ID;
       if (ownerCpf && ownerCpf.length === 11) {
-        const cpfFormatted = ownerCpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+        const cpfFormatted = ownerCpf.replace(
+          /(\d{3})(\d{3})(\d{3})(\d{2})/,
+          '$1.$2.$3-$4',
+        );
         const author = await simpay.user.findFirst({
           where: { cpf: { in: [ownerCpf, cpfFormatted] } },
           select: { id: true },
@@ -141,8 +145,9 @@ async function main() {
       const description = `${orderNumber} ${TENANT_EBOOK_TAG}${cpfTag}`;
       const netAmount = amount * 0.91; // estimativa padrão sem taxas DOM
 
-      await simpay.$transaction([
-        simpay.transaction.create({
+      // Wallet is moved by the BalanceLog insert trigger; never write it directly.
+      await simpay.$transaction(async (tx) => {
+        const row = await tx.transaction.create({
           data: {
             userId: ebookUserId,
             domPaymentId: order.dom_payment_id || domPaymentIdFallback,
@@ -154,12 +159,19 @@ async function main() {
             createdAt: order.created_at,
             updatedAt: order.updated_at,
           },
-        }),
-        simpay.wallet.update({
-          where: { userId: ebookUserId },
-          data: { balance: { increment: netAmount } },
-        }),
-      ]);
+        });
+        await tx.balanceLog.create({
+          data: {
+            userId: ebookUserId,
+            action: 'EBOOK_BACKFILL_CREDIT',
+            source: 'EBOOK_BACKFILL',
+            transactionId: row.id,
+            balanceDelta: netAmount,
+            lockedDelta: 0,
+            description,
+          },
+        });
+      });
 
       created++;
       if (created % 50 === 0) {
