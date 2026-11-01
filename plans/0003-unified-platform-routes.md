@@ -9,7 +9,6 @@ Plano aprovado pelo usuário. Execução exclusivamente local; banco externo, pu
 - [x] Implementar núcleo financeiro e APIs canônicas em centavos, com relatórios por marca explícita e carteira por usuário.
 - [x] Extrair contratos financeiros legados em serviços; controllers delegam sem redirects/HTTP interno.
 - [x] Compartilhar barramento SSE; centralizar agendamento corporativo e impedir execução concorrente por plataforma.
-- [x] Exigir associação explícita da comunidade Return Bet; ausência bloqueia capacidade com 422.
 - [x] Núcleo PIX DOM/Frendz e comerciantes explícitos; core legado compartilhado para Atlas/Bosque/Renovada/Zero Grau. Cartão canônico DOM implementado; Frendz sem suporte retorna 422. Contratos legados preservados.
 - [x] Entrada canônica de webhook assinada; comparação atômica de status evita crédito duplicado e preserva dono histórico.
 - [x] Validação dirigida com mocks: 50 testes Bun + 45 regressões Jest (+ 5 testes de cartão legado Zero Grau) aprovados.
@@ -146,17 +145,6 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Marcas conflitantes/ausentes excluídas antes de chamadas ao gateway; limite e coalescência por produto.
 - [x] 18 testes dirigidos e build aprovados, com gateway mockado.
 
-## Continuação — integridade Return Bet
-
-- [x] Bloquear snapshot externo sobre carteira compartilhada/conta inativa; transação serializável e replay validado por contrato.
-- [x] Três testes de integridade e nove regressões Jest aprovados; build aprovado.
-
-## Continuação — contratos Return Bet
-
-- [x] Oito contratos legados dispõem de operações canônicas usando os mesmos serviços; política, comunidade em lote e ciclo de saque em centavos.
-- [x] Equivalência de argumentos/envelopes/unidades, token legado inválido, capacidade ausente e campos de identidade rejeitados. Revisões canônicas usam ator do JWT.
-- [x] Regressão completa anterior desta etapa: 441 Bun e 200 Jest aprovados (1 pré-existente ignorado); build aprovado. Ajuste de identidade de revisão possui teste dirigido adicional.
-
 ## Continuação — escritor financeiro de comerciantes
 
 - [x] Remover escritor duplicado de saques: alias e canônico usam `PlatformFinanceService.createWithdrawal`, com reserva/CAS, vínculo explícito e adquirente cadastrado.
@@ -223,7 +211,6 @@ Nenhum desses itens é tratado como concluído pela existência da nova rota. Im
 - [x] Teste integrado de autorização, controller e projeção verifica dois produtos do mesmo dono: líquidos/saques separados, uma carteira compartilhada e histórico sem atribuição excluído de ambos.
 - [x] Escopo `finance:read` e bloqueio de outro dono verificados. Sete testes dirigidos de saldo aprovados com banco sentinela e HTTP bloqueado.
 - [ ] Pendências integrais dos 144 contratos e schema BetAI permanecem abertas.
-
 
 ## Continuação — retirada de mensalidades administrativas BetAI
 

@@ -13,14 +13,13 @@ Registro de caracterização dos controllers existentes antes da unificação. C
 
 ## Autenticação legada
 
-| Grupo                                                            | Credencial                                                                            |
+| Grupo | Credencial |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- | --- | -------------------------- | --- | ----------------------- |
-| internal/atlas, renovada, pagatg, betai e reconciliação Renovada | `x-internal-token` = `API_MACHINE_INTERNAL_TOKEN                                      |     | INTERNAL_SERVICE_TOKEN`    |
-| internal/bosque, ebook, areaflix                                 | `x-internal-token` = integração `INTERNAL_TOKEN` da plataforma correspondente         |
-| internal/return-bet                                              | `x-internal-token` = integração `RETURN_BET/INTERNAL_TOKEN`                           |
-| internal/integrations                                            | `x-internal-token` = `SIM_DELIVERY_INTERNAL_TOKEN                                     |     | API_MACHINE_INTERNAL_TOKEN |     | INTERNAL_SERVICE_TOKEN` |
-| payments corporativos, dashboards, mail e SSE                    | Anônimo; nenhum JwtAuthGuard declarado                                                |
-| Webhooks inventariados                                           | Headers/payload conforme handler; ausência de guard não implica assinatura verificada |
+| internal/atlas, renovada, pagatg, betai e reconciliação Renovada | `x-internal-token` = `API_MACHINE_INTERNAL_TOKEN                                      |     | INTERNAL_SERVICE_TOKEN` |
+| internal/bosque, ebook, areaflix | `x-internal-token` = integração `INTERNAL_TOKEN` da plataforma correspondente |
+| internal/integrations | `x-internal-token` = `SIM_DELIVERY_INTERNAL_TOKEN                                     |     | API_MACHINE_INTERNAL_TOKEN |     | INTERNAL_SERVICE_TOKEN` |
+| payments corporativos, dashboards, mail e SSE | Anônimo; nenhum JwtAuthGuard declarado |
+| Webhooks inventariados | Headers/payload conforme handler; ausência de guard não implica assinatura verificada |
 
 Nenhum vínculo `INBOUND_TOKEN` deve ser inferido a partir dessas credenciais. Nunca registrar valores de tokens, cartão ou headers de autenticação em telemetria de aliases.
 
@@ -404,53 +403,6 @@ Fonte: [src/modules/renovada/controllers/renovada-webhook.controller.ts](../back
 **`handle`** (linha 17). Entrada: `@Body() body: unknown`.
 
 Retorno declarado: `{ status: 'ok' }`.
-
-### internal/return-bet
-
-Fonte: [src/modules/return-bet/return-bet.controller.ts](../backend/src/modules/return-bet/return-bet.controller.ts).
-
-| Método / caminho                                           | Auth             | Operação equivalente no núcleo           | HTTP / unidade            |
-| ---------------------------------------------------------- | ---------------- | ---------------------------------------- | ------------------------- |
-| GET `/internal/return-bet/withdrawal-policy`               | x-internal-token | `/platforms/:tag/capacidade corporativa` | 200 / R$ quando monetário |
-| PUT `/internal/return-bet/withdrawal-policy`               | x-internal-token | `/platforms/:tag/capacidade corporativa` | 200 / R$ quando monetário |
-| GET `/internal/return-bet/community-status`                | x-internal-token | `/platforms/:tag/capacidade corporativa` | 200 / R$ quando monetário |
-| POST `/internal/return-bet/community-status/batch`         | x-internal-token | `/platforms/:tag/capacidade corporativa` | 201 / R$ quando monetário |
-| POST `/internal/return-bet/withdrawals`                    | x-internal-token | `/platforms/:tag/finance`                | 201 / R$ quando monetário |
-| POST `/internal/return-bet/withdrawals/status/batch`       | x-internal-token | `/platforms/:tag/finance`                | 201 / R$ quando monetário |
-| POST `/internal/return-bet/withdrawals/:requestId/approve` | x-internal-token | `/platforms/:tag/finance`                | 201 / R$ quando monetário |
-| POST `/internal/return-bet/withdrawals/:requestId/reject`  | x-internal-token | `/platforms/:tag/finance`                | 201 / R$ quando monetário |
-
-**`getWithdrawalPolicy`** (linha 47). Entrada: `@Headers('x-internal-token') internalToken?: string`.
-
-Retorno declarado: `this.withdrawalPolicy.get()`.
-
-**`setWithdrawalPolicy`** (linha 53). Entrada: `@Body() body: ReturnBetWithdrawalPolicyInput, @Headers('x-internal-token') internalToken?: string`.
-
-Retorno declarado: `this.withdrawalPolicy.set(body)`.
-
-**`communityStatus_`** (linha 62). Entrada: `@Query('cpf') cpf: string \| undefined, @Query('email') email: string \| undefined, @Headers('x-internal-token') internalToken?: string`.
-
-Retorno declarado: `this.communityStatus.checkOne({ cpf, email })`.
-
-**`communityStatusBatch`** (linha 72). Entrada: `@Body() body: { users: BatchCheckItem[] }, @Headers('x-internal-token') internalToken?: string`.
-
-Retorno declarado: `{ results }`.
-
-**`requestWithdrawal`** (linha 88). Entrada: `@Body() body: ReturnBetWithdrawalInput, @Headers('x-internal-token') internalToken?: string`.
-
-Retorno declarado: `this.withdrawals.request(body)`.
-
-**`withdrawalStatusBatch`** (linha 97). Entrada: `@Body() body: { requestIds?: string[] }, @Headers('x-internal-token') internalToken?: string`.
-
-Retorno declarado: `{ results: await this.withdrawals.listStatus( Array.isArray(body?.requestIds) ? body.requestIds : [], ), }`.
-
-**`approveWithdrawal`** (linha 110). Entrada: `@Param('requestId') requestId: string, @Body() body: { receiptImage: string; actorReference?: string }, @Headers('x-internal-token') internalToken?: string`.
-
-Retorno declarado: `this.withdrawals.approve(requestId, body.receiptImage, { actorReference: body.actorReference, })`.
-
-**`rejectWithdrawal`** (linha 122). Entrada: `@Param('requestId') requestId: string, @Body() body: { reason: string; actorReference?: string }, @Headers('x-internal-token') internalToken?: string`.
-
-Retorno declarado: `this.withdrawals.reject(requestId, body.reason, { actorReference: body.actorReference, })`.
 
 ### dashboard/revalida
 
@@ -1062,8 +1014,7 @@ Exceções no handler: `new UnauthorizedException('Invalid webhook secret')`; `n
 - Integrações de comerciantes correspondem a `/platforms/:tag/merchants/:externalMerchantId/...`. Implementação legada injeta ZeroGrauPaymentService e usa DOM_TOKEN de ZERO-GRAU para status; remover esse acoplamento no serviço compartilhado sem alterar contrato do alias.
 - Alias deve chamar diretamente operação compartilhada e traduzir contrato. Sem redirect, loopback HTTP, cálculo financeiro duplicado ou acesso canônico anônimo.
 - Manutenção que substitui/zera/recalcula carteira compartilhada deve bloquear; histórico sem plataforma identificada não recebe plataforma arbitrária.
-- Return Bet requer associação explícita de comunidade; ausência bloqueia capacidade, sem criação automática de VIVENDO-DE-BET.
-- Inventário histórico cobre 144 declarações de rotas corporativas/internas; 136 permanecem registradas e oito aliases administrativos BetAI foram removidos. Serviços retornados por delegação e DTOs referenciados integram contrato e precisam de testes de equivalência antes de substituir implementação.
+- Inventário histórico cobre 136 declarações de rotas corporativas/internas; 128 permanecem registradas e oito aliases administrativos BetAI foram removidos. Serviços retornados por delegação e DTOs referenciados integram contrato e precisam de testes de equivalência antes de substituir implementação.
 
 ## Delegação implementada na continuação: BetAI
 

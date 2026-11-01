@@ -48,18 +48,14 @@
     "method": "POST",
     "path": "/dashboard/atlas/sync-external-user",
     "canonical": "POST /platforms/:tag/sync/owner-mirror",
-    "evidence": [
-      "src/modules/platform-core/platform-owner-mirror.test.ts"
-    ],
+    "evidence": ["src/modules/platform-core/platform-owner-mirror.test.ts"],
     "compatibility": "Canônico exige autorização; manutenção bloqueia carteira compartilhada."
   },
   {
     "method": "POST",
     "path": "/dashboard/atlas/sync-full",
     "canonical": "POST /platforms/:tag/maintenance/full-sync",
-    "evidence": [
-      "src/modules/platform-core/platform-historical-sync.test.ts"
-    ],
+    "evidence": ["src/modules/platform-core/platform-historical-sync.test.ts"],
     "compatibility": "Canônico exige autorização; manutenção bloqueia carteira compartilhada."
   },
   {
@@ -383,18 +379,14 @@
     "method": "GET",
     "path": "/admin/plataformas/:tag/seller-stats",
     "canonical": "GET /platforms/:tag/reports/sellers/stats",
-    "evidence": [
-      "src/modules/platform-core/platform-seller-reports.test.ts"
-    ],
+    "evidence": ["src/modules/platform-core/platform-seller-reports.test.ts"],
     "compatibility": "Núcleo compartilhado; saques canônicos filtrados por produto; contagens sem conversão."
   },
   {
     "method": "GET",
     "path": "/admin/plataformas/:tag/sellers-ativos",
     "canonical": "GET /platforms/:tag/reports/sellers",
-    "evidence": [
-      "src/modules/platform-core/platform-seller-reports.test.ts"
-    ],
+    "evidence": ["src/modules/platform-core/platform-seller-reports.test.ts"],
     "compatibility": "Núcleo compartilhado; saques canônicos filtrados por produto; contagens sem conversão."
   },
   {
@@ -491,102 +483,6 @@
   },
   {
     "method": "GET",
-    "path": "/internal/return-bet/withdrawal-policy",
-    "canonical": "GET /platforms/:tag/finance/withdrawal-policy",
-    "evidence": [
-      "src/modules/platform-core/platform-return-bet.controller.test.ts",
-      "src/modules/return-bet/return-bet-withdrawal.service.spec.ts",
-      "src/modules/return-bet/return-bet-community-status.service.spec.ts",
-      "src/modules/return-bet/return-bet-withdrawal-policy.service.spec.ts"
-    ],
-    "compatibility": "Associação explícita; reais/centavos; política e ciclo de aprovação compartilhados."
-  },
-  {
-    "method": "PUT",
-    "path": "/internal/return-bet/withdrawal-policy",
-    "canonical": "PUT /platforms/:tag/finance/withdrawal-policy",
-    "evidence": [
-      "src/modules/platform-core/platform-return-bet.controller.test.ts",
-      "src/modules/return-bet/return-bet-withdrawal.service.spec.ts",
-      "src/modules/return-bet/return-bet-community-status.service.spec.ts",
-      "src/modules/return-bet/return-bet-withdrawal-policy.service.spec.ts"
-    ],
-    "compatibility": "Associação explícita; reais/centavos; política e ciclo de aprovação compartilhados."
-  },
-  {
-    "method": "GET",
-    "path": "/internal/return-bet/community-status",
-    "canonical": "POST /platforms/:tag/community/status/batch",
-    "evidence": [
-      "src/modules/platform-core/platform-return-bet.controller.test.ts",
-      "src/modules/return-bet/return-bet-withdrawal.service.spec.ts",
-      "src/modules/return-bet/return-bet-community-status.service.spec.ts",
-      "src/modules/return-bet/return-bet-withdrawal-policy.service.spec.ts"
-    ],
-    "compatibility": "Associação explícita; reais/centavos; política e ciclo de aprovação compartilhados."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/return-bet/community-status/batch",
-    "canonical": "POST /platforms/:tag/community/status/batch",
-    "evidence": [
-      "src/modules/platform-core/platform-return-bet.controller.test.ts",
-      "src/modules/return-bet/return-bet-withdrawal.service.spec.ts",
-      "src/modules/return-bet/return-bet-community-status.service.spec.ts",
-      "src/modules/return-bet/return-bet-withdrawal-policy.service.spec.ts"
-    ],
-    "compatibility": "Associação explícita; reais/centavos; política e ciclo de aprovação compartilhados."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/return-bet/withdrawals",
-    "canonical": "POST /platforms/:tag/finance/return-bet/withdrawals",
-    "evidence": [
-      "src/modules/platform-core/platform-return-bet.controller.test.ts",
-      "src/modules/return-bet/return-bet-withdrawal.service.spec.ts",
-      "src/modules/return-bet/return-bet-community-status.service.spec.ts",
-      "src/modules/return-bet/return-bet-withdrawal-policy.service.spec.ts"
-    ],
-    "compatibility": "Associação explícita; reais/centavos; política e ciclo de aprovação compartilhados."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/return-bet/withdrawals/status/batch",
-    "canonical": "POST /platforms/:tag/finance/return-bet/withdrawals/status/batch",
-    "evidence": [
-      "src/modules/platform-core/platform-return-bet.controller.test.ts",
-      "src/modules/return-bet/return-bet-withdrawal.service.spec.ts",
-      "src/modules/return-bet/return-bet-community-status.service.spec.ts",
-      "src/modules/return-bet/return-bet-withdrawal-policy.service.spec.ts"
-    ],
-    "compatibility": "Associação explícita; reais/centavos; política e ciclo de aprovação compartilhados."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/return-bet/withdrawals/:requestId/approve",
-    "canonical": "POST /platforms/:tag/finance/return-bet/withdrawals/:requestId/approve",
-    "evidence": [
-      "src/modules/platform-core/platform-return-bet.controller.test.ts",
-      "src/modules/return-bet/return-bet-withdrawal.service.spec.ts",
-      "src/modules/return-bet/return-bet-community-status.service.spec.ts",
-      "src/modules/return-bet/return-bet-withdrawal-policy.service.spec.ts"
-    ],
-    "compatibility": "Associação explícita; reais/centavos; política e ciclo de aprovação compartilhados."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/return-bet/withdrawals/:requestId/reject",
-    "canonical": "POST /platforms/:tag/finance/return-bet/withdrawals/:requestId/reject",
-    "evidence": [
-      "src/modules/platform-core/platform-return-bet.controller.test.ts",
-      "src/modules/return-bet/return-bet-withdrawal.service.spec.ts",
-      "src/modules/return-bet/return-bet-community-status.service.spec.ts",
-      "src/modules/return-bet/return-bet-withdrawal-policy.service.spec.ts"
-    ],
-    "compatibility": "Associação explícita; reais/centavos; política e ciclo de aprovação compartilhados."
-  },
-  {
-    "method": "GET",
     "path": "/dashboard/revalida/stats",
     "canonical": "GET /platforms/:tag/reports/dashboard/stats",
     "evidence": [
@@ -634,18 +530,14 @@
     "method": "POST",
     "path": "/dashboard/revalida/sync-external-user",
     "canonical": "POST /platforms/:tag/sync/owner-mirror",
-    "evidence": [
-      "src/modules/platform-core/platform-owner-mirror.test.ts"
-    ],
+    "evidence": ["src/modules/platform-core/platform-owner-mirror.test.ts"],
     "compatibility": "Canônico exige autorização; manutenção bloqueia carteira compartilhada."
   },
   {
     "method": "POST",
     "path": "/dashboard/revalida/sync-full",
     "canonical": "POST /platforms/:tag/maintenance/full-sync",
-    "evidence": [
-      "src/modules/platform-core/platform-historical-sync.test.ts"
-    ],
+    "evidence": ["src/modules/platform-core/platform-historical-sync.test.ts"],
     "compatibility": "Canônico exige autorização; manutenção bloqueia carteira compartilhada."
   },
   {
@@ -900,9 +792,7 @@
     "method": "POST",
     "path": "/internal/areaflix/finance/claim-links",
     "canonical": "POST /platforms/:tag/links/claim",
-    "evidence": [
-      "src/modules/platform-core/platform-link-claim.test.ts"
-    ],
+    "evidence": ["src/modules/platform-core/platform-link-claim.test.ts"],
     "compatibility": "Mesma transferência/auditoria; referência de origem explícita; canônico centavos."
   },
   {
@@ -1287,9 +1177,7 @@
     "method": "POST",
     "path": "/webhook/ebook/payment-confirmation",
     "canonical": "POST /platforms/:tag/integrations/ebook/payment-confirmations",
-    "evidence": [
-      "src/modules/platform-core/legacy-webhook-ingress.test.ts"
-    ],
+    "evidence": ["src/modules/platform-core/legacy-webhook-ingress.test.ts"],
     "compatibility": "Hook único; payload/defaults/erros preservados."
   }
 ]
