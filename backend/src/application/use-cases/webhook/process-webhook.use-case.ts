@@ -14,6 +14,7 @@ import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { TRANSACTION_REPOSITORY } from '../../../core/repositories/transaction.repository.interface';
 import { WEBHOOK_EVENT_REPOSITORY } from '../../../core/repositories/webhook-event.repository.interface';
 import { BALANCE_LOG_REPOSITORY } from '../../../core/repositories/balance-log.repository.interface';
+import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
 import { PixPlanService } from '../pix-plan/pix-plan.service';
@@ -320,16 +321,6 @@ export class ProcessWebhookUseCase {
           data: { previousStatus: t.status, status: nextStatus },
         });
         if (claimed.count !== 1) return false;
-        const walletUpdates: {
-          balance?: Prisma.Decimal;
-          lockedBalance?: Prisma.Decimal;
-        } = {};
-
-        let walletBeforeBalance: Prisma.Decimal | null = null;
-        let walletBeforeLocked: Prisma.Decimal | null = null;
-        let walletAfterBalance: Prisma.Decimal | null = null;
-        let walletAfterLocked: Prisma.Decimal | null = null;
-
         const shouldMutateWallet = [
           'paid',
           'refunded',
@@ -337,52 +328,21 @@ export class ProcessWebhookUseCase {
           'in_mediation',
         ].includes(status);
 
+        let balanceDelta = new Prisma.Decimal(0);
+        let lockedDelta = new Prisma.Decimal(0);
         if (shouldMutateWallet) {
-          for (let attempt = 0; attempt < 3; attempt++) {
-            const wallet = await p.wallet.findUnique({
-              where: { userId: t.userId },
-            });
-            if (!wallet) throw new Error('wallet not found');
+          const wallet = await p.wallet.findUnique({
+            where: { userId: t.userId },
+          });
+          if (!wallet) throw new Error('wallet not found');
 
-            const balanceBefore = wallet.balance;
-            const lockedBefore = wallet.lockedBalance;
-
-            walletBeforeBalance ??= balanceBefore;
-            walletBeforeLocked ??= lockedBefore;
-
-            let balanceAfter = balanceBefore;
-            let lockedAfter = lockedBefore;
-
-            if (status === 'paid') {
-              balanceAfter = balanceBefore.add(creditAmount);
-            } else if (status === 'refunded' || status === 'chargeback') {
-              balanceAfter = balanceBefore.sub(creditAmount);
-            } else if (status === 'in_mediation') {
-              balanceAfter = balanceBefore.sub(creditAmount);
-              lockedAfter = lockedBefore.add(creditAmount);
-            }
-
-            walletUpdates.balance = balanceAfter;
-            walletUpdates.lockedBalance = lockedAfter;
-
-            const result = await p.wallet.updateMany({
-              where: { id: wallet.id, version: wallet.version },
-              data: {
-                balance: balanceAfter,
-                lockedBalance: lockedAfter,
-                version: { increment: 1 },
-              },
-            });
-
-            if (result.count > 0) {
-              walletAfterBalance = balanceAfter;
-              walletAfterLocked = lockedAfter;
-              break;
-            }
-
-            if (attempt === 2) {
-              throw new Error('Wallet version conflict after 3 retries');
-            }
+          if (status === 'paid') {
+            balanceDelta = creditAmount;
+          } else if (status === 'refunded' || status === 'chargeback') {
+            balanceDelta = creditAmount.neg();
+          } else if (status === 'in_mediation') {
+            balanceDelta = creditAmount.neg();
+            lockedDelta = creditAmount;
           }
         }
 
@@ -395,26 +355,15 @@ export class ProcessWebhookUseCase {
           },
         });
 
-        if (
-          shouldMutateWallet &&
-          walletBeforeBalance &&
-          walletBeforeLocked &&
-          walletAfterBalance &&
-          walletAfterLocked
-        ) {
-          await p.balanceLog.create({
-            data: {
-              userId: t.userId,
-              action: `WEBHOOK_${eventType}`,
-              transactionId: t.id,
-
-              balanceDelta: walletAfterBalance.sub(walletBeforeBalance),
-
-              lockedDelta: walletAfterLocked.sub(walletBeforeLocked),
-
-              source: 'WEBHOOK',
-              metadata: input.payload as never,
-            },
+        if (shouldMutateWallet) {
+          await applyWalletEntry(p, {
+            userId: t.userId,
+            action: `WEBHOOK_${eventType}`,
+            transactionId: t.id,
+            balanceDelta,
+            lockedDelta,
+            source: 'WEBHOOK',
+            metadata: input.payload as never,
           });
         }
 

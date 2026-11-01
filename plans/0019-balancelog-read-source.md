@@ -20,7 +20,7 @@ Continuação do [plano 0007](0007-balance-ledger-source-of-truth.md). O 0007 un
       Lote A (escritores só-log, teste em `backend/tests/wallet-log-only-writers.integration.test.ts`; `return-bet-withdrawal` e `admin.controller`/scripts/`platform-maintenance` ficam para decisão/lote B):
 
   - [x] saque: `request-withdraw` + `createWithWalletLock`, `approve-withdrawal`, `reject-withdrawal`
-  - [ ] webhooks: `process-webhook`, `process-dom-webhook`
+  - [x] webhooks: `process-webhook`, `process-dom-webhook` (ebook e máquina sem teste de integração próprio)
   - [ ] `affiliate-commission.service`, `sync-maquinetas`
   - [ ] `platform-finance.service` (saque), `link-settlement`, `platform-link-claim`
 

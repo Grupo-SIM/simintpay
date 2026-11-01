@@ -515,45 +515,19 @@ export class ProcessDomWebhookUseCase {
 
         if (balanceDelta.isZero() && lockedDelta.isZero()) return;
 
-        for (let attempt = 0; attempt < 3; attempt++) {
-          const wallet = await p.wallet.findUnique({
-            where: { userId: existing.userId },
-          });
-          if (!wallet) throw new Error('wallet not found');
+        const wallet = await p.wallet.findUnique({
+          where: { userId: existing.userId },
+        });
+        if (!wallet) throw new Error('wallet not found');
 
-          const newBalance = wallet.balance.add(balanceDelta);
-          const newLocked = wallet.lockedBalance.add(lockedDelta);
-
-          const result = await p.wallet.updateMany({
-            where: { id: wallet.id, version: wallet.version },
-            data: {
-              balance: newBalance,
-              lockedBalance: newLocked,
-              version: { increment: 1 },
-            },
-          });
-
-          if (result.count > 0) {
-            await p.balanceLog.create({
-              data: {
-                userId: existing.userId,
-                action: `DOM_WEBHOOK_${nextStatus}`,
-                transactionId: existing.id,
-
-                balanceDelta,
-
-                lockedDelta,
-
-                source: 'DOM_WEBHOOK',
-              },
-            });
-            break;
-          }
-
-          if (attempt === 2) {
-            throw new Error('Wallet version conflict after 3 retries');
-          }
-        }
+        await applyWalletEntry(p, {
+          userId: existing.userId,
+          action: `DOM_WEBHOOK_${nextStatus}`,
+          transactionId: existing.id,
+          balanceDelta,
+          lockedDelta,
+          source: 'DOM_WEBHOOK',
+        });
 
         if (
           nextStatus === TransactionStatus.COMPLETED &&
@@ -1602,35 +1576,19 @@ export class ProcessDomWebhookUseCase {
 
         // Atualizar saldo da wallet do usuário ebook
         const walletDeltaEbook = netDec.sub(getEbookTaxaServico());
-        for (let attempt = 0; attempt < 3; attempt++) {
-          const wallet = await p.wallet.findUnique({
-            where: { userId: ebookUserId },
+        const ebookWallet = await p.wallet.findUnique({
+          where: { userId: ebookUserId },
+        });
+        if (ebookWallet) {
+          await applyWalletEntry(p, {
+            userId: ebookUserId,
+            action: 'DOM_WEBHOOK_COMPLETED',
+            transactionId: tx.id,
+            balanceDelta: walletDeltaEbook,
+            lockedDelta: 0,
+            source: 'EBOOK_WEBHOOK',
+            description: `Pedido ebook: ${orderNumber}`,
           });
-          if (!wallet) break;
-          const newBalance = wallet.balance.add(walletDeltaEbook);
-          const updated = await p.wallet.updateMany({
-            where: { id: wallet.id, version: wallet.version },
-            data: { balance: newBalance, version: { increment: 1 } },
-          });
-          if (updated.count > 0) {
-            await p.balanceLog.create({
-              data: {
-                userId: ebookUserId,
-                action: 'DOM_WEBHOOK_COMPLETED',
-                transactionId: tx.id,
-
-                balanceDelta: walletDeltaEbook,
-
-                lockedDelta: 0,
-
-                source: 'EBOOK_WEBHOOK',
-                description: `Pedido ebook: ${orderNumber}`,
-              },
-            });
-            break;
-          }
-          if (attempt === 2)
-            throw new Error('Wallet version conflict after 3 retries');
         }
 
         return tx;
@@ -1762,39 +1720,18 @@ export class ProcessDomWebhookUseCase {
         },
       });
 
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const wallet = await p.wallet.findUnique({ where: { userId } });
-        if (!wallet) break;
-
-        // Carteira recebe o líquido do lojista = bruto − taxa Sim Int Pay
-        const newBalance = wallet.balance.add(netDec);
-
-        const result = await p.wallet.updateMany({
-          where: { id: wallet.id, version: wallet.version },
-          data: { balance: newBalance, version: { increment: 1 } },
+      // Carteira recebe o líquido do lojista = bruto − taxa Sim Int Pay
+      const machineWallet = await p.wallet.findUnique({ where: { userId } });
+      if (machineWallet) {
+        await applyWalletEntry(p, {
+          userId,
+          action: 'MACHINE_SYNC',
+          transactionId: newTx.id,
+          balanceDelta: netDec,
+          lockedDelta: 0,
+          source: 'MACHINE_SYNC',
+          description: `Terminal: ${serial}`,
         });
-
-        if (result.count > 0) {
-          await p.balanceLog.create({
-            data: {
-              userId,
-              action: 'MACHINE_SYNC',
-              transactionId: newTx.id,
-
-              balanceDelta: netDec,
-
-              lockedDelta: 0,
-
-              source: 'MACHINE_SYNC',
-              description: `Terminal: ${serial}`,
-            },
-          });
-          break;
-        }
-
-        if (attempt === 2) {
-          throw new Error('Wallet version conflict after 3 retries');
-        }
       }
 
       return newTx;

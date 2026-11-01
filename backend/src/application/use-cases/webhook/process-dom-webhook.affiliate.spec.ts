@@ -1,4 +1,9 @@
-jest.mock('uuid', () => ({ v4: () => 'test-uuid', v5: () => 'test-uuid', MAX: '', NIL: '' }));
+jest.mock('uuid', () => ({
+  v4: () => 'test-uuid',
+  v5: () => 'test-uuid',
+  MAX: '',
+  NIL: '',
+}));
 
 import { ProcessDomWebhookUseCase } from './process-dom-webhook.use-case';
 import { TransactionStatus } from '@prisma/client';
@@ -16,8 +21,8 @@ describe('ProcessDomWebhookUseCase — hook de comissão de afiliado', () => {
 
     const wallet = {
       id: 'wallet1',
-      balance: { add: (d: any) => wallet.balance, sub: (d: any) => wallet.balance },
-      lockedBalance: { add: (d: any) => wallet.lockedBalance },
+      balance: 0,
+      lockedBalance: 0,
       version: 1,
     };
 
@@ -30,9 +35,12 @@ describe('ProcessDomWebhookUseCase — hook de comissão de afiliado', () => {
       transactionStatusHistory: { create: jest.fn().mockResolvedValue({}) },
       wallet: {
         findUnique: jest.fn().mockResolvedValue(wallet),
-        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(wallet),
       },
-      balanceLog: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
+      balanceLog: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+      },
     };
 
     const prisma = {
@@ -46,15 +54,24 @@ describe('ProcessDomWebhookUseCase — hook de comissão de afiliado', () => {
       subscriptionLinkOrder: { findFirst: jest.fn().mockResolvedValue(null) },
       transaction: { findFirst: jest.fn().mockResolvedValue(existingTx) },
       voucher: { findFirst: jest.fn().mockResolvedValue(null) },
-      $transaction: jest.fn().mockImplementation((cb: any) => cb(prismaTxClient)),
+      $transaction: jest
+        .fn()
+        .mockImplementation((cb: any) => cb(prismaTxClient)),
     } as any;
 
     const voucherService = { recordUsage: jest.fn() } as any;
 
     // Terceiro arg (affiliateCommission) é sobrescrito logo abaixo — passamos
     // `undefined as any` só pra bater a contagem de parâmetros do construtor.
-    const uc = new ProcessDomWebhookUseCase(prisma, voucherService, undefined as any);
-    (uc as any).affiliateCommission = { applyForTransaction, reverseForTransaction };
+    const uc = new ProcessDomWebhookUseCase(
+      prisma,
+      voucherService,
+      undefined as any,
+    );
+    (uc as any).affiliateCommission = {
+      applyForTransaction,
+      reverseForTransaction,
+    };
 
     return { uc, applyForTransaction, reverseForTransaction, prisma };
   }
@@ -79,7 +96,11 @@ describe('ProcessDomWebhookUseCase — hook de comissão de afiliado', () => {
 
     expect(applyForTransaction).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ transactionId: 'tx1', referredUserId: 'user1', platformFee: '5.00' }),
+      expect.objectContaining({
+        transactionId: 'tx1',
+        referredUserId: 'user1',
+        platformFee: '5.00',
+      }),
     );
   });
 
@@ -101,6 +122,9 @@ describe('ProcessDomWebhookUseCase — hook de comissão de afiliado', () => {
       data: { id: 'dom-2', amount: 5000, status: 'refunded' },
     });
 
-    expect(reverseForTransaction).toHaveBeenCalledWith(expect.anything(), 'tx2');
+    expect(reverseForTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      'tx2',
+    );
   });
 });

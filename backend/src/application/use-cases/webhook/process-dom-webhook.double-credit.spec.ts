@@ -21,13 +21,8 @@ describe('ProcessDomWebhookUseCase — proteção contra crédito duplicado', ()
     const walletDeltas: string[] = [];
     const wallet = {
       id: 'wallet1',
-      balance: {
-        add: (d: any) => {
-          walletDeltas.push(d.toString());
-          return wallet.balance;
-        },
-      },
-      lockedBalance: { add: () => wallet.lockedBalance },
+      balance: 0,
+      lockedBalance: 0,
       version: 1,
     };
 
@@ -38,11 +33,14 @@ describe('ProcessDomWebhookUseCase — proteção contra crédito duplicado', ()
       transactionStatusHistory: { create: jest.fn().mockResolvedValue({}) },
       wallet: {
         findUnique: jest.fn().mockResolvedValue(wallet),
-        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(wallet),
       },
       balanceLog: {
         findFirst: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockResolvedValue({}),
+        create: jest.fn().mockImplementation(async ({ data }: any) => {
+          walletDeltas.push(data.balanceDelta.toString());
+          return {};
+        }),
       },
     };
 

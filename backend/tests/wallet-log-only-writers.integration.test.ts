@@ -2,10 +2,17 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient, type TransactionStatus } from '@prisma/client';
 import { Client } from 'pg';
+import { AffiliateCommissionService } from '../src/application/services/affiliate-commission.service';
 import { ApproveWithdrawalUseCase } from '../src/application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../src/application/use-cases/admin/reject-withdrawal.use-case';
+import { ProcessDomWebhookUseCase } from '../src/application/use-cases/webhook/process-dom-webhook.use-case';
+import { ProcessWebhookUseCase } from '../src/application/use-cases/webhook/process-webhook.use-case';
+import { settleFinalNet } from '../src/modules/platform-core/link-settlement';
+import { PlatformLinkClaim } from '../src/modules/platform-core/platform-link-claim';
+import { PlatformFinanceService } from '../src/modules/unified-platform/finance/platform-finance.service';
+import { initializePlatformTaxasCache } from '../src/modules/platform-taxas/platform-taxas.store';
 import {
   InsufficientWithdrawBalanceError,
   PrismaWithdrawRepository,
@@ -42,6 +49,9 @@ beforeAll(async () => {
   } finally {
     await pg.end();
   }
+  await initializePlatformTaxasCache({
+    platformTaxaOverride: { findMany: async () => [] },
+  } as never);
 });
 afterAll(async () => {
   await db?.$disconnect();
@@ -157,3 +167,122 @@ run('approval debits balance and locked once; reject releases', async () => {
   await approve.execute(first.id);
   expect(await expectConsistent(user.id)).toEqual(['70.00', '0.00']);
 });
+
+// --- webhooks ----------------------------------------------------------------------------------
+
+const newPendingTx = async (userId: string, netAmount: string) =>
+  db!.transaction.create({
+    data: {
+      // 64-hex ids use the persisted net amount instead of the legacy fee formula.
+      id: (crypto.randomUUID() + crypto.randomUUID()).replaceAll('-', ''),
+      userId,
+      amount: '100',
+      netAmount,
+      status: 'PENDING',
+      description: '[TENANT:CLIENT]',
+      domPaymentId: 'a'.repeat(32) + crypto.randomUUID().replaceAll('-', ''),
+    },
+  });
+
+const buildWebhookUseCase = () => {
+  const seen = new Set<string>();
+  const events = {
+    findByEventId: async (id: string) =>
+      seen.has(id) ? { id, status: 'PROCESSED' } : null,
+    create: async () => ({ id: crypto.randomUUID() }),
+    markProcessed: async (_id: string) => undefined,
+    markFailed: async () => undefined,
+  };
+  const transactions = {
+    findByDomPaymentId: (domPaymentId: string) =>
+      db!.transaction.findUnique({ where: { domPaymentId } }),
+  };
+  const affiliates = {
+    applyForTransaction: async () => undefined,
+    reverseForTransaction: async () => undefined,
+  };
+  return new ProcessWebhookUseCase(
+    events as never,
+    transactions as never,
+    {} as never,
+    prismaService,
+    {} as never,
+    affiliates as never,
+  );
+};
+
+run(
+  'canonical webhook credits once even when delivered concurrently',
+  async () => {
+    const user = await newUser();
+    await fund(user.id, '10');
+    const tx = await newPendingTx(user.id, '90');
+    const uc = buildWebhookUseCase();
+    const paid = (signature: string) => ({
+      payload: {
+        event: 'transaction',
+        signature,
+        data: {
+          paymentId: tx.domPaymentId,
+          status: 'paid',
+          amountWithoutAllFee: 90,
+        },
+      },
+    });
+    await Promise.all([uc.execute(paid('s1')), uc.execute(paid('s2'))]);
+    await uc.execute(paid('s3'));
+    expect(await expectConsistent(user.id)).toEqual(['100.00', '0.00']);
+
+    // Refund reverses exactly what was credited, once.
+    const refunded = (signature: string) => ({
+      payload: {
+        event: 'transaction',
+        signature,
+        data: {
+          paymentId: tx.domPaymentId,
+          status: 'refunded',
+          amountWithoutAllFee: 90,
+        },
+      },
+    });
+    await Promise.all([uc.execute(refunded('r1')), uc.execute(refunded('r2'))]);
+    expect(await expectConsistent(user.id)).toEqual(['10.00', '0.00']);
+  },
+);
+
+run(
+  'DOM webhook credits once, then reverses once, under concurrency',
+  async () => {
+    const user = await newUser();
+    await fund(user.id, '5');
+    const tx = await newPendingTx(user.id, '90');
+    const uc = new ProcessDomWebhookUseCase(
+      prismaService,
+      { recordUsage: async () => undefined } as never,
+      {
+        applyForTransaction: async () => undefined,
+        reverseForTransaction: async () => undefined,
+      } as never,
+    );
+    const send = (signature: string, status: string) =>
+      uc.execute({
+        event: 'charge',
+        signature: `${tx.id}-${signature}`,
+        data: { id: tx.domPaymentId, amount: 10000, status },
+      });
+    await Promise.all([send('d1', 'paid'), send('d2', 'paid')]);
+    await send('d3', 'paid');
+    const credited = await expectConsistent(user.id);
+    expect(credited[1]).toBe('0.00');
+    const afterCredit = new Prisma.Decimal(credited[0]).sub(5);
+    expect(afterCredit.gt(0)).toBe(true);
+    const logs = await db!.balanceLog.findMany({
+      where: { userId: user.id, transactionId: tx.id },
+    });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].balanceDelta.toFixed(2)).toBe(afterCredit.toFixed(2));
+
+    await Promise.all([send('d4', 'refunded'), send('d5', 'refunded')]);
+    expect(await expectConsistent(user.id)).toEqual(['5.00', '0.00']);
+  },
+);

@@ -9,7 +9,10 @@ describe('ProcessWebhookUseCase — hook de comissão de afiliado', () => {
     const wallet = {
       id: 'wallet1',
       balance: { add: () => wallet.balance, sub: () => wallet.balance },
-      lockedBalance: { add: () => wallet.lockedBalance, sub: () => wallet.lockedBalance },
+      lockedBalance: {
+        add: () => wallet.lockedBalance,
+        sub: () => wallet.lockedBalance,
+      },
       version: 1,
     };
 
@@ -18,9 +21,12 @@ describe('ProcessWebhookUseCase — hook de comissão de afiliado', () => {
       transactionStatusHistory: { create: jest.fn().mockResolvedValue({}) },
       wallet: {
         findUnique: jest.fn().mockResolvedValue(wallet),
-        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(wallet),
       },
-      balanceLog: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
+      balanceLog: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+      },
     };
 
     const events = {
@@ -38,15 +44,27 @@ describe('ProcessWebhookUseCase — hook de comissão de afiliado', () => {
 
     const prisma = {
       user: { findUnique: jest.fn().mockResolvedValue({ platform: null }) },
-      $transaction: jest.fn().mockImplementation((cb: any) => cb(prismaTxClient)),
+      $transaction: jest
+        .fn()
+        .mockImplementation((cb: any) => cb(prismaTxClient)),
     } as any;
 
     const renovadaEvents = { emitTransaction: jest.fn() } as any;
 
     // Sexto arg (affiliateCommission) é sobrescrito logo abaixo — `undefined as any`
     // só pra bater a contagem de parâmetros do construtor.
-    const uc = new ProcessWebhookUseCase(events, transactions, balanceLogs, prisma, renovadaEvents, undefined as any);
-    (uc as any).affiliateCommission = { applyForTransaction, reverseForTransaction };
+    const uc = new ProcessWebhookUseCase(
+      events,
+      transactions,
+      balanceLogs,
+      prisma,
+      renovadaEvents,
+      undefined as any,
+    );
+    (uc as any).affiliateCommission = {
+      applyForTransaction,
+      reverseForTransaction,
+    };
 
     return { uc, applyForTransaction, reverseForTransaction };
   }
@@ -71,7 +89,11 @@ describe('ProcessWebhookUseCase — hook de comissão de afiliado', () => {
 
     expect(applyForTransaction).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ transactionId: 'tx1', referredUserId: 'user1', platformFee: '5.00' }),
+      expect.objectContaining({
+        transactionId: 'tx1',
+        referredUserId: 'user1',
+        platformFee: '5.00',
+      }),
     );
   });
 
@@ -89,10 +111,17 @@ describe('ProcessWebhookUseCase — hook de comissão de afiliado', () => {
       payload: {
         event: 'charge',
         signature: 'sig-2',
-        data: { paymentId: 'pay-2', status: 'refunded', amountWithoutAllFee: 50 },
+        data: {
+          paymentId: 'pay-2',
+          status: 'refunded',
+          amountWithoutAllFee: 50,
+        },
       },
     });
 
-    expect(reverseForTransaction).toHaveBeenCalledWith(expect.anything(), 'tx2');
+    expect(reverseForTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      'tx2',
+    );
   });
 });
