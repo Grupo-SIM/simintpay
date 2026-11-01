@@ -8,7 +8,7 @@ export default function ComunidadeDetalhePage() {
   return (
     <ComunidadeDetailsView
       communityId={params.id}
-      backHref="/admin/contas?tab=clientes"
+      backHref="/admin/contas?tab=usuarios"
     />
   );
 }

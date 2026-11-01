@@ -127,7 +127,7 @@ test(
         waitUntil: 'domcontentloaded',
         timeout: 120000,
       });
-      await page.waitForURL('**/admin/contas?tab=clientes');
+      await page.waitForURL('**/admin/contas?tab=usuarios');
       await page
         .getByRole('button', { name: 'Cobranças', exact: true })
         .click();

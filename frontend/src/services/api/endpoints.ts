@@ -210,8 +210,6 @@ export const endpoints = {
       acessarComo: (userId: string) => `/admin/usuarios/${userId}/acessar-como`,
       marcarEmpresa: (userId: string) =>
         `/admin/usuarios/${userId}/marcar-empresa`,
-      clienteSimintpay: (userId: string) =>
-        `/admin/usuarios/${userId}/cliente-simintpay`,
     },
     plataformasExternasDb: {
       listAll: '/admin/plataformas-externas/usuarios',
@@ -227,9 +225,6 @@ export const endpoints = {
     },
     clientes: {
       list: '/admin/clientes',
-      approve: (id: string) => `/admin/clientes/${id}/aprovar`,
-      reject: (id: string) => `/admin/clientes/${id}/rejeitar`,
-      taxa: (id: string) => `/admin/clientes/${id}/taxa`,
       planos: '/admin/clientes/planos',
       planosPix: '/admin/clientes/planos-pix',
       linksPagamento: '/admin/clientes/links-pagamento',

@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   RefreshCw,
   Search,
@@ -17,7 +16,6 @@ import {
   Trash2,
   Pencil,
   Download,
-  MoreVertical,
   Wallet,
   Receipt,
   DoorOpen,
@@ -29,17 +27,9 @@ import {
 } from '@/services/api/api.client';
 import { endpoints } from '@/services/api/endpoints';
 import { useToast } from '@/components/ui/Toast';
-import { Input } from '@/components/ui/Input';
-import { Spinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { HelpTooltip } from '@/components/ui/HelpTooltip';
 import { PortalTooltip } from '@/components/ui/PortalTooltip';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { cn, getPlatformBadgeClass, formatDocument } from '@/lib/utils';
 
 import { PlatformFilterSelect } from '@/components/product-platforms/PlatformFilterSelect';
@@ -47,21 +37,7 @@ import { AccountPlatformsButton } from '../components';
 import { ClientChargesModal } from './charges';
 import type { ChargeClient } from './charges/types';
 
-// ── Tipos: aba "Aprovação e Taxas" (ex-/admin/clientes) ──
 type ClientStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
-
-type Cliente = {
-  id: string;
-  name: string;
-  email: string;
-  clientStatus: ClientStatus;
-  clientApprovedAt: string | null;
-  isActive: boolean;
-  createdAt: string;
-  taxaCartao: number | null;
-  taxaPix: number | null;
-  taxaAssinatura: number | null;
-};
 
 /** Decimal (0.0152) → texto de porcentagem para exibição ("1,52%"). */
 function decimalToPercentDisplay(value: number | null | undefined): string {
@@ -71,22 +47,6 @@ function decimalToPercentDisplay(value: number | null | undefined): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   })}%`;
-}
-
-/** Decimal (0.0152) → valor para input em porcentagem ("1.52"); vazio se nulo. */
-function decimalToPercentInput(value: number | null | undefined): string {
-  if (value === null || value === undefined) return '';
-  const pct = value * 100;
-  return String(parseFloat(pct.toFixed(4)));
-}
-
-/** Texto de porcentagem do input ("1,52" ou "1.52") → decimal (0.0152); NaN se inválido/vazio. */
-function percentInputToDecimal(raw: string): number {
-  const cleaned = raw.trim().replace(',', '.');
-  if (cleaned === '') return NaN;
-  const n = Number(cleaned);
-  if (!Number.isFinite(n)) return NaN;
-  return n / 100;
 }
 
 const CLIENTE_STATUS_BADGE: Record<
@@ -108,152 +68,6 @@ const CLIENTE_STATUS_BADGE: Record<
     className: 'bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400',
   },
 };
-
-type FeeModalMode = 'approve' | 'edit';
-
-function FeeModal({
-  open,
-  mode,
-  cliente,
-  saving,
-  onClose,
-  onSubmit,
-}: {
-  open: boolean;
-  mode: FeeModalMode;
-  cliente: Cliente | null;
-  saving: boolean;
-  onClose: () => void;
-  onSubmit: (payload: {
-    taxaCartao?: number;
-    taxaPix?: number;
-    taxaAssinatura?: number;
-  }) => void;
-}) {
-  const [taxaCartao, setTaxaCartao] = useState('');
-  const [taxaPix, setTaxaPix] = useState('');
-  const [taxaAssinatura, setTaxaAssinatura] = useState('');
-  const [seeded, setSeeded] = useState<string | null>(null);
-
-  if (open && cliente && seeded !== cliente.id) {
-    setTaxaCartao(decimalToPercentInput(cliente.taxaCartao));
-    setTaxaPix(decimalToPercentInput(cliente.taxaPix));
-    setTaxaAssinatura(decimalToPercentInput(cliente.taxaAssinatura));
-    setSeeded(cliente.id);
-  }
-  if (!open && seeded !== null) {
-    setSeeded(null);
-  }
-
-  function buildField(raw: string): { ok: boolean; value?: number } {
-    if (raw.trim() === '') return { ok: true };
-    const dec = percentInputToDecimal(raw);
-    if (Number.isNaN(dec) || dec < 0) return { ok: false };
-    return { ok: true, value: dec };
-  }
-
-  function handleSubmit() {
-    const c = buildField(taxaCartao);
-    const p = buildField(taxaPix);
-    const a = buildField(taxaAssinatura);
-    if (!c.ok || !p.ok || !a.ok) return;
-    const payload: {
-      taxaCartao?: number;
-      taxaPix?: number;
-      taxaAssinatura?: number;
-    } = {};
-    if (c.value !== undefined) payload.taxaCartao = c.value;
-    if (p.value !== undefined) payload.taxaPix = p.value;
-    if (a.value !== undefined) payload.taxaAssinatura = a.value;
-    onSubmit(payload);
-  }
-
-  const invalid =
-    !buildField(taxaCartao).ok ||
-    !buildField(taxaPix).ok ||
-    !buildField(taxaAssinatura).ok;
-
-  const title = mode === 'approve' ? 'Aprovar cliente' : 'Editar taxas';
-
-  const field = (
-    label: string,
-    value: string,
-    setValue: (v: string) => void,
-  ) => (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-        {label}
-      </span>
-      <div className="relative">
-        <Input
-          type="text"
-          inputMode="decimal"
-          theme="dark"
-          variant="navbar"
-          value={value}
-          onChange={(v) => setValue(v)}
-          className="h-10 w-full font-mono text-sm pr-8"
-          placeholder="0"
-        />
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-500">
-          %
-        </span>
-      </div>
-    </label>
-  );
-
-  return (
-    <Modal open={open} onClose={onClose} title={title} maxWidth="max-w-md">
-      <div className="flex flex-col gap-4">
-        {cliente && (
-          <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 dark:border-white/5 dark:bg-white/5">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-              Cliente
-            </p>
-            <p className="mt-0.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-              {cliente.name}
-            </p>
-            <p className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
-              {cliente.email}
-            </p>
-          </div>
-        )}
-
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          Informe as taxas em porcentagem (ex.:{' '}
-          <span className="font-mono">1,52</span> = 1,52%). Deixe um campo vazio
-          para não alterá-lo.
-        </p>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {field('Taxa cartão', taxaCartao, setTaxaCartao)}
-          {field('Taxa PIX', taxaPix, setTaxaPix)}
-          {field('Taxa assinatura', taxaAssinatura, setTaxaAssinatura)}
-        </div>
-
-        <div className="mt-2 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={saving || invalid}
-            className="flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:opacity-60"
-          >
-            {saving ? <Spinner size={14} className="text-white" /> : null}
-            {mode === 'approve' ? 'Aprovar' : 'Salvar taxas'}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
 
 type SimpayUser = {
   id: string;
@@ -410,13 +224,6 @@ function AlvoPicker({
   );
 }
 
-function makeApi() {
-  return createApiClient({
-    baseUrl: getDefaultApiBaseUrl(),
-    getToken: () => localStorage.getItem('access_token'),
-  });
-}
-
 // Estado da varredura automática (módulo): sobrevive a troca de aba dentro de /admin/contas.
 const SCAN_COOLDOWN_MS = 5 * 60 * 1000;
 let lastScanAt = 0;
@@ -487,17 +294,9 @@ export default function UsuariosTab({
   const router = useRouter();
   const { toast } = useToast();
   const { user, loading: loadingUser } = useCurrentUser();
-  const queryClient = useQueryClient();
   const isMaster = Boolean(user?.isMasterAdmin);
 
   const [chargeClient, setChargeClient] = useState<ChargeClient | null>(null);
-
-  // Ações de aprovação/rejeição/taxa (acessíveis pelo menu "..." de cada usuário).
-  const [feeModal, setFeeModal] = useState<{
-    mode: FeeModalMode;
-    cliente: Cliente;
-  } | null>(null);
-  const [confirmReject, setConfirmReject] = useState<Cliente | null>(null);
 
   const [items, setItems] = useState<ExternalUser[]>([]);
   const [total, setTotal] = useState(0);
@@ -676,119 +475,6 @@ export default function UsuariosTab({
     return () => clearTimeout(timer);
   }, [search]);
 
-  const approveMutation = useMutation({
-    mutationFn: ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: {
-        taxaCartao?: number;
-        taxaPix?: number;
-        taxaAssinatura?: number;
-      };
-    }) => makeApi().patch(endpoints.admin.clientes.approve(id), payload),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ['admin', 'clientes', 'list'],
-      });
-      fetchUsers();
-      toast({
-        type: 'success',
-        title: 'Cliente aprovado',
-        description: 'Taxas salvas com sucesso.',
-      });
-      setFeeModal(null);
-    },
-    onError: (e: unknown) => {
-      toast({
-        type: 'error',
-        title: 'Erro ao aprovar',
-        description: e instanceof Error ? e.message : 'Tente novamente.',
-      });
-    },
-  });
-
-  const taxaMutation = useMutation({
-    mutationFn: ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: {
-        taxaCartao?: number;
-        taxaPix?: number;
-        taxaAssinatura?: number;
-      };
-    }) => makeApi().patch(endpoints.admin.clientes.taxa(id), payload),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ['admin', 'clientes', 'list'],
-      });
-      fetchUsers();
-      toast({
-        type: 'success',
-        title: 'Taxas atualizadas',
-        description: 'Alterações salvas com sucesso.',
-      });
-      setFeeModal(null);
-    },
-    onError: (e: unknown) => {
-      toast({
-        type: 'error',
-        title: 'Erro ao salvar taxas',
-        description: e instanceof Error ? e.message : 'Tente novamente.',
-      });
-    },
-  });
-
-  const rejectMutation = useMutation({
-    mutationFn: (id: string) =>
-      makeApi().patch(endpoints.admin.clientes.reject(id)),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ['admin', 'clientes', 'list'],
-      });
-      fetchUsers();
-      toast({ type: 'success', title: 'Cliente rejeitado' });
-      setConfirmReject(null);
-    },
-    onError: (e: unknown) => {
-      toast({
-        type: 'error',
-        title: 'Erro ao rejeitar',
-        description: e instanceof Error ? e.message : 'Tente novamente.',
-      });
-    },
-  });
-
-  function handleFeeSubmit(payload: {
-    taxaCartao?: number;
-    taxaPix?: number;
-    taxaAssinatura?: number;
-  }) {
-    if (!feeModal) return;
-    if (
-      payload.taxaCartao === undefined &&
-      payload.taxaPix === undefined &&
-      payload.taxaAssinatura === undefined
-    ) {
-      toast({
-        type: 'error',
-        title: 'Informe ao menos uma taxa',
-        description: 'Preencha um dos campos.',
-      });
-      return;
-    }
-    if (feeModal.mode === 'approve') {
-      approveMutation.mutate({ id: feeModal.cliente.id, payload });
-    } else {
-      taxaMutation.mutate({ id: feeModal.cliente.id, payload });
-    }
-  }
-
-  const feeSaving = approveMutation.isPending || taxaMutation.isPending;
-
   /**
    * Varredura automática de donos de plataforma: roda ao abrir a tela (em segundo plano,
    * sem bloquear a lista) e no máximo 1x a cada SCAN_COOLDOWN_MS por sessão do navegador.
@@ -860,7 +546,7 @@ export default function UsuariosTab({
       const header = [
         'Nome',
         'CPF/CNPJ',
-        'Plataforma',
+        'Plataformas',
         'Saldo (R$)',
         'Saldo Bloqueado (R$)',
         'Vinculado',
@@ -1816,17 +1502,7 @@ export default function UsuariosTab({
         />
       )}
 
-      {/* Modal de aprovar / editar taxas (aba "Aprovação e Taxas") */}
-      <FeeModal
-        open={feeModal !== null}
-        mode={feeModal?.mode ?? 'approve'}
-        cliente={feeModal?.cliente ?? null}
-        saving={feeSaving}
-        onClose={() => setFeeModal(null)}
-        onSubmit={handleFeeSubmit}
-      />
-
-      {/* Confirmação de rejeição de cliente */}
+      {/* Carteira */}
       <Modal
         open={carteiraUser !== null}
         onClose={() => setCarteiraUser(null)}
@@ -1878,48 +1554,6 @@ export default function UsuariosTab({
             </div>
           </div>
         )}
-      </Modal>
-
-      <Modal
-        open={confirmReject !== null}
-        onClose={() => setConfirmReject(null)}
-        title="Rejeitar cliente"
-        maxWidth="max-w-sm"
-      >
-        <div className="flex flex-col gap-4">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Tem certeza que deseja rejeitar{' '}
-            <span className="font-semibold text-zinc-700 dark:text-zinc-200">
-              {confirmReject?.name}
-            </span>
-            ? O cliente não poderá acessar a plataforma.
-          </p>
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setConfirmReject(null)}
-              disabled={rejectMutation.isPending}
-              className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-200"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                confirmReject && rejectMutation.mutate(confirmReject.id)
-              }
-              disabled={rejectMutation.isPending}
-              className="flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-60"
-            >
-              {rejectMutation.isPending ? (
-                <Spinner size={14} className="text-white" />
-              ) : (
-                <XCircle size={14} />
-              )}
-              Rejeitar
-            </button>
-          </div>
-        </div>
       </Modal>
     </>
   );

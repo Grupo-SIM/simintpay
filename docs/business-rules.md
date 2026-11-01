@@ -184,7 +184,7 @@ Filtro textual de histórico Ebook é combinado com tag da plataforma, nunca a s
 
 ## Integração remota — links e classificação administrativa
 
-- `isSimintpayClient` é classificação administrativa; não altera aprovação, papel, titularidade ou associação de produtos. Ativos excluem marcados por padrão; `simintpayClients=true` seleciona marcados e `any` inclui ambos. Inativos/purgados incluem ambos por padrão.
+- `isSimintpayClient` é uma classificação legada que não filtra mais a listagem de contas do admin (que inclui os dois grupos); não altera aprovação, papel, titularidade ou associação de produtos.
 - Admin lista globalmente os cinco produtos; `onlyMine=true` ou `1` limita ao próprio usuário. Usuário comum permanece limitado à própria conta.
 - Links novos: líquido de crédito = total cobrado − custo gateway calculado − taxa do vendedor. Juros pagos pelo comprador permanecem na receita da plataforma. PIX preserva sua regra específica de gateway. Cashback e fixa adicionais são zero no breakdown; débito conserva seus descontos próprios.
 - Defaults de `TAXA_LINK_PERCENT` e `LINK_COST_1X…12X`: 9%. Default global de saque: R$ 3,50. Overrides cadastrados, inclusive zero, prevalecem.

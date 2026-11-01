@@ -61,7 +61,7 @@ export default function CriarComunidadePage() {
         title: 'Cliente criado',
         description: 'Cliente SimIntPay criado com sucesso.',
       });
-      router.push('/admin/contas?tab=clientes');
+      router.push('/admin/contas?tab=usuarios');
     },
     onError: (error) => {
       const message =
@@ -80,7 +80,7 @@ export default function CriarComunidadePage() {
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 pb-16">
       <nav className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
         <Link
-          href="/admin/contas?tab=clientes"
+          href="/admin/contas?tab=usuarios"
           className="transition-colors hover:text-emerald-700 dark:hover:text-emerald-400"
         >
           Clientes SimIntPay
@@ -92,7 +92,7 @@ export default function CriarComunidadePage() {
       <div className="flex items-center gap-3">
         <button
           type="button"
-          onClick={() => router.push('/admin/contas?tab=clientes')}
+          onClick={() => router.push('/admin/contas?tab=usuarios')}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-emerald-800 transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-white/10 dark:text-emerald-300 dark:hover:bg-white/15"
           aria-label="Voltar"
         >
@@ -128,7 +128,7 @@ export default function CriarComunidadePage() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => router.push('/admin/contas?tab=clientes')}
+            onClick={() => router.push('/admin/contas?tab=usuarios')}
           >
             Cancelar
           </Button>

@@ -1799,11 +1799,6 @@ export class AdminController {
     required: false,
     description: 'Buscar por nome, CPF ou e-mail Simintpay',
   })
-  @ApiQuery({
-    name: 'simintpayClients',
-    required: false,
-    description: 'true = só contas marcadas como cliente Simintpay',
-  })
   async listExternalUsers(
     @Query('platform') platform?: string,
     @Query('page') page = '1',
@@ -1811,7 +1806,6 @@ export class AdminController {
     @Query('deleted') deleted?: string,
     @Query('purged') purged?: string,
     @Query('search') search?: string,
-    @Query('simintpayClients') simintpayClients?: string,
   ) {
     const pageNum = Math.max(1, Number(page));
     const size = Math.min(Math.max(1, Number(pageSize)), 100);
@@ -1822,31 +1816,6 @@ export class AdminController {
     const searchTerm = search?.trim() ?? '';
     const cpfDigits = searchTerm.replace(/\D/g, '');
     const platformLower = platform?.trim().toLowerCase();
-
-    // Legacy classification is opt-in; the accounts view includes both groups.
-    const simintpayClientMode: 'exclude' | 'only' | 'any' =
-      simintpayClients === 'true'
-        ? 'only'
-        : simintpayClients === 'false'
-          ? 'exclude'
-          : 'any';
-    const userSimintpayClientFilter =
-      simintpayClientMode === 'any'
-        ? []
-        : [{ isSimintpayClient: simintpayClientMode === 'only' }];
-    const extSimintpayClientFilter: Prisma.ExternalPlatformUserWhereInput[] =
-      simintpayClientMode === 'only'
-        ? [{ user: { is: { isSimintpayClient: true } } }]
-        : simintpayClientMode === 'exclude'
-          ? [
-              {
-                OR: [
-                  { userId: null },
-                  { user: { is: { isSimintpayClient: false } } },
-                ],
-              },
-            ]
-          : [];
 
     // ── 1. ExternalPlatformUser identities (CPF-tag-identified sellers) ──────
     const extSearchFilter = searchTerm
@@ -1902,7 +1871,6 @@ export class AdminController {
             { user: { is: { ownedPlatforms: { some: {} } } } },
           ],
         },
-        ...extSimintpayClientFilter,
       ],
     };
 
@@ -2034,7 +2002,6 @@ export class AdminController {
               { ownedPlatforms: { some: {} } },
             ],
           },
-          ...userSimintpayClientFilter,
           ...(moduleSearchFilter ? [moduleSearchFilter] : []),
         ],
       };
@@ -2117,7 +2084,6 @@ export class AdminController {
               ]),
           ...(excludeIds.length > 0 ? [{ id: { notIn: excludeIds } }] : []),
           { clientStatus: 'APPROVED' },
-          ...userSimintpayClientFilter,
           ...(clientSearchFilter ? [clientSearchFilter] : []),
         ],
       };
@@ -2206,7 +2172,6 @@ export class AdminController {
               },
               ...(alreadyIds.length > 0 ? [{ id: { notIn: alreadyIds } }] : []),
               { clientStatus: 'APPROVED' },
-              ...userSimintpayClientFilter,
             ],
           },
           select: {
@@ -2338,7 +2303,6 @@ export class AdminController {
                     { user: { is: { ownedPlatforms: { some: {} } } } },
                   ],
                 },
-                ...extSimintpayClientFilter,
               ],
             },
             include: {
@@ -2856,39 +2820,6 @@ export class AdminController {
       role: target.role,
     });
     return { accessToken: token, expiresIn };
-  }
-
-  @Patch('usuarios/:userId/cliente-simintpay')
-  @HttpCode(200)
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @ApiBearerAuth()
-  @ApiOperation({
-    summary:
-      'Marca/desmarca a conta Simintpay (User) como cliente Simintpay — tira/devolve da lista de usuários ativos.',
-  })
-  async setUserIsSimintpayClient(
-    @Param('userId') userId: string,
-    @Body() body: { isSimintpayClient: boolean },
-  ) {
-    if (typeof body?.isSimintpayClient !== 'boolean')
-      throw new BadRequestException('isSimintpayClient deve ser booleano');
-    const target = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true },
-    });
-    if (!target)
-      throw new NotFoundException(
-        'Conta Simintpay não encontrada para este usuário',
-      );
-
-    const updated = await this.prisma.user.update({
-      where: { id: userId },
-      data: { isSimintpayClient: body.isSimintpayClient },
-      select: { id: true, isSimintpayClient: true },
-    });
-
-    return { success: true, ...updated };
   }
 
   @Delete('usuarios/:id')
