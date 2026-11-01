@@ -40,36 +40,6 @@ import type { ChargeClient } from './charges/types';
 
 type ClientStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
-/** Decimal (0.0152) → texto de porcentagem para exibição ("1,52%"). */
-function decimalToPercentDisplay(value: number | null | undefined): string {
-  if (value === null || value === undefined) return '—';
-  const pct = value * 100;
-  return `${parseFloat(pct.toFixed(2)).toLocaleString('pt-BR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  })}%`;
-}
-
-const CLIENTE_STATUS_BADGE: Record<
-  ClientStatus,
-  { label: string; className: string }
-> = {
-  PENDING: {
-    label: 'Pendente',
-    className:
-      'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
-  },
-  APPROVED: {
-    label: 'Aprovado',
-    className:
-      'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
-  },
-  REJECTED: {
-    label: 'Rejeitado',
-    className: 'bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400',
-  },
-};
-
 type SimpayUser = {
   id: string;
   name: string;
@@ -754,7 +724,7 @@ export default function UsuariosTab({
   const filtered = items;
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const colSpan = 8; // Ambas as abas têm a coluna "Ações" (reativar na de excluídas)
+  const colSpan = 6; // Ambas as abas têm a coluna "Ações" (reativar na de excluídas)
 
   if (!loadingUser && !user?.isAdmin) {
     router.replace('/painel');
@@ -1161,8 +1131,7 @@ export default function UsuariosTab({
           </div>
 
           <PlatformFilterSelect
-            theme="dark"
-            label="Plataforma"
+            placeholder="Plataforma"
             value={platform}
             onChange={(value) => {
               setPlatform(value.toLowerCase());
@@ -1175,7 +1144,7 @@ export default function UsuariosTab({
                 label,
               })),
             ]}
-            className="h-9 min-w-[200px]"
+            className="h-9 min-w-[200px] rounded-xl border-zinc-200 bg-white text-zinc-900 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100"
           />
 
           {/* Refresh */}
@@ -1215,6 +1184,7 @@ export default function UsuariosTab({
                 <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
                   Nome
                 </th>
+                <th className="px-4 py-3 text-left font-medium">Email</th>
                 <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
                   CPF/CNPJ
                 </th>
@@ -1235,15 +1205,6 @@ export default function UsuariosTab({
                   </span>
                 </th>
                 {/* Coluna "Atividade" (transacionou no mês corrente) comentada temporariamente — confundia com o status da aba (ativo/inativo). */}
-                <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
-                  Usuário Simintpay
-                </th>
-                <th className="px-4 py-3 text-center font-semibold text-zinc-500 dark:text-zinc-400">
-                  Aprovação
-                </th>
-                <th className="px-4 py-3 text-right font-semibold text-zinc-500 dark:text-zinc-400">
-                  Taxa cartão
-                </th>
                 <th className="px-4 py-3 text-center font-semibold text-zinc-500 dark:text-zinc-400">
                   Ações
                 </th>
@@ -1284,6 +1245,9 @@ export default function UsuariosTab({
                       <span className="font-medium text-zinc-900 dark:text-zinc-100">
                         {u.name}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
+                      {u.simpayUser?.email || '—'}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
                       {formatDocument(u.cpf)}
@@ -1331,51 +1295,6 @@ export default function UsuariosTab({
                       )}
                     </td>
                     */}
-                    <td className="px-4 py-3">
-                      {u.simpayUser ? (
-                        <div className="flex flex-col">
-                          <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
-                            {u.simpayUser.name}
-                          </span>
-                          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                            {u.simpayUser.email}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                          —
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {u.simpayUser?.clientStatus ? (
-                        <span
-                          className={cn(
-                            'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                            CLIENTE_STATUS_BADGE[u.simpayUser.clientStatus]
-                              .className,
-                          )}
-                        >
-                          {
-                            CLIENTE_STATUS_BADGE[u.simpayUser.clientStatus]
-                              .label
-                          }
-                        </span>
-                      ) : (
-                        <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                          —
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono tabular-nums text-zinc-700 dark:text-zinc-300">
-                      {u.simpayUser?.clientStatus ? (
-                        decimalToPercentDisplay(u.simpayUser.taxaCartao ?? null)
-                      ) : (
-                        <span className="text-zinc-400 dark:text-zinc-500">
-                          —
-                        </span>
-                      )}
-                    </td>
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         {showPurged ? (
