@@ -12,6 +12,7 @@ describe('withdrawal approval historical balance', () => {
     test(`freezes post-debit available balance ${remaining} instead of stale wallet`, async () => {
       const snapshots: unknown[] = [];
       const tx = {
+        $executeRaw: async () => 1,
         withdrawRequest: {
           updateMany: async () => ({ count: 1 }),
           update: async (args: unknown) => {

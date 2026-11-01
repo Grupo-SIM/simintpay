@@ -7,7 +7,7 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import {
   applyWalletEntry,
-  lockWalletLedger,
+  assertWalletLedgerConsistency,
 } from '../../../modules/wallet-ledger/wallet-ledger';
 
 /** Thrown when the wallet no longer covers the requested gross amount once the ledger lock is held. */
@@ -63,7 +63,7 @@ export class PrismaWithdrawRepository implements IWithdrawRepository {
   }): Promise<WithdrawRequest> {
     return this.prisma.$transaction(async (tx) => {
       // Serialize with every other ledger writer of this user before reading the balance.
-      await lockWalletLedger(tx, input.userId);
+      await assertWalletLedgerConsistency(tx, input.userId);
       const wallet = await tx.wallet.findUniqueOrThrow({
         where: { userId: input.userId },
       });

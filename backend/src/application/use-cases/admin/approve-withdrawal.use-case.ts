@@ -5,7 +5,10 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { WithdrawStatus, Prisma } from '@prisma/client';
-import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
+import {
+  applyWalletEntry,
+  assertWalletLedgerConsistency,
+} from '../../../modules/wallet-ledger/wallet-ledger';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
 import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
@@ -81,6 +84,10 @@ export class ApproveWithdrawalUseCase {
       });
       if (claimed.count !== 1) {
         throw new ConflictException('Saque alterado por outro administrador.');
+      }
+
+      if (withdraw.platform?.toLowerCase() !== 'atlas') {
+        await assertWalletLedgerConsistency(tx, withdraw.userId);
       }
 
       // 2. Deduz os valores da wallet (Total e Bloqueado) - Pula se for Atlas

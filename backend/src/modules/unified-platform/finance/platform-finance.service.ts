@@ -7,7 +7,7 @@ import { PlatformDashboardReports } from '../../platform-core/platform-dashboard
 import { platformDashboardRules } from '../../platform-core/platform-dashboard.adapter';
 import {
   applyWalletEntry,
-  lockWalletLedger,
+  assertWalletLedgerConsistency,
 } from '../../wallet-ledger/wallet-ledger';
 import { PlatformLedger } from './platform-ledger';
 import { platformMachines, MachinesQuery } from './platform-machines';
@@ -917,7 +917,7 @@ export class PlatformFinanceService {
       let remainingBalanceAfterWithdrawal: Prisma.Decimal | null = null;
       if (input.reserveWallet) {
         // Serialize with every other ledger writer of this user before reading the balance.
-        await lockWalletLedger(tx, input.userId);
+        await assertWalletLedgerConsistency(tx, input.userId);
         const wallet = await tx.wallet.findUnique({
           where: { userId: input.userId },
         });

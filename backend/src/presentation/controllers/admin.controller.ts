@@ -113,7 +113,10 @@ import {
   WALLET_REPOSITORY,
   type IWalletRepository,
 } from '../../core/repositories/wallet.repository.interface';
-import { lockWalletLedger } from '../../modules/wallet-ledger/wallet-ledger';
+import {
+  lockWalletLedger,
+  assertWalletLedgerConsistency,
+} from '../../modules/wallet-ledger/wallet-ledger';
 import { CommunityManagementService } from '../../application/services/community-management.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
@@ -7669,6 +7672,9 @@ export class AdminController {
           });
           if (claimed.count !== 1)
             throw new ConflictException('Saque alterado por outra operação');
+          if (w.platform?.toLowerCase() !== 'atlas') {
+            await assertWalletLedgerConsistency(tx, w.userId);
+          }
           // Only the log moves the wallet (insert trigger recomputes it from the ledger).
           await lockWalletLedger(tx, w.userId);
           await tx.balanceLog.create({

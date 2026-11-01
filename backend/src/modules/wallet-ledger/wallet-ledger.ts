@@ -22,6 +22,15 @@ export async function lockWalletLedger(client: LockClient, userId: string) {
   await client.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${walletLedgerLockKey(userId)}))`;
 }
 
+/** Fail closed before a withdrawal decision; never repair an inconsistent cache here. */
+export async function assertWalletLedgerConsistency(
+  client: LockClient,
+  userId: string,
+) {
+  await lockWalletLedger(client, userId);
+  await client.$executeRaw`SELECT wallet_assert_ledger_consistency(${userId}::text)`;
+}
+
 export interface WalletLedgerEntry {
   userId: string;
   /** Registered in BalanceLog.action, e.g. DOM_WEBHOOK_COMPLETED. */
