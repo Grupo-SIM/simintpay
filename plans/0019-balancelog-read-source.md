@@ -183,7 +183,7 @@ Decisão do dono (final): o `BalanceLog` dirige a `Wallet`; ele **não** vira ap
 
 Desenho:
 
-- Migration `20261031130000_balance_log_drives_wallet`: trigger `AFTER INSERT ... FOR EACH ROW` em `"BalanceLog"` que toma `pg_advisory_xact_lock(hashtext('wallet-ledger:' || userId))`, recalcula `SUM(balanceDelta)`/`SUM(lockedDelta)` do usuário e faz upsert da `Wallet` (cria se faltar). O upsert só escreve (e só incrementa `version`) se a soma mudou; linhas de delta zero e escritores legados que já atualizaram a `Wallet` na mesma transação ficam idempotentes.
+- Migration `20261031130000_balance_log_drives_wallet`: trigger `AFTER INSERT ... FOR EACH ROW` em `"BalanceLog"` que primeiro trava a linha da `Wallet` (`FOR UPDATE`, mesma ordem dos escritores legados, evitando inversão de locks) e depois toma `pg_advisory_xact_lock(hashtext('wallet-ledger:' || userId))`, recalcula `SUM(balanceDelta)`/`SUM(lockedDelta)` do usuário e faz upsert da `Wallet` (cria se faltar). O upsert só escreve (e só incrementa `version`) se a soma mudou; linhas de delta zero e escritores legados que já atualizaram a `Wallet` na mesma transação ficam idempotentes.
 - Índice cobrindo `"BalanceLog"("userId") INCLUDE (balanceDelta, lockedDelta)` (mesmo nome do `@@index([userId])`, schema.prisma inalterado).
 - Bloco `DO` no topo da migration aborta com `RAISE EXCEPTION` listando a contagem de carteiras divergentes. **O start do container roda `prisma migrate deploy`: enquanto houver divergência, a nova versão não sobe (a antiga continua servindo).** Nunca reescreve saldo automaticamente; reconciliar com `reconcile-wallets.ts --apply`.
 - Escritores passarão a só inserir linha de log; guard da `Wallet` por último.
@@ -191,3 +191,15 @@ Desenho:
 Progresso:
 
 - [x] Migration (trigger, índice, guarda de divergência).
+- [x] `lockWalletLedger(tx, userId)` (mesma ordem de locks do trigger) para caminhos de saque serializarem antes de ler; `applyWalletEntry`/`setWalletBalance` só inserem a linha de log e relêem a `Wallet`.
+- [x] Escritor em lote `renovada`/saques `WITHDRAW_APPROVED` (`admin.controller.ts`) passou a atualizar a `Wallet` antes do log: com o trigger, a ordem log-primeiro aplicaria o decremento duas vezes. Regra para migrar escritores legados: `wallet.update` antes de `balanceLog.create` (idempotente) ou só o log.
+- [x] Testes de integração `backend/tests/wallet-ledger-trigger.integration.test.ts` (banco local descartável via `COPRODUCTION_TEST_DATABASE_URL` + `db push`; a migration real é aplicada sem o bloco de guarda, que tem teste próprio).
+- [ ] Migrar cada escritor legado para apenas inserir o log (lista em "Escritores de produção").
+- [ ] Guard da `Wallet` por último (bloquear escrita direta fora do trigger).
+
+Riscos conhecidos:
+
+- Deploy: `DROP INDEX` + `CREATE INDEX` não concorrente em `BalanceLog` bloqueia escritas na tabela durante o build, e a migration roda dentro de transação (sem `CONCURRENTLY`); em tabelas grandes agendar janela de baixo tráfego.
+- `SUM` por insert: índice cobrindo permite index-only scan, mas custa O(linhas do usuário) por linha inserida; donos com centenas de milhares de linhas (plataformas) e lotes grandes de inserts ficam mais lentos. Mitigação futura: `INSERT` em lote por statement (trigger de statement com tabela de transição) ou saldo incremental.
+- `Wallet.version`: só é incrementado pelo trigger quando a soma muda; checagens otimistas (`where: { version }`) em escritores legados continuam válidas, mas qualquer insert de log com delta não nulo de outra transação as invalida (comportamento já esperado).
+- Escritores legados que gravam o log antes da `Wallet` e usam `increment/decrement` aplicariam o delta duas vezes.
