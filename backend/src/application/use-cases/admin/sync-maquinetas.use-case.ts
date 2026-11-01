@@ -10,6 +10,7 @@ import {
 } from '../../../modules/module.registry';
 import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Logger } from '@nestjs/common';
+import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import { Prisma, TransactionStatus, PaymentMethod } from '@prisma/client';
 import dayjs from 'dayjs';
 import { HttpService } from '@nestjs/axios';
@@ -228,29 +229,14 @@ export class SyncMaquinetasUseCase {
             if (currentWallet) {
               const baseNet = oldNet ?? netCorrigido;
               const diffNet = netCorrigido - baseNet;
-              const newBalance = currentWallet.balance.add(
-                new Prisma.Decimal(diffNet),
-              );
-              await p.wallet.updateMany({
-                where: { id: currentWallet.id, version: currentWallet.version },
-                data: { balance: newBalance, version: { increment: 1 } },
-              });
-
-              await p.balanceLog.create({
-                data: {
-                  userId,
-                  action: 'MAQUINETA_CORRECTION',
-                  transactionId: existing.id,
-
-                  balanceDelta: new Prisma.Decimal(newBalance).sub(
-                    currentWallet.balance,
-                  ),
-
-                  lockedDelta: 0,
-
-                  source: 'MAQUINETA_SYNC',
-                  description: `Ajuste net: R$${baseNet.toFixed(2)} -> R$${netCorrigido.toFixed(2)} (diff: R$${diffNet.toFixed(2)})`,
-                },
+              await applyWalletEntry(p, {
+                userId,
+                action: 'MAQUINETA_CORRECTION',
+                transactionId: existing.id,
+                balanceDelta: new Prisma.Decimal(diffNet),
+                lockedDelta: 0,
+                source: 'MAQUINETA_SYNC',
+                description: `Ajuste net: R$${baseNet.toFixed(2)} -> R$${netCorrigido.toFixed(2)} (diff: R$${diffNet.toFixed(2)})`,
               });
             }
           });
@@ -348,28 +334,14 @@ export class SyncMaquinetasUseCase {
             where: { userId },
           });
           if (currentWallet) {
-            const newBalance = currentWallet.balance.add(
-              new Prisma.Decimal(fees.netAmount),
-            );
-            await p.wallet.updateMany({
-              where: { id: currentWallet.id, version: currentWallet.version },
-              data: { balance: newBalance, version: { increment: 1 } },
-            });
-            await p.balanceLog.create({
-              data: {
-                userId,
-                action: 'MAQUINETA_SYNC',
-                transactionId: newTx.id,
-
-                balanceDelta: new Prisma.Decimal(newBalance).sub(
-                  currentWallet.balance,
-                ),
-
-                lockedDelta: 0,
-
-                source: 'MAQUINETA_SYNC',
-                description: `Terminal: ${serial}`,
-              },
+            await applyWalletEntry(p, {
+              userId,
+              action: 'MAQUINETA_SYNC',
+              transactionId: newTx.id,
+              balanceDelta: new Prisma.Decimal(fees.netAmount),
+              lockedDelta: 0,
+              source: 'MAQUINETA_SYNC',
+              description: `Terminal: ${serial}`,
             });
           }
         });

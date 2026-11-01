@@ -8,7 +8,7 @@ function buildPrismaMock(overrides: any = {}) {
     },
     wallet: {
       findUnique: jest.fn(),
-      updateMany: jest.fn(),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({}),
     },
     balanceLog: {
       create: jest.fn(),
@@ -83,7 +83,7 @@ describe('AffiliateCommissionService.applyForTransaction', () => {
           lockedBalance: new Prisma.Decimal(0),
           version: 3,
         }),
-        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({}),
       },
       affiliateCommission: {
         findUnique: jest.fn().mockResolvedValue(null),
@@ -97,16 +97,12 @@ describe('AffiliateCommissionService.applyForTransaction', () => {
       platformFee: new Prisma.Decimal(10),
     });
 
-    expect(p.wallet.updateMany).toHaveBeenCalledWith({
-      where: { id: 'wallet-aff1', version: 3 },
-      data: { balance: new Prisma.Decimal(102), version: { increment: 1 } },
-    });
     expect(p.balanceLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: 'aff1',
         transactionId: 'tx1',
         balanceDelta: new Prisma.Decimal(2),
-        lockedDelta: 0,
+        lockedDelta: new Prisma.Decimal(0),
         source: 'AFFILIATE_COMMISSION',
       }),
     });
@@ -147,103 +143,6 @@ describe('AffiliateCommissionService.applyForTransaction', () => {
 
     expect(p.wallet.findUnique).not.toHaveBeenCalled();
   });
-
-  it('tenta de novo em caso de conflito de versão (optimistic lock) e credita na 2ª tentativa', async () => {
-    const walletFindUnique = jest
-      .fn()
-      // Cada tentativa relê a wallet; simula outro writer incrementando a
-      // version entre a 1ª tentativa (falha) e a 2ª (sucesso).
-      .mockResolvedValueOnce({
-        id: 'wallet-aff1',
-        userId: 'aff1',
-        balance: new Prisma.Decimal(100),
-        lockedBalance: new Prisma.Decimal(0),
-        version: 3,
-      })
-      .mockResolvedValueOnce({
-        id: 'wallet-aff1',
-        userId: 'aff1',
-        balance: new Prisma.Decimal(105),
-        lockedBalance: new Prisma.Decimal(0),
-        version: 4,
-      });
-    const walletUpdateMany = jest
-      .fn()
-      .mockResolvedValueOnce({ count: 0 }) // 1ª tentativa perde a corrida
-      .mockResolvedValueOnce({ count: 1 }); // 2ª tentativa ganha
-
-    const p = buildPrismaMock({
-      user: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValueOnce({ referredByUserId: 'aff1' })
-          .mockResolvedValueOnce({
-            isAffiliate: true,
-            affiliateCommissionPercent: new Prisma.Decimal(20),
-          }),
-      },
-      wallet: { findUnique: walletFindUnique, updateMany: walletUpdateMany },
-      affiliateCommission: {
-        findUnique: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockResolvedValue({}),
-      },
-    });
-
-    await svc.applyForTransaction(p, {
-      transactionId: 'tx1',
-      referredUserId: 'referred1',
-      platformFee: new Prisma.Decimal(10),
-    });
-
-    expect(walletFindUnique).toHaveBeenCalledTimes(2);
-    expect(walletUpdateMany).toHaveBeenCalledTimes(2);
-    expect(walletUpdateMany).toHaveBeenNthCalledWith(2, {
-      where: { id: 'wallet-aff1', version: 4 },
-      data: { balance: new Prisma.Decimal(107), version: { increment: 1 } },
-    });
-    expect(p.affiliateCommission.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ status: 'CREDITED' }),
-    });
-  });
-
-  it('lança erro após esgotar as 3 tentativas por conflito de versão', async () => {
-    const p = buildPrismaMock({
-      user: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValueOnce({ referredByUserId: 'aff1' })
-          .mockResolvedValueOnce({
-            isAffiliate: true,
-            affiliateCommissionPercent: new Prisma.Decimal(20),
-          }),
-      },
-      wallet: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'wallet-aff1',
-          userId: 'aff1',
-          balance: new Prisma.Decimal(100),
-          lockedBalance: new Prisma.Decimal(0),
-          version: 3,
-        }),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      },
-      affiliateCommission: {
-        findUnique: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockResolvedValue({}),
-      },
-    });
-
-    await expect(
-      svc.applyForTransaction(p, {
-        transactionId: 'tx1',
-        referredUserId: 'referred1',
-        platformFee: new Prisma.Decimal(10),
-      }),
-    ).rejects.toThrow(/version conflict/i);
-
-    expect(p.wallet.updateMany).toHaveBeenCalledTimes(3);
-    expect(p.affiliateCommission.create).not.toHaveBeenCalled();
-  });
 });
 
 describe('AffiliateCommissionService.reverseForTransaction', () => {
@@ -278,7 +177,7 @@ describe('AffiliateCommissionService.reverseForTransaction', () => {
           lockedBalance: new Prisma.Decimal(0),
           version: 4,
         }),
-        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({}),
       },
     });
 
@@ -289,16 +188,12 @@ describe('AffiliateCommissionService.reverseForTransaction', () => {
       where: { id: 'comm1', status: 'CREDITED' },
       data: { status: 'REVERSED', reversedAt: expect.any(Date) },
     });
-    expect(p.wallet.updateMany).toHaveBeenCalledWith({
-      where: { id: 'wallet-aff1', version: 4 },
-      data: { balance: new Prisma.Decimal(100), version: { increment: 1 } },
-    });
     expect(p.balanceLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: 'aff1',
         transactionId: 'tx1',
         balanceDelta: new Prisma.Decimal(-2),
-        lockedDelta: 0,
+        lockedDelta: new Prisma.Decimal(0),
         source: 'AFFILIATE_COMMISSION',
       }),
     });
@@ -322,7 +217,6 @@ describe('AffiliateCommissionService.reverseForTransaction', () => {
     await svc.reverseForTransaction(p, 'tx1');
 
     expect(p.wallet.findUnique).not.toHaveBeenCalled();
-    expect(p.wallet.updateMany).not.toHaveBeenCalled();
     expect(p.balanceLog.create).not.toHaveBeenCalled();
   });
 });

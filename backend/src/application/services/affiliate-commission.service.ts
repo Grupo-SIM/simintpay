@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { applyWalletEntry } from '../../modules/wallet-ledger/wallet-ledger';
 
 type PrismaTx = Prisma.TransactionClient;
 
@@ -61,8 +62,6 @@ export class AffiliateCommissionService {
       action: 'AFFILIATE_COMMISSION_CREDIT',
       transactionId: params.transactionId,
       missingWalletMessage: `[AffiliateCommission] Afiliado ${affiliateUserId} sem wallet — pulando crédito`,
-      conflictMessage:
-        'Wallet version conflict after 3 retries (affiliate commission)',
     });
     if (!credited) return;
 
@@ -113,20 +112,17 @@ export class AffiliateCommissionService {
       action: 'AFFILIATE_COMMISSION_REVERSE',
       transactionId,
       missingWalletMessage: `[AffiliateCommission] Afiliado ${commission.affiliateUserId} sem wallet — pulando reversão`,
-      conflictMessage:
-        'Wallet version conflict after 3 retries (affiliate commission reverse)',
     });
   }
 
   /**
    * Aplica `delta` (positivo credita, negativo debita) ao saldo da wallet de
-   * `userId` com optimistic locking (`version`), registrando o `BalanceLog`
-   * correspondente. Faz até 3 tentativas em caso de conflito de versão.
+   * `userId` inserindo o `BalanceLog` correspondente; a trigger do banco
+   * recalcula a wallet sob lock por usuário (sem `version`/retentativas).
    *
    * Retorna `true` se o ajuste foi aplicado, `false` se a wallet não existe
    * (nesse caso a chamada é ignorada com um log — ver nota em
    * `applyForTransaction`/`reverseForTransaction` sobre essa decisão).
-   * Lança erro se esgotar as tentativas por conflito de versão.
    */
   private async adjustWalletBalance(
     p: PrismaTx,
@@ -136,56 +132,33 @@ export class AffiliateCommissionService {
       action: string;
       transactionId: string;
       missingWalletMessage: string;
-      conflictMessage: string;
     },
   ): Promise<boolean> {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const wallet = await p.wallet.findUnique({
-        where: { userId: opts.userId },
-      });
-      if (!wallet) {
-        // Silent skip + warn, not a thrown error: this runs inside the
-        // *referred* user's own transaction-processing flow. Throwing here
-        // would abort that legitimate transaction just because the
-        // *affiliate* happens to have no wallet — an unrelated-account
-        // problem shouldn't block the primary transaction. The trade-off is
-        // that the commission is silently lost (no wallet to credit/debit,
-        // no AffiliateCommission row written/reverted). Logged at `error`
-        // level (not just `warn`) because it represents unrecovered
-        // financial data that needs manual follow-up.
-        this.logger.error(opts.missingWalletMessage);
-        return false;
-      }
-
-      const newBalance = wallet.balance.add(opts.delta);
-
-      const result = await p.wallet.updateMany({
-        where: { id: wallet.id, version: wallet.version },
-        data: { balance: newBalance, version: { increment: 1 } },
-      });
-
-      if (result.count > 0) {
-        await p.balanceLog.create({
-          data: {
-            userId: opts.userId,
-            action: opts.action,
-            transactionId: opts.transactionId,
-
-            balanceDelta: opts.delta,
-
-            lockedDelta: 0,
-
-            source: 'AFFILIATE_COMMISSION',
-          },
-        });
-        return true;
-      }
-
-      if (attempt === 2) {
-        throw new Error(opts.conflictMessage);
-      }
+    const wallet = await p.wallet.findUnique({
+      where: { userId: opts.userId },
+    });
+    if (!wallet) {
+      // Silent skip + warn, not a thrown error: this runs inside the
+      // *referred* user's own transaction-processing flow. Throwing here
+      // would abort that legitimate transaction just because the
+      // *affiliate* happens to have no wallet — an unrelated-account
+      // problem shouldn't block the primary transaction. The trade-off is
+      // that the commission is silently lost (no wallet to credit/debit,
+      // no AffiliateCommission row written/reverted). Logged at `error`
+      // level (not just `warn`) because it represents unrecovered
+      // financial data that needs manual follow-up.
+      this.logger.error(opts.missingWalletMessage);
+      return false;
     }
 
-    return false;
+    await applyWalletEntry(p, {
+      userId: opts.userId,
+      action: opts.action,
+      transactionId: opts.transactionId,
+      balanceDelta: opts.delta,
+      lockedDelta: 0,
+      source: 'AFFILIATE_COMMISSION',
+    });
+    return true;
   }
 }

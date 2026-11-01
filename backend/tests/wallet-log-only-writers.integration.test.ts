@@ -286,3 +286,35 @@ run(
     expect(await expectConsistent(user.id)).toEqual(['5.00', '0.00']);
   },
 );
+
+// --- affiliate commission, link settlement, platform withdrawals, link claim --------------------
+
+run(
+  'affiliate commission credit and reversal are idempotent and sum-consistent',
+  async () => {
+    const affiliate = await newUser({
+      isAffiliate: true,
+      affiliateCommissionPercent: '20',
+    });
+    await fund(affiliate.id, '50');
+    const referred = await newUser({ referredByUserId: affiliate.id });
+    const tx = await newPendingTx(referred.id, '90');
+    const svc = new AffiliateCommissionService();
+    const apply = () =>
+      db!.$transaction((p) =>
+        svc.applyForTransaction(p, {
+          transactionId: tx.id,
+          referredUserId: referred.id,
+          platformFee: 10,
+        }),
+      );
+    await Promise.allSettled([apply(), apply()]);
+    await apply();
+    expect(await expectConsistent(affiliate.id)).toEqual(['52.00', '0.00']);
+    const reverse = () =>
+      db!.$transaction((p) => svc.reverseForTransaction(p, tx.id));
+    await Promise.allSettled([reverse(), reverse()]);
+    await reverse();
+    expect(await expectConsistent(affiliate.id)).toEqual(['50.00', '0.00']);
+  },
+);
