@@ -32,8 +32,10 @@ function fixture() {
     },
     wallet: {
       upsert: mock(async () => ({})),
-      update: mock(async ({ data }: any) => ({
-        balance: data.balance.increment,
+      update: mock(async () => ({})),
+      // The BalanceLog trigger moves the wallet; the ledger only reads it back.
+      findUniqueOrThrow: mock(async () => ({
+        balance: new Prisma.Decimal(0),
         lockedBalance: new Prisma.Decimal(0),
       })),
     },
@@ -60,9 +62,9 @@ test('completed external invoice credits wallet once; replay preserves entry', a
     id: 'entry',
     created: false,
   });
-  expect(p.wallet.update).toHaveBeenCalledTimes(1);
+  expect(p.balanceLog.create).toHaveBeenCalledTimes(1);
   expect(
-    p.wallet.update.mock.calls[0][0].data.balance.increment.toString(),
+    p.balanceLog.create.mock.calls[0][0].data.balanceDelta.toString(),
   ).toBe('9.5');
 });
 test('pending order and affiliate commission keep legacy no-wallet semantics', async () => {
@@ -73,7 +75,7 @@ test('pending order and affiliate commission keep legacy no-wallet semantics', a
       description: '[TENANT:EBOOK]',
       status,
     });
-    expect(p.wallet.update).not.toHaveBeenCalled();
+    expect(p.balanceLog.create).not.toHaveBeenCalled();
   }
 });
 test('duplicate provider reference cannot cross platforms/accounts or change values', async () => {
@@ -88,7 +90,7 @@ test('duplicate provider reference cannot cross platforms/accounts or change val
     await expect(ledger.record('PAGATG', input, true)).rejects.toThrow(
       'Referência já vinculada',
     );
-    expect(p.wallet.update).not.toHaveBeenCalled();
+    expect(p.balanceLog.create).not.toHaveBeenCalled();
   }
 });
 test('concurrent unique winner replays without second wallet credit', async () => {
@@ -101,7 +103,7 @@ test('concurrent unique winner replays without second wallet credit', async () =
     id: 'winner',
     created: false,
   });
-  expect(p.wallet.update).not.toHaveBeenCalled();
+  expect(p.balanceLog.create).not.toHaveBeenCalled();
 });
 test('inactive product, account and unsupported acquirer block writes', async () => {
   for (const mode of ['platform', 'account', 'acquirer']) {

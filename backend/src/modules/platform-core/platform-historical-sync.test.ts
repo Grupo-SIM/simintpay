@@ -52,6 +52,7 @@ function fixture(tag: string, description = tag.toLowerCase()) {
     },
     wallet: {
       findUnique: async () => wallet,
+      findUniqueOrThrow: async () => wallet,
       upsert: async () => wallet,
       update: mock(async ({ data }: any) => {
         wallet.balance = wallet.balance.plus(data.balance.increment);
@@ -100,7 +101,17 @@ function fixture(tag: string, description = tag.toLowerCase()) {
     },
     externalPlatformUser: { upsert: async () => ({ id: 'external' }) },
     externalPlatformWallet: { upsert: mock(async () => ({})) },
-    balanceLog: { create: mock(async () => ({})) },
+    // Emulates the BalanceLog insert trigger that moves the wallet.
+    balanceLog: {
+      create: mock(async ({ data }: any) => {
+        const delta = new Prisma.Decimal(data.balanceDelta ?? 0);
+        if (!delta.isZero()) {
+          wallet.balance = wallet.balance.plus(delta);
+          wallet.version++;
+        }
+        return {};
+      }),
+    },
     $transaction: async (f: any) => f(p),
   };
   let delivered = false;

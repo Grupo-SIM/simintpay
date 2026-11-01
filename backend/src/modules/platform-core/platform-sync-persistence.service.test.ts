@@ -30,8 +30,10 @@ function fixture(claim = 1, existingOverride = {}) {
     },
     wallet: {
       upsert: mock(async () => ({})),
-      update: mock(async ({ data }: any) => ({
-        balance: data.balance.increment,
+      update: mock(async () => ({})),
+      // The BalanceLog trigger moves the wallet; the ledger only reads it back.
+      findUniqueOrThrow: mock(async () => ({
+        balance: new Prisma.Decimal(0),
         lockedBalance: new Prisma.Decimal(0),
       })),
     },
@@ -62,13 +64,13 @@ describe('Shared sync persistence', () => {
       amount: 100,
       liquid_amount: 91,
     });
-    expect((tx.wallet.update.mock.calls as any)[0][0]).toMatchObject({
-      where: { userId: 'original-owner' },
+    expect((tx.balanceLog.create.mock.calls as any)[0][0]).toMatchObject({
+      data: { userId: 'original-owner' },
     });
     expect(
       (
-        tx.wallet.update.mock.calls as any
-      )[0][0].data.balance.increment.toNumber(),
+        tx.balanceLog.create.mock.calls as any
+      )[0][0].data.balanceDelta.toNumber(),
     ).toBe(100);
   });
   test('losing status claim cannot publish or credit', async () => {
@@ -80,7 +82,7 @@ describe('Shared sync persistence', () => {
     expect(await persist({ id: 'gateway', status: 'paid', amount: 100 })).toBe(
       false,
     );
-    expect(tx.wallet.update).not.toHaveBeenCalled();
+    expect(tx.balanceLog.create).not.toHaveBeenCalled();
     expect(received).toEqual([]);
     subscription.unsubscribe();
   });
@@ -108,7 +110,7 @@ describe('Shared sync persistence', () => {
       }),
     ).toBe(false);
     expect(tx.transaction.updateMany).not.toHaveBeenCalled();
-    expect(tx.wallet.update).not.toHaveBeenCalled();
+    expect(tx.balanceLog.create).not.toHaveBeenCalled();
   });
   test('pending provider status cannot regress completed payment', async () => {
     const { persist, tx } = fixture(1, { status: 'COMPLETED' });
@@ -133,8 +135,8 @@ describe('Shared sync persistence', () => {
     });
     expect(
       (
-        tx.wallet.update.mock.calls as any
-      )[0][0].data.balance.increment.toNumber(),
+        tx.balanceLog.create.mock.calls as any
+      )[0][0].data.balanceDelta.toNumber(),
     ).toBe(91);
   });
   test('canonical settlement rejects provider gross mismatch', async () => {
@@ -142,7 +144,7 @@ describe('Shared sync persistence', () => {
     expect(await persist({ id: 'gateway', status: 'paid', amount: 101 })).toBe(
       false,
     );
-    expect(tx.wallet.update).not.toHaveBeenCalled();
+    expect(tx.balanceLog.create).not.toHaveBeenCalled();
   });
   test('refund debits stored canonical net once', async () => {
     const { persist, tx } = fixture(1, {
@@ -159,8 +161,8 @@ describe('Shared sync persistence', () => {
     ).toBe(true);
     expect(
       (
-        tx.wallet.update.mock.calls as any
-      )[0][0].data.balance.increment.toNumber(),
+        tx.balanceLog.create.mock.calls as any
+      )[0][0].data.balanceDelta.toNumber(),
     ).toBe(-91);
   });
   test('direct legacy polling coalesces same-platform work', async () => {

@@ -32,8 +32,10 @@ function fixture() {
     },
     wallet: {
       upsert: mock(async () => ({})),
-      update: mock(async ({ data }: any) => ({
-        balance: data.balance.increment,
+      update: mock(async () => ({})),
+      // The BalanceLog trigger moves the wallet; the ledger only reads it back.
+      findUniqueOrThrow: mock(async () => ({
+        balance: new Prisma.Decimal(0),
         lockedBalance: new Prisma.Decimal(0),
       })),
     },
@@ -83,9 +85,9 @@ test('PAGATG alias reais and canonical cents produce equivalent ledger and credi
   for (const key of ['amount', 'netAmount', 'totalFee'])
     expect(a[key].toString()).toEqual(b[key].toString());
   expect(
-    old.prisma.wallet.update.mock.calls[0][0].data.balance.increment.toString(),
+    old.prisma.balanceLog.create.mock.calls[0][0].data.balanceDelta.toString(),
   ).toEqual(
-    canonical.prisma.wallet.update.mock.calls[0][0].data.balance.increment.toString(),
+    canonical.prisma.balanceLog.create.mock.calls[0][0].data.balanceDelta.toString(),
   );
 });
 test('plan mirror rejects global code owned by another product', async () => {
@@ -254,6 +256,6 @@ for (const kind of ['pending', 'commission'] as const)
     if (kind === 'pending')
       for (const key of ['customerName', 'customerEmail', 'customerDocument'])
         expect(a[key]).toEqual(b[key]);
-    expect(old.prisma.wallet.update).not.toHaveBeenCalled();
-    expect(current.prisma.wallet.update).not.toHaveBeenCalled();
+    expect(old.prisma.balanceLog.create).not.toHaveBeenCalled();
+    expect(current.prisma.balanceLog.create).not.toHaveBeenCalled();
   });

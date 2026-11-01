@@ -1,5 +1,6 @@
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Client } from 'pg';
@@ -20,6 +21,25 @@ if (
 const db = url
   ? new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) })
   : null;
+beforeAll(async () => {
+  if (!url) return;
+  // The trigger lives only in the migration (db push does not create it): apply the real SQL file.
+  const client = new Client({ connectionString: url });
+  await client.connect();
+  // The divergence guard is exercised by backend/tests; a shared test database may hold drift rows.
+  const sql = readFileSync(
+    resolve(
+      import.meta.dir,
+      '../../../../prisma/migrations/20261031130000_balance_log_drives_wallet/migration.sql',
+    ),
+    'utf8',
+  ).replace(
+    /-- wallet-ledger-divergence-guard:begin[\s\S]*?-- wallet-ledger-divergence-guard:end/,
+    '',
+  );
+  await client.query(sql);
+  await client.end();
+});
 afterAll(async () => {
   await db?.$disconnect();
 });
@@ -168,7 +188,7 @@ run('absolute set logs only differences', async () => {
 });
 
 run(
-  'empty ledger opens at zero and unsupported opening or locked balances remain drift',
+  'empty ledger opens at zero, unsupported balances show as drift until a log insert realigns the wallet',
   async () => {
     const user = await newUser();
     expect(await getWalletBalance(db!, user.id)).toMatchObject({
@@ -197,11 +217,14 @@ run(
         lockedDelta: 0,
       },
     });
+    // Bookkeeping never counts in the sums; any insert makes the trigger realign the wallet.
     expect(await getWalletBalance(db!, user.id)).toMatchObject({
+      balance: 0,
+      lockedBalance: 0,
       ledgerBalance: 0,
       ledgerLockedBalance: 0,
-      ledgerDrift: 5.01,
-      ledgerLockedDrift: 1.01,
+      ledgerDrift: 0,
+      ledgerLockedDrift: 0,
     });
   },
 );
