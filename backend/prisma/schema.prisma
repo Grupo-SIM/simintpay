@@ -161,6 +161,10 @@ model BalanceLog {
   id            String   @id @default(uuid())
   userId        String
   action        String
+  /// Explicit ledger attribution only; null preserves unclassified legacy history.
+  platformTag   String?
+  /// Internal WalletEntryNature contract; null means unclassified.
+  nature        String?
   transactionId String?
   /// Administrative nominal accounting, never included in wallet sums.
   bookkeepingAmount Decimal? @db.Decimal(12, 2)
@@ -175,6 +179,7 @@ model BalanceLog {
   @@index([userId])
   @@index([transactionId])
   @@index([createdAt])
+  @@index([userId, platformTag, nature])
 }
 
 model Transaction {

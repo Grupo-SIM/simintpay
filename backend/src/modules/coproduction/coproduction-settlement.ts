@@ -63,6 +63,8 @@ export async function settleCoproduction(
       userId: share.userId,
       action: `COPRODUCTION_${status}`,
       source,
+      platformTag: row.platformTag,
+      nature: 'COPRODUCTION',
       balanceDelta,
       lockedDelta,
       transactionId: row.id,

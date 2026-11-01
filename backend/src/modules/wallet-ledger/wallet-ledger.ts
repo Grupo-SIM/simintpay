@@ -6,6 +6,22 @@ type LedgerClient = Pick<
 >;
 type LockClient = Pick<Prisma.TransactionClient, '$executeRaw'>;
 
+/** Internal accounting dimensions, not a public response/status enum. */
+export type WalletEntryNature =
+  | 'SALE'
+  | 'COMMISSION'
+  | 'COPRODUCTION'
+  | 'WITHDRAWAL'
+  | 'REFUND'
+  | 'ADJUSTMENT'
+  | 'TRANSFER';
+
+export type WalletEntryDimensions = {
+  /** Canonical platform tag, explicitly audited by the caller; never inferred from ownership. */
+  platformTag?: string | null;
+  nature?: WalletEntryNature | null;
+};
+
 /** Advisory-lock key text; mirrors balance_log_sync_wallet() in the 20261031130000 migration. */
 export const walletLedgerLockKey = (userId: string) =>
   `wallet-ledger:${userId}`;
@@ -31,7 +47,7 @@ export async function assertWalletLedgerConsistency(
   await client.$executeRaw`SELECT wallet_assert_ledger_consistency(${userId}::text)`;
 }
 
-export interface WalletLedgerEntry {
+export interface WalletLedgerEntry extends WalletEntryDimensions {
   userId: string;
   /** Registered in BalanceLog.action, e.g. DOM_WEBHOOK_COMPLETED. */
   action: string;
@@ -62,6 +78,8 @@ export async function applyWalletEntry(
       userId: entry.userId,
       action: entry.action,
       source: entry.source,
+      platformTag: entry.platformTag ?? null,
+      nature: entry.nature ?? null,
       transactionId: entry.transactionId ?? null,
       description: entry.description ?? null,
 
