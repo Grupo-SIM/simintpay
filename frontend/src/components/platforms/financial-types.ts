@@ -13,17 +13,24 @@ export type Lane = {
 };
 export type FeeMode = 'SIMINTPAY_ONLY' | 'ADDITIVE_ONLY' | 'BOTH';
 export type AdditiveFeeScope = 'order' | 'product';
-/** Resolved value pushed by SIM Delivery (catalog lives there); percentageValue in basis points, fixedValue in cents. */
-export type AdditiveValue = {
-  externalId: string;
-  name: string;
-  applicationScope: AdditiveFeeScope;
+export type AdditiveScopeTotal = {
   percentageValue: number;
   fixedValue: number;
 };
+/** Sums of the active additive fees per scope; percentageValue in basis points, fixedValue in cents. */
+export type AdditiveTotals = Record<AdditiveFeeScope, AdditiveScopeTotal>;
+export type AdditiveFeesView = {
+  delivery: AdditiveTotals;
+  override: AdditiveTotals | null;
+  effective: AdditiveTotals;
+};
+export const ZERO_ADDITIVE_TOTALS: AdditiveTotals = {
+  order: { percentageValue: 0, fixedValue: 0 },
+  product: { percentageValue: 0, fixedValue: 0 },
+};
 export type FinancialConfiguration = {
-  /** Read-only values SIM Delivery sent for this platform (admin only; GLOBAL has none). */
-  additiveFees?: AdditiveValue[];
+  /** Additive totals for this platform (admin only; GLOBAL has none). */
+  additiveFees?: AdditiveFeesView;
   /** Null for GLOBAL, which has no platform row. */
   feeMode?: FeeMode | null;
   /** `METHOD/installments` lanes the platform does not accept; null for GLOBAL. */
@@ -98,11 +105,14 @@ export const formatCents = (value: number) =>
 export const effectiveFee = (
   lane: Lane | undefined,
   feeMode: FeeMode | null | undefined,
-  additiveFees: AdditiveValue[] = [],
+  additiveTotals: AdditiveTotals = ZERO_ADDITIVE_TOTALS,
 ): Addition => {
   const mode = feeMode ?? 'SIMINTPAY_ONLY';
   const sim = lane?.sim;
-  const additive = mode === 'SIMINTPAY_ONLY' ? [] : additiveFees;
+  const additive =
+    mode === 'SIMINTPAY_ONLY'
+      ? []
+      : [additiveTotals.order, additiveTotals.product];
   return {
     ratePpm:
       (mode === 'ADDITIVE_ONLY' ? 0 : (sim?.ratePpm ?? 0)) +

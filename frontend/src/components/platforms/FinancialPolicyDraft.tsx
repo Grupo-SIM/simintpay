@@ -18,6 +18,7 @@ import { useFinancialSimulation } from './use-financial-simulation';
 import {
   defaultLane,
   defaultOwner,
+  type AdditiveTotals,
   type FeeMode,
   type FinancialConfiguration,
   type Lane,
@@ -44,7 +45,16 @@ export function FinancialPolicyDraft({
   const [disabledLanes, setDisabledLanes] = useState<string[]>(
     configuration.disabledLanes ?? [],
   );
-  const additiveFees = configuration.additiveFees ?? [];
+  const additiveView = configuration.additiveFees;
+  const [additiveOverride, setAdditiveOverride] =
+    useState<AdditiveTotals | null>(additiveView?.override ?? null);
+  const additiveOverrideChanged =
+    !!additiveView &&
+    JSON.stringify(additiveOverride) !==
+      JSON.stringify(additiveView.override ?? null);
+  const additiveTotals = additiveView
+    ? (additiveOverride ?? additiveView.delivery)
+    : undefined;
   const disabledLanesChanged =
     configuration.disabledLanes != null &&
     JSON.stringify(disabledLanes) !==
@@ -137,6 +147,7 @@ export function FinancialPolicyDraft({
     ? JSON.stringify(lanes) !==
         JSON.stringify(configuration.laneOverrides ?? {}) ||
       feeMode !== (configuration.feeMode ?? null) ||
+      additiveOverrideChanged ||
       disabledLanesChanged
     : JSON.stringify(owner) !== JSON.stringify(configuration.ownerOverrides) ||
       JSON.stringify(lanes) !==
@@ -151,7 +162,7 @@ export function FinancialPolicyDraft({
     owner,
     lanes,
     interestFree: false,
-    additiveFees,
+    additiveTotals,
     valid,
     admin,
   });
@@ -170,6 +181,7 @@ export function FinancialPolicyDraft({
                 feeMode !== (configuration.feeMode ?? null)
                   ? { feeMode }
                   : {}),
+                ...(additiveOverrideChanged ? { additiveOverride } : {}),
               }
             : { owner, interestFree: interestFreeOverride }),
           ...(disabledLanesChanged ? { disabledLanes } : {}),
@@ -362,7 +374,14 @@ export function FinancialPolicyDraft({
       {admin && feeMode !== null && (
         <FeeModeField value={feeMode} onChange={setFeeMode} />
       )}
-      {admin && feeMode !== null && <AdditiveFeesSection fees={additiveFees} />}
+      {admin && feeMode !== null && additiveView && (
+        <AdditiveFeesSection
+          view={additiveView}
+          override={additiveOverride}
+          onChange={setAdditiveOverride}
+          onValidityChange={validity}
+        />
+      )}
       {configuration.disabledLanes != null && (
         <LaneAcceptanceField
           disabled={disabledLanes}
@@ -441,7 +460,7 @@ export function FinancialPolicyDraft({
             rule={owner[key] ?? configuration.globalOwner[key]}
             lane={lanes[key] ?? configuration.globalLanes?.[key]}
             feeMode={feeMode}
-            additiveFees={additiveFees}
+            additiveTotals={additiveTotals}
             state={
               simulation.rows[key] ?? {
                 installments: Number(key.split('/')[3]),

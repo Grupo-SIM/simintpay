@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { chromium } from 'playwright-core';
 
-test('admin sees read-only additive values, effective merchant fee and coverage', async () => {
+test('admin edits additive totals, effective merchant fee and coverage', async () => {
   const bundle = await Bun.build({
     entrypoints: [import.meta.dir + '/financial-policy-browser-entry.tsx'],
     target: 'browser',
@@ -39,12 +39,14 @@ test('admin sees read-only additive values, effective merchant fee and coverage'
   });
   try {
     const page = await browser.newPage();
-    const fee = (externalId, name, percentageValue, fixedValue) => ({
-      externalId,
-      name,
-      applicationScope: 'order',
-      percentageValue,
-      fixedValue,
+    const totals = (order, product = [0, 0]) => ({
+      order: { percentageValue: order[0], fixedValue: order[1] },
+      product: { percentageValue: product[0], fixedValue: product[1] },
+    });
+    const view = (delivery, override = null) => ({
+      delivery,
+      override,
+      effective: override ?? delivery,
     });
     const key = 'DOM/CREDIT_CARD/ONLINE/1';
     const lane = {
@@ -70,7 +72,7 @@ test('admin sees read-only additive values, effective merchant fee and coverage'
       laneOverrides: { [key]: lane },
       interestFree: false,
       sources: {},
-      additiveFees: [fee('a', 'Serviço', 50, 0)],
+      additiveFees: view(totals([50, 0])),
     };
     await page.route('**/api/**', async (route) => {
       const request = route.request();
@@ -86,7 +88,10 @@ test('admin sees read-only additive values, effective merchant fee and coverage'
     });
     await page.goto(`http://127.0.0.1:${server.port}/?admin`);
     await page.getByText('Taxas adicionais', { exact: true }).waitFor();
-    await page.getByText('Serviço', { exact: true }).waitFor();
+    await page
+      .getByText('Total do Delivery:', { exact: false })
+      .first()
+      .waitFor();
     const card = page.getByRole('article').first();
     expect(await card.innerText()).toContain('Taxa efetiva do lojista');
     expect(await card.innerText()).toContain('1,5%');
@@ -94,23 +99,34 @@ test('admin sees read-only additive values, effective merchant fee and coverage'
       .getByRole('alert')
       .filter({ hasText: 'Cobertura insuficiente' })
       .waitFor();
-    expect(await page.locator('body').innerText()).toContain(
-      'Gerenciadas no SIM Delivery',
-    );
+    const body = await page.locator('body').innerText();
+    expect(body).not.toContain('Gerenciadas no SIM Delivery');
+    expect(body).not.toContain('Definidas na SimIntPay');
     expect(
-      await page.getByRole('combobox', { name: 'Associar taxa' }).count(),
+      await page
+        .getByRole('button', { name: 'Restaurar total do Delivery' })
+        .count(),
     ).toBe(0);
-    expect(
-      await page.getByRole('button', { name: 'Associar', exact: true }).count(),
-    ).toBe(0);
-    // coverage uses lane.sim (backend evaluateCoverage): 1% + 0.5% < 2% cost
-    configuration.additiveFees = [
-      fee('a', 'Serviço', 50, 0),
-      fee('b', 'Entrega', 100, 100),
-    ];
-    await page.reload();
+    // editing the order percentage creates an override draft and shows restore
+    await page.getByLabel('Percentual (%)').first().fill('1,5');
+    await page.getByLabel('Valor fixo (R$)').first().fill('1,00');
+    await page
+      .getByRole('button', { name: 'Restaurar total do Delivery' })
+      .waitFor();
     await card.getByText('Cobre o custo da adquirente').waitFor();
     expect(await card.innerText()).toContain('2,5%');
+    await page
+      .getByRole('button', { name: 'Restaurar total do Delivery' })
+      .click();
+    expect(
+      await page
+        .getByRole('button', { name: 'Restaurar total do Delivery' })
+        .count(),
+    ).toBe(0);
+    await card
+      .getByRole('alert')
+      .filter({ hasText: 'Cobertura insuficiente' })
+      .waitFor();
   } finally {
     await browser.close();
     server.stop(true);

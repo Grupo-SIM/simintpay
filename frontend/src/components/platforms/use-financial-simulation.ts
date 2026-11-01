@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import type {
-  AdditiveValue,
+  AdditiveTotals,
   FinancialConfiguration,
   Lane,
   OwnerRule,
@@ -19,7 +19,7 @@ export function useFinancialSimulation({
   owner,
   lanes,
   interestFree,
-  additiveFees,
+  additiveTotals,
   valid,
   admin,
 }: {
@@ -31,7 +31,7 @@ export function useFinancialSimulation({
   lanes: Record<string, Lane>;
   interestFree: boolean;
   /** Additive values; part of the cache signature so stale rows are never reused. */
-  additiveFees?: AdditiveValue[];
+  additiveTotals?: AdditiveTotals;
   valid: boolean;
   admin: boolean;
 }) {
@@ -49,7 +49,7 @@ export function useFinancialSimulation({
       owner[key],
       admin ? lanes[key] : undefined,
       interestFree,
-      additiveFees,
+      additiveTotals,
     ]),
   );
   const identity = JSON.stringify(signatures);
