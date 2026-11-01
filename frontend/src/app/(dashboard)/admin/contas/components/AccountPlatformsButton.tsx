@@ -60,7 +60,7 @@ export function AccountPlatformsButton({ name, entries }: Props) {
       >
         <DialogContent className="max-w-lg bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
           <DialogHeader>
-            <DialogTitle>
+            <DialogTitle className="pr-8">
               {active?.title} — {name}
             </DialogTitle>
             <DialogDescription>

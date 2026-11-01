@@ -26,6 +26,7 @@ import {
   getDefaultApiBaseUrl,
 } from '@/services/api/api.client';
 import { endpoints } from '@/services/api/endpoints';
+import { startImpersonation } from '@/lib/auth';
 import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
 import { HelpTooltip } from '@/components/ui/HelpTooltip';
@@ -229,11 +230,6 @@ const SCAN_COOLDOWN_MS = 5 * 60 * 1000;
 let lastScanAt = 0;
 let scanInFlight = false;
 
-function storeAccessToken(token: string, maxAge: number) {
-  localStorage.setItem('access_token', token);
-  document.cookie = `access_token=${token}; path=/; max-age=${maxAge}; samesite=lax`;
-}
-
 const ICON_ACTION_TONES = {
   neutral:
     'border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10',
@@ -399,7 +395,7 @@ export default function UsuariosTab({
         accessToken: string;
         expiresIn?: number;
       }>(endpoints.admin.usuarios.acessarComo(u.simpayUser.id), {});
-      storeAccessToken(res.accessToken, res.expiresIn ?? 24 * 60 * 60);
+      startImpersonation(res.accessToken, res.expiresIn ?? 2 * 60 * 60);
       window.location.assign('/painel');
     } catch (err: unknown) {
       toast({

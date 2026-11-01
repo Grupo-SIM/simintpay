@@ -144,6 +144,20 @@ enum CobrancaStatus {
   CANCELED
 }
 
+/// Trilha de auditoria do "Acessar como" do admin master.
+model AdminAccessLog {
+  id           String   @id @default(uuid())
+  adminId      String
+  targetUserId String
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@index([adminId])
+  @@index([targetUserId])
+  @@index([createdAt])
+}
+
 model BalanceLog {
   id            String   @id @default(uuid())
   userId        String

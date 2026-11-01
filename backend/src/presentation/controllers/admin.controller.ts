@@ -1,3 +1,4 @@
+import { getRequestIp } from '../../shared/utils/request.utils';
 import { AuthTokensService } from '../../application/use-cases/auth/auth-tokens.service';
 import {
   transactionPlatformTag,
@@ -36,12 +37,13 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Res,
   UseGuards,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
@@ -1284,6 +1286,9 @@ function formatConsolidadoDoc(doc: string | null | undefined): string | null {
   }
   return doc;
 }
+
+/** Validade do token de "Acessar como" (sessão de suporte, bem menor que a normal). */
+const IMPERSONATION_TTL_SECONDS = 2 * 60 * 60;
 
 @ApiTags('Admin')
 @Controller('admin')
@@ -2796,6 +2801,7 @@ export class AdminController {
   })
   async accessAsUser(
     @Param('userId') userId: string,
+    @Req() req: Request,
     @CurrentUser() authUser?: JwtPayload,
   ) {
     const requester = authUser?.sub
@@ -2814,11 +2820,24 @@ export class AdminController {
       select: { id: true, email: true, role: true },
     });
     if (!target) throw new NotFoundException('Usuário não encontrado');
-    const { token, expiresIn } = await this.authTokens.signAccessToken({
-      sub: target.id,
-      email: target.email,
-      role: target.role,
+    await this.prisma.adminAccessLog.create({
+      data: {
+        adminId: requester.id,
+        targetUserId: target.id,
+        ipAddress: getRequestIp(req) ?? req.ip ?? null,
+        userAgent: req.headers['user-agent'] ?? null,
+      },
     });
+    // Sessão de suporte: validade curta e marcada com o admin de origem.
+    const { token, expiresIn } = await this.authTokens.signAccessToken(
+      {
+        sub: target.id,
+        email: target.email,
+        role: target.role,
+        impersonatedBy: requester.id,
+      },
+      { expiresIn: IMPERSONATION_TTL_SECONDS },
+    );
     return { accessToken: token, expiresIn };
   }
 

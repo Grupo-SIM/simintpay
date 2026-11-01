@@ -7,14 +7,16 @@ export type JwtPayload = {
   sub: string;
   email: string;
   role: string;
-  authMode?: "integration";
+  authMode?: 'integration';
+  /** Admin que gerou este token via "Acessar como". */
+  impersonatedBy?: string;
   platformId?: string;
   platformTag?: string;
   domToken?: string;
   domUserId?: string;
 } & {
   domToken?: string;
-}
+};
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -27,8 +29,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<JwtPayload> {
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub }, select: { isActive: true, isPurged: true, role: true, email: true } });
-    if (!user?.isActive || user.isPurged) throw new UnauthorizedException('Conta inativa');
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { isActive: true, isPurged: true, role: true, email: true },
+    });
+    if (!user?.isActive || user.isPurged)
+      throw new UnauthorizedException('Conta inativa');
     return { ...payload, role: user.role, email: user.email };
   }
 }

@@ -8,6 +8,7 @@ import { canClientAccessPath } from '@/lib/dashboard-access';
 import { DashboardPageSkeleton } from './components';
 
 import { clearAccessToken, hasAccessTokenCookie } from '@/lib/auth';
+import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
 import { Navbar } from '@/components/layout/navbar';
 import { Sidebar } from '@/components/layout/sidebar';
 import { CobrancaPendenteAlerta } from '@/components/layout/CobrancaPendenteAlerta';
@@ -65,6 +66,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           transition: 'margin-left 0.3s cubic-bezier(0.4,0,0.2,1)',
         }}
       >
+        <ImpersonationBanner userName={user?.name} />
         <Navbar />
         <main
           style={{
