@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   UnprocessableEntityException,
@@ -8,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import type { FinancePlatformContext } from './platform-finance.service';
+import { lockWalletLedger } from '../../wallet-ledger/wallet-ledger';
 import { computeBosqueAvailableSinceLastWithdrawal } from '../../../application/helpers/bosque-available.helper';
 
 export type WalletCorrection = {
@@ -76,6 +76,8 @@ export class PlatformMaintenanceService {
     };
     return this.prisma.$transaction(
       async (tx) => {
+        // Lock first: the absolute set below is a log difference over the locked balance.
+        await lockWalletLedger(tx, userId);
         await this.exclusive(tx, userId, tag, context);
         const wallet = await tx.wallet.findUnique({ where: { userId } });
         if (!wallet) throw new BadRequestException('Carteira não encontrada');
@@ -99,16 +101,6 @@ export class PlatformMaintenanceService {
         const changed =
           !balanceAfter.eq(balanceBefore) || !lockedAfter.eq(lockedBefore);
         if (changed) {
-          const result = await tx.wallet.updateMany({
-            where: { id: wallet.id, version: wallet.version },
-            data: {
-              balance: balanceAfter,
-              lockedBalance: lockedAfter,
-              version: { increment: 1 },
-            },
-          });
-          if (result.count !== 1)
-            throw new ConflictException('Carteira alterada; tente novamente');
           await tx.balanceLog.create({
             data: {
               userId,
@@ -147,6 +139,7 @@ export class PlatformMaintenanceService {
       throw new BadRequestException('Valor monetário inválido');
     return this.prisma.$transaction(
       async (tx) => {
+        await lockWalletLedger(tx, userId);
         await this.exclusive(tx, userId, tag, context);
         if (tag !== 'BOSQUE')
           throw new UnprocessableEntityException({

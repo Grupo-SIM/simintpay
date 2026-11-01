@@ -113,6 +113,7 @@ function fixture(tag: string, description = tag.toLowerCase()) {
       }),
     },
     $transaction: async (f: any) => f(p),
+    $executeRaw: async () => 1,
   };
   let delivered = false;
   const gateway: any = {
