@@ -91,6 +91,10 @@ BETAI expõe POST `/platforms/BETAI/billing` com `{ amountCents, title?, dueDate
 
 Aliases `/internal/betai/*` preservam header interno, campos em reais e respostas antigas; apenas traduzem contrato e delegam ao mesmo serviço. Dono vem de BETAI cadastrada, nunca de MASTER_ADMIN_EMAILS ou conta técnica. Histórico avulso sem identificação explícita BETAI não é atribuído automaticamente à plataforma. Associação/configuração precisa ser feita pelo admin. Novas rotas usam `billing:read`, `billing:write`, `subscriptions:read`, `subscriptions:write`, `vouchers:read` ou `vouchers:write`, cadastrados explicitamente em INBOUND_OPERATIONS; nenhuma permissão legada é herdada.
 
+## Credencial DOM das ofertas legadas
+
+Nos fluxos antigos de ofertas BOSQUE e RENOVADA, PIX e cartão usam o `DOM_TOKEN` da plataforma quando configurado e, na ausência dele, o `DOM_TOKEN` geral do ambiente. O fallback não se aplica às demais plataformas; sem nenhuma das credenciais, o erro de configuração permanece explícito.
+
 ## Painel do cliente e notificações de vendas
 
 Cliente aprovado cria/edita somente os cinco produtos atuais de sua propriedade: planos, planos PIX, links de pagamento/assinatura e boletos. Valor mínimo R$ 14,99. Sessão de admin mantém seu escopo; clientes não alteram proprietário, código público, taxas ou vínculos administrativos. URLs administrativas não autorizam cliente; endpoints de dashboard, cobranças e taxas próprias mantêm acesso autenticado por usuário.

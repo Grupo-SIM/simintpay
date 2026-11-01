@@ -113,7 +113,12 @@ export class LegacyPlatformPaymentCore {
   ) {}
 
   protected get domToken(): string | undefined {
-    return getPlatformIntegrationValue(this.tag, 'DOM_TOKEN') ?? undefined;
+    return (
+      getPlatformIntegrationValue(this.tag, 'DOM_TOKEN') ??
+      (this.tag === 'BOSQUE' || this.tag === 'RENOVADA'
+        ? process.env.DOM_TOKEN
+        : undefined)
+    );
   }
 
   private get hiddenTag(): string {
