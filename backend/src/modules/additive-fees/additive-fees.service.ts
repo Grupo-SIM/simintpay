@@ -2,24 +2,26 @@ import { BadRequestException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
   FEE_SCOPES,
+  totalsToFees,
+  type AdditiveTotals,
   type EffectiveFee,
-  type FeeScope,
 } from './additive-fee-calculation';
 
-type Client = Pick<Prisma.TransactionClient, 'platformAdditiveValue'>;
+type Client = Pick<Prisma.TransactionClient, 'platformAdditiveTotals'>;
 
-/** Resolved value pushed by SIM Delivery, which owns the catalog (names, associations, overrides). */
-export type AdditiveValue = {
-  externalId: string;
-  name: string;
-  applicationScope: FeeScope;
-  percentageValue: number;
-  fixedValue: number;
+export type AdditiveFeesView = {
+  delivery: AdditiveTotals;
+  override: AdditiveTotals | null;
+  effective: AdditiveTotals;
 };
 
 const MAX_PERCENTAGE_BPS = 10_000;
 const MAX_FIXED_CENTS = 2_147_483_647;
-export const MAX_ADDITIVE_VALUES = 500;
+
+export const zeroTotals = (): AdditiveTotals => ({
+  order: { percentageValue: 0, fixedValue: 0 },
+  product: { percentageValue: 0, fixedValue: 0 },
+});
 
 const isInt = (value: unknown, max: number): value is number =>
   typeof value === 'number' &&
@@ -27,93 +29,110 @@ const isInt = (value: unknown, max: number): value is number =>
   value >= 0 &&
   value <= max;
 
-/** Validates a full replacement list; throws BadRequestException on any malformed item or duplicate externalId. */
-export function validateAdditiveValues(input: unknown): AdditiveValue[] {
-  if (!Array.isArray(input) || input.length > MAX_ADDITIVE_VALUES)
+/** Validates AdditiveTotals; throws BadRequestException when malformed. */
+export function validateAdditiveTotals(input: unknown): AdditiveTotals {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
     throw new BadRequestException('Taxas aditivas inválidas');
-  const seen = new Set<string>();
-  return input.map((raw) => {
-    const item = (raw ?? {}) as Record<string, unknown>;
-    const externalId =
-      typeof item.externalId === 'string' ? item.externalId.trim() : '';
-    const name = typeof item.name === 'string' ? item.name.trim() : '';
-    if (!externalId || externalId.length > 200 || seen.has(externalId))
-      throw new BadRequestException('Taxa aditiva com identificador inválido');
-    seen.add(externalId);
-    if (!name || name.length > 120)
-      throw new BadRequestException('Taxa aditiva com nome inválido');
-    if (
-      !(FEE_SCOPES as readonly string[]).includes(
-        item.applicationScope as string,
-      )
-    )
+  const raw = input as Record<string, unknown>;
+  const result = zeroTotals();
+  for (const scope of FEE_SCOPES) {
+    const part = raw[scope] as Record<string, unknown> | undefined;
+    if (!part || typeof part !== 'object')
       throw new BadRequestException('Escopo de taxa aditiva inválido');
-    if (!isInt(item.percentageValue, MAX_PERCENTAGE_BPS))
+    if (!isInt(part.percentageValue, MAX_PERCENTAGE_BPS))
       throw new BadRequestException('Percentual de taxa aditiva inválido');
-    if (!isInt(item.fixedValue, MAX_FIXED_CENTS))
+    if (!isInt(part.fixedValue, MAX_FIXED_CENTS))
       throw new BadRequestException('Valor fixo de taxa aditiva inválido');
-    return {
-      externalId,
-      name,
-      applicationScope: item.applicationScope as FeeScope,
-      percentageValue: item.percentageValue,
-      fixedValue: item.fixedValue,
+    result[scope] = {
+      percentageValue: part.percentageValue,
+      fixedValue: part.fixedValue,
     };
-  });
+  }
+  return result;
 }
 
-/** Stored values of one platform, in the order they were pushed. */
-export async function listAdditiveValues(
+/** Delivery total, optional override and effective total (override ?? delivery) for the platform. */
+export async function readAdditiveFees(
   tx: Client,
   platformId: string,
-): Promise<AdditiveValue[]> {
-  const rows = await tx.platformAdditiveValue.findMany({
+): Promise<AdditiveFeesView> {
+  const row = await tx.platformAdditiveTotals.findUnique({
     where: { platformId },
-    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
   });
-  return rows.map((row) => ({
-    externalId: row.externalId,
-    name: row.name,
-    applicationScope: row.applicationScope as FeeScope,
-    percentageValue: row.percentageValue,
-    fixedValue: row.fixedValue,
-  }));
+  if (!row) {
+    return { delivery: zeroTotals(), override: null, effective: zeroTotals() };
+  }
+  const delivery: AdditiveTotals = {
+    order: {
+      percentageValue: row.deliveryOrderPct,
+      fixedValue: row.deliveryOrderFixed,
+    },
+    product: {
+      percentageValue: row.deliveryProductPct,
+      fixedValue: row.deliveryProductFixed,
+    },
+  };
+  const override =
+    row.overrideOrderPct === null ||
+    row.overrideOrderFixed === null ||
+    row.overrideProductPct === null ||
+    row.overrideProductFixed === null
+      ? null
+      : ({
+          order: {
+            percentageValue: row.overrideOrderPct,
+            fixedValue: row.overrideOrderFixed,
+          },
+          product: {
+            percentageValue: row.overrideProductPct,
+            fixedValue: row.overrideProductFixed,
+          },
+        } satisfies AdditiveTotals);
+  return { delivery, override, effective: override ?? delivery };
 }
 
-/** Surcharges as the calculation consumes them (`id` = Delivery's fee id). */
-export const toEffectiveFees = (values: AdditiveValue[]): EffectiveFee[] =>
-  values.map((value) => ({
-    id: value.externalId,
-    name: value.name,
-    applicationScope: value.applicationScope,
-    percentageValue: value.percentageValue,
-    fixedValue: value.fixedValue,
-  }));
-
+/** The two synthetic fees (order, product) for the platform's effective totals. */
 export async function listPlatformSurcharges(
   tx: Client,
   platformId: string,
 ): Promise<EffectiveFee[]> {
-  return toEffectiveFees(await listAdditiveValues(tx, platformId));
+  return totalsToFees((await readAdditiveFees(tx, platformId)).effective);
 }
 
-/** Full replacement: the given list becomes the platform's whole set. */
-export async function replaceAdditiveValues(
+/** Sets the Delivery total; never touches the override. */
+export async function setDeliveryTotals(
   tx: Client,
   platformId: string,
-  values: AdditiveValue[],
+  totals: AdditiveTotals,
 ) {
-  await tx.platformAdditiveValue.deleteMany({ where: { platformId } });
-  if (!values.length) return;
-  await tx.platformAdditiveValue.createMany({
-    data: values.map((value, sortOrder) => ({
-      platformId,
-      externalId: value.externalId,
-      name: value.name,
-      applicationScope: value.applicationScope,
-      percentageValue: value.percentageValue,
-      fixedValue: value.fixedValue,
-      sortOrder,
-    })),
+  const data = {
+    deliveryOrderPct: totals.order.percentageValue,
+    deliveryOrderFixed: totals.order.fixedValue,
+    deliveryProductPct: totals.product.percentageValue,
+    deliveryProductFixed: totals.product.fixedValue,
+  };
+  await tx.platformAdditiveTotals.upsert({
+    where: { platformId },
+    create: { platformId, ...data },
+    update: data,
+  });
+}
+
+/** Sets (AdditiveTotals) or clears (null) the admin override; never touches the Delivery total. */
+export async function setOverrideTotals(
+  tx: Client,
+  platformId: string,
+  totals: AdditiveTotals | null,
+) {
+  const data = {
+    overrideOrderPct: totals?.order.percentageValue ?? null,
+    overrideOrderFixed: totals?.order.fixedValue ?? null,
+    overrideProductPct: totals?.product.percentageValue ?? null,
+    overrideProductFixed: totals?.product.fixedValue ?? null,
+  };
+  await tx.platformAdditiveTotals.upsert({
+    where: { platformId },
+    create: { platformId, ...data },
+    update: data,
   });
 }

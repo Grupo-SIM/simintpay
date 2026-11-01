@@ -4,7 +4,13 @@ export const FEE_SCOPES = ['order', 'product'] as const;
 export type FeeScope = (typeof FEE_SCOPES)[number];
 export type FeeMode = 'SIMINTPAY_ONLY' | 'ADDITIVE_ONLY' | 'BOTH';
 
-/** A resolved additive value pushed by SIM Delivery; percentage in basis points, fixed in cents. */
+/** Sum of the additive fees per scope; percentage in basis points, fixed in cents. */
+export type AdditiveTotals = Record<
+  FeeScope,
+  { percentageValue: number; fixedValue: number }
+>;
+
+/** A synthetic fee derived from a scope total; percentage in basis points, fixed in cents. */
 export type EffectiveFee = {
   id: string;
   name: string;
@@ -12,6 +18,25 @@ export type EffectiveFee = {
   percentageValue: number;
   fixedValue: number;
 };
+
+export const SCOPE_NAMES: Record<FeeScope, string> = {
+  order: 'Taxas aditivas por pedido',
+  product: 'Taxas aditivas por produto',
+};
+
+/** Effective totals as two synthetic fees (order, product), so the calculation matches Delivery's per-scope rounding. */
+export const totalsToFees = (totals: AdditiveTotals): EffectiveFee[] =>
+  FEE_SCOPES.map((scope) => ({
+    id: `additive-${scope}`,
+    name: SCOPE_NAMES[scope],
+    applicationScope: scope,
+    percentageValue: totals[scope].percentageValue,
+    fixedValue: totals[scope].fixedValue,
+  }));
+
+/** Coverage components of the totals: % and fixed of both scopes are summed. */
+export const totalsComponents = (totals: AdditiveTotals): FeeComponents =>
+  surchargeComponents(totalsToFees(totals));
 
 export type FeeItemInput = { key: string; quantity: number; unitPrice: number };
 

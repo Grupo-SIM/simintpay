@@ -9,13 +9,13 @@ import { loadFinancialPolicy } from '../financial-policy/financial-policy.servic
 import {
   evaluateCoverage,
   hasShortfall,
-  surchargeComponents,
+  totalsComponents,
+  type AdditiveTotals,
 } from '../additive-fees/additive-fee-calculation';
 import {
-  listAdditiveValues,
-  replaceAdditiveValues,
-  toEffectiveFees,
-  validateAdditiveValues,
+  readAdditiveFees,
+  setDeliveryTotals,
+  validateAdditiveTotals,
 } from '../additive-fees/additive-fees.service';
 import {
   emptyPolicy,
@@ -135,13 +135,13 @@ export async function readDeliveryFees(
   const lanes = policyLanes(policy.document);
   const costs = (await acquirerCostFloor(tx)).sort(compareLanes);
   const disabledLanes = [...deliveryDisabledLanes].sort();
-  const additiveFees = await listAdditiveValues(tx, id);
+  const additiveFees = await readAdditiveFees(tx, id);
   const coverage = evaluateCoverage({
     costs,
     disabledLanes,
     mode: deliveryFeeMode,
     simintpay: lanes,
-    surcharges: surchargeComponents(toEffectiveFees(additiveFees)),
+    surcharges: totalsComponents(additiveFees.effective),
   });
   return {
     mode: deliveryFeeMode,
@@ -184,10 +184,10 @@ export async function saveDeliveryFees(
     });
   // Same transaction and version check as the lanes, so mode, lanes and additive fees land together or not at all.
   if (input.additiveFees !== undefined)
-    await replaceAdditiveValues(
+    await setDeliveryTotals(
       tx,
       platformId,
-      validateAdditiveValues(input.additiveFees),
+      validateAdditiveTotals(input.additiveFees as AdditiveTotals),
     );
   // A mode-only change must not create an empty policy revision.
   if (!input.lanes.length) return readDeliveryFees(tx, companyId);

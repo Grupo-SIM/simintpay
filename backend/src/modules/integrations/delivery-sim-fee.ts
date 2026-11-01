@@ -54,7 +54,7 @@ export async function loadDeliverySimFee(
   return undefined;
 }
 
-/** Additive fees associated with the platform; only needed when the allocation carries order lines. */
+/** Two synthetic fees from the effective additive totals; only needed when the allocation carries order lines. */
 export async function loadDeliverySurcharges(
   prisma: PrismaService,
   tag: string,

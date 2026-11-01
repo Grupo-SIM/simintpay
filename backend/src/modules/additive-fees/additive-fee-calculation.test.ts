@@ -4,6 +4,8 @@ import {
   evaluateCoverage,
   hasShortfall,
   surchargeComponents,
+  totalsComponents,
+  totalsToFees,
   type EffectiveFee,
 } from './additive-fee-calculation';
 
@@ -129,5 +131,41 @@ describe('coverage per mode', () => {
         disabledLanes: ['PIX/1'],
       }),
     ).toEqual([]);
+  });
+});
+
+describe('totals as synthetic fees', () => {
+  const totals = {
+    order: { percentageValue: 500, fixedValue: 100 },
+    product: { percentageValue: 100, fixedValue: 10 },
+  };
+  const items = [
+    { key: 'a', quantity: 2, unitPrice: 1_050 },
+    { key: 'b', quantity: 1, unitPrice: 333 },
+  ];
+
+  it('builds one order fee and one product fee', () => {
+    expect(totalsToFees(totals).map((f) => f.applicationScope)).toEqual([
+      'order',
+      'product',
+    ]);
+  });
+
+  it('prices order once on the subtotal and product per unit times quantity', () => {
+    const { fees, feeTotalCents } = calculatePlatformFees(
+      totalsToFees(totals),
+      items,
+    );
+    // subtotal 2433: round(121.65)=122 + 100 ; product: (11+10)*2 + (3+10)*1
+    expect(fees[0]?.amountCents).toBe(222);
+    expect(fees[1]?.amountCents).toBe(55);
+    expect(feeTotalCents).toBe(277);
+  });
+
+  it('sums percent and fixed of both scopes for coverage', () => {
+    expect(totalsComponents(totals)).toEqual({
+      ratePpm: 60_000,
+      fixedCents: 110,
+    });
   });
 });

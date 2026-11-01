@@ -102,8 +102,8 @@ export function quoteDeliveryCharge(
       code: 'FEE_MODE_CHANGED',
       message: 'O modo de taxas da plataforma mudou; recalcule o pedido',
     });
-  // With order lines SimIntPay is the source of truth for the surcharge: recompute it from the platform's associated
-  // additive fees instead of trusting the caller. Without lines the legacy trusted `platformFeeCents` applies.
+  // With order lines SimIntPay is the source of truth for the surcharge: recompute it from the platform's effective additive
+  // totals (two synthetic fees) instead of trusting the caller. Without lines the legacy trusted `platformFeeCents` applies.
   if (valid.items) {
     const expected =
       feeMode === 'SIMINTPAY_ONLY'

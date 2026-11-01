@@ -22,7 +22,6 @@ import {
   IsString,
   Matches,
   Max,
-  MaxLength,
   Min,
   MinLength,
   ValidateNested,
@@ -59,12 +58,13 @@ class FeeLaneDto {
   @IsInt() @Min(0) @Max(1_000_000_000) fixedCents!: number;
   @IsInt() @Min(0) @Max(1_000_000) ratePpm!: number;
 }
-class AdditiveValueDto {
-  @IsString() @MinLength(1) @MaxLength(200) externalId!: string;
-  @IsString() @MinLength(1) @MaxLength(120) name!: string;
-  @IsIn(['order', 'product']) applicationScope!: 'order' | 'product';
+class AdditiveScopeDto {
   @IsInt() @Min(0) @Max(10_000) percentageValue!: number;
   @IsInt() @Min(0) @Max(2_147_483_647) fixedValue!: number;
+}
+class AdditiveTotalsDto {
+  @ValidateNested() @Type(() => AdditiveScopeDto) order!: AdditiveScopeDto;
+  @ValidateNested() @Type(() => AdditiveScopeDto) product!: AdditiveScopeDto;
 }
 class FeesDto {
   @IsOptional() @IsIn(['SIMINTPAY_ONLY', 'ADDITIVE_ONLY', 'BOTH']) mode?:
@@ -82,12 +82,11 @@ class FeesDto {
   @ArrayMaxSize(14)
   @Matches(/^(PIX|BOLETO|DEBIT_CARD|CREDIT_CARD)\/\d{1,2}$/, { each: true })
   disabledLanes?: string[];
+  /** The Delivery total; never touches the admin override. Omit to keep. */
   @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(500)
-  @ValidateNested({ each: true })
-  @Type(() => AdditiveValueDto)
-  additiveFees?: AdditiveValueDto[];
+  @ValidateNested()
+  @Type(() => AdditiveTotalsDto)
+  additiveFees?: AdditiveTotalsDto;
 }
 class RegistrationDto {
   @IsString() @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/) slug!: string;

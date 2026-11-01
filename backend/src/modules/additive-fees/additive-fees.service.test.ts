@@ -1,83 +1,101 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  listAdditiveValues,
-  replaceAdditiveValues,
-  toEffectiveFees,
-  validateAdditiveValues,
+  listPlatformSurcharges,
+  readAdditiveFees,
+  setDeliveryTotals,
+  setOverrideTotals,
+  validateAdditiveTotals,
 } from './additive-fees.service';
 
-const value = {
-  externalId: 'f1',
-  name: 'Serviço',
-  applicationScope: 'order' as const,
-  percentageValue: 500,
-  fixedValue: 100,
+const totals = {
+  order: { percentageValue: 500, fixedValue: 100 },
+  product: { percentageValue: 100, fixedValue: 0 },
 };
 
 function fakeClient() {
-  let rows: Record<string, unknown>[] = [];
-  return {
-    client: {
-      platformAdditiveValue: {
-        deleteMany: async () => {
-          rows = [];
-        },
-        createMany: async ({ data }: { data: Record<string, unknown>[] }) => {
-          rows = data.map((row) => ({ ...row, createdAt: new Date() }));
-        },
-        findMany: async () =>
-          [...rows].sort(
-            (a, b) => (a.sortOrder as number) - (b.sortOrder as number),
-          ),
+  let row: Record<string, unknown> | null = null;
+  const client = {
+    platformAdditiveTotals: {
+      findUnique: async () => row,
+      upsert: async ({
+        create,
+        update,
+      }: {
+        create: Record<string, unknown>;
+        update: Record<string, unknown>;
+      }) => {
+        row = row
+          ? { ...row, ...update }
+          : {
+              overrideOrderPct: null,
+              overrideOrderFixed: null,
+              overrideProductPct: null,
+              overrideProductFixed: null,
+              deliveryOrderPct: 0,
+              deliveryOrderFixed: 0,
+              deliveryProductPct: 0,
+              deliveryProductFixed: 0,
+              ...create,
+            };
       },
-    } as never,
-  };
+    },
+  } as never;
+  return client;
 }
 
-describe('additive values', () => {
-  it('validates and trims a replacement list', () => {
-    expect(validateAdditiveValues([{ ...value, name: ' Serviço ' }])).toEqual([
-      value,
-    ]);
-    expect(validateAdditiveValues([])).toEqual([]);
+describe('additive totals', () => {
+  it('validates the shape and ranges', () => {
+    expect(validateAdditiveTotals(totals)).toEqual(totals);
+    for (const bad of [
+      null,
+      [],
+      { order: totals.order },
+      { ...totals, order: { percentageValue: 10_001, fixedValue: 0 } },
+      { ...totals, order: { percentageValue: 1.5, fixedValue: 0 } },
+      { ...totals, product: { percentageValue: 0, fixedValue: -1 } },
+    ])
+      expect(() => validateAdditiveTotals(bad)).toThrow();
   });
 
-  it('rejects malformed items and duplicate ids', () => {
-    expect(() => validateAdditiveValues([value, value])).toThrow();
-    expect(() =>
-      validateAdditiveValues([{ ...value, applicationScope: 'x' }]),
-    ).toThrow();
-    expect(() =>
-      validateAdditiveValues([{ ...value, percentageValue: 10_001 }]),
-    ).toThrow();
-    expect(() =>
-      validateAdditiveValues([{ ...value, fixedValue: -1 }]),
-    ).toThrow();
-    expect(() => validateAdditiveValues('x')).toThrow();
+  it('reads zeros when nothing is stored', async () => {
+    const view = await readAdditiveFees(fakeClient(), 'p1');
+    expect(view.override).toBeNull();
+    expect(view.effective).toEqual(view.delivery);
+    expect(view.effective.order).toEqual({ percentageValue: 0, fixedValue: 0 });
   });
 
-  it('replaces the whole list preserving order and clears on empty', async () => {
-    const { client } = fakeClient();
-    await replaceAdditiveValues(client, 'p', [
-      value,
-      { ...value, externalId: 'f2' },
-    ]);
-    expect(
-      (await listAdditiveValues(client, 'p')).map((v) => v.externalId),
-    ).toEqual(['f1', 'f2']);
-    await replaceAdditiveValues(client, 'p', []);
-    expect(await listAdditiveValues(client, 'p')).toEqual([]);
+  it('effective is override ?? delivery, and Delivery pushes never touch the override', async () => {
+    const client = fakeClient();
+    await setDeliveryTotals(client, 'p1', totals);
+    expect((await readAdditiveFees(client, 'p1')).effective).toEqual(totals);
+    const override = {
+      order: { percentageValue: 700, fixedValue: 0 },
+      product: { percentageValue: 0, fixedValue: 25 },
+    };
+    await setOverrideTotals(client, 'p1', override);
+    let view = await readAdditiveFees(client, 'p1');
+    expect(view.override).toEqual(override);
+    expect(view.effective).toEqual(override);
+    expect(view.delivery).toEqual(totals);
+    const next = { ...totals, order: { percentageValue: 1, fixedValue: 1 } };
+    await setDeliveryTotals(client, 'p1', next);
+    view = await readAdditiveFees(client, 'p1');
+    expect(view.override).toEqual(override);
+    expect(view.delivery).toEqual(next);
+    await setOverrideTotals(client, 'p1', null);
+    view = await readAdditiveFees(client, 'p1');
+    expect(view.override).toBeNull();
+    expect(view.effective).toEqual(next);
   });
 
-  it('maps values to calculation fees', () => {
-    expect(toEffectiveFees([value])).toEqual([
-      {
-        id: 'f1',
-        name: 'Serviço',
-        applicationScope: 'order',
-        percentageValue: 500,
-        fixedValue: 100,
-      },
+  it('exposes the effective totals as two synthetic fees', async () => {
+    const client = fakeClient();
+    await setDeliveryTotals(client, 'p1', totals);
+    const fees = await listPlatformSurcharges(client, 'p1');
+    expect(fees.map((fee) => fee.applicationScope)).toEqual([
+      'order',
+      'product',
     ]);
+    expect(fees[0]).toMatchObject({ percentageValue: 500, fixedValue: 100 });
   });
 });

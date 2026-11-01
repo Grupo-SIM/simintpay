@@ -36,18 +36,17 @@ describe('delivery fee lanes', () => {
           deliveryFeeMode: 'ADDITIVE_ONLY',
         }),
       },
-      platformAdditiveValue: {
-        findMany: async () => [
-          {
-            externalId: 'fee-1',
-            name: 'Serviço',
-            applicationScope: 'order',
-            percentageValue: 100,
-            fixedValue: 50,
-            sortOrder: 0,
-            createdAt: new Date(),
-          },
-        ],
+      platformAdditiveTotals: {
+        findUnique: async () => ({
+          deliveryOrderPct: 100,
+          deliveryOrderFixed: 50,
+          deliveryProductPct: 0,
+          deliveryProductFixed: 0,
+          overrideOrderPct: null,
+          overrideOrderFixed: null,
+          overrideProductPct: null,
+          overrideProductFixed: null,
+        }),
       },
       financialPolicyRevision: { findMany: async () => [] },
       acquirerCatalogue: { findMany: async () => [{ code: 'DOM' }] },
@@ -83,15 +82,15 @@ describe('delivery fee lanes', () => {
       'underCovered',
       'version',
     ]);
-    expect(result.additiveFees).toEqual([
-      {
-        externalId: 'fee-1',
-        name: 'Serviço',
-        applicationScope: 'order',
-        percentageValue: 100,
-        fixedValue: 50,
-      },
-    ]);
+    const delivery = {
+      order: { percentageValue: 100, fixedValue: 50 },
+      product: { percentageValue: 0, fixedValue: 0 },
+    };
+    expect(result.additiveFees).toEqual({
+      delivery,
+      override: null,
+      effective: delivery,
+    });
     // ADDITIVE_ONLY: coverage comes from the stored values alone (100 bps = 10_000 ppm, 50 cents).
     expect(result.coverage[0]?.covered).toEqual({
       fixedCents: 50,
