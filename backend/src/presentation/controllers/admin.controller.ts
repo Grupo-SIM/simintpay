@@ -5162,20 +5162,20 @@ export class AdminController {
           },
         });
 
+        await lockWalletLedger(tx, RENOVADA_ID);
         const before = await tx.wallet.findUniqueOrThrow({
           where: { userId: RENOVADA_ID },
         });
-        const after = await tx.wallet.update({
-          where: { id: before.id, version: before.version },
-          data: { balance: String(grossBalance), version: { increment: 1 } },
-        });
+        const target = new Prisma.Decimal(String(grossBalance)).toDecimalPlaces(
+          2,
+        );
 
         await tx.balanceLog.create({
           data: {
             userId: RENOVADA_ID,
             action: 'WALLET_RECALCULATE',
 
-            balanceDelta: after.balance.sub(before.balance),
+            balanceDelta: target.sub(before.balance),
 
             lockedDelta: 0,
 
@@ -5253,19 +5253,19 @@ export class AdminController {
       const grossBalance = netBalance / fatorLiquidez;
 
       await this.prisma.$transaction(async (tx) => {
+        await lockWalletLedger(tx, BOSQUE_ID);
         const before = await tx.wallet.findUniqueOrThrow({
           where: { userId: BOSQUE_ID },
         });
-        const after = await tx.wallet.update({
-          where: { id: before.id, version: before.version },
-          data: { balance: String(grossBalance), version: { increment: 1 } },
-        });
+        const target = new Prisma.Decimal(String(grossBalance)).toDecimalPlaces(
+          2,
+        );
         await tx.balanceLog.create({
           data: {
             userId: BOSQUE_ID,
             action: 'WALLET_RECALCULATE',
 
-            balanceDelta: after.balance.sub(before.balance),
+            balanceDelta: target.sub(before.balance),
 
             lockedDelta: 0,
 
@@ -5930,19 +5930,17 @@ export class AdminController {
     const oldBalance = Number(wallet.balance);
 
     await this.prisma.$transaction(async (tx) => {
+      await lockWalletLedger(tx, RENOVADA_ID);
       const before = await tx.wallet.findUniqueOrThrow({
         where: { userId: RENOVADA_ID },
       });
-      const after = await tx.wallet.update({
-        where: { id: before.id, version: before.version },
-        data: { balance: newBalance, version: { increment: 1 } },
-      });
+      const target = new Prisma.Decimal(newBalance).toDecimalPlaces(2);
       await tx.balanceLog.create({
         data: {
           userId: RENOVADA_ID,
           action: 'WALLET_RECALCULATE',
 
-          balanceDelta: after.balance.sub(before.balance),
+          balanceDelta: target.sub(before.balance),
 
           lockedDelta: 0,
 
@@ -6288,22 +6286,17 @@ export class AdminController {
     const oldBalance = Number(wallet.balance);
 
     await this.prisma.$transaction(async (tx) => {
+      await lockWalletLedger(tx, RENOVADA_ID);
       const before = await tx.wallet.findUniqueOrThrow({
         where: { userId: RENOVADA_ID },
       });
-      const after = await tx.wallet.update({
-        where: { id: before.id, version: before.version },
-        data: {
-          balance: new Prisma.Decimal(newBalance),
-          version: { increment: 1 },
-        },
-      });
+      const target = new Prisma.Decimal(newBalance).toDecimalPlaces(2);
       await tx.balanceLog.create({
         data: {
           userId: RENOVADA_ID,
           action: 'WALLET_RECALCULATE',
 
-          balanceDelta: after.balance.sub(before.balance),
+          balanceDelta: target.sub(before.balance),
 
           lockedDelta: 0,
 
@@ -6395,19 +6388,17 @@ export class AdminController {
     const netEquivalent = calculatedBalance * 0.91; // Só informativo
 
     await this.prisma.$transaction(async (tx) => {
+      await lockWalletLedger(tx, RENOVADA_ID);
       const before = await tx.wallet.findUniqueOrThrow({
         where: { userId: RENOVADA_ID },
       });
-      const after = await tx.wallet.update({
-        where: { id: before.id, version: before.version },
-        data: { balance: calculatedBalance, version: { increment: 1 } },
-      });
+      const target = new Prisma.Decimal(calculatedBalance).toDecimalPlaces(2);
       await tx.balanceLog.create({
         data: {
           userId: RENOVADA_ID,
           action: 'WALLET_RECALCULATE',
           source: 'ADMIN_SYNC',
-          balanceDelta: after.balance.sub(before.balance),
+          balanceDelta: target.sub(before.balance),
           lockedDelta: 0,
           description: 'Saldo recalculado após limpeza explícita de transações',
         },
@@ -6539,18 +6530,16 @@ export class AdminController {
     const balanceAntes = Number(walletAntes?.balance || 0);
 
     await this.prisma.$transaction(async (tx) => {
+      await lockWalletLedger(tx, RENOVADA_ID);
       const before = await tx.wallet.findUniqueOrThrow({
         where: { userId: RENOVADA_ID },
       });
-      const after = await tx.wallet.update({
-        where: { id: before.id, version: before.version },
-        data: { balance: novoBalance, version: { increment: 1 } },
-      });
+      const target = new Prisma.Decimal(novoBalance).toDecimalPlaces(2);
       await tx.balanceLog.create({
         data: {
           userId: RENOVADA_ID,
 
-          balanceDelta: after.balance.sub(before.balance),
+          balanceDelta: target.sub(before.balance),
 
           lockedDelta: 0,
 
@@ -6726,18 +6715,16 @@ export class AdminController {
     const balanceAntes = Number(walletAntes?.balance ?? 0);
 
     await this.prisma.$transaction(async (tx) => {
+      await lockWalletLedger(tx, BOSQUE_ID);
       const before = await tx.wallet.findUniqueOrThrow({
         where: { userId: BOSQUE_ID },
       });
-      const after = await tx.wallet.update({
-        where: { id: before.id, version: before.version },
-        data: { balance: novoBalance, version: { increment: 1 } },
-      });
+      const target = new Prisma.Decimal(novoBalance).toDecimalPlaces(2);
       await tx.balanceLog.create({
         data: {
           userId: BOSQUE_ID,
 
-          balanceDelta: after.balance.sub(before.balance),
+          balanceDelta: target.sub(before.balance),
 
           lockedDelta: 0,
 
@@ -7718,9 +7705,9 @@ export class AdminController {
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.wallet.update({
+      await lockWalletLedger(tx, RENOVADA_ID);
+      const current = await tx.wallet.findUniqueOrThrow({
         where: { userId: RENOVADA_ID },
-        data: { balance: 0, lockedBalance: 0, version: { increment: 1 } },
       });
 
       await tx.withdrawRequest.deleteMany({
@@ -7732,9 +7719,9 @@ export class AdminController {
           userId: RENOVADA_ID,
           action: 'WALLET_RESET_FINAL',
 
-          balanceDelta: 0,
+          balanceDelta: current.balance.neg(),
 
-          lockedDelta: 0,
+          lockedDelta: current.lockedBalance.neg(),
 
           source: 'ADMIN_FORCE',
           description:
@@ -7784,19 +7771,17 @@ export class AdminController {
       throw new NotFoundException('Wallet não encontrada para Renovada');
 
     await this.prisma.$transaction(async (tx) => {
+      await lockWalletLedger(tx, RENOVADA_ID);
       const before = await tx.wallet.findUniqueOrThrow({
         where: { userId: RENOVADA_ID },
       });
-      const after = await tx.wallet.update({
-        where: { id: before.id, version: before.version },
-        data: { balance: newBalance, version: { increment: 1 } },
-      });
+      const target = new Prisma.Decimal(newBalance).toDecimalPlaces(2);
       await tx.balanceLog.create({
         data: {
           userId: RENOVADA_ID,
           action: 'WALLET_MANUAL_SET',
 
-          balanceDelta: after.balance.sub(before.balance),
+          balanceDelta: target.sub(before.balance),
 
           lockedDelta: 0,
 
