@@ -3184,14 +3184,18 @@ export class AdminController {
     if (user.isPurged)
       throw new BadRequestException('Conta já foi excluída permanentemente');
 
-    const saldo = Number(user.wallet?.balance ?? 0);
-
-    await this.prisma.$transaction(async (tx) => {
-      if (user.wallet && saldo !== 0) {
-        await tx.wallet.update({
-          where: { id: user.wallet.id },
-          data: { balance: 0, lockedBalance: 0 },
-        });
+    const saldo = await this.prisma.$transaction(async (tx) => {
+      let saldo = 0;
+      let wallet: {
+        balance: Prisma.Decimal;
+        lockedBalance: Prisma.Decimal;
+      } | null = null;
+      if (user.wallet) {
+        await lockWalletLedger(tx, user.id);
+        wallet = await tx.wallet.findUnique({ where: { userId: user.id } });
+        saldo = Number(wallet?.balance ?? 0);
+      }
+      if (wallet && saldo !== 0) {
         await tx.balanceLog.create({
           data: {
             userId: user.id,
@@ -3201,7 +3205,7 @@ export class AdminController {
             balanceDelta: new Prisma.Decimal(0).sub(saldo),
 
             lockedDelta: new Prisma.Decimal(0).sub(
-              Number(user.wallet.lockedBalance ?? 0),
+              Number(wallet.lockedBalance ?? 0),
             ),
 
             source: 'MASTER_ADMIN_CONTROL',
@@ -3221,6 +3225,7 @@ export class AdminController {
           isActive: false,
         },
       });
+      return saldo;
     });
 
     return {
@@ -4887,6 +4892,29 @@ export class AdminController {
     return { data: result };
   }
 
+  /**
+   * Zera saldo e bloqueado de uma carteira inserindo apenas o BalanceLog com a diferença
+   * (o trigger recompõe a Wallet). Antes escrevia a Wallet sem log, o que gera drift.
+   */
+  private async zeroWalletWithLog(userId: string, via: string) {
+    await this.prisma.$transaction(async (tx) => {
+      await lockWalletLedger(tx, userId);
+      const current = await tx.wallet.findUniqueOrThrow({ where: { userId } });
+      if (current.balance.isZero() && current.lockedBalance.isZero()) return;
+      await tx.balanceLog.create({
+        data: {
+          userId,
+          action: 'WALLET_RESET_FINAL',
+          source: 'ADMIN_FORCE',
+          balanceDelta: current.balance.neg(),
+          lockedDelta: current.lockedBalance.neg(),
+          description: 'Carteira zerada na limpeza administrativa.',
+          metadata: { via },
+        },
+      });
+    });
+  }
+
   @Post('sync/cleanup-renovada')
   @HttpCode(200)
   @ApiOperation({
@@ -4930,14 +4958,11 @@ export class AdminController {
     });
 
     // Zerar carteira
-    await this.prisma.wallet
-      .update({
-        where: { userId: RENOVADA_ID },
-        data: { balance: 0, lockedBalance: 0, version: { increment: 1 } },
-      })
-      .catch(() => {
+    await this.zeroWalletWithLog(RENOVADA_ID, 'sync/cleanup-renovada').catch(
+      () => {
         /* wallet pode não existir */
-      });
+      },
+    );
 
     return {
       message: `Limpeza concluída. ${deleted.count} transações removidas. domToken zerado.`,
@@ -4999,14 +5024,9 @@ export class AdminController {
       where: { userId: EBOOK_ID, domWithdrawId: { not: null } },
     });
 
-    await this.prisma.wallet
-      .update({
-        where: { userId: EBOOK_ID },
-        data: { balance: 0, lockedBalance: 0, version: { increment: 1 } },
-      })
-      .catch(() => {
-        /* wallet pode não existir */
-      });
+    await this.zeroWalletWithLog(EBOOK_ID, 'sync/cleanup-ebook').catch(() => {
+      /* wallet pode não existir */
+    });
 
     return {
       message: `Limpeza EBOOK concluída. ${deletedTx.count} transações e ${deletedWd.count} saques removidos.`,
@@ -6983,6 +7003,7 @@ export class AdminController {
       const amount = Number(Number(item.amount).toFixed(2));
       try {
         const res = await this.prisma.$transaction(async (tx) => {
+          await lockWalletLedger(tx, item.userId);
           const wallet = await tx.wallet.findUnique({
             where: { userId: item.userId },
           });
@@ -6990,22 +7011,14 @@ export class AdminController {
           const locked = Number(wallet.lockedBalance);
           const after = Number((Number(wallet.balance) - amount).toFixed(2));
           const ficouNegativo = after - locked < 0;
-          const updated = await tx.wallet.update({
-            where: { id: wallet.id, version: wallet.version },
-            data: { balance: after, version: { increment: 1 } },
-          });
           await tx.balanceLog.create({
             data: {
               userId: item.userId,
               action: 'COBRANCA_DEBIT',
 
-              balanceDelta: new Prisma.Decimal(updated.balance).sub(
-                wallet.balance,
-              ),
+              balanceDelta: new Prisma.Decimal(after).sub(wallet.balance),
 
-              lockedDelta: new Prisma.Decimal(updated.lockedBalance).sub(
-                wallet.lockedBalance,
-              ),
+              lockedDelta: 0,
 
               source: 'MASTER_COBRANCA',
               description: descricao,
@@ -7021,7 +7034,7 @@ export class AdminController {
               status: 'APPLIED',
               createdByUserId: masterId,
               saldoAntes: wallet.balance,
-              saldoDepois: updated.balance,
+              saldoDepois: new Prisma.Decimal(after),
               ficouNegativo,
             },
           });

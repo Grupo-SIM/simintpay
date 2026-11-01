@@ -29,7 +29,7 @@ Continuação do [plano 0007](0007-balance-ledger-source-of-truth.md). O 0007 un
 
   - [x] `admin.controller`: conclusão em lote de saques (`withdrawals/approve-all`) só com log
   - [x] `admin.controller`: ajustes absolutos de saldo (Renovada/Bosque set, recalcular, fix-wallet, reset) por diferença
-  - [ ] `admin.controller`: purge/absorção, limpezas (`cleanup-*`), débito de cobrança
+  - [x] `admin.controller`: purge/absorção, limpezas (`cleanup-*`), débito de cobrança
   - [ ] `platform-maintenance.service` (correct/baseline) só com log
   - [ ] scripts: `fix-wallet`, `recover-from-transactions`, `backfill-ebook-transactions` (outro banco)
   - [ ] testes de integração do lote B
