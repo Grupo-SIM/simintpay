@@ -163,7 +163,6 @@ export class PlatformIntegrationsController {
         'CLAIM_SOURCE_USER_ID',
         'INBOUND_TOKEN',
         'INBOUND_OPERATIONS',
-        'COMMUNITY_PLATFORM_TAG',
         'LEGACY_MERCHANT_KEYS',
       ].includes(key)
     ) {
@@ -256,20 +255,6 @@ export class PlatformIntegrationsController {
           source.id === platform.ownerUserId
         )
           throw new BadRequestException('Conta de origem inválida');
-      }
-      if (key === 'COMMUNITY_PLATFORM_TAG') {
-        if (platform.tag !== 'RETURN-BET')
-          throw new BadRequestException('Referência exclusiva de Return Bet');
-        const community = await this.prisma.platform.findUnique({
-          where: { tag: value },
-          include: { owner: true },
-        });
-        if (
-          !community?.isActive ||
-          !community.owner.isActive ||
-          community.owner.isPurged
-        )
-          throw new BadRequestException('Comunidade não cadastrada ou inativa');
       }
       const data = {
         url: PLATFORM_PUBLIC_VALUE_KEYS.has(key) ? value : null,

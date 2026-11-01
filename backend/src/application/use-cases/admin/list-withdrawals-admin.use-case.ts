@@ -10,7 +10,6 @@ const USE_MAIN_WALLET_FOR_CAPITAL = new Set([
   'atlas',
   'frendz',
   'comunidade',
-  'return-bet',
 ]);
 
 type WalletRow = { balance: unknown; lockedBalance: unknown } | null;
@@ -34,10 +33,16 @@ function resolveSaldoAtualCliente(input: {
     wallet: WalletRow;
   }>;
 }): number {
-  const platformSlug = (input.platformOnWithdraw ?? input.tenantSlug ?? null)?.toLowerCase() ?? null;
+  const platformSlug =
+    (input.platformOnWithdraw ?? input.tenantSlug ?? null)?.toLowerCase() ??
+    null;
   const slugKey = platformSlug ?? '';
 
-  if (platformSlug && USE_MAIN_WALLET_FOR_CAPITAL.has(slugKey) && input.mainWallet) {
+  if (
+    platformSlug &&
+    USE_MAIN_WALLET_FOR_CAPITAL.has(slugKey) &&
+    input.mainWallet
+  ) {
     return saldoDisponivel(
       Number(input.mainWallet.balance),
       Number(input.mainWallet.lockedBalance),
@@ -84,7 +89,7 @@ function mapWithdrawStatusToPt(
 
 @Injectable()
 export class ListWithdrawalsAdminUseCase {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async execute(input: {
     page: number;
@@ -103,8 +108,19 @@ export class ListWithdrawalsAdminUseCase {
       // Match pelo campo platform gravado na criação, ou fallback para platform do usuário
       andConditions.push({
         OR: [
-          { platform: { equals: input.moduleSlug, mode: 'insensitive' as const } },
-          { user: { platform: { tag: { equals: input.moduleSlug, mode: 'insensitive' as const } } } },
+          {
+            platform: {
+              equals: input.moduleSlug,
+              mode: 'insensitive' as const,
+            },
+          },
+          {
+            user: {
+              platform: {
+                tag: { equals: input.moduleSlug, mode: 'insensitive' as const },
+              },
+            },
+          },
         ],
       });
     }
@@ -113,11 +129,16 @@ export class ListWithdrawalsAdminUseCase {
       andConditions.push({
         OR: [
           { id: { contains: input.search, mode: 'insensitive' as const } },
-          { user: { name: { contains: input.search, mode: 'insensitive' as const } } },
-          { user: { email: { contains: input.search, mode: 'insensitive' as const } } },
-          { user: { returnBetAccount: { name: { contains: input.search, mode: 'insensitive' as const } } } },
-          { user: { returnBetAccount: { email: { contains: input.search, mode: 'insensitive' as const } } } },
-          { user: { returnBetAccount: { document: { contains: input.search } } } },
+          {
+            user: {
+              name: { contains: input.search, mode: 'insensitive' as const },
+            },
+          },
+          {
+            user: {
+              email: { contains: input.search, mode: 'insensitive' as const },
+            },
+          },
         ],
       });
     }
@@ -145,9 +166,6 @@ export class ListWithdrawalsAdminUseCase {
               externalPlatformUsers: {
                 include: { wallet: true },
               },
-              returnBetAccount: {
-                select: { name: true, email: true },
-              },
             },
           },
         },
@@ -160,46 +178,54 @@ export class ListWithdrawalsAdminUseCase {
         const platformStored =
           (w as { platform?: string | null }).platform?.trim() || null;
         return {
-        id: w.id,
-        saldoRestanteAposSaque: w.status === WithdrawStatus.REJECTED || w.remainingBalanceAfterWithdrawal == null
-          ? null
-          : Number(w.remainingBalanceAfterWithdrawal),
-        valor: Number(w.grossAmount),
-        valorLiquido: Number(w.amount),
-        status: mapWithdrawStatusToPt(w.status),
-        metodo: 'PIX',
-        descricao: 'Saque SimPay',
-        chavePix: w.pixKey,
-        comprovante: w.receiptImage ?? null,
-        comprovanteVisivel: w.comprovanteVisivel,
-        observacao: w.rejectionReason ?? null,
-        taxas: {
-          total: Number(w.fee),
-        },
-        cliente: {
-          id: w.user.id,
-          nome: w.user.returnBetAccount?.name ?? w.user.name,
-          email: w.user.returnBetAccount?.email ?? w.user.email,
-          modulo: (() => {
-            // Prioridade: campo platform gravado na criação > platform do usuário
-            if (platformStored) {
-              return { nome: platformStored, slug: platformStored.toLowerCase() };
-            }
-            if (w.user.platform) {
-              return { nome: w.user.platform.name, slug: w.user.platform.tag };
-            }
-            return null;
-          })(),
-          saldoAtual: resolveSaldoAtualCliente({
-            platformOnWithdraw: platformStored,
-            tenantSlug: w.user.platform?.tag ?? null,
-            mainWallet: w.user.wallet ?? null,
-            externalPlatformUsers: w.user.externalPlatformUsers,
-          }),
-        },
-        criadoEm: w.createdAt.toISOString(),
-        atualizadoEm: w.updatedAt.toISOString(),
-      };
+          id: w.id,
+          saldoRestanteAposSaque:
+            w.status === WithdrawStatus.REJECTED ||
+            w.remainingBalanceAfterWithdrawal == null
+              ? null
+              : Number(w.remainingBalanceAfterWithdrawal),
+          valor: Number(w.grossAmount),
+          valorLiquido: Number(w.amount),
+          status: mapWithdrawStatusToPt(w.status),
+          metodo: 'PIX',
+          descricao: 'Saque SimPay',
+          chavePix: w.pixKey,
+          comprovante: w.receiptImage ?? null,
+          comprovanteVisivel: w.comprovanteVisivel,
+          observacao: w.rejectionReason ?? null,
+          taxas: {
+            total: Number(w.fee),
+          },
+          cliente: {
+            id: w.user.id,
+            nome: w.user.name,
+            email: w.user.email,
+            modulo: (() => {
+              // Prioridade: campo platform gravado na criação > platform do usuário
+              if (platformStored) {
+                return {
+                  nome: platformStored,
+                  slug: platformStored.toLowerCase(),
+                };
+              }
+              if (w.user.platform) {
+                return {
+                  nome: w.user.platform.name,
+                  slug: w.user.platform.tag,
+                };
+              }
+              return null;
+            })(),
+            saldoAtual: resolveSaldoAtualCliente({
+              platformOnWithdraw: platformStored,
+              tenantSlug: w.user.platform?.tag ?? null,
+              mainWallet: w.user.wallet ?? null,
+              externalPlatformUsers: w.user.externalPlatformUsers,
+            }),
+          },
+          criadoEm: w.createdAt.toISOString(),
+          atualizadoEm: w.updatedAt.toISOString(),
+        };
       }),
       page: input.page,
       pageSize: input.pageSize,

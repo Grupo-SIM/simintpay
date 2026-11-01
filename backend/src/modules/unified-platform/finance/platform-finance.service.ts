@@ -721,7 +721,7 @@ export class PlatformFinanceService {
       gross,
       !!merchant,
     );
-    // Every canonical request reserves owner wallet; approval remains PENDING, including Return Bet.
+    // Every canonical request reserves owner wallet; approval remains PENDING.
     const financialUserId = merchant?.userId ?? context.ownerUserId;
     const integrationRequestId = `platform:${context.id}:${merchant ? merchant.id + ':' : ''}${input.idempotencyKey}`;
     const previous = await this.prisma.withdrawRequest.findUnique({
@@ -899,38 +899,6 @@ export class PlatformFinanceService {
             );
           return existing;
         }
-      }
-      if (input.context?.tag === 'RETURN-BET') {
-        const policy = await tx.returnBetWithdrawalPolicy.findUnique({
-          where: { id: 'default' },
-        });
-        const recent = await tx.withdrawRequest.findFirst({
-          where: {
-            userId: input.userId,
-            platform: 'return-bet',
-            status: { in: ['PENDING', 'APPROVED', 'COMPLETED'] },
-            createdAt: {
-              gte: new Date(
-                Date.now() - (policy?.withdrawalWindowDays ?? 30) * 86400000,
-              ),
-            },
-          },
-        });
-        if (recent)
-          throw new ConflictException(
-            'Saque já utilizado na janela configurada',
-          );
-      }
-      if (
-        input.context?.tag === 'RETURN-BET' &&
-        (await tx.withdrawRequest.count({
-          where: { userId: input.userId, status: 'PENDING' },
-        })) > 0
-      ) {
-        throw new UnprocessableEntityException({
-          code: 'WITHDRAWAL_PENDING_LIMIT',
-          message: 'Já existe saque pendente',
-        });
       }
       if (
         input.singlePending &&

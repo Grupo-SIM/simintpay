@@ -146,12 +146,6 @@ export class PlatformsService {
             .find((row) => row.key === 'INBOUND_OPERATIONS')
             ?.url?.split(',')
             .map((scope) => scope.trim()) ?? DEFAULT_INBOUND_OPERATIONS,
-        communityLinked:
-          platform.tag === 'RETURN-BET'
-            ? platform.integrations.some(
-                (row) => row.key === 'COMMUNITY_PLATFORM_TAG' && !!row.url,
-              )
-            : undefined,
       })),
     };
   }

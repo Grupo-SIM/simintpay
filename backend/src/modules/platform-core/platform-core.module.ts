@@ -5,7 +5,6 @@ import { PlatformLinksController } from './platform-links.controller';
 import { PlatformSalesEventsController } from './platform-sales-events.controller';
 import { PlatformSalesEventsService } from './platform-sales-events.service';
 import { PaymentLinkModule } from '../../presentation/payment-link.module';
-import { PlatformReturnBetController } from './platform-return-bet.controller';
 import { PlatformReportProjectionsController } from './platform-report-projections.controller';
 import { PlatformReportingModule } from '../../application/services/platform-reporting.module';
 import { PlatformBetaiController } from './platform-betai.controller';
@@ -47,7 +46,6 @@ import { PlatformEventsModule } from './platform-events.module';
     CanonicalCardsController,
     PlatformLinksController,
     PlatformSalesEventsController,
-    PlatformReturnBetController,
     PlatformReportProjectionsController,
     PlatformBetaiController,
     PlatformSubscriptionCapabilitiesController,

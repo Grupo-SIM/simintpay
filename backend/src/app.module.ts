@@ -39,7 +39,6 @@ import { CheckoutModule } from './presentation/checkout.module';
 import { ClienteModule } from './presentation/cliente.module';
 import { ClienteDashboardModule } from './modules/cliente/cliente-dashboard.module';
 import { VoucherModule } from './presentation/voucher.module';
-import { ReturnBetModule } from './modules/return-bet/return-bet.module';
 import { BillingModule } from './presentation/billing.module';
 import { IntegrationFinanceModule } from './modules/integrations/integration-finance.module';
 
@@ -91,7 +90,6 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
     ClienteModule,
     ClienteDashboardModule,
     VoucherModule,
-    ReturnBetModule,
     BillingModule,
     IntegrationFinanceModule,
   ],
