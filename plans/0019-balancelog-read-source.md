@@ -32,7 +32,7 @@ Continuação do [plano 0007](0007-balance-ledger-source-of-truth.md). O 0007 un
   - [x] `admin.controller`: purge/absorção, limpezas (`cleanup-*`), débito de cobrança
   - [x] `platform-maintenance.service` (correct/baseline) só com log
   - [x] scripts: `fix-wallet`, `recover-from-transactions`, `backfill-ebook-transactions` (outro banco)
-  - [ ] testes de integração do lote B
+  - [x] testes de integração do lote B (`backend/tests/wallet-operator-writers.integration.test.ts`; sem teste: `bulk-approve` por HTTP, scripts `recover-from-transactions` e `backfill-ebook-transactions`, `fix-bosque`/`recalcular-*` do controller)
 
 - [ ] **3. Trava contra regressão.** Regra de lint (ou teste de repositório) que falha em `wallet.update|upsert|create` fora de `wallet-ledger`. Opcional: constraint/trigger no banco que rejeite alteração de `Wallet.balance` sem `BalanceLog` correspondente na mesma transação.
 - [ ] **4. Leitura em sombra.** `getWalletBalance` passa a calcular também por `SUM(balanceDelta/lockedDelta)` e loga divergência (sem alterar a resposta). Medir latência; se necessário, índice composto `(userId)` já existe, avaliar `INCLUDE (balanceDelta, lockedDelta)` ou saldo de checkpoint por usuário.
