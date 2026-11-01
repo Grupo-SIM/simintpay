@@ -65,6 +65,13 @@ export function FinancialSimulationCard({
       : result
         ? 0
         : undefined;
+  const buyerTotalCents = result
+    ? result.originalCents + result.buyerInterestCents + (additiveCents ?? 0)
+    : undefined;
+  const sellerNetCents =
+    result && buyerTotalCents !== undefined
+      ? buyerTotalCents - result.contractedCostCents
+      : undefined;
   const metrics: { label: string; value?: number }[] = [
     { label: 'Custos da adquirente', value: result?.acquirerCostCents },
     {
@@ -74,7 +81,7 @@ export function FinancialSimulationCard({
         : undefined,
     },
     { label: 'Taxas aditivas', value: additiveCents },
-    { label: 'Valor repassado', value: result?.netCents },
+    { label: 'Valor repassado', value: sellerNetCents },
   ];
   const simRule = lane ? (lane.total ?? lane.sim) : undefined;
   const contractRows: [string, string, string][] =
@@ -161,7 +168,7 @@ export function FinancialSimulationCard({
                 <span className="sr-only">Taxa</span>
               </th>
               <th scope="col" className="pb-1 text-right font-normal">
-                Custo adquirente
+                Adquirente
               </th>
               <th
                 scope="col"
@@ -224,7 +231,7 @@ export function FinancialSimulationCard({
         <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">
           <div className="text-xs text-zinc-500 dark:text-zinc-400">Total</div>
           <div className="text-base font-semibold tabular-nums">
-            {state?.pending ? skeleton : format(result?.buyerTotalCents)}
+            {state?.pending ? skeleton : format(buyerTotalCents)}
           </div>
         </div>
         {admin && (
