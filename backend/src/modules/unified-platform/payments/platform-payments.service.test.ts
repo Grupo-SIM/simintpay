@@ -31,7 +31,7 @@ function fixture(acquirer: 'DOM' | 'FRENDZ' = 'DOM') {
   const platform = {
     ...context,
     acquirer,
-    deliveryFeeMode: 'ADDITIVE_ONLY',
+    feeMode: 'ADDITIVE_ONLY',
     isActive: true,
     owner: { isActive: true, isPurged: false },
     integrations: [

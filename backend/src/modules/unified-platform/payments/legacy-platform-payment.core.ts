@@ -3,7 +3,7 @@ import {
   markDefinitiveDomRejection,
 } from './dom-rejection';
 import {
-  loadDeliveryFeeMode,
+  loadPlatformFeeMode,
   loadDeliverySimFee,
   loadDeliverySurcharges,
 } from '../../integrations/delivery-sim-fee';
@@ -217,7 +217,7 @@ export class LegacyPlatformPaymentCore {
       const platform = await this.assertPlatformOwner(userId);
       const financialQuote = this.deliveryAllocation
         ? await (async () => {
-            const feeMode = await loadDeliveryFeeMode(this.prisma, this.tag);
+            const feeMode = await loadPlatformFeeMode(this.prisma, this.tag);
             return quoteDeliveryCharge(
               body.price,
               this.deliveryAllocation!,
@@ -399,7 +399,7 @@ export class LegacyPlatformPaymentCore {
       const platform = await this.assertPlatformOwner(userId);
       const financialQuote = this.deliveryAllocation
         ? await (async () => {
-            const feeMode = await loadDeliveryFeeMode(this.prisma, this.tag);
+            const feeMode = await loadPlatformFeeMode(this.prisma, this.tag);
             return quoteDeliveryCharge(
               body.price,
               this.deliveryAllocation!,

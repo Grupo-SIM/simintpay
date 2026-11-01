@@ -1310,7 +1310,7 @@ model DeliveryPlatformRegistration {
   @@index([platformId])
 }
 
-enum DeliveryFeeMode {
+enum PlatformFeeMode {
   SIMINTPAY_ONLY
   ADDITIVE_ONLY
   BOTH
@@ -1326,10 +1326,10 @@ model Platform {
   users          User[] @relation("PlatformMembers")
   customerInterestRates Json @default("{}")
   absorbCustomerInterest Boolean @default(true)
-  /// SIM Delivery only: which fee sets apply to its payments. SIMINTPAY_ONLY is the default; Delivery itself is set to ADDITIVE_ONLY by hand.
-  deliveryFeeMode DeliveryFeeMode @default(SIMINTPAY_ONLY)
-  /// SIM Delivery only: `METHOD/installments` lanes the platform does not accept; ignored by fee listing and coverage.
-  deliveryDisabledLanes String[] @default([])
+  /// Which fee sets apply to platform payments. SIMINTPAY_ONLY is the default.
+  feeMode PlatformFeeMode @default(SIMINTPAY_ONLY)
+  /// `METHOD/installments` lanes the platform does not accept; ignored by fee listing and coverage.
+  disabledPaymentLanes String[] @default([])
   integrations   PlatformIntegration[]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

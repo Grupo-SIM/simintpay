@@ -13,7 +13,7 @@ const platform = {
   name: 'Zero Grau',
   ownerUserId: 'owner',
   acquirer: 'DOM',
-  deliveryFeeMode: 'ADDITIVE_ONLY',
+  feeMode: 'ADDITIVE_ONLY',
   isActive: true,
   owner,
 };

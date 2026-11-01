@@ -1,5 +1,5 @@
 import { UnprocessableEntityException } from '@nestjs/common';
-import type { DeliveryFeeMode } from '@prisma/client';
+import type { PlatformFeeMode } from '@prisma/client';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { loadFinancialPolicy } from '../financial-policy/financial-policy.service';
 import { listPlatformSurcharges } from '../additive-fees/additive-fees.service';
@@ -7,15 +7,15 @@ import type { EffectiveFee } from '../additive-fees/additive-fee-calculation';
 import type { DeliverySimFee } from './delivery-payment-allocation';
 
 /** The platform's mode, read at charge time so the platform (never the caller) dictates the fees. */
-export async function loadDeliveryFeeMode(
+export async function loadPlatformFeeMode(
   prisma: Pick<PrismaService, 'platform'>,
   tag: string,
-): Promise<DeliveryFeeMode> {
+): Promise<PlatformFeeMode> {
   const platform = await prisma.platform.findUnique({
     where: { tag },
-    select: { deliveryFeeMode: true },
+    select: { feeMode: true },
   });
-  return platform?.deliveryFeeMode ?? 'SIMINTPAY_ONLY';
+  return platform?.feeMode ?? 'SIMINTPAY_ONLY';
 }
 
 /**
@@ -25,15 +25,15 @@ export async function loadDeliveryFeeMode(
 export async function loadDeliverySimFee(
   prisma: PrismaService,
   tag: string,
-  feeMode: DeliveryFeeMode,
+  feeMode: PlatformFeeMode,
   method: 'PIX' | 'CREDIT_CARD',
   installments: number,
 ): Promise<DeliverySimFee | undefined> {
   const platform = await prisma.platform.findUnique({
     where: { tag },
-    select: { deliveryDisabledLanes: true },
+    select: { disabledPaymentLanes: true },
   });
-  if (platform?.deliveryDisabledLanes?.includes(`${method}/${installments}`))
+  if (platform?.disabledPaymentLanes?.includes(`${method}/${installments}`))
     throw new UnprocessableEntityException({
       code: 'PAYMENT_LANE_DISABLED',
       lane: `${method}/${installments}`,
@@ -59,7 +59,7 @@ export async function loadDeliverySurcharges(
   prisma: PrismaService,
   tag: string,
   allocation: { items?: unknown[] },
-  feeMode: DeliveryFeeMode,
+  feeMode: PlatformFeeMode,
 ): Promise<EffectiveFee[]> {
   if (!allocation.items || feeMode === 'SIMINTPAY_ONLY') return [];
   const platform = await prisma.platform.findUnique({

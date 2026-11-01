@@ -414,19 +414,17 @@ export class PlatformPaymentsService {
       });
     const token =
       acquiring?.token ?? decryptPlatformSecret(integration!.encryptedValue!);
-    const deliveryFeeMode = input.allocation
-      ? platform.deliveryFeeMode
-      : undefined;
+    const feeMode = input.allocation ? platform.feeMode : undefined;
     const deliveryQuote =
-      input.allocation && deliveryFeeMode
+      input.allocation && feeMode
         ? quoteDeliveryCharge(
             amount.toNumber(),
             input.allocation,
-            deliveryFeeMode,
+            feeMode,
             await loadDeliverySimFee(
               this.prisma,
               platform.tag,
-              deliveryFeeMode,
+              feeMode,
               input.paymentMethod as 'PIX' | 'CREDIT_CARD',
               installments,
             ),
@@ -434,7 +432,7 @@ export class PlatformPaymentsService {
               this.prisma,
               platform.tag,
               input.allocation,
-              deliveryFeeMode,
+              feeMode,
             ),
           )
         : undefined;

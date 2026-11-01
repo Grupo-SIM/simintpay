@@ -3,7 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import type { DeliveryFeeMode, Prisma } from '@prisma/client';
+import type { PlatformFeeMode, Prisma } from '@prisma/client';
 import { acquirerCostFloor } from '../financial-policy/acquirer-fees';
 import { loadFinancialPolicy } from '../financial-policy/financial-policy.service';
 import {
@@ -76,8 +76,8 @@ async function platformOf(tx: Prisma.TransactionClient, companyId: string) {
   const platform = await tx.platform.findUniqueOrThrow({
     where: { id: registration.platformId },
     select: {
-      deliveryDisabledLanes: true,
-      deliveryFeeMode: true,
+      disabledPaymentLanes: true,
+      feeMode: true,
       id: true,
       ownerUserId: true,
       tag: true,
@@ -127,24 +127,24 @@ export async function readDeliveryFees(
   tx: Prisma.TransactionClient,
   companyId: string,
 ) {
-  const { deliveryDisabledLanes, deliveryFeeMode, id, tag } = await platformOf(
+  const { disabledPaymentLanes, feeMode, id, tag } = await platformOf(
     tx,
     companyId,
   );
   const policy = await loadFinancialPolicy(tx, tag);
   const lanes = policyLanes(policy.document);
   const costs = (await acquirerCostFloor(tx)).sort(compareLanes);
-  const disabledLanes = [...deliveryDisabledLanes].sort();
+  const disabledLanes = [...disabledPaymentLanes].sort();
   const additiveFees = await readAdditiveFees(tx, id);
   const coverage = evaluateCoverage({
     costs,
     disabledLanes,
-    mode: deliveryFeeMode,
+    mode: feeMode,
     simintpay: lanes,
     surcharges: totalsComponents(additiveFees.effective),
   });
   return {
-    mode: deliveryFeeMode,
+    mode: feeMode,
     version: policy.version,
     disabledLanes,
     lanes,
@@ -161,7 +161,7 @@ export async function saveDeliveryFees(
   input: {
     version: string;
     lanes: DeliveryFeeLane[];
-    mode?: DeliveryFeeMode;
+    mode?: PlatformFeeMode;
     disabledLanes?: string[];
     additiveFees?: unknown;
     additiveRevision?: string;
@@ -176,12 +176,12 @@ export async function saveDeliveryFees(
   if (input.mode !== undefined)
     await tx.platform.update({
       where: { id: platformId },
-      data: { deliveryFeeMode: input.mode },
+      data: { feeMode: input.mode },
     });
   if (input.disabledLanes !== undefined)
     await tx.platform.update({
       where: { id: platformId },
-      data: { deliveryDisabledLanes: [...new Set(input.disabledLanes)].sort() },
+      data: { disabledPaymentLanes: [...new Set(input.disabledLanes)].sort() },
     });
   // Same transaction and version check as the lanes, so mode, lanes and additive fees land together or not at all.
   if (

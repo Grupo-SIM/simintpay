@@ -4,7 +4,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Role, type DeliveryFeeMode } from '@prisma/client';
+import { Prisma, Role, type PlatformFeeMode } from '@prisma/client';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import {
@@ -77,7 +77,7 @@ export async function loadFinancialPolicy(
 export function projectPolicy(
   policy: ResolvedPolicy,
   admin: boolean,
-  feeMode: DeliveryFeeMode | null = null,
+  feeMode: PlatformFeeMode | null = null,
   disabledLanes: string[] | null = null,
   additiveFees: AdditiveFeesView | null = null,
 ) {
@@ -133,13 +133,13 @@ async function authorize(prisma: PrismaService, tag: string, user: JwtPayload) {
 async function platformFeeMode(
   prisma: Pick<Prisma.TransactionClient, 'platform'>,
   tag: string,
-): Promise<DeliveryFeeMode | null> {
+): Promise<PlatformFeeMode | null> {
   if (tag === 'GLOBAL') return null;
   const platform = await prisma.platform.findUnique({
     where: { tag },
-    select: { deliveryFeeMode: true },
+    select: { feeMode: true },
   });
-  return platform?.deliveryFeeMode ?? null;
+  return platform?.feeMode ?? null;
 }
 
 /** Admin view of generic additive totals and revision; GLOBAL has none. */
@@ -164,9 +164,9 @@ async function platformDisabledLanes(
   if (tag === 'GLOBAL') return null;
   const platform = await prisma.platform.findUnique({
     where: { tag },
-    select: { deliveryDisabledLanes: true },
+    select: { disabledPaymentLanes: true },
   });
-  return platform?.deliveryDisabledLanes ?? null;
+  return platform?.disabledPaymentLanes ?? null;
 }
 
 export async function getFinancialPolicy(
@@ -284,13 +284,13 @@ export async function saveFinancialPolicy(
         if (input.feeMode !== undefined)
           await tx.platform.update({
             where: { tag },
-            data: { deliveryFeeMode: input.feeMode as DeliveryFeeMode },
+            data: { feeMode: input.feeMode as PlatformFeeMode },
           });
         if (input.disabledLanes !== undefined)
           await tx.platform.update({
             where: { tag },
             data: {
-              deliveryDisabledLanes: [
+              disabledPaymentLanes: [
                 ...new Set(input.disabledLanes as string[]),
               ].sort(),
             },

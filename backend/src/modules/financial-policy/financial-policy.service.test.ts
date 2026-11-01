@@ -343,7 +343,7 @@ describe('delivery fee mode', () => {
     });
     expect(prisma.platform.update).toHaveBeenCalledWith({
       where: { tag: 'SHOP' },
-      data: { deliveryFeeMode: 'SIMINTPAY_ONLY' },
+      data: { feeMode: 'SIMINTPAY_ONLY' },
     });
     await expect(
       saveFinancialPolicy(prisma, 'SHOP', admin, {
@@ -371,7 +371,7 @@ describe('accepted payment lanes', () => {
     expect(prisma.platform.update).toHaveBeenCalledWith({
       where: { tag: 'SHOP' },
       data: {
-        deliveryDisabledLanes: ['BOLETO/1', 'CREDIT_CARD/2', 'PIX/1'],
+        disabledPaymentLanes: ['BOLETO/1', 'CREDIT_CARD/2', 'PIX/1'],
       },
     });
     await expect(

@@ -329,3 +329,7 @@ Listagem mescla assinaturas DOM e pausas locais, resolve plataformas e aplica bu
 Novas plataformas de integração automática Delivery usam tag derivada do nome: maiúsculas, sem acentos e com espaços/separadores convertidos em hífen, sem hífens repetidos ou nas extremidades (`Zero Grau` → `ZERO-GRAU`). Nome sem letras/números é inválido. Colisão com plataforma de outro dono retorna conflito; não acrescenta hash ou sufixo. Plataformas já vinculadas preservam tag e histórico, inclusive após mudança de nome.
 
 `GET /platforms/:tag/finance/config` para BOSQUE/RENOVADA devolve `withdrawal {minimumCents, fixedFeeCents, percentFee}` resolvido pela mesma política efetiva (TAXA_SAQUE_FIXA, TAXA_SAQUE_PERCENT, SAQUE_MIN) das rotas legadas de taxas. Lista/detalhe de saques da plataforma incluem `receiptAvailable` e `customer {name,email}` do dono; `GET /platforms/:tag/finance/withdrawals/:id/receipt` entrega o comprovante armazenado somente de saque do dono e da plataforma autenticados (404 caso contrário ou se oculto).
+
+### Configuração genérica de taxas da plataforma
+
+`Platform.feeMode` usa `PlatformFeeMode` (SIMINTPAY_ONLY, ADDITIVE_ONLY, BOTH), preservando valores e padrão existentes. `Platform.disabledPaymentLanes` define modalidades indisponíveis. Esses dados não pertencem a uma integração específica; contratos HTTP existentes mantêm `feeMode`/`disabledLanes`. A migração apenas renomeia enum e colunas, sem substituir dados.

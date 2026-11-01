@@ -32,8 +32,8 @@ describe('delivery fee lanes', () => {
           id: 'platform',
           ownerUserId: 'owner',
           tag: 'SHOP',
-          deliveryDisabledLanes: [],
-          deliveryFeeMode: 'ADDITIVE_ONLY',
+          disabledPaymentLanes: [],
+          feeMode: 'ADDITIVE_ONLY',
         }),
       },
       platformAdditiveFees: {

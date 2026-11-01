@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { DeliveryFeeMode } from '@prisma/client';
+import type { PlatformFeeMode } from '@prisma/client';
 import {
   calculatePlatformFees,
   type EffectiveFee,
@@ -78,7 +78,7 @@ export function deliveryAllocation(
 export function quoteDeliveryCharge(
   price: number,
   allocation: DeliveryAllocationDto,
-  feeMode: DeliveryFeeMode,
+  feeMode: PlatformFeeMode,
   sim?: DeliverySimFee,
   surcharges: EffectiveFee[] = [],
 ) {
