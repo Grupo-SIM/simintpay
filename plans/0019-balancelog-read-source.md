@@ -23,7 +23,7 @@ Continuação do [plano 0007](0007-balance-ledger-source-of-truth.md). O 0007 un
   - [x] webhooks: `process-webhook`, `process-dom-webhook` (ebook e máquina sem teste de integração próprio)
   - [x] `affiliate-commission.service`, `sync-maquinetas` (sem teste de integração próprio para a sync de maquinetas)
   - [x] `platform-finance.service` (saque), `link-settlement`, `platform-link-claim`
-  - [ ] fora do lote A: `return-bet-withdrawal` (decisão do responsável), `admin.controller`, scripts, `platform-maintenance` (lote B)
+  - [x] `return-bet-withdrawal`: removido junto com todo o Return Bet (decisão do responsável em 2026-11-01; nunca foi ao ar: 0 contas, 0 política, 0 saques, 0 lançamentos no banco). Uma futura integração será nova e canônica. Commits `f466e86`, `3e7e984`, `bf2a6d3`.
 
     Lote B (operador/manutenção; fora: `return-bet-withdrawal`, `ExternalPlatformWallet`):
 
@@ -33,6 +33,8 @@ Continuação do [plano 0007](0007-balance-ledger-source-of-truth.md). O 0007 un
   - [x] `platform-maintenance.service` (correct/baseline) só com log
   - [x] scripts: `fix-wallet`, `recover-from-transactions`, `backfill-ebook-transactions` (outro banco)
   - [x] testes de integração do lote B (`backend/tests/wallet-operator-writers.integration.test.ts`; sem teste: `bulk-approve` por HTTP, scripts `recover-from-transactions` e `backfill-ebook-transactions`, `fix-bosque`/`recalcular-*` do controller)
+
+> **Decisão do responsável (2026-11-01): `Wallet` continua tabela (cache), não view materializada.** Um gatilho em `BalanceLog` recalcula a carteira pela soma do log, sob lock por usuário (feito, migração `20261031130000_balance_log_drives_wallet`); `BalanceLog` **não** é append-only (declinado). Com isso, as etapas 4 e 5 abaixo (leitura em sombra e cutover da leitura) deixam de ser necessárias: a carteira já reflete o log. Restam, nesta ordem: (a) conferência carteira x log, sob lock, nas decisões de saque; (b) trava final: restrição adiada na `Wallet` que recusa, no commit, saldo diferente da soma do log (só depois de zero escritores diretos, que já vale em produção de código); (c) alerta horário do cron (feito, `34b0767`; falta escolher o canal); (d) etapa 7 (`ExternalPlatformWallet`). Pré-requisito antes de publicar: divergências zeradas, senão a migração aborta o boot.
 
 - [ ] **3. Trava contra regressão.** Regra de lint (ou teste de repositório) que falha em `wallet.update|upsert|create` fora de `wallet-ledger`. Opcional: constraint/trigger no banco que rejeite alteração de `Wallet.balance` sem `BalanceLog` correspondente na mesma transação.
 - [ ] **4. Leitura em sombra.** `getWalletBalance` passa a calcular também por `SUM(balanceDelta/lockedDelta)` e loga divergência (sem alterar a resposta). Medir latência; se necessário, índice composto `(userId)` já existe, avaliar `INCLUDE (balanceDelta, lockedDelta)` ou saldo de checkpoint por usuário.
