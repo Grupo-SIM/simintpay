@@ -1,21 +1,17 @@
-import { Button } from '@/components/ui/Button';
 import { AdditiveTotalsRow } from './AdditiveTotalsRow';
-import type { AdditiveFeesView, AdditiveTotals } from './financial-types';
+import type { AdditiveTotals } from './financial-types';
 
-/** Editable additive totals; an edit becomes an override of the Delivery total. */
+/** Editable additive totals; actual platform totals. */
 export function AdditiveFeesSection({
-  view,
-  override,
+  value,
   onChange,
   onValidityChange,
 }: {
-  view: AdditiveFeesView;
-  /** Draft override (null = follow the Delivery total). */
-  override: AdditiveTotals | null;
-  onChange: (override: AdditiveTotals | null) => void;
+  value: AdditiveTotals;
+  onChange: (totals: AdditiveTotals) => void;
   onValidityChange: (name: string, valid: boolean) => void;
 }) {
-  const current = override ?? view.delivery;
+  const current = value;
   return (
     <fieldset className="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-white/10">
       <legend className="px-1 text-sm font-semibold">Taxas adicionais</legend>
@@ -24,25 +20,10 @@ export function AdditiveFeesSection({
           key={scope}
           scope={scope}
           value={current[scope]}
-          delivery={view.delivery[scope]}
           onChange={(value) => onChange({ ...current, [scope]: value })}
           onValidityChange={onValidityChange}
         />
       ))}
-      {override && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            onChange(null);
-            for (const scope of ['order', 'product'])
-              for (const field of ['percentage', 'fixed'])
-                onValidityChange(`additive-${scope}-${field}`, true);
-          }}
-        >
-          Restaurar total do Delivery
-        </Button>
-      )}
     </fieldset>
   );
 }

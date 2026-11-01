@@ -24,7 +24,7 @@ import {
 } from './financial-policy';
 import {
   readAdditiveFees,
-  setOverrideTotals,
+  setAdditiveFees,
   validateAdditiveTotals,
   type AdditiveFeesView,
 } from '../additive-fees/additive-fees.service';
@@ -142,9 +142,9 @@ async function platformFeeMode(
   return platform?.deliveryFeeMode ?? null;
 }
 
-/** Admin view of the additive totals (Delivery, override, effective); GLOBAL has none. */
+/** Admin view of generic additive totals and revision; GLOBAL has none. */
 async function adminAdditiveFees(
-  prisma: Pick<Prisma.TransactionClient, 'platform' | 'platformAdditiveTotals'>,
+  prisma: Pick<Prisma.TransactionClient, 'platform' | 'platformAdditiveFees'>,
   tag: string,
   admin: boolean,
 ): Promise<AdditiveFeesView | null> {
@@ -202,7 +202,7 @@ export async function saveFinancialPolicy(
     lanes?: unknown;
     feeMode?: unknown;
     disabledLanes?: unknown;
-    additiveOverride?: unknown;
+    additiveFees?: unknown;
   };
   if (
     Object.keys(body).some(
@@ -214,7 +214,7 @@ export async function saveFinancialPolicy(
           'lanes',
           'feeMode',
           'disabledLanes',
-          'additiveOverride',
+          'additiveFees',
         ].includes(key),
     )
   )
@@ -234,15 +234,14 @@ export async function saveFinancialPolicy(
     )
       throw new BadRequestException('Modo de taxas inválido');
   }
-  if (input.additiveOverride !== undefined) {
+  if (input.additiveFees !== undefined) {
     if (!admin)
       throw new ForbiddenException(
         'Taxas aditivas exclusivas do administrador',
       );
     if (tag === 'GLOBAL')
       throw new BadRequestException('Taxas aditivas inválidas');
-    if (input.additiveOverride !== null)
-      input.additiveOverride = validateAdditiveTotals(input.additiveOverride);
+    input.additiveFees = validateAdditiveTotals(input.additiveFees);
   }
   if (input.disabledLanes !== undefined) {
     // Admins and the platform owner (checked by `authorize`) both choose which lanes the platform offers.
@@ -296,16 +295,16 @@ export async function saveFinancialPolicy(
               ].sort(),
             },
           });
-        if (input.additiveOverride !== undefined) {
+        if (input.additiveFees !== undefined) {
           const platform = await tx.platform.findUnique({
             where: { tag },
             select: { id: true },
           });
           if (!platform) throw new BadRequestException('Plataforma inválida');
-          await setOverrideTotals(
+          await setAdditiveFees(
             tx,
             platform.id,
-            input.additiveOverride as Parameters<typeof setOverrideTotals>[2],
+            input.additiveFees as Parameters<typeof setAdditiveFees>[2],
           );
         }
         if (input.lanes !== undefined) {

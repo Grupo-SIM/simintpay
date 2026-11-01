@@ -20,8 +20,7 @@ export type AdditiveScopeTotal = {
 /** Sums of the active additive fees per scope; percentageValue in basis points, fixedValue in cents. */
 export type AdditiveTotals = Record<AdditiveFeeScope, AdditiveScopeTotal>;
 export type AdditiveFeesView = {
-  delivery: AdditiveTotals;
-  override: AdditiveTotals | null;
+  revision: string;
   effective: AdditiveTotals;
 };
 export const ZERO_ADDITIVE_TOTALS: AdditiveTotals = {

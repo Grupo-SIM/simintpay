@@ -36,12 +36,12 @@ describe('delivery fee lanes', () => {
           deliveryFeeMode: 'ADDITIVE_ONLY',
         }),
       },
-      platformAdditiveTotals: {
+      platformAdditiveFees: {
         findUnique: async () => ({
-          deliveryOrderPct: 100,
-          deliveryOrderFixed: 50,
-          deliveryProductPct: 0,
-          deliveryProductFixed: 0,
+          orderPct: 100,
+          orderFixed: 50,
+          productPct: 0,
+          productFixed: 0,
           overrideOrderPct: null,
           overrideOrderFixed: null,
           overrideProductPct: null,
@@ -87,9 +87,8 @@ describe('delivery fee lanes', () => {
       product: { percentageValue: 0, fixedValue: 0 },
     };
     expect(result.additiveFees).toEqual({
-      delivery,
-      override: null,
       effective: delivery,
+      revision: '0',
     });
     // ADDITIVE_ONLY: coverage comes from the stored values alone (100 bps = 10_000 ppm, 50 cents).
     expect(result.coverage[0]?.covered).toEqual({

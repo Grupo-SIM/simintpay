@@ -43,11 +43,7 @@ test('admin edits additive totals, effective merchant fee and coverage', async (
       order: { percentageValue: order[0], fixedValue: order[1] },
       product: { percentageValue: product[0], fixedValue: product[1] },
     });
-    const view = (delivery, override = null) => ({
-      delivery,
-      override,
-      effective: override ?? delivery,
-    });
+    const view = (effective) => ({ effective, revision: '1' });
     const key = 'DOM/CREDIT_CARD/ONLINE/1';
     const lane = {
       active: true,
@@ -88,10 +84,6 @@ test('admin edits additive totals, effective merchant fee and coverage', async (
     });
     await page.goto(`http://127.0.0.1:${server.port}/?admin`);
     await page.getByText('Taxas adicionais', { exact: true }).waitFor();
-    await page
-      .getByText('Total do Delivery:', { exact: false })
-      .first()
-      .waitFor();
     const card = page.getByRole('article').first();
     expect(await card.innerText()).toContain('Taxa efetiva do lojista');
     expect(await card.innerText()).toContain('1,5%');
@@ -107,26 +99,20 @@ test('admin edits additive totals, effective merchant fee and coverage', async (
         .getByRole('button', { name: 'Restaurar total do Delivery' })
         .count(),
     ).toBe(0);
-    // editing the order percentage creates an override draft and shows restore
+    // Editing changes actual generic totals, with no origin or restore affordance.
     await page.getByLabel('Percentual (%)').first().fill('1,5');
     await page.getByLabel('Valor fixo (R$)').first().fill('1,00');
-    await page
-      .getByRole('button', { name: 'Restaurar total do Delivery' })
-      .waitFor();
     await card.getByText('Cobre o custo da adquirente').waitFor();
     expect(await card.innerText()).toContain('2,5%');
-    await page
-      .getByRole('button', { name: 'Restaurar total do Delivery' })
-      .click();
     expect(
       await page
         .getByRole('button', { name: 'Restaurar total do Delivery' })
         .count(),
     ).toBe(0);
-    await card
-      .getByRole('alert')
-      .filter({ hasText: 'Cobertura insuficiente' })
-      .waitFor();
+    await page.screenshot({
+      path: '/tmp/simintpay-generic-additive-fees.png',
+      fullPage: true,
+    });
   } finally {
     await browser.close();
     server.stop(true);

@@ -1339,7 +1339,7 @@ model Platform {
   delegatedCredentials PlatformApiCredential[]
   deliveryRegistrations DeliveryPlatformRegistration[]
   salesEvents PlatformSalesEvent[]
-  additiveTotals PlatformAdditiveTotals?
+  additiveFees PlatformAdditiveFees?
 }
 
 /// Private integration configuration; encrypted values never appear in public metadata.
@@ -1567,21 +1567,15 @@ model ProductOwnershipChange {
   @@index([productType, productId])
 }
 
-/// Additive surcharge totals per platform. SIM Delivery organizes the fees and pushes the sum (delivery*); a SimIntPay
-/// admin may replace it (override*, all four set or all null). Effective = override when present, else delivery.
-/// Percentages are basis points (100 = 1%), fixed values are cents.
-model PlatformAdditiveTotals {
-  platformId           String   @id
-  deliveryOrderPct     Int      @default(0)
-  deliveryOrderFixed   Int      @default(0)
-  deliveryProductPct   Int      @default(0)
-  deliveryProductFixed Int      @default(0)
-  overrideOrderPct     Int?
-  overrideOrderFixed   Int?
-  overrideProductPct   Int?
-  overrideProductFixed Int?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
+/// Generic platform surcharge totals. Percentages in basis points; fixed values in cents.
+model PlatformAdditiveFees {
+  platformId String @id
+  orderPct Int @default(0)
+  orderFixed Int @default(0)
+  productPct Int @default(0)
+  productFixed Int @default(0)
+  revision Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
   platform Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
 }

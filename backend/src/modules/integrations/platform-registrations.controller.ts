@@ -82,11 +82,14 @@ class FeesDto {
   @ArrayMaxSize(14)
   @Matches(/^(PIX|BOLETO|DEBIT_CARD|CREDIT_CARD)\/\d{1,2}$/, { each: true })
   disabledLanes?: string[];
-  /** The Delivery total; never touches the admin override. Omit to keep. */
+  /** Actual platform totals; requires additiveRevision. Omit to keep. */
   @IsOptional()
   @ValidateNested()
   @Type(() => AdditiveTotalsDto)
   additiveFees?: AdditiveTotalsDto;
+  @IsOptional()
+  @IsString()
+  additiveRevision?: string;
 }
 class RegistrationDto {
   @IsString() @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/) slug!: string;

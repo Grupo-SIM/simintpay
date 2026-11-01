@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
   FEE_SCOPES,
@@ -7,11 +7,10 @@ import {
   type EffectiveFee,
 } from './additive-fee-calculation';
 
-type Client = Pick<Prisma.TransactionClient, 'platformAdditiveTotals'>;
+type Client = Pick<Prisma.TransactionClient, 'platformAdditiveFees'>;
 
 export type AdditiveFeesView = {
-  delivery: AdditiveTotals;
-  override: AdditiveTotals | null;
+  revision: string;
   effective: AdditiveTotals;
 };
 
@@ -51,47 +50,28 @@ export function validateAdditiveTotals(input: unknown): AdditiveTotals {
   return result;
 }
 
-/** Delivery total, optional override and effective total (override ?? delivery) for the platform. */
+/** Generic platform totals and independent additive revision. */
 export async function readAdditiveFees(
   tx: Client,
   platformId: string,
 ): Promise<AdditiveFeesView> {
-  const row = await tx.platformAdditiveTotals.findUnique({
+  const row = await tx.platformAdditiveFees.findUnique({
     where: { platformId },
   });
-  if (!row) {
-    return { delivery: zeroTotals(), override: null, effective: zeroTotals() };
-  }
-  const delivery: AdditiveTotals = {
-    order: {
-      percentageValue: row.deliveryOrderPct,
-      fixedValue: row.deliveryOrderFixed,
-    },
-    product: {
-      percentageValue: row.deliveryProductPct,
-      fixedValue: row.deliveryProductFixed,
-    },
-  };
-  const override =
-    row.overrideOrderPct === null ||
-    row.overrideOrderFixed === null ||
-    row.overrideProductPct === null ||
-    row.overrideProductFixed === null
-      ? null
-      : ({
-          order: {
-            percentageValue: row.overrideOrderPct,
-            fixedValue: row.overrideOrderFixed,
-          },
+  return {
+    effective: row
+      ? {
+          order: { percentageValue: row.orderPct, fixedValue: row.orderFixed },
           product: {
-            percentageValue: row.overrideProductPct,
-            fixedValue: row.overrideProductFixed,
+            percentageValue: row.productPct,
+            fixedValue: row.productFixed,
           },
-        } satisfies AdditiveTotals);
-  return { delivery, override, effective: override ?? delivery };
+        }
+      : zeroTotals(),
+    revision: String(row?.revision ?? 0),
+  };
 }
 
-/** The two synthetic fees (order, product) for the platform's effective totals. */
 export async function listPlatformSurcharges(
   tx: Client,
   platformId: string,
@@ -99,40 +79,42 @@ export async function listPlatformSurcharges(
   return totalsToFees((await readAdditiveFees(tx, platformId)).effective);
 }
 
-/** Sets the Delivery total; never touches the override. */
-export async function setDeliveryTotals(
+/** Integration writers must supply the revision they read; admin writes are unconditional. */
+export async function setAdditiveFees(
   tx: Client,
   platformId: string,
   totals: AdditiveTotals,
+  expectedRevision?: string,
 ) {
+  if (
+    expectedRevision !== undefined &&
+    (!/^(0|[1-9][0-9]*)$/.test(expectedRevision) ||
+      Number(expectedRevision) > 2_147_483_647)
+  )
+    throw new BadRequestException('Revisão de taxas aditivas inválida');
   const data = {
-    deliveryOrderPct: totals.order.percentageValue,
-    deliveryOrderFixed: totals.order.fixedValue,
-    deliveryProductPct: totals.product.percentageValue,
-    deliveryProductFixed: totals.product.fixedValue,
+    orderPct: totals.order.percentageValue,
+    orderFixed: totals.order.fixedValue,
+    productPct: totals.product.percentageValue,
+    productFixed: totals.product.fixedValue,
   };
-  await tx.platformAdditiveTotals.upsert({
+  // Ensure a row exists before the guarded update, including concurrent first writes.
+  await tx.platformAdditiveFees.upsert({
     where: { platformId },
-    create: { platformId, ...data },
-    update: data,
+    create: { platformId },
+    update: {},
   });
-}
-
-/** Sets (AdditiveTotals) or clears (null) the admin override; never touches the Delivery total. */
-export async function setOverrideTotals(
-  tx: Client,
-  platformId: string,
-  totals: AdditiveTotals | null,
-) {
-  const data = {
-    overrideOrderPct: totals?.order.percentageValue ?? null,
-    overrideOrderFixed: totals?.order.fixedValue ?? null,
-    overrideProductPct: totals?.product.percentageValue ?? null,
-    overrideProductFixed: totals?.product.fixedValue ?? null,
-  };
-  await tx.platformAdditiveTotals.upsert({
-    where: { platformId },
-    create: { platformId, ...data },
-    update: data,
+  const result = await tx.platformAdditiveFees.updateMany({
+    where: {
+      platformId,
+      ...(expectedRevision === undefined
+        ? {}
+        : { revision: Number(expectedRevision) }),
+    },
+    data: { ...data, revision: { increment: 1 } },
   });
+  if (result.count !== 1)
+    throw new ConflictException(
+      'Taxas aditivas alteradas; recarregue e tente novamente',
+    );
 }

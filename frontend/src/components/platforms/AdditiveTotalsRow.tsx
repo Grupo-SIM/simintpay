@@ -1,22 +1,19 @@
 import { FinancialNumberField } from './FinancialNumberField';
 import {
-  formatFeeValue,
   SCOPE_LABELS,
   type AdditiveFeeScope,
   type AdditiveScopeTotal,
 } from './financial-types';
 
-/** Editable percentage + fixed total of one application scope, with the Delivery total as hint. */
+/** Editable percentage and fixed total of one application scope. */
 export function AdditiveTotalsRow({
   scope,
   value,
-  delivery,
   onChange,
   onValidityChange,
 }: {
   scope: AdditiveFeeScope;
   value: AdditiveScopeTotal;
-  delivery: AdditiveScopeTotal;
   onChange: (value: AdditiveScopeTotal) => void;
   onValidityChange: (name: string, valid: boolean) => void;
 }) {
@@ -42,10 +39,6 @@ export function AdditiveTotalsRow({
           onValidityChange={onValidityChange}
         />
       </div>
-      <p className="text-xs text-zinc-500">
-        Total do Delivery:{' '}
-        {formatFeeValue(delivery.percentageValue, delivery.fixedValue)}
-      </p>
     </div>
   );
 }

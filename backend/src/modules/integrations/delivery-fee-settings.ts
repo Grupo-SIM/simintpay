@@ -14,7 +14,7 @@ import {
 } from '../additive-fees/additive-fee-calculation';
 import {
   readAdditiveFees,
-  setDeliveryTotals,
+  setAdditiveFees,
   validateAdditiveTotals,
 } from '../additive-fees/additive-fees.service';
 import {
@@ -164,6 +164,7 @@ export async function saveDeliveryFees(
     mode?: DeliveryFeeMode;
     disabledLanes?: string[];
     additiveFees?: unknown;
+    additiveRevision?: string;
   },
 ) {
   const { id: platformId, ownerUserId, tag } = await platformOf(tx, companyId);
@@ -183,11 +184,17 @@ export async function saveDeliveryFees(
       data: { deliveryDisabledLanes: [...new Set(input.disabledLanes)].sort() },
     });
   // Same transaction and version check as the lanes, so mode, lanes and additive fees land together or not at all.
+  if (
+    input.additiveFees !== undefined &&
+    typeof input.additiveRevision !== 'string'
+  )
+    throw new BadRequestException('additiveRevision obrigatório');
   if (input.additiveFees !== undefined)
-    await setDeliveryTotals(
+    await setAdditiveFees(
       tx,
       platformId,
       validateAdditiveTotals(input.additiveFees as AdditiveTotals),
+      input.additiveRevision,
     );
   // A mode-only change must not create an empty policy revision.
   if (!input.lanes.length) return readDeliveryFees(tx, companyId);

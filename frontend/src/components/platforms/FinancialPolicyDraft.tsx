@@ -46,15 +46,17 @@ export function FinancialPolicyDraft({
     configuration.disabledLanes ?? [],
   );
   const additiveView = configuration.additiveFees;
-  const [additiveOverride, setAdditiveOverride] =
-    useState<AdditiveTotals | null>(additiveView?.override ?? null);
-  const additiveOverrideChanged =
+  const [additiveFeesDraft, setAdditiveFeesDraft] = useState<AdditiveTotals>(
+    additiveView?.effective ?? {
+      order: { percentageValue: 0, fixedValue: 0 },
+      product: { percentageValue: 0, fixedValue: 0 },
+    },
+  );
+  const additiveFeesDraftChanged =
     !!additiveView &&
-    JSON.stringify(additiveOverride) !==
-      JSON.stringify(additiveView.override ?? null);
-  const additiveTotals = additiveView
-    ? (additiveOverride ?? additiveView.delivery)
-    : undefined;
+    JSON.stringify(additiveFeesDraft) !==
+      JSON.stringify(additiveView.effective);
+  const additiveTotals = additiveView ? additiveFeesDraft : undefined;
   const disabledLanesChanged =
     configuration.disabledLanes != null &&
     JSON.stringify(disabledLanes) !==
@@ -147,7 +149,7 @@ export function FinancialPolicyDraft({
     ? JSON.stringify(lanes) !==
         JSON.stringify(configuration.laneOverrides ?? {}) ||
       feeMode !== (configuration.feeMode ?? null) ||
-      additiveOverrideChanged ||
+      additiveFeesDraftChanged ||
       disabledLanesChanged
     : JSON.stringify(owner) !== JSON.stringify(configuration.ownerOverrides) ||
       JSON.stringify(lanes) !==
@@ -181,7 +183,9 @@ export function FinancialPolicyDraft({
                 feeMode !== (configuration.feeMode ?? null)
                   ? { feeMode }
                   : {}),
-                ...(additiveOverrideChanged ? { additiveOverride } : {}),
+                ...(additiveFeesDraftChanged
+                  ? { additiveFees: additiveFeesDraft }
+                  : {}),
               }
             : { owner, interestFree: interestFreeOverride }),
           ...(disabledLanesChanged ? { disabledLanes } : {}),
@@ -376,9 +380,8 @@ export function FinancialPolicyDraft({
       )}
       {admin && feeMode !== null && additiveView && (
         <AdditiveFeesSection
-          view={additiveView}
-          override={additiveOverride}
-          onChange={setAdditiveOverride}
+          value={additiveFeesDraft}
+          onChange={setAdditiveFeesDraft}
           onValidityChange={validity}
         />
       )}
