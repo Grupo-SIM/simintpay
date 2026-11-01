@@ -9,7 +9,7 @@ import {
   feeShortfall,
   formatCents,
   formatPpm,
-  type CompanyAdditiveFee,
+  type AdditiveValue,
   type FeeMode,
   type Lane,
   type OwnerRule,
@@ -33,7 +33,7 @@ export function FinancialSimulationCard({
   rule?: OwnerRule;
   lane?: Lane;
   feeMode?: FeeMode | null;
-  additiveFees?: CompanyAdditiveFee[];
+  additiveFees?: AdditiveValue[];
   state?: RowState;
   admin: boolean;
   credit: boolean;
@@ -53,17 +53,13 @@ export function FinancialSimulationCard({
   const showInterest = credit && !(admin && noInterest);
   const additiveCents =
     result && feeMode && feeMode !== 'SIMINTPAY_ONLY'
-      ? (additiveFees ?? [])
-          .filter((fee) => fee.associated && fee.active)
-          .reduce(
-            (sum, fee) =>
-              sum +
-              Math.round(
-                (result.originalCents * fee.effectivePercentageValue) / 10_000,
-              ) +
-              fee.effectiveFixedValue,
-            0,
-          )
+      ? (additiveFees ?? []).reduce(
+          (sum, fee) =>
+            sum +
+            Math.round((result.originalCents * fee.percentageValue) / 10_000) +
+            fee.fixedValue,
+          0,
+        )
       : result
         ? 0
         : undefined;

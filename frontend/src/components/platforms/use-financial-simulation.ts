@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import type {
-  AdditiveFeeEdit,
+  AdditiveValue,
   FinancialConfiguration,
   Lane,
   OwnerRule,
@@ -30,8 +30,8 @@ export function useFinancialSimulation({
   owner: Record<string, OwnerRule>;
   lanes: Record<string, Lane>;
   interestFree: boolean;
-  /** Draft additive-fee edits; part of the cache signature so stale rows are never reused. */
-  additiveFees?: AdditiveFeeEdit[];
+  /** Additive values; part of the cache signature so stale rows are never reused. */
+  additiveFees?: AdditiveValue[];
   valid: boolean;
   admin: boolean;
 }) {

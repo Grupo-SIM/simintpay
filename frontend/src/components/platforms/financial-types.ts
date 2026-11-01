@@ -13,36 +13,17 @@ export type Lane = {
 };
 export type FeeMode = 'SIMINTPAY_ONLY' | 'ADDITIVE_ONLY' | 'BOTH';
 export type AdditiveFeeScope = 'order' | 'product';
-export type AdditiveFeeDisplayMode =
-  'product_explicit' | 'embedded' | 'checkout_only';
-/** percentageValue in basis points (100 = 1%), fixedValue in cents. */
-export type AdditiveFee = {
-  id: string;
+/** Resolved value pushed by SIM Delivery (catalog lives there); percentageValue in basis points, fixedValue in cents. */
+export type AdditiveValue = {
+  externalId: string;
   name: string;
   applicationScope: AdditiveFeeScope;
-  displayMode: AdditiveFeeDisplayMode;
   percentageValue: number;
   fixedValue: number;
-  active: boolean;
-};
-export type CompanyAdditiveFee = AdditiveFee & {
-  associated: boolean;
-  percentageOverride: number | null;
-  fixedOverride: number | null;
-  effectivePercentageValue: number;
-  effectiveFixedValue: number;
-};
-/** Draft edit of one fee association, sent as-is in the PATCH body. */
-export type AdditiveFeeEdit = {
-  feeId: string;
-  associated?: boolean;
-  percentageOverride?: number | null;
-  fixedOverride?: number | null;
-  reset?: boolean;
 };
 export type FinancialConfiguration = {
-  /** Catalog with this platform's associations/overrides (GLOBAL: the catalog itself). */
-  additiveFees?: CompanyAdditiveFee[];
+  /** Read-only values SIM Delivery sent for this platform (admin only; GLOBAL has none). */
+  additiveFees?: AdditiveValue[];
   /** Null for GLOBAL, which has no platform row. */
   feeMode?: FeeMode | null;
   /** `METHOD/installments` lanes the platform does not accept; null for GLOBAL. */
@@ -109,58 +90,26 @@ export const defaultLane = (): Lane => ({
 export const formatCents = (value: number) =>
   (value / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-/** What a fee charges after the draft edit: reset drops overrides, otherwise overrides win over the catalog. */
-export const applyAdditiveEdit = (
-  fee: CompanyAdditiveFee,
-  edit?: AdditiveFeeEdit,
-): CompanyAdditiveFee => {
-  if (!edit) return fee;
-  const percentageOverride = edit.reset
-    ? null
-    : edit.percentageOverride !== undefined
-      ? edit.percentageOverride
-      : fee.percentageOverride;
-  const fixedOverride = edit.reset
-    ? null
-    : edit.fixedOverride !== undefined
-      ? edit.fixedOverride
-      : fee.fixedOverride;
-  return {
-    ...fee,
-    associated: edit.associated ?? fee.associated,
-    percentageOverride,
-    fixedOverride,
-    effectivePercentageValue: percentageOverride ?? fee.percentageValue,
-    effectiveFixedValue: fixedOverride ?? fee.fixedValue,
-  };
-};
 /**
- * Merchant's effective fee for a lane: active associated additive fees (unless SIMINTPAY_ONLY) plus the
+ * Merchant's effective fee for a lane: additive values (unless SIMINTPAY_ONLY) plus the
  * SimIntPay lane fee (unless ADDITIVE_ONLY), percentage and fixed summed separately.
- * `lane.total`, when set, is the all-in SimIntPay charge (it already includes the acquirer cost), so it is the
- * SimIntPay part; otherwise `lane.sim` is used, matching the "SimIntPay" column of the simulation card.
+ * The SimIntPay part is always `lane.sim`, same as backend `evaluateCoverage` (`lane.total` is ignored).
  */
 export const effectiveFee = (
   lane: Lane | undefined,
   feeMode: FeeMode | null | undefined,
-  additiveFees: CompanyAdditiveFee[] = [],
+  additiveFees: AdditiveValue[] = [],
 ): Addition => {
   const mode = feeMode ?? 'SIMINTPAY_ONLY';
-  const sim = lane ? (lane.total ?? lane.sim) : undefined;
-  const additive =
-    mode === 'SIMINTPAY_ONLY'
-      ? []
-      : additiveFees.filter((fee) => fee.associated && fee.active);
+  const sim = lane?.sim;
+  const additive = mode === 'SIMINTPAY_ONLY' ? [] : additiveFees;
   return {
     ratePpm:
       (mode === 'ADDITIVE_ONLY' ? 0 : (sim?.ratePpm ?? 0)) +
-      additive.reduce(
-        (sum, fee) => sum + fee.effectivePercentageValue * 100,
-        0,
-      ),
+      additive.reduce((sum, fee) => sum + fee.percentageValue * 100, 0),
     fixedCents:
       (mode === 'ADDITIVE_ONLY' ? 0 : (sim?.fixedCents ?? 0)) +
-      additive.reduce((sum, fee) => sum + fee.effectiveFixedValue, 0),
+      additive.reduce((sum, fee) => sum + fee.fixedValue, 0),
   };
 };
 /** Short when the effective fee is below the acquirer cost on either component. */
@@ -175,9 +124,4 @@ export const formatFeeValue = (percentageBp: number, fixedCents: number) =>
 export const SCOPE_LABELS: Record<AdditiveFeeScope, string> = {
   order: 'Por pedido',
   product: 'Por produto',
-};
-export const DISPLAY_MODE_LABELS: Record<AdditiveFeeDisplayMode, string> = {
-  product_explicit: 'Explícita no produto',
-  embedded: 'Embutida no preço',
-  checkout_only: 'Somente no checkout',
 };

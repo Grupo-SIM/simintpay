@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { chromium } from 'playwright-core';
 
-test('admin associates additive fee, sees effective merchant fee and coverage, saves in PATCH', async () => {
+test('admin sees read-only additive values, effective merchant fee and coverage', async () => {
   const bundle = await Bun.build({
     entrypoints: [import.meta.dir + '/financial-policy-browser-entry.tsx'],
     target: 'browser',
@@ -39,19 +39,12 @@ test('admin associates additive fee, sees effective merchant fee and coverage, s
   });
   try {
     const page = await browser.newPage();
-    const fee = (id, name, percentageValue, fixedValue, associated) => ({
-      id,
+    const fee = (externalId, name, percentageValue, fixedValue) => ({
+      externalId,
       name,
       applicationScope: 'order',
-      displayMode: 'checkout_only',
       percentageValue,
       fixedValue,
-      active: true,
-      associated,
-      percentageOverride: null,
-      fixedOverride: null,
-      effectivePercentageValue: percentageValue,
-      effectiveFixedValue: fixedValue,
     });
     const key = 'DOM/CREDIT_CARD/ONLINE/1';
     const lane = {
@@ -77,12 +70,8 @@ test('admin associates additive fee, sees effective merchant fee and coverage, s
       laneOverrides: { [key]: lane },
       interestFree: false,
       sources: {},
-      additiveFees: [
-        fee('a', 'Serviço', 50, 0, true),
-        fee('b', 'Entrega', 100, 100, false),
-      ],
+      additiveFees: [fee('a', 'Serviço', 50, 0)],
     };
-    let patch;
     await page.route('**/api/**', async (route) => {
       const request = route.request();
       if (request.url().endsWith('/platforms/acquirers'))
@@ -91,10 +80,6 @@ test('admin associates additive fee, sees effective merchant fee and coverage, s
         });
       if (request.method() === 'GET')
         return route.fulfill({ json: { data: configuration } });
-      if (request.method() === 'PATCH') {
-        patch = request.postDataJSON();
-        return route.fulfill({ json: { data: configuration } });
-      }
       return route.fulfill({
         json: { data: [{ installments: 1, error: 'sem simulação' }] },
       });
@@ -109,17 +94,23 @@ test('admin associates additive fee, sees effective merchant fee and coverage, s
       .getByRole('alert')
       .filter({ hasText: 'Cobertura insuficiente' })
       .waitFor();
-    await page.getByRole('combobox', { name: 'Associar taxa' }).click();
-    await page.getByRole('option', { name: /Entrega/ }).click();
-    await page.getByRole('button', { name: 'Associar', exact: true }).click();
+    expect(await page.locator('body').innerText()).toContain(
+      'Gerenciadas no SIM Delivery',
+    );
+    expect(
+      await page.getByRole('combobox', { name: 'Associar taxa' }).count(),
+    ).toBe(0);
+    expect(
+      await page.getByRole('button', { name: 'Associar', exact: true }).count(),
+    ).toBe(0);
+    // coverage uses lane.sim (backend evaluateCoverage): 1% + 0.5% < 2% cost
+    configuration.additiveFees = [
+      fee('a', 'Serviço', 50, 0),
+      fee('b', 'Entrega', 100, 100),
+    ];
+    await page.reload();
     await card.getByText('Cobre o custo da adquirente').waitFor();
     expect(await card.innerText()).toContain('2,5%');
-    expect(await card.innerText()).not.toContain('Não aplicado');
-    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
-    await page.waitForFunction(() => true);
-    for (let i = 0; i < 50 && patch === undefined; i++)
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(patch.additiveFees).toEqual([{ feeId: 'b', associated: true }]);
   } finally {
     await browser.close();
     server.stop(true);
