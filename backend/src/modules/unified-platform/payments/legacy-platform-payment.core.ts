@@ -243,7 +243,20 @@ export class LegacyPlatformPaymentCore {
             );
           })()
         : quoteFinancialCharge(
-            await loadChargePolicy(this.prisma, this.tag),
+            {
+              ...(await loadChargePolicy(this.prisma, this.tag)),
+              legacyCosts: {
+                acquirerCents: Math.round(
+                  body.price * this.config.mdr.pix * 100,
+                ),
+                simCents: Math.max(
+                  0,
+                  Math.round(
+                    body.price * (1 - this.config.saque.fatorLiquidez) * 100,
+                  ) - Math.round(body.price * this.config.mdr.pix * 100),
+                ),
+              },
+            },
             body.price,
             'PIX',
           );
@@ -419,7 +432,29 @@ export class LegacyPlatformPaymentCore {
             );
           })()
         : quoteFinancialCharge(
-            await loadChargePolicy(this.prisma, this.tag),
+            {
+              ...(await loadChargePolicy(this.prisma, this.tag)),
+              legacyCosts: {
+                acquirerCents: Math.round(
+                  body.price *
+                    (this.config.mdr.cartao[body.installments] ??
+                      this.config.mdr.cartao[1]) *
+                    100,
+                ),
+                simCents: Math.max(
+                  0,
+                  Math.round(
+                    body.price * (1 - this.config.saque.fatorLiquidez) * 100,
+                  ) -
+                    Math.round(
+                      body.price *
+                        (this.config.mdr.cartao[body.installments] ??
+                          this.config.mdr.cartao[1]) *
+                        100,
+                    ),
+                ),
+              },
+            },
             body.price,
             'CREDIT_CARD',
             body.installments,

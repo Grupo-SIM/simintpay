@@ -139,6 +139,7 @@ export function calculateFinancials(
   originalCents: number,
   interestFree = policy.document.interestFree,
   scheduled?: { fees: ScheduledFee[]; routedAcquirer: string },
+  buyerTotalAsInput = false,
 ) {
   if (
     !Number.isSafeInteger(originalCents) ||
@@ -167,6 +168,7 @@ export function calculateFinancials(
       n,
       interestFree,
       scheduled,
+      buyerTotalAsInput,
     );
   if (scheduled)
     return calculateUnconfiguredFinancials(
@@ -180,12 +182,14 @@ export function calculateFinancials(
       scheduled.routedAcquirer,
     );
   const interestCostCents = acquirerInterestCents + simInterestCents;
-  const buyerInterestCents = interestFree
-    ? 0
-    : round(fraction(interestCostCents, owner.passInterestPpm));
-  const buyerAdditionCents = policy.document.interestOnly
-    ? 0
-    : owner.fixedCents + round(fraction(originalCents, owner.ratePpm));
+  const buyerInterestCents =
+    buyerTotalAsInput || interestFree
+      ? 0
+      : round(fraction(interestCostCents, owner.passInterestPpm));
+  const buyerAdditionCents =
+    buyerTotalAsInput || policy.document.interestOnly
+      ? 0
+      : owner.fixedCents + round(fraction(originalCents, owner.ratePpm));
   const buyerTotalCents =
     originalCents + buyerAdditionCents + buyerInterestCents;
   const acquirerBase =
@@ -308,6 +312,7 @@ function calculateScheduledFinancials(
   n: number,
   interestFree: boolean | undefined,
   scheduled: { fees: ScheduledFee[]; routedAcquirer: string },
+  buyerTotalAsInput = false,
 ) {
   const price = (fees: ScheduledFee[], sim: Lane['sim']) => {
     const cost = (fee: ScheduledFee, buyerTotalCents: number) =>
@@ -345,7 +350,9 @@ function calculateScheduledFinancials(
               owner.passInterestPpm,
             ),
           );
-      const next = originalCents + buyerAdditionCents + buyerInterestCents;
+      const next = buyerTotalAsInput
+        ? originalCents
+        : originalCents + buyerAdditionCents + buyerInterestCents;
       if (next === buyerTotalCents) break;
       buyerTotalCents = next;
       if (i === 11)
@@ -374,7 +381,11 @@ function calculateScheduledFinancials(
     : undefined;
   // A floor is one historical quote, not independent maxima of its price and costs.
   // Preserve the seller's original repass when a cheaper schedule would lower the buyer charge.
-  const floored = !!floor && floor.buyerTotalCents > current.buyerTotalCents;
+  const floored =
+    !!floor &&
+    (buyerTotalAsInput
+      ? floor.contracted > current.contracted
+      : floor.buyerTotalCents > current.buyerTotalCents);
   const selected = floored ? floor : current;
   const buyerTotalCents = selected.buyerTotalCents;
   const contractedCostCents = selected.contracted;
@@ -383,9 +394,10 @@ function calculateScheduledFinancials(
   const pricingAcquirer = selected.winner.acquirer;
   const realizedAcquirer = scheduled.routedAcquirer;
   const fallbackPricing = pricingAcquirer !== realizedAcquirer;
-  const buyerInterestCents = interestFree
-    ? 0
-    : round(fraction(interestCostCents, owner.passInterestPpm));
+  const buyerInterestCents =
+    buyerTotalAsInput || interestFree
+      ? 0
+      : round(fraction(interestCostCents, owner.passInterestPpm));
   const buyerAdditionCents =
     buyerTotalCents - originalCents - buyerInterestCents;
   const routed = scheduled.fees.find(

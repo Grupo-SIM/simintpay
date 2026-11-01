@@ -1,3 +1,9 @@
+import {
+  calculatePlatformFees,
+  totalsToFees,
+  type FeeMode,
+  type AdditiveTotals,
+} from '../additive-fees/additive-fee-calculation';
 import { BadRequestException } from '@nestjs/common';
 import {
   calculateFinancials,
@@ -32,7 +38,7 @@ export async function loadChargePolicy(
 ) {
   const [policy, platform] = await Promise.all([
     loadFinancialPolicy(prisma, tag, at),
-    prisma.platform.findUnique({ where: { tag }, select: { acquirer: true } }),
+    loadPlatformChargeContext(prisma, tag),
   ]);
   const acquirer = platform?.acquirer ?? 'DOM';
   const feesByLane: Record<string, AcquirerCost[]> = {};
@@ -50,7 +56,35 @@ export async function loadChargePolicy(
         ),
     ),
   );
-  return { policy, tag, acquirer, feesByLane };
+  return { policy, tag, acquirer, feesByLane, ...platform };
+}
+/** Reserved policy tags are not registered payment platforms. */
+export async function loadPlatformChargeContext(
+  prisma: Pick<Prisma.TransactionClient, 'platform'>,
+  tag: string,
+) {
+  if (tag === 'GLOBAL' || tag === 'SIMINTPAY' || tag.startsWith('CLIENT:'))
+    return null;
+  const platform = await prisma.platform.findUnique({
+    where: { tag },
+    select: { acquirer: true, feeMode: true, additiveFees: true },
+  });
+  return platform
+    ? {
+        acquirer: platform.acquirer,
+        platformFeeMode: platform.feeMode,
+        additiveTotals: {
+          order: {
+            percentageValue: platform.additiveFees?.orderPct ?? 0,
+            fixedValue: platform.additiveFees?.orderFixed ?? 0,
+          },
+          product: {
+            percentageValue: platform.additiveFees?.productPct ?? 0,
+            fixedValue: platform.additiveFees?.productFixed ?? 0,
+          },
+        },
+      }
+    : null;
 }
 export function quoteFinancialCharge(
   context: {
@@ -58,6 +92,9 @@ export function quoteFinancialCharge(
     acquirer: string;
     tag?: string;
     feesByLane?: Record<string, AcquirerCost[]>;
+    platformFeeMode?: FeeMode;
+    additiveTotals?: AdditiveTotals;
+    legacyCosts?: { acquirerCents: number; simCents: number };
   },
   amount: number,
   method: Method,
@@ -92,18 +129,123 @@ export function quoteFinancialCharge(
         installments,
       )
     : routeKey;
-  if (!key || !context.policy.document.lanes[key]) return null; // Unconfigured lanes retain legacy pricing.
+  if (
+    (!key || !context.policy.document.lanes[key] || !fees.length) &&
+    context.platformFeeMode &&
+    context.legacyCosts
+  ) {
+    const base = emptyPolicy();
+    base.lanes[routeKey] = {
+      active: true,
+      contract: {
+        fixedCents: context.legacyCosts.acquirerCents,
+        ratePpm: 0,
+        interestPpm: 0,
+        cashbackCents: 0,
+        base: 'ORIGINAL',
+        reference: 'LEGACY_AGGREGATE',
+      },
+      sim: {
+        fixedCents: context.legacyCosts.simCents,
+        ratePpm: 0,
+        interestPpm: 0,
+      },
+    };
+    const fee: AcquirerCost = {
+      acquirer: context.acquirer,
+      fixedCents: context.legacyCosts.acquirerCents,
+      ratePpm: 0,
+      interestPpm: 0,
+      base: 'ORIGINAL',
+      source: 'LEGACY_AGGREGATE',
+      createdAt: new Date(0),
+    };
+    return quoteFinancialCharge(
+      {
+        ...context,
+        legacyCosts: undefined,
+        policy: { ...context.policy, document: base },
+        feesByLane: { [`${method}/${channel}/${installments}`]: [fee] },
+      },
+      amount,
+      method,
+      installments,
+      channel,
+    );
+  }
+  if (!key || !context.policy.document.lanes[key]) {
+    if (context.platformFeeMode)
+      throw new BadRequestException(
+        'Taxas da plataforma não configuradas para esta modalidade',
+      );
+    return null;
+  }
+  if (context.platformFeeMode && !fees.length)
+    throw new BadRequestException('Custo da adquirente não configurado');
+  let policy = context.policy;
+  let additiveCents = 0;
+  if (
+    context.platformFeeMode &&
+    context.platformFeeMode !== 'SIMINTPAY_ONLY' &&
+    context.additiveTotals
+  ) {
+    const totals = context.additiveTotals;
+    if (totals.product.fixedValue || totals.product.percentageValue)
+      throw new BadRequestException(
+        'Taxas por produto exigem uma base explícita de itens',
+      );
+    additiveCents = calculatePlatformFees(
+      totalsToFees(totals).filter((fee) => fee.applicationScope === 'order'),
+      [{ key: 'order', quantity: 1, unitPrice: cents(amount) }],
+    ).feeTotalCents;
+  }
+  if (context.platformFeeMode === 'ADDITIVE_ONLY') {
+    policy = {
+      ...policy,
+      document: {
+        ...policy.document,
+        lanes: {
+          ...policy.document.lanes,
+          [key]: {
+            ...policy.document.lanes[key]!,
+            priceFloor: undefined,
+            sim: { ratePpm: 0, fixedCents: 0, interestPpm: 0 },
+          },
+        },
+      },
+    };
+  }
   const r = calculateFinancials(
-    context.policy,
+    policy,
     key,
     cents(amount),
     undefined,
     scheduled,
+    !!context.platformFeeMode,
   );
+  if (additiveCents) {
+    r.contractedCostCents += additiveCents;
+    r.processingCostCents += additiveCents;
+    r.netCents -= additiveCents;
+    r.simMarginCents += additiveCents;
+    r.differenceCents -= additiveCents;
+  }
+  if (context.platformFeeMode && r.netCents < 0)
+    throw new BadRequestException(
+      'Valor insuficiente para as taxas da plataforma',
+    );
   const routed = fees.find((fee) => fee.acquirer === context.acquirer);
   return {
     financialSnapshot: {
       ...ownerResult(r),
+      ...(context.platformFeeMode
+        ? {
+            platformFeeMode: context.platformFeeMode,
+            additiveFeeCents: additiveCents,
+            processingCostCents: r.processingCostCents,
+            interestCostCents: r.interestCostCents,
+          }
+        : {}),
       ...(routed
         ? {
             acquirerCost: {
@@ -143,7 +285,8 @@ export function quoteFinancialCharge(
     domFeePercent: 0,
     domFeeFixed: 0,
     totalFeeAmount: r.contractedCostCents / 100,
-    platformFeeAmount: (r.simAdditionCents + r.simInterestCents) / 100,
+    platformFeeAmount:
+      (r.simAdditionCents + r.simInterestCents + additiveCents) / 100,
     platformFeeTotal: r.contractedCostCents / 100,
     platformProfit: r.simMarginCents / 100,
   };
@@ -156,6 +299,8 @@ export function quoteReportedPos(
   method: Method,
   n = 1,
 ) {
+  if (context.platformFeeMode)
+    return quoteFinancialCharge(context, buyerTotal, method, n, 'POS');
   const routeKey = laneKey(context.acquirer, method, 'POS', n);
   const fees = context.feesByLane?.[`${method}/POS/${n}`] ?? [];
   const key = context.feesByLane
@@ -213,6 +358,7 @@ export async function restoreFinancialCharge(
     key: string;
     interestOnly?: boolean;
     defaultInterestPassThrough?: boolean;
+    platformFeeMode?: FeeMode;
     acquirerCost?: AcquirerCost & { realizedCents: number | null };
     originalCents: number;
     buyerTotalCents: number;

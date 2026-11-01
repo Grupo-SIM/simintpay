@@ -11,7 +11,10 @@ import {
 import { deliveryProfile } from '../../platform-core/delivery-profile';
 import type { PlatformContext } from '../../platform-core/platform-context.service';
 import { loadFinancialPolicy } from '../../financial-policy/financial-policy.service';
-import { quoteFinancialCharge } from '../../financial-policy/financial-charge';
+import {
+  quoteFinancialCharge,
+  loadPlatformChargeContext,
+} from '../../financial-policy/financial-charge';
 import {
   estimatedCost,
   listAcquirerFees,
@@ -329,7 +332,12 @@ export class PlatformPaymentsService {
             installments,
           )
         : [];
+    const platformChargeContext =
+      !acquiring && !existing
+        ? await loadPlatformChargeContext(this.prisma, platform.tag)
+        : null;
     const feeContext = {
+      ...platformChargeContext,
       feesByLane: { [`${input.paymentMethod}/ONLINE/${installments}`]: fees },
     };
     // The quote engine prices every candidate from the same active schedule,
@@ -444,6 +452,25 @@ export class PlatformPaymentsService {
         }
       : quoteFinancialCharge(
           {
+            ...platformChargeContext,
+            legacyCosts: {
+              acquirerCents: selectedFee
+                ? estimatedCost(
+                    selectedFee,
+                    input.amountCents,
+                    input.amountCents,
+                  )
+                : new Prisma.Decimal(
+                    adapter.fees(
+                      amount,
+                      rates,
+                      cardAcquirer ? input.card!.installments : undefined,
+                    ).domFee,
+                  )
+                    .mul(100)
+                    .toNumber(),
+              simCents: 0,
+            },
             policy: policy!,
             acquirer: selectedAcquirer,
             tag: platform.tag,
