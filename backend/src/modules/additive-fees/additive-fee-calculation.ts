@@ -1,21 +1,14 @@
 /** Port of sim-delivery `platformFees/calculateFees.ts` + `feeCoverage.ts`; keep rounding identical. */
 
 export const FEE_SCOPES = ['order', 'product'] as const;
-export const FEE_DISPLAY_MODES = [
-  'product_explicit',
-  'embedded',
-  'checkout_only',
-] as const;
 export type FeeScope = (typeof FEE_SCOPES)[number];
-export type FeeDisplayMode = (typeof FEE_DISPLAY_MODES)[number];
 export type FeeMode = 'SIMINTPAY_ONLY' | 'ADDITIVE_ONLY' | 'BOTH';
 
-/** A fee after platform overrides; percentage in basis points, fixed in cents. */
+/** A resolved additive value pushed by SIM Delivery; percentage in basis points, fixed in cents. */
 export type EffectiveFee = {
   id: string;
   name: string;
   applicationScope: FeeScope;
-  displayMode: FeeDisplayMode;
   percentageValue: number;
   fixedValue: number;
 };

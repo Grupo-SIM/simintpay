@@ -1,11 +1,9 @@
-import type { AdditiveFeeInput } from '../../modules/additive-fees/additive-fees.service';
 import type { SimulationInput } from '../../modules/financial-policy/financial-policy.service';
 import {
   Body,
   Controller,
   Delete,
   Get,
-  HttpCode,
   Param,
   Patch,
   Post,
@@ -40,37 +38,6 @@ export class PlatformsController {
   })
   owned(@CurrentUser() user: JwtPayload) {
     return this.platforms.list(user, true);
-  }
-
-  @Get('additive-fees')
-  @ApiOperation({
-    summary: 'Catálogo global de taxas aditivas (administrador)',
-  })
-  additiveFees(@CurrentUser() user: JwtPayload) {
-    return this.platforms.additiveFees(user);
-  }
-
-  @Post('additive-fees')
-  createAdditiveFee(
-    @CurrentUser() user: JwtPayload,
-    @Body() body: AdditiveFeeInput,
-  ) {
-    return this.platforms.createAdditiveFee(user, body);
-  }
-
-  @Patch('additive-fees/:id')
-  updateAdditiveFee(
-    @CurrentUser() user: JwtPayload,
-    @Param('id') id: string,
-    @Body() body: AdditiveFeeInput,
-  ) {
-    return this.platforms.updateAdditiveFee(user, id, body);
-  }
-
-  @Delete('additive-fees/:id')
-  @HttpCode(204)
-  deleteAdditiveFee(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    return this.platforms.deleteAdditiveFee(user, id);
   }
 
   @Get('acquirers')

@@ -50,8 +50,7 @@ function fixture(role = 'USER', ownerUserId = 'owner') {
   ]);
   const prisma: any = {
     acquirerCatalogue: { findMany: mock(async () => [{ code: 'DOM' }]) },
-    additiveFee: { findMany: mock(async () => []) },
-    platformAdditiveFee: { findMany: mock(async () => []) },
+    platformAdditiveValue: { findMany: mock(async () => []) },
     user: {
       findUnique: mock(async () => ({ isActive: true, isPurged: false, role })),
     },

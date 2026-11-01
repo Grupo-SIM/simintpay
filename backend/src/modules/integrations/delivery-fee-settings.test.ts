@@ -36,8 +36,19 @@ describe('delivery fee lanes', () => {
           deliveryFeeMode: 'ADDITIVE_ONLY',
         }),
       },
-      additiveFee: { findMany: async () => [] },
-      platformAdditiveFee: { findMany: async () => [] },
+      platformAdditiveValue: {
+        findMany: async () => [
+          {
+            externalId: 'fee-1',
+            name: 'Serviço',
+            applicationScope: 'order',
+            percentageValue: 100,
+            fixedValue: 50,
+            sortOrder: 0,
+            createdAt: new Date(),
+          },
+        ],
+      },
       financialPolicyRevision: { findMany: async () => [] },
       acquirerCatalogue: { findMany: async () => [{ code: 'DOM' }] },
       acquirerFeeSchedule: {
@@ -72,6 +83,20 @@ describe('delivery fee lanes', () => {
       'underCovered',
       'version',
     ]);
+    expect(result.additiveFees).toEqual([
+      {
+        externalId: 'fee-1',
+        name: 'Serviço',
+        applicationScope: 'order',
+        percentageValue: 100,
+        fixedValue: 50,
+      },
+    ]);
+    // ADDITIVE_ONLY: coverage comes from the stored values alone (100 bps = 10_000 ppm, 50 cents).
+    expect(result.coverage[0]?.covered).toEqual({
+      fixedCents: 50,
+      ratePpm: 10_000,
+    });
     expect(result.costs).toHaveLength(13);
     expect(result.costs.find((fee) => fee.method === 'PIX')?.ratePpm).toBe(
       9_800,

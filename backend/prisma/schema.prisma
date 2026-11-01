@@ -1349,7 +1349,7 @@ model Platform {
   delegatedCredentials PlatformApiCredential[]
   deliveryRegistrations DeliveryPlatformRegistration[]
   salesEvents PlatformSalesEvent[]
-  additiveFees PlatformAdditiveFee[]
+  additiveValues PlatformAdditiveValue[]
 }
 
 /// Private integration configuration; encrypted values never appear in public metadata.
@@ -1577,40 +1577,23 @@ model ProductOwnershipChange {
   @@index([productType, productId])
 }
 
-/// Global catalog of surcharges added on top of the buyer price (percentage in basis points, fixed in cents).
-model AdditiveFee {
-  id               String   @id @default(uuid())
+/// Resolved additive surcharge values pushed by SIM Delivery (which owns the catalog); replaced as a whole per platform.
+model PlatformAdditiveValue {
+  platformId       String
+  externalId       String
+  /// Display only.
   name             String
-  /// Lower-cased trimmed name used for case-insensitive uniqueness among non-deleted fees.
-  nameKey          String   @unique
   /// order | product
   applicationScope String
-  /// product_explicit | embedded | checkout_only
-  displayMode      String
-  percentageBps    Int      @default(0)
-  fixedCents       Int      @default(0)
-  active           Boolean  @default(true)
-  deletedAt        DateTime?
+  /// Basis points (100 = 1%).
+  percentageValue  Int      @default(0)
+  /// Cents.
+  fixedValue       Int      @default(0)
+  sortOrder        Int      @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  platforms PlatformAdditiveFee[]
+  platform Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
 
-  @@index([active, deletedAt])
-}
-
-/// A fee associated with a platform; a row means "associated". Null overrides inherit the catalog values.
-model PlatformAdditiveFee {
-  platformId         String
-  feeId              String
-  percentageOverride Int?
-  fixedOverride      Int?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  platform Platform    @relation(fields: [platformId], references: [id], onDelete: Cascade)
-  fee      AdditiveFee @relation(fields: [feeId], references: [id], onDelete: Cascade)
-
-  @@id([platformId, feeId])
-  @@index([feeId])
+  @@id([platformId, externalId])
 }

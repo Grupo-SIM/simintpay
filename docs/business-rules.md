@@ -321,6 +321,10 @@ Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado concl
 - Empresas Delivery possuem configurações independentes. Plataforma compartilhada
   historicamente exige regularização antes da habilitação; não habilitar 5% automaticamente.
 
+## Taxas aditivas (Sim Delivery)
+
+O Sim Delivery é dono do catálogo de taxas aditivas (nome, escopo, modo de exibição, associação e sobrescritas por empresa). A SimIntPay não tem catálogo: guarda apenas, por plataforma, a lista de VALORES já resolvidos enviada pelo Delivery (`externalId`, `name` só para exibição, `applicationScope` `order|product`, `percentageValue` em basis points, `fixedValue` em centavos). `PUT platform-registrations/:companyId/fees` com `additiveFees` substitui a lista inteira, atomicamente com modo/modalidades e sob a mesma `version`; omitir mantém, `[]` limpa. `GET` devolve a lista, `coverage` e `underCovered`, calculados a partir dos valores guardados, do modo, das tarifas `sim` e do custo da adquirente (modalidades desativadas excluídas). Na cobrança com itens, a SimIntPay recalcula a taxa a partir dos valores guardados e responde 409 `FEE_MISMATCH` se divergir. A API admin `GET /platforms/:tag/financial-policy` expõe `additiveFees` somente leitura; não há CRUD nem edição na SimIntPay.
+
 ## Filtros e exclusão do histórico de assinantes
 
 Listagem mescla assinaturas DOM e pausas locais, resolve plataformas e aplica busca, plataforma, primeira cobrança, status e frequência antes de paginar. Mensal/anual exigem intervalo um. Status agrupados: ativo, pausado e desativado; estados ausentes/desconhecidos permanecem na listagem sem autorizar exclusão. Exclusão local do histórico exige admin master e status conhecido CANCELLED/CANCELED/INACTIVE/DISABLED/DEACTIVATED, reconsultado na adquirente; pausa local ou explícita bloqueia exclusão. Nenhuma assinatura é apagada na adquirente.

@@ -23,10 +23,8 @@ import {
   type ResolvedPolicy,
 } from './financial-policy';
 import {
-  listCompanyAdditiveFees,
-  saveAdditiveAssociations,
-  type AdditiveAssociationInput,
-  type CompanyAdditiveFee,
+  listAdditiveValues,
+  type AdditiveValue,
 } from '../additive-fees/additive-fees.service';
 import { listAcquirerFees } from './acquirer-fees';
 
@@ -79,7 +77,7 @@ export function projectPolicy(
   admin: boolean,
   feeMode: DeliveryFeeMode | null = null,
   disabledLanes: string[] | null = null,
-  additiveFees: CompanyAdditiveFee[] | null = null,
+  additiveFees: AdditiveValue[] | null = null,
 ) {
   const { version, sources } = policy;
   return {
@@ -142,22 +140,18 @@ async function platformFeeMode(
   return platform?.deliveryFeeMode ?? null;
 }
 
-/** Admin view of the additive catalog: platform association/overrides, or the plain catalog for GLOBAL. */
+/** Admin read-only view of the values SIM Delivery pushed for the platform; GLOBAL has none. */
 async function adminAdditiveFees(
-  prisma: Pick<
-    Prisma.TransactionClient,
-    'additiveFee' | 'platform' | 'platformAdditiveFee'
-  >,
+  prisma: Pick<Prisma.TransactionClient, 'platform' | 'platformAdditiveValue'>,
   tag: string,
   admin: boolean,
-): Promise<CompanyAdditiveFee[] | null> {
-  if (!admin) return null;
-  if (tag === 'GLOBAL') return listCompanyAdditiveFees(prisma, null);
+): Promise<AdditiveValue[] | null> {
+  if (!admin || tag === 'GLOBAL') return null;
   const platform = await prisma.platform.findUnique({
     where: { tag },
     select: { id: true },
   });
-  return listCompanyAdditiveFees(prisma, platform?.id ?? null);
+  return platform ? listAdditiveValues(prisma, platform.id) : [];
 }
 
 /** Lanes (`METHOD/installments`) the platform does not accept. GLOBAL has none. */
@@ -206,7 +200,6 @@ export async function saveFinancialPolicy(
     lanes?: unknown;
     feeMode?: unknown;
     disabledLanes?: unknown;
-    additiveFees?: unknown;
   };
   if (
     Object.keys(body).some(
@@ -218,7 +211,6 @@ export async function saveFinancialPolicy(
           'lanes',
           'feeMode',
           'disabledLanes',
-          'additiveFees',
         ].includes(key),
     )
   )
@@ -237,24 +229,6 @@ export async function saveFinancialPolicy(
       )
     )
       throw new BadRequestException('Modo de taxas inválido');
-  }
-  if (input.additiveFees !== undefined) {
-    if (!admin)
-      throw new ForbiddenException(
-        'Taxas aditivas exclusivas do administrador',
-      );
-    if (
-      tag === 'GLOBAL' ||
-      !Array.isArray(input.additiveFees) ||
-      input.additiveFees.length > 500 ||
-      input.additiveFees.some(
-        (entry) =>
-          !entry ||
-          typeof entry !== 'object' ||
-          typeof (entry as { feeId?: unknown }).feeId !== 'string',
-      )
-    )
-      throw new BadRequestException('Taxas aditivas inválidas');
   }
   if (input.disabledLanes !== undefined) {
     // Admins and the platform owner (checked by `authorize`) both choose which lanes the platform offers.
@@ -308,17 +282,6 @@ export async function saveFinancialPolicy(
               ].sort(),
             },
           });
-        if (input.additiveFees !== undefined) {
-          const platform = await tx.platform.findUniqueOrThrow({
-            where: { tag },
-            select: { id: true },
-          });
-          await saveAdditiveAssociations(
-            tx,
-            platform.id,
-            input.additiveFees as AdditiveAssociationInput[],
-          );
-        }
         if (input.lanes !== undefined) {
           const codes = [
             ...new Set(

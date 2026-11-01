@@ -11,7 +11,6 @@ const fee = (over: Partial<EffectiveFee>): EffectiveFee => ({
   id: 'f',
   name: 'Taxa',
   applicationScope: 'order',
-  displayMode: 'checkout_only',
   percentageValue: 0,
   fixedValue: 0,
   ...over,

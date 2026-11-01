@@ -12,10 +12,10 @@ import {
   surchargeComponents,
 } from '../additive-fees/additive-fee-calculation';
 import {
-  listCompanyAdditiveFees,
-  listPlatformSurcharges,
-  saveAdditiveAssociations,
-  type AdditiveAssociationInput,
+  listAdditiveValues,
+  replaceAdditiveValues,
+  toEffectiveFees,
+  validateAdditiveValues,
 } from '../additive-fees/additive-fees.service';
 import {
   emptyPolicy,
@@ -135,12 +135,13 @@ export async function readDeliveryFees(
   const lanes = policyLanes(policy.document);
   const costs = (await acquirerCostFloor(tx)).sort(compareLanes);
   const disabledLanes = [...deliveryDisabledLanes].sort();
+  const additiveFees = await listAdditiveValues(tx, id);
   const coverage = evaluateCoverage({
     costs,
     disabledLanes,
     mode: deliveryFeeMode,
     simintpay: lanes,
-    surcharges: surchargeComponents(await listPlatformSurcharges(tx, id)),
+    surcharges: surchargeComponents(toEffectiveFees(additiveFees)),
   });
   return {
     mode: deliveryFeeMode,
@@ -148,7 +149,7 @@ export async function readDeliveryFees(
     disabledLanes,
     lanes,
     costs,
-    additiveFees: await listCompanyAdditiveFees(tx, id),
+    additiveFees,
     coverage,
     underCovered: hasShortfall(coverage),
   };
@@ -162,7 +163,7 @@ export async function saveDeliveryFees(
     lanes: DeliveryFeeLane[];
     mode?: DeliveryFeeMode;
     disabledLanes?: string[];
-    additiveFees?: AdditiveAssociationInput[];
+    additiveFees?: unknown;
   },
 ) {
   const { id: platformId, ownerUserId, tag } = await platformOf(tx, companyId);
@@ -182,8 +183,12 @@ export async function saveDeliveryFees(
       data: { deliveryDisabledLanes: [...new Set(input.disabledLanes)].sort() },
     });
   // Same transaction and version check as the lanes, so mode, lanes and additive fees land together or not at all.
-  if (input.additiveFees?.length)
-    await saveAdditiveAssociations(tx, platformId, input.additiveFees);
+  if (input.additiveFees !== undefined)
+    await replaceAdditiveValues(
+      tx,
+      platformId,
+      validateAdditiveValues(input.additiveFees),
+    );
   // A mode-only change must not create an empty policy revision.
   if (!input.lanes.length) return readDeliveryFees(tx, companyId);
   const previous = await tx.financialPolicyRevision.findFirst({

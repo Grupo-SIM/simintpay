@@ -158,7 +158,6 @@ test('recomputes the additive surcharge from order items and rejects a mismatch 
       id: 'f',
       name: 'Serviço',
       applicationScope: 'order' as const,
-      displayMode: 'checkout_only' as const,
       percentageValue: 1_000,
       fixedValue: 0,
     },

@@ -1,10 +1,7 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
-  HttpCode,
-  Patch,
   Header,
   Headers,
   Param,
@@ -19,7 +16,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
-  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -48,12 +44,6 @@ import {
   readDeliveryFees,
   saveDeliveryFees,
 } from './delivery-fee-settings';
-import {
-  createAdditiveFee,
-  deleteAdditiveFee,
-  listAdditiveFees,
-  updateAdditiveFee,
-} from '../additive-fees/additive-fees.service';
 import { platformMerchant } from '../platform-core/platform-merchant-lookup';
 
 class CompatibilityDto {
@@ -69,43 +59,12 @@ class FeeLaneDto {
   @IsInt() @Min(0) @Max(1_000_000_000) fixedCents!: number;
   @IsInt() @Min(0) @Max(1_000_000) ratePpm!: number;
 }
-class AdditiveAssociationDto {
-  @IsString() @MinLength(1) feeId!: string;
-  @IsOptional() @IsBoolean() associated?: boolean;
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(10_000)
-  percentageOverride?: number | null;
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(2_147_483_647)
-  fixedOverride?: number | null;
-  @IsOptional() @IsBoolean() reset?: boolean;
-}
-class AdditiveFeeCreateDto {
+class AdditiveValueDto {
+  @IsString() @MinLength(1) @MaxLength(200) externalId!: string;
   @IsString() @MinLength(1) @MaxLength(120) name!: string;
   @IsIn(['order', 'product']) applicationScope!: 'order' | 'product';
-  @IsIn(['product_explicit', 'embedded', 'checkout_only']) displayMode!:
-    | 'product_explicit'
-    | 'embedded'
-    | 'checkout_only';
-  @IsOptional() @IsInt() @Min(0) @Max(10_000) percentageValue?: number;
-  @IsOptional() @IsInt() @Min(0) @Max(2_147_483_647) fixedValue?: number;
-  @IsOptional() @IsBoolean() active?: boolean;
-}
-class AdditiveFeeUpdateDto {
-  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) name?: string;
-  @IsOptional() @IsIn(['order', 'product']) applicationScope?:
-    | 'order'
-    | 'product';
-  @IsOptional()
-  @IsIn(['product_explicit', 'embedded', 'checkout_only'])
-  displayMode?: 'product_explicit' | 'embedded' | 'checkout_only';
-  @IsOptional() @IsInt() @Min(0) @Max(10_000) percentageValue?: number;
-  @IsOptional() @IsInt() @Min(0) @Max(2_147_483_647) fixedValue?: number;
-  @IsOptional() @IsBoolean() active?: boolean;
+  @IsInt() @Min(0) @Max(10_000) percentageValue!: number;
+  @IsInt() @Min(0) @Max(2_147_483_647) fixedValue!: number;
 }
 class FeesDto {
   @IsOptional() @IsIn(['SIMINTPAY_ONLY', 'ADDITIVE_ONLY', 'BOTH']) mode?:
@@ -127,8 +86,8 @@ class FeesDto {
   @IsArray()
   @ArrayMaxSize(500)
   @ValidateNested({ each: true })
-  @Type(() => AdditiveAssociationDto)
-  additiveFees?: AdditiveAssociationDto[];
+  @Type(() => AdditiveValueDto)
+  additiveFees?: AdditiveValueDto[];
 }
 class RegistrationDto {
   @IsString() @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/) slug!: string;
@@ -239,40 +198,6 @@ export class PlatformRegistrationsController {
   async feeDefaults(@Headers('x-provisioning-token') token?: string) {
     assertDeliveryProvisioningToken(token);
     return this.prisma.$transaction((tx) => readDeliveryFeeDefaults(tx));
-  }
-  @Get('fees/additive')
-  @Header('Cache-Control', 'no-store')
-  async additiveFees(@Headers('x-provisioning-token') token?: string) {
-    assertDeliveryProvisioningToken(token);
-    return listAdditiveFees(this.prisma);
-  }
-  @Post('fees/additive')
-  @Header('Cache-Control', 'no-store')
-  async createAdditiveFee(
-    @Body() body: AdditiveFeeCreateDto,
-    @Headers('x-provisioning-token') token?: string,
-  ) {
-    assertDeliveryProvisioningToken(token);
-    return createAdditiveFee(this.prisma, body);
-  }
-  @Patch('fees/additive/:id')
-  @Header('Cache-Control', 'no-store')
-  async updateAdditiveFee(
-    @Param('id') id: string,
-    @Body() body: AdditiveFeeUpdateDto,
-    @Headers('x-provisioning-token') token?: string,
-  ) {
-    assertDeliveryProvisioningToken(token);
-    return updateAdditiveFee(this.prisma, id, body);
-  }
-  @Delete('fees/additive/:id')
-  @HttpCode(204)
-  async deleteAdditiveFee(
-    @Param('id') id: string,
-    @Headers('x-provisioning-token') token?: string,
-  ) {
-    assertDeliveryProvisioningToken(token);
-    await deleteAdditiveFee(this.prisma, id);
   }
   @Get(':companyId/fees')
   @Header('Cache-Control', 'no-store')

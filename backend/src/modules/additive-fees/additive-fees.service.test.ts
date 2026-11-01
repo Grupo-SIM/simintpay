@@ -1,100 +1,83 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  listCompanyAdditiveFees,
-  saveAdditiveAssociations,
-  withAssociation,
+  listAdditiveValues,
+  replaceAdditiveValues,
+  toEffectiveFees,
+  validateAdditiveValues,
 } from './additive-fees.service';
 
-const fee = {
-  id: 'f1',
+const value = {
+  externalId: 'f1',
   name: 'Serviço',
   applicationScope: 'order' as const,
-  displayMode: 'checkout_only' as const,
   percentageValue: 500,
   fixedValue: 100,
-  active: true,
 };
 
-describe('additive fee associations', () => {
-  it('uses overrides as effective values and falls back to the catalog', () => {
-    expect(withAssociation(fee)).toMatchObject({
-      associated: false,
-      effectivePercentageValue: 500,
-      effectiveFixedValue: 100,
-    });
-    expect(
-      withAssociation(fee, { percentageOverride: 200, fixedOverride: null }),
-    ).toMatchObject({
-      associated: true,
-      percentageOverride: 200,
-      effectivePercentageValue: 200,
-      effectiveFixedValue: 100,
-    });
+function fakeClient() {
+  let rows: Record<string, unknown>[] = [];
+  return {
+    client: {
+      platformAdditiveValue: {
+        deleteMany: async () => {
+          rows = [];
+        },
+        createMany: async ({ data }: { data: Record<string, unknown>[] }) => {
+          rows = data.map((row) => ({ ...row, createdAt: new Date() }));
+        },
+        findMany: async () =>
+          [...rows].sort(
+            (a, b) => (a.sortOrder as number) - (b.sortOrder as number),
+          ),
+      },
+    } as never,
+  };
+}
+
+describe('additive values', () => {
+  it('validates and trims a replacement list', () => {
+    expect(validateAdditiveValues([{ ...value, name: ' Serviço ' }])).toEqual([
+      value,
+    ]);
+    expect(validateAdditiveValues([])).toEqual([]);
   });
 
-  it('lists the whole catalog for GLOBAL as associated with no overrides', async () => {
-    const tx: any = {
-      additiveFee: {
-        findMany: async () => [
-          {
-            id: 'f1',
-            name: 'Serviço',
-            applicationScope: 'order',
-            displayMode: 'checkout_only',
-            percentageBps: 500,
-            fixedCents: 100,
-            active: false,
-          },
-        ],
-      },
-    };
-    expect(await listCompanyAdditiveFees(tx, null)).toEqual([
+  it('rejects malformed items and duplicate ids', () => {
+    expect(() => validateAdditiveValues([value, value])).toThrow();
+    expect(() =>
+      validateAdditiveValues([{ ...value, applicationScope: 'x' }]),
+    ).toThrow();
+    expect(() =>
+      validateAdditiveValues([{ ...value, percentageValue: 10_001 }]),
+    ).toThrow();
+    expect(() =>
+      validateAdditiveValues([{ ...value, fixedValue: -1 }]),
+    ).toThrow();
+    expect(() => validateAdditiveValues('x')).toThrow();
+  });
+
+  it('replaces the whole list preserving order and clears on empty', async () => {
+    const { client } = fakeClient();
+    await replaceAdditiveValues(client, 'p', [
+      value,
+      { ...value, externalId: 'f2' },
+    ]);
+    expect(
+      (await listAdditiveValues(client, 'p')).map((v) => v.externalId),
+    ).toEqual(['f1', 'f2']);
+    await replaceAdditiveValues(client, 'p', []);
+    expect(await listAdditiveValues(client, 'p')).toEqual([]);
+  });
+
+  it('maps values to calculation fees', () => {
+    expect(toEffectiveFees([value])).toEqual([
       {
-        ...fee,
-        active: false,
-        associated: true,
-        percentageOverride: null,
-        fixedOverride: null,
-        effectivePercentageValue: 500,
-        effectiveFixedValue: 100,
+        id: 'f1',
+        name: 'Serviço',
+        applicationScope: 'order',
+        percentageValue: 500,
+        fixedValue: 100,
       },
     ]);
-  });
-
-  it('removes on associated:false, clears overrides on reset, stores overrides otherwise', async () => {
-    const calls: [string, any][] = [];
-    const tx: any = {
-      additiveFee: {
-        findMany: async () => [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
-      },
-      platformAdditiveFee: {
-        deleteMany: async (a: any) => calls.push(['delete', a.where.feeId]),
-        findUnique: async () => ({}),
-        upsert: async (a: any) => calls.push(['upsert', a.update]),
-      },
-    };
-    await saveAdditiveAssociations(tx, 'p', [
-      { feeId: 'a', associated: false },
-      { feeId: 'b', reset: true },
-      { feeId: 'c', percentageOverride: 300, fixedOverride: null },
-    ]);
-    expect(calls).toEqual([
-      ['delete', 'a'],
-      ['upsert', { percentageOverride: null, fixedOverride: null }],
-      ['upsert', { percentageOverride: 300, fixedOverride: null }],
-    ]);
-  });
-
-  it('rejects unknown fees and out-of-range overrides', async () => {
-    const tx: any = { additiveFee: { findMany: async () => [] } };
-    expect(
-      saveAdditiveAssociations(tx, 'p', [{ feeId: 'x' }]),
-    ).rejects.toThrow();
-    const ok: any = { additiveFee: { findMany: async () => [{ id: 'x' }] } };
-    expect(
-      saveAdditiveAssociations(ok, 'p', [
-        { feeId: 'x', percentageOverride: 10_001 },
-      ]),
-    ).rejects.toThrow();
   });
 });
