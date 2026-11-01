@@ -64,7 +64,6 @@ model User {
   affiliateCommissionsEarned AffiliateCommission[] @relation("AffiliateCommissionsEarned")
   affiliateCommissionsGenerated AffiliateCommission[] @relation("AffiliateCommissionsGenerated")
   billingContracts       BillingContract[]
-  returnBetAccount       ReturnBetAccount?
   integrationMerchant    IntegrationMerchant?
   ownedPlatforms         Platform[] @relation("PlatformOwner")
 
@@ -611,34 +610,6 @@ model SubscriptionLinkOrder {
   @@index([subscriptionLinkId])
   @@index([userId])
   @@index([customerEmail])
-}
-
-/// Conta técnica usada exclusivamente para inserir saques do Return Bet na
-/// fila financeira da Simintpay sem permitir login ao cliente externo.
-model ReturnBetAccount {
-  id             String   @id @default(uuid())
-  externalUserId String   @unique
-  userId         String   @unique
-  name           String
-  email          String
-  document       String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([document])
-  @@index([email])
-}
-
-/// Política financeira exclusiva do Return Bet. Uma única linha, mantida pelo
-/// admin Return Bet via integração interna autenticada.
-model ReturnBetWithdrawalPolicy {
-  id                 String   @id
-  minimumGrossAmount Decimal  @default(100) @db.Decimal(12, 2)
-  fixedWithdrawalFee Decimal  @default(2) @db.Decimal(12, 2)
-  withdrawalWindowDays Int    @default(30)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
 }
 
 model Community {
