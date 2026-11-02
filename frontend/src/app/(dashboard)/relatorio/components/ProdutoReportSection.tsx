@@ -574,8 +574,9 @@ function AtlasPanel({
     name: string;
     email: string;
     cpf: string;
-    balance: number;
-    lockedBalance: number;
+    balance: number | null;
+    lockedBalance: number | null;
+    balanceStatus?: 'complete' | 'unavailable';
     createdAt: string;
   };
   const { data: atlasModalData, isLoading: isLoadingAtlasModal } = useQuery({
@@ -1704,7 +1705,7 @@ function AtlasPanel({
                         Email
                       </th>
                       <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
-                        Saldo Disponível
+                        Saldo Atribuído
                       </th>
                       <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
                         Saldo Bloqueado
@@ -1737,16 +1738,28 @@ function AtlasPanel({
                           {u.email || '—'}
                         </td>
                         <td className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-400">
-                          {u.balance.toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                          })}
+                          {u.balance === null ? (
+                            <span title="Histórico de atribuição incompleto ou carteira inconsistente; não representa saldo zero.">
+                              Indisponível
+                            </span>
+                          ) : (
+                            u.balance.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                            })
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right text-amber-600 dark:text-amber-400">
-                          {u.lockedBalance.toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                          })}
+                          {u.lockedBalance === null ? (
+                            <span title="Histórico de atribuição incompleto ou carteira inconsistente; não representa saldo zero.">
+                              Indisponível
+                            </span>
+                          ) : (
+                            u.lockedBalance.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                            })
+                          )}
                         </td>
                         <td className="px-3 py-2 text-zinc-500 dark:text-zinc-400">
                           {new Date(u.createdAt).toLocaleDateString('pt-BR')}
@@ -3195,8 +3208,9 @@ function GenericPlatformPanel({
     name: string;
     email: string;
     cpf: string;
-    balance: number;
-    lockedBalance: number;
+    balance: number | null;
+    lockedBalance: number | null;
+    balanceStatus?: 'complete' | 'unavailable';
     createdAt: string;
     status?: string;
     isRegisteredInSimIntPay?: boolean;
@@ -5199,7 +5213,7 @@ function GenericPlatformPanel({
                           {!isCommunity && (
                             <>
                               <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
-                                Saldo Disponível
+                                Saldo Atribuído
                               </th>
                               <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
                                 Saldo Bloqueado
@@ -5241,16 +5255,28 @@ function GenericPlatformPanel({
                             {!isCommunity && (
                               <>
                                 <td className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-400">
-                                  {u.balance.toLocaleString('pt-BR', {
-                                    style: 'currency',
-                                    currency: 'BRL',
-                                  })}
+                                  {u.balance === null ? (
+                                    <span title="Histórico de atribuição incompleto ou carteira inconsistente; não representa saldo zero.">
+                                      Indisponível
+                                    </span>
+                                  ) : (
+                                    u.balance.toLocaleString('pt-BR', {
+                                      style: 'currency',
+                                      currency: 'BRL',
+                                    })
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-right text-amber-600 dark:text-amber-400">
-                                  {u.lockedBalance.toLocaleString('pt-BR', {
-                                    style: 'currency',
-                                    currency: 'BRL',
-                                  })}
+                                  {u.lockedBalance === null ? (
+                                    <span title="Histórico de atribuição incompleto ou carteira inconsistente; não representa saldo zero.">
+                                      Indisponível
+                                    </span>
+                                  ) : (
+                                    u.lockedBalance.toLocaleString('pt-BR', {
+                                      style: 'currency',
+                                      currency: 'BRL',
+                                    })
+                                  )}
                                 </td>
                               </>
                             )}
