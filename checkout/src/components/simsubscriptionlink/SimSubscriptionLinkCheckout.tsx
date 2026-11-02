@@ -25,6 +25,11 @@ import {
 } from '@/components/checkout/CheckoutFormPrimitives';
 import { CheckoutCardPreview } from '@/components/checkout/CheckoutLayout';
 import { CheckoutStatusCard } from '@/components/checkout/CheckoutStatusCard';
+import {
+  CheckoutErrorScreen,
+  CheckoutLoadingScreen,
+  CheckoutSuccessScreen,
+} from '@/components/checkout/CheckoutStateScreens';
 import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
 import {
   maskCardMonth,
@@ -479,96 +484,35 @@ export default function SimSubscriptionLinkCheckout() {
     }
   }
 
-  if (fetching) {
+  if (fetching)
+    return <CheckoutLoadingScreen message="Carregando a assinatura…" />;
+
+  if (linkError || !link)
     return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            title="Carregando"
-            description="Buscando o link de assinatura"
-            className="max-w-sm text-center"
-          >
-            <p className="text-sm text-zinc-300">Aguarde um instante…</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
+      <CheckoutErrorScreen
+        title="Link não encontrado"
+        message={linkError || 'Este link de assinatura não está disponível.'}
+      />
     );
-  }
 
-  if (linkError || !link) {
+  if (paymentConfirmed)
     return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            variant="danger"
-            title="Link não encontrado"
-            className="w-full max-w-md text-center"
-          >
-            <AlertCircle className="mx-auto mb-3 h-10 w-10 text-red-400" />
-            <p className="text-sm text-red-100/90">{linkError}</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
+      <CheckoutSuccessScreen
+        eyebrow="Pagamento confirmado"
+        headline="Sua assinatura foi ativada!"
+        email={emailSent ? email : undefined}
+        redirectUrl={confirmedRedirectUrl}
+        accessLabel="Acessar"
+        extra={
+          confirmedOrderId ? (
+            <p className="text-xs text-[#7d778b]">
+              ID da assinatura:{' '}
+              <span className="font-mono">{confirmedOrderId}</span>
+            </p>
+          ) : undefined
+        }
+      />
     );
-  }
-
-  if (paymentConfirmed) {
-    return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            variant="success"
-            title="Pagamento confirmado!"
-            description="Assinatura realizada com sucesso"
-            className="w-full max-w-md"
-          >
-            <div className="flex flex-col items-center gap-4 text-center">
-              <CheckCircle className="h-14 w-14 text-emerald-300" />
-              <div>
-                <p className="text-base font-semibold text-zinc-100">
-                  Sua assinatura foi ativada!
-                </p>
-                <p className="mt-1 text-sm text-zinc-400">
-                  O pagamento foi confirmado. Acesse pelo botão abaixo.
-                </p>
-              </div>
-
-              {confirmedRedirectUrl && (
-                <a
-                  href={confirmedRedirectUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex w-full items-center justify-center gap-2 sp2-cta font-medium px-5 py-3 text-sm transition "
-                >
-                  Acessar
-                  <ArrowRight className="h-4 w-4" />
-                </a>
-              )}
-
-              {emailSent && email && (
-                <div className="flex w-full items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-200">
-                  <Mail className="h-4 w-4 shrink-0" />
-                  <span>
-                    Link enviado para <strong>{email}</strong>
-                  </span>
-                </div>
-              )}
-
-              {confirmedOrderId && (
-                <p className="text-xs text-zinc-500">
-                  ID da assinatura:{' '}
-                  <span className="font-mono">{confirmedOrderId}</span>
-                </p>
-              )}
-            </div>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
-    );
-  }
 
   const statusItems =
     paymentMethod === 'pix'

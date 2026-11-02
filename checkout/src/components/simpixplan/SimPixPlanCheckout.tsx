@@ -6,6 +6,11 @@ import { PAGATG_API_URL, SIM_API_URL } from '@/lib/api-config';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AlertCircle, Copy, Check, CheckCircle, Loader2 } from 'lucide-react';
+import {
+  CheckoutErrorScreen,
+  CheckoutLoadingScreen,
+  CheckoutSuccessScreen,
+} from '@/components/checkout/CheckoutStateScreens';
 import { CheckoutFlow } from '@/components/checkout/CheckoutFlow';
 import { StatusPill } from '@/components/checkout/ui';
 import { CheckoutFooter } from '@/components/checkout/CheckoutChrome';
@@ -473,82 +478,37 @@ export default function SimPixPlanCheckout() {
     }
   }
 
-  if (fetching) {
-    return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            title="Carregando"
-            description="Buscando plano PIX"
-            className="max-w-sm text-center"
-          >
-            <p className="text-sm text-zinc-300">Aguarde um instante…</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
-    );
-  }
+  if (fetching)
+    return <CheckoutLoadingScreen message="Carregando o plano PIX…" />;
 
-  if (planError || !planDetails) {
+  if (planError || !planDetails)
     return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            variant="danger"
-            title="Erro ao carregar o plano"
-            className="w-full max-w-md text-center"
-          >
-            <AlertCircle className="mx-auto mb-3 h-10 w-10 text-red-400" />
-            <p className="text-sm text-red-100/90">{planError}</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
+      <CheckoutErrorScreen
+        title="Erro ao carregar o plano"
+        message={planError || 'Este plano não está disponível.'}
+      />
     );
-  }
 
   const plan = planDetails.plan;
 
-  if (paymentConfirmed) {
+  if (paymentConfirmed)
     return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            title="Pagamento confirmado!"
-            description="Seu acesso foi liberado"
-            className="max-w-sm text-center"
-          >
-            <CheckCircle className="mx-auto mb-3 h-12 w-12 text-emerald-400" />
-            <p className="text-sm text-zinc-300 mb-4">
-              Acesse o grupo agora ou aguarde o e-mail com o link de acesso.
+      <CheckoutSuccessScreen
+        headline="Seu acesso foi liberado"
+        email={email}
+        redirectUrl={inviteLink}
+        accessLabel="Acessar grupo no Telegram"
+        extra={
+          fetchingInviteLink ? (
+            <p className="text-xs text-[#7d778b]">Gerando link de acesso…</p>
+          ) : !inviteLink ? (
+            <p className="text-xs text-[#7d778b]">
+              Verifique seu e-mail para obter o link de acesso.
             </p>
-            {fetchingInviteLink && (
-              <p className="text-xs text-zinc-500 mb-3">
-                Gerando link de acesso…
-              </p>
-            )}
-            {inviteLink && (
-              <a
-                href={inviteLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex w-full items-center justify-center gap-2 sp2-cta font-medium px-4 py-3 text-sm transition active:scale-95"
-              >
-                Acessar grupo no Telegram
-              </a>
-            )}
-            {!fetchingInviteLink && !inviteLink && (
-              <p className="text-xs text-zinc-500 mt-2">
-                Verifique seu e-mail para obter o link de acesso.
-              </p>
-            )}
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
+          ) : undefined
+        }
+      />
     );
-  }
 
   return (
     <CheckoutFlow

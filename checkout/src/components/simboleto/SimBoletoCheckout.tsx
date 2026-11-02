@@ -19,6 +19,11 @@ import {
   CheckoutGlassInput,
 } from '@/components/checkout/CheckoutFormPrimitives';
 import { CheckoutStatusCard } from '@/components/checkout/CheckoutStatusCard';
+import {
+  CheckoutErrorScreen,
+  CheckoutLoadingScreen,
+  CheckoutSuccessScreen,
+} from '@/components/checkout/CheckoutStateScreens';
 import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
 import { maskCpfCnpj, maskPhoneBr } from '@/lib/input-masks';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
@@ -263,74 +268,26 @@ export default function SimBoletoCheckout() {
     }
   }
 
-  if (fetching) {
-    return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            title="Carregando"
-            description="Buscando o boleto"
-            className="max-w-sm text-center"
-          >
-            <p className="text-sm text-zinc-300">Aguarde um instante…</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
-    );
-  }
+  if (fetching)
+    return <CheckoutLoadingScreen message="Carregando seu boleto…" />;
 
-  if (paymentConfirmed) {
+  if (paymentConfirmed)
     return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            title="Pagamento confirmado!"
-            description="Sua transação foi processada com sucesso"
-            className="w-full max-w-md text-center"
-          >
-            <CheckCircle className="mx-auto mb-4 h-14 w-14 text-green-400" />
-            <p className="text-base font-semibold text-white">
-              Pagamento aprovado!
-            </p>
-            <p className="mt-2 text-sm text-zinc-400">
-              Seu pagamento foi confirmado. Em breve você receberá as instruções
-              por e-mail.
-            </p>
-            {boleto?.redirectUrl && (
-              <a
-                href={boleto.redirectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-5 inline-flex items-center justify-center sp2-cta font-medium px-6 py-3 text-sm "
-              >
-                Continuar
-              </a>
-            )}
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
+      <CheckoutSuccessScreen
+        headline="Pagamento confirmado"
+        email={email}
+        redirectUrl={boleto?.redirectUrl}
+        accessLabel="Continuar"
+      />
     );
-  }
 
-  if (boletoError || !boleto) {
+  if (boletoError || !boleto)
     return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            variant="danger"
-            title="Boleto não encontrado"
-            className="w-full max-w-md text-center"
-          >
-            <AlertCircle className="mx-auto mb-3 h-10 w-10 text-red-400" />
-            <p className="text-sm text-red-100/90">{boletoError}</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
+      <CheckoutErrorScreen
+        title="Boleto não encontrado"
+        message={boletoError || 'Este boleto não está disponível.'}
+      />
     );
-  }
 
   const { dadosOk, enderecoOk } = validateBoletoCheckout({
     name,

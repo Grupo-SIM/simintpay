@@ -33,6 +33,11 @@ import {
   CheckoutSummaryColumn,
 } from '@/components/checkout/CheckoutLayout';
 import { CheckoutStatusCard } from '@/components/checkout/CheckoutStatusCard';
+import {
+  CheckoutErrorScreen,
+  CheckoutLoadingScreen,
+  CheckoutSuccessScreen,
+} from '@/components/checkout/CheckoutStateScreens';
 import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
 import {
   maskCardMonth,
@@ -243,60 +248,25 @@ export default function SimPlanCheckout() {
     }
   }
 
-  if (fetching) {
-    return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            title="Carregando"
-            description="Buscando seu plano"
-            className="max-w-sm text-center"
-          >
-            <p className="text-sm text-zinc-300">Aguarde um instante…</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
-    );
-  }
+  if (fetching)
+    return <CheckoutLoadingScreen message="Carregando seu plano…" />;
 
-  if (planError || !plan) {
+  if (planError || !plan)
     return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            variant="danger"
-            title="Plano não encontrado"
-            className="w-full max-w-md text-center"
-          >
-            <AlertCircle className="mx-auto mb-3 h-10 w-10 text-red-400" />
-            <p className="text-sm text-red-100/90">{planError}</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
+      <CheckoutErrorScreen
+        title="Plano não encontrado"
+        message={planError || 'Este plano não está disponível.'}
+      />
     );
-  }
 
-  if (success) {
+  if (success)
     return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            variant="success"
-            title="Assinatura realizada!"
-            className="w-full max-w-md text-center"
-          >
-            <CheckCircle className="mx-auto mb-3 h-10 w-10 text-emerald-400" />
-            <p className="text-sm text-zinc-300">
-              {sanitizeCheckoutText(plan.nome)}
-            </p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
+      <CheckoutSuccessScreen
+        eyebrow="Assinatura realizada"
+        headline={sanitizeCheckoutText(plan.nome)}
+        email={email}
+      />
     );
-  }
 
   const hd = holderDocument.replace(/\D/g, '');
   const cardOk =
