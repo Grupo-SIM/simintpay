@@ -89,6 +89,12 @@ type BuildEbookCheckoutBody = {
   maxInstallments?: number | null;
 };
 
+/** Só sobrescreve o tracking de transação pré-existente quando o cliente enviou algum. */
+function trackingUpdate(value: unknown) {
+  const tracking = paymentTracking(value);
+  return Object.keys(tracking).length ? { tracking } : {};
+}
+
 type PublicPixBody = {
   description: string;
   name: string;
@@ -292,6 +298,8 @@ export class CheckoutController {
         acquirer,
         externalPaymentId: payment.id,
         ...(acquirer === Acquirer.DOM ? { domPaymentId: payment.id } : {}),
+
+        ...trackingUpdate(body.tracking),
       },
     });
 
@@ -664,7 +672,11 @@ export class CheckoutController {
     if (domPaymentId) {
       await this.prisma.transaction.update({
         where: { id: transaction.id },
-        data: { status: 'PENDING', domPaymentId },
+        data: {
+          status: 'PENDING',
+          domPaymentId,
+          ...trackingUpdate(body.tracking),
+        },
       });
     }
 
