@@ -34,7 +34,12 @@ type AffiliateRow = {
   platform?: string;
 };
 
-type Wallet = { balance: number; lockedBalance: number } | null;
+type Wallet = {
+  balance: number | null;
+  lockedBalance: number | null;
+  walletScope?: string;
+  balanceStatus?: 'complete' | 'unavailable';
+} | null;
 type ReferralDetail = {
   affiliate: {
     id: string;
@@ -298,8 +303,24 @@ export default function AfiliadosTab() {
 
   function walletCell(w: Wallet) {
     if (!w) return <span className="text-zinc-400">Sem conta Sim Int Pay</span>;
+    if (w.balance == null || w.lockedBalance == null) {
+      return (
+        <span
+          className="text-zinc-400"
+          title="Identidade ou histórico financeiro sem atribuição completa"
+        >
+          Saldo indisponível
+        </span>
+      );
+    }
     return (
-      <span>
+      <span
+        title={
+          w.walletScope === 'USER_WALLET_AGGREGATE'
+            ? 'Carteira total do beneficiário (todas as plataformas)'
+            : 'Saldo atribuído ao beneficiário nesta plataforma'
+        }
+      >
         {formatCurrency(w.balance)}
         {w.lockedBalance > 0 && (
           <span className="text-xs text-zinc-400">
@@ -902,7 +923,7 @@ export default function AfiliadosTab() {
                                                   </th>
                                                 ) : (
                                                   <th className="px-3 py-2 font-semibold">
-                                                    O que comprou
+                                                    Saldo atribuído / compras
                                                   </th>
                                                 )}
                                                 {!isNativePlatform && (
@@ -933,6 +954,9 @@ export default function AfiliadosTab() {
                                                     </td>
                                                   ) : (
                                                     <td className="px-3 py-2 text-zinc-700 dark:text-zinc-300">
+                                                      <div className="mb-1">
+                                                        {walletCell(r.wallet)}
+                                                      </div>
                                                       {r.purchases &&
                                                       r.purchases.length > 0 ? (
                                                         <ul className="flex flex-col gap-1">
@@ -965,8 +989,8 @@ export default function AfiliadosTab() {
                                                         </ul>
                                                       ) : (
                                                         <span className="text-zinc-400">
-                                                          Só se cadastrou (sem
-                                                          compra)
+                                                          Detalhes das compras
+                                                          indisponíveis
                                                         </span>
                                                       )}
                                                     </td>

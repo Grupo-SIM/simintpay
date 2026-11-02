@@ -1,3 +1,8 @@
+import {
+  readSellerWalletAttribution,
+  unavailableSellerWallet,
+} from '../../modules/platform-core/seller-wallet-attribution';
+import { canonicalTransactionPlatformTag } from '../../modules/platform-core/transaction-platform';
 import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   Body,
@@ -11,7 +16,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
@@ -29,11 +39,15 @@ function generateAffiliateCode(): string {
   return randomBytes(4).toString('hex').toUpperCase();
 }
 
-async function assertMaster(prisma: PrismaService, authUser?: JwtPayload): Promise<void> {
+async function assertMaster(
+  prisma: PrismaService,
+  authUser?: JwtPayload,
+): Promise<void> {
   // authUser normalmente é o JwtPayload (campo `sub`), mas aceitamos também um
   // usuário já resolvido (campo `id`) para não acoplar este helper à forma
   // exata do request.user.
-  const requesterId = authUser?.sub ?? (authUser as unknown as { id?: string } | undefined)?.id;
+  const requesterId =
+    authUser?.sub ?? (authUser as unknown as { id?: string } | undefined)?.id;
   const requester = requesterId
     ? await prisma.user.findUnique({
         where: { id: requesterId },
@@ -41,7 +55,9 @@ async function assertMaster(prisma: PrismaService, authUser?: JwtPayload): Promi
       })
     : null;
   if (!requester || !isMasterAdminUser(requester)) {
-    throw new ForbiddenException('Somente o módulo master pode gerenciar afiliados');
+    throw new ForbiddenException(
+      'Somente o módulo master pode gerenciar afiliados',
+    );
   }
 }
 
@@ -94,22 +110,41 @@ export class AdminAfiliadosController {
     );
 
     const [ebook, atlas] = await Promise.all([
-      this.fetchExternalAffiliates((getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined), '/internal/affiliates', 'EBOOK'),
-      this.fetchExternalAffiliates((getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined), '/api/internal/affiliates', 'ATLAS'),
+      this.fetchExternalAffiliates(
+        getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined,
+        '/internal/affiliates',
+        'EBOOK',
+      ),
+      this.fetchExternalAffiliates(
+        getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined,
+        '/api/internal/affiliates',
+        'ATLAS',
+      ),
     ]);
 
     return { data: [...data, ...ebook, ...atlas] };
   }
 
   /** Afiliados que vivem no banco de outra plataforma (somente leitura; falha não derruba a lista). */
-  private async fetchExternalAffiliates(baseUrl: string | undefined, path: string, platform: string) {
+  private async fetchExternalAffiliates(
+    baseUrl: string | undefined,
+    path: string,
+    platform: string,
+  ) {
     const base = String(baseUrl ?? '').replace(/\/+$/, '');
     if (!base) return [];
-    const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
+    const token =
+      process.env.API_MACHINE_INTERNAL_TOKEN ||
+      process.env.INTERNAL_SERVICE_TOKEN ||
+      '';
     try {
-      const res = await fetch(`${base}${path}`, { headers: { 'x-internal-token': token } });
+      const res = await fetch(`${base}${path}`, {
+        headers: { 'x-internal-token': token },
+      });
       if (!res.ok) return [];
-      const json = (await res.json()) as { data?: Array<Record<string, unknown>> };
+      const json = (await res.json()) as {
+        data?: Array<Record<string, unknown>>;
+      };
       return (json.data ?? []).map((a) => ({ ...a, platform }));
     } catch {
       return [];
@@ -117,7 +152,9 @@ export class AdminAfiliadosController {
   }
 
   @Get('buscar')
-  @ApiOperation({ summary: 'Buscar usuários candidatos a afiliado (por nome/email)' })
+  @ApiOperation({
+    summary: 'Buscar usuários candidatos a afiliado (por nome/email)',
+  })
   @ApiQuery({ name: 'q', required: true })
   async search(@Query('q') q: string, @CurrentUser() authUser?: JwtPayload) {
     await assertMaster(this.prisma, authUser);
@@ -145,7 +182,10 @@ export class AdminAfiliadosController {
   }
 
   @Get(':userId/indicados')
-  @ApiOperation({ summary: 'Indicados de um afiliado (qualquer plataforma) com as carteiras Sim Int Pay' })
+  @ApiOperation({
+    summary:
+      'Indicados de um afiliado (qualquer plataforma) com as carteiras Sim Int Pay',
+  })
   @ApiQuery({ name: 'platform', required: false })
   async referrals(
     @Param('userId') userId: string,
@@ -177,66 +217,159 @@ export class AdminAfiliadosController {
       const row = await this.prisma.user.findUnique({
         where: { id: userId },
         select: {
-          id: true, name: true, email: true, cpf: true,
-          referrals: { select: { id: true, name: true, email: true, cpf: true } },
+          id: true,
+          name: true,
+          email: true,
+          cpf: true,
+          referrals: {
+            select: { id: true, name: true, email: true, cpf: true },
+          },
         },
       });
       if (!row) throw new NotFoundException('Usuário não encontrado');
-      affiliate = { id: row.id, name: row.name, email: row.email, cpf: row.cpf };
+      affiliate = {
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        cpf: row.cpf,
+      };
       const commissions = await this.prisma.affiliateCommission.findMany({
         where: { affiliateUserId: userId, status: 'CREDITED' },
-        select: { referredUserId: true, transactionId: true, commissionAmount: true },
+        select: {
+          referredUserId: true,
+          transactionId: true,
+          commissionAmount: true,
+        },
       });
       const byUser = new Map<string, number>();
       for (const c of commissions) {
-        byUser.set(c.referredUserId, (byUser.get(c.referredUserId) ?? 0) + Number(c.commissionAmount));
+        byUser.set(
+          c.referredUserId,
+          (byUser.get(c.referredUserId) ?? 0) + Number(c.commissionAmount),
+        );
       }
-      const referralIds = row.referrals.map(r => r.id);
-      const purchases = referralIds.length ? await this.prisma.transaction.findMany({
-        where: { userId: { in: referralIds }, status: 'COMPLETED' },
-        select: { id: true, userId: true, amount: true, description: true, paymentMethod: true, createdAt: true },
-        orderBy: { createdAt: 'desc' },
-      }) : [];
-      const commissionByTransaction = new Map(commissions.map(c => [c.transactionId, Number(c.commissionAmount)]));
-      people = row.referrals.map(r => {
-        const selected = purchases.filter(p => p.userId === r.id);
-        return { ...r, generated: byUser.get(r.id) ?? 0,
+      const referralIds = row.referrals.map((r) => r.id);
+      const purchases = referralIds.length
+        ? await this.prisma.transaction.findMany({
+            where: { userId: { in: referralIds }, status: 'COMPLETED' },
+            select: {
+              id: true,
+              userId: true,
+              amount: true,
+              description: true,
+              paymentMethod: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : [];
+      const commissionByTransaction = new Map(
+        commissions.map((c) => [c.transactionId, Number(c.commissionAmount)]),
+      );
+      people = row.referrals.map((r) => {
+        const selected = purchases.filter((p) => p.userId === r.id);
+        return {
+          ...r,
+          generated: byUser.get(r.id) ?? 0,
           grossTotal: selected.reduce((sum, p) => sum + Number(p.amount), 0),
-          purchases: selected.map(p => ({ title: p.description ?? 'Compra', type: p.paymentMethod,
-            grossAmount: Number(p.amount), commissionAmount: commissionByTransaction.get(p.id) ?? 0, createdAt: p.createdAt })),
+          purchases: selected.map((p) => ({
+            title: p.description ?? 'Compra',
+            type: p.paymentMethod,
+            grossAmount: Number(p.amount),
+            commissionAmount: commissionByTransaction.get(p.id) ?? 0,
+            createdAt: p.createdAt,
+          })),
         };
       });
     } else {
       const [base, path] =
         platform === 'EBOOK'
-          ? [(getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined), `/internal/affiliates/${encodeURIComponent(userId)}`]
-          : [(getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined), `/api/internal/affiliates/${encodeURIComponent(userId)}`];
+          ? [
+              getPlatformIntegrationValue('EBOOK', 'BACKEND_URL') ?? undefined,
+              `/internal/affiliates/${encodeURIComponent(userId)}`,
+            ]
+          : [
+              getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? undefined,
+              `/api/internal/affiliates/${encodeURIComponent(userId)}`,
+            ];
       const url = String(base ?? '').replace(/\/+$/, '');
       if (!url) throw new NotFoundException('Plataforma não configurada');
-      const token = process.env.API_MACHINE_INTERNAL_TOKEN || process.env.INTERNAL_SERVICE_TOKEN || '';
-      const res = await fetch(`${url}${path}`, { headers: { 'x-internal-token': token } }).catch(() => null);
-      if (!res?.ok) throw new NotFoundException('Não foi possível consultar a plataforma');
-      const json = (await res.json()) as { data?: { affiliate: Person | null; referrals: Person[] } };
+      const token =
+        process.env.API_MACHINE_INTERNAL_TOKEN ||
+        process.env.INTERNAL_SERVICE_TOKEN ||
+        '';
+      const res = await fetch(`${url}${path}`, {
+        headers: { 'x-internal-token': token },
+      }).catch(() => null);
+      if (!res?.ok)
+        throw new NotFoundException('Não foi possível consultar a plataforma');
+      const json = (await res.json()) as {
+        data?: { affiliate: Person | null; referrals: Person[] };
+      };
       affiliate = json.data?.affiliate ?? null;
       people = json.data?.referrals ?? [];
     }
 
-    // Carteira Sim Int Pay: casa por e-mail ou CPF.
     const all = [...(affiliate ? [affiliate] : []), ...people];
-    const emails = all.map((p) => p.email?.toLowerCase()).filter(Boolean) as string[];
-    const cpfs = all.map((p) => p.cpf?.replace(/\D/g, '')).filter(Boolean) as string[];
-    const accounts = await this.prisma.user.findMany({
-      where: { OR: [{ email: { in: emails, mode: 'insensitive' } }, ...(cpfs.length ? [{ cpf: { in: cpfs } }] : [])] },
-      select: { email: true, cpf: true, wallet: { select: { balance: true, lockedBalance: true } } },
-    });
-    const walletOf = (p: Person) => {
-      const acc = accounts.find(
-        (a) => a.email?.toLowerCase() === p.email?.toLowerCase() || (!!p.cpf && a.cpf === p.cpf.replace(/\D/g, '')),
+    const external = platform !== 'SIMINTPAY';
+    const tag = canonicalTransactionPlatformTag(platform) ?? platform;
+    // Remote IDs and emails are not SimIntPay identities. A document can
+    // resolve only through an existing, unambiguous persisted beneficiary link.
+    const documentOf = (p: Person) => String(p.cpf ?? '').replace(/\D/g, '');
+    const documents = [
+      ...new Set(
+        all
+          .map(documentOf)
+          .filter((doc) => doc.length === 11 || doc.length === 14),
+      ),
+    ];
+    const links =
+      external && documents.length
+        ? await this.prisma.externalPlatformUser.findMany({
+            where: {
+              OR: [{ cpf: { in: documents } }, { cnpj: { in: documents } }],
+            },
+            select: { cpf: true, cnpj: true, userId: true, platform: true },
+          })
+        : [];
+    const beneficiaryOf = (p: Person): string | null => {
+      if (!external) return p.id;
+      const document = documentOf(p);
+      if (document.length !== 11 && document.length !== 14) return null;
+      const candidates = links.filter(
+        (link) =>
+          canonicalTransactionPlatformTag(link.platform) === tag &&
+          (link.cpf === document || link.cnpj === document),
       );
-      if (!acc) return null;
+      const ids = [...new Set(candidates.map((link) => link.userId))];
+      return ids.length === 1 ? ids[0] : null;
+    };
+    const ids = [
+      ...new Set(all.map(beneficiaryOf).filter((id): id is string => !!id)),
+    ];
+    const accounts =
+      !external && ids.length
+        ? await this.prisma.user.findMany({
+            where: { id: { in: ids } },
+            select: {
+              id: true,
+              wallet: { select: { balance: true, lockedBalance: true } },
+            },
+          })
+        : [];
+    const attributed = external
+      ? await readSellerWalletAttribution(this.prisma, ids, tag)
+      : new Map();
+    const walletOf = (p: Person) => {
+      const id = beneficiaryOf(p);
+      if (external)
+        return (id && attributed.get(id)) || unavailableSellerWallet;
+      const account = accounts.find((a) => a.id === id);
+      if (!account?.wallet) return null;
       return {
-        balance: Number(acc.wallet?.balance ?? 0),
-        lockedBalance: Number(acc.wallet?.lockedBalance ?? 0),
+        walletScope: 'USER_WALLET_AGGREGATE',
+        balance: Number(account.wallet.balance),
+        lockedBalance: Number(account.wallet.lockedBalance),
       };
     };
 
@@ -244,7 +377,9 @@ export class AdminAfiliadosController {
       data: {
         affiliate: affiliate && { ...affiliate, wallet: walletOf(affiliate) },
         referrals: people.map((p) => ({
-          id: p.id, name: p.name, email: p.email,
+          id: p.id,
+          name: p.name,
+          email: p.email,
           generated: Number(p.generated ?? 0),
           grossTotal: Number(p.grossTotal ?? 0),
           purchases: p.purchases ?? [],
@@ -255,8 +390,13 @@ export class AdminAfiliadosController {
   }
 
   @Get(':userId')
-  @ApiOperation({ summary: 'Detalhe de um afiliado: código, indicados, total de comissão' })
-  async detail(@Param('userId') userId: string, @CurrentUser() authUser?: JwtPayload) {
+  @ApiOperation({
+    summary: 'Detalhe de um afiliado: código, indicados, total de comissão',
+  })
+  async detail(
+    @Param('userId') userId: string,
+    @CurrentUser() authUser?: JwtPayload,
+  ) {
     await assertMaster(this.prisma, authUser);
 
     const affiliate = await this.prisma.user.findUnique({
@@ -268,7 +408,9 @@ export class AdminAfiliadosController {
         isAffiliate: true,
         affiliateCommissionPercent: true,
         affiliateCode: true,
-        referrals: { select: { id: true, name: true, email: true, createdAt: true } },
+        referrals: {
+          select: { id: true, name: true, email: true, createdAt: true },
+        },
       },
     });
     if (!affiliate) throw new NotFoundException('Usuário não encontrado');
@@ -287,7 +429,9 @@ export class AdminAfiliadosController {
   }
 
   @Patch(':userId')
-  @ApiOperation({ summary: 'Ativar/desativar afiliado e/ou definir a % de comissão' })
+  @ApiOperation({
+    summary: 'Ativar/desativar afiliado e/ou definir a % de comissão',
+  })
   async setAffiliate(
     @Param('userId') userId: string,
     @Body() body: SetAffiliateBody,
@@ -303,7 +447,8 @@ export class AdminAfiliadosController {
 
     const data: Record<string, unknown> = {};
     if (body.isAffiliate !== undefined) data.isAffiliate = body.isAffiliate;
-    if (body.commissionPercent !== undefined) data.affiliateCommissionPercent = body.commissionPercent;
+    if (body.commissionPercent !== undefined)
+      data.affiliateCommissionPercent = body.commissionPercent;
     if (body.isAffiliate === true && !target.affiliateCode) {
       data.affiliateCode = generateAffiliateCode();
     }
@@ -313,7 +458,9 @@ export class AdminAfiliadosController {
   }
 
   @Patch('indicacao/:userId')
-  @ApiOperation({ summary: 'Definir/trocar manualmente quem indicou esta conta' })
+  @ApiOperation({
+    summary: 'Definir/trocar manualmente quem indicou esta conta',
+  })
   async setReferredBy(
     @Param('userId') userId: string,
     @Body() body: SetReferredByBody,
@@ -321,11 +468,16 @@ export class AdminAfiliadosController {
   ) {
     await assertMaster(this.prisma, authUser);
 
-    const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    const target = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
     if (!target) throw new NotFoundException('Usuário não encontrado');
 
     if (body.referredByUserId === userId) {
-      throw new ConflictException('Uma conta não pode ser indicada por ela mesma');
+      throw new ConflictException(
+        'Uma conta não pode ser indicada por ela mesma',
+      );
     }
 
     await this.prisma.user.update({
