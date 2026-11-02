@@ -3,33 +3,16 @@ import { useBuyerMemory } from '@/hooks/use-buyer-memory';
 import { BuyerMemoryPreference } from '@/components/checkout/BuyerMemoryPreference';
 import { PAGATG_API_URL, SIM_API_URL } from '@/lib/api-config';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import {
-  AlertCircle,
-  User,
-  DollarSign,
-  Copy,
-  Check,
-  CheckCircle,
-  Loader2,
-} from 'lucide-react';
-import { CheckoutAccordionSection } from '@/components/checkout/CheckoutAccordionSection';
+import { AlertCircle, Copy, Check, CheckCircle, Loader2 } from 'lucide-react';
+import { CheckoutFlow } from '@/components/checkout/CheckoutFlow';
+import { StatusPill } from '@/components/checkout/ui';
 import { CheckoutFooter } from '@/components/checkout/CheckoutChrome';
-import { CheckoutCartLottie } from '@/components/checkout/CheckoutCartLottie';
 import {
   CheckoutGlassField,
   CheckoutGlassInput,
 } from '@/components/checkout/CheckoutFormPrimitives';
-import {
-  CheckoutSummaryBranding,
-  CheckoutSummaryTrustPanel,
-} from '@/components/checkout/CheckoutSummaryExtras';
-import {
-  CheckoutFormColumn,
-  CheckoutMain,
-  CheckoutSummaryColumn,
-} from '@/components/checkout/CheckoutLayout';
 import { CheckoutStatusCard } from '@/components/checkout/CheckoutStatusCard';
 import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
 import { maskCpfCnpj, maskPhoneBr } from '@/lib/input-masks';
@@ -49,8 +32,6 @@ type PlanDetails = {
     status: string;
   };
 };
-
-type Section = 'dados' | 'pagamento';
 
 type VoucherStatus = {
   valid: boolean;
@@ -154,7 +135,6 @@ export default function SimPixPlanCheckout() {
   const [fetching, setFetching] = useState(true);
   const [planError, setPlanError] = useState('');
 
-  const [openSection, setOpenSection] = useState<Section>('dados');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -320,14 +300,6 @@ export default function SimPixPlanCheckout() {
       .finally(() => setFetching(false));
   }, [pixPlanCode]);
 
-  // Auto-avançar para a seção de pagamento quando os dados estiverem OK
-  useEffect(() => {
-    if (dadosOk && openSection === 'dados') {
-      setOpenSection('pagamento');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dadosOk]);
-
   function getFinalValueWithDiscount(): number {
     const baseValue = planDetails?.plan.value ?? 0;
     if (!(isPagatgDomain && voucherStatus?.valid)) return baseValue;
@@ -444,8 +416,7 @@ export default function SimPixPlanCheckout() {
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     if (!planDetails || !pixPlanCode) return;
     setError('');
     setLoading(true);
@@ -580,268 +551,186 @@ export default function SimPixPlanCheckout() {
   }
 
   return (
-    <div className="checkout-page-bg flex min-h-screen flex-col">
-      <CheckoutMain>
-        <CheckoutSummaryColumn>
-          <CheckoutSummaryBranding />
-          <CheckoutUiCard title="Plano" description="Plano via PIX">
-            <p className="text-lg font-bold tracking-tight text-white sm:text-xl">
-              {sanitizeCheckoutText(plan.description) || 'Plano PIX'}
-            </p>
-          </CheckoutUiCard>
+    <CheckoutFlow
+      product={{
+        title: sanitizeCheckoutText(plan.description) || 'Plano PIX',
+        price: formatCurrency(plan.value),
+        frequency: 'Pagamento via PIX',
+      }}
+      total={formatCurrency(getFinalValueWithDiscount())}
+      dadosSubtitle="Usados para emitir o PIX e enviar seu acesso"
+      validateDados={() => dadosOk}
+      onSubmit={handleSubmit}
+      finalLabel="Efetuar pagamento"
+      finalDisabled={validatingVoucher}
+      loading={loading}
+      error={error}
+      finalAction={
+        pixGerado ? (
+          <StatusPill>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Aguardando pagamento…
+          </StatusPill>
+        ) : undefined
+      }
+      dados={
+        <>
+          <div className="flex flex-col gap-3 pt-1">
+            <CheckoutGlassField label="Nome completo" required>
+              <CheckoutGlassInput
+                name="name"
+                placeholder="Digite seu nome"
+                value={name}
+                onChange={setName}
+                autoComplete="name"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="CPF / CNPJ" required>
+              <CheckoutGlassInput
+                placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                value={document}
+                onChange={(v) => setDocument(maskCpfCnpj(v))}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="Celular" required>
+              <CheckoutGlassInput
+                name="phone"
+                prefix="+55"
+                placeholder="(00) 00000-0000"
+                value={phone}
+                onChange={(v) => setPhone(maskPhoneBr(v))}
+                inputMode="tel"
+                autoComplete="tel-national"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="E-mail" required>
+              <CheckoutGlassInput
+                type="email"
+                name="email"
+                placeholder="Digite seu e-mail"
+                value={email}
+                onChange={setEmail}
+                autoComplete="email"
+              />
+            </CheckoutGlassField>
+          </div>
+          <BuyerMemoryPreference {...buyerMemory} />
+        </>
+      }
+      pagamento={
+        <>
+          <div className="flex flex-col gap-3 pt-1">
+            <div className="flex items-center gap-3 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
+              <CheckCircle className="h-4 w-4 shrink-0 text-[#f6b67a]" />
+              <span className="text-sm font-semibold text-zinc-100">PIX</span>
+            </div>
 
-          <CheckoutUiCard
-            title="Resumo"
-            description="Total em tempo real"
-            className="text-center"
-          >
-            <CheckoutCartLottie />
-            <p className="text-sm font-medium text-zinc-400">Total a pagar</p>
-            {isPagatgDomain && voucherStatus?.valid && (
-              <p className="mt-2 text-base font-medium text-zinc-500 line-through">
-                {formatCurrency(plan.value)}
-              </p>
-            )}
-            <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight text-[#d9d4e3] sm:text-4xl">
-              {formatCurrency(getFinalValueWithDiscount())}
-            </p>
-            {isPagatgDomain && voucherStatus?.valid && (
-              <div className="mt-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-left">
-                <p className="text-xs font-semibold text-emerald-200">
-                  Promocao aplicada pelo voucher
-                </p>
-                <p className="mt-0.5 text-xs text-emerald-300">
-                  {voucherStatus.discountType === 'PERCENTAGE'
-                    ? `${voucherStatus.discountValue}% de desconto (${formatCurrency(getDiscountAmount())})`
-                    : `Desconto fixo de ${formatCurrency(getDiscountAmount())}`}
+            {!pixContent && !pixQrCode && (
+              <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
+                <p className="text-sm text-zinc-300">
+                  Preencha seus dados e clique em{' '}
+                  <strong className="text-white">Efetuar pagamento</strong>. O
+                  código PIX será gerado automaticamente.
                 </p>
               </div>
             )}
-            <div className="mt-3 flex items-center justify-center gap-1.5">
-              <CheckCircle className="h-3.5 w-3.5 text-[#f6b67a]" />
-              <span className="text-xs font-medium text-[#d9d4e3]">
-                Pagamento via PIX
-              </span>
-            </div>
-          </CheckoutUiCard>
+
+            {(pixContent || pixQrCode) && (
+              <PixDisplay
+                pixContent={pixContent}
+                qrCode={pixQrCode}
+                pixExpire={pixExpire}
+              />
+            )}
+          </div>
 
           {isPagatgDomain && (
-            <CheckoutUiCard
-              title="Voucher"
-              description="Aplicar promocao antes do pagamento"
-            >
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-zinc-100">
-                    Cupom de desconto
-                  </span>
-                  <span className="text-xs text-zinc-400">(opcional)</span>
-                </div>
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Digite seu cupom"
-                    value={voucherCode}
-                    onChange={(e) => {
-                      setVoucherCode(e.target.value);
-                      if (voucherStatus) setVoucherStatus(null);
-                    }}
-                    disabled={pixGerado}
-                    className="flex-1 rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition focus:border-[rgba(240,168,108,.7)] focus:ring-2 focus:ring-[rgba(240,168,108,.3)] disabled:cursor-not-allowed disabled:opacity-60"
-                  />
-                  <button
-                    type="button"
-                    onClick={validateVoucher}
-                    disabled={
-                      !voucherCode.trim() || validatingVoucher || pixGerado
-                    }
-                    className="min-w-24 sp2-cta h-auto min-h-[44px] font-medium px-3 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {validatingVoucher ? 'Validando...' : 'Validar'}
-                  </button>
-                </div>
-
-                {pixGerado && (
-                  <p className="text-xs text-zinc-400">
-                    O voucher pode ser validado apenas antes de clicar em{' '}
-                    <strong className="text-zinc-200">Efetuar pagamento</strong>
-                    .
-                  </p>
-                )}
-
-                {voucherStatus && (
-                  <div
-                    className={`mt-1 rounded-lg border px-3 py-2 text-xs ${
-                      voucherStatus.valid
-                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                        : 'border-red-500/30 bg-red-500/10 text-red-200'
-                    }`}
-                  >
-                    {voucherStatus.valid ? (
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium">Cupom aplicado!</span>
-                          {!pixGerado && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setVoucherStatus(null);
-                                setVoucherCode('');
-                              }}
-                              className="text-xs font-medium text-red-300 transition hover:text-red-200"
-                            >
-                              Remover
-                            </button>
-                          )}
-                        </div>
-                        <div>
-                          {voucherStatus.discountType === 'PERCENTAGE'
-                            ? `${voucherStatus.discountValue}% de desconto (${formatCurrency(getDiscountAmount())})`
-                            : `${formatCurrency(getDiscountAmount())} de desconto`}
-                        </div>
-                        <div className="text-zinc-300 line-through">
-                          De: {formatCurrency(plan.value)}
-                        </div>
-                        <div className="text-emerald-300">
-                          Por: {formatCurrency(getFinalValueWithDiscount())}
-                        </div>
-                      </div>
-                    ) : (
-                      <div>{voucherStatus.message}</div>
-                    )}
-                  </div>
-                )}
+            <div className="mt-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-zinc-100">Cupom de desconto</span>
+                <span className="text-xs text-zinc-400">(opcional)</span>
               </div>
-            </CheckoutUiCard>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Digite seu cupom"
+                  value={voucherCode}
+                  onChange={(e) => {
+                    setVoucherCode(e.target.value);
+                    if (voucherStatus) setVoucherStatus(null);
+                  }}
+                  disabled={pixGerado}
+                  className="flex-1 rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition focus:border-[rgba(240,168,108,.7)] focus:ring-2 focus:ring-[rgba(240,168,108,.3)] disabled:cursor-not-allowed disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={validateVoucher}
+                  disabled={
+                    !voucherCode.trim() || validatingVoucher || pixGerado
+                  }
+                  className="min-w-24 sp2-cta h-auto min-h-[44px] font-medium px-3 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {validatingVoucher ? 'Validando...' : 'Validar'}
+                </button>
+              </div>
+
+              {pixGerado && (
+                <p className="text-xs text-zinc-400">
+                  O voucher pode ser validado apenas antes de clicar em{' '}
+                  <strong className="text-zinc-200">Efetuar pagamento</strong>.
+                </p>
+              )}
+
+              {voucherStatus && (
+                <div
+                  className={`mt-1 rounded-lg border px-3 py-2 text-xs ${
+                    voucherStatus.valid
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                      : 'border-red-500/30 bg-red-500/10 text-red-200'
+                  }`}
+                >
+                  {voucherStatus.valid ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">Cupom aplicado!</span>
+                        {!pixGerado && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVoucherStatus(null);
+                              setVoucherCode('');
+                            }}
+                            className="text-xs font-medium text-red-300 transition hover:text-red-200"
+                          >
+                            Remover
+                          </button>
+                        )}
+                      </div>
+                      <div>
+                        {voucherStatus.discountType === 'PERCENTAGE'
+                          ? `${voucherStatus.discountValue}% de desconto (${formatCurrency(getDiscountAmount())})`
+                          : `${formatCurrency(getDiscountAmount())} de desconto`}
+                      </div>
+                      <div className="text-zinc-300 line-through">
+                        De: {formatCurrency(plan.value)}
+                      </div>
+                      <div className="text-emerald-300">
+                        Por: {formatCurrency(getFinalValueWithDiscount())}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>{voucherStatus.message}</div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
-
-          <CheckoutUiCard
-            title="Confiança"
-            description="Segurança da transação"
-          >
-            <CheckoutSummaryTrustPanel />
-          </CheckoutUiCard>
-        </CheckoutSummaryColumn>
-
-        <CheckoutFormColumn>
-          <CheckoutUiCard title="Pagamento" description="Dados e PIX">
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              <CheckoutAccordionSection
-                title="Seus dados"
-                icon={User}
-                open={openSection === 'dados'}
-                onToggle={() => setOpenSection('dados')}
-              >
-                <div className="flex flex-col gap-3 pt-1">
-                  <CheckoutGlassField label="Nome completo" required>
-                    <CheckoutGlassInput
-                      name="name"
-                      placeholder="Digite seu nome"
-                      value={name}
-                      onChange={setName}
-                      autoComplete="name"
-                    />
-                  </CheckoutGlassField>
-                  <CheckoutGlassField label="CPF / CNPJ" required>
-                    <CheckoutGlassInput
-                      placeholder="000.000.000-00 ou 00.000.000/0000-00"
-                      value={document}
-                      onChange={(v) => setDocument(maskCpfCnpj(v))}
-                      inputMode="numeric"
-                      autoComplete="off"
-                    />
-                  </CheckoutGlassField>
-                  <CheckoutGlassField label="Celular" required>
-                    <CheckoutGlassInput
-                      name="phone"
-                      prefix="+55"
-                      placeholder="(00) 00000-0000"
-                      value={phone}
-                      onChange={(v) => setPhone(maskPhoneBr(v))}
-                      inputMode="tel"
-                      autoComplete="tel-national"
-                    />
-                  </CheckoutGlassField>
-                  <CheckoutGlassField label="E-mail" required>
-                    <CheckoutGlassInput
-                      type="email"
-                      name="email"
-                      placeholder="Digite seu e-mail"
-                      value={email}
-                      onChange={setEmail}
-                      autoComplete="email"
-                    />
-                  </CheckoutGlassField>
-                </div>
-                <BuyerMemoryPreference {...buyerMemory} />
-              </CheckoutAccordionSection>
-
-              <CheckoutAccordionSection
-                title="Forma de pagamento"
-                icon={DollarSign}
-                open={openSection === 'pagamento'}
-                onToggle={() => setOpenSection('pagamento')}
-              >
-                <div className="flex flex-col gap-3 pt-1">
-                  <div className="flex items-center gap-3 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
-                    <CheckCircle className="h-4 w-4 shrink-0 text-[#f6b67a]" />
-                    <span className="text-sm font-semibold text-zinc-100">
-                      PIX
-                    </span>
-                  </div>
-
-                  {!pixContent && !pixQrCode && (
-                    <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
-                      <p className="text-sm text-zinc-300">
-                        Preencha seus dados e clique em{' '}
-                        <strong className="text-white">
-                          Efetuar pagamento
-                        </strong>
-                        . O código PIX será gerado automaticamente.
-                      </p>
-                    </div>
-                  )}
-
-                  {(pixContent || pixQrCode) && (
-                    <PixDisplay
-                      pixContent={pixContent}
-                      qrCode={pixQrCode}
-                      pixExpire={pixExpire}
-                    />
-                  )}
-                </div>
-              </CheckoutAccordionSection>
-
-              <CheckoutStatusCard error={error} items={statusItems} />
-
-              {!(pixContent || pixQrCode) &&
-                (loading ? (
-                  <div className="mt-1 flex flex-col items-center gap-3 rounded-xl border border-[rgba(246,182,122,.35)] bg-[rgba(245,138,42,.12)] px-4 py-6 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-[#f6b67a]" />
-                    <div>
-                      <p className="text-sm font-semibold text-[#d9d4e3]">
-                        Processando pagamento…
-                      </p>
-                      <p className="mt-1 text-xs text-zinc-400">
-                        Aguarde alguns segundos, estamos gerando seu PIX
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={validatingVoucher}
-                    className="mt-1 w-full sp2-cta font-medium py-3.5 text-base transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f6b67a] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 active:scale-[0.99] disabled:opacity-60"
-                  >
-                    Efetuar pagamento
-                  </button>
-                ))}
-            </form>
-          </CheckoutUiCard>
-        </CheckoutFormColumn>
-      </CheckoutMain>
-      <CheckoutFooter />
-    </div>
+        </>
+      }
+      status={<CheckoutStatusCard error={error} items={statusItems} />}
+    />
   );
 }

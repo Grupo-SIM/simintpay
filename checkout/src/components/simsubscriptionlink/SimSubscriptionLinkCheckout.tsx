@@ -3,39 +3,27 @@ import { useBuyerMemory } from '@/hooks/use-buyer-memory';
 import { BuyerMemoryPreference } from '@/components/checkout/BuyerMemoryPreference';
 import { SIM_API_URL } from '@/lib/api-config';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import {
   CheckCircle,
   CreditCard as CreditCardIcon,
   AlertCircle,
-  User,
-  DollarSign,
   Copy,
   Check,
-  Loader2,
   ArrowRight,
   Mail,
 } from 'lucide-react';
 import { getTokenCard } from '@/components/sdk';
-import { CheckoutAccordionSection } from '@/components/checkout/CheckoutAccordionSection';
+import { CheckoutFlow } from '@/components/checkout/CheckoutFlow';
+import { SummaryRow } from '@/components/checkout/ui';
 import { CheckoutFooter } from '@/components/checkout/CheckoutChrome';
-import { CheckoutCartLottie } from '@/components/checkout/CheckoutCartLottie';
 import {
   CheckoutGlassField,
   CheckoutGlassInput,
 } from '@/components/checkout/CheckoutFormPrimitives';
-import {
-  CheckoutSummaryBranding,
-  CheckoutSummaryTrustPanel,
-} from '@/components/checkout/CheckoutSummaryExtras';
-import {
-  CheckoutCardPreview,
-  CheckoutFormColumn,
-  CheckoutMain,
-  CheckoutSummaryColumn,
-} from '@/components/checkout/CheckoutLayout';
+import { CheckoutCardPreview } from '@/components/checkout/CheckoutLayout';
 import { CheckoutStatusCard } from '@/components/checkout/CheckoutStatusCard';
 import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
 import {
@@ -75,7 +63,6 @@ type LinkData = {
 };
 
 type PaymentMethod = 'credit' | 'debit' | 'pix';
-type Section = 'dados' | 'pagamento';
 
 function formatCurrency(val: number) {
   return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -184,7 +171,6 @@ export default function SimSubscriptionLinkCheckout() {
   const [link, setLink] = useState<LinkData | null>(null);
   const [fetching, setFetching] = useState(true);
   const [linkError, setLinkError] = useState('');
-  const [openSection, setOpenSection] = useState<Section>('dados');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [pixContent, setPixContent] = useState<string | null>(null);
@@ -283,14 +269,6 @@ export default function SimSubscriptionLinkCheckout() {
     setMounted(true);
   }, []);
 
-  // Auto-avançar para a seção de pagamento quando os dados estiverem OK
-  useEffect(() => {
-    if (dadosOk && openSection === 'dados') {
-      setOpenSection('pagamento');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dadosOk]);
-
   // SSE com reconexão automática e fallback REST para não perder o evento de pagamento
   useEffect(() => {
     if (!pixDomId || !link) return;
@@ -385,8 +363,7 @@ export default function SimSubscriptionLinkCheckout() {
       .finally(() => setFetching(false));
   }, [subscriptionLinkCode]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     if (!link || !paymentMethod) return;
     setError('');
     setLoading(true);
@@ -623,72 +600,95 @@ export default function SimSubscriptionLinkCheckout() {
         window.location.hostname.includes('jbmidia') ||
         window.location.hostname.includes('localhost')));
 
+  const payLabel = isPix
+    ? 'PIX'
+    : isDebit
+      ? 'Cartão de débito'
+      : 'Cartão de crédito';
+
+  const pixGenerated = isPix && Boolean(pixContent || pixQrCode);
+
   return (
-    <div className="checkout-page-bg flex min-h-screen flex-col">
-      <CheckoutMain>
-        <CheckoutSummaryColumn>
-          <CheckoutSummaryBranding />
-          <CheckoutUiCard
-            title="Assinatura"
-            description="O que você está contratando"
-          >
-            <p className="text-lg font-bold tracking-tight text-white sm:text-xl">
-              {sanitizeCheckoutText(link.nome)}
-            </p>
-            {link.descricao && (
-              <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                {sanitizeCheckoutText(link.descricao)}
-              </p>
-            )}
-          </CheckoutUiCard>
-
-          <CheckoutUiCard
-            title="Resumo"
-            description="Total em tempo real"
-            className="text-center"
-          >
-            <CheckoutCartLottie />
-            <p className="text-sm font-medium text-zinc-400">Total a pagar</p>
-            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-[#d9d4e3] sm:text-4xl">
-              {formatCurrency(totalDisplay)}
-            </p>
-            <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-[#a9a3b8]">
-              {intervalLabel(link.frequencia)}
-            </p>
-            {isPix && (
-              <p className="mt-1 text-xs text-emerald-400">
-                Pagamento à vista via PIX
-              </p>
-            )}
-            {isDebit && (
-              <p className="mt-1 text-xs text-emerald-400">
-                Pagamento à vista no débito
-              </p>
-            )}
-            {!isPix && !isDebit && (
-              <p className="mt-1 text-xs text-[#a9a3b8]" id="card-at-sight">
-                À vista no cartão de crédito
-              </p>
-            )}
-            {appliedVoucher && (
-              <div className="mt-3 flex items-center justify-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-400">
-                <CheckCircle className="h-3 w-3" />
-                <span>
-                  Desconto Aplicado: {formatCurrency(appliedVoucher.discount)}
-                </span>
-              </div>
-            )}
-          </CheckoutUiCard>
-
-          <CheckoutUiCard
-            title="Confiança"
-            description="Segurança da transação"
-          >
-            <CheckoutSummaryTrustPanel />
-          </CheckoutUiCard>
-        </CheckoutSummaryColumn>
-
-        <CheckoutFormColumn>
+    <CheckoutFlow
+      product={{
+        title: sanitizeCheckoutText(link.nome),
+        description: link.descricao
+          ? sanitizeCheckoutText(link.descricao)
+          : undefined,
+        price: formatCurrency(baseTotal),
+        frequency: intervalLabel(link.frequencia),
+      }}
+      total={formatCurrency(totalDisplay)}
+      totalCaption={intervalLabel(link.frequencia)}
+      dadosSubtitle="Usados para emitir a cobrança e enviar seu acesso"
+      validateDados={() => dadosOk}
+      onSubmit={handleSubmit}
+      finalLabel="Assinar agora"
+      finalDisabled={!paymentMethod}
+      loading={loading}
+      error={error}
+      finalAction={pixGenerated ? <></> : undefined}
+      asideRows={
+        <>
+          <SummaryRow label="Pagamento" value={payLabel} />
+          {appliedVoucher && (
+            <SummaryRow
+              label="Desconto"
+              value={`- ${formatCurrency(appliedVoucher.discount)}`}
+              accent
+            />
+          )}
+        </>
+      }
+      dados={
+        <>
+          <div className="flex flex-col gap-3 pt-1">
+            <CheckoutGlassField label="Nome completo" required>
+              <CheckoutGlassInput
+                name="name"
+                placeholder="Digite seu nome"
+                value={name}
+                onChange={setName}
+                autoComplete="name"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="CPF / CNPJ" required>
+              <CheckoutGlassInput
+                name="customer-document"
+                placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                value={document}
+                onChange={(v) => setDocument(maskCpfCnpj(v))}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="Celular" required>
+              <CheckoutGlassInput
+                name="phone"
+                prefix="+55"
+                placeholder="(00) 00000-0000"
+                value={phone}
+                onChange={(v) => setPhone(maskPhoneBr(v))}
+                inputMode="tel"
+                autoComplete="tel-national"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="E-mail" required>
+              <CheckoutGlassInput
+                type="email"
+                name="email"
+                placeholder="Digite seu e-mail"
+                value={email}
+                onChange={setEmail}
+                autoComplete="email"
+              />
+            </CheckoutGlassField>
+          </div>
+          <BuyerMemoryPreference {...buyerMemory} />
+        </>
+      }
+      pagamento={
+        <>
           {mounted && paymentMethod === 'credit' && link.aceitaCartao && (
             <div
               aria-hidden="true"
@@ -704,303 +704,209 @@ export default function SimSubscriptionLinkCheckout() {
               <Cards number="" expiry="" cvc="" name="" focused="" />
             </div>
           )}
-          <CheckoutUiCard title="Pagamento" description="Dados e método">
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              <CheckoutAccordionSection
-                title="Seus dados"
-                icon={User}
-                open={openSection === 'dados'}
-                onToggle={() => setOpenSection('dados')}
-              >
-                <div className="flex flex-col gap-3 pt-1">
-                  <CheckoutGlassField label="Nome completo" required>
+
+          {isPagatg && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 px-1">
+                <div className="h-px flex-1 bg-white/5" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                  Cupom de Desconto
+                </span>
+                <div className="h-px flex-1 bg-white/5" />
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <CheckoutGlassInput
+                    placeholder="Tem um cupom?"
+                    value={voucherCode}
+                    onChange={setVoucherCode}
+                    className={
+                      voucherError
+                        ? 'border-red-500/50'
+                        : appliedVoucher
+                          ? 'border-emerald-500/50'
+                          : ''
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleValidateVoucher}
+                  disabled={isValidatingVoucher || !voucherCode}
+                  className="flex h-[42px] items-center justify-center rounded-lg bg-white/5 px-4 text-xs font-bold text-white transition hover:bg-white/10 disabled:opacity-50"
+                >
+                  {isValidatingVoucher ? '...' : 'Aplicar'}
+                </button>
+              </div>
+              {voucherError && (
+                <p className="px-1 text-[10px] font-semibold text-red-400">
+                  {voucherError}
+                </p>
+              )}
+              {appliedVoucher && (
+                <p className="px-1 text-[10px] font-semibold text-emerald-400">
+                  Cupom aplicado com sucesso!
+                </p>
+              )}
+            </div>
+          )}
+          <div className="flex flex-col gap-3 pt-1">
+            {(link.aceitaCartao || link.aceitaPix) && (
+              <div className="flex flex-wrap items-center gap-4 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
+                {link.aceitaCartao && (
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      className="h-4 w-4 accent-[#f58a2a]"
+                      checked={paymentMethod === 'credit'}
+                      onChange={() => setPaymentMethod('credit')}
+                    />
+                    <CreditCardIcon className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
+                    Crédito
+                  </label>
+                )}
+                {link.aceitaDebito && (
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      className="h-4 w-4 accent-[#f58a2a]"
+                      checked={paymentMethod === 'debit'}
+                      onChange={() => setPaymentMethod('debit')}
+                    />
+                    <CreditCardIcon className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
+                    Débito
+                  </label>
+                )}
+                {link.aceitaPix && (
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      className="h-4 w-4 accent-[#f58a2a]"
+                      checked={paymentMethod === 'pix'}
+                      onChange={() => setPaymentMethod('pix')}
+                    />
+                    PIX
+                  </label>
+                )}
+              </div>
+            )}
+
+            {(paymentMethod === 'credit' || paymentMethod === 'debit') &&
+              link.aceitaCartao && (
+                <>
+                  {mounted && (
+                    <CheckoutCardPreview>
+                      <Cards
+                        number={cardNumber}
+                        expiry={`${cardMonth}/${cardYear}`}
+                        cvc={cardCvv}
+                        name={holderName || ' '}
+                        focused={cardFocused}
+                      />
+                    </CheckoutCardPreview>
+                  )}
+
+                  <CheckoutGlassField label="Número do cartão" required>
                     <CheckoutGlassInput
-                      name="name"
-                      placeholder="Digite seu nome"
-                      value={name}
-                      onChange={setName}
-                      autoComplete="name"
+                      name="cc-number"
+                      placeholder="0000 0000 0000 0000"
+                      value={cardNumber}
+                      onChange={(v) => setCardNumber(maskCardNumber(v))}
+                      onFocus={() => setCardFocused('number')}
+                      inputMode="numeric"
+                      autoComplete="cc-number"
                     />
                   </CheckoutGlassField>
-                  <CheckoutGlassField label="CPF / CNPJ" required>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <CheckoutGlassField label="Mês" required>
+                      <CheckoutGlassInput
+                        name="cc-exp-month"
+                        placeholder="MM"
+                        value={cardMonth}
+                        onChange={(v) => setCardMonth(maskCardMonth(v))}
+                        onFocus={() => setCardFocused('expiry')}
+                        inputMode="numeric"
+                        maxLength={2}
+                        autoComplete="cc-exp-month"
+                      />
+                    </CheckoutGlassField>
+                    <CheckoutGlassField label="Ano" required>
+                      <CheckoutGlassInput
+                        name="cc-exp-year"
+                        placeholder="AA"
+                        value={cardYear}
+                        onChange={(v) => setCardYear(maskCardYear(v))}
+                        onFocus={() => setCardFocused('expiry')}
+                        inputMode="numeric"
+                        maxLength={2}
+                        autoComplete="cc-exp-year"
+                      />
+                    </CheckoutGlassField>
+                  </div>
+
+                  <CheckoutGlassField label="CVV" required>
                     <CheckoutGlassInput
-                      name="customer-document"
+                      name="cc-csc"
+                      placeholder="000 ou 0000"
+                      value={cardCvv}
+                      onChange={(v) => setCardCvv(maskCvv(v))}
+                      onFocus={() => setCardFocused('cvc')}
+                      inputMode="numeric"
+                      maxLength={4}
+                      autoComplete="cc-csc"
+                    />
+                  </CheckoutGlassField>
+
+                  <CheckoutGlassField label="Nome do titular" required>
+                    <CheckoutGlassInput
+                      name="cc-name"
+                      placeholder="Como no cartão"
+                      value={holderName}
+                      onChange={setHolderName}
+                      onFocus={() => setCardFocused('name')}
+                      autoComplete="cc-name"
+                    />
+                  </CheckoutGlassField>
+
+                  <CheckoutGlassField label="CPF / CNPJ do titular" required>
+                    <CheckoutGlassInput
                       placeholder="000.000.000-00 ou 00.000.000/0000-00"
-                      value={document}
-                      onChange={(v) => setDocument(maskCpfCnpj(v))}
+                      value={holderDocument}
+                      onChange={(v) => setHolderDocument(maskCpfCnpj(v))}
                       inputMode="numeric"
                       autoComplete="off"
                     />
                   </CheckoutGlassField>
-                  <CheckoutGlassField label="Celular" required>
-                    <CheckoutGlassInput
-                      name="phone"
-                      prefix="+55"
-                      placeholder="(00) 00000-0000"
-                      value={phone}
-                      onChange={(v) => setPhone(maskPhoneBr(v))}
-                      inputMode="tel"
-                      autoComplete="tel-national"
-                    />
-                  </CheckoutGlassField>
-                  <CheckoutGlassField label="E-mail" required>
-                    <CheckoutGlassInput
-                      type="email"
-                      name="email"
-                      placeholder="Digite seu e-mail"
-                      value={email}
-                      onChange={setEmail}
-                      autoComplete="email"
-                    />
-                  </CheckoutGlassField>
-                </div>
-                <BuyerMemoryPreference {...buyerMemory} />
-              </CheckoutAccordionSection>
-
-              {isPagatg && (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2 px-1">
-                    <div className="h-px flex-1 bg-white/5" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                      Cupom de Desconto
-                    </span>
-                    <div className="h-px flex-1 bg-white/5" />
-                  </div>
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      <CheckoutGlassInput
-                        placeholder="Tem um cupom?"
-                        value={voucherCode}
-                        onChange={setVoucherCode}
-                        className={
-                          voucherError
-                            ? 'border-red-500/50'
-                            : appliedVoucher
-                              ? 'border-emerald-500/50'
-                              : ''
-                        }
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleValidateVoucher}
-                      disabled={isValidatingVoucher || !voucherCode}
-                      className="flex h-[42px] items-center justify-center rounded-lg bg-white/5 px-4 text-xs font-bold text-white transition hover:bg-white/10 disabled:opacity-50"
-                    >
-                      {isValidatingVoucher ? '...' : 'Aplicar'}
-                    </button>
-                  </div>
-                  {voucherError && (
-                    <p className="px-1 text-[10px] font-semibold text-red-400">
-                      {voucherError}
-                    </p>
-                  )}
-                  {appliedVoucher && (
-                    <p className="px-1 text-[10px] font-semibold text-emerald-400">
-                      Cupom aplicado com sucesso!
-                    </p>
-                  )}
-                </div>
+                </>
               )}
 
-              <CheckoutAccordionSection
-                title="Forma de pagamento"
-                icon={DollarSign}
-                open={openSection === 'pagamento'}
-                onToggle={() => setOpenSection('pagamento')}
-              >
-                <div className="flex flex-col gap-3 pt-1">
-                  {(link.aceitaCartao || link.aceitaPix) && (
-                    <div className="flex flex-wrap items-center gap-4 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
-                      {link.aceitaCartao && (
-                        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
-                          <input
-                            type="radio"
-                            name="paymentMethod"
-                            className="h-4 w-4 accent-[#f58a2a]"
-                            checked={paymentMethod === 'credit'}
-                            onChange={() => setPaymentMethod('credit')}
-                          />
-                          <CreditCardIcon className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
-                          Crédito
-                        </label>
-                      )}
-                      {link.aceitaDebito && (
-                        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
-                          <input
-                            type="radio"
-                            name="paymentMethod"
-                            className="h-4 w-4 accent-[#f58a2a]"
-                            checked={paymentMethod === 'debit'}
-                            onChange={() => setPaymentMethod('debit')}
-                          />
-                          <CreditCardIcon className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
-                          Débito
-                        </label>
-                      )}
-                      {link.aceitaPix && (
-                        <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
-                          <input
-                            type="radio"
-                            name="paymentMethod"
-                            className="h-4 w-4 accent-[#f58a2a]"
-                            checked={paymentMethod === 'pix'}
-                            onChange={() => setPaymentMethod('pix')}
-                          />
-                          PIX
-                        </label>
-                      )}
-                    </div>
-                  )}
+            {paymentMethod === 'pix' && link.aceitaPix && !pixContent && (
+              <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
+                <p className="text-sm text-zinc-300">
+                  Para continuar com o pagamento via Pix, clique em{' '}
+                  <strong className="text-white">Efetuar pagamento</strong>{' '}
+                  abaixo. O código copia e cola será gerado automaticamente.
+                </p>
+              </div>
+            )}
 
-                  {(paymentMethod === 'credit' || paymentMethod === 'debit') &&
-                    link.aceitaCartao && (
-                      <>
-                        {mounted && (
-                          <CheckoutCardPreview>
-                            <Cards
-                              number={cardNumber}
-                              expiry={`${cardMonth}/${cardYear}`}
-                              cvc={cardCvv}
-                              name={holderName || ' '}
-                              focused={cardFocused}
-                            />
-                          </CheckoutCardPreview>
-                        )}
-
-                        <CheckoutGlassField label="Número do cartão" required>
-                          <CheckoutGlassInput
-                            name="cc-number"
-                            placeholder="0000 0000 0000 0000"
-                            value={cardNumber}
-                            onChange={(v) => setCardNumber(maskCardNumber(v))}
-                            onFocus={() => setCardFocused('number')}
-                            inputMode="numeric"
-                            autoComplete="cc-number"
-                          />
-                        </CheckoutGlassField>
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <CheckoutGlassField label="Mês" required>
-                            <CheckoutGlassInput
-                              name="cc-exp-month"
-                              placeholder="MM"
-                              value={cardMonth}
-                              onChange={(v) => setCardMonth(maskCardMonth(v))}
-                              onFocus={() => setCardFocused('expiry')}
-                              inputMode="numeric"
-                              maxLength={2}
-                              autoComplete="cc-exp-month"
-                            />
-                          </CheckoutGlassField>
-                          <CheckoutGlassField label="Ano" required>
-                            <CheckoutGlassInput
-                              name="cc-exp-year"
-                              placeholder="AA"
-                              value={cardYear}
-                              onChange={(v) => setCardYear(maskCardYear(v))}
-                              onFocus={() => setCardFocused('expiry')}
-                              inputMode="numeric"
-                              maxLength={2}
-                              autoComplete="cc-exp-year"
-                            />
-                          </CheckoutGlassField>
-                        </div>
-
-                        <CheckoutGlassField label="CVV" required>
-                          <CheckoutGlassInput
-                            name="cc-csc"
-                            placeholder="000 ou 0000"
-                            value={cardCvv}
-                            onChange={(v) => setCardCvv(maskCvv(v))}
-                            onFocus={() => setCardFocused('cvc')}
-                            inputMode="numeric"
-                            maxLength={4}
-                            autoComplete="cc-csc"
-                          />
-                        </CheckoutGlassField>
-
-                        <CheckoutGlassField label="Nome do titular" required>
-                          <CheckoutGlassInput
-                            name="cc-name"
-                            placeholder="Como no cartão"
-                            value={holderName}
-                            onChange={setHolderName}
-                            onFocus={() => setCardFocused('name')}
-                            autoComplete="cc-name"
-                          />
-                        </CheckoutGlassField>
-
-                        <CheckoutGlassField
-                          label="CPF / CNPJ do titular"
-                          required
-                        >
-                          <CheckoutGlassInput
-                            placeholder="000.000.000-00 ou 00.000.000/0000-00"
-                            value={holderDocument}
-                            onChange={(v) => setHolderDocument(maskCpfCnpj(v))}
-                            inputMode="numeric"
-                            autoComplete="off"
-                          />
-                        </CheckoutGlassField>
-                      </>
-                    )}
-
-                  {paymentMethod === 'pix' && link.aceitaPix && !pixContent && (
-                    <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
-                      <p className="text-sm text-zinc-300">
-                        Para continuar com o pagamento via Pix, clique em{' '}
-                        <strong className="text-white">
-                          Efetuar pagamento
-                        </strong>{' '}
-                        abaixo. O código copia e cola será gerado
-                        automaticamente.
-                      </p>
-                    </div>
-                  )}
-
-                  {paymentMethod === 'pix' &&
-                    link.aceitaPix &&
-                    (pixContent || pixQrCode) && (
-                      <PixDisplay
-                        pixContent={pixContent}
-                        qrCode={pixQrCode}
-                        pixExpire={pixExpire}
-                      />
-                    )}
-                </div>
-              </CheckoutAccordionSection>
-
-              <CheckoutStatusCard error={error} items={statusItems} />
-
-              {!(paymentMethod === 'pix' && (pixContent || pixQrCode)) &&
-                (loading ? (
-                  <div className="mt-1 flex flex-col items-center gap-3 rounded-xl border border-[rgba(246,182,122,.35)] bg-[rgba(245,138,42,.12)] px-4 py-6 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-[#f6b67a]" />
-                    <div>
-                      <p className="text-sm font-semibold text-[#d9d4e3]">
-                        Processando pagamento…
-                      </p>
-                      <p className="mt-1 text-xs text-zinc-400">
-                        {paymentMethod === 'pix'
-                          ? 'Aguarde alguns segundos, estamos gerando seu PIX'
-                          : 'Aguarde alguns segundos, estamos processando seu cartão'}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    type="submit"
-                    className="mt-1 w-full sp2-cta font-medium py-3.5 text-base transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f6b67a] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 active:scale-[0.99]"
-                  >
-                    Assinar agora
-                  </button>
-                ))}
-            </form>
-          </CheckoutUiCard>
-        </CheckoutFormColumn>
-      </CheckoutMain>
-      <CheckoutFooter />
-    </div>
+            {paymentMethod === 'pix' &&
+              link.aceitaPix &&
+              (pixContent || pixQrCode) && (
+                <PixDisplay
+                  pixContent={pixContent}
+                  qrCode={pixQrCode}
+                  pixExpire={pixExpire}
+                />
+              )}
+          </div>
+        </>
+      }
+      status={<CheckoutStatusCard error={error} items={statusItems} />}
+    />
   );
 }

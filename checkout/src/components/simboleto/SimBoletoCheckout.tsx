@@ -8,27 +8,16 @@ import { useSearchParams } from 'next/navigation';
 import {
   CheckCircle,
   AlertCircle,
-  User,
-  DollarSign,
   Loader2,
   Barcode as BarcodeIcon,
 } from 'lucide-react';
-import { CheckoutAccordionSection } from '@/components/checkout/CheckoutAccordionSection';
 import { CheckoutFooter } from '@/components/checkout/CheckoutChrome';
-import { CheckoutCartLottie } from '@/components/checkout/CheckoutCartLottie';
+import { CheckoutFlow } from '@/components/checkout/CheckoutFlow';
+import { StatusPill } from '@/components/checkout/ui';
 import {
   CheckoutGlassField,
   CheckoutGlassInput,
 } from '@/components/checkout/CheckoutFormPrimitives';
-import {
-  CheckoutSummaryBranding,
-  CheckoutSummaryTrustPanel,
-} from '@/components/checkout/CheckoutSummaryExtras';
-import {
-  CheckoutFormColumn,
-  CheckoutMain,
-  CheckoutSummaryColumn,
-} from '@/components/checkout/CheckoutLayout';
 import { CheckoutStatusCard } from '@/components/checkout/CheckoutStatusCard';
 import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
 import { maskCpfCnpj, maskPhoneBr } from '@/lib/input-masks';
@@ -51,7 +40,6 @@ type BoletoData = {
 };
 
 type PaymentMethod = 'boleto' | 'pix';
-type Section = 'dados' | 'pagamento';
 
 function formatCurrency(val: number) {
   return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -69,7 +57,6 @@ export default function SimBoletoCheckout() {
   const [boleto, setBoleto] = useState<BoletoData | null>(null);
   const [fetching, setFetching] = useState(true);
   const [boletoError, setBoletoError] = useState('');
-  const [openSection, setOpenSection] = useState<Section>('dados');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
@@ -134,17 +121,6 @@ export default function SimBoletoCheckout() {
       setCepLoading(false);
     }
   }
-
-  useEffect(() => {
-    const { dadosOk: ok } = validateBoletoCheckout({
-      name,
-      document,
-      phone,
-      email,
-    });
-    if (ok && openSection === 'dados') setOpenSection('pagamento');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, document, phone, email]);
 
   useEffect(() => {
     if (!watchId || paymentConfirmed) return;
@@ -227,7 +203,11 @@ export default function SimBoletoCheckout() {
   }, [simBoletoCode]);
 
   async function handleSubmit() {
-    if (!boleto || loading || !podeSubmeter) return;
+    if (!boleto || loading) return;
+    if (!podeSubmeter) {
+      setError('Preencha o endereço do pagador para gerar o boleto.');
+      return;
+    }
     setError('');
     setLoading(true);
 
@@ -385,293 +365,227 @@ export default function SimBoletoCheckout() {
   ];
 
   return (
-    <div className="checkout-page-bg flex min-h-screen flex-col">
-      <CheckoutMain>
-        <CheckoutSummaryColumn>
-          <CheckoutSummaryBranding />
-          <CheckoutUiCard title="Pedido" description="Resumo do boleto">
-            <p className="text-lg font-bold tracking-tight text-white sm:text-xl">
-              {sanitizeCheckoutText(boleto.titulo)}
-            </p>
-            {boleto.descricao && (
-              <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                {sanitizeCheckoutText(boleto.descricao)}
-              </p>
-            )}
-          </CheckoutUiCard>
+    <CheckoutFlow
+      product={{
+        title: sanitizeCheckoutText(boleto.titulo),
+        description: boleto.descricao
+          ? sanitizeCheckoutText(boleto.descricao)
+          : undefined,
+        price: formatCurrency(boleto.valor),
+        frequency: 'Pagamento único',
+      }}
+      total={formatCurrency(boleto.valor)}
+      validateDados={() => dadosOk}
+      onSubmit={() => void handleSubmit()}
+      finalLabel={paymentMethod === 'pix' ? 'Gerar PIX' : 'Gerar boleto'}
+      loading={loading}
+      error={error}
+      finalAction={
+        generated ? (
+          <StatusPill>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Aguardando pagamento…
+          </StatusPill>
+        ) : undefined
+      }
+      dados={
+        <>
+          <div className="flex flex-col gap-3 pt-1">
+            <CheckoutGlassField label="Nome completo" required>
+              <CheckoutGlassInput
+                name="name"
+                placeholder="Digite seu nome"
+                value={name}
+                onChange={setName}
+                autoComplete="name"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="CPF / CNPJ" required>
+              <CheckoutGlassInput
+                name="customer-document"
+                placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                value={document}
+                onChange={(v) => setDocument(maskCpfCnpj(v))}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="Celular" required>
+              <CheckoutGlassInput
+                name="phone"
+                prefix="+55"
+                placeholder="(00) 00000-0000"
+                value={phone}
+                onChange={(v) => setPhone(maskPhoneBr(v))}
+                inputMode="tel"
+                autoComplete="tel-national"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="E-mail" required>
+              <CheckoutGlassInput
+                type="email"
+                placeholder="Digite seu e-mail"
+                value={email}
+                onChange={setEmail}
+                autoComplete="email"
+                name="email"
+              />
+            </CheckoutGlassField>
+          </div>
+          <BuyerMemoryPreference {...buyerMemory} />
+        </>
+      }
+      pagamento={
+        <>
+          <div className="flex flex-col gap-3 pt-1">
+            <div className="flex flex-wrap items-center gap-4 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
+              {boleto.aceitaBoleto && (
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    className="h-4 w-4 accent-[#f58a2a]"
+                    checked={paymentMethod === 'boleto'}
+                    onChange={() => setPaymentMethod('boleto')}
+                  />
+                  <BarcodeIcon className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
+                  Boleto
+                </label>
+              )}
+              {boleto.aceitaPix && (
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    className="h-4 w-4 accent-[#f58a2a]"
+                    checked={paymentMethod === 'pix'}
+                    onChange={() => setPaymentMethod('pix')}
+                  />
+                  PIX
+                </label>
+              )}
+            </div>
 
-          <CheckoutUiCard
-            title="Resumo"
-            description="Total a pagar"
-            className="text-center"
-          >
-            <CheckoutCartLottie />
-            <p className="text-sm font-medium text-zinc-400">Total a pagar</p>
-            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-[#d9d4e3] sm:text-4xl">
-              {formatCurrency(boleto.valor)}
-            </p>
-            <p className="mt-1 text-xs text-emerald-400">
-              {paymentMethod === 'pix'
-                ? 'Pagamento à vista via PIX'
-                : 'Pagamento via boleto bancário'}
-            </p>
-          </CheckoutUiCard>
-
-          <CheckoutUiCard
-            title="Confiança"
-            description="Segurança da transação"
-          >
-            <CheckoutSummaryTrustPanel />
-          </CheckoutUiCard>
-        </CheckoutSummaryColumn>
-
-        <CheckoutFormColumn>
-          <CheckoutUiCard title="Pagamento" description="Dados e método">
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleSubmit();
-              }}
-              className="flex flex-col gap-4"
-            >
-              <CheckoutAccordionSection
-                title="Seus dados"
-                icon={User}
-                open={openSection === 'dados'}
-                onToggle={() => setOpenSection('dados')}
-              >
-                <div className="flex flex-col gap-3 pt-1">
-                  <CheckoutGlassField label="Nome completo" required>
+            {paymentMethod === 'boleto' && !generated && (
+              <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.04] p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  Endereço do pagador (obrigatório para boleto)
+                </p>
+                <CheckoutGlassField label="CEP" required>
+                  <CheckoutGlassInput
+                    name="cep"
+                    autoComplete="postal-code"
+                    placeholder="00000-000"
+                    value={cep}
+                    inputMode="numeric"
+                    onChange={(v) => {
+                      const masked = maskCep(v);
+                      setCep(masked);
+                      if (masked.replace(/\D/g, '').length === 8)
+                        void lookupCep(masked);
+                    }}
+                  />
+                </CheckoutGlassField>
+                {cepLoading && (
+                  <p className="text-xs text-zinc-500">
+                    Buscando endereço pelo CEP…
+                  </p>
+                )}
+                <div className="grid grid-cols-[1fr_5.5rem] gap-3">
+                  <CheckoutGlassField label="Rua" required>
                     <CheckoutGlassInput
-                      name="name"
-                      placeholder="Digite seu nome"
-                      value={name}
-                      onChange={setName}
-                      autoComplete="name"
+                      name="rua"
+                      autoComplete="address-line1"
+                      placeholder="Logradouro"
+                      value={rua}
+                      onChange={(v) => setRua(v.slice(0, 40))}
                     />
                   </CheckoutGlassField>
-                  <CheckoutGlassField label="CPF / CNPJ" required>
+                  <CheckoutGlassField label="Número" required>
                     <CheckoutGlassInput
-                      name="customer-document"
-                      placeholder="000.000.000-00 ou 00.000.000/0000-00"
-                      value={document}
-                      onChange={(v) => setDocument(maskCpfCnpj(v))}
+                      name="numero"
+                      placeholder="123"
+                      value={numero}
+                      onChange={setNumero}
                       inputMode="numeric"
-                      autoComplete="off"
-                    />
-                  </CheckoutGlassField>
-                  <CheckoutGlassField label="Celular" required>
-                    <CheckoutGlassInput
-                      name="phone"
-                      prefix="+55"
-                      placeholder="(00) 00000-0000"
-                      value={phone}
-                      onChange={(v) => setPhone(maskPhoneBr(v))}
-                      inputMode="tel"
-                      autoComplete="tel-national"
-                    />
-                  </CheckoutGlassField>
-                  <CheckoutGlassField label="E-mail" required>
-                    <CheckoutGlassInput
-                      type="email"
-                      placeholder="Digite seu e-mail"
-                      value={email}
-                      onChange={setEmail}
-                      autoComplete="email"
-                      name="email"
                     />
                   </CheckoutGlassField>
                 </div>
-                <BuyerMemoryPreference {...buyerMemory} />
-              </CheckoutAccordionSection>
-
-              <CheckoutAccordionSection
-                title="Forma de pagamento"
-                icon={DollarSign}
-                open={openSection === 'pagamento'}
-                onToggle={() => setOpenSection('pagamento')}
-              >
-                <div className="flex flex-col gap-3 pt-1">
-                  <div className="flex flex-wrap items-center gap-4 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
-                    {boleto.aceitaBoleto && (
-                      <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
-                        <input
-                          type="radio"
-                          name="paymentMethod"
-                          className="h-4 w-4 accent-[#f58a2a]"
-                          checked={paymentMethod === 'boleto'}
-                          onChange={() => setPaymentMethod('boleto')}
-                        />
-                        <BarcodeIcon className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
-                        Boleto
-                      </label>
-                    )}
-                    {boleto.aceitaPix && (
-                      <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
-                        <input
-                          type="radio"
-                          name="paymentMethod"
-                          className="h-4 w-4 accent-[#f58a2a]"
-                          checked={paymentMethod === 'pix'}
-                          onChange={() => setPaymentMethod('pix')}
-                        />
-                        PIX
-                      </label>
-                    )}
-                  </div>
-
-                  {paymentMethod === 'boleto' && !generated && (
-                    <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.04] p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                        Endereço do pagador (obrigatório para boleto)
-                      </p>
-                      <CheckoutGlassField label="CEP" required>
-                        <CheckoutGlassInput
-                          name="cep"
-                          autoComplete="postal-code"
-                          placeholder="00000-000"
-                          value={cep}
-                          inputMode="numeric"
-                          onChange={(v) => {
-                            const masked = maskCep(v);
-                            setCep(masked);
-                            if (masked.replace(/\D/g, '').length === 8)
-                              void lookupCep(masked);
-                          }}
-                        />
-                      </CheckoutGlassField>
-                      {cepLoading && (
-                        <p className="text-xs text-zinc-500">
-                          Buscando endereço pelo CEP…
-                        </p>
-                      )}
-                      <div className="grid grid-cols-[1fr_5.5rem] gap-3">
-                        <CheckoutGlassField label="Rua" required>
-                          <CheckoutGlassInput
-                            name="rua"
-                            autoComplete="address-line1"
-                            placeholder="Logradouro"
-                            value={rua}
-                            onChange={(v) => setRua(v.slice(0, 40))}
-                          />
-                        </CheckoutGlassField>
-                        <CheckoutGlassField label="Número" required>
-                          <CheckoutGlassInput
-                            name="numero"
-                            placeholder="123"
-                            value={numero}
-                            onChange={setNumero}
-                            inputMode="numeric"
-                          />
-                        </CheckoutGlassField>
-                      </div>
-                      <CheckoutGlassField label="Bairro" required>
-                        <CheckoutGlassInput
-                          name="bairro"
-                          placeholder="Bairro"
-                          value={bairro}
-                          onChange={setBairro}
-                        />
-                      </CheckoutGlassField>
-                      <div className="grid grid-cols-[1fr_4.5rem] gap-3">
-                        <CheckoutGlassField label="Cidade" required>
-                          <CheckoutGlassInput
-                            name="cidade"
-                            autoComplete="address-level2"
-                            placeholder="Cidade"
-                            value={cidade}
-                            onChange={setCidade}
-                          />
-                        </CheckoutGlassField>
-                        <CheckoutGlassField label="UF" required>
-                          <CheckoutGlassInput
-                            name="uf"
-                            autoComplete="address-level1"
-                            placeholder="SP"
-                            value={uf}
-                            onChange={(v) =>
-                              setUf(
-                                v
-                                  .replace(/[^a-zA-Z]/g, '')
-                                  .toUpperCase()
-                                  .slice(0, 2),
-                              )
-                            }
-                          />
-                        </CheckoutGlassField>
-                      </div>
-                      <CheckoutGlassField label="Complemento (opcional)">
-                        <CheckoutGlassInput
-                          name="complemento"
-                          autoComplete="address-line2"
-                          placeholder="Apto, bloco…"
-                          value={complemento}
-                          onChange={setComplemento}
-                        />
-                      </CheckoutGlassField>
-                    </div>
-                  )}
-                  {paymentMethod === 'pix' && !generated && (
-                    <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
-                      <p className="text-sm text-zinc-300">
-                        Clique em{' '}
-                        <strong className="text-white">Gerar PIX</strong>{' '}
-                        abaixo. O código copia e cola será gerado
-                        automaticamente.
-                      </p>
-                    </div>
-                  )}
-
-                  {paymentMethod === 'pix' && (pixContent || pixQrCode) && (
-                    <PixDisplay
-                      pixContent={pixContent}
-                      qrCode={pixQrCode}
-                      pixExpire={pixExpire}
+                <CheckoutGlassField label="Bairro" required>
+                  <CheckoutGlassInput
+                    name="bairro"
+                    placeholder="Bairro"
+                    value={bairro}
+                    onChange={setBairro}
+                  />
+                </CheckoutGlassField>
+                <div className="grid grid-cols-[1fr_4.5rem] gap-3">
+                  <CheckoutGlassField label="Cidade" required>
+                    <CheckoutGlassInput
+                      name="cidade"
+                      autoComplete="address-level2"
+                      placeholder="Cidade"
+                      value={cidade}
+                      onChange={setCidade}
                     />
-                  )}
-                  {paymentMethod === 'boleto' &&
-                    (boletoUrl || digitableLine || barcode) && (
-                      <BoletoDisplay
-                        boletoUrl={boletoUrl}
-                        digitableLine={digitableLine}
-                        barcode={barcode}
-                        dueDate={dueDate}
-                      />
-                    )}
+                  </CheckoutGlassField>
+                  <CheckoutGlassField label="UF" required>
+                    <CheckoutGlassInput
+                      name="uf"
+                      autoComplete="address-level1"
+                      placeholder="SP"
+                      value={uf}
+                      onChange={(v) =>
+                        setUf(
+                          v
+                            .replace(/[^a-zA-Z]/g, '')
+                            .toUpperCase()
+                            .slice(0, 2),
+                        )
+                      }
+                    />
+                  </CheckoutGlassField>
                 </div>
-              </CheckoutAccordionSection>
+                <CheckoutGlassField label="Complemento (opcional)">
+                  <CheckoutGlassInput
+                    name="complemento"
+                    autoComplete="address-line2"
+                    placeholder="Apto, bloco…"
+                    value={complemento}
+                    onChange={setComplemento}
+                  />
+                </CheckoutGlassField>
+              </div>
+            )}
+            {paymentMethod === 'pix' && !generated && (
+              <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
+                <p className="text-sm text-zinc-300">
+                  Clique em <strong className="text-white">Gerar PIX</strong>{' '}
+                  abaixo. O código copia e cola será gerado automaticamente.
+                </p>
+              </div>
+            )}
 
-              <CheckoutStatusCard error={error} items={statusItems} />
-
-              {!generated &&
-                (loading ? (
-                  <div className="mt-1 flex flex-col items-center gap-3 rounded-xl border border-[rgba(246,182,122,.35)] bg-[rgba(245,138,42,.12)] px-4 py-6 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-[#f6b67a]" />
-                    <div>
-                      <p className="text-sm font-semibold text-[#d9d4e3]">
-                        Processando…
-                      </p>
-                      <p className="mt-1 text-xs text-zinc-400">
-                        {paymentMethod === 'pix'
-                          ? 'Gerando seu PIX'
-                          : 'Gerando seu boleto'}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={!podeSubmeter}
-                    className="mt-1 w-full cursor-pointer rounded-xl border border-violet-400/40 bg-violet-500 py-3.5 text-base font-semibold text-white shadow-lg shadow-violet-600/35 transition hover:bg-violet-400 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 active:scale-[0.99]"
-                  >
-                    {paymentMethod === 'pix' ? 'Gerar PIX' : 'Gerar boleto'}
-                  </button>
-                ))}
-            </form>
-          </CheckoutUiCard>
-        </CheckoutFormColumn>
-      </CheckoutMain>
-      <CheckoutFooter />
-    </div>
+            {paymentMethod === 'pix' && (pixContent || pixQrCode) && (
+              <PixDisplay
+                pixContent={pixContent}
+                qrCode={pixQrCode}
+                pixExpire={pixExpire}
+              />
+            )}
+            {paymentMethod === 'boleto' &&
+              (boletoUrl || digitableLine || barcode) && (
+                <BoletoDisplay
+                  boletoUrl={boletoUrl}
+                  digitableLine={digitableLine}
+                  barcode={barcode}
+                  dueDate={dueDate}
+                />
+              )}
+          </div>
+        </>
+      }
+      status={<CheckoutStatusCard error={error} items={statusItems} />}
+    />
   );
 }

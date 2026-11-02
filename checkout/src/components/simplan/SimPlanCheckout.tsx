@@ -15,7 +15,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { getTokenCard } from '@/components/sdk';
-import { CheckoutAccordionSection } from '@/components/checkout/CheckoutAccordionSection';
+import { CheckoutFlow } from '@/components/checkout/CheckoutFlow';
 import { CheckoutFooter } from '@/components/checkout/CheckoutChrome';
 import { CheckoutCartLottie } from '@/components/checkout/CheckoutCartLottie';
 import {
@@ -62,8 +62,6 @@ type PlanData = {
   ativo: boolean;
 };
 
-type Section = 'dados' | 'pagamento';
-
 function formatCurrency(val: number) {
   return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
@@ -94,7 +92,6 @@ export default function SimPlanCheckout() {
   const [fetching, setFetching] = useState(true);
   const [planError, setPlanError] = useState('');
   const [totalWithFee, setTotalWithFee] = useState<number | null>(null);
-  const [openSection, setOpenSection] = useState<Section>('dados');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -138,13 +135,6 @@ export default function SimPlanCheckout() {
   }, []);
 
   useEffect(() => {
-    if (dadosOk && openSection === 'dados') {
-      setOpenSection('pagamento');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dadosOk]);
-
-  useEffect(() => {
     if (!simPlanCode) {
       setFetching(false);
       return;
@@ -184,8 +174,7 @@ export default function SimPlanCheckout() {
       .finally(() => setFetching(false));
   }, [simPlanCode, storeParam]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     if (!plan) return;
     setError('');
     setLoading(true);
@@ -324,244 +313,168 @@ export default function SimPlanCheckout() {
   ];
 
   return (
-    <div className="checkout-page-bg flex min-h-screen flex-col">
-      <CheckoutMain>
-        <CheckoutSummaryColumn>
-          <CheckoutSummaryBranding />
-          <CheckoutUiCard
-            title="Plano"
-            description="O que você está contratando"
-          >
-            <p className="text-lg font-bold tracking-tight text-white sm:text-xl">
-              {sanitizeCheckoutText(plan.nome)}
-            </p>
-            {plan.descricao && (
-              <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                {sanitizeCheckoutText(plan.descricao)}
-              </p>
-            )}
-          </CheckoutUiCard>
-
-          <CheckoutUiCard
-            title="Resumo"
-            description="Total em tempo real"
-            className="text-center"
-          >
-            <CheckoutCartLottie />
-            <p className="text-sm font-medium text-zinc-400">Total a pagar</p>
-            <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight text-[#d9d4e3] sm:text-4xl">
-              {formatCurrency(totalWithFee ?? plan.preco)}
-            </p>
-            <p className="mt-3 text-[11px] font-semibold uppercase tracking-wider text-[#a9a3b8]">
-              {intervalLabel(plan.tipo)}
-            </p>
-          </CheckoutUiCard>
-
-          <CheckoutUiCard
-            title="Confiança"
-            description="Segurança da transação"
-          >
-            <CheckoutSummaryTrustPanel />
-          </CheckoutUiCard>
-        </CheckoutSummaryColumn>
-
-        <CheckoutFormColumn>
-          {mounted && (
-            <div
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                visibility: 'hidden',
-                pointerEvents: 'none',
-                width: 0,
-                height: 0,
-                overflow: 'hidden',
-              }}
-            >
-              <Cards number="" expiry="" cvc="" name="" focused="" />
+    <CheckoutFlow
+      product={{
+        title: sanitizeCheckoutText(plan.nome),
+        description: plan.descricao
+          ? sanitizeCheckoutText(plan.descricao)
+          : undefined,
+        price: formatCurrency(plan.preco),
+        frequency: intervalLabel(plan.tipo),
+      }}
+      total={formatCurrency(totalWithFee ?? plan.preco)}
+      totalCaption={intervalLabel(plan.tipo)}
+      dadosSubtitle="Usados para emitir a cobrança e enviar seu acesso"
+      validateDados={() => dadosOk}
+      onSubmit={handleSubmit}
+      finalLabel="Efetuar pagamento"
+      finalDisabled={!cardOk}
+      loading={loading}
+      error={error}
+      dados={
+        <>
+          <div className="flex flex-col gap-3 pt-1">
+            <CheckoutGlassField label="Nome completo" required>
+              <CheckoutGlassInput
+                name="name"
+                placeholder="Digite seu nome"
+                value={name}
+                onChange={setName}
+                autoComplete="name"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="CPF / CNPJ" required>
+              <CheckoutGlassInput
+                placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                value={document}
+                onChange={(v) => setDocument(maskCpfCnpj(v))}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="Celular" required>
+              <CheckoutGlassInput
+                name="phone"
+                prefix="+55"
+                placeholder="(00) 00000-0000"
+                value={phone}
+                onChange={(v) => setPhone(maskPhoneBr(v))}
+                inputMode="tel"
+                autoComplete="tel-national"
+              />
+            </CheckoutGlassField>
+            <CheckoutGlassField label="E-mail" required>
+              <CheckoutGlassInput
+                type="email"
+                name="email"
+                placeholder="Digite seu e-mail"
+                value={email}
+                onChange={setEmail}
+                autoComplete="email"
+              />
+            </CheckoutGlassField>
+          </div>
+        </>
+      }
+      pagamento={
+        <>
+          <div className="flex flex-col gap-3 pt-1">
+            <div className="flex items-center gap-3 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
+              <CheckCircle className="h-4 w-4 shrink-0 text-[#f6b67a]" />
+              <CreditCardIcon className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
+              <span className="text-sm font-semibold text-zinc-100">
+                Cartão de crédito
+              </span>
             </div>
-          )}
-          <CheckoutUiCard title="Pagamento" description="Dados e cartão">
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              <CheckoutAccordionSection
-                title="Seus dados"
-                icon={User}
-                open={openSection === 'dados'}
-                onToggle={() => setOpenSection('dados')}
-              >
-                <div className="flex flex-col gap-3 pt-1">
-                  <CheckoutGlassField label="Nome completo" required>
-                    <CheckoutGlassInput
-                      name="name"
-                      placeholder="Digite seu nome"
-                      value={name}
-                      onChange={setName}
-                      autoComplete="name"
-                    />
-                  </CheckoutGlassField>
-                  <CheckoutGlassField label="CPF / CNPJ" required>
-                    <CheckoutGlassInput
-                      placeholder="000.000.000-00 ou 00.000.000/0000-00"
-                      value={document}
-                      onChange={(v) => setDocument(maskCpfCnpj(v))}
-                      inputMode="numeric"
-                      autoComplete="off"
-                    />
-                  </CheckoutGlassField>
-                  <CheckoutGlassField label="Celular" required>
-                    <CheckoutGlassInput
-                      name="phone"
-                      prefix="+55"
-                      placeholder="(00) 00000-0000"
-                      value={phone}
-                      onChange={(v) => setPhone(maskPhoneBr(v))}
-                      inputMode="tel"
-                      autoComplete="tel-national"
-                    />
-                  </CheckoutGlassField>
-                  <CheckoutGlassField label="E-mail" required>
-                    <CheckoutGlassInput
-                      type="email"
-                      name="email"
-                      placeholder="Digite seu e-mail"
-                      value={email}
-                      onChange={setEmail}
-                      autoComplete="email"
-                    />
-                  </CheckoutGlassField>
-                </div>
-                <BuyerMemoryPreference {...buyerMemory} />
-              </CheckoutAccordionSection>
 
-              <CheckoutAccordionSection
-                title="Forma de pagamento"
-                icon={DollarSign}
-                open={openSection === 'pagamento'}
-                onToggle={() => setOpenSection('pagamento')}
-              >
-                <div className="flex flex-col gap-3 pt-1">
-                  <div className="flex items-center gap-3 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
-                    <CheckCircle className="h-4 w-4 shrink-0 text-[#f6b67a]" />
-                    <CreditCardIcon className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
-                    <span className="text-sm font-semibold text-zinc-100">
-                      Cartão de crédito
-                    </span>
-                  </div>
+            {mounted && (
+              <CheckoutCardPreview>
+                <Cards
+                  number={cardNumber}
+                  expiry={`${cardMonth}/${cardYear}`}
+                  cvc={cardCvv}
+                  name={holderName || ' '}
+                  focused={cardFocused}
+                />
+              </CheckoutCardPreview>
+            )}
 
-                  {mounted && (
-                    <CheckoutCardPreview>
-                      <Cards
-                        number={cardNumber}
-                        expiry={`${cardMonth}/${cardYear}`}
-                        cvc={cardCvv}
-                        name={holderName || ' '}
-                        focused={cardFocused}
-                      />
-                    </CheckoutCardPreview>
-                  )}
+            <CheckoutGlassField label="Número do cartão" required>
+              <CheckoutGlassInput
+                name="cc-number"
+                placeholder="0000 0000 0000 0000"
+                value={cardNumber}
+                onChange={(v) => setCardNumber(maskCardNumber(v))}
+                onFocus={() => setCardFocused('number')}
+                inputMode="numeric"
+                autoComplete="cc-number"
+              />
+            </CheckoutGlassField>
 
-                  <CheckoutGlassField label="Número do cartão" required>
-                    <CheckoutGlassInput
-                      name="cc-number"
-                      placeholder="0000 0000 0000 0000"
-                      value={cardNumber}
-                      onChange={(v) => setCardNumber(maskCardNumber(v))}
-                      onFocus={() => setCardFocused('number')}
-                      inputMode="numeric"
-                      autoComplete="cc-number"
-                    />
-                  </CheckoutGlassField>
+            <div className="grid grid-cols-2 gap-3">
+              <CheckoutGlassField label="Mês" required>
+                <CheckoutGlassInput
+                  name="cc-exp-month"
+                  placeholder="MM"
+                  value={cardMonth}
+                  onChange={(v) => setCardMonth(maskCardMonth(v))}
+                  onFocus={() => setCardFocused('expiry')}
+                  inputMode="numeric"
+                  maxLength={2}
+                  autoComplete="cc-exp-month"
+                />
+              </CheckoutGlassField>
+              <CheckoutGlassField label="Ano" required>
+                <CheckoutGlassInput
+                  name="cc-exp-year"
+                  placeholder="AA"
+                  value={cardYear}
+                  onChange={(v) => setCardYear(maskCardYear(v))}
+                  onFocus={() => setCardFocused('expiry')}
+                  inputMode="numeric"
+                  maxLength={2}
+                  autoComplete="cc-exp-year"
+                />
+              </CheckoutGlassField>
+            </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <CheckoutGlassField label="Mês" required>
-                      <CheckoutGlassInput
-                        name="cc-exp-month"
-                        placeholder="MM"
-                        value={cardMonth}
-                        onChange={(v) => setCardMonth(maskCardMonth(v))}
-                        onFocus={() => setCardFocused('expiry')}
-                        inputMode="numeric"
-                        maxLength={2}
-                        autoComplete="cc-exp-month"
-                      />
-                    </CheckoutGlassField>
-                    <CheckoutGlassField label="Ano" required>
-                      <CheckoutGlassInput
-                        name="cc-exp-year"
-                        placeholder="AA"
-                        value={cardYear}
-                        onChange={(v) => setCardYear(maskCardYear(v))}
-                        onFocus={() => setCardFocused('expiry')}
-                        inputMode="numeric"
-                        maxLength={2}
-                        autoComplete="cc-exp-year"
-                      />
-                    </CheckoutGlassField>
-                  </div>
+            <CheckoutGlassField label="CVV" required>
+              <CheckoutGlassInput
+                name="cc-csc"
+                placeholder="000 ou 0000"
+                value={cardCvv}
+                onChange={(v) => setCardCvv(maskCvv(v))}
+                onFocus={() => setCardFocused('cvc')}
+                inputMode="numeric"
+                maxLength={4}
+                autoComplete="cc-csc"
+              />
+            </CheckoutGlassField>
 
-                  <CheckoutGlassField label="CVV" required>
-                    <CheckoutGlassInput
-                      name="cc-csc"
-                      placeholder="000 ou 0000"
-                      value={cardCvv}
-                      onChange={(v) => setCardCvv(maskCvv(v))}
-                      onFocus={() => setCardFocused('cvc')}
-                      inputMode="numeric"
-                      maxLength={4}
-                      autoComplete="cc-csc"
-                    />
-                  </CheckoutGlassField>
+            <CheckoutGlassField label="Nome do titular" required>
+              <CheckoutGlassInput
+                name="cc-name"
+                placeholder="Como no cartão"
+                value={holderName}
+                onChange={setHolderName}
+                onFocus={() => setCardFocused('name')}
+                autoComplete="cc-name"
+              />
+            </CheckoutGlassField>
 
-                  <CheckoutGlassField label="Nome do titular" required>
-                    <CheckoutGlassInput
-                      name="cc-name"
-                      placeholder="Como no cartão"
-                      value={holderName}
-                      onChange={setHolderName}
-                      onFocus={() => setCardFocused('name')}
-                      autoComplete="cc-name"
-                    />
-                  </CheckoutGlassField>
-
-                  <CheckoutGlassField label="CPF / CNPJ do titular" required>
-                    <CheckoutGlassInput
-                      placeholder="000.000.000-00 ou 00.000.000/0000-00"
-                      value={holderDocument}
-                      onChange={(v) => setHolderDocument(maskCpfCnpj(v))}
-                      inputMode="numeric"
-                      autoComplete="off"
-                    />
-                  </CheckoutGlassField>
-                </div>
-              </CheckoutAccordionSection>
-
-              <CheckoutStatusCard error={error} items={statusItems} />
-
-              {loading ? (
-                <div className="mt-1 flex flex-col items-center gap-3 rounded-xl border border-[rgba(246,182,122,.35)] bg-[rgba(245,138,42,.12)] px-4 py-6 text-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-[#f6b67a]" />
-                  <div>
-                    <p className="text-sm font-semibold text-[#d9d4e3]">
-                      Processando pagamento…
-                    </p>
-                    <p className="mt-1 text-xs text-zinc-400">
-                      Aguarde alguns segundos, estamos processando seu cartão
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  type="submit"
-                  className="mt-1 w-full sp2-cta font-medium py-3.5 text-base transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f6b67a] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 active:scale-[0.99]"
-                >
-                  Efetuar pagamento
-                </button>
-              )}
-            </form>
-          </CheckoutUiCard>
-        </CheckoutFormColumn>
-      </CheckoutMain>
-      <CheckoutFooter />
-    </div>
+            <CheckoutGlassField label="CPF / CNPJ do titular" required>
+              <CheckoutGlassInput
+                placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                value={holderDocument}
+                onChange={(v) => setHolderDocument(maskCpfCnpj(v))}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+            </CheckoutGlassField>
+          </div>
+        </>
+      }
+      status={<CheckoutStatusCard error={error} items={statusItems} />}
+    />
   );
 }
