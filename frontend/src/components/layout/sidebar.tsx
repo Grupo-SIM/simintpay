@@ -336,7 +336,6 @@ export function Sidebar() {
           overflowX: 'hidden',
         }}
       >
-        <p style={sectionLabelStyle}>Menu</p>
         <NavLink
           open={open}
           pathname={pathname}
@@ -505,9 +504,6 @@ export function Sidebar() {
           />
         )}
 
-        <p style={{ ...sectionLabelStyle, paddingTop: open ? 14 : 0 }}>
-          Gerenciar
-        </p>
         <NavLink
           open={open}
           pathname={pathname}
