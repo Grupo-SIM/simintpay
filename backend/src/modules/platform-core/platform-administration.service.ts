@@ -1,3 +1,4 @@
+import { readPlatformBalanceSummary } from './platform-balance-summary';
 import {
   coproductionOwnerNet,
   snapshotFrom,
@@ -20,8 +21,6 @@ import {
   type DomTransactionItem,
   type IPaymentGateway,
 } from '../../core/services/payment-gateway.interface';
-import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
-import { computeBosqueAvailableSinceLastWithdrawal } from '../../application/helpers/bosque-available.helper';
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import {
   PLATFORM_TAXA_DEFAULTS,
@@ -34,8 +33,6 @@ import {
 import { calculateBoletoFees } from '../../application/use-cases/boleto/boleto-fees.helper';
 import { isMaquinetaDescription } from '../../application/utils/internal-tags.util';
 import {
-  resolveConsolidadoPlatforms,
-  getComunidadeOrderRows,
   FIXED_PLATFORM_TAGS,
   parseYmdSp,
   normalizePlatformTag,
@@ -85,107 +82,7 @@ export class PlatformAdministrationService {
   ) {}
 
   async getPlataformasSaldosResumo() {
-    // Cada TIPO de plataforma tem seu próprio modelo de "saldo disponível":
-    // - bosque: líquido desde o último saque (bate com o painel admin-ibb)
-    // - renovada/revalida/pagatg/frendz: computeUserNetBalance (ledger do dono)
-    // - atlas/ebook/areaflix: soma das carteiras de vendedores externos
-    // - comunidades: net das ordens pagas (valores que passaram pela comunidade)
-    const AVAILABLE_SOURCE: Record<string, 'bosque' | 'owner' | 'sellers'> = {
-      BOSQUE: 'bosque',
-      RENOVADA: 'owner',
-      REVALIDA: 'owner',
-      PAGATG: 'owner',
-      FRENDZ: 'owner',
-      ATLAS: 'sellers',
-      EBOOK: 'sellers',
-      AREAFLIX: 'sellers',
-    };
-
-    const platforms = await resolveConsolidadoPlatforms(this.prisma);
-
-    // Carteiras de vendedores externos agregadas por plataforma (fonte 'sellers').
-    const epuRows = await this.prisma.externalPlatformUser.findMany({
-      where: { isDeleted: false },
-      select: {
-        platform: true,
-        wallet: { select: { balance: true, lockedBalance: true } },
-      },
-    });
-    const sellersMap = new Map<
-      string,
-      { total: number; bloqueado: number; contas: number }
-    >();
-    for (const r of epuRows) {
-      const key = (r.platform ?? '').toLowerCase();
-      if (!key) continue;
-      const cur = sellersMap.get(key) ?? { total: 0, bloqueado: 0, contas: 0 };
-      cur.total += Number(r.wallet?.balance ?? 0);
-      cur.bloqueado += Number(r.wallet?.lockedBalance ?? 0);
-      cur.contas += 1;
-      sellersMap.set(key, cur);
-    }
-
-    const moduleResumo = await Promise.all(
-      platforms.map(async (p) => {
-        const slug = p.tag.toLowerCase();
-        const source = AVAILABLE_SOURCE[p.tag] ?? 'owner';
-        const sharedOwner =
-          platforms.filter((row) => row.id === p.id).length > 1;
-        let totalDisponivel = 0;
-        let totalBloqueado = 0;
-        let contas = 1;
-        if (source === 'sellers') {
-          const s = sellersMap.get(slug);
-          totalDisponivel = s?.total ?? 0;
-          totalBloqueado = s?.bloqueado ?? 0;
-          contas = s?.contas ?? 0;
-        } else if (source === 'bosque') {
-          totalDisponivel = await computeBosqueAvailableSinceLastWithdrawal(
-            this.prisma,
-            [p.id],
-          );
-        } else if (!sharedOwner) {
-          totalDisponivel = await computeUserNetBalance(
-            this.prisma,
-            p.id,
-            slug,
-          );
-        }
-        return {
-          platform: slug,
-          ownerUserId: p.id,
-          walletScope:
-            sharedOwner && source !== 'sellers' ? 'shared-owner' : 'platform',
-          totalDisponivel: Number(Math.max(0, totalDisponivel).toFixed(2)),
-          totalBloqueado: Number(Math.max(0, totalBloqueado).toFixed(2)),
-          contas,
-        };
-      }),
-    );
-
-    // Comunidades individuais (Marketing raiz etc.): net das ordens pagas, por comunidade.
-    const comunidadeRows = await getComunidadeOrderRows(this.prisma);
-    const comMap = new Map<string, { total: number; contas: number }>();
-    for (const r of comunidadeRows) {
-      const tag = (r.platformTag ?? '').toUpperCase();
-      if (!tag || FIXED_PLATFORM_TAGS.has(tag)) continue;
-      const key = tag.toLowerCase();
-      const cur = comMap.get(key) ?? { total: 0, contas: 0 };
-      cur.total += Number(r.netAmount ?? 0);
-      cur.contas += 1;
-      comMap.set(key, cur);
-    }
-    const comunidadeResumo = [...comMap.entries()].map(([platform, v]) => ({
-      platform,
-      totalDisponivel: Number(Math.max(0, v.total).toFixed(2)),
-      totalBloqueado: 0,
-      contas: v.contas,
-    }));
-
-    const resumo = [...moduleResumo, ...comunidadeResumo].sort(
-      (a, b) => b.totalDisponivel - a.totalDisponivel,
-    );
-    return { resumo };
+    return { resumo: await readPlatformBalanceSummary(this.prisma) };
   }
 
   async listPlataformas() {

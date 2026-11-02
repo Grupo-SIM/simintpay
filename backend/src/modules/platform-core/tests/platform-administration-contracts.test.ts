@@ -73,6 +73,16 @@ function fixture() {
     },
     pixCreditPlan: { count: async () => 2 },
     community: { findUnique: async () => null },
+    $queryRaw: async () => [
+      {
+        platform: 'atlas',
+        ownerUserId: 'owner',
+        balance: 123.45,
+        locked: 1.23,
+        contas: 1n,
+        complete: true,
+      },
+    ],
     externalPlatformUser: {
       findMany: async () => [
         { platform: 'atlas', wallet: { balance: 123.45, lockedBalance: 1.23 } },
@@ -127,8 +137,11 @@ test('administrative platform listing and balances preserve actual persisted pro
       {
         platform: 'atlas',
         ownerUserId: 'owner',
-        walletScope: 'platform',
-        totalDisponivel: 123.45,
+        totalDisponivel: null,
+        totalSaldoAtribuido: 123.45,
+        availabilityStatus: 'not-independent',
+        walletScope: 'beneficiary-platform-attribution',
+        attributionStatus: 'complete',
         totalBloqueado: 1.23,
         contas: 1,
       },
