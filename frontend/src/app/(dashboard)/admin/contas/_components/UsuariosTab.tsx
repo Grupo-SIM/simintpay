@@ -34,6 +34,7 @@ import { HelpTooltip } from '@/components/ui/HelpTooltip';
 import { PortalTooltip } from '@/components/ui/PortalTooltip';
 import { cn, getPlatformBadgeClass, formatDocument } from '@/lib/utils';
 
+import { useProductPlatforms } from '@/hooks/use-product-platforms';
 import { PlatformFilterSelect } from '@/components/product-platforms/PlatformFilterSelect';
 import { AccountPlatformsButton } from '../components';
 import { ClientChargesModal } from './charges';
@@ -63,6 +64,11 @@ type ExternalUser = {
   cpf: string;
   name: string;
   platformEntries: PlatformEntry[];
+  balanceAttribution?: {
+    platformTag?: string;
+    balanceCents?: number;
+    pendingWithdrawalsGrossCents?: number;
+  }[];
   balance: number;
   lockedBalance: number;
   vinculado: boolean;
@@ -285,6 +291,17 @@ export default function UsuariosTab({
     null,
   );
   const [carteiraUser, setCarteiraUser] = useState<ExternalUser | null>(null);
+  const { platforms: catalogPlatforms } = useProductPlatforms();
+  const platformNameByTag = new Map(
+    catalogPlatforms.map((p) => [p.tag.trim().toLowerCase(), p.name]),
+  );
+  const platformName = (tag: string) =>
+    platformNameByTag.get(tag.trim().toLowerCase()) ??
+    PLATFORM_LABELS[tag.toLowerCase()] ??
+    tag;
+  const platformBalances = (carteiraUser?.balanceAttribution ?? []).filter(
+    (a): a is typeof a & { platformTag: string } => Boolean(a.platformTag),
+  );
   const [purging, setPurging] = useState(false);
   const [reactivating, setReactivating] = useState(false);
   /**
@@ -1448,11 +1465,14 @@ export default function UsuariosTab({
                       getPlatformBadgeClass(p.platform),
                     )}
                   >
-                    {PLATFORM_LABELS[p.platform.toLowerCase()] ?? p.platform}
+                    {platformName(p.platform)}
                   </span>
                 ))}
               </div>
             </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+              Saldo total
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-500/20 dark:bg-emerald-500/10">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
@@ -1471,6 +1491,35 @@ export default function UsuariosTab({
                 </p>
               </div>
             </div>
+            {platformBalances.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                  Saldo por plataforma
+                </p>
+                {platformBalances.map((a) => (
+                  <div
+                    key={a.platformTag}
+                    className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-1.5 text-sm dark:border-white/5"
+                  >
+                    <span className="text-zinc-700 dark:text-zinc-300">
+                      {platformName(a.platformTag)}
+                    </span>
+                    <span className="tabular-nums text-zinc-800 dark:text-zinc-200">
+                      {formatCurrency((a.balanceCents ?? 0) / 100)}
+                      {(a.pendingWithdrawalsGrossCents ?? 0) > 0 && (
+                        <span className="ml-2 text-xs text-amber-600">
+                          (
+                          {formatCurrency(
+                            (a.pendingWithdrawalsGrossCents ?? 0) / 100,
+                          )}{' '}
+                          bloq.)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Modal>
