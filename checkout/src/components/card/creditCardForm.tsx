@@ -17,40 +17,27 @@ import {
   // Lock,
   // User,
   // CreditCard as CardIcon,
-  Package,
-  Clock,
   CheckCircle,
   AlertCircle,
-  ArrowLeft,
-  ArrowRight,
   Copy,
-  Shield,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getTokenCard } from '@/components/sdk';
 import { usePixPlanSuffix } from '@/hooks/usePixPlanSuffix';
-import { CheckoutFooter } from '@/components/checkout/CheckoutChrome';
-import { CheckoutAccordionSection } from '@/components/checkout/CheckoutAccordionSection';
+import { CheckoutFlow } from '@/components/checkout/CheckoutFlow';
+import {
+  CheckoutErrorScreen,
+  CheckoutLoadingScreen,
+} from '@/components/checkout/CheckoutStateScreens';
+import { SummaryRow } from '@/components/checkout/ui';
 import {
   CheckoutGlassField,
   CheckoutGlassInput,
 } from '@/components/checkout/CheckoutFormPrimitives';
-import {
-  CheckoutCardPreview,
-  CheckoutMain,
-  CheckoutBrandingRow,
-  CheckoutSummaryColumn,
-  CheckoutFormColumn,
-} from '@/components/checkout/CheckoutLayout';
+import { CheckoutCardPreview } from '@/components/checkout/CheckoutLayout';
 import { CheckoutStatusCard } from '@/components/checkout/CheckoutStatusCard';
-import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
-import {
-  CheckoutSummaryBranding,
-  CheckoutSummaryTrustPanel,
-} from '@/components/checkout/CheckoutSummaryExtras';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import { buildInstallmentLabel } from '@/lib/installment-label';
-import Image from 'next/image';
 import { maskCpfCnpj, maskPhoneBr } from '@/lib/input-masks';
 import { checkoutTracking } from '@/lib/payment-tracking';
 
@@ -99,7 +86,6 @@ const CheckoutForm = () => {
   );
 
   // Estado para controlar a etapa atual do formulário
-  const [currentStep, setCurrentStep] = useState(1);
 
   const [formData, setFormData] = useState<any>({
     name: '',
@@ -692,26 +678,6 @@ const CheckoutForm = () => {
     return Object.keys(errors).length === 0;
   };
 
-  const nextStep = () => {
-    if (currentStep === 1) {
-      const isValid = validateStep1();
-      if (isValid) {
-        setCurrentStep(2);
-        setError('');
-      }
-    }
-  };
-
-  const prevStep = () => {
-    if (currentStep === 2) {
-      setCurrentStep(1);
-      setError('');
-      setPixData(null);
-      setPixPaymentId('');
-      setPixStatus('pending');
-    }
-  };
-
   // handle para método de pagamento — só troca o método, não apaga dados
   const handlePaymentMethodChange = (e: any) => {
     setPaymentMethod(e.target.value);
@@ -958,12 +924,7 @@ const CheckoutForm = () => {
   };
 
   // MODIFICAR handleSubmit para suportar pagamento único, PIX e PAYMENT LINKS
-  const handleSubmit = async (e: any) => {
-    e.preventDefault();
-    if (currentStep === 1) {
-      nextStep();
-      return;
-    }
+  const handleSubmit = async () => {
     // PAGAMENTO PIX: não validar etapa 2 de cartão
     if (paymentMethod === 'pix') {
       if (subscriptionLinkData) {
@@ -1893,61 +1854,20 @@ const CheckoutForm = () => {
     (isPaymentLinkFlow && !paymentLinkData && !planError) ||
     (isSubscriptionLink && !subscriptionLinkData && !planError)
   ) {
-    return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            title="Carregando"
-            description="Buscando dados do pagamento"
-            className="max-w-sm text-center"
-          >
-            <div className="flex justify-center py-4">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#f6b67a] border-t-transparent" />
-            </div>
-            <p className="text-sm text-zinc-400">Aguarde um instante…</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
-    );
+    return <CheckoutLoadingScreen message="Buscando dados do pagamento…" />;
   }
 
   if (fetching) {
-    return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            title="Carregando"
-            description="Preparando o checkout"
-            className="max-w-sm text-center"
-          >
-            <div className="flex justify-center py-4">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#f6b67a] border-t-transparent" />
-            </div>
-            <p className="text-sm text-zinc-400">Aguarde um instante…</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
-    );
+    return <CheckoutLoadingScreen message="Preparando o checkout…" />;
   }
 
   if (planError && !valueParam && !descriptionParam) {
     // Só mostra erro se não for pagamento único (ou seja, não veio valor/descrição na URL)
     return (
-      <div className="checkout-page-bg flex min-h-screen flex-col">
-        <div className="flex flex-1 items-center justify-center px-4 py-12">
-          <CheckoutUiCard
-            variant="danger"
-            title="Erro ao carregar o plano"
-            className="w-full max-w-md text-center"
-          >
-            <AlertCircle className="mx-auto mb-3 h-10 w-10 text-red-400" />
-            <p className="text-sm text-red-100/90">{planError}</p>
-          </CheckoutUiCard>
-        </div>
-        <CheckoutFooter />
-      </div>
+      <CheckoutErrorScreen
+        title="Erro ao carregar o plano"
+        message={planError}
+      />
     );
   }
 
@@ -1979,61 +1899,38 @@ const CheckoutForm = () => {
         ];
 
   return (
-    <div className="checkout-page-bg flex min-h-screen flex-col">
-      <CheckoutMain>
-        <CheckoutBrandingRow>
-          <div className="flex w-full items-center justify-center pb-2">
-            <Image
-              src="/1.svg?v=2"
-              alt="Logo"
-              width={180}
-              height={60}
-              className="h-16 w-auto object-contain"
-              priority
-            />
-          </div>
-        </CheckoutBrandingRow>
-
-        {/* ── Coluna de resumo ── */}
-        <CheckoutSummaryColumn>
-          <CheckoutUiCard title="Pedido" description="Resumo do seu pedido">
-            <p className="text-base font-bold tracking-tight text-white sm:text-lg">
-              {sanitizeCheckoutText(
-                removePixSuffix(
-                  subscriptionLinkData
-                    ? subscriptionLinkData.nome ||
-                        subscriptionLinkData.descricao
-                    : paymentLinkData
-                      ? paymentLinkData.description
-                      : planData
-                        ? planData.plan.description
-                        : getDisplayTitle(),
-                ),
-              )}
-            </p>
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-zinc-400">
-              <Clock className="h-3.5 w-3.5 shrink-0" />
-              {subscriptionLinkData
-                ? getSubscriptionFrequencyLabel(
-                    subscriptionLinkData.frequencia ||
-                      subscriptionLinkData.frequencyType,
-                  )
+    <>
+      <CheckoutFlow
+        product={{
+          title: sanitizeCheckoutText(
+            removePixSuffix(
+              subscriptionLinkData
+                ? subscriptionLinkData.nome || subscriptionLinkData.descricao
                 : paymentLinkData
-                  ? 'Pagamento único via link'
+                  ? paymentLinkData.description
                   : planData
-                    ? getFrequencyText(
-                        planData.plan.frequencyType,
-                        planData.plan.frequency,
-                      )
-                    : 'Pagamento único'}
-            </p>
-          </CheckoutUiCard>
-
-          <CheckoutUiCard
-            title="Resumo"
-            description="Total em tempo real"
-            className="text-center"
-          >
+                    ? planData.plan.description
+                    : getDisplayTitle(),
+            ),
+          ),
+          price: formatCurrency(getDisplayValue()),
+          frequency: subscriptionLinkData
+            ? getSubscriptionFrequencyLabel(
+                subscriptionLinkData.frequencia ||
+                  subscriptionLinkData.frequencyType,
+              )
+            : paymentLinkData
+              ? 'Pagamento único via link'
+              : planData
+                ? getFrequencyText(
+                    planData.plan.frequencyType,
+                    planData.plan.frequency,
+                  )
+                : 'Pagamento único',
+        }}
+        total={formatCurrency(getFinalValueWithDiscount())}
+        asideRows={
+          <>
             {/* Voucher — apenas em checkout.pagatg.com */}
             {isPagatgHost && (
               <div className="mt-4 flex flex-col gap-2 text-left">
@@ -2112,676 +2009,570 @@ const CheckoutForm = () => {
                 )}
               </div>
             )}
-
-            {/* Desconto aplicado */}
             {voucherStatus?.valid && (
-              <div className="mt-3 flex justify-between text-sm text-emerald-300">
-                <span>Desconto aplicado</span>
-                <span>-{formatCurrency(voucherStatus.discount)}</span>
-              </div>
+              <SummaryRow
+                label="Desconto aplicado"
+                value={`-${formatCurrency(voucherStatus.discount)}`}
+              />
             )}
-
-            <div className="mt-4 border-t border-white/10 pt-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-zinc-300">
-                  Total a pagar
-                </span>
-                <span className="text-xl font-bold tabular-nums text-[#d9d4e3]">
-                  {formatCurrency(getFinalValueWithDiscount())}
-                </span>
-              </div>
-              {/* Valor da parcela — payment link */}
-              {paymentLinkFees && paymentLinkFees.installments > 1 && (
-                <p className="mt-1 text-center text-xs text-[#a9a3b8]">
-                  {paymentLinkFees.installments}x de{' '}
-                  {formatCurrency(paymentLinkFees.installmentAmount)}
+            {/* Valor da parcela — payment link */}
+            {paymentLinkFees && paymentLinkFees.installments > 1 && (
+              <p className="mt-1 text-center text-xs text-[#a9a3b8]">
+                {paymentLinkFees.installments}x de{' '}
+                {formatCurrency(paymentLinkFees.installmentAmount)}
+              </p>
+            )}
+            {paymentLinkFees &&
+              paymentLinkFees.installments === 1 &&
+              paymentLinkFees.interestRate === 0 && (
+                <p className="mt-1 text-center text-xs text-emerald-400">
+                  Pagamento único à vista
                 </p>
               )}
-              {paymentLinkFees &&
-                paymentLinkFees.installments === 1 &&
-                paymentLinkFees.interestRate === 0 && (
-                  <p className="mt-1 text-center text-xs text-emerald-400">
-                    Pagamento único à vista
+            {/* Parcelamento para plano */}
+            {planData && (
+              <p className="mt-1 text-center text-xs text-[#a9a3b8]">
+                Ou em 4x de {formatCurrency(getFinalValueWithDiscount() / 4)}
+              </p>
+            )}
+          </>
+        }
+        status={<CheckoutStatusCard error={error} items={statusItems} />}
+        validateDados={validateStep1}
+        onSubmit={handleSubmit}
+        onStepChange={() => setError('')}
+        finalLabel="Finalizar Pagamento"
+        loading={loading}
+        error={error}
+        finalAction={
+          paymentMethod === 'pix' && pixData ? (
+            <p className="text-center text-sm text-[#a9a3b8]">
+              Aguardando pagamento…
+            </p>
+          ) : undefined
+        }
+        dados={
+          <div className="flex flex-col gap-3 pt-1">
+            <CheckoutGlassField label="Nome completo" required>
+              <CheckoutGlassInput
+                name="name"
+                placeholder="Digite seu nome completo"
+                value={formData.name}
+                onChange={(v) =>
+                  handleChange({
+                    target: { name: 'name', value: v },
+                  } as any)
+                }
+                autoComplete="name"
+              />
+              {formErrors.name && (
+                <p className="mt-1 text-xs text-red-400">{formErrors.name}</p>
+              )}
+            </CheckoutGlassField>
+
+            <CheckoutGlassField label="CPF / CNPJ" required>
+              <CheckoutGlassInput
+                name="document"
+                placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                value={formData.document}
+                onChange={(v) =>
+                  handleChange({
+                    target: { name: 'document', value: v },
+                  } as any)
+                }
+                inputMode="numeric"
+                autoComplete="off"
+              />
+              {formErrors.document && (
+                <p className="mt-1 text-xs text-red-400">
+                  {formErrors.document}
+                </p>
+              )}
+            </CheckoutGlassField>
+
+            <CheckoutGlassField label="E-mail" required>
+              {!paymentLinkData && !subscriptionLinkData && (
+                <div className="mb-2 rounded-lg border border-[rgba(246,182,122,.35)] bg-[rgba(245,138,42,.12)] px-3 py-2">
+                  <p className="text-xs text-[#d9d4e3]">
+                    Use o <strong>mesmo e-mail</strong>{' '}
+                    {isPagatgHost
+                      ? 'vinculado à sua assinatura do canal/grupo.'
+                      : 'que você utilizou para se cadastrar na plataforma.'}
                   </p>
-                )}
-              {/* Parcelamento para plano */}
-              {planData && (
-                <p className="mt-1 text-center text-xs text-[#a9a3b8]">
-                  Ou em 4x de {formatCurrency(getFinalValueWithDiscount() / 4)}
+                </div>
+              )}
+              <CheckoutGlassInput
+                type="email"
+                name="email"
+                placeholder={
+                  isPagatgHost
+                    ? 'exemplo@email.com (mesmo e-mail da assinatura)'
+                    : 'exemplo@email.com (mesmo e-mail do seu cadastro)'
+                }
+                value={formData.email}
+                onChange={(v) =>
+                  handleChange({
+                    target: { name: 'email', value: v },
+                  } as any)
+                }
+                autoComplete="email"
+              />
+              {formErrors.email && (
+                <p className="mt-1 text-xs text-red-400">{formErrors.email}</p>
+              )}
+            </CheckoutGlassField>
+
+            <CheckoutGlassField label="Telefone" required>
+              <CheckoutGlassInput
+                name="mobilePhone"
+                prefix="+55"
+                placeholder="(00) 00000-0000"
+                value={formData.mobilePhone}
+                onChange={(v) =>
+                  handleChange({
+                    target: { name: 'mobilePhone', value: v },
+                  } as any)
+                }
+                inputMode="tel"
+                autoComplete="tel-national"
+              />
+              {formErrors.mobilePhone && (
+                <p className="mt-1 text-xs text-red-400">
+                  {formErrors.mobilePhone}
                 </p>
               )}
-            </div>
-          </CheckoutUiCard>
+            </CheckoutGlassField>
+            <BuyerMemoryPreference {...buyerMemory} />
+          </div>
+        }
+        pagamento={
+          <div className="flex flex-col gap-3 pt-1">
+            {/* Seletor de método (apenas quando aplicável) */}
+            {showPaymentMethodSelector &&
+              (availableMethods.credit || availableMethods.pix) && (
+                <div className="flex flex-wrap items-center gap-4 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
+                  {availableMethods.credit && (
+                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        className="h-4 w-4 accent-[#f58a2a]"
+                        value="credit"
+                        checked={paymentMethod === 'credit'}
+                        onChange={handlePaymentMethodChange}
+                      />
+                      <CreditCard className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
+                      Cartão de Crédito
+                    </label>
+                  )}
+                  {availableMethods.pix && (
+                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        className="h-4 w-4 accent-[#f58a2a]"
+                        value="pix"
+                        checked={paymentMethod === 'pix'}
+                        onChange={handlePaymentMethodChange}
+                      />
+                      PIX
+                    </label>
+                  )}
+                </div>
+              )}
 
-          <CheckoutUiCard title="Segurança" description="Transação protegida">
-            <CheckoutSummaryTrustPanel />
-          </CheckoutUiCard>
+            {/* ── Cartão de crédito ── */}
+            {paymentMethod === 'credit' && (
+              <>
+                {/* Preview visual do cartão */}
+                {mounted && (
+                  <CheckoutCardPreview>
+                    <Cards
+                      number={formData.number}
+                      expiry={`${formData.month}/${formData.year}`}
+                      cvc={formData.cvv}
+                      name={formData.holder_name || ' '}
+                      focused={cardFocused}
+                    />
+                  </CheckoutCardPreview>
+                )}
 
-          <CheckoutSummaryBranding />
-        </CheckoutSummaryColumn>
+                {/* Checkbox: titular = comprador */}
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm font-medium text-zinc-200">
+                  <input
+                    type="checkbox"
+                    id="sameAsCustomer"
+                    checked={sameAsCustomer}
+                    onChange={handleSameAsCustomerChange}
+                    className="h-4 w-4 accent-[#f58a2a]"
+                  />
+                  <Copy className="h-4 w-4 shrink-0 text-[#f6b67a]" />O titular
+                  do cartão é o mesmo que está fazendo a compra
+                </label>
 
-        {/* ── Coluna de formulário ── */}
-        <CheckoutFormColumn>
-          <CheckoutUiCard
-            title="Checkout"
-            description="Preencha seus dados e finalize"
-          >
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              {/* ── Accordion: Seus dados ── */}
-              <CheckoutAccordionSection
-                title="Seus dados"
-                icon={Package}
-                open={currentStep === 1}
-                onToggle={() => setCurrentStep(1)}
-              >
-                <div className="flex flex-col gap-3 pt-1">
-                  <CheckoutGlassField label="Nome completo" required>
+                {/* Parcelas — payment link */}
+                {paymentLinkData && paymentLinkData.maxInstallments > 1 && (
+                  <CheckoutGlassField label="Número de parcelas" required>
+                    <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
+                      <select
+                        name="installments"
+                        value={formData.installments}
+                        onChange={handleChange}
+                        className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
+                      >
+                        {Array.from(
+                          { length: paymentLinkData.maxInstallments },
+                          (_, i) => i + 1,
+                        ).map((num) => {
+                          const option = allInstallmentOptions.find(
+                            (opt) => opt.installments === num,
+                          );
+                          // "(com juros)" garantido pela comparação total ≠
+                          // valor original do link, em vez da flag/taxa do backend.
+                          const label = option
+                            ? buildInstallmentLabel({
+                                installments: num,
+                                perInstallment: option.installmentAmount,
+                                total:
+                                  option.totalAmount ??
+                                  option.installmentAmount * num,
+                                original: paymentLinkData.amount,
+                                formatCurrency,
+                              })
+                            : buildInstallmentLabel({
+                                installments: num,
+                                perInstallment: paymentLinkData.amount / num,
+                                total: paymentLinkData.amount,
+                                original: paymentLinkData.amount,
+                                formatCurrency,
+                              });
+                          return (
+                            <option
+                              key={num}
+                              value={num}
+                              className="bg-zinc-900"
+                            >
+                              {label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </CheckoutGlassField>
+                )}
+
+                {/* Parcelas — ebook com maxInstallments >= 1 */}
+                {isEbookCheckout && ebookInstallmentOptions.length >= 1 && (
+                  <CheckoutGlassField label="Número de parcelas" required>
+                    <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
+                      <select
+                        name="installments"
+                        value={formData.installments}
+                        onChange={handleChange}
+                        className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
+                      >
+                        {ebookInstallmentOptions.map((opt) => {
+                          // "(com juros)" decidido pelo total ≠ preço original
+                          // (singleValue em centavos), não pela flag hasInterest
+                          // (que só olha masterRate e ignora a DOM).
+                          const label = buildInstallmentLabel({
+                            installments: opt.installments,
+                            perInstallment: opt.installmentAmount,
+                            total:
+                              opt.totalAmount ??
+                              opt.installmentAmount * opt.installments,
+                            original: singleValue / 100,
+                            formatCurrency,
+                          });
+                          return (
+                            <option
+                              key={opt.installments}
+                              value={opt.installments}
+                              className="bg-zinc-900"
+                            >
+                              {label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </CheckoutGlassField>
+                )}
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <CheckoutGlassField label="Nome do titular" required>
                     <CheckoutGlassInput
-                      name="name"
-                      placeholder="Digite seu nome completo"
-                      value={formData.name}
+                      name="holder_name"
+                      placeholder="Nome como está no cartão"
+                      value={formData.holder_name}
                       onChange={(v) =>
                         handleChange({
-                          target: { name: 'name', value: v },
+                          target: { name: 'holder_name', value: v },
                         } as any)
                       }
-                      autoComplete="name"
+                      onFocus={() => setCardFocused('name')}
+                      autoComplete="cc-name"
                     />
-                    {formErrors.name && (
+                    {formErrors.holder_name && (
                       <p className="mt-1 text-xs text-red-400">
-                        {formErrors.name}
+                        {formErrors.holder_name}
                       </p>
                     )}
                   </CheckoutGlassField>
 
-                  <CheckoutGlassField label="CPF / CNPJ" required>
+                  <CheckoutGlassField label="CPF / CNPJ do titular" required>
                     <CheckoutGlassInput
-                      name="document"
-                      placeholder="000.000.000-00 ou 00.000.000/0000-00"
-                      value={formData.document}
+                      name="holder_document"
+                      placeholder="000.000.000-00"
+                      value={formData.holder_document}
                       onChange={(v) =>
                         handleChange({
-                          target: { name: 'document', value: v },
+                          target: { name: 'holder_document', value: v },
                         } as any)
                       }
                       inputMode="numeric"
                       autoComplete="off"
                     />
-                    {formErrors.document && (
+                    {formErrors.holder_document && (
                       <p className="mt-1 text-xs text-red-400">
-                        {formErrors.document}
+                        {formErrors.holder_document}
                       </p>
                     )}
                   </CheckoutGlassField>
-
-                  <CheckoutGlassField label="E-mail" required>
-                    {!paymentLinkData && !subscriptionLinkData && (
-                      <div className="mb-2 rounded-lg border border-[rgba(246,182,122,.35)] bg-[rgba(245,138,42,.12)] px-3 py-2">
-                        <p className="text-xs text-[#d9d4e3]">
-                          Use o <strong>mesmo e-mail</strong>{' '}
-                          {isPagatgHost
-                            ? 'vinculado à sua assinatura do canal/grupo.'
-                            : 'que você utilizou para se cadastrar na plataforma.'}
-                        </p>
-                      </div>
-                    )}
-                    <CheckoutGlassInput
-                      type="email"
-                      name="email"
-                      placeholder={
-                        isPagatgHost
-                          ? 'exemplo@email.com (mesmo e-mail da assinatura)'
-                          : 'exemplo@email.com (mesmo e-mail do seu cadastro)'
-                      }
-                      value={formData.email}
-                      onChange={(v) =>
-                        handleChange({
-                          target: { name: 'email', value: v },
-                        } as any)
-                      }
-                      autoComplete="email"
-                    />
-                    {formErrors.email && (
-                      <p className="mt-1 text-xs text-red-400">
-                        {formErrors.email}
-                      </p>
-                    )}
-                  </CheckoutGlassField>
-
-                  <CheckoutGlassField label="Telefone" required>
-                    <CheckoutGlassInput
-                      name="mobilePhone"
-                      prefix="+55"
-                      placeholder="(00) 00000-0000"
-                      value={formData.mobilePhone}
-                      onChange={(v) =>
-                        handleChange({
-                          target: { name: 'mobilePhone', value: v },
-                        } as any)
-                      }
-                      inputMode="tel"
-                      autoComplete="tel-national"
-                    />
-                    {formErrors.mobilePhone && (
-                      <p className="mt-1 text-xs text-red-400">
-                        {formErrors.mobilePhone}
-                      </p>
-                    )}
-                  </CheckoutGlassField>
-                  <BuyerMemoryPreference {...buyerMemory} />
                 </div>
-              </CheckoutAccordionSection>
 
-              {/* ── Accordion: Pagamento ── */}
-              <CheckoutAccordionSection
-                title="Forma de pagamento"
-                icon={CreditCard}
-                open={currentStep === 2}
-                onToggle={() => {
-                  if (dadosOk) setCurrentStep(2);
-                }}
-              >
-                <div className="flex flex-col gap-3 pt-1">
-                  {/* Seletor de método (apenas quando aplicável) */}
-                  {showPaymentMethodSelector &&
-                    (availableMethods.credit || availableMethods.pix) && (
-                      <div className="flex flex-wrap items-center gap-4 rounded-[20px] border border-white/[0.07] bg-white/[0.06] px-4 py-3">
-                        {availableMethods.credit && (
-                          <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
-                            <input
-                              type="radio"
-                              name="paymentMethod"
-                              className="h-4 w-4 accent-[#f58a2a]"
-                              value="credit"
-                              checked={paymentMethod === 'credit'}
-                              onChange={handlePaymentMethodChange}
-                            />
-                            <CreditCard className="h-4 w-4 shrink-0 text-[#d9d4e3]" />
-                            Cartão de Crédito
-                          </label>
-                        )}
-                        {availableMethods.pix && (
-                          <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-zinc-200">
-                            <input
-                              type="radio"
-                              name="paymentMethod"
-                              className="h-4 w-4 accent-[#f58a2a]"
-                              value="pix"
-                              checked={paymentMethod === 'pix'}
-                              onChange={handlePaymentMethodChange}
-                            />
-                            PIX
-                          </label>
-                        )}
-                      </div>
+                <CheckoutGlassField label="Número do cartão" required>
+                  <CheckoutGlassInput
+                    name="number"
+                    placeholder="1234 5678 9012 3456"
+                    value={formData.number}
+                    onChange={(v) =>
+                      handleChange({
+                        target: { name: 'number', value: v },
+                      } as any)
+                    }
+                    onFocus={() => setCardFocused('number')}
+                    inputMode="numeric"
+                    autoComplete="cc-number"
+                  />
+                  {formErrors.number && (
+                    <p className="mt-1 text-xs text-red-400">
+                      {formErrors.number}
+                    </p>
+                  )}
+                </CheckoutGlassField>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <CheckoutGlassField label="Mês" required>
+                    <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
+                      <select
+                        name="month"
+                        value={formData.month}
+                        onChange={handleChange}
+                        className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
+                      >
+                        <option value="" className="bg-zinc-900">
+                          MM
+                        </option>
+                        {Array.from({ length: 12 }, (_, i) => {
+                          const month = (i + 1).toString().padStart(2, '0');
+                          return (
+                            <option
+                              key={month}
+                              value={month}
+                              className="bg-zinc-900"
+                            >
+                              {month}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                    {formErrors.month && (
+                      <p className="mt-1 text-xs text-red-400">
+                        {formErrors.month}
+                      </p>
                     )}
+                  </CheckoutGlassField>
 
-                  {/* ── Cartão de crédito ── */}
-                  {paymentMethod === 'credit' && (
+                  <CheckoutGlassField label="Ano" required>
+                    <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
+                      <select
+                        name="year"
+                        value={formData.year}
+                        onChange={handleChange}
+                        className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
+                      >
+                        <option value="" className="bg-zinc-900">
+                          AA
+                        </option>
+                        {Array.from({ length: 10 }, (_, i) => {
+                          const year = (new Date().getFullYear() + i)
+                            .toString()
+                            .slice(-2);
+                          return (
+                            <option
+                              key={year}
+                              value={year}
+                              className="bg-zinc-900"
+                            >
+                              {year}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                    {formErrors.year && (
+                      <p className="mt-1 text-xs text-red-400">
+                        {formErrors.year}
+                      </p>
+                    )}
+                  </CheckoutGlassField>
+
+                  <CheckoutGlassField label="CVV" required>
+                    <CheckoutGlassInput
+                      name="cvv"
+                      placeholder="123"
+                      value={formData.cvv}
+                      onChange={(v) =>
+                        handleChange({
+                          target: { name: 'cvv', value: v },
+                        } as any)
+                      }
+                      onFocus={() => setCardFocused('cvc')}
+                      inputMode="numeric"
+                      maxLength={4}
+                      autoComplete="cc-csc"
+                    />
+                    {formErrors.cvv && (
+                      <p className="mt-1 text-xs text-red-400">
+                        {formErrors.cvv}
+                      </p>
+                    )}
+                  </CheckoutGlassField>
+                </div>
+              </>
+            )}
+
+            {/* ── PIX ── */}
+            {paymentMethod === 'pix' && !pixData && (
+              <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
+                <p className="text-sm text-zinc-300">
+                  Para continuar com o pagamento via Pix, clique em{' '}
+                  <strong className="text-white">Finalizar Pagamento</strong>{' '}
+                  abaixo. O código copia e cola será gerado automaticamente.
+                </p>
+              </div>
+            )}
+
+            {/* ── QR Code PIX gerado ── */}
+            {pixData && paymentMethod === 'pix' && (
+              <div className="flex flex-col items-center gap-4 py-2">
+                <p className="text-center text-sm font-semibold text-zinc-100">
+                  PIX gerado com sucesso!
+                </p>
+                {(pixData.pix_qrcode || pixData.pix_qrcode_url) && (
+                  <div className="flex flex-col items-center gap-1">
+                    <p className="text-xs text-zinc-400">
+                      Escaneie o QR Code com seu app de pagamentos
+                    </p>
+                    <div className="rounded-xl border border-white/15 bg-white p-3 shadow-lg shadow-black/40">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={pixData.pix_qrcode || pixData.pix_qrcode_url}
+                        alt="QR Code PIX"
+                        className="h-44 w-44 object-contain"
+                      />
+                    </div>
+                    <p className="text-xs text-zinc-500">
+                      ou use o código Copia e Cola abaixo
+                    </p>
+                  </div>
+                )}
+                {pixData.qr_code &&
+                  !pixData.pix_qrcode &&
+                  !pixData.pix_qrcode_url && (
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="rounded-xl border border-white/15 bg-white p-3 shadow-lg shadow-black/40">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`https://chart.googleapis.com/chart?chs=300x300&cht=qr&chl=${encodeURIComponent(pixData.qr_code)}`}
+                          alt="QR Code PIX"
+                          className="h-44 w-44 object-contain"
+                        />
+                      </div>
+                    </div>
+                  )}
+                {(() => {
+                  const pixCopiaCola =
+                    pixData.pix_content ||
+                    pixData.pix_copy_paste ||
+                    pixData.pix_copia_cola ||
+                    pixData.copia_cola ||
+                    pixData.copypaste ||
+                    pixData.copy_paste;
+                  if (!pixCopiaCola) return null;
+                  return (
                     <>
-                      {/* Preview visual do cartão */}
-                      {mounted && (
-                        <CheckoutCardPreview>
-                          <Cards
-                            number={formData.number}
-                            expiry={`${formData.month}/${formData.year}`}
-                            cvc={formData.cvv}
-                            name={formData.holder_name || ' '}
-                            focused={cardFocused}
-                          />
-                        </CheckoutCardPreview>
-                      )}
-
-                      {/* Checkbox: titular = comprador */}
-                      <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm font-medium text-zinc-200">
-                        <input
-                          type="checkbox"
-                          id="sameAsCustomer"
-                          checked={sameAsCustomer}
-                          onChange={handleSameAsCustomerChange}
-                          className="h-4 w-4 accent-[#f58a2a]"
-                        />
-                        <Copy className="h-4 w-4 shrink-0 text-[#f6b67a]" />O
-                        titular do cartão é o mesmo que está fazendo a compra
-                      </label>
-
-                      {/* Parcelas — payment link */}
-                      {paymentLinkData &&
-                        paymentLinkData.maxInstallments > 1 && (
-                          <CheckoutGlassField
-                            label="Número de parcelas"
-                            required
-                          >
-                            <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
-                              <select
-                                name="installments"
-                                value={formData.installments}
-                                onChange={handleChange}
-                                className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
-                              >
-                                {Array.from(
-                                  { length: paymentLinkData.maxInstallments },
-                                  (_, i) => i + 1,
-                                ).map((num) => {
-                                  const option = allInstallmentOptions.find(
-                                    (opt) => opt.installments === num,
-                                  );
-                                  // "(com juros)" garantido pela comparação total ≠
-                                  // valor original do link, em vez da flag/taxa do backend.
-                                  const label = option
-                                    ? buildInstallmentLabel({
-                                        installments: num,
-                                        perInstallment:
-                                          option.installmentAmount,
-                                        total:
-                                          option.totalAmount ??
-                                          option.installmentAmount * num,
-                                        original: paymentLinkData.amount,
-                                        formatCurrency,
-                                      })
-                                    : buildInstallmentLabel({
-                                        installments: num,
-                                        perInstallment:
-                                          paymentLinkData.amount / num,
-                                        total: paymentLinkData.amount,
-                                        original: paymentLinkData.amount,
-                                        formatCurrency,
-                                      });
-                                  return (
-                                    <option
-                                      key={num}
-                                      value={num}
-                                      className="bg-zinc-900"
-                                    >
-                                      {label}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            </div>
-                          </CheckoutGlassField>
-                        )}
-
-                      {/* Parcelas — ebook com maxInstallments >= 1 */}
-                      {isEbookCheckout &&
-                        ebookInstallmentOptions.length >= 1 && (
-                          <CheckoutGlassField
-                            label="Número de parcelas"
-                            required
-                          >
-                            <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
-                              <select
-                                name="installments"
-                                value={formData.installments}
-                                onChange={handleChange}
-                                className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
-                              >
-                                {ebookInstallmentOptions.map((opt) => {
-                                  // "(com juros)" decidido pelo total ≠ preço original
-                                  // (singleValue em centavos), não pela flag hasInterest
-                                  // (que só olha masterRate e ignora a DOM).
-                                  const label = buildInstallmentLabel({
-                                    installments: opt.installments,
-                                    perInstallment: opt.installmentAmount,
-                                    total:
-                                      opt.totalAmount ??
-                                      opt.installmentAmount * opt.installments,
-                                    original: singleValue / 100,
-                                    formatCurrency,
-                                  });
-                                  return (
-                                    <option
-                                      key={opt.installments}
-                                      value={opt.installments}
-                                      className="bg-zinc-900"
-                                    >
-                                      {label}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            </div>
-                          </CheckoutGlassField>
-                        )}
-
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <CheckoutGlassField label="Nome do titular" required>
-                          <CheckoutGlassInput
-                            name="holder_name"
-                            placeholder="Nome como está no cartão"
-                            value={formData.holder_name}
-                            onChange={(v) =>
-                              handleChange({
-                                target: { name: 'holder_name', value: v },
-                              } as any)
-                            }
-                            onFocus={() => setCardFocused('name')}
-                            autoComplete="cc-name"
-                          />
-                          {formErrors.holder_name && (
-                            <p className="mt-1 text-xs text-red-400">
-                              {formErrors.holder_name}
-                            </p>
-                          )}
-                        </CheckoutGlassField>
-
-                        <CheckoutGlassField
-                          label="CPF / CNPJ do titular"
-                          required
+                      <div className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2.5">
+                        <p
+                          className="select-all break-all text-xs text-zinc-300"
+                          id="pix-copia-cola"
                         >
-                          <CheckoutGlassInput
-                            name="holder_document"
-                            placeholder="000.000.000-00"
-                            value={formData.holder_document}
-                            onChange={(v) =>
-                              handleChange({
-                                target: { name: 'holder_document', value: v },
-                              } as any)
-                            }
-                            inputMode="numeric"
-                            autoComplete="off"
-                          />
-                          {formErrors.holder_document && (
-                            <p className="mt-1 text-xs text-red-400">
-                              {formErrors.holder_document}
-                            </p>
-                          )}
-                        </CheckoutGlassField>
-                      </div>
-
-                      <CheckoutGlassField label="Número do cartão" required>
-                        <CheckoutGlassInput
-                          name="number"
-                          placeholder="1234 5678 9012 3456"
-                          value={formData.number}
-                          onChange={(v) =>
-                            handleChange({
-                              target: { name: 'number', value: v },
-                            } as any)
-                          }
-                          onFocus={() => setCardFocused('number')}
-                          inputMode="numeric"
-                          autoComplete="cc-number"
-                        />
-                        {formErrors.number && (
-                          <p className="mt-1 text-xs text-red-400">
-                            {formErrors.number}
-                          </p>
-                        )}
-                      </CheckoutGlassField>
-
-                      <div className="grid grid-cols-3 gap-3">
-                        <CheckoutGlassField label="Mês" required>
-                          <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
-                            <select
-                              name="month"
-                              value={formData.month}
-                              onChange={handleChange}
-                              className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
-                            >
-                              <option value="" className="bg-zinc-900">
-                                MM
-                              </option>
-                              {Array.from({ length: 12 }, (_, i) => {
-                                const month = (i + 1)
-                                  .toString()
-                                  .padStart(2, '0');
-                                return (
-                                  <option
-                                    key={month}
-                                    value={month}
-                                    className="bg-zinc-900"
-                                  >
-                                    {month}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                          </div>
-                          {formErrors.month && (
-                            <p className="mt-1 text-xs text-red-400">
-                              {formErrors.month}
-                            </p>
-                          )}
-                        </CheckoutGlassField>
-
-                        <CheckoutGlassField label="Ano" required>
-                          <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
-                            <select
-                              name="year"
-                              value={formData.year}
-                              onChange={handleChange}
-                              className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
-                            >
-                              <option value="" className="bg-zinc-900">
-                                AA
-                              </option>
-                              {Array.from({ length: 10 }, (_, i) => {
-                                const year = (new Date().getFullYear() + i)
-                                  .toString()
-                                  .slice(-2);
-                                return (
-                                  <option
-                                    key={year}
-                                    value={year}
-                                    className="bg-zinc-900"
-                                  >
-                                    {year}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                          </div>
-                          {formErrors.year && (
-                            <p className="mt-1 text-xs text-red-400">
-                              {formErrors.year}
-                            </p>
-                          )}
-                        </CheckoutGlassField>
-
-                        <CheckoutGlassField label="CVV" required>
-                          <CheckoutGlassInput
-                            name="cvv"
-                            placeholder="123"
-                            value={formData.cvv}
-                            onChange={(v) =>
-                              handleChange({
-                                target: { name: 'cvv', value: v },
-                              } as any)
-                            }
-                            onFocus={() => setCardFocused('cvc')}
-                            inputMode="numeric"
-                            maxLength={4}
-                            autoComplete="cc-csc"
-                          />
-                          {formErrors.cvv && (
-                            <p className="mt-1 text-xs text-red-400">
-                              {formErrors.cvv}
-                            </p>
-                          )}
-                        </CheckoutGlassField>
-                      </div>
-                    </>
-                  )}
-
-                  {/* ── PIX ── */}
-                  {paymentMethod === 'pix' && !pixData && (
-                    <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
-                      <p className="text-sm text-zinc-300">
-                        Para continuar com o pagamento via Pix, clique em{' '}
-                        <strong className="text-white">
-                          Finalizar Pagamento
-                        </strong>{' '}
-                        abaixo. O código copia e cola será gerado
-                        automaticamente.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* ── QR Code PIX gerado ── */}
-                  {pixData && paymentMethod === 'pix' && (
-                    <div className="flex flex-col items-center gap-4 py-2">
-                      <p className="text-center text-sm font-semibold text-zinc-100">
-                        PIX gerado com sucesso!
-                      </p>
-                      {(pixData.pix_qrcode || pixData.pix_qrcode_url) && (
-                        <div className="flex flex-col items-center gap-1">
-                          <p className="text-xs text-zinc-400">
-                            Escaneie o QR Code com seu app de pagamentos
-                          </p>
-                          <div className="rounded-xl border border-white/15 bg-white p-3 shadow-lg shadow-black/40">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={pixData.pix_qrcode || pixData.pix_qrcode_url}
-                              alt="QR Code PIX"
-                              className="h-44 w-44 object-contain"
-                            />
-                          </div>
-                          <p className="text-xs text-zinc-500">
-                            ou use o código Copia e Cola abaixo
-                          </p>
-                        </div>
-                      )}
-                      {pixData.qr_code &&
-                        !pixData.pix_qrcode &&
-                        !pixData.pix_qrcode_url && (
-                          <div className="flex flex-col items-center gap-1">
-                            <div className="rounded-xl border border-white/15 bg-white p-3 shadow-lg shadow-black/40">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={`https://chart.googleapis.com/chart?chs=300x300&cht=qr&chl=${encodeURIComponent(pixData.qr_code)}`}
-                                alt="QR Code PIX"
-                                className="h-44 w-44 object-contain"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      {(() => {
-                        const pixCopiaCola =
-                          pixData.pix_content ||
-                          pixData.pix_copy_paste ||
-                          pixData.pix_copia_cola ||
-                          pixData.copia_cola ||
-                          pixData.copypaste ||
-                          pixData.copy_paste;
-                        if (!pixCopiaCola) return null;
-                        return (
-                          <>
-                            <div className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2.5">
-                              <p
-                                className="select-all break-all text-xs text-zinc-300"
-                                id="pix-copia-cola"
-                              >
-                                {pixCopiaCola}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={async (e) => {
-                                e.preventDefault();
-                                try {
-                                  await navigator.clipboard.writeText(
-                                    pixCopiaCola,
-                                  );
-                                } catch {
-                                  const el =
-                                    document.getElementById('pix-copia-cola');
-                                  if (el) {
-                                    const range = document.createRange();
-                                    range.selectNodeContents(el);
-                                    const sel = window.getSelection();
-                                    if (sel) {
-                                      sel.removeAllRanges();
-                                      sel.addRange(range);
-                                      document.execCommand('copy');
-                                      sel.removeAllRanges();
-                                    }
-                                  }
-                                }
-                                setCopiedPix(true);
-                                setTimeout(() => setCopiedPix(false), 1500);
-                              }}
-                              className="flex w-full items-center justify-center gap-2 rounded-lg border border-[rgba(246,182,122,.35)] bg-[rgba(245,138,42,.12)] px-4 py-2.5 text-sm font-semibold text-[#d9d4e3] transition hover:bg-[rgba(245,138,42,.2)]"
-                            >
-                              <Copy className="h-4 w-4" />
-                              {copiedPix ? 'Copiado!' : 'Copiar código PIX'}
-                            </button>
-                          </>
-                        );
-                      })()}
-                      {pixData.expires_in && (
-                        <p className="text-center text-xs text-zinc-500">
-                          QR Code expira em {pixData.expires_in} minutos
+                          {pixCopiaCola}
                         </p>
-                      )}
-                      <div className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-400/20 bg-blue-500/10 px-4 py-3">
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
-                        <span className="text-sm font-medium text-blue-200">
-                          Verificando pagamento…
-                        </span>
                       </div>
-                      <p className="text-center text-xs text-zinc-500">
-                        Após o pagamento, aguarde a confirmação automática.
-                      </p>
-                    </div>
-                  )}
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          try {
+                            await navigator.clipboard.writeText(pixCopiaCola);
+                          } catch {
+                            const el =
+                              document.getElementById('pix-copia-cola');
+                            if (el) {
+                              const range = document.createRange();
+                              range.selectNodeContents(el);
+                              const sel = window.getSelection();
+                              if (sel) {
+                                sel.removeAllRanges();
+                                sel.addRange(range);
+                                document.execCommand('copy');
+                                sel.removeAllRanges();
+                              }
+                            }
+                          }
+                          setCopiedPix(true);
+                          setTimeout(() => setCopiedPix(false), 1500);
+                        }}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-[rgba(246,182,122,.35)] bg-[rgba(245,138,42,.12)] px-4 py-2.5 text-sm font-semibold text-[#d9d4e3] transition hover:bg-[rgba(245,138,42,.2)]"
+                      >
+                        <Copy className="h-4 w-4" />
+                        {copiedPix ? 'Copiado!' : 'Copiar código PIX'}
+                      </button>
+                    </>
+                  );
+                })()}
+                {pixData.expires_in && (
+                  <p className="text-center text-xs text-zinc-500">
+                    QR Code expira em {pixData.expires_in} minutos
+                  </p>
+                )}
+                <div className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-400/20 bg-blue-500/10 px-4 py-3">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+                  <span className="text-sm font-medium text-blue-200">
+                    Verificando pagamento…
+                  </span>
                 </div>
-              </CheckoutAccordionSection>
-
-              {/* Status card com erro ou checklist */}
-              <CheckoutStatusCard error={error} items={statusItems} />
-
-              {/* Botões de navegação */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
-                {currentStep === 2 && (
-                  <button
-                    type="button"
-                    onClick={prevStep}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-6 py-3 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.10] sm:w-auto"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    Voltar
-                  </button>
-                )}
-
-                {currentStep === 1 ? (
-                  <button
-                    type="button"
-                    onClick={nextStep}
-                    className="flex w-full items-center justify-center gap-2 sp2-cta font-medium py-3.5 text-base transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f6b67a] sm:ml-auto sm:w-auto sm:px-8"
-                  >
-                    Próximo
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                ) : (
-                  !(paymentMethod === 'pix' && pixData) && (
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="flex w-full items-center justify-center sp2-cta font-medium py-3.5 text-base transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f6b67a] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 active:scale-[0.99] disabled:opacity-60 sm:ml-auto sm:w-auto sm:px-8"
-                    >
-                      {loading ? 'Processando...' : 'Finalizar Pagamento'}
-                    </button>
-                  )
-                )}
+                <p className="text-center text-xs text-zinc-500">
+                  Após o pagamento, aguarde a confirmação automática.
+                </p>
               </div>
-
-              {/* Aviso de segurança */}
-              <div className="flex items-center justify-center gap-2 text-xs text-zinc-500">
-                <Shield className="h-3.5 w-3.5 shrink-0" />
-                Seus dados estão seguros e sua transação é protegida
-              </div>
-
-              {/* Hidden fields */}
-              <input type="hidden" name="token" value={paymentData.token} />
-              <input type="hidden" name="brand" value={paymentData.brand} />
-              <input type="hidden" name="bin" value={paymentData.bin} />
-            </form>
-          </CheckoutUiCard>
-        </CheckoutFormColumn>
-      </CheckoutMain>
-
-      <CheckoutFooter />
+            )}
+          </div>
+        }
+      />
 
       {/* Modal de E-mail */}
       <EmailNoticeModal
@@ -2789,7 +2580,7 @@ const CheckoutForm = () => {
         onClose={() => setShowEmailModal(false)}
         isPagatgHost={isPagatgHost}
       />
-    </div>
+    </>
   );
 };
 
