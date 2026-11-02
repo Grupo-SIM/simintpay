@@ -99,9 +99,10 @@ export function projectPolicy(
           lanes: policy.document.lanes,
           laneOverrides: policy.own.lanes,
           globalLanes: policy.global.lanes,
-          ...(additiveFees ? { additiveFees } : {}),
         }
       : {}),
+    // Read-only for owners: the buyer total of a simulation includes these fees.
+    ...(additiveFees ? { additiveFees } : {}),
   };
 }
 
@@ -142,13 +143,12 @@ async function platformFeeMode(
   return platform?.feeMode ?? null;
 }
 
-/** Admin view of generic additive totals and revision; GLOBAL has none. */
-async function adminAdditiveFees(
+/** Generic additive totals and revision; GLOBAL has none. Only admins can change them. */
+async function platformAdditiveFees(
   prisma: Pick<Prisma.TransactionClient, 'platform' | 'platformAdditiveFees'>,
   tag: string,
-  admin: boolean,
 ): Promise<AdditiveFeesView | null> {
-  if (!admin || tag === 'GLOBAL') return null;
+  if (tag === 'GLOBAL') return null;
   const platform = await prisma.platform.findUnique({
     where: { tag },
     select: { id: true },
@@ -181,7 +181,7 @@ export async function getFinancialPolicy(
       admin,
       await platformFeeMode(prisma, tag),
       await platformDisabledLanes(prisma, tag),
-      await adminAdditiveFees(prisma, tag, admin),
+      await platformAdditiveFees(prisma, tag),
     ),
   };
 }
@@ -336,7 +336,7 @@ export async function saveFinancialPolicy(
             admin,
             await platformFeeMode(tx, tag),
             await platformDisabledLanes(tx, tag),
-            await adminAdditiveFees(tx, tag, admin),
+            await platformAdditiveFees(tx, tag),
           ),
         };
       },
