@@ -1,5 +1,6 @@
 'use client';
 import { useBuyerMemory } from '@/hooks/use-buyer-memory';
+import { useIsDesktop } from '@/hooks/use-is-desktop';
 import { BuyerMemoryPreference } from '@/components/checkout/BuyerMemoryPreference';
 /**
  * Checkout de link de pagamento (SimLink) — layout "Checkout Novo" em etapas:
@@ -172,7 +173,8 @@ export default function SimLinkCheckout({
   );
   const [fetching, setFetching] = useState(!preview);
   const [linkError, setLinkError] = useState('');
-  const [step, setStep] = useState<Step>('pedido');
+  const [mobileStep, setStep] = useState<Step>('pedido');
+  const desktop = useIsDesktop();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [pixContent, setPixContent] = useState<string | null>(null);
@@ -216,6 +218,17 @@ export default function SimLinkCheckout({
         ? 'credit'
         : 'debit',
   );
+
+  // Desktop não tem etapas: tudo fica na mesma tela e o envio sempre cai na etapa de pagamento.
+  const step: Step = desktop
+    ? paymentMethod === 'pix'
+      ? 'pix'
+      : 'cartao'
+    : mobileStep;
+  // Etapas visíveis: no desktop (antes do PIX gerado) todas as seções ficam renderizadas.
+  const showAll =
+    desktop && !(step === 'pix' && Boolean(pixContent || pixQrCode));
+  const visible = (s: Step) => showAll || step === s;
 
   // Dados do cliente
   const [name, setName] = useState('');
@@ -810,6 +823,12 @@ export default function SimLinkCheckout({
     )
       return;
     setError('');
+    // Desktop: sem etapa "Dados", então valida aqui antes de seguir para o pagamento.
+    if (desktop && !pixGenerated) {
+      setShowDadosErrors(true);
+      if (!preview && !dadosOk) return;
+      if (!methods.length) return;
+    }
     switch (step) {
       case 'pedido':
         setStep('dados');
@@ -983,7 +1002,7 @@ export default function SimLinkCheckout({
     };
     return (
       <Screen variant="error">
-        <DesktopHeader step={3} />
+        <DesktopHeader />
         <div className="flex flex-1 flex-col gap-[18px] lg:grid lg:flex-none lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start lg:gap-7">
           <div className="flex flex-1 flex-col gap-[18px] lg:gap-5">
             <div
@@ -1141,9 +1160,6 @@ export default function SimLinkCheckout({
       cta()
     );
 
-  const desktopStep: 1 | 2 | 3 =
-    step === 'pedido' ? 1 : step === 'dados' ? 2 : 3;
-
   const mobileHeader =
     step === 'pedido' ? (
       <div className="flex flex-col gap-4 lg:hidden">
@@ -1178,7 +1194,7 @@ export default function SimLinkCheckout({
   return (
     <Screen>
       {preview && <PreviewNotice noMethods={!methods.length} />}
-      <DesktopHeader step={desktopStep} />
+      <DesktopHeader />
       {mobileHeader}
 
       <form
@@ -1188,7 +1204,7 @@ export default function SimLinkCheckout({
       >
         <div className="flex flex-1 flex-col gap-4 lg:gap-5">
           {/* ── 4a / 5a Pedido ── */}
-          {step === 'pedido' && (
+          {visible('pedido') && (
             <>
               <div
                 className={cx(
@@ -1267,7 +1283,7 @@ export default function SimLinkCheckout({
           )}
 
           {/* ── 4b / 5b Dados ── */}
-          {step === 'dados' && (
+          {visible('dados') && (
             <>
               <div
                 className={cx(
@@ -1367,7 +1383,7 @@ export default function SimLinkCheckout({
           )}
 
           {/* ── 4c / 5c Forma de pagamento ── */}
-          {step === 'forma' && (
+          {visible('forma') && (
             <>
               {/* mobile */}
               <div
