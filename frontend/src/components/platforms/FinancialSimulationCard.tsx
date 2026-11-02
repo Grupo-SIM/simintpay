@@ -127,7 +127,7 @@ export function FinancialSimulationCard({
         credit ? `Parcela ${rowKey.split('/')[3]}x` : 'Resumo da simulação'
       }
       aria-busy={state?.pending}
-      className="min-w-0 rounded-xl border border-zinc-200 bg-zinc-50/50 p-3 dark:border-white/10 dark:bg-white/[0.02]"
+      className="row-span-4 grid min-w-0 grid-rows-subgrid gap-y-0 rounded-xl border border-zinc-200 bg-zinc-50/50 p-3 dark:border-white/10 dark:bg-white/[0.02]"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">
@@ -146,87 +146,91 @@ export function FinancialSimulationCard({
           </Button>
         )}
       </div>
-      {credit && !admin && (
-        <div className="mb-3">
-          <FinancialNumberField
-            name={`${rowKey}-passInterestPpm`}
-            label="Repassar juros (%)"
-            rate
-            value={owner.passInterestPpm}
-            onValidityChange={onValidityChange}
-            onChange={(passInterestPpm) =>
-              onChange({ ...owner, passInterestPpm })
-            }
-          />
-        </div>
-      )}
-      {admin && lane && (
-        <table className="mb-3 w-full text-xs tabular-nums">
-          <thead>
-            <tr className="text-left text-zinc-500 dark:text-zinc-400">
-              <th scope="col" className="pb-1 font-normal">
-                <span className="sr-only">Taxa</span>
-              </th>
-              <th scope="col" className="pb-1 text-right font-normal">
-                Adquirente
-              </th>
-              <th
-                scope="col"
-                className="pb-1 text-right font-normal"
-                title={lane.total ? 'Inclui o custo da adquirente' : undefined}
-              >
-                {lane.total ? 'Total definido' : 'SimIntPay'}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {contractRows.map(([label, acquirer, sim]) => (
-              <tr
-                key={label}
-                className="border-t border-zinc-200 dark:border-white/10"
-              >
-                <th
-                  scope="row"
-                  className="py-1 text-left font-normal text-zinc-500 dark:text-zinc-400"
-                >
-                  {label}
+      <div>
+        {credit && !admin && (
+          <div className="mb-3">
+            <FinancialNumberField
+              name={`${rowKey}-passInterestPpm`}
+              label="Repassar juros (%)"
+              rate
+              value={owner.passInterestPpm}
+              onValidityChange={onValidityChange}
+              onChange={(passInterestPpm) =>
+                onChange({ ...owner, passInterestPpm })
+              }
+            />
+          </div>
+        )}
+        {admin && lane && (
+          <table className="mb-3 w-full text-xs tabular-nums">
+            <thead>
+              <tr className="text-left text-zinc-500 dark:text-zinc-400">
+                <th scope="col" className="pb-1 font-normal">
+                  <span className="sr-only">Taxa</span>
                 </th>
-                <td className="py-1 text-right">{acquirer}</td>
-                <td className="py-1 text-right font-medium">{sim}</td>
+                <th scope="col" className="pb-1 text-right font-normal">
+                  Adquirente
+                </th>
+                <th
+                  scope="col"
+                  className="pb-1 text-right font-normal"
+                  title={
+                    lane.total ? 'Inclui o custo da adquirente' : undefined
+                  }
+                >
+                  {lane.total ? 'Total definido' : 'SimIntPay'}
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {admin && effective && shortfall && lane && (
-        <div
-          className={`mb-3 rounded-lg border p-2 text-xs ${short ? 'border-amber-500 bg-amber-50 text-amber-800 dark:border-amber-400/60 dark:bg-amber-400/10 dark:text-amber-300' : 'border-zinc-200 text-zinc-600 dark:border-white/10 dark:text-zinc-300'}`}
-        >
-          <div className="flex justify-between gap-2">
-            <span>Taxa efetiva do lojista</span>
-            <span className="font-medium tabular-nums">
-              {formatPpm(effective.ratePpm)} +{' '}
-              {formatCents(effective.fixedCents)}
-            </span>
-          </div>
+            </thead>
+            <tbody>
+              {contractRows.map(([label, acquirer, sim]) => (
+                <tr
+                  key={label}
+                  className="border-t border-zinc-200 dark:border-white/10"
+                >
+                  <th
+                    scope="row"
+                    className="py-1 text-left font-normal text-zinc-500 dark:text-zinc-400"
+                  >
+                    {label}
+                  </th>
+                  <td className="py-1 text-right">{acquirer}</td>
+                  <td className="py-1 text-right font-medium">{sim}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {admin && effective && shortfall && lane && (
           <div
-            role={short ? 'alert' : undefined}
-            className={`mt-1 ${short ? 'font-medium' : ''}`}
+            className={`mb-3 rounded-lg border p-2 text-xs ${short ? 'border-amber-500 bg-amber-50 text-amber-800 dark:border-amber-400/60 dark:bg-amber-400/10 dark:text-amber-300' : 'border-zinc-200 text-zinc-600 dark:border-white/10 dark:text-zinc-300'}`}
           >
-            {short
-              ? `Cobertura insuficiente${
-                  shortfall.rateShortfallPpm > 0
-                    ? `: faltam ${formatPpm(shortfall.rateShortfallPpm)}`
-                    : ''
-                }${
-                  shortfall.fixedShortfallCents > 0
-                    ? `${shortfall.rateShortfallPpm > 0 ? ' e' : ': faltam'} ${formatCents(shortfall.fixedShortfallCents)}`
-                    : ''
-                } sobre o custo da adquirente`
-              : 'Cobre o custo da adquirente'}
+            <div className="flex justify-between gap-2">
+              <span>Taxa efetiva do lojista</span>
+              <span className="font-medium tabular-nums">
+                {formatPpm(effective.ratePpm)} +{' '}
+                {formatCents(effective.fixedCents)}
+              </span>
+            </div>
+            <div
+              role={short ? 'alert' : undefined}
+              className={`mt-1 ${short ? 'font-medium' : ''}`}
+            >
+              {short
+                ? `Cobertura insuficiente${
+                    shortfall.rateShortfallPpm > 0
+                      ? `: faltam ${formatPpm(shortfall.rateShortfallPpm)}`
+                      : ''
+                  }${
+                    shortfall.fixedShortfallCents > 0
+                      ? `${shortfall.rateShortfallPpm > 0 ? ' e' : ': faltam'} ${formatCents(shortfall.fixedShortfallCents)}`
+                      : ''
+                  } sobre o custo da adquirente`
+                : 'Cobre o custo da adquirente'}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
       <div className="mb-3 grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">
           <div className="text-xs text-zinc-500 dark:text-zinc-400">Total</div>
@@ -247,26 +251,28 @@ export function FinancialSimulationCard({
           </div>
         )}
       </div>
-      <dl className="divide-y divide-zinc-200 text-xs dark:divide-white/10">
-        {metrics
-          .filter((metric) => admin || metric.label === 'Valor repassado')
-          .map((metric) => (
-            <div
-              key={metric.label}
-              className="flex items-baseline justify-between gap-3 py-1"
-            >
-              <dt className="text-zinc-500 dark:text-zinc-400">
-                {metric.label}
-              </dt>
-              <dd className="m-0 shrink-0 tabular-nums">
-                {state?.pending ? skeleton : format(metric.value)}
-              </dd>
-            </div>
-          ))}
-      </dl>
-      {admin && !lane && !state?.pending && (
-        <p className="mt-3 text-xs text-amber-600">Taxas não configuradas</p>
-      )}
+      <div>
+        <dl className="divide-y divide-zinc-200 text-xs dark:divide-white/10">
+          {metrics
+            .filter((metric) => admin || metric.label === 'Valor repassado')
+            .map((metric) => (
+              <div
+                key={metric.label}
+                className="flex items-baseline justify-between gap-3 py-1"
+              >
+                <dt className="text-zinc-500 dark:text-zinc-400">
+                  {metric.label}
+                </dt>
+                <dd className="m-0 shrink-0 tabular-nums">
+                  {state?.pending ? skeleton : format(metric.value)}
+                </dd>
+              </div>
+            ))}
+        </dl>
+        {admin && !lane && !state?.pending && (
+          <p className="mt-3 text-xs text-amber-600">Taxas não configuradas</p>
+        )}
+      </div>
     </article>
   );
 }
