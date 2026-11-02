@@ -32,6 +32,23 @@ Continuação do [plano 0019](0019-balancelog-read-source.md) e do plano de trab
 - Validação: 8 cenários / 23 assertions incluindo PostgreSQL real descartável com schema atual, sem instalar guards de produção; hooks/types/backend build/frontend build aprovados. Componentes reais conferidos em screenshots desktop 1440 e mobile 390. Frontend build terminou com avisos de DNS de fontes e tracing standalone de marketing.
 - Limites: paginação genérica ainda carrega identidades correspondentes antes de deduplicar; resumos administrativos, exports, afiliados e listas de contas continuam pendentes. Não considerar o conjunto de leitores migrado.
 
+## Resumo administrativo por plataforma
+
+- `6d154ac` substitui saldos externos e pseudossaldos derivados de pedidos no resumo por atribuição assinada do ledger. Um statement lê membros, dimensões e reconciliação; dono administrativo é metadado, não beneficiário presumido.
+- Deduplica aliases canônicos com mesmo dono e sinaliza donos conflitantes como desconhecido. Histórico desconhecido mesmo líquido zero, identidade sem vínculo, ausência de histórico/cache e inconsistência retornam null/status.
+- Expõe `totalSaldoAtribuido`; `totalDisponivel` é null e `availabilityStatus: not-independent` evita prometer uma carteira sacável por plataforma. Não foi identificado consumidor frontend atual desse endpoint.
+- Validação: 6 cenários / 26 assertions com PostgreSQL descartável e contratos, hooks normais (format/lint/unit/types/commitlint) e backend build aprovados. Nenhuma migração monetária ou escrita remota.
+
+## Inventário adicional de consumidores e riscos
+
+- Listas administrativas de contas, agrupamentos e consolidado permanecem fora dos incrementos de resumo/CSV/afiliados; não considerar a migração de leitores concluída.
+- `list-withdrawals-admin.use-case.ts` ainda escolhe saldo externo em determinados saques e pode cair na Wallet agregada. A retirada dessa leitura precisa declarar o escopo agregado/atribuído sem transformar histórico desconhecido em zero.
+- `recover-from-transactions.ts` ainda cria `ExternalPlatformWallet` com valores zero para identidades recuperadas. A relação é opcional: retirar essa inicialização é independente de preservar identidade, tombstones e recuperação do ledger; não remover carteiras históricas como parte dessa limpeza.
+- `purgeContaDireta` exige incremento financeiro separado: condição de saldo principal não cobre carteira com somente locked, e a checagem de purga precisa ser revalidada sob lock para impedir concorrência sobrescrevendo `purgedAmount`. Não misturar essas correções com migração de leitores nem absorver saldos externos.
+- Registro de plataforma pode conter aliases canônicos distintos no armazenamento (por exemplo `EBOOK`/`EBOOKSIM`, inclusive pelo cadastro Delivery). Resumos precisam deduplicar alias + dono antes dos joins e sinalizar conflito de donos como desconhecido; nunca multiplicar dinheiro ao canonicalizar.
+- Saldo atribuído assinado não equivale a disponibilidade sacável da plataforma. Contratos de resumo devem separar saldo de atribuição de disponibilidade independente, que não existe.
+- Vínculos de afiliados externos não podem usar igualdade de IDs entre sistemas nem e-mail. Atribuição monetária exige identidade persistida da mesma plataforma com documento normalizado e beneficiário vinculado sem conflito; ausência/ambiguidade permanece indisponível.
+
 ## Fechamento EbookSim: evidências e limite financeiro
 
 - A criação do checkout envia um valor reduzido pelas comissões, mas o webhook dedicado Ebook recalcula a venda pelo pagamento integral e credita o vendedor por outro caminho. Esse payload não prova financiamento da comissão.
