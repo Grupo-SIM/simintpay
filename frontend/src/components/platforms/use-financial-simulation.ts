@@ -77,8 +77,14 @@ export function useFinancialSimulation({
         ]),
       ),
     );
-    if (missing.length) {
-      const [acquirer, method, channel] = missing[0].split('/');
+    // One request per acquirer/method/channel: the endpoint prices a single route.
+    const groups = new Map<string, string[]>();
+    missing.forEach((key) => {
+      const route = key.split('/').slice(0, 3).join('/');
+      groups.set(route, [...(groups.get(route) ?? []), key]);
+    });
+    groups.forEach((groupKeys, route) => {
+      const [acquirer, method, channel] = route.split('/');
       const response = api.post<{ data: SimulationRow[] }>(
         `/platforms/${encodeURIComponent(tag)}/financial-policy/simulation`,
         {
@@ -87,11 +93,11 @@ export function useFinancialSimulation({
           acquirer,
           method,
           channel,
-          installments: missing.map((key) => Number(key.split('/')[3])),
+          installments: groupKeys.map((key) => Number(key.split('/')[3])),
           draft: admin ? { lanes } : { owner, interestFree },
         },
       );
-      missing.forEach((key) => {
+      groupKeys.forEach((key) => {
         const signature = signatures[keys.indexOf(key)],
           n = Number(key.split('/')[3]);
         const promise = response
@@ -111,7 +117,7 @@ export function useFinancialSimulation({
           inflight.current.delete(signature);
         });
       });
-    }
+    });
     // Subscribe separately so an unchanged row keeps its request when another draft changes.
     keys.forEach((key, i) => {
       const promise = inflight.current.get(signatures[i]);

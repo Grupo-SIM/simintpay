@@ -76,6 +76,18 @@ export type SimulationRow = {
   error?: string;
 };
 export type RowState = SimulationRow & { pending: boolean };
+/** Payment methods in display order: cash-like first, credit (1-12x) last. */
+export const PAYMENT_METHODS = [
+  { method: 'PIX', label: 'Pix', installments: 1 },
+  { method: 'DEBIT_CARD', label: 'Débito', installments: 1 },
+  { method: 'BOLETO', label: 'Boleto', installments: 1 },
+  { method: 'CREDIT_CARD', label: 'Crédito', installments: 12 },
+] as const;
+/** `METHOD/installments`, the id used by `disabledLanes`. */
+export const laneId = (key: string) => {
+  const [, method, , installments] = key.split('/');
+  return `${method}/${installments}`;
+};
 export const defaultOwner = (): OwnerRule => ({
   fixedCents: 0,
   ratePpm: 0,

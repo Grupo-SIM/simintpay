@@ -8,7 +8,6 @@ import { useToast } from '@/components/ui/Toast';
 import { CustomSelect } from '@/components/ui/CustomSelect';
 import { FeeModeField } from './FeeModeField';
 import { AdditiveFeesSection } from './AdditiveFeesSection';
-import { LaneAcceptanceField } from './LaneAcceptanceField';
 import { FinancialBulkInterestField } from './FinancialBulkInterestField';
 import { FinancialNumberField } from './FinancialNumberField';
 import { FinancialContractModal } from './FinancialContractModal';
@@ -18,6 +17,8 @@ import { useFinancialSimulation } from './use-financial-simulation';
 import {
   defaultLane,
   defaultOwner,
+  laneId,
+  PAYMENT_METHODS,
   type AdditiveTotals,
   type FeeMode,
   type FinancialConfiguration,
@@ -110,26 +111,42 @@ export function FinancialPolicyDraft({
   const [adminAcquirer, setAcquirer] = useState(
     configuration.keys[0]?.split('/')[0] ?? 'DOM',
   );
-  const [method, setMethod] = useState('CREDIT_CARD'),
-    [channel, setChannel] = useState('ONLINE');
+  const [channel, setChannel] = useState('ONLINE');
   const [invalid, setInvalid] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<string | null>(null);
-  const acquirer = admin
-    ? adminAcquirer
-    : (configuration.keys
-        .find((key) => {
-          const [, keyMethod, keyChannel] = key.split('/');
-          return keyMethod === method && keyChannel === channel;
-        })
-        ?.split('/')[0] ??
-      configuration.keys[0]?.split('/')[0] ??
-      'DOM');
-  const credit = method === 'CREDIT_CARD';
-  const keys = Array.from(
-    { length: credit ? 12 : 1 },
-    (_, i) => `${acquirer}/${method}/${channel}/${i + 1}`,
-  );
-  const percentages = keys.map(
+  const acquirerFor = (method: string) =>
+    admin
+      ? adminAcquirer
+      : (configuration.keys
+          .find((key) => {
+            const [, keyMethod, keyChannel] = key.split('/');
+            return keyMethod === method && keyChannel === channel;
+          })
+          ?.split('/')[0] ??
+        configuration.keys[0]?.split('/')[0] ??
+        'DOM');
+  const methodKeys = (method: string, installments: number) =>
+    Array.from(
+      { length: installments },
+      (_, i) => `${acquirerFor(method)}/${method}/${channel}/${i + 1}`,
+    );
+  const groups = PAYMENT_METHODS.map((item) => ({
+    ...item,
+    keys: methodKeys(item.method, item.installments),
+  }));
+  const keys = groups.flatMap((group) => group.keys);
+  const creditKeys = groups.find(
+    (group) => group.method === 'CREDIT_CARD',
+  )!.keys;
+  const laneEnabled = (key: string) => !disabledLanes.includes(laneId(key));
+  const toggleLane = (key: string, enabled: boolean) =>
+    setDisabledLanes((previous) => {
+      const next = new Set(previous);
+      if (enabled) next.delete(laneId(key));
+      else next.add(laneId(key));
+      return [...next].sort();
+    });
+  const percentages = creditKeys.map(
     (key) =>
       (owner[key] ?? configuration.globalOwner[key])?.passInterestPpm ??
       1_000_000,
@@ -141,10 +158,11 @@ export function FinancialPolicyDraft({
     : undefined;
   const interestFree = commonPercentage === 0;
   const valid =
-    (!admin || !!acquirers.data?.data.some((item) => item.code === acquirer)) &&
+    (!admin ||
+      !!acquirers.data?.data.some((item) => item.code === adminAcquirer)) &&
     amountCents > 0 &&
     !Object.values(invalid).some(Boolean) &&
-    /^[A-Z][A-Z0-9_-]{0,39}$/.test(acquirer);
+    keys.every((key) => /^[A-Z][A-Z0-9_-]{0,39}$/.test(key.split('/')[0]));
   const changed = admin
     ? JSON.stringify(lanes) !==
         JSON.stringify(configuration.laneOverrides ?? {}) ||
@@ -220,7 +238,7 @@ export function FinancialPolicyDraft({
     setOwner((previous) => ({
       ...previous,
       ...Object.fromEntries(
-        keys.map((key) => [
+        creditKeys.map((key) => [
           key,
           {
             ...(previous[key] ??
@@ -234,16 +252,23 @@ export function FinancialPolicyDraft({
   };
   const errors = [
     ...new Set(
-      keys.flatMap((key) =>
-        simulation.rows[key]?.error && !simulation.rows[key]?.pending
-          ? [simulation.rows[key].error!]
-          : [],
-      ),
+      keys
+        .filter(laneEnabled)
+        .flatMap((key) =>
+          simulation.rows[key]?.error && !simulation.rows[key]?.pending
+            ? [simulation.rows[key].error!]
+            : [],
+        ),
     ),
   ];
-  const missingFeeKeys = keys.filter((key) =>
-    simulation.rows[key]?.error?.includes('sem tabela ativa'),
-  );
+  const missingFeeKeys = keys
+    .filter(laneEnabled)
+    .filter((key) => simulation.rows[key]?.error?.includes('sem tabela ativa'));
+  const missingFeeRoutes = [
+    ...new Set(
+      missingFeeKeys.map((key) => key.split('/').slice(0, 3).join('/')),
+    ),
+  ];
   if (admin && acquirers.isPending)
     return (
       <div
@@ -277,104 +302,74 @@ export function FinancialPolicyDraft({
     );
   if (admin && !acquirers.data?.data.length)
     return <p>Nenhuma adquirente cadastrada.</p>;
+  const renderCard = (key: string, title: string, credit: boolean) => (
+    <FinancialSimulationCard
+      key={key}
+      rowKey={key}
+      title={title}
+      enabled={laneEnabled(key)}
+      onToggle={
+        configuration.disabledLanes != null
+          ? (enabled) => toggleLane(key, enabled)
+          : undefined
+      }
+      rule={owner[key] ?? configuration.globalOwner[key]}
+      lane={lanes[key] ?? configuration.globalLanes?.[key]}
+      feeMode={feeMode}
+      additiveTotals={additiveTotals}
+      state={
+        simulation.rows[key] ?? {
+          installments: Number(key.split('/')[3]),
+          pending: valid,
+        }
+      }
+      admin={admin}
+      credit={credit}
+      onValidityChange={validity}
+      onChange={(rule) => changeOwner(key, rule)}
+      onEditContract={() => setEditing(key)}
+    />
+  );
+  const editingGroup = editing
+    ? groups.find((group) => group.keys.includes(editing))
+    : undefined;
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
-        <fieldset className="min-w-0 rounded-xl border border-zinc-200 p-4 dark:border-white/10">
-          <legend className="px-2 text-sm font-semibold">
-            Forma de pagamento
-          </legend>
-          <div
-            className={`grid items-end gap-3 ${admin ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}
-          >
-            {admin && (
-              <CustomSelect
-                label="Adquirente"
-                value={acquirer}
-                onChange={setAcquirer}
-                options={acquirers.data!.data.map((item) => ({
-                  value: item.code,
-                  label: `${item.name} (${item.code})`,
-                }))}
-              />
-            )}
+      <div className="flex flex-wrap items-end gap-3">
+        {admin && (
+          <div className="w-full sm:w-64">
             <CustomSelect
-              label="Modalidade"
-              value={method}
-              onChange={setMethod}
-              options={[
-                { value: 'PIX', label: 'PIX' },
-                { value: 'DEBIT_CARD', label: 'Débito' },
-                { value: 'BOLETO', label: 'Boleto' },
-                { value: 'CREDIT_CARD', label: 'Crédito' },
-              ]}
-            />
-            <CustomSelect
-              label="Maquineta"
-              value={channel}
-              onChange={setChannel}
-              options={[
-                { value: 'ONLINE', label: 'Não (online)' },
-                { value: 'POS', label: 'Sim' },
-              ]}
+              label="Adquirente"
+              value={adminAcquirer}
+              onChange={setAcquirer}
+              options={acquirers.data!.data.map((item) => ({
+                value: item.code,
+                label: `${item.name} (${item.code})`,
+              }))}
             />
           </div>
-        </fieldset>
-        <fieldset className="min-w-0 rounded-xl border border-zinc-200 p-4 dark:border-white/10">
-          <legend className="px-2 text-sm font-semibold">
-            Base da simulação
-          </legend>
+        )}
+        <div className="w-full sm:w-56">
+          <CustomSelect
+            label="Maquineta"
+            value={channel}
+            onChange={setChannel}
+            options={[
+              { value: 'ONLINE', label: 'Não (online)' },
+              { value: 'POS', label: 'Sim' },
+            ]}
+          />
+        </div>
+        <div className="w-full sm:w-56">
           <FinancialNumberField
-            label="Valor original"
+            label="Valor de simulação"
             name="simulation-amount"
             value={amountCents}
             onChange={setAmountCents}
             onValidityChange={validity}
           />
-          <p className="mt-2 text-xs text-zinc-500">
-            Valor antes das taxas e dos juros.
-          </p>
-        </fieldset>
+        </div>
       </div>
-      {!admin && (
-        <fieldset className="min-w-0 rounded-xl border border-zinc-200 p-4 dark:border-white/10">
-          <legend className="px-2 text-sm font-semibold">
-            {credit ? 'Juros e parcelamento' : 'Custos da modalidade'}
-          </legend>
-          <div className="flex flex-wrap items-end gap-3">
-            {credit && (
-              <div className="w-full sm:w-72">
-                <FinancialBulkInterestField
-                  key={`${acquirer}/${method}/${channel}`}
-                  value={commonPercentage}
-                  onChange={changeAllInterest}
-                  onValidityChange={validity}
-                />
-              </div>
-            )}
-            {credit && (
-              <Button
-                type="button"
-                variant="outline"
-                aria-pressed={interestFree}
-                className="h-auto min-h-10 cursor-pointer whitespace-normal text-left"
-                onClick={() => changeAllInterest(interestFree ? 1_000_000 : 0)}
-              >
-                {interestFree
-                  ? 'Repassar juros do parcelamento'
-                  : 'Oferecer parcelamento sem juros'}
-              </Button>
-            )}
-          </div>
-          <p className="mt-3 text-sm text-zinc-500">
-            Custos SimIntPay são descontados do seu recebimento e não são
-            cobrados do cliente.
-            {credit
-              ? ' Apenas juros podem ser repassados.'
-              : ' Cliente paga somente o valor original.'}
-          </p>
-        </fieldset>
-      )}
       {admin && feeMode !== null && (
         <FeeModeField value={feeMode} onChange={setFeeMode} />
       )}
@@ -385,19 +380,13 @@ export function FinancialPolicyDraft({
           onValidityChange={validity}
         />
       )}
-      {configuration.disabledLanes != null && (
-        <LaneAcceptanceField
-          disabled={disabledLanes}
-          onChange={setDisabledLanes}
-        />
-      )}
-      {admin && (
-        <p className="text-sm text-zinc-500">
-          Configure taxas e juros SimIntPay comparando custos internos da
-          adquirente. Cada parcela mantém juros próprios; repasse ao comprador é
-          definido pelo dono da plataforma.
-        </p>
-      )}
+      <p className="text-sm text-zinc-500">
+        {admin
+          ? 'Configure taxas e juros SimIntPay comparando custos internos da adquirente. Cada parcela mantém juros próprios; repasse ao comprador é definido pelo dono da plataforma. '
+          : 'Custos SimIntPay são descontados do seu recebimento; o cliente paga o valor base mais juros repassados e taxas aditivas. '}
+        {configuration.disabledLanes != null &&
+          'Modalidades desmarcadas são recusadas nesta plataforma e não entram na validação de cobertura do custo da adquirente.'}
+      </p>
       {!valid && (
         <p role="alert" className="text-sm text-red-600">
           Confira valor original e campos financeiros. Resultados anteriores
@@ -409,18 +398,25 @@ export function FinancialPolicyDraft({
           Simulação do rascunho ainda não salvo.
         </p>
       )}
-      {admin && missingFeeKeys.length > 0 && (
-        <AcquirerManualFeeForm
-          key={`${acquirer}/${method}/${channel}`}
-          acquirer={acquirer}
-          method={method}
-          channel={channel}
-          installments={missingFeeKeys.map((key) => Number(key.split('/')[3]))}
-          onSaved={() =>
-            missingFeeKeys.forEach((key) => simulation.retryRow(key))
-          }
-        />
-      )}
+      {admin &&
+        missingFeeRoutes.map((route) => {
+          const [routeAcquirer, routeMethod, routeChannel] = route.split('/');
+          const routeKeys = missingFeeKeys.filter((key) =>
+            key.startsWith(`${route}/`),
+          );
+          return (
+            <AcquirerManualFeeForm
+              key={route}
+              acquirer={routeAcquirer}
+              method={routeMethod}
+              channel={routeChannel}
+              installments={routeKeys.map((key) => Number(key.split('/')[3]))}
+              onSaved={() =>
+                routeKeys.forEach((key) => simulation.retryRow(key))
+              }
+            />
+          );
+        })}
       {errors.map((error) => (
         <div
           key={error}
@@ -447,37 +443,47 @@ export function FinancialPolicyDraft({
           </Button>
         </div>
       ))}
-      <div
-        role="region"
-        aria-label="Simulação da modalidade"
-        className={
-          credit
-            ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
-            : 'max-w-sm'
-        }
+      <section
+        aria-label="Modalidades à vista"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
       >
-        {keys.map((key) => (
-          <FinancialSimulationCard
-            key={key}
-            rowKey={key}
-            rule={owner[key] ?? configuration.globalOwner[key]}
-            lane={lanes[key] ?? configuration.globalLanes?.[key]}
-            feeMode={feeMode}
-            additiveTotals={additiveTotals}
-            state={
-              simulation.rows[key] ?? {
-                installments: Number(key.split('/')[3]),
-                pending: valid,
-              }
-            }
-            admin={admin}
-            credit={credit}
-            onValidityChange={validity}
-            onChange={(rule) => changeOwner(key, rule)}
-            onEditContract={() => setEditing(key)}
-          />
-        ))}
-      </div>
+        {groups
+          .filter((group) => group.method !== 'CREDIT_CARD')
+          .map((group) => renderCard(group.keys[0], group.label, false))}
+      </section>
+      <section aria-label="Cartão de crédito" className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h3 className="text-sm font-semibold">Cartão de crédito</h3>
+          {!admin && (
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="w-full sm:w-72">
+                <FinancialBulkInterestField
+                  key={channel}
+                  value={commonPercentage}
+                  onChange={changeAllInterest}
+                  onValidityChange={validity}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                aria-pressed={interestFree}
+                className="h-auto min-h-10 cursor-pointer whitespace-normal text-left"
+                onClick={() => changeAllInterest(interestFree ? 1_000_000 : 0)}
+              >
+                {interestFree
+                  ? 'Repassar juros do parcelamento'
+                  : 'Oferecer parcelamento sem juros'}
+              </Button>
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {creditKeys.map((key) =>
+            renderCard(key, `Crédito ${key.split('/')[3]}x`, true),
+          )}
+        </div>
+      </section>
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="button"
@@ -500,20 +506,20 @@ export function FinancialPolicyDraft({
           Descartar
         </Button>
       </div>
-      {editing && (
+      {editing && editingGroup && (
         <FinancialContractModal
           lane={
             lanes[editing] ??
             configuration.globalLanes?.[editing] ??
             defaultLane()
           }
-          credit={credit}
+          credit={editingGroup.method === 'CREDIT_CARD'}
           onClose={() => setEditing(null)}
           onSave={(lane, all) => {
             setLanes((previous) => ({
               ...previous,
               ...Object.fromEntries(
-                keys.map((key) => {
+                editingGroup.keys.map((key) => {
                   const existing =
                     previous[key] ??
                     configuration.globalLanes?.[key] ??

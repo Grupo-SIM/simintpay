@@ -9,6 +9,7 @@ import {
   feeShortfall,
   formatCents,
   formatPpm,
+  laneId,
   type AdditiveTotals,
   type FeeMode,
   type Lane,
@@ -18,6 +19,9 @@ import {
 
 export function FinancialSimulationCard({
   rowKey,
+  title,
+  enabled = true,
+  onToggle,
   rule,
   lane,
   feeMode,
@@ -30,6 +34,11 @@ export function FinancialSimulationCard({
   onEditContract,
 }: {
   rowKey: string;
+  title: string;
+  /** Lane accepted by the platform; disabled lanes are greyed out. */
+  enabled?: boolean;
+  /** Absent when the configuration has no acceptance list (GLOBAL). */
+  onToggle?: (enabled: boolean) => void;
   rule?: OwnerRule;
   lane?: Lane;
   feeMode?: FeeMode | null;
@@ -72,16 +81,33 @@ export function FinancialSimulationCard({
     result && buyerTotalCents !== undefined
       ? buyerTotalCents - result.contractedCostCents
       : undefined;
-  const metrics: { label: string; value?: number }[] = [
-    { label: 'Custos da adquirente', value: result?.acquirerCostCents },
+  const lines: {
+    label: string;
+    value?: number;
+    adminOnly?: boolean;
+    strong?: boolean;
+  }[] = [
+    { label: 'Valor base', value: result?.originalCents },
+    ...(showInterest
+      ? [{ label: 'Juros do cliente', value: result?.buyerInterestCents }]
+      : []),
+    ...(additiveCents
+      ? [{ label: 'Taxas aditivas', value: additiveCents }]
+      : []),
     {
-      label: 'Adicional SimIntPay',
-      value: result
-        ? (result.simAdditionCents ?? 0) + (result.simInterestCents ?? 0)
-        : undefined,
+      label: 'Custos da adquirente',
+      value: result?.acquirerCostCents,
+      adminOnly: true,
     },
-    { label: 'Taxas aditivas', value: additiveCents },
-    { label: 'Valor repassado', value: sellerNetCents },
+    {
+      label: admin ? 'Adicional SimIntPay' : 'Custos SimIntPay',
+      value: admin
+        ? result
+          ? (result.simAdditionCents ?? 0) + (result.simInterestCents ?? 0)
+          : undefined
+        : result?.contractedCostCents,
+    },
+    { label: 'Vendedor recebe', value: sellerNetCents, strong: true },
   ];
   const simRule = lane ? (lane.total ?? lane.sim) : undefined;
   const contractRows: [string, string, string][] =
@@ -123,21 +149,29 @@ export function FinancialSimulationCard({
   );
   return (
     <article
-      aria-label={
-        credit ? `Parcela ${rowKey.split('/')[3]}x` : 'Resumo da simulação'
-      }
+      aria-label={title}
       aria-busy={state?.pending}
-      className="row-span-4 grid min-w-0 grid-rows-subgrid gap-y-0 rounded-xl border border-zinc-200 bg-zinc-50/50 p-3 dark:border-white/10 dark:bg-white/[0.02]"
+      className={`row-span-4 grid min-w-0 grid-rows-subgrid gap-y-0 rounded-xl border border-zinc-200 bg-zinc-50/50 p-3 transition-opacity dark:border-white/10 dark:bg-white/[0.02] ${enabled ? '' : 'opacity-50 grayscale'}`}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold">
-          {credit ? `${rowKey.split('/')[3]}x` : 'Resumo'}
-        </h3>
+        <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
+          {onToggle && (
+            <input
+              type="checkbox"
+              name={`accepted-${laneId(rowKey)}`}
+              aria-label={`Aceitar ${title}`}
+              checked={enabled}
+              onChange={(event) => onToggle(event.currentTarget.checked)}
+            />
+          )}
+          <h3>{title}</h3>
+        </label>
         {admin && (
           <Button
             variant="outline"
             type="button"
             size="sm"
+            disabled={!enabled}
             className="cursor-pointer"
             onClick={onEditContract}
           >
@@ -152,6 +186,7 @@ export function FinancialSimulationCard({
             <FinancialNumberField
               name={`${rowKey}-passInterestPpm`}
               label="Repassar juros (%)"
+              disabled={!enabled}
               rate
               value={owner.passInterestPpm}
               onValidityChange={onValidityChange}
@@ -233,7 +268,9 @@ export function FinancialSimulationCard({
       </div>
       <div className="mb-3 grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">Total</div>
+          <div className="text-xs text-zinc-500 dark:text-zinc-400">
+            Cliente paga
+          </div>
           <div className="text-base font-semibold tabular-nums">
             {state?.pending ? skeleton : format(buyerTotalCents)}
           </div>
@@ -253,18 +290,22 @@ export function FinancialSimulationCard({
       </div>
       <div>
         <dl className="divide-y divide-zinc-200 text-xs dark:divide-white/10">
-          {metrics
-            .filter((metric) => admin || metric.label === 'Valor repassado')
-            .map((metric) => (
+          {lines
+            .filter((line) => admin || !line.adminOnly)
+            .map((line) => (
               <div
-                key={metric.label}
-                className="flex items-baseline justify-between gap-3 py-1"
+                key={line.label}
+                className={`flex items-baseline justify-between gap-3 py-1 ${line.strong ? 'font-semibold' : ''}`}
               >
-                <dt className="text-zinc-500 dark:text-zinc-400">
-                  {metric.label}
+                <dt
+                  className={
+                    line.strong ? '' : 'text-zinc-500 dark:text-zinc-400'
+                  }
+                >
+                  {line.label}
                 </dt>
                 <dd className="m-0 shrink-0 tabular-nums">
-                  {state?.pending ? skeleton : format(metric.value)}
+                  {state?.pending ? skeleton : format(line.value)}
                 </dd>
               </div>
             ))}
