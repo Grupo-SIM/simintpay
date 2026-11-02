@@ -519,8 +519,12 @@ export default function UsuariosTab({
           nome: string;
           cpf: string;
           plataforma: string;
-          saldo: number;
-          saldoBloqueado: number;
+          saldo: number | null;
+          saldoBloqueado: number | null;
+          walletScope: string;
+          balanceStatus: string;
+          historicalAttributionComplete: boolean;
+          walletStatus: string;
           vinculado: boolean;
           status: string;
           email: string;
@@ -538,19 +542,31 @@ export default function UsuariosTab({
         'Status',
         'E-mail Simintpay',
         'Data Cadastro',
+        'Escopo do saldo',
+        'Status do saldo',
+        'Histórico atribuído completo',
+        'Status da carteira',
       ];
       const rows = data.map((u) => [
-        `"${u.nome.replace(/"/g, '""')}"`,
+        u.nome,
         u.cpf,
         u.plataforma,
-        u.saldo.toFixed(2).replace('.', ','),
-        u.saldoBloqueado.toFixed(2).replace('.', ','),
+        u.saldo?.toFixed(2).replace('.', ',') ?? 'Indisponível',
+        u.saldoBloqueado?.toFixed(2).replace('.', ',') ?? 'Indisponível',
         u.vinculado ? 'Sim' : 'Não',
         u.status,
         u.email,
         u.cadastro,
+        u.walletScope,
+        u.balanceStatus,
+        u.historicalAttributionComplete ? 'Sim' : 'Não',
+        u.walletStatus,
       ]);
-      const csv = '﻿' + [header, ...rows].map((r) => r.join(';')).join('\n');
+      const quoteCell = (value: string) =>
+        `"${(/^[=+\-@\t\r]/.test(value) ? `'${value}` : value).replace(/"/g, '""')}"`;
+      const csv =
+        '﻿' +
+        [header, ...rows].map((r) => r.map(quoteCell).join(';')).join('\n');
 
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);

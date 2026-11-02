@@ -1,12 +1,17 @@
 import { getRequestIp } from '../../shared/utils/request.utils';
 import { AuthTokensService } from '../../application/use-cases/auth/auth-tokens.service';
 import {
+  canonicalTransactionPlatformTag,
   transactionPlatformTag,
   transactionPlatformTagData,
   whereTransactionHasPlatform,
   whereTransactionPlatform,
 } from '../../modules/platform-core/transaction-platform';
 import { reportBuyerCpf } from '../../application/helpers/report-buyer.helper';
+import {
+  readSellerWalletAttribution,
+  unavailableSellerWallet,
+} from '../../modules/platform-core/seller-wallet-attribution';
 import { PlatformAttributedBalance } from '../../modules/platform-core/platform-attributed-balance';
 import { PlatformAdministrationService } from '../../modules/platform-core/platform-administration.service';
 import {
@@ -1623,87 +1628,114 @@ export class AdminController {
       dateFrom = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
 
     const where: any = { isDeleted: false };
-    if (platform) where.platform = platform;
     if (dateFrom) where.createdAt = { gte: dateFrom };
 
     const items = await this.prisma.externalPlatformUser.findMany({
       where,
-      include: {
-        wallet: true,
-        user: { select: { id: true, email: true, name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
+      include: { user: { select: { id: true, email: true, name: true } } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
+    const requestedTag = canonicalTransactionPlatformTag(platform);
+    const seen = new Set<string>();
+    const accounts = items.filter((item) => {
+      const tag = canonicalTransactionPlatformTag(item.platform);
+      if (requestedTag && tag !== requestedTag) return false;
+      // Unlinked accounts stay separate; email is never an identity association.
+      const key = JSON.stringify([item.userId ?? item.id, tag]);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const tags = [
+      ...new Set(
+        accounts.map((item) => canonicalTransactionPlatformTag(item.platform)),
+      ),
+    ];
+    const projections = new Map(
+      await Promise.all(
+        tags
+          .filter((tag): tag is string => tag !== null)
+          .map(
+            async (tag) =>
+              [
+                tag,
+                await readSellerWalletAttribution(
+                  this.prisma,
+                  accounts
+                    .filter(
+                      (item) =>
+                        canonicalTransactionPlatformTag(item.platform) === tag,
+                    )
+                    .map((item) => item.userId)
+                    .filter((id): id is string => !!id),
+                  tag,
+                ),
+              ] as const,
+          ),
+      ),
+    );
 
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
-
-    const sellerUserIds = items
-      .filter((u) => u.userId && u.platform.toUpperCase() !== 'AREAFLIX')
-      .map((u) => u.userId!);
-    const areaflixEmails = items
-      .filter((u) => u.platform.toUpperCase() === 'AREAFLIX' && u.user?.email)
-      .map((u) => u.user!.email);
-
-    const [activeTxUserIds, activeAreaflixEmails] = await Promise.all([
-      sellerUserIds.length > 0
-        ? this.prisma.transaction
-            .findMany({
+    const sellerUserIds = [
+      ...new Set(
+        accounts
+          .filter(
+            (item) =>
+              item.userId &&
+              canonicalTransactionPlatformTag(item.platform) !== 'AREAFLIX',
+          )
+          .map((item) => item.userId!),
+      ),
+    ];
+    const activeUserIds = new Set(
+      sellerUserIds.length
+        ? (
+            await this.prisma.transaction.findMany({
               where: {
                 userId: { in: sellerUserIds },
-                status: TransactionStatus.COMPLETED,
                 createdAt: { gte: startOfMonth },
+                status: TransactionStatus.COMPLETED,
               },
-              select: { userId: true },
-              distinct: ['userId'],
+              select: { userId: true, platformTag: true },
+              distinct: ['userId', 'platformTag'],
             })
-            .then((rows) => new Set(rows.map((r) => r.userId)))
-        : Promise.resolve(new Set<string>()),
-      areaflixEmails.length > 0
-        ? this.prisma.subscriptionLink
-            .findMany({
-              where: {
-                webhookUrl: { contains: 'areaflix', mode: 'insensitive' },
-              },
-              select: { id: true },
-            })
-            .then((links) => {
-              const ids = links.map((l) => l.id);
-              if (ids.length === 0) return new Set<string>();
-              return this.prisma.subscriptionLinkOrder
-                .findMany({
-                  where: {
-                    subscriptionLinkId: { in: ids },
-                    customerEmail: { in: areaflixEmails },
-                    status: { in: ['paid', 'active', 'approved'] },
-                  },
-                  select: { customerEmail: true },
-                  distinct: ['customerEmail'],
-                })
-                .then((rows) => new Set(rows.map((r) => r.customerEmail)));
-            })
-        : Promise.resolve(new Set<string>()),
-    ]);
+          ).map((row) =>
+            JSON.stringify([
+              row.userId,
+              canonicalTransactionPlatformTag(row.platformTag),
+            ]),
+          )
+        : [],
+    );
 
-    return items.map((u) => {
-      let isAtivo: boolean | null = null;
-      if (u.platform.toUpperCase() === 'AREAFLIX') {
-        if (u.user?.email) isAtivo = activeAreaflixEmails.has(u.user.email);
-      } else {
-        if (u.userId) isAtivo = activeTxUserIds.has(u.userId);
-      }
+    return accounts.map((item) => {
+      const tag = canonicalTransactionPlatformTag(item.platform);
+      const wallet =
+        item.userId && tag
+          ? (projections.get(tag)?.get(item.userId) ?? unavailableSellerWallet)
+          : unavailableSellerWallet;
       return {
-        nome: u.user?.name?.trim() || u.name,
-        cpf: u.cpf || u.cnpj || '',
-        plataforma: u.platform,
-        saldo: Number(u.wallet?.balance ?? 0),
-        saldoBloqueado: Number(u.wallet?.lockedBalance ?? 0),
-        vinculado: !!u.userId,
+        nome: item.user?.name?.trim() || item.name,
+        cpf: item.cpf || item.cnpj || '',
+        plataforma: tag ?? item.platform,
+        saldo: wallet.balance,
+        saldoBloqueado: wallet.lockedBalance,
+        walletScope: wallet.walletScope,
+        balanceStatus: wallet.balanceStatus,
+        historicalAttributionComplete: wallet.historicalAttributionComplete,
+        walletStatus: wallet.walletStatus,
+        vinculado: !!item.userId,
+        // Activity cannot be established by joining an external customer's email.
         status:
-          isAtivo === null ? 'Não determinado' : isAtivo ? 'Ativo' : 'Inativo',
-        email: u.user?.email ?? '',
-        cadastro: u.createdAt.toISOString().split('T')[0],
+          !item.userId || !tag || tag === 'AREAFLIX'
+            ? 'Não determinado'
+            : activeUserIds.has(JSON.stringify([item.userId, tag]))
+              ? 'Ativo'
+              : 'Inativo',
+        email: item.user?.email ?? '',
+        cadastro: item.createdAt.toISOString().split('T')[0],
       };
     });
   }
