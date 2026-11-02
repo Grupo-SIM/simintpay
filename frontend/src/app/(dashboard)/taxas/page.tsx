@@ -90,7 +90,7 @@ const GROUPS: Group[] = [
     id: 'saque',
     title: 'Saque',
     icon: ArrowDownToLine,
-    keys: ['TAXA_SAQUE_FIXA', 'TAXA_SAQUE_PERCENT', 'SAQUE_MIN'],
+    keys: ['TAXA_SAQUE_EXTRA', 'TAXA_SAQUE_PERCENT', 'SAQUE_MIN'],
   },
 ];
 

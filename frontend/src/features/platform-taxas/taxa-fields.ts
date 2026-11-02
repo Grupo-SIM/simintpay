@@ -14,6 +14,7 @@ export const PLATAFORMA_TAXA_KEYS = [
   'LINK_COST_12X',
   'MDR_PIX',
   'TAXA_SAQUE_FIXA',
+  'TAXA_SAQUE_EXTRA',
   'TAXA_SAQUE_PERCENT',
   'SAQUE_MIN',
   'LIQUIDEZ',
@@ -141,7 +142,7 @@ export const PLATAFORMA_TAXA_SECTIONS: PlataformaTaxaSection[] = [
   {
     id: 'saque',
     title: 'Saque',
-    keys: ['SAQUE_MIN', 'TAXA_SAQUE_FIXA'],
+    keys: ['SAQUE_MIN', 'TAXA_SAQUE_EXTRA'],
   },
   {
     id: 'operacao',
@@ -260,6 +261,7 @@ export const PLATAFORMA_TAXA_DOM_BADGE: ReadonlySet<PlataformaTaxaKey> =
 export const PLATAFORMA_TAXA_FIXED_BRL: ReadonlySet<PlataformaTaxaKey> =
   new Set([
     'TAXA_SAQUE_FIXA',
+    'TAXA_SAQUE_EXTRA',
     'SAQUE_MIN',
     'TAXA_FIXA_TRANSACAO',
     'TAXA_CASHBACK',
@@ -308,7 +310,8 @@ export const PLATAFORMA_TAXA_LABELS: Record<PlataformaTaxaKey, string> = {
   LINK_COST_12X: 'Custo SimIntPay — 12x (%)',
 
   MDR_PIX: 'Taxa PIX',
-  TAXA_SAQUE_FIXA: 'Taxa fixa de saque (R$)',
+  TAXA_SAQUE_FIXA: 'Taxa de saque total (R$)',
+  TAXA_SAQUE_EXTRA: 'Extra sobre a taxa de saque (R$)',
   TAXA_SAQUE_PERCENT: 'Taxa de saque (%)',
   SAQUE_MIN: 'Saque mínimo (R$)',
   LIQUIDEZ: 'Taxa de PIX (Sim Int Pay)',
@@ -424,7 +427,9 @@ export const PLATAFORMA_TAXA_DESCRIPTIONS: Partial<
   MDR_PIX:
     'Taxa cobrada pela operadora (DOM) em cada transação aprovada via PIX. Valor de referência — não editável.',
   TAXA_SAQUE_FIXA:
-    'Valor fixo em reais debitado automaticamente em cada pedido de saque solicitado pelo vendedor.',
+    'Maior taxa de saque entre as adquirentes ativas somada ao extra. Calculada automaticamente.',
+  TAXA_SAQUE_EXTRA:
+    'Valor em reais somado à maior taxa de saque entre as adquirentes, debitado em cada saque solicitado pelo vendedor.',
   TAXA_SAQUE_PERCENT:
     'Porcentagem adicional descontada sobre o valor bruto do saque solicitado pelo vendedor.',
   SAQUE_MIN:
@@ -478,6 +483,7 @@ export const PLATAFORMA_TAXA_MIN_DISPLAY: Partial<
   LIQUIDEZ: 9, // min 9% (Taxa de PIX Sim Int Pay)
   TAXA_SERVICO: 4,
   TAXA_SAQUE_FIXA: 2,
+  TAXA_SAQUE_EXTRA: 0,
   TAXA_LINK_PERCENT: 6.99,
   TAXA_LINK_FIXA: 4,
   TAXA_DEBITO_PERCENT: 3.49,
@@ -514,6 +520,7 @@ export const PLATAFORMA_TAXA_MIN_INTERNAL: Partial<
   LIQUIDEZ: 0.91, // inverted: internal > 0.91 means display < 9%
   TAXA_SERVICO: 4,
   TAXA_SAQUE_FIXA: 2,
+  TAXA_SAQUE_EXTRA: 0,
   TAXA_LINK_PERCENT: 0.0699,
   TAXA_LINK_FIXA: 4,
   TAXA_DEBITO_PERCENT: 0.0349,

@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { FinancialPolicyEditor } from '@/components/platforms/FinancialPolicyEditor';
+import { AcquirerWithdrawalFees } from '@/components/platforms/AcquirerWithdrawalFees';
 import { FinancialWithdrawalSettings } from '@/components/platforms/FinancialWithdrawalSettings';
 import { PlatformSelectionHeader } from '@/components/platforms/PlatformSelectionHeader';
 import type { Platform } from '@/components/platforms/types';
@@ -77,6 +78,7 @@ export default function AdminTaxasPlataformasPage() {
         </div>
       )}
       <FinancialPolicyEditor key={tag} tag={tag} name={selectedName} admin />
+      <AcquirerWithdrawalFees />
       <FinancialWithdrawalSettings key={`withdrawal-${tag}`} tag={tag} />
     </div>
   );

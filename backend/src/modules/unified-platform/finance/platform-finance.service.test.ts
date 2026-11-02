@@ -13,6 +13,12 @@ import type { InternalAtlasFinanceService } from './legacy-atlas-finance.service
 beforeAll(async () => {
   await initializePlatformTaxasCache({
     platformTaxaOverride: { findMany: async () => [] },
+    acquirerCatalogue: { findMany: async () => [{ code: 'DOM' }] },
+    acquirerWithdrawalFee: {
+      findMany: async () => [
+        { id: '1', acquirerCode: 'DOM', feeCents: 350, createdAt: new Date() },
+      ],
+    },
   } as any);
 });
 

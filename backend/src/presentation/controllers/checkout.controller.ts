@@ -27,6 +27,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { paymentTracking } from '../../modules/platform-core/payment-tracking';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import {
   PAYMENT_GATEWAY,
@@ -99,6 +100,7 @@ type PublicPixBody = {
   orderNumber?: string;
   orderId?: string | number | null;
   store?: string;
+  tracking?: Record<string, string>;
 };
 
 @Controller('checkout')
@@ -256,6 +258,7 @@ export class CheckoutController {
           customerEmail: body.email.trim(),
           customerDocument: body.document.replace(/\D/g, ''),
           customerPhone: (body.mobile_phone ?? '').replace(/\D/g, ''),
+          tracking: paymentTracking(body.tracking),
         },
       });
     }
@@ -487,6 +490,7 @@ export class CheckoutController {
       mobile_phone?: string;
       store?: string;
       orderNumber?: string;
+      tracking?: Record<string, string>;
     },
   ) {
     const domToken = platformGatewayToken(
@@ -603,6 +607,7 @@ export class CheckoutController {
           customerEmail: body.email.trim(),
           customerDocument: body.document.replace(/\D/g, ''),
           customerPhone: (body.mobile_phone ?? '').replace(/\D/g, ''),
+          tracking: paymentTracking(body.tracking),
         },
       });
     }

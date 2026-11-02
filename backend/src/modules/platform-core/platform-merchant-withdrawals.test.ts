@@ -7,6 +7,12 @@ import { initializePlatformTaxasCache } from '../platform-taxas/platform-taxas.s
 beforeAll(async () =>
   initializePlatformTaxasCache({
     platformTaxaOverride: { findMany: async () => [] },
+    acquirerCatalogue: { findMany: async () => [{ code: 'DOM' }] },
+    acquirerWithdrawalFee: {
+      findMany: async () => [
+        { id: '1', acquirerCode: 'DOM', feeCents: 350, createdAt: new Date() },
+      ],
+    },
   } as any),
 );
 const context = {

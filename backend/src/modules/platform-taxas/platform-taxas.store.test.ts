@@ -67,11 +67,11 @@ describe('database-only fee inheritance', () => {
   });
   test('honors zero override then restores inheritance', () => {
     const cache = readOverridesRaw();
-    cache.GLOBAL = { TAXA_SAQUE_FIXA: 5 };
-    cache.ATLAS = { TAXA_SAQUE_FIXA: 0 };
-    expect(getPlatformTaxaEffective('ATLAS', 'TAXA_SAQUE_FIXA', 2)).toBe(0);
-    delete cache.ATLAS.TAXA_SAQUE_FIXA;
-    expect(getPlatformTaxaEffective('ATLAS', 'TAXA_SAQUE_FIXA', 2)).toBe(5);
-    expect(getPlatformTaxaSource('ATLAS', 'TAXA_SAQUE_FIXA')).toBe('global');
+    cache.GLOBAL = { TAXA_SAQUE_EXTRA: 5 };
+    cache.ATLAS = { TAXA_SAQUE_EXTRA: 0 };
+    expect(getPlatformTaxaEffective('ATLAS', 'TAXA_SAQUE_EXTRA', 2)).toBe(0);
+    delete cache.ATLAS.TAXA_SAQUE_EXTRA;
+    expect(getPlatformTaxaEffective('ATLAS', 'TAXA_SAQUE_EXTRA', 2)).toBe(5);
+    expect(getPlatformTaxaSource('ATLAS', 'TAXA_SAQUE_EXTRA')).toBe('global');
   });
 });

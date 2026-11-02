@@ -13,6 +13,7 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import { validateFee, type FeeInput } from './acquirer-fees';
 import { parseDomNegotiation } from './dom-negotiation';
+import { initializePlatformTaxasCache } from '../platform-taxas/platform-taxas.store';
 import { emptyPolicy, type Policy } from './financial-policy';
 
 type FeeAmounts = {
@@ -200,6 +201,49 @@ export class AcquirerFeesService {
         });
       }),
     };
+  }
+
+  async listWithdrawal(user: JwtPayload) {
+    await this.admin(user);
+    const acquirers = await this.prisma.acquirerCatalogue.findMany({
+      orderBy: { code: 'asc' },
+    });
+    const rows = await this.prisma.acquirerWithdrawalFee.findMany({
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    return {
+      data: acquirers.map((acquirer) => {
+        const latest = rows.find((row) => row.acquirerCode === acquirer.code);
+        return {
+          code: acquirer.code,
+          name: acquirer.name,
+          active: acquirer.active,
+          feeCents: latest?.feeCents ?? null,
+          source: latest?.source ?? null,
+          updatedAt: latest?.createdAt ?? null,
+        };
+      }),
+    };
+  }
+
+  async saveWithdrawal(user: JwtPayload, code: string, feeCents: number) {
+    await this.admin(user);
+    if (!Number.isSafeInteger(feeCents) || feeCents < 0 || feeCents > 1_000_000)
+      throw new BadRequestException('Taxa de saque inválida');
+    const acquirer = await this.prisma.acquirerCatalogue.findUnique({
+      where: { code },
+    });
+    if (!acquirer) throw new NotFoundException('Adquirente desconhecida');
+    const created = await this.prisma.acquirerWithdrawalFee.create({
+      data: {
+        acquirerCode: code,
+        feeCents,
+        source: 'MANUAL',
+        actorId: user.sub,
+      },
+    });
+    await initializePlatformTaxasCache();
+    return { data: created };
   }
 
   async history(user: JwtPayload, code: string) {

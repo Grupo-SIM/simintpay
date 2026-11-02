@@ -1432,6 +1432,19 @@ model AcquirerCatalogue {
   active Boolean @default(true)
   syncAdapter String?
   feeSchedules AcquirerFeeSchedule[]
+  withdrawalFees AcquirerWithdrawalFee[]
+}
+
+/// Append-only per-acquirer withdrawal cost in cents. The latest row per acquirer wins.
+model AcquirerWithdrawalFee {
+  id String @id @default(uuid())
+  acquirerCode String
+  acquirer AcquirerCatalogue @relation(fields: [acquirerCode], references: [code], onDelete: Restrict)
+  feeCents Int
+  source String
+  actorId String?
+  createdAt DateTime @default(now())
+  @@index([acquirerCode, createdAt], map: "acquirer_withdrawal_fee_created_idx")
 }
 
 /// Append-only negotiated costs. A newer revision supersedes older rows for the same lane.

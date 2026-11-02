@@ -53,6 +53,20 @@ export class AcquirerFeesController {
     return this.fees.syncDom(user);
   }
 
+  @Get('withdrawal')
+  listWithdrawal(@CurrentUser() user: JwtPayload) {
+    return this.fees.listWithdrawal(user);
+  }
+
+  @Post('withdrawal/:code')
+  saveWithdrawal(
+    @CurrentUser() user: JwtPayload,
+    @Param('code') code: string,
+    @Body() body: { feeCents: number },
+  ) {
+    return this.fees.saveWithdrawal(user, code, body.feeCents);
+  }
+
   @Post(':code')
   save(
     @CurrentUser() user: JwtPayload,

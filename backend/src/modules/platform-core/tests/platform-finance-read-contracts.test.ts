@@ -40,7 +40,7 @@ beforeEach(async () =>
           { tag, key: 'TAXA_FIXA_TRANSACAO', value: 1 },
           { tag, key: 'TAXA_CASHBACK', value: 1 },
           { tag, key: 'SAQUE_MIN', value: 100 },
-          { tag, key: 'TAXA_SAQUE_FIXA', value: 3 },
+          { tag, key: 'TAXA_SAQUE_EXTRA', value: 3 },
         ]),
     },
   } as any),

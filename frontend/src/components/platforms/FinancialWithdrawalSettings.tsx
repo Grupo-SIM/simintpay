@@ -70,7 +70,7 @@ export function FinancialWithdrawalSettings({ tag }: { tag: string }) {
       <div className="grid gap-3 sm:grid-cols-2">
         {[
           ['SAQUE_MIN', 'Saque mínimo'],
-          ['TAXA_SAQUE_FIXA', 'Taxa fixa de saque'],
+          ['TAXA_SAQUE_EXTRA', 'Extra sobre a maior taxa de saque'],
         ].map(([key, label]) => (
           <FinancialNumberField
             key={key}

@@ -25,9 +25,31 @@ function getPrisma(): PrismaClient {
 }
 
 let overridesCache: Overrides = {};
+/** Maior taxa de saque (R$) entre as adquirentes ativas, vinda da última revisão de cada uma. */
+let acquirerWithdrawalMax = 0;
 let lastCacheUpdate = 0;
 const CACHE_TTL = 30 * 1000;
 let isFetching = false;
+
+async function loadAcquirerWithdrawalMax(): Promise<number> {
+  const client = getPrisma();
+  const active =
+    (await client.acquirerCatalogue?.findMany({
+      where: { active: true },
+      select: { code: true },
+    })) ?? [];
+  if (!active.length) return 0;
+  const rows =
+    (await client.acquirerWithdrawalFee?.findMany({
+      where: { acquirerCode: { in: active.map((a) => a.code) } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    })) ?? [];
+  const latest = new Map<string, number>();
+  for (const row of rows)
+    if (!latest.has(row.acquirerCode))
+      latest.set(row.acquirerCode, row.feeCents);
+  return Math.max(0, ...latest.values()) / 100;
+}
 
 export async function initializePlatformTaxasCache(
   client?: PrismaClient,
@@ -53,6 +75,7 @@ export async function initializePlatformTaxasCache(
         buildUserTaxaTag(user.id),
         buildClientTaxaTag(user.email),
       );
+    acquirerWithdrawalMax = await loadAcquirerWithdrawalMax();
     overridesCache = newCache;
     lastCacheUpdate = Date.now();
   } catch (err: unknown) {
@@ -118,6 +141,19 @@ export function getPlatformTaxaEffective(
   keySuffix: string,
   fallback: number,
 ): number {
+  // Taxa de saque cobrada = maior taxa entre as adquirentes ativas + extra do admin.
+  if (keySuffix === 'TAXA_SAQUE_FIXA')
+    return (
+      Math.round(
+        (acquirerWithdrawalMax +
+          getPlatformTaxaEffective(
+            listOrModuleTag,
+            'TAXA_SAQUE_EXTRA',
+            PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_EXTRA,
+          )) *
+          100,
+      ) / 100
+    );
   // Cliente personalizado (SIM INT PAY): usa o override do cliente; se não houver
   // para esta chave, herda TODA a resolução do GLOBAL (override + default).
   if (isClientTaxaTag(listOrModuleTag)) {

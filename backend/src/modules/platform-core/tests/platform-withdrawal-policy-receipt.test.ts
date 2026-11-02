@@ -45,7 +45,7 @@ for (const tag of ['BOSQUE', 'RENOVADA']) {
     await initializePlatformTaxasCache({
       platformTaxaOverride: {
         findMany: async () => [
-          { tag, key: 'TAXA_SAQUE_FIXA', value: 3.5 },
+          { tag, key: 'TAXA_SAQUE_EXTRA', value: 3.5 },
           { tag, key: 'TAXA_SAQUE_PERCENT', value: 0.01 },
           { tag, key: 'SAQUE_MIN', value: 50 },
         ],
