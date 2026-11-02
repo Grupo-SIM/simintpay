@@ -39,6 +39,20 @@ Continuação do [plano 0019](0019-balancelog-read-source.md) e do plano de trab
 - Expõe `totalSaldoAtribuido`; `totalDisponivel` é null e `availabilityStatus: not-independent` evita prometer uma carteira sacável por plataforma. Não foi identificado consumidor frontend atual desse endpoint.
 - Validação: 6 cenários / 26 assertions com PostgreSQL descartável e contratos, hooks normais (format/lint/unit/types/commitlint) e backend build aprovados. Nenhuma migração monetária ou escrita remota.
 
+## Afiliados: leitura atribuída integrada
+
+- `0944124` substitui o saldo agregado apresentado para afiliados externos por atribuição batched ao beneficiário/plataforma. Identidade passa por CPF/CNPJ remoto normalizado e vínculo persistido da mesma plataforma sem conflito; IDs remotos e e-mail não são prova de identidade SimIntPay.
+- Ausência de documento/vínculo, conflitos e histórico incompleto retornam null. SIMINTPAY mantém escopo agregado explícito. Interface mostra valores assinados, bloqueios e indisponibilidade sem chamar ausência de detalhe de compra de ausência de compra.
+- Validação: 14 regressões de controller, integração SQL PostgreSQL descartável, hooks normais e builds backend/frontend aprovados. Screenshots reais em 1440/390 conferidos; mobile mantém scroll horizontal existente. Fontes no build frontend simuladas offline com bytes Geist para todas as famílias permitidas, sem validar fidelidade tipográfica.
+- Nenhum crédito/funding ativado; helpers compartilhados e dados financeiros inalterados.
+
+## CSV de contas externas integrado
+
+- `9256621` exporta saldo atribuído por beneficiário/plataforma canônica, sem saldo externo ou fallback agregado. Deduplica vínculos, preserva null e inclui escopo/status de atribuição e reconciliação.
+- Atividade mensal usa `Transaction.userId` e plataforma persistida, não atividade global ou associação por e-mail. Serializer trata indisponibilidade, valores assinados, aspas, quebras de linha e fórmulas de planilha.
+- Validação: PostgreSQL novo descartável sem DROP/reset de tabelas, 1 cenário / 9 assertions; fixture do serializer; hooks normais e builds backend/frontend aprovados. Build frontend exigiu correção de links locais de dependências e fixture offline de fontes com WOFF2 local; tentativas anteriores de mock inválido/dependência ausente falharam e não foram consideradas aprovação. Fontes simuladas não validam fidelidade tipográfica.
+- Listas de contas/agrupamentos/consolidado permanecem pendentes; esta entrega cobre somente exportação e seu serializer.
+
 ## Inventário adicional de consumidores e riscos
 
 - Listas administrativas de contas, agrupamentos e consolidado permanecem fora dos incrementos de resumo/CSV/afiliados; não considerar a migração de leitores concluída.
