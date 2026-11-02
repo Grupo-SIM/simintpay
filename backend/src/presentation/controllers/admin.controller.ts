@@ -2998,7 +2998,7 @@ export class AdminController {
   @ApiBearerAuth()
   @ApiOperation({
     summary:
-      'Exclui permanentemente (irreversível) — nesta plataforma ou em todas. O saldo é absorvido pelo master.',
+      'Inativa permanentemente nesta plataforma ou em todas; saldos externos não reconciliados bloqueiam a operação.',
   })
   @ApiQuery({
     name: 'escopo',
@@ -3051,50 +3051,36 @@ export class AdminController {
           })
         : [externalUser];
 
-    let totalAbsorvido = 0;
+    const totalAbsorvido = 0;
 
     await this.prisma.$transaction(async (tx) => {
+      // Lock identities and wallets in a stable order. Legacy balance writers must
+      // finish before this check; no historical liability is silently absorbed.
+      const ids = alvos.map((alvo) => alvo.id).sort();
+      await tx.$queryRaw`SELECT "id" FROM "ExternalPlatformUser"
+        WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
+      const balances = await tx.$queryRaw<
+        { balance: Prisma.Decimal; lockedBalance: Prisma.Decimal }[]
+      >`
+        SELECT "balance", "lockedBalance" FROM "ExternalPlatformWallet"
+        WHERE "externalUserId" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
+      if (
+        balances.some(
+          (wallet) =>
+            !wallet.balance.isZero() || !wallet.lockedBalance.isZero(),
+        )
+      ) {
+        throw new ConflictException(
+          'Saldo externo não reconciliado; purga bloqueada sem absorver ou zerar valores',
+        );
+      }
       for (const alvo of alvos) {
-        const saldo = Number(alvo.wallet?.balance ?? 0);
-        totalAbsorvido += saldo;
-
-        // Zera a carteira (o valor vai para o master) e registra em BalanceLog para auditoria.
-        if (alvo.wallet && saldo !== 0) {
-          await tx.externalPlatformWallet.update({
-            where: { id: alvo.wallet.id },
-            data: { balance: 0, lockedBalance: 0 },
-          });
-          if (alvo.userId) {
-            await tx.balanceLog.create({
-              data: {
-                userId: alvo.userId,
-                action: 'PURGE_ABSORB',
-                bookkeepingAmount: saldo,
-
-                balanceDelta: new Prisma.Decimal(0).sub(saldo),
-
-                lockedDelta: new Prisma.Decimal(0).sub(
-                  Number(alvo.wallet.lockedBalance ?? 0),
-                ),
-
-                source: 'MASTER_ADMIN_CONTROL',
-                description: `Saldo absorvido pelo master ao excluir permanentemente a conta na plataforma ${alvo.platform}`,
-                metadata: {
-                  platform: alvo.platform,
-                  externalUserId: alvo.id,
-                  purgedBy: requesterId ?? null,
-                },
-              },
-            });
-          }
-        }
-
         await tx.externalPlatformUser.update({
           where: { id: alvo.id },
           data: {
             isPurged: true,
             purgedAt: new Date(),
-            purgedAmount: saldo,
+            purgedAmount: 0,
             isDeleted: true,
             deletedAt: alvo.deletedAt ?? new Date(),
           },

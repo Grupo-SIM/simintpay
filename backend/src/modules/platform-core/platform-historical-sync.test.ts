@@ -99,7 +99,10 @@ function fixture(tag: string, description = tag.toLowerCase()) {
     user: {
       findUnique: async () => ({ id: 'owner', name: 'Owner', cpf: '123' }),
     },
-    externalPlatformUser: { upsert: async () => ({ id: 'external' }) },
+    externalPlatformUser: {
+      findFirst: async () => ({ id: 'external' }),
+      upsert: async () => ({ id: 'external' }),
+    },
     externalPlatformWallet: { upsert: mock(async () => ({})) },
     // Emulates the BalanceLog insert trigger that moves the wallet.
     balanceLog: {

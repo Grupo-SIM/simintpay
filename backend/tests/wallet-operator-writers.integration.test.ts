@@ -9,6 +9,8 @@ import { initializePlatformRegistryCache } from '../src/modules/module.registry'
 import { initializePlatformTaxasCache } from '../src/modules/platform-taxas/platform-taxas.store';
 import { PlatformMaintenanceService } from '../src/modules/unified-platform/finance/platform-maintenance.service';
 import { applyWalletEntry } from '../src/modules/wallet-ledger/wallet-ledger';
+import { ApproveWithdrawalUseCase } from '../src/application/use-cases/admin/approve-withdrawal.use-case';
+import { PlatformOwnerMirror } from '../src/modules/platform-core/platform-owner-mirror';
 import { AdminController } from '../src/presentation/controllers/admin.controller';
 
 // Batch B (operator/maintenance writers). Local disposable Postgres only
@@ -287,3 +289,126 @@ run('maintenance correct racing a credit never loses the credit', async () => {
   // set-then-credit = 65, credit-then-set = 40, correction rejected = 125.
   expect([correctOk ? '40.00' : '125.00', '65.00']).toContain(balance);
 });
+
+run(
+  'ordinary withdrawal approval never debits legacy balances and repeated approval is idempotent',
+  async () => {
+    const user = await newUser();
+    await fund(user.id, '100');
+    const external = await db!.externalPlatformUser.create({
+      data: {
+        name: user.name,
+        userId: user.id,
+        platform: 'ebook',
+        wallet: { create: { balance: 77, lockedBalance: 9 } },
+      },
+      include: { wallet: true },
+    });
+    const withdrawal = await new PrismaWithdrawRepository(
+      prismaService,
+    ).createWithWalletLock({
+      userId: user.id,
+      amount: 58,
+      grossAmount: 60,
+      fee: 2,
+      pixKey: 'local@test',
+      platform: null,
+      amountToLock: 60,
+    });
+    const useCase = new ApproveWithdrawalUseCase(prismaService, {
+      notifyWithdrawal: async () => {},
+    } as any);
+    await useCase.execute(withdrawal.id);
+    await useCase.execute(withdrawal.id);
+    expect(await expectConsistent(user.id)).toEqual(['40.00', '0.00']);
+    const wallet = await db!.externalPlatformWallet.findUniqueOrThrow({
+      where: { externalUserId: external.id },
+    });
+    expect(wallet.balance.toFixed(2)).toBe('77.00');
+    expect(wallet.lockedBalance.toFixed(2)).toBe('9.00');
+    expect(
+      await db!.balanceLog.count({
+        where: { userId: user.id, action: 'WITHDRAW_APPROVED' },
+      }),
+    ).toBe(1);
+  },
+);
+
+run(
+  'owner compatibility reads pooled Wallet without copying or inventing platform balances',
+  async () => {
+    const user = await newUser();
+    await fund(user.id, '100');
+    const tag = `test-${crypto.randomUUID()}`;
+    await db!.platform.create({
+      data: { name: tag, tag, ownerUserId: user.id },
+    });
+    const external = await db!.externalPlatformUser.create({
+      data: {
+        name: user.name,
+        userId: user.id,
+        platform: tag,
+        wallet: { create: { balance: 77 } },
+      },
+    });
+    const before = await db!.balanceLog.count({ where: { userId: user.id } });
+    const mirror = new PlatformOwnerMirror(prismaService);
+    for (let i = 0; i < 2; i++) {
+      expect(await mirror.sync(tag)).toMatchObject({
+        success: true,
+        balance: 100,
+        balanceScope: 'USER_WALLET_AGGREGATE',
+        platformBalanceKnown: false,
+      });
+    }
+    expect(
+      (
+        await db!.externalPlatformWallet.findUniqueOrThrow({
+          where: { externalUserId: external.id },
+        })
+      ).balance.toFixed(2),
+    ).toBe('77.00');
+    expect(await db!.balanceLog.count({ where: { userId: user.id } })).toBe(
+      before,
+    );
+  },
+);
+
+run(
+  'external purge quarantines positive negative and locked historical liabilities without master credit',
+  async () => {
+    for (const [balance, lockedBalance] of [
+      [77, 0],
+      [-3, 0],
+      [0, 9],
+    ]) {
+      const user = await newUser();
+      const external = await db!.externalPlatformUser.create({
+        data: {
+          name: user.name,
+          userId: user.id,
+          platform: 'ebook',
+          isDeleted: true,
+          wallet: { create: { balance, lockedBalance } },
+        },
+      });
+      const before = await db!.balanceLog.count();
+      await expect(controller().purgeExternalUser(external.id)).rejects.toThrow(
+        'Saldo externo não reconciliado',
+      );
+      expect(await db!.balanceLog.count()).toBe(before);
+      expect(
+        (
+          await db!.externalPlatformUser.findUniqueOrThrow({
+            where: { id: external.id },
+          })
+        ).isPurged,
+      ).toBe(false);
+      const wallet = await db!.externalPlatformWallet.findUniqueOrThrow({
+        where: { externalUserId: external.id },
+      });
+      expect(Number(wallet.balance)).toBe(balance);
+      expect(Number(wallet.lockedBalance)).toBe(lockedBalance);
+    }
+  },
+);

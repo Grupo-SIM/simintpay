@@ -112,43 +112,19 @@ export class ApproveWithdrawalUseCase {
         });
       }
 
-      // 3. Deduz também da carteira externa (se houver/vincular via tenant) - Pula se for Atlas
-      const userWithExt = await tx.user.findUnique({
-        where: { id: withdraw.userId },
-        include: {
-          platform: true,
-          externalPlatformUsers: { include: { wallet: true } },
-        },
-      });
-
-      if (
-        withdraw.platform?.toLowerCase() !== 'atlas' &&
-        userWithExt?.externalPlatformUsers.length
-      ) {
-        const slug = userWithExt.platform?.tag?.toLowerCase();
-        const extUser = slug
-          ? userWithExt.externalPlatformUsers.find(
-              (u) => u.platform.toLowerCase() === slug,
-            )
-          : userWithExt.externalPlatformUsers[0];
-
-        if (extUser?.wallet) {
-          await tx.externalPlatformWallet.update({
-            where: { id: extUser.wallet.id },
-            data: {
-              balance: { decrement: withdraw.grossAmount },
-              updatedAt: new Date(),
-            },
-          });
-        }
-      }
+      // Ordinary Wallet is authoritative for this withdrawal. Preserve external
+      // balances as reconciliation evidence; never debit a second ledger.
 
       // 4. Sempre incrementa taxa e lucro no log administrativo (independente de quem aprova)
       const logUserId = adminUserId ?? withdraw.userId;
 
       // Resolve a tag da plataforma do usuário que fez o saque para usar a TAXA_SAQUE_FIXA correta
+      const beneficiary = await tx.user.findUnique({
+        where: { id: withdraw.userId },
+        include: { platform: true },
+      });
       const platformTag = (
-        userWithExt?.platform?.tag ?? 'GLOBAL'
+        beneficiary?.platform?.tag ?? 'GLOBAL'
       ).toUpperCase();
       const taxaSaqueFixa = getPlatformTaxaEffective(
         platformTag,

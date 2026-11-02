@@ -17,6 +17,7 @@ function fixture(tag: string) {
     },
     wallet: { findUnique: async () => ({ balance: 12.34 }) },
     externalPlatformUser: {
+      findFirst: async () => ({ id: 'external' }),
       upsert: async (q: any) => {
         writes.push(q);
         return { id: 'external' };
@@ -60,6 +61,8 @@ for (const [tag, Controller] of [
     );
     expect(result).toMatchObject({
       balance: 12.34,
+      balanceScope: 'USER_WALLET_AGGREGATE',
+      platformBalanceKnown: false,
       platform: tag.toLowerCase(),
       userId: 'owner',
     });
