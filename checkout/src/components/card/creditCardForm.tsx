@@ -52,6 +52,7 @@ import { sanitizeCheckoutText } from '@/lib/text-utils';
 import { buildInstallmentLabel } from '@/lib/installment-label';
 import Image from 'next/image';
 import { maskCpfCnpj, maskPhoneBr } from '@/lib/input-masks';
+import { checkoutTracking } from '@/lib/payment-tracking';
 
 const SIMPAY_API_BASE_URL = SIM_API_URL;
 const BACK_EBOOK_API_BASE_URL = EBOOK_API_URL;
@@ -756,7 +757,13 @@ const CheckoutForm = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          ...body,
+          tracking: checkoutTracking(
+            window.location.search,
+            window.document.cookie,
+          ),
+        }),
       });
       const data = await response.json();
 
@@ -892,7 +899,13 @@ const CheckoutForm = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          ...body,
+          tracking: checkoutTracking(
+            window.location.search,
+            window.document.cookie,
+          ),
+        }),
       });
       const data = await response.json();
 
@@ -1125,7 +1138,13 @@ const CheckoutForm = () => {
               headers: {
                 'Content-Type': 'application/json',
               },
-              body: JSON.stringify(body),
+              body: JSON.stringify({
+                ...body,
+                tracking: checkoutTracking(
+                  window.location.search,
+                  window.document.cookie,
+                ),
+              }),
             },
           );
           const responseData = await checkoutResponse.json();
@@ -1203,7 +1222,13 @@ const CheckoutForm = () => {
           const subscriptionResponse = await fetch(cardEndpoint, {
             method: 'POST',
             headers: cardHeaders,
-            body: JSON.stringify(body),
+            body: JSON.stringify({
+              ...body,
+              tracking: checkoutTracking(
+                window.location.search,
+                window.document.cookie,
+              ),
+            }),
           });
           const responseData = await subscriptionResponse.json();
           if (!subscriptionResponse.ok) {
