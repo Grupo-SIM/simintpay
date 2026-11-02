@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import {
   RefreshCw,
   Search,
@@ -258,6 +259,7 @@ export default function UsuariosTab({
   refreshKey?: number;
 }) {
   const router = useRouter();
+  const { resolvedTheme } = useTheme();
   const { toast } = useToast();
   const { user, loading: loadingUser } = useCurrentUser();
   const isMaster = Boolean(user?.isMasterAdmin);
@@ -1131,6 +1133,8 @@ export default function UsuariosTab({
           </div>
 
           <PlatformFilterSelect
+            hideOwner
+            theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
             placeholder="Plataforma"
             value={platform}
             onChange={(value) => {
@@ -1144,7 +1148,7 @@ export default function UsuariosTab({
                 label,
               })),
             ]}
-            className="h-9 min-w-[200px] rounded-xl border-zinc-200 bg-white text-zinc-900 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100"
+            className="h-9 min-w-[220px] rounded-xl text-sm"
           />
 
           {/* Refresh */}
