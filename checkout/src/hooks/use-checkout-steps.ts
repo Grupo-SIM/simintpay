@@ -3,16 +3,16 @@
 import { useState } from 'react';
 import { useIsDesktop } from '@/hooks/use-is-desktop';
 
-/** Etapas do checkout: 0 = Pedido, 1 = Dados, 2 = Pagamento. */
-export type CheckoutStep = 0 | 1 | 2;
-
 /**
- * Navegação das etapas. No desktop não há etapas: tudo aparece numa tela só
- * (`step` fica em 2 e `showAll` é `true`).
+ * Navegação das etapas (0 = Pedido, 1 = Dados, 2 = Pagamento; 3 quando o
+ * pagamento se divide em "forma" + "detalhe"). No desktop não há etapas:
+ * tudo aparece numa tela só e `step` fica sempre em `last`.
  */
-export function useCheckoutSteps() {
-  const [mobileStep, setStep] = useState<CheckoutStep>(0);
+export function useCheckoutSteps(last = 2) {
+  const [mobileStep, setStep] = useState(0);
   const desktop = useIsDesktop();
-  const step: CheckoutStep = desktop ? 2 : mobileStep;
-  return { step, setStep, desktop };
+  const step = desktop ? last : Math.min(mobileStep, last);
+  return { step, setStep, desktop, last };
 }
+
+export type CheckoutStepsController = ReturnType<typeof useCheckoutSteps>;

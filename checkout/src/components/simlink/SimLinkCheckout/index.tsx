@@ -1,6 +1,7 @@
 'use client';
 import { useBuyerMemory } from '@/hooks/use-buyer-memory';
-import { useIsDesktop } from '@/hooks/use-is-desktop';
+import { useCheckoutSteps } from '@/hooks/use-checkout-steps';
+import { CheckoutFlow } from '@/components/checkout/CheckoutFlow';
 import { BuyerMemoryPreference } from '@/components/checkout/BuyerMemoryPreference';
 /**
  * Checkout de link de pagamento (SimLink) — layout "Checkout Novo" em etapas:
@@ -178,8 +179,7 @@ export default function SimLinkCheckout({
   );
   const [fetching, setFetching] = useState(!preview);
   const [linkError, setLinkError] = useState('');
-  const [mobileStep, setStep] = useState<Step>('pedido');
-  const desktop = useIsDesktop();
+  const flow = useCheckoutSteps(3);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [pixContent, setPixContent] = useState<string | null>(null);
@@ -224,16 +224,15 @@ export default function SimLinkCheckout({
         : 'debit',
   );
 
-  // Desktop não tem etapas: tudo fica na mesma tela e o envio sempre cai na etapa de pagamento.
-  const step: Step = desktop
-    ? paymentMethod === 'pix'
-      ? 'pix'
-      : 'cartao'
-    : mobileStep;
-  // Etapas visíveis: no desktop (antes do PIX gerado) todas as seções ficam renderizadas.
-  const showAll =
-    desktop && !(step === 'pix' && Boolean(pixContent || pixQrCode));
-  const visible = (s: Step) => showAll || step === s;
+  // Etapa legível derivada da navegação: no desktop sempre cai na etapa de pagamento (3).
+  const step: Step = (
+    [
+      'pedido',
+      'dados',
+      'forma',
+      paymentMethod === 'pix' ? 'pix' : 'cartao',
+    ] as const
+  )[flow.step];
 
   // Dados do cliente
   const [name, setName] = useState('');
@@ -731,53 +730,20 @@ export default function SimLinkCheckout({
   const cErr = (ok: boolean, msg: string) =>
     showCardErrors && !ok ? msg : undefined;
 
-  function goToPayment(method: PaymentMethod) {
-    setError('');
-    setStep(method === 'pix' ? 'pix' : 'cartao');
+  function validateDados() {
+    setShowDadosErrors(true);
+    return preview || dadosOk;
   }
 
-  function onPrimary(e?: { preventDefault(): void }) {
-    e?.preventDefault();
-    if (
-      loading ||
-      quoting ||
-      (preview && (step === 'cartao' || step === 'pix'))
-    )
-      return;
-    setError('');
-    // Desktop: sem etapa "Dados", então valida aqui antes de seguir para o pagamento.
-    if (desktop && !pixGenerated) {
-      setShowDadosErrors(true);
-      if (!preview && !dadosOk) return;
-      if (!methods.length) return;
+  function submitFinal() {
+    if (loading || quoting) return;
+    if (preview && (step === 'cartao' || step === 'pix')) return;
+    if (step === 'cartao') {
+      setShowCardErrors(true);
+      if (cardFieldsOk) void handleSubmit();
+    } else if (!pixGenerated) {
+      void handleSubmit();
     }
-    switch (step) {
-      case 'pedido':
-        setStep('dados');
-        return;
-      case 'dados':
-        setShowDadosErrors(true);
-        if (preview || dadosOk) setStep('forma');
-        return;
-      case 'forma':
-        if (!methods.length) return;
-        goToPayment(paymentMethod);
-        return;
-      case 'cartao':
-        setShowCardErrors(true);
-        if (cardFieldsOk) void handleSubmit();
-        return;
-      case 'pix':
-        if (!pixGenerated) void handleSubmit();
-        return;
-    }
-  }
-
-  function goBack() {
-    setError('');
-    if (step === 'dados') setStep('pedido');
-    else if (step === 'forma') setStep('dados');
-    else if (step === 'cartao' || step === 'pix') setStep('forma');
   }
 
   function onExpiryChange(v: string) {
@@ -904,7 +870,7 @@ export default function SimLinkCheckout({
   if (declined) {
     const retry = () => {
       setDeclined(false);
-      setStep('cartao');
+      flow.setStep(3);
     };
     const otherCard = () => {
       setCardNumber('');
@@ -915,12 +881,12 @@ export default function SimLinkCheckout({
       setHolderDocument('');
       setShowCardErrors(false);
       setDeclined(false);
-      setStep('cartao');
+      flow.setStep(3);
     };
     const payWithPix = () => {
       setPaymentMethod('pix');
       setDeclined(false);
-      setStep('pix');
+      flow.setStep(3);
     };
     return (
       <Screen variant="error">
@@ -1055,675 +1021,585 @@ export default function SimLinkCheckout({
               ? 'Gerando código PIX…'
               : 'Gerar código PIX';
 
-  const cta = (className?: string) =>
-    step === 'pix' && pixGenerated ? null : (
-      <CtaButton
-        type="submit"
-        disabled={
-          loading ||
-          quoting ||
-          previewPaymentStep ||
-          (step === 'forma' && !methods.length)
-        }
-        className={className}
+  const orderNode = (
+    <>
+      <div
+        className={cx(
+          'flex flex-col gap-3.5 rounded-[28px] p-3 lg:p-5',
+          link.imagemUrl
+            ? 'lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:items-center lg:gap-6'
+            : 'pt-[18px]',
+          GLASS,
+        )}
       >
-        {loading && <Spinner size={18} width={3} />}
-        {ctaLabel}
-      </CtaButton>
-    );
-
-  const asideAction =
-    step === 'pix' && pixGenerated ? (
-      <StatusPill>
-        <Spinner size={16} width={3} />
-        Aguardando pagamento…
-      </StatusPill>
-    ) : (
-      cta()
-    );
-
-  const mobileHeader =
-    step === 'pedido' ? (
-      <div className="flex flex-col gap-4 lg:hidden">
-        <div className="flex items-center justify-between">
-          <Logo />
-          <ProtectedPill compact />
-        </div>
-        <div className="flex flex-col gap-2">
-          <div className="text-2xl font-medium">Seu pedido</div>
-          <MobileProgress step={1} />
+        {link.imagemUrl && (
+          <ProductImage
+            src={link.imagemUrl}
+            className="h-40 w-full rounded-[20px] lg:h-[200px]"
+          />
+        )}
+        <div className="flex items-start justify-between gap-3 px-1.5 pb-1.5 lg:flex-col lg:justify-start lg:gap-2.5 lg:p-0">
+          <div className="min-w-0">
+            <div className="text-[19px] font-medium lg:text-[28px]">
+              {productTitle}
+            </div>
+            {productDesc && (
+              <div className="mt-1 text-[13px] leading-[1.4] text-[#a9a3b8] lg:mt-2.5 lg:text-[15px] lg:leading-normal lg:text-[#b8b2c6]">
+                {productDesc}
+              </div>
+            )}
+          </div>
+          <div className="whitespace-nowrap text-lg font-semibold tabular-nums lg:mt-1.5 lg:text-[26px]">
+            {formatCurrency(link.valor)}
+          </div>
         </div>
       </div>
-    ) : (
-      <>
-        <MobileTopBar
-          title={
-            step === 'dados'
-              ? 'Seus dados'
-              : step === 'forma'
-                ? 'Pagamento'
-                : step === 'cartao'
-                  ? `Cartão de ${methodName}`
-                  : 'Pagar com PIX'
-          }
-          onBack={goBack}
-        />
-        {step === 'dados' && <MobileProgress step={2} />}
-        {step === 'forma' && <MobileProgress step={3} />}
-      </>
-    );
 
-  return (
-    <Screen>
-      {preview && <PreviewNotice noMethods={!methods.length} />}
-      <DesktopHeader />
-      {mobileHeader}
+      {orderBumps.length > 0 && (
+        <div
+          className={cx(
+            'flex flex-col gap-2.5 rounded-[26px] p-3.5 lg:gap-3.5 lg:rounded-[28px] lg:p-6',
+            GLASS,
+          )}
+        >
+          <div className="px-1 pb-1 pt-0.5 lg:p-0">
+            <div className="text-base lg:text-2xl lg:font-medium">
+              Aproveite também
+            </div>
+            <div className="mt-0.5 text-xs text-[#a9a3b8] lg:mt-1 lg:text-sm">
+              Condições disponíveis só nesta compra
+            </div>
+          </div>
+          {orderBumps.map((offer) => (
+            <OrderBumpCard
+              key={offer.id}
+              offer={offer}
+              checked={selectedBumps.includes(offer.id)}
+              // Com o PIX já gerado o valor está fechado.
+              disabled={pixGenerated || loading}
+              onToggle={() => void toggleOrderBump(offer.id)}
+            />
+          ))}
+        </div>
+      )}
 
-      <form
-        onSubmit={onPrimary}
-        noValidate
-        className="flex flex-1 flex-col gap-4 lg:grid lg:flex-none lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start lg:gap-7"
+      <div className="flex items-baseline justify-between px-2 lg:hidden">
+        <span className="text-[15px] text-[#a9a3b8]">Total · {itemsLabel}</span>
+        <span
+          className={cx(
+            'text-[26px] font-semibold tabular-nums transition-opacity',
+            quoting && 'opacity-50',
+          )}
+        >
+          {formatCurrency(base)}
+        </span>
+      </div>
+    </>
+  );
+
+  const dadosNode = (
+    <>
+      <div
+        className={cx(
+          'flex flex-col gap-3.5 rounded-[28px] p-[18px] lg:gap-[22px] lg:p-7',
+          GLASS,
+        )}
       >
-        <div className="flex flex-1 flex-col gap-4 lg:gap-5">
-          {/* ── 4a / 5a Pedido ── */}
-          {visible('pedido') && (
-            <>
-              <div
-                className={cx(
-                  'flex flex-col gap-3.5 rounded-[28px] p-3 lg:p-5',
-                  link.imagemUrl
-                    ? 'lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:items-center lg:gap-6'
-                    : 'pt-[18px]',
-                  GLASS,
-                )}
-              >
-                {link.imagemUrl && (
-                  <ProductImage
-                    src={link.imagemUrl}
-                    className="h-40 w-full rounded-[20px] lg:h-[200px]"
-                  />
-                )}
-                <div className="flex items-start justify-between gap-3 px-1.5 pb-1.5 lg:flex-col lg:justify-start lg:gap-2.5 lg:p-0">
-                  <div className="min-w-0">
-                    <div className="text-[19px] font-medium lg:text-[28px]">
-                      {productTitle}
-                    </div>
-                    {productDesc && (
-                      <div className="mt-1 text-[13px] leading-[1.4] text-[#a9a3b8] lg:mt-2.5 lg:text-[15px] lg:leading-normal lg:text-[#b8b2c6]">
-                        {productDesc}
-                      </div>
-                    )}
-                  </div>
-                  <div className="whitespace-nowrap text-lg font-semibold tabular-nums lg:mt-1.5 lg:text-[26px]">
-                    {formatCurrency(link.valor)}
-                  </div>
-                </div>
-              </div>
-
-              {orderBumps.length > 0 && (
-                <div
-                  className={cx(
-                    'flex flex-col gap-2.5 rounded-[26px] p-3.5 lg:gap-3.5 lg:rounded-[28px] lg:p-6',
-                    GLASS,
-                  )}
-                >
-                  <div className="px-1 pb-1 pt-0.5 lg:p-0">
-                    <div className="text-base lg:text-2xl lg:font-medium">
-                      Aproveite também
-                    </div>
-                    <div className="mt-0.5 text-xs text-[#a9a3b8] lg:mt-1 lg:text-sm">
-                      Condições disponíveis só nesta compra
-                    </div>
-                  </div>
-                  {orderBumps.map((offer) => (
-                    <OrderBumpCard
-                      key={offer.id}
-                      offer={offer}
-                      checked={selectedBumps.includes(offer.id)}
-                      // Com o PIX já gerado o valor está fechado.
-                      disabled={pixGenerated || loading}
-                      onToggle={() => void toggleOrderBump(offer.id)}
-                    />
-                  ))}
-                </div>
-              )}
-
-              <div className="flex items-baseline justify-between px-2 lg:hidden">
-                <span className="text-[15px] text-[#a9a3b8]">
-                  Total · {itemsLabel}
-                </span>
-                <span
-                  className={cx(
-                    'text-[26px] font-semibold tabular-nums transition-opacity',
-                    quoting && 'opacity-50',
-                  )}
-                >
-                  {formatCurrency(base)}
-                </span>
-              </div>
-            </>
-          )}
-
-          {/* ── 4b / 5b Dados ── */}
-          {visible('dados') && (
-            <>
-              <div
-                className={cx(
-                  'flex flex-col gap-3.5 rounded-[28px] p-[18px] lg:gap-[22px] lg:p-7',
-                  GLASS,
-                )}
-              >
-                <div className="hidden lg:block">
-                  <div className="text-2xl font-medium">Seus dados</div>
-                  <div className="mt-1 text-sm text-[#a9a3b8]">
-                    Usados para emitir o pagamento e enviar seu acesso
-                  </div>
-                </div>
-                <div className="flex flex-col gap-3.5 lg:grid lg:grid-cols-2 lg:gap-x-[18px] lg:gap-y-4">
-                  <Field
-                    label="Nome completo"
-                    error={dErr(nameOk, 'Informe seu nome completo')}
-                  >
-                    <input
-                      className="sp2-input"
-                      name="name"
-                      placeholder="Como está no documento"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      autoComplete="name"
-                      aria-invalid={Boolean(dErr(nameOk, 'x'))}
-                    />
-                  </Field>
-                  <Field
-                    label="E-mail"
-                    hint="O acesso ao produto chega neste e-mail"
-                    error={dErr(emailOk, 'Informe um e-mail válido')}
-                  >
-                    <input
-                      className="sp2-input"
-                      type="email"
-                      name="email"
-                      inputMode="email"
-                      placeholder="voce@email.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      autoComplete="email"
-                      aria-invalid={Boolean(dErr(emailOk, 'x'))}
-                    />
-                  </Field>
-                  <Field
-                    label="CPF / CNPJ"
-                    error={dErr(docOk, 'CPF ou CNPJ incompleto')}
-                  >
-                    <input
-                      className="sp2-input"
-                      name="customer-document"
-                      inputMode="numeric"
-                      placeholder="000.000.000-00"
-                      value={document}
-                      onChange={(e) => setDocument(maskCpfCnpj(e.target.value))}
-                      autoComplete="off"
-                      aria-invalid={Boolean(dErr(docOk, 'x'))}
-                    />
-                  </Field>
-                  <Field
-                    label="Celular"
-                    error={dErr(phoneOk, 'Informe o celular com DDD')}
-                  >
-                    <div
-                      className="sp2-input sp2-input-wrap"
-                      aria-invalid={Boolean(dErr(phoneOk, 'x'))}
-                    >
-                      <span className="flex h-full items-center border-r border-white/10 px-3.5 text-[15px] text-[#a9a3b8]">
-                        +55
-                      </span>
-                      <input
-                        name="phone"
-                        inputMode="tel"
-                        placeholder="(00) 00000-0000"
-                        value={phone}
-                        onChange={(e) => setPhone(maskPhoneBr(e.target.value))}
-                        autoComplete="tel-national"
-                      />
-                    </div>
-                  </Field>
-                </div>
-                <BuyerMemoryPreference
-                  {...buyerMemory}
-                  className="mt-1 space-y-2 text-[13px] text-[#a9a3b8]"
-                />
-                <div className="hidden items-center gap-2.5 text-[13px] text-[#7d778b] lg:flex">
-                  <Lock className="h-3.5 w-3.5" strokeWidth={2} />
-                  Dados protegidos durante sua compra
-                </div>
-              </div>
-              <div className="flex items-center justify-center gap-2.5 text-xs text-[#7d778b] lg:hidden">
-                <Lock className="h-3.5 w-3.5" strokeWidth={2} />
-                Dados protegidos durante sua compra
-              </div>
-            </>
-          )}
-
-          {/* ── 4c / 5c Forma de pagamento ── */}
-          {visible('forma') && (
-            <>
-              {/* mobile */}
-              <div
-                className={cx(
-                  'flex flex-col gap-2.5 rounded-[28px] p-3.5 lg:hidden',
-                  GLASS,
-                )}
-              >
-                <div className="p-1 text-base text-[#d9d4e3]">
-                  Escolha como pagar
-                </div>
-                {methods.map((m) => {
-                  const on = m.id === paymentMethod;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => setPaymentMethod(m.id)}
-                      className={cx(
-                        'flex items-center gap-3 rounded-[20px] border px-3 py-3.5 text-left transition-colors',
-                        on
-                          ? 'border-[rgba(240,168,108,.7)] bg-white/[0.12]'
-                          : 'border-white/[0.07] bg-white/[0.06]',
-                      )}
-                    >
-                      <MethodIcon method={m.id} size="md" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-base font-medium">{m.name}</div>
-                        <div className="mt-0.5 text-xs text-[#a9a3b8]">
-                          {m.long}
-                        </div>
-                      </div>
-                      <span className="sp2-radio h-5 w-5" data-on={on} />
-                    </button>
-                  );
-                })}
-              </div>
-              <div
-                className={cx(
-                  'rounded-[22px] px-[18px] py-1.5 lg:hidden',
-                  GLASS,
-                )}
-              >
-                <SummaryRow muted size="sm" label="Pedido" value={itemsLabel} />
-                <div className="flex items-baseline justify-between py-[13px] text-sm">
-                  <span className="text-[#a9a3b8]">Total</span>
-                  <span className="text-xl font-semibold tabular-nums">
-                    {formatCurrency(methodTotal)}
-                  </span>
-                </div>
-              </div>
-
-              {/* desktop */}
-              <div
-                className={cx(
-                  'hidden flex-col gap-[22px] rounded-[28px] p-7 lg:flex',
-                  GLASS,
-                )}
-              >
-                <div className="text-2xl font-medium">Escolha como pagar</div>
-                <div
-                  className="grid gap-3.5"
-                  style={{
-                    gridTemplateColumns: `repeat(${Math.max(methods.length, 1)}, minmax(0, 1fr))`,
-                  }}
-                >
-                  {methods.map((m) => {
-                    const on = m.id === paymentMethod;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        aria-pressed={on}
-                        onClick={() => setPaymentMethod(m.id)}
-                        className={cx(
-                          'flex flex-col gap-[18px] rounded-[24px] border p-5 text-left transition-colors',
-                          on
-                            ? 'border-[rgba(240,168,108,.7)] bg-white/[0.12]'
-                            : 'border-white/[0.07] bg-white/[0.06] hover:bg-white/[0.08]',
-                        )}
-                      >
-                        <div className="flex items-start justify-between">
-                          <MethodIcon method={m.id} size="lg" />
-                          <span
-                            className="sp2-radio h-[22px] w-[22px]"
-                            data-on={on}
-                          />
-                        </div>
-                        <div>
-                          <div className="text-[19px] font-medium">
-                            {m.name}
-                          </div>
-                          <div className="mt-1 text-sm text-[#a9a3b8]">
-                            {m.long}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div
-                className={cx(
-                  'hidden items-center gap-3.5 rounded-[28px] px-[22px] py-4 lg:flex',
-                  GLASS,
-                )}
-              >
-                <CheckDot size={36} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[15px] font-medium">{name}</div>
-                  <div className="truncate text-[13px] text-[#a9a3b8]">
-                    {email}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setStep('dados')}
-                  className="text-sm text-[#f6b67a] transition hover:text-[#ffd2a8]"
-                >
-                  Editar dados
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* ── 4d / 5d Cartão ── */}
-          {step === 'cartao' && (
+        <div className="hidden lg:block">
+          <div className="text-2xl font-medium">Seus dados</div>
+          <div className="mt-1 text-sm text-[#a9a3b8]">
+            Usados para emitir o pagamento e enviar seu acesso
+          </div>
+        </div>
+        <div className="flex flex-col gap-3.5 lg:grid lg:grid-cols-2 lg:gap-x-[18px] lg:gap-y-4">
+          <Field
+            label="Nome completo"
+            error={dErr(nameOk, 'Informe seu nome completo')}
+          >
+            <input
+              className="sp2-input"
+              name="name"
+              placeholder="Como está no documento"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
+              aria-invalid={Boolean(dErr(nameOk, 'x'))}
+            />
+          </Field>
+          <Field
+            label="E-mail"
+            hint="O acesso ao produto chega neste e-mail"
+            error={dErr(emailOk, 'Informe um e-mail válido')}
+          >
+            <input
+              className="sp2-input"
+              type="email"
+              name="email"
+              inputMode="email"
+              placeholder="voce@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              aria-invalid={Boolean(dErr(emailOk, 'x'))}
+            />
+          </Field>
+          <Field
+            label="CPF / CNPJ"
+            error={dErr(docOk, 'CPF ou CNPJ incompleto')}
+          >
+            <input
+              className="sp2-input"
+              name="customer-document"
+              inputMode="numeric"
+              placeholder="000.000.000-00"
+              value={document}
+              onChange={(e) => setDocument(maskCpfCnpj(e.target.value))}
+              autoComplete="off"
+              aria-invalid={Boolean(dErr(docOk, 'x'))}
+            />
+          </Field>
+          <Field
+            label="Celular"
+            error={dErr(phoneOk, 'Informe o celular com DDD')}
+          >
             <div
+              className="sp2-input sp2-input-wrap"
+              aria-invalid={Boolean(dErr(phoneOk, 'x'))}
+            >
+              <span className="flex h-full items-center border-r border-white/10 px-3.5 text-[15px] text-[#a9a3b8]">
+                +55
+              </span>
+              <input
+                name="phone"
+                inputMode="tel"
+                placeholder="(00) 00000-0000"
+                value={phone}
+                onChange={(e) => setPhone(maskPhoneBr(e.target.value))}
+                autoComplete="tel-national"
+              />
+            </div>
+          </Field>
+        </div>
+        <BuyerMemoryPreference
+          {...buyerMemory}
+          className="mt-1 space-y-2 text-[13px] text-[#a9a3b8]"
+        />
+        <div className="hidden items-center gap-2.5 text-[13px] text-[#7d778b] lg:flex">
+          <Lock className="h-3.5 w-3.5" strokeWidth={2} />
+          Dados protegidos durante sua compra
+        </div>
+      </div>
+      <div className="flex items-center justify-center gap-2.5 text-xs text-[#7d778b] lg:hidden">
+        <Lock className="h-3.5 w-3.5" strokeWidth={2} />
+        Dados protegidos durante sua compra
+      </div>
+    </>
+  );
+
+  const formaNode = (
+    <>
+      {/* mobile */}
+      <div
+        className={cx(
+          'flex flex-col gap-2.5 rounded-[28px] p-3.5 lg:hidden',
+          GLASS,
+        )}
+      >
+        <div className="p-1 text-base text-[#d9d4e3]">Escolha como pagar</div>
+        {methods.map((m) => {
+          const on = m.id === paymentMethod;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => setPaymentMethod(m.id)}
               className={cx(
-                'flex flex-col gap-4 lg:grid lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-7 lg:rounded-[28px] lg:p-7',
-                LG_GLASS,
+                'flex items-center gap-3 rounded-[20px] border px-3 py-3.5 text-left transition-colors',
+                on
+                  ? 'border-[rgba(240,168,108,.7)] bg-white/[0.12]'
+                  : 'border-white/[0.07] bg-white/[0.06]',
               )}
             >
-              <div className="flex flex-col gap-4">
-                <div className="hidden text-2xl font-medium lg:block">
-                  Cartão de {methodName}
-                </div>
-                <div
-                  className="relative flex h-[204px] flex-col justify-between overflow-hidden rounded-[26px] border border-white/[0.18] p-[22px] backdrop-blur-[24px] lg:h-[220px] lg:p-6"
-                  style={{
-                    background:
-                      'radial-gradient(70% 90% at 75% 85%, rgba(245,150,70,.6), transparent 70%),radial-gradient(60% 70% at 10% 10%, rgba(141,128,244,.5), transparent 70%),rgba(255,255,255,.08)',
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[17px] font-semibold lg:text-lg">
-                      {cardKind}
-                    </span>
-                    <span className="text-[11px] tracking-[.08em] text-[#d9d4e3]">
-                      {cardBrandLabel(cardNumber)}
-                    </span>
-                  </div>
-                  <div className="h-8 w-[42px] rounded-[7px] bg-[linear-gradient(135deg,#f4d58a,#c99a3c)] lg:h-[34px] lg:w-11" />
-                  <div>
-                    <div className="whitespace-nowrap text-[21px] font-semibold tabular-nums tracking-[.06em] lg:text-[22px]">
-                      {cardNumDisplay}
-                    </div>
-                    <div className="mt-1.5 flex justify-between gap-3 text-sm text-[#e6e1ee]">
-                      <span className="truncate">
-                        {holderName || 'NOME DO TITULAR'}
-                      </span>
-                      <span className="shrink-0">
-                        {cardExpDisplay || 'MM/AA'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="hidden items-center gap-2.5 text-[13px] text-[#a9a3b8] lg:flex">
-                  <Lock className="h-3.5 w-3.5" strokeWidth={2} />
-                  Os dados do cartão são criptografados
-                </div>
+              <MethodIcon method={m.id} size="md" />
+              <div className="min-w-0 flex-1">
+                <div className="text-base font-medium">{m.name}</div>
+                <div className="mt-0.5 text-xs text-[#a9a3b8]">{m.long}</div>
               </div>
+              <span className="sp2-radio h-5 w-5" data-on={on} />
+            </button>
+          );
+        })}
+      </div>
+      <div className={cx('rounded-[22px] px-[18px] py-1.5 lg:hidden', GLASS)}>
+        <SummaryRow muted size="sm" label="Pedido" value={itemsLabel} />
+        <div className="flex items-baseline justify-between py-[13px] text-sm">
+          <span className="text-[#a9a3b8]">Total</span>
+          <span className="text-xl font-semibold tabular-nums">
+            {formatCurrency(methodTotal)}
+          </span>
+        </div>
+      </div>
 
-              <div
+      {/* desktop */}
+      <div
+        className={cx(
+          'hidden flex-col gap-[22px] rounded-[28px] p-7 lg:flex',
+          GLASS,
+        )}
+      >
+        <div className="text-2xl font-medium">Escolha como pagar</div>
+        <div
+          className="grid gap-3.5"
+          style={{
+            gridTemplateColumns: `repeat(${Math.max(methods.length, 1)}, minmax(0, 1fr))`,
+          }}
+        >
+          {methods.map((m) => {
+            const on = m.id === paymentMethod;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setPaymentMethod(m.id)}
                 className={cx(
-                  'grid grid-cols-2 gap-3 rounded-[28px] p-[18px] lg:gap-x-4 lg:gap-y-3.5 lg:rounded-none lg:p-0 lg:pt-1',
-                  SM_GLASS,
+                  'flex flex-col gap-[18px] rounded-[24px] border p-5 text-left transition-colors',
+                  on
+                    ? 'border-[rgba(240,168,108,.7)] bg-white/[0.12]'
+                    : 'border-white/[0.07] bg-white/[0.06] hover:bg-white/[0.08]',
                 )}
               >
-                <Field
-                  className="col-span-2"
-                  label="Número do cartão"
-                  error={cErr(cardNumOk, 'Número do cartão incompleto')}
-                >
-                  <input
-                    className="sp2-input h-[50px] lg:h-[52px]"
-                    name="cc-number"
-                    inputMode="numeric"
-                    placeholder="0000 0000 0000 0000"
-                    value={cardNumber}
-                    onChange={(e) =>
-                      setCardNumber(maskCardNumber(e.target.value))
-                    }
-                    autoComplete="cc-number"
-                    aria-invalid={Boolean(cErr(cardNumOk, 'x'))}
-                  />
-                </Field>
-                <Field
-                  className="col-span-2"
-                  label="Nome do titular"
-                  error={cErr(holderOk, 'Informe o nome impresso no cartão')}
-                >
-                  <input
-                    className="sp2-input h-[50px] lg:h-[52px]"
-                    name="cc-name"
-                    placeholder="Como impresso no cartão"
-                    value={holderName}
-                    onChange={(e) => setHolderName(e.target.value)}
-                    autoComplete="cc-name"
-                    aria-invalid={Boolean(cErr(holderOk, 'x'))}
-                  />
-                </Field>
-                <Field
-                  label="Validade"
-                  error={cErr(expOk, 'Validade incompleta')}
-                >
-                  <input
-                    className="sp2-input h-[50px] lg:h-[52px]"
-                    name="cc-exp"
-                    inputMode="numeric"
-                    placeholder="MM/AA"
-                    value={cardExpDisplay}
-                    onChange={(e) => onExpiryChange(e.target.value)}
-                    autoComplete="cc-exp"
-                    aria-invalid={Boolean(cErr(expOk, 'x'))}
-                  />
-                </Field>
-                <Field label="CVV" error={cErr(cvvOk, 'CVV incompleto')}>
-                  <input
-                    className="sp2-input h-[50px] lg:h-[52px]"
-                    name="cc-csc"
-                    inputMode="numeric"
-                    placeholder="000"
-                    maxLength={4}
-                    value={cardCvv}
-                    onChange={(e) => setCardCvv(maskCvv(e.target.value))}
-                    autoComplete="cc-csc"
-                    aria-invalid={Boolean(cErr(cvvOk, 'x'))}
-                  />
-                </Field>
-                <Field
-                  className="col-span-2"
-                  label="CPF do titular"
-                  error={cErr(holderDocOk, 'CPF ou CNPJ do titular incompleto')}
-                >
-                  <input
-                    className="sp2-input h-[50px] lg:h-[52px]"
-                    name="cc-holder-document"
-                    inputMode="numeric"
-                    placeholder="000.000.000-00"
-                    value={holderDocument}
-                    onChange={(e) =>
-                      setHolderDocument(maskCpfCnpj(e.target.value))
-                    }
-                    autoComplete="off"
-                    aria-invalid={Boolean(cErr(holderDocOk, 'x'))}
-                  />
-                </Field>
-                {paymentMethod === 'credit' && link.parcelasMax > 1 && (
-                  <Field className="col-span-2" label="Parcelas">
-                    <select
-                      className="sp2-input h-[50px] lg:h-[52px]"
-                      value={installments}
-                      onChange={(e) => setInstallments(Number(e.target.value))}
-                    >
-                      {installmentOptions.map((n) => (
-                        <option key={n} value={n}>
-                          {installmentLabelFor(n)}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                )}
+                <div className="flex items-start justify-between">
+                  <MethodIcon method={m.id} size="lg" />
+                  <span className="sp2-radio h-[22px] w-[22px]" data-on={on} />
+                </div>
+                <div>
+                  <div className="text-[19px] font-medium">{m.name}</div>
+                  <div className="mt-1 text-sm text-[#a9a3b8]">{m.long}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div
+        className={cx(
+          'hidden items-center gap-3.5 rounded-[28px] px-[22px] py-4 lg:flex',
+          GLASS,
+        )}
+      >
+        <CheckDot size={36} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[15px] font-medium">{name}</div>
+          <div className="truncate text-[13px] text-[#a9a3b8]">{email}</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => flow.setStep(1)}
+          className="text-sm text-[#f6b67a] transition hover:text-[#ffd2a8]"
+        >
+          Editar dados
+        </button>
+      </div>
+    </>
+  );
+
+  const detalheNode = (
+    <>
+      {step === 'cartao' && (
+        <div
+          className={cx(
+            'flex flex-col gap-4 lg:grid lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-7 lg:rounded-[28px] lg:p-7',
+            LG_GLASS,
+          )}
+        >
+          <div className="flex flex-col gap-4">
+            <div className="hidden text-2xl font-medium lg:block">
+              Cartão de {methodName}
+            </div>
+            <div
+              className="relative flex h-[204px] flex-col justify-between overflow-hidden rounded-[26px] border border-white/[0.18] p-[22px] backdrop-blur-[24px] lg:h-[220px] lg:p-6"
+              style={{
+                background:
+                  'radial-gradient(70% 90% at 75% 85%, rgba(245,150,70,.6), transparent 70%),radial-gradient(60% 70% at 10% 10%, rgba(141,128,244,.5), transparent 70%),rgba(255,255,255,.08)',
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[17px] font-semibold lg:text-lg">
+                  {cardKind}
+                </span>
+                <span className="text-[11px] tracking-[.08em] text-[#d9d4e3]">
+                  {cardBrandLabel(cardNumber)}
+                </span>
+              </div>
+              <div className="h-8 w-[42px] rounded-[7px] bg-[linear-gradient(135deg,#f4d58a,#c99a3c)] lg:h-[34px] lg:w-11" />
+              <div>
+                <div className="whitespace-nowrap text-[21px] font-semibold tabular-nums tracking-[.06em] lg:text-[22px]">
+                  {cardNumDisplay}
+                </div>
+                <div className="mt-1.5 flex justify-between gap-3 text-sm text-[#e6e1ee]">
+                  <span className="truncate">
+                    {holderName || 'NOME DO TITULAR'}
+                  </span>
+                  <span className="shrink-0">{cardExpDisplay || 'MM/AA'}</span>
+                </div>
               </div>
             </div>
-          )}
+            <div className="hidden items-center gap-2.5 text-[13px] text-[#a9a3b8] lg:flex">
+              <Lock className="h-3.5 w-3.5" strokeWidth={2} />
+              Os dados do cartão são criptografados
+            </div>
+          </div>
 
-          {/* ── 4e / 5e PIX antes de gerar ── */}
-          {step === 'pix' && !pixGenerated && (
-            <>
-              {/* mobile */}
+          <div
+            className={cx(
+              'grid grid-cols-2 gap-3 rounded-[28px] p-[18px] lg:gap-x-4 lg:gap-y-3.5 lg:rounded-none lg:p-0 lg:pt-1',
+              SM_GLASS,
+            )}
+          >
+            <Field
+              className="col-span-2"
+              label="Número do cartão"
+              error={cErr(cardNumOk, 'Número do cartão incompleto')}
+            >
+              <input
+                className="sp2-input h-[50px] lg:h-[52px]"
+                name="cc-number"
+                inputMode="numeric"
+                placeholder="0000 0000 0000 0000"
+                value={cardNumber}
+                onChange={(e) => setCardNumber(maskCardNumber(e.target.value))}
+                autoComplete="cc-number"
+                aria-invalid={Boolean(cErr(cardNumOk, 'x'))}
+              />
+            </Field>
+            <Field
+              className="col-span-2"
+              label="Nome do titular"
+              error={cErr(holderOk, 'Informe o nome impresso no cartão')}
+            >
+              <input
+                className="sp2-input h-[50px] lg:h-[52px]"
+                name="cc-name"
+                placeholder="Como impresso no cartão"
+                value={holderName}
+                onChange={(e) => setHolderName(e.target.value)}
+                autoComplete="cc-name"
+                aria-invalid={Boolean(cErr(holderOk, 'x'))}
+              />
+            </Field>
+            <Field label="Validade" error={cErr(expOk, 'Validade incompleta')}>
+              <input
+                className="sp2-input h-[50px] lg:h-[52px]"
+                name="cc-exp"
+                inputMode="numeric"
+                placeholder="MM/AA"
+                value={cardExpDisplay}
+                onChange={(e) => onExpiryChange(e.target.value)}
+                autoComplete="cc-exp"
+                aria-invalid={Boolean(cErr(expOk, 'x'))}
+              />
+            </Field>
+            <Field label="CVV" error={cErr(cvvOk, 'CVV incompleto')}>
+              <input
+                className="sp2-input h-[50px] lg:h-[52px]"
+                name="cc-csc"
+                inputMode="numeric"
+                placeholder="000"
+                maxLength={4}
+                value={cardCvv}
+                onChange={(e) => setCardCvv(maskCvv(e.target.value))}
+                autoComplete="cc-csc"
+                aria-invalid={Boolean(cErr(cvvOk, 'x'))}
+              />
+            </Field>
+            <Field
+              className="col-span-2"
+              label="CPF do titular"
+              error={cErr(holderDocOk, 'CPF ou CNPJ do titular incompleto')}
+            >
+              <input
+                className="sp2-input h-[50px] lg:h-[52px]"
+                name="cc-holder-document"
+                inputMode="numeric"
+                placeholder="000.000.000-00"
+                value={holderDocument}
+                onChange={(e) => setHolderDocument(maskCpfCnpj(e.target.value))}
+                autoComplete="off"
+                aria-invalid={Boolean(cErr(holderDocOk, 'x'))}
+              />
+            </Field>
+            {paymentMethod === 'credit' && link.parcelasMax > 1 && (
+              <Field className="col-span-2" label="Parcelas">
+                <select
+                  className="sp2-input h-[50px] lg:h-[52px]"
+                  value={installments}
+                  onChange={(e) => setInstallments(Number(e.target.value))}
+                >
+                  {installmentOptions.map((n) => (
+                    <option key={n} value={n}>
+                      {installmentLabelFor(n)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+          </div>
+        </div>
+      )}
+      {step === 'pix' && !pixGenerated && (
+        <>
+          {/* mobile */}
+          <div
+            className={cx(
+              'flex flex-col items-center gap-1.5 rounded-[28px] px-5 py-6 text-center lg:hidden',
+              GLASS,
+            )}
+          >
+            <span className="mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-white/[0.12] text-[15px] font-bold">
+              PIX
+            </span>
+            <div className="text-sm text-[#a9a3b8]">Valor à vista</div>
+            <div className="text-4xl font-semibold tabular-nums">
+              {formatCurrency(pixTotal)}
+            </div>
+          </div>
+          <div className={cx('rounded-[24px] px-4 py-1.5 lg:hidden', GLASS)}>
+            {PIX_BENEFITS.map(({ Icon, text }, i) => (
               <div
+                key={text}
                 className={cx(
-                  'flex flex-col items-center gap-1.5 rounded-[28px] px-5 py-6 text-center lg:hidden',
-                  GLASS,
+                  'flex items-center gap-3 py-[13px] text-sm text-[#d9d4e3]',
+                  i < PIX_BENEFITS.length - 1 &&
+                    'border-b border-dashed border-white/[0.12]',
                 )}
               >
-                <span className="mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-white/[0.12] text-[15px] font-bold">
-                  PIX
-                </span>
-                <div className="text-sm text-[#a9a3b8]">Valor à vista</div>
-                <div className="text-4xl font-semibold tabular-nums">
+                <Icon
+                  className="h-[18px] w-[18px] shrink-0 text-[#f6b67a]"
+                  strokeWidth={2}
+                />
+                {text}
+              </div>
+            ))}
+          </div>
+          <div
+            className={cx('rounded-[22px] px-[18px] py-1.5 lg:hidden', GLASS)}
+          >
+            <SummaryRow
+              size="sm"
+              label={productTitle}
+              value={formatCurrency(link.valor)}
+            />
+            {chosenBumps.map((o) => (
+              <SummaryRow
+                key={o.id}
+                size="sm"
+                accent
+                label={`+ ${sanitizeCheckoutText(o.titulo)}`}
+                value={formatCurrency(o.valor)}
+              />
+            ))}
+            <SummaryRow
+              size="sm"
+              muted
+              label="Pagador"
+              value={name || '—'}
+              last
+            />
+          </div>
+
+          {/* desktop */}
+          <div
+            className={cx(
+              'hidden flex-col gap-7 rounded-[28px] p-8 lg:flex',
+              GLASS,
+            )}
+          >
+            <div className="flex items-center gap-5">
+              <span className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-white/[0.12] text-base font-bold">
+                PIX
+              </span>
+              <div>
+                <div className="text-[15px] text-[#a9a3b8]">Valor à vista</div>
+                <div className="text-[40px] font-semibold leading-[1.1] tabular-nums">
                   {formatCurrency(pixTotal)}
                 </div>
               </div>
-              <div
-                className={cx('rounded-[24px] px-4 py-1.5 lg:hidden', GLASS)}
-              >
-                {PIX_BENEFITS.map(({ Icon, text }, i) => (
-                  <div
-                    key={text}
-                    className={cx(
-                      'flex items-center gap-3 py-[13px] text-sm text-[#d9d4e3]',
-                      i < PIX_BENEFITS.length - 1 &&
-                        'border-b border-dashed border-white/[0.12]',
-                    )}
-                  >
-                    <Icon
-                      className="h-[18px] w-[18px] shrink-0 text-[#f6b67a]"
-                      strokeWidth={2}
-                    />
-                    {text}
-                  </div>
-                ))}
-              </div>
-              <div
-                className={cx(
-                  'rounded-[22px] px-[18px] py-1.5 lg:hidden',
-                  GLASS,
-                )}
-              >
-                <SummaryRow
-                  size="sm"
-                  label={productTitle}
-                  value={formatCurrency(link.valor)}
-                />
-                {chosenBumps.map((o) => (
-                  <SummaryRow
-                    key={o.id}
-                    size="sm"
-                    accent
-                    label={`+ ${sanitizeCheckoutText(o.titulo)}`}
-                    value={formatCurrency(o.valor)}
+            </div>
+            <div className="grid grid-cols-3 gap-3.5">
+              {PIX_BENEFITS.map(({ Icon, text }) => (
+                <div
+                  key={text}
+                  className="flex flex-col gap-3 rounded-[22px] bg-white/[0.07] p-[18px]"
+                >
+                  <Icon
+                    className="h-[22px] w-[22px] text-[#f6b67a]"
+                    strokeWidth={2}
                   />
-                ))}
-                <SummaryRow
-                  size="sm"
-                  muted
-                  label="Pagador"
-                  value={name || '—'}
-                  last
-                />
-              </div>
-
-              {/* desktop */}
-              <div
-                className={cx(
-                  'hidden flex-col gap-7 rounded-[28px] p-8 lg:flex',
-                  GLASS,
-                )}
-              >
-                <div className="flex items-center gap-5">
-                  <span className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-white/[0.12] text-base font-bold">
-                    PIX
-                  </span>
-                  <div>
-                    <div className="text-[15px] text-[#a9a3b8]">
-                      Valor à vista
-                    </div>
-                    <div className="text-[40px] font-semibold leading-[1.1] tabular-nums">
-                      {formatCurrency(pixTotal)}
-                    </div>
-                  </div>
+                  <div className="text-[15px] text-[#d9d4e3]">{text}</div>
                 </div>
-                <div className="grid grid-cols-3 gap-3.5">
-                  {PIX_BENEFITS.map(({ Icon, text }) => (
-                    <div
-                      key={text}
-                      className="flex flex-col gap-3 rounded-[22px] bg-white/[0.07] p-[18px]"
-                    >
-                      <Icon
-                        className="h-[22px] w-[22px] text-[#f6b67a]"
-                        strokeWidth={2}
-                      />
-                      <div className="text-[15px] text-[#d9d4e3]">{text}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="text-sm text-[#a9a3b8]">
-                  Ao clicar em gerar, mostramos o QR Code e o código copia e
-                  cola.
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* ── 3a / 5f PIX gerado ── */}
-          {step === 'pix' && pixGenerated && (
-            <PixDisplay
-              pixContent={pixContent}
-              qrCode={pixQrCode}
-              pixExpire={pixExpire}
-              amount={pixTotal}
-            />
-          )}
-
-          {/* CTA mobile (fim da tela) */}
-          <div className="flex-1 lg:hidden" />
-          {error && <ErrorBox className="lg:hidden">{error}</ErrorBox>}
-          {cta('lg:hidden')}
-        </div>
-
-        <SummaryAside
-          productTitle={productTitle}
-          productImage={link.imagemUrl}
-          itemsLabel={itemsLabel}
-          rows={asideRows}
-          total={formatCurrency(asideTotal)}
-          dimTotal={quoting}
-          action={
-            <>
-              {error && <ErrorBox>{error}</ErrorBox>}
-              {asideAction}
-            </>
-          }
+              ))}
+            </div>
+            <div className="text-sm text-[#a9a3b8]">
+              Ao clicar em gerar, mostramos o QR Code e o código copia e cola.
+            </div>
+          </div>
+        </>
+      )}
+      {step === 'pix' && pixGenerated && (
+        <PixDisplay
+          pixContent={pixContent}
+          qrCode={pixQrCode}
+          pixExpire={pixExpire}
+          amount={pixTotal}
         />
-      </form>
-    </Screen>
+      )}
+    </>
+  );
+
+  return (
+    <CheckoutFlow
+      bare
+      steps={flow}
+      banner={preview && <PreviewNotice noMethods={!methods.length} />}
+      product={{
+        title: productTitle,
+        description: productDesc,
+        image: link.imagemUrl,
+        price: formatCurrency(link.valor),
+        itemsLabel,
+      }}
+      orderContent={orderNode}
+      dados={dadosNode}
+      paymentSplit={{
+        forma: formaNode,
+        detalhe: detalheNode,
+        detalheTitle:
+          paymentMethod === 'pix' ? 'Pagar com PIX' : `Cartão de ${methodName}`,
+        formaDisabled: !methods.length,
+      }}
+      focusPayment={pixGenerated && step === 'pix'}
+      asideRows={asideRows}
+      total={formatCurrency(asideTotal)}
+      dimTotal={quoting}
+      busy={quoting}
+      validateDados={validateDados}
+      onSubmit={submitFinal}
+      onStepChange={() => setError('')}
+      formaLabel={`Continuar com ${methodName}`}
+      finalLabel={ctaLabel}
+      finalDisabled={previewPaymentStep}
+      loading={loading}
+      error={error}
+      finalAction={
+        step === 'pix' && pixGenerated ? (
+          <StatusPill>
+            <Spinner size={16} width={3} />
+            Aguardando pagamento…
+          </StatusPill>
+        ) : undefined
+      }
+    />
   );
 }

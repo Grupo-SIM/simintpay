@@ -2,7 +2,11 @@
 
 import type { FormEvent, ReactNode } from 'react';
 import { Lock } from 'lucide-react';
-import { useCheckoutSteps } from '@/hooks/use-checkout-steps';
+import { useEffect } from 'react';
+import {
+  useCheckoutSteps,
+  type CheckoutStepsController,
+} from '@/hooks/use-checkout-steps';
 import { cx } from '@/utils/cx';
 import {
   CtaButton,
@@ -35,6 +39,14 @@ export function CheckoutFlow({
   status,
   banner,
   asideRows,
+  paymentSplit,
+  steps: controlled,
+  bare,
+  orderContent,
+  focusPayment,
+  busy,
+  formaLabel,
+  onStepChange,
   total,
   totalCaption,
   dimTotal,
@@ -60,12 +72,37 @@ export function CheckoutFlow({
   orderExtra?: ReactNode;
   dados: ReactNode;
   dadosSubtitle?: string;
-  pagamento: ReactNode;
+  pagamento?: ReactNode;
   pagamentoTitle?: string;
   /** Checklist/estado (ex.: `CheckoutStatusCard`), mostrado junto do pagamento. */
   status?: ReactNode;
   /** Aviso no topo (ex.: prévia). */
   banner?: ReactNode;
+  /**
+   * Divide o pagamento no mobile em "forma" (etapa 2) e "detalhe" (etapa 3);
+   * no desktop os dois aparecem juntos.
+   */
+  paymentSplit?: {
+    forma: ReactNode;
+    detalhe: ReactNode;
+    detalheTitle: string;
+    /** Bloqueia o avanço da etapa "forma" (ex.: nenhuma forma disponível). */
+    formaDisabled?: boolean;
+  };
+  /** Controle de etapa externo (quando o checkout reposiciona a etapa). */
+  steps?: CheckoutStepsController;
+  /** `dados`/`pagamento`/`orderContent` já trazem seus próprios cards e títulos. */
+  bare?: boolean;
+  /** Substitui o cartão de produto + total da etapa Pedido. */
+  orderContent?: ReactNode;
+  /** No desktop, mostra só o pagamento (ex.: PIX já gerado). */
+  focusPayment?: boolean;
+  /** Bloqueia o botão em qualquer etapa (ex.: recalculando valores). */
+  busy?: boolean;
+  /** Rótulo do botão na etapa "forma". */
+  formaLabel?: string;
+  /** Roda a cada avanço/volta de etapa (ex.: limpar erro). */
+  onStepChange?: () => void;
   /** Linhas extras do resumo (`SummaryRow`). */
   asideRows?: ReactNode;
   total: string;
@@ -83,19 +120,33 @@ export function CheckoutFlow({
   /** Substitui o botão final (ex.: "Aguardando pagamento…" depois de gerar PIX/boleto). */
   finalAction?: ReactNode;
 }) {
-  const { step, setStep, desktop } = useCheckoutSteps();
-  const showAll = desktop;
-  const visible = (s: 0 | 1 | 2) => showAll || step === s;
+  const last = paymentSplit ? 3 : 2;
+  const own = useCheckoutSteps(last);
+  const { step, setStep, desktop } = controlled ?? own;
+  const showAll = desktop && !focusPayment;
+  const visible = (s: number) => showAll || step === s;
+  const isFinal = step === last;
+  const isForma = Boolean(paymentSplit) && step === 2;
+
+  // Cada etapa começa do topo (no mobile o botão fica no fim da página)
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [step]);
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (loading) return;
+    if (loading || busy) return;
+    onStepChange?.();
     if (step === 0) return setStep(1);
     if (step === 1) {
       if (validateDados()) setStep(2);
       return;
     }
-    if (desktop && !validateDados()) return;
+    if (isForma) {
+      if (!paymentSplit?.formaDisabled) setStep(3);
+      return;
+    }
+    if (desktop && !focusPayment && !validateDados()) return;
     if (finalDisabled) return;
     onSubmit();
   }
@@ -105,15 +156,22 @@ export function CheckoutFlow({
       ? 'Continuar'
       : step === 1 && !desktop
         ? 'Continuar para pagamento'
-        : finalLabel;
+        : isForma
+          ? (formaLabel ?? 'Continuar')
+          : finalLabel;
 
   const cta = (className?: string) =>
-    finalAction && step === 2 ? (
+    finalAction && isFinal ? (
       finalAction
     ) : (
       <CtaButton
         type="submit"
-        disabled={step === 2 && (loading || finalDisabled)}
+        disabled={
+          loading ||
+          busy ||
+          (isFinal && finalDisabled) ||
+          (isForma && paymentSplit?.formaDisabled)
+        }
         className={className}
       >
         {loading && <Spinner size={18} width={3} />}
@@ -141,10 +199,21 @@ export function CheckoutFlow({
       ) : (
         <>
           <MobileTopBar
-            title={step === 1 ? 'Seus dados' : pagamentoTitle}
-            onBack={() => setStep(step === 2 ? 1 : 0)}
+            title={
+              step === 1
+                ? 'Seus dados'
+                : paymentSplit && step === 3
+                  ? paymentSplit.detalheTitle
+                  : pagamentoTitle
+            }
+            onBack={() => {
+              onStepChange?.();
+              setStep(step - 1);
+            }}
           />
-          <MobileProgress step={step === 1 ? 2 : 3} />
+          {!(paymentSplit && step === 3) && (
+            <MobileProgress step={step === 1 ? 2 : 3} />
+          )}
         </>
       )}
 
@@ -154,7 +223,8 @@ export function CheckoutFlow({
         className="flex flex-1 flex-col gap-4 lg:grid lg:flex-none lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start lg:gap-7"
       >
         <div className="flex flex-1 flex-col gap-4 lg:gap-5">
-          {visible(0) && (
+          {visible(0) && bare && orderContent}
+          {visible(0) && !bare && (
             <>
               <div
                 className={cx(
@@ -216,7 +286,8 @@ export function CheckoutFlow({
             </>
           )}
 
-          {visible(1) && (
+          {visible(1) && bare && dados}
+          {visible(1) && !bare && (
             <div
               className={cx(
                 'flex flex-col gap-3.5 rounded-[28px] p-[18px] lg:gap-[22px] lg:p-7',
@@ -237,7 +308,10 @@ export function CheckoutFlow({
             </div>
           )}
 
-          {visible(2) && (
+          {paymentSplit && visible(2) && paymentSplit.forma}
+          {paymentSplit && visible(3) && paymentSplit.detalhe}
+          {!paymentSplit && visible(2) && bare && pagamento}
+          {!paymentSplit && visible(2) && !bare && (
             <div
               className={cx(
                 'flex flex-col gap-3.5 rounded-[28px] p-[18px] lg:gap-[22px] lg:p-7',
@@ -254,7 +328,7 @@ export function CheckoutFlow({
         </div>
 
         <div className="flex flex-col gap-4 lg:hidden">
-          {error && step === 2 && <ErrorBox>{error}</ErrorBox>}
+          {error && <ErrorBox>{error}</ErrorBox>}
           {cta()}
         </div>
 
