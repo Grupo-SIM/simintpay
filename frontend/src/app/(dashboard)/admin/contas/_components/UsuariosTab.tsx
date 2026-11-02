@@ -816,6 +816,8 @@ export default function UsuariosTab({
               {exportScope === 'plataforma' && (
                 <div className="flex flex-col gap-1.5">
                   <PlatformFilterSelect
+                    hideOwner
+                    theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
                     label="Plataforma"
                     value={exportPlatform}
                     onChange={(value) => setExportPlatform(value.toLowerCase())}
