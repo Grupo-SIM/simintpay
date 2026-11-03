@@ -1,3 +1,4 @@
+import { EbookReceiptOutboxService } from './ebook-receipt-outbox.service';
 import { CanonicalCardsController } from './canonical-cards.controller';
 import { CanonicalCardsService } from './canonical-cards.service';
 import { ReportSessionGuard } from './report-session.guard';
@@ -56,6 +57,7 @@ import { PlatformEventsModule } from './platform-events.module';
     PlatformMerchantsController,
   ],
   providers: [
+    EbookReceiptOutboxService,
     CanonicalCardsService,
     ReportSessionGuard,
     PlatformSalesEventsService,

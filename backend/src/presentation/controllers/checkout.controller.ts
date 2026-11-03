@@ -1,3 +1,10 @@
+import {
+  enrollEbook,
+  claimEbookPayment,
+  bindEbookPayment,
+} from '../../modules/platform-core/ebook-enrollment';
+import { recoverEbookPayment } from '../../modules/platform-core/ebook-recovery';
+import { timingSafeEqual } from 'node:crypto';
 import { transactionPlatformTagData } from '../../modules/platform-core/transaction-platform';
 import {
   loadChargePolicy,
@@ -86,6 +93,7 @@ type BuildEbookCheckoutBody = {
   adminToken?: string | null;
   orderId?: string | number | null;
   orderNumber?: string | null;
+  settlement?: unknown;
   maxInstallments?: number | null;
 };
 
@@ -104,6 +112,8 @@ type PublicPixBody = {
   mobile_phone: string;
   price: number;
   orderNumber?: string;
+  settlementId?: string;
+  settlementToken?: string;
   orderId?: string | number | null;
   store?: string;
   tracking?: Record<string, string>;
@@ -120,13 +130,53 @@ export class CheckoutController {
     @Optional() private readonly checkoutEvents?: CheckoutEventsService,
   ) {}
 
+  @Post('ebook-settlements/:id/recover')
+  async recoverEbook(
+    @Param('id') id: string,
+    @Headers('x-internal-token') supplied: string,
+    @Body() body: { paymentId: string },
+  ) {
+    const expected = process.env.INTERNAL_SERVICE_TOKEN;
+    if (
+      !expected ||
+      !supplied ||
+      Buffer.byteLength(expected) !== Buffer.byteLength(supplied) ||
+      !timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))
+    )
+      throw new UnauthorizedException();
+    if (!body.paymentId || typeof body.paymentId !== 'string')
+      throw new BadRequestException('paymentId obrigatório');
+    const token = platformGatewayToken('EBOOK');
+    if (!token) throw new BadRequestException('Credencial Ebook ausente');
+    return recoverEbookPayment(
+      this.prisma,
+      this.gatewayResolver.byAcquirer(Acquirer.DOM),
+      token,
+      id,
+      body.paymentId,
+    );
+  }
+
   @Post('ebook-url')
   @ApiOperation({ summary: 'Monta URL de checkout do SimPay para ebook' })
-  buildEbookCheckoutUrl(
+  async buildEbookCheckoutUrl(
     @Body() body: BuildEbookCheckoutBody,
     @Headers('x-internal-token') internalToken?: string,
   ) {
     const expectedToken = process.env.INTERNAL_SERVICE_TOKEN;
+    if (
+      body.settlement &&
+      (!expectedToken ||
+        !internalToken ||
+        Buffer.byteLength(internalToken) !== Buffer.byteLength(expectedToken) ||
+        !timingSafeEqual(
+          Buffer.from(internalToken),
+          Buffer.from(expectedToken),
+        ))
+    )
+      throw new UnauthorizedException(
+        'Credencial interna obrigatória para liquidação',
+      );
     if (expectedToken && internalToken !== expectedToken) {
       throw new UnauthorizedException('Token interno inválido');
     }
@@ -158,6 +208,17 @@ export class CheckoutController {
       checkoutUrl += `&maxInstallments=${Number(body.maxInstallments)}`;
     }
 
+    if (body.settlement) {
+      if (store !== 'ebook')
+        throw new BadRequestException('Manifesto exclusivo Ebook');
+      const enrolled = await enrollEbook(this.prisma, body.settlement);
+      checkoutUrl += `&settlementId=${encodeURIComponent(enrolled.settlementId)}&settlementToken=${encodeURIComponent(enrolled.settlementToken)}`;
+      return {
+        checkoutUrl,
+        settlementId: enrolled.settlementId,
+        manifestHash: enrolled.manifestHash,
+      };
+    }
     return { checkoutUrl };
   }
 
@@ -276,6 +337,12 @@ export class CheckoutController {
         ? (getFrendzApiToken(storeSlug) ?? '')
         : domToken;
 
+    const enrolled = await claimEbookPayment(
+      this.prisma,
+      body,
+      transaction.id,
+      financialQuote,
+    );
     const payment = await gateway.createPixCheckout(gatewayToken, {
       codExternal: transaction.id,
       amount: financialQuote?.totalAmount ?? price,
@@ -287,6 +354,8 @@ export class CheckoutController {
       documentType,
     });
 
+    if (enrolled)
+      await bindEbookPayment(this.prisma, transaction.id, payment.id);
     // Persiste a adquirente e o id externo. Para a DOM, mantém domPaymentId
     // (consumido pelo webhook/sync atuais). Para a Frendz, o webhook localiza
     // por (acquirer, externalPaymentId) — não escreve em domPaymentId, que é
@@ -498,6 +567,8 @@ export class CheckoutController {
       mobile_phone?: string;
       store?: string;
       orderNumber?: string;
+      settlementId?: string;
+      settlementToken?: string;
       tracking?: Record<string, string>;
     },
   ) {
@@ -620,6 +691,12 @@ export class CheckoutController {
       });
     }
 
+    const enrolled = await claimEbookPayment(
+      this.prisma,
+      body,
+      transaction.id,
+      financialQuote,
+    );
     // Chamar DOM API diretamente para criar transação de cartão
     const domUrl =
       'https://apiv3.dompagamentos.com.br/checkout/production/transactions';
@@ -669,6 +746,9 @@ export class CheckoutController {
     }
 
     const domPaymentId = domData?.data?.id ?? domData?.id;
+    if (enrolled) {
+      await bindEbookPayment(this.prisma, transaction.id, domPaymentId ?? '');
+    }
     if (domPaymentId) {
       await this.prisma.transaction.update({
         where: { id: transaction.id },

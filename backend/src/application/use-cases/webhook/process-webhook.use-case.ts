@@ -1,3 +1,4 @@
+import { settleEbookPayment } from '../../../modules/platform-core/ebook-settlement';
 import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import {
@@ -248,6 +249,12 @@ export class ProcessWebhookUseCase {
         return;
       }
 
+      if (trx.settlementBasis === 'EBOOK_V1') {
+        const handled = await settleEbookPayment(this.prisma, domPaymentId, parsed.data.status, trx.id);
+        if (!handled) throw new Error('EBOOK_ENROLLMENT_BINDING_REQUIRED');
+        await this.events.markProcessed(event.id);
+        return;
+      }
       const t = trx;
 
       const nextStatus = this.mapDomStatusToTransactionStatus(

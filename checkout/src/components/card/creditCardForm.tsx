@@ -55,6 +55,8 @@ const CheckoutForm = () => {
   const valueParam = searchParams.get('value');
   const descriptionParam = searchParams.get('description');
   const orderNumber = searchParams.get('orderNumber');
+  const settlementId = searchParams.get('settlementId');
+  const settlementToken = searchParams.get('settlementToken');
   const storeParam = searchParams.get('store');
   const orderIdFromQuery =
     searchParams.get('orderId') || searchParams.get('id');
@@ -711,6 +713,7 @@ const CheckoutForm = () => {
         store: storeParam,
         price: getFinalValueWithDiscount(),
         ...(orderNumber ? { orderNumber } : {}),
+        ...(settlementId ? { settlementId, settlementToken } : {}),
         ...(isPagatgHost &&
           voucherStatus?.valid && {
             voucherCode: voucherCode,
@@ -1166,7 +1169,9 @@ const CheckoutForm = () => {
                 : 'CNPJ',
             mobile_phone: formData.mobilePhone.replace(/\D/g, ''),
             name: formData.name,
-            store: storeParam, // ← ADICIONAR ESTA LINHA
+            store: storeParam,
+            ...(orderNumber ? { orderNumber } : {}),
+            ...(settlementId ? { settlementId, settlementToken } : {}),
             ...(isPagatgHost &&
               voucherStatus?.valid && {
                 voucherCode: voucherCode,

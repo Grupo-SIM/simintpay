@@ -1,3 +1,4 @@
+import { settleEbookPayment } from '../../../modules/platform-core/ebook-settlement';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import {
@@ -97,6 +98,7 @@ interface RawDomData {
   description?: string;
   product_first?: string;
   items?: Array<{ description?: string; name?: string }>;
+  cod_external?: string;
   external_reference?: string;
   reference_id?: string;
   metadata?: Record<string, unknown>;
@@ -185,6 +187,35 @@ export class ProcessDomWebhookUseCase {
     }
 
     try {
+      const boundEbook = await this.prisma.transaction.findFirst({
+        where: {
+          OR: [
+            { domPaymentId: event.data.id },
+            { externalPaymentId: event.data.id },
+            ...(event.data.cod_external
+              ? [{ id: event.data.cod_external }]
+              : []),
+            ...(event.data.external_reference
+              ? [{ id: event.data.external_reference }]
+              : []),
+          ],
+        },
+        select: { settlementBasis: true },
+      });
+      if (boundEbook?.settlementBasis === 'EBOOK_V1') {
+        const handled = await settleEbookPayment(
+          this.prisma,
+          event.data.id,
+          event.data.status,
+          event.data.cod_external ?? event.data.external_reference,
+        );
+        if (!handled) throw new Error('EBOOK_ENROLLMENT_BINDING_REQUIRED');
+        await this.prisma.webhookEvent.update({
+          where: { id: wh.id },
+          data: { status: 'PROCESSED', processedAt: new Date() },
+        });
+        return;
+      }
       const serial = this.detectSerial(event.data);
 
       if (serial) {
