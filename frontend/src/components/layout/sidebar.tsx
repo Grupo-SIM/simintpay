@@ -518,16 +518,6 @@ export function Sidebar() {
           icon={Settings}
           label="Configurações"
         />
-        {!user?.isAdmin && (
-          <NavLink
-            open={open}
-            pathname={pathname}
-            labelStyle={labelStyle}
-            href="/taxas"
-            icon={Percent}
-            label="Taxas"
-          />
-        )}
 
         {user?.isAdmin && (
           <>

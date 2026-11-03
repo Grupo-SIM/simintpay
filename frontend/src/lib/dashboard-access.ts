@@ -8,7 +8,6 @@ const CLIENT_SHARED_ROUTES = [
   '/cobrancas',
   '/relatorio',
   '/plataformas',
-  '/taxas',
   '/configuracoes/perfil',
 ];
 
