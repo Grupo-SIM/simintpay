@@ -81,6 +81,7 @@ export function FinancialSimulationCard({
     result && buyerTotalCents !== undefined
       ? buyerTotalCents - result.contractedCostCents
       : undefined;
+  const profitCents = admin ? result?.simMarginCents : sellerNetCents;
   const lines: {
     label: string;
     value?: number;
@@ -277,23 +278,23 @@ export function FinancialSimulationCard({
             {state?.pending ? skeleton : format(buyerTotalCents)}
           </div>
         </div>
-        {admin && (
-          <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">
-            <div className="text-xs text-zinc-500 dark:text-zinc-400">
-              Margem
-            </div>
-            <div
-              className={`text-base font-semibold tabular-nums ${result?.simMarginCents !== undefined && result.simMarginCents < 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}
-            >
-              {state?.pending ? skeleton : format(result?.simMarginCents)}
-            </div>
+        <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">
+          <div className="text-xs text-zinc-500 dark:text-zinc-400">
+            {admin ? 'Margem' : 'Lucro bruto'}
           </div>
-        )}
+          <div
+            className={`text-base font-semibold tabular-nums ${profitCents !== undefined && profitCents < 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}
+          >
+            {state?.pending ? skeleton : format(profitCents)}
+          </div>
+        </div>
       </div>
       <div>
         <dl className="divide-y divide-zinc-200 text-xs dark:divide-white/10">
           {lines
-            .filter((line) => admin || !line.adminOnly)
+            .filter(
+              (line) => (admin || !line.adminOnly) && (admin || !line.strong),
+            )
             .map((line) => (
               <div
                 key={line.label}
