@@ -59,11 +59,6 @@ export function PlatformFilterSelect({ hideOwner, ...props }: Props) {
           props.disabled || (admin && (catalog.isLoading || catalog.isError))
         }
       />
-      {admin && catalog.isLoading && (
-        <p role="status" className="mt-1 text-xs text-zinc-500">
-          Carregando plataformas…
-        </p>
-      )}
       {admin && catalog.isError && (
         <button
           type="button"
