@@ -7,7 +7,11 @@ COPY checkout/package.json checkout/package.json
 COPY frontend/package.json frontend/package.json
 RUN bun install --frozen-lockfile --ignore-scripts --filter frontend
 
-FROM dependencies AS build
+# Build under real Node: next/font/google misparses Google's CSS when run on Bun's runtime.
+FROM node:22-bookworm-slim AS build
+COPY --from=dependencies /usr/local/bin/bun /usr/local/bin/bun
+WORKDIR /app
+COPY --from=dependencies /app ./
 ARG NEXT_PUBLIC_API_BASE_URL
 ARG NEXT_PUBLIC_CHECKOUT_BASE_URL
 ARG NEXT_PUBLIC_CLIENT_MIN_AMOUNT=14.99
