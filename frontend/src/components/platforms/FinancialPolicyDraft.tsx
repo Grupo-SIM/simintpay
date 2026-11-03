@@ -381,11 +381,10 @@ export function FinancialPolicyDraft({
         />
       )}
       <p className="text-sm text-zinc-500">
-        {admin
-          ? 'Configure taxas e juros SimIntPay comparando custos internos da adquirente. Cada parcela mantém juros próprios; repasse ao comprador é definido pelo dono da plataforma. '
-          : 'Custos SimIntPay são descontados do seu recebimento; o cliente paga o valor base mais juros repassados e taxas aditivas. '}
+        {admin &&
+          'Configure taxas e juros SimIntPay comparando custos internos da adquirente. Cada parcela mantém juros próprios; repasse ao comprador é definido pelo dono da plataforma. '}
         {configuration.disabledLanes != null &&
-          'Modalidades desmarcadas são recusadas nesta plataforma e não entram na validação de cobertura do custo da adquirente.'}
+          'Modalidades desmarcadas são recusadas nesta plataforma.'}
       </p>
       {!valid && (
         <p role="alert" className="text-sm text-red-600">

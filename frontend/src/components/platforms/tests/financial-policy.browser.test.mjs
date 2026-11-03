@@ -272,7 +272,7 @@ test('incremental simulation, stale responses, isolated error, discard and save'
       await page
         .getByText(/Custos SimIntPay são descontados do seu recebimento/)
         .count(),
-    ).toBe(1);
+    ).toBe(0);
     const beforeInvalid = requests.length;
     await rate2.fill('101');
     await page

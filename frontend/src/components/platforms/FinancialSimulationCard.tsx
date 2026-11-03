@@ -86,13 +86,14 @@ export function FinancialSimulationCard({
     value?: number;
     adminOnly?: boolean;
     strong?: boolean;
+    sign?: '+' | '-';
   }[] = [
     { label: 'Valor base', value: result?.originalCents },
     ...(showInterest
       ? [{ label: 'Juros do cliente', value: result?.buyerInterestCents }]
       : []),
     ...(additiveCents
-      ? [{ label: 'Taxas aditivas', value: additiveCents }]
+      ? [{ label: 'Taxas aditivas', value: additiveCents, sign: '+' as const }]
       : []),
     {
       label: 'Custos da adquirente',
@@ -106,6 +107,7 @@ export function FinancialSimulationCard({
           ? (result.simAdditionCents ?? 0) + (result.simInterestCents ?? 0)
           : undefined
         : result?.contractedCostCents,
+      sign: '-',
     },
     { label: 'Vendedor recebe', value: sellerNetCents, strong: true },
   ];
@@ -305,7 +307,14 @@ export function FinancialSimulationCard({
                   {line.label}
                 </dt>
                 <dd className="m-0 shrink-0 tabular-nums">
-                  {state?.pending ? skeleton : format(line.value)}
+                  {state?.pending ? (
+                    skeleton
+                  ) : (
+                    <>
+                      {line.sign && line.value ? `${line.sign} ` : ''}
+                      {format(line.value)}
+                    </>
+                  )}
                 </dd>
               </div>
             ))}
