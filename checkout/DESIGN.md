@@ -81,7 +81,6 @@ A camada visual mudou; a lógica de pagamento não. Continuam iguais:
 - **Mobile:** header com voltar + título, barra de progresso de 3 segmentos (4a–4c) e CTA no fim da tela.
 - **Desktop:** header com stepper (Pedido → Dados → Pagamento), conteúdo à esquerda e **resumo fixo à direita** (400px, `sticky`) com o CTA.
 - **Botão voltar:** dados → pedido, forma → dados, cartão/PIX → forma. Some depois que o PIX é gerado, porque o valor já está fechado.
-- **"Editar dados"** (5c) volta para a etapa `dados`.
 
 ## Responsivo
 
