@@ -1,8 +1,6 @@
 'use client';
-import { useBuyerMemory } from '@/hooks/use-buyer-memory';
 import { useCheckoutSteps } from '@/hooks/use-checkout-steps';
 import { CheckoutFlow } from '@/components/checkout/CheckoutFlow';
-import { BuyerMemoryPreference } from '@/components/checkout/BuyerMemoryPreference';
 /**
  * Checkout de link de pagamento (SimLink) — layout "Checkout Novo" em etapas:
  * Pedido → Dados → Forma de pagamento → Cartão | PIX → (PIX gerado) → funil upsell/downsell → sucesso.
@@ -239,15 +237,6 @@ export default function SimLinkCheckout({
   const [document, setDocument] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const buyerMemory = useBuyerMemory(
-    { name, email, document, phone },
-    (saved) => {
-      setName((current) => current || saved.name);
-      setEmail((current) => current || saved.email);
-      setDocument((current) => current || maskCpfCnpj(saved.document));
-      setPhone((current) => current || maskPhoneBr(saved.phone));
-    },
-  );
 
   // Parcelas
   const [installments, setInstallments] = useState(1);
@@ -1186,10 +1175,6 @@ export default function SimLinkCheckout({
             </div>
           </Field>
         </div>
-        <BuyerMemoryPreference
-          {...buyerMemory}
-          className="mt-1 space-y-2 text-[13px] text-[#a9a3b8]"
-        />
         <div className="hidden items-center gap-2.5 text-[13px] text-[#7d778b] lg:flex">
           <Lock className="h-3.5 w-3.5" strokeWidth={2} />
           Dados protegidos durante sua compra

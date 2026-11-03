@@ -1,6 +1,4 @@
 'use client';
-import { useBuyerMemory } from '@/hooks/use-buyer-memory';
-import { BuyerMemoryPreference } from '@/components/checkout/BuyerMemoryPreference';
 import { PAGATG_API_URL, SIM_API_URL } from '@/lib/api-config';
 
 import { useEffect, useState } from 'react';
@@ -158,15 +156,6 @@ export default function SimPixPlanCheckout() {
   const [document, setDocument] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const buyerMemory = useBuyerMemory(
-    { name, email, document, phone },
-    (saved) => {
-      setName((current) => current || saved.name);
-      setEmail((current) => current || saved.email);
-      setDocument((current) => current || maskCpfCnpj(saved.document));
-      setPhone((current) => current || maskPhoneBr(saved.phone));
-    },
-  );
   const [voucherCode, setVoucherCode] = useState('');
   const [voucherStatus, setVoucherStatus] = useState<VoucherStatus | null>(
     null,
@@ -577,7 +566,6 @@ export default function SimPixPlanCheckout() {
               />
             </CheckoutGlassField>
           </div>
-          <BuyerMemoryPreference {...buyerMemory} />
         </>
       }
       pagamento={

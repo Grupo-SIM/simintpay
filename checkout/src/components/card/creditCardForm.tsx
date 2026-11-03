@@ -1,6 +1,4 @@
 'use client';
-import { useBuyerMemory } from '@/hooks/use-buyer-memory';
-import { BuyerMemoryPreference } from '@/components/checkout/BuyerMemoryPreference';
 import { EBOOK_API_URL, PAGATG_API_URL, SIM_API_URL } from '@/lib/api-config';
 
 import { EmailNoticeModal } from '@/components/checkout/EmailNoticeModal';
@@ -38,7 +36,6 @@ import { CheckoutCardPreview } from '@/components/checkout/CheckoutLayout';
 import { CheckoutStatusCard } from '@/components/checkout/CheckoutStatusCard';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import { buildInstallmentLabel } from '@/lib/installment-label';
-import { maskCpfCnpj, maskPhoneBr } from '@/lib/input-masks';
 import { checkoutTracking } from '@/lib/payment-tracking';
 
 const SIMPAY_API_BASE_URL = SIM_API_URL;
@@ -121,22 +118,6 @@ const CheckoutForm = () => {
     [],
   ); // Opções de parcelas para ebook (MDR_CC_MASTER)
   const [mounted, setMounted] = useState(false);
-  const buyerMemory = useBuyerMemory(
-    {
-      name: formData.name,
-      email: formData.email,
-      document: formData.document,
-      phone: formData.mobilePhone,
-    },
-    (saved) =>
-      setFormData((current: typeof formData) => ({
-        ...current,
-        name: current.name || saved.name,
-        email: current.email || saved.email,
-        document: current.document || maskCpfCnpj(saved.document),
-        mobilePhone: current.mobilePhone || maskPhoneBr(saved.phone),
-      })),
-  );
 
   const [cardFocused, setCardFocused] = useState<
     'number' | 'expiry' | 'cvc' | 'name' | ''
@@ -2147,7 +2128,6 @@ const CheckoutForm = () => {
                 </p>
               )}
             </CheckoutGlassField>
-            <BuyerMemoryPreference {...buyerMemory} />
           </div>
         }
         pagamento={
