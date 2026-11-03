@@ -100,6 +100,7 @@ export function FinancialSimulationCard({
       label: 'Custos da adquirente',
       value: result?.acquirerCostCents,
       adminOnly: true,
+      sign: '-',
     },
     {
       label: admin ? 'Adicional SimIntPay' : 'Custos SimIntPay',
