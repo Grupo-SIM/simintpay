@@ -20,5 +20,10 @@ export function PlatformRateEditor({ platform }: { platform: Platform }) {
       </section>
     );
   }
-  return <FinancialPolicyEditor tag={platform.tag} />;
+  return (
+    <FinancialPolicyEditor
+      tag={platform.tag}
+      withdrawalFees={platform.withdrawalFees}
+    />
+  );
 }

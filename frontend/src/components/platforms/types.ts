@@ -13,6 +13,8 @@ export type Platform = PlatformOwnership & {
   customerInterestRates: Record<string, number> | null;
   effectiveCustomerInterestRates?: Record<string, number>;
   absorbCustomerInterest: boolean;
+  /** Present for owners; the fixed fee already includes the acquirer cost. */
+  withdrawalFees?: { fixed: number; percent: number; minimum: number };
 };
 
 export const money = (value: number) =>

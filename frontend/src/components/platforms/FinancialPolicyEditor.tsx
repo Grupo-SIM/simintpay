@@ -5,14 +5,16 @@ import { useQuery } from '@tanstack/react-query';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { FinancialPolicyDraft } from './FinancialPolicyDraft';
 import type { FinancialConfiguration } from './financial-types';
-import { panel } from './types';
+import { panel, type Platform } from './types';
 
 export function FinancialPolicyEditor({
   tag,
   admin = false,
+  withdrawalFees,
 }: {
   tag: string;
   admin?: boolean;
+  withdrawalFees?: Platform['withdrawalFees'];
 }) {
   const api = useClienteApi();
   const [reset, setReset] = useState(0);
@@ -58,6 +60,7 @@ export function FinancialPolicyEditor({
         tag={tag}
         configuration={configuration.data.data}
         admin={admin}
+        withdrawalFees={withdrawalFees}
         onDiscard={() => {
           setReset((value) => value + 1);
           void configuration.refetch();

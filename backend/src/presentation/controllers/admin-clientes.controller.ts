@@ -29,7 +29,6 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-ta
 type TaxaBody = {
   taxaCartao?: number;
   taxaPix?: number;
-  taxaAssinatura?: number;
 };
 
 /**
@@ -78,8 +77,6 @@ export class AdminClientesController {
     if (body.taxaCartao != null)
       patch['MDR_CC_MASTER_1X'] = Number(body.taxaCartao);
     if (body.taxaPix != null) patch['MDR_PIX'] = Number(body.taxaPix);
-    if (body.taxaAssinatura != null)
-      patch['TAXA_ASSINATURA'] = Number(body.taxaAssinatura);
     if (Object.keys(patch).length === 0) return;
     await patchPlatformOverrides(tag, patch);
   }
@@ -370,11 +367,6 @@ export class AdminClientesController {
         buildUserTaxaTag(c.id),
         'MDR_PIX',
         PLATFORM_TAXA_DEFAULTS.MDR_PIX,
-      ),
-      taxaAssinatura: getPlatformTaxaEffective(
-        buildUserTaxaTag(c.id),
-        'TAXA_ASSINATURA',
-        PLATFORM_TAXA_DEFAULTS.TAXA_ASSINATURA,
       ),
     }));
     return { data };

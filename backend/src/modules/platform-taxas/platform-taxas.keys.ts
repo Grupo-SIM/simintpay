@@ -13,7 +13,6 @@ export const PLATAFORMA_TAXA_KEYS = [
   'TAXA_COMISSAO_AFILIADO', // Comissão % de afiliado sobre venda de livro afiliado (ebook) (padrão 10%)
   'TAXA_LINK_PERCENT', // Taxa % da casa sobre links de pagamento (padrão 9%)
   'TAXA_LINK_FIXA', // Taxa fixa da casa sobre links de pagamento (padrão R$ 4.00)
-  'TAXA_ASSINATURA', // Taxa % da casa sobre links de assinatura (padrão 9.0%)
   'TAXA_DEBITO_PERCENT', // Taxa % da plataforma sobre débito (padrão 2%)
   'TAXA_DEBITO_FIXA', // Taxa fixa R$ da plataforma sobre débito (padrão R$2,00)
   // Boleto — taxa fixa por boleto pago. SimIntPay (editável) inclui o custo DOM (desmembrado).
@@ -131,7 +130,6 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   TAXA_COMISSAO_AFILIADO: 0.1, // 10%
   TAXA_LINK_PERCENT: 0.09,
   TAXA_LINK_FIXA: 4.0,
-  TAXA_ASSINATURA: 9.0,
   TAXA_DEBITO_PERCENT: 0.02, // 2%
   TAXA_DEBITO_FIXA: 2.0, // R$2,00
   // Boleto (valores fixos em R$ por boleto pago)

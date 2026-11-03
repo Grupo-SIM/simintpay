@@ -187,9 +187,21 @@ export class PlatformsService {
             coproducao,
           };
         }
+        const withdrawalFee = (key: PlataformaTaxaKey) =>
+          getPlatformTaxaEffective(
+            platform.tag,
+            key,
+            PLATFORM_TAXA_DEFAULTS[key],
+          );
         return {
           ...platform,
           coproducao,
+          // TAXA_SAQUE_FIXA resolves to the charged fee: highest active acquirer fee + platform extra.
+          withdrawalFees: {
+            fixed: withdrawalFee('TAXA_SAQUE_FIXA'),
+            percent: withdrawalFee('TAXA_SAQUE_PERCENT'),
+            minimum: withdrawalFee('SAQUE_MIN'),
+          },
           effectiveCustomerInterestRates: Object.fromEntries(
             Array.from({ length: 12 }, (_, i) => [
               String(i + 1),

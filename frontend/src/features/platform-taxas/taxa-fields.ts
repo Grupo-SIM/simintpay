@@ -24,7 +24,6 @@ export const PLATAFORMA_TAXA_KEYS = [
   'TAXA_COMISSAO_AFILIADO',
   'TAXA_LINK_PERCENT',
   'TAXA_LINK_FIXA',
-  'TAXA_ASSINATURA',
   'TAXA_DEBITO_PERCENT',
   'TAXA_DEBITO_FIXA',
   'TAXA_BOLETO_FIXA',
@@ -321,7 +320,6 @@ export const PLATAFORMA_TAXA_LABELS: Record<PlataformaTaxaKey, string> = {
   TAXA_COMISSAO_AFILIADO: 'Comissão de Afiliado (%)',
   TAXA_LINK_PERCENT: 'Taxa de cartão de crédito (%)',
   TAXA_LINK_FIXA: 'Taxa de transação crédito (R$)',
-  TAXA_ASSINATURA: 'Taxa do link de assinatura (%)',
   TAXA_DEBITO_PERCENT: 'Taxa plataforma débito (%)',
   TAXA_DEBITO_FIXA: 'Taxa de transação débito (R$)',
   TAXA_BOLETO_FIXA: 'Taxa de boleto Sim Int Pay (R$)',
@@ -448,8 +446,6 @@ export const PLATAFORMA_TAXA_DESCRIPTIONS: Partial<
     'Taxa percentual cobrada sobre cada venda aprovada no cartão de crédito. Calculada sobre o valor bruto da transação.',
   TAXA_LINK_FIXA:
     'Valor fixo em reais cobrado por cada transação aprovada no cartão de crédito, além da taxa percentual.',
-  TAXA_ASSINATURA:
-    'Taxa percentual aplicada sobre cada cobrança recorrente gerada via links de assinatura.',
   TAXA_DEBITO_PERCENT:
     'Taxa percentual cobrada do vendedor em cada transação aprovada via cartão de débito.',
   TAXA_DEBITO_FIXA:

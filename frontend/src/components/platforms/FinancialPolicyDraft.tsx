@@ -12,7 +12,7 @@ import { FinancialBulkInterestField } from './FinancialBulkInterestField';
 import { FinancialNumberField } from './FinancialNumberField';
 import { FinancialContractModal } from './FinancialContractModal';
 import { AcquirerManualFeeForm } from './AcquirerManualFeeForm';
-import { ClientFeeCards } from './ClientFeeCards';
+import { WithdrawalFeeCard } from './WithdrawalFeeCard';
 import { FinancialSimulationCard } from './FinancialSimulationCard';
 import { useFinancialSimulation } from './use-financial-simulation';
 import {
@@ -26,16 +26,19 @@ import {
   type Lane,
   type OwnerRule,
 } from './financial-types';
+import type { Platform } from './types';
 
 export function FinancialPolicyDraft({
   tag,
   configuration,
   admin,
+  withdrawalFees,
   onDiscard,
 }: {
   tag: string;
   configuration: FinancialConfiguration;
   admin: boolean;
+  withdrawalFees?: Platform['withdrawalFees'];
   onDiscard: () => void;
 }) {
   const api = useClienteApi(),
@@ -485,7 +488,7 @@ export function FinancialPolicyDraft({
           )}
         </div>
       </section>
-      {!admin && <ClientFeeCards />}
+      {!admin && withdrawalFees && <WithdrawalFeeCard fees={withdrawalFees} />}
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="button"
