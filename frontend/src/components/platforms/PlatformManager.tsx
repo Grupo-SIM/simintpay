@@ -55,6 +55,23 @@ export function PlatformManager({
   const selected =
     platforms.find((row) => row.tag === (selectedTag ?? selection)) ??
     (!selectedTag ? platforms[0] : undefined);
+  const actions =
+    selected?.id &&
+    !selected.coproducao?.readOnly &&
+    selected.coproducao?.role !== 'COPRODUCER' ? (
+      <>
+        <CoproductionButton product="plataformas" productId={selected.id} />
+        <Button
+          type="button"
+          variant="outline"
+          className="cursor-pointer"
+          onClick={() => setSettingsId(selected.id)}
+        >
+          <Settings size={16} />
+          Configurações
+        </Button>
+      </>
+    ) : null;
   return (
     <div className="space-y-5">
       {!selectedTag && (
@@ -62,24 +79,12 @@ export function PlatformManager({
           platforms={platforms}
           selectedTag={selected?.tag}
           onSelect={setSelection}
+          actions={actions}
         />
       )}
-      {selected?.id &&
-        !selected.coproducao?.readOnly &&
-        selected.coproducao?.role !== 'COPRODUCER' && (
-          <div className="flex justify-end gap-3">
-            <CoproductionButton product="plataformas" productId={selected.id} />
-            <Button
-              type="button"
-              variant="outline"
-              className="cursor-pointer"
-              onClick={() => setSettingsId(selected.id)}
-            >
-              <Settings size={16} />
-              Configurações
-            </Button>
-          </div>
-        )}
+      {selectedTag && actions && (
+        <div className="flex justify-end gap-3">{actions}</div>
+      )}
       {selected?.id &&
         !selected.coproducao?.readOnly &&
         selected.coproducao?.role !== 'COPRODUCER' &&

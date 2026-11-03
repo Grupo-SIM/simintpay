@@ -1,6 +1,7 @@
 'use client';
 
 import { Layers } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 export function PlatformHeader({
   title,
@@ -9,6 +10,7 @@ export function PlatformHeader({
   open,
   onOpen,
   admin = false,
+  actions,
 }: {
   title: string;
   description: string;
@@ -16,6 +18,7 @@ export function PlatformHeader({
   open: boolean;
   onOpen: () => void;
   admin?: boolean;
+  actions?: ReactNode;
 }) {
   return (
     <header className="space-y-4">
@@ -23,23 +26,26 @@ export function PlatformHeader({
         <h1 className="text-2xl font-bold">{title}</h1>
         <p className="mt-2 text-sm text-zinc-500">{description}</p>
       </div>
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className="flex cursor-pointer items-center gap-3 rounded-xl border border-zinc-300 bg-white px-4 py-3 text-left dark:border-white/20 dark:bg-white/5"
-      >
-        <Layers size={20} />
-        <span>
-          <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-            {admin
-              ? 'Selecionar configuração financeira'
-              : 'Selecionar ou gerenciar plataformas'}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className="flex cursor-pointer items-center gap-3 rounded-xl border border-zinc-300 bg-white px-4 py-3 text-left dark:border-white/20 dark:bg-white/5"
+        >
+          <Layers size={20} />
+          <span>
+            <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+              {admin
+                ? 'Selecionar configuração financeira'
+                : 'Selecionar ou gerenciar plataformas'}
+            </span>
+            <span className="font-semibold">{selectedName}</span>
           </span>
-          <span className="font-semibold">{selectedName}</span>
-        </span>
-      </button>
+        </button>
+        {actions && <div className="flex gap-3">{actions}</div>}
+      </div>
     </header>
   );
 }

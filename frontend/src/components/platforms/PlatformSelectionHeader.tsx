@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { PlatformHeader } from './PlatformHeader';
 import { PlatformPickerModal } from './PlatformPickerModal';
 import type { Platform } from './types';
@@ -10,11 +10,13 @@ export function PlatformSelectionHeader({
   selectedTag,
   onSelect,
   admin = false,
+  actions,
 }: {
   platforms: Platform[];
   selectedTag?: string;
   onSelect: (tag: string) => void;
   admin?: boolean;
+  actions?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const selectedName =
@@ -35,6 +37,7 @@ export function PlatformSelectionHeader({
         open={open}
         onOpen={() => setOpen(true)}
         admin={admin}
+        actions={actions}
       />
       {open && (
         <PlatformPickerModal
