@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import type {
   AdditiveTotals,
+  FeeMode,
   FinancialConfiguration,
   Lane,
   OwnerRule,
@@ -19,6 +20,7 @@ export function useFinancialSimulation({
   owner,
   lanes,
   interestFree,
+  feeMode,
   additiveTotals,
   valid,
   admin,
@@ -30,6 +32,8 @@ export function useFinancialSimulation({
   owner: Record<string, OwnerRule>;
   lanes: Record<string, Lane>;
   interestFree: boolean;
+  /** Drafted fee mode; it changes which SimIntPay fee is charged. */
+  feeMode?: FeeMode | null;
   /** Additive values; part of the cache signature so stale rows are never reused. */
   additiveTotals?: AdditiveTotals;
   valid: boolean;
@@ -49,6 +53,7 @@ export function useFinancialSimulation({
       owner[key],
       admin ? lanes[key] : undefined,
       interestFree,
+      feeMode,
       additiveTotals,
     ]),
   );
@@ -94,7 +99,9 @@ export function useFinancialSimulation({
           method,
           channel,
           installments: groupKeys.map((key) => Number(key.split('/')[3])),
-          draft: admin ? { lanes } : { owner, interestFree },
+          draft: admin
+            ? { lanes, ...(feeMode ? { feeMode } : {}) }
+            : { owner, interestFree },
         },
       );
       groupKeys.forEach((key) => {

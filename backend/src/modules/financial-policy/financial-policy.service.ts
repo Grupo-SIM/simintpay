@@ -377,6 +377,7 @@ export type SimulationInput = {
     owner?: Policy['owner'];
     interestFree?: boolean;
     lanes?: Policy['lanes'];
+    feeMode?: unknown;
   };
 };
 export async function simulateFinancialPolicy(
@@ -385,7 +386,12 @@ export async function simulateFinancialPolicy(
   user: JwtPayload,
   body: SimulationInput,
 ) {
-  const { admin, feeMode } = await authorizeWithFeeMode(prisma, tag, user);
+  const { admin, feeMode: storedFeeMode } = await authorizeWithFeeMode(
+    prisma,
+    tag,
+    user,
+  );
+  let feeMode = storedFeeMode;
   if (
     !body ||
     !Array.isArray(body.installments) ||
@@ -403,7 +409,7 @@ export async function simulateFinancialPolicy(
   if (draft) {
     if (
       Object.keys(draft).some(
-        (key) => !['owner', 'interestFree', 'lanes'].includes(key),
+        (key) => !['owner', 'interestFree', 'lanes', 'feeMode'].includes(key),
       )
     )
       throw new BadRequestException('Rascunho inválido');
@@ -411,14 +417,30 @@ export async function simulateFinancialPolicy(
       throw new ForbiddenException(
         'Custos SimIntPay exclusivos do administrador',
       );
+    if (draft.feeMode !== undefined) {
+      if (!admin)
+        throw new ForbiddenException(
+          'Modo de taxas exclusivo do administrador',
+        );
+      if (
+        !['SIMINTPAY_ONLY', 'ADDITIVE_ONLY', 'BOTH'].includes(
+          String(draft.feeMode),
+        )
+      )
+        throw new BadRequestException('Modo de taxas inválido');
+      if (tag !== 'GLOBAL') feeMode = draft.feeMode as PlatformFeeMode;
+    }
+    const policyDraft = Object.fromEntries(
+      Object.entries(draft).filter(([key]) => key !== 'feeMode'),
+    );
     policy = resolvePolicy(
       policy.global,
-      { ...policy.own, ...draft },
+      { ...policy.own, ...policyDraft },
       policy.version,
     );
   }
-  // Owners only see the fee actually charged: ADDITIVE_ONLY ignores the configured SimIntPay fee.
-  if (!admin && feeMode === 'ADDITIVE_ONLY') {
+  // Simulations show the fee actually charged under the (possibly drafted) mode: ADDITIVE_ONLY ignores the configured SimIntPay fee.
+  if (feeMode === 'ADDITIVE_ONLY') {
     const lanes: Policy['lanes'] = {};
     for (const [key, lane] of Object.entries(policy.document.lanes))
       lanes[key] = {

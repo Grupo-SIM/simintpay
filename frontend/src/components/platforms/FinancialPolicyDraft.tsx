@@ -183,6 +183,7 @@ export function FinancialPolicyDraft({
     owner,
     lanes,
     interestFree: false,
+    feeMode,
     additiveTotals,
     valid,
     admin,
