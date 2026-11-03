@@ -48,7 +48,6 @@ import {
   type LinkOffers,
 } from '../LinkOffers';
 import {
-  CheckDot,
   CtaButton,
   DesktopHeader,
   ErrorBox,
@@ -1289,25 +1288,6 @@ export default function SimLinkCheckout({
             );
           })}
         </div>
-      </div>
-      <div
-        className={cx(
-          'hidden items-center gap-3.5 rounded-[28px] px-[22px] py-4 lg:flex',
-          GLASS,
-        )}
-      >
-        <CheckDot size={36} />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[15px] font-medium">{name}</div>
-          <div className="truncate text-[13px] text-[#a9a3b8]">{email}</div>
-        </div>
-        <button
-          type="button"
-          onClick={() => flow.setStep(1)}
-          className="text-sm text-[#f6b67a] transition hover:text-[#ffd2a8]"
-        >
-          Editar dados
-        </button>
       </div>
     </>
   );
