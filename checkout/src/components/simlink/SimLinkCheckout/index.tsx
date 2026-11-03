@@ -55,7 +55,6 @@ import {
   Logo,
   MobileProgress,
   MobileTopBar,
-  ProductImage,
   ProtectedPill,
   SM_GLASS,
   Screen,
@@ -1015,38 +1014,6 @@ export default function SimLinkCheckout({
 
   const orderNode = (
     <>
-      <div
-        className={cx(
-          'flex flex-col gap-3.5 rounded-[28px] p-3 lg:p-5',
-          link.imagemUrl
-            ? 'lg:grid lg:grid-cols-[280px_minmax(0,1fr)] lg:items-center lg:gap-6'
-            : 'pt-[18px]',
-          GLASS,
-        )}
-      >
-        {link.imagemUrl && (
-          <ProductImage
-            src={link.imagemUrl}
-            className="h-40 w-full rounded-[20px] lg:h-[200px]"
-          />
-        )}
-        <div className="flex items-start justify-between gap-3 px-1.5 pb-1.5 lg:flex-col lg:justify-start lg:gap-2.5 lg:p-0">
-          <div className="min-w-0">
-            <div className="text-[19px] font-medium lg:text-[28px]">
-              {productTitle}
-            </div>
-            {productDesc && (
-              <div className="mt-1 text-[13px] leading-[1.4] text-[#a9a3b8] lg:mt-2.5 lg:text-[15px] lg:leading-normal lg:text-[#b8b2c6]">
-                {productDesc}
-              </div>
-            )}
-          </div>
-          <div className="whitespace-nowrap text-lg font-semibold tabular-nums lg:mt-1.5 lg:text-[26px]">
-            {formatCurrency(link.valor)}
-          </div>
-        </div>
-      </div>
-
       {orderBumps.length > 0 && (
         <div
           className={cx(
