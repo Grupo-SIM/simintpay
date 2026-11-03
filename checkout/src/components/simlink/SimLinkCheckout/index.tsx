@@ -755,22 +755,19 @@ export default function SimLinkCheckout({
   );
   const installmentLabelFor = (n: number) => {
     const opt = link.opcoesParcelas?.[n - 1];
-    // "(com juros)" é decidido comparando o total da
-    // opção contra link.valor (original) — não a flag
-    // temJuros, que ignora a taxa DOM.
+    // "(com juros)" só quando a opção tem juros de parcelamento.
     return opt
       ? buildInstallmentLabel({
           installments: n,
           perInstallment: opt.valorParcela,
           total: opt.valorTotal,
-          original: link.valorComOfertas ?? link.valor,
+          interestAmount: opt.valorJurosPlatforma,
           formatCurrency,
         })
       : buildInstallmentLabel({
           installments: n,
           perInstallment: link.valor / n,
           total: link.valor,
-          original: link.valor,
           formatCurrency,
         });
   };

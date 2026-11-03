@@ -2212,8 +2212,7 @@ const CheckoutForm = () => {
                           const option = allInstallmentOptions.find(
                             (opt) => opt.installments === num,
                           );
-                          // "(com juros)" garantido pela comparação total ≠
-                          // valor original do link, em vez da flag/taxa do backend.
+                          // "(com juros)" só quando a opção tem juros de fato.
                           const label = option
                             ? buildInstallmentLabel({
                                 installments: num,
@@ -2221,14 +2220,13 @@ const CheckoutForm = () => {
                                 total:
                                   option.totalAmount ??
                                   option.installmentAmount * num,
-                                original: paymentLinkData.amount,
+                                interestAmount: option.interestAmount,
                                 formatCurrency,
                               })
                             : buildInstallmentLabel({
                                 installments: num,
                                 perInstallment: paymentLinkData.amount / num,
                                 total: paymentLinkData.amount,
-                                original: paymentLinkData.amount,
                                 formatCurrency,
                               });
                           return (
@@ -2257,16 +2255,14 @@ const CheckoutForm = () => {
                         className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
                       >
                         {ebookInstallmentOptions.map((opt) => {
-                          // "(com juros)" decidido pelo total ≠ preço original
-                          // (singleValue em centavos), não pela flag hasInterest
-                          // (que só olha masterRate e ignora a DOM).
+                          // "(com juros)" só quando a opção tem juros de fato.
                           const label = buildInstallmentLabel({
                             installments: opt.installments,
                             perInstallment: opt.installmentAmount,
                             total:
                               opt.totalAmount ??
                               opt.installmentAmount * opt.installments,
-                            original: singleValue / 100,
+                            interestAmount: opt.interestAmount,
                             formatCurrency,
                           });
                           return (
