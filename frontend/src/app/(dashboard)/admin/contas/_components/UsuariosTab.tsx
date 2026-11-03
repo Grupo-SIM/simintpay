@@ -48,6 +48,7 @@ type SimpayUser = {
   name: string;
   email: string;
   isCompany?: boolean;
+  phone?: string | null;
   clientStatus?: ClientStatus | null;
   taxaCartao?: number | null;
 };
@@ -1276,7 +1277,7 @@ export default function UsuariosTab({
               setPage(1);
             }}
             options={[
-              { value: 'active', label: 'Pendentes e aprovados' },
+              { value: 'active', label: 'Padrão' },
               { value: 'rejected', label: 'Rejeitados' },
             ]}
             className="h-9 min-w-[200px] rounded-xl text-sm"
@@ -1451,7 +1452,12 @@ export default function UsuariosTab({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                        {u.simpayUser?.email || '—'}
+                        <div>{u.simpayUser?.email || '—'}</div>
+                        {u.simpayUser?.phone && (
+                          <div className="text-xs text-zinc-400">
+                            {u.simpayUser.phone}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         {u.simpayUser?.isCompany && (
