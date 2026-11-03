@@ -108,7 +108,7 @@ export function WithdrawalSection({ tag }: { tag: string }) {
           Configurar taxas
         </button>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid max-w-xl gap-3 sm:grid-cols-2">
         {[
           ['SAQUE_MIN', 'Saque mínimo'],
           ['TAXA_SAQUE_EXTRA', 'Extra sobre a maior taxa de saque'],

@@ -20,7 +20,7 @@ export function AdditiveTotalsRow({
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">{SCOPE_LABELS[scope]}</p>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid max-w-xl gap-3 sm:grid-cols-2">
         <FinancialNumberField
           label="Percentual (%)"
           name={`additive-${scope}-percentage`}

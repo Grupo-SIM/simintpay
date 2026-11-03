@@ -44,7 +44,10 @@ export function CustomSelect(props: Props) {
     } = props.search;
     return (
       <div className="space-y-1.5">
-        <span id={id} className="text-sm font-medium">
+        <span
+          id={id}
+          className="text-xs font-medium text-zinc-600 dark:text-zinc-400"
+        >
           {label}
           {props.required && (
             <>
@@ -89,7 +92,10 @@ export function CustomSelect(props: Props) {
   const { value, options, onChange } = props;
   return (
     <div className="space-y-1.5">
-      <span id={id} className="text-sm font-medium">
+      <span
+        id={id}
+        className="text-xs font-medium text-zinc-600 dark:text-zinc-400"
+      >
         {label}
         {props.required && (
           <>

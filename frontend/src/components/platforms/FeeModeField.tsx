@@ -34,12 +34,14 @@ export function FeeModeField({
       <legend className="px-1 text-sm font-semibold">
         Taxas aplicadas aos pagamentos
       </legend>
-      <CustomSelect
-        label="Modo de taxas"
-        value={value}
-        onChange={(next) => onChange(next as FeeMode)}
-        options={MODES.map(({ value, label }) => ({ value, label }))}
-      />
+      <div className="max-w-md">
+        <CustomSelect
+          label="Modo de taxas"
+          value={value}
+          onChange={(next) => onChange(next as FeeMode)}
+          options={MODES.map(({ value, label }) => ({ value, label }))}
+        />
+      </div>
       <p className="text-sm text-zinc-500">{current.hint}</p>
     </fieldset>
   );

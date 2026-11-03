@@ -30,7 +30,10 @@ export function PlatformField({
   const [local, update, flush] = useDebouncedInput(value, onChange);
   return (
     <div className="space-y-1.5">
-      <label htmlFor={id} className="text-sm font-medium">
+      <label
+        htmlFor={id}
+        className="text-xs font-medium text-zinc-600 dark:text-zinc-400"
+      >
         {label}
         {required && <span className="text-red-500"> *</span>}
       </label>
