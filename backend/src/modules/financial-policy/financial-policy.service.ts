@@ -107,6 +107,14 @@ export function projectPolicy(
 }
 
 async function authorize(prisma: PrismaService, tag: string, user: JwtPayload) {
+  return (await authorizeWithFeeMode(prisma, tag, user)).admin;
+}
+
+async function authorizeWithFeeMode(
+  prisma: PrismaService,
+  tag: string,
+  user: JwtPayload,
+) {
   if (!user?.sub || user.authMode === 'integration')
     throw new ForbiddenException('Exige sessão de usuário');
   const actor = await prisma.user.findUnique({
@@ -116,18 +124,20 @@ async function authorize(prisma: PrismaService, tag: string, user: JwtPayload) {
   if (!actor?.isActive || actor.isPurged)
     throw new ForbiddenException('Conta inativa');
   const admin = actor.role === Role.ADMIN;
+  let feeMode: PlatformFeeMode | null = null;
   if (tag === 'GLOBAL') {
     if (!admin) throw new ForbiddenException('Exige administrador');
   } else {
     const platform = await prisma.platform.findUnique({
       where: { tag },
-      select: { ownerUserId: true },
+      select: { ownerUserId: true, feeMode: true },
     });
     if (!platform) throw new NotFoundException('Plataforma não cadastrada');
     if (!admin && platform.ownerUserId !== user.sub)
       throw new ForbiddenException('Plataforma pertence a outro usuário');
+    feeMode = platform.feeMode ?? null;
   }
-  return admin;
+  return { admin, feeMode };
 }
 
 /** GLOBAL has no platform row, so it carries no fee mode. */
@@ -375,7 +385,7 @@ export async function simulateFinancialPolicy(
   user: JwtPayload,
   body: SimulationInput,
 ) {
-  const admin = await authorize(prisma, tag, user);
+  const { admin, feeMode } = await authorizeWithFeeMode(prisma, tag, user);
   if (
     !body ||
     !Array.isArray(body.installments) ||
@@ -406,6 +416,20 @@ export async function simulateFinancialPolicy(
       { ...policy.own, ...draft },
       policy.version,
     );
+  }
+  // Owners only see the fee actually charged: ADDITIVE_ONLY ignores the configured SimIntPay fee.
+  if (!admin && feeMode === 'ADDITIVE_ONLY') {
+    const lanes: Policy['lanes'] = {};
+    for (const [key, lane] of Object.entries(policy.document.lanes))
+      lanes[key] = {
+        ...lane,
+        priceFloor: undefined,
+        sim: { ratePpm: 0, fixedCents: 0, interestPpm: 0 },
+      };
+    policy = {
+      ...policy,
+      document: { ...policy.document, lanes },
+    };
   }
   try {
     policy.document.interestOnly = true;
