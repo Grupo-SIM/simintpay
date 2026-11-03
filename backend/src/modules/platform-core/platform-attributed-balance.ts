@@ -98,7 +98,12 @@ export class PlatformAttributedBalance {
       if (row.status === 'PENDING') reserved = reserved.plus(row.grossAmount);
       else settled = settled.plus(row.grossAmount);
     }
-    const balance = earned.minus(settled),
+    const singleProductOwner = productCount <= 1;
+    // Dono de uma única plataforma: a carteira SimIntPay (ledger) é o saldo real; a projeção
+    // por transações ignora ajustes de conciliação e legado sem lançamento.
+    const balance = singleProductOwner
+        ? new Prisma.Decimal(wallet?.balance ?? 0)
+        : earned.minus(settled),
       available = balance.minus(reserved);
     const cents = (value: Prisma.Decimal | number) => {
       const result = new Prisma.Decimal(value)
@@ -120,7 +125,7 @@ export class PlatformAttributedBalance {
       pendingWithdrawalsGrossCents: cents(reserved),
       balanceCents: cents(balance),
       availableBalanceCents: cents(Prisma.Decimal.max(0, available)),
-      walletScope: productCount > 1 ? 'shared-owner' : 'owner',
+      walletScope: singleProductOwner ? 'owner' : 'shared-owner',
       ownerWalletBalanceCents: cents(wallet?.balance ?? 0),
       identifiedTransactions,
       unidentifiedOwnerTransactions: unidentifiedTransactions,
