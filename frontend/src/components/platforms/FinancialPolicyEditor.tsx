@@ -13,7 +13,7 @@ export function FinancialPolicyEditor({
   admin = false,
 }: {
   tag: string;
-  name: string;
+  name?: string;
   admin?: boolean;
 }) {
   const api = useClienteApi();
@@ -55,7 +55,7 @@ export function FinancialPolicyEditor({
   return (
     <section className={panel}>
       <h2 className="mb-4 text-lg font-semibold">
-        Taxas, juros e simulação — {name}
+        Taxas, juros e simulação{name ? ` — ${name}` : ''}
       </h2>
       <FinancialPolicyDraft
         key={`${tag}-${configuration.data.data.version}-${reset}`}

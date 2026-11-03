@@ -59,8 +59,6 @@ export default function AdminTaxasPlataformasPage() {
   const selectedPlatform = platforms.data.data.find(
     (platform) => platform.tag === tag,
   );
-  const selectedName =
-    tag === 'GLOBAL' ? 'Padrão global' : (selectedPlatform?.name ?? tag);
   return (
     <div className="space-y-5">
       <PlatformSelectionHeader
@@ -77,7 +75,7 @@ export default function AdminTaxasPlataformasPage() {
           />
         </div>
       )}
-      <FinancialPolicyEditor key={tag} tag={tag} name={selectedName} admin />
+      <FinancialPolicyEditor key={tag} tag={tag} admin />
       <AcquirerWithdrawalFees />
       <FinancialWithdrawalSettings key={`withdrawal-${tag}`} tag={tag} />
     </div>
