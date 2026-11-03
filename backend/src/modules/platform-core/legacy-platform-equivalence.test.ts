@@ -67,11 +67,11 @@ function matchesRoute(actual: string, expected: string) {
     a.every((segment, i) => segment.startsWith(':') || segment === b[i])
   );
 }
-test('all 128 active contracts map uniquely to registered operations and behavioral evidence', () => {
+test('all 127 active contracts map uniquely to registered operations and behavioral evidence', () => {
   const keys = (rows: { method: string; path: string }[]) =>
     rows.map((row) => `${row.method} ${row.path}`).sort();
   expect(keys(matrix)).toEqual(keys([...LEGACY_PLATFORM_CONTRACTS]));
-  expect(new Set(keys(matrix)).size).toBe(128);
+  expect(new Set(keys(matrix)).size).toBe(127);
   const documentation = readFileSync(
     '../docs/legacy-platform-equivalence.md',
     'utf8',

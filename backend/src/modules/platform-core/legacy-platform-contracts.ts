@@ -1395,11 +1395,15 @@ export const ORIGINAL_LEGACY_PLATFORM_CONTRACTS = [
 
 // Retained only as historical inventory. Removed by explicit product decision:
 // upstream mensalidade endpoints do not exist and the system is offline.
+const isRetired = (path: string) =>
+  path.startsWith('/admin/betai/') ||
+  // Exposed every resolved fee key; platforms now return their own withdrawal fees.
+  path === '/admin/plataformas/minhas-taxas';
 export const RETIRED_LEGACY_PLATFORM_CONTRACTS =
   ORIGINAL_LEGACY_PLATFORM_CONTRACTS.filter((contract) =>
-    contract.path.startsWith('/admin/betai/'),
+    isRetired(contract.path),
   );
 export const LEGACY_PLATFORM_CONTRACTS =
   ORIGINAL_LEGACY_PLATFORM_CONTRACTS.filter(
-    (contract) => !contract.path.startsWith('/admin/betai/'),
+    (contract) => !isRetired(contract.path),
   );

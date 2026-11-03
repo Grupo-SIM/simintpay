@@ -129,7 +129,6 @@ import {
   getPlatformTaxaEffective,
   invalidatePlatformTaxaCache,
   buildUserTaxaTag,
-  canonicalPlatformTaxaTag,
 } from '../../modules/platform-taxas/platform-taxas.store';
 import {
   PLATFORM_TAXA_DEFAULTS,
@@ -7514,40 +7513,6 @@ export class AdminController {
   })
   async getPlatformTaxasByTag(@Param('tag') tag: string) {
     return this.platformTaxas.getTaxasResponse([tag]);
-  }
-
-  @Get('plataformas/minhas-taxas')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({
-    summary: 'Taxas resolvidas do cliente logado (somente leitura)',
-  })
-  async getMinhasTaxas(@CurrentUser() user: JwtPayload | undefined) {
-    if (!user?.sub) throw new BadRequestException('Usuário não autenticado');
-
-    const u = await this.prisma.user.findUnique({
-      where: { id: user.sub },
-      include: { platform: true },
-    });
-    if (!u) throw new BadRequestException('Usuário não encontrado');
-
-    // Plataforma (renovada/bosque/...) usa a tag do módulo; cliente SIM INT PAY
-    // (sem módulo) usa USER:<id>, que herda o GLOBAL e reflete o que o master
-    // personalizou para ele na página de Taxas.
-    const slug = u.platform?.tag?.trim();
-    const tag = slug
-      ? canonicalPlatformTaxaTag(slug.toUpperCase())
-      : buildUserTaxaTag(u.id);
-
-    const resolved = this.platformTaxas.getResolvedTaxaForTag(tag);
-
-    // Não expomos isPersonalized/sources: o cliente não precisa saber se a taxa
-    // é padrão ou personalizada — apenas o valor aplicado.
-    return {
-      email: u.email,
-      platform: slug ? slug.toUpperCase() : 'SIM INT PAY',
-      data: resolved.data,
-    };
   }
 
   @Get('plataformas')

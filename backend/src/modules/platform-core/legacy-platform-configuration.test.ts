@@ -47,29 +47,6 @@ test('legacy platform fee configuration preserves raw decimal rates and delegate
   });
   expect(platformTaxas.patchPlatform.mock.calls[0]).toEqual(['SHOP', body]);
 });
-test('legacy personal fees preserve membership choice and exclude administration metadata', async () => {
-  const { controller, prisma } = fixture();
-  expect(await controller.getMinhasTaxas({ sub: 'user' } as any)).toEqual({
-    email: 'client@example.com',
-    platform: 'SIM INT PAY',
-    data: { TAXA_SAQUE_PERCENT: 0.01, tag: 'USER:USER' },
-  });
-  prisma.user.findUnique.mockResolvedValue({
-    id: 'user',
-    email: 'client@example.com',
-    platform: { tag: 'BOSQUE' },
-  });
-  expect(await controller.getMinhasTaxas({ sub: 'user' } as any)).toMatchObject(
-    { platform: 'BOSQUE', data: { tag: 'BOSQUE' } },
-  );
-  await expect(controller.getMinhasTaxas(undefined)).rejects.toThrow(
-    'não autenticado',
-  );
-  prisma.user.findUnique.mockResolvedValue(null as any);
-  await expect(
-    controller.getMinhasTaxas({ sub: 'missing' } as any),
-  ).rejects.toThrow('não encontrado');
-});
 test('legacy client configuration preserves document search, paging and email case contract', async () => {
   const { controller, prisma } = fixture();
   expect(

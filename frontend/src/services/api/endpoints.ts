@@ -182,7 +182,6 @@ export const endpoints = {
         `/admin/plataformas/taxas/${encodeURIComponent(tag)}`,
       simintpayClientes: '/admin/plataformas/simintpay-clientes',
       /** Taxas resolvidas do cliente logado (somente leitura). */
-      minhasTaxas: '/admin/plataformas/minhas-taxas',
       /** Gestão de usuários das plataformas SaaS (controle-motorista, controle-patrimonial). */
       usuarios: (tag: string) => `/admin/plataformas/${tag}/usuarios`,
       usuarioToggle: (tag: string, userId: string) =>

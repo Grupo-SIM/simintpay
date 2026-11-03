@@ -85,13 +85,13 @@ for (const contract of LEGACY_PLATFORM_CONTRACTS) {
     }
   });
 }
-test('inventory preserves 136 historical contracts and 128 active contracts synchronized with documentation', () => {
+test('inventory preserves 136 historical contracts and 127 active contracts synchronized with documentation', () => {
   expect(ORIGINAL_LEGACY_PLATFORM_CONTRACTS).toHaveLength(136);
-  expect(RETIRED_LEGACY_PLATFORM_CONTRACTS).toHaveLength(8);
-  expect(LEGACY_PLATFORM_CONTRACTS).toHaveLength(128);
+  expect(RETIRED_LEGACY_PLATFORM_CONTRACTS).toHaveLength(9);
+  expect(LEGACY_PLATFORM_CONTRACTS).toHaveLength(127);
   expect(
     new Set(LEGACY_PLATFORM_CONTRACTS.map((c) => `${c.method} ${c.path}`)).size,
-  ).toBe(128);
+  ).toBe(127);
   const documentation = readFileSync(
     '../docs/legacy-platform-routes.md',
     'utf8',

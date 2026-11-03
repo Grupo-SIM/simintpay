@@ -661,15 +661,6 @@
   },
   {
     "method": "GET",
-    "path": "/admin/plataformas/minhas-taxas",
-    "canonical": "GET /admin/plataformas/minhas-taxas",
-    "evidence": [
-      "src/modules/platform-core/legacy-platform-configuration.test.ts"
-    ],
-    "compatibility": "API administrativa de cadastro/configuração preservada."
-  },
-  {
-    "method": "GET",
     "path": "/admin/plataformas",
     "canonical": "GET /admin/plataformas",
     "evidence": [
