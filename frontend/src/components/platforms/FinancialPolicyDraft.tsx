@@ -12,6 +12,7 @@ import { FinancialBulkInterestField } from './FinancialBulkInterestField';
 import { FinancialNumberField } from './FinancialNumberField';
 import { FinancialContractModal } from './FinancialContractModal';
 import { AcquirerManualFeeForm } from './AcquirerManualFeeForm';
+import { ClientFeeCards } from './ClientFeeCards';
 import { FinancialSimulationCard } from './FinancialSimulationCard';
 import { useFinancialSimulation } from './use-financial-simulation';
 import {
@@ -483,6 +484,7 @@ export function FinancialPolicyDraft({
           )}
         </div>
       </section>
+      {!admin && <ClientFeeCards />}
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="button"

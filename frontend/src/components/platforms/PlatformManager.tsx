@@ -10,7 +10,6 @@ import { useCurrentUser } from '@/hooks/use-current-user';
 import { useQuery } from '@tanstack/react-query';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { PlatformSelectionHeader } from './PlatformSelectionHeader';
-import { AppliedFeesSummary } from './AppliedFeesSummary';
 import { PlatformRateEditor } from './PlatformRateEditor';
 import { panel, type Platform } from './types';
 
@@ -98,15 +97,10 @@ export function PlatformManager({
           />
         )}
       {selected ? (
-        <>
-          <PlatformRateEditor
-            key={`${selected.tag}-${selected.absorbCustomerInterest}`}
-            platform={selected}
-          />
-          {!user.isAdmin && !selected.coproducao?.readOnly && (
-            <AppliedFeesSummary />
-          )}
-        </>
+        <PlatformRateEditor
+          key={`${selected.tag}-${selected.absorbCustomerInterest}`}
+          platform={selected}
+        />
       ) : (
         <p className={panel}>
           {selectedTag
