@@ -15,7 +15,6 @@ import {
   Settings,
   Sun,
   Moon,
-  ClipboardList,
   Smartphone,
   UserPlus,
   Percent,
@@ -51,7 +50,6 @@ const MANAGE_ITEMS = [
 ];
 
 const ADMIN_ITEMS = [
-  { href: '/admin/leads', icon: ClipboardList, label: 'Solicitações' },
   { href: '/admin/contas', icon: UsersRound, label: 'Contas' },
   { href: '/admin/taxas', icon: Percent, label: 'Taxas' },
   {
@@ -544,7 +542,7 @@ export function Sidebar() {
                 key={item.href}
                 {...item}
                 badge={
-                  item.href === '/admin/leads'
+                  item.href === '/admin/contas'
                     ? solicitacoesPendentes
                     : undefined
                 }

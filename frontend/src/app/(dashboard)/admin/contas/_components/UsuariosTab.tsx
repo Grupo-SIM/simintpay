@@ -37,6 +37,7 @@ import { cn, getPlatformBadgeClass, formatDocument } from '@/lib/utils';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
 import { PlatformFilterSelect } from '@/components/product-platforms/PlatformFilterSelect';
 import { AccountPlatformsButton } from '../components';
+import type { Lead } from '@/features/admin/types/admin.types';
 import { ClientChargesModal } from './charges';
 import type { ChargeClient } from './charges/types';
 
@@ -278,6 +279,12 @@ export default function UsuariosTab({
   const pageSize = 20;
   const [platform, setPlatform] = useState('');
   const [search, setSearch] = useState('');
+  // 'active' = aprovados + pendentes (padrão); 'rejected' = solicitações rejeitadas.
+  const [requestFilter, setRequestFilter] = useState<'active' | 'rejected'>(
+    'active',
+  );
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [leadActionId, setLeadActionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const showDeleted = false;
@@ -434,6 +441,59 @@ export default function UsuariosTab({
     },
     [page, platform, showDeleted, showPurged, search],
   );
+
+  const fetchLeads = useCallback(
+    async (filter = requestFilter) => {
+      try {
+        const res = await getApi().get<{ data?: Lead[] }>(
+          endpoints.admin.leads.list,
+          {
+            query: {
+              page: 1,
+              pageSize: 200,
+              status: filter === 'rejected' ? 'REJECTED' : 'PENDING',
+            },
+          },
+        );
+        setLeads(res.data ?? []);
+      } catch {
+        setLeads([]);
+      }
+    },
+    [requestFilter],
+  );
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!loadingUser && user?.isAdmin) void fetchLeads(requestFilter);
+  }, [requestFilter, loadingUser, refreshKey]);
+
+  async function decideLead(lead: Lead, action: 'approve' | 'reject') {
+    setLeadActionId(lead.id);
+    try {
+      const path =
+        action === 'approve'
+          ? endpoints.admin.leads.approve(lead.id)
+          : endpoints.admin.leads.reject(lead.id);
+      await getApi().post(path, {});
+      toast({
+        type: 'success',
+        title:
+          action === 'approve'
+            ? 'Solicitação aprovada'
+            : 'Solicitação rejeitada',
+      });
+      await Promise.all([fetchLeads(), fetchUsersRef.current()]);
+    } catch {
+      toast({
+        type: 'error',
+        title: action === 'approve' ? 'Erro ao aprovar' : 'Erro ao rejeitar',
+        description: 'Tente novamente.',
+      });
+    } finally {
+      setLeadActionId(null);
+    }
+  }
 
   // Sempre aponta pro fetchUsers mais recente (a varredura termina bem depois do render que a iniciou).
   const fetchUsersRef = useRef(fetchUsers);
@@ -756,7 +816,27 @@ export default function UsuariosTab({
     }
   }
 
-  const filtered = items;
+  const filtered = requestFilter === 'rejected' ? [] : items;
+
+  // Solicitações pendentes (ou rejeitadas) ficam sempre acima, em ordem alfabética.
+  const leadTerm = search.trim().toLowerCase();
+  const visibleLeads = platform
+    ? []
+    : leads
+        .filter((l) =>
+          leadTerm
+            ? [l.name, l.email, l.razaoSocial, l.cnpj, l.cpf ?? '']
+                .join(' ')
+                .toLowerCase()
+                .includes(leadTerm)
+            : true,
+        )
+        .sort((a, b) =>
+          (a.razaoSocial || a.name).localeCompare(
+            b.razaoSocial || b.name,
+            'pt-BR',
+          ),
+        );
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const colSpan = 6; // Ambas as abas têm a coluna "Ações" (reativar na de excluídas)
@@ -1186,9 +1266,28 @@ export default function UsuariosTab({
             className="h-9 min-w-[220px] rounded-xl text-sm"
           />
 
+          <PlatformFilterSelect
+            hideOwner
+            theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+            placeholder="Solicitação"
+            value={requestFilter}
+            onChange={(value) => {
+              setRequestFilter(value === 'rejected' ? 'rejected' : 'active');
+              setPage(1);
+            }}
+            options={[
+              { value: 'active', label: 'Pendentes e aprovados' },
+              { value: 'rejected', label: 'Rejeitados' },
+            ]}
+            className="h-9 min-w-[200px] rounded-xl text-sm"
+          />
+
           {/* Refresh */}
           <button
-            onClick={() => fetchUsers(page, platform, showDeleted, search)}
+            onClick={() => {
+              void fetchLeads();
+              fetchUsers(page, platform, showDeleted, search);
+            }}
             disabled={loading}
             className="flex h-9 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10"
           >
@@ -1223,9 +1322,11 @@ export default function UsuariosTab({
                 <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
                   Nome
                 </th>
-                <th className="px-4 py-3 text-left font-medium">Email</th>
                 <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
-                  CPF/CNPJ
+                  Contato
+                </th>
+                <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
+                  Empresa
                 </th>
                 <th className="px-4 py-3 text-left font-semibold text-zinc-500 dark:text-zinc-400">
                   Plataformas
@@ -1263,7 +1364,7 @@ export default function UsuariosTab({
                     Carregando...
                   </td>
                 </tr>
-              ) : filtered.length === 0 ? (
+              ) : filtered.length === 0 && visibleLeads.length === 0 ? (
                 <tr>
                   <td
                     colSpan={colSpan}
@@ -1275,49 +1376,120 @@ export default function UsuariosTab({
                   </td>
                 </tr>
               ) : (
-                filtered.map((u) => (
-                  <tr
-                    key={u.id}
-                    className="border-b border-zinc-50 last:border-0 transition hover:bg-zinc-50/50 dark:border-white/5 dark:hover:bg-white/5"
-                  >
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                        {u.name}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                      {u.simpayUser?.email || '—'}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                      {formatDocument(u.cpf)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <AccountPlatformsButton
-                        name={u.name}
-                        entries={u.platformEntries ?? []}
-                      />
-                    </td>
-                    {/* Coluna "Saldo líquido" comentada temporariamente — pode voltar futuramente.
+                <>
+                  {visibleLeads.map((l) => (
+                    <tr
+                      key={`lead-${l.id}`}
+                      className="border-b border-zinc-50 bg-amber-50/40 transition hover:bg-amber-50/70 dark:border-white/5 dark:bg-amber-500/5"
+                    >
+                      <td className="px-4 py-3">
+                        <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                          {l.name}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
+                        <div>{l.email}</div>
+                        <div className="text-xs text-zinc-400">{l.phone}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-zinc-800 dark:text-zinc-200">
+                          {l.razaoSocial || '—'}
+                        </div>
+                        <div className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                          {formatDocument(l.cnpj)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={cn(
+                            'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                            l.status === 'REJECTED'
+                              ? 'bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400'
+                              : 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
+                          )}
+                        >
+                          {l.status === 'REJECTED' ? 'Rejeitado' : 'Pendente'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-zinc-400">—</span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {l.status === 'PENDING' && (
+                            <>
+                              <IconAction
+                                label="Aprovar"
+                                tone="emerald"
+                                disabled={leadActionId === l.id}
+                                onClick={() => decideLead(l, 'approve')}
+                              >
+                                <CheckCircle2 size={14} />
+                              </IconAction>
+                              <IconAction
+                                label="Rejeitar"
+                                tone="red"
+                                disabled={leadActionId === l.id}
+                                onClick={() => decideLead(l, 'reject')}
+                              >
+                                <XCircle size={14} />
+                              </IconAction>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {filtered.map((u) => (
+                    <tr
+                      key={u.id}
+                      className="border-b border-zinc-50 last:border-0 transition hover:bg-zinc-50/50 dark:border-white/5 dark:hover:bg-white/5"
+                    >
+                      <td className="px-4 py-3">
+                        <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                          {u.name}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
+                        {u.simpayUser?.email || '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {u.simpayUser?.isCompany && (
+                          <div className="font-medium text-zinc-800 dark:text-zinc-200">
+                            {u.simpayUser.name}
+                          </div>
+                        )}
+                        <div className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                          {formatDocument(u.cpf)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <AccountPlatformsButton
+                          name={u.name}
+                          entries={u.platformEntries ?? []}
+                        />
+                      </td>
+                      {/* Coluna "Saldo líquido" comentada temporariamente — pode voltar futuramente.
                     <td className="px-4 py-3 text-right">
                       <span className={`font-semibold tabular-nums ${u.balance > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500 dark:text-zinc-400"}`}>
                         {formatCurrency(u.balance)}
                       </span>
                     </td>
                     */}
-                    <td className="px-4 py-3 text-center">
-                      {u.vinculado ? (
-                        <CheckCircle2
-                          size={16}
-                          className="mx-auto text-emerald-500"
-                        />
-                      ) : (
-                        <XCircle
-                          size={16}
-                          className="mx-auto text-zinc-300 dark:text-zinc-600"
-                        />
-                      )}
-                    </td>
-                    {/* Coluna "Atividade" (transacionou no mês corrente) comentada temporariamente — confundia com o status da aba (ativo/inativo).
+                      <td className="px-4 py-3 text-center">
+                        {u.vinculado ? (
+                          <CheckCircle2
+                            size={16}
+                            className="mx-auto text-emerald-500"
+                          />
+                        ) : (
+                          <XCircle
+                            size={16}
+                            className="mx-auto text-zinc-300 dark:text-zinc-600"
+                          />
+                        )}
+                      </td>
+                      {/* Coluna "Atividade" (transacionou no mês corrente) comentada temporariamente — confundia com o status da aba (ativo/inativo).
                     <td className="px-4 py-3 text-center">
                       {u.isAtivo === null ? (
                         <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400">
@@ -1334,84 +1506,85 @@ export default function UsuariosTab({
                       )}
                     </td>
                     */}
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        {showPurged ? (
-                          <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                            Excluída permanentemente
-                          </span>
-                        ) : u.isDeleted ? (
-                          <>
-                            <IconAction
-                              label="Reativar"
-                              tone="emerald"
-                              onClick={() => abrirReativar(u)}
-                            >
-                              <CheckCircle2 size={14} />
-                            </IconAction>
-                            <IconAction
-                              label="Excluir permanente"
-                              tone="redStrong"
-                              onClick={() => abrirPurge(u)}
-                            >
-                              <Trash2 size={14} />
-                            </IconAction>
-                          </>
-                        ) : (
-                          <>
-                            {isMaster && u.simpayUser && (
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {showPurged ? (
+                            <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                              Excluída permanentemente
+                            </span>
+                          ) : u.isDeleted ? (
+                            <>
                               <IconAction
-                                label="Acessar como"
-                                tone="amber"
-                                disabled={accessingId === u.simpayUser.id}
-                                onClick={() => acessarComo(u)}
+                                label="Reativar"
+                                tone="emerald"
+                                onClick={() => abrirReativar(u)}
                               >
-                                <DoorOpen size={14} />
+                                <CheckCircle2 size={14} />
                               </IconAction>
-                            )}
-                            {u.simpayUser && (
                               <IconAction
-                                label="Cobranças"
-                                tone="violet"
-                                onClick={() =>
-                                  setChargeClient({
-                                    id: u.simpayUser!.id,
-                                    name: u.simpayUser!.name,
-                                    email: u.simpayUser!.email,
-                                    saldoDisponivel: u.balance,
-                                  })
-                                }
+                                label="Excluir permanente"
+                                tone="redStrong"
+                                onClick={() => abrirPurge(u)}
                               >
-                                <Receipt size={14} />
+                                <Trash2 size={14} />
                               </IconAction>
-                            )}
-                            <IconAction
-                              label="Carteira"
-                              tone="emerald"
-                              onClick={() => setCarteiraUser(u)}
-                            >
-                              <Wallet size={14} />
-                            </IconAction>
-                            <IconAction
-                              label="Editar"
-                              tone="neutral"
-                              onClick={() => openEdit(u)}
-                            >
-                              <Pencil size={14} />
-                            </IconAction>
-                            <IconAction
-                              label="Excluir"
-                              tone="red"
-                              onClick={() => abrirInativar(u)}
-                            >
-                              <Trash2 size={14} />
-                            </IconAction>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                            </>
+                          ) : (
+                            <>
+                              {isMaster && u.simpayUser && (
+                                <IconAction
+                                  label="Acessar como"
+                                  tone="amber"
+                                  disabled={accessingId === u.simpayUser.id}
+                                  onClick={() => acessarComo(u)}
+                                >
+                                  <DoorOpen size={14} />
+                                </IconAction>
+                              )}
+                              {u.simpayUser && (
+                                <IconAction
+                                  label="Cobranças"
+                                  tone="violet"
+                                  onClick={() =>
+                                    setChargeClient({
+                                      id: u.simpayUser!.id,
+                                      name: u.simpayUser!.name,
+                                      email: u.simpayUser!.email,
+                                      saldoDisponivel: u.balance,
+                                    })
+                                  }
+                                >
+                                  <Receipt size={14} />
+                                </IconAction>
+                              )}
+                              <IconAction
+                                label="Carteira"
+                                tone="emerald"
+                                onClick={() => setCarteiraUser(u)}
+                              >
+                                <Wallet size={14} />
+                              </IconAction>
+                              <IconAction
+                                label="Editar"
+                                tone="neutral"
+                                onClick={() => openEdit(u)}
+                              >
+                                <Pencil size={14} />
+                              </IconAction>
+                              <IconAction
+                                label="Excluir"
+                                tone="red"
+                                onClick={() => abrirInativar(u)}
+                              >
+                                <Trash2 size={14} />
+                              </IconAction>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </>
               )}
             </tbody>
           </table>
