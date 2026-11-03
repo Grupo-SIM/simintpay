@@ -1947,6 +1947,7 @@ export class AdminController {
       email: string;
       isActive: boolean;
       isCompany: boolean;
+      phone: string | null;
       clientStatus: string | null;
       createdAt: Date;
       updatedAt: Date;
@@ -2057,6 +2058,7 @@ export class AdminController {
           email: true,
           isActive: true,
           isCompany: true,
+          phone: true,
           clientStatus: true,
           createdAt: true,
           updatedAt: true,
@@ -2139,6 +2141,7 @@ export class AdminController {
           email: true,
           isActive: true,
           isCompany: true,
+          phone: true,
           clientStatus: true,
           createdAt: true,
           updatedAt: true,
@@ -2354,6 +2357,7 @@ export class AdminController {
                   name: true,
                   email: true,
                   isCompany: true,
+                  phone: true,
                   clientStatus: true,
                 },
               },
@@ -2445,19 +2449,6 @@ export class AdminController {
         .flatMap((i) => byDoc.get(i.document) ?? [])
         .flatMap((r) => (r.userId ? [r.userId] : [])),
     ]);
-    // Telefone vem do cadastro (solicitação) que originou a conta, quando existir.
-    const phoneByUserId = new Map(
-      (
-        await this.prisma.lead.findMany({
-          where: { approvedUserId: { in: [...relevantUsers] } },
-          select: { approvedUserId: true, phone: true },
-        })
-      ).flatMap((l) =>
-        l.approvedUserId && l.phone
-          ? [[l.approvedUserId, l.phone] as const]
-          : [],
-      ),
-    );
     for (const platform of registered) {
       if (
         !relevantUsers.has(platform.ownerUserId) ||
@@ -2585,7 +2576,7 @@ export class AdminController {
                   name: simpayUser.name,
                   email: simpayUser.email,
                   isCompany: simpayUser.isCompany,
-                  phone: phoneByUserId.get(simpayUser.id) ?? null,
+                  phone: simpayUser.phone ?? null,
                   clientStatus: simpayUser.clientStatus,
                   taxaCartao: simpayUser.clientStatus
                     ? getPlatformTaxaEffective(
@@ -2685,7 +2676,7 @@ export class AdminController {
               name: u.name,
               email: u.email,
               isCompany: u.isCompany,
-              phone: phoneByUserId.get(u.id) ?? null,
+              phone: u.phone ?? null,
               clientStatus: u.clientStatus,
               taxaCartao: u.clientStatus
                 ? getPlatformTaxaEffective(

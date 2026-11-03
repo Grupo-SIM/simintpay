@@ -44,7 +44,6 @@ describe('AdminController.listExternalUsers — clientes diretos (simintpay)', (
 
   function makeMockPrisma(clientUsers: any[], moduleUsers: any[] = []) {
     return {
-      lead: { findMany: jest.fn().mockResolvedValue([]) },
       platform: { findMany: jest.fn().mockResolvedValue([]) },
       externalPlatformUser: { findMany: jest.fn().mockResolvedValue([]) },
       user: {

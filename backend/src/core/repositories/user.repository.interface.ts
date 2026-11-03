@@ -6,6 +6,7 @@ export type CreateUserData = {
   name: string;
   email: string;
   password: string;
+  phone?: string | null;
   role?: Role;
   isActive?: boolean;
   domUserId?: string | null;

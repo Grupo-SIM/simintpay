@@ -51,6 +51,7 @@ export class ApproveLeadUseCase {
       name: lead.name,
       email: lead.email,
       password: hashed,
+      phone: lead.phone || null,
       cpf: lead.cpf ?? null,
       cnpj: (lead as any).cnpj ?? null,
       // O master ACABOU de aceitar a solicitação — a conta nasce cliente aprovado.

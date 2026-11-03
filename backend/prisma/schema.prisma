@@ -20,6 +20,7 @@ model User {
   clientStatus         ClientStatus?
   clientApprovedAt     DateTime?
   isCompany            Boolean              @default(false)
+  phone                String?
   /// Conta que já aparece em "Clientes Simintpay" (plataforma/comunidade): some da lista de Usuários ativos.
   isSimintpayClient    Boolean              @default(false)
     isActive             Boolean              @default(true)
