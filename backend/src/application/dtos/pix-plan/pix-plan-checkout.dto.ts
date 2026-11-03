@@ -45,4 +45,7 @@ export class PixPlanCheckoutDto {
 
   // Campo interno, não vem do body público
   pixCreditPlanId?: string;
+
+  // Campo interno: repassado por checkout-by-code, não vem do body público
+  tracking?: Record<string, string>;
 }

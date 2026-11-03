@@ -36,6 +36,7 @@ import {
   calculateAreaflixSellerNet,
 } from '../../helpers/areaflix-fees.helper';
 import { advanceSubscriptionPeriod } from '../../helpers/subscription-period.helper';
+import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
 function mapPlanFrequencyToDom(linkFrequency: string): {
   frequency_type: 'WEEK' | 'MONTH' | 'YEAR';
@@ -212,6 +213,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
       customerEmail: input.dto.customerEmail,
       customerDocument: cleanDoc,
       customerPhone: cleanPhone || null,
+      tracking: paymentTracking(input.dto.tracking),
       paymentMethod: 'CREDIT_CARD',
       status: 'pending',
       amountCharged,

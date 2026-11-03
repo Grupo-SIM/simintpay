@@ -1,9 +1,15 @@
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
-import { captureCoproduction, withCoproduction } from '../../../modules/coproduction/coproduction.service';
+import {
+  captureCoproduction,
+  withCoproduction,
+} from '../../../modules/coproduction/coproduction.service';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
-import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
-import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
+import {
+  loadChargePolicy,
+  quoteFinancialCharge,
+} from '../../../modules/financial-policy/financial-charge';
+import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import {
   BadRequestException,
   Inject,
@@ -20,9 +26,9 @@ import type { ISubscriptionRepository } from '../../../core/repositories/subscri
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { getModuleDomToken } from '../../../modules/module.registry';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { Optional } from '@nestjs/common';
+import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
 export type CreatePublicSubscriptionInput = {
   planId: string;
@@ -30,6 +36,7 @@ export type CreatePublicSubscriptionInput = {
   customerEmail: string;
   customerDocument: string;
   customerPhone: string;
+  tracking?: Record<string, string>;
   card: {
     token: string;
     brand?: string;
@@ -49,7 +56,8 @@ export class CreatePublicSubscriptionUseCase {
 
   constructor(
     @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
-    @Inject(SUBSCRIPTION_REPOSITORY) private readonly subscriptions: ISubscriptionRepository,
+    @Inject(SUBSCRIPTION_REPOSITORY)
+    private readonly subscriptions: ISubscriptionRepository,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
@@ -67,11 +75,16 @@ export class CreatePublicSubscriptionUseCase {
       throw new NotFoundException('Plano não encontrado ou inativo');
     }
     if (!plan.domPlanId) {
-      throw new BadRequestException('Plano ainda não sincronizado com o gateway');
+      throw new BadRequestException(
+        'Plano ainda não sincronizado com o gateway',
+      );
     }
 
     const owner = await this.users.findById(plan.userId);
-    const domToken = platformGatewayToken(plan.plataformas?.[0] ?? owner?.platform?.tag, process.env.DOM_TOKEN);
+    const domToken = platformGatewayToken(
+      plan.plataformas?.[0] ?? owner?.platform?.tag,
+      process.env.DOM_TOKEN,
+    );
     if (!domToken) {
       throw new BadRequestException('Token do gateway não configurado');
     }
@@ -101,23 +114,68 @@ export class CreatePublicSubscriptionUseCase {
       },
     });
 
-    const financialQuote = quoteFinancialCharge(await loadChargePolicy(this.prisma, plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL'), Number(plan.price), 'CREDIT_CARD');
+    const financialQuote = quoteFinancialCharge(
+      await loadChargePolicy(
+        this.prisma,
+        plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL',
+      ),
+      Number(plan.price),
+      'CREDIT_CARD',
+    );
     let gatewayPlanId = plan.domPlanId;
     if (financialQuote) {
-      const synced = await this.gateway.createPlan(domToken, { price: financialQuote.totalAmount, description: plan.name,
-        frequency_type: plan.type === 'WEEKLY' ? 'WEEK' : plan.type === 'ANUAL' ? 'YEAR' : 'MONTH',
-        frequency: plan.frequency ?? 1, repetitions: plan.repetitions ?? 0, retry_days: plan.retryDays ?? 3 });
+      const synced = await this.gateway.createPlan(domToken, {
+        price: financialQuote.totalAmount,
+        description: plan.name,
+        frequency_type:
+          plan.type === 'WEEKLY'
+            ? 'WEEK'
+            : plan.type === 'ANUAL'
+              ? 'YEAR'
+              : 'MONTH',
+        frequency: plan.frequency ?? 1,
+        repetitions: plan.repetitions ?? 0,
+        retry_days: plan.retryDays ?? 3,
+      });
       gatewayPlanId = synced.id;
     }
-    const coproduction = await captureCoproduction(this.prisma, 'planos', plan.id, plan.userId, plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL');
+    const coproduction = await captureCoproduction(
+      this.prisma,
+      'planos',
+      plan.id,
+      plan.userId,
+      plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL',
+    );
     const legacyPrice = Number(plan.price);
     const policyTag = plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL';
-    const legacyDomFee = Math.round(legacyPrice * getPlatformTaxaEffective(policyTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X) * 100) / 100;
-    const legacyNet = Number(calculateSellerNetValue(legacyPrice, 1, policyTag, 'credit_card').sub(legacyDomFee).toFixed(2));
-    const coproductionFinancialSnapshot = withCoproduction(financialQuote?.financialSnapshot, coproduction, {
-      totalAmount: legacyPrice, netAmount: legacyNet, totalFeeAmount: Math.round((legacyPrice - legacyNet) * 100) / 100,
-      domFeeAmount: legacyDomFee, platformProfit: Math.round((legacyPrice - legacyNet - legacyDomFee) * 100) / 100, policyTag,
-    });
+    const legacyDomFee =
+      Math.round(
+        legacyPrice *
+          getPlatformTaxaEffective(
+            policyTag,
+            'MDR_CC_1X',
+            PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
+          ) *
+          100,
+      ) / 100;
+    const legacyNet = Number(
+      calculateSellerNetValue(legacyPrice, 1, policyTag, 'credit_card')
+        .sub(legacyDomFee)
+        .toFixed(2),
+    );
+    const coproductionFinancialSnapshot = withCoproduction(
+      financialQuote?.financialSnapshot,
+      coproduction,
+      {
+        totalAmount: legacyPrice,
+        netAmount: legacyNet,
+        totalFeeAmount: Math.round((legacyPrice - legacyNet) * 100) / 100,
+        domFeeAmount: legacyDomFee,
+        platformProfit:
+          Math.round((legacyPrice - legacyNet - legacyDomFee) * 100) / 100,
+        policyTag,
+      },
+    );
     const subscriptionInput = {
       planId: gatewayPlanId,
       customer: {
@@ -125,7 +183,8 @@ export class CreatePublicSubscriptionUseCase {
         email: input.customerEmail,
         document: cleanDoc,
         phone: cleanPhone,
-        documentType: cleanDoc.length === 14 ? ('CNPJ' as const) : ('CPF' as const),
+        documentType:
+          cleanDoc.length === 14 ? ('CNPJ' as const) : ('CPF' as const),
       },
       card: input.card,
     };
@@ -135,14 +194,30 @@ export class CreatePublicSubscriptionUseCase {
       planId: plan.id,
       customerId: customer.id,
       status: 'pending',
-      ...(coproductionFinancialSnapshot ? { financialSnapshot: coproductionFinancialSnapshot } : {}),
+      tracking: paymentTracking(input.tracking),
+      ...(coproductionFinancialSnapshot
+        ? { financialSnapshot: coproductionFinancialSnapshot }
+        : {}),
     });
 
-    const domResult = await this.gateway.createSubscriptionFromCheckout(domToken, subscriptionInput).catch(async (error: unknown) => { await this.prisma.subscription.update({ where: { id: saved.id }, data: { status: 'failed' } }); throw error; });
+    const domResult = await this.gateway
+      .createSubscriptionFromCheckout(domToken, subscriptionInput)
+      .catch(async (error: unknown) => {
+        await this.prisma.subscription.update({
+          where: { id: saved.id },
+          data: { status: 'failed' },
+        });
+        throw error;
+      });
 
     const statusLower = (domResult.status ?? '').toString().toLowerCase();
-    saved = await this.prisma.subscription.update({ where: { id: saved.id }, data: { status: statusLower, domSubscriptionId: domResult.id } });
-    if (['inactive', 'cancelled', 'canceled', 'suspended'].includes(statusLower)) {
+    saved = await this.prisma.subscription.update({
+      where: { id: saved.id },
+      data: { status: statusLower, domSubscriptionId: domResult.id },
+    });
+    if (
+      ['inactive', 'cancelled', 'canceled', 'suspended'].includes(statusLower)
+    ) {
       throw new BadRequestException(
         'Pagamento não autorizado. Tente outro cartão ou forma de pagamento.',
       );
@@ -155,7 +230,6 @@ export class CreatePublicSubscriptionUseCase {
         `Assinatura recusada pelo gateway${domResult.status ? `: ${domResult.status}` : ''}.`,
       );
     }
-
 
     this.logger.log(
       `Assinatura criada: subId=${saved.id}, domSubId=${domResult.id}, planId=${plan.id}`,
@@ -176,7 +250,9 @@ export class CreatePublicSubscriptionUseCase {
           redirectUrl: plan.redirectUrl ?? null,
         });
       } catch (err) {
-        this.logger.error(`Falha ao enviar e-mail de ebook (plano ${plan.id}): ${String(err)}`);
+        this.logger.error(
+          `Falha ao enviar e-mail de ebook (plano ${plan.id}): ${String(err)}`,
+        );
       }
     }
 

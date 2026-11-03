@@ -2,6 +2,7 @@ import {
   IsEmail,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
 } from 'class-validator';
@@ -42,4 +43,9 @@ export class PixPlanCheckoutByCodeDto {
   @IsOptional()
   @IsNumber()
   finalAmount?: number;
+
+  @ApiPropertyOptional({ description: 'UTMs, src e fbc/fbp do checkout' })
+  @IsOptional()
+  @IsObject()
+  tracking?: Record<string, string>;
 }

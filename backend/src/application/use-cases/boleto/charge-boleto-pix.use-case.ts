@@ -31,6 +31,7 @@ import {
 } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { discardDraftOnRejection } from '../../../modules/unified-platform/payments/dom-rejection';
+import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
 export type ChargeBoletoPixInput = {
   boletoId: string;
@@ -39,6 +40,7 @@ export type ChargeBoletoPixInput = {
   customerDocument: string;
   customerPhone?: string;
   documentType?: 'CPF' | 'CNPJ';
+  tracking?: Record<string, string>;
 };
 
 function round2(v: number): number {
@@ -168,6 +170,7 @@ export class ChargeBoletoPixUseCase {
       customerEmail: input.customerEmail,
       customerDocument: document,
       customerPhone: phone,
+      tracking: paymentTracking(input.tracking),
       financialSnapshot: withCoproduction(
         financialQuote?.financialSnapshot,
         coproduction,

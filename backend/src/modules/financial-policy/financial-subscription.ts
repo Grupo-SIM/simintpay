@@ -18,6 +18,7 @@ export async function settleFinancialSubscription(
     customerName?: string | null;
     customerEmail?: string | null;
     customerDocument?: string | null;
+    tracking?: Prisma.JsonValue | null;
   },
 ) {
   const agreement = snapshotFrom(input.snapshot);
@@ -72,6 +73,9 @@ export async function settleFinancialSubscription(
         customerName: input.customerName,
         customerEmail: input.customerEmail,
         customerDocument: input.customerDocument,
+        tracking: (input.tracking ?? undefined) as
+          | Prisma.InputJsonValue
+          | undefined,
       },
       TransactionStatus.COMPLETED,
     );

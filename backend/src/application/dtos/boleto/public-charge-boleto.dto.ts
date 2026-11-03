@@ -1,4 +1,11 @@
-import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsNotEmpty,
+  IsObject,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class PublicChargeBoletoDto {
   @IsString()
@@ -49,4 +56,8 @@ export class PublicChargeBoletoDto {
   @IsString()
   @IsOptional()
   complemento?: string;
+
+  @IsObject()
+  @IsOptional()
+  tracking?: Record<string, string>;
 }

@@ -182,6 +182,7 @@ export class PrismaSubscriptionLinkRepository implements ISubscriptionLinkReposi
         pixContent: data.pixContent ?? undefined,
         pixExpire: data.pixExpire ?? undefined,
         financialSnapshot: data.financialSnapshot,
+        tracking: data.tracking,
         amountCharged: new Prisma.Decimal(data.amountCharged),
         platformFeeAmount: new Prisma.Decimal(data.platformFeeAmount),
         currentPeriodEndsAt: data.currentPeriodEndsAt ?? undefined,

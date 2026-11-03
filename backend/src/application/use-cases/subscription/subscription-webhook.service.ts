@@ -150,6 +150,7 @@ export class SubscriptionWebhookService {
         customerName: subscription.customer?.name,
         customerEmail: subscription.customer?.email,
         customerDocument: subscription.customer?.document,
+        tracking: subscription.tracking,
       });
       return;
     }
@@ -335,6 +336,7 @@ export class SubscriptionWebhookService {
         customerName: subscription.customer?.name,
         customerEmail: subscription.customer?.email,
         customerDocument: subscription.customer?.document,
+        tracking: subscription.tracking,
       });
       return;
     }
@@ -595,6 +597,7 @@ export class SubscriptionWebhookService {
             customerName: linkOrder.customerName,
             customerEmail: linkOrder.customerEmail,
             customerDocument: linkOrder.customerDocument,
+            tracking: linkOrder.tracking,
           })
         : null;
     const now = new Date();
@@ -708,6 +711,9 @@ export class SubscriptionWebhookService {
         paymentMethod: 'CREDIT_CARD',
         status: 'paid',
         amountCharged: amount.toNumber(),
+        tracking: (linkOrder.tracking ?? undefined) as
+          | Prisma.InputJsonValue
+          | undefined,
         ...(financialQuote
           ? {
               financialSnapshot:
@@ -807,6 +813,9 @@ export class SubscriptionWebhookService {
             customerEmail: linkOrder.customerEmail ?? undefined,
             customerDocument: linkOrder.customerDocument ?? undefined,
             customerPhone: linkOrder.customerPhone ?? undefined,
+            tracking: (linkOrder.tracking ?? undefined) as
+              | Prisma.InputJsonValue
+              | undefined,
           },
         });
       }
@@ -860,6 +869,9 @@ export class SubscriptionWebhookService {
               customerEmail: linkOrder.customerEmail ?? undefined,
               customerDocument: linkOrder.customerDocument ?? undefined,
               customerPhone: linkOrder.customerPhone ?? undefined,
+              tracking: (linkOrder.tracking ?? undefined) as
+                | Prisma.InputJsonValue
+                | undefined,
             },
           });
         }
@@ -970,6 +982,7 @@ export class SubscriptionWebhookService {
     subscription: {
       id: string;
       userId: string;
+      tracking?: Prisma.JsonValue | null;
       customer: {
         name: string;
         email: string;
@@ -1029,6 +1042,9 @@ export class SubscriptionWebhookService {
         customerEmail: subscription.customer?.email ?? undefined,
         customerDocument: subscription.customer?.document ?? undefined,
         customerPhone: subscription.customer?.phone ?? undefined,
+        tracking: (subscription.tracking ?? undefined) as
+          | Prisma.InputJsonValue
+          | undefined,
       },
     });
 

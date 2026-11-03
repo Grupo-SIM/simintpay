@@ -11,6 +11,7 @@ export type CreateSubscriptionData = {
   expiresAt?: Date | null;
   totalDaysCredited?: number;
   domSubscriptionId?: string | null;
+  tracking?: import('@prisma/client').Prisma.InputJsonValue;
 };
 
 export interface ISubscriptionRepository {

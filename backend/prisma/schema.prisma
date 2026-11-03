@@ -588,6 +588,7 @@ model SubscriptionLink {
 /// Registro de cada assinatura originada por um SubscriptionLink
 model SubscriptionLinkOrder {
   financialSnapshot Json?
+  tracking            Json?
   id                  String    @id @default(uuid())
   subscriptionLinkId  String
   userId              String
@@ -723,6 +724,7 @@ model Plan {
 
 model Subscription {
   financialSnapshot Json?
+  tracking          Json?
   id                String    @id @default(uuid())
   userId            String
   planId            String

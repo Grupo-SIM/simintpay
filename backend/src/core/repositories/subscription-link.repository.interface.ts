@@ -42,6 +42,7 @@ export type CreateSubscriptionLinkOrderData = {
   amountCharged: number;
   platformFeeAmount: number;
   currentPeriodEndsAt?: Date | null;
+  tracking?: import('@prisma/client').Prisma.InputJsonValue;
 };
 
 export interface ISubscriptionLinkRepository {

@@ -28,6 +28,7 @@ import {
 } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { VoucherService } from '../voucher/voucher.service';
+import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
 function mapPlanFrequencyToDom(linkFrequency: string): {
   frequency_type: 'WEEK' | 'MONTH' | 'YEAR';
@@ -173,6 +174,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
       customerEmail: input.dto.customerEmail,
       customerDocument: cleanDoc,
       customerPhone: cleanPhone || null,
+      tracking: paymentTracking(input.dto.tracking),
       paymentMethod: 'PIX',
       status: 'pending',
       amountCharged,

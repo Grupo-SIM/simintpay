@@ -52,6 +52,7 @@ import {
 } from '../../helpers/client-rules.helper';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { Optional } from '@nestjs/common';
+import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
 @Injectable()
 export class PixPlanService {
@@ -241,6 +242,7 @@ export class PixPlanService {
         customerEmail: body.email,
         customerDocument: body.document.replace(/[.-]/g, ''),
         customerPhone: body.mobile_phone,
+        tracking: paymentTracking(body.tracking),
       },
     });
 
@@ -414,6 +416,7 @@ export class PixPlanService {
       mobile_phone: body.mobile_phone,
       description: `PIX_PLAN_CODE:${link.code}${body.voucherCode ? ` (VOUCHER:${body.voucherCode})` : ''}`,
       pixCreditPlanId: plan.id,
+      tracking: body.tracking,
     });
   }
 

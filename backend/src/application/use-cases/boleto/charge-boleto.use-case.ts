@@ -28,6 +28,7 @@ import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import { buildUserTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { calculateBoletoFees } from './boleto-fees.helper';
 import { discardDraftOnRejection } from '../../../modules/unified-platform/payments/dom-rejection';
+import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
 export type ChargeBoletoInput = {
   boletoId: string;
@@ -35,6 +36,7 @@ export type ChargeBoletoInput = {
   customerEmail: string;
   customerDocument: string;
   customerPhone?: string;
+  tracking?: Record<string, string>;
   documentType?: 'CPF' | 'CNPJ';
   // Endereço do pagador (obrigatório para boleto).
   cep?: string;
@@ -154,6 +156,7 @@ export class ChargeBoletoUseCase {
       customerEmail: input.customerEmail,
       customerDocument: document,
       customerPhone: phone || null,
+      tracking: paymentTracking(input.tracking),
       financialSnapshot: withCoproduction(
         financialQuote?.financialSnapshot,
         coproduction,

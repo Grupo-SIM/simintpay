@@ -1769,6 +1769,7 @@ export class ProcessDomWebhookUseCase {
         customerName: order.customerName,
         customerEmail: order.customerEmail,
         customerDocument: order.customerDocument,
+        tracking: order.tracking,
       });
 
     this.logger.log(
@@ -1961,6 +1962,9 @@ export class ProcessDomWebhookUseCase {
             customerEmail: order.customerEmail,
             customerDocument: order.customerDocument,
             customerPhone: order.customerPhone ?? undefined,
+            tracking: (order.tracking ?? undefined) as
+              | Prisma.InputJsonValue
+              | undefined,
           },
         });
 
@@ -2224,6 +2228,9 @@ export class ProcessDomWebhookUseCase {
               customerEmail: order.customerEmail,
               customerDocument: order.customerDocument,
               customerPhone: order.customerPhone ?? undefined,
+              tracking: (order.tracking ?? undefined) as
+                | Prisma.InputJsonValue
+                | undefined,
             },
           });
 

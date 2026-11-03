@@ -16,6 +16,7 @@ export class PrismaSubscriptionRepository implements ISubscriptionRepository {
     totalDaysCredited?: number;
     domSubscriptionId?: string | null;
     financialSnapshot?: import('@prisma/client').Prisma.InputJsonValue;
+    tracking?: import('@prisma/client').Prisma.InputJsonValue;
   }): Promise<Subscription> {
     return this.prisma.subscription.create({
       data: {
@@ -27,6 +28,7 @@ export class PrismaSubscriptionRepository implements ISubscriptionRepository {
         totalDaysCredited: data.totalDaysCredited ?? 0,
         domSubscriptionId: data.domSubscriptionId ?? undefined,
         financialSnapshot: data.financialSnapshot,
+        tracking: data.tracking,
       },
     });
   }
@@ -75,7 +77,7 @@ export class PrismaSubscriptionRepository implements ISubscriptionRepository {
       expiresAt?: Date | null;
       totalDaysCredited?: number;
       domSubscriptionId?: string | null;
-    financialSnapshot?: import('@prisma/client').Prisma.InputJsonValue;
+      financialSnapshot?: import('@prisma/client').Prisma.InputJsonValue;
     }>,
   ): Promise<Subscription> {
     return this.prisma.subscription.update({

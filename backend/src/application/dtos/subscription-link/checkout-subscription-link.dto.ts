@@ -25,6 +25,7 @@ export class CheckoutSubscriptionLinkCardDto {
   @IsString() @IsNotEmpty() customerDocument!: string;
   @IsString() @IsOptional() customerPhone?: string;
   @IsString() @IsOptional() voucherCode?: string;
+  @IsObject() @IsOptional() tracking?: Record<string, string>;
 
   @IsObject()
   @ValidateNested()
@@ -38,4 +39,5 @@ export class CheckoutSubscriptionLinkPixDto {
   @IsString() @IsNotEmpty() customerDocument!: string;
   @IsString() @IsOptional() customerPhone?: string;
   @IsString() @IsOptional() voucherCode?: string;
+  @IsObject() @IsOptional() tracking?: Record<string, string>;
 }
