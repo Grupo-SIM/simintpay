@@ -11,7 +11,6 @@ createRoot(document.getElementById('root')!).render(
     <ToastProvider>
       <FinancialPolicyEditor
         tag="SHOP"
-        name="Estação 237"
         admin={new URLSearchParams(window.location.search).has('admin')}
       />
     </ToastProvider>
