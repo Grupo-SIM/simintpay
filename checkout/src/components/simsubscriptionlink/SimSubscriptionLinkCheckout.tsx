@@ -40,6 +40,7 @@ import {
   maskPhoneBr,
 } from '@/lib/input-masks';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
+import { browserCheckoutTracking } from '@/lib/payment-tracking';
 
 const Cards = dynamic(() => import('react-credit-cards-2'), {
   ssr: false,
@@ -388,7 +389,10 @@ export default function SimSubscriptionLinkCheckout() {
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+            body: JSON.stringify({
+              ...body,
+              tracking: browserCheckoutTracking(),
+            }),
           },
         );
 
@@ -457,7 +461,10 @@ export default function SimSubscriptionLinkCheckout() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            ...body,
+            tracking: browserCheckoutTracking(),
+          }),
         },
       );
 

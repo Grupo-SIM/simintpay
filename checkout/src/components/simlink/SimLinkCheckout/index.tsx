@@ -116,6 +116,7 @@ import type { PaymentMethod } from './types';
 import { previewLink } from '@/lib/payment-link-preview-adapter';
 import type { PaymentLinkPreviewDraft } from '@/lib/payment-link-preview';
 import { MethodIcon, PreviewNotice } from './components';
+import { browserCheckoutTracking } from '@/lib/payment-tracking';
 type Step = 'pedido' | 'dados' | 'forma' | 'cartao' | 'pix';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -419,7 +420,10 @@ export default function SimLinkCheckout({
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+            body: JSON.stringify({
+              ...body,
+              tracking: browserCheckoutTracking(),
+            }),
           },
         );
 
@@ -485,7 +489,10 @@ export default function SimLinkCheckout({
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            ...body,
+            tracking: browserCheckoutTracking(),
+          }),
         },
       );
 

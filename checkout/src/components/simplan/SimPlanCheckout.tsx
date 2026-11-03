@@ -48,6 +48,7 @@ import {
   maskPhoneBr,
 } from '@/lib/input-masks';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
+import { browserCheckoutTracking } from '@/lib/payment-tracking';
 
 const Cards = dynamic(() => import('react-credit-cards-2'), {
   ssr: false,
@@ -225,7 +226,7 @@ export default function SimPlanCheckout() {
       const res = await fetch(`${SIM_API}/planos/public/${plan.id}/subscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, tracking: browserCheckoutTracking() }),
       });
 
       const data = await res.json();

@@ -22,6 +22,7 @@ import { CheckoutStatusCard } from '@/components/checkout/CheckoutStatusCard';
 import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
 import { maskCpfCnpj, maskPhoneBr } from '@/lib/input-masks';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
+import { browserCheckoutTracking } from '@/lib/payment-tracking';
 
 const SIM_API = SIM_API_URL;
 
@@ -457,7 +458,7 @@ export default function SimPixPlanCheckout() {
       const res = await fetch(`${SIM_API}/payments/pix-plan/checkout-by-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, tracking: browserCheckoutTracking() }),
       });
 
       const data = await res.json();

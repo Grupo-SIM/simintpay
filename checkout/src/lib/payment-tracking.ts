@@ -37,3 +37,8 @@ export function checkoutTracking(
   }
   return tracking;
 }
+
+/** Tracking of the current page; call only from the browser (event handlers). */
+export function browserCheckoutTracking(): Record<string, string> {
+  return checkoutTracking(window.location.search, window.document.cookie);
+}

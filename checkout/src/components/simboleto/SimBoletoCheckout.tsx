@@ -29,6 +29,7 @@ import { maskCpfCnpj, maskPhoneBr } from '@/lib/input-masks';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import { validateBoletoCheckout } from '@/lib/boleto-checkout-validation';
 import { BoletoDisplay, PixDisplay } from './components';
+import { browserCheckoutTracking } from '@/lib/payment-tracking';
 
 const SIM_API = SIM_API_URL;
 
@@ -241,7 +242,10 @@ export default function SimBoletoCheckout() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            ...body,
+            tracking: browserCheckoutTracking(),
+          }),
         },
       );
       const data = await res.json();
