@@ -138,3 +138,22 @@ Ainda **não corrigidos** (fora do pedido; seguem fixados nos testes): boleto-PI
 ## 8. Cofre de cartões (`StoredCard`, `StoredCardToken`)
 
 Migration `20261106110000_stored_card_vault` (não aplicada). `StoredCardCycleExecutor` cobra com chave de idempotência `cycle:<chargeId>:<attempts>`; falha ambígua = `UNKNOWN` (cobrança fica `PENDING`, contrato intacto). **Lacunas:** nada grava token reutilizável hoje (o checkout DOM só repassa token de uso único); não confirmado que a DOM aceite token avulso em `/transactions` (testar em sandbox); ciclo pago cria a `Transaction` no ledger único (taxas, coprodução e carteira uma só vez); conciliador de `UNKNOWN` pronto, aguardando consulta real na DOM.
+
+## 9. Estado após a rodada de 2026-11-05/06
+
+Em `main` (commits locais, nenhuma migration aplicada em banco real):
+
+- [x] Checkout público de compra única da `Offer` (`POST ofertas/public/:code/charge`: PIX, crédito, débito), com `Charge` + `Transaction` FINAL_NET, taxas corrigidas e reserva atômica de uso.
+- [x] `Charge` é marcada paga/falha/expirada quando a `Transaction` liquida pelos três caminhos: webhook DOM, webhook genérico e polling (`markChargeSettled`).
+- [x] Ciclo pago de contrato lança no ledger único (`cycle-ledger.ts`, coprodução `ofertas`); migration `20261107100000_coproduction_ofertas` amplia a restrição de produto.
+- [x] Conciliador de cobranças pendentes após resultado desconhecido (`ChargeReconciler`), 1 h de tolerância para "não encontrado"; `CHARGE_UNRESOLVED` após 48 h.
+- [x] Script de migração legado→`Offer` (`scripts/offer-migration-apply.ts`, dry-run por padrão, `--verify`) e runbook (`docs/guides/offer-migration-runbook.md`). Nunca executado contra banco real.
+
+Pendente, por dependência externa ou decisão:
+
+- [ ] **Token de cartão reutilizável:** nada grava `StoredCardToken`. Decidir a origem do token (PAN no nosso servidor ou assinatura DOM) e validar em sandbox que a DOM aceita token avulso em `/transactions`.
+- [ ] `DomChargeStatusLookup` só devolve `UNKNOWN`: `ApiDomClient` não consulta por `cod_external`.
+- [ ] Entrega (`fulfillment`: e-mail/webhook) e order bumps não ligados a `Offer`; `pix-status` público não conhece ofertas.
+- [ ] Checkout de ofertas recorrentes (assinatura) e SDK/dashboard do frontend (wizard por presets).
+- [ ] Fase 6: medir uso das rotas legadas antes de retirá-las.
+- [ ] Bugs ainda fixados nos testes (seção 7): boleto-PIX, Areaflix cartão 1x e débito.
