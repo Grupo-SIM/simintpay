@@ -793,6 +793,7 @@ model BillingContract {
   changes                BillingQuantityChange[]
   events                 BillingContractEvent[]
   charges                Charge[]
+  storedCards            StoredCard[]
 
   @@unique([resourceType, resourceId])
   @@index([userId])
@@ -1478,6 +1479,7 @@ model AcquirerCatalogue {
   feeSchedules AcquirerFeeSchedule[]
   withdrawalFees AcquirerWithdrawalFee[]
   externalRefs ExternalRef[]
+  storedCardTokens StoredCardToken[]
 }
 
 /// Append-only per-acquirer withdrawal cost in cents. The latest row per acquirer wins.
@@ -1740,4 +1742,45 @@ model Charge {
   @@index([offerId])
   @@index([ownerUserId, status])
   @@index([status, dueAt])
+}
+
+
+enum StoredCardStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// Card vault entry owned by SimIntPay. Never holds PAN or CVV: only display metadata
+/// plus acquirer-issued reusable tokens (StoredCardToken), so AUTO_CHARGE can run without the buyer.
+model StoredCard {
+  id            String           @id @default(uuid())
+  ownerUserId   String
+  contractId    String?
+  customerEmail String
+  brand         String?          @db.VarChar(30)
+  last4         String           @db.VarChar(4)
+  expMonth      Int
+  expYear       Int
+  status        StoredCardStatus @default(ACTIVE)
+  revokedAt     DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  contract      BillingContract? @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  tokens        StoredCardToken[]
+
+  @@index([ownerUserId])
+  @@index([contractId, status])
+}
+
+/// Reusable card token issued by one acquirer, encrypted with PLATFORM_CONFIG_ENCRYPTION_KEY.
+model StoredCardToken {
+  id             String            @id @default(uuid())
+  storedCardId   String
+  acquirerCode   String
+  encryptedToken String
+  createdAt      DateTime          @default(now())
+  storedCard     StoredCard        @relation(fields: [storedCardId], references: [id], onDelete: Cascade)
+  acquirer       AcquirerCatalogue @relation(fields: [acquirerCode], references: [code], onDelete: Restrict)
+
+  @@unique([storedCardId, acquirerCode])
 }
