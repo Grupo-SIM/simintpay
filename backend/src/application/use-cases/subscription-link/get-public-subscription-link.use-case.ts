@@ -1,7 +1,15 @@
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
+import {
+  acceptsCard,
+  acceptsPix,
+  normalizeStoredPaymentMethods,
+} from '../../helpers/accepted-payment-methods.helper';
+import {
+  loadChargePolicy,
+  quoteFinancialCharge,
+} from '../../../modules/financial-policy/financial-charge';
 import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
-import { assertExplicitPlatform, platformGatewayToken } from '../../helpers/explicit-platform.helper';
+import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
@@ -13,25 +21,32 @@ import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform
 
 function mapFrequencyLabel(t: PlanType): string {
   switch (t) {
-    case PlanType.TRIMESTRAL: return 'TRIMESTRAL';
-    case PlanType.SEMESTRAL: return 'SEMESTRAL';
-    case PlanType.ANUAL: return 'ANUAL';
-    default: return 'MENSAL';
+    case PlanType.TRIMESTRAL:
+      return 'TRIMESTRAL';
+    case PlanType.SEMESTRAL:
+      return 'SEMESTRAL';
+    case PlanType.ANUAL:
+      return 'ANUAL';
+    default:
+      return 'MENSAL';
   }
 }
 
 @Injectable()
 export class GetPublicSubscriptionLinkUseCase {
   constructor(
-    @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
+    @Inject(SUBSCRIPTION_LINK_REPOSITORY)
+    private readonly repo: ISubscriptionLinkRepository,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     private readonly prisma: PrismaService,
-  ) { }
+  ) {}
 
   async execute(code: string) {
     const link = await this.repo.findByCode(code);
     if (!link || !link.isActive) {
-      throw new NotFoundException('Link de assinatura não encontrado ou inativo');
+      throw new NotFoundException(
+        'Link de assinatura não encontrado ou inativo',
+      );
     }
     if (link.maxUses != null && link.currentUses >= link.maxUses) {
       throw new NotFoundException('Limite de assinaturas atingido');
@@ -52,10 +67,15 @@ export class GetPublicSubscriptionLinkUseCase {
       // 4º GLOBAL (fallback)
       const linkPlatformTag = (link as any).platformTag?.toUpperCase?.();
       const slugTag = owner?.platform?.tag?.toUpperCase();
-      platformTag = linkPlatformTag ?? link.plataformas?.[0] ?? slugTag ?? 'GLOBAL';
+      platformTag =
+        linkPlatformTag ?? link.plataformas?.[0] ?? slugTag ?? 'GLOBAL';
 
       // Taxa ao cliente (cartão) = MDR_CC_1X + MDR_CC_MASTER_1X por plataforma
-      const mdrDom1x = getPlatformTaxaEffective(platformTag, 'MDR_CC_1X', PLATFORM_TAXA_DEFAULTS.MDR_CC_1X);
+      const mdrDom1x = getPlatformTaxaEffective(
+        platformTag,
+        'MDR_CC_1X',
+        PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
+      );
       const mdrMaster1x = getCustomerInterestRate(platformTag, 1);
       effectivePlatformFee = Math.round((mdrDom1x + mdrMaster1x) * 10000) / 100;
     }
@@ -81,9 +101,9 @@ export class GetPublicSubscriptionLinkUseCase {
       ativo: link.isActive,
       redirectUrl: link.redirectUrl ?? null,
       platformTag: platformTag,
-      paymentMethods: (link.paymentMethods as string | undefined) ?? 'BOTH',
-      aceitaCartao: ((link.paymentMethods as string | undefined) ?? 'BOTH') !== 'PIX',
-      aceitaPix: ((link.paymentMethods as string | undefined) ?? 'BOTH') !== 'CREDIT_CARD',
+      paymentMethods: normalizeStoredPaymentMethods(link.paymentMethods),
+      aceitaCartao: acceptsCard(link.paymentMethods),
+      aceitaPix: acceptsPix(link.paymentMethods),
     };
   }
 }
