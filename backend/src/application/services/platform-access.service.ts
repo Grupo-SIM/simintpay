@@ -1,7 +1,11 @@
 import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
-import { getRegisteredPlatform, getPlatformOwnerId } from '../../modules/module.registry';
+import {
+  getRegisteredPlatform,
+  getPlatformOwnerId,
+} from '../../modules/module.registry';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { accessDaysForFrequency } from '../helpers/billing-frequency.helper';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -21,23 +25,7 @@ export class PlatformAccessService {
 
   /** Dias de acesso por ciclo conforme a frequência do plano/link. */
   daysForFrequency(freq?: string | null): number {
-    switch (String(freq ?? '').toUpperCase()) {
-      case 'ANUAL':
-      case 'YEAR':
-        return 365;
-      case 'SEMESTRAL':
-      case 'SEMESTER':
-        return 180;
-      case 'TRIMESTRAL':
-      case 'QUARTER':
-        return 90;
-      case 'SEMANAL':
-      case 'WEEKLY':
-      case 'WEEK':
-        return 7;
-      default:
-        return 30; // MONTHLY / MENSAL
-    }
+    return accessDaysForFrequency(freq);
   }
 
   /** Rótulo amigável da plataforma para emails. */
@@ -47,7 +35,12 @@ export class PlatformAccessService {
 
   /** URL base cadastrada na integração da plataforma. */
   getSaasBaseUrl(platformTag: string): string | null {
-    return getPlatformIntegrationValue(platformTag, 'BACKEND_URL')?.replace(/\/+$/, '') ?? null;
+    return (
+      getPlatformIntegrationValue(platformTag, 'BACKEND_URL')?.replace(
+        /\/+$/,
+        '',
+      ) ?? null
+    );
   }
 
   /**
@@ -74,18 +67,26 @@ export class PlatformAccessService {
     const now = new Date();
 
     try {
-      const current = await (this.prisma as any).platformSubscriberAccess.findUnique({
-        where: { platformTag_customerEmail: { platformTag, customerEmail: email } },
+      const current = await (
+        this.prisma as any
+      ).platformSubscriberAccess.findUnique({
+        where: {
+          platformTag_customerEmail: { platformTag, customerEmail: email },
+        },
       });
 
       if (current) {
         let base: Date;
-        if (current.isActive && current.expiresAt > now) base = current.expiresAt;
-        else if (!current.isActive && current.frozenDays > 0) base = new Date(now.getTime() + current.frozenDays * DAY_MS);
+        if (current.isActive && current.expiresAt > now)
+          base = current.expiresAt;
+        else if (!current.isActive && current.frozenDays > 0)
+          base = new Date(now.getTime() + current.frozenDays * DAY_MS);
         else base = now;
         const newExpiry = new Date(base.getTime() + days * DAY_MS);
         await (this.prisma as any).platformSubscriberAccess.update({
-          where: { platformTag_customerEmail: { platformTag, customerEmail: email } },
+          where: {
+            platformTag_customerEmail: { platformTag, customerEmail: email },
+          },
           data: {
             isActive: true,
             expiresAt: newExpiry,
@@ -116,34 +117,54 @@ export class PlatformAccessService {
           },
         });
       }
-      this.logger.log(`[PlatformAccess][${platformTag}] acesso creditado email=${email} +${days}d (${input.paymentMethod})`);
+      this.logger.log(
+        `[PlatformAccess][${platformTag}] acesso creditado email=${email} +${days}d (${input.paymentMethod})`,
+      );
     } catch (e: any) {
-      this.logger.error(`[PlatformAccess][${platformTag}] creditAccess falhou email=${email}: ${e?.message}`);
+      this.logger.error(
+        `[PlatformAccess][${platformTag}] creditAccess falhou email=${email}: ${e?.message}`,
+      );
     }
   }
 
   /** Liga/desliga o login do usuário no backend do SaaS (bloqueio/desbloqueio). */
-  async setSaasUserActive(platformTag: string, email: string, isActive: boolean): Promise<void> {
+  async setSaasUserActive(
+    platformTag: string,
+    email: string,
+    isActive: boolean,
+  ): Promise<void> {
     const baseUrl = this.getSaasBaseUrl(platformTag);
     const token = getPlatformIntegrationValue(platformTag, 'INTERNAL_TOKEN');
     if (!baseUrl || !token) {
-      this.logger.warn(`[PlatformAccess][${platformTag}] URL/token não configurado — toggle ignorado`);
+      this.logger.warn(
+        `[PlatformAccess][${platformTag}] URL/token não configurado — toggle ignorado`,
+      );
       return;
     }
     try {
       const res = await fetch(`${baseUrl}/internal/users/toggle-by-email`, {
         method: 'PATCH',
-        headers: { 'content-type': 'application/json', 'x-internal-token': token },
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-token': token,
+        },
         body: JSON.stringify({ email, isActive }),
       });
-      this.logger.log(`[PlatformAccess][${platformTag}] toggle-by-email isActive=${isActive} email=${email} HTTP ${res.status}`);
+      this.logger.log(
+        `[PlatformAccess][${platformTag}] toggle-by-email isActive=${isActive} email=${email} HTTP ${res.status}`,
+      );
     } catch (err: unknown) {
-      this.logger.warn(`[PlatformAccess][${platformTag}] toggle falhou email=${email}: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn(
+        `[PlatformAccess][${platformTag}] toggle falhou email=${email}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
   /** URL de renovação (checkout do subscription link) do cliente naquela plataforma. */
-  async resolveRenewUrl(platformTag: string, email: string): Promise<string | undefined> {
+  async resolveRenewUrl(
+    platformTag: string,
+    email: string,
+  ): Promise<string | undefined> {
     const tag = platformTag.toUpperCase();
     const order = await (this.prisma as any).subscriptionLinkOrder.findFirst({
       where: {
@@ -156,6 +177,8 @@ export class PlatformAccessService {
       select: { subscriptionLink: { select: { code: true } } },
     });
     const code = order?.subscriptionLink?.code;
-    return code ? `${process.env.SIMPAY_CHECKOUT_URL}/?subscriptionLinkCode=${code}` : undefined;
+    return code
+      ? `${process.env.SIMPAY_CHECKOUT_URL}/?subscriptionLinkCode=${code}`
+      : undefined;
   }
 }

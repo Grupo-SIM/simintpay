@@ -46,6 +46,7 @@ import {
 } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
+import { accessDaysForFrequency } from '../../helpers/billing-frequency.helper';
 import {
   assertClientCanCreate,
   clientTaxaTagFor,
@@ -64,24 +65,6 @@ export class PixPlanService {
     private readonly prisma: PrismaService,
     @Optional() private readonly emailService?: EmailService,
   ) {}
-
-  private getDaysForPlan(planType: string): number {
-    const daysMapping: Record<string, number> = {
-      MONTHLY: 30,
-      MONTH: 30,
-      QUARTER: 90,
-      TRIMESTRAL: 90,
-      SEMESTER: 180,
-      SEMESTRAL: 180,
-      YEAR: 365,
-      ANUAL: 365,
-      ANNUAL: 365,
-      DAILY: 1,
-      WEEKLY: 7,
-    };
-    const normalizedType = planType.toUpperCase().trim();
-    return daysMapping[normalizedType] ?? 30;
-  }
 
   private mapFrequencyToType(
     freq?: 'MONTH' | 'QUARTER' | 'SEMESTER' | 'YEAR',
@@ -263,7 +246,7 @@ export class PixPlanService {
         data: { status: 'PENDING', domPaymentId: payment.id },
       });
 
-      const days = this.getDaysForPlan(body.planType);
+      const days = accessDaysForFrequency(body.planType);
       const doc = body.document.replace(/[.-]/g, '');
 
       // Garantir que o Customer existe para vincular ao PixPlanOrder imediatamente

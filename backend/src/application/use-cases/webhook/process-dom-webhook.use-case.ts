@@ -6,6 +6,7 @@ import {
   quoteReportedPos,
 } from '../../../modules/financial-policy/financial-charge';
 import { isPhysicalDebit } from '../../helpers/dom-fee-estimate.helper';
+import { accessDaysForFrequency } from '../../helpers/billing-frequency.helper';
 import {
   creditedSettlementAmount,
   bindLinkPayment,
@@ -1158,27 +1159,6 @@ export class ProcessDomWebhookUseCase {
     }
   }
 
-  /** Dias de acesso por ciclo conforme a frequência do plano/link (default mensal=30). */
-  private planDaysForFrequency(freq?: string | null): number {
-    switch (String(freq ?? '').toUpperCase()) {
-      case 'ANUAL':
-      case 'YEAR':
-        return 365;
-      case 'SEMESTRAL':
-      case 'SEMESTER':
-        return 180;
-      case 'TRIMESTRAL':
-      case 'QUARTER':
-        return 90;
-      case 'SEMANAL':
-      case 'WEEKLY':
-      case 'WEEK':
-        return 7;
-      default:
-        return 30;
-    }
-  }
-
   private async upsertPlatformSubscriberAccess(
     platformTag: string,
     transactionId: string,
@@ -2096,7 +2076,7 @@ export class ProcessDomWebhookUseCase {
               customerEmail: order.customerEmail,
               customerName: order.customerName,
             },
-            this.planDaysForFrequency(order.subscriptionLink?.frequencyType),
+            accessDaysForFrequency(order.subscriptionLink?.frequencyType),
           );
         }
       }
@@ -2160,7 +2140,7 @@ export class ProcessDomWebhookUseCase {
               customerEmail: order.customerEmail,
               customerName: order.customerName,
             },
-            this.planDaysForFrequency(order.subscriptionLink?.frequencyType),
+            accessDaysForFrequency(order.subscriptionLink?.frequencyType),
           );
         }
       }
@@ -2223,7 +2203,7 @@ export class ProcessDomWebhookUseCase {
               customerEmail: order.customerEmail,
               customerName: order.customerName,
             },
-            this.planDaysForFrequency(order.subscriptionLink?.frequencyType),
+            accessDaysForFrequency(order.subscriptionLink?.frequencyType),
           );
         }
       }
