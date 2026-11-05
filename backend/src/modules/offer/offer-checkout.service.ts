@@ -38,6 +38,11 @@ import { persistLinkCharge } from '../platform-core/link-settlement';
 import { transactionPlatformTagData } from '../platform-core/transaction-platform';
 import { buildUserTaxaTag } from '../platform-taxas/platform-taxas.store';
 import { discardDraftOnRejection } from '../unified-platform/payments/dom-rejection';
+import {
+  readOfferFulfillment,
+  type ChargeItem,
+  type FulfillmentRole,
+} from './offer-fulfillment';
 import type { OfferChargeDto } from './offer.dto';
 
 const METHODS: Record<OfferChargeDto['paymentMethod'], PaymentMethod> = {
@@ -102,7 +107,9 @@ export class OfferCheckoutService {
       (offer.expiresAt && offer.expiresAt <= now)
     )
       throw new NotFoundException('Oferta não encontrada');
-    if (offer.maxUses !== null && offer.usedCount >= offer.maxUses)
+    const isFunnel = Boolean(input.parentChargeId);
+    // Upsell/downsell não consome a cota da oferta (como no link legado).
+    if (!isFunnel && offer.maxUses !== null && offer.usedCount >= offer.maxUses)
       throw new BadRequestException('Limite de usos da oferta atingido');
     if (offer.renewalMode !== 'NONE')
       throw new BadRequestException(
@@ -156,7 +163,39 @@ export class OfferCheckoutService {
       (['GLOBAL', 'SIMINTPAY'].includes(platformTag)
         ? buildUserTaxaTag(offer.ownerUserId)
         : platformTag);
-    const baseAmount = offer.amountCents / 100;
+    // ── Funil: upsell/downsell cobra só a oferta ligada a um pedido pago do mesmo comprador;
+    //    senão a oferta principal + order bumps escolhidos. Taxas incidem sobre o cobrado. ──
+    const funnel = isFunnel ? await this.resolveFunnel(offer, input) : null;
+    if (funnel && input.bumpCodes?.length)
+      throw new BadRequestException('Upsell/downsell não aceita order bumps');
+    const bumps = funnel ? [] : await this.resolveBumps(offer, input, now);
+    const items: ChargeItem[] = funnel
+      ? [
+          {
+            role: funnel.role,
+            offerId: offer.id,
+            title: offer.name,
+            amountCents: offer.amountCents,
+          },
+        ]
+      : [
+          {
+            role: 'MAIN',
+            offerId: offer.id,
+            title: offer.name,
+            amountCents: offer.amountCents,
+          },
+          ...bumps.map(
+            (b): ChargeItem => ({
+              role: 'BUMP',
+              offerId: b.id,
+              title: b.name,
+              amountCents: b.amountCents,
+            }),
+          ),
+        ];
+    const chargedBaseCents = items.reduce((n, i) => n + i.amountCents, 0);
+    const baseAmount = chargedBaseCents / 100;
     const pricedLink = {
       amount: new Prisma.Decimal(baseAmount),
       isStandalone: true,
@@ -211,9 +250,12 @@ export class OfferCheckoutService {
 
     const document = input.customerDocument.replace(/\D/g, '');
     const phone = (input.customerPhone ?? '').replace(/\D/g, '');
-    const baseDescription = offer.description
+    const mainDescription = offer.description
       ? `${offer.name} | ${offer.description}`
       : offer.name;
+    const baseDescription = funnel
+      ? `${mainDescription} | ${funnel.role === 'UPSELL' ? 'Upsell' : 'Downsell'}`
+      : `${mainDescription}${bumps.map((b) => ` + ${b.name}`).join('')}`;
     const txId = randomUUID();
     const snapshot = {
       financialSnapshot: withCoproduction(
@@ -250,18 +292,20 @@ export class OfferCheckoutService {
 
     // ── Reserva de uso + Charge PENDING + rascunho FINAL_NET (tudo ou nada) ──
     const charge = await this.prisma.$transaction(async (p) => {
-      const claimed = await p.offer.updateMany({
-        where: {
-          id: offer.id,
-          isActive: true,
-          ...(offer.maxUses !== null
-            ? { usedCount: { lt: offer.maxUses } }
-            : {}),
-        },
-        data: { usedCount: { increment: 1 } },
-      });
-      if (claimed.count !== 1)
-        throw new BadRequestException('Limite de usos da oferta atingido');
+      if (!funnel) {
+        const claimed = await p.offer.updateMany({
+          where: {
+            id: offer.id,
+            isActive: true,
+            ...(offer.maxUses !== null
+              ? { usedCount: { lt: offer.maxUses } }
+              : {}),
+          },
+          data: { usedCount: { increment: 1 } },
+        });
+        if (claimed.count !== 1)
+          throw new BadRequestException('Limite de usos da oferta atingido');
+      }
       await p.wallet.upsert({
         where: { userId: offer.ownerUserId },
         update: {},
@@ -288,7 +332,14 @@ export class OfferCheckoutService {
           transactionId: txId,
           attempts: 1,
           snapshot: {
-            baseAmountCents: offer.amountCents,
+            baseAmountCents: chargedBaseCents,
+            items: items as unknown as Prisma.InputJsonValue,
+            ...(funnel
+              ? {
+                  parentChargeId: funnel.parentChargeId,
+                  funnelRole: funnel.role,
+                }
+              : {}),
             installments,
             totalFee,
             domFee,
@@ -308,10 +359,11 @@ export class OfferCheckoutService {
         deleteMany: (args: Prisma.TransactionDeleteManyArgs) =>
           this.prisma.$transaction(async (p) => {
             await p.charge.deleteMany({ where: { transactionId: txId } });
-            await p.offer.updateMany({
-              where: { id: offer.id, usedCount: { gt: 0 } },
-              data: { usedCount: { decrement: 1 } },
-            });
+            if (!funnel)
+              await p.offer.updateMany({
+                where: { id: offer.id, usedCount: { gt: 0 } },
+                data: { usedCount: { decrement: 1 } },
+              });
             return p.transaction.deleteMany(args);
           }),
       },
@@ -378,8 +430,85 @@ export class OfferCheckoutService {
       status: result.status ?? 'pending',
       pixContent: result.pixContent ?? null,
       amount: totalAmount,
-      redirectUrl:
-        typeof metadata.redirectUrl === 'string' ? metadata.redirectUrl : null,
+      redirectUrl: funnel
+        ? null
+        : (readOfferFulfillment(offer.fulfillment).redirectUrl ??
+          (typeof metadata.redirectUrl === 'string'
+            ? metadata.redirectUrl
+            : null)),
+    };
+  }
+
+  /** Order bumps escolhidos: só os que a oferta principal lista como BUMP (mesmo titular, avulsos e ativos). */
+  private async resolveBumps(
+    offer: Offer,
+    input: OfferChargeDto,
+    now: Date,
+  ): Promise<Offer[]> {
+    const codes = [...new Set(input.bumpCodes ?? [])];
+    if (codes.length === 0) return [];
+    const allowed = new Set(
+      readOfferFulfillment(offer.fulfillment)
+        .bumps.filter((b) => b.role === 'BUMP')
+        .map((b) => b.offerId),
+    );
+    const found = await this.prisma.offer.findMany({
+      where: { code: { in: codes } },
+    });
+    const usable = found.filter(
+      (o) =>
+        allowed.has(o.id) &&
+        o.ownerUserId === offer.ownerUserId &&
+        o.isActive &&
+        o.renewalMode === 'NONE' &&
+        o.currency === offer.currency &&
+        !(o.expiresAt && o.expiresAt <= now),
+    );
+    if (usable.length !== codes.length)
+      throw new BadRequestException('Order bump indisponível');
+    return codes.map((c) => usable.find((o) => o.code === c)!);
+  }
+
+  /** Valida upsell/downsell: pedido principal pago, do mesmo comprador, que ainda não comprou este funil. */
+  private async resolveFunnel(
+    offer: Offer,
+    input: OfferChargeDto,
+  ): Promise<{ role: 'UPSELL' | 'DOWNSELL'; parentChargeId: string }> {
+    const parent = await this.prisma.charge.findUnique({
+      where: { id: input.parentChargeId! },
+      include: { offer: true },
+    });
+    if (!parent || parent.status !== 'PAID' || !parent.offer)
+      throw new BadRequestException('Pedido principal não aprovado');
+    if (
+      (parent.customerEmail ?? '').trim().toLowerCase() !==
+      input.customerEmail.trim().toLowerCase()
+    )
+      throw new BadRequestException(
+        'Pedido principal pertence a outro comprador',
+      );
+    const link = readOfferFulfillment(parent.offer.fulfillment).bumps.find(
+      (b) => b.offerId === offer.id,
+    );
+    if (
+      !link ||
+      link.role === 'BUMP' ||
+      parent.offer.ownerUserId !== offer.ownerUserId
+    )
+      throw new NotFoundException('Oferta não encontrada ou inativa');
+    const already = await this.prisma.charge.count({
+      where: {
+        status: 'PAID',
+        AND: [{ snapshot: { path: ['parentChargeId'], equals: parent.id } }],
+      },
+    });
+    if (already > 0)
+      throw new BadRequestException(
+        'Oferta pós-compra já adquirida neste pedido',
+      );
+    return {
+      role: link.role as Extract<FulfillmentRole, 'UPSELL' | 'DOWNSELL'>,
+      parentChargeId: parent.id,
     };
   }
 

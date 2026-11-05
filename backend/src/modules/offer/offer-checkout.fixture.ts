@@ -30,15 +30,25 @@ export function makeOffer(over: Record<string, unknown> = {}): any {
   };
 }
 
-export function makeOfferDb(offer: any, fixtureOpts: any = {}) {
+export function makeOfferDb(
+  offer: any,
+  fixtureOpts: any = {},
+  moreOffers: any[] = [],
+) {
   const base = makeFakePrisma(fixtureOpts);
-  const offers = [offer];
+  const offers = [offer, ...moreOffers];
   const charges: any[] = [];
   const refs: any[] = [];
   const extra = {
     offer: {
       findUnique: async ({ where }: any) =>
         offers.find((o) => o.code === where.code || o.id === where.id) ?? null,
+      findMany: async ({ where }: any) =>
+        offers.filter(
+          (o) =>
+            (!where.id?.in || where.id.in.includes(o.id)) &&
+            (!where.code?.in || where.code.in.includes(o.code)),
+        ),
       updateMany: async ({ where, data }: any) => {
         const o = offers.find((x) => x.id === where.id);
         if (!o) return { count: 0 };
@@ -59,6 +69,24 @@ export function makeOfferDb(offer: any, fixtureOpts: any = {}) {
       },
     },
     charge: {
+      findUnique: async ({ where, include }: any) => {
+        const c = charges.find(
+          (x) =>
+            (where.id !== undefined && x.id === where.id) ||
+            (where.transactionId !== undefined &&
+              x.transactionId === where.transactionId),
+        );
+        if (!c) return null;
+        return include?.offer
+          ? { ...c, offer: offers.find((o) => o.id === c.offerId) ?? null }
+          : c;
+      },
+      count: async ({ where }: any) =>
+        charges.filter(
+          (c) =>
+            (!where.status || c.status === where.status) &&
+            c.snapshot?.parentChargeId === where.AND?.[0]?.snapshot?.equals,
+        ).length,
       create: async ({ data }: any) => {
         const row = {
           id: `charge-${charges.length + 1}`,

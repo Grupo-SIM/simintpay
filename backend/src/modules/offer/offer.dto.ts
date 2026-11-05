@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayUnique,
+  ArrayMaxSize,
   IsArray,
   IsDateString,
   IsEmail,
@@ -209,4 +210,23 @@ export class OfferChargeDto {
   @IsOptional()
   @IsObject()
   tracking?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Códigos dos order bumps escolhidos (veja `bumps` no GET público)',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsString({ each: true })
+  bumpCodes?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Upsell/downsell: id da Charge PAGA do pedido principal, do mesmo comprador',
+  })
+  @IsOptional()
+  @IsString()
+  parentChargeId?: string;
 }
