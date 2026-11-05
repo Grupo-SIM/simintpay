@@ -1,8 +1,10 @@
 import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
   IsDateString,
+  IsEmail,
   IsIn,
   IsInt,
   IsObject,
@@ -11,6 +13,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 
 const KINDS = [
@@ -159,4 +162,51 @@ export class ListOffersQueryDto {
   @IsOptional()
   @IsIn(KINDS)
   kind?: (typeof KINDS)[number];
+}
+
+/** Dados do cartão enviados pelo checkout (mesmo formato do link de pagamento). */
+export class OfferChargeCardDto {
+  @ApiProperty() @IsString() token!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() brand?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() bin?: string;
+  @ApiProperty() @IsString() exp_month!: string;
+  @ApiProperty() @IsString() exp_year!: string;
+  @ApiProperty() @IsString() cvv!: string;
+  @ApiProperty() @IsString() holder_name!: string;
+  @ApiProperty() @IsString() holder_document!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() number?: string;
+}
+
+/** Cobrança pública de uma oferta avulsa. */
+export class OfferChargeDto {
+  @ApiProperty({ enum: ['pix', 'credit_card', 'debit_card'] })
+  @IsIn(['pix', 'credit_card', 'debit_card'])
+  paymentMethod!: 'pix' | 'credit_card' | 'debit_card';
+
+  @ApiProperty() @IsString() @MinLength(1) customerName!: string;
+  @ApiProperty() @IsEmail() customerEmail!: string;
+  @ApiProperty() @IsString() @MinLength(1) customerDocument!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() customerPhone?: string;
+
+  @ApiPropertyOptional({ enum: ['CPF', 'CNPJ'] })
+  @IsOptional()
+  @IsIn(['CPF', 'CNPJ'])
+  documentType?: 'CPF' | 'CNPJ';
+
+  @ApiPropertyOptional({ description: 'Somente cartão de crédito; padrão 1' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  installments?: number;
+
+  @ApiPropertyOptional({ type: OfferChargeCardDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OfferChargeCardDto)
+  card?: OfferChargeCardDto;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  tracking?: Record<string, string>;
 }

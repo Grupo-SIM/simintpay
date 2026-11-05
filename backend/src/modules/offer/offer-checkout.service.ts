@@ -1,0 +1,445 @@
+import { randomUUID } from 'node:crypto';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  PaymentMethod,
+  Prisma,
+  TransactionStatus,
+  type Offer,
+} from '@prisma/client';
+import { calculateAreaflixSellerNet } from '../../application/helpers/areaflix-fees.helper';
+import { clientTaxaTagFor } from '../../application/helpers/client-rules.helper';
+import { platformGatewayToken } from '../../application/helpers/explicit-platform.helper';
+import {
+  calculateDebitFees,
+  calculatePaymentLinkFees,
+  round2,
+} from '../../application/use-cases/payment-link/payment-link-fees.helper';
+import { USER_REPOSITORY } from '../../core/repositories/user.repository.interface';
+import type { IUserRepository } from '../../core/repositories/user.repository.interface';
+import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { PaymentGatewayResolver } from '../../infrastructure/http/payment-gateway.resolver';
+import { ExternalRefService } from '../billing-core/external-ref.service';
+import { markChargeSettled } from '../billing-core/charge-settlement';
+import {
+  captureCoproduction,
+  withCoproduction,
+} from '../coproduction/coproduction.service';
+import {
+  loadChargePolicy,
+  quoteFinancialCharge,
+} from '../financial-policy/financial-charge';
+import { paymentTracking } from '../platform-core/payment-tracking';
+import { persistLinkCharge } from '../platform-core/link-settlement';
+import { transactionPlatformTagData } from '../platform-core/transaction-platform';
+import { buildUserTaxaTag } from '../platform-taxas/platform-taxas.store';
+import { discardDraftOnRejection } from '../unified-platform/payments/dom-rejection';
+import type { OfferChargeDto } from './offer.dto';
+
+const METHODS: Record<OfferChargeDto['paymentMethod'], PaymentMethod> = {
+  pix: PaymentMethod.PIX,
+  credit_card: PaymentMethod.CREDIT_CARD,
+  debit_card: PaymentMethod.DEBIT_CARD,
+};
+
+const METHOD_LABEL: Record<PaymentMethod, string> = {
+  PIX: 'PIX',
+  CREDIT_CARD: 'cartão de crédito',
+  DEBIT_CARD: 'cartão de débito',
+  BOLETO: 'boleto',
+};
+
+export type OfferChargeResult = {
+  id: string;
+  transactionId: string;
+  chargeId: string;
+  status: string;
+  pixContent: string | null;
+  qrCode?: string | null;
+  pixExpire?: string | null;
+  amount: number;
+  redirectUrl?: string | null;
+};
+
+function mapGatewayStatus(status: string | null | undefined) {
+  const s = (status ?? '').toUpperCase();
+  if (s === 'PAID' || s === 'APPROVED' || s === 'COMPLETED')
+    return TransactionStatus.COMPLETED;
+  if (s === 'FAILED' || s === 'REJECTED' || s === 'EXPIRED')
+    return TransactionStatus.FAILED;
+  if (s === 'REFUNDED') return TransactionStatus.REFUNDED;
+  if (s === 'CHARGEBACK') return TransactionStatus.CHARGEBACK;
+  return TransactionStatus.PENDING;
+}
+
+/**
+ * Checkout público de uma Offer avulsa (renewalMode NONE): PIX e cartão. Espelha o fluxo
+ * corrigido do link de pagamento (taxas, rascunho FINAL_NET, persistência, coprodução) e
+ * grava a Charge canônica. Assinaturas ficam fora de escopo.
+ */
+@Injectable()
+export class OfferCheckoutService {
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
+    private readonly gateways: PaymentGatewayResolver,
+    private readonly refs: ExternalRefService,
+  ) {}
+
+  async charge(
+    code: string,
+    input: OfferChargeDto,
+    now = new Date(),
+  ): Promise<OfferChargeResult> {
+    const offer = await this.prisma.offer.findUnique({ where: { code } });
+    if (
+      !offer ||
+      !offer.isActive ||
+      (offer.expiresAt && offer.expiresAt <= now)
+    )
+      throw new NotFoundException('Oferta não encontrada');
+    if (offer.maxUses !== null && offer.usedCount >= offer.maxUses)
+      throw new BadRequestException('Limite de usos da oferta atingido');
+    if (offer.renewalMode !== 'NONE')
+      throw new BadRequestException(
+        'Ofertas de assinatura ainda não têm checkout público; use uma oferta avulsa',
+      );
+
+    const method = METHODS[input.paymentMethod];
+    if (!method) throw new BadRequestException('Meio de pagamento inválido');
+    if (!offer.acceptedMethods.includes(method))
+      throw new BadRequestException(
+        `Esta oferta não aceita pagamento via ${METHOD_LABEL[method]}`,
+      );
+    const isPix = method === PaymentMethod.PIX;
+    const isDebit = method === PaymentMethod.DEBIT_CARD;
+    const installments = isPix || isDebit ? 1 : (input.installments ?? 1);
+    if (
+      !Number.isInteger(installments) ||
+      installments < 1 ||
+      installments > offer.maxInstallments
+    )
+      throw new BadRequestException(
+        `Parcelamento permitido: de 1 a ${offer.maxInstallments}`,
+      );
+    if (!isPix && !input.card)
+      throw new BadRequestException('Dados do cartão são obrigatórios');
+
+    const platformTag = (offer.platformTag ?? 'GLOBAL').toUpperCase();
+    const acquirer = this.gateways.acquirerForSlug(platformTag);
+    const capabilities = this.gateways.capabilitiesFor(acquirer);
+    if (!capabilities.methods.has(method))
+      throw new BadRequestException(
+        `O adquirente desta oferta não suporta ${METHOD_LABEL[method]}`,
+      );
+    if (installments > capabilities.maxInstallments)
+      throw new BadRequestException(
+        `O adquirente desta oferta permite até ${capabilities.maxInstallments} parcelas`,
+      );
+    const gateway = this.gateways.byAcquirer(acquirer);
+
+    const domToken = platformGatewayToken(platformTag, process.env.DOM_TOKEN);
+    if (!domToken)
+      throw new BadRequestException('Token do gateway não configurado');
+
+    // ── Taxas: mesmo caminho do link (política financeira, senão cálculo legado) ──
+    const owner = await this.users.findById(offer.ownerUserId);
+    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(platformTag)
+      ? null
+      : clientTaxaTagFor(owner);
+    const taxaTag =
+      ownerClientTag ??
+      (['GLOBAL', 'SIMINTPAY'].includes(platformTag)
+        ? buildUserTaxaTag(offer.ownerUserId)
+        : platformTag);
+    const baseAmount = offer.amountCents / 100;
+    const pricedLink = {
+      amount: new Prisma.Decimal(baseAmount),
+      isStandalone: true,
+      plataformas: [platformTag],
+    } as never;
+    const financialQuote = quoteFinancialCharge(
+      await loadChargePolicy(this.prisma, taxaTag),
+      baseAmount,
+      isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
+      installments,
+    );
+    const fees =
+      financialQuote ??
+      (isDebit
+        ? (() => {
+            const d = calculateDebitFees(pricedLink, taxaTag);
+            return {
+              totalAmount: d.baseAmount,
+              netAmount: d.netAmount,
+              domFeeAmount: d.domFeeAmount,
+            };
+          })()
+        : calculatePaymentLinkFees(
+            pricedLink,
+            installments,
+            taxaTag,
+            isPix,
+            false,
+          ));
+    const { totalAmount, domFeeAmount } = fees;
+    let { netAmount } = fees;
+    if (platformTag === 'AREAFLIX' && !financialQuote)
+      netAmount = calculateAreaflixSellerNet(
+        totalAmount,
+        isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
+        installments,
+      );
+
+    const domFee = round2(domFeeAmount);
+    const totalFee = round2(totalAmount - netAmount);
+    const platformFee = round2(totalFee - domFee);
+
+    const coproduction = await captureCoproduction(
+      this.prisma,
+      'links-pagamento',
+      offer.legacyType === 'PaymentLink' && offer.legacyId
+        ? offer.legacyId
+        : offer.id,
+      offer.ownerUserId,
+      platformTag,
+    );
+
+    const document = input.customerDocument.replace(/\D/g, '');
+    const phone = (input.customerPhone ?? '').replace(/\D/g, '');
+    const baseDescription = offer.description
+      ? `${offer.name} | ${offer.description}`
+      : offer.name;
+    const txId = randomUUID();
+    const snapshot = {
+      financialSnapshot: withCoproduction(
+        financialQuote?.financialSnapshot,
+        coproduction,
+      ),
+      userId: offer.ownerUserId,
+      amount: new Prisma.Decimal(totalAmount),
+      netAmount: new Prisma.Decimal(netAmount),
+      paymentMethod: method,
+      totalFee: new Prisma.Decimal(totalFee),
+      domFee: new Prisma.Decimal(domFee),
+      platformFee: new Prisma.Decimal(platformFee),
+      description:
+        platformTag !== 'GLOBAL'
+          ? `${baseDescription} [TENANT:${platformTag}]`
+          : baseDescription,
+      ...transactionPlatformTagData(platformTag),
+      customerName: input.customerName,
+      customerEmail: input.customerEmail,
+      customerDocument: document,
+      customerPhone: phone || null,
+      tracking: paymentTracking(input.tracking),
+      installments,
+    };
+
+    // ── Gancho gateway: link de pagamento do adquirente, criado na primeira cobrança ──
+    const domLinkId = await this.gatewayLinkId(
+      offer,
+      acquirer,
+      domToken,
+      gateway,
+    );
+
+    // ── Reserva de uso + Charge PENDING + rascunho FINAL_NET (tudo ou nada) ──
+    const charge = await this.prisma.$transaction(async (p) => {
+      const claimed = await p.offer.updateMany({
+        where: {
+          id: offer.id,
+          isActive: true,
+          ...(offer.maxUses !== null
+            ? { usedCount: { lt: offer.maxUses } }
+            : {}),
+        },
+        data: { usedCount: { increment: 1 } },
+      });
+      if (claimed.count !== 1)
+        throw new BadRequestException('Limite de usos da oferta atingido');
+      await p.wallet.upsert({
+        where: { userId: offer.ownerUserId },
+        update: {},
+        create: { userId: offer.ownerUserId, balance: 0 },
+      });
+      await p.transaction.create({
+        data: {
+          ...snapshot,
+          id: txId,
+          status: 'DRAFT',
+          settlementBasis: 'FINAL_NET',
+        },
+      });
+      return p.charge.create({
+        data: {
+          offerId: offer.id,
+          ownerUserId: offer.ownerUserId,
+          amountCents: Math.round(totalAmount * 100),
+          currency: offer.currency,
+          method,
+          customerName: input.customerName,
+          customerEmail: input.customerEmail,
+          customerDocument: document,
+          transactionId: txId,
+          attempts: 1,
+          snapshot: {
+            baseAmountCents: offer.amountCents,
+            installments,
+            totalFee,
+            domFee,
+            platformFee,
+            netAmount,
+            acquirer,
+            financial: (snapshot.financialSnapshot ??
+              null) as Prisma.InputJsonValue,
+          },
+        },
+      });
+    });
+
+    // Rejeição definitiva do adquirente: descarta rascunho, Charge e devolve a reserva de uso.
+    const releasing = {
+      transaction: {
+        deleteMany: (args: Prisma.TransactionDeleteManyArgs) =>
+          this.prisma.$transaction(async (p) => {
+            await p.charge.deleteMany({ where: { transactionId: txId } });
+            await p.offer.updateMany({
+              where: { id: offer.id, usedCount: { gt: 0 } },
+              data: { usedCount: { decrement: 1 } },
+            });
+            return p.transaction.deleteMany(args);
+          }),
+      },
+    } as never;
+
+    const description = `${snapshot.description} [LINK_CHARGE:${txId}]`;
+    if (isPix) {
+      const result = await discardDraftOnRejection(releasing, txId, () =>
+        gateway.chargePixForLink(domToken, {
+          domLinkId,
+          amount: totalAmount,
+          description,
+          customerName: input.customerName,
+          customerEmail: input.customerEmail,
+          customerDocument: document,
+          customerPhone: phone,
+          documentType:
+            input.documentType ?? (document.length === 14 ? 'CNPJ' : 'CPF'),
+          codExternal: txId,
+        }),
+      );
+      const status = TransactionStatus.PENDING;
+      const saved = await this.persist(
+        { ...snapshot, domPaymentId: result.id },
+        status,
+        txId,
+        result.pixContent ?? null,
+        result.pixExpire ? new Date(result.pixExpire) : null,
+      );
+      return {
+        ...result,
+        transactionId: saved.id,
+        chargeId: charge.id,
+        amount: totalAmount,
+      };
+    }
+
+    const result = await discardDraftOnRejection(releasing, txId, () =>
+      gateway.chargePaymentLink(domToken, {
+        domLinkId,
+        amount: totalAmount,
+        description,
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+        customerDocument: document,
+        customerPhone: phone,
+        paymentMethod: input.paymentMethod,
+        installments,
+        card: input.card,
+      }),
+    );
+    const saved = await this.persist(
+      { ...snapshot, domPaymentId: result.id },
+      mapGatewayStatus(result.status),
+      txId,
+      result.pixContent ?? null,
+      null,
+    );
+    const metadata = (offer.metadata ?? {}) as Record<string, unknown>;
+    return {
+      id: result.id,
+      transactionId: saved.id,
+      chargeId: charge.id,
+      status: result.status ?? 'pending',
+      pixContent: result.pixContent ?? null,
+      amount: totalAmount,
+      redirectUrl:
+        typeof metadata.redirectUrl === 'string' ? metadata.redirectUrl : null,
+    };
+  }
+
+  /** Persiste o retorno do adquirente e acompanha a Charge no mesmo commit. */
+  private persist(
+    data: Record<string, unknown>,
+    status: TransactionStatus,
+    txId: string,
+    pixContent: string | null,
+    pixExpire: Date | null,
+  ) {
+    return this.prisma.$transaction(async (p) => {
+      const row = await persistLinkCharge(
+        p,
+        { ...data, pixContent, pixExpire } as never,
+        status,
+        txId,
+      );
+      await markChargeSettled(p, row.id, status);
+      return row;
+    });
+  }
+
+  /** ID do link no adquirente; criado na primeira cobrança e guardado em ExternalRef. */
+  private async gatewayLinkId(
+    offer: Offer,
+    acquirer: string,
+    domToken: string,
+    gateway: ReturnType<PaymentGatewayResolver['byAcquirer']>,
+  ): Promise<string> {
+    const target = { entityType: 'Offer', entityId: offer.id };
+    const known = await this.refs.externalIdFor(
+      target,
+      acquirer,
+      'PAYMENT_LINK',
+    );
+    if (known) return known;
+    const created = await gateway.createPaymentLink(domToken, {
+      title: offer.name,
+      description: offer.description,
+      amount: offer.amountCents / 100,
+      maxInstallments: offer.maxInstallments,
+      interestRateInstallment: 0,
+      aceitaCartao:
+        offer.acceptedMethods.includes('CREDIT_CARD') ||
+        offer.acceptedMethods.includes('DEBIT_CARD'),
+      aceitaPix: offer.acceptedMethods.includes('PIX'),
+    });
+    try {
+      await this.refs.link(acquirer, 'PAYMENT_LINK', created.id, target);
+      return created.id;
+    } catch (error) {
+      // Corrida: outra primeira cobrança vinculou antes; usa o dela (o link extra fica órfão).
+      const winner = await this.refs.externalIdFor(
+        target,
+        acquirer,
+        'PAYMENT_LINK',
+      );
+      if (winner) return winner;
+      throw error;
+    }
+  }
+}

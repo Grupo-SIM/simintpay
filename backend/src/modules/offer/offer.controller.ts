@@ -15,14 +15,17 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import {
   CreateOfferDto,
   ListOffersQueryDto,
+  OfferChargeDto,
   UpdateOfferDto,
 } from './offer.dto';
+import { OfferCheckoutService } from './offer-checkout.service';
 import { OfferService, type OfferActor } from './offer.service';
 
 const actorOf = (user: JwtPayload | undefined): OfferActor => ({
@@ -33,7 +36,10 @@ const actorOf = (user: JwtPayload | undefined): OfferActor => ({
 @Controller('ofertas')
 @ApiTags('Ofertas')
 export class OfferController {
-  constructor(private readonly offers: OfferService) {}
+  constructor(
+    private readonly offers: OfferService,
+    private readonly checkout: OfferCheckoutService,
+  ) {}
 
   // ── Rota pública (sem autenticação): somente campos seguros ───────────────
 
@@ -43,6 +49,25 @@ export class OfferController {
   @ApiResponse({ status: 404 })
   getPublic(@Param('code') code: string) {
     return this.offers.getPublicByCode(code);
+  }
+
+  @Post('public/:code/charge')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Cobrar uma oferta avulsa (checkout público: PIX ou cartão)',
+  })
+  @ApiResponse({ status: 201 })
+  @ApiResponse({ status: 400 })
+  @ApiResponse({ status: 404 })
+  charge(
+    @Param('code') code: string,
+    @Body() body: OfferChargeDto,
+    @Query() query: Record<string, string>,
+  ) {
+    return this.checkout.charge(code, {
+      ...body,
+      tracking: { ...query, ...body.tracking },
+    });
   }
 
   // ── Rotas autenticadas ────────────────────────────────────────────────────
