@@ -51,6 +51,7 @@ export type Conflicts = {
   invalidAmount: string[];
   adminOwner: string[];
   belowMinimumAmount: string[];
+  notes: string[];
 };
 
 const ref = (d: OfferDraft) => `${d.legacyType}:${d.legacyId}`;
@@ -68,6 +69,7 @@ export function findConflicts(
     invalidAmount: [],
     adminOwner: [],
     belowMinimumAmount: [],
+    notes: [],
   };
   for (const d of drafts) {
     if (d.code) byCode.set(d.code, [...(byCode.get(d.code) ?? []), ref(d)]);
@@ -76,6 +78,7 @@ export function findConflicts(
       out.missingOwner.push(ref(d));
     else if (roleByUser.get(d.ownerUserId) === 'ADMIN')
       out.adminOwner.push(ref(d));
+    for (const n of d.notes) out.notes.push(`${ref(d)} ${n}`);
     if (d.amountCents === null) out.invalidAmount.push(ref(d));
     else if (d.amountCents < MIN_AMOUNT_CENTS)
       out.belowMinimumAmount.push(ref(d));
@@ -100,7 +103,9 @@ async function main() {
           paymentLinks: await tx.paymentLink.findMany(),
           subscriptionLinks: await tx.subscriptionLink.findMany(),
           plans: await tx.plan.findMany(),
-          pixPlans: await tx.pixCreditPlan.findMany(),
+          pixPlans: await tx.pixCreditPlan.findMany({
+            include: { linkCodes: true },
+          }),
           boletos: await tx.boleto.findMany(),
           users: await tx.user.findMany({ select: { id: true, role: true } }),
           existingOffers: await tx.offer.count(),
@@ -164,6 +169,7 @@ async function main() {
         ['amount below minimum', conflicts.belowMinimumAmount],
         ['invalid amount', conflicts.invalidAmount],
         ['missing code', conflicts.missingCode],
+        ['notes', conflicts.notes],
       ] as const)
         if (list.length) console.log(`  ${label}: ${list.join(', ')}`);
     }

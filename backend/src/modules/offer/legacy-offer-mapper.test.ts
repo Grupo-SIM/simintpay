@@ -183,6 +183,63 @@ test('PixCreditPlan is PIX manual pay and float price has no drift', () => {
     code: null,
   });
   expect(d.name).toBe('PIX MONTHLY');
+  expect(d.issues).toEqual(['MISSING_CODE']);
+});
+
+test('PixCreditPlan takes the oldest active PixPlanLinkCode and notes the extras', () => {
+  const d = mapPixCreditPlan({
+    id: 'x',
+    userId: 'u',
+    type: 'MONTHLY',
+    price: 10,
+    linkCodes: [
+      { code: 'PX-NEW', isActive: true, createdAt: new Date('2026-03-01') },
+      {
+        code: 'PX-OLDINACTIVE',
+        isActive: false,
+        createdAt: new Date('2025-01-01'),
+      },
+      { code: 'PX-OLD', isActive: true, createdAt: new Date('2026-01-01') },
+    ],
+  });
+  expect(d.code).toBe('PX-OLD');
+  expect(d.issues).toEqual([]);
+  expect(d.notes).toEqual(['EXTRA_ACTIVE_LINK_CODES: PX-NEW']);
+});
+
+test('PixCreditPlan with only inactive codes still reports MISSING_CODE', () => {
+  const d = mapPixCreditPlan({
+    id: 'x',
+    userId: 'u',
+    price: 10,
+    linkCodes: [{ code: 'PX-OFF', isActive: false }],
+  });
+  expect(d.code).toBeNull();
+  expect(d.issues).toEqual(['MISSING_CODE']);
+});
+
+test('Plan.frequency multiplies the interval of type (gateway "every N units")', () => {
+  const base = { id: 'f', userId: 'u', name: 'n', price: 1 };
+  expect(mapPlan({ ...base, type: 'MONTHLY', frequency: 2 })).toMatchObject({
+    intervalType: 'MONTH',
+    intervalCount: 2,
+    accessDays: 60,
+  });
+  expect(mapPlan({ ...base, type: 'WEEKLY', frequency: 3 })).toMatchObject({
+    intervalType: 'WEEK',
+    intervalCount: 3,
+    accessDays: 21,
+  });
+  expect(mapPlan({ ...base, type: 'ANUAL', frequency: 2 })).toMatchObject({
+    intervalType: 'YEAR',
+    intervalCount: 2,
+    accessDays: 730,
+  });
+  for (const frequency of [null, undefined, 1, 0, -1, 1.5])
+    expect(mapPlan({ ...base, type: 'MONTHLY', frequency })).toMatchObject({
+      intervalCount: 1,
+      accessDays: 30,
+    });
 });
 
 test('Boleto maps to BOLETO with no renewal', () => {

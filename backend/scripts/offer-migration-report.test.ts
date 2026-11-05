@@ -71,4 +71,5 @@ test('detects duplicate codes, admin owners, missing owners and low amounts', ()
   expect(c.adminOwner).toEqual(['Boleto:2']);
   expect(c.missingOwner).toEqual(['Boleto:3']);
   expect(c.belowMinimumAmount).toEqual(['PaymentLink:1', 'Boleto:3']);
+  expect(c.notes).toEqual([]);
 });

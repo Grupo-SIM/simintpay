@@ -64,6 +64,8 @@ export type OfferDraft = {
   legacyType: LegacyType;
   legacyId: string;
   issues: OfferDraftIssue[];
+  /** Non-blocking observations (e.g. extra legacy codes that were not chosen). */
+  notes: string[];
 };
 
 /** Exact decimal (up to 2 places, no float arithmetic) to integer cents; null if not exact. */
@@ -118,12 +120,15 @@ const clean = (value?: string | null): string | null => {
 const firstTag = (tags?: string[] | null, fallback?: string | null) =>
   clean(tags?.find((t) => clean(t))) ?? clean(fallback);
 
-function finish(draft: Omit<OfferDraft, 'issues'>): OfferDraft {
+function finish(
+  draft: Omit<OfferDraft, 'issues' | 'notes'>,
+  notes: string[] = [],
+): OfferDraft {
   const issues: OfferDraftIssue[] = [];
   if (draft.amountCents === null) issues.push('INVALID_AMOUNT');
   if (!draft.code) issues.push('MISSING_CODE');
   if (!draft.ownerUserId) issues.push('MISSING_OWNER');
-  return { ...draft, issues };
+  return { ...draft, issues, notes };
 }
 
 type Common = {
@@ -229,6 +234,12 @@ export type PlanRow = Common & {
   description?: string | null;
   price: MoneyInput;
   type?: string | null;
+  /**
+   * Gateway multiplier: the plan charges every `frequency` units of `type`
+   * ("a cada N semanas/meses/anos", sent as DOM `frequency` + `frequency_type`).
+   * Null/invalid is treated as 1.
+   */
+  frequency?: number | null;
   repetitions?: number | null;
   retryDays?: number | null;
   isActive?: boolean | null;
@@ -237,7 +248,14 @@ export type PlanRow = Common & {
 };
 
 export function mapPlan(row: PlanRow): OfferDraft {
-  const interval = intervalForFrequency(row.type);
+  const base = intervalForFrequency(row.type);
+  // `Plan.frequency` multiplies the interval of `type` (create-plan.use-case.ts sends it
+  // as DOM `frequency` next to `frequency_type`), so every 2 MONTHLY = 2 months.
+  const multiplier =
+    Number.isInteger(row.frequency) && Number(row.frequency) >= 1
+      ? Number(row.frequency)
+      : 1;
+  const interval = { type: base.type, count: base.count * multiplier };
   return finish({
     ...owners(row),
     platformTag: firstTag(row.plataformas),
@@ -252,7 +270,7 @@ export function mapPlan(row: PlanRow): OfferDraft {
     expiresAt: null,
     maxUses: null,
     usedCount: 0,
-    accessDays: accessDaysForFrequency(row.type),
+    accessDays: accessDaysForFrequency(row.type) * multiplier,
     renewalMode: 'AUTO_CHARGE',
     intervalType: interval.type,
     intervalCount: interval.count,
@@ -263,9 +281,37 @@ export function mapPlan(row: PlanRow): OfferDraft {
   });
 }
 
+export type PixPlanLinkCodeRow = {
+  code: string;
+  isActive?: boolean | null;
+  createdAt?: Date | null;
+};
+
+/** Oldest active code wins; the others are reported as a note. */
+export function pickPixPlanCode(linkCodes?: PixPlanLinkCodeRow[] | null): {
+  code: string | null;
+  notes: string[];
+} {
+  const active = (linkCodes ?? [])
+    .filter((c) => (c.isActive ?? true) && clean(c.code))
+    .sort(
+      (a, b) =>
+        (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0) ||
+        a.code.localeCompare(b.code),
+    );
+  if (!active.length) return { code: null, notes: [] };
+  const extras = active.slice(1).map((c) => c.code);
+  return {
+    code: clean(active[0].code),
+    notes: extras.length
+      ? [`EXTRA_ACTIVE_LINK_CODES: ${extras.join(', ')}`]
+      : [],
+  };
+}
+
 export type PixCreditPlanRow = Common & {
-  /** PixCreditPlan has no public code column; pass one only if the caller resolved it. */
-  code?: string | null;
+  /** Public checkout codes (`PX-...`) from `PixPlanLinkCode`; the plan has no code column. */
+  linkCodes?: PixPlanLinkCodeRow[] | null;
   type?: string | null;
   /** Float column in the legacy schema; its shortest decimal form is used. */
   price: MoneyInput;
@@ -276,29 +322,33 @@ export type PixCreditPlanRow = Common & {
 
 export function mapPixCreditPlan(row: PixCreditPlanRow): OfferDraft {
   const interval = intervalForFrequency(row.type);
-  return finish({
-    ...owners(row),
-    platformTag: clean(row.tenantTag),
-    code: clean(row.code),
-    kind: 'PIX_PLAN',
-    name: clean(row.description) ?? `PIX ${row.type ?? 'MONTHLY'}`,
-    description: row.description ?? null,
-    amountCents: toCents(row.price),
-    isActive: (row.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE',
-    acceptedMethods: ['PIX'],
-    maxInstallments: 1,
-    expiresAt: null,
-    maxUses: null,
-    usedCount: 0,
-    accessDays: accessDaysForFrequency(row.type),
-    renewalMode: 'MANUAL_PAY',
-    intervalType: interval.type,
-    intervalCount: interval.count,
-    repetitions: null,
-    retryDays: null,
-    legacyType: 'PixCreditPlan',
-    legacyId: row.id,
-  });
+  const picked = pickPixPlanCode(row.linkCodes);
+  return finish(
+    {
+      ...owners(row),
+      platformTag: clean(row.tenantTag),
+      code: picked.code,
+      kind: 'PIX_PLAN',
+      name: clean(row.description) ?? `PIX ${row.type ?? 'MONTHLY'}`,
+      description: row.description ?? null,
+      amountCents: toCents(row.price),
+      isActive: (row.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE',
+      acceptedMethods: ['PIX'],
+      maxInstallments: 1,
+      expiresAt: null,
+      maxUses: null,
+      usedCount: 0,
+      accessDays: accessDaysForFrequency(row.type),
+      renewalMode: 'MANUAL_PAY',
+      intervalType: interval.type,
+      intervalCount: interval.count,
+      repetitions: null,
+      retryDays: null,
+      legacyType: 'PixCreditPlan',
+      legacyId: row.id,
+    },
+    picked.notes,
+  );
 }
 
 export type BoletoRow = Common & {

@@ -90,7 +90,7 @@ Cada fase termina em commit atômico e deixa o sistema funcionando.
 
 - [x] Schema aditivo de `Offer` (enums `OfferKind`, `RenewalMode`), com `(legacyType, legacyId)` único para o mapa legado.
 - [x] Módulo `modules/offer`: validador puro, presets dos 5 produtos, gerador de código, `OfferService`, controller `ofertas` (+ `GET public/:code`). SDK do frontend **não** regenerado.
-- [x] Mapeadores legado→`Offer` e `scripts/offer-migration-report.ts` (somente leitura; exige `--database-url` explícito; nunca executado contra banco). Pendências: `PixCreditPlan` não tem código público (precisa gerar) e `Plan.frequency` é ignorado até confirmar se multiplica o intervalo.
+- [x] Mapeadores legado→`Offer` e `scripts/offer-migration-report.ts` (somente leitura; exige `--database-url` explícito; nunca executado contra banco). Resolvido: o código de `PixCreditPlan` vem de `PixPlanLinkCode` (o `PX-...` do checkout; vale o ativo mais antigo, extras viram nota no relatório) e `Plan.frequency` multiplica o intervalo de `type` ("a cada N"), igual ao `frequency` enviado à DOM.
 - [ ] Checkout público da `Offer`; migração real dos 13 links de pagamento; wizard no dashboard.
 
 ### Fase 5 — Recorrência própria
