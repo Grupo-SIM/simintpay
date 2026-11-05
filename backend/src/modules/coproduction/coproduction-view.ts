@@ -1,6 +1,10 @@
 import { canonicalTransactionPlatformTag } from '../platform-core/transaction-platform';
 import { Prisma } from '@prisma/client';
-import { productTables, type Product } from './coproduction';
+import {
+  productOwnerColumn,
+  productTables,
+  type Product,
+} from './coproduction';
 
 /** Match settlement inheritance, including an explicit empty OWN override. */
 function effectiveAgreements(product: Product) {
@@ -12,13 +16,16 @@ function effectiveAgreements(product: Product) {
       ? 'p."tenantTag"'
       : product === 'links-assinatura'
         ? 'coalesce(p."platformTag", p.plataformas[1])'
-        : 'p.plataformas[1]',
+        : product === 'ofertas'
+          ? 'p."platformTag"'
+          : 'p.plataformas[1]',
   );
+  const owner = Prisma.raw(`p."${productOwnerColumn(product)}"`);
   return Prisma.sql`SELECT p.id AS "productId", CASE WHEN own.mode = 'OWN' THEN own.participants ELSE inherited.participants END AS participants
-    FROM ${table} p JOIN "User" u ON u.id = p."userId"
+    FROM ${table} p JOIN "User" u ON u.id = ${owner}
     LEFT JOIN "Platform" fallback ON fallback.id = u."platformId"
     LEFT JOIN "CoproductionAgreement" own ON own.product = ${product} AND own."productId" = p.id
-    LEFT JOIN "Platform" platform ON platform.tag = coalesce(${tag}, fallback.tag) AND platform."ownerUserId" = p."userId"
+    LEFT JOIN "Platform" platform ON platform.tag = coalesce(${tag}, fallback.tag) AND platform."ownerUserId" = ${owner}
     LEFT JOIN "CoproductionAgreement" inherited ON inherited.product = 'plataformas' AND inherited."productId" = platform.id AND inherited.mode = 'OWN'`;
 }
 

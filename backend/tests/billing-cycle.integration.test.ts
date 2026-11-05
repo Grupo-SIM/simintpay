@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import { BillingCycleService } from '../src/modules/billing-core/billing-cycle.service';
+import { seedGlobalPolicy } from './billing-policy-fixture';
 import { ChargeDueDeliveryService } from '../src/modules/billing-core/charge-due-delivery.service';
 
 const url = process.env.BILLING_TEST_DATABASE_URL;
@@ -10,7 +11,9 @@ if (url && new URL(url).hostname !== '127.0.0.1')
 const db = url
   ? new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) })
   : null;
-const run = db ? test : test.skip;
+const run = db
+  ? (name: string, fn: () => Promise<void>) => test(name, fn, 30_000)
+  : test.skip;
 const day = 24 * 60 * 60 * 1000;
 const t0 = new Date('2026-01-01T00:00:00.000Z');
 const at = (days: number) => new Date(t0.getTime() + days * day);
@@ -51,6 +54,7 @@ async function activate(offerId: string, email: string) {
 beforeAll(async () => {
   if (!db) return;
   service = new BillingCycleService(db as never);
+  await seedGlobalPolicy(db);
   const owner = await db.user.create({
     data: {
       name: 'Seller',

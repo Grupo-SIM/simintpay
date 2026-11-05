@@ -10,6 +10,7 @@ import { Prisma, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import {
   allocateNet,
+  productOwnerColumn,
   productTables,
   validateAgreement,
   type Product,
@@ -100,7 +101,7 @@ export class CoproductionService {
       throw new BadRequestException('Tipo de produto inválido');
     const table = Prisma.raw('"' + productTables[product as Product] + '"');
     const ownerColumn = Prisma.raw(
-      product === 'plataformas' ? '"ownerUserId"' : '"userId"',
+      '"' + productOwnerColumn(product as Product) + '"',
     );
     const rows = await tx.$queryRaw<{ userId: string }[]>(
       Prisma.sql`SELECT ${ownerColumn} AS "userId" FROM ${table} WHERE id = ${id} FOR SHARE`,
@@ -373,10 +374,13 @@ export async function captureCoproduction(
         ? 'p."tenantTag"'
         : product === 'links-assinatura'
           ? 'coalesce(p."platformTag", p.plataformas[1])'
-          : 'p.plataformas[1]',
+          : product === 'ofertas'
+            ? 'p."platformTag"'
+            : 'p.plataformas[1]',
     );
+    const owner = Prisma.raw('p."' + productOwnerColumn(product) + '"');
     const products = await prisma.$queryRaw<{ tag: string | null }[]>(
-      Prisma.sql`SELECT coalesce(${tagColumn}, fallback.tag) AS tag FROM ${table} p JOIN "User" u ON u.id = p."userId" LEFT JOIN "Platform" fallback ON fallback.id = u."platformId" WHERE p.id = ${productId}`,
+      Prisma.sql`SELECT coalesce(${tagColumn}, fallback.tag) AS tag FROM ${table} p JOIN "User" u ON u.id = ${owner} LEFT JOIN "Platform" fallback ON fallback.id = u."platformId" WHERE p.id = ${productId}`,
     );
     platformTag = products[0]?.tag ?? undefined;
   }

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { BillingContract, Charge, Offer } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { recordCyclePayment, type CyclePaymentDetails } from './cycle-ledger';
 import { onCycleFailed, onCyclePaid, type CycleSchedule } from './cycle-policy';
 
 /**
@@ -124,57 +125,69 @@ export class BillingCycleService {
     chargeId: string,
     outcome: 'PAID' | 'FAILED',
     now: Date = new Date(),
+    details: CyclePaymentDetails = {},
   ): Promise<{ applied: boolean }> {
-    return this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.charge.updateMany({
-        where: { id: chargeId, status: 'PENDING' },
-        data:
-          outcome === 'PAID'
-            ? { status: 'PAID', paidAt: now }
-            : { status: 'FAILED' },
-      });
-      if (claimed.count === 0) return { applied: false };
-      const charge = await tx.charge.findUniqueOrThrow({
-        where: { id: chargeId },
-      });
-      if (!charge.contractId) return { applied: true };
-      const contract = await tx.billingContract.findUniqueOrThrow({
-        where: { id: charge.contractId },
-        include: { offer: true },
-      });
-      if (!contract.offer) return { applied: true };
-      const schedule = scheduleOf(contract.offer, contract);
-      const state = {
-        currentPeriodEnd: contract.currentPeriodEnd,
-        pastDueAt: contract.pastDueAt,
-        retryCount: contract.retryCount,
-      };
-      let next;
-      if (outcome === 'PAID') {
-        const paidCycles = await tx.charge.count({
-          where: { contractId: contract.id, status: 'PAID' },
+    return this.prisma.$transaction(
+      async (tx) => {
+        const claimed = await tx.charge.updateMany({
+          where: { id: chargeId, status: 'PENDING' },
+          data:
+            outcome === 'PAID'
+              ? { status: 'PAID', paidAt: now }
+              : { status: 'FAILED' },
         });
-        next = onCyclePaid(state, schedule, paidCycles, now);
-      } else {
-        next = onCycleFailed(state, schedule, now);
-      }
-      await tx.billingContract.update({
-        where: { id: contract.id },
-        data: {
-          status: next.status,
-          currentPeriodStart: next.currentPeriodStart,
-          currentPeriodEnd: next.currentPeriodEnd,
-          nextChargeAt: next.nextChargeAt,
-          pastDueAt: next.pastDueAt,
-          suspendedAt: next.suspendedAt,
-          graceEndsAt: next.graceEndsAt,
-          retryCount: next.retryCount,
-          accessEndsAt: next.status === 'SUSPENDED' ? now : null,
-          version: { increment: 1 },
-        },
-      });
-      return { applied: true };
-    });
+        if (claimed.count === 0) return { applied: false };
+        const charge = await tx.charge.findUniqueOrThrow({
+          where: { id: chargeId },
+        });
+        // Same transaction as the claim: Transaction, fee/coproduction snapshot and wallet credit
+        // commit together with PENDING->PAID, so a duplicate settle can never credit twice.
+        if (outcome === 'PAID' && charge.offerId) {
+          const chargedOffer = await tx.offer.findUniqueOrThrow({
+            where: { id: charge.offerId },
+          });
+          await recordCyclePayment(tx, charge, chargedOffer, details);
+        }
+        if (!charge.contractId) return { applied: true };
+        const contract = await tx.billingContract.findUniqueOrThrow({
+          where: { id: charge.contractId },
+          include: { offer: true },
+        });
+        if (!contract.offer) return { applied: true };
+        const schedule = scheduleOf(contract.offer, contract);
+        const state = {
+          currentPeriodEnd: contract.currentPeriodEnd,
+          pastDueAt: contract.pastDueAt,
+          retryCount: contract.retryCount,
+        };
+        let next;
+        if (outcome === 'PAID') {
+          const paidCycles = await tx.charge.count({
+            where: { contractId: contract.id, status: 'PAID' },
+          });
+          next = onCyclePaid(state, schedule, paidCycles, now);
+        } else {
+          next = onCycleFailed(state, schedule, now);
+        }
+        await tx.billingContract.update({
+          where: { id: contract.id },
+          data: {
+            status: next.status,
+            currentPeriodStart: next.currentPeriodStart,
+            currentPeriodEnd: next.currentPeriodEnd,
+            nextChargeAt: next.nextChargeAt,
+            pastDueAt: next.pastDueAt,
+            suspendedAt: next.suspendedAt,
+            graceEndsAt: next.graceEndsAt,
+            retryCount: next.retryCount,
+            accessEndsAt: next.status === 'SUSPENDED' ? now : null,
+            version: { increment: 1 },
+          },
+        });
+        return { applied: true };
+      },
+      { timeout: 30_000, maxWait: 10_000 },
+    );
   }
 
   /**
@@ -233,7 +246,14 @@ export class BillingCycleService {
           result.unknown++;
           continue;
         }
-        await this.settle(claim.id, outcome, now);
+        try {
+          await this.settle(claim.id, outcome, now);
+        } catch {
+          // Ledger booking failed (e.g. missing financial policy): the claim rolled back, the
+          // charge stays PENDING and the reconciler retries; never abort the whole run.
+          result.unknown++;
+          continue;
+        }
         if (outcome === 'PAID') result.autoPaid++;
         else result.autoFailed++;
       } else {
