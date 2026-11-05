@@ -5,6 +5,7 @@ import SimPlanCheckout from '@/components/simplan/SimPlanCheckout';
 import SimLinkCheckout from '@/components/simlink/SimLinkCheckout';
 import SimPixPlanCheckout from '@/components/simpixplan/SimPixPlanCheckout';
 import SimSubscriptionLinkCheckout from '@/components/simsubscriptionlink/SimSubscriptionLinkCheckout';
+import OfferCheckout from '@/components/ofertas/OfferCheckout';
 import SimBoletoCheckout from '@/components/simboleto/SimBoletoCheckout';
 import { CheckoutFooter } from '@/components/checkout/CheckoutChrome';
 import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
@@ -47,7 +48,12 @@ export default function CheckoutRouter() {
   const simLinkCode = searchParams.get('simLinkCode');
   const simBoletoCode = searchParams.get('simBoletoCode');
   const subscriptionLinkCode = searchParams.get('subscriptionLinkCode');
+  const ofertaCode = searchParams.get('ofertaCode');
   const code = searchParams.get('code');
+
+  if (ofertaCode) {
+    return <OfferCheckout />;
+  }
 
   if (simPlanCode) {
     return <SimPlanCheckout />;
