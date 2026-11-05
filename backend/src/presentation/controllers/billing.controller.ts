@@ -8,6 +8,7 @@ import {
   Post,
   UnauthorizedException,
 } from '@nestjs/common';
+import { requireExternalSubscriptionId } from '../../application/use-cases/billing/external-subscription.helper';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BillingService } from '../../application/use-cases/billing/billing.service';
 import { CreateBillingContractDto } from '../../application/dtos/billing/create-billing-contract.dto';
@@ -72,7 +73,12 @@ export class BillingController {
   ) {
     this.assertInternalToken(internalToken);
     const existing = await this.prisma.billingContract.findUnique({
-      where: { resourceType_resourceId: { resourceType: 'WORKSPACE', resourceId: body.resourceId } },
+      where: {
+        resourceType_resourceId: {
+          resourceType: 'WORKSPACE',
+          resourceId: body.resourceId,
+        },
+      },
     });
     if (existing) {
       if (idempotencyKey === `workspace:${body.resourceId}`) {
@@ -158,16 +164,22 @@ export class BillingController {
           card: { ...body.card, token: body.card.token ?? '' },
         },
       );
-      await this.billing.attachWorkspacePaymentAttempt(attempt.id, subscription.id);
+      await this.billing.attachWorkspacePaymentAttempt(
+        attempt.id,
+        subscription.id,
+      );
       const snapshot = await this.gateway.getSubscriptionBillingSnapshot(
         domToken,
         subscription.id,
       );
-      const createdPrepaidStatus = typeof subscription.status_transaction_prepaid === 'string'
-        ? subscription.status_transaction_prepaid
-        : undefined;
-      const initialPaymentFailed = [createdPrepaidStatus, snapshot.initialPaymentStatus]
-        .some(status => status?.toLowerCase() === 'failed');
+      const createdPrepaidStatus =
+        typeof subscription.status_transaction_prepaid === 'string'
+          ? subscription.status_transaction_prepaid
+          : undefined;
+      const initialPaymentFailed = [
+        createdPrepaidStatus,
+        snapshot.initialPaymentStatus,
+      ].some((status) => status?.toLowerCase() === 'failed');
       if (
         snapshot.status.toLowerCase() !== 'active' ||
         !snapshot.nextInvoiceAt ||
@@ -279,26 +291,48 @@ export class BillingController {
   async recoverWorkspaceSubscription(
     @Headers('x-internal-token') internalToken: string | undefined,
     @Param('contractId') contractId: string,
-    @Body() body: { card: { number: string; exp_month: string; exp_year: string; cvv: string; holder_name: string; holder_document: string } },
+    @Body()
+    body: {
+      card: {
+        number: string;
+        exp_month: string;
+        exp_year: string;
+        cvv: string;
+        holder_name: string;
+        holder_document: string;
+      };
+    },
   ) {
     this.assertInternalToken(internalToken);
-    if (!body.card?.number || !body.card?.cvv) throw new BadRequestException('Dados do cartão incompletos');
+    if (!body.card?.number || !body.card?.cvv)
+      throw new BadRequestException('Dados do cartão incompletos');
     const contract = await this.billing.getContract(contractId);
     const recover = this.gateway.recoverSubscriptionCard;
-    if (!recover) throw new BadRequestException('Adquirente não suporta recuperação de cartão');
-    const domToken = await this.billing.getDomWebhookToken(contract.externalSubscriptionId);
+    if (!recover)
+      throw new BadRequestException(
+        'Adquirente não suporta recuperação de cartão',
+      );
+    const domToken = await this.billing.getDomWebhookToken(
+      requireExternalSubscriptionId(contract),
+    );
     if (!domToken) throw new BadRequestException('Token DOM não encontrado');
     const result = await recover.call(this.gateway, domToken, {
-      subscriptionId: contract.externalSubscriptionId,
+      subscriptionId: requireExternalSubscriptionId(contract),
       card: body.card,
     });
-    const paid = ['paid', 'approved', 'completed', 'ok'].includes((result.status ?? '').toLowerCase());
+    const paid = ['paid', 'approved', 'completed', 'ok'].includes(
+      (result.status ?? '').toLowerCase(),
+    );
     await this.billing.applyWorkspacePaymentEvent({
-      subscriptionId: contract.externalSubscriptionId,
+      subscriptionId: requireExternalSubscriptionId(contract),
       eventKey: `recovery:${result.paymentId ?? `${contractId}:${Date.now()}`}`,
-      event: paid ? 'PAID' : 'FAILED', paymentId: result.paymentId,
+      event: paid ? 'PAID' : 'FAILED',
+      paymentId: result.paymentId,
     });
-    return { status: paid ? 'paid' : 'failed', paymentId: result.paymentId ?? null };
+    return {
+      status: paid ? 'paid' : 'failed',
+      paymentId: result.paymentId ?? null,
+    };
   }
 
   @Post('contracts/:contractId/quantity-changes')

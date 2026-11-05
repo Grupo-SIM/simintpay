@@ -187,9 +187,9 @@ export class PlatformReportingService {
         },
       }),
     ]);
-    const subscriptionIds = contracts.map(
-      (contract) => contract.externalSubscriptionId,
-    );
+    const subscriptionIds = contracts
+      .map((contract) => contract.externalSubscriptionId)
+      .filter((id): id is string => Boolean(id));
     const transactions = subscriptionIds.length
       ? await this.prisma.transaction.findMany({
           where: { externalPaymentId: { in: subscriptionIds } },
@@ -261,9 +261,9 @@ export class PlatformReportingService {
     const now = new Date();
     for (const contract of contracts) {
       const metadata = this.jsonObject(contract.metadata);
-      const transaction = transactionBySubscription.get(
-        contract.externalSubscriptionId,
-      );
+      const transaction = contract.externalSubscriptionId
+        ? transactionBySubscription.get(contract.externalSubscriptionId)
+        : undefined;
       const reportingCustomerId =
         this.nonEmptyString(metadata?.reportingCustomerId) ??
         this.nonEmptyString(metadata?.teronAccountId);

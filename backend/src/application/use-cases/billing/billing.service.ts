@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { requireExternalSubscriptionId } from './external-subscription.helper';
 import {
   Acquirer,
   BillingContractStatus,
@@ -189,7 +190,10 @@ export class BillingService {
   ) {
     return this.prisma.transaction.update({
       where: { id: transactionId },
-      data: { externalPaymentId: externalSubscriptionId, updatedAt: new Date() },
+      data: {
+        externalPaymentId: externalSubscriptionId,
+        updatedAt: new Date(),
+      },
     });
   }
 
@@ -239,50 +243,91 @@ export class BillingService {
     });
     if (!contract) return false;
 
-    const existing = await this.prisma.billingContractEvent.findUnique({ where: { eventKey: input.eventKey } });
+    const existing = await this.prisma.billingContractEvent.findUnique({
+      where: { eventKey: input.eventKey },
+    });
     if (existing) return true;
     const now = new Date();
-    const amount = new Prisma.Decimal(input.amount ?? contract.baseAmount.plus(contract.unitAmount.times(contract.quantity)));
+    const amount = new Prisma.Decimal(
+      input.amount ??
+        contract.baseAmount.plus(contract.unitAmount.times(contract.quantity)),
+    );
     const transactionDescription = buildBillingTransactionDescription(
       contract.description,
       contract.metadata,
     );
     await this.prisma.$transaction(async (tx) => {
       await tx.billingContractEvent.create({
-        data: { contractId: contract.id, eventKey: input.eventKey, type: input.event, payload: { paymentId: input.paymentId ?? null } },
+        data: {
+          contractId: contract.id,
+          eventKey: input.eventKey,
+          type: input.event,
+          payload: { paymentId: input.paymentId ?? null },
+        },
       });
       if (input.paymentId) {
         await tx.transaction.upsert({
           where: { domPaymentId: input.paymentId },
           update: {
-            status: input.event === 'PAID' ? TransactionStatus.COMPLETED : TransactionStatus.FAILED,
+            status:
+              input.event === 'PAID'
+                ? TransactionStatus.COMPLETED
+                : TransactionStatus.FAILED,
             description: transactionDescription,
           },
           create: {
-            userId: contract.userId, amount, netAmount: amount,
-            status: input.event === 'PAID' ? TransactionStatus.COMPLETED : TransactionStatus.FAILED,
+            userId: contract.userId,
+            amount,
+            netAmount: amount,
+            status:
+              input.event === 'PAID'
+                ? TransactionStatus.COMPLETED
+                : TransactionStatus.FAILED,
             paymentMethod: PaymentMethod.CREDIT_CARD,
             description: transactionDescription,
-            domPaymentId: input.paymentId, externalPaymentId: input.paymentId, acquirer: Acquirer.DOM,
+            domPaymentId: input.paymentId,
+            externalPaymentId: input.paymentId,
+            acquirer: Acquirer.DOM,
           },
         });
       }
       if (input.event === 'PAID') {
-        const start = now > contract.currentPeriodEnd ? now : contract.currentPeriodStart;
-        const end = advanceBillingPeriod(start, contract.intervalType, contract.intervalCount);
-        await tx.billingContract.update({ where: { id: contract.id }, data: {
-          status: BillingContractStatus.ACTIVE, currentPeriodStart: start, currentPeriodEnd: end,
-          pastDueAt: null, graceEndsAt: null, suspendedAt: null, accessEndsAt: null,
-        } });
+        const start =
+          now > contract.currentPeriodEnd ? now : contract.currentPeriodStart;
+        const end = advanceBillingPeriod(
+          start,
+          contract.intervalType,
+          contract.intervalCount,
+        );
+        await tx.billingContract.update({
+          where: { id: contract.id },
+          data: {
+            status: BillingContractStatus.ACTIVE,
+            currentPeriodStart: start,
+            currentPeriodEnd: end,
+            pastDueAt: null,
+            graceEndsAt: null,
+            suspendedAt: null,
+            accessEndsAt: null,
+          },
+        });
       } else if (input.event === 'FAILED') {
-        await tx.billingContract.update({ where: { id: contract.id }, data: {
-          status: BillingContractStatus.PAST_DUE, pastDueAt: now,
-          graceEndsAt: new Date(now.getTime() + 72 * 60 * 60 * 1000),
-        } });
+        await tx.billingContract.update({
+          where: { id: contract.id },
+          data: {
+            status: BillingContractStatus.PAST_DUE,
+            pastDueAt: now,
+            graceEndsAt: new Date(now.getTime() + 72 * 60 * 60 * 1000),
+          },
+        });
       } else {
-        await tx.billingContract.update({ where: { id: contract.id }, data: {
-          status: BillingContractStatus.CANCELLED, accessEndsAt: contract.currentPeriodEnd,
-        } });
+        await tx.billingContract.update({
+          where: { id: contract.id },
+          data: {
+            status: BillingContractStatus.CANCELLED,
+            accessEndsAt: contract.currentPeriodEnd,
+          },
+        });
       }
     });
     return true;
@@ -291,15 +336,26 @@ export class BillingService {
   async reconcileDunning(): Promise<void> {
     const now = new Date();
     const overdue = await this.prisma.billingContract.findMany({
-      where: { status: BillingContractStatus.PAST_DUE, graceEndsAt: { lte: now } },
+      where: {
+        status: BillingContractStatus.PAST_DUE,
+        graceEndsAt: { lte: now },
+      },
       select: { id: true },
     });
     for (const contract of overdue) {
       await this.prisma.$transaction([
-        this.prisma.billingContract.update({ where: { id: contract.id }, data: { status: BillingContractStatus.SUSPENDED, suspendedAt: now } }),
-        this.prisma.billingContractEvent.create({ data: {
-          contractId: contract.id, eventKey: `dunning:suspended:${contract.id}`, type: 'SUSPENDED', payload: {},
-        } }),
+        this.prisma.billingContract.update({
+          where: { id: contract.id },
+          data: { status: BillingContractStatus.SUSPENDED, suspendedAt: now },
+        }),
+        this.prisma.billingContractEvent.create({
+          data: {
+            contractId: contract.id,
+            eventKey: `dunning:suspended:${contract.id}`,
+            type: 'SUSPENDED',
+            payload: {},
+          },
+        }),
       ]);
     }
     await this.deliverTeronEvents();
@@ -310,26 +366,74 @@ export class BillingService {
     const secret = process.env.TERON_BILLING_WEBHOOK_SECRET;
     if (!url || !secret) return;
     const events = await this.prisma.billingContractEvent.findMany({
-      where: { deliveredAt: null }, include: { contract: true }, take: 50, orderBy: { createdAt: 'asc' },
+      where: { deliveredAt: null },
+      include: { contract: true },
+      take: 50,
+      orderBy: { createdAt: 'asc' },
     });
     for (const event of events) {
       const c = event.contract;
-      const meta = (c.metadata ?? {}) as { teronAccountId?: string; workspaceId?: string };
-      if (c.resourceType !== 'WORKSPACE' || !meta.workspaceId || !meta.teronAccountId) continue;
-      const status = c.status === BillingContractStatus.PAST_DUE ? 'past_due'
-        : c.status === BillingContractStatus.SUSPENDED ? 'paused'
-          : c.status === BillingContractStatus.CANCELLED && c.accessEndsAt && c.accessEndsAt <= new Date() ? 'expired' : 'active';
-      const body = JSON.stringify({ eventId: event.id, workspaceId: meta.workspaceId, accountId: meta.teronAccountId,
-        providerSubscriptionId: c.externalSubscriptionId, contractId: c.id, status,
-        periodStart: c.currentPeriodStart.toISOString(), periodEnd: c.currentPeriodEnd.toISOString(),
-        willCancelAt: c.accessEndsAt?.toISOString() ?? null, quantity: c.quantity });
+      const meta = (c.metadata ?? {}) as {
+        teronAccountId?: string;
+        workspaceId?: string;
+      };
+      if (
+        c.resourceType !== 'WORKSPACE' ||
+        !meta.workspaceId ||
+        !meta.teronAccountId
+      )
+        continue;
+      const status =
+        c.status === BillingContractStatus.PAST_DUE
+          ? 'past_due'
+          : c.status === BillingContractStatus.SUSPENDED
+            ? 'paused'
+            : c.status === BillingContractStatus.CANCELLED &&
+                c.accessEndsAt &&
+                c.accessEndsAt <= new Date()
+              ? 'expired'
+              : 'active';
+      const body = JSON.stringify({
+        eventId: event.id,
+        workspaceId: meta.workspaceId,
+        accountId: meta.teronAccountId,
+        providerSubscriptionId: c.externalSubscriptionId,
+        contractId: c.id,
+        status,
+        periodStart: c.currentPeriodStart.toISOString(),
+        periodEnd: c.currentPeriodEnd.toISOString(),
+        willCancelAt: c.accessEndsAt?.toISOString() ?? null,
+        quantity: c.quantity,
+      });
       try {
-        const signature = createHmac('sha256', secret).update(body).digest('hex');
-        const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-simintpay-signature': signature }, body });
+        const signature = createHmac('sha256', secret)
+          .update(body)
+          .digest('hex');
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-simintpay-signature': signature,
+          },
+          body,
+        });
         if (!response.ok) throw new Error(`Teron respondeu ${response.status}`);
-        await this.prisma.billingContractEvent.update({ where: { id: event.id }, data: { deliveredAt: new Date(), attempts: { increment: 1 }, lastError: null } });
+        await this.prisma.billingContractEvent.update({
+          where: { id: event.id },
+          data: {
+            deliveredAt: new Date(),
+            attempts: { increment: 1 },
+            lastError: null,
+          },
+        });
       } catch (error) {
-        await this.prisma.billingContractEvent.update({ where: { id: event.id }, data: { attempts: { increment: 1 }, lastError: this.errorMessage(error) } });
+        await this.prisma.billingContractEvent.update({
+          where: { id: event.id },
+          data: {
+            attempts: { increment: 1 },
+            lastError: this.errorMessage(error),
+          },
+        });
       }
     }
   }
@@ -368,7 +472,10 @@ export class BillingService {
     }
 
     const domToken = await this.resolveDomToken(contract.userId);
-    await this.gateway.cancelSubscription(domToken, contract.externalSubscriptionId);
+    await this.gateway.cancelSubscription(
+      domToken,
+      requireExternalSubscriptionId(contract),
+    );
 
     const cancelled = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.billingContract.update({
@@ -406,7 +513,10 @@ export class BillingService {
     }
 
     const domToken = await this.resolveDomToken(contract.userId);
-    await this.gateway.reactivateSubscription(domToken, contract.externalSubscriptionId);
+    await this.gateway.reactivateSubscription(
+      domToken,
+      requireExternalSubscriptionId(contract),
+    );
 
     const reactivated = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.billingContract.update({
@@ -791,7 +901,7 @@ export class BillingService {
           process.env.URL_APP ?? 'https://simpay-back.simintermediacoes.com'
         ).replace(/\/+$/, '');
         payment = await this.gateway.chargeSubscriptionPaymentMethod(domToken, {
-          subscriptionId: change.contract.externalSubscriptionId,
+          subscriptionId: requireExternalSubscriptionId(change.contract),
           amount: Number(change.prorationAmount),
           description:
             `Ajuste proporcional ${change.contract.description ?? change.contract.resourceType}`.slice(
@@ -869,7 +979,7 @@ export class BillingService {
     let migration;
     try {
       migration = await this.gateway.changeSubscriptionPlan(domToken, {
-        subscriptionId: change.contract.externalSubscriptionId,
+        subscriptionId: requireExternalSubscriptionId(change.contract),
         planId,
       });
     } catch (error) {
@@ -1026,7 +1136,7 @@ export class BillingService {
     T extends {
       id: string;
       userId: string;
-      externalSubscriptionId: string;
+      externalSubscriptionId: string | null;
       baseAmount: Prisma.Decimal;
       unitAmount: Prisma.Decimal;
       quantity: number;
@@ -1042,7 +1152,7 @@ export class BillingService {
     const domToken = await this.resolveDomToken(contract.userId);
     const snapshot = await this.gateway.getSubscriptionBillingSnapshot(
       domToken,
-      contract.externalSubscriptionId,
+      requireExternalSubscriptionId(contract),
     );
     if (snapshot.status.toLowerCase() !== 'active') {
       throw new ConflictException(
@@ -1219,7 +1329,7 @@ export class BillingService {
     status: BillingContractStatus;
     version: number;
     externalPlanId: string | null;
-    externalSubscriptionId: string;
+    externalSubscriptionId: string | null;
     description: string | null;
   }) {
     return {

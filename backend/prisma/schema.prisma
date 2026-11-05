@@ -65,6 +65,7 @@ model User {
   affiliateCommissionsEarned AffiliateCommission[] @relation("AffiliateCommissionsEarned")
   affiliateCommissionsGenerated AffiliateCommission[] @relation("AffiliateCommissionsGenerated")
   billingContracts       BillingContract[]
+  ownedOffers            Offer[]               @relation("OfferOwner")
   integrationMerchant    IntegrationMerchant?
   ownedPlatforms         Platform[] @relation("PlatformOwner")
 
@@ -233,6 +234,7 @@ model Transaction {
   paymentAttempts  PaymentAttempt[]
   pixPlanOrder     PixPlanOrder?
   billingQuantityChange BillingQuantityChange?
+  charge                Charge?
 
   @@index([userId])
   @@index([status])
@@ -773,19 +775,31 @@ model BillingContract {
   version                Int                   @default(1)
   acquirer               Acquirer              @default(DOM)
   externalPlanId         String?
-  externalSubscriptionId String                 @unique
+  /// Legacy gateway-side subscription. Contracts scheduled by SimIntPay itself leave it null.
+  externalSubscriptionId String?                @unique
   description            String?
   metadata               Json?
+  /// Offer this contract is a buyer's subscription to; null for API-integration contracts.
+  offerId                String?
+  nextChargeAt           DateTime?
+  retryCount             Int                    @default(0)
+  customerName           String?
+  customerEmail          String?
+  customerDocument       String?
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
   user                   User                   @relation(fields: [userId], references: [id])
+  offer                  Offer?                 @relation(fields: [offerId], references: [id], onDelete: Restrict)
   changes                BillingQuantityChange[]
   events                 BillingContractEvent[]
+  charges                Charge[]
 
   @@unique([resourceType, resourceId])
   @@index([userId])
   @@index([status])
   @@index([currentPeriodEnd])
+  @@index([nextChargeAt, status])
+  @@index([offerId])
 }
 
 model BillingContractEvent {
@@ -998,6 +1012,33 @@ enum BillingContractStatus {
   SUSPENDED
   INACTIVE
   CANCELLED
+}
+
+/// Product preset an offer was created from.
+enum OfferKind {
+  PAYMENT_LINK
+  SUBSCRIPTION_LINK
+  PLAN
+  PIX_PLAN
+  BOLETO
+}
+
+/// Who pays each cycle of a recurring offer.
+enum RenewalMode {
+  /// One-off purchase.
+  NONE
+  /// SimIntPay charges the buyer's stored card each cycle.
+  AUTO_CHARGE
+  /// SimIntPay issues PIX/boleto each cycle and the buyer pays it.
+  MANUAL_PAY
+}
+
+enum ChargeStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+  EXPIRED
 }
 
 enum BillingQuantityChangeStatus {
@@ -1615,4 +1656,88 @@ model ExternalRef {
   @@unique([acquirerCode, kind, externalId])
   @@unique([entityType, entityId, acquirerCode, kind])
   @@index([entityType, entityId])
+}
+
+
+/// What is sold: price, accepted methods, validity and recurrence. Acquirer-agnostic;
+/// the five legacy products are presets of this model.
+model Offer {
+  id              String              @id @default(uuid())
+  /// Financial owner (seller); never the admin who created it.
+  ownerUserId     String
+  createdByUserId String
+  owner           User                @relation("OfferOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  platformTag     String?
+  code            String              @unique
+  kind            OfferKind
+  name            String
+  description     String?
+  amountCents     Int
+  currency        String              @default("BRL") @db.VarChar(3)
+  isActive        Boolean             @default(true)
+  acceptedMethods PaymentMethod[]
+  maxInstallments Int                 @default(1)
+  /// When the offer stops being sellable.
+  expiresAt       DateTime?
+  maxUses         Int?
+  usedCount       Int                 @default(0)
+  /// Access window granted per paid cycle or purchase.
+  accessDays      Int?
+  renewalMode     RenewalMode         @default(NONE)
+  intervalType    BillingIntervalType?
+  intervalCount   Int?
+  /// Total cycles; null or 0 means until cancelled.
+  repetitions     Int?
+  trialDays       Int?
+  retryDays       Int?
+  graceDays       Int?
+  fulfillment     Json?
+  metadata        Json?
+  /// Original product this offer was migrated from.
+  legacyType      String?
+  legacyId        String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  contracts       BillingContract[]
+  charges         Charge[]
+
+  @@unique([legacyType, legacyId])
+  @@index([ownerUserId])
+  @@index([kind])
+}
+
+/// One amount owed by a payer: a standalone sale or a single cycle of a contract.
+/// Distinct from the reporting projection `Cobranca`.
+model Charge {
+  id               String           @id @default(uuid())
+  offerId          String?
+  contractId       String?
+  ownerUserId      String
+  amountCents      Int
+  currency         String           @default("BRL") @db.VarChar(3)
+  status           ChargeStatus     @default(PENDING)
+  method           PaymentMethod?
+  dueAt            DateTime?
+  periodStart      DateTime?
+  periodEnd        DateTime?
+  /// Idempotency of a cycle: the contract period end it bills for.
+  cycleKey         String?
+  attempts         Int              @default(0)
+  customerName     String?
+  customerEmail    String?
+  customerDocument String?
+  transactionId    String?          @unique
+  /// Frozen fee, coproduction and owner data at issue time.
+  snapshot         Json?
+  paidAt           DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  offer            Offer?           @relation(fields: [offerId], references: [id], onDelete: Restrict)
+  contract         BillingContract? @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  transaction      Transaction?     @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  @@unique([contractId, cycleKey])
+  @@index([offerId])
+  @@index([ownerUserId, status])
+  @@index([status, dueAt])
 }
