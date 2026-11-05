@@ -17,9 +17,8 @@ import {
 
 /**
  * CHARACTERIZATION of ChargeBoletoPixUseCase (PIX charged against a boleto link).
- * Two persistence paths exist today and are both pinned:
- *  - legacy (no financial quote, no coproduction): no draft, plain upsert on domPaymentId, no FINAL_NET basis
- *  - final (financial quote OR coproduction): DRAFT -> gateway -> persistLinkCharge with FINAL_NET
+ * Always settles FINAL_NET (DRAFT -> gateway -> persistLinkCharge). Without a financial quote the net
+ * follows exactly what a PIX payment link of the same amount nets (Areaflix included).
  */
 const oldToken = process.env.DOM_TOKEN;
 beforeAll(useEmptyCaches);
@@ -90,26 +89,28 @@ function setup(boleto: any = makeBoleto(), opts: FixtureOptions = {}) {
   return { service, input, db, gatewayCalls, updates };
 }
 
-describe('legacy path (financialQuote absent, no coproduction)', () => {
-  test('numbers: net = base - (9% + R$4) - R$3 cashback - R$1 fixed = 83', async () => {
+describe('without financial quote (same rule as a PIX payment link)', () => {
+  test('numbers: net = base - (9% + R$4) = 87, domFee from MDR_PIX (FIXED)', async () => {
     const f = setup();
     const out = await f.service.execute(f.input);
     expect(out.amount).toBe(100);
     expect(f.gatewayCalls[0].input.amount).toBe(100);
+    // before: net 83 (extra R$3 cashback + R$1 fixed), totalFee 17, domFee 0, platformFee 17
     expect(money(f.db.row())).toEqual({
       amount: 100,
-      netAmount: 83,
-      totalFee: 17,
-      domFee: 0,
-      platformFee: 17,
+      netAmount: 87,
+      totalFee: 13,
+      domFee: 0.98,
+      platformFee: 12.02,
     });
   });
 
-  test('no draft, no FINAL_NET basis, row is PENDING and no wallet credit', async () => {
+  test('always a DRAFT -> PENDING FINAL_NET charge with the link reference', async () => {
     const f = setup();
     await f.service.execute(f.input);
-    expect(f.gatewayCalls[0].draft).toBeUndefined(); // nothing existed before the gateway call
-    expect(f.gatewayCalls[0].input.description).toBe('Boleto'); // no [LINK_CHARGE:...] reference
+    expect(f.gatewayCalls[0].draft.status).toBe('DRAFT');
+    expect(f.gatewayCalls[0].draft.settlementBasis).toBe('FINAL_NET');
+    expect(f.gatewayCalls[0].input.description).toContain('[LINK_CHARGE:');
     expect(f.gatewayCalls[0].input.codExternal).toMatch(
       /^pix-boleto-boleto-\d+$/,
     );
@@ -117,13 +118,11 @@ describe('legacy path (financialQuote absent, no coproduction)', () => {
     const row = f.db.row();
     expect(f.db.rows()).toHaveLength(1);
     expect(row.status).toBe('PENDING');
-    expect(row.settlementBasis).toBeUndefined();
+    expect(row.settlementBasis).toBe('FINAL_NET');
     expect(row.domPaymentId).toBe('dom-pay-1');
     expect(row.pixContent).toBe('pix-copy-paste');
-    expect(row.description).toBe('Boleto');
-    expect(row.financialSnapshot).toBeUndefined();
+    expect(row.description).toBe('Boleto [TENANT:GLOBAL]');
     expect(f.db.wallet().balance.toNumber()).toBe(0);
-    expect(f.db.logs()).toHaveLength(0);
   });
 
   test('currentUses +1 on the boleto', async () => {
@@ -141,17 +140,17 @@ describe('legacy path (financialQuote absent, no coproduction)', () => {
     });
   });
 
-  test('SUSPECT: Areaflix boleto-PIX uses the generic link formula, NOT the Areaflix seller net', async () => {
+  test('Areaflix boleto-PIX nets the Areaflix seller net, like an Areaflix PIX link (FIXED)', async () => {
     await withAreaflixPlatform(async () => {
       const f = setup(makeBoleto({ plataformas: ['AREAFLIX'] }));
       await f.service.execute(f.input);
-      // Payment links on AREAFLIX net 89.01 for PIX; this path nets 83 (no isAreaflixLink branch here).
+      // before: net 83, totalFee 17, domFee 0, platformFee 17
       expect(money(f.db.row())).toEqual({
         amount: 100,
-        netAmount: 83,
-        totalFee: 17,
-        domFee: 0,
-        platformFee: 17,
+        netAmount: 89.01,
+        totalFee: 10.99,
+        domFee: 0.98,
+        platformFee: 10.01,
       });
     });
   });
@@ -181,7 +180,7 @@ describe('financialQuote present', () => {
 });
 
 describe('coproduction snapshot', () => {
-  test('coproduction alone (no quote) forces the FINAL_NET path with legacy numbers', async () => {
+  test('coproduction alone (no quote) keeps the FINAL_NET path with the link PIX numbers', async () => {
     const f = setup(makeBoleto(), {
       agreement: {
         version: 1,
@@ -193,10 +192,10 @@ describe('coproduction snapshot', () => {
     expect(f.db.row().settlementBasis).toBe('FINAL_NET');
     expect(money(f.db.row())).toEqual({
       amount: 100,
-      netAmount: 83,
-      totalFee: 17,
-      domFee: 0,
-      platformFee: 17,
+      netAmount: 87,
+      totalFee: 13,
+      domFee: 0.98,
+      platformFee: 12.02,
     });
     expect(f.db.row().financialSnapshot.coproduction).toMatchObject({
       basis: 'NET',

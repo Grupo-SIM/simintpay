@@ -133,7 +133,13 @@ Corrigidos em 2026-11-05 por autorização expressa (valor cobrado e líquido do
 - [x] PIX: `domFee` vem de `MDR_PIX` (0,98%), não da taxa de cartão; débito: `domFee` só com o custo DOM (3,49% + R$1). `domFee`/`totalFee`/`platformFee` arredondados a 2 casas (`b90d3e3`).
 - [x] Link de assinatura: PIX e cartão recusam método não aceito; taxa calculada sobre o valor com cupom (`1845233`). `SubscriptionLink` não tem `expiresAt`, logo não há expiração a validar.
 
-Ainda **não corrigidos** (fora do pedido; seguem fixados nos testes): boleto-PIX sem ramo Areaflix, sem order bump/funil e com cashback R$3 + taxa fixa R$1 mesmo com `TAXA_LINK_PERCENT`; Areaflix cartão 1x calculado sobre o total do comprador; Areaflix débito grava `platformFee` negativo (subsídio).
+Corrigidos em 2026-11-05 (autorização expressa):
+
+- [x] Boleto-PIX segue a regra do PIX de link de pagamento (líquido 87,00 em R$100, antes 83,00; sem cashback R$3 nem fixa R$1 extras; `domFee` = MDR_PIX), tem o ramo Areaflix (89,01) e sempre liquida `FINAL_NET` com rascunho.
+- [x] Areaflix cartão 1x: líquido sobre a base do link (R$100 -> 87,00; antes 91,54 sobre o total do comprador).
+- [x] Areaflix débito: `platformFee` limitado a zero; o subsídio (0,49 em R$100) fica em `financialSnapshot.subsidy`, líquido inalterado (96,00).
+
+Ainda **não corrigido**: boleto-PIX sem order bump/funil (decisão de produto, dúvida 4).
 
 ## 8. Cofre de cartões (`StoredCard`, `StoredCardToken`)
 
