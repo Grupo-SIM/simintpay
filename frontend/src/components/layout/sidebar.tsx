@@ -488,6 +488,14 @@ export function Sidebar() {
               icon={Barcode}
               label="Boletos"
             />
+            <NavLink
+              open={open}
+              pathname={pathname}
+              labelStyle={labelStyle}
+              href="/cliente/ofertas"
+              icon={Link2}
+              label="Ofertas"
+            />
           </>
         )}
 

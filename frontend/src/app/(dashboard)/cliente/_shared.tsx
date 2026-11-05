@@ -48,6 +48,13 @@ export function checkoutUrlPixPlan(
     ? `${CHECKOUT_BASE_URL}/?code=${encodeURIComponent(linkCode)}`
     : null;
 }
+export function checkoutUrlOferta(
+  code: string | null | undefined,
+): string | null {
+  return code
+    ? `${CHECKOUT_BASE_URL}/?ofertaCode=${encodeURIComponent(code)}`
+    : null;
+}
 export function checkoutUrlBoleto(
   id: string | null | undefined,
 ): string | null {

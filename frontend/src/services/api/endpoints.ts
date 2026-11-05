@@ -32,6 +32,14 @@ export const endpoints = {
     comprovante: (id: string) =>
       `/saques/${encodeURIComponent(id)}/comprovante`,
   },
+  ofertas: {
+    list: '/ofertas',
+    create: '/ofertas',
+    update: (id: string) => `/ofertas/${encodeURIComponent(id)}`,
+    deactivate: (id: string) => `/ofertas/${encodeURIComponent(id)}`,
+    publicByCode: (code: string) =>
+      `/ofertas/public/${encodeURIComponent(code)}`,
+  },
   planos: {
     list: '/planos',
     create: '/planos',
