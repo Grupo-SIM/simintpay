@@ -77,26 +77,26 @@ Cada fase termina em commit atômico e deixa o sistema funcionando.
 
 ### Fase 2 — Contrato de adquirente
 
-- [ ] Interface `AcquirerPort` com capacidades; adaptador DOM sobre o código atual; FRENDZ onde já existir.
-- [ ] Tabela `ExternalRef` e leitura por `(acquirer, externalId)` nos webhooks, mantendo `dom*` como fonte transitória.
+- [x] `acquirerCapabilities` (`core/services/acquirer-capabilities.ts`) declara meios, parcelamento e cobrança de cartão salvo por adquirente; exposto em `PaymentGatewayResolver.capabilitiesFor`. O `IPaymentGateway` já existia e foi mantido como porta.
+- [x] Tabela `ExternalRef` + `ExternalRefService` (`modules/billing-core`). Migration `20261105120000_external_ref`, **não aplicada em nenhum banco**.
+- [ ] Gravar `ExternalRef` ao criar planos/links/assinaturas e ler por ela nos webhooks: depende da Fase 4 (os fluxos atuais só mudam junto com o corte para `Offer`).
 
 ### Fase 3 — Núcleo de cobrança (`Charge`)
 
-- [ ] Schema aditivo de `Charge` ligado a `Transaction` e `PaymentAttempt`.
-- [ ] Piloto: link de pagamento sem recorrência. Depois boleto e PIX avulso.
+- [x] Schema aditivo de `Charge` (liga a `Transaction`, `Offer` e `BillingContract`; unicidade `(contractId, cycleKey)`). Migration `20261105130000_offer_charge_core`, **não aplicada**.
+- [ ] Piloto: link de pagamento sem recorrência emitindo `Charge`. Depois boleto e PIX avulso. Inclui fundir o fluxo PIX triplicado. **Corte de fluxo de dinheiro: aguarda decisão.**
 
 ### Fase 4 — `Offer` e presets
 
-- [ ] Schema aditivo de `Offer`; mapa `(legacyType, legacyId) → offerId` único.
-- [ ] Migrar links de pagamento (13), preservando códigos, arquivos, upsells e vouchers.
-- [ ] Wizard de criação no dashboard baseado em presets, mantendo as rotas atuais.
+- [x] Schema aditivo de `Offer` (enums `OfferKind`, `RenewalMode`), com `(legacyType, legacyId)` único para o mapa legado.
+- [ ] Casos de uso/API de criação e checkout público de `Offer`; migração dos 13 links de pagamento; wizard no dashboard.
 
 ### Fase 5 — Recorrência própria
 
-- [ ] Generalizar `BillingContract` (`offerId`, comprador, próxima cobrança); manter a API de quantidade atual funcionando.
-- [ ] Scheduler de ciclos com idempotência e retentativa.
-- [ ] Migrar os 13 links de assinatura e as 5 ordens para contratos. **Assinaturas de cartão hoje geridas pela DOM continuam lá até haver estratégia de token (dúvida 1);** não cancelar nem recriar cobranças.
-- [ ] Planos PIX como `MANUAL_PAY`.
+- [x] `BillingContract` generalizado: `offerId`, `nextChargeAt`, `retryCount`, dados do comprador; `externalSubscriptionId` agora é opcional (contratos de workspace continuam exigindo-o via `requireExternalSubscriptionId`). **Não foi preciso mudar o `teron`**: a resposta atual da API não muda.
+- [x] Agendador próprio: `cycle-policy.ts` (função pura) e `BillingCycleService` (`subscribe`, `settle` idempotente, `runDue`). Cobertos por `tests/billing-cycle.integration.test.ts` (banco descartável) e `cycle-policy.test.ts`.
+- [ ] Cofre de cartões próprio e `CycleChargeExecutor` real (cobrança off-session no adquirente). **Não existe no código hoje.**
+- [ ] Job periódico chamando `runDue`, notificação do evento `CHARGE_DUE`, migração dos 13 links de assinatura / 5 ordens (tratadas como ativas na DOM; nada é cancelado) e planos PIX como `MANUAL_PAY`.
 
 ### Fase 6 — Retirada gradual
 
