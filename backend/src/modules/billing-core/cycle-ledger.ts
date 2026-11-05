@@ -5,12 +5,14 @@ import {
   withCoproduction,
 } from '../coproduction/coproduction.service';
 import {
-  loadChargePolicy,
-  quoteFinancialCharge,
-} from '../financial-policy/financial-charge';
+  cyclePolicyTag,
+  defaultCycleMethod,
+  frozenQuoteFrom,
+  loadCyclePolicyContext,
+  quoteOfferCycle,
+} from './cycle-pricing';
 import { settleFinalNet } from '../platform-core/link-settlement';
 import { transactionPlatformTagData } from '../platform-core/transaction-platform';
-import { buildUserTaxaTag } from '../platform-taxas/platform-taxas.store';
 
 export type CyclePaymentDetails = {
   method?: 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
@@ -19,8 +21,6 @@ export type CyclePaymentDetails = {
   /** The Transaction for this charge already exists (first checkout charge): only advance the contract. */
   alreadyBooked?: boolean;
 };
-
-const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /**
  * Books a paid contract cycle in the single existing ledger: quotes fees with the financial
@@ -36,22 +36,29 @@ export async function recordCyclePayment(
   offer: Offer,
   details: CyclePaymentDetails = {},
 ): Promise<string> {
+  const frozen = frozenQuoteFrom(charge);
   const method =
     details.method ??
     charge.method ??
-    (offer.renewalMode === 'AUTO_CHARGE'
-      ? 'CREDIT_CARD'
-      : (offer.acceptedMethods[0] ?? 'PIX'));
+    frozen?.method ??
+    defaultCycleMethod(offer);
   const platformTag = (offer.platformTag ?? 'GLOBAL').toUpperCase();
-  const policyTag = ['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-    ? buildUserTaxaTag(charge.ownerUserId)
-    : platformTag;
-  const quote = quoteFinancialCharge(
-    await loadChargePolicy(tx, policyTag),
-    charge.amountCents / 100,
-    method,
-  );
-  if (!quote)
+  const policyTag = cyclePolicyTag(offer);
+  // Book from the quote frozen at claim time. Re-quote only for legacy charges without one (or
+  // when the paying method differs), over the original base and never over the buyer total.
+  const quote =
+    frozen && frozen.method === method
+      ? frozen
+      : quoteOfferCycle(
+          await loadCyclePolicyContext(tx, offer),
+          {
+            ...offer,
+            amountCents: frozen?.baseAmountCents ?? charge.amountCents,
+          },
+          method,
+          1,
+        );
+  if (!quote.financialSnapshot && !frozen)
     throw new ConflictException(
       'Política financeira sem faixa para o meio de pagamento do ciclo',
     );
@@ -63,11 +70,10 @@ export async function recordCyclePayment(
     offer.platformTag ? platformTag : undefined,
   );
   const financialSnapshot = withCoproduction(
-    quote.financialSnapshot as unknown as Prisma.InputJsonValue,
+    (quote.financialSnapshot ?? null) as Prisma.InputJsonValue,
     coproduction,
   );
-  const totalFee = round2(quote.totalAmount - quote.netAmount);
-  const domFee = round2(quote.domFeeAmount);
+  const { totalFee, domFee, platformFee } = quote;
   await tx.wallet.upsert({
     where: { userId: charge.ownerUserId },
     update: {},
@@ -80,7 +86,7 @@ export async function recordCyclePayment(
       netAmount: new Prisma.Decimal(quote.netAmount),
       totalFee: new Prisma.Decimal(totalFee),
       domFee: new Prisma.Decimal(domFee),
-      platformFee: new Prisma.Decimal(round2(totalFee - domFee)),
+      platformFee: new Prisma.Decimal(platformFee),
       paymentMethod: method,
       status: 'PENDING',
       settlementBasis: 'FINAL_NET',
@@ -100,8 +106,16 @@ export async function recordCyclePayment(
       transactionId: row.id,
       method,
       snapshot: {
+        ...(charge.snapshot && typeof charge.snapshot === 'object'
+          ? (charge.snapshot as Record<string, unknown>)
+          : {}),
         method,
         policyTag,
+        totalAmount: quote.totalAmount,
+        netAmount: quote.netAmount,
+        totalFee: quote.totalFee,
+        domFee: quote.domFee,
+        platformFee: quote.platformFee,
         financial: financialSnapshot ?? null,
         frozenAt: new Date().toISOString(),
       } as Prisma.InputJsonValue,

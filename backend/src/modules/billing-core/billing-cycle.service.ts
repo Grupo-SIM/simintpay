@@ -4,6 +4,12 @@ import type { BillingContract, Charge, Offer } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { recordCyclePayment, type CyclePaymentDetails } from './cycle-ledger';
 import { advanceContractForCharge } from './contract-advance';
+import {
+  defaultCycleMethod,
+  frozenQuoteFrom,
+  frozenQuoteSnapshot,
+  priceOfferCycle,
+} from './cycle-pricing';
 
 /**
  * PAID/FAILED são resultados definitivos do adquirente. UNKNOWN (timeout, 5xx,
@@ -185,7 +191,14 @@ export class BillingCycleService {
         continue;
       }
       const cycleKey = contract.currentPeriodEnd.toISOString();
-      const claim = await this.claimCycleCharge(contract, cycleKey, now);
+      let claim: Charge | null;
+      try {
+        claim = await this.claimCycleCharge(contract, cycleKey, now);
+      } catch {
+        // Pricing failed (e.g. invalid policy lane): leave the contract due for the next run
+        // instead of aborting the other contracts.
+        continue;
+      }
       if (!claim) {
         // Cobrança já aberta: no modo manual, expira se a carência acabou.
         if (await this.expireIfOverdue(contract, cycleKey, now)) {
@@ -238,13 +251,23 @@ export class BillingCycleService {
       where: { contractId_cycleKey: { contractId: contract.id, cycleKey } },
     });
     if (!existing) {
+      // The buyer total of this cycle, priced now with the current policy and frozen on the
+      // Charge: executor, retries and the ledger all read this amount, never the offer base.
+      const quote = await priceOfferCycle(
+        this.prisma,
+        contract.offer,
+        defaultCycleMethod(contract.offer),
+        1,
+      );
       try {
         return await this.prisma.charge.create({
           data: {
             offerId: contract.offerId,
             contractId: contract.id,
             ownerUserId: contract.userId,
-            amountCents: contract.offer.amountCents,
+            amountCents: Math.round(quote.totalAmount * 100),
+            method: quote.method,
+            snapshot: frozenQuoteSnapshot(quote, now),
             currency: contract.offer.currency,
             dueAt: now,
             periodStart: contract.currentPeriodEnd,
@@ -272,6 +295,23 @@ export class BillingCycleService {
       data: { status: 'PENDING', attempts: { increment: 1 } },
     });
     if (reopened.count === 0) return null;
+    if (!frozenQuoteFrom(existing)) {
+      // Legacy charge without a frozen quote: freeze one now (rows with a snapshot keep it).
+      const quote = await priceOfferCycle(
+        this.prisma,
+        contract.offer,
+        existing.method ?? defaultCycleMethod(contract.offer),
+        1,
+      );
+      await this.prisma.charge.update({
+        where: { id: existing.id },
+        data: {
+          amountCents: Math.round(quote.totalAmount * 100),
+          method: quote.method,
+          snapshot: frozenQuoteSnapshot(quote, now),
+        },
+      });
+    }
     return this.prisma.charge.findUniqueOrThrow({ where: { id: existing.id } });
   }
 
