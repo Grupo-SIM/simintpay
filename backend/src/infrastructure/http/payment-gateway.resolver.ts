@@ -5,6 +5,10 @@ import {
 } from '../../core/services/payment-gateway.interface';
 import type { IPaymentGateway } from '../../core/services/payment-gateway.interface';
 import { Acquirer, DEFAULT_ACQUIRER } from '../../core/services/acquirer.enum';
+import {
+  acquirerCapabilities,
+  type AcquirerCapabilities,
+} from '../../core/services/acquirer-capabilities';
 import { getModuleAcquirer } from '../../modules/module.registry';
 
 /**
@@ -51,5 +55,10 @@ export class PaymentGatewayResolver {
   /** Qual adquirente uma loja usa (sem materializar o gateway). */
   acquirerForSlug(slug: string | null | undefined): Acquirer {
     return getModuleAcquirer(slug);
+  }
+
+  /** O que a adquirente executa; usado para recusar ofertas que ela não atende. */
+  capabilitiesFor(acquirer: Acquirer): AcquirerCapabilities {
+    return acquirerCapabilities(acquirer);
   }
 }
