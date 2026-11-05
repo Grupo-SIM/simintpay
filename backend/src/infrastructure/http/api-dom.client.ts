@@ -12,6 +12,7 @@ import {
   DomListTransactionsOutput,
   DomTransactionItem,
   IPaymentGateway,
+  StoredCardTokenChargeInput,
   StoredPaymentChargeInput,
   StoredPaymentChargeOutput,
   SubscriptionBillingSnapshot,
@@ -1049,6 +1050,32 @@ export class ApiDomClient implements IPaymentGateway {
       domToken,
       input.subscriptionId,
     );
+    return this.postStoredCardTransaction(domToken, {
+      cardToken: subscription.cardToken,
+      amount: input.amount,
+      description: input.description,
+      codExternal: input.codExternal,
+      idempotencyKey: input.idempotencyKey,
+      postbackUrl: input.postbackUrl,
+      metadata: { billing: true, subscriptionId: input.subscriptionId },
+    });
+  }
+
+  /** Cobra um token do cofre da SimIntPay (mesma chamada de /transactions usada pelas assinaturas DOM). */
+  async chargeStoredCardToken(
+    domToken: string,
+    input: StoredCardTokenChargeInput,
+  ): Promise<StoredPaymentChargeOutput> {
+    return this.postStoredCardTransaction(domToken, {
+      ...input,
+      metadata: { billing: true, vault: true },
+    });
+  }
+
+  private async postStoredCardTransaction(
+    domToken: string,
+    input: StoredCardTokenChargeInput & { metadata: Record<string, unknown> },
+  ): Promise<StoredPaymentChargeOutput> {
     const url = `${this.domRealApiUrl}/transactions`;
     const body = {
       cod_external: input.codExternal,
@@ -1060,15 +1087,12 @@ export class ApiDomClient implements IPaymentGateway {
         payment_method: 'credit_card',
         credit_card: {
           installments: 1,
-          token: subscription.cardToken,
+          token: input.cardToken,
           upsell: true,
         },
       },
       ...(input.postbackUrl ? { postbackUrl: input.postbackUrl } : {}),
-      metadata: JSON.stringify({
-        billing: true,
-        subscriptionId: input.subscriptionId,
-      }),
+      metadata: JSON.stringify(input.metadata),
     };
 
     const res = await firstValueFrom(

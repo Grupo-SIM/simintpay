@@ -4,12 +4,20 @@ import type { BillingContract, Charge, Offer } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { onCycleFailed, onCyclePaid, type CycleSchedule } from './cycle-policy';
 
+/**
+ * PAID/FAILED são resultados definitivos do adquirente. UNKNOWN (timeout, 5xx,
+ * status pendente) deixa a cobrança PENDING e o contrato intacto: nunca paga nem falha por palpite.
+ */
+export type CycleChargeOutcome = 'PAID' | 'FAILED' | 'UNKNOWN';
+
 /** Cobra um ciclo no cartão guardado. Implementada pelo cofre de cartões + adquirente. */
 export interface CycleChargeExecutor {
+  /** Quando existe e retorna false, o contrato AUTO_CHARGE é ignorado (adquirente sem cobrança de cartão guardado). */
+  canCharge?(contract: BillingContract): boolean;
   charge(input: {
     charge: Charge;
     contract: BillingContract;
-  }): Promise<{ paid: boolean }>;
+  }): Promise<{ outcome: CycleChargeOutcome }>;
 }
 
 export type CycleRunResult = {
@@ -17,6 +25,8 @@ export type CycleRunResult = {
   autoPaid: number;
   autoFailed: number;
   awaitingBuyer: number;
+  /** Cobranças automáticas sem resposta conclusiva do adquirente; seguem PENDING. */
+  unknown: number;
   expired: number;
   skippedNoExecutor: number;
 };
@@ -182,6 +192,7 @@ export class BillingCycleService {
       autoPaid: 0,
       autoFailed: 0,
       awaitingBuyer: 0,
+      unknown: 0,
       expired: 0,
       skippedNoExecutor: 0,
     };
@@ -199,8 +210,8 @@ export class BillingCycleService {
       const { offer } = contract;
       if (
         offer.renewalMode === 'AUTO_CHARGE' &&
-        !executor &&
-        options.skipAutoChargeWithoutExecutor
+        options.skipAutoChargeWithoutExecutor &&
+        (!executor || executor.canCharge?.(contract) === false)
       ) {
         result.skippedNoExecutor++;
         continue;
@@ -216,9 +227,14 @@ export class BillingCycleService {
       }
       result.issued++;
       if (offer.renewalMode === 'AUTO_CHARGE' && executor) {
-        const { paid } = await executor.charge({ charge: claim, contract });
-        await this.settle(claim.id, paid ? 'PAID' : 'FAILED', now);
-        if (paid) result.autoPaid++;
+        const { outcome } = await executor.charge({ charge: claim, contract });
+        if (outcome === 'UNKNOWN') {
+          // Ambíguo: a cobrança segue PENDING e o contrato não muda até a conciliação.
+          result.unknown++;
+          continue;
+        }
+        await this.settle(claim.id, outcome, now);
+        if (outcome === 'PAID') result.autoPaid++;
         else result.autoFailed++;
       } else {
         await this.prisma.billingContractEvent.upsert({

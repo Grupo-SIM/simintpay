@@ -23,6 +23,10 @@ const CAPABILITIES: Record<Acquirer, AcquirerCapabilities> = {
       'BOLETO',
     ]),
     maxInstallments: 12,
+    // A DOM aceita POST /transactions com um token de cartão (já usado nas cobranças de
+    // assinatura, `upsell: true`). Gap: nenhum checkout atual devolve um token reutilizável
+    // (o token do link é do frontend; o reutilizável só sai de customers/:id/card-token,
+    // que exige PAN no servidor, ou da assinatura DOM). Não validado em produção.
     chargeStoredCard: true,
   },
   // Escopo v1 da Frendz: PIX ponta a ponta (ver FrendzClient).

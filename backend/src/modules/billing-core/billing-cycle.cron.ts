@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { BillingCycleService } from './billing-cycle.service';
 import { ChargeDueDeliveryService } from './charge-due-delivery.service';
+import { StoredCardCycleExecutor } from './stored-card-cycle.executor';
 
 const LOCK_KEY = 'billing-cycle:run-due';
 
@@ -14,6 +15,7 @@ export class BillingCycleCron {
     private readonly prisma: PrismaService,
     private readonly cycles: BillingCycleService,
     private readonly delivery: ChargeDueDeliveryService,
+    private readonly executor: StoredCardCycleExecutor,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -25,8 +27,9 @@ export class BillingCycleCron {
           const rows = await tx.$queryRaw<{ locked: boolean }[]>`
             SELECT pg_try_advisory_xact_lock(hashtextextended(${LOCK_KEY}, 0)) AS locked`;
           if (!rows[0]?.locked) return false;
-          // Sem executor de cartão ainda: contratos AUTO_CHARGE são ignorados.
-          const result = await this.cycles.runDue(new Date(), undefined, {
+          // O executor só cobra contratos cujo adquirente suporta cartão guardado
+          // (`canCharge`); os demais AUTO_CHARGE são ignorados, não falhados.
+          const result = await this.cycles.runDue(new Date(), this.executor, {
             skipAutoChargeWithoutExecutor: true,
           });
           const delivery = await this.delivery.deliverPending();

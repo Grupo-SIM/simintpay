@@ -198,6 +198,18 @@ export type StoredPaymentChargeOutput = {
   netAmount?: number | null;
 };
 
+/** Cobrança de um token de cartão reutilizável guardado pela SimIntPay (sem comprador presente). */
+export type StoredCardTokenChargeInput = {
+  /** Token do adquirente, já decifrado. Nunca registrar em log. */
+  cardToken: string;
+  amount: number;
+  description: string;
+  codExternal: string;
+  /** Mesma chave => o adquirente não cobra duas vezes. */
+  idempotencyKey: string;
+  postbackUrl?: string;
+};
+
 export type SubscriptionPlanChangeOutput = {
   subscriptionId: string;
   planId: string;
@@ -348,6 +360,14 @@ export interface IPaymentGateway {
   chargeSubscriptionPaymentMethod(
     domToken: string,
     input: StoredPaymentChargeInput,
+  ): Promise<StoredPaymentChargeOutput>;
+  /**
+   * Cobra um token de cartão guardado no cofre da SimIntPay. Opcional: só
+   * adquirentes com `chargeStoredCard` em `acquirerCapabilities` implementam.
+   */
+  chargeStoredCardToken?(
+    domToken: string,
+    input: StoredCardTokenChargeInput,
   ): Promise<StoredPaymentChargeOutput>;
   changeSubscriptionPlan(
     domToken: string,

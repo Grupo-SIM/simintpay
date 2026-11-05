@@ -99,7 +99,7 @@ run(
     const executor = {
       charge: async () => {
         calls++;
-        return { paid: true };
+        return { outcome: 'PAID' as const };
       },
     };
     const first = await service.runDue(at(31), executor);
@@ -124,7 +124,7 @@ run(
   async () => {
     const o = await offer('AUTO_CHARGE');
     const c = await activate(o.id, 'fail@test.dev');
-    const fail = { charge: async () => ({ paid: false }) };
+    const fail = { charge: async () => ({ outcome: 'FAILED' as const }) };
     await service.runDue(at(31), fail);
     expect(
       (await db!.billingContract.findUniqueOrThrow({ where: { id: c.id } }))
@@ -204,10 +204,59 @@ run(
 run('stops after the configured number of cycles', async () => {
   const o = await offer('AUTO_CHARGE', { repetitions: 2 });
   const c = await activate(o.id, 'limit@test.dev');
-  await service.runDue(at(31), { charge: async () => ({ paid: true }) });
+  await service.runDue(at(31), {
+    charge: async () => ({ outcome: 'PAID' as const }),
+  });
   const end = await db!.billingContract.findUniqueOrThrow({
     where: { id: c.id },
   });
   expect(end.status).toBe('INACTIVE');
   expect(end.nextChargeAt).toBeNull();
+});
+
+run(
+  'an UNKNOWN gateway outcome leaves the charge PENDING and the contract untouched',
+  async () => {
+    const o = await offer('AUTO_CHARGE');
+    const c = await activate(o.id, 'unknown@test.dev');
+    const unknown = {
+      charge: async () => ({ outcome: 'UNKNOWN' as const }),
+    };
+    const result = await service.runDue(at(31), unknown);
+    expect(result.unknown).toBeGreaterThanOrEqual(1);
+    const after = await db!.billingContract.findUniqueOrThrow({
+      where: { id: c.id },
+    });
+    expect(after.status).toBe('ACTIVE');
+    expect(after.retryCount).toBe(0);
+    expect(after.currentPeriodEnd).toEqual(c.currentPeriodEnd);
+    const pending = await db!.charge.findMany({
+      where: { contractId: c.id, status: 'PENDING' },
+    });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.attempts).toBe(1);
+    // Rodar de novo não reemite nem recobra a cobrança PENDING.
+    const again = await service.runDue(at(31), unknown);
+    expect(again.issued).toBe(0);
+  },
+);
+
+run('skips AUTO_CHARGE contracts the executor cannot charge', async () => {
+  const o = await offer('AUTO_CHARGE');
+  const c = await activate(o.id, 'unsupported@test.dev');
+  let calls = 0;
+  const executor = {
+    canCharge: () => false,
+    charge: async () => {
+      calls++;
+      return { outcome: 'PAID' as const };
+    },
+  };
+  await service.runDue(at(31), executor, {
+    skipAutoChargeWithoutExecutor: true,
+  });
+  expect(calls).toBe(0);
+  expect(
+    await db!.charge.count({ where: { contractId: c.id, status: 'PENDING' } }),
+  ).toBe(0);
 });
