@@ -30,6 +30,7 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import {
   calculatePaymentLinkFees,
   calculateDebitFees,
+  round2,
 } from './payment-link-fees.helper';
 import { buildUserTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
@@ -195,6 +196,19 @@ export class ChargePaymentLinkUseCase {
         : platformTag);
     const isDebit = input.paymentMethod === 'debit_card';
     const isPix = input.paymentMethod === 'pix';
+    if (isPix && !link.aceitaPix) {
+      throw new BadRequestException('Este link não aceita pagamento via PIX');
+    }
+    if (isDebit && !link.aceitaDebito) {
+      throw new BadRequestException(
+        'Este link não aceita pagamento via cartão de débito',
+      );
+    }
+    if (!isPix && !isDebit && !link.aceitaCartao) {
+      throw new BadRequestException(
+        'Este link não aceita pagamento via cartão de crédito',
+      );
+    }
 
     // Para débito: comprador paga valor base; taxas (DOM 3,49%+R$1 + plataforma) saem do líquido do vendedor.
     // Para PIX: comprador paga exatamente o valor base, sem juros de parcelamento.
@@ -214,7 +228,7 @@ export class ChargePaymentLinkUseCase {
             return {
               totalAmount: d.baseAmount, // comprador paga o valor base
               netAmount: d.netAmount,
-              domFeeAmount: d.domFeeAmount + d.platformFeeAmount, // total de taxas sobre o vendedor
+              domFeeAmount: d.domFeeAmount, // só o custo DOM; a parte da plataforma sai de totalFee - domFee
             };
           })()
         : calculatePaymentLinkFees(
@@ -246,8 +260,9 @@ export class ChargePaymentLinkUseCase {
     const customerPhone = input.customerPhone.replace(/\D/g, '');
 
     // totalFee consolidado sempre considera a diferença entre cobrado e líquido.
-    const totalFee = totalAmount - netAmount;
-    const platformFee = totalFee - domFeeAmount;
+    const domFee = round2(domFeeAmount);
+    const totalFee = round2(totalAmount - netAmount);
+    const platformFee = round2(totalFee - domFee);
 
     const chargeId = randomUUID();
     const baseDescription = funnel
@@ -271,7 +286,7 @@ export class ChargePaymentLinkUseCase {
 
       paymentMethod: this.mapPaymentMethod(input.paymentMethod),
       totalFee: new Prisma.Decimal(totalFee),
-      domFee: new Prisma.Decimal(domFeeAmount),
+      domFee: new Prisma.Decimal(domFee),
       platformFee: new Prisma.Decimal(platformFee),
       description:
         platformTag !== 'GLOBAL'

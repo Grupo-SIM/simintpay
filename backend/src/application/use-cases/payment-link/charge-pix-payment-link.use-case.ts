@@ -25,7 +25,7 @@ import type { IPaymentLinkRepository } from '../../../core/repositories/payment-
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { calculatePaymentLinkFees } from './payment-link-fees.helper';
+import { calculatePaymentLinkFees, round2 } from './payment-link-fees.helper';
 import { buildUserTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
 import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import {
@@ -182,8 +182,9 @@ export class ChargePixPaymentLinkUseCase {
 
     const effectiveUserId = link.userId;
 
-    const totalFee = totalAmount - netAmount;
-    const platformFee = totalFee - domFeeAmount;
+    const domFee = round2(domFeeAmount);
+    const totalFee = round2(totalAmount - netAmount);
+    const platformFee = round2(totalFee - domFee);
 
     const chargeId = randomUUID();
     const baseDescription = funnel
@@ -207,7 +208,7 @@ export class ChargePixPaymentLinkUseCase {
 
       paymentMethod: PaymentMethod.PIX,
       totalFee: new Prisma.Decimal(totalFee),
-      domFee: new Prisma.Decimal(domFeeAmount),
+      domFee: new Prisma.Decimal(domFee),
       platformFee: new Prisma.Decimal(platformFee),
       description:
         platformTag !== 'GLOBAL'

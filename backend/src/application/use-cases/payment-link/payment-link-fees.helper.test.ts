@@ -139,3 +139,15 @@ test('draft rates do not mutate checkout and absorption uses actual charged prin
     await initializePlatformTaxasCache(empty as never);
   }
 });
+
+test('PIX: domFeeAmount is the MDR_PIX acquirer cost, not the card rate; net and total unchanged', () => {
+  const pix = calculatePaymentLinkFees(
+    { amount: 100, isStandalone: true } as any,
+    1,
+    'GLOBAL',
+    true,
+  );
+  expect(pix.domFeeAmount).toBe(0.98);
+  expect(pix.totalAmount).toBe(100);
+  expect(pix.netAmount).toBe(87);
+});

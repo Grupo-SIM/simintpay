@@ -80,13 +80,13 @@ describe('plain PIX charge (legacy fees, no financial policy)', () => {
   test('numbers written to the Transaction', async () => {
     const f = setup();
     const out = await f.service.execute(f.input);
-    // buyer pays exactly the base; seller fee = 9% + R$4 = 13; "domFee" = card rate 3.99% + R$1 even for PIX
+    // buyer pays exactly the base; seller fee = 9% + R$4 = 13; domFee = MDR_PIX 0.98% (real acquirer cost), platformFee = rest
     expect(money(f.db.row())).toEqual({
       amount: 100,
       netAmount: 87,
       totalFee: 13,
-      domFee: 4.99,
-      platformFee: 8.01, // SUSPECT: totalFee - domFee, but domFee is never deducted from net for PIX
+      domFee: 0.98,
+      platformFee: 12.02,
     });
     expect(out.amount).toBe(100);
     expect(out.status).toBe('pending');
@@ -168,8 +168,8 @@ describe('PIX with order bump', () => {
       amount: 120,
       netAmount: 105.2, // 120 - (120 * 9% + 4)
       totalFee: 14.8,
-      domFee: 5.79,
-      platformFee: 9.01,
+      domFee: 1.18,
+      platformFee: 13.62,
     });
     expect(f.db.row().description).toBe('Plan + Bump');
     expect(f.db.offerSales).toHaveLength(1);
@@ -222,8 +222,8 @@ describe('upsell / downsell (funnel offer)', () => {
       amount: 50,
       netAmount: 41.5, // 50 - (50 * 9% + 4)
       totalFee: 8.5,
-      domFee: 3, // 50 * 3.99% + 1 = 2.995 -> round2
-      platformFee: 5.5,
+      domFee: 0.49, // 50 * 0.98% = 0.49
+      platformFee: 8.01,
     });
     expect(f.db.row().description).toBe('Plan | Upsell: Upsell X');
     expect(f.db.offerSales[0]).toMatchObject({
@@ -387,8 +387,8 @@ describe('Areaflix seller net', () => {
         amount: 100,
         netAmount: 89.01,
         totalFee: 10.99,
-        domFee: 4.99, // SUSPECT: card DOM rate reported as domFee on a PIX
-        platformFee: 6,
+        domFee: 0.98,
+        platformFee: 10.01,
       });
     });
   });
@@ -412,8 +412,8 @@ describe('Areaflix seller net', () => {
         amount: 120,
         netAmount: 107.61, // 120 * 0.9301 - 4
         totalFee: 12.39,
-        domFee: 5.79,
-        platformFee: 6.6,
+        domFee: 1.18,
+        platformFee: 11.21,
       });
     });
   });
@@ -457,9 +457,9 @@ describe('financialQuote present vs absent', () => {
       domFee: 1.48, // contracted acquirer cost: 0.98% * 100 + R$0.50
       platformFee: 4, // sim fee: 2% * 100 + R$2
     });
-    // SUSPECT: totalFee/platformFee are stored unrounded (float noise) on this path
-    expect(row.totalFee.toNumber()).toBe(5.480000000000004);
-    expect(row.platformFee.toNumber()).toBe(4.0000000000000036);
+    // fees are rounded to 2 decimals on the financial-quote path too (no float noise)
+    expect(row.totalFee.toNumber()).toBe(5.48);
+    expect(row.platformFee.toNumber()).toBe(4);
     expect(row.financialSnapshot).toBeDefined();
     expect(row.settlementBasis).toBe('FINAL_NET');
     expect(row.status).toBe('PENDING');

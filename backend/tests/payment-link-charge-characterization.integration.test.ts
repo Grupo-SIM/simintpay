@@ -137,7 +137,7 @@ run(
     const tx = await db!.transaction.findUniqueOrThrow({
       where: { id: out.transactionId },
     });
-    expect(stored(tx)).toEqual(['100.00', '87.00', '13.00', '4.99', '8.01']);
+    expect(stored(tx)).toEqual(['100.00', '87.00', '13.00', '0.98', '12.02']);
     expect(tx).toMatchObject({
       status: 'PENDING',
       settlementBasis: 'FINAL_NET',
@@ -213,7 +213,7 @@ run(
     const tx = await db!.transaction.findUniqueOrThrow({
       where: { id: out.transactionId },
     });
-    expect(stored(tx)).toEqual(['120.00', '105.20', '14.80', '5.79', '9.01']);
+    expect(stored(tx)).toEqual(['120.00', '105.20', '14.80', '1.18', '13.62']);
     expect(tx.description).toBe('Plan + Bump');
     const sales = await db!.paymentLinkOfferSale.findMany({
       where: { transactionId: tx.id },
@@ -258,7 +258,7 @@ run(
     const tx = await db!.transaction.findUniqueOrThrow({
       where: { id: out.transactionId },
     });
-    expect(stored(tx)).toEqual(['50.00', '41.50', '8.50', '3.00', '5.50']);
+    expect(stored(tx)).toEqual(['50.00', '41.50', '8.50', '0.49', '8.01']);
     const sale = await db!.paymentLinkOfferSale.findFirstOrThrow({
       where: { transactionId: tx.id },
     });
@@ -340,7 +340,7 @@ run(
     const tx = await db!.transaction.findUniqueOrThrow({
       where: { id: out.transactionId },
     });
-    expect(stored(tx)).toEqual(['100.00', '87.00', '13.00', '4.99', '8.01']);
+    expect(stored(tx)).toEqual(['100.00', '87.00', '13.00', '0.98', '12.02']);
     expect(tx.financialSnapshot).toEqual({
       coproduction: {
         basis: 'NET',

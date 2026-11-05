@@ -236,6 +236,8 @@ export function makeLink(over: Record<string, unknown> = {}): any {
     isStandalone: true,
     plataformas: ['GLOBAL'],
     aceitaPix: true,
+    aceitaCartao: true,
+    aceitaDebito: true,
     maxUses: null,
     currentUses: 0,
     expiresAt: null,

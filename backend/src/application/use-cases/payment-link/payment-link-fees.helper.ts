@@ -125,7 +125,15 @@ export function calculatePaymentLinkFees(
   // 2. Taxa DOM sobre o valor com juros
   const domFeeRate = DOM_FEE_RATES[n] ?? 0;
   const domFixedFee = getDomFixedFee();
-  const domFeeAmount = valueWithInterest * domFeeRate + domFixedFee;
+  // PIX: custo real da adquirente é o MDR_PIX (mesma fonte de estimateDomFeeReais), nunca a taxa de cartão.
+  const mdrPix = getPlatformTaxaEffective(
+    platformTag ?? 'GLOBAL',
+    'MDR_PIX',
+    PLATFORM_TAXA_DEFAULTS.MDR_PIX,
+  );
+  const domFeeAmount = isPix
+    ? baseAmount * mdrPix
+    : valueWithInterest * domFeeRate + domFixedFee;
 
   // 3. Total que o COMPRADOR paga
   const totalAmount =
@@ -148,9 +156,9 @@ export function calculatePaymentLinkFees(
     platformFeeRate,
     interestAmount: round2(interestAmount),
     valueWithInterest: round2(valueWithInterest),
-    domFeeRate,
+    domFeeRate: isPix ? mdrPix : domFeeRate,
     domFeeAmount: round2(domFeeAmount),
-    domFixedFee,
+    domFixedFee: isPix ? 0 : domFixedFee,
     totalAmount: round2(totalAmount),
     installmentAmount: round2(installmentAmount),
     sellerFee: round2(sellerFee),
@@ -237,6 +245,6 @@ export function calculateDebitFees(
   };
 }
 
-function round2(v: number): number {
+export function round2(v: number): number {
   return Math.round(v * 100) / 100;
 }

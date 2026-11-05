@@ -102,8 +102,8 @@ describe('fees per payment method (legacy, no financial policy)', () => {
       amount: 100,
       netAmount: 87.51, // 100 - (3.49% + 1) - (2% + 2) - 1 (TAXA_FIXA_TRANSACAO) - 3 (TAXA_CASHBACK)
       totalFee: 12.49,
-      domFee: 8.49, // SUSPECT: "domFee" = DOM debit cost + platform fee together
-      platformFee: 4, // SUSPECT: 4 = fixed 1 + cashback 3, the 2% + R$2 platform fee is inside domFee
+      domFee: 4.49, // DOM debit cost only: 3.49% + R$1
+      platformFee: 8, // platform take: 2% + R$2 + fixed 1 + cashback 3
     });
     expect(f.db.row().paymentMethod).toBe('DEBIT_CARD');
   });
@@ -117,8 +117,8 @@ describe('fees per payment method (legacy, no financial policy)', () => {
       amount: 100,
       netAmount: 87,
       totalFee: 13,
-      domFee: 4.99,
-      platformFee: 8.01,
+      domFee: 0.98, // real acquirer cost: MDR_PIX 0.98%, not the card rate
+      platformFee: 12.02,
     });
     expect(f.db.row().paymentMethod).toBe('PIX');
   });
@@ -279,12 +279,36 @@ describe('link guards', () => {
       makeLink({ domPaymentLinkId: null }),
       'Link ainda não sincronizado com o gateway',
     ));
-  test('SUSPECT: aceitaPix=false is NOT enforced by the generic endpoint', async () => {
-    const f = setup(makeLink({ aceitaPix: false }));
+  test.each([
+    ['pix', { aceitaPix: false }, 'Este link não aceita pagamento via PIX'],
+    [
+      'credit_card',
+      { aceitaCartao: false },
+      'Este link não aceita pagamento via cartão de crédito',
+    ],
+    [
+      'debit_card',
+      { aceitaDebito: false },
+      'Este link não aceita pagamento via cartão de débito',
+    ],
+  ])(
+    'rejects %s when the link does not accept it and writes nothing',
+    async (method, over, message) => {
+      const f = setup(makeLink(over));
+      f.input.paymentMethod = method;
+      await expect(f.service.execute(f.input)).rejects.toThrow(message);
+      expect(f.db.rows()).toHaveLength(0);
+      expect(f.gatewayCalls).toHaveLength(0);
+    },
+  );
+
+  test('a method the link accepts is not blocked by the others being off', async () => {
+    const f = setup(
+      makeLink({ aceitaPix: true, aceitaCartao: false, aceitaDebito: false }),
+    );
     f.input.paymentMethod = 'pix';
     await f.service.execute(f.input);
     expect(f.db.rows()).toHaveLength(1);
-    expect(f.db.row().paymentMethod).toBe('PIX');
   });
 });
 
@@ -298,8 +322,8 @@ describe('Areaflix seller net', () => {
         amount: 100,
         netAmount: 89.01,
         totalFee: 10.99,
-        domFee: 4.99,
-        platformFee: 6,
+        domFee: 0.98,
+        platformFee: 10.01,
       });
       expect(f.gatewayCalls[0].token).toBe('areaflix-token');
     });
@@ -342,6 +366,9 @@ describe('financialQuote present vs absent (PIX lane configured)', () => {
       platformFee: 4,
     });
     expect(f.db.row().financialSnapshot.originalCents).toBe(10000);
+    // no float noise: stored fees are rounded to 2 decimals on the quote path
+    expect(f.db.row().totalFee.toNumber()).toBe(5.48);
+    expect(f.db.row().platformFee.toNumber()).toBe(4);
   });
 
   test('absent for the same link on a lane without policy (credit 1x): legacy numbers', async () => {

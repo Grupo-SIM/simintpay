@@ -131,6 +131,9 @@ function fixture(early = false, fail = false, financial = false) {
     title: 'Plan',
     isStandalone: true,
     plataformas: ['GLOBAL'],
+    aceitaPix: true,
+    aceitaCartao: true,
+    aceitaDebito: true,
   };
   const gateway: any = {
     chargePaymentLink: async (_: string, input: any) => {
