@@ -9,7 +9,6 @@
  */
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
-import { Pool } from 'pg';
 import {
   mapBoleto,
   mapPaymentLink,
@@ -93,8 +92,9 @@ async function main() {
   console.log(`Target database: ${describeTarget(url)}`);
   console.log('Mode: DRY RUN, read-only transaction, no writes.');
 
-  const pool = new Pool({ connectionString: url, max: 1 });
-  const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
+  const prisma = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: url, max: 1 }),
+  });
   try {
     const data = await prisma.$transaction(
       async (tx) => {
@@ -175,12 +175,13 @@ async function main() {
     }
   } finally {
     await prisma.$disconnect();
-    await pool.end();
   }
 }
 
 if (import.meta.main)
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : error);
+    console.error(
+      error instanceof Error ? error.stack || error.message : error,
+    );
     process.exit(1);
   });
