@@ -163,3 +163,26 @@ Pendente, por dependência externa ou decisão:
 - [ ] Checkout de ofertas recorrentes (assinatura) e SDK/dashboard do frontend (wizard por presets).
 - [ ] Fase 6: medir uso das rotas legadas antes de retirá-las.
 - [ ] Bugs ainda fixados nos testes (seção 7): boleto-PIX, Areaflix cartão 1x e débito.
+
+## 10. Estado após a segunda rodada (2026-11-06)
+
+Decisões do dono do produto: token de cartão vem da DOM (via assinatura; `createCardToken` como alternativa por `OFFER_CARD_TOKEN_SOURCE`); Areaflix cartão 1x calcula o líquido sobre a base (R$ 87,00 por R$ 100, antes R$ 91,54); boleto-PIX rende o mesmo que um link PIX.
+
+Em `main`:
+
+- [x] `POST ofertas/public/:code/subscribe` (AUTO_CHARGE com cartão, MANUAL_PAY com PIX), idempotente por (oferta, e-mail); `markChargeSettled` agora também avança o contrato; primeira cobrança que falha em contrato sem ciclo pago cancela o contrato.
+- [x] `CardTokenSource` (assinatura DOM ou `createCardToken`); token guardado no cofre; só marca/bandeira/últimos 4/validade no banco, nunca PAN/CVV.
+- [x] `Offer.fulfillment` validado (`offer-fulfillment.ts`); entrega por e-mail/arquivos/webhook após `Charge` paga, idempotente por etapa; order bumps e upsell/downsell no checkout de ofertas (mesmos números do link legado, provado por teste). Webhooks de oferta têm proteção SSRF (o fluxo legado não tem: pendência separada).
+- [x] `DomChargeStatusLookup` real (pagina até 10 páginas / 3 dias; resolve o token como o executor).
+- [x] Bugs de taxa: boleto-PIX igual ao link PIX e sempre FINAL_NET; Areaflix 1x sobre a base; Areaflix débito sem `platformFee` negativo (diferença em `financialSnapshot.subsidy`).
+- [x] Frontend: seção `ofertas` no dashboard (lista, wizard por presets, desativar) e checkout `?ofertaCode=` para compra única. Não há SDK gerado nem i18n neste repositório (strings pt-BR fixas, `endpoints.ts` escrito à mão).
+
+Pendências e riscos conhecidos:
+
+- [ ] **Nada foi validado contra a DOM real.** Formato da resposta de `createSubscriptionFromCheckout`, local de `card.token`, aceitação de token avulso em `/transactions`, `repetitions: 1` não recobrar sozinho, filtros do lookup.
+- [ ] `completeCardCapture` não é chamado automaticamente depois de liquidação por webhook (precisa de gancho ou varredura).
+- [ ] Ciclos seguintes cobram `offer.amountCents` pelo `chargeStoredCardToken`, mas o primeiro cobra o total com taxas: valores divergem quando a política soma taxas.
+- [ ] `offer-pricing.ts` duplica a precificação de `offer-checkout.service.ts`: unificar.
+- [ ] `trialDays > 0` bloqueado no checkout público de assinatura; `pix-status` público não conhece ofertas; checkout de ofertas recorrentes no frontend segue "indisponível".
+- [ ] Boleto-PIX ainda ignora `orderBumpIds`/`offerId`; `LINK_COST_1X` vs `TAXA_LINK_PERCENT` só diverge em plataformas com override de um dos dois.
+- [ ] Migrations ainda não aplicadas em nenhum banco real (7 pendentes); migração de dados legada e das 5 ordens de assinatura ativas na DOM continuam dependendo de decisão do dono.
