@@ -1436,6 +1436,7 @@ model AcquirerCatalogue {
   syncAdapter String?
   feeSchedules AcquirerFeeSchedule[]
   withdrawalFees AcquirerWithdrawalFee[]
+  externalRefs ExternalRef[]
 }
 
 /// Append-only per-acquirer withdrawal cost in cents. The latest row per acquirer wins.
@@ -1594,4 +1595,24 @@ model PlatformAdditiveFees {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   platform Platform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+}
+
+
+/// Neutral link between an acquirer-side identifier and the internal entity it represents.
+/// New code must resolve gateway IDs here instead of adding `dom*` columns, so swapping
+/// acquirers never requires touching the owning tables.
+model ExternalRef {
+  id String @id @default(uuid())
+  acquirerCode String
+  acquirer AcquirerCatalogue @relation(fields: [acquirerCode], references: [code], onDelete: Restrict)
+  /// PLAN | SUBSCRIPTION | PAYMENT_LINK | PAYMENT | CUSTOMER | CARD_TOKEN
+  kind String
+  externalId String
+  /// Internal model name (Offer, BillingContract, Charge, ...).
+  entityType String
+  entityId String
+  createdAt DateTime @default(now())
+  @@unique([acquirerCode, kind, externalId])
+  @@unique([entityType, entityId, acquirerCode, kind])
+  @@index([entityType, entityId])
 }

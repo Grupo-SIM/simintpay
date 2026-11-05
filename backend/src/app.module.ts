@@ -1,3 +1,4 @@
+import { BillingCoreModule } from './modules/billing-core/billing-core.module';
 import { CoproductionModule } from './modules/coproduction/coproduction.module';
 import { SalePushModule } from './modules/sale-push/sale-push.module';
 import { LegacyPlatformUsageInterceptor } from './modules/platform-core/legacy-platform-usage.interceptor';
@@ -44,6 +45,7 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
 
 @Module({
   imports: [
+    BillingCoreModule,
     CoproductionModule,
     SalePushModule,
     PlatformEventsModule,
