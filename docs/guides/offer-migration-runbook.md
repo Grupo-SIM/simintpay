@@ -1,0 +1,51 @@
+# Runbook: migração dos produtos legados para `Offer`
+
+Escopo: criar as `Offer` "sombra" a partir de `PaymentLink`, `SubscriptionLink`, `Plan`, `PixCreditPlan` e `Boleto` (plano [0021](../../plans/0021-oferta-unica-recorrencia-propria.md), fase 4). A migração é **aditiva**: nenhuma linha legada é alterada ou apagada, e o legado continua sendo a fonte viva. Nada lê `Offer` ainda, então a migração não muda nenhum comportamento em produção.
+
+Script: `backend/scripts/offer-migration-apply.ts`. Mapeamento: `backend/src/modules/offer/legacy-offer-mapper.ts`. Relatório prévio (somente leitura): `backend/scripts/offer-migration-report.ts`.
+
+## O que o script faz
+
+- Cria uma `Offer` por produto legado, preservando o código público (`PixCreditPlan`: `PixPlanLinkCode` ativo mais antigo) e gravando `(legacyType, legacyId)`. Linhas já migradas são puladas (idempotente).
+- Para produtos com `domPaymentLinkId` (link de pagamento, boleto) ou `domPlanId` (link de assinatura, plano) grava um `ExternalRef` (adquirente `DOM`, tipo `PAYMENT_LINK` ou `PLAN`, `entityType` `Offer`). Requer `AcquirerCatalogue` com código `DOM`; sem ele a transação daquele tipo é abortada sem escrever nada. Se a `Offer` já existe e falta só o `ExternalRef`, ele é criado.
+- **Recusa** (não cria, lista no plano): `INVALID_AMOUNT`, `MISSING_CODE`, `MISSING_OWNER` (inclusive dono inexistente) e `DUPLICATE_CODE` (código igual em outra `Offer` ou compartilhado por várias linhas legadas; o script não escolhe vencedor).
+- **BLOCKED**: produtos cujo dono é `ADMIN` (plano [0009](../../plans/0009-titularidade-ofertas-cobrancas.md)). Nunca reatribui donos; a transferência é feita antes, por `scripts/reassign-products.ts`, com mapa aprovado.
+- **Avisos** (não bloqueiam): valor abaixo de R$ 14,99 (reflete o legado fielmente) e códigos extras de `PixCreditPlan`.
+
+## Segurança
+
+- Exige `--database-url=...` explícito; nunca lê `.env` nem `DATABASE_URL`. Imprime `host:porta/banco` antes de qualquer consulta.
+- Padrão é **dry-run** (transação somente leitura que imprime o plano). Escrever exige `--apply` **e** `--i-understand-this-writes`.
+- Uma transação por tipo legado; falha em um tipo desfaz só aquele tipo.
+
+## Passos
+
+1. **Antes de tudo, o dono confere** (ver abaixo) e aplica no banco alvo as migrations `20261105120000_external_ref`, `20261105130000_offer_charge_core` (e dependências). Essas migrations ainda não foram aplicadas; isso exige autorização separada.
+2. Ensaie em cópia local descartável (Postgres em Docker, `127.0.0.1`, porta própria), `bunx prisma db push --accept-data-loss` e a suíte `OFFER_MIGRATION_TEST_DATABASE_URL=postgresql://...127.0.0.1... bun test tests/offer-migration.integration.test.ts`.
+3. Relatório de conflitos: `bun --no-env-file scripts/offer-migration-report.ts --database-url=...`.
+4. Dry-run: `bun --no-env-file scripts/offer-migration-apply.ts --database-url=...`. Revise cada `REFUSED`/`BLOCKED`.
+5. Aplicar: `... --apply --i-understand-this-writes`.
+6. Verificar: `... --verify`. Compara contagens, valor em centavos, código, dono e `ExternalRef` entre legado e `Offer`; sai com código 1 em qualquer divergência (ou `Offer` órfã).
+7. Repetir o passo 5 é seguro (idempotente), por exemplo depois de corrigir um item recusado.
+
+## Rollback
+
+Nada referencia `Offer` ainda (`BillingContract.offerId` e `Charge.offerId` estão vazios), então basta apagar as sombras; as linhas legadas não são tocadas:
+
+```sql
+BEGIN;
+DELETE FROM "ExternalRef" WHERE "entityType" = 'Offer';
+DELETE FROM "Offer" WHERE "legacyType" IN ('PaymentLink','SubscriptionLink','Plan','PixCreditPlan','Boleto');
+COMMIT;
+```
+
+Para desfazer só um tipo, filtre por `legacyType` (e apague os `ExternalRef` cujo `entityId` pertence a ele antes). Se já existirem `BillingContract`/`Charge` apontando para `Offer`, **não** use este rollback: a `Offer` é protegida por chave estrangeira e o apagamento falhará.
+
+## O que o dono deve checar antes de rodar em banco real
+
+- Banco alvo correto (o script imprime `host:porta/banco`; confirme que não é o de outro ambiente) e backup recente.
+- Migrations de `Offer`/`ExternalRef` aplicadas e `AcquirerCatalogue` `DOM` presente.
+- Produtos `BLOCKED` de dono `ADMIN`: decidir destino e rodar a reatribuição (0009) antes; o script não move donos.
+- Itens `REFUSED`: corrigir o código (códigos duplicados entre tabelas, `Plan` sem código, `PixCreditPlan` sem `PixPlanLinkCode` ativo) ou aceitar que ficam de fora.
+- Valores abaixo do mínimo (R$ 14,99) e códigos extras de plano PIX: confirmar que são intencionais.
+- Que a migração é só sombra: nenhum fluxo de pagamento passa a usar `Offer` até o corte de fase posterior.
