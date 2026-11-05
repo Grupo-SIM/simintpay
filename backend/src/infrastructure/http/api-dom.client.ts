@@ -1292,6 +1292,19 @@ export class ApiDomClient implements IPaymentGateway {
     }
   }
 
+  async createReusableCardToken(
+    domToken: string,
+    input: Parameters<
+      NonNullable<IPaymentGateway['createReusableCardToken']>
+    >[1],
+  ): Promise<string> {
+    const domCustomerId = await this.getOrCreateDomCustomer(
+      domToken,
+      input.customer,
+    );
+    return this.createCardToken(domToken, domCustomerId, input.card);
+  }
+
   async recoverSubscriptionCard(
     domToken: string,
     input: {

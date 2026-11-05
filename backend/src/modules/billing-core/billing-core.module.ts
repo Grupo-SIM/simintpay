@@ -1,6 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ApiDomModule } from '../../infrastructure/http/api-dom.module';
 import { BUYER_NOTIFIER, LoggingBuyerNotifier } from './buyer-notifier';
+import {
+  CARD_TOKEN_SOURCE,
+  cardTokenSourceKindFromEnv,
+} from './card-token-source';
+import {
+  CardTokenEndpointSource,
+  SubscriptionCardTokenSource,
+} from './card-token-sources';
 import { BillingCycleCron } from './billing-cycle.cron';
 import { BillingCycleService } from './billing-cycle.service';
 import { ChargeReconciler } from './charge-reconciler.service';
@@ -25,6 +33,15 @@ import { StoredCardVaultService } from './stored-card-vault.service';
     ChargeReconciler,
     { provide: CHARGE_STATUS_LOOKUP, useClass: DomChargeStatusLookup },
     { provide: BUYER_NOTIFIER, useClass: LoggingBuyerNotifier },
+    {
+      // OFFER_CARD_TOKEN_SOURCE=subscription (default) | card-token
+      provide: CARD_TOKEN_SOURCE,
+      inject: [ExternalRefService],
+      useFactory: (refs: ExternalRefService) =>
+        cardTokenSourceKindFromEnv() === 'card-token'
+          ? new CardTokenEndpointSource()
+          : new SubscriptionCardTokenSource(refs),
+    },
   ],
   exports: [
     ExternalRefService,
@@ -34,6 +51,7 @@ import { StoredCardVaultService } from './stored-card-vault.service';
     StoredCardCycleExecutor,
     ChargeReconciler,
     BUYER_NOTIFIER,
+    CARD_TOKEN_SOURCE,
   ],
 })
 export class BillingCoreModule {}

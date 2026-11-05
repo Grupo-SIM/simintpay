@@ -423,6 +423,31 @@ export interface IPaymentGateway {
     },
   ): Promise<{ id: string; status?: string; [key: string]: unknown }>;
 
+  /**
+   * Tokeniza o cartão completo no cliente do adquirente e devolve um token reutilizável
+   * (cobrável depois sem o comprador). PAN/CVV só existem em memória durante esta chamada.
+   */
+  createReusableCardToken?(
+    domToken: string,
+    input: {
+      customer: {
+        name: string;
+        email: string;
+        document: string;
+        phone: string;
+        documentType: 'CPF' | 'CNPJ';
+      };
+      card: {
+        number: string;
+        cvv: string;
+        exp_month: string;
+        exp_year: string;
+        holder_name: string;
+        holder_document: string;
+      };
+    },
+  ): Promise<string>;
+
   recoverSubscriptionCard?(
     domToken: string,
     input: {
