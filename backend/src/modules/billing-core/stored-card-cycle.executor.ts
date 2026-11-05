@@ -3,7 +3,7 @@ import type { BillingContract, Charge } from '@prisma/client';
 import { toAcquirer } from '../../core/services/acquirer.enum';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PaymentGatewayResolver } from '../../infrastructure/http/payment-gateway.resolver';
-import { getModuleDomToken } from '../module.registry';
+import { resolveCycleDomToken } from './cycle-dom-token';
 import type {
   CycleChargeExecutor,
   CycleChargeOutcome,
@@ -91,7 +91,10 @@ export class StoredCardCycleExecutor implements CycleChargeExecutor {
     const gateway = this.gateways.byAcquirer(acquirer);
     const stored = await this.vault.resolveForContract(contract.id, acquirer);
     if (!stored) return { outcome: 'FAILED' };
-    const sellerToken = await this.resolveToken(contract.userId);
+    const sellerToken = await resolveCycleDomToken(
+      this.prisma,
+      contract.userId,
+    );
     if (!sellerToken) return { outcome: 'UNKNOWN' };
     const key = StoredCardCycleExecutor.idempotencyKey(charge);
     try {
@@ -113,22 +116,5 @@ export class StoredCardCycleExecutor implements CycleChargeExecutor {
       );
       return { outcome: 'UNKNOWN' };
     }
-  }
-
-  private async resolveToken(userId: string): Promise<string | undefined> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        domToken: true,
-        clientStatus: true,
-        platform: { select: { tag: true } },
-      },
-    });
-    if (!user) return undefined;
-    return user.clientStatus
-      ? process.env.DOM_TOKEN
-      : (user.domToken ??
-          getModuleDomToken(user.platform?.tag) ??
-          process.env.DOM_TOKEN);
   }
 }

@@ -15,7 +15,9 @@ function filler(n: number) {
   return Array.from({ length: n }, (_, i) => tx(`other-${i}`));
 }
 
-function setup(opts: { updatedAt?: Date; acquirer?: string } = {}) {
+function setup(
+  opts: { updatedAt?: Date; acquirer?: string; noUser?: boolean } = {},
+) {
   const list = mock(
     async (): Promise<{ transactions: unknown[]; total: number }> => ({
       transactions: [],
@@ -26,9 +28,19 @@ function setup(opts: { updatedAt?: Date; acquirer?: string } = {}) {
     charge: {
       findUnique: mock(async () => ({
         updatedAt: opts.updatedAt ?? new Date('2026-06-10T11:00:00Z'),
-        offer: { platformTag: null },
-        contract: { acquirer: opts.acquirer ?? 'DOM' },
+        contract: { acquirer: opts.acquirer ?? 'DOM', userId: 'u-1' },
       })),
+    },
+    user: {
+      findUnique: mock(async () =>
+        opts.noUser
+          ? null
+          : {
+              domToken: 'owner-token',
+              clientStatus: false,
+              platform: { tag: 'SOME-PLATFORM' },
+            },
+      ),
     },
   };
   const gateways = { byAcquirer: () => ({ listDomTransactions: list }) };
@@ -49,7 +61,7 @@ describe('DomChargeStatusLookup', () => {
       string,
       { begin_date: string; page: number },
     ];
-    expect(token).toBe('global-token');
+    expect(token).toBe('owner-token');
     expect(input.page).toBe(1);
     expect(input.begin_date).toBe('2026-06-09');
   });
@@ -123,6 +135,22 @@ describe('DomChargeStatusLookup', () => {
 
   it('is UNKNOWN for a non-DOM acquirer', async () => {
     const { lookup, list } = setup({ acquirer: 'FRENDZ' });
+    expect(await lookup.find('ch-1', 2, NOW)).toBe('UNKNOWN');
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it('uses the executor token (owner domToken), not the global or platform one', async () => {
+    const { lookup, list } = setup();
+    list.mockResolvedValueOnce({ transactions: [tx(KEY, 'paid')], total: 1 });
+    await lookup.find('ch-1', 2, NOW);
+    const [token] = list.mock.calls[0] as unknown as [string];
+    expect(token).toBe('owner-token');
+    expect(token).not.toBe(process.env.DOM_TOKEN);
+  });
+
+  it('is UNKNOWN without calling DOM when the owner token cannot be resolved', async () => {
+    delete process.env.DOM_TOKEN;
+    const { lookup, list } = setup({ noUser: true });
     expect(await lookup.find('ch-1', 2, NOW)).toBe('UNKNOWN');
     expect(list).not.toHaveBeenCalled();
   });

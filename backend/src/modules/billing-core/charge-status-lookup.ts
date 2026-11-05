@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { platformGatewayToken } from '../../application/helpers/explicit-platform.helper';
+import { resolveCycleDomToken } from './cycle-dom-token';
 import { Acquirer, toAcquirer } from '../../core/services/acquirer.enum';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PaymentGatewayResolver } from '../../infrastructure/http/payment-gateway.resolver';
@@ -62,16 +62,16 @@ export class DomChargeStatusLookup implements ChargeStatusLookup {
         where: { id: chargeId },
         select: {
           updatedAt: true,
-          offer: { select: { platformTag: true } },
-          contract: { select: { acquirer: true } },
+          contract: { select: { acquirer: true, userId: true } },
         },
       });
-      if (!charge?.contract || !charge.offer) return 'UNKNOWN';
+      if (!charge?.contract) return 'UNKNOWN';
       if (toAcquirer(charge.contract.acquirer) !== Acquirer.DOM)
         return 'UNKNOWN';
-      const token = platformGatewayToken(
-        charge.offer.platformTag,
-        process.env.DOM_TOKEN,
+      // Same account the cycle charge was issued with; undefined/throw -> UNKNOWN, never NOT_FOUND.
+      const token = await resolveCycleDomToken(
+        this.prisma,
+        charge.contract.userId,
       );
       if (!token) return 'UNKNOWN';
 
