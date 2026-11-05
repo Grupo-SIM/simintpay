@@ -17,6 +17,12 @@ import type { IUserRepository } from '../../core/repositories/user.repository.in
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { getModuleAcquirer } from '../module.registry';
 import { generateOfferCode } from './offer-code';
+import {
+  OfferFulfillmentError,
+  parseOfferFulfillment,
+  readOfferFulfillment,
+  type OfferFulfillment,
+} from './offer-fulfillment';
 import type {
   CreateOfferDto,
   ListOffersQueryDto,
@@ -35,7 +41,16 @@ export type OfferActor = { id: string; role: string };
 const CODE_ATTEMPTS = 5;
 
 /** Campos seguros para o checkout público; nunca expõe titular, uso interno ou metadados administrativos. */
-export function toPublicOffer(offer: Offer) {
+export type PublicBump = {
+  code: string;
+  role: 'BUMP' | 'UPSELL' | 'DOWNSELL';
+  name: string;
+  description: string | null;
+  amountCents: number;
+  currency: string;
+};
+
+export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
   const metadata = (offer.metadata ?? {}) as Record<string, unknown>;
   return {
     code: offer.code,
@@ -54,6 +69,7 @@ export function toPublicOffer(offer: Offer) {
     accessDays: offer.accessDays,
     expiresAt: offer.expiresAt,
     requiresBuyerAddress: metadata.requiresBuyerAddress === true,
+    bumps,
   };
 }
 
@@ -112,7 +128,7 @@ export class OfferService {
             description: dto.description ?? null,
             expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
             maxUses: dto.maxUses ?? null,
-            fulfillment: dto.fulfillment as Prisma.InputJsonValue | undefined,
+            fulfillment: await this.checkFulfillment(dto.fulfillment, owner.id),
           },
         });
       } catch (error) {
@@ -176,7 +192,11 @@ export class OfferService {
         description: dto.description,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
         maxUses: dto.maxUses,
-        fulfillment: dto.fulfillment as Prisma.InputJsonValue | undefined,
+        fulfillment: await this.checkFulfillment(
+          dto.fulfillment,
+          existing.ownerUserId,
+          existing.id,
+        ),
       },
     });
   }
@@ -210,7 +230,75 @@ export class OfferService {
       (offer.expiresAt && offer.expiresAt <= now) ||
       (offer.maxUses !== null && offer.usedCount >= offer.maxUses);
     if (unavailable) throw new NotFoundException('Oferta não encontrada');
-    return toPublicOffer(offer);
+    return toPublicOffer(offer, await this.publicBumps(offer, now));
+  }
+
+  /** Bumps/upsell/downsell vendáveis, só com dados seguros (sem entrega, titular ou id interno). */
+  private async publicBumps(offer: Offer, now: Date): Promise<PublicBump[]> {
+    const { bumps } = readOfferFulfillment(offer.fulfillment);
+    if (bumps.length === 0) return [];
+    const rows = await this.prisma.offer.findMany({
+      where: {
+        id: { in: bumps.map((b) => b.offerId) },
+        ownerUserId: offer.ownerUserId,
+        isActive: true,
+        renewalMode: 'NONE',
+      },
+    });
+    const byId = new Map(rows.map((o) => [o.id, o]));
+    return bumps.flatMap((b) => {
+      const o = byId.get(b.offerId);
+      if (!o || (o.expiresAt && o.expiresAt <= now)) return [];
+      return [
+        {
+          code: o.code,
+          role: b.role,
+          name: o.name,
+          description: o.description,
+          amountCents: o.amountCents,
+          currency: o.currency,
+        },
+      ];
+    });
+  }
+
+  /**
+   * Valida o JSON de entrega e as ofertas referenciadas (mesmo titular, avulsas, existentes,
+   * diferentes da própria). Devolve o JSON normalizado para persistir.
+   */
+  private async checkFulfillment(
+    raw: Record<string, unknown> | undefined,
+    ownerUserId: string,
+    selfId?: string,
+  ): Promise<Prisma.InputJsonValue | undefined> {
+    if (raw === undefined) return undefined;
+    let parsed: OfferFulfillment;
+    try {
+      parsed = parseOfferFulfillment(raw);
+    } catch (error) {
+      if (error instanceof OfferFulfillmentError)
+        throw new BadRequestException(error.issues.join('. '));
+      throw error;
+    }
+    if (parsed.bumps.length) {
+      if (selfId && parsed.bumps.some((b) => b.offerId === selfId))
+        throw new BadRequestException(
+          'Uma oferta não pode ser bump de si mesma',
+        );
+      const found = await this.prisma.offer.findMany({
+        where: {
+          id: { in: parsed.bumps.map((b) => b.offerId) },
+          ownerUserId,
+          renewalMode: 'NONE',
+        },
+        select: { id: true },
+      });
+      if (found.length !== parsed.bumps.length)
+        throw new BadRequestException(
+          'Bump deve referenciar ofertas avulsas existentes do mesmo titular',
+        );
+    }
+    return parsed as unknown as Prisma.InputJsonValue;
   }
 
   private normalize(input: OfferInput): NormalizedOffer {
