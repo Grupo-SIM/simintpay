@@ -7,6 +7,7 @@ import {
   linkChargeReference,
   settleFinalNet,
 } from '../../../modules/platform-core/link-settlement';
+import { markChargeSettled } from '../../../modules/billing-core/charge-settlement';
 import { CheckoutEventsService } from '../../services/checkout-events.service';
 import { notifyZeroGrauPaymentStatus } from '../../../modules/zero-grau/services/zero-grau-webhook-notifier';
 import { PlatformEventsService } from '../../../modules/platform-core/platform-events.service';
@@ -250,7 +251,12 @@ export class ProcessWebhookUseCase {
       }
 
       if (trx.settlementBasis === 'EBOOK_V1') {
-        const handled = await settleEbookPayment(this.prisma, domPaymentId, parsed.data.status, trx.id);
+        const handled = await settleEbookPayment(
+          this.prisma,
+          domPaymentId,
+          parsed.data.status,
+          trx.id,
+        );
         if (!handled) throw new Error('EBOOK_ENROLLMENT_BINDING_REQUIRED');
         await this.events.markProcessed(event.id);
         return;
@@ -316,7 +322,9 @@ export class ProcessWebhookUseCase {
       const applied = await this.prisma.$transaction(async (p) => {
         if (t.settlementBasis === 'FINAL_NET') {
           await bindLinkPayment(p, t, domPaymentId);
-          return settleFinalNet(p, t, nextStatus, 'WEBHOOK');
+          const settled = await settleFinalNet(p, t, nextStatus, 'WEBHOOK');
+          if (settled) await markChargeSettled(p, t.id, nextStatus);
+          return settled;
         }
         if (
           t.status === TransactionStatus.COMPLETED &&

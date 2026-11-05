@@ -3,6 +3,7 @@ import {
   linkChargeReference,
   settleFinalNet,
 } from './link-settlement';
+import { markChargeSettled } from '../billing-core/charge-settlement';
 import { PlatformHistoricalSync } from './platform-historical-sync';
 import {
   canSyncTransition,
@@ -208,6 +209,7 @@ export class PlatformSyncPersistenceService {
         if (existing?.settlementBasis === 'FINAL_NET') {
           await bindLinkPayment(tx, existing, paymentId);
           const changed = await settleFinalNet(tx, existing, status, 'POLLING');
+          if (changed) await markChargeSettled(tx, existing.id, status);
           return changed ? { ...existing, status } : null;
         }
         // Historical transaction always belongs to original wallet, even after ownership transfer.
