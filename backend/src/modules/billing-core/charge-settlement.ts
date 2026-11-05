@@ -1,5 +1,6 @@
 import { ChargeStatus, TransactionStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+import { advanceContractForCharge } from './contract-advance';
 
 const TARGET: Partial<Record<TransactionStatus, ChargeStatus>> = {
   COMPLETED: ChargeStatus.PAID,
@@ -40,10 +41,13 @@ function emit(event: ChargeSettledEvent) {
  * (se existir) acompanha. Idempotente: só sai de PENDING, então repetir o webhook
  * ou chamar depois do checkout síncrono não regride nem reescreve nada.
  * Refund/chargeback não alteram a Charge (continua PAID, o ledger é o registro).
+ * Cobrança de contrato (assinatura): quem vence a liquidação também avança o contrato
+ * (ativa, agenda o próximo ciclo ou cancela se a primeira cobrança falhou), na mesma transação.
  * Roda no mesmo client/transação de quem liquida. Retorna true se atualizou.
  */
 export async function markChargeSettled(
-  p: Pick<Prisma.TransactionClient, 'charge'>,
+  p: Pick<Prisma.TransactionClient, 'charge'> &
+    Partial<Pick<Prisma.TransactionClient, 'billingContract' | 'offer'>>,
   transactionId: string,
   status: TransactionStatus,
   now = new Date(),
@@ -64,7 +68,18 @@ export async function markChargeSettled(
       ...(next === ChargeStatus.PAID ? { paidAt: now } : {}),
     },
   });
-  if (changed.count > 0 && next === ChargeStatus.PAID)
-    emit({ transactionId, kind: 'PAID' });
-  return changed.count > 0;
+  if (changed.count === 0) return false;
+  // Fakes de teste só expõem `charge`; o client real sempre traz o contrato.
+  if (p.billingContract) {
+    const charge = await p.charge.findUnique({ where: { transactionId } });
+    if (charge?.contractId)
+      await advanceContractForCharge(
+        p as Prisma.TransactionClient,
+        charge,
+        next === ChargeStatus.PAID ? 'PAID' : 'FAILED',
+        now,
+      );
+  }
+  if (next === ChargeStatus.PAID) emit({ transactionId, kind: 'PAID' });
+  return true;
 }

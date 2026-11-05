@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { BillingContract, Charge, Offer } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { recordCyclePayment, type CyclePaymentDetails } from './cycle-ledger';
-import { onCycleFailed, onCyclePaid, type CycleSchedule } from './cycle-policy';
+import { advanceContractForCharge } from './contract-advance';
 
 /**
  * PAID/FAILED são resultados definitivos do adquirente. UNKNOWN (timeout, 5xx,
@@ -38,16 +38,6 @@ export type RunDueOptions = {
 };
 
 type ContractWithOffer = BillingContract & { offer: Offer };
-
-function scheduleOf(offer: Offer, contract: BillingContract): CycleSchedule {
-  return {
-    intervalType: offer.intervalType ?? contract.intervalType,
-    intervalCount: offer.intervalCount ?? contract.intervalCount,
-    repetitions: offer.repetitions,
-    retryDays: offer.retryDays,
-    graceDays: offer.graceDays,
-  };
-}
 
 /**
  * Agenda de recorrência da SimIntPay. O adquirente só executa cobranças avulsas;
@@ -142,48 +132,13 @@ export class BillingCycleService {
         });
         // Same transaction as the claim: Transaction, fee/coproduction snapshot and wallet credit
         // commit together with PENDING->PAID, so a duplicate settle can never credit twice.
-        if (outcome === 'PAID' && charge.offerId) {
+        if (outcome === 'PAID' && charge.offerId && !details.alreadyBooked) {
           const chargedOffer = await tx.offer.findUniqueOrThrow({
             where: { id: charge.offerId },
           });
           await recordCyclePayment(tx, charge, chargedOffer, details);
         }
-        if (!charge.contractId) return { applied: true };
-        const contract = await tx.billingContract.findUniqueOrThrow({
-          where: { id: charge.contractId },
-          include: { offer: true },
-        });
-        if (!contract.offer) return { applied: true };
-        const schedule = scheduleOf(contract.offer, contract);
-        const state = {
-          currentPeriodEnd: contract.currentPeriodEnd,
-          pastDueAt: contract.pastDueAt,
-          retryCount: contract.retryCount,
-        };
-        let next;
-        if (outcome === 'PAID') {
-          const paidCycles = await tx.charge.count({
-            where: { contractId: contract.id, status: 'PAID' },
-          });
-          next = onCyclePaid(state, schedule, paidCycles, now);
-        } else {
-          next = onCycleFailed(state, schedule, now);
-        }
-        await tx.billingContract.update({
-          where: { id: contract.id },
-          data: {
-            status: next.status,
-            currentPeriodStart: next.currentPeriodStart,
-            currentPeriodEnd: next.currentPeriodEnd,
-            nextChargeAt: next.nextChargeAt,
-            pastDueAt: next.pastDueAt,
-            suspendedAt: next.suspendedAt,
-            graceEndsAt: next.graceEndsAt,
-            retryCount: next.retryCount,
-            accessEndsAt: next.status === 'SUSPENDED' ? now : null,
-            version: { increment: 1 },
-          },
-        });
+        await advanceContractForCharge(tx, charge, outcome, now);
         return { applied: true };
       },
       { timeout: 30_000, maxWait: 10_000 },

@@ -16,6 +16,8 @@ export type CyclePaymentDetails = {
   method?: 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
   /** Acquirer-side id of the payment, when the executor or webhook knows it. */
   externalPaymentId?: string;
+  /** The Transaction for this charge already exists (first checkout charge): only advance the contract. */
+  alreadyBooked?: boolean;
 };
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
