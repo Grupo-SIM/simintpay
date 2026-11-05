@@ -247,8 +247,12 @@ export class ChargePaymentLinkUseCase {
       plataformas: (link as any).plataformas,
     });
     if (isAfLink && !financialQuote) {
+      // Cartão 1x: o líquido incide sobre o valor do link (base), nunca sobre o total do
+      // comprador, que inclui a taxa DOM repassada a ele. Demais métodos já cobram a base.
+      const areaflixGross =
+        !isPix && !isDebit && installments <= 1 ? chargedBase : totalAmount;
       netAmount = calculateAreaflixSellerNet(
-        totalAmount,
+        areaflixGross,
         isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
         installments,
       );
@@ -262,7 +266,11 @@ export class ChargePaymentLinkUseCase {
     // totalFee consolidado sempre considera a diferença entre cobrado e líquido.
     const domFee = round2(domFeeAmount);
     const totalFee = round2(totalAmount - netAmount);
-    const platformFee = round2(totalFee - domFee);
+    const rawPlatformFee = round2(totalFee - domFee);
+    // Subsídio: quando o líquido contratado não cobre o custo DOM, a plataforma absorve a
+    // diferença. platformFee nunca é negativo; o subsídio fica no snapshot financeiro.
+    const platformFee = Math.max(0, rawPlatformFee);
+    const subsidy = round2(platformFee - rawPlatformFee);
 
     const chargeId = randomUUID();
     const baseDescription = funnel
@@ -275,11 +283,18 @@ export class ChargePaymentLinkUseCase {
       effectiveUserId,
       platformTag,
     );
+    const baseSnapshot = withCoproduction(
+      financialQuote?.financialSnapshot,
+      coproduction,
+    );
     const snapshot = {
-      financialSnapshot: withCoproduction(
-        financialQuote?.financialSnapshot,
-        coproduction,
-      ),
+      financialSnapshot:
+        subsidy > 0
+          ? ({
+              ...((baseSnapshot as Prisma.InputJsonObject) ?? {}),
+              subsidy,
+            } as Prisma.InputJsonValue)
+          : baseSnapshot,
       userId: effectiveUserId,
       amount: new Prisma.Decimal(totalAmount),
       netAmount: new Prisma.Decimal(netAmount),

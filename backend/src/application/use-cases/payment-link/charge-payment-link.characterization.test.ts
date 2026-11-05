@@ -329,27 +329,55 @@ describe('Areaflix seller net', () => {
     });
   });
 
-  test('credit 1x: net = gross * (1 - TAXA_LINK_PERCENT) - TAXA_LINK_FIXA on the buyer total', async () => {
+  test('credit 1x: net is computed on the base (link amount), not on the buyer total (FIXED)', async () => {
     await withAreaflixPlatform(async () => {
       const f = setup(makeLink({ plataformas: ['AREAFLIX'] }));
       await f.service.execute(f.input);
+      // before: net 91.54 (104.99 * 0.91 - 4), totalFee 13.45, platformFee 8.46
       expect(money(f.db.row())).toEqual({
         amount: 104.99,
-        netAmount: 91.54, // 104.99 * (1 - 9%) - R$4: applied on the buyer total, not the base
-        totalFee: 13.45,
+        netAmount: 87, // 100 * (1 - 9%) - R$4
+        totalFee: 17.99,
         domFee: 4.99,
-        platformFee: 8.46,
+        platformFee: 13,
       });
     });
   });
 
-  test('debit: net = gross * (1 - 2%) - R$2 on the base', async () => {
+  test('credit 1x with order bump: net follows the bumped base, not the buyer total', async () => {
+    await withAreaflixPlatform(async () => {
+      const f = setup(makeLink({ plataformas: ['AREAFLIX'] }), {
+        offers: [makeOffer()],
+      });
+      f.input.orderBumpIds = ['bump-1'];
+      await f.service.execute(f.input);
+      expect(money(f.db.row()).netAmount).toBe(105.2); // 120 * 0.91 - 4
+    });
+  });
+
+  test('debit: net = gross * (1 - 2%) - R$2 on the base; platformFee floored at 0 with the subsidy in the snapshot (FIXED)', async () => {
     await withAreaflixPlatform(async () => {
       const f = setup(makeLink({ plataformas: ['AREAFLIX'] }));
       f.input.paymentMethod = 'debit_card';
       await f.service.execute(f.input);
-      expect(money(f.db.row()).netAmount).toBe(96);
+      // before: platformFee -0.49 (net unchanged at 96)
+      expect(money(f.db.row())).toEqual({
+        amount: 100,
+        netAmount: 96,
+        totalFee: 4,
+        domFee: 4.49,
+        platformFee: 0,
+      });
+      expect(f.db.row().financialSnapshot).toEqual({ subsidy: 0.49 });
     });
+  });
+
+  test('non-negative platformFee leaves no subsidy marker', async () => {
+    const f = setup(makeLink());
+    f.input.paymentMethod = 'debit_card';
+    await f.service.execute(f.input);
+    expect(f.db.row().platformFee.toNumber()).toBeGreaterThanOrEqual(0);
+    expect(f.db.row().financialSnapshot).toBeUndefined();
   });
 });
 
