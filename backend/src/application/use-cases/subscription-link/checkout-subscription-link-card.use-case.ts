@@ -8,6 +8,7 @@ import {
   quoteFinancialCharge,
 } from '../../../modules/financial-policy/financial-charge';
 import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
+import { acceptsCard } from '../../helpers/accepted-payment-methods.helper';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import {
   BadRequestException,
@@ -76,6 +77,11 @@ export class CheckoutSubscriptionLinkCardUseCase {
       );
     if (link.maxUses != null && link.currentUses >= link.maxUses) {
       throw new BadRequestException('Limite de assinaturas atingido');
+    }
+    if (!acceptsCard(link.paymentMethods)) {
+      throw new BadRequestException(
+        'Este link não aceita pagamento via cartão de crédito',
+      );
     }
     const selectedTag = link.platformTag ?? link.plataformas?.[0] ?? 'GLOBAL';
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
@@ -146,6 +152,12 @@ export class CheckoutSubscriptionLinkCardUseCase {
 
       if (bridge && bridge.valid) {
         amountCharged = bridge.finalAmount;
+        // A taxa deve incidir sobre o valor efetivamente cobrado (com cupom), não sobre o original.
+        platformFeeAmount = activated
+          ? Math.round(amountCharged * platformFeeRate * 100) / 100
+          : Math.round(
+              (amountCharged - amountCharged / (1 + platformFeeRate)) * 100,
+            ) / 100;
       } else {
         throw new BadRequestException('Cupom inválido ou expirado');
       }

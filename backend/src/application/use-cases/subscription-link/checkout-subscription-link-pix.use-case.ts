@@ -7,6 +7,7 @@ import {
   loadChargePolicy,
   quoteFinancialCharge,
 } from '../../../modules/financial-policy/financial-charge';
+import { acceptsPix } from '../../helpers/accepted-payment-methods.helper';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import {
   BadRequestException,
@@ -68,6 +69,9 @@ export class CheckoutSubscriptionLinkPixUseCase {
     if (link.maxUses != null && link.currentUses >= link.maxUses) {
       throw new BadRequestException('Limite de assinaturas atingido');
     }
+    if (!acceptsPix(link.paymentMethods)) {
+      throw new BadRequestException('Este link não aceita pagamento via PIX');
+    }
     const selectedTag = link.platformTag ?? link.plataformas?.[0] ?? 'GLOBAL';
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
     if (!domToken)
@@ -92,23 +96,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
 
     const base = Number(link.amount);
 
-    // PIX: cliente paga o valor base; MDR_PIX é descontado do repasse ao vendedor (não somado ao cliente)
-    let platformFeeAmount = 0;
-    if (!link.isStandalone) {
-      const platformTag = selectedTag;
-      // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-      const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-        ? buildUserTaxaTag(link.userId)
-        : platformTag;
-      const mdrPix = getPlatformTaxaEffective(
-        taxaTag,
-        'MDR_PIX',
-        PLATFORM_TAXA_DEFAULTS.MDR_PIX,
-      );
-      platformFeeAmount = Math.round(base * mdrPix * 100) / 100;
-    }
-
-    // PIX não soma taxa ao cliente: amountCharged = base sempre
+    // PIX não soma taxa ao cliente: amountCharged = base (ou valor com cupom)
     let amountCharged = base;
 
     if (input.dto.voucherCode) {
@@ -124,6 +112,23 @@ export class CheckoutSubscriptionLinkPixUseCase {
       } else {
         throw new BadRequestException('Cupom inválido ou expirado');
       }
+    }
+
+    // MDR_PIX é descontado do repasse ao vendedor (não somado ao cliente) e incide sobre o valor
+    // efetivamente cobrado (já com cupom).
+    let platformFeeAmount = 0;
+    if (!link.isStandalone) {
+      const platformTag = selectedTag;
+      // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
+      const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(platformTag)
+        ? buildUserTaxaTag(link.userId)
+        : platformTag;
+      const mdrPix = getPlatformTaxaEffective(
+        taxaTag,
+        'MDR_PIX',
+        PLATFORM_TAXA_DEFAULTS.MDR_PIX,
+      );
+      platformFeeAmount = Math.round(amountCharged * mdrPix * 100) / 100;
     }
 
     const financialQuote = quoteFinancialCharge(

@@ -192,12 +192,23 @@ describe('legacy fees (financialQuote absent)', () => {
     expect(f.calls[0].input.domLinkId).toBe('new-plan');
   });
 
-  test('voucher lowers the charged amount; platform fee stays on the ORIGINAL base', async () => {
+  test('voucher lowers the charged amount and the platform fee is computed on the DISCOUNTED amount', async () => {
     const f = setup(makeSub(), { voucher: { valid: true, finalAmount: 80 } });
     f.dto.voucherCode = 'OFF20';
     await f.service.execute({ code: 'c', dto: f.dto });
     expect(f.orders[0].amountCharged).toBe(80);
-    expect(f.orders[0].platformFeeAmount).toBe(0.98); // SUSPECT: not recomputed after the voucher
+    expect(f.orders[0].platformFeeAmount).toBe(0.78); // 80 * 0.98%, was 0.98 on the original 100
+  });
+
+  test('voucher with financial quote: quote is derived from the discounted base', async () => {
+    const f = setup(makeSub({ isStandalone: true }), {
+      financial: true,
+      voucher: { valid: true, finalAmount: 80 },
+    });
+    f.dto.voucherCode = 'OFF20';
+    await f.service.execute({ code: 'c', dto: f.dto });
+    expect(f.orders[0].financialSnapshot.originalCents).toBe(8000);
+    expect(f.orders[0].amountCharged).toBeLessThan(105.48);
   });
 
   test('invalid voucher is rejected before any order exists', async () => {
@@ -313,11 +324,23 @@ describe('community, failures and guards', () => {
     );
   });
 
-  test('SUSPECT: no expiry and no aceitaPix guard exists on subscription PIX', async () => {
-    const f = setup(
-      makeSub({ expiresAt: new Date(Date.now() - 1000), aceitaPix: false }),
+  test('link that only accepts credit card rejects PIX before any order or gateway call', async () => {
+    const f = setup(makeSub({ paymentMethods: 'CREDIT_CARD' }));
+    await expect(f.service.execute({ code: 'c', dto: f.dto })).rejects.toThrow(
+      'Este link não aceita pagamento via PIX',
     );
-    await f.service.execute({ code: 'c', dto: f.dto });
-    expect(f.orders).toHaveLength(1);
+    expect(f.orders).toHaveLength(0);
+    expect(f.calls).toHaveLength(0);
   });
+
+  test.each(['PIX', 'BOTH', undefined])(
+    'paymentMethods %p accepts PIX',
+    async (paymentMethods) => {
+      const f = setup(makeSub({ paymentMethods }));
+      await f.service.execute({ code: 'c', dto: f.dto });
+      expect(f.orders).toHaveLength(1);
+    },
+  );
+
+  // SubscriptionLink has no expiresAt field: expiry is only expressible via isActive/maxUses (covered above).
 });
