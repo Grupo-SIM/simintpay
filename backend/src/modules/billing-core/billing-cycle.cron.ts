@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { BillingCycleService } from './billing-cycle.service';
+import { ChargeReconciler } from './charge-reconciler.service';
 import { ChargeDueDeliveryService } from './charge-due-delivery.service';
 import { StoredCardCycleExecutor } from './stored-card-cycle.executor';
 
@@ -16,6 +17,7 @@ export class BillingCycleCron {
     private readonly cycles: BillingCycleService,
     private readonly delivery: ChargeDueDeliveryService,
     private readonly executor: StoredCardCycleExecutor,
+    private readonly reconciler: ChargeReconciler,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -32,9 +34,10 @@ export class BillingCycleCron {
           const result = await this.cycles.runDue(new Date(), this.executor, {
             skipAutoChargeWithoutExecutor: true,
           });
+          const reconciled = await this.reconciler.run(new Date());
           const delivery = await this.delivery.deliverPending();
           this.logger.log(
-            `Ciclos: ${JSON.stringify(result)}; entregas CHARGE_DUE: ${JSON.stringify(delivery)}`,
+            `Ciclos: ${JSON.stringify(result)}; conciliação: ${JSON.stringify(reconciled)}; entregas CHARGE_DUE: ${JSON.stringify(delivery)}`,
           );
           return true;
         },

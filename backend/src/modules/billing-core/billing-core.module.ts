@@ -3,6 +3,11 @@ import { ApiDomModule } from '../../infrastructure/http/api-dom.module';
 import { BUYER_NOTIFIER, LoggingBuyerNotifier } from './buyer-notifier';
 import { BillingCycleCron } from './billing-cycle.cron';
 import { BillingCycleService } from './billing-cycle.service';
+import { ChargeReconciler } from './charge-reconciler.service';
+import {
+  CHARGE_STATUS_LOOKUP,
+  DomChargeStatusLookup,
+} from './charge-status-lookup';
 import { ChargeDueDeliveryService } from './charge-due-delivery.service';
 import { ExternalRefService } from './external-ref.service';
 import { StoredCardCycleExecutor } from './stored-card-cycle.executor';
@@ -17,6 +22,8 @@ import { StoredCardVaultService } from './stored-card-vault.service';
     BillingCycleCron,
     StoredCardVaultService,
     StoredCardCycleExecutor,
+    ChargeReconciler,
+    { provide: CHARGE_STATUS_LOOKUP, useClass: DomChargeStatusLookup },
     { provide: BUYER_NOTIFIER, useClass: LoggingBuyerNotifier },
   ],
   exports: [
@@ -25,6 +32,7 @@ import { StoredCardVaultService } from './stored-card-vault.service';
     ChargeDueDeliveryService,
     StoredCardVaultService,
     StoredCardCycleExecutor,
+    ChargeReconciler,
     BUYER_NOTIFIER,
   ],
 })
