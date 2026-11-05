@@ -26,6 +26,8 @@ import {
   UpdateOfferDto,
 } from './offer.dto';
 import { OfferCheckoutService } from './offer-checkout.service';
+import { OfferSubscribeDto } from './offer-subscribe.dto';
+import { OfferSubscribeService } from './offer-subscribe.service';
 import { OfferService, type OfferActor } from './offer.service';
 
 const actorOf = (user: JwtPayload | undefined): OfferActor => ({
@@ -39,6 +41,7 @@ export class OfferController {
   constructor(
     private readonly offers: OfferService,
     private readonly checkout: OfferCheckoutService,
+    private readonly subscriptions: OfferSubscribeService,
   ) {}
 
   // ── Rota pública (sem autenticação): somente campos seguros ───────────────
@@ -65,6 +68,27 @@ export class OfferController {
     @Query() query: Record<string, string>,
   ) {
     return this.checkout.charge(code, {
+      ...body,
+      tracking: { ...query, ...body.tracking },
+    });
+  }
+
+  @Post('public/:code/subscribe')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({
+    summary:
+      'Contratar uma oferta recorrente (checkout público: cartão para AUTO_CHARGE, PIX para MANUAL_PAY)',
+  })
+  @ApiResponse({ status: 201 })
+  @ApiResponse({ status: 400 })
+  @ApiResponse({ status: 404 })
+  @ApiResponse({ status: 409 })
+  subscribe(
+    @Param('code') code: string,
+    @Body() body: OfferSubscribeDto,
+    @Query() query: Record<string, string>,
+  ) {
+    return this.subscriptions.subscribe(code, {
       ...body,
       tracking: { ...query, ...body.tracking },
     });
