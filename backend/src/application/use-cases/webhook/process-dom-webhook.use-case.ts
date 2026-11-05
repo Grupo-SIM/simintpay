@@ -7,6 +7,7 @@ import {
 } from '../../../modules/financial-policy/financial-charge';
 import { isPhysicalDebit } from '../../helpers/dom-fee-estimate.helper';
 import { accessDaysForFrequency } from '../../helpers/billing-frequency.helper';
+import { markChargeSettled } from '../../../modules/billing-core/charge-settlement';
 import {
   creditedSettlementAmount,
   bindLinkPayment,
@@ -486,7 +487,14 @@ export class ProcessDomWebhookUseCase {
       const applied = await this.prisma.$transaction(async (p) => {
         if (existing.settlementBasis === 'FINAL_NET') {
           await bindLinkPayment(p, existing, data.id);
-          return settleFinalNet(p, existing, nextStatus, 'DOM_WEBHOOK');
+          const settled = await settleFinalNet(
+            p,
+            existing,
+            nextStatus,
+            'DOM_WEBHOOK',
+          );
+          if (settled) await markChargeSettled(p, existing.id, nextStatus);
+          return settled;
         }
         if (
           existing.status === TransactionStatus.COMPLETED &&
