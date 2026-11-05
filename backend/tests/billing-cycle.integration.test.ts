@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import { BillingCycleService } from '../src/modules/billing-core/billing-cycle.service';
+import { ChargeDueDeliveryService } from '../src/modules/billing-core/charge-due-delivery.service';
 
 const url = process.env.BILLING_TEST_DATABASE_URL;
 if (url && new URL(url).hostname !== '127.0.0.1')
@@ -163,6 +164,40 @@ run(
       (await db!.billingContract.findUniqueOrThrow({ where: { id: c.id } }))
         .status,
     ).toBe('SUSPENDED');
+  },
+);
+
+run(
+  'skips AUTO_CHARGE without an executor and delivers CHARGE_DUE once',
+  async () => {
+    const auto = await offer('AUTO_CHARGE');
+    const ac = await activate(auto.id, 'skip@test.dev');
+    const manual = await offer('MANUAL_PAY');
+    const mc = await activate(manual.id, 'deliver@test.dev');
+    const res = await service.runDue(at(31), undefined, {
+      skipAutoChargeWithoutExecutor: true,
+    });
+    expect(res.skippedNoExecutor).toBeGreaterThanOrEqual(1);
+    expect(await db!.charge.count({ where: { contractId: ac.id } })).toBe(1);
+    const untouched = await db!.billingContract.findUniqueOrThrow({
+      where: { id: ac.id },
+    });
+    expect(untouched.status).toBe('ACTIVE');
+    expect(untouched.nextChargeAt).toEqual(ac.nextChargeAt);
+
+    const notices: string[] = [];
+    const delivery = new ChargeDueDeliveryService(db as never, {
+      chargeDue: async (n) => {
+        notices.push(n.contractId);
+      },
+    });
+    await delivery.deliverPending();
+    await delivery.deliverPending();
+    expect(notices.filter((id) => id === mc.id).length).toBe(1);
+    const ev = await db!.billingContractEvent.findFirstOrThrow({
+      where: { contractId: mc.id, type: 'CHARGE_DUE' },
+    });
+    expect(ev.deliveredAt).not.toBeNull();
   },
 );
 

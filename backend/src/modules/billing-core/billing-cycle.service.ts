@@ -18,6 +18,12 @@ export type CycleRunResult = {
   autoFailed: number;
   awaitingBuyer: number;
   expired: number;
+  skippedNoExecutor: number;
+};
+
+export type RunDueOptions = {
+  /** Sem executor, contratos AUTO_CHARGE são ignorados (sem cobrança nem mudança de estado). */
+  skipAutoChargeWithoutExecutor?: boolean;
 };
 
 type ContractWithOffer = BillingContract & { offer: Offer };
@@ -169,6 +175,7 @@ export class BillingCycleService {
   async runDue(
     now: Date,
     executor?: CycleChargeExecutor,
+    options: RunDueOptions = {},
   ): Promise<CycleRunResult> {
     const result: CycleRunResult = {
       issued: 0,
@@ -176,6 +183,7 @@ export class BillingCycleService {
       autoFailed: 0,
       awaitingBuyer: 0,
       expired: 0,
+      skippedNoExecutor: 0,
     };
     const due = (await this.prisma.billingContract.findMany({
       where: {
@@ -189,6 +197,14 @@ export class BillingCycleService {
 
     for (const contract of due) {
       const { offer } = contract;
+      if (
+        offer.renewalMode === 'AUTO_CHARGE' &&
+        !executor &&
+        options.skipAutoChargeWithoutExecutor
+      ) {
+        result.skippedNoExecutor++;
+        continue;
+      }
       const cycleKey = contract.currentPeriodEnd.toISOString();
       const claim = await this.claimCycleCharge(contract, cycleKey, now);
       if (!claim) {
