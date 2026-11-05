@@ -36,6 +36,7 @@ import { cn, getPlatformBadgeClass, formatDocument } from '@/lib/utils';
 
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
 import { PlatformFilterSelect } from '@/components/product-platforms/PlatformFilterSelect';
+import { Dropdown } from '@/components/ui/Dropdown';
 import { AccountPlatformsButton } from '../components';
 import type { Lead } from '@/features/admin/types/admin.types';
 import { ClientChargesModal } from './charges';
@@ -1267,8 +1268,7 @@ export default function UsuariosTab({
             className="h-9 min-w-[220px] rounded-xl text-sm"
           />
 
-          <PlatformFilterSelect
-            hideOwner
+          <Dropdown
             theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
             placeholder="Solicitação"
             value={requestFilter}
