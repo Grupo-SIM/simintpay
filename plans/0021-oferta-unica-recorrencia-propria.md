@@ -89,14 +89,17 @@ Cada fase termina em commit atômico e deixa o sistema funcionando.
 ### Fase 4 — `Offer` e presets
 
 - [x] Schema aditivo de `Offer` (enums `OfferKind`, `RenewalMode`), com `(legacyType, legacyId)` único para o mapa legado.
-- [ ] Casos de uso/API de criação e checkout público de `Offer`; migração dos 13 links de pagamento; wizard no dashboard.
+- [x] Módulo `modules/offer`: validador puro, presets dos 5 produtos, gerador de código, `OfferService`, controller `ofertas` (+ `GET public/:code`). SDK do frontend **não** regenerado.
+- [x] Mapeadores legado→`Offer` e `scripts/offer-migration-report.ts` (somente leitura; exige `--database-url` explícito; nunca executado contra banco). Pendências: `PixCreditPlan` não tem código público (precisa gerar) e `Plan.frequency` é ignorado até confirmar se multiplica o intervalo.
+- [ ] Checkout público da `Offer`; migração real dos 13 links de pagamento; wizard no dashboard.
 
 ### Fase 5 — Recorrência própria
 
 - [x] `BillingContract` generalizado: `offerId`, `nextChargeAt`, `retryCount`, dados do comprador; `externalSubscriptionId` agora é opcional (contratos de workspace continuam exigindo-o via `requireExternalSubscriptionId`). **Não foi preciso mudar o `teron`**: a resposta atual da API não muda.
 - [x] Agendador próprio: `cycle-policy.ts` (função pura) e `BillingCycleService` (`subscribe`, `settle` idempotente, `runDue`). Cobertos por `tests/billing-cycle.integration.test.ts` (banco descartável) e `cycle-policy.test.ts`.
 - [ ] Cofre de cartões próprio e `CycleChargeExecutor` real (cobrança off-session no adquirente). **Não existe no código hoje.**
-- [ ] Job periódico chamando `runDue`, notificação do evento `CHARGE_DUE`, migração dos 13 links de assinatura / 5 ordens (tratadas como ativas na DOM; nada é cancelado) e planos PIX como `MANUAL_PAY`.
+- [x] Job horário `BillingCycleCron` (lock advisory entre réplicas; AUTO_CHARGE sem executor é pulado, não falhado) e entrega de `CHARGE_DUE` via `BuyerNotifier` (padrão só loga; nenhum e-mail enviado).
+- [ ] Notificador real, migração dos 13 links de assinatura / 5 ordens (tratadas como ativas na DOM; nada é cancelado) e planos PIX como `MANUAL_PAY`.
 
 ### Fase 6 — Retirada gradual
 
@@ -120,3 +123,17 @@ Cada fase termina em commit atômico e deixa o sistema funcionando.
 4. **Boleto:** seguirá sem oferta (cobrança nominal) ou deve poder ser gerado a partir de uma oferta?
 5. **Coprodução:** `productTables` mapeia 5 tabelas; passa a mapear `Offer`? Acordos existentes por produto precisam de ponte.
 6. **Estimativa:** o 0010 estima 6–10 semanas para a unificação incremental completa. Retirar a dependência da recorrência do adquirente adiciona o scheduler e o tratamento de tokens; reavaliar após a resposta da dúvida 1.
+
+## 7. Comportamento atual fixado por testes (possíveis bugs, não corrigidos)
+
+Os testes de caracterização (`charge-*.test.ts`, `tests/payment-link-charge-characterization.integration.test.ts`) fixam o que o código faz hoje. Corrigir muda o valor líquido do vendedor, então depende de decisão de negócio antes do corte para `Charge`:
+
+1. PIX: `domFee` usa a taxa de cartão (3,99% + R$1) embora não seja deduzido do líquido; `platformFee` fica subestimado.
+2. Débito: `domFee` e `platformFee` com rótulos trocados.
+3. `totalFee`/`platformFee` gravados sem arredondar em alguns caminhos.
+4. Endpoint genérico de cobrança não valida `aceitaPix`/cartão/débito.
+5. Boleto-PIX: sem ramo Areaflix, ignora order bump e funil.
+6. Boleto-PIX: cashback R$3 e taxa fixa R$1 aplicados mesmo com `TAXA_LINK_PERCENT`.
+7. Link de assinatura PIX: com cupom, `platformFeeAmount` segue calculada sobre o valor original; com cotação, custo do adquirente e lucro não são separados.
+8. Link de assinatura PIX: sem checagem de expiração nem de `aceitaPix`.
+9. Areaflix cartão 1x: líquido calculado sobre o total do comprador, não sobre a base.
