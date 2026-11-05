@@ -125,16 +125,16 @@ Cada fase termina em commit atômico e deixa o sistema funcionando.
 5. **Coprodução:** `productTables` mapeia 5 tabelas; passa a mapear `Offer`? Acordos existentes por produto precisam de ponte.
 6. **Estimativa:** o 0010 estima 6–10 semanas para a unificação incremental completa. Retirar a dependência da recorrência do adquirente adiciona o scheduler e o tratamento de tokens; reavaliar após a resposta da dúvida 1.
 
-## 7. Comportamento atual fixado por testes (possíveis bugs, não corrigidos)
+## 7. Bugs de dinheiro encontrados pelos testes de caracterização
 
-Os testes de caracterização (`charge-*.test.ts`, `tests/payment-link-charge-characterization.integration.test.ts`) fixam o que o código faz hoje. Corrigir muda o valor líquido do vendedor, então depende de decisão de negócio antes do corte para `Charge`:
+Corrigidos em 2026-11-05 por autorização expressa (valor cobrado e líquido do vendedor inalterados):
 
-1. PIX: `domFee` usa a taxa de cartão (3,99% + R$1) embora não seja deduzido do líquido; `platformFee` fica subestimado.
-2. Débito: `domFee` e `platformFee` com rótulos trocados.
-3. `totalFee`/`platformFee` gravados sem arredondar em alguns caminhos.
-4. Endpoint genérico de cobrança não valida `aceitaPix`/cartão/débito.
-5. Boleto-PIX: sem ramo Areaflix, ignora order bump e funil.
-6. Boleto-PIX: cashback R$3 e taxa fixa R$1 aplicados mesmo com `TAXA_LINK_PERCENT`.
-7. Link de assinatura PIX: com cupom, `platformFeeAmount` segue calculada sobre o valor original; com cotação, custo do adquirente e lucro não são separados.
-8. Link de assinatura PIX: sem checagem de expiração nem de `aceitaPix`.
-9. Areaflix cartão 1x: líquido calculado sobre o total do comprador, não sobre a base.
+- [x] Endpoint genérico valida `aceitaPix`/`aceitaCartao`/`aceitaDebito` (`b90d3e3`).
+- [x] PIX: `domFee` vem de `MDR_PIX` (0,98%), não da taxa de cartão; débito: `domFee` só com o custo DOM (3,49% + R$1). `domFee`/`totalFee`/`platformFee` arredondados a 2 casas (`b90d3e3`).
+- [x] Link de assinatura: PIX e cartão recusam método não aceito; taxa calculada sobre o valor com cupom (`1845233`). `SubscriptionLink` não tem `expiresAt`, logo não há expiração a validar.
+
+Ainda **não corrigidos** (fora do pedido; seguem fixados nos testes): boleto-PIX sem ramo Areaflix, sem order bump/funil e com cashback R$3 + taxa fixa R$1 mesmo com `TAXA_LINK_PERCENT`; Areaflix cartão 1x calculado sobre o total do comprador; Areaflix débito grava `platformFee` negativo (subsídio).
+
+## 8. Cofre de cartões (`StoredCard`, `StoredCardToken`)
+
+Migration `20261106110000_stored_card_vault` (não aplicada). `StoredCardCycleExecutor` cobra com chave de idempotência `cycle:<chargeId>:<attempts>`; falha ambígua = `UNKNOWN` (cobrança fica `PENDING`, contrato intacto). **Lacunas:** nada grava token reutilizável hoje (o checkout DOM só repassa token de uso único); não confirmado que a DOM aceite token avulso em `/transactions` (testar em sandbox); ciclo pago liquida `Charge`/contrato mas não cria `Transaction`; sem conciliador de `UNKNOWN`.
