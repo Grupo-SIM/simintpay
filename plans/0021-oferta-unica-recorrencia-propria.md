@@ -70,9 +70,10 @@ Cada fase termina em commit atômico e deixa o sistema funcionando.
 
 ### Fase 1 — Consolidar duplicações (sem schema)
 
-- [ ] Extrair o fluxo de cobrança PIX copiado em link de pagamento, boleto e link de assinatura (~250–290 linhas cada) para um serviço único.
-- [ ] Um único helper de frequência→dias (hoje em `pix-plan.service.ts`, `process-dom-webhook` e `subscription-period.helper.ts`).
-- [ ] Normalizar "meios aceitos" num tipo único (hoje booleanos `aceita*`, string `paymentMethods` e conjuntos fixos) e fazer o checkout do Plano respeitá-lo (hoje só chama cartão).
+- [x] Um único helper de frequência→dias: `accessDaysForFrequency` (`application/helpers/billing-frequency.helper.ts`) substitui as cópias de `pix-plan.service.ts`, `process-dom-webhook` e `platform-access.service.ts`. `advanceSubscriptionPeriod` (soma de calendário, não de dias) permanece à parte. Efeito: `DAILY` passa a valer 1 dia nos dois consumidores que antes davam 30.
+- [x] "Meios aceitos" do plano e do link de assinatura passam pelo helper `accepted-payment-methods.helper.ts`. Os booleanos `aceita*` do link de pagamento e do boleto ficam para a Fase 4, quando `Offer` unificar o formato.
+- [ ] Movido para a Fase 3: fundir o fluxo PIX copiado em link de pagamento, boleto e link de assinatura. Eles divergem em regra de dinheiro (o boleto tem um caminho legado sem `FINAL_NET`; o link tem Areaflix e order bumps), então só devem ser fundidos com cenários de integração cobrindo cada ramo.
+- [ ] Movido para a Fase 5: o checkout do Plano só chama o endpoint de cartão. Respeitar `paymentMethods` com PIX exige um fluxo PIX para planos, que ainda não existe.
 
 ### Fase 2 — Contrato de adquirente
 
