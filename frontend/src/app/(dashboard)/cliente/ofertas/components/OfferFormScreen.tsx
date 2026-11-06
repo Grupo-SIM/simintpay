@@ -229,11 +229,13 @@ function FormBody({
                     <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
                       {kindDescriptions[kind]}
                     </span>
-                    <span className="mt-1 block text-xs text-zinc-400">
-                      {OFFER_PRESETS[kind].acceptedMethods
-                        .map((method) => methodLabels[method])
-                        .join(' · ')}
-                    </span>
+                    {kind !== 'BOLETO' && (
+                      <span className="mt-1 block text-xs text-zinc-400">
+                        {OFFER_PRESETS[kind].acceptedMethods
+                          .map((method) => methodLabels[method])
+                          .join(' · ')}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
