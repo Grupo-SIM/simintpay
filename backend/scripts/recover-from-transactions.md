@@ -24,7 +24,7 @@ bun scripts/recover-from-transactions.ts --database-name=NOME_DO_BANCO --dom
 bun scripts/recover-from-transactions.ts --database-name=NOME_DO_BANCO --dom --apply
 ```
 
-Requer `DOM_TOKEN` ou `API_DOM_MASTER_KEY`. Compara ID DOM da resposta ao ID
+Requer `DOM_TOKEN`. Compara ID DOM da resposta ao ID
 local; só aceita líquido se bruto da resposta for igual ao bruto local em reais
 ou centavos. Não altera status, bruto nem dados já preenchidos. Falhas DOM são
 contadas em `domErrors`; revise antes de aplicar. Faz uma consulta por transação

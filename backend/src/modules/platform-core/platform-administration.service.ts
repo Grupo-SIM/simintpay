@@ -1134,7 +1134,7 @@ export class PlatformAdministrationService {
         : beginCandidate;
       const beginDate = beginMoment.format('YYYY-MM-DD');
       const endDate = endMoment.format('YYYY-MM-DD');
-      const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+      const domToken = process.env.DOM_TOKEN;
       if (domToken?.trim()) {
         const limit = 150;
         for (let domPage = 1; domPage <= 12; domPage += 1) {

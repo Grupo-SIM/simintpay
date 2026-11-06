@@ -11,13 +11,8 @@ export async function resolveCycleDomToken(
 ): Promise<string | undefined> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: {
-      domToken: true,
-      clientStatus: true,
-    },
+    select: { id: true },
   });
   if (!user) return undefined;
-  return user.clientStatus
-    ? process.env.DOM_TOKEN
-    : (user.domToken ?? process.env.DOM_TOKEN);
+  return process.env.DOM_TOKEN;
 }

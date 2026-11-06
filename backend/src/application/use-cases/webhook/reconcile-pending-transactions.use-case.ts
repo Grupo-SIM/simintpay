@@ -181,7 +181,6 @@ export class ReconcilePendingTransactionsUseCase {
           domTransactionId: true,
           description: true,
           platformTag: true,
-          user: { select: { domToken: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: opts?.platformTag
@@ -202,10 +201,7 @@ export class ReconcilePendingTransactionsUseCase {
 
       // Paginated reconciliation uses the master credential; direct checks prefer the
       // integration/seller credential that can access the individual payment.
-      const domToken =
-        opts?.domToken ||
-        process.env.DOM_TOKEN ||
-        process.env.API_DOM_MASTER_KEY;
+      const domToken = opts?.domToken || process.env.DOM_TOKEN;
       if (!domToken && !opts?.direct) {
         outcome = 'no-master-token';
         this.logger.warn(
@@ -234,8 +230,7 @@ export class ReconcilePendingTransactionsUseCase {
               const transactionContext = `tx=${tx.id} domPaymentId=${tx.domPaymentId}`;
               this.logger.log(`${prefix} DOM request: ${transactionContext}`);
               try {
-                const queryToken =
-                  opts?.domToken || tx.user?.domToken || domToken;
+                const queryToken = opts?.domToken || domToken;
                 if (!queryToken) {
                   this.logger.warn(
                     `${prefix} DOM request skipped: ${transactionContext} reason=no-token`,

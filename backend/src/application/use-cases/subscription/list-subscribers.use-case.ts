@@ -32,7 +32,7 @@ export class ListSubscribersUseCase {
     const pageSize = input.query.pageSize ?? 20;
     const isAdmin = input.role === 'ADMIN';
 
-    const domToken = await this.resolveDomToken(input.userId, isAdmin);
+    const domToken = process.env.DOM_TOKEN ?? null;
 
     if (!domToken) {
       this.logger.warn(
@@ -387,23 +387,5 @@ export class ListSubscribersUseCase {
 
   private isActiveSubscription(subscription: DomSubscriptionOutput): boolean {
     return subscriptionStatusGroup(subscription.status) === 'active';
-  }
-
-  private async resolveDomToken(
-    userId: string,
-    isAdmin: boolean,
-  ): Promise<string | null> {
-    if (isAdmin) {
-      return process.env.DOM_TOKEN ?? null;
-    }
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { domToken: true },
-    });
-
-    if (user?.domToken) return user.domToken;
-
-    return process.env.DOM_TOKEN ?? null;
   }
 }

@@ -968,9 +968,7 @@ export class ProcessDomWebhookUseCase {
     domPaymentId: string,
   ): Promise<string | null> {
     if (!this.paymentGateway) return null;
-    const domToken = String(
-      process.env.DOM_TOKEN ?? process.env.API_DOM_MASTER_KEY ?? '',
-    ).trim();
+    const domToken = String(process.env.DOM_TOKEN ?? '').trim();
     if (!domToken) return null;
     try {
       const detail = await this.paymentGateway.getDomTransactionDetail(

@@ -16,14 +16,14 @@ environment:
   - JWT_SECRET=secret
   - DATABASE_URL=postgresql://postgres:senha@postgres_prod:5432/simpay
   - DOM_TOKEN=seu-dom-token-aqui
-  - API_DOM_MASTER_KEY=seu-dom-master-key-aqui
+  - DOM_TOKEN=seu-dom-master-key-aqui
   - DISABLED_DOM_SYNC=false
 ```
 
 **Variáveis obrigatórias:**
 
 - `DOM_TOKEN`: Token master da conta DOM
-- `API_DOM_MASTER_KEY`: Chave master da API DOM
+- `DOM_TOKEN`: Chave master da API DOM
 - `DISABLED_DOM_SYNC`: Deve ser `false` para ativar o cron
 
 ### 2. Mapeamento de Usuários
@@ -169,7 +169,7 @@ services:
       - JWT_SECRET=seu-secret-aqui
       - DATABASE_URL=postgresql://postgres:senha@postgres_prod:5432/simpay
       - DOM_TOKEN=seu-dom-token-aqui
-      - API_DOM_MASTER_KEY=seu-dom-master-key-aqui
+      - DOM_TOKEN=seu-dom-master-key-aqui
       - DISABLED_DOM_SYNC=false
     networks:
       - externa

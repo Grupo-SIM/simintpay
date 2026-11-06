@@ -39,7 +39,7 @@ export class DeleteClienteUseCase {
       );
     }
 
-    const domToken = await this.resolveDomToken(cliente.userId, false);
+    const domToken = process.env.DOM_TOKEN ?? null;
     if (!domToken) {
       throw new InternalServerErrorException(
         'Token DOM não configurado para o dono deste cliente',
@@ -112,20 +112,5 @@ export class DeleteClienteUseCase {
     await this.prisma.customer.delete({
       where: { id: cliente.id },
     });
-  }
-
-  private async resolveDomToken(
-    userId: string,
-    isAdmin: boolean,
-  ): Promise<string | null> {
-    if (isAdmin) return process.env.DOM_TOKEN ?? null;
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { domToken: true },
-    });
-    if (user?.domToken) return user.domToken;
-
-    return process.env.DOM_TOKEN ?? null;
   }
 }

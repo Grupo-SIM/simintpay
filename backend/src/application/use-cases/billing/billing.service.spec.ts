@@ -12,6 +12,7 @@ const periodStart = new Date('2026-08-01T00:00:00.000Z');
 const periodEnd = new Date('2026-09-01T00:00:00.000Z');
 
 beforeAll(() => {
+  process.env.DOM_TOKEN = 'dom-token';
   jest.useFakeTimers().setSystemTime(new Date('2026-08-15T12:00:00.000Z'));
 });
 
@@ -169,31 +170,48 @@ describe('BillingService.requestQuantityChange', () => {
 describe('BillingService.cancelContract', () => {
   it('cancela a recorrência e mantém acesso até o fim do período atual', async () => {
     const current = contract();
-    const update = jest.fn().mockImplementation(({ data }) => ({ ...current, ...data }));
+    const update = jest
+      .fn()
+      .mockImplementation(({ data }) => ({ ...current, ...data }));
     const create = jest.fn();
     const prisma = {
       user: {
-        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, platform: null }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'owner' }),
       },
       billingContract: { findUnique: jest.fn().mockResolvedValue(current) },
-      $transaction: jest.fn().mockImplementation((callback) => callback({
-        billingContract: { update },
-        billingContractEvent: { create },
-      })),
+      $transaction: jest.fn().mockImplementation((callback) =>
+        callback({
+          billingContract: { update },
+          billingContractEvent: { create },
+        }),
+      ),
     } as any;
-    const gateway = { cancelSubscription: jest.fn().mockResolvedValue(undefined) } as any;
+    const gateway = {
+      cancelSubscription: jest.fn().mockResolvedValue(undefined),
+    } as any;
     const service = new BillingService(prisma, gateway);
 
     const result = await service.cancelContract('contract-1');
 
-    expect(gateway.cancelSubscription).toHaveBeenCalledWith('dom-token', 'sub-1');
+    expect(gateway.cancelSubscription).toHaveBeenCalledWith(
+      'dom-token',
+      'sub-1',
+    );
     expect(update).toHaveBeenCalledWith({
       where: { id: 'contract-1' },
-      data: { status: BillingContractStatus.CANCELLED, accessEndsAt: periodEnd },
+      data: {
+        status: BillingContractStatus.CANCELLED,
+        accessEndsAt: periodEnd,
+      },
     });
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ eventKey: expect.stringMatching(/^cancel:contract-1:/), type: 'CANCELLED' }),
-    }));
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventKey: expect.stringMatching(/^cancel:contract-1:/),
+          type: 'CANCELLED',
+        }),
+      }),
+    );
     expect(result.currentPeriodEnd).toBe(periodEnd.toISOString());
   });
 
@@ -202,31 +220,45 @@ describe('BillingService.cancelContract', () => {
       status: BillingContractStatus.CANCELLED,
       accessEndsAt: periodEnd,
     });
-    const update = jest.fn().mockImplementation(({ data }) => ({ ...current, ...data }));
+    const update = jest
+      .fn()
+      .mockImplementation(({ data }) => ({ ...current, ...data }));
     const create = jest.fn();
     const prisma = {
       user: {
-        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, platform: null }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'owner' }),
       },
       billingContract: { findUnique: jest.fn().mockResolvedValue(current) },
-      $transaction: jest.fn().mockImplementation((callback) => callback({
-        billingContract: { update },
-        billingContractEvent: { create },
-      })),
+      $transaction: jest.fn().mockImplementation((callback) =>
+        callback({
+          billingContract: { update },
+          billingContractEvent: { create },
+        }),
+      ),
     } as any;
-    const gateway = { reactivateSubscription: jest.fn().mockResolvedValue(undefined) } as any;
+    const gateway = {
+      reactivateSubscription: jest.fn().mockResolvedValue(undefined),
+    } as any;
     const service = new BillingService(prisma, gateway);
 
     const result = await service.reactivateContract('contract-1');
 
-    expect(gateway.reactivateSubscription).toHaveBeenCalledWith('dom-token', 'sub-1');
+    expect(gateway.reactivateSubscription).toHaveBeenCalledWith(
+      'dom-token',
+      'sub-1',
+    );
     expect(update).toHaveBeenCalledWith({
       where: { id: 'contract-1' },
       data: { status: BillingContractStatus.ACTIVE, accessEndsAt: null },
     });
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ eventKey: expect.stringMatching(/^reactivate:contract-1:/), type: 'REACTIVATED' }),
-    }));
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventKey: expect.stringMatching(/^reactivate:contract-1:/),
+          type: 'REACTIVATED',
+        }),
+      }),
+    );
     expect(result.status).toBe(BillingContractStatus.ACTIVE);
   });
 
@@ -236,13 +268,17 @@ describe('BillingService.cancelContract', () => {
     const create = jest.fn();
     const prisma = {
       user: {
-        findUnique: jest.fn().mockResolvedValue({ domToken: 'dom-token', clientStatus: false, platform: null }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'owner' }),
       },
-      billingContract: { findUnique: jest.fn().mockImplementation(() => current) },
-      $transaction: jest.fn().mockImplementation((callback) => callback({
-        billingContract: { update },
-        billingContractEvent: { create },
-      })),
+      billingContract: {
+        findUnique: jest.fn().mockImplementation(() => current),
+      },
+      $transaction: jest.fn().mockImplementation((callback) =>
+        callback({
+          billingContract: { update },
+          billingContractEvent: { create },
+        }),
+      ),
     } as any;
     const gateway = {
       cancelSubscription: jest.fn().mockResolvedValue(undefined),
@@ -313,9 +349,7 @@ describe('BillingService period refresh', () => {
     const prisma = {
       user: {
         findUnique: jest.fn().mockResolvedValue({
-          domToken: 'dom-token',
-          clientStatus: false,
-          platform: null,
+          id: 'owner',
         }),
       },
       billingContract: { update },

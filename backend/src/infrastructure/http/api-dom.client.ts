@@ -1534,7 +1534,7 @@ export class ApiDomClient implements IPaymentGateway {
     end_date?: string;
   }): Promise<any> {
     const url = `${this.domRealApiUrl}/transactions`;
-    const domToken = process.env.API_DOM_MASTER_KEY || process.env.DOM_TOKEN;
+    const domToken = process.env.DOM_TOKEN;
 
     if (!domToken) {
       throw new Error('DOM Token not configured in Simpay');

@@ -113,8 +113,7 @@ function parseArgs(argv: string[]) {
     throw new Error(
       `Banco esperado ${databaseName}; conexão aponta para ${actualName}.`,
     );
-  if (useDom && !(process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY))
-    throw new Error('DOM_TOKEN/API_DOM_MASTER_KEY ausente.');
+  if (useDom && !process.env.DOM_TOKEN) throw new Error('DOM_TOKEN ausente.');
   return { apply, url, databaseName, balancesFile, backupFile, useDom };
 }
 
@@ -327,8 +326,7 @@ async function main() {
     for (const candidate of newUsers) userIds.add(candidate.id);
     const domPatches = new Map<string, Prisma.TransactionUpdateInput>();
     if (useDom) {
-      const token =
-        process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY || '';
+      const token = process.env.DOM_TOKEN || '';
       let domCursor: string | undefined;
       while (true) {
         const rows = await prisma.transaction.findMany({

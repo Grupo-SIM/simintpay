@@ -20,7 +20,7 @@ Registros v2 continuam legíveis se uma chave dedicada for adicionada posteriorm
 Segredos ficam somente nos backends. Preservar chaves e versões em backups.
 
 Perfil DOM central: a aquisição usa a mesma conta DOM do admin SIM INT PAY,
-configurada por `DOM_TOKEN` (ou alias `API_DOM_MASTER_KEY`). O primeiro bootstrap
+configurada por `DOM_TOKEN` . O primeiro bootstrap
 empresarial cria automaticamente o perfil `DELIVERY` com essa credencial; nenhuma
 variável ou etapa manual adicional é necessária. Carteiras e repasses empresariais
 continuam separados no ledger interno, sem exigir contas DOM distintas.

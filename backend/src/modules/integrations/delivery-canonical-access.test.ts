@@ -16,7 +16,6 @@ afterEach(() => {
     'SIM_DELIVERY_PROVISIONING_TOKEN',
     'SIM_DELIVERY_INTERNAL_TOKEN',
     'DOM_TOKEN',
-    'API_DOM_MASTER_KEY',
   ]) {
     if (previous[key] === undefined) delete process.env[key];
     else process.env[key] = previous[key];
@@ -117,7 +116,6 @@ describe('canonical Delivery bootstrap', () => {
   });
   test('missing profile and central admin credential reject without creating scoped credentials', async () => {
     delete process.env.DOM_TOKEN;
-    delete process.env.API_DOM_MASTER_KEY;
     const { tx, run } = fixture();
     tx.paymentIntegrationProfile.findUnique.mockResolvedValue(null as never);
     await expect(run()).rejects.toMatchObject({ status: 422 });

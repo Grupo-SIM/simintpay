@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import {
   StoredCardCycleExecutor,
   outcomeFromGatewayStatus,
@@ -11,6 +11,10 @@ const contract = {
   acquirer: 'DOM',
   description: 'Plano',
 } as never;
+
+beforeEach(() => {
+  process.env.DOM_TOKEN = 'seller-token';
+});
 
 function build(opts: {
   supported?: boolean;
@@ -30,9 +34,7 @@ function build(opts: {
     {
       user: {
         findUnique: async () => ({
-          domToken: 'seller-token',
-          clientStatus: false,
-          platform: null,
+          id: 'seller',
         }),
       },
     } as never,

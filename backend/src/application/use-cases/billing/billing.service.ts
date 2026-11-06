@@ -1111,16 +1111,11 @@ export class BillingService {
   private async resolveDomToken(userId: string): Promise<string> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        domToken: true,
-        clientStatus: true,
-      },
+      select: { id: true },
     });
     if (!user)
       throw new NotFoundException('Usuário dono do contrato não encontrado');
-    const token = user.clientStatus
-      ? process.env.DOM_TOKEN
-      : (user.domToken ?? process.env.DOM_TOKEN);
+    const token = process.env.DOM_TOKEN;
     if (!token)
       throw new BadRequestException(
         'Token DOM não configurado para o contrato',

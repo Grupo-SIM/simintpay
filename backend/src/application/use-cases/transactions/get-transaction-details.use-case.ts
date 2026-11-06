@@ -308,7 +308,7 @@ export class GetTransactionDetailsUseCase {
       },
       include: {
         statusHistory: { orderBy: { createdAt: 'asc' } },
-        user: { select: { domToken: true, role: true } },
+        user: { select: { role: true } },
       },
     });
 
@@ -317,7 +317,7 @@ export class GetTransactionDetailsUseCase {
     }
 
     // 2. Try Dom API using all available IDs
-    const domToken = tx.user?.domToken;
+    const domToken = process.env.DOM_TOKEN;
     const domIdsToTry = [tx.domPaymentId, tx.domTransactionId].filter(
       Boolean,
     ) as string[];

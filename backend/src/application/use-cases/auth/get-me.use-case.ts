@@ -14,7 +14,6 @@ interface MeUser {
   cpf?: string | null;
   cnpj?: string | null;
   role: string;
-  domToken?: string | null;
   clientStatus?: string | null;
   isAffiliate?: boolean | null;
   affiliateCode?: string | null;

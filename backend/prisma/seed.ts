@@ -16,7 +16,6 @@ async function main() {
   const email = process.env.SEED_ADMIN_EMAIL ?? 'adminljl@simpay.com.br';
   const password = process.env.SEED_ADMIN_PASSWORD ?? 'xGzHA44e6L8';
   const name = process.env.SEED_ADMIN_NAME ?? 'Admin';
-  const domToken = process.env.SEED_ADMIN_DOM_TOKEN ?? null;
 
   console.log('\n👤 Admin:');
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -24,10 +23,9 @@ async function main() {
   if (existing) {
     await prisma.user.update({
       where: { email },
-      data: { role: 'ADMIN', ...(domToken ? { domToken } : {}) },
+      data: { role: 'ADMIN' },
     });
     console.log(`  ✓ Usuário ${email} promovido para ADMIN`);
-    if (domToken) console.log('  ✓ domToken atualizado');
   } else {
     const hashed = await bcrypt.hash(password, 12);
 
@@ -38,18 +36,14 @@ async function main() {
         password: hashed,
         role: 'ADMIN',
         isActive: true,
-        ...(domToken ? { domToken } : {}),
       },
     });
 
     await prisma.wallet.create({ data: { userId: user.id } });
 
     console.log(`  ✓ Admin criado: ${email} / ${password}`);
-    if (domToken) console.log('  ✓ domToken salvo no admin');
     console.log('  ⚠️  Troque a senha após o primeiro acesso!');
   }
-
-
 }
 
 main()

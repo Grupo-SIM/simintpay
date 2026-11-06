@@ -106,18 +106,13 @@ export class BillingController {
 
     const owner = await this.prisma.user.findUnique({
       where: { id: body.billingOwnerId },
-      select: {
-        domToken: true,
-        clientStatus: true,
-      },
+      select: { id: true },
     });
     if (!owner)
       throw new BadRequestException(
         'Dono de cobrança Simintpay não encontrado',
       );
-    const domToken = owner.clientStatus
-      ? process.env.DOM_TOKEN
-      : (owner.domToken ?? process.env.DOM_TOKEN);
+    const domToken = process.env.DOM_TOKEN;
     if (!domToken) throw new BadRequestException('DOM_TOKEN não configurado');
 
     const recurringAmount =

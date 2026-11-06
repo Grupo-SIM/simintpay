@@ -10,7 +10,6 @@ export type CreateUserData = {
   role?: Role;
   isActive?: boolean;
   domUserId?: string | null;
-  domToken?: string | null;
   cpf?: string | null;
   cnpj?: string | null;
   platformId?: string | null;
@@ -31,10 +30,7 @@ export interface IUserRepository {
     id: string,
     data: { name?: string; email?: string },
   ): Promise<User>;
-  updateDomData(
-    id: string,
-    data: { domUserId?: string | null; domToken?: string | null },
-  ): Promise<User>;
+  updateDomData(id: string, data: { domUserId?: string | null }): Promise<User>;
   updatePassword(id: string, hashedPassword: string): Promise<void>;
   findByAffiliateCode(code: string): Promise<User | null>;
   setReferredBy(userId: string, referredByUserId: string | null): Promise<void>;

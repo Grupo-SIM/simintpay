@@ -52,7 +52,6 @@ export class PrismaUserRepository implements IUserRepository {
         role: data.role,
         isActive: data.isActive,
         domUserId: data.domUserId ?? undefined,
-        domToken: data.domToken ?? undefined,
         phone: data.phone ?? undefined,
         cpf: data.cpf ?? undefined,
         cnpj: data.cnpj ?? undefined,
@@ -78,13 +77,12 @@ export class PrismaUserRepository implements IUserRepository {
 
   async updateDomData(
     id: string,
-    data: { domUserId?: string | null; domToken?: string | null },
+    data: { domUserId?: string | null },
   ): Promise<User> {
     return this.prisma.user.update({
       where: { id },
       data: {
         domUserId: data.domUserId ?? undefined,
-        domToken: data.domToken ?? undefined,
       },
     });
   }

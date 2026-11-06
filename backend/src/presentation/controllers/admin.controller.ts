@@ -1342,11 +1342,9 @@ export class AdminController {
     dataInicio?: string,
     dataFim?: string,
   ): Promise<DomTransactionItem[]> {
-    const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+    const domToken = process.env.DOM_TOKEN;
     if (!domToken?.trim()) {
-      throw new BadRequestException(
-        'DOM_TOKEN / API_DOM_MASTER_KEY não configurado',
-      );
+      throw new BadRequestException('DOM_TOKEN não configurado');
     }
     const { begin_date, end_date } = relatorioDomDateRange(dataInicio, dataFim);
     const limit = 150;
@@ -4956,16 +4954,6 @@ export class AdminController {
       where: { userId: RENOVADA_ID },
     });
 
-    // Limpar domToken do user (era master token, causava sync de TODAS plataformas)
-    await this.prisma.user
-      .update({
-        where: { id: RENOVADA_ID },
-        data: { domToken: null },
-      })
-      .catch(() => {
-        /* user pode não existir ainda */
-      });
-
     // Deletar histórico de status dessas transações
     const renovadaTxIds = await this.prisma.transaction.findMany({
       where: { userId: RENOVADA_ID },
@@ -7250,8 +7238,7 @@ export class AdminController {
       select: { id: true, name: true, email: true },
     });
     const clienteById = new Map(clientesRows.map((c) => [c.id, c]));
-    const domToken =
-      process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY || '';
+    const domToken = process.env.DOM_TOKEN || '';
 
     const cobrancas: Array<{
       userId: string;
@@ -7345,8 +7332,7 @@ export class AdminController {
     });
     if (semLink.length === 0) return;
 
-    const domToken =
-      process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY || '';
+    const domToken = process.env.DOM_TOKEN || '';
 
     for (const cob of semLink) {
       const amount = Number(cob.amount);

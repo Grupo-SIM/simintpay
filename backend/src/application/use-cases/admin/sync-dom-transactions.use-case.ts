@@ -96,19 +96,12 @@ export class SyncDomTransactionsUseCase {
     const user = await this.users.findById(input.userId);
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // 1. Prioridade: Token individual do usuário
-    let domToken = (user as { domToken?: string | null }).domToken;
-    let source = 'Individual';
-
-    // 2. Fallback Master (Para o admin principal)
-    if (!domToken) {
-      domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
-      source = 'Master/BFF';
-    }
+    const domToken = process.env.DOM_TOKEN;
+    const source = 'Master/BFF';
 
     if (!domToken) {
       throw new BadRequestException(
-        'Nenhum Token (Individual ou Master) encontrado para sincronização.',
+        'Nenhum Token (DOM_TOKEN) encontrado para sincronização.',
       );
     }
 
@@ -318,7 +311,7 @@ export class SyncDomTransactionsUseCase {
     tagged: number;
     unchanged: number;
   }> {
-    const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+    const domToken = process.env.DOM_TOKEN;
     if (!domToken) throw new BadRequestException('DOM_TOKEN não configurado');
 
     const begin = dayjs(input.beginDate);

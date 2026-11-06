@@ -42,7 +42,6 @@ export class LoginUseCase {
         sub: user.id,
         email: user.email,
         role: user.role as any,
-        domToken: user.domToken, // Adicionar domToken ao JWT
       } as any,
     );
 

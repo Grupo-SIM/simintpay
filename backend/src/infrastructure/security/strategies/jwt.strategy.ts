@@ -12,10 +12,7 @@ export type JwtPayload = {
   impersonatedBy?: string;
   platformId?: string;
   platformTag?: string;
-  domToken?: string;
   domUserId?: string;
-} & {
-  domToken?: string;
 };
 
 @Injectable()

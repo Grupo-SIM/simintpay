@@ -79,7 +79,7 @@ export class ListDomTransactionsDirectUseCase {
   ) {}
 
   async execute(input: ListDomTransactionsDirectInput) {
-    const domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+    const domToken = process.env.DOM_TOKEN;
     if (!domToken) {
       throw new Error('DOM_TOKEN não configurado no .env');
     }

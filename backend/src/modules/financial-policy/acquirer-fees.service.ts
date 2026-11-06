@@ -263,7 +263,7 @@ export class AcquirerFeesService {
 
   async syncDom(user?: JwtPayload) {
     if (user) await this.admin(user);
-    const token = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
+    const token = process.env.DOM_TOKEN;
     if (!token)
       throw new ServiceUnavailableException('Credencial DOM não configurada');
     const base = (

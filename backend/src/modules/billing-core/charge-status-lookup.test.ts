@@ -44,9 +44,7 @@ function setup(
         opts.noUser
           ? null
           : {
-              domToken: 'owner-token',
-              clientStatus: false,
-              platform: { tag: 'SOME-PLATFORM' },
+              id: 'u-1',
             },
       ),
     },
@@ -69,7 +67,7 @@ describe('DomChargeStatusLookup', () => {
       string,
       Record<string, unknown>,
     ];
-    expect(token).toBe('owner-token');
+    expect(token).toBe('global-token');
     expect(input.page).toBe(1);
     expect(input.begin_date).toBe('2026-06-09');
     expect(input.end_date).toBe('2026-06-11');
@@ -209,13 +207,12 @@ describe('DomChargeStatusLookup', () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it('uses the executor token (owner domToken), not the global or platform one', async () => {
+  it('uses the executor token (the global DOM_TOKEN)', async () => {
     const { lookup, list } = setup();
     list.mockResolvedValueOnce(res([tx(KEY, 'paid')], 1));
     await lookup.find('ch-1', 2, NOW);
     const [token] = list.mock.calls[0] as unknown as [string];
-    expect(token).toBe('owner-token');
-    expect(token).not.toBe(process.env.DOM_TOKEN);
+    expect(token).toBe('global-token');
   });
 
   it('is UNKNOWN without calling DOM when the owner token cannot be resolved', async () => {

@@ -314,11 +314,6 @@ export class PixPlanService {
       throw new NotFoundException('Link code PIX-PLAN não encontrado');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: link.pixCreditPlan.userId },
-      select: { domToken: true },
-    });
-
     return {
       id: link.id,
       code: link.code,
@@ -347,7 +342,7 @@ export class PixPlanService {
         createdAt: link.pixCreditPlan.createdAt,
         updatedAt: link.pixCreditPlan.updatedAt,
       },
-      token: user?.domToken ?? null,
+      token: null,
     };
   }
 
@@ -1249,7 +1244,7 @@ export class PixPlanService {
     let transaction = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       include: {
-        user: { select: { id: true, name: true, email: true, domToken: true } },
+        user: { select: { id: true, name: true, email: true } },
       },
     });
 
@@ -1257,11 +1252,11 @@ export class PixPlanService {
     if (
       transaction?.status === 'PENDING' &&
       transaction.domPaymentId &&
-      transaction.user?.domToken
+      process.env.DOM_TOKEN
     ) {
       try {
         const domTx = await this.gateway.getDomTransactionDetail(
-          transaction.user.domToken,
+          process.env.DOM_TOKEN,
           transaction.domPaymentId,
         );
         const domStatus: string = domTx?.status ?? '';

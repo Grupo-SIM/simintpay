@@ -29,7 +29,6 @@ model User {
     purgedAt             DateTime?
     purgedAmount         Decimal?             @db.Decimal(12, 2)
     domUserId            String?              @unique
-  domToken             String?
   platformId           String?
   cpf                  String?              @unique
   cnpj                 String?              @unique
