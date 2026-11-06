@@ -116,7 +116,7 @@ async function suspend(contractId: string) {
 beforeAll(async () => {
   if (!db) return;
   process.env.DOM_TOKEN = 'test-token';
-  process.env.RENEWAL_LINK_SECRET = 'renewal-test-secret';
+  process.env.RENEWAL_LINK_SECRET = 'r'.repeat(64);
   await useEmptyCaches();
   await seedGlobalPolicy(db);
   ownerId = (

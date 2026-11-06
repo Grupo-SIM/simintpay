@@ -21,6 +21,16 @@ Copy `.env.production.example` to `.env` on the deployment host. Replace every p
 
 The existing `back-simpay_simpay_storage` external volume is preserved by default and mounted at `/app/backend/storage`. Override `STORAGE_VOLUME_NAME` for another installation. Ensure the volume is writable by Node UID 1000 before rollout. Host binding is loopback-only at port 3333; configure the host reverse proxy separately. Container health probes Swagger JSON on that port.
 
+### Segredo dos links de renovação
+
+`RENEWAL_LINK_SECRET` assina (HMAC-SHA256) os links de renovação enviados por e-mail. Quem o conhece consegue gerar um link válido para qualquer contrato, então trate-o como credencial.
+
+- Gerar: `openssl rand -hex 32` (64 caracteres hexadecimais). O backend recusa valores com menos de 32 caracteres.
+- Guardar no gerenciador de segredos do ambiente. Nunca no repositório, em log ou em e-mail.
+- Um valor diferente por ambiente (desenvolvimento, homologação e produção).
+- Rotação: defina o valor novo em `RENEWAL_LINK_SECRET` e passe o antigo para `RENEWAL_LINK_SECRET_PREVIOUS`. Os links novos usam a chave nova e os já enviados continuam válidos. Remova a `..._PREVIOUS` quando os avisos antigos deixarem de importar (o último aviso vale até o vencimento do contrato, então no máximo um ciclo).
+- Sem o segredo, a renovação e os lembretes ficam desligados de forma segura: não se emite nem se aceita link.
+
 ## Explicit release steps
 
 Review environment and backup policy first. The following commands are operator instructions, never agent-authorized remote actions:

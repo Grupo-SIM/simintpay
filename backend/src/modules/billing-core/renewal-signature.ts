@@ -1,22 +1,43 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 const SECRET_ENV = 'RENEWAL_LINK_SECRET';
+/** Segredo anterior, aceito só na verificação, para trocar a chave sem invalidar links já enviados. */
+const PREVIOUS_SECRET_ENV = 'RENEWAL_LINK_SECRET_PREVIOUS';
 const HEX_SHA256 = /^[0-9a-f]{64}$/i;
+/** 32 bytes em hex têm 64 caracteres; em base64, 44. Abaixo disso o segredo é fraco demais. */
+export const MIN_SECRET_LENGTH = 32;
+
+function readSecret(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  if (!value) return undefined;
+  if (value.length < MIN_SECRET_LENGTH) {
+    throw new Error(
+      `${name} must have at least ${MIN_SECRET_LENGTH} characters (use 32 random bytes)`,
+    );
+  }
+  return value;
+}
 
 function secret(): string {
-  const value = process.env[SECRET_ENV];
+  const value = readSecret(SECRET_ENV);
   if (!value) throw new Error(`${SECRET_ENV} is not configured`);
   return value;
 }
 
-/** HMAC-SHA256 (hex) of the contract id. Throws when `RENEWAL_LINK_SECRET` is missing. */
+function hmac(key: string, contractId: string): Buffer {
+  return createHmac('sha256', key).update(contractId).digest();
+}
+
+/** HMAC-SHA256 (hex) of the contract id. Throws when the secret is missing or too short. */
 export function signRenewal(contractId: string): string {
-  return createHmac('sha256', secret()).update(contractId).digest('hex');
+  return hmac(secret(), contractId).toString('hex');
 }
 
 /**
- * Timing-safe check of a renewal link signature. Fails closed: a missing secret, an empty id
- * or a malformed signature all return false.
+ * Timing-safe check of a renewal link signature. Fails closed: a missing or weak secret,
+ * an empty id or a malformed signature all return false. During a rotation the previous
+ * secret also validates links that were already sent, but new links are always signed
+ * with the current one.
  */
 export function verifyRenewalSignature(
   contractId: string,
@@ -24,14 +45,19 @@ export function verifyRenewalSignature(
 ): boolean {
   if (!contractId || typeof sig !== 'string' || !HEX_SHA256.test(sig))
     return false;
-  let expected: string;
+  const given = Buffer.from(sig.toLowerCase(), 'hex');
+  let current: string;
   try {
-    expected = signRenewal(contractId);
+    current = secret();
   } catch {
     return false;
   }
-  return timingSafeEqual(
-    Buffer.from(expected, 'hex'),
-    Buffer.from(sig.toLowerCase(), 'hex'),
-  );
+  if (timingSafeEqual(hmac(current, contractId), given)) return true;
+  let previous: string | undefined;
+  try {
+    previous = readSecret(PREVIOUS_SECRET_ENV);
+  } catch {
+    return false;
+  }
+  return previous ? timingSafeEqual(hmac(previous, contractId), given) : false;
 }
