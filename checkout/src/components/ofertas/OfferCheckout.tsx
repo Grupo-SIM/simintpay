@@ -273,13 +273,14 @@ export default function OfferCheckout() {
     }
     const outcome = mapSubscribeResponse(data as SubscribeResponse);
     if (outcome.kind === 'pix') {
-      if (outcome.transactionId)
+      if (outcome.transactionId && (outcome.pixContent || outcome.qrCode))
         setPix({
           id: outcome.transactionId,
           content: outcome.pixContent,
           qrCode: outcome.qrCode,
           expire: outcome.pixExpire,
         });
+      else setError('Não foi possível gerar o PIX agora. Tente novamente.');
       return;
     }
     setRedirectUrl(outcome.redirectUrl);
@@ -416,7 +417,7 @@ export default function OfferCheckout() {
         }
         email={email}
         redirectUrl={redirectUrl}
-        total={money(base)}
+        total={money(trial ? 0 : base)}
         rows={
           <>
             <SummaryRow
@@ -467,11 +468,16 @@ export default function OfferCheckout() {
         price: money(base),
         frequency: recurring ? frequencyLabel(offer) : 'Pagamento único',
       }}
-      total={money(total)}
+      total={recurring && trialDaysOf(offer) > 0 ? money(0) : money(total)}
       totalCaption={recurring ? frequencyLabel(offer) : 'Pagamento único'}
       asideRows={
         recurring && trialDaysOf(offer) > 0 ? (
-          <SummaryRow muted label="Cobrança hoje" value={money(0)} last />
+          <SummaryRow
+            muted
+            label={`Após ${trialDaysOf(offer)} dias`}
+            value={money(base)}
+            last
+          />
         ) : undefined
       }
       dadosSubtitle="Usados para emitir a cobrança e enviar seu acesso"
