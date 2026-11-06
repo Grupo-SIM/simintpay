@@ -342,7 +342,8 @@ function FormBody({
               )}
             />
             <Input
-              label="Número de cobranças (vazio = até cancelar)"
+              label="Número de cobranças"
+              placeholder="Até cancelar"
               theme={theme}
               variant="navbar"
               inputMode="numeric"
@@ -363,7 +364,7 @@ function FormBody({
               theme={theme}
               variant="navbar"
               inputMode="numeric"
-              placeholder="Padrão: 3"
+              placeholder="3"
               value={form.retryDays}
               onChange={(value) => patch({ retryDays: digitsOnly(value) })}
             />
@@ -372,7 +373,7 @@ function FormBody({
               theme={theme}
               variant="navbar"
               inputMode="numeric"
-              placeholder="Padrão: 7"
+              placeholder="7"
               value={form.graceDays}
               onChange={(value) => patch({ graceDays: digitsOnly(value) })}
             />
