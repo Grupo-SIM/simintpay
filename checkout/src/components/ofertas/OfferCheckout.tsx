@@ -206,11 +206,13 @@ export default function OfferCheckout({
     cardCvv.length >= 3 &&
     holderName.trim().length >= 2 &&
     (holderDigits.length === 11 || holderDigits.length === 14);
-  const isCard = method !== 'pix';
+  const methods = offer ? methodsOf(offer) : [];
+  const hasMethod = methods.includes(method);
+  const isCard = hasMethod && method !== 'pix';
 
   /** AUTO_CHARGE: card-customer -> SDK (token no navegador) -> subscribe. Só o token vai à API. */
   async function subscribe() {
-    if (previewOffer || !offer || !code) return;
+    if (previewOffer || !offer || !code || !hasMethod) return;
     const target = `${SIM_API_URL}/ofertas/public/${encodeURIComponent(code)}`;
     const post = (path: string, body: unknown) =>
       fetch(`${target}/${path}`, {
@@ -298,7 +300,7 @@ export default function OfferCheckout({
   }
 
   async function handleSubmit() {
-    if (previewOffer || !offer || !code) return;
+    if (previewOffer || !offer || !code || !hasMethod) return;
     setError('');
     setLoading(true);
     try {
@@ -393,15 +395,6 @@ export default function OfferCheckout({
     return (
       <CheckoutErrorScreen title="Não foi possível concluir" message={error} />
     );
-  const methods = methodsOf(offer);
-  if (methods.length === 0)
-    return (
-      <CheckoutErrorScreen
-        title="Indisponível por enquanto"
-        message="Esta oferta ainda não aceita as formas de pagamento deste checkout."
-      />
-    );
-
   const base = offerAmount(offer);
   const selected = options.find((o) => o.installments === installments);
   const total =
@@ -508,7 +501,10 @@ export default function OfferCheckout({
           : 'Efetuar pagamento'
       }
       finalDisabled={
-        Boolean(previewOffer) || (isCard && !cardOk) || (autoCharge && !consent)
+        Boolean(previewOffer) ||
+        !hasMethod ||
+        (isCard && !cardOk) ||
+        (autoCharge && !consent)
       }
       loading={loading}
       error={error}
@@ -599,7 +595,7 @@ export default function OfferCheckout({
             ))}
           </div>
 
-          {recurring && (
+          {hasMethod && recurring && (
             <div
               data-testid="recurrence-notice"
               className="flex flex-col gap-1 rounded-lg border border-white/10 bg-black/25 px-4 py-3 text-sm text-zinc-300"
@@ -612,7 +608,7 @@ export default function OfferCheckout({
               )}
             </div>
           )}
-          {method === 'pix' && !pix && !recurring && (
+          {hasMethod && method === 'pix' && !pix && !recurring && (
             <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
               <p className="text-sm text-zinc-300">
                 Preencha seus dados e clique em{' '}
@@ -621,7 +617,7 @@ export default function OfferCheckout({
               </p>
             </div>
           )}
-          {method === 'pix' && !pix && recurring && (
+          {hasMethod && method === 'pix' && !pix && recurring && (
             <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
               <p className="text-sm text-zinc-300">
                 Clique em{' '}
@@ -632,14 +628,17 @@ export default function OfferCheckout({
               </p>
             </div>
           )}
-          {method === 'pix' && pix && (pix.content || pix.qrCode) && (
-            <PixDisplay
-              pixContent={pix.content}
-              qrCode={pix.qrCode}
-              pixExpire={pix.expire}
-              amount={base}
-            />
-          )}
+          {hasMethod &&
+            method === 'pix' &&
+            pix &&
+            (pix.content || pix.qrCode) && (
+              <PixDisplay
+                pixContent={pix.content}
+                qrCode={pix.qrCode}
+                pixExpire={pix.expire}
+                amount={base}
+              />
+            )}
 
           {isCard && (
             <>
