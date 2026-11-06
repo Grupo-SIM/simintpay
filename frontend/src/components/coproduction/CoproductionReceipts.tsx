@@ -26,6 +26,7 @@ const products = {
   boletos: 'Boleto',
   planos: 'Plano',
   'planos-pix': 'Plano PIX',
+  ofertas: 'Oferta',
 };
 
 export function CoproductionReceipts({

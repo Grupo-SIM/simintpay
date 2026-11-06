@@ -35,6 +35,7 @@ export const endpoints = {
   ofertas: {
     list: '/ofertas',
     create: '/ofertas',
+    detail: (id: string) => `/ofertas/${encodeURIComponent(id)}`,
     update: (id: string) => `/ofertas/${encodeURIComponent(id)}`,
     deactivate: (id: string) => `/ofertas/${encodeURIComponent(id)}`,
     publicByCode: (code: string) =>

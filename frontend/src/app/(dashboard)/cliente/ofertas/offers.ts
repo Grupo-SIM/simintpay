@@ -1,5 +1,3 @@
-import { VALOR_MINIMO_ERRO, VALOR_MINIMO } from '../_shared';
-
 export const OFFERS_QUERY_KEY = 'cliente-ofertas';
 
 export type OfferKind =
@@ -23,12 +21,23 @@ export type Offer = {
   intervalType: OfferInterval | null;
   intervalCount: number | null;
   repetitions: number | null;
+  trialDays: number | null;
+  retryDays: number | null;
+  graceDays: number | null;
   accessDays: number | null;
   expiresAt: string | null;
   maxUses: number | null;
   usedCount: number;
+  currency?: string;
+  ownerUserId?: string;
+  fulfillment?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
   createdAt: string;
 };
+
+/** Valor mínimo de uma oferta (espelho de MIN_OFFER_AMOUNT_CENTS no backend). */
+export const OFFER_MIN_AMOUNT_CENTS = 1499;
+export const OFFER_MIN_AMOUNT_ERROR = 'O valor mínimo é R$ 14,99';
 
 export const OFFER_KINDS: OfferKind[] = [
   'PAYMENT_LINK',
@@ -67,8 +76,8 @@ export const methodLabels: Record<OfferMethod, string> = {
 };
 export const renewalLabels: Record<OfferRenewal, string> = {
   NONE: 'Compra única',
-  AUTO_CHARGE: 'Cobrança automática no cartão',
-  MANUAL_PAY: 'Novo PIX a cada ciclo',
+  AUTO_CHARGE: 'Automática no cartão',
+  MANUAL_PAY: 'PIX a cada ciclo',
 };
 export const intervalLabels: Record<OfferInterval, string> = {
   DAY: 'Dia(s)',
@@ -139,147 +148,35 @@ export const OFFER_PRESETS: Record<OfferKind, OfferPreset> = {
   },
 };
 
-/** Estado do formulário; números e data ficam em texto até o envio. */
-export type OfferForm = {
-  kind: OfferKind;
-  name: string;
-  description: string;
-  amount: string;
-  methods: OfferMethod[];
-  maxInstallments: string;
-  renewalMode: OfferRenewal;
-  intervalType: OfferInterval;
-  intervalCount: string;
-  repetitions: string;
-  accessDays: string;
-  expiresAt: string;
-  maxUses: string;
+export type OfferStatus = 'ACTIVE' | 'INACTIVE' | 'EXHAUSTED' | 'EXPIRED';
+export const OFFER_STATUSES: OfferStatus[] = [
+  'ACTIVE',
+  'INACTIVE',
+  'EXHAUSTED',
+  'EXPIRED',
+];
+export const statusLabels: Record<OfferStatus, string> = {
+  ACTIVE: 'Ativa',
+  INACTIVE: 'Inativa',
+  EXHAUSTED: 'Esgotada',
+  EXPIRED: 'Expirada',
 };
 
-export function formFromPreset(kind: OfferKind): OfferForm {
-  const preset = OFFER_PRESETS[kind];
-  return {
-    kind,
-    name: '',
-    description: '',
-    amount: '0,00',
-    methods: [...preset.acceptedMethods],
-    maxInstallments: String(preset.maxInstallments),
-    renewalMode: preset.renewalMode,
-    intervalType: preset.intervalType ?? 'MONTH',
-    intervalCount: String(preset.intervalCount ?? 1),
-    repetitions: '',
-    accessDays: preset.accessDays == null ? '' : String(preset.accessDays),
-    expiresAt: '',
-    maxUses: '',
-  };
-}
-
-export function formFromOffer(
-  offer: Offer,
-  formatAmount: (value: number) => string,
-): OfferForm {
-  return {
-    kind: offer.kind,
-    name: offer.name,
-    description: offer.description ?? '',
-    amount: formatAmount(offer.amountCents / 100),
-    methods: [...offer.acceptedMethods],
-    maxInstallments: String(offer.maxInstallments),
-    renewalMode: offer.renewalMode,
-    intervalType: offer.intervalType ?? 'MONTH',
-    intervalCount: String(offer.intervalCount ?? 1),
-    repetitions: offer.repetitions ? String(offer.repetitions) : '',
-    accessDays: offer.accessDays == null ? '' : String(offer.accessDays),
-    expiresAt: offer.expiresAt ? offer.expiresAt.slice(0, 10) : '',
-    maxUses: offer.maxUses == null ? '' : String(offer.maxUses),
-  };
-}
-
-export const digitsOnly = (value: string) => value.replace(/\D/g, '');
-const toInt = (value: string): number | undefined =>
-  value.trim() === '' ? undefined : Number(value);
-
-/** Primeira mensagem de erro do formulário, ou null. */
-export function validateOfferForm(
-  form: OfferForm,
-  amount: number,
-): string | null {
-  if (!form.name.trim()) return 'Informe o nome da oferta.';
-  if (amount < VALOR_MINIMO) return VALOR_MINIMO_ERRO;
-  if (form.methods.length === 0)
-    return 'Selecione ao menos uma forma de pagamento.';
-  const installments = toInt(form.maxInstallments) ?? 1;
-  if (!Number.isInteger(installments) || installments < 1 || installments > 12)
-    return 'O parcelamento deve ficar entre 1x e 12x.';
-  if (installments > 1 && !form.methods.includes('CREDIT_CARD'))
-    return 'Parcelamento exige cartão de crédito.';
-  if (form.renewalMode !== 'NONE') {
-    if ((toInt(form.intervalCount) ?? 0) < 1)
-      return 'Informe o intervalo da recorrência.';
-    if (
-      form.renewalMode === 'AUTO_CHARGE' &&
-      !form.methods.some((m) => m === 'CREDIT_CARD' || m === 'DEBIT_CARD')
-    )
-      return 'Cobrança automática exige cartão.';
-  }
-  const accessDays = toInt(form.accessDays);
-  if (accessDays !== undefined && accessDays < 1)
-    return 'Dias de acesso deve ser no mínimo 1.';
-  const maxUses = toInt(form.maxUses);
-  if (maxUses !== undefined && maxUses < 1)
-    return 'O limite de usos deve ser no mínimo 1.';
-  return null;
-}
-
-/** Corpo de POST/PATCH /ofertas. `kind` e plataforma só vão na criação. */
-export function offerPayload(
-  form: OfferForm,
-  amount: number,
-  create?: { platformTag: string },
-) {
-  const recurring = form.renewalMode !== 'NONE';
-  const installments = form.methods.includes('CREDIT_CARD')
-    ? (toInt(form.maxInstallments) ?? 1)
-    : 1;
-  return {
-    ...(create ? { kind: form.kind, platformTag: create.platformTag } : {}),
-    name: form.name.trim(),
-    ...(form.description.trim()
-      ? { description: form.description.trim() }
-      : {}),
-    amountCents: Math.round(amount * 100),
-    acceptedMethods: form.methods,
-    maxInstallments: installments,
-    renewalMode: form.renewalMode,
-    ...(recurring
-      ? {
-          intervalType: form.intervalType,
-          intervalCount: toInt(form.intervalCount) ?? 1,
-          ...(toInt(form.repetitions) !== undefined
-            ? { repetitions: toInt(form.repetitions) }
-            : {}),
-        }
-      : {}),
-    ...(toInt(form.accessDays) !== undefined
-      ? { accessDays: toInt(form.accessDays) }
-      : {}),
-    ...(form.expiresAt
-      ? { expiresAt: new Date(`${form.expiresAt}T23:59:59`).toISOString() }
-      : {}),
-    ...(toInt(form.maxUses) !== undefined
-      ? { maxUses: toInt(form.maxUses) }
-      : {}),
-  };
-}
-
-export type OfferStatus = 'Ativo' | 'Inativo' | 'Limite atingido';
-export function offerStatus(offer: Offer, now = new Date()): OfferStatus {
-  if (!offer.isActive) return 'Inativo';
-  if (offer.expiresAt && new Date(offer.expiresAt) <= now) return 'Inativo';
+/** Mesma precedência do filtro do backend: desativada > vencida > esgotada > ativa. */
+export function offerStatus(
+  offer: Pick<Offer, 'isActive' | 'expiresAt' | 'maxUses' | 'usedCount'>,
+  now = new Date(),
+): OfferStatus {
+  if (!offer.isActive) return 'INACTIVE';
+  if (offer.expiresAt && new Date(offer.expiresAt) <= now) return 'EXPIRED';
   if (offer.maxUses != null && offer.usedCount >= offer.maxUses)
-    return 'Limite atingido';
-  return 'Ativo';
+    return 'EXHAUSTED';
+  return 'ACTIVE';
+}
+
+/** "usos / limite" da listagem (limite vazio = ilimitado). */
+export function usesLabel(offer: Pick<Offer, 'usedCount' | 'maxUses'>): string {
+  return `${offer.usedCount} / ${offer.maxUses ?? '∞'}`;
 }
 
 export function recurrenceSummary(offer: Offer): string {

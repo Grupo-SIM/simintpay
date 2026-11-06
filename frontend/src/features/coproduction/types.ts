@@ -4,7 +4,8 @@ export type CoproductionProduct =
   | 'boletos'
   | 'planos'
   | 'planos-pix'
-  | 'plataformas';
+  | 'plataformas'
+  | 'ofertas';
 
 export type Coproducer = {
   email: string;
