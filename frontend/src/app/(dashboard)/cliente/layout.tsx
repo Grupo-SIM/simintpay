@@ -11,6 +11,10 @@ export default function ClienteLayout({ children }: { children: ReactNode }) {
     return <DashboardPageSkeleton />;
   }
 
+  if (user?.isAdmin) {
+    return <>{children}</>;
+  }
+
   if (!user?.isClient) {
     return (
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 py-20 text-center">
