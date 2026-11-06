@@ -140,6 +140,17 @@ export class OfferController {
     return this.offers.list(actorOf(user), query);
   }
 
+  @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Detalhar oferta (somente do titular; admin vê todas)',
+  })
+  @ApiResponse({ status: 404 })
+  get(@CurrentUser() user: JwtPayload | undefined, @Param('id') id: string) {
+    return this.offers.get(actorOf(user), id);
+  }
+
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

@@ -50,6 +50,17 @@ describe('OfferService.update clearing optional fields', () => {
     });
   });
 
+  test('isActive reactivates and get is owner scoped', async () => {
+    const { svc, updates } = service();
+    await svc.update({ id: 'u1', role: 'USER' }, 'o1', { isActive: true });
+    expect(updates[0].isActive).toBe(true);
+    expect((await svc.get({ id: 'u1', role: 'USER' }, 'o1')).id).toBe('o1');
+    expect((await svc.get({ id: 'a', role: 'ADMIN' }, 'o1')).id).toBe('o1');
+    await expect(svc.get({ id: 'u2', role: 'USER' }, 'o1')).rejects.toThrow(
+      'Oferta não encontrada',
+    );
+  });
+
   test('null clears expiry, limits and day counters', async () => {
     const { svc, updates } = service();
     await svc.update({ id: 'u1', role: 'USER' }, 'o1', {

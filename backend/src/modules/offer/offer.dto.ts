@@ -4,6 +4,7 @@ import {
   ArrayUnique,
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsIn,
@@ -121,11 +122,17 @@ export class UpdateOfferDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
+
+  @ApiPropertyOptional({ description: 'Reativa ou desativa a oferta' })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
 
 export class CreateOfferDto extends OmitType(UpdateOfferDto, [
   'name',
   'amountCents',
+  'isActive',
 ] as const) {
   @ApiProperty({ enum: KINDS })
   @IsIn(KINDS)

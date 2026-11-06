@@ -200,6 +200,7 @@ export class OfferService {
         ...this.persistable(normalized),
         name: dto.name,
         description: dto.description,
+        isActive: dto.isActive,
         expiresAt:
           dto.expiresAt === null
             ? null
@@ -250,6 +251,10 @@ export class OfferService {
         totalPages: Math.max(1, Math.ceil(total / paging.pageSize)),
       },
     };
+  }
+
+  async get(actor: OfferActor, id: string): Promise<Offer> {
+    return this.owned(actor, id);
   }
 
   async deactivate(actor: OfferActor, id: string): Promise<Offer> {
