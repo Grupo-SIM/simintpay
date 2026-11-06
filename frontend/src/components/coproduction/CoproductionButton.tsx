@@ -16,12 +16,14 @@ export function CoproductionButton({
   draft = [],
   onDraftChange,
   disabled = false,
+  iconOnly = false,
 }: {
   product: CoproductionProduct;
   productId?: string | null;
   draft?: Coproducer[];
   onDraftChange?: (participants: Coproducer[]) => void;
   disabled?: boolean;
+  iconOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -29,12 +31,24 @@ export function CoproductionButton({
       <Button
         type="button"
         variant="outline"
-        className="w-fit cursor-pointer disabled:cursor-not-allowed"
+        className={
+          iconOnly
+            ? 'cursor-pointer disabled:cursor-not-allowed'
+            : 'w-fit cursor-pointer disabled:cursor-not-allowed'
+        }
+        size={iconOnly ? 'icon-sm' : 'default'}
+        aria-label={iconOnly ? 'Co-produção' : undefined}
+        title={iconOnly ? 'Co-produção' : undefined}
         disabled={disabled}
         onClick={() => setOpen(true)}
       >
-        <Users className="h-4 w-4" />
-        Co-produção{!productId && draft.length > 0 ? ` (${draft.length})` : ''}
+        <Users aria-hidden className="h-4 w-4" />
+        {!iconOnly && (
+          <>
+            Co-produção
+            {!productId && draft.length > 0 ? ` (${draft.length})` : ''}
+          </>
+        )}
       </Button>
       {open &&
         (productId ? (

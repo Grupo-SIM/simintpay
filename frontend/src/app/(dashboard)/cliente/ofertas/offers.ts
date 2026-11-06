@@ -182,7 +182,9 @@ export function offerStatus(
 
 /** "usos / limite" da listagem (limite vazio = ilimitado). */
 export function usesLabel(offer: Pick<Offer, 'usedCount' | 'maxUses'>): string {
-  return `${offer.usedCount} / ${offer.maxUses ?? '∞'}`;
+  return offer.maxUses == null
+    ? String(offer.usedCount)
+    : `${offer.usedCount} / ${offer.maxUses}`;
 }
 
 export function recurrenceSummary(offer: Offer): string {

@@ -1,6 +1,6 @@
 'use client';
 
-import { Copy, Pencil, Plus, Power, RefreshCw } from 'lucide-react';
+import { Check, Pencil, Plus, Power, RefreshCw } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import {
   keepPreviousData,
@@ -117,16 +117,6 @@ export function OfferListing({
         title: 'Não foi possível alterar o status. Tente novamente.',
       }),
   });
-  const copyLink = async (offer: Offer) => {
-    const url = checkoutUrlOferta(offer.code);
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast({ type: 'success', title: 'Link copiado' });
-    } catch {
-      toast({ type: 'error', title: 'Não foi possível copiar o link.' });
-    }
-  };
   const rows = query.data?.data ?? [];
   const total = query.data?.meta.total ?? 0;
   const theme = resolvedTheme === 'dark' ? 'dark' : 'light';
@@ -216,50 +206,46 @@ export function OfferListing({
     {
       key: 'actions',
       header: 'Ações',
-      defaultWidth: 440,
+      defaultWidth: 136,
       render: (row) => (
         <div className="flex items-center justify-center gap-2">
           <Button
             variant="outline"
-            size="sm"
+            size="icon-sm"
             className="cursor-pointer"
+            aria-label="Editar"
+            title="Editar"
             onClick={() => onEdit(row.id)}
           >
-            <Pencil aria-hidden className="h-4 w-4" /> Editar
+            <Pencil aria-hidden className="h-4 w-4" />
           </Button>
           {row.isActive ? (
             <ConfirmActionButton
               variant="outline"
-              size="sm"
+              size="icon-sm"
               disabled={toggle.isPending}
               className="cursor-pointer disabled:cursor-not-allowed"
               label="Desativar"
               confirmation="Desativar esta oferta? Confirme em até 3 segundos."
-              confirmContent="Confirmar"
+              confirmContent={<Check aria-hidden className="h-4 w-4" />}
               onConfirm={() => toggle.mutate(row)}
             >
-              <Power aria-hidden className="h-4 w-4" /> Desativar
+              <Power aria-hidden className="h-4 w-4" />
             </ConfirmActionButton>
           ) : (
             <Button
               variant="outline"
-              size="sm"
+              size="icon-sm"
               className="cursor-pointer disabled:cursor-not-allowed"
               disabled={toggle.isPending}
+              aria-label="Ativar"
+              title="Ativar"
               onClick={() => toggle.mutate(row)}
             >
-              <Power aria-hidden className="h-4 w-4" /> Ativar
+              <Power aria-hidden className="h-4 w-4" />
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="cursor-pointer"
-            onClick={() => void copyLink(row)}
-          >
-            <Copy aria-hidden className="h-4 w-4" /> Copiar link
-          </Button>
-          <CoproductionButton product="ofertas" productId={row.id} />
+          <CoproductionButton product="ofertas" productId={row.id} iconOnly />
         </div>
       ),
     },
@@ -312,7 +298,7 @@ export function OfferListing({
           pageSize={query.data?.meta.pageSize ?? OFFER_PAGE_SIZE}
           total={total}
           onPageChange={(page) => onFiltersChange({ ...filters, page })}
-          minWidth="min-w-[1900px]"
+          minWidth="min-w-[1596px]"
           emptyTitle="Nenhuma oferta encontrada"
         />
       )}

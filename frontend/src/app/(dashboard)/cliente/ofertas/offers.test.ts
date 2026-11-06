@@ -35,7 +35,7 @@ describe('offers', () => {
 
   test('usos e recorrência em texto', () => {
     expect(usesLabel({ usedCount: 3, maxUses: 10 })).toBe('3 / 10');
-    expect(usesLabel({ usedCount: 3, maxUses: null })).toBe('3 / ∞');
+    expect(usesLabel({ usedCount: 3, maxUses: null })).toBe('3');
     expect(recurrenceSummary({ renewalMode: 'NONE' } as Offer)).toBe(
       'Compra única',
     );
