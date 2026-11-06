@@ -20,7 +20,6 @@ import {
   Percent,
   UsersRound,
   Receipt,
-  Barcode,
 } from 'lucide-react';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import {
@@ -35,8 +34,6 @@ const MENU_ITEMS = [
   { href: '/transacoes', icon: CreditCard, label: 'Transações' },
   { href: '/saques', icon: ArrowDownToLine, label: 'Saques' },
   { href: '/assinantes', icon: Users, label: 'Assinantes' },
-  { href: '/planos', icon: Package, label: 'Planos' },
-  { href: '/links-pagamento', icon: Link2, label: 'Links de pagamento' },
   { href: '/cobrancas', icon: Receipt, label: 'Cobranças' },
   { href: '/relatorio', icon: BarChart2, label: 'Relatórios' },
 ];
@@ -391,46 +388,6 @@ export function Sidebar() {
               icon={Users}
               label="Assinantes"
             />
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/planos"
-              icon={Package}
-              label="Planos"
-            />
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/planos-pix"
-              icon={Package}
-              label="Planos por PIX"
-            />
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/links-pagamento"
-              icon={Link2}
-              label="Links de pagamento"
-            />
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/links-assinatura"
-              icon={Link2}
-              label="Links de assinatura"
-            />
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/boletos"
-              icon={Barcode}
-              label="Boletos"
-            />
           </>
         )}
 
@@ -446,48 +403,8 @@ export function Sidebar() {
             />
           ))}
 
-        {user?.isClient && (
+        {(user?.isClient || user?.isAdmin) && (
           <>
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/cliente/planos"
-              icon={Package}
-              label="Planos"
-            />
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/cliente/planos-pix"
-              icon={Package}
-              label="Planos PIX"
-            />
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/cliente/links-pagamento"
-              icon={Link2}
-              label="Links de Pagamento"
-            />
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/cliente/links-assinatura"
-              icon={Link2}
-              label="Links de Assinatura"
-            />
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/cliente/boletos"
-              icon={Barcode}
-              label="Boletos"
-            />
             <NavLink
               open={open}
               pathname={pathname}
