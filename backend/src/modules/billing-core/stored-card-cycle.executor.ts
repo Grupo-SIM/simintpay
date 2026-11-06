@@ -10,29 +10,39 @@ import type {
 } from './billing-cycle.service';
 import { StoredCardVaultService } from './stored-card-vault.service';
 
+/**
+ * DOM transaction `status` values (dom-pagamentos.readme.io): paid, pending, capture,
+ * cancelled_capture, refunded, chargeback, in_mediation, failed, not_authorized, expired,
+ * pending_refund, revision_paid, dispute_pending. There is no `approved`; `approved` and
+ * `completed` are kept only as legacy aliases already accepted by the webhook mapping.
+ *
+ * refunded/chargeback only exist after money moved (partial refunds stay `paid`), so they are
+ * PAID: a reversal must not turn a settled cycle into a failed one (that would trigger dunning
+ * and suspension on a buyer who paid). Reversals are handled by the webhook/ledger.
+ */
 const PAID = new Set([
   'paid',
+  'refunded',
+  'chargeback',
   'approved',
-  'captured',
   'completed',
-  'authorized',
 ]);
-const REFUSED = new Set([
-  'refused',
-  'denied',
-  'declined',
+/** Definitive refusal/non-capture: no money moved and none will. */
+const FAILED = new Set([
   'failed',
-  'canceled',
-  'cancelled',
-  'rejected',
-  'error',
+  'not_authorized',
+  'expired',
+  'cancelled_capture',
 ]);
 
-/** Status do adquirente -> resultado. Qualquer coisa fora dos conjuntos acima (pending, processing...) é UNKNOWN. */
+/**
+ * Status do adquirente -> resultado. pending, capture, revision_paid, in_mediation,
+ * dispute_pending, pending_refund and anything unrecognized are UNKNOWN (never paid or failed by guess).
+ */
 export function outcomeFromGatewayStatus(status: string): CycleChargeOutcome {
   const s = status.trim().toLowerCase();
   if (PAID.has(s)) return 'PAID';
-  if (REFUSED.has(s)) return 'FAILED';
+  if (FAILED.has(s)) return 'FAILED';
   return 'UNKNOWN';
 }
 

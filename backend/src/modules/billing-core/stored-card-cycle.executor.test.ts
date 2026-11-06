@@ -64,7 +64,7 @@ describe('StoredCardCycleExecutor', () => {
   });
 
   test('a refusal status fails the cycle', async () => {
-    const { executor } = build({ charge: async () => ({ status: 'refused' }) });
+    const { executor } = build({ charge: async () => ({ status: 'failed' }) });
     expect((await executor.charge({ charge, contract })).outcome).toBe(
       'FAILED',
     );
@@ -140,9 +140,32 @@ describe('StoredCardCycleExecutor', () => {
     expect(calls).toHaveLength(0);
   });
 
-  test('maps gateway statuses', () => {
+  test('maps every documented DOM status', () => {
+    const expected: Record<string, string> = {
+      paid: 'PAID',
+      refunded: 'PAID',
+      chargeback: 'PAID',
+      failed: 'FAILED',
+      not_authorized: 'FAILED',
+      expired: 'FAILED',
+      cancelled_capture: 'FAILED',
+      pending: 'UNKNOWN',
+      capture: 'UNKNOWN',
+      revision_paid: 'UNKNOWN',
+      in_mediation: 'UNKNOWN',
+      dispute_pending: 'UNKNOWN',
+      pending_refund: 'UNKNOWN',
+    };
+    for (const [status, outcome] of Object.entries(expected)) {
+      expect(outcomeFromGatewayStatus(status)).toBe(outcome as never);
+    }
+  });
+
+  test('keeps legacy aliases, ignores case and treats unknown values as UNKNOWN', () => {
     expect(outcomeFromGatewayStatus('Approved')).toBe('PAID');
-    expect(outcomeFromGatewayStatus('denied')).toBe('FAILED');
-    expect(outcomeFromGatewayStatus('processing')).toBe('UNKNOWN');
+    expect(outcomeFromGatewayStatus(' PAID ')).toBe('PAID');
+    expect(outcomeFromGatewayStatus('refused')).toBe('UNKNOWN');
+    expect(outcomeFromGatewayStatus('authorized')).toBe('UNKNOWN');
+    expect(outcomeFromGatewayStatus('')).toBe('UNKNOWN');
   });
 });
