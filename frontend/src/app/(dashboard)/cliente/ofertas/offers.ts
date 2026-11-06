@@ -46,6 +46,12 @@ export const OFFER_KINDS: OfferKind[] = [
   'PIX_PLAN',
   'BOLETO',
 ];
+/** Modelos oferecidos na criação; PLAN e PIX_PLAN seguem existindo em ofertas antigas. */
+export const OFFER_PRESET_KINDS: OfferKind[] = [
+  'PAYMENT_LINK',
+  'SUBSCRIPTION_LINK',
+  'BOLETO',
+];
 export const OFFER_METHODS: OfferMethod[] = [
   'PIX',
   'CREDIT_CARD',
@@ -56,7 +62,7 @@ export const OFFER_METHODS: OfferMethod[] = [
 /** Rótulos dos enums do backend; o valor bruto nunca é exibido sem passar por aqui. */
 export const kindLabels: Record<OfferKind, string> = {
   PAYMENT_LINK: 'Link de pagamento',
-  SUBSCRIPTION_LINK: 'Link de assinatura',
+  SUBSCRIPTION_LINK: 'Assinatura',
   PLAN: 'Plano',
   PIX_PLAN: 'Plano PIX',
   BOLETO: 'Boleto',

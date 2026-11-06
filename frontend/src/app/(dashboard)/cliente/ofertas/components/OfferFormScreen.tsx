@@ -41,7 +41,7 @@ import {
 } from '../offer-form';
 import {
   OFFERS_QUERY_KEY,
-  OFFER_KINDS,
+  OFFER_PRESET_KINDS,
   OFFER_METHODS,
   OFFER_PRESETS,
   enumLabel,
@@ -208,7 +208,7 @@ function FormBody({
                 tudo abaixo.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
-                {OFFER_KINDS.map((kind) => (
+                {OFFER_PRESET_KINDS.map((kind) => (
                   <button
                     key={kind}
                     type="button"
