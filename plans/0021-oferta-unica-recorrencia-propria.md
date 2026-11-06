@@ -197,7 +197,8 @@ Falhas que já existiam e não são desta entrega: 12 testes de equivalência de
 
 Pendências:
 
-- [ ] Tela de renovação no checkout e checkout de ofertas recorrentes no frontend (em andamento).
+- [x] Checkout de ofertas recorrentes (cartão automático com token da DOM por `customer_id`, trial, PIX por ciclo) e tela de renovação/reativação por PIX, ambos validados em navegador com a DOM simulada.
+- [ ] Tela de renovação: o formato de `pixExpire` (sem fuso) é lido como horário local pelo contador e pelo backend; confirmar o fuso real da DOM. Erros 409 além de 'em dia' mostram a mensagem da API como veio.
 - [ ] Renovação por cartão (hoje só PIX).
 - [ ] Webhook de PIX expirado numa renovação marca a cobrança `EXPIRED` e o contrato `PAST_DUE`, e `runDue` não reabre cobrança `EXPIRED` (comportamento anterior, não alterado).
 - [ ] Validar na DOM sandbox: cobrança com token de carteira e `upsell: true`, `getTokenCard` com `customer_id`, repetição de `getOrCreateDomCustomer`, e se a chave pública global pertence à mesma conta que `DOM_TOKEN`.

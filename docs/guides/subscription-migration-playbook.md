@@ -102,7 +102,7 @@ Não há cobrança a assumir. Crie o contrato **sem agendamento** e preserve o a
 - [x] Lembrete ao comprador antes do vencimento (30, 7 e 1 dias antes e no dia), em `renewal-reminder.cron.ts`. Exige `RENEWAL_LINK_SECRET` no ambiente.
 - [x] Script de migração de contratos com dry-run, `--apply --i-understand-this-writes` e `--verify` (`scripts/offer-contract-migration.ts` + `scripts/sql/migrate-paid-subscription-orders.sql`). Testado contra um banco com **todas** as migrations aplicadas, inclusive a guarda de carteira.
 - [x] Fluxo de renovação e reativação: `POST /ofertas/public/:code/renew` (link assinado, PIX).
-- [ ] Tela de renovação no checkout (`?renovar=<contractId>&sig=<hmac>`): o backend existe, a página não.
+- [x] Tela de renovação no checkout (`?ofertaCode=<código>&renovar=<contractId>&sig=<hmac>`), com botão de confirmação antes de gerar o PIX (um scanner de e-mail que abra o link não cria cobrança).
 - [ ] Proteção do tratamento de `SIGNATURE-CANCELLED` durante a migração do cenário B.
 - [ ] Migrations aplicadas (nenhuma foi aplicada em banco real até agora) e as `Offer`s já criadas e verificadas.
 - [ ] `RENEWAL_LINK_SECRET` (gerar com `openssl rand -hex 32`; ver `docs/deployment.md`) e, para plataformas com token próprio, `DOM_PUBLIC_KEY` definidos no ambiente.
