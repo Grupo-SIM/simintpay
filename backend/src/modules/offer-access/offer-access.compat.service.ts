@@ -168,8 +168,6 @@ export class OfferAccessCompatService {
     if (input.redirectUrl) fulfillment.redirectUrl = input.redirectUrl;
     if (input.emailBody) fulfillment.emailBody = input.emailBody;
     const dto = {
-      // `kind` some quando o enum OfferKind for removido; remover esta linha junto.
-      kind: 'PIX_PLAN',
       ownerUserId: input.ownerUserId,
       platformTag: input.platformTag,
       name: input.name.slice(0, 120),

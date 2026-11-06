@@ -46,36 +46,40 @@ afterAll(async () => {
   await db?.$disconnect();
 });
 
-run('creates from the preset and exposes only safe public fields', async () => {
-  const offer = await service.create(seller, {
-    kind: 'PIX_PLAN',
-    name: 'Plano PIX',
-    amountCents: 4990,
-  });
-  expect(offer.ownerUserId).toBe(seller.id);
-  expect(offer.createdByUserId).toBe(seller.id);
-  expect(offer.renewalMode).toBe('MANUAL_PAY');
-  expect(offer.accessDays).toBe(30);
-  expect(offer.code).toMatch(/^[A-Z0-9]{10}$/);
+run(
+  'creates with explicit recurrence and exposes only safe public fields',
+  async () => {
+    const offer = await service.create(seller, {
+      name: 'Plano PIX',
+      amountCents: 4990,
+      acceptedMethods: ['PIX'],
+      maxInstallments: 1,
+      renewalMode: 'MANUAL_PAY',
+      accessDays: 30,
+    });
+    expect(offer.ownerUserId).toBe(seller.id);
+    expect(offer.createdByUserId).toBe(seller.id);
+    expect(offer.renewalMode).toBe('MANUAL_PAY');
+    expect(offer.accessDays).toBe(30);
+    expect(offer.code).toMatch(/^[A-Z0-9]{10}$/);
 
-  const pub = await service.getPublicByCode(offer.code);
-  expect(pub.name).toBe('Plano PIX');
-  expect(Object.keys(pub)).not.toContain('ownerUserId');
-  expect(Object.keys(pub)).not.toContain('createdByUserId');
-  expect(Object.keys(pub)).not.toContain('id');
-});
+    const pub = await service.getPublicByCode(offer.code);
+    expect(pub.name).toBe('Plano PIX');
+    expect(Object.keys(pub)).not.toContain('ownerUserId');
+    expect(Object.keys(pub)).not.toContain('createdByUserId');
+    expect(Object.keys(pub)).not.toContain('id');
+  },
+);
 
 run('rejects amounts below the minimum and unsupported combos', async () => {
   await expect(
     service.create(seller, {
-      kind: 'PAYMENT_LINK',
       name: 'x',
       amountCents: 1000,
     }),
   ).rejects.toThrow('14,99');
   await expect(
     service.create(seller, {
-      kind: 'PAYMENT_LINK',
       name: 'x',
       amountCents: 2000,
       acceptedMethods: ['PIX'],
@@ -86,9 +90,10 @@ run('rejects amounts below the minimum and unsupported combos', async () => {
 
 run('boleto offers are flagged as requiring the buyer address', async () => {
   const offer = await service.create(seller, {
-    kind: 'BOLETO',
     name: 'Boleto',
     amountCents: 3000,
+    acceptedMethods: ['BOLETO'],
+    maxInstallments: 1,
   });
   expect((await service.getPublicByCode(offer.code)).requiresBuyerAddress).toBe(
     true,
@@ -98,13 +103,11 @@ run('boleto offers are flagged as requiring the buyer address', async () => {
 run('an admin cannot be the owner and never falls back to it', async () => {
   await expect(
     service.create(admin, {
-      kind: 'PAYMENT_LINK',
       name: 'x',
       amountCents: 2000,
     }),
   ).rejects.toThrow();
   const onBehalf = await service.create(admin, {
-    kind: 'PAYMENT_LINK',
     name: 'Para cliente',
     amountCents: 2000,
     ownerUserId: seller.id,
@@ -115,7 +118,6 @@ run('an admin cannot be the owner and never falls back to it', async () => {
 
 run('clients only see and change their own offers', async () => {
   const offer = await service.create(seller, {
-    kind: 'PAYMENT_LINK',
     name: 'Meu',
     amountCents: 2000,
   });
@@ -135,7 +137,6 @@ run('clients only see and change their own offers', async () => {
 
 run('deactivated, expired and exhausted offers are not public', async () => {
   const offer = await service.create(seller, {
-    kind: 'PAYMENT_LINK',
     name: 'Some',
     amountCents: 2000,
     maxUses: 1,
@@ -145,7 +146,6 @@ run('deactivated, expired and exhausted offers are not public', async () => {
     'não encontrada',
   );
   const active = await service.create(seller, {
-    kind: 'PAYMENT_LINK',
     name: 'Ativa',
     amountCents: 2000,
   });

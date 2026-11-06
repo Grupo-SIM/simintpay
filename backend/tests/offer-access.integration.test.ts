@@ -45,7 +45,6 @@ async function offer(over: Record<string, unknown> = {}, alias = true) {
       ownerUserId: ownerId,
       createdByUserId: ownerId,
       code: `A${uid().toUpperCase()}`,
-      kind: 'PIX_PLAN',
       name: 'Credito',
       amountCents: 4990,
       acceptedMethods: ['PIX'],

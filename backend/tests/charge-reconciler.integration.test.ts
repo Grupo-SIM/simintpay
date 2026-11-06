@@ -41,7 +41,6 @@ async function pendingUnknown(email: string) {
       ownerUserId: ownerId,
       createdByUserId: ownerId,
       code: `OFF-${crypto.randomUUID()}`,
-      kind: 'PLAN',
       name: 'Plano',
       amountCents: 5000,
       acceptedMethods: ['CREDIT_CARD'],

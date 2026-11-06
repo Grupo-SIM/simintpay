@@ -61,7 +61,6 @@ async function seedOffer(prisma: PrismaClient, trialDays: number) {
       ownerUserId: owner.id,
       createdByUserId: owner.id,
       code: `T${suffix}`.toUpperCase(),
-      kind: 'PLAN',
       name: 'Plano',
       amountCents: 4990,
       acceptedMethods: ['CREDIT_CARD'],

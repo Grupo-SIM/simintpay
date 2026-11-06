@@ -39,7 +39,6 @@ test('PaymentLink maps methods, usage and keeps the code', () => {
     plataformas: ['AREAFLIX', 'PAGATG'],
   });
   expect(d).toMatchObject({
-    kind: 'PAYMENT_LINK',
     ownerUserId: 'u1',
     createdByUserId: 'admin',
     platformTag: 'AREAFLIX',
@@ -98,7 +97,6 @@ test('SubscriptionLink ANUAL is yearly, auto charge, 365 days', () => {
     plataformas: [],
   });
   expect(d).toMatchObject({
-    kind: 'SUBSCRIPTION_LINK',
     renewalMode: 'AUTO_CHARGE',
     intervalType: 'YEAR',
     intervalCount: 1,
@@ -141,7 +139,6 @@ test('Plan keeps repetitions, retryDays and tolerates null code/methods', () => 
     plataformas: ['BOSQUE'],
   });
   expect(d).toMatchObject({
-    kind: 'PLAN',
     renewalMode: 'AUTO_CHARGE',
     repetitions: 12,
     retryDays: 3,
@@ -173,7 +170,6 @@ test('PixCreditPlan is PIX manual pay and float price has no drift', () => {
     tenantTag: 'RENOVADA',
   });
   expect(d).toMatchObject({
-    kind: 'PIX_PLAN',
     renewalMode: 'MANUAL_PAY',
     acceptedMethods: ['PIX'],
     amountCents: 1999,
@@ -253,7 +249,6 @@ test('Boleto maps to BOLETO with no renewal', () => {
     plataformas: ['SIMINTPAY'],
   });
   expect(d).toMatchObject({
-    kind: 'BOLETO',
     acceptedMethods: ['BOLETO'],
     renewalMode: 'NONE',
     amountCents: 15010,

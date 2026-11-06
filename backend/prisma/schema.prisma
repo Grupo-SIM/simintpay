@@ -1014,15 +1014,6 @@ enum BillingContractStatus {
   CANCELLED
 }
 
-/// Product preset an offer was created from.
-enum OfferKind {
-  PAYMENT_LINK
-  SUBSCRIPTION_LINK
-  PLAN
-  PIX_PLAN
-  BOLETO
-}
-
 /// Who pays each cycle of a recurring offer.
 enum RenewalMode {
   /// One-off purchase.
@@ -1670,7 +1661,6 @@ model Offer {
   owner           User                @relation("OfferOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
   platformTag     String?
   code            String              @unique
-  kind            OfferKind
   name            String
   description     String?
   amountCents     Int
@@ -1706,7 +1696,6 @@ model Offer {
 
   @@unique([legacyType, legacyId])
   @@index([ownerUserId])
-  @@index([kind])
 }
 
 /// One amount owed by a payer: a standalone sale or a single cycle of a contract.

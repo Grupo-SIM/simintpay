@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { Offer } from '@prisma/client';
+import type { Offer, PaymentMethod } from '@prisma/client';
 import { assertClientCanCreate } from '../../application/helpers/client-rules.helper';
 import {
   assertOwnershipPreserved,
@@ -39,7 +39,6 @@ import {
   loadCyclePolicyContext,
   quoteOfferCycle,
 } from '../billing-core/cycle-pricing';
-import { OFFER_PRESETS } from './offer.presets';
 import {
   OfferValidationError,
   validateOfferInput,
@@ -65,7 +64,6 @@ export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
   const metadata = (offer.metadata ?? {}) as Record<string, unknown>;
   return {
     code: offer.code,
-    kind: offer.kind,
     name: offer.name,
     description: offer.description,
     amountCents: offer.amountCents,
@@ -83,6 +81,8 @@ export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
     bumps,
   };
 }
+
+const DEFAULT_METHODS: PaymentMethod[] = ['CREDIT_CARD', 'DEBIT_CARD', 'PIX'];
 
 @Injectable()
 export class OfferService {
@@ -102,25 +102,22 @@ export class OfferService {
     );
     assertClientCanCreate(owner, (dto.amountCents ?? 0) / 100);
 
-    // Preset do tipo; qualquer campo informado sobrescreve o padrão.
-    const preset = OFFER_PRESETS[dto.kind];
-    const renewalMode = dto.renewalMode ?? preset.renewalMode;
+    // Sem campos de recorrência a oferta é uma compra única.
+    const renewalMode = dto.renewalMode ?? 'NONE';
     const recurring = renewalMode !== 'NONE';
     const normalized = this.normalize({
       amountCents: dto.amountCents,
-      acceptedMethods: dto.acceptedMethods ?? preset.acceptedMethods,
-      maxInstallments: dto.maxInstallments ?? preset.maxInstallments,
+      acceptedMethods: dto.acceptedMethods ?? DEFAULT_METHODS,
+      maxInstallments: dto.maxInstallments ?? 12,
       renewalMode,
-      // O preset só preenche o intervalo quando o modo final é recorrente.
-      intervalType:
-        dto.intervalType ?? (recurring ? preset.intervalType : null),
-      intervalCount:
-        dto.intervalCount ?? (recurring ? preset.intervalCount : null),
+      // O intervalo padrão (mensal) só vale quando o modo é recorrente.
+      intervalType: dto.intervalType ?? (recurring ? 'MONTH' : null),
+      intervalCount: dto.intervalCount ?? (recurring ? 1 : null),
       repetitions: dto.repetitions,
       trialDays: dto.trialDays,
       retryDays: dto.retryDays,
       graceDays: dto.graceDays,
-      accessDays: dto.accessDays ?? preset.accessDays,
+      accessDays: dto.accessDays,
       metadata: dto.metadata,
       acquirer: getModuleAcquirer(platformTag),
     });
@@ -134,7 +131,6 @@ export class OfferService {
             createdByUserId,
             platformTag,
             code: generateOfferCode(),
-            kind: dto.kind,
             name: dto.name,
             description: dto.description ?? null,
             expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,

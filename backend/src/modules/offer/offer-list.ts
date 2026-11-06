@@ -48,7 +48,6 @@ export function buildOfferListWhere(
   }
   return {
     ownerUserId: scope.ownerUserId,
-    kind: query.kind,
     platformTag: query.platformTag,
     renewalMode: query.renewalMode,
     acceptedMethods: query.paymentMethod

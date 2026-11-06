@@ -53,7 +53,6 @@ async function activeContract(email: string) {
       ownerUserId: ownerId,
       createdByUserId: ownerId,
       code: `OFF-${crypto.randomUUID()}`,
-      kind: 'PLAN',
       name: 'Plano',
       amountCents: 4990,
       acceptedMethods: ['CREDIT_CARD'],

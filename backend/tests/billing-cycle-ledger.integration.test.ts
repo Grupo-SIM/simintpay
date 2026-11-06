@@ -32,7 +32,6 @@ async function newOffer(ownerId: string, methods: ('PIX' | 'CREDIT_CARD')[]) {
       ownerUserId: ownerId,
       createdByUserId: ownerId,
       code: `OFF-${crypto.randomUUID()}`,
-      kind: 'PLAN',
       name: 'Plano',
       amountCents: 10_000,
       acceptedMethods: methods,

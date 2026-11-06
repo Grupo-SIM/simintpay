@@ -472,7 +472,6 @@ const offerData = (d: OfferDraft): Prisma.OfferUncheckedCreateInput => ({
   createdByUserId: d.createdByUserId ?? d.ownerUserId!,
   platformTag: d.platformTag,
   code: d.code!,
-  kind: d.kind,
   name: d.name,
   description: d.description,
   amountCents: d.amountCents!,

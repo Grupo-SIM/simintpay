@@ -148,7 +148,8 @@ async function main() {
       data.preflight,
     );
     const perKind: Record<string, number> = {};
-    for (const d of drafts) perKind[d.kind] = (perKind[d.kind] ?? 0) + 1;
+    for (const d of drafts)
+      perKind[d.legacyType] = (perKind[d.legacyType] ?? 0) + 1;
 
     const report = {
       source: {

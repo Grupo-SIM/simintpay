@@ -30,7 +30,6 @@ test.skipIf(!db)(
         ownerUserId: owner.id,
         createdByUserId: owner.id,
         code,
-        kind: 'PAYMENT_LINK',
         name: code,
         amountCents: 5000,
         acceptedMethods: ['PIX'],

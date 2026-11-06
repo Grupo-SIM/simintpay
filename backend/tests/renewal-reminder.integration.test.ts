@@ -41,7 +41,6 @@ beforeAll(async () => {
       ownerUserId: seller.id,
       createdByUserId: seller.id,
       code: uid().slice(0, 10).toUpperCase(),
-      kind: 'SUBSCRIPTION_LINK',
       name: 'Plano',
       amountCents: 19990,
       renewalMode: 'MANUAL_PAY',

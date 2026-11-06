@@ -18,13 +18,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-const KINDS = [
-  'PAYMENT_LINK',
-  'SUBSCRIPTION_LINK',
-  'PLAN',
-  'PIX_PLAN',
-  'BOLETO',
-] as const;
 const METHODS = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'] as const;
 const RENEWALS = ['NONE', 'AUTO_CHARGE', 'MANUAL_PAY'] as const;
 const INTERVALS = ['DAY', 'WEEK', 'MONTH', 'YEAR'] as const;
@@ -133,10 +126,6 @@ export class CreateOfferDto extends OmitType(UpdateOfferDto, [
   'amountCents',
   'isActive',
 ] as const) {
-  @ApiProperty({ enum: KINDS })
-  @IsIn(KINDS)
-  kind!: (typeof KINDS)[number];
-
   @ApiProperty()
   @IsString()
   @MinLength(1)
@@ -189,11 +178,6 @@ export class ListOffersQueryDto {
   @IsOptional()
   @IsString()
   ownerUserId?: string;
-
-  @ApiPropertyOptional({ enum: KINDS })
-  @IsOptional()
-  @IsIn(KINDS)
-  kind?: (typeof KINDS)[number];
 
   @ApiPropertyOptional({ description: 'Busca por nome ou código' })
   @IsOptional()

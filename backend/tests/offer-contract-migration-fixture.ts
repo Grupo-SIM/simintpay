@@ -45,7 +45,6 @@ export async function seedScenario(db: PrismaClient) {
             ownerUserId: seller.id,
             createdByUserId: seller.id,
             code: uid().slice(0, 10).toUpperCase(),
-            kind: 'SUBSCRIPTION_LINK',
             name: `Offer ${frequencyType}`,
             amountCents: 19990,
             renewalMode: 'MANUAL_PAY',

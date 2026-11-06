@@ -14,7 +14,6 @@ export function makeOffer(over: Record<string, unknown> = {}): any {
     ownerUserId: 'owner',
     platformTag: null,
     code: 'OFFER00001',
-    kind: 'PAYMENT_LINK',
     name: 'Curso',
     description: null,
     amountCents: 10000,

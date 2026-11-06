@@ -16,12 +16,6 @@ export type LegacyType =
   | 'Plan'
   | 'PixCreditPlan'
   | 'Boleto';
-export type OfferKindValue =
-  | 'PAYMENT_LINK'
-  | 'SUBSCRIPTION_LINK'
-  | 'PLAN'
-  | 'PIX_PLAN'
-  | 'BOLETO';
 export type PaymentMethodValue =
   | 'PIX'
   | 'CREDIT_CARD'
@@ -50,7 +44,6 @@ export type OfferDraft = {
   createdByUserId: string | null;
   platformTag: string | null;
   code: string | null;
-  kind: OfferKindValue;
   name: string;
   description: string | null;
   /** null when the legacy amount could not be converted exactly. */
@@ -240,7 +233,6 @@ export function mapPaymentLink(row: PaymentLinkRow): OfferDraft {
       ...owners(row),
       platformTag: firstTag(row.plataformas),
       code: clean(row.code),
-      kind: 'PAYMENT_LINK',
       name: row.title,
       description: row.description ?? null,
       amountCents: toCents(row.amount),
@@ -287,7 +279,6 @@ export function mapSubscriptionLink(row: SubscriptionLinkRow): OfferDraft {
       ...owners(row),
       platformTag: firstTag(row.plataformas, row.platformTag),
       code: clean(row.code),
-      kind: 'SUBSCRIPTION_LINK',
       name: row.name,
       description: row.description ?? null,
       amountCents: toCents(row.amount),
@@ -346,7 +337,6 @@ export function mapPlan(row: PlanRow): OfferDraft {
       ...owners(row),
       platformTag: firstTag(row.plataformas),
       code: clean(row.code),
-      kind: 'PLAN',
       name: row.name,
       description: row.description ?? null,
       amountCents: toCents(row.price),
@@ -419,7 +409,6 @@ export function mapPixCreditPlan(row: PixCreditPlanRow): OfferDraft {
       ...owners(row),
       platformTag: clean(row.tenantTag),
       code: picked.code,
-      kind: 'PIX_PLAN',
       name: clean(row.description) ?? `PIX ${row.type ?? 'MONTHLY'}`,
       description: row.description ?? null,
       amountCents: toCents(row.price),
@@ -468,7 +457,6 @@ export function mapBoleto(row: BoletoRow): OfferDraft {
       ...owners(row),
       platformTag: firstTag(row.plataformas),
       code: clean(row.code),
-      kind: 'BOLETO',
       name: row.title,
       description: row.description ?? null,
       amountCents: toCents(row.amount),
