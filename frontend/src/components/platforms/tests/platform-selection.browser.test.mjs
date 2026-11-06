@@ -247,7 +247,21 @@ test('admin manages platforms and selects product financial owners', async () =>
     await page
       .getByRole('button', { name: /Selecionar titular sem plataforma/ })
       .click();
-    await page.getByRole('option', { name: /Outra loja.*Maria Silva/ }).click();
+    expect(await page.getByText(/Usuário:/).count()).toBe(0);
+    for (const [width, height] of [
+      [1440, 900],
+      [390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      await page.screenshot({ path: `/tmp/platform-options-${width}.png` });
+    }
+    const otherOption = page.getByRole('option', { name: /^Outra loja$/ });
+    if (!(await otherOption.isVisible())) {
+      await page
+        .getByRole('button', { name: /Selecionar titular sem plataforma/ })
+        .click();
+    }
+    await otherOption.click();
     await page.waitForFunction(
       () =>
         document.querySelector('button[aria-haspopup="listbox"]')

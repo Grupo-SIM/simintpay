@@ -18,9 +18,9 @@ export function platformOwnerLabel(
 
 export function adminPlatformLabel(
   platform: PlatformOwnership & { name: string; isActive: boolean },
-  user: { id: string; isAdmin: boolean } | null,
+  _user: { id: string; isAdmin: boolean } | null,
 ) {
-  return `${platform.name}${user?.isAdmin ? ` — ${platformOwnerLabel(platform, user)}` : ''}${platform.isActive ? '' : ' (Inativa)'}`;
+  return `${platform.name}${platform.isActive ? '' : ' (Inativa)'}`;
 }
 
 export type ProductPlatform = PlatformOwnership & {

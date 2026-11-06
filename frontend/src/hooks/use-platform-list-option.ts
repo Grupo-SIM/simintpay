@@ -14,7 +14,7 @@ export function usePlatformListOption() {
       selectedLabel: platform?.name ?? name,
       label: catalog.user?.isAdmin
         ? catalog.isLoading
-          ? `${name} — Carregando proprietário…`
+          ? name
           : adminPlatformLabel(
               platform ?? { name, isActive: true },
               catalog.user,

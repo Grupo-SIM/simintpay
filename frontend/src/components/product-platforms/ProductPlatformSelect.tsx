@@ -54,7 +54,7 @@ export function ProductPlatformSelect({
         variant="navbar"
         portal
         searchable
-        searchPlaceholder="Buscar plataforma ou proprietário..."
+        searchPlaceholder="Buscar plataforma..."
         value={value ?? ''}
         onChange={onChange}
         options={[
