@@ -25,7 +25,7 @@ export const OFFER_PRESETS: Record<OfferKind, OfferPreset> = {
     accessDays: null,
   },
   SUBSCRIPTION_LINK: {
-    acceptedMethods: ['CREDIT_CARD'],
+    acceptedMethods: ['CREDIT_CARD', 'DEBIT_CARD'],
     maxInstallments: 1,
     renewalMode: 'AUTO_CHARGE',
     intervalType: 'MONTH',

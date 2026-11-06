@@ -39,7 +39,7 @@ describe('presets', () => {
       name: 'Curso',
       amount: '99,90',
       renewalMode: 'AUTO_CHARGE',
-      methods: ['CREDIT_CARD'],
+      methods: ['CREDIT_CARD', 'DEBIT_CARD'],
     });
   });
 });

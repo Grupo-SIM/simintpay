@@ -69,7 +69,8 @@ export const kindLabels: Record<OfferKind, string> = {
 };
 export const kindDescriptions: Record<OfferKind, string> = {
   PAYMENT_LINK: 'Cobrança única com PIX, crédito ou débito.',
-  SUBSCRIPTION_LINK: 'Assinatura recorrente no cartão de crédito.',
+  SUBSCRIPTION_LINK:
+    'Assinatura recorrente cobrada automaticamente no cartão de crédito ou débito.',
   PLAN: 'Plano recorrente cobrado automaticamente no cartão.',
   PIX_PLAN: 'Acesso por período, renovado com um novo PIX a cada ciclo.',
   BOLETO: 'Cobrança única por boleto.',
@@ -121,7 +122,7 @@ export const OFFER_PRESETS: Record<OfferKind, OfferPreset> = {
     accessDays: null,
   },
   SUBSCRIPTION_LINK: {
-    acceptedMethods: ['CREDIT_CARD'],
+    acceptedMethods: ['CREDIT_CARD', 'DEBIT_CARD'],
     maxInstallments: 1,
     renewalMode: 'AUTO_CHARGE',
     intervalType: 'MONTH',
