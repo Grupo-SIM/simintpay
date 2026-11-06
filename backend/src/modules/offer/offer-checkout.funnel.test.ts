@@ -205,7 +205,7 @@ describe('funnel guards', () => {
     );
   });
 
-  test('a second post-purchase offer for the same parent is refused once one was paid', async () => {
+  test('a paid post-purchase offer blocks its duplicate but allows other funnel offers', async () => {
     const f = setup();
     const parent = await f.charge(f.main.code);
     f.db.charges[0].status = 'PAID';
@@ -213,8 +213,11 @@ describe('funnel guards', () => {
     await f.charge(f.byId('up-1').code, { parentChargeId: parent.chargeId });
     f.db.charges[1].status = 'PAID';
     await expect(
-      f.charge(f.byId('down-1').code, { parentChargeId: parent.chargeId }),
+      f.charge(f.byId('up-1').code, { parentChargeId: parent.chargeId }),
     ).rejects.toThrow('já adquirida');
+    await expect(
+      f.charge(f.byId('down-1').code, { parentChargeId: parent.chargeId }),
+    ).resolves.toHaveProperty('chargeId');
   });
 
   test('bumps must be listed by the main offer, active and of the same owner', async () => {

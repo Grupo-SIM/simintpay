@@ -2,7 +2,6 @@ import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayUnique,
-  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -296,7 +295,6 @@ export class OfferChargeDto {
   })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(5)
   @IsString({ each: true })
   bumpCodes?: string[];
 

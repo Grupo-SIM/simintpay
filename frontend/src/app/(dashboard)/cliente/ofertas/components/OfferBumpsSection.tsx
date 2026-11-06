@@ -10,7 +10,6 @@ import { ProductFormSection } from '../../components';
 import { fmtBRL, useClienteApi } from '../../_shared';
 import {
   BUMP_ROLES,
-  MAX_BUMPS,
   addBump,
   bumpCandidates,
   bumpRoleLabels,
@@ -77,12 +76,11 @@ export function OfferBumpsSection({
   };
 
   return (
-    <ProductFormSection title="Upsell e order bumps">
+    <ProductFormSection title="Funil">
       <div className="flex flex-col gap-4" data-testid="bumps-section">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Ofereça outras ofertas ativas de compra única no checkout: até{' '}
-          {MAX_BUMPS} order bumps, 1 upsell e 1 downsell (o downsell exige um
-          upsell).
+          Ofereça outras ofertas ativas de compra única no checkout. Obs:
+          downsell exige no mínimo um upsell
         </p>
         {bumps.length > 0 && (
           <ul className="flex flex-col gap-2">

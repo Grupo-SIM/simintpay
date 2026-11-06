@@ -469,7 +469,7 @@ export class OfferCheckoutService {
     return codes.map((c) => usable.find((o) => o.code === c)!);
   }
 
-  /** Valida upsell/downsell: pedido principal pago, do mesmo comprador, que ainda não comprou este funil. */
+  /** Valida upsell/downsell: pedido principal pago, do mesmo comprador, que ainda não comprou esta oferta. */
   private async resolveFunnel(
     offer: Offer,
     input: OfferChargeDto,
@@ -499,6 +499,7 @@ export class OfferCheckoutService {
     const already = await this.prisma.charge.count({
       where: {
         status: 'PAID',
+        offerId: offer.id,
         AND: [{ snapshot: { path: ['parentChargeId'], equals: parent.id } }],
       },
     });

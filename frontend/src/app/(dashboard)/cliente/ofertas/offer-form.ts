@@ -18,8 +18,6 @@ export const bumpRoleLabels: Record<BumpRole, string> = {
   UPSELL: 'Upsell',
   DOWNSELL: 'Downsell',
 };
-/** Espelho de offer-fulfillment.ts (backend). */
-export const MAX_BUMPS = 5;
 export const MAX_BOLETO_DUE_DAYS = 90;
 export const BOLETO_NOTE =
   'Cobranças de boleto em ofertas ainda não estão disponíveis; o meio só poderá ser usado quando for habilitado.';
@@ -245,15 +243,12 @@ export function bumpsProblem(bumps: FormBump[]): string | null {
     bumps.filter((bump) => bump.role === role).length;
   if (new Set(bumps.map((b) => b.offerId)).size !== bumps.length)
     return 'Oferta repetida em bumps.';
-  if (count('BUMP') > MAX_BUMPS) return `Máximo de ${MAX_BUMPS} order bumps.`;
-  if (count('UPSELL') > 1) return 'Apenas 1 upsell por oferta.';
-  if (count('DOWNSELL') > 1) return 'Apenas 1 downsell por oferta.';
   if (count('DOWNSELL') > 0 && count('UPSELL') === 0)
     return 'O downsell exige um upsell configurado.';
   return null;
 }
 
-/** Adiciona respeitando os limites; devolve a mensagem quando a regra não permite. */
+/** Adiciona respeitando as regras do funil; devolve a mensagem quando a regra não permite. */
 export function addBump(
   bumps: FormBump[],
   offerId: string,

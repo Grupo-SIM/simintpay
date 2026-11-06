@@ -93,7 +93,11 @@ describe('validateOfferForm (espelha offer.validator.ts)', () => {
         50,
       ),
     ).toMatch(/upsell/);
-    const boleto = { ...base, methods: ['BOLETO' as const] };
+    const boleto = {
+      ...base,
+      methods: ['BOLETO' as const],
+      maxInstallments: '1',
+    };
     expect(validateOfferForm({ ...boleto, boletoDueDays: '91' }, 50)).toMatch(
       /0 e 90/,
     );
@@ -125,24 +129,27 @@ describe('unsafeUrlReason', () => {
 });
 
 describe('bumps', () => {
-  test('limites: 5 bumps, 1 upsell, 1 downsell que exige upsell', () => {
+  test('funil sem limites quantitativos, com upsell obrigatório para downsell', () => {
     let bumps: FormBump[] = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 12; i++) {
       const r = addBump(bumps, `b${i}`, 'BUMP');
       if ('error' in r) throw new Error(r.error);
       bumps = r.bumps;
     }
-    expect(addBump(bumps, 'b5', 'BUMP')).toEqual({
-      error: 'Máximo de 5 order bumps.',
-    });
+    expect('bumps' in addBump(bumps, 'b12', 'BUMP')).toBe(true);
     expect(addBump([], 'd', 'DOWNSELL')).toEqual({
       error: 'O downsell exige um upsell configurado.',
     });
     const up = addBump([], 'u', 'UPSELL');
     if ('error' in up) throw new Error(up.error);
-    expect(addBump(up.bumps, 'u2', 'UPSELL')).toEqual({
-      error: 'Apenas 1 upsell por oferta.',
-    });
+    expect('bumps' in addBump(up.bumps, 'u2', 'UPSELL')).toBe(true);
+    expect(
+      bumpsProblem([
+        ...up.bumps,
+        { offerId: 'd1', role: 'DOWNSELL' },
+        { offerId: 'd2', role: 'DOWNSELL' },
+      ]),
+    ).toBeNull();
     expect('bumps' in addBump(up.bumps, 'd', 'DOWNSELL')).toBe(true);
     expect(
       bumpsProblem([

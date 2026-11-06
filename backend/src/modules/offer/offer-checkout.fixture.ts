@@ -85,6 +85,7 @@ export function makeOfferDb(
         charges.filter(
           (c) =>
             (!where.status || c.status === where.status) &&
+            (!where.offerId || c.offerId === where.offerId) &&
             c.snapshot?.parentChargeId === where.AND?.[0]?.snapshot?.equals,
         ).length,
       create: async ({ data }: any) => {

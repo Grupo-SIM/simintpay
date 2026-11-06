@@ -8,8 +8,6 @@ import { isIP } from 'node:net';
 export const FULFILLMENT_ROLES = ['BUMP', 'UPSELL', 'DOWNSELL'] as const;
 export type FulfillmentRole = (typeof FULFILLMENT_ROLES)[number];
 
-/** Mesmos limites do link legado (payment-link-offers.helper). */
-export const MAX_FULFILLMENT_BUMPS = 5;
 export const MAX_FULFILLMENT_FILES = 10;
 
 /** Itens vendidos numa Charge, gravados em `Charge.snapshot.items` no checkout. */
@@ -203,10 +201,6 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
         issues.push('Oferta repetida em bumps');
       const count = (r: FulfillmentRole) =>
         bumps.filter((b) => b.role === r).length;
-      if (count('BUMP') > MAX_FULFILLMENT_BUMPS)
-        issues.push(`Máximo de ${MAX_FULFILLMENT_BUMPS} order bumps`);
-      if (count('UPSELL') > 1) issues.push('Apenas 1 upsell por oferta');
-      if (count('DOWNSELL') > 1) issues.push('Apenas 1 downsell por oferta');
       if (count('DOWNSELL') > 0 && count('UPSELL') === 0)
         issues.push('Downsell exige um upsell configurado');
     }
