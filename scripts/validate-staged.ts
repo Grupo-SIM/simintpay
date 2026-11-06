@@ -23,7 +23,7 @@ for (const pattern of manifest.workspaces as string[]) {
 const shared = files.some(
   (file) =>
     /^(package.json|bun.lock|turbo.jsonc?|bunfig.toml)$/.test(file) ||
-    file.startsWith('scripts/'),
+    /^scripts\/(check|validate-staged)\.ts$/.test(file),
 );
 const affected = new Set(
   workspaces
@@ -48,7 +48,8 @@ while (expanded) {
 if (affected.size) {
   const child = Bun.spawn(
     [
-      'bunx',
+      'bun',
+      'x',
       '--no-install',
       'turbo',
       'run',
