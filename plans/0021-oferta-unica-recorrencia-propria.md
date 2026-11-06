@@ -186,3 +186,21 @@ Pendências e riscos conhecidos:
 - [ ] `trialDays > 0` bloqueado no checkout público de assinatura; `pix-status` público não conhece ofertas; checkout de ofertas recorrentes no frontend segue "indisponível".
 - [ ] Boleto-PIX ainda ignora `orderBumpIds`/`offerId`; `LINK_COST_1X` vs `TAXA_LINK_PERCENT` só diverge em plataformas com override de um dos dois.
 - [ ] Migrations ainda não aplicadas em nenhum banco real (7 pendentes); migração de dados legada e das 5 ordens de assinatura ativas na DOM continuam dependendo de decisão do dono.
+
+## 11. Estado após a terceira rodada (2026-11-06)
+
+Em `main`: token reutilizável da DOM por `customer_id` (SDK no navegador, sem PAN no servidor) como fonte padrão; trial; captura do token após liquidação por webhook; valor de cada ciclo igual ao do primeiro (cotação congelada); mapeamento de status e lookup da DOM conforme a documentação oficial; `pix-status` ciente de ofertas; modo de renovação efetivo por contrato; lembretes de renovação; script SQL de migração de contratos (cenário A); `POST /ofertas/public/:code/renew` para renovar ou reativar por PIX.
+
+Verificação: com um Postgres descartável migrado com `prisma migrate deploy` (as 100 migrations, inclusive as 7 novas), os testes de integração do ciclo, ledger, conciliador, preço, oferta, checkout, renovação, lembrete e migração de contratos passam (45 + 3). O `prisma migrate diff` entre migrations e `schema.prisma` não aponta nenhum desvio nas tabelas desta entrega (o desvio que aparece é de tabelas de outros módulos que já existiam fora do schema).
+
+Falhas que já existiam e não são desta entrega: 12 testes de equivalência de rotas em `platform-core/tests/` (manutenção/alias, overview, saque, relatório de cliente) falham da mesma forma antes desta rodada.
+
+Pendências:
+
+- [ ] Tela de renovação no checkout e checkout de ofertas recorrentes no frontend (em andamento).
+- [ ] Renovação por cartão (hoje só PIX).
+- [ ] Webhook de PIX expirado numa renovação marca a cobrança `EXPIRED` e o contrato `PAST_DUE`, e `runDue` não reabre cobrança `EXPIRED` (comportamento anterior, não alterado).
+- [ ] Validar na DOM sandbox: cobrança com token de carteira e `upsell: true`, `getTokenCard` com `customer_id`, repetição de `getOrCreateDomCustomer`, e se a chave pública global pertence à mesma conta que `DOM_TOKEN`.
+- [ ] `trialDays`: não há autorização de cartão no cadastro e nada é entregue durante o trial; decisão de produto.
+- [ ] `offer-pricing.ts` ainda duplica parte da precificação do checkout avulso.
+- [ ] Redirecionar o checkout de cartão dos links de assinatura legados para a oferta, para que novas assinaturas não voltem a ser criadas na DOM.

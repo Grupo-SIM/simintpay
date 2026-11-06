@@ -98,10 +98,14 @@ Não há cobrança a assumir. Crie o contrato **sem agendamento** e preserve o a
 
 ## 5. Antes de executar qualquer cenário
 
-- [ ] Modo de renovação efetivo por contrato (com cartão salvo cobra; sem cartão emite `CHARGE_DUE`).
-- [ ] Lembrete ao comprador antes do vencimento de contratos pagos por ele.
-- [ ] Script de migração de contratos, com dry-run por padrão e `--verify`, nos moldes do `offer-migration-apply`.
-- [ ] Proteção do tratamento de `SIGNATURE-CANCELLED` durante a migração.
-- [ ] Fluxo de reativação de contrato suspenso.
+- [x] Modo de renovação efetivo por contrato (com cartão salvo cobra; sem cartão emite `CHARGE_DUE`), em `billing-core/effective-renewal-mode.ts`.
+- [x] Lembrete ao comprador antes do vencimento (30, 7 e 1 dias antes e no dia), em `renewal-reminder.cron.ts`. Exige `RENEWAL_LINK_SECRET` no ambiente.
+- [x] Script de migração de contratos com dry-run, `--apply --i-understand-this-writes` e `--verify` (`scripts/offer-contract-migration.ts` + `scripts/sql/migrate-paid-subscription-orders.sql`). Testado contra um banco com **todas** as migrations aplicadas, inclusive a guarda de carteira.
+- [x] Fluxo de renovação e reativação: `POST /ofertas/public/:code/renew` (link assinado, PIX).
+- [ ] Tela de renovação no checkout (`?renovar=<contractId>&sig=<hmac>`): o backend existe, a página não.
+- [ ] Proteção do tratamento de `SIGNATURE-CANCELLED` durante a migração do cenário B.
 - [ ] Migrations aplicadas (nenhuma foi aplicada em banco real até agora) e as `Offer`s já criadas e verificadas.
+- [ ] `RENEWAL_LINK_SECRET` e, para plataformas com token próprio, `DOM_PUBLIC_KEY` definidos no ambiente.
 - [ ] Autorização do dono do produto para rodar contra o banco real.
+
+Observação sobre contratos migrados: o endpoint de renovação responde 409 pedindo contato com o suporte quando o contrato não tem documento do comprador. Confira nas 5 ordens se `customerDocument` está preenchido antes de enviar os links.
