@@ -1,6 +1,6 @@
 # 0022 - Esconder a capa do produto quando ela não existe (checkout)
 
-Status: planejado (não implementado)
+Status: implementado (code-complete); validação visual por screenshot pendente
 
 ## Contexto
 
@@ -43,4 +43,5 @@ Apenas o app `checkout/`. Sem mudanças de backend, SDK ou i18n.
 
 ## Pendências
 
-- Aprovação do plano e resposta ao ponto 4 (miniaturas pequenas).
+- Ponto 4 decidido: miniaturas também somem (não há ícone). Implementado tornando `ProductImage` nulo sem `src`.
+- Validação visual por screenshot ainda não realizada.

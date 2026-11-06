@@ -425,7 +425,10 @@ export function FunnelOfferScreen({
       {/* Desktop (6a upsell / 6c downsell) */}
       <div
         className={cx(
-          'hidden w-full max-w-[1000px] self-center rounded-[28px] p-5 lg:grid lg:grid-cols-[440px_minmax(0,1fr)] lg:items-stretch lg:gap-8',
+          'hidden w-full max-w-[1000px] self-center rounded-[28px] p-5 lg:grid lg:items-stretch lg:gap-8',
+          offer.imagemUrl
+            ? 'lg:grid-cols-[440px_minmax(0,1fr)]'
+            : 'lg:grid-cols-1',
           GLASS,
         )}
       >
