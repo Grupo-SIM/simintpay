@@ -685,48 +685,13 @@ export default function CriarLinkPagamentoPage() {
       });
       return;
     }
-    const produtosPreenchidos = produtos.filter((item) => {
-      const hasText = item.codigoExterno.trim() || item.nome.trim();
-      const valor =
-        Number(item.preco.replace(/\./g, '').replace(',', '.')) || 0;
-      return Boolean(hasText) || valor > 0;
-    });
-    if (produtosPreenchidos.length === 0) {
-      toast({
-        type: 'error',
-        title: 'Erro',
-        description: 'Adicione pelo menos um produto válido.',
-      });
-      return;
-    }
-    const produtoInvalido = produtosPreenchidos.find((item) => {
-      const valor =
-        Number(item.preco.replace(/\./g, '').replace(',', '.')) || 0;
-      return (
-        !item.nome.trim() ||
-        valor <= 0 ||
-        item.quantidadeMin > item.quantidadeMax
-      );
-    });
-    if (produtoInvalido) {
-      toast({
-        type: 'error',
-        title: 'Erro',
-        description:
-          'Preencha nome, valor e quantidades mín./máx. corretamente para os produtos.',
-      });
-      return;
-    }
-
     const valor =
-      Number(
-        produtosPreenchidos[0].preco.replace(/\./g, '').replace(',', '.'),
-      ) || 0;
+      Number(produtoPrincipal.preco.replace(/\./g, '').replace(',', '.')) || 0;
     if (valor <= 0) {
       toast({
         type: 'error',
         title: 'Erro',
-        description: 'Informe um valor válido.',
+        description: 'Informe o valor do produto.',
       });
       return;
     }
@@ -1004,42 +969,14 @@ export default function CriarLinkPagamentoPage() {
         </div>
       </section>
 
-      {selectedPlatform && (
-        <section className={cardClass}>
-          <h2 className="mb-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">
-            Mensagem do e-mail ao comprador
-          </h2>
-          <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
-            Este texto será o corpo do e-mail enviado ao comprador quando o
-            pagamento for aprovado. Você pode incluir o link de acesso ao
-            produto. (Os PDFs anexados, se houver, continuam sendo enviados.)
-          </p>
-          <textarea
-            value={emailBody}
-            onChange={(e) =>
-              setEmailBody(e.target.value.slice(0, EMAIL_BODY_MAX))
-            }
-            maxLength={EMAIL_BODY_MAX}
-            rows={6}
-            placeholder={
-              'Ex: Olá! Obrigado pela sua compra.\nAcesse seu acesso pelo link: https://...'
-            }
-            className="w-full rounded-2xl border border-zinc-200/80 bg-white p-4 text-sm text-zinc-800 outline-none transition-colors focus:border-emerald-500/50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100"
-          />
-          <p
-            className={`mt-1.5 text-right text-xs ${emailBody.length >= EMAIL_BODY_MAX ? 'text-red-500' : 'text-zinc-400 dark:text-zinc-500'}`}
-          >
-            {emailBody.length}/{EMAIL_BODY_MAX} caracteres
-          </p>
-          <EmailPreview
-            body={emailBody}
-            title={titulo}
-            redirectUrl={urlRedirecionamento}
-          />
-        </section>
-      )}
-
       <section className={cardClass}>
+        <h2 className="mb-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">
+          Produto <span className="text-red-500">*</span>
+        </h2>
+        <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+          O valor é obrigatório. O nome é opcional: sem ele, vale o título do
+          link.
+        </p>
         <div className="overflow-x-auto rounded-xl border border-zinc-200/80 dark:border-white/10">
           <table className="w-full min-w-[900px]">
             <thead>
@@ -1049,7 +986,7 @@ export default function CriarLinkPagamentoPage() {
                   Nome
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-zinc-500">
-                  Preço
+                  Preço <span className="text-red-500">*</span>
                 </th>
                 {/* <th className="px-3 py-2 text-center text-xs font-semibold uppercase text-zinc-500">Min.</th>
                 <th className="px-3 py-2 text-center text-xs font-semibold uppercase text-zinc-500">Máx.</th> */}
@@ -1071,7 +1008,7 @@ export default function CriarLinkPagamentoPage() {
                     <Input
                       theme={fieldTheme}
                       variant="navbar"
-                      placeholder="Nome"
+                      placeholder="Nome (opcional)"
                       value={item.nome}
                       onChange={(value) =>
                         updateProduto(item.id, { nome: value })
@@ -1171,6 +1108,41 @@ export default function CriarLinkPagamentoPage() {
           toast({ type: 'error', title: 'Erro', description: message })
         }
       />
+
+      {selectedPlatform && (
+        <section className={cardClass}>
+          <h2 className="mb-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">
+            Mensagem do e-mail ao comprador
+          </h2>
+          <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
+            Este texto será o corpo do e-mail enviado ao comprador quando o
+            pagamento for aprovado. Você pode incluir o link de acesso ao
+            produto. (Os PDFs anexados, se houver, continuam sendo enviados.)
+          </p>
+          <textarea
+            value={emailBody}
+            onChange={(e) =>
+              setEmailBody(e.target.value.slice(0, EMAIL_BODY_MAX))
+            }
+            maxLength={EMAIL_BODY_MAX}
+            rows={6}
+            placeholder={
+              'Ex: Olá! Obrigado pela sua compra.\nAcesse seu acesso pelo link: https://...'
+            }
+            className="w-full rounded-2xl border border-zinc-200/80 bg-white p-4 text-sm text-zinc-800 outline-none transition-colors focus:border-emerald-500/50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100"
+          />
+          <p
+            className={`mt-1.5 text-right text-xs ${emailBody.length >= EMAIL_BODY_MAX ? 'text-red-500' : 'text-zinc-400 dark:text-zinc-500'}`}
+          >
+            {emailBody.length}/{EMAIL_BODY_MAX} caracteres
+          </p>
+          <EmailPreview
+            body={emailBody}
+            title={titulo}
+            redirectUrl={urlRedirecionamento}
+          />
+        </section>
+      )}
 
       <section className={cardClass}>
         <h2 className="mb-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">
