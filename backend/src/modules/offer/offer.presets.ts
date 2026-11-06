@@ -18,7 +18,7 @@ export type OfferPreset = {
 export const OFFER_PRESETS: Record<OfferKind, OfferPreset> = {
   PAYMENT_LINK: {
     acceptedMethods: ['CREDIT_CARD', 'DEBIT_CARD', 'PIX'],
-    maxInstallments: 1,
+    maxInstallments: 12,
     renewalMode: 'NONE',
     intervalType: null,
     intervalCount: null,
