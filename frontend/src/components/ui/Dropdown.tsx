@@ -65,7 +65,10 @@ export function Dropdown({
   );
   const rootRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
-  const [popupStyle, setPopupStyle] = useState<CSSProperties>({});
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [popupStyle, setPopupStyle] = useState<CSSProperties>({
+    position: 'fixed',
+  });
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -109,6 +112,9 @@ export function Dropdown({
     }
 
     updatePosition();
+    // preventScroll: the popup is portaled to the end of <body>, and a plain
+    // focus() would scroll the page there before it is positioned.
+    searchRef.current?.focus({ preventScroll: true });
     document.addEventListener('mousedown', handle);
     document.addEventListener('keydown', onEsc);
     {
@@ -193,7 +199,7 @@ export function Dropdown({
           )}
         >
           <input
-            autoFocus
+            ref={searchRef}
             type="text"
             value={localQuery}
             name="platform-option-search"
