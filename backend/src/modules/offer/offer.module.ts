@@ -27,6 +27,11 @@ import { OfferService } from './offer.service';
     OfferRenewalService,
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
   ],
-  exports: [OfferService, OfferCheckoutService, OfferSubscribeService],
+  exports: [
+    OfferService,
+    OfferCheckoutService,
+    OfferSubscribeService,
+    OfferRenewalService,
+  ],
 })
 export class OfferModule {}

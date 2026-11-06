@@ -1,5 +1,6 @@
 import { BillingCoreModule } from './modules/billing-core/billing-core.module';
 import { OfferModule } from './modules/offer/offer.module';
+import { OfferAccessModule } from './modules/offer-access/offer-access.module';
 import { CoproductionModule } from './modules/coproduction/coproduction.module';
 import { SalePushModule } from './modules/sale-push/sale-push.module';
 import { LegacyPlatformUsageInterceptor } from './modules/platform-core/legacy-platform-usage.interceptor';
@@ -48,6 +49,7 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
   imports: [
     BillingCoreModule,
     OfferModule,
+    OfferAccessModule,
     CoproductionModule,
     SalePushModule,
     PlatformEventsModule,
