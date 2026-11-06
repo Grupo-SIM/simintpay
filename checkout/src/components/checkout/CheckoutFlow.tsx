@@ -185,12 +185,12 @@ export function CheckoutFlow({
     <Screen>
       {banner}
       <DesktopHeader />
+      <div className="flex items-center justify-between lg:hidden">
+        <Logo />
+        <ProtectedPill compact />
+      </div>
       {step === 0 ? (
         <div className="flex flex-col gap-4 lg:hidden">
-          <div className="flex items-center justify-between">
-            <Logo />
-            <ProtectedPill compact />
-          </div>
           <div className="flex flex-col gap-2">
             <div className="text-2xl font-medium">Seu pedido</div>
             <MobileProgress step={1} />
