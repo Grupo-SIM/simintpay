@@ -326,6 +326,8 @@ export interface IPaymentGateway {
       customerPhone: string;
       paymentMethod: 'credit_card' | 'debit_card' | 'pix';
       installments: number;
+      /** `credit_card.upsell`: keeps the (wallet) token reusable in later sales. */
+      upsell?: boolean;
       card?: {
         token: string;
         brand?: string;
@@ -422,6 +424,21 @@ export interface IPaymentGateway {
       };
     },
   ): Promise<{ id: string; status?: string; [key: string]: unknown }>;
+
+  /**
+   * Cria (ou recupera) o cliente no adquirente e devolve seu id. Usado para tokenizar o cartão
+   * no navegador já vinculado à carteira do cliente (token reutilizável, sem PAN no servidor).
+   */
+  getOrCreateCustomer?(
+    domToken: string,
+    customer: {
+      name: string;
+      email: string;
+      document: string;
+      phone: string;
+      documentType: 'CPF' | 'CNPJ';
+    },
+  ): Promise<string>;
 
   /**
    * Tokeniza o cartão completo no cliente do adquirente e devolve um token reutilizável

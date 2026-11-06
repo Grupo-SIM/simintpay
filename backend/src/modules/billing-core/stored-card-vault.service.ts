@@ -13,6 +13,8 @@ export type SaveStoredCardInput = {
   acquirerCode: string;
   /** Token reutilizável emitido pelo adquirente. Nunca PAN/CVV. */
   token: string;
+  /** Cliente (carteira) do adquirente ao qual o token está vinculado, quando houver. */
+  acquirerCustomerId?: string | null;
   brand?: string | null;
   last4: string;
   expMonth: number;
@@ -49,7 +51,11 @@ export class StoredCardVaultService {
           expMonth: input.expMonth,
           expYear: input.expYear,
           tokens: {
-            create: { acquirerCode: input.acquirerCode, encryptedToken },
+            create: {
+              acquirerCode: input.acquirerCode,
+              encryptedToken,
+              acquirerCustomerId: input.acquirerCustomerId ?? null,
+            },
           },
         },
       });
@@ -75,7 +81,11 @@ export class StoredCardVaultService {
     contractId: string,
     acquirerCode: string,
     now: Date = new Date(),
-  ): Promise<{ storedCardId: string; token: string } | null> {
+  ): Promise<{
+    storedCardId: string;
+    token: string;
+    acquirerCustomerId: string | null;
+  } | null> {
     const card = await this.prisma.storedCard.findFirst({
       where: { contractId, status: 'ACTIVE' },
       orderBy: { createdAt: 'desc' },
@@ -89,6 +99,7 @@ export class StoredCardVaultService {
     return {
       storedCardId: card.id,
       token: decryptPlatformSecret(row.encryptedToken),
+      acquirerCustomerId: row.acquirerCustomerId,
     };
   }
 

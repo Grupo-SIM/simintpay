@@ -8,7 +8,10 @@ import type { IPaymentGateway } from '../../core/services/payment-gateway.interf
  */
 export const CARD_TOKEN_SOURCE = Symbol('CARD_TOKEN_SOURCE');
 
-export type CardTokenSourceKind = 'subscription' | 'card-token';
+export type CardTokenSourceKind =
+  | 'customer-token'
+  | 'subscription'
+  | 'card-token';
 
 export type RawCard = {
   /** Single-use frontend token (kept for the legacy shape; not reusable). */
@@ -47,6 +50,8 @@ export type FirstCardChargeInput = {
     documentType: 'CPF' | 'CNPJ';
   };
   card: RawCard;
+  /** DOM customer (wallet) the browser-made token is bound to; `customer-token` source only. */
+  customerId?: string;
 };
 
 export type FirstCardChargeResult = {
@@ -108,8 +113,24 @@ export const CARD_METHODS: readonly PaymentMethod[] = [
 export function cardTokenSourceKindFromEnv(
   value = process.env.OFFER_CARD_TOKEN_SOURCE,
 ): CardTokenSourceKind {
-  return value === 'card-token' ? 'card-token' : 'subscription';
+  if (value === 'card-token' || value === 'subscription') return value;
+  return 'customer-token';
 }
+
+/**
+ * Safe subset of a browser-tokenized card (`customer-token`): never contains PAN or CVV.
+ * `token` is bound to the DOM customer wallet and reusable.
+ */
+export type CustomerTokenCard = {
+  token: string;
+  brand: string | null;
+  bin: string | null;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  holderName: string;
+  customerId: string;
+};
 
 /** Expiry month/year (4-digit year) from the buyer's payload. */
 export function parseExpiry(

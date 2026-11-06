@@ -765,6 +765,7 @@ export class ApiDomClient implements IPaymentGateway {
       customerPhone: string;
       paymentMethod: 'credit_card' | 'debit_card' | 'pix';
       installments: number;
+      upsell?: boolean;
       card?: {
         token: string;
         brand?: string;
@@ -805,6 +806,9 @@ export class ApiDomClient implements IPaymentGateway {
           token: input.card.token,
           installments:
             input.paymentMethod === 'debit_card' ? 1 : input.installments,
+          ...(input.upsell && input.paymentMethod === 'credit_card'
+            ? { upsell: true }
+            : {}),
         },
       },
       metadata: JSON.stringify({ paymentLinkId: input.domLinkId }),
@@ -1682,6 +1686,15 @@ export class ApiDomClient implements IPaymentGateway {
       pixExpire,
       amount: input.amount,
     };
+  }
+
+  getOrCreateCustomer(
+    domToken: string,
+    customer: Parameters<
+      NonNullable<IPaymentGateway['getOrCreateCustomer']>
+    >[1],
+  ): Promise<string> {
+    return this.getOrCreateDomCustomer(domToken, customer);
   }
 
   private async getOrCreateDomCustomer(

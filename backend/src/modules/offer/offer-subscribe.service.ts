@@ -6,8 +6,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  type OnModuleDestroy,
+  type OnModuleInit,
 } from '@nestjs/common';
 import {
+  type Acquirer,
   PaymentMethod,
   Prisma,
   TransactionStatus,
@@ -28,8 +31,16 @@ import {
   type CardTokenSource,
   type RawCard,
 } from '../billing-core/card-token-source';
-import { markChargeSettled } from '../billing-core/charge-settlement';
+import {
+  markChargeSettled,
+  onChargeSettled,
+} from '../billing-core/charge-settlement';
+import { resolveDomPublicKey } from '../billing-core/dom-public-key';
 import { ExternalRefService } from '../billing-core/external-ref.service';
+import {
+  decryptPlatformSecret,
+  encryptPlatformSecret,
+} from '../platform-integrations/platform-secrets';
 import { StoredCardVaultService } from '../billing-core/stored-card-vault.service';
 import {
   captureCoproduction,
@@ -39,12 +50,16 @@ import { paymentTracking } from '../platform-core/payment-tracking';
 import { persistLinkCharge } from '../platform-core/link-settlement';
 import { transactionPlatformTagData } from '../platform-core/transaction-platform';
 import { classifyChargeOutcome } from '../unified-platform/payments/dom-rejection';
-import type { OfferSubscribeDto } from './offer-subscribe.dto';
+import type {
+  OfferCardCustomerDto,
+  OfferSubscribeDto,
+} from './offer-subscribe.dto';
 import { priceOfferCharge } from './offer-pricing';
 
 export type OfferSubscribeResult = {
   contractId: string;
-  chargeId: string;
+  /** Null while a trial has no charge yet (the first one is issued at the end of the trial). */
+  chargeId: string | null;
   transactionId: string | null;
   /** True when the buyer already had a contract for this offer; nothing new was created or charged. */
   existing: boolean;
@@ -69,7 +84,13 @@ type PendingCard = {
   last4: string;
   expMonth: number;
   expYear: number;
+  /** customer-token: DOM customer the token is bound to. */
+  customerId?: string;
+  /** customer-token: browser-made token, encrypted, until it lands in the vault. */
+  encryptedToken?: string;
 };
+
+export type OfferCardCustomerResult = { customerId: string; publicKey: string };
 
 const resourceIdOf = (offerId: string, email: string) => `${offerId}:${email}`;
 
@@ -80,7 +101,7 @@ const resourceIdOf = (offerId: string, email: string) => `${offerId}:${email}`;
  * Raw card data lives only in the request and the single acquirer call; never persisted or logged.
  */
 @Injectable()
-export class OfferSubscribeService {
+export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OfferSubscribeService.name);
 
   constructor(
@@ -92,6 +113,95 @@ export class OfferSubscribeService {
     private readonly vault: StoredCardVaultService,
     @Inject(CARD_TOKEN_SOURCE) private readonly tokenSource: CardTokenSource,
   ) {}
+
+  private off?: () => void;
+  private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+
+  /**
+   * A first PIX/card payment settled by webhook ends here: when a Charge with a contract turns
+   * PAID, the card pending in the contract is captured. The listener runs inside the settling
+   * transaction, so the work is deferred past its commit (like OfferFulfillmentService).
+   */
+  onModuleInit() {
+    this.off = onChargeSettled((event) => {
+      if (event.kind === 'PAID') this.scheduleCapture(event.transactionId);
+    });
+  }
+
+  onModuleDestroy() {
+    this.off?.();
+    for (const t of this.timers) clearTimeout(t);
+  }
+
+  scheduleCapture(transactionId: string, delayMs = 500) {
+    const timer = setTimeout(() => {
+      this.timers.delete(timer);
+      this.captureForTransaction(transactionId).catch((error: unknown) =>
+        this.logger.error(
+          `Captura do cartão (tx=${transactionId}): ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }, delayMs);
+    timer.unref?.();
+    this.timers.add(timer);
+  }
+
+  /** Captures the card of the contract behind a PAID charge. Idempotent. */
+  async captureForTransaction(transactionId: string): Promise<boolean> {
+    const charge = await this.prisma.charge.findUnique({
+      where: { transactionId },
+      select: { contractId: true, status: true },
+    });
+    if (!charge?.contractId || charge.status !== 'PAID') return false;
+    return this.completeCardCapture(charge.contractId);
+  }
+
+  /**
+   * customer-token step 1: creates/gets the buyer's customer at the offer's acquirer account
+   * and returns what the browser needs to tokenize the card into that customer's wallet.
+   * Nothing is persisted; the private token never leaves the server.
+   */
+  async cardCustomer(
+    code: string,
+    input: OfferCardCustomerDto,
+    now = new Date(),
+  ): Promise<OfferCardCustomerResult> {
+    const offer = await this.prisma.offer.findUnique({ where: { code } });
+    if (
+      !offer ||
+      !offer.isActive ||
+      (offer.expiresAt && offer.expiresAt <= now)
+    )
+      throw new NotFoundException('Oferta não encontrada');
+    if (offer.renewalMode !== 'AUTO_CHARGE')
+      throw new BadRequestException(
+        'Somente ofertas com cobrança automática tokenizam o cartão',
+      );
+    if (this.tokenSource.kind !== 'customer-token')
+      throw new BadRequestException(
+        'Tokenização no navegador indisponível para esta configuração',
+      );
+    const platformTag = (offer.platformTag ?? 'GLOBAL').toUpperCase();
+    const acquirer = this.gateways.acquirerForSlug(platformTag);
+    const gateway = this.gateways.byAcquirer(acquirer);
+    if (!gateway.getOrCreateCustomer)
+      throw new BadRequestException(
+        'O adquirente desta oferta não tokeniza cartão por cliente',
+      );
+    const domToken = platformGatewayToken(platformTag, process.env.DOM_TOKEN);
+    if (!domToken)
+      throw new BadRequestException('Token do gateway não configurado');
+    const publicKey = resolveDomPublicKey(platformTag);
+    const document = input.customerDocument.replace(/\D/g, '');
+    const customerId = await gateway.getOrCreateCustomer(domToken, {
+      name: input.customerName,
+      email: input.customerEmail.trim().toLowerCase(),
+      document,
+      phone: (input.customerPhone ?? '').replace(/\D/g, ''),
+      documentType: document.length === 14 ? 'CNPJ' : 'CPF',
+    });
+    return { customerId, publicKey };
+  }
 
   async subscribe(
     code: string,
@@ -115,11 +225,12 @@ export class OfferSubscribeService {
         'Esta oferta não é recorrente; use a cobrança avulsa',
       );
 
-    if ((offer.trialDays ?? 0) > 0)
-      throw new BadRequestException(
-        'Ofertas com período de teste ainda não têm checkout público',
-      );
     const auto = offer.renewalMode === 'AUTO_CHARGE';
+    const trial = (offer.trialDays ?? 0) > 0;
+    if (trial && !(auto && this.tokenSource.kind === 'customer-token'))
+      throw new BadRequestException(
+        'Ofertas com período de teste exigem cobrança automática com tokenização no navegador',
+      );
     const method: PaymentMethod = auto ? 'CREDIT_CARD' : 'PIX';
     if (input.paymentMethod !== (auto ? 'credit_card' : 'pix'))
       throw new BadRequestException(
@@ -165,6 +276,15 @@ export class OfferSubscribeService {
         throw new BadRequestException(
           'O adquirente desta oferta não emite token de cartão reutilizável',
         );
+    }
+
+    if (trial) {
+      return this.startTrial(offer, input, {
+        email,
+        acquirer,
+        pendingCard: pendingCard!,
+        now,
+      });
     }
 
     const pricing = await priceOfferCharge(
@@ -361,17 +481,17 @@ export class OfferSubscribeService {
     const card = input.card!;
     const rawCard: RawCard = {
       token: card.token ?? '',
-      number: card.number,
-      cvv: card.cvv,
+      number: card.number ?? '',
+      cvv: card.cvv ?? '',
       exp_month: card.exp_month,
       exp_year: card.exp_year,
       holder_name: card.holder_name,
-      holder_document: card.holder_document,
+      holder_document: card.holder_document ?? '',
       brand: card.brand,
       bin: card.bin,
     };
     const domLinkId =
-      this.tokenSource.kind === 'card-token'
+      this.tokenSource.kind !== 'subscription'
         ? await this.gatewayLinkId(offer, acquirer, domToken, gateway)
         : '';
     let first;
@@ -392,6 +512,7 @@ export class OfferSubscribeService {
         domLinkId,
         customer,
         card: rawCard,
+        customerId: card.customerId,
       });
     } catch (error) {
       if (classifyChargeOutcome(error).safeToRetry)
@@ -422,6 +543,10 @@ export class OfferSubscribeService {
       await markChargeSettled(p, txId, nextStatus, now);
     });
     if (outcome === 'FAILED') {
+      await this.prisma.billingContract.update({
+        where: { id: contract.id },
+        data: { metadata: Prisma.DbNull },
+      });
       await this.releaseUse(offer.id);
       throw new BadRequestException({
         message: 'Pagamento recusado',
@@ -430,17 +555,10 @@ export class OfferSubscribeService {
       });
     }
     if (outcome === 'PAID') {
-      await this.storeCard(
-        contract,
-        email,
-        acquirer,
-        pendingCard!,
-        first.token,
-        {
-          gateway,
-          domToken,
-        },
-      );
+      await this.storeCard(contract, email, acquirer, first.token, {
+        gateway,
+        domToken,
+      });
     }
     return this.describe(offer, contract, false);
   }
@@ -462,6 +580,13 @@ export class OfferSubscribeService {
     });
     const platformTag = (offer.platformTag ?? 'GLOBAL').toUpperCase();
     const acquirer = this.gateways.acquirerForSlug(platformTag);
+    if (pending.encryptedToken)
+      return this.persistCard(
+        contract,
+        contract.customerEmail ?? '',
+        acquirer,
+        decryptPlatformSecret(pending.encryptedToken),
+      );
     const domToken = platformGatewayToken(platformTag, process.env.DOM_TOKEN);
     if (!domToken) return false;
     const gateway = this.gateways.byAcquirer(acquirer);
@@ -476,14 +601,38 @@ export class OfferSubscribeService {
       contract,
       contract.customerEmail ?? '',
       acquirer,
-      pending,
       token,
     );
   }
 
+  /** Validates the card payload for the active token source and returns only safe metadata. */
   private cardMetadata(
     card: NonNullable<OfferSubscribeDto['card']>,
   ): PendingCard {
+    if (this.tokenSource.kind === 'customer-token') {
+      if (card.number !== undefined || card.cvv !== undefined)
+        throw new BadRequestException(
+          'Número e CVV do cartão não são aceitos: envie apenas o token',
+        );
+      const expiry = parseExpiry(card.exp_month, card.exp_year);
+      if (
+        !card.token ||
+        !card.customerId ||
+        !/^\d{4}$/.test(card.last4 ?? '') ||
+        !card.holder_name ||
+        !expiry
+      )
+        throw new BadRequestException('Dados do cartão inválidos');
+      return {
+        brand: card.brand ?? null,
+        last4: card.last4!,
+        ...expiry,
+        customerId: card.customerId,
+        encryptedToken: encryptPlatformSecret(card.token),
+      };
+    }
+    if (!card.number || !card.cvv || !card.holder_document)
+      throw new BadRequestException('Dados do cartão são obrigatórios');
     const digits = card.number.replace(/\D/g, '');
     const expiry = parseExpiry(card.exp_month, card.exp_year);
     if (digits.length < 12 || digits.length > 19 || !expiry)
@@ -495,11 +644,92 @@ export class OfferSubscribeService {
     };
   }
 
+  /**
+   * trialDays > 0 (customer-token only): the card is stored now, the contract becomes ACTIVE
+   * with `nextChargeAt = now + trialDays` and no charge exists. BillingCycleService.runDue issues
+   * the first Charge at the end of the trial, with the same amount as every later cycle.
+   */
+  private async startTrial(
+    offer: Offer,
+    input: OfferSubscribeDto,
+    ctx: {
+      email: string;
+      acquirer: Acquirer;
+      pendingCard: PendingCard;
+      now: Date;
+    },
+  ): Promise<OfferSubscribeResult> {
+    const { email, acquirer, pendingCard, now } = ctx;
+    const claimed = await this.prisma.offer.updateMany({
+      where: {
+        id: offer.id,
+        isActive: true,
+        ...(offer.maxUses !== null ? { usedCount: { lt: offer.maxUses } } : {}),
+      },
+      data: { usedCount: { increment: 1 } },
+    });
+    if (claimed.count !== 1)
+      throw new BadRequestException('Limite de usos da oferta atingido');
+    let contract: BillingContract;
+    let charge: Charge;
+    try {
+      ({ contract, charge } = await this.billing.subscribe({
+        offerId: offer.id,
+        customerName: input.customerName,
+        customerEmail: email,
+        customerDocument: input.customerDocument.replace(/\D/g, ''),
+        now,
+      }));
+    } catch (error) {
+      await this.releaseUse(offer.id);
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const winner = await this.existingContract(offer, email);
+        if (winner) return this.describe(offer, winner, true);
+      }
+      throw error;
+    }
+    try {
+      await this.prisma.billingContract.update({
+        where: { id: contract.id },
+        data: {
+          acquirer,
+          description: offer.name.slice(0, 120),
+          metadata: { pendingCard } as unknown as Prisma.InputJsonValue,
+        },
+      });
+      await this.persistCard(
+        contract,
+        email,
+        acquirer,
+        decryptPlatformSecret(pendingCard.encryptedToken!),
+      );
+      await this.prisma.$transaction(async (p) => {
+        // No charge during the trial: runDue creates the first one at nextChargeAt.
+        await p.charge.deleteMany({ where: { id: charge.id } });
+        await p.billingContract.update({
+          where: { id: contract.id },
+          data: { status: 'ACTIVE', version: { increment: 1 } },
+        });
+      });
+    } catch (error) {
+      await this.prisma.storedCard
+        .deleteMany({ where: { contractId: contract.id } })
+        .catch(() => undefined);
+      await this.discard(offer.id, contract.id, charge.id, randomUUID()).catch(
+        () => undefined,
+      );
+      throw error;
+    }
+    return this.describe(offer, contract, false);
+  }
+
   private async storeCard(
     contract: BillingContract,
     email: string,
     acquirer: string,
-    meta: PendingCard,
     knownToken: string | null,
     ctx: {
       gateway: ReturnType<PaymentGatewayResolver['byAcquirer']>;
@@ -515,7 +745,7 @@ export class OfferSubscribeService {
           acquirerCode: acquirer,
           contractId: contract.id,
         }));
-      if (token) await this.persistCard(contract, email, acquirer, meta, token);
+      if (token) await this.persistCard(contract, email, acquirer, token);
       else
         this.logger.warn(
           `Contrato ${contract.id} pago sem token reutilizável; captura pendente`,
@@ -528,29 +758,47 @@ export class OfferSubscribeService {
     }
   }
 
+  /**
+   * Moves the pending card of a contract into the vault exactly once: a per-contract advisory
+   * lock serializes concurrent captures (checkout + webhook) and the pending marker is cleared
+   * in the same transaction that decides, so the second caller finds nothing to do.
+   */
   private async persistCard(
     contract: BillingContract,
     email: string,
     acquirer: string,
-    meta: PendingCard,
     token: string,
   ): Promise<boolean> {
-    await this.vault.save({
-      ownerUserId: contract.userId,
-      contractId: contract.id,
-      customerEmail: email,
-      acquirerCode: acquirer,
-      token,
-      brand: meta.brand,
-      last4: meta.last4,
-      expMonth: meta.expMonth,
-      expYear: meta.expYear,
-    });
-    await this.prisma.billingContract.update({
-      where: { id: contract.id },
-      data: { metadata: Prisma.DbNull },
-    });
-    return true;
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`card-capture:${contract.id}`}))`;
+        const fresh = await tx.billingContract.findUnique({
+          where: { id: contract.id },
+          select: { metadata: true },
+        });
+        const meta = (fresh?.metadata as { pendingCard?: PendingCard } | null)
+          ?.pendingCard;
+        if (!meta) return false;
+        await this.vault.save({
+          ownerUserId: contract.userId,
+          contractId: contract.id,
+          customerEmail: email,
+          acquirerCode: acquirer,
+          token,
+          acquirerCustomerId: meta.customerId ?? null,
+          brand: meta.brand,
+          last4: meta.last4,
+          expMonth: meta.expMonth,
+          expYear: meta.expYear,
+        });
+        await tx.billingContract.update({
+          where: { id: contract.id },
+          data: { metadata: Prisma.DbNull },
+        });
+        return true;
+      },
+      { timeout: 30_000, maxWait: 10_000 },
+    );
   }
 
   /** Contract of this buyer for the offer. A never-paid cancelled one frees the key for a new attempt. */
@@ -589,18 +837,18 @@ export class OfferSubscribeService {
     const fresh = await this.prisma.billingContract.findUniqueOrThrow({
       where: { id: contract.id },
     });
-    const first = await this.prisma.charge.findFirstOrThrow({
+    const first = await this.prisma.charge.findFirst({
       where: { contractId: contract.id },
       orderBy: { createdAt: 'asc' },
       include: { transaction: true },
     });
     const metadata = (offer.metadata ?? {}) as Record<string, unknown>;
     const pix =
-      offer.renewalMode === 'MANUAL_PAY' && first.status === 'PENDING'
+      offer.renewalMode === 'MANUAL_PAY' && first?.status === 'PENDING'
         ? {
-            pixContent: first.transaction?.pixContent ?? null,
+            pixContent: first?.transaction?.pixContent ?? null,
             qrCode: null,
-            pixExpire: first.transaction?.pixExpire?.toISOString() ?? null,
+            pixExpire: first?.transaction?.pixExpire?.toISOString() ?? null,
           }
         : null;
     const storedCards = await this.prisma.storedCard.count({
@@ -608,13 +856,13 @@ export class OfferSubscribeService {
     });
     return {
       contractId: contract.id,
-      chargeId: first.id,
-      transactionId: first.transactionId,
+      chargeId: first?.id ?? null,
+      transactionId: first?.transactionId ?? null,
       existing,
       contractStatus: fresh.status,
-      chargeStatus: first.status,
+      chargeStatus: first?.status ?? 'TRIAL',
       renewalMode: offer.renewalMode,
-      amount: first.amountCents / 100,
+      amount: (first?.amountCents ?? offer.amountCents) / 100,
       nextChargeAt: fresh.nextChargeAt?.toISOString() ?? null,
       cardSaved: storedCards > 0,
       pix,

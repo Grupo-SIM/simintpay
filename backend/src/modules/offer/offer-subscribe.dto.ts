@@ -11,23 +11,57 @@ import {
 } from 'class-validator';
 
 /**
- * Raw card of a recurring checkout. It is used in memory for the single acquirer call and
- * is never stored or logged; only brand, last4 and expiry reach the card vault.
+ * Card of a recurring checkout. Two shapes:
+ * - `customer-token` (default): browser-made DOM token bound to `customerId`, plus display
+ *   metadata (`last4`, expiry, brand, bin, holder_name). `number`/`cvv` are rejected.
+ * - `subscription` / `card-token` (legacy): full card, used in memory for the single acquirer
+ *   call and never stored or logged.
+ * Only brand, last4 and expiry reach the card vault.
  */
 export class OfferSubscribeCardDto {
-  @ApiPropertyOptional({ description: 'Token de uso único do frontend' })
+  @ApiPropertyOptional({
+    description:
+      'customer-token: token do SDK gerado com o customer_id (reutilizável). Demais fontes: token de uso único',
+  })
   @IsOptional()
   @IsString()
   token?: string;
 
-  @ApiProperty() @IsString() number!: string;
-  @ApiProperty() @IsString() cvv!: string;
+  @ApiPropertyOptional({ description: 'Somente fontes legadas' })
+  @IsOptional()
+  @IsString()
+  number?: string;
+  @ApiPropertyOptional({ description: 'Somente fontes legadas' })
+  @IsOptional()
+  @IsString()
+  cvv?: string;
   @ApiProperty() @IsString() exp_month!: string;
   @ApiProperty() @IsString() exp_year!: string;
   @ApiProperty() @IsString() holder_name!: string;
-  @ApiProperty() @IsString() holder_document!: string;
+  @ApiPropertyOptional({ description: 'Somente fontes legadas' })
+  @IsOptional()
+  @IsString()
+  holder_document?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() brand?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() bin?: string;
+  @ApiPropertyOptional({ description: 'customer-token: 4 últimos dígitos' })
+  @IsOptional()
+  @IsString()
+  last4?: string;
+  @ApiPropertyOptional({
+    description: 'customer-token: customerId devolvido por card-customer',
+  })
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+}
+
+/** Cliente do adquirente para tokenizar o cartão já vinculado à carteira dele. */
+export class OfferCardCustomerDto {
+  @ApiProperty() @IsString() @MinLength(1) customerName!: string;
+  @ApiProperty() @IsEmail() customerEmail!: string;
+  @ApiProperty() @IsString() @MinLength(1) customerDocument!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() customerPhone?: string;
 }
 
 /** Contratação pública de uma oferta recorrente (AUTO_CHARGE: cartão; MANUAL_PAY: PIX). */

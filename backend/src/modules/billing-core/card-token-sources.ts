@@ -192,3 +192,44 @@ export class CardTokenEndpointSource implements CardTokenSource {
     return null;
   }
 }
+
+/**
+ * Default source (`OFFER_CARD_TOKEN_SOURCE=customer-token`, DOM-documented path): the browser
+ * tokenizes the card with the buyer's DOM `customer_id`, so the token is bound to the
+ * customer wallet and reusable. The server only ever sees the token and card metadata. The
+ * first charge goes through the payment-link `/transactions` path with `credit_card.upsell`
+ * so the same token can be charged again by later cycles.
+ */
+@Injectable()
+export class CustomerTokenSource implements CardTokenSource {
+  readonly kind = 'customer-token' as const;
+
+  async chargeFirstCycle(
+    input: FirstCardChargeInput,
+  ): Promise<FirstCardChargeResult> {
+    const token = input.card.token;
+    if (!token || !input.customerId)
+      throw markPreDispatchNoCharge(
+        new Error('Token do cartão e cliente do adquirente obrigatórios'),
+      );
+    const paid = await input.gateway.chargePaymentLink(input.domToken, {
+      domLinkId: input.domLinkId,
+      amount: input.amount,
+      description: input.description,
+      customerName: input.customer.name,
+      customerEmail: input.customer.email,
+      customerDocument: input.customer.document,
+      customerPhone: input.customer.phone,
+      paymentMethod: 'credit_card',
+      installments: 1,
+      upsell: true,
+      card: input.card,
+    });
+    return { paymentId: paid.id, status: paid.status, token };
+  }
+
+  /** The token is the one the browser produced; the service keeps it until the charge settles. */
+  async fetchToken(): Promise<string | null> {
+    return null;
+  }
+}

@@ -1778,6 +1778,8 @@ model StoredCardToken {
   storedCardId   String
   acquirerCode   String
   encryptedToken String
+  /// Customer (wallet) at the acquirer the token is bound to; null for tokens not tied to a wallet.
+  acquirerCustomerId String?
   createdAt      DateTime          @default(now())
   storedCard     StoredCard        @relation(fields: [storedCardId], references: [id], onDelete: Cascade)
   acquirer       AcquirerCatalogue @relation(fields: [acquirerCode], references: [code], onDelete: Restrict)

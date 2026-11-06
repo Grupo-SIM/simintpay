@@ -7,6 +7,7 @@ import {
 } from './card-token-source';
 import {
   CardTokenEndpointSource,
+  CustomerTokenSource,
   SubscriptionCardTokenSource,
 } from './card-token-sources';
 import { BillingCycleCron } from './billing-cycle.cron';
@@ -42,13 +43,16 @@ import { StoredCardVaultService } from './stored-card-vault.service';
     { provide: CHARGE_STATUS_LOOKUP, useClass: DomChargeStatusLookup },
     { provide: BUYER_NOTIFIER, useClass: LoggingBuyerNotifier },
     {
-      // OFFER_CARD_TOKEN_SOURCE=subscription (default) | card-token
+      // OFFER_CARD_TOKEN_SOURCE=customer-token (default) | subscription | card-token
       provide: CARD_TOKEN_SOURCE,
       inject: [ExternalRefService],
-      useFactory: (refs: ExternalRefService) =>
-        cardTokenSourceKindFromEnv() === 'card-token'
-          ? new CardTokenEndpointSource()
-          : new SubscriptionCardTokenSource(refs),
+      useFactory: (refs: ExternalRefService) => {
+        const kind = cardTokenSourceKindFromEnv();
+        if (kind === 'card-token') return new CardTokenEndpointSource();
+        if (kind === 'subscription')
+          return new SubscriptionCardTokenSource(refs);
+        return new CustomerTokenSource();
+      },
     },
   ],
   exports: [

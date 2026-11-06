@@ -26,7 +26,7 @@ import {
   UpdateOfferDto,
 } from './offer.dto';
 import { OfferCheckoutService } from './offer-checkout.service';
-import { OfferSubscribeDto } from './offer-subscribe.dto';
+import { OfferCardCustomerDto, OfferSubscribeDto } from './offer-subscribe.dto';
 import { OfferSubscribeService } from './offer-subscribe.service';
 import { OfferService, type OfferActor } from './offer.service';
 
@@ -71,6 +71,22 @@ export class OfferController {
       ...body,
       tracking: { ...query, ...body.tracking },
     });
+  }
+
+  @Post('public/:code/card-customer')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({
+    summary:
+      'Cria/recupera o cliente no adquirente e devolve customerId + publicKey para tokenizar o cartão no navegador',
+  })
+  @ApiResponse({ status: 201 })
+  @ApiResponse({ status: 400 })
+  @ApiResponse({ status: 404 })
+  cardCustomer(
+    @Param('code') code: string,
+    @Body() body: OfferCardCustomerDto,
+  ) {
+    return this.subscriptions.cardCustomer(code, body);
   }
 
   @Post('public/:code/subscribe')

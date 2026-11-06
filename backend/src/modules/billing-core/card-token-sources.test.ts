@@ -6,6 +6,7 @@ import {
 } from './card-token-source';
 import {
   CardTokenEndpointSource,
+  CustomerTokenSource,
   SubscriptionCardTokenSource,
   extractSubscriptionCardToken,
 } from './card-token-sources';
@@ -78,8 +79,9 @@ describe('card token helpers', () => {
   });
 
   test('source flag defaults to subscription', () => {
-    expect(cardTokenSourceKindFromEnv(undefined)).toBe('subscription');
-    expect(cardTokenSourceKindFromEnv('nonsense')).toBe('subscription');
+    expect(cardTokenSourceKindFromEnv(undefined)).toBe('customer-token');
+    expect(cardTokenSourceKindFromEnv('nonsense')).toBe('customer-token');
+    expect(cardTokenSourceKindFromEnv('subscription')).toBe('subscription');
     expect(cardTokenSourceKindFromEnv('card-token')).toBe('card-token');
   });
 
@@ -193,5 +195,52 @@ describe('CardTokenEndpointSource', () => {
         gateway: {} as any,
       }),
     ).rejects.toThrow();
+  });
+});
+
+describe('CustomerTokenSource', () => {
+  test('charges the browser token with upsell and returns it as the reusable token', async () => {
+    const calls: any[] = [];
+    const gateway: any = {
+      chargePaymentLink: async (_t: string, input: any) => {
+        calls.push(input);
+        return { id: 'dom-tx-9', status: 'pending' };
+      },
+    };
+    const source = new CustomerTokenSource();
+    const out = await source.chargeFirstCycle({
+      ...base,
+      gateway,
+      customerId: 'cus-1',
+      card: { ...card, token: 'wallet-tok', number: '', cvv: '' },
+    });
+    expect(out).toEqual({
+      paymentId: 'dom-tx-9',
+      status: 'pending',
+      token: 'wallet-tok',
+    });
+    expect(calls[0]).toMatchObject({
+      upsell: true,
+      installments: 1,
+      paymentMethod: 'credit_card',
+      card: { token: 'wallet-tok' },
+    });
+    expect(JSON.stringify(calls[0])).not.toContain('4111');
+  });
+
+  test('refuses without a token or customer before any charge', async () => {
+    const gateway: any = {
+      chargePaymentLink: async () => {
+        throw new Error('must not charge');
+      },
+    };
+    const source = new CustomerTokenSource();
+    await expect(
+      source.chargeFirstCycle({
+        ...base,
+        gateway,
+        card: { ...card, token: '' },
+      }),
+    ).rejects.toThrow('obrigat');
   });
 });
