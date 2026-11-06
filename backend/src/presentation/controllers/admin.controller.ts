@@ -3355,7 +3355,7 @@ export class AdminController {
   @ApiQuery({
     name: 'search',
     required: false,
-    description: 'Prefixo do e-mail',
+    description: 'Trecho do e-mail ou do nome',
   })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, example: 20 })
@@ -3387,10 +3387,10 @@ export class AdminController {
 
     const where = term
       ? {
-          email: {
-            startsWith: term,
-            mode: 'insensitive' as const,
-          },
+          OR: [
+            { email: { contains: term, mode: 'insensitive' as const } },
+            { name: { contains: term, mode: 'insensitive' as const } },
+          ],
         }
       : {};
 
@@ -3402,6 +3402,7 @@ export class AdminController {
         take: size,
         select: {
           id: true,
+          name: true,
           email: true,
           cpf: true,
         },
