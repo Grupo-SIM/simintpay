@@ -10,7 +10,36 @@ Script: `backend/scripts/offer-migration-apply.ts`. Mapeamento: `backend/src/mod
 - Para produtos com `domPaymentLinkId` (link de pagamento, boleto) ou `domPlanId` (link de assinatura, plano) grava um `ExternalRef` (adquirente `DOM`, tipo `PAYMENT_LINK` ou `PLAN`, `entityType` `Offer`). Requer `AcquirerCatalogue` com código `DOM`; sem ele a transação daquele tipo é abortada sem escrever nada. Se a `Offer` já existe e falta só o `ExternalRef`, ele é criado.
 - **Recusa** (não cria, lista no plano): `INVALID_AMOUNT`, `MISSING_CODE`, `MISSING_OWNER` (inclusive dono inexistente) e `DUPLICATE_CODE` (código igual em outra `Offer` ou compartilhado por várias linhas legadas; o script não escolhe vencedor).
 - **BLOCKED**: produtos cujo dono é `ADMIN` (plano [0009](../../plans/0009-titularidade-ofertas-cobrancas.md)). Nunca reatribui donos; a transferência é feita antes, por `scripts/reassign-products.ts`, com mapa aprovado.
+- **Carrega a entrega**: `webhookUrl`, `redirectUrl` e `emailBody` (só os preenchidos) de link de pagamento, link de assinatura, plano e plano PIX viram `Offer.fulfillment`, validados por `parseOfferFulfillment` (inclui as checagens de SSRF). Boleto também grava `metadata = { boletoDueDays: vencimentoDias (0-90, 0 = sem vencimento), requiresBuyerAddress: true }`. Valor que não passa na validação **recusa** o produto (`INVALID_FULFILLMENT: <campo>: <motivo>`, ou `INVALID_BOLETO_DUE_DAYS`); nada é descartado em silêncio.
+- **BLOCKED (pré-checagem "perderia dados")**, no relatório e no apply (mesma função): produto que carrega algo que a `Offer` ainda não representa nunca é migrado. Ver a tabela de códigos abaixo.
 - **Avisos** (não bloqueiam): valor abaixo de R$ 14,99 (reflete o legado fielmente) e códigos extras de `PixCreditPlan`.
+
+### Códigos de bloqueio (`BLOCKED`)
+
+| Código                              | Quando                                                                                                                                                                                                                      |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BLOCKED_HAS_FUNNEL_OFFERS`         | `PaymentLink` com `PaymentLinkOffer` (order bump, upsell, downsell) não removido                                                                                                                                            |
+| `BLOCKED_HAS_FILES`                 | `PaymentLink` com `PaymentLinkFile`                                                                                                                                                                                         |
+| `BLOCKED_HAS_VOUCHERS`              | `Voucher` ligado ao produto: `allowedLinkCodes` contém o código (ou id) do produto ou um código `PX-` do plano PIX, ou `applicablePlans` contém o id                                                                        |
+| `BLOCKED_HAS_COMMUNITY`             | `CommunityLinkBinding` do link de pagamento ou de assinatura                                                                                                                                                                |
+| `BLOCKED_HAS_PIX_ACCESS`            | `PixCreditPlan` com `PixPlanOrder` ou `CustomerPlanAccess` (a oferta ainda não concede nem desconta dias de acesso)                                                                                                         |
+| `BLOCKED_LIVE_DOM_SUBSCRIPTION`     | `SubscriptionLink`/`Plan` com `SubscriptionLinkOrder`/`Subscription` com `domSubscriptionId` e status ainda ativo (fora de cancelled, canceled, inactive, expired, failed, deactivated, disabled). Só a contagem é impressa |
+| `BLOCKED_BOLETO_CHARGE_UNSUPPORTED` | `Boleto` (o checkout público de oferta ainda não cobra boleto), a menos que `--include-boleto`                                                                                                                              |
+
+Produto `BLOCKED` aparece como `BLOCKED` no dry-run/apply e como "BLOCKED (data loss)" no relatório. Se já existir `Offer` de um produto que passou a ser `BLOCKED`, o `--verify` aponta a `Offer` sem linha elegível. Vendas históricas (`PaymentLinkOfferSale`, `Transaction.paymentLinkId`) não são tocadas nem bloqueiam.
+
+**Nota não bloqueante `FEE_OVERRIDE_NOT_CARRIED`**: `PaymentLink` (`platformFee1x..12x`, `cashbackFee`, `debitFeePercent`, `debitFeeFixed`, `isStandalone`) ou `SubscriptionLink` (`platformFee`, `isStandalone`) com algum valor diferente do padrão da plataforma. A `Offer` ignora essas taxas por link e usa a cotação da política financeira.
+
+### Flags
+
+| Flag                                 | Script                 | Efeito                                                                                                          |
+| ------------------------------------ | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `--database-url=...`                 | ambos                  | Obrigatória (o relatório aceita também `OFFER_REPORT_DATABASE_URL`)                                             |
+| `--apply --i-understand-this-writes` | apply                  | Escreve                                                                                                         |
+| `--verify`                           | apply                  | Compara contagens, valor, código, dono, `ExternalRef`, `fulfillment` e `metadata`; sai com 1 se divergir        |
+| `--include-boleto`                   | ambos                  | Migra também os `Boleto` (sem a flag ficam `BLOCKED_BOLETO_CHARGE_UNSUPPORTED`); use a mesma flag em `--verify` |
+| `--allow-blocked`                    | relatório e `--verify` | Sem a flag, qualquer produto `BLOCKED` faz o relatório e o `--verify` saírem com código 1                       |
+| `--json`                             | relatório              | Saída em JSON                                                                                                   |
 
 ## Segurança
 
@@ -21,9 +50,9 @@ Script: `backend/scripts/offer-migration-apply.ts`. Mapeamento: `backend/src/mod
 ## Passos
 
 1. **Antes de tudo, o dono confere** (ver abaixo) e aplica no banco alvo as migrations `20261105120000_external_ref`, `20261105130000_offer_charge_core` (e dependências). Essas migrations ainda não foram aplicadas; isso exige autorização separada.
-2. Ensaie em cópia local descartável (Postgres em Docker, `127.0.0.1`, porta própria), `bunx prisma db push --accept-data-loss` e a suíte `OFFER_MIGRATION_TEST_DATABASE_URL=postgresql://...127.0.0.1... bun test tests/offer-migration.integration.test.ts`.
+2. Ensaie em cópia local descartável (Postgres em Docker, `127.0.0.1`, porta própria), `bunx prisma migrate deploy` (não `db push`, para existirem os triggers reais) e a suíte `OFFER_MIGRATION_TEST_DATABASE_URL=postgresql://...127.0.0.1... bun test tests/offer-migration.integration.test.ts`.
 3. Relatório de conflitos: `bun --no-env-file scripts/offer-migration-report.ts --database-url=...`.
-4. Dry-run: `bun --no-env-file scripts/offer-migration-apply.ts --database-url=...`. Revise cada `REFUSED`/`BLOCKED`.
+4. Dry-run: `bun --no-env-file scripts/offer-migration-apply.ts --database-url=...`. Revise cada `REFUSED`/`BLOCKED` (códigos acima); o relatório sai com código 1 enquanto houver `BLOCKED`.
 5. Aplicar: `... --apply --i-understand-this-writes`.
 6. Verificar: `... --verify`. Compara contagens, valor em centavos, código, dono e `ExternalRef` entre legado e `Offer`; sai com código 1 em qualquer divergência (ou `Offer` órfã).
 7. Repetir o passo 5 é seguro (idempotente), por exemplo depois de corrigir um item recusado.
