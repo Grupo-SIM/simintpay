@@ -25,6 +25,7 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { PaymentGatewayResolver } from '../../infrastructure/http/payment-gateway.resolver';
 import { ExternalRefService } from '../billing-core/external-ref.service';
 import { markChargeSettled } from '../billing-core/charge-settlement';
+import { coproductionKeyFor } from './offer-coproduction';
 import {
   captureCoproduction,
   withCoproduction,
@@ -238,12 +239,11 @@ export class OfferCheckoutService {
     const totalFee = round2(totalAmount - netAmount);
     const platformFee = round2(totalFee - domFee);
 
+    const key = coproductionKeyFor(offer);
     const coproduction = await captureCoproduction(
       this.prisma,
-      'links-pagamento',
-      offer.legacyType === 'PaymentLink' && offer.legacyId
-        ? offer.legacyId
-        : offer.id,
+      key.product,
+      key.productId,
       offer.ownerUserId,
       platformTag,
     );

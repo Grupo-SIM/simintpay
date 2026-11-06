@@ -135,6 +135,32 @@ describe('OfferCheckoutService', () => {
     expect(db.refs).toHaveLength(1);
   });
 
+  test('coproduction agreement is read under `ofertas` for a native offer and under the link for a migrated one', async () => {
+    async function lookups(offerOver: Record<string, unknown>) {
+      const { service, db, offer } = setup(offerOver);
+      const seen: unknown[][] = [];
+      const original = db.prisma.$queryRaw;
+      db.prisma.$queryRaw = async (strings: any, ...values: unknown[]) => {
+        const sql = Array.isArray(strings)
+          ? strings.join('?')
+          : String(strings);
+        if (sql.includes('CoproductionAgreement')) seen.push(values);
+        return original(strings, ...values);
+      };
+      await service.charge(offer.code, { paymentMethod: 'pix', ...buyer });
+      return { seen, offer };
+    }
+
+    const native = await lookups({});
+    expect(native.seen[0]).toEqual(['ofertas', native.offer.id]);
+
+    const migrated = await lookups({
+      legacyType: 'PaymentLink',
+      legacyId: 'legacy-link-1',
+    });
+    expect(migrated.seen[0]).toEqual(['links-pagamento', 'legacy-link-1']);
+  });
+
   test('fees match the legacy link helper for the same amount', async () => {
     const { service, db, offer } = setup();
     await service.charge(offer.code, { paymentMethod: 'pix', ...buyer });

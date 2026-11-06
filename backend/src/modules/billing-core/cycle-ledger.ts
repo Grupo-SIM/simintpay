@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import { coproductionKeyFor } from '../offer/offer-coproduction';
 import { Prisma, type Charge, type Offer } from '@prisma/client';
 import {
   captureCoproduction,
@@ -62,10 +63,11 @@ export async function recordCyclePayment(
     throw new ConflictException(
       'Política financeira sem faixa para o meio de pagamento do ciclo',
     );
+  const key = coproductionKeyFor(offer);
   const coproduction = await captureCoproduction(
     tx,
-    'ofertas',
-    offer.id,
+    key.product,
+    key.productId,
     charge.ownerUserId,
     offer.platformTag ? platformTag : undefined,
   );

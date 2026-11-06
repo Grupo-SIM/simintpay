@@ -42,6 +42,7 @@ import {
   encryptPlatformSecret,
 } from '../platform-integrations/platform-secrets';
 import { StoredCardVaultService } from '../billing-core/stored-card-vault.service';
+import { coproductionKeyFor } from './offer-coproduction';
 import {
   captureCoproduction,
   withCoproduction,
@@ -300,10 +301,11 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
     const phone = (input.customerPhone ?? '').replace(/\D/g, '');
     const documentType =
       input.documentType ?? (document.length === 14 ? 'CNPJ' : 'CPF');
+    const key = coproductionKeyFor(offer);
     const coproduction = await captureCoproduction(
       this.prisma,
-      'ofertas',
-      offer.id,
+      key.product,
+      key.productId,
       offer.ownerUserId,
       offer.platformTag ? pricing.platformTag : undefined,
     );

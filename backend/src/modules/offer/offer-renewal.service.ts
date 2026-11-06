@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { coproductionKeyFor } from './offer-coproduction';
 import {
   ConflictException,
   ForbiddenException,
@@ -308,10 +309,11 @@ export class OfferRenewalService {
       );
     const document = contract.customerDocument.replace(/\D/g, '');
     const amount = charge.amountCents / 100;
+    const key = coproductionKeyFor(offer);
     const coproduction = await captureCoproduction(
       tx,
-      'ofertas',
-      offer.id,
+      key.product,
+      key.productId,
       offer.ownerUserId,
       offer.platformTag ? ctx.platformTag : undefined,
     );
