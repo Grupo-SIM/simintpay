@@ -72,3 +72,9 @@ export function maskDateBr(value: string): string {
   if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
   return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
 }
+
+/** CEP 00000-000 */
+export function maskCep(value: string): string {
+  const d = onlyDigits(value, 8);
+  return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+}

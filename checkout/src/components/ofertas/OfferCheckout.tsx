@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Checkout público de oferta avulsa (`?ofertaCode=`): PIX, crédito (com parcelas) e débito.
+ * Checkout público de oferta avulsa (`?ofertaCode=`): PIX, crédito (com parcelas), débito e boleto.
  * Lê `GET /ofertas/public/:code` e cobra em `POST /ofertas/public/:code/charge`, reutilizando
  * CheckoutFlow, os campos de vidro, o cartão ilustrado e o PIX do restante do checkout.
  * Ofertas recorrentes (`renewalMode` AUTO_CHARGE com cartão, MANUAL_PAY com PIX) usam
@@ -38,6 +38,7 @@ import {
   maskCvv,
   maskPhoneBr,
 } from '@/lib/input-masks';
+import { validateBoletoCheckout } from '@/lib/boleto-checkout-validation';
 import { buildInstallmentLabel } from '@/lib/installment-label';
 import { browserCheckoutTracking } from '@/lib/payment-tracking';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
@@ -46,10 +47,18 @@ import {
   chargeBody,
   isDeclined,
   isRecurringOffer,
+  mapBoletoResponse,
   offerAmount,
+  type BoletoAddressFields,
+  type BoletoResult,
   type OfferMethod,
   type PublicOffer,
 } from '@/lib/offer-checkout-model';
+import {
+  EMPTY_ADDRESS,
+  OfferBoletoAddress,
+  OfferBoletoResult,
+} from './OfferBoleto';
 import {
   cardCustomerBody,
   cardLast4,
@@ -89,6 +98,7 @@ const METHOD_TITLE: Record<OfferMethod, string> = {
   pix: 'PIX',
   credit_card: 'Cartão de crédito',
   debit_card: 'Cartão de débito',
+  boleto: 'Boleto bancário',
 };
 
 /** Recorrente: um único meio por modo de renovação; avulsa: PIX/crédito/débito. */
@@ -117,6 +127,8 @@ export default function OfferCheckout() {
   const [consent, setConsent] = useState(false);
   const [blocked, setBlocked] = useState(false);
 
+  const [boleto, setBoleto] = useState<BoletoResult | null>(null);
+  const [address, setAddress] = useState<BoletoAddressFields>(EMPTY_ADDRESS);
   const [pix, setPix] = useState<{
     id: string;
     content: string | null;
@@ -174,8 +186,11 @@ export default function OfferCheckout() {
       .finally(() => setFetching(false));
   }, [code]);
 
-  usePixConfirmation(pix?.id ?? null, paidAmount !== null, () =>
-    setPaidAmount(offer ? offerAmount(offer) : 0),
+  // O mesmo SSE/polling do PIX serve ao boleto: a chave é o id do pagamento no gateway.
+  usePixConfirmation(
+    pix?.id ?? boleto?.paymentId ?? null,
+    paidAmount !== null,
+    () => setPaidAmount(boleto?.amount ?? (offer ? offerAmount(offer) : 0)),
   );
   const recurring = offer ? isRecurringOffer(offer) : false;
   const autoCharge = offer?.renewalMode === 'AUTO_CHARGE';
@@ -197,7 +212,15 @@ export default function OfferCheckout() {
     cardCvv.length >= 3 &&
     holderName.trim().length >= 2 &&
     (holderDigits.length === 11 || holderDigits.length === 14);
-  const isCard = method !== 'pix';
+  const isCard = method === 'credit_card' || method === 'debit_card';
+  const isBoleto = method === 'boleto';
+  const addressOk = validateBoletoCheckout({
+    name,
+    document,
+    phone,
+    email,
+    ...address,
+  }).enderecoOk;
 
   /** AUTO_CHARGE: card-customer -> SDK (token no navegador) -> subscribe. Só o token vai à API. */
   async function subscribe() {
@@ -340,7 +363,13 @@ export default function OfferCheckout() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ...chargeBody({ method, customer, installments, card }),
+            ...chargeBody({
+              method,
+              customer,
+              installments,
+              card,
+              address: isBoleto ? address : undefined,
+            }),
             tracking: browserCheckoutTracking(),
           }),
         },
@@ -348,6 +377,13 @@ export default function OfferCheckout() {
       const data = await res.json();
       if (!res.ok) {
         setError(data?.message ?? 'Erro ao processar pagamento');
+        return;
+      }
+      if (method === 'boleto') {
+        const issued = mapBoletoResponse(data);
+        if (issued) setBoleto(issued);
+        else
+          setError('Não foi possível gerar o boleto agora. Tente novamente.');
         return;
       }
       if (method === 'pix') {
@@ -488,13 +524,20 @@ export default function OfferCheckout() {
           ? trialDaysOf(offer) > 0
             ? 'Começar teste grátis'
             : 'Assinar'
-          : 'Efetuar pagamento'
+          : isBoleto
+            ? 'Gerar boleto'
+            : 'Efetuar pagamento'
       }
-      finalDisabled={(isCard && !cardOk) || (autoCharge && !consent)}
+      finalDisabled={
+        (isCard && !cardOk) ||
+        (isBoleto && !addressOk) ||
+        (autoCharge && !consent) ||
+        Boolean(boleto)
+      }
       loading={loading}
       error={error}
       finalAction={
-        pix ? (
+        pix || boleto ? (
           <StatusPill>
             <Loader2 className="h-4 w-4 animate-spin" />
             Aguardando pagamento…
@@ -558,7 +601,7 @@ export default function OfferCheckout() {
                 role="radio"
                 aria-checked={method === item}
                 data-testid={`method-${item}`}
-                disabled={Boolean(pix) || loading}
+                disabled={Boolean(pix) || Boolean(boleto) || loading}
                 onClick={() => {
                   setMethod(item);
                   setError('');
@@ -613,6 +656,10 @@ export default function OfferCheckout() {
               </p>
             </div>
           )}
+          {isBoleto && !boleto && (
+            <OfferBoletoAddress value={address} onChange={setAddress} />
+          )}
+          {isBoleto && boleto && <OfferBoletoResult boleto={boleto} />}
           {method === 'pix' && pix && (pix.content || pix.qrCode) && (
             <PixDisplay
               pixContent={pix.content}
@@ -779,6 +826,9 @@ export default function OfferCheckout() {
             { ok: dadosOk, label: 'Dados pessoais completos' },
             ...(isCard
               ? [{ ok: cardOk, label: 'Cartão e titular preenchidos' }]
+              : []),
+            ...(isBoleto
+              ? [{ ok: addressOk, label: 'Endereço do pagador' }]
               : []),
             ...(autoCharge
               ? [{ ok: consent, label: 'Cobrança automática autorizada' }]
