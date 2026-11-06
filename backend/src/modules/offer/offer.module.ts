@@ -9,6 +9,7 @@ import {
   PrismaFulfillmentMarkers,
 } from './offer-fulfillment.service';
 import { OfferCheckoutService } from './offer-checkout.service';
+import { OfferRenewalService } from './offer-renewal.service';
 import { OfferSubscribeService } from './offer-subscribe.service';
 import { OfferController } from './offer.controller';
 import { OfferService } from './offer.service';
@@ -23,6 +24,7 @@ import { OfferService } from './offer.service';
     PrismaFulfillmentMarkers,
     OfferFulfillmentService,
     OfferSubscribeService,
+    OfferRenewalService,
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
   ],
   exports: [OfferService, OfferCheckoutService, OfferSubscribeService],

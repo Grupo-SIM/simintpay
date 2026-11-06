@@ -26,6 +26,8 @@ import {
   UpdateOfferDto,
 } from './offer.dto';
 import { OfferCheckoutService } from './offer-checkout.service';
+import { OfferRenewDto } from './offer-renewal.dto';
+import { OfferRenewalService } from './offer-renewal.service';
 import { OfferCardCustomerDto, OfferSubscribeDto } from './offer-subscribe.dto';
 import { OfferSubscribeService } from './offer-subscribe.service';
 import { OfferService, type OfferActor } from './offer.service';
@@ -42,6 +44,7 @@ export class OfferController {
     private readonly offers: OfferService,
     private readonly checkout: OfferCheckoutService,
     private readonly subscriptions: OfferSubscribeService,
+    private readonly renewals: OfferRenewalService,
   ) {}
 
   // ── Rota pública (sem autenticação): somente campos seguros ───────────────
@@ -108,6 +111,20 @@ export class OfferController {
       ...body,
       tracking: { ...query, ...body.tracking },
     });
+  }
+
+  @Post('public/:code/renew')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({
+    summary:
+      'Renovar ou reativar uma assinatura por PIX (link assinado, sem login)',
+  })
+  @ApiResponse({ status: 201 })
+  @ApiResponse({ status: 403 })
+  @ApiResponse({ status: 404 })
+  @ApiResponse({ status: 409 })
+  renew(@Param('code') code: string, @Body() body: OfferRenewDto) {
+    return this.renewals.renew(code, body);
   }
 
   // ── Rotas autenticadas ────────────────────────────────────────────────────
