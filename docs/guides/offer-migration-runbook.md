@@ -1,5 +1,7 @@
 # Runbook: migração dos produtos legados para `Offer`
 
+> Para executar a migração, siga primeiro o guia passo a passo [migracao-para-ofertas.md](migracao-para-ofertas.md). Este runbook traz o detalhe técnico dos scripts.
+
 Escopo: criar as `Offer` "sombra" a partir de `PaymentLink`, `SubscriptionLink`, `Plan`, `PixCreditPlan` e `Boleto` (plano [0021](../../plans/0021-oferta-unica-recorrencia-propria.md), fase 4). A migração é **aditiva**: nenhuma linha legada é alterada ou apagada, e o legado continua sendo a fonte viva. Nada lê `Offer` ainda, então a migração não muda nenhum comportamento em produção.
 
 Script: `backend/scripts/offer-migration-apply.ts`. Mapeamento: `backend/src/modules/offer/legacy-offer-mapper.ts`. Relatório prévio (somente leitura): `backend/scripts/offer-migration-report.ts`.
