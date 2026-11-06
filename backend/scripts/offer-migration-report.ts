@@ -4,7 +4,7 @@
  *   bun --no-env-file scripts/offer-migration-report.ts --database-url=postgresql://... [--json]
  *   OFFER_REPORT_DATABASE_URL=postgresql://... bun --no-env-file scripts/offer-migration-report.ts
  *
- * Flags: --json, --include-boleto (Boleto is otherwise BLOCKED), --allow-blocked (exit 0 despite BLOCKED).
+ * Flags: --json, --allow-blocked (exit 0 despite BLOCKED).
  * The database must be given explicitly; `DATABASE_URL` and `.env` are intentionally never read.
  * The host is printed before any query, and all reads run in one `SET TRANSACTION READ ONLY` transaction.
  */
@@ -104,7 +104,6 @@ export function findConflicts(
 
 async function main() {
   const url = resolveDatabaseUrl(process.argv.slice(2), process.env);
-  const includeBoleto = process.argv.includes('--include-boleto');
   const allowBlocked = process.argv.includes('--allow-blocked');
   console.log(`Target database: ${describeTarget(url)}`);
   console.log('Mode: DRY RUN, read-only transaction, no writes.');
@@ -134,7 +133,7 @@ async function main() {
           ...rows.pixPlans.map(mapPixCreditPlan),
           ...rows.boletos.map(mapBoleto),
         ];
-        const preflight = await findPreflight(tx, drafts, { includeBoleto });
+        const preflight = await findPreflight(tx, drafts);
         return { ...rows, drafts, preflight };
       },
       { timeout: 120_000, maxWait: 15_000 },

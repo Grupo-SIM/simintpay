@@ -23,7 +23,7 @@ Planos, Planos por PIX, Links de pagamento, Links de assinatura e Boletos viram 
 | Bumps, upsell, arquivos, cupons, comunidade | 0          | Nada que bloqueie a migração                                                                 |
 | Acordos de coprodução                       | 3          | 1 num link de pagamento, 2 em plataformas                                                    |
 
-**Boleto: não migre ainda.** O checkout de oferta ainda não emite boleto. Uma oferta de boleto existiria, mas não cobraria. Mantenha o boleto legado ativo. O script o bloqueia por padrão (`BLOCKED_BOLETO_CHARGE_UNSUPPORTED`).
+**Boleto:** migra como os demais produtos. Se o boleto já foi pago e não vai mais ser usado, basta criar uma oferta nova com o meio Boleto.
 
 **Links de assinatura: crie as ofertas, mas só troque as URLs depois da sandbox.** O cartão recorrente da oferta usa um token da DOM ligado ao cliente, e isso nunca foi testado contra a DOM real (seção 6).
 
@@ -52,7 +52,7 @@ Rode a partir de `backend/`. Em todos os comandos, `--database-url` é obrigató
 bun --no-env-file scripts/offer-migration-report.ts --database-url=<url>
 ```
 
-Mostra o que seria criado, o que seria recusado e o que está bloqueado. O relatório sai com erro enquanto houver bloqueio. Com `--allow-blocked` ele aceita os bloqueios que você já decidiu manter (por exemplo o boleto).
+Mostra o que seria criado, o que seria recusado e o que está bloqueado. O relatório sai com erro enquanto houver bloqueio. Com `--allow-blocked` ele aceita os bloqueios que você já decidiu manter.
 
 **Passo 2: simulação do apply (padrão, não grava).**
 
@@ -97,7 +97,7 @@ O primeiro comando é a simulação. O script confere que carteiras e `BalanceLo
 | Link de pagamento  | `?simLinkCode=<id>`              | `?ofertaCode=<código>` |
 | Link de assinatura | `?subscriptionLinkCode=<código>` | `?ofertaCode=<código>` |
 | Plano              | `?simPlanCode=<código>`          | `?ofertaCode=<código>` |
-| Boleto             | `?simBoletoCode=<id>`            | (mantenha o legado)    |
+| Boleto             | `?simBoletoCode=<id>`            | `?ofertaCode=<código>` |
 
 **Passo 8: desative o produto legado** (`isActive = false`) quando a URL nova estiver no ar. Enquanto o legado estiver ativo, um cartão pago nele continua criando assinatura na DOM, que cobra por fora do agendador novo.
 
@@ -108,7 +108,6 @@ O primeiro comando é a simulação. O script confere que carteiras e `BalanceLo
 | Código                                            | Significa                                                                         | O que fazer                                                        |
 | ------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `BLOCKED_ADMIN_OWNER`                             | O dono é administrador                                                            | Transfira o produto para o cliente dono                            |
-| `BLOCKED_BOLETO_CHARGE_UNSUPPORTED`               | Boleto ainda não cobra em oferta                                                  | Mantenha o legado. `--include-boleto` cria uma oferta inerte       |
 | `BLOCKED_HAS_FUNNEL_OFFERS`                       | O link tem order bump, upsell ou downsell                                         | Recrie o funil como ofertas e ligue-as depois da migração          |
 | `BLOCKED_HAS_FILES`                               | O link tem arquivos                                                               | Arquivos ainda não migram: mantenha o legado                       |
 | `BLOCKED_HAS_VOUCHERS`                            | Há cupom ligado ao produto                                                        | Cupons ainda não existem em oferta: mantenha o legado              |
@@ -145,4 +144,3 @@ Apagar as ofertas criadas é seguro enquanto nenhuma venda tiver sido feita nela
 - [ ] Um PIX real de teste numa oferta migrada
 - [ ] Sandbox da DOM validada antes de trocar os links de assinatura no cartão
 - [ ] URLs trocadas e produtos legados desativados
-- [ ] Boleto legado mantido ativo até o checkout de boleto existir

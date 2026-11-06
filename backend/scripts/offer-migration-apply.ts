@@ -38,13 +38,9 @@ export type CliOptions = {
   databaseUrl: string;
   apply: boolean;
   verify: boolean;
-  /** Migrate Boleto products too (the Offer checkout has no boleto charge yet). */
-  includeBoleto: boolean;
   /** Do not fail (exit code) when some product is BLOCKED. */
   allowBlocked: boolean;
 };
-
-export type PreflightOptions = { includeBoleto?: boolean };
 
 export function parseArgs(argv: string[]): CliOptions {
   let databaseUrl: string | undefined;
@@ -70,7 +66,6 @@ export function parseArgs(argv: string[]): CliOptions {
     databaseUrl,
     apply,
     verify,
-    includeBoleto: argv.includes('--include-boleto'),
     allowBlocked: argv.includes('--allow-blocked'),
   };
 }
@@ -93,7 +88,6 @@ export const BLOCKER_CODES = [
   'BLOCKED_HAS_COMMUNITY',
   'BLOCKED_HAS_PIX_ACCESS',
   'BLOCKED_LIVE_DOM_SUBSCRIPTION',
-  'BLOCKED_BOLETO_CHARGE_UNSUPPORTED',
 ] as const;
 export type BlockerCode = (typeof BLOCKER_CODES)[number];
 export type Preflight = {
@@ -175,7 +169,6 @@ const lc = (v: string) => v.trim().toLowerCase();
 export async function findPreflight(
   db: Reader,
   drafts: OfferDraft[],
-  options: PreflightOptions = {},
 ): Promise<PreflightMap> {
   const result: PreflightMap = new Map();
   const of = (d: OfferDraft): Preflight => {
@@ -308,12 +301,6 @@ export async function findPreflight(
       voucherPlans.has(id)
     )
       block(d, 'BLOCKED_HAS_VOUCHERS', 'a voucher is bound to this product');
-    if (d.legacyType === 'Boleto' && !options.includeBoleto)
-      block(
-        d,
-        'BLOCKED_BOLETO_CHARGE_UNSUPPORTED',
-        'the Offer public checkout has no boleto charge yet (pass --include-boleto)',
-      );
   }
 
   const paymentLinks = await db.paymentLink.findMany({
@@ -506,10 +493,7 @@ const offerData = (d: OfferDraft): Prisma.OfferUncheckedCreateInput => ({
 
 export type Plan = { decisions: Decision[]; existingOffers: number };
 
-export async function buildPlan(
-  db: Reader,
-  options: PreflightOptions = {},
-): Promise<Plan> {
+export async function buildPlan(db: Reader): Promise<Plan> {
   const { candidates, userIds } = await loadCandidates(db);
   const offers = await db.offer.findMany({
     select: { code: true, legacyType: true, legacyId: true },
@@ -522,7 +506,6 @@ export async function buildPlan(
       await findPreflight(
         db,
         candidates.map((c) => c.draft),
-        options,
       ),
     ),
     existingOffers: offers.length,
@@ -645,11 +628,8 @@ export function canonical(value: unknown): string {
 }
 
 /** Compares legacy rows with Offers (counts, cents, codes, owners, external refs). */
-export async function verify(
-  db: Reader,
-  options: PreflightOptions = {},
-): Promise<string[]> {
-  const plan = await buildPlan(db, options);
+export async function verify(db: Reader): Promise<string[]> {
+  const plan = await buildPlan(db);
   const offers = await db.offer.findMany({
     where: { legacyType: { not: null } },
   });
@@ -749,7 +729,7 @@ async function exitIfBlocked(prisma: PrismaClient, options: CliOptions) {
   const plan = await prisma.$transaction(
     async (tx) => {
       await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
-      return buildPlan(tx, options);
+      return buildPlan(tx);
     },
     { timeout: 120_000, maxWait: 15_000 },
   );
@@ -780,7 +760,7 @@ async function main() {
       const problems = await prisma.$transaction(
         async (tx) => {
           await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
-          return verify(tx, options);
+          return verify(tx);
         },
         { timeout: 120_000, maxWait: 15_000 },
       );
@@ -795,7 +775,7 @@ async function main() {
     const plan = await prisma.$transaction(
       async (tx) => {
         await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
-        return buildPlan(tx, options);
+        return buildPlan(tx);
       },
       { timeout: 120_000, maxWait: 15_000 },
     );
