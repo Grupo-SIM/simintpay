@@ -20,7 +20,7 @@ export function ProductFormActions({
       <Button
         type="button"
         variant="outline"
-        className="cursor-pointer disabled:cursor-not-allowed"
+        className="h-11 cursor-pointer rounded-lg disabled:cursor-not-allowed"
         disabled={pending}
         onClick={() => router.push(path)}
       >
