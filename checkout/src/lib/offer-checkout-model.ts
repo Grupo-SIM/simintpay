@@ -11,6 +11,7 @@ export type PublicOffer = {
   renewalMode: 'NONE' | 'AUTO_CHARGE' | 'MANUAL_PAY';
   intervalType: string | null;
   intervalCount: number | null;
+  trialDays?: number | null;
 };
 
 const METHOD_FROM_BACKEND: Record<string, OfferMethod> = {
@@ -35,12 +36,6 @@ export const offerAmount = (offer: PublicOffer) => offer.amountCents / 100;
 
 export const isRecurringOffer = (offer: PublicOffer) =>
   offer.renewalMode !== 'NONE';
-
-export function recurrenceNotice(offer: PublicOffer): string {
-  return offer.renewalMode === 'MANUAL_PAY'
-    ? 'Esta oferta é recorrente e a renovação por PIX ainda não está disponível. Volte em breve ou fale com o vendedor.'
-    : 'Esta oferta é uma assinatura e a cobrança recorrente ainda não está disponível. Volte em breve ou fale com o vendedor.';
-}
 
 const DECLINED = [
   'FAILED',

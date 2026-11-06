@@ -4,7 +4,8 @@
  * Checkout público de oferta avulsa (`?ofertaCode=`): PIX, crédito (com parcelas) e débito.
  * Lê `GET /ofertas/public/:code` e cobra em `POST /ofertas/public/:code/charge`, reutilizando
  * CheckoutFlow, os campos de vidro, o cartão ilustrado e o PIX do restante do checkout.
- * Ofertas recorrentes ainda não têm endpoint de assinatura: mostram "indisponível por enquanto".
+ * Ofertas recorrentes (`renewalMode` AUTO_CHARGE com cartão, MANUAL_PAY com PIX) usam
+ * `card-customer` + `subscribe`: o cartão é tokenizado no navegador (SDK) e só o token vai à API.
  */
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -46,10 +47,25 @@ import {
   isDeclined,
   isRecurringOffer,
   offerAmount,
-  recurrenceNotice,
   type OfferMethod,
   type PublicOffer,
 } from '@/lib/offer-checkout-model';
+import {
+  cardCustomerBody,
+  cardLast4,
+  consentText,
+  frequencyLabel,
+  mapSubscribeError,
+  mapSubscribeResponse,
+  parseCardExpiry,
+  renewalNotice,
+  subscribeBody,
+  subscribeMethod,
+  trialDaysOf,
+  trialNotice,
+  type SubscribeOutcome,
+  type SubscribeResponse,
+} from '@/lib/offer-subscribe-model';
 
 const Cards = dynamic(() => import('react-credit-cards-2'), {
   ssr: false,
@@ -75,6 +91,13 @@ const METHOD_TITLE: Record<OfferMethod, string> = {
   debit_card: 'Cartão de débito',
 };
 
+/** Recorrente: um único meio por modo de renovação; avulsa: PIX/crédito/débito. */
+function methodsOf(offer: PublicOffer): OfferMethod[] {
+  if (!isRecurringOffer(offer)) return availableMethods(offer);
+  const only = subscribeMethod(offer);
+  return only ? [only] : [];
+}
+
 export default function OfferCheckout() {
   const code = useSearchParams().get('ofertaCode');
   const [offer, setOffer] = useState<PublicOffer | null>(null);
@@ -87,6 +110,12 @@ export default function OfferCheckout() {
   const [error, setError] = useState('');
   const [paidAmount, setPaidAmount] = useState<number | null>(null);
   const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
+  const [done, setDone] = useState<Extract<
+    SubscribeOutcome,
+    { kind: 'paid' | 'trial' }
+  > | null>(null);
+  const [consent, setConsent] = useState(false);
+  const [blocked, setBlocked] = useState(false);
 
   const [pix, setPix] = useState<{
     id: string;
@@ -118,9 +147,13 @@ export default function OfferCheckout() {
       })
       .then((data: PublicOffer) => {
         setOffer(data);
-        const methods = availableMethods(data);
+        const methods = methodsOf(data);
         if (methods.length) setMethod(methods[0]);
-        if (methods.includes('credit_card') && data.maxInstallments > 1) {
+        if (
+          !isRecurringOffer(data) &&
+          methods.includes('credit_card') &&
+          data.maxInstallments > 1
+        ) {
           fetch(`${SIM_API_URL}/checkout/card/installment-options`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -144,6 +177,8 @@ export default function OfferCheckout() {
   usePixConfirmation(pix?.id ?? null, paidAmount !== null, () =>
     setPaidAmount(offer ? offerAmount(offer) : 0),
   );
+  const recurring = offer ? isRecurringOffer(offer) : false;
+  const autoCharge = offer?.renewalMode === 'AUTO_CHARGE';
 
   const docDigits = document.replace(/\D/g, '');
   const dadosOk =
@@ -151,7 +186,10 @@ export default function OfferCheckout() {
     (docDigits.length === 11 || docDigits.length === 14) &&
     phone.replace(/\D/g, '').length >= 11 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
-  const holderDigits = holderDocument.replace(/\D/g, '');
+  // Assinatura: o SDK exige um documento, usa-se o do comprador; ele não é pedido nem enviado à API.
+  const holderDigits = recurring
+    ? docDigits
+    : holderDocument.replace(/\D/g, '');
   const cardOk =
     cardNumber.replace(/\s/g, '').length >= 13 &&
     cardMonth.length === 2 &&
@@ -161,11 +199,103 @@ export default function OfferCheckout() {
     (holderDigits.length === 11 || holderDigits.length === 14);
   const isCard = method !== 'pix';
 
+  /** AUTO_CHARGE: card-customer -> SDK (token no navegador) -> subscribe. Só o token vai à API. */
+  async function subscribe() {
+    if (!offer || !code) return;
+    const target = `${SIM_API_URL}/ofertas/public/${encodeURIComponent(code)}`;
+    const post = (path: string, body: unknown) =>
+      fetch(`${target}/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const customer = {
+      name,
+      email,
+      document: docDigits,
+      phone: phone.replace(/\D/g, ''),
+    };
+    let card;
+    if (method === 'credit_card') {
+      const expiry = parseCardExpiry(cardMonth, cardYear);
+      if (!expiry || expiry.expired) {
+        setError('Validade do cartão inválida ou vencida.');
+        return;
+      }
+      const customerRes = await post(
+        'card-customer',
+        cardCustomerBody(customer),
+      );
+      const customerData = await customerRes.json().catch(() => ({}));
+      if (!customerRes.ok) {
+        const failure = mapSubscribeError(customerRes.status, customerData);
+        setBlocked(!failure.retryable);
+        setError(failure.message);
+        return;
+      }
+      const tokenized = await getTokenCard(customerData.publicKey, {
+        name: holderName,
+        document: holderDigits,
+        customer_id: customerData.customerId,
+        number: cardNumber.replace(/\s/g, ''),
+        cvv: cardCvv,
+        month: cardMonth,
+        year: cardYear,
+      });
+      if (!tokenized.token) {
+        setError(tokenized.msgError || 'Erro ao validar o cartão');
+        return;
+      }
+      card = {
+        tokenized,
+        customerId: String(customerData.customerId),
+        last4: cardLast4(cardNumber),
+        expMonth: expiry.month,
+        expYear: expiry.year,
+        holderName,
+      };
+    }
+    const res = await post(
+      'subscribe',
+      subscribeBody({
+        method: method === 'pix' ? 'pix' : 'credit_card',
+        customer,
+        card,
+        tracking: browserCheckoutTracking(),
+      }),
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const failure = mapSubscribeError(res.status, data);
+      setBlocked(!failure.retryable);
+      setError(failure.message);
+      return;
+    }
+    const outcome = mapSubscribeResponse(data as SubscribeResponse);
+    if (outcome.kind === 'pix') {
+      if (outcome.transactionId)
+        setPix({
+          id: outcome.transactionId,
+          content: outcome.pixContent,
+          qrCode: outcome.qrCode,
+          expire: outcome.pixExpire,
+        });
+      return;
+    }
+    setRedirectUrl(outcome.redirectUrl);
+    setDone(outcome);
+    setPaidAmount(outcome.amount);
+  }
+
   async function handleSubmit() {
     if (!offer || !code) return;
     setError('');
     setLoading(true);
     try {
+      if (recurring) {
+        await subscribe();
+        return;
+      }
       const customer = {
         name,
         email,
@@ -249,14 +379,11 @@ export default function OfferCheckout() {
         message={offerError || 'Esta oferta não está disponível.'}
       />
     );
-  if (isRecurringOffer(offer))
+  if (blocked)
     return (
-      <CheckoutErrorScreen
-        title="Indisponível por enquanto"
-        message={recurrenceNotice(offer)}
-      />
+      <CheckoutErrorScreen title="Não foi possível concluir" message={error} />
     );
-  const methods = availableMethods(offer);
+  const methods = methodsOf(offer);
   if (methods.length === 0)
     return (
       <CheckoutErrorScreen
@@ -271,6 +398,45 @@ export default function OfferCheckout() {
     isCard && method === 'credit_card' && selected
       ? selected.totalAmount
       : base;
+
+  if (paidAmount !== null && recurring) {
+    const next = done?.nextChargeAt
+      ? new Date(done.nextChargeAt).toLocaleDateString('pt-BR')
+      : null;
+    const trial = done?.kind === 'trial';
+    return (
+      <CheckoutSuccessScreen
+        eyebrow={trial ? 'Teste grátis ativado' : 'Assinatura confirmada'}
+        headline={
+          done?.existing
+            ? 'Você já tem esta assinatura'
+            : trial
+              ? 'Teste grátis ativado'
+              : `${money(paidAmount)} pagos com sucesso`
+        }
+        email={email}
+        redirectUrl={redirectUrl}
+        total={money(base)}
+        rows={
+          <>
+            <SummaryRow
+              label={sanitizeCheckoutText(offer.name)}
+              value={`${money(base)} · ${frequencyLabel(offer)}`}
+            />
+            {trial && <SummaryRow muted label="Hoje" value={money(0)} />}
+            {next && (
+              <SummaryRow
+                muted
+                label={autoCharge ? 'Próxima cobrança' : 'Próximo aviso'}
+                value={next}
+                last
+              />
+            )}
+          </>
+        }
+      />
+    );
+  }
 
   if (paidAmount !== null)
     return (
@@ -299,15 +465,26 @@ export default function OfferCheckout() {
           ? sanitizeCheckoutText(offer.description)
           : undefined,
         price: money(base),
-        frequency: 'Pagamento único',
+        frequency: recurring ? frequencyLabel(offer) : 'Pagamento único',
       }}
       total={money(total)}
-      totalCaption="Pagamento único"
+      totalCaption={recurring ? frequencyLabel(offer) : 'Pagamento único'}
+      asideRows={
+        recurring && trialDaysOf(offer) > 0 ? (
+          <SummaryRow muted label="Cobrança hoje" value={money(0)} last />
+        ) : undefined
+      }
       dadosSubtitle="Usados para emitir a cobrança e enviar seu acesso"
       validateDados={() => dadosOk}
       onSubmit={handleSubmit}
-      finalLabel="Efetuar pagamento"
-      finalDisabled={isCard && !cardOk}
+      finalLabel={
+        recurring
+          ? trialDaysOf(offer) > 0
+            ? 'Começar teste grátis'
+            : 'Assinar'
+          : 'Efetuar pagamento'
+      }
+      finalDisabled={(isCard && !cardOk) || (autoCharge && !consent)}
       loading={loading}
       error={error}
       finalAction={
@@ -397,12 +574,36 @@ export default function OfferCheckout() {
             ))}
           </div>
 
-          {method === 'pix' && !pix && (
+          {recurring && (
+            <div
+              data-testid="recurrence-notice"
+              className="flex flex-col gap-1 rounded-lg border border-white/10 bg-black/25 px-4 py-3 text-sm text-zinc-300"
+            >
+              <p className="font-semibold text-white">
+                {renewalNotice(offer, money(base))}
+              </p>
+              {trialNotice(offer) && (
+                <p data-testid="trial-notice">{trialNotice(offer)}</p>
+              )}
+            </div>
+          )}
+          {method === 'pix' && !pix && !recurring && (
             <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
               <p className="text-sm text-zinc-300">
                 Preencha seus dados e clique em{' '}
                 <strong className="text-white">Efetuar pagamento</strong>. O
                 código PIX será gerado automaticamente.
+              </p>
+            </div>
+          )}
+          {method === 'pix' && !pix && recurring && (
+            <div className="rounded-lg border border-white/10 bg-black/25 px-4 py-3">
+              <p className="text-sm text-zinc-300">
+                Clique em{' '}
+                <strong className="text-white">
+                  {trialDaysOf(offer) > 0 ? 'Começar teste grátis' : 'Assinar'}
+                </strong>{' '}
+                para gerar o PIX do primeiro ciclo.
               </p>
             </div>
           )}
@@ -485,56 +686,82 @@ export default function OfferCheckout() {
                   autoComplete="cc-name"
                 />
               </CheckoutGlassField>
-              <CheckoutGlassField label="CPF / CNPJ do titular" required>
-                <CheckoutGlassInput
-                  placeholder="000.000.000-00 ou 00.000.000/0000-00"
-                  value={holderDocument}
-                  onChange={(v) => setHolderDocument(maskCpfCnpj(v))}
-                  inputMode="numeric"
-                  autoComplete="off"
-                />
-              </CheckoutGlassField>
-              {method === 'credit_card' && offer.maxInstallments > 1 && (
-                <CheckoutGlassField label="Parcelas">
-                  <div
-                    role="radiogroup"
-                    aria-label="Parcelas"
-                    className="flex flex-col gap-2"
-                  >
-                    {Array.from(
-                      { length: offer.maxInstallments },
-                      (_, i) => i + 1,
-                    ).map((n) => {
-                      const option = options.find((o) => o.installments === n);
-                      return (
-                        <button
-                          key={n}
-                          type="button"
-                          role="radio"
-                          aria-checked={installments === n}
-                          data-testid={`installments-${n}`}
-                          onClick={() => setInstallments(n)}
-                          className={`rounded-[16px] border px-4 py-3 text-left text-sm transition-colors ${
-                            installments === n
-                              ? 'border-[rgba(240,168,108,.7)] bg-white/[0.1] text-white'
-                              : 'border-white/[0.07] bg-white/[0.06] text-zinc-300'
-                          }`}
-                        >
-                          {option
-                            ? buildInstallmentLabel({
-                                installments: n,
-                                perInstallment: option.installmentAmount,
-                                total: option.totalAmount,
-                                interestAmount: option.interestAmount,
-                                formatCurrency: money,
-                              })
-                            : `${n}x`}
-                        </button>
-                      );
-                    })}
-                  </div>
+              {!recurring && (
+                <CheckoutGlassField label="CPF / CNPJ do titular" required>
+                  <CheckoutGlassInput
+                    placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                    value={holderDocument}
+                    onChange={(v) => setHolderDocument(maskCpfCnpj(v))}
+                    inputMode="numeric"
+                    autoComplete="off"
+                  />
                 </CheckoutGlassField>
               )}
+              {autoCharge && (
+                <div className="flex items-start gap-3 text-sm text-zinc-200">
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={consent}
+                    aria-label="Autorizo a cobrança automática"
+                    data-testid="consent"
+                    onClick={() => setConsent((v) => !v)}
+                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                      consent
+                        ? 'border-[rgba(240,168,108,.9)] bg-[rgba(240,168,108,.9)]'
+                        : 'border-white/30 bg-white/[0.06]'
+                    }`}
+                  >
+                    {consent && <CheckCircle className="h-4 w-4 text-black" />}
+                  </button>
+                  <span>{consentText(offer, money(base))}</span>
+                </div>
+              )}
+              {!recurring &&
+                method === 'credit_card' &&
+                offer.maxInstallments > 1 && (
+                  <CheckoutGlassField label="Parcelas">
+                    <div
+                      role="radiogroup"
+                      aria-label="Parcelas"
+                      className="flex flex-col gap-2"
+                    >
+                      {Array.from(
+                        { length: offer.maxInstallments },
+                        (_, i) => i + 1,
+                      ).map((n) => {
+                        const option = options.find(
+                          (o) => o.installments === n,
+                        );
+                        return (
+                          <button
+                            key={n}
+                            type="button"
+                            role="radio"
+                            aria-checked={installments === n}
+                            data-testid={`installments-${n}`}
+                            onClick={() => setInstallments(n)}
+                            className={`rounded-[16px] border px-4 py-3 text-left text-sm transition-colors ${
+                              installments === n
+                                ? 'border-[rgba(240,168,108,.7)] bg-white/[0.1] text-white'
+                                : 'border-white/[0.07] bg-white/[0.06] text-zinc-300'
+                            }`}
+                          >
+                            {option
+                              ? buildInstallmentLabel({
+                                  installments: n,
+                                  perInstallment: option.installmentAmount,
+                                  total: option.totalAmount,
+                                  interestAmount: option.interestAmount,
+                                  formatCurrency: money,
+                                })
+                              : `${n}x`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </CheckoutGlassField>
+                )}
             </>
           )}
         </div>
@@ -546,6 +773,9 @@ export default function OfferCheckout() {
             { ok: dadosOk, label: 'Dados pessoais completos' },
             ...(isCard
               ? [{ ok: cardOk, label: 'Cartão e titular preenchidos' }]
+              : []),
+            ...(autoCharge
+              ? [{ ok: consent, label: 'Cobrança automática autorizada' }]
               : []),
           ]}
         />
