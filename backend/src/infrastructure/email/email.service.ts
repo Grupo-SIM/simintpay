@@ -3,6 +3,10 @@ import * as nodemailer from 'nodemailer';
 import dayjs from 'dayjs';
 import timezone from 'dayjs/plugin/timezone';
 import utc from 'dayjs/plugin/utc';
+import {
+  SIMINTPAY_EMAIL_LOGO_BASE64,
+  SIMINTPAY_EMAIL_LOGO_CID,
+} from './simintpay-email-logo.asset';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -100,7 +104,7 @@ export class EmailService {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
             <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+              <img src="cid:${SIMINTPAY_EMAIL_LOGO_CID}" height="40" alt="SimIntPay" style="display: block; height: 40px; width: auto;" />
             </div>
             <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
               <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.customerName}</strong>!</p>
@@ -130,7 +134,7 @@ export class EmailService {
   }
 
   private createTransport() {
-    return nodemailer.createTransport({
+    const transport = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT ?? 465),
       secure: process.env.SMTP_SECURE !== 'false',
@@ -142,6 +146,34 @@ export class EmailService {
         rejectUnauthorized: false,
       },
     });
+
+    // Anexa a logo inline (CID) em todo e-mail que a referencia, sem depender de hosting externo.
+    const sendMail = transport.sendMail.bind(
+      transport,
+    ) as typeof transport.sendMail;
+    transport.sendMail = ((options: nodemailer.SendMailOptions) => {
+      const usesLogo =
+        typeof options.html === 'string' &&
+        options.html.includes(`cid:${SIMINTPAY_EMAIL_LOGO_CID}`);
+      return sendMail(
+        usesLogo
+          ? {
+              ...options,
+              attachments: [
+                ...(options.attachments ?? []),
+                {
+                  filename: 'simintpaylogo.png',
+                  content: SIMINTPAY_EMAIL_LOGO_BASE64,
+                  encoding: 'base64',
+                  cid: SIMINTPAY_EMAIL_LOGO_CID,
+                },
+              ],
+            }
+          : options,
+      );
+    }) as typeof transport.sendMail;
+
+    return transport;
   }
 
   async sendSubscriptionAccess(input: {
@@ -182,7 +214,7 @@ export class EmailService {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
             <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+              <img src="cid:${SIMINTPAY_EMAIL_LOGO_CID}" height="40" alt="SimIntPay" style="display: block; height: 40px; width: auto;" />
             </div>
             <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
               <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.customerName}</strong>!</p>
@@ -223,7 +255,7 @@ export class EmailService {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
             <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+              <img src="cid:${SIMINTPAY_EMAIL_LOGO_CID}" height="40" alt="SimIntPay" style="display: block; height: 40px; width: auto;" />
             </div>
             <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
               <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.name}</strong>!</p>
@@ -305,7 +337,7 @@ export class EmailService {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
             <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+              <img src="cid:${SIMINTPAY_EMAIL_LOGO_CID}" height="40" alt="SimIntPay" style="display: block; height: 40px; width: auto;" />
             </div>
             <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
               <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.customerName}</strong>!</p>
@@ -372,7 +404,7 @@ export class EmailService {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
           <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-            <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+            <img src="cid:${SIMINTPAY_EMAIL_LOGO_CID}" height="40" alt="SimIntPay" style="display: block; height: 40px; width: auto;" />
           </div>
           <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
             <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${esc(input.customerName)}</strong>!</p>
@@ -445,7 +477,7 @@ export class EmailService {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
             <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+              <img src="cid:${SIMINTPAY_EMAIL_LOGO_CID}" height="40" alt="SimIntPay" style="display: block; height: 40px; width: auto;" />
             </div>
             <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
               <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.customerName}</strong>!</p>
@@ -501,7 +533,7 @@ export class EmailService {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
             <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+              <img src="cid:${SIMINTPAY_EMAIL_LOGO_CID}" height="40" alt="SimIntPay" style="display: block; height: 40px; width: auto;" />
             </div>
             <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
               <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.name}</strong>!</p>
@@ -556,7 +588,7 @@ export class EmailService {
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
             <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
-              <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+              <img src="cid:${SIMINTPAY_EMAIL_LOGO_CID}" height="40" alt="SimIntPay" style="display: block; height: 40px; width: auto;" />
             </div>
             <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
               <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${input.customerName}</strong>!</p>
