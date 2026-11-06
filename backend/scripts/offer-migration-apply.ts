@@ -1,6 +1,7 @@
 /**
  * Additive migration of the five legacy products into shadow `Offer` rows (plan 0021, phase 4).
- * Legacy rows are never changed or deleted; they remain the live source.
+ * Legacy rows are never changed or deleted; they remain the live source. Each Offer reuses the
+ * legacy row's id as its own `id` (the pair is also kept in `legacyType`/`legacyId`).
  *
  *   # plan only (default, read-only transaction)
  *   bun --no-env-file scripts/offer-migration-apply.ts --database-url=postgresql://...
@@ -406,6 +407,7 @@ export function decide(
   candidates: Candidate[],
   userIds: Set<string>,
   offers: {
+    id?: string;
     code: string;
     legacyType: string | null;
     legacyId: string | null;
@@ -423,6 +425,8 @@ export function decide(
       o.legacyType && o.legacyId ? key(o.legacyType, o.legacyId) : '(manual)',
     ]),
   );
+  // The Offer keeps the legacy id as its own id, so a foreign Offer holding it blocks creation.
+  const idHolder = new Map(offers.filter((o) => o.id).map((o) => [o.id!, o]));
   const batch = new Map<string, number>();
   for (const { draft } of candidates)
     if (
@@ -464,6 +468,11 @@ export function decide(
     ];
     if (d.ownerUserId && !userIds.has(d.ownerUserId))
       reasons.push('MISSING_OWNER');
+    const idOwner = idHolder.get(d.legacyId);
+    if (idOwner)
+      reasons.push(
+        `DUPLICATE_ID: Offer ${idOwner.id} already uses legacy id ${d.legacyId}`,
+      );
     if (d.code) {
       const holder = codeHolder.get(d.code);
       if (holder && holder !== k)
@@ -478,6 +487,7 @@ export function decide(
 }
 
 const offerData = (d: OfferDraft): Prisma.OfferUncheckedCreateInput => ({
+  id: d.legacyId,
   ownerUserId: d.ownerUserId!,
   createdByUserId: d.createdByUserId ?? d.ownerUserId!,
   platformTag: d.platformTag,
@@ -512,7 +522,7 @@ export async function buildPlan(
 ): Promise<Plan> {
   const { candidates, userIds } = await loadCandidates(db);
   const offers = await db.offer.findMany({
-    select: { code: true, legacyType: true, legacyId: true },
+    select: { id: true, code: true, legacyType: true, legacyId: true },
   });
   return {
     decisions: decide(
@@ -684,6 +694,8 @@ export async function verify(
         problems.push(`${k}: Offer missing`);
         continue;
       }
+      if (offer.id !== draft.legacyId)
+        problems.push(`${k}: Offer id ${offer.id} != legacy id`);
       if (offer.amountCents !== draft.amountCents)
         problems.push(
           `${k}: amountCents ${offer.amountCents} != legacy ${draft.amountCents}`,

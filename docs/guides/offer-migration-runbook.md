@@ -8,7 +8,7 @@ Script: `backend/scripts/offer-migration-apply.ts`. Mapeamento: `backend/src/mod
 
 ## O que o script faz
 
-- Cria uma `Offer` por produto legado, preservando o código público (`PixCreditPlan`: `PixPlanLinkCode` ativo mais antigo) e gravando `(legacyType, legacyId)`. Linhas já migradas são puladas (idempotente).
+- Cria uma `Offer` por produto legado, preservando o código público (`PixCreditPlan`: `PixPlanLinkCode` ativo mais antigo) reutilizando o ID legado como `Offer.id` e gravando `(legacyType, legacyId)`. Um `Offer` pré-existente com esse ID recusa a criação (`DUPLICATE_ID`); Offers já migradas com ID aleatório aparecem como divergência no `--verify`. Linhas já migradas são puladas (idempotente).
 - Para produtos com `domPaymentLinkId` (link de pagamento, boleto) ou `domPlanId` (link de assinatura, plano) grava um `ExternalRef` (adquirente `DOM`, tipo `PAYMENT_LINK` ou `PLAN`, `entityType` `Offer`). Requer `AcquirerCatalogue` com código `DOM`; sem ele a transação daquele tipo é abortada sem escrever nada. Se a `Offer` já existe e falta só o `ExternalRef`, ele é criado.
 - **Recusa** (não cria, lista no plano): `INVALID_AMOUNT`, `MISSING_CODE`, `MISSING_OWNER` (inclusive dono inexistente) e `DUPLICATE_CODE` (código igual em outra `Offer` ou compartilhado por várias linhas legadas; o script não escolhe vencedor).
 - **BLOCKED**: produtos cujo dono é `ADMIN` (plano [0009](../../plans/0009-titularidade-ofertas-cobrancas.md)). Nunca reatribui donos; a transferência é feita antes, por `scripts/reassign-products.ts`, com mapa aprovado.
