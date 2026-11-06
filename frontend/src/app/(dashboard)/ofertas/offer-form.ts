@@ -20,7 +20,7 @@ export const bumpRoleLabels: Record<BumpRole, string> = {
 };
 export const MAX_BOLETO_DUE_DAYS = 90;
 export const BOLETO_NOTE =
-  'Cobranças de boleto em ofertas ainda não estão disponíveis; o meio só poderá ser usado quando for habilitado.';
+  'O comprador precisará informar o endereço completo.';
 
 /** Estado do formulário; números e data ficam em texto até o envio. */
 export type OfferForm = {

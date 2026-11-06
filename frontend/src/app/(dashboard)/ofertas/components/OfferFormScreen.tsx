@@ -525,9 +525,6 @@ function FormBody({
               value={form.boletoDueDays}
               onChange={(value) => patch({ boletoDueDays: digitsOnly(value) })}
             />
-            <p className="self-end text-sm text-zinc-500 dark:text-zinc-400">
-              O comprador precisará informar o endereço completo.
-            </p>
           </div>
           <p
             role="note"
