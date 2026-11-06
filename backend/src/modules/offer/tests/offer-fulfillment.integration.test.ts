@@ -38,10 +38,7 @@ test.skipIf(!db)(
         name: 'Curso',
         amountCents: 10000,
         acceptedMethods: ['PIX'],
-        fulfillment: {
-          emailBody: 'Obrigado',
-          webhookUrl: 'https://hooks.example.com/x',
-        },
+        fulfillment: { emailBody: 'Obrigado' },
       },
     });
     const tx = await prisma.transaction.create({
@@ -71,7 +68,6 @@ test.skipIf(!db)(
     });
 
     const emails: unknown[] = [];
-    const posts: any[] = [];
     const service = new OfferFulfillmentService(
       prisma as never,
       new PrismaFulfillmentMarkers(prisma as never),
@@ -79,14 +75,6 @@ test.skipIf(!db)(
         sendEbookAccessEmail: async (i: unknown) => emails.push(i),
       } as never,
     );
-    service.transport = {
-      resolve: async () => ['93.184.216.34'],
-      fetch: (async (_u: string, init: any) => {
-        posts.push(JSON.parse(init.body));
-        return { status: 200 };
-      }) as never,
-    };
-
     const early = await service.deliver({
       transactionId: tx.id,
       kind: 'PAID',
@@ -108,17 +96,13 @@ test.skipIf(!db)(
       service.deliver({ transactionId: tx.id, kind: 'PAID' }),
     ]);
     expect(emails).toHaveLength(1);
-    expect(posts.map((p) => p.event)).toEqual(['purchase_approved']);
 
     const stored = await prisma.charge.findUniqueOrThrow({
       where: { id: charge.id },
     });
     const snapshot = stored.snapshot as any;
     expect(snapshot.baseAmountCents).toBe(10000);
-    expect(Object.keys(snapshot.fulfillment).sort()).toEqual([
-      'email',
-      'webhookApproved',
-    ]);
+    expect(Object.keys(snapshot.fulfillment)).toEqual(['email']);
 
     await prisma.transaction.update({
       where: { id: tx.id },
@@ -126,10 +110,6 @@ test.skipIf(!db)(
     });
     await service.deliver({ transactionId: tx.id, kind: 'REFUNDED' });
     await service.deliver({ transactionId: tx.id, kind: 'REFUNDED' });
-    expect(posts.map((p) => p.event)).toEqual([
-      'purchase_approved',
-      'purchase_refunded',
-    ]);
     expect(emails).toHaveLength(1);
   },
   60_000,

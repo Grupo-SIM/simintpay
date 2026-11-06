@@ -271,13 +271,12 @@ test('fulfillment carries only the non-empty webhook, redirect and email body', 
     code: 'c',
     title: 't',
     amount: '20.00',
-    webhookUrl: ' https://hooks.example.com/purchase_approved ',
-    redirectUrl: '  ',
+    redirectUrl: ' https://example.com/obrigado ',
     emailBody: 'Obrigado',
   });
   expect(d.issues).toEqual([]);
   expect(d.fulfillment).toEqual({
-    webhookUrl: 'https://hooks.example.com/purchase_approved',
+    redirectUrl: 'https://example.com/obrigado',
     emailBody: 'Obrigado',
   });
   expect(
@@ -293,11 +292,10 @@ test('fulfillment carries only the non-empty webhook, redirect and email body', 
     id: 'x',
     userId: 'u',
     code: 'c',
-    webhookUrl: 'https://hooks.example.com/a',
     redirectUrl: 'https://example.com/obrigado',
+    webhookUrl: 'https://hooks.example.com/a',
   };
   const expected = {
-    webhookUrl: 'https://hooks.example.com/a',
     redirectUrl: 'https://example.com/obrigado',
   };
   expect(
@@ -312,18 +310,18 @@ test('fulfillment carries only the non-empty webhook, redirect and email body', 
   ).toEqual(expected);
 });
 
-test('an unsafe webhook refuses the draft with the reason instead of dropping it', () => {
+test('an unsafe redirect URL refuses the draft with the reason instead of dropping it', () => {
   const d = mapPaymentLink({
     id: 'f3',
     userId: 'u',
     code: 'c',
     title: 't',
     amount: '20.00',
-    webhookUrl: 'http://127.0.0.1/hook',
+    redirectUrl: 'http://127.0.0.1/hook',
   });
   expect(d.issues).toContain('INVALID_FULFILLMENT');
   expect(d.fulfillment).toBeNull();
-  expect(d.issueDetails.join()).toContain('webhookUrl');
+  expect(d.issueDetails.join()).toContain('redirectUrl');
   const bad = mapPlan({
     id: 'f4',
     userId: 'u',
@@ -343,11 +341,11 @@ test('Boleto carries the due days and requires the buyer address', () => {
     title: 't',
     amount: '150',
     vencimentoDias: 0,
-    webhookUrl: 'https://hooks.example.com/boleto',
+    redirectUrl: 'https://example.com/boleto',
   });
   expect(ok.metadata).toEqual({ boletoDueDays: 0, requiresBuyerAddress: true });
   expect(ok.fulfillment).toEqual({
-    webhookUrl: 'https://hooks.example.com/boleto',
+    redirectUrl: 'https://example.com/boleto',
   });
   expect(
     mapBoleto({ id: 'b2', userId: 'u', code: 'c', title: 't', amount: '1' })

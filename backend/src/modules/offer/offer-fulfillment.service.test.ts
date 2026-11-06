@@ -12,11 +12,7 @@ function setup(
     items?: unknown[];
     chargeStatus?: string;
     txStatus?: string;
-    resolve?: string[];
-    fetchStatus?: number;
     extraOffers?: any[];
-    parent?: any;
-    snapshotExtra?: Record<string, unknown>;
   } = {},
 ) {
   const offer = {
@@ -35,22 +31,16 @@ function setup(
     customerEmail: 'ana@test.dev',
     customerName: 'Ana',
     customerDocument: '123.456.789-09',
-    snapshot: { items: over.items, ...over.snapshotExtra },
+    snapshot: { items: over.items },
   };
   const tx = {
     id: 'tx-1',
     status: over.txStatus ?? 'COMPLETED',
     paymentMethod: 'PIX',
-    amount: 100,
-    netAmount: 87,
-    customerPhone: '81999999999',
   };
   const offers = [offer, ...(over.extraOffers ?? [])];
   const prisma: any = {
-    charge: {
-      findUnique: async ({ where }: any) =>
-        where.id === 'parent' ? over.parent : charge,
-    },
+    charge: { findUnique: async () => charge },
     transaction: { findUnique: async () => tx },
     offer: {
       findUnique: async ({ where }: any) =>
@@ -81,15 +71,7 @@ function setup(
     getReceiptBufferByStoredUrl: async () => ({ buffer: Buffer.from('pdf') }),
   };
   const service = new OfferFulfillmentService(prisma, markers, email, storage);
-  const posts: any[] = [];
-  service.transport = {
-    resolve: async () => over.resolve ?? ['93.184.216.34'],
-    fetch: (async (url: string, init: any) => {
-      posts.push({ url, init, body: JSON.parse(init.body) });
-      return { status: over.fetchStatus ?? 200 };
-    }) as never,
-  };
-  return { service, emails, posts, claimed, charge };
+  return { service, emails, claimed, charge };
 }
 
 const full = {
@@ -97,13 +79,11 @@ const full = {
     { fileName: 'a.pdf', fileUrl: 'https://gateway.storjshare.io/a.pdf' },
   ],
   emailBody: 'Obrigado',
-  webhookUrl: 'https://hooks.example.com/x',
   redirectUrl: 'https://example.com/ok',
 };
 
 describe('OfferFulfillmentService', () => {
-  test('PAID: sends the access e-mail with files and POSTs purchase_approved like the legacy link', async () => {
-    process.env.SIMPAY_WEBHOOK_TOKEN = 'tok';
+  test('PAID: sends the access e-mail with files and message', async () => {
     const f = setup(full);
     expect(
       await f.service.deliver({ transactionId: 'tx-1', kind: 'PAID' }),
@@ -117,44 +97,19 @@ describe('OfferFulfillmentService', () => {
       redirectUrl: 'https://example.com/ok',
     });
     expect(f.emails[0][1].attachments).toHaveLength(1);
-    expect(f.posts).toHaveLength(1);
-    expect(f.posts[0].init.headers['x-simpay-token']).toBe('tok');
-    expect(f.posts[0].body).toMatchObject({
-      event: 'purchase_approved',
-      customerEmail: 'ana@test.dev',
-      planName: 'Curso',
-      paymentMethod: 'PIX',
-      amountCharged: 100,
-      netAmount: 87,
-      orderId: 'tx-1',
-      cpf: '12345678909',
-      phone: '81999999999',
-      items: [{ tipo: 'PRINCIPAL', titulo: 'Curso', valor: 100 }],
-    });
   });
 
-  test('a repeated settle does not re-send e-mail or webhook', async () => {
+  test('a repeated settle does not re-send the e-mail', async () => {
     const f = setup(full);
     await f.service.deliver({ transactionId: 'tx-1', kind: 'PAID' });
     await f.service.deliver({ transactionId: 'tx-1', kind: 'PAID' });
     expect(f.emails).toHaveLength(1);
-    expect(f.posts).toHaveLength(1);
   });
 
-  test('a failed step releases its marker so it can be retried', async () => {
-    const f = setup(full, { fetchStatus: 500 });
-    await f.service.deliver({ transactionId: 'tx-1', kind: 'PAID' });
-    expect(f.posts).toHaveLength(1);
-    expect(f.claimed.has('charge-1:webhookApproved')).toBe(false);
-    expect(f.claimed.has('charge-1:email')).toBe(true);
-  });
-
-  test('refund POSTs purchase_refunded once and sends no e-mail', async () => {
+  test('refund sends no e-mail', async () => {
     const f = setup(full, { txStatus: 'REFUNDED' });
     await f.service.deliver({ transactionId: 'tx-1', kind: 'REFUNDED' });
-    await f.service.deliver({ transactionId: 'tx-1', kind: 'REFUNDED' });
     expect(f.emails).toHaveLength(0);
-    expect(f.posts.map((p) => p.body.event)).toEqual(['purchase_refunded']);
   });
 
   test('waits (retry) while the settling commit is not visible yet', async () => {
@@ -166,21 +121,6 @@ describe('OfferFulfillmentService', () => {
     expect(
       await r.service.deliver({ transactionId: 'tx-1', kind: 'REFUNDED' }),
     ).toBe('retry');
-  });
-
-  test('SSRF: private literal, unsafe scheme and DNS pointing inside are never fetched', async () => {
-    for (const [url, resolve] of [
-      ['http://127.0.0.1/x', undefined],
-      ['https://hooks.example.com/x', ['10.0.0.9']],
-      ['https://hooks.example.com/x', ['93.184.216.34', '169.254.169.254']],
-    ] as const) {
-      const f = setup(
-        { ...full, webhookUrl: url },
-        { resolve: resolve as never },
-      );
-      await f.service.deliver({ transactionId: 'tx-1', kind: 'PAID' });
-      expect(f.posts).toHaveLength(0);
-    }
   });
 
   test('order bumps add their material and items; funnel offers deliver only their own material', async () => {
@@ -210,10 +150,6 @@ describe('OfferFulfillmentService', () => {
     expect(f.emails[0][1].title).toBe('Curso + Bônus');
     expect(f.emails[0][1].body).toBe('Obrigado\n\n— Bônus —\nBônus aqui');
     expect(f.emails[0][1].attachments).toHaveLength(2);
-    expect(f.posts[0].body.items).toEqual([
-      { tipo: 'PRINCIPAL', titulo: 'Curso', valor: 100 },
-      { tipo: 'ORDER_BUMP', offerId: 'bump-1', titulo: 'Bônus', valor: 20 },
-    ]);
 
     const up = {
       id: 'offer-1',
@@ -232,35 +168,12 @@ describe('OfferFulfillmentService', () => {
       body: 'Só upsell',
       redirectUrl: null,
     });
-    expect(g.posts).toHaveLength(0);
-  });
-
-  test('upsell without its own webhook inherits the parent offer webhook', async () => {
-    const f = setup(
-      { emailBody: 'x' },
-      {
-        items: [
-          {
-            role: 'UPSELL',
-            offerId: 'offer-1',
-            title: 'Up',
-            amountCents: 5000,
-          },
-        ],
-        snapshotExtra: { parentChargeId: 'parent' },
-        parent: { offer: { fulfillment: full } },
-      },
-    );
-    await f.service.deliver({ transactionId: 'tx-1', kind: 'PAID' });
-    expect(f.posts).toHaveLength(1);
-    expect(f.posts[0].body.planName).toBe('Up');
   });
 
   test('without fulfillment nothing is sent', async () => {
     const f = setup(null);
     await f.service.deliver({ transactionId: 'tx-1', kind: 'PAID' });
     expect(f.emails).toHaveLength(0);
-    expect(f.posts).toHaveLength(0);
   });
 });
 

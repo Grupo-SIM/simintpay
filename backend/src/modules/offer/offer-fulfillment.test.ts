@@ -27,7 +27,6 @@ describe('parseOfferFulfillment', () => {
         },
       ],
       emailBody: ' hi ',
-      webhookUrl: 'https://hooks.example.com/x',
       redirectUrl: 'https://example.com/ok',
       communityId: 'c1',
       bumps: [
@@ -77,7 +76,7 @@ describe('parseOfferFulfillment', () => {
     ).toContain('repetida');
   });
 
-  test('webhook and redirect URLs are SSRF-checked', () => {
+  test('redirect URLs are SSRF-checked', () => {
     for (const url of [
       'http://localhost/x',
       'http://127.0.0.1/x',
@@ -90,7 +89,7 @@ describe('parseOfferFulfillment', () => {
       'http://intranet/x',
       'not a url',
     ])
-      expect(issues({ webhookUrl: url })).toContain('webhookUrl');
+      expect(issues({ redirectUrl: url })).toContain('redirectUrl');
     expect(issues({ redirectUrl: 'http://192.168.1.1' })).toContain(
       'redirectUrl',
     );
@@ -101,7 +100,7 @@ describe('parseOfferFulfillment', () => {
 
   test('stored invalid JSON reads as empty instead of throwing', () => {
     expect(
-      readOfferFulfillment({ webhookUrl: 'http://localhost' }).webhookUrl,
+      readOfferFulfillment({ redirectUrl: 'http://localhost' }).redirectUrl,
     ).toBeNull();
   });
 });

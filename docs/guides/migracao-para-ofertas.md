@@ -127,7 +127,7 @@ Um valor abaixo de R$ 14,99 só gera aviso, não bloqueio.
 - **Taxas por link:** as ofertas **ignoram** as taxas individuais do link (parcelas, cashback, débito) e usam a política financeira. O script avisa com `FEE_OVERRIDE_NOT_CARRIED` quando o link tinha uma taxa diferente do padrão. Confira esses links antes de migrar.
 - **AREAFLIX:** o checkout de oferta aplica a mesma regra de líquido do link AREAFLIX.
 - **Coprodução:** o acordo existente é preservado. Uma oferta migrada continua lendo o acordo do produto original.
-- **Entrega:** o webhook de compra aprovada e estornada, o redirect e o e-mail são copiados. Webhooks para endereço de rede interna são recusados por segurança.
+- **Entrega:** o redirect e o e-mail são copiados; URLs para endereço de rede interna são recusadas por segurança. O webhook do link legado não é migrado: a oferta não tem webhook próprio, só o da plataforma.
 - **Histórico:** as vendas antigas continuam ligadas ao produto legado e aparecem nos relatórios como hoje. As vendas novas vêm da oferta.
 
 ## 7. Se algo der errado
