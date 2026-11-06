@@ -43,13 +43,8 @@ export function ProductPlatformSelect({
   }
   return (
     <div className="space-y-2">
-      {catalog.user?.isAdmin && !disabled && (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Destino financeiro obrigatório: selecione um titular ou uma
-          plataforma.
-        </p>
-      )}
       <Dropdown
+        label="Plataforma"
         theme={theme}
         variant="navbar"
         portal

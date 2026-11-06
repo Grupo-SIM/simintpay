@@ -22,20 +22,22 @@ export function ProductPlatformSection(props: Props) {
             *
           </span>
         </p>
-        {props.catalog.user?.isAdmin && !props.value && (
-          <PlatformOwnerSelect
-            owner={props.catalog.financialOwner}
-            disabled={false}
-            onChange={props.catalog.setFinancialOwner}
+        <div className="grid items-start gap-4 md:grid-cols-2">
+          {props.catalog.user?.isAdmin && !props.value && (
+            <PlatformOwnerSelect
+              owner={props.catalog.financialOwner}
+              disabled={false}
+              onChange={props.catalog.setFinancialOwner}
+            />
+          )}
+          <ProductPlatformSelect
+            {...props}
+            onChange={(tag) => {
+              props.catalog.setFinancialOwner(null);
+              props.onChange(tag);
+            }}
           />
-        )}
-        <ProductPlatformSelect
-          {...props}
-          onChange={(tag) => {
-            props.catalog.setFinancialOwner(null);
-            props.onChange(tag);
-          }}
-        />
+        </div>
       </div>
     </ProductFormSection>
   );

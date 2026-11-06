@@ -3,6 +3,7 @@
 import { PaymentLinkPreviewModal } from '../../links-pagamento/criar/components/PaymentLinkPreviewModal';
 import { Button } from '@/components/ui/Button';
 import { useState } from 'react';
+import { ChevronDown, Eye } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Dropdown } from '@/components/ui/Dropdown';
@@ -176,14 +177,22 @@ function FormBody({
   const title = id ? 'Editar oferta' : 'Criar oferta';
   return (
     <ProductFormLayout path={listHref} listTitle="Ofertas" title={title}>
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button
           type="button"
           variant="outline"
           onClick={() => setPreviewOpen(true)}
         >
-          Pré-visualizar checkout
+          <Eye aria-hidden className="h-4 w-4" />
+          Pré-visualizar
         </Button>
+        <CoproductionButton
+          product="ofertas"
+          productId={id}
+          draft={coproduction.participants}
+          onDraftChange={coproduction.setParticipants}
+          disabled={save.isPending}
+        />
       </div>
       {previewOpen && (
         <PaymentLinkPreviewModal
@@ -425,6 +434,15 @@ function FormBody({
         )}
       </ProductFormSection>
 
+      <OfferBumpsSection
+        bumps={form.bumps}
+        selfId={id}
+        ownerUserId={user?.isAdmin ? offer?.ownerUserId : undefined}
+        theme={theme}
+        onChange={(bumps) => patch({ bumps })}
+        onError={fail}
+      />
+
       <ProductFormSection title="Validade e limites">
         <div className="grid gap-4 md:grid-cols-3">
           <Input
@@ -456,37 +474,44 @@ function FormBody({
         </div>
       </ProductFormSection>
 
-      <ProductFormSection title="Entrega">
-        <div className="grid gap-4">
-          <Input
-            label="URL de redirecionamento após o pagamento"
-            theme={theme}
-            variant="navbar"
-            placeholder="https://seusite.com/obrigado"
-            value={form.redirectUrl}
-            onChange={(redirectUrl) => patch({ redirectUrl })}
+      <details className="group rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-white/10 dark:bg-white/5">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5 [&::-webkit-details-marker]:hidden">
+          <span>
+            <span className="block text-base font-semibold text-zinc-900 dark:text-zinc-100">
+              Entrega
+            </span>
+            <span className="mt-1 block text-sm text-zinc-500 dark:text-zinc-400">
+              Configure o redirecionamento e o e-mail enviados após o pagamento.
+            </span>
+          </span>
+          <ChevronDown
+            aria-hidden
+            className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180"
           />
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Mensagem do e-mail de entrega
-            <textarea
-              name="offer-email-body"
-              className={textareaClass}
-              placeholder="Texto enviado ao comprador depois de pago"
-              value={form.emailBody}
-              onChange={(event) => patch({ emailBody: event.target.value })}
+        </summary>
+        <div className="px-5 pb-5">
+          <div className="grid gap-4">
+            <Input
+              label="URL de redirecionamento após o pagamento"
+              theme={theme}
+              variant="navbar"
+              placeholder="https://seusite.com/obrigado"
+              value={form.redirectUrl}
+              onChange={(redirectUrl) => patch({ redirectUrl })}
             />
-          </label>
+            <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              Mensagem do e-mail de entrega
+              <textarea
+                name="offer-email-body"
+                className={textareaClass}
+                placeholder="Texto enviado ao comprador depois de pago"
+                value={form.emailBody}
+                onChange={(event) => patch({ emailBody: event.target.value })}
+              />
+            </label>
+          </div>
         </div>
-      </ProductFormSection>
-
-      <OfferBumpsSection
-        bumps={form.bumps}
-        selfId={id}
-        ownerUserId={user?.isAdmin ? offer?.ownerUserId : undefined}
-        theme={theme}
-        onChange={(bumps) => patch({ bumps })}
-        onError={fail}
-      />
+      </details>
 
       {hasBoleto(form) && (
         <ProductFormSection title="Boleto">
@@ -512,21 +537,6 @@ function FormBody({
           </p>
         </ProductFormSection>
       )}
-
-      <ProductFormSection title="Coprodução">
-        <CoproductionButton
-          product="ofertas"
-          productId={id}
-          draft={coproduction.participants}
-          onDraftChange={coproduction.setParticipants}
-          disabled={save.isPending}
-        />
-        {!id && (
-          <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-            As participações são gravadas logo depois que a oferta é criada.
-          </p>
-        )}
-      </ProductFormSection>
 
       <ProductFormActions
         path={listHref}
