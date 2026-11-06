@@ -41,6 +41,19 @@ Para cada ordem:
 4. **Não toque na `SubscriptionLinkOrder`.** Ela continua sendo a origem do acesso até a verificação.
 5. **Renovação:** em 20/10/2027 o ciclo vence, o job cria a cobrança e emite o evento `CHARGE_DUE`; o comprador paga por PIX. Enquanto o comprador não pagar, vale a carência da oferta (`graceDays`) e depois o contrato suspende.
 
+**Script:** os passos 2 e 3 (contrato e cobrança já paga) são feitos por `backend/scripts/offer-contract-migration.ts`, com a lógica em `backend/scripts/sql/migrate-paid-subscription-orders.sql`. Ele só lê ordens `paid` + `PIX` + sem `domSubscriptionId`, ligadas à `Transaction` `COMPLETED`, e só grava `BillingContract` e `Charge`. Nunca cria `Offer` (ordem sem oferta é pulada e listada), nunca toca carteira, `BalanceLog`, `Transaction`, `CoproductionAllocation` nem a ordem, e aborta a transação se algum deles mudar. O início do período é a data em que a `Transaction` virou `COMPLETED` (histórico de status; na falta, `updatedAt`). É idempotente: rodar de novo não muda nada. Só use `--database-url` explícito (`.env` e `DATABASE_URL` nunca são lidos), a partir de `backend/`:
+
+```bash
+# 1. simulação (padrão): executa tudo, imprime as contagens e desfaz (ROLLBACK)
+bun --no-env-file scripts/offer-contract-migration.ts --database-url=postgresql://...
+# 2. gravar
+bun --no-env-file scripts/offer-contract-migration.ts --database-url=... --apply --i-understand-this-writes
+# 3. conferir (somente leitura); sai com código 1 se algo não bater
+bun --no-env-file scripts/offer-contract-migration.ts --database-url=... --verify
+```
+
+Motivos de pulo mostrados na simulação: `OFFER_MISSING`, `NO_SETTLED_TRANSACTION`, `OFFER_WITHOUT_INTERVAL`, `AMOUNT_MISMATCH`, `AMOUNT_NOT_WHOLE_CENTS`, `ALREADY_MIGRATED`, `DUPLICATE_CONTRACT_KEY` (mesmo e-mail e oferta: vale o pagamento mais antigo) e `CONTRACT_KEY_TAKEN`. Período já vencido vira `SUSPENDED` com `accessEndsAt`; vigente vira `ACTIVE` com `nextChargeAt`. Teste: `backend/tests/offer-contract-migration.integration.test.ts` (variável `OFFER_CONTRACT_MIGRATION_TEST_DATABASE_URL`, só `127.0.0.1`).
+
 **Pré-requisito de código (ainda não feito):** hoje a oferta de assinatura é `AUTO_CHARGE`. Um contrato **sem cartão salvo** nessa oferta é tratado pelo executor como cobrança falha e suspenderia o comprador. Antes de migrar, o ciclo precisa decidir o modo **por contrato**: com cartão salvo, cobra; sem cartão, emite `CHARGE_DUE` como `MANUAL_PAY`.
 
 **Lembrete ao comprador:** o `ExpirationReminderCron` atual não olha `BillingContract`. Sem um aviso antes do vencimento, o comprador só descobre no dia do `CHARGE_DUE`. Inclua um lembrete (por exemplo 30 e 7 dias antes) antes de migrar contratos anuais.
