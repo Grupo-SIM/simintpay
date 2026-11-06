@@ -1,5 +1,10 @@
 import type { BillingContract, Charge, Offer, Prisma } from '@prisma/client';
-import { onCycleFailed, onCyclePaid, type CycleSchedule } from './cycle-policy';
+import {
+  advanceInterval,
+  onCycleFailed,
+  onCyclePaid,
+  type CycleSchedule,
+} from './cycle-policy';
 
 export function scheduleOf(
   offer: Offer,
@@ -14,6 +19,14 @@ export function scheduleOf(
   };
 }
 
+/** True for the Charge that reactivates a suspended/lapsed contract (snapshot flag `reactivation`). */
+export function isReactivationCharge(
+  charge: Pick<Charge, 'snapshot'>,
+): boolean {
+  const s = charge.snapshot as Record<string, unknown> | null;
+  return !!s && typeof s === 'object' && s.reactivation === true;
+}
+
 /**
  * Moves the contract schedule after a charge was claimed PENDING->PAID/FAILED/EXPIRED.
  * Caller owns the transaction and must only call this for the claim winner. A contract that
@@ -21,7 +34,7 @@ export function scheduleOf(
  */
 export async function advanceContractForCharge(
   tx: Prisma.TransactionClient,
-  charge: Pick<Charge, 'contractId'>,
+  charge: Pick<Charge, 'contractId' | 'snapshot'>,
   outcome: 'PAID' | 'FAILED',
   now: Date,
 ): Promise<void> {
@@ -40,6 +53,37 @@ export async function advanceContractForCharge(
   const paidCycles = await tx.charge.count({
     where: { contractId: contract.id, status: 'PAID' },
   });
+  if (isReactivationCharge(charge)) {
+    // A failed/expired reactivation leaves the suspended contract exactly as it was.
+    if (outcome !== 'PAID') return;
+    // The new period starts when the buyer paid (not at the old period end) and counts as a
+    // paid cycle for `repetitions`.
+    const end = advanceInterval(
+      now,
+      schedule.intervalType,
+      schedule.intervalCount,
+    );
+    const finished =
+      schedule.repetitions != null &&
+      schedule.repetitions > 0 &&
+      paidCycles >= schedule.repetitions;
+    await tx.billingContract.update({
+      where: { id: contract.id },
+      data: {
+        status: finished ? 'INACTIVE' : 'ACTIVE',
+        currentPeriodStart: now,
+        currentPeriodEnd: end,
+        nextChargeAt: finished ? null : end,
+        pastDueAt: null,
+        suspendedAt: null,
+        graceEndsAt: null,
+        accessEndsAt: null,
+        retryCount: 0,
+        version: { increment: 1 },
+      },
+    });
+    return;
+  }
   if (
     outcome === 'FAILED' &&
     contract.status === 'INACTIVE' &&

@@ -58,6 +58,11 @@ export class ChargeReconciler {
       take: 200,
     });
     for (const charge of pending) {
+      // Cycles paid by the buyer (PIX link) and reactivations are settled by the payment
+      // webhook, never by asking the card acquirer: its NOT_FOUND must not fail them.
+      const snapshot = charge.snapshot as Record<string, unknown> | null;
+      if (snapshot?.buyerPaid === true || snapshot?.reactivation === true)
+        continue;
       result.checked++;
       const ageMs = now.getTime() - (charge.dueAt ?? now).getTime();
       let found: ChargeLookupResult;

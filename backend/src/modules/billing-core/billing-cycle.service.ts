@@ -272,7 +272,10 @@ export class BillingCycleService {
             ownerUserId: contract.userId,
             amountCents: Math.round(quote.totalAmount * 100),
             method: quote.method,
-            snapshot: frozenQuoteSnapshot(quote, now),
+            snapshot: {
+              ...(frozenQuoteSnapshot(quote, now) as Record<string, unknown>),
+              ...(mode === 'MANUAL_PAY' ? { buyerPaid: true } : {}),
+            } as Prisma.InputJsonValue,
             currency: contract.offer.currency,
             dueAt: now,
             periodStart: contract.currentPeriodEnd,
@@ -346,8 +349,18 @@ export class BillingCycleService {
     const charge = await this.prisma.charge.findUnique({
       where: { contractId_cycleKey: { contractId: contract.id, cycleKey } },
     });
-    if (charge?.status === 'PENDING')
-      await this.emitCharge(contract.id, charge);
+    if (charge?.status !== 'PENDING') return;
+    // One reminder per charge: attempts also grow when the buyer asks for a new PIX (renewal
+    // flow), which must not send another CHARGE_DUE.
+    const sent = await this.prisma.billingContractEvent.findFirst({
+      where: {
+        contractId: contract.id,
+        type: 'CHARGE_DUE',
+        eventKey: { startsWith: `charge-due:${charge.id}:` },
+      },
+      select: { id: true },
+    });
+    if (!sent) await this.emitCharge(contract.id, charge);
   }
 
   private async expireIfOverdue(
