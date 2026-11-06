@@ -12,7 +12,7 @@ export function ProtectedPill({ compact }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2 rounded-full border border-white/[0.13] bg-white/[0.07] px-4 py-2.5 text-sm text-[#d9d4e3] backdrop-blur-[20px]">
       <Lock className="h-4 w-4 text-[#f6b67a]" strokeWidth={2} />
-      Pagamento protegido
+      Pagamento 100% seguro
     </div>
   );
 }

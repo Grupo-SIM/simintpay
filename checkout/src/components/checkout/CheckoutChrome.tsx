@@ -2,7 +2,7 @@
 
 import { Logo, ProtectedPill } from '@/components/checkout/ui';
 
-/** Cabeçalho do "Checkout Novo": logo SimPay + selo "Pagamento protegido". */
+/** Cabeçalho do "Checkout Novo": logo SimPay + selo "Pagamento 100% seguro". */
 export function CheckoutHeader() {
   return (
     <header className="mx-auto flex w-full max-w-[480px] items-center justify-between gap-4 px-5 pt-4 lg:max-w-[1280px] lg:px-12 lg:pt-7">

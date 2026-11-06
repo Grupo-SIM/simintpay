@@ -11,18 +11,18 @@ Implementação do design **"Checkout Novo"** (mobile, 390px) e **"Checkout Novo
 
 Os componentes em `src/components/checkout/` foram redesenhados com os tokens deste documento. Por isso a mudança chega a todos os checkouts sem mexer em lógica.
 
-| Componente                                  | Visual novo                                                                                                                                                             |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.checkout-page-bg` (globals.css)           | Fundo `#07060b` com gradientes cobre e lilás (variações mobile e desktop) e fonte Outfit.                                                                               |
-| `CheckoutMain`                              | Header (logo SimPay + selo "Pagamento protegido"). Desktop: formulário à esquerda e resumo de 400px fixo à direita. Mobile: coluna de até 480px, com o resumo primeiro. |
-| `CheckoutBrandingRow`                       | Logo do cliente (ex.: `/1.svg` do creditCardForm) à esquerda + selo à direita. Se o checkout não usa esse componente, o `CheckoutMain` mostra o logo SimPay.            |
-| `CheckoutUiCard`                            | Vidro com raio 28. Título 19px sem caixa alta. Variantes `danger` e `success` na paleta nova.                                                                           |
-| `CheckoutGlassField` / `CheckoutGlassInput` | Label `#b8b2c6`, asterisco laranja, campo `.sp2-input` (52px, raio 16, foco laranja) e prefixo `+55` com divisória.                                                     |
-| `CheckoutAccordionSection`                  | Seção com raio 22, ícone laranja dentro de círculo e título 17px.                                                                                                       |
-| `CheckoutStatusCard`                        | Checklist com bolinha em gradiente (ok) ou cinza (pendente). Em caso de erro, caixa vermelha no estilo da tela 3d.                                                      |
-| `CheckoutSummaryTrustPanel`                 | Selos "Conexão criptografada…" e "Dados tratados conforme a LGPD".                                                                                                      |
-| `CheckoutSummaryBranding`                   | Não renderiza mais nada: a marca foi para o header.                                                                                                                     |
-| `CheckoutFooter`                            | "Processado por Simintpay".                                                                                                                                             |
+| Componente                                  | Visual novo                                                                                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.checkout-page-bg` (globals.css)           | Fundo `#07060b` com gradientes cobre e lilás (variações mobile e desktop) e fonte Outfit.                                                                                 |
+| `CheckoutMain`                              | Header (logo SimPay + selo "Pagamento 100% seguro"). Desktop: formulário à esquerda e resumo de 400px fixo à direita. Mobile: coluna de até 480px, com o resumo primeiro. |
+| `CheckoutBrandingRow`                       | Logo do cliente (ex.: `/1.svg` do creditCardForm) à esquerda + selo à direita. Se o checkout não usa esse componente, o `CheckoutMain` mostra o logo SimPay.              |
+| `CheckoutUiCard`                            | Vidro com raio 28. Título 19px sem caixa alta. Variantes `danger` e `success` na paleta nova.                                                                             |
+| `CheckoutGlassField` / `CheckoutGlassInput` | Label `#b8b2c6`, asterisco laranja, campo `.sp2-input` (52px, raio 16, foco laranja) e prefixo `+55` com divisória.                                                       |
+| `CheckoutAccordionSection`                  | Seção com raio 22, ícone laranja dentro de círculo e título 17px.                                                                                                         |
+| `CheckoutStatusCard`                        | Checklist com bolinha em gradiente (ok) ou cinza (pendente). Em caso de erro, caixa vermelha no estilo da tela 3d.                                                        |
+| `CheckoutSummaryTrustPanel`                 | Selos "Conexão criptografada…" e "Dados tratados conforme a LGPD".                                                                                                        |
+| `CheckoutSummaryBranding`                   | Não renderiza mais nada: a marca foi para o header.                                                                                                                       |
+| `CheckoutFooter`                            | "Processado por Simintpay".                                                                                                                                               |
 
 Nas classes fixas dos 5 checkouts, só os tokens de cor e forma foram trocados (script de substituição restrito a strings de classe, sem alterar lógica):
 

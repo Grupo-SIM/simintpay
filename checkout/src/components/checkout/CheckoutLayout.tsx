@@ -33,7 +33,7 @@ export function CheckoutMain({ children }: { children: ReactNode }) {
   );
 }
 
-/** Header: logo (ou marca do cliente) à esquerda + selo "Pagamento protegido" à direita. */
+/** Header: logo (ou marca do cliente) à esquerda + selo "Pagamento 100% seguro" à direita. */
 export function CheckoutBrandingRow({ children }: { children: ReactNode }) {
   return (
     <div className="flex w-full items-center justify-between gap-4 lg:col-span-2 lg:mb-1">
