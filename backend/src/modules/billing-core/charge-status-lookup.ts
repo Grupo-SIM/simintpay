@@ -21,11 +21,9 @@ export interface ChargeStatusLookup {
   find(chargeId: string, attempts: number): Promise<ChargeLookupResult>;
 }
 
-/** Transactions per page requested from DOM. */
-export const LOOKUP_PAGE_SIZE = 100;
-/** Hard cap on pages scanned per lookup (never loop unbounded): at most 10 x 100 transactions. */
+/** Hard cap on pages scanned per lookup (never loop unbounded). */
 export const LOOKUP_MAX_PAGES = 10;
-/** Lookback window. An attempt older than this cannot be searched, so the answer is UNKNOWN. */
+/** Lookback window. An attempt older than this cannot be fully searched. */
 export const LOOKUP_WINDOW_DAYS = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -34,14 +32,22 @@ function ymd(date: Date): string {
 }
 
 /**
- * DOM implementation. DOM's `GET /transactions` has no documented `cod_external` filter, so it
- * pages through the owner's recent transactions (`begin_date` = day before the attempt, i.e.
- * the charge's last update, through today) and matches `cod_external` locally against
- * `cycle:<chargeId>:<attempts>`. Status mapping is the executor's `outcomeFromGatewayStatus`.
+ * DOM implementation. DOM's `GET /transactions` has no documented `cod_external` filter and no
+ * page-size request parameter, so it pages through the owner's transactions created in the
+ * window (`type_date=created`, `begin_date` = day before the charge was created, through
+ * tomorrow) and matches `cod_external` locally against `cycle:<chargeId>:<attempts>`. Page size
+ * and total come from the RESPONSE (`per_page`, `total`). Status mapping is the executor's
+ * `outcomeFromGatewayStatus`.
  *
- * NOT_FOUND is only returned when the whole window was scanned (a short page ended the
- * listing). Any API error, the page cap, a window older than LOOKUP_WINDOW_DAYS, a missing
- * token or a non-DOM acquirer is UNKNOWN, never NOT_FOUND.
+ * `created` (not `updated`) is used because a transaction's creation date is fixed by the
+ * attempt, while an `updated` window shifts whenever DOM touches the transaction. The charge's
+ * creation date is a lower bound for every attempt; if it is older than LOOKUP_WINDOW_DAYS the
+ * window is truncated to the last LOOKUP_WINDOW_DAYS days: a match is still reported, but a miss
+ * is UNKNOWN because earlier transactions were not scanned.
+ *
+ * NOT_FOUND is only returned when the whole window was scanned and the response's own
+ * `total`/`per_page` say so. Any API error, anomaly (missing or inconsistent total/per_page),
+ * the page cap, a missing token or a non-DOM acquirer is UNKNOWN, never NOT_FOUND.
  */
 @Injectable()
 export class DomChargeStatusLookup implements ChargeStatusLookup {
@@ -61,7 +67,7 @@ export class DomChargeStatusLookup implements ChargeStatusLookup {
       const charge = await this.prisma.charge.findUnique({
         where: { id: chargeId },
         select: {
-          updatedAt: true,
+          createdAt: true,
           contract: { select: { acquirer: true, userId: true } },
         },
       });
@@ -75,9 +81,11 @@ export class DomChargeStatusLookup implements ChargeStatusLookup {
       );
       if (!token) return 'UNKNOWN';
 
-      const begin = new Date(charge.updatedAt.getTime() - DAY_MS);
-      if (begin.getTime() < now.getTime() - LOOKUP_WINDOW_DAYS * DAY_MS)
-        return 'UNKNOWN';
+      const idealBegin = charge.createdAt.getTime() - DAY_MS;
+      const windowStart = now.getTime() - LOOKUP_WINDOW_DAYS * DAY_MS;
+      const truncated = idealBegin < windowStart;
+      const begin = new Date(truncated ? windowStart : idealBegin);
+      const exhausted: ChargeLookupResult = truncated ? 'UNKNOWN' : 'NOT_FOUND';
 
       const key = StoredCardCycleExecutor.idempotencyKey({
         id: chargeId,
@@ -85,15 +93,43 @@ export class DomChargeStatusLookup implements ChargeStatusLookup {
       });
       const gateway = this.gateways.byAcquirer(Acquirer.DOM);
       for (let page = 1; page <= LOOKUP_MAX_PAGES; page++) {
-        const { transactions } = await gateway.listDomTransactions(token, {
+        const result = await gateway.listDomTransactions(token, {
           page,
-          limit: LOOKUP_PAGE_SIZE,
           begin_date: ymd(begin),
           end_date: ymd(new Date(now.getTime() + DAY_MS)),
+          type_date: 'created',
         });
+        const { transactions } = result;
         const match = transactions.find((tx) => tx.cod_external === key);
         if (match) return outcomeFromGatewayStatus(match.status ?? '');
-        if (transactions.length < LOOKUP_PAGE_SIZE) return 'NOT_FOUND';
+
+        const perPage = result.per_page;
+        const total = result.reported_total;
+        if (typeof total !== 'number' || total < 0) {
+          return this.anomaly(chargeId, 'resposta sem total');
+        }
+        if (transactions.length === 0) {
+          // An empty page ends the listing only if the total agrees nothing is left.
+          const pending =
+            typeof perPage === 'number' && perPage > 0
+              ? (page - 1) * perPage < total
+              : page === 1 && total > 0;
+          return pending
+            ? this.anomaly(chargeId, 'página vazia com total pendente')
+            : exhausted;
+        }
+        if (typeof perPage !== 'number' || !(perPage > 0)) {
+          return this.anomaly(chargeId, 'resposta sem per_page');
+        }
+        if (page * perPage >= total) {
+          // Last page: it must hold exactly what the total says is left.
+          return transactions.length === total - (page - 1) * perPage
+            ? exhausted
+            : this.anomaly(chargeId, 'total inconsistente com a página');
+        }
+        if (transactions.length !== perPage) {
+          return this.anomaly(chargeId, 'página curta com total pendente');
+        }
       }
       this.logger.warn(
         `Cobrança ${chargeId}: ${LOOKUP_MAX_PAGES} páginas da DOM sem encontrar ${key}; mantida UNKNOWN`,
@@ -105,5 +141,12 @@ export class DomChargeStatusLookup implements ChargeStatusLookup {
       );
       return 'UNKNOWN';
     }
+  }
+
+  private anomaly(chargeId: string, reason: string): ChargeLookupResult {
+    this.logger.warn(
+      `Cobrança ${chargeId}: listagem DOM anômala (${reason}); UNKNOWN`,
+    );
+    return 'UNKNOWN';
   }
 }

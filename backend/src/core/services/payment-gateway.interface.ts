@@ -247,6 +247,12 @@ export type DomListTransactionsOutput = {
   transactions: DomTransactionItem[];
   total?: number;
   last_page?: number;
+  /** `total` exactly as the response reported it (undefined when absent), unlike `total`'s fallback. */
+  reported_total?: number;
+  /** Page size the API actually used (response `per_page`); not configurable by the caller. */
+  per_page?: number;
+  /** Page the API says it returned (response `page`). */
+  page?: number;
 };
 
 export interface IPaymentGateway {
@@ -382,11 +388,14 @@ export interface IPaymentGateway {
     domToken: string,
     input: {
       page: number;
-      limit: number;
+      /** Legacy; DOM documents no page-size parameter (per_page is response-only). */
+      limit?: number;
       status?: string;
       payment_method?: string;
       begin_date?: string;
       end_date?: string;
+      /** Which date begin_date/end_date filter on (DOM default: created). */
+      type_date?: 'created' | 'updated';
     },
   ): Promise<DomListTransactionsOutput>;
 

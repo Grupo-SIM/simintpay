@@ -1373,19 +1373,23 @@ export class ApiDomClient implements IPaymentGateway {
     domToken: string,
     input: {
       page: number;
-      limit: number;
+      /** Legacy; DOM documents no page-size parameter, sent only when a caller still passes it. */
+      limit?: number;
       status?: string;
       payment_method?: string;
       begin_date?: string;
       end_date?: string;
+      /** Which date begin_date/end_date filter on (DOM default: created). */
+      type_date?: 'created' | 'updated';
     },
   ): Promise<DomListTransactionsOutput> {
     const url = `${this.domRealApiUrl}/transactions`;
 
     const params: any = {
-      limit: input.limit,
       page: input.page,
     };
+    if (input.limit !== undefined) params.limit = input.limit;
+    if (input.type_date) params.type_date = input.type_date;
     if (input.status) params.status = input.status;
     if (input.payment_method) params.payment_method = input.payment_method;
     if (input.begin_date) params.begin_date = input.begin_date;
@@ -1510,6 +1514,9 @@ export class ApiDomClient implements IPaymentGateway {
       return {
         transactions,
         total: this.pickNumber(root, 'total') ?? transactions.length,
+        reported_total: this.pickNumber(root, 'total') ?? undefined,
+        per_page: this.pickNumber(root, 'per_page') ?? undefined,
+        page: this.pickNumber(root, 'page') ?? undefined,
       };
     } catch (error: any) {
       this.logger.error(
