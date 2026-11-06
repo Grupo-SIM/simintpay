@@ -11,6 +11,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -153,6 +154,22 @@ export class CreateOfferDto extends OmitType(UpdateOfferDto, [
   platformTag?: string;
 }
 
+export const OFFER_LIST_STATUSES = [
+  'ACTIVE',
+  'INACTIVE',
+  'EXHAUSTED',
+  'EXPIRED',
+] as const;
+export const OFFER_LIST_SORTS = [
+  'newest',
+  'oldest',
+  'name',
+  'amountAsc',
+  'amountDesc',
+] as const;
+export const OFFER_LIST_MAX_PAGE_SIZE = 100;
+export const OFFER_LIST_DEFAULT_PAGE_SIZE = 20;
+
 export class ListOffersQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -163,6 +180,60 @@ export class ListOffersQueryDto {
   @IsOptional()
   @IsIn(KINDS)
   kind?: (typeof KINDS)[number];
+
+  @ApiPropertyOptional({ description: 'Busca por nome ou código' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  search?: string;
+
+  @ApiPropertyOptional({
+    enum: OFFER_LIST_STATUSES,
+    description:
+      'ACTIVE: vendável; INACTIVE: desativada; EXPIRED: ativa porém vencida; EXHAUSTED: ativa e com limite de usos atingido',
+  })
+  @IsOptional()
+  @IsIn(OFFER_LIST_STATUSES)
+  status?: (typeof OFFER_LIST_STATUSES)[number];
+
+  @ApiPropertyOptional({ description: 'Tag da plataforma' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  platformTag?: string;
+
+  @ApiPropertyOptional({ enum: METHODS, description: 'Meio aceito' })
+  @IsOptional()
+  @IsIn(METHODS)
+  paymentMethod?: (typeof METHODS)[number];
+
+  @ApiPropertyOptional({ enum: RENEWALS, description: 'Recorrência' })
+  @IsOptional()
+  @IsIn(RENEWALS)
+  renewalMode?: (typeof RENEWALS)[number];
+
+  @ApiPropertyOptional({ enum: OFFER_LIST_SORTS, default: 'newest' })
+  @IsOptional()
+  @IsIn(OFFER_LIST_SORTS)
+  sort?: (typeof OFFER_LIST_SORTS)[number];
+
+  @ApiPropertyOptional({
+    description:
+      'Quando `page` ou `pageSize` é informado a resposta vira { data, meta }; sem eles continua sendo a lista completa',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ default: OFFER_LIST_DEFAULT_PAGE_SIZE })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(OFFER_LIST_MAX_PAGE_SIZE)
+  pageSize?: number;
 }
 
 /** Dados do cartão enviados pelo checkout (mesmo formato do link de pagamento). */

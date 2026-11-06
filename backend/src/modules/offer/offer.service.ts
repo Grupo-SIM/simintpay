@@ -18,6 +18,11 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { getModuleAcquirer } from '../module.registry';
 import { generateOfferCode } from './offer-code';
 import {
+  buildOfferListOrder,
+  buildOfferListWhere,
+  offerListPaging,
+} from './offer-list';
+import {
   OfferFulfillmentError,
   parseOfferFulfillment,
   readOfferFulfillment,
@@ -205,13 +210,36 @@ export class OfferService {
     const isAdmin = actor.role === 'ADMIN';
     if (!isAdmin && query.ownerUserId && query.ownerUserId !== actor.id)
       throw new ForbiddenException('Titular não autorizado');
-    return this.prisma.offer.findMany({
-      where: {
-        ownerUserId: isAdmin ? query.ownerUserId : actor.id,
-        kind: query.kind,
+    const where = buildOfferListWhere(
+      { ownerUserId: isAdmin ? query.ownerUserId : actor.id },
+      query,
+      {
+        usedCount: this.prisma.offer.fields.usedCount,
+        maxUses: this.prisma.offer.fields.maxUses,
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    );
+    const orderBy = buildOfferListOrder(query.sort);
+    const paging = offerListPaging(query);
+    // Sem page/pageSize a resposta segue sendo a lista completa (compatibilidade).
+    if (!paging) return this.prisma.offer.findMany({ where, orderBy });
+    const [data, total] = await Promise.all([
+      this.prisma.offer.findMany({
+        where,
+        orderBy,
+        skip: paging.skip,
+        take: paging.pageSize,
+      }),
+      this.prisma.offer.count({ where }),
+    ]);
+    return {
+      data,
+      meta: {
+        page: paging.page,
+        pageSize: paging.pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / paging.pageSize)),
+      },
+    };
   }
 
   async deactivate(actor: OfferActor, id: string): Promise<Offer> {
