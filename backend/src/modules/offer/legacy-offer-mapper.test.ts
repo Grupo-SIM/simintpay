@@ -263,3 +263,104 @@ test('Boleto maps to BOLETO with no renewal', () => {
   });
   expect(d.expiresAt?.toISOString()).toBe('2027-01-01T00:00:00.000Z');
 });
+
+test('fulfillment carries only the non-empty webhook, redirect and email body', () => {
+  const d = mapPaymentLink({
+    id: 'f1',
+    userId: 'u',
+    code: 'c',
+    title: 't',
+    amount: '20.00',
+    webhookUrl: ' https://hooks.example.com/purchase_approved ',
+    redirectUrl: '  ',
+    emailBody: 'Obrigado',
+  });
+  expect(d.issues).toEqual([]);
+  expect(d.fulfillment).toEqual({
+    webhookUrl: 'https://hooks.example.com/purchase_approved',
+    emailBody: 'Obrigado',
+  });
+  expect(
+    mapPaymentLink({
+      id: 'f2',
+      userId: 'u',
+      code: 'c',
+      title: 't',
+      amount: '20',
+    }).fulfillment,
+  ).toBeNull();
+  const shared = {
+    id: 'x',
+    userId: 'u',
+    code: 'c',
+    webhookUrl: 'https://hooks.example.com/a',
+    redirectUrl: 'https://example.com/obrigado',
+  };
+  const expected = {
+    webhookUrl: 'https://hooks.example.com/a',
+    redirectUrl: 'https://example.com/obrigado',
+  };
+  expect(
+    mapSubscriptionLink({ ...shared, name: 'n', amount: '20' }).fulfillment,
+  ).toEqual(expected);
+  expect(mapPlan({ ...shared, name: 'n', price: '20' }).fulfillment).toEqual(
+    expected,
+  );
+  expect(
+    mapPixCreditPlan({ ...shared, price: 20, linkCodes: [{ code: 'PX-1' }] })
+      .fulfillment,
+  ).toEqual(expected);
+});
+
+test('an unsafe webhook refuses the draft with the reason instead of dropping it', () => {
+  const d = mapPaymentLink({
+    id: 'f3',
+    userId: 'u',
+    code: 'c',
+    title: 't',
+    amount: '20.00',
+    webhookUrl: 'http://127.0.0.1/hook',
+  });
+  expect(d.issues).toContain('INVALID_FULFILLMENT');
+  expect(d.fulfillment).toBeNull();
+  expect(d.issueDetails.join()).toContain('webhookUrl');
+  const bad = mapPlan({
+    id: 'f4',
+    userId: 'u',
+    code: 'c',
+    name: 'n',
+    price: '20',
+    redirectUrl: 'ftp://example.com',
+  });
+  expect(bad.issues).toContain('INVALID_FULFILLMENT');
+});
+
+test('Boleto carries the due days and requires the buyer address', () => {
+  const ok = mapBoleto({
+    id: 'b1',
+    userId: 'u',
+    code: 'c',
+    title: 't',
+    amount: '150',
+    vencimentoDias: 0,
+    webhookUrl: 'https://hooks.example.com/boleto',
+  });
+  expect(ok.metadata).toEqual({ boletoDueDays: 0, requiresBuyerAddress: true });
+  expect(ok.fulfillment).toEqual({
+    webhookUrl: 'https://hooks.example.com/boleto',
+  });
+  expect(
+    mapBoleto({ id: 'b2', userId: 'u', code: 'c', title: 't', amount: '1' })
+      .metadata,
+  ).toEqual({ boletoDueDays: 3, requiresBuyerAddress: true });
+  const bad = mapBoleto({
+    id: 'b3',
+    userId: 'u',
+    code: 'c',
+    title: 't',
+    amount: '1',
+    vencimentoDias: 91,
+  });
+  expect(bad.issues).toContain('INVALID_BOLETO_DUE_DAYS');
+  expect(bad.metadata).toBeNull();
+});

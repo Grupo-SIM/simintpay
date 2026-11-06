@@ -1,5 +1,9 @@
 import { acceptedMethodList } from '../../application/helpers/accepted-payment-methods.helper';
 import { accessDaysForFrequency } from '../../application/helpers/billing-frequency.helper';
+import {
+  OfferFulfillmentError,
+  parseOfferFulfillment,
+} from './offer-fulfillment';
 
 /**
  * Pure mappers from the five legacy products to `Offer` drafts (plan 0021, phase 4/5).
@@ -36,6 +40,8 @@ export type MoneyInput =
 
 export type OfferDraftIssue =
   | 'INVALID_AMOUNT'
+  | 'INVALID_BOLETO_DUE_DAYS'
+  | 'INVALID_FULFILLMENT'
   | 'MISSING_CODE'
   | 'MISSING_OWNER';
 
@@ -61,11 +67,30 @@ export type OfferDraft = {
   intervalCount: number | null;
   repetitions: number | null;
   retryDays: number | null;
+  /** Non-empty legacy webhookUrl/redirectUrl/emailBody, validated; null when none is set. */
+  fulfillment: OfferDraftFulfillment | null;
+  /** Boleto only: `boletoDueDays` and `requiresBuyerAddress`. */
+  metadata: Record<string, unknown> | null;
   legacyType: LegacyType;
   legacyId: string;
   issues: OfferDraftIssue[];
+  /** Reasons for INVALID_FULFILLMENT / INVALID_BOLETO_DUE_DAYS, never silently dropped. */
+  issueDetails: string[];
   /** Non-blocking observations (e.g. extra legacy codes that were not chosen). */
   notes: string[];
+};
+
+export type OfferDraftFulfillment = {
+  webhookUrl?: string;
+  redirectUrl?: string;
+  emailBody?: string;
+};
+
+/** The three legacy columns that become `Offer.fulfillment`. */
+type FulfillmentSource = {
+  webhookUrl?: string | null;
+  redirectUrl?: string | null;
+  emailBody?: string | null;
 };
 
 /** Exact decimal (up to 2 places, no float arithmetic) to integer cents; null if not exact. */
@@ -120,15 +145,64 @@ const clean = (value?: string | null): string | null => {
 const firstTag = (tags?: string[] | null, fallback?: string | null) =>
   clean(tags?.find((t) => clean(t))) ?? clean(fallback);
 
+/** Builds the validated fulfillment (SSRF checks included) or the reasons it was refused. */
+export function buildFulfillment(source: FulfillmentSource): {
+  fulfillment: OfferDraftFulfillment | null;
+  errors: string[];
+} {
+  const raw: Record<string, string> = {};
+  for (const key of ['webhookUrl', 'redirectUrl', 'emailBody'] as const) {
+    const value = clean(source[key]);
+    if (value) raw[key] = value;
+  }
+  if (!Object.keys(raw).length) return { fulfillment: null, errors: [] };
+  try {
+    const parsed = parseOfferFulfillment(raw);
+    const fulfillment: OfferDraftFulfillment = {};
+    if (parsed.webhookUrl) fulfillment.webhookUrl = parsed.webhookUrl;
+    if (parsed.redirectUrl) fulfillment.redirectUrl = parsed.redirectUrl;
+    if (parsed.emailBody) fulfillment.emailBody = parsed.emailBody;
+    return { fulfillment, errors: [] };
+  } catch (error) {
+    if (error instanceof OfferFulfillmentError)
+      return { fulfillment: null, errors: error.issues };
+    throw error;
+  }
+}
+
+type DraftInput = Omit<
+  OfferDraft,
+  'issues' | 'notes' | 'fulfillment' | 'metadata' | 'issueDetails'
+>;
+
 function finish(
-  draft: Omit<OfferDraft, 'issues' | 'notes'>,
+  draft: DraftInput,
   notes: string[] = [],
+  source: FulfillmentSource = {},
+  extra: {
+    metadata?: Record<string, unknown> | null;
+    issues?: OfferDraftIssue[];
+    details?: string[];
+  } = {},
 ): OfferDraft {
-  const issues: OfferDraftIssue[] = [];
+  const built = buildFulfillment(source);
+  const issues: OfferDraftIssue[] = [...(extra.issues ?? [])];
+  const issueDetails = [...(extra.details ?? [])];
+  if (built.errors.length) {
+    issues.push('INVALID_FULFILLMENT');
+    issueDetails.push(...built.errors.map((e) => `INVALID_FULFILLMENT: ${e}`));
+  }
   if (draft.amountCents === null) issues.push('INVALID_AMOUNT');
   if (!draft.code) issues.push('MISSING_CODE');
   if (!draft.ownerUserId) issues.push('MISSING_OWNER');
-  return { ...draft, issues, notes };
+  return {
+    ...draft,
+    fulfillment: built.fulfillment,
+    metadata: extra.metadata ?? null,
+    issues,
+    issueDetails,
+    notes,
+  };
 }
 
 type Common = {
@@ -155,6 +229,9 @@ export type PaymentLinkRow = Common & {
   maxUses?: number | null;
   currentUses?: number | null;
   plataformas?: string[] | null;
+  webhookUrl?: string | null;
+  redirectUrl?: string | null;
+  emailBody?: string | null;
 };
 
 export function mapPaymentLink(row: PaymentLinkRow): OfferDraft {
@@ -162,29 +239,33 @@ export function mapPaymentLink(row: PaymentLinkRow): OfferDraft {
   if (row.aceitaCartao ?? true) methods.push('CREDIT_CARD');
   if (row.aceitaDebito ?? true) methods.push('DEBIT_CARD');
   if (row.aceitaPix ?? true) methods.push('PIX');
-  return finish({
-    ...owners(row),
-    platformTag: firstTag(row.plataformas),
-    code: clean(row.code),
-    kind: 'PAYMENT_LINK',
-    name: row.title,
-    description: row.description ?? null,
-    amountCents: toCents(row.amount),
-    isActive: row.isActive ?? true,
-    acceptedMethods: methods,
-    maxInstallments: row.maxInstallments ?? 1,
-    expiresAt: row.expiresAt ?? null,
-    maxUses: row.maxUses ?? null,
-    usedCount: row.currentUses ?? 0,
-    accessDays: null,
-    renewalMode: 'NONE',
-    intervalType: null,
-    intervalCount: null,
-    repetitions: null,
-    retryDays: null,
-    legacyType: 'PaymentLink',
-    legacyId: row.id,
-  });
+  return finish(
+    {
+      ...owners(row),
+      platformTag: firstTag(row.plataformas),
+      code: clean(row.code),
+      kind: 'PAYMENT_LINK',
+      name: row.title,
+      description: row.description ?? null,
+      amountCents: toCents(row.amount),
+      isActive: row.isActive ?? true,
+      acceptedMethods: methods,
+      maxInstallments: row.maxInstallments ?? 1,
+      expiresAt: row.expiresAt ?? null,
+      maxUses: row.maxUses ?? null,
+      usedCount: row.currentUses ?? 0,
+      accessDays: null,
+      renewalMode: 'NONE',
+      intervalType: null,
+      intervalCount: null,
+      repetitions: null,
+      retryDays: null,
+      legacyType: 'PaymentLink',
+      legacyId: row.id,
+    },
+    [],
+    row,
+  );
 }
 
 export type SubscriptionLinkRow = Common & {
@@ -199,33 +280,40 @@ export type SubscriptionLinkRow = Common & {
   paymentMethods?: string | null;
   platformTag?: string | null;
   plataformas?: string[] | null;
+  webhookUrl?: string | null;
+  redirectUrl?: string | null;
+  emailBody?: string | null;
 };
 
 export function mapSubscriptionLink(row: SubscriptionLinkRow): OfferDraft {
   const interval = intervalForFrequency(row.frequencyType);
-  return finish({
-    ...owners(row),
-    platformTag: firstTag(row.plataformas, row.platformTag),
-    code: clean(row.code),
-    kind: 'SUBSCRIPTION_LINK',
-    name: row.name,
-    description: row.description ?? null,
-    amountCents: toCents(row.amount),
-    isActive: row.isActive ?? true,
-    acceptedMethods: acceptedMethodList(row.paymentMethods),
-    maxInstallments: 1,
-    expiresAt: null,
-    maxUses: row.maxUses ?? null,
-    usedCount: row.currentUses ?? 0,
-    accessDays: accessDaysForFrequency(row.frequencyType),
-    renewalMode: 'AUTO_CHARGE',
-    intervalType: interval.type,
-    intervalCount: interval.count,
-    repetitions: null,
-    retryDays: null,
-    legacyType: 'SubscriptionLink',
-    legacyId: row.id,
-  });
+  return finish(
+    {
+      ...owners(row),
+      platformTag: firstTag(row.plataformas, row.platformTag),
+      code: clean(row.code),
+      kind: 'SUBSCRIPTION_LINK',
+      name: row.name,
+      description: row.description ?? null,
+      amountCents: toCents(row.amount),
+      isActive: row.isActive ?? true,
+      acceptedMethods: acceptedMethodList(row.paymentMethods),
+      maxInstallments: 1,
+      expiresAt: null,
+      maxUses: row.maxUses ?? null,
+      usedCount: row.currentUses ?? 0,
+      accessDays: accessDaysForFrequency(row.frequencyType),
+      renewalMode: 'AUTO_CHARGE',
+      intervalType: interval.type,
+      intervalCount: interval.count,
+      repetitions: null,
+      retryDays: null,
+      legacyType: 'SubscriptionLink',
+      legacyId: row.id,
+    },
+    [],
+    row,
+  );
 }
 
 export type PlanRow = Common & {
@@ -245,6 +333,9 @@ export type PlanRow = Common & {
   isActive?: boolean | null;
   paymentMethods?: string | null;
   plataformas?: string[] | null;
+  webhookUrl?: string | null;
+  redirectUrl?: string | null;
+  emailBody?: string | null;
 };
 
 export function mapPlan(row: PlanRow): OfferDraft {
@@ -256,29 +347,33 @@ export function mapPlan(row: PlanRow): OfferDraft {
       ? Number(row.frequency)
       : 1;
   const interval = { type: base.type, count: base.count * multiplier };
-  return finish({
-    ...owners(row),
-    platformTag: firstTag(row.plataformas),
-    code: clean(row.code),
-    kind: 'PLAN',
-    name: row.name,
-    description: row.description ?? null,
-    amountCents: toCents(row.price),
-    isActive: row.isActive ?? true,
-    acceptedMethods: acceptedMethodList(row.paymentMethods),
-    maxInstallments: 1,
-    expiresAt: null,
-    maxUses: null,
-    usedCount: 0,
-    accessDays: accessDaysForFrequency(row.type) * multiplier,
-    renewalMode: 'AUTO_CHARGE',
-    intervalType: interval.type,
-    intervalCount: interval.count,
-    repetitions: row.repetitions ?? null,
-    retryDays: row.retryDays ?? null,
-    legacyType: 'Plan',
-    legacyId: row.id,
-  });
+  return finish(
+    {
+      ...owners(row),
+      platformTag: firstTag(row.plataformas),
+      code: clean(row.code),
+      kind: 'PLAN',
+      name: row.name,
+      description: row.description ?? null,
+      amountCents: toCents(row.price),
+      isActive: row.isActive ?? true,
+      acceptedMethods: acceptedMethodList(row.paymentMethods),
+      maxInstallments: 1,
+      expiresAt: null,
+      maxUses: null,
+      usedCount: 0,
+      accessDays: accessDaysForFrequency(row.type) * multiplier,
+      renewalMode: 'AUTO_CHARGE',
+      intervalType: interval.type,
+      intervalCount: interval.count,
+      repetitions: row.repetitions ?? null,
+      retryDays: row.retryDays ?? null,
+      legacyType: 'Plan',
+      legacyId: row.id,
+    },
+    [],
+    row,
+  );
 }
 
 export type PixPlanLinkCodeRow = {
@@ -318,6 +413,9 @@ export type PixCreditPlanRow = Common & {
   description?: string | null;
   status?: string | null;
   tenantTag?: string | null;
+  webhookUrl?: string | null;
+  redirectUrl?: string | null;
+  emailBody?: string | null;
 };
 
 export function mapPixCreditPlan(row: PixCreditPlanRow): OfferDraft {
@@ -348,6 +446,7 @@ export function mapPixCreditPlan(row: PixCreditPlanRow): OfferDraft {
       legacyId: row.id,
     },
     picked.notes,
+    row,
   );
 }
 
@@ -357,34 +456,57 @@ export type BoletoRow = Common & {
   description?: string | null;
   amount: MoneyInput;
   expiresAt?: Date | null;
+  /** Days until the boleto is due (0-90, 0 = no due date). Null/undefined = column default 3. */
+  vencimentoDias?: number | null;
   isActive?: boolean | null;
   maxUses?: number | null;
   currentUses?: number | null;
   plataformas?: string[] | null;
+  webhookUrl?: string | null;
+  redirectUrl?: string | null;
+  emailBody?: string | null;
 };
 
 export function mapBoleto(row: BoletoRow): OfferDraft {
-  return finish({
-    ...owners(row),
-    platformTag: firstTag(row.plataformas),
-    code: clean(row.code),
-    kind: 'BOLETO',
-    name: row.title,
-    description: row.description ?? null,
-    amountCents: toCents(row.amount),
-    isActive: row.isActive ?? true,
-    acceptedMethods: ['BOLETO'],
-    maxInstallments: 1,
-    expiresAt: row.expiresAt ?? null,
-    maxUses: row.maxUses ?? null,
-    usedCount: row.currentUses ?? 0,
-    accessDays: null,
-    renewalMode: 'NONE',
-    intervalType: null,
-    intervalCount: null,
-    repetitions: null,
-    retryDays: null,
-    legacyType: 'Boleto',
-    legacyId: row.id,
-  });
+  const dueDays = row.vencimentoDias ?? 3;
+  const validDueDays =
+    Number.isInteger(dueDays) && dueDays >= 0 && dueDays <= 90;
+  return finish(
+    {
+      ...owners(row),
+      platformTag: firstTag(row.plataformas),
+      code: clean(row.code),
+      kind: 'BOLETO',
+      name: row.title,
+      description: row.description ?? null,
+      amountCents: toCents(row.amount),
+      isActive: row.isActive ?? true,
+      acceptedMethods: ['BOLETO'],
+      maxInstallments: 1,
+      expiresAt: row.expiresAt ?? null,
+      maxUses: row.maxUses ?? null,
+      usedCount: row.currentUses ?? 0,
+      accessDays: null,
+      renewalMode: 'NONE',
+      intervalType: null,
+      intervalCount: null,
+      repetitions: null,
+      retryDays: null,
+      legacyType: 'Boleto',
+      legacyId: row.id,
+    },
+    [],
+    row,
+    {
+      metadata: validDueDays
+        ? { boletoDueDays: dueDays, requiresBuyerAddress: true }
+        : null,
+      issues: validDueDays ? [] : ['INVALID_BOLETO_DUE_DAYS'],
+      details: validDueDays
+        ? []
+        : [
+            `INVALID_BOLETO_DUE_DAYS: vencimentoDias=${dueDays} is not an integer in 0-90`,
+          ],
+    },
+  );
 }
