@@ -12,16 +12,20 @@ export async function seedScenario(db: PrismaClient) {
   const seller = await db.user.create({
     data: { name: 'Seller', email: `seller-${uid()}@t.dev`, password: 'x' },
   });
-  await db.wallet.create({ data: { userId: seller.id, balance: '1234.56' } });
-  await db.balanceLog.create({
-    data: {
-      userId: seller.id,
-      action: 'CREDIT',
-      balanceDelta: '1234.56',
-      lockedDelta: '0',
-      source: 'test',
-    },
-  });
+  // The wallet/ledger guard (migration wallet_consistency_guard) is a deferred constraint
+  // trigger: Wallet.balance must equal the BalanceLog sum when the transaction commits.
+  await db.$transaction([
+    db.wallet.create({ data: { userId: seller.id, balance: '1234.56' } }),
+    db.balanceLog.create({
+      data: {
+        userId: seller.id,
+        action: 'CREDIT',
+        balanceDelta: '1234.56',
+        lockedDelta: '0',
+        source: 'test',
+      },
+    }),
+  ]);
 
   const link = async (
     frequencyType: 'ANUAL' | 'MONTHLY',
