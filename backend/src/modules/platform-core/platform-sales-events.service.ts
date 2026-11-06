@@ -8,12 +8,44 @@ import { createHash, createHmac } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { decryptPlatformSecret } from '../platform-integrations/platform-secrets';
 import type { PlatformContext } from './platform-context.service';
+import type { ChargeItem } from '../offer/offer-fulfillment';
 import {
   loadDeliveryAttachments,
   purchasedItemsByTransaction,
   resolveLinkDelivery,
   DEFAULT_DELIVERY_BODY,
 } from '../../application/use-cases/payment-link/payment-link-delivery';
+const OFFER_ITEM_TYPE = { MAIN: 'PRINCIPAL', BUMP: 'ORDER_BUMP' } as const;
+
+/** Offer sale facts for the platform payload: items as sold (snapshot) plus offer/charge ids. */
+async function offerSalesByTransaction(db: PrismaService, transactionIds: string[]) {
+  const result = new Map<string, { offerId: string; chargeId: string; linkId: string; items: object[] }>();
+  if (transactionIds.length === 0) return result;
+  const charges = await db.charge.findMany({
+    where: { transactionId: { in: transactionIds }, offerId: { not: null } },
+    include: { offer: true },
+  });
+  for (const c of charges) {
+    if (!c.transactionId || !c.offer) continue;
+    const snapshotItems = ((c.snapshot ?? {}) as { items?: ChargeItem[] }).items;
+    const items: ChargeItem[] = snapshotItems?.length
+      ? snapshotItems
+      : [{ role: 'MAIN', offerId: c.offer.id, title: c.offer.name, amountCents: c.offer.amountCents }];
+    result.set(c.transactionId, {
+      offerId: c.offer.id,
+      chargeId: c.id,
+      // Offers migrated from a legacy link keep the link id the platform already knows.
+      linkId: c.offer.legacyType === 'PaymentLink' && c.offer.legacyId ? c.offer.legacyId : c.offer.id,
+      items: items.map((i) => ({
+        tipo: OFFER_ITEM_TYPE[i.role as 'MAIN' | 'BUMP'] ?? i.role,
+        ...(i.role === 'MAIN' ? {} : { offerId: i.offerId }),
+        titulo: i.title,
+        valor: i.amountCents / 100,
+      })),
+    });
+  }
+  return result;
+}
 type Stored = {
   sequence: bigint;
   eventId: string;
@@ -96,6 +128,7 @@ export class PlatformSalesEventsService {
           this.prisma,
           transactions,
         );
+        const offerSales = await offerSalesByTransaction(this.prisma, transactions.map((t) => t.id));
         for (const tx of transactions) {
           const url =
             tx.paymentLink?.webhookUrl ||
@@ -149,7 +182,10 @@ export class PlatformSalesEventsService {
               occurredAt: snapshot.em.toISOString(),
               event,
               orderId: tx.id,
-              linkId: tx.paymentLinkId ?? undefined,
+              linkId: tx.paymentLinkId ?? offerSales.get(tx.id)?.linkId ?? undefined,
+              ...(offerSales.has(tx.id)
+                ? { offerId: offerSales.get(tx.id)!.offerId, chargeId: offerSales.get(tx.id)!.chargeId }
+                : {}),
               amountCents: tx.amount.mul(100).toNumber(),
               netAmountCents: tx.netAmount?.mul(100).toNumber() ?? 0,
               paymentMethod: tx.paymentMethod,
@@ -157,7 +193,11 @@ export class PlatformSalesEventsService {
               customerEmail: tx.customerEmail,
               customerName: tx.customerName,
               tracking: tx.tracking ?? {},
-              ...(itemsByTx.has(tx.id) ? { items: itemsByTx.get(tx.id) } : {}),
+              ...(itemsByTx.has(tx.id)
+                ? { items: itemsByTx.get(tx.id) }
+                : offerSales.has(tx.id)
+                  ? { items: offerSales.get(tx.id)!.items }
+                  : {}),
               ...(event === 'pix_generated'
                 ? {
                     pixContent: tx.pixContent,

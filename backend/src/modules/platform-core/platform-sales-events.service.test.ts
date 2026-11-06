@@ -16,6 +16,7 @@ function fixture() {
     platform: { findUnique: mock(async () => ({ isActive: true, owner: { isActive: true, isPurged: false } })), findMany: mock(async () => [{ id: 'p', tag: 'CENTRAL-INFO', ownerUserId: 'owner', owner: { isActive: true }, integrations: [] }]) },
     transaction: { findMany: mock(async () => [tx]), findUnique: mock(async () => tx) },
     platformIntegration: { findUnique: mock(async () => ({ encryptedValue: secret })) },
+    charge: { findMany: mock(async (): Promise<any[]> => []) },
     paymentLinkOfferSale: { findMany: mock(async () => []) },
     paymentLinkOffer: { findMany: mock(async () => []) },
     $executeRaw: mock(async (parts: TemplateStringsArray, ...values: any[]) => {
@@ -81,4 +82,15 @@ test('refund and chargeback preserve approved history; no raw card or document',
   await f.service.capture();
   expect(f.rows.map(r => r.payload.event)).toContain('chargeback');
   expect(f.rows.map(r => r.payload.event)).toContain('purchase_approved');
+});
+test('offer sales carry the sold items and offer ids to the platform webhook', async () => {
+  const f = fixture();
+  Object.assign(f.tx, { paymentLinkId: null, paymentLink: null });
+  f.prisma.charge.findMany.mockImplementation(async () => [{ id: 'ch', transactionId: 'tx', offerId: 'o1', snapshot: { items: [{ role: 'MAIN', offerId: 'o1', title: 'Curso', amountCents: 2500 }, { role: 'BUMP', offerId: 'o2', title: 'Bônus', amountCents: 200 }] }, offer: { id: 'o1', name: 'Curso', amountCents: 2500, legacyType: null, legacyId: null } }]);
+  f.prisma.platform.findMany.mockImplementation(async () => [{ id: 'p', tag: 'CENTRAL-INFO', ownerUserId: 'owner', owner: { isActive: true }, integrations: [{ key: 'WEBHOOK_URL', url: 'https://central.test/hook' }] }] as any);
+  await f.service.capture();
+  expect(f.rows.find(r => r.payload.event === 'purchase_approved').payload).toMatchObject({
+    offerId: 'o1', chargeId: 'ch', linkId: 'o1',
+    items: [{ tipo: 'PRINCIPAL', titulo: 'Curso', valor: 25 }, { tipo: 'ORDER_BUMP', offerId: 'o2', titulo: 'Bônus', valor: 2 }],
+  });
 });
