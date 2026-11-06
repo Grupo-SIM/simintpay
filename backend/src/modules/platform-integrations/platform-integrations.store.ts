@@ -13,11 +13,15 @@ function canonicalTag(tag: string): string {
   return normalized === 'EBOOKSIM' ? 'EBOOK' : normalized;
 }
 
-export async function initializePlatformIntegrationsCache(client?: PrismaClient): Promise<void> {
+export async function initializePlatformIntegrationsCache(
+  client?: PrismaClient,
+): Promise<void> {
   if (client) prisma = client;
   if (!prisma) throw new Error('Cache de integrações não inicializado');
   const rows = await prisma.platformIntegration.findMany({
-    where: { platform: { isActive: true, owner: { isActive: true, isPurged: false } } },
+    where: {
+      platform: { isActive: true, owner: { isActive: true, isPurged: false } },
+    },
     include: { platform: { select: { tag: true } } },
   });
   const next: typeof cache = {};
@@ -27,7 +31,9 @@ export async function initializePlatformIntegrationsCache(client?: PrismaClient)
     if (unavailable.has(tag)) continue;
     next[tag] ??= {};
     try {
-      const value = row.encryptedValue ? decryptPlatformSecret(row.encryptedValue) : row.url;
+      const value = row.encryptedValue
+        ? decryptPlatformSecret(row.encryptedValue)
+        : row.url;
       if (value) next[tag][row.key] = value;
     } catch {
       // A partial configuration could enable unsafe fallbacks; exclude the whole platform.
@@ -35,7 +41,7 @@ export async function initializePlatformIntegrationsCache(client?: PrismaClient)
       unavailable.add(tag);
       logger.error(
         `Integrações indisponíveis para ${tag}: falha ao descriptografar ${row.key}. ` +
-        'Verifique PLATFORM_CONFIG_ENCRYPTION_KEY; restaure a chave original ou recadastre as credenciais.',
+          'Verifique PLATFORM_CONFIG_ENCRYPTION_KEY; restaure a chave original ou recadastre as credenciais.',
       );
     }
   }
@@ -43,14 +49,21 @@ export async function initializePlatformIntegrationsCache(client?: PrismaClient)
   fetchedAt = Date.now();
 }
 
-export function getPlatformIntegrationValue(tag: string, key: string): string | null {
+export function getPlatformIntegrationValue(
+  tag: string,
+  key: string,
+): string | null {
   if (prisma && Date.now() - fetchedAt > 30_000 && !fetching) {
-    fetching = initializePlatformIntegrationsCache().catch(() => {
-      // Old credentials must not remain usable after a failed refresh.
-      cache = {};
-    }).finally(() => { fetching = undefined; });
+    fetching = initializePlatformIntegrationsCache()
+      .catch(() => {
+        // Old credentials must not remain usable after a failed refresh.
+        cache = {};
+      })
+      .finally(() => {
+        fetching = undefined;
+      });
   }
-  if (Date.now() - fetchedAt > 60_000) return null;
+  // Serve the last known values while a refresh is in flight; a failed refresh clears the cache above.
   return cache[canonicalTag(tag)]?.[key] ?? null;
 }
 
