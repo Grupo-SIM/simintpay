@@ -1,7 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { getRegisteredPlatform } from '../../modules/module.registry';
 import { canonicalPlatformTaxaTag } from '../../modules/platform-taxas/platform-taxas.store';
-import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 
 type PlatformActor = {
   id: string;
@@ -46,10 +45,10 @@ export function assertExplicitPlatform(
   return platform.tag ?? tag;
 }
 
-/** There is a single central DOM account: a platform without its own DOM_TOKEN uses the global one. */
+/** There is a single central DOM account: every platform charges with the global DOM_TOKEN. */
 export function platformGatewayToken(
   tag: string | null | undefined,
-  globalToken?: string | null,
+  globalToken: string | null | undefined = process.env.DOM_TOKEN,
 ): string | null {
   const normalized = canonicalPlatformTaxaTag(tag ?? 'GLOBAL');
   if (
@@ -59,9 +58,7 @@ export function platformGatewayToken(
     return globalToken ?? null;
   if (!getRegisteredPlatform(normalized))
     throw new BadRequestException('Plataforma não cadastrada ou inativa');
-  const token =
-    getPlatformIntegrationValue(normalized, 'DOM_TOKEN') ?? globalToken;
-  if (!token)
+  if (!globalToken)
     throw new BadRequestException('Credencial da plataforma não configurada');
-  return token;
+  return globalToken;
 }

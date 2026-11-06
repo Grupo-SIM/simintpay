@@ -221,11 +221,11 @@ describe('legacy fees (financialQuote absent)', () => {
     expect(f.calls).toHaveLength(0);
   });
 
-  test('Areaflix tag: uses the platform token and the platform MDR; no Areaflix seller-net rule here', async () => {
+  test('Areaflix tag: uses the global token and the platform MDR; no Areaflix seller-net rule here', async () => {
     await withAreaflixPlatform(async () => {
       const f = setup(makeSub({ platformTag: 'AREAFLIX' }));
       await f.service.execute({ code: 'c', dto: f.dto });
-      expect(f.calls[0].token).toBe('areaflix-token');
+      expect(f.calls[0].token).toBe('test-token');
       expect(f.orders[0].amountCharged).toBe(100);
       expect(f.orders[0].platformFeeAmount).toBe(0.98);
     });

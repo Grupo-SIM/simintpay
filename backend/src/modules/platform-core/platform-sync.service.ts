@@ -9,7 +9,6 @@ import {
   PAYMENT_GATEWAY,
   type IPaymentGateway,
 } from '../../core/services/payment-gateway.interface';
-import { decryptPlatformSecret } from '../platform-integrations/platform-secrets';
 import {
   PlatformContextService,
   type PlatformContext,
@@ -87,11 +86,8 @@ export class PlatformSyncService {
       return this.modules
         .get<{ handleSync(): Promise<unknown> }>(corporate, { strict: false })
         .handleSync();
-    const row = await this.prisma.platformIntegration.findUnique({
-      where: { platformId_key: { platformId: context.id, key: 'DOM_TOKEN' } },
-    });
-    if (!row?.encryptedValue) unsupportedCapability('sync.configuration');
-    const token = decryptPlatformSecret(row.encryptedValue);
+    const token = process.env.DOM_TOKEN;
+    if (!token) unsupportedCapability('sync.configuration');
     const pending = await this.prisma.transaction.findMany({
       where: {
         status: 'PENDING',

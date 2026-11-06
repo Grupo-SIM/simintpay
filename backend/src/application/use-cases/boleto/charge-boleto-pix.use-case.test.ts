@@ -135,7 +135,7 @@ describe('without financial quote (same rule as a PIX payment link)', () => {
     await withAreaflixPlatform(async () => {
       const f = setup(makeBoleto({ plataformas: ['AREAFLIX'] }));
       await f.service.execute(f.input);
-      expect(f.gatewayCalls[0].token).toBe('areaflix-token');
+      expect(f.gatewayCalls[0].token).toBe('test-token');
       expect(f.db.row().description).toBe('Boleto [TENANT:AREAFLIX]');
     });
   });

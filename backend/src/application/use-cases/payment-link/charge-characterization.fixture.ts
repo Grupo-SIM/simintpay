@@ -275,18 +275,6 @@ export async function withAreaflixPlatform<T>(fn: () => Promise<T>) {
       ],
     },
   } as never);
-  await initializePlatformIntegrationsCache({
-    platformIntegration: {
-      findMany: async () => [
-        {
-          platform: { tag: 'AREAFLIX' },
-          key: 'DOM_TOKEN',
-          encryptedValue: null,
-          url: 'areaflix-token',
-        },
-      ],
-    },
-  } as never);
   try {
     return await fn();
   } finally {

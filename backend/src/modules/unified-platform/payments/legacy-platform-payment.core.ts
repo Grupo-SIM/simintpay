@@ -17,7 +17,6 @@ import { PlatformPaymentLookup } from './platform-payment-lookup';
 import { postDomCheckout } from './dom-checkout.acquirer';
 import { PlatformPaymentExecution } from './platform-payment-execution';
 import { getPlatformOwnerId } from '../../module.registry';
-import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { CheckoutPixDto } from '../../renovada/dtos/checkout-pix.dto';
@@ -113,10 +112,7 @@ export class LegacyPlatformPaymentCore {
   ) {}
 
   protected get domToken(): string | undefined {
-    return (
-      getPlatformIntegrationValue(this.tag, 'DOM_TOKEN') ??
-      process.env.DOM_TOKEN
-    );
+    return process.env.DOM_TOKEN;
   }
 
   private get hiddenTag(): string {

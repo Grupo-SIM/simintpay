@@ -13,7 +13,6 @@ function fixture() {
     ...context,
     isActive: true,
     owner: { isActive: true },
-    integrations: [{ key: 'DOM_TOKEN', url: 'product-token' }],
   };
   const prisma: any = { platform: { findUnique: async () => platform } };
   const reconciliation: any = {
@@ -31,6 +30,7 @@ test('Renovada alias and canonical reconciliation preserve response and scoped o
   const { context, prisma, reconciliation, service } = fixture();
   const key = process.env.API_MACHINE_INTERNAL_TOKEN;
   process.env.API_MACHINE_INTERNAL_TOKEN = 'legacy';
+  process.env.DOM_TOKEN = 'global-token';
   try {
     const legacy = await new InternalReconcileController(
       reconciliation,
@@ -44,19 +44,20 @@ test('Renovada alias and canonical reconciliation preserve response and scoped o
     );
     expect(reconciliation.execute.mock.calls[0][0]).toMatchObject({
       platformTag: 'RENOVADA',
-      domToken: 'product-token',
+      domToken: 'global-token',
       userId: 'owner',
       direct: true,
       limit: 500,
     });
   } finally {
+    delete process.env.DOM_TOKEN;
     if (key === undefined) delete process.env.API_MACHINE_INTERNAL_TOKEN;
     else process.env.API_MACHINE_INTERNAL_TOKEN = key;
   }
 });
 test('missing token and unsupported acquirer fail before reconciliation', async () => {
   const { platform, reconciliation, service } = fixture();
-  platform.integrations = [];
+  delete process.env.DOM_TOKEN;
   await expect(service.run('RENOVADA')).rejects.toMatchObject({
     response: { code: 'PLATFORM_CAPABILITY_UNAVAILABLE' },
   });

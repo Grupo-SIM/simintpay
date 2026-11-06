@@ -7,12 +7,7 @@ import { PixPlanService } from '../use-cases/pix-plan/pix-plan.service';
 jest.mock('../../modules/module.registry', () => ({
   getRegisteredPlatform: (tag: string) =>
     tag === 'SHOP' ? { tag: 'SHOP', ownerUserId: 'owner' } : null,
-  getModuleDomToken: jest.fn(),
 }));
-jest.mock(
-  '../../modules/platform-integrations/platform-integrations.store',
-  () => ({ getPlatformIntegrationValue: () => 'shop-token' }),
-);
 const actor = { id: 'admin', email: 'admin@test.local', role: 'ADMIN' };
 const owner = {
   id: 'owner',
@@ -134,7 +129,7 @@ describe('five products retain beneficiary separately from administrator actor',
             ? gateway.createPlan
             : gateway.createPaymentLink
           ).mock.calls[0][0],
-        ).toBe(platform ? 'shop-token' : 'global-token');
+        ).toBe('global-token');
     },
   );
   it('checks selected owner approval rather than approved administrator', async () => {

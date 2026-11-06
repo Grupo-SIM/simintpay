@@ -2,8 +2,10 @@ import { subscriptionStatusGroup } from './subscription-status';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { getModuleDomToken } from '../../../modules/module.registry';
-import type { IPaymentGateway, DomSubscriptionOutput } from '../../../core/services/payment-gateway.interface';
+import type {
+  IPaymentGateway,
+  DomSubscriptionOutput,
+} from '../../../core/services/payment-gateway.interface';
 import type { ListSubscribersQueryDto } from '../../dtos/subscription/list-subscribers.query.dto';
 
 @Injectable()
@@ -33,7 +35,9 @@ export class ListSubscribersUseCase {
     const domToken = await this.resolveDomToken(input.userId, isAdmin);
 
     if (!domToken) {
-      this.logger.warn(`[ListSubscribers] Sem domToken para userId=${input.userId} role=${input.role}`);
+      this.logger.warn(
+        `[ListSubscribers] Sem domToken para userId=${input.userId} role=${input.role}`,
+      );
       return { data: [], page, pageSize, hasNextPage: false, total: 0 };
     }
 
@@ -41,10 +45,13 @@ export class ListSubscribersUseCase {
       // A exclusão é local. Para não deixar páginas vazias, busca da DOM até
       // acumular os itens visíveis necessários para a página solicitada.
       const sourcePageSize = Math.max(pageSize + 1, 100);
-      const historyExclusions = await this.prisma.subscriptionHistoryExclusion.findMany({
-        select: { domSubscriptionId: true },
-      });
-      const excludedIds = new Set(historyExclusions.map((item) => item.domSubscriptionId));
+      const historyExclusions =
+        await this.prisma.subscriptionHistoryExclusion.findMany({
+          select: { domSubscriptionId: true },
+        });
+      const excludedIds = new Set(
+        historyExclusions.map((item) => item.domSubscriptionId),
+      );
       let sourcePage = 1;
       let sourceHasNextPage = true;
       const visibleItems: DomSubscriptionOutput[] = [];
@@ -55,9 +62,12 @@ export class ListSubscribersUseCase {
           pageSize: sourcePageSize,
         });
         const sourceItems = result.items;
-        visibleItems.push(...sourceItems.filter((item) =>
-          !excludedIds.has(item.id) || this.isActiveSubscription(item),
-        ));
+        visibleItems.push(
+          ...sourceItems.filter(
+            (item) =>
+              !excludedIds.has(item.id) || this.isActiveSubscription(item),
+          ),
+        );
 
         sourceHasNextPage = sourceItems.length === sourcePageSize;
         sourcePage += 1;
@@ -72,7 +82,9 @@ export class ListSubscribersUseCase {
 
       const sourcesByPlanId = await this.resolveSubscriptionSources(planIds);
 
-      const domIds = visiblePageItems.map((s: DomSubscriptionOutput) => s.id).filter((id): id is string => !!id);
+      const domIds = visiblePageItems
+        .map((s: DomSubscriptionOutput) => s.id)
+        .filter((id): id is string => !!id);
 
       // Buscar pausadas para marcar na listagem (não altera fluxo normal)
       const pauseMap = await this.resolvePauses(domIds, input.userId, isAdmin);
@@ -107,27 +119,73 @@ export class ListSubscribersUseCase {
 
       // Adicionar assinaturas pausadas que sumiram da DOM após cancelamento
       // Mesclar antes da paginação evita duplicação e mantém total correto.
-      const pausedRows = await this.buildPausedRows(domIds, input.userId, isAdmin);
+      const pausedRows = await this.buildPausedRows(
+        domIds,
+        input.userId,
+        isAdmin,
+      );
 
-      const normalize = (value: unknown) => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      const normalize = (value: unknown) =>
+        String(value ?? '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .trim();
       const query = input.query;
-      const allData = [...mapped, ...pausedRows].filter(row => {
-        if (query.statusGroup && subscriptionStatusGroup(row.status, row.isPaused) !== query.statusGroup) return false;
-        if (query.status && normalize(row.status) !== normalize(query.status)) return false;
+      const allData = [...mapped, ...pausedRows].filter((row) => {
+        if (
+          query.statusGroup &&
+          subscriptionStatusGroup(row.status, row.isPaused) !==
+            query.statusGroup
+        )
+          return false;
+        if (query.status && normalize(row.status) !== normalize(query.status))
+          return false;
         if (query.planoId && row.planoId !== query.planoId) return false;
         if (query.frequency) {
           const frequency = normalize(row.frequencia);
-          const units = query.frequency === 'MONTHLY' ? ['month', 'monthly', 'mensal'] : ['year', 'yearly', 'annual', 'anual'];
-          if (!units.includes(frequency) || (row.intervalo ?? 1) !== 1) return false;
+          const units =
+            query.frequency === 'MONTHLY'
+              ? ['month', 'monthly', 'mensal']
+              : ['year', 'yearly', 'annual', 'anual'];
+          if (!units.includes(frequency) || (row.intervalo ?? 1) !== 1)
+            return false;
         }
         const platforms = 'plataformas' in row ? row.plataformas : [];
-        if (query.platform && ![row.plataforma, ...platforms].some(value => normalize(value) === normalize(query.platform))) return false;
-        if (query.search && !normalize([row.nome, row.descricao, row.cliente?.name, row.cliente?.email].join(' ')).includes(normalize(query.search))) return false;
+        if (
+          query.platform &&
+          ![row.plataforma, ...platforms].some(
+            (value) => normalize(value) === normalize(query.platform),
+          )
+        )
+          return false;
+        if (
+          query.search &&
+          !normalize(
+            [
+              row.nome,
+              row.descricao,
+              row.cliente?.name,
+              row.cliente?.email,
+            ].join(' '),
+          ).includes(normalize(query.search))
+        )
+          return false;
         if (query.firstChargeFrom || query.firstChargeTo) {
-          const timestamp = row.primeiraCobranca ? new Date(row.primeiraCobranca).getTime() : NaN;
+          const timestamp = row.primeiraCobranca
+            ? new Date(row.primeiraCobranca).getTime()
+            : NaN;
           if (!Number.isFinite(timestamp)) return false;
-          if (query.firstChargeFrom && timestamp < new Date(query.firstChargeFrom).getTime()) return false;
-          if (query.firstChargeTo && timestamp > new Date(query.firstChargeTo).getTime()) return false;
+          if (
+            query.firstChargeFrom &&
+            timestamp < new Date(query.firstChargeFrom).getTime()
+          )
+            return false;
+          if (
+            query.firstChargeTo &&
+            timestamp > new Date(query.firstChargeTo).getTime()
+          )
+            return false;
         }
         return true;
       });
@@ -140,7 +198,10 @@ export class ListSubscribersUseCase {
         total: allData.length,
       };
     } catch (err: any) {
-      this.logger.error(`[ListSubscribers] Erro ao buscar da DOM: ${err.message}`, err.stack);
+      this.logger.error(
+        `[ListSubscribers] Erro ao buscar da DOM: ${err.message}`,
+        err.stack,
+      );
       return { data: [], page, pageSize, hasNextPage: false, total: 0 };
     }
   }
@@ -200,13 +261,18 @@ export class ListSubscribersUseCase {
     }));
   }
 
-  private async resolveSubscriptionSources(planIds: string[]): Promise<Map<string, {
-    platformTag: string | null;
-    name: string;
-    communityName: string | null;
-    plataformas: string[];
-    isPlan: boolean;
-  }>> {
+  private async resolveSubscriptionSources(planIds: string[]): Promise<
+    Map<
+      string,
+      {
+        platformTag: string | null;
+        name: string;
+        communityName: string | null;
+        plataformas: string[];
+        isPlan: boolean;
+      }
+    >
+  > {
     if (planIds.length === 0) return new Map();
 
     const [links, plans] = await Promise.all([
@@ -234,13 +300,16 @@ export class ListSubscribersUseCase {
       }),
     ]);
 
-    const map = new Map<string, {
-      platformTag: string | null;
-      name: string;
-      communityName: string | null;
-      plataformas: string[];
-      isPlan: boolean;
-    }>();
+    const map = new Map<
+      string,
+      {
+        platformTag: string | null;
+        name: string;
+        communityName: string | null;
+        plataformas: string[];
+        isPlan: boolean;
+      }
+    >();
     for (const link of links) {
       if (!link.domPlanId) continue;
       const plataformas = link.plataformas ?? [];
@@ -254,7 +323,10 @@ export class ListSubscribersUseCase {
     }
     for (const plan of plans) {
       if (!plan.domPlanId || map.has(plan.domPlanId)) continue;
-      const plataformas = plan.user?.clientStatus != null ? ['SIMINTPAY'] : (plan.plataformas ?? []);
+      const plataformas =
+        plan.user?.clientStatus != null
+          ? ['SIMINTPAY']
+          : (plan.plataformas ?? []);
       map.set(plan.domPlanId, {
         platformTag: plataformas[0] ?? null,
         name: plan.name,
@@ -267,13 +339,15 @@ export class ListSubscribersUseCase {
   }
 
   private derivePlatformLabel(
-    source: {
-      platformTag: string | null;
-      name: string;
-      communityName: string | null;
-      plataformas: string[];
-      isPlan: boolean;
-    } | undefined,
+    source:
+      | {
+          platformTag: string | null;
+          name: string;
+          communityName: string | null;
+          plataformas: string[];
+          isPlan: boolean;
+        }
+      | undefined,
     sub: DomSubscriptionOutput,
   ): string {
     if (source) {
@@ -294,11 +368,17 @@ export class ListSubscribersUseCase {
     const d = desc.toLowerCase();
 
     if (d.includes('pagatg') || d.includes('paga tg')) return 'PagaTG';
-    if (d.includes('areaflix') || d.includes('área flix') || d.includes('area flix')) return 'Areaflix';
+    if (
+      d.includes('areaflix') ||
+      d.includes('área flix') ||
+      d.includes('area flix')
+    )
+      return 'Areaflix';
     if (d.includes('ebook') || d.includes('e-book')) return 'Ebook';
     if (d.includes('renovada')) return 'Renovada';
     if (d.includes('bosque') || d.includes('ibb')) return 'Bosque';
-    if (d.includes('marketing raiz') || d.includes('marketing-raiz')) return 'Marketing Raiz';
+    if (d.includes('marketing raiz') || d.includes('marketing-raiz'))
+      return 'Marketing Raiz';
     if (d.includes('revalida') || d.includes('révali')) return 'Revalida';
 
     // Última opção: retorna a própria description (é mais informativo que "—")
@@ -309,20 +389,20 @@ export class ListSubscribersUseCase {
     return subscriptionStatusGroup(subscription.status) === 'active';
   }
 
-  private async resolveDomToken(userId: string, isAdmin: boolean): Promise<string | null> {
+  private async resolveDomToken(
+    userId: string,
+    isAdmin: boolean,
+  ): Promise<string | null> {
     if (isAdmin) {
       return process.env.DOM_TOKEN ?? null;
     }
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { domToken: true, platform: { select: { tag: true } } },
+      select: { domToken: true },
     });
 
     if (user?.domToken) return user.domToken;
-
-    const moduleToken = getModuleDomToken(user?.platform?.tag);
-    if (moduleToken) return moduleToken;
 
     return process.env.DOM_TOKEN ?? null;
   }

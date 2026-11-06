@@ -93,7 +93,7 @@ Aliases `/internal/betai/*` preservam header interno, campos em reais e resposta
 
 ## Credencial DOM das ofertas legadas
 
-Nos fluxos antigos de ofertas BOSQUE e RENOVADA, PIX e cartão usam o `DOM_TOKEN` da plataforma quando configurado e, na ausência dele, o `DOM_TOKEN` geral do ambiente. O fallback não se aplica às demais plataformas; sem nenhuma das credenciais, o erro de configuração permanece explícito.
+Existe uma única conta DOM: todas as plataformas cobram com o `DOM_TOKEN` do ambiente do backend. Não há token DOM por plataforma; sem o `DOM_TOKEN` do ambiente, o erro de configuração permanece explícito.
 
 ## Painel do cliente e notificações de vendas
 

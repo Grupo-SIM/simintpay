@@ -27,10 +27,7 @@ continuam separados no ledger interno, sem exigir contas DOM distintas.
 `bun scripts/configure-delivery-profile.ts` inspeciona o perfil (dry-run);
 `bun scripts/configure-delivery-profile.ts --apply` permite antecipar essa mesma
 inicialização automática. Perfil existente não tem credencial rotacionada, não é
-reativado e não troca de adquirente automaticamente. Plataforma com DOM_TOKEN
-explícito diferente do perfil bloqueia bootstrap com
-DELIVERY_ACQUIRER_PROFILE_CONFLICT; configuração existente não é sobrescrita.
-Associação nova preserva alias DOM_TOKEN para reversão ao transporte antigo.
+reativado e não troca de adquirente automaticamente.
 Não existe herança da configuração de outra plataforma. A conta DOM central é a
 origem de aquisição, enquanto as credenciais delegadas delimitam cada empresa.
 
@@ -50,7 +47,7 @@ na SIM INT PAY (incluindo fallbacks legados API_MACHINE_INTERNAL_TOKEN/INTERNAL_
   Retorna `{ id, status: "PENDING_OWNER" }`. Não cria usuário ou carteira.
 - `PUT /platform-registrations/:companyId/owner`: mesmo slug/legalName, `email`,
   `password?`, `cnpj?` (CPF/CNPJ opcional). Retorna `{ id, status: "READY", platform:
-  { id, tag }, merchant: { id }, credentials: { accessToken, webhookSecret } }`.
+{ id, tag }, merchant: { id }, credentials: { accessToken, webhookSecret } }`.
   `id` dessa resposta identifica comerciante; usar `platform.id` para plataforma.
 - Repetir PUT de reserva após conclusão recupera credenciais existentes. Não rotaciona
   senha, token ou segredo nem zera saldo. Repetir dono sem senha reenvia link próprio.
@@ -72,20 +69,20 @@ Token não pode acessar outra empresa, plataforma ou rotas financeiras gerais. P
 customers:manage, cards:tokenize, payments:create/read/allocate, finance:read/withdraw,
 merchants:manage e sync:run. Plataforma, perfil e titular precisam estar ativos.
 
-| Método / sufixo | Contrato |
-| --- | --- |
-| PUT raiz | `{ cnpj, legalName }`; sincroniza CPF/CNPJ no comerciante existente, inclusive legado |
-| POST /customers | `{ externalCustomerId, name, email, document, phone? }` → `{ id }` canônico |
-| POST /customers/:id/card-tokens | `{ number, cvv, expMonth, expYear, holderName, holderDocument }` → token, bin real, last4, brand, validade, holderName, customerId |
-| POST /payments | contrato abaixo; PIX e CREDIT_CARD na mesma rota |
-| GET /payments/:reference | referência da transação ou do adquirente; status após reconciliação necessária |
-| GET /payment-attempts/:key | recupera resposta por chave idempotente sem nova cobrança |
-| GET /finance/summary | saldo disponível, bloqueio, processamento; feePolicy.fixedCents e rate decimal |
-| POST /finance/withdrawals/quote | `{ amountCents }` bruto → grossAmountCents, feeCents, netAmountCents |
-| POST /finance/withdrawals | `{ amountCents, pixKey, idempotencyKey }` bruto; resposta amountCents é líquido, com requestId e timestamps |
-| GET /finance/withdrawals | `page`, `limit`; `{ data, meta: { page, limit, total, totalPages } }` |
-| GET /finance/withdrawals/:id | inclui bruto, líquido em amountCents, taxa, status e referência |
-| POST /finance/reconciliation/payments | `{ paymentIds, dryRun: true }`; conflitos sem transferência financeira |
+| Método / sufixo                       | Contrato                                                                                                                           |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| PUT raiz                              | `{ cnpj, legalName }`; sincroniza CPF/CNPJ no comerciante existente, inclusive legado                                              |
+| POST /customers                       | `{ externalCustomerId, name, email, document, phone? }` → `{ id }` canônico                                                        |
+| POST /customers/:id/card-tokens       | `{ number, cvv, expMonth, expYear, holderName, holderDocument }` → token, bin real, last4, brand, validade, holderName, customerId |
+| POST /payments                        | contrato abaixo; PIX e CREDIT_CARD na mesma rota                                                                                   |
+| GET /payments/:reference              | referência da transação ou do adquirente; status após reconciliação necessária                                                     |
+| GET /payment-attempts/:key            | recupera resposta por chave idempotente sem nova cobrança                                                                          |
+| GET /finance/summary                  | saldo disponível, bloqueio, processamento; feePolicy.fixedCents e rate decimal                                                     |
+| POST /finance/withdrawals/quote       | `{ amountCents }` bruto → grossAmountCents, feeCents, netAmountCents                                                               |
+| POST /finance/withdrawals             | `{ amountCents, pixKey, idempotencyKey }` bruto; resposta amountCents é líquido, com requestId e timestamps                        |
+| GET /finance/withdrawals              | `page`, `limit`; `{ data, meta: { page, limit, total, totalPages } }`                                                              |
+| GET /finance/withdrawals/:id          | inclui bruto, líquido em amountCents, taxa, status e referência                                                                    |
+| POST /finance/reconciliation/payments | `{ paymentIds, dryRun: true }`; conflitos sem transferência financeira                                                             |
 
 Exemplo PIX:
 
@@ -96,7 +93,12 @@ Exemplo PIX:
   "idempotencyKey": "attempt-id",
   "allocation": { "merchantAmountCents": 10000, "platformFeeCents": 537 },
   "description": "Pedido [Unidade - Centro]",
-  "customer": { "name": "Maria Silva", "email": "maria@example.com", "document": "52998224725", "documentType": "CPF" }
+  "customer": {
+    "name": "Maria Silva",
+    "email": "maria@example.com",
+    "document": "52998224725",
+    "documentType": "CPF"
+  }
 }
 ```
 

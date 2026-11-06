@@ -63,8 +63,6 @@ test('merchant payment status alias and canonical preserve scoped historical fin
     await import('./platform-merchants.service');
   const { PlatformFinanceService } =
     await import('../unified-platform/finance/platform-finance.service');
-  const { initializePlatformIntegrationsCache } =
-    await import('../platform-integrations/platform-integrations.store');
   const { Prisma } = await import('@prisma/client');
   const { p, merchant } = fixture();
   const payment = {
@@ -102,13 +100,8 @@ test('merchant payment status alias and canonical preserve scoped historical fin
       userId,
     }),
   };
-  await initializePlatformIntegrationsCache({
-    platformIntegration: {
-      findMany: async () => [
-        { platform: { tag: 'SHOP' }, key: 'DOM_TOKEN', url: 'mock-only' },
-      ],
-    },
-  } as any);
+  const previousDomToken = process.env.DOM_TOKEN;
+  process.env.DOM_TOKEN = 'mock-only';
   try {
     const legacy = new IntegrationPaymentService(
       p,
@@ -139,8 +132,7 @@ test('merchant payment status alias and canonical preserve scoped historical fin
       canonical.payment(context, 'external', 'remote'),
     ).rejects.toThrow('Pagamento não encontrado');
   } finally {
-    await initializePlatformIntegrationsCache({
-      platformIntegration: { findMany: async () => [] },
-    } as any);
+    if (previousDomToken === undefined) delete process.env.DOM_TOKEN;
+    else process.env.DOM_TOKEN = previousDomToken;
   }
 }, 30000);

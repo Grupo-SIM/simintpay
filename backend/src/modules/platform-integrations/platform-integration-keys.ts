@@ -16,7 +16,6 @@ export const DEFAULT_INBOUND_OPERATIONS = [
 /** Configuration keys are shared by migration, adapters and management APIs. */
 export const PLATFORM_INTEGRATION_KEYS = [
   'EXTERNAL_DATABASE_URL',
-  'DOM_TOKEN',
   'DOM_PUBLIC_KEY',
   'BACKEND_URL',
   'INTERNAL_TOKEN',

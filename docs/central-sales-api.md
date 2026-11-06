@@ -14,7 +14,7 @@ Worker a cada 30 segundos reconstrói eventos a partir de estado/histórico fina
 
 Eventos: purchase_approved, purchase_refunded, chargeback, refund_requested (mediação), card_declined, pix_generated (código/validade), pix_expired. E-mails com PDFs só após COMPLETED; histórico anterior à criação do segredo não reenvia e-mails antigos. Falha SMTP retenta; SMTP oferece entrega pelo menos uma vez, podendo repetir após interrupção entre envio e gravação.
 
-Configurar SIMPAY_CHECKOUT_URL, DOM_TOKEN da plataforma, WEBHOOK_SECRET, WEBHOOK_URL (para cobranças sem link), armazenamento e SMTP. Administrador deve liberar links:read/write em INBOUND_OPERATIONS. Configurar mesmo segredo na Central.
+Configurar SIMPAY_CHECKOUT_URL, WEBHOOK_SECRET, WEBHOOK_URL (para cobranças sem link), armazenamento e SMTP. Administrador deve liberar links:read/write em INBOUND_OPERATIONS. Configurar mesmo segredo na Central.
 
 Migração 20261015000100_platform_sales_events foi preparada, não aplicada. Revisar e aplicar pelo processo normal antes de subir aplicação. Não há acesso a banco ou deploy nos testes novos: mocks e Bun. Validar adquirente/SMTP em homologação antes de operar.
 

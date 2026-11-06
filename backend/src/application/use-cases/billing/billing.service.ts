@@ -23,7 +23,6 @@ import {
   type IPaymentGateway,
   type StoredPaymentChargeOutput,
 } from '../../../core/services/payment-gateway.interface';
-import { getModuleDomToken } from '../../../modules/module.registry';
 import { CreateBillingContractDto } from '../../dtos/billing/create-billing-contract.dto';
 import { ChangeBillingQuantityDto } from '../../dtos/billing/change-billing-quantity.dto';
 import {
@@ -1115,16 +1114,13 @@ export class BillingService {
       select: {
         domToken: true,
         clientStatus: true,
-        platform: { select: { tag: true } },
       },
     });
     if (!user)
       throw new NotFoundException('Usuário dono do contrato não encontrado');
     const token = user.clientStatus
       ? process.env.DOM_TOKEN
-      : (user.domToken ??
-        getModuleDomToken(user.platform?.tag) ??
-        process.env.DOM_TOKEN);
+      : (user.domToken ?? process.env.DOM_TOKEN);
     if (!token)
       throw new BadRequestException(
         'Token DOM não configurado para o contrato',

@@ -152,7 +152,7 @@ describe('plain PIX charge (legacy fees, no financial policy)', () => {
       const f = setup(makeLink({ plataformas: ['AREAFLIX'] }));
       await f.service.execute(f.input);
       expect(f.db.row().description).toBe('Plan [TENANT:AREAFLIX]');
-      expect(f.gatewayCalls[0].token).toBe('areaflix-token');
+      expect(f.gatewayCalls[0].token).toBe('test-token');
     });
   });
 });

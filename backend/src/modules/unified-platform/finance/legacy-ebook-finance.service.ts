@@ -1,5 +1,4 @@
 import { whereTransactionPlatform } from '../../platform-core/transaction-platform';
-import { getPlatformIntegrationValue } from '../../platform-integrations/platform-integrations.store';
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
 import { getPlatformOwnerId } from '../../../modules/module.registry';
@@ -201,7 +200,7 @@ export class InternalEbookFinanceService {
     let domByOrderNumber = new Map<string, DomTransactionItem[]>();
     try {
       if (items.length > 0) {
-        const domToken = getPlatformIntegrationValue('EBOOK', 'DOM_TOKEN');
+        const domToken = process.env.DOM_TOKEN;
         if (domToken?.trim()) {
           const parsedDates = items
             .map((t) => t.createdAt)

@@ -31,16 +31,7 @@ beforeEach(async () => {
         })),
     },
   } as any);
-  await initializePlatformIntegrationsCache({
-    platformIntegration: {
-      findMany: async () =>
-        definitions.map(([tag]) => ({
-          platform: { tag },
-          key: 'DOM_TOKEN',
-          url: 'mock-dom-token',
-        })),
-    },
-  } as any);
+  process.env.DOM_TOKEN = 'mock-dom-token';
 });
 afterEach(async () => {
   await initializePlatformRegistryCache({

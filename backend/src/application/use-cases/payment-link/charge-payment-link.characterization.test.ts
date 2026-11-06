@@ -325,7 +325,7 @@ describe('Areaflix seller net', () => {
         domFee: 0.98,
         platformFee: 10.01,
       });
-      expect(f.gatewayCalls[0].token).toBe('areaflix-token');
+      expect(f.gatewayCalls[0].token).toBe('test-token');
     });
   });
 

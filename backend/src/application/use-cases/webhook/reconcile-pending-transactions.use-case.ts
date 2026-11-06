@@ -1,8 +1,4 @@
-import {
-  transactionPlatformTag,
-  whereTransactionPlatform,
-} from '../../../modules/platform-core/transaction-platform';
-import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
+import { whereTransactionPlatform } from '../../../modules/platform-core/transaction-platform';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -239,13 +235,7 @@ export class ReconcilePendingTransactionsUseCase {
               this.logger.log(`${prefix} DOM request: ${transactionContext}`);
               try {
                 const queryToken =
-                  opts?.domToken ||
-                  (transactionPlatformTag(tx) === 'ZERO-GRAU'
-                    ? (getPlatformIntegrationValue('ZERO-GRAU', 'DOM_TOKEN') ??
-                      undefined)
-                    : undefined) ||
-                  tx.user?.domToken ||
-                  domToken;
+                  opts?.domToken || tx.user?.domToken || domToken;
                 if (!queryToken) {
                   this.logger.warn(
                     `${prefix} DOM request skipped: ${transactionContext} reason=no-token`,

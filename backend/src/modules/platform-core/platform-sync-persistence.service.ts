@@ -91,7 +91,7 @@ export class PlatformSyncPersistenceService {
     if (!adapter) return;
     if (!adapter.directSync) return;
     if (getPlatformIntegrationValue(tag, 'ENABLE_DOM_SYNC') !== 'true') return;
-    const token = getPlatformIntegrationValue(tag, 'DOM_TOKEN');
+    const token = process.env.DOM_TOKEN;
     if (!token) return;
     let changed = 0;
     for (let page = 1; page <= 3; page++) {

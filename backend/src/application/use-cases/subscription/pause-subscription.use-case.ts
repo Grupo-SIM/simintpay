@@ -10,7 +10,6 @@ import {
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { getModuleDomToken } from '../../../modules/module.registry';
 
 @Injectable()
 export class PauseSubscriptionUseCase {
@@ -42,12 +41,20 @@ export class PauseSubscriptionUseCase {
     }
 
     // 2. Buscar dados frescos da DOM para obter expiresAt confiável
-    const domToken = await this.resolveDomToken(input.userId, input.role === 'ADMIN');
+    const domToken = await this.resolveDomToken(
+      input.userId,
+      input.role === 'ADMIN',
+    );
     if (!domToken) {
-      throw new InternalServerErrorException('Token DOM não configurado para este usuário');
+      throw new InternalServerErrorException(
+        'Token DOM não configurado para este usuário',
+      );
     }
 
-    const rawSub = await this.gateway.getSubscription(domToken, input.domSubscriptionId) as Record<string, unknown>;
+    const rawSub = (await this.gateway.getSubscription(
+      domToken,
+      input.domSubscriptionId,
+    )) as Record<string, unknown>;
     if (!rawSub) {
       throw new NotFoundException('Assinatura não encontrada na DOM');
     }
@@ -55,9 +62,13 @@ export class PauseSubscriptionUseCase {
     // A DOM pode retornar a data de expiração em vários campos dependendo do endpoint
     const subData = (rawSub?.['data'] ?? rawSub) as Record<string, unknown>;
     if (!this.isActiveSubscription(subData)) {
-      throw new BadRequestException('Somente assinaturas ativas podem ser pausadas.');
+      throw new BadRequestException(
+        'Somente assinaturas ativas podem ser pausadas.',
+      );
     }
-    const autoRecurring = (subData['auto_recurring'] ?? undefined) as Record<string, unknown> | undefined;
+    const autoRecurring = (subData['auto_recurring'] ?? undefined) as
+      | Record<string, unknown>
+      | undefined;
 
     // next_date_invoice fica dentro de auto_recurring na API de detalhe da DOM
     const expiresRaw =
@@ -72,13 +83,15 @@ export class PauseSubscriptionUseCase {
     if (!expiresRaw) {
       throw new BadRequestException(
         'Não foi possível calcular os dias restantes — data de expiração não disponível na DOM. ' +
-        'Verifique se a assinatura está ativa.',
+          'Verifique se a assinatura está ativa.',
       );
     }
 
     const expiresAt = new Date(expiresRaw);
     if (isNaN(expiresAt.getTime())) {
-      throw new BadRequestException('Data de expiração inválida retornada pela DOM.');
+      throw new BadRequestException(
+        'Data de expiração inválida retornada pela DOM.',
+      );
     }
 
     const now = new Date();
@@ -93,14 +106,17 @@ export class PauseSubscriptionUseCase {
 
     // 3. Extrair snapshot para exibição na lista (a assinatura some da DOM após cancelamento)
     const subscriberName = this.extractString(subData, 'customer_name') ?? null;
-    const description    = this.extractString(subData, 'description') ?? null;
-    const planId         = this.extractString(subData, 'plan_id') ?? null;
-    const frequency      = this.extractString(subData, 'frequency_type') ?? null;
-    const firstCharge    = this.extractString(subData, 'start_date_invoice') ?? null;
-    const valueBrl       = this.extractNumber(subData, 'value');
+    const description = this.extractString(subData, 'description') ?? null;
+    const planId = this.extractString(subData, 'plan_id') ?? null;
+    const frequency = this.extractString(subData, 'frequency_type') ?? null;
+    const firstCharge =
+      this.extractString(subData, 'start_date_invoice') ?? null;
+    const valueBrl = this.extractNumber(subData, 'value');
 
     // 4. Cancelar a assinatura na DOM (para a cobrança automática)
-    this.logger.log(`[PauseSubscription] Cancelando na DOM: ${input.domSubscriptionId}`);
+    this.logger.log(
+      `[PauseSubscription] Cancelando na DOM: ${input.domSubscriptionId}`,
+    );
     await this.gateway.cancelSubscription(domToken, input.domSubscriptionId);
 
     const customerObj = (subData['customer'] ?? {}) as Record<string, unknown>;
@@ -112,7 +128,9 @@ export class PauseSubscriptionUseCase {
         domSubscriptionId: input.domSubscriptionId,
         userId: input.userId,
         subscriberName,
-        customerEmail: this.extractString(customerObj, 'email') ?? this.extractString(subData, 'customer_email'),
+        customerEmail:
+          this.extractString(customerObj, 'email') ??
+          this.extractString(subData, 'customer_email'),
         description,
         planId,
         valueBrl,
@@ -143,52 +161,82 @@ export class PauseSubscriptionUseCase {
 
     // Notificar api-pagatg da pausa (para remover do Telegram)
     try {
-      const apiPagatgUrl = ((getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) || '').replace(/\/+$/, '');
-      const pagatgInternalToken = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined) || '';
-      
+      const apiPagatgUrl = (
+        (getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) ||
+        ''
+      ).replace(/\/+$/, '');
+      const pagatgInternalToken =
+        (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ??
+          undefined) ||
+        '';
+
       await fetch(`${apiPagatgUrl}/webhook/signature`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(pagatgInternalToken ? { 'x-pagatg-internal-token': pagatgInternalToken } : {}),
+          ...(pagatgInternalToken
+            ? { 'x-pagatg-internal-token': pagatgInternalToken }
+            : {}),
         },
         body: JSON.stringify({
           type: 'SIGNATURE-PAUSED',
           data: {
             customer: {
-              id: this.extractString(customerObj, 'id') ?? this.extractString(subData, 'customer_id'),
-              name: this.extractString(customerObj, 'name') ?? this.extractString(subData, 'customer_name'),
-              email: this.extractString(customerObj, 'email') ?? this.extractString(subData, 'customer_email'),
-              document: this.extractString(customerObj, 'document') ?? this.extractString(subData, 'customer_document'),
+              id:
+                this.extractString(customerObj, 'id') ??
+                this.extractString(subData, 'customer_id'),
+              name:
+                this.extractString(customerObj, 'name') ??
+                this.extractString(subData, 'customer_name'),
+              email:
+                this.extractString(customerObj, 'email') ??
+                this.extractString(subData, 'customer_email'),
+              document:
+                this.extractString(customerObj, 'document') ??
+                this.extractString(subData, 'customer_document'),
             },
             plan: {
               id: this.extractString(planObj, 'id') ?? planId,
-              description: this.extractString(planObj, 'description') ?? description,
-              external_reference: this.extractString(planObj, 'external_reference') ?? this.extractString(subData, 'external_reference'),
+              description:
+                this.extractString(planObj, 'description') ?? description,
+              external_reference:
+                this.extractString(planObj, 'external_reference') ??
+                this.extractString(subData, 'external_reference'),
             },
             subscription: {
               id: input.domSubscriptionId,
               status: 'PAUSED',
-              external_reference: this.extractString(subData, 'external_reference'),
+              external_reference: this.extractString(
+                subData,
+                'external_reference',
+              ),
             },
           },
         }),
       });
     } catch (webhookError: any) {
-      this.logger.error(`Erro ao notificar api-pagatg de pausa CC: ${webhookError.message}`);
+      this.logger.error(
+        `Erro ao notificar api-pagatg de pausa CC: ${webhookError.message}`,
+      );
     }
 
     return response;
   }
 
-  private extractString(obj: Record<string, unknown> | undefined, key: string): string | null {
+  private extractString(
+    obj: Record<string, unknown> | undefined,
+    key: string,
+  ): string | null {
     if (!obj) return null;
     const v = obj[key];
     if (typeof v === 'string' && v.length > 0) return v;
     return null;
   }
 
-  private extractNumber(obj: Record<string, unknown> | undefined, key: string): number | null {
+  private extractNumber(
+    obj: Record<string, unknown> | undefined,
+    key: string,
+  ): number | null {
     if (!obj) return null;
     const v = obj[key];
     if (typeof v === 'number' && isFinite(v)) return v;
@@ -200,28 +248,38 @@ export class PauseSubscriptionUseCase {
   }
 
   private isActiveSubscription(data: Record<string, unknown>): boolean {
-    const activeRaw = data.active ?? data.actived ?? data.activated ?? data.is_active ?? data.isActive;
+    const activeRaw =
+      data.active ??
+      data.actived ??
+      data.activated ??
+      data.is_active ??
+      data.isActive;
     if (activeRaw === true || activeRaw === 1) return true;
-    if (typeof activeRaw === 'string' && ['true', '1', 'active'].includes(activeRaw.trim().toLowerCase())) {
+    if (
+      typeof activeRaw === 'string' &&
+      ['true', '1', 'active'].includes(activeRaw.trim().toLowerCase())
+    ) {
       return true;
     }
 
     const statusRaw = data.status ?? data.active_status ?? data.status_type;
-    const status = String(statusRaw ?? '').trim().toLowerCase();
+    const status = String(statusRaw ?? '')
+      .trim()
+      .toLowerCase();
     return ['active', 'actived', 'activated', 'true', '1'].includes(status);
   }
 
-  private async resolveDomToken(userId: string, isAdmin: boolean): Promise<string | null> {
+  private async resolveDomToken(
+    userId: string,
+    isAdmin: boolean,
+  ): Promise<string | null> {
     if (isAdmin) return process.env.DOM_TOKEN ?? null;
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { domToken: true, platform: { select: { tag: true } } },
+      select: { domToken: true },
     });
     if (user?.domToken) return user.domToken;
-
-    const moduleToken = getModuleDomToken(user?.platform?.tag);
-    if (moduleToken) return moduleToken;
 
     return process.env.DOM_TOKEN ?? null;
   }

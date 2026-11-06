@@ -1,7 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
-import { decryptPlatformSecret } from '../platform-integrations/platform-secrets';
 import { unsupportedCapability } from './platform-adapters';
 import type { PlatformContext } from './platform-context.service';
 
@@ -33,12 +32,7 @@ export class PlatformReconciliation {
       throw new ConflictException('Plataforma ou dono inativo/alterado');
     if (platform.acquirer !== 'DOM')
       unsupportedCapability('reconcile.' + platform.acquirer);
-    const credential = platform.integrations.find(
-      (row) => row.key === 'DOM_TOKEN',
-    );
-    const token = credential?.encryptedValue
-      ? decryptPlatformSecret(credential.encryptedValue)
-      : credential?.url;
+    const token = process.env.DOM_TOKEN;
     if (!token) unsupportedCapability('reconcile.configuration');
     return this.reconciliation.execute({
       platformTag: tag,

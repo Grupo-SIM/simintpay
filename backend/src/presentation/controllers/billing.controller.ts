@@ -17,7 +17,6 @@ import {
   PAYMENT_GATEWAY_DOM,
   type IPaymentGateway,
 } from '../../core/services/payment-gateway.interface';
-import { getModuleDomToken } from '../../modules/module.registry';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { Inject } from '@nestjs/common';
 import { TransactionStatus } from '@prisma/client';
@@ -110,7 +109,6 @@ export class BillingController {
       select: {
         domToken: true,
         clientStatus: true,
-        platform: { select: { tag: true } },
       },
     });
     if (!owner)
@@ -119,9 +117,7 @@ export class BillingController {
       );
     const domToken = owner.clientStatus
       ? process.env.DOM_TOKEN
-      : (owner.domToken ??
-        getModuleDomToken(owner.platform?.tag) ??
-        process.env.DOM_TOKEN);
+      : (owner.domToken ?? process.env.DOM_TOKEN);
     if (!domToken) throw new BadRequestException('DOM_TOKEN não configurado');
 
     const recurringAmount =

@@ -1,8 +1,13 @@
-import { Inject, Injectable, InternalServerErrorException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { getModuleDomToken } from '../../../modules/module.registry';
 
 @Injectable()
 export class DeleteClienteUseCase {
@@ -11,7 +16,11 @@ export class DeleteClienteUseCase {
     private readonly prisma: PrismaService,
   ) {}
 
-  async execute(input: { userId: string; role?: string; id: string }): Promise<void> {
+  async execute(input: {
+    userId: string;
+    role?: string;
+    id: string;
+  }): Promise<void> {
     const isAdmin = input.role === 'ADMIN' || input.role === 'MASTER';
 
     // 1. Verificar se o cliente existe
@@ -25,12 +34,16 @@ export class DeleteClienteUseCase {
 
     // Se não for admin, o cliente deve pertencer ao usuário
     if (!isAdmin && cliente.userId !== input.userId) {
-      throw new ForbiddenException('Você não tem permissão para excluir este cliente');
+      throw new ForbiddenException(
+        'Você não tem permissão para excluir este cliente',
+      );
     }
 
     const domToken = await this.resolveDomToken(cliente.userId, false);
     if (!domToken) {
-      throw new InternalServerErrorException('Token DOM não configurado para o dono deste cliente');
+      throw new InternalServerErrorException(
+        'Token DOM não configurado para o dono deste cliente',
+      );
     }
 
     // 2. Buscar e cancelar assinaturas ativas (Cartão)
@@ -44,13 +57,19 @@ export class DeleteClienteUseCase {
     for (const sub of activeSubscriptions) {
       if (sub.domSubscriptionId) {
         try {
-          await this.gateway.cancelSubscription(domToken, sub.domSubscriptionId);
+          await this.gateway.cancelSubscription(
+            domToken,
+            sub.domSubscriptionId,
+          );
           await this.prisma.subscription.update({
             where: { id: sub.id },
             data: { status: 'canceled' },
           });
         } catch (error) {
-          console.error(`[DeleteCliente] Erro ao cancelar assinatura ${sub.id}:`, error.message);
+          console.error(
+            `[DeleteCliente] Erro ao cancelar assinatura ${sub.id}:`,
+            error.message,
+          );
         }
       }
     }
@@ -67,13 +86,19 @@ export class DeleteClienteUseCase {
     for (const sub of activeLinkOrders) {
       if (sub.domSubscriptionId) {
         try {
-          await this.gateway.cancelSubscription(domToken, sub.domSubscriptionId);
+          await this.gateway.cancelSubscription(
+            domToken,
+            sub.domSubscriptionId,
+          );
           await this.prisma.subscriptionLinkOrder.update({
             where: { id: sub.id },
             data: { status: 'canceled' },
           });
         } catch (error) {
-          console.error(`[DeleteCliente] Erro ao cancelar link order ${sub.id}:`, error.message);
+          console.error(
+            `[DeleteCliente] Erro ao cancelar link order ${sub.id}:`,
+            error.message,
+          );
         }
       }
     }
@@ -89,17 +114,17 @@ export class DeleteClienteUseCase {
     });
   }
 
-  private async resolveDomToken(userId: string, isAdmin: boolean): Promise<string | null> {
+  private async resolveDomToken(
+    userId: string,
+    isAdmin: boolean,
+  ): Promise<string | null> {
     if (isAdmin) return process.env.DOM_TOKEN ?? null;
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { domToken: true, platform: { select: { tag: true } } },
+      select: { domToken: true },
     });
     if (user?.domToken) return user.domToken;
-
-    const moduleToken = getModuleDomToken(user?.platform?.tag);
-    if (moduleToken) return moduleToken;
 
     return process.env.DOM_TOKEN ?? null;
   }

@@ -6,7 +6,7 @@ export interface ModuleConfig {
   /** Nome de exibição */
   name: string;
 
-  /** Slug único — usado para: env var {SLUG}_DOM_TOKEN e lookup no banco */
+  /** Slug único — usado para lookup no banco */
   slug: string;
 
   /** Saque */
@@ -27,12 +27,12 @@ export interface ModuleConfig {
 
   /** Taxas de processamento (MDR) por método de pagamento */
   mdr: {
-    pix: number;          // decimal sobre o bruto; padrão em keys (ex.: 0,02 = 2%)
+    pix: number; // decimal sobre o bruto; padrão em keys (ex.: 0,02 = 2%)
     cartao: {
-      [parcelas: number]: number;  // ex: { 1: 0.0399, 2: 0.083, ... }
+      [parcelas: number]: number; // ex: { 1: 0.0399, 2: 0.083, ... }
     };
-    taxaFixaPorTransacao: number;  // R$ fixo por transação (ex: 1.00)
-    taxaCashback?: number;         // Taxa de cashback em percentual (ex: 3.0 = 3%)
+    taxaFixaPorTransacao: number; // R$ fixo por transação (ex: 1.00)
+    taxaCashback?: number; // Taxa de cashback em percentual (ex: 3.0 = 3%)
   };
 
   /** Limites gerais */

@@ -1,5 +1,4 @@
 import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
-import { getModuleDomToken } from '../../../modules/module.registry';
 import {
   BadRequestException,
   Inject,
@@ -101,18 +100,7 @@ export class SyncDomTransactionsUseCase {
     let domToken = (user as { domToken?: string | null }).domToken;
     let source = 'Individual';
 
-    // 2. Fallback: Token do Módulo (Revalida, Renovada, etc)
-    if (!domToken && (user as any).platformId) {
-      const module = await this.prisma.platform.findUnique({
-        where: { id: (user as any).platformId },
-      });
-      if (module) {
-        domToken = getModuleDomToken(module.tag) ?? undefined;
-        source = `Módulo (${module.tag})`;
-      }
-    }
-
-    // 3. Fallback Master (Para o admin principal)
+    // 2. Fallback Master (Para o admin principal)
     if (!domToken) {
       domToken = process.env.DOM_TOKEN || process.env.API_DOM_MASTER_KEY;
       source = 'Master/BFF';
@@ -120,7 +108,7 @@ export class SyncDomTransactionsUseCase {
 
     if (!domToken) {
       throw new BadRequestException(
-        'Nenhum Token (Individual, Módulo ou Master) encontrado para sincronização.',
+        'Nenhum Token (Individual ou Master) encontrado para sincronização.',
       );
     }
 

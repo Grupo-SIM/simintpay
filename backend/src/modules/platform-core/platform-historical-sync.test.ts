@@ -5,23 +5,12 @@ import { PlatformEventsService } from './platform-events.service';
 import { PlatformCorporateController } from './platform-corporate.controller';
 import { AtlasSyncService } from '../atlas/services/atlas-sync.service';
 import { RevalidaSyncService } from '../revalida/services/revalida-sync.service';
-import {
-  initializePlatformIntegrationsCache,
-  invalidatePlatformIntegrationsCache,
-} from '../platform-integrations/platform-integrations.store';
-beforeEach(async () =>
-  initializePlatformIntegrationsCache({
-    platformIntegration: {
-      findMany: async () =>
-        ['ATLAS', 'REVALIDA'].map((tag) => ({
-          platform: { tag },
-          key: 'DOM_TOKEN',
-          url: 'mock-token',
-        })),
-    },
-  } as any),
-);
-afterEach(() => invalidatePlatformIntegrationsCache());
+beforeEach(() => {
+  process.env.DOM_TOKEN = 'mock-token';
+});
+afterEach(() => {
+  delete process.env.DOM_TOKEN;
+});
 function fixture(tag: string, description = tag.toLowerCase()) {
   const context = {
     id: 'p',
