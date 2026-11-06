@@ -258,9 +258,9 @@ export class OfferChargeCardDto {
 
 /** Cobrança pública de uma oferta avulsa. */
 export class OfferChargeDto {
-  @ApiProperty({ enum: ['pix', 'credit_card', 'debit_card'] })
-  @IsIn(['pix', 'credit_card', 'debit_card'])
-  paymentMethod!: 'pix' | 'credit_card' | 'debit_card';
+  @ApiProperty({ enum: ['pix', 'credit_card', 'debit_card', 'boleto'] })
+  @IsIn(['pix', 'credit_card', 'debit_card', 'boleto'])
+  paymentMethod!: 'pix' | 'credit_card' | 'debit_card' | 'boleto';
 
   @ApiProperty() @IsString() @MinLength(1) customerName!: string;
   @ApiProperty() @IsEmail() customerEmail!: string;
@@ -271,6 +271,23 @@ export class OfferChargeDto {
   @IsOptional()
   @IsIn(['CPF', 'CNPJ'])
   documentType?: 'CPF' | 'CNPJ';
+
+  @ApiPropertyOptional({
+    description:
+      'Endereço do pagador, obrigatório para boleto (mesmos campos do boleto legado): CEP',
+  })
+  @IsOptional()
+  @IsString()
+  cep?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() rua?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() numero?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() bairro?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() cidade?: string;
+  @ApiPropertyOptional({ description: 'UF com 2 letras' })
+  @IsOptional()
+  @IsString()
+  uf?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() complemento?: string;
 
   @ApiPropertyOptional({ description: 'Somente cartão de crédito; padrão 1' })
   @IsOptional()

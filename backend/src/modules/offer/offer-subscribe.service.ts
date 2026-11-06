@@ -55,6 +55,7 @@ import type {
   OfferCardCustomerDto,
   OfferSubscribeDto,
 } from './offer-subscribe.dto';
+import { offerGatewayLinkInput } from './offer-gateway-link';
 import { priceOfferCharge } from './offer-pricing';
 
 export type OfferSubscribeResult = {
@@ -231,6 +232,10 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
     if (trial && !(auto && this.tokenSource.kind === 'customer-token'))
       throw new BadRequestException(
         'Ofertas com período de teste exigem cobrança automática com tokenização no navegador',
+      );
+    if ((input.paymentMethod as string) === 'boleto')
+      throw new BadRequestException(
+        'Ofertas recorrentes não aceitam boleto; use cartão (cobrança automática) ou PIX (pagamento manual)',
       );
     const method: PaymentMethod = auto ? 'CREDIT_CARD' : 'PIX';
     if (input.paymentMethod !== (auto ? 'credit_card' : 'pix'))
@@ -914,15 +919,10 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
       'PAYMENT_LINK',
     );
     if (known) return known;
-    const created = await gateway.createPaymentLink(domToken, {
-      title: offer.name,
-      description: offer.description,
-      amount: offer.amountCents / 100,
-      maxInstallments: offer.maxInstallments,
-      interestRateInstallment: 0,
-      aceitaCartao: offer.acceptedMethods.some((m) => m.endsWith('_CARD')),
-      aceitaPix: offer.acceptedMethods.includes('PIX'),
-    });
+    const created = await gateway.createPaymentLink(
+      domToken,
+      offerGatewayLinkInput(offer),
+    );
     try {
       await this.refs.link(acquirer, 'PAYMENT_LINK', created.id, target);
       return created.id;

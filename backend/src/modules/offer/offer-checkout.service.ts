@@ -12,6 +12,8 @@ import {
   type Offer,
 } from '@prisma/client';
 import { calculateAreaflixSellerNet } from '../../application/helpers/areaflix-fees.helper';
+import { normalizeBoletoAddress } from './offer-boleto-address';
+import { calculateBoletoFees } from '../../application/use-cases/boleto/boleto-fees.helper';
 import { clientTaxaTagFor } from '../../application/helpers/client-rules.helper';
 import { platformGatewayToken } from '../../application/helpers/explicit-platform.helper';
 import {
@@ -26,6 +28,7 @@ import { PaymentGatewayResolver } from '../../infrastructure/http/payment-gatewa
 import { ExternalRefService } from '../billing-core/external-ref.service';
 import { markChargeSettled } from '../billing-core/charge-settlement';
 import { coproductionKeyFor } from './offer-coproduction';
+import { boletoDueDaysOf, offerGatewayLinkInput } from './offer-gateway-link';
 import {
   captureCoproduction,
   withCoproduction,
@@ -38,7 +41,10 @@ import { paymentTracking } from '../platform-core/payment-tracking';
 import { persistLinkCharge } from '../platform-core/link-settlement';
 import { transactionPlatformTagData } from '../platform-core/transaction-platform';
 import { buildUserTaxaTag } from '../platform-taxas/platform-taxas.store';
-import { discardDraftOnRejection } from '../unified-platform/payments/dom-rejection';
+import {
+  discardDraftOnRejection,
+  markPreDispatchNoCharge,
+} from '../unified-platform/payments/dom-rejection';
 import {
   readOfferFulfillment,
   type ChargeItem,
@@ -50,6 +56,7 @@ const METHODS: Record<OfferChargeDto['paymentMethod'], PaymentMethod> = {
   pix: PaymentMethod.PIX,
   credit_card: PaymentMethod.CREDIT_CARD,
   debit_card: PaymentMethod.DEBIT_CARD,
+  boleto: PaymentMethod.BOLETO,
 };
 
 const METHOD_LABEL: Record<PaymentMethod, string> = {
@@ -69,6 +76,10 @@ export type OfferChargeResult = {
   pixExpire?: string | null;
   amount: number;
   redirectUrl?: string | null;
+  /** Só boleto: PDF/URL do boleto, linha digitável e vencimento (null = sem vencimento). */
+  boletoUrl?: string | null;
+  boletoDigitableLine?: string | null;
+  boletoExpiresAt?: string | null;
 };
 
 function mapGatewayStatus(status: string | null | undefined) {
@@ -83,7 +94,7 @@ function mapGatewayStatus(status: string | null | undefined) {
 }
 
 /**
- * Checkout público de uma Offer avulsa (renewalMode NONE): PIX e cartão. Espelha o fluxo
+ * Checkout público de uma Offer avulsa (renewalMode NONE): PIX, cartão e boleto. Espelha o fluxo
  * corrigido do link de pagamento (taxas, rascunho FINAL_NET, persistência, coprodução) e
  * grava a Charge canônica. Assinaturas ficam fora de escopo.
  */
@@ -125,7 +136,15 @@ export class OfferCheckoutService {
       );
     const isPix = method === PaymentMethod.PIX;
     const isDebit = method === PaymentMethod.DEBIT_CARD;
-    const installments = isPix || isDebit ? 1 : (input.installments ?? 1);
+    const isBoleto = method === PaymentMethod.BOLETO;
+    if (isBoleto && (isFunnel || input.bumpCodes?.length))
+      throw new BadRequestException(
+        'Boleto não aceita order bumps nem upsell/downsell; escolha PIX ou cartão',
+      );
+    // Endereço é obrigatório para boleto (mesma regra e mensagem do boleto legado).
+    const boletoAddress = isBoleto ? normalizeBoletoAddress(input) : null;
+    const installments =
+      isPix || isDebit || isBoleto ? 1 : (input.installments ?? 1);
     if (
       !Number.isInteger(installments) ||
       installments < 1 ||
@@ -134,7 +153,7 @@ export class OfferCheckoutService {
       throw new BadRequestException(
         `Parcelamento permitido: de 1 a ${offer.maxInstallments}`,
       );
-    if (!isPix && !input.card)
+    if (!isPix && !isBoleto && !input.card)
       throw new BadRequestException('Dados do cartão são obrigatórios');
 
     const platformTag = (offer.platformTag ?? 'GLOBAL').toUpperCase();
@@ -205,30 +224,47 @@ export class OfferCheckoutService {
     const financialQuote = quoteFinancialCharge(
       await loadChargePolicy(this.prisma, taxaTag),
       baseAmount,
-      isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
+      isPix
+        ? 'PIX'
+        : isDebit
+          ? 'DEBIT_CARD'
+          : isBoleto
+            ? 'BOLETO'
+            : 'CREDIT_CARD',
       installments,
     );
+    // Boleto sem cotação segue o cálculo legado (TAXA_BOLETO_FIXA + TAXA_BOLETO_TRANSACAO).
+    const boletoFees =
+      isBoleto && !financialQuote
+        ? calculateBoletoFees(baseAmount, taxaTag)
+        : null;
     const fees =
       financialQuote ??
-      (isDebit
-        ? (() => {
-            const d = calculateDebitFees(pricedLink, taxaTag);
-            return {
-              totalAmount: d.baseAmount,
-              netAmount: d.netAmount,
-              domFeeAmount: d.domFeeAmount,
-            };
-          })()
-        : calculatePaymentLinkFees(
-            pricedLink,
-            installments,
-            taxaTag,
-            isPix,
-            false,
-          ));
+      (boletoFees
+        ? {
+            totalAmount: baseAmount,
+            netAmount: boletoFees.netAmount,
+            domFeeAmount: boletoFees.domFeeAmount,
+          }
+        : isDebit
+          ? (() => {
+              const d = calculateDebitFees(pricedLink, taxaTag);
+              return {
+                totalAmount: d.baseAmount,
+                netAmount: d.netAmount,
+                domFeeAmount: d.domFeeAmount,
+              };
+            })()
+          : calculatePaymentLinkFees(
+              pricedLink,
+              installments,
+              taxaTag,
+              isPix,
+              false,
+            ));
     const { totalAmount, domFeeAmount } = fees;
     let { netAmount } = fees;
-    if (platformTag === 'AREAFLIX' && !financialQuote)
+    if (platformTag === 'AREAFLIX' && !financialQuote && !isBoleto)
       netAmount = calculateAreaflixSellerNet(
         totalAmount,
         isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
@@ -236,8 +272,16 @@ export class OfferCheckoutService {
       );
 
     const domFee = round2(domFeeAmount);
-    const totalFee = round2(totalAmount - netAmount);
-    const platformFee = round2(totalFee - domFee);
+    // Boleto grava as mesmas taxas do boleto legado (ChargeBoletoUseCase), sem recomputar.
+    const boletoSplit = isBoleto
+      ? (financialQuote ?? boletoFees ?? null)
+      : null;
+    const totalFee = boletoSplit
+      ? boletoSplit.platformFeeTotal
+      : round2(totalAmount - netAmount);
+    const platformFee = boletoSplit
+      ? boletoSplit.platformProfit
+      : round2(totalFee - domFee);
 
     const key = coproductionKeyFor(offer);
     const coproduction = await captureCoproduction(
@@ -370,6 +414,63 @@ export class OfferCheckoutService {
     } as never;
 
     const description = `${snapshot.description} [LINK_CHARGE:${txId}]`;
+    if (isBoleto) {
+      const result = await discardDraftOnRejection(
+        releasing,
+        txId,
+        async () => {
+          const out = await gateway.chargeBoletoForLink(domToken, {
+            amount: totalAmount,
+            description,
+            customerName: input.customerName,
+            customerEmail: input.customerEmail,
+            customerDocument: document,
+            customerPhone: phone,
+            documentType:
+              input.documentType ?? (document.length === 14 ? 'CNPJ' : 'CPF'),
+            codExternal: txId,
+            expireDays: boletoDueDaysOf(offer.metadata),
+            address: boletoAddress!,
+          });
+          // O gateway recusou gerar o boleto (failed ou sem link/linha digitável): nada foi
+          // emitido, então rascunho, Charge e reserva de uso são descartados.
+          if (
+            String(out.status ?? '').toLowerCase() === 'failed' ||
+            (!out.boletoUrl && !out.digitableLine)
+          )
+            throw markPreDispatchNoCharge(
+              new BadRequestException(
+                'Não foi possível gerar o boleto no gateway. Verifique os dados e tente novamente.',
+              ),
+            );
+          return out;
+        },
+      );
+      const saved = await this.persist(
+        { ...snapshot, domPaymentId: result.id },
+        TransactionStatus.PENDING,
+        txId,
+        null,
+        null,
+      );
+      const metadata = (offer.metadata ?? {}) as Record<string, unknown>;
+      return {
+        id: result.id,
+        transactionId: saved.id,
+        chargeId: charge.id,
+        status: result.status ?? 'pending',
+        pixContent: null,
+        amount: totalAmount,
+        redirectUrl:
+          readOfferFulfillment(offer.fulfillment).redirectUrl ??
+          (typeof metadata.redirectUrl === 'string'
+            ? metadata.redirectUrl
+            : null),
+        boletoUrl: result.boletoUrl ?? null,
+        boletoDigitableLine: result.digitableLine ?? null,
+        boletoExpiresAt: result.dueDate ?? null,
+      };
+    }
     if (isPix) {
       const result = await discardDraftOnRejection(releasing, txId, () =>
         gateway.chargePixForLink(domToken, {
@@ -410,7 +511,10 @@ export class OfferCheckoutService {
         customerEmail: input.customerEmail,
         customerDocument: document,
         customerPhone: phone,
-        paymentMethod: input.paymentMethod,
+        paymentMethod: input.paymentMethod as Exclude<
+          OfferChargeDto['paymentMethod'],
+          'boleto'
+        >,
         installments,
         card: input.card,
       }),
@@ -546,17 +650,10 @@ export class OfferCheckoutService {
       'PAYMENT_LINK',
     );
     if (known) return known;
-    const created = await gateway.createPaymentLink(domToken, {
-      title: offer.name,
-      description: offer.description,
-      amount: offer.amountCents / 100,
-      maxInstallments: offer.maxInstallments,
-      interestRateInstallment: 0,
-      aceitaCartao:
-        offer.acceptedMethods.includes('CREDIT_CARD') ||
-        offer.acceptedMethods.includes('DEBIT_CARD'),
-      aceitaPix: offer.acceptedMethods.includes('PIX'),
-    });
+    const created = await gateway.createPaymentLink(
+      domToken,
+      offerGatewayLinkInput(offer),
+    );
     try {
       await this.refs.link(acquirer, 'PAYMENT_LINK', created.id, target);
       return created.id;

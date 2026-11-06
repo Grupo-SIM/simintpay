@@ -66,8 +66,12 @@ export class OfferCardCustomerDto {
 
 /** Contratação pública de uma oferta recorrente (AUTO_CHARGE: cartão; MANUAL_PAY: PIX). */
 export class OfferSubscribeDto {
-  @ApiProperty({ enum: ['pix', 'credit_card'] })
-  @IsIn(['pix', 'credit_card'])
+  @ApiProperty({
+    enum: ['pix', 'credit_card'],
+    description:
+      'boleto é recusado com uma mensagem clara (recorrência não o suporta)',
+  })
+  @IsIn(['pix', 'credit_card', 'boleto'])
   paymentMethod!: 'pix' | 'credit_card';
 
   @ApiProperty() @IsString() @MinLength(1) customerName!: string;

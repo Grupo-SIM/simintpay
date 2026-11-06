@@ -172,6 +172,24 @@ export function validateOfferInput(input: OfferInput): NormalizedOffer {
     }
   }
 
+  // Vencimento do boleto (metadata.boletoDueDays): inteiro 0-90, 0 = sem vencimento.
+  if (methods.includes('BOLETO')) {
+    const due = input.metadata?.boletoDueDays;
+    if (
+      present(due) &&
+      !(
+        typeof due === 'number' &&
+        Number.isInteger(due) &&
+        due >= 0 &&
+        due <= 90
+      )
+    ) {
+      issues.push(
+        'Vencimento do boleto (boletoDueDays) deve ser um inteiro de 0 a 90 (0 = sem vencimento)',
+      );
+    }
+  }
+
   if (issues.length) throw new OfferValidationError(issues);
 
   // Boleto exige endereço completo do comprador; aqui só marcamos a flag.

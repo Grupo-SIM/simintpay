@@ -96,6 +96,32 @@ describe('validateOfferInput', () => {
     expect(out.metadata).toEqual({ requiresBuyerAddress: true });
   });
 
+  test('boleto due days: integer 0-90 (0 = no due date), kept next to requiresBuyerAddress', () => {
+    for (const days of [0, 3, 90]) {
+      const out = validateOfferInput({
+        ...base,
+        acceptedMethods: ['BOLETO'],
+        metadata: { boletoDueDays: days },
+      });
+      expect(out.metadata).toEqual({
+        boletoDueDays: days,
+        requiresBuyerAddress: true,
+      });
+    }
+    for (const bad of [-1, 91, 1.5, '3']) {
+      expect(
+        issues({
+          acceptedMethods: ['BOLETO'],
+          metadata: { boletoDueDays: bad },
+        }),
+      ).toContain('boletoDueDays');
+    }
+    // Sem BOLETO aceito o campo não é validado (nem exigido).
+    expect(
+      issues({ acceptedMethods: ['PIX'], metadata: { boletoDueDays: 500 } }),
+    ).toBe('');
+  });
+
   test('accessDays must be at least 1', () => {
     expect(issues({ accessDays: 0 })).toContain('Dias de acesso');
   });
