@@ -136,6 +136,16 @@ export function OfferListing({
       ),
     },
     {
+      key: 'createdAt',
+      header: 'Data de criação',
+      defaultWidth: 170,
+      render: (row) => (
+        <time dateTime={row.createdAt} className="whitespace-nowrap">
+          {new Date(row.createdAt).toLocaleString('pt-BR')}
+        </time>
+      ),
+    },
+    {
       key: 'kind',
       header: 'Tipo',
       defaultWidth: 150,
@@ -298,7 +308,7 @@ export function OfferListing({
           pageSize={query.data?.meta.pageSize ?? OFFER_PAGE_SIZE}
           total={total}
           onPageChange={(page) => onFiltersChange({ ...filters, page })}
-          minWidth="min-w-[1596px]"
+          minWidth="min-w-[1766px]"
           emptyTitle="Nenhuma oferta encontrada"
         />
       )}
