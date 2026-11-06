@@ -74,10 +74,16 @@ describe('Generic webhook settles the Charge of a settled Transaction', () => {
     expect(db.charges[0].status).toBe('PAID');
     const paidAt = db.charges[0].paidAt;
     expect(paidAt).toBeInstanceOf(Date);
+    const credited = db.base.wallet().balance.toString();
+    expect(db.base.logs().length).toBeGreaterThan(0);
+    const logCount = db.base.logs().length;
 
     await send('paid');
     expect(db.charges[0].status).toBe('PAID');
     expect(db.charges[0].paidAt).toBe(paidAt);
+    // No double credit: wallet and ledger unchanged by the duplicate delivery.
+    expect(db.base.wallet().balance.toString()).toBe(credited);
+    expect(db.base.logs().length).toBe(logCount);
   });
 
   test('failed marks the Charge FAILED; a refund after payment keeps it PAID', async () => {
