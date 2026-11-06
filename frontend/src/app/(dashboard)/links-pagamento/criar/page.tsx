@@ -882,6 +882,7 @@ export default function CriarLinkPagamentoPage() {
           </div>
           <Input
             label="Título do link"
+            required
             placeholder="Máximo de caracteres (0/70)"
             value={titulo}
             onChange={setTitulo}
@@ -975,7 +976,7 @@ export default function CriarLinkPagamentoPage() {
         </h2>
         <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
           O valor é obrigatório. O nome é opcional: sem ele, vale o título do
-          link.
+          link (que também é obrigatório).
         </p>
         <div className="overflow-x-auto rounded-xl border border-zinc-200/80 dark:border-white/10">
           <table className="w-full min-w-[900px]">
