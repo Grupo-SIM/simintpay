@@ -9,7 +9,7 @@ export default async function CriarOfertaRedirect({
   const { id } = await searchParams;
   redirect(
     id
-      ? `/cliente/ofertas?editar=${encodeURIComponent(id)}`
-      : '/cliente/ofertas?novo=1',
+      ? `/ofertas?editar=${encodeURIComponent(id)}`
+      : '/ofertas?novo=1',
   );
 }

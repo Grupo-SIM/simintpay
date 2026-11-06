@@ -1,5 +1,6 @@
 /** Product areas remain separate from operational/admin routes. */
 const CLIENT_SHARED_ROUTES = [
+  '/ofertas',
   '/painel',
   '/transacoes',
   '/saques',

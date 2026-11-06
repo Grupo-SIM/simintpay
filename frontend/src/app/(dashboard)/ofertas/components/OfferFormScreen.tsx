@@ -1,6 +1,6 @@
 'use client';
 
-import { PaymentLinkPreviewModal } from '../../../links-pagamento/criar/components/PaymentLinkPreviewModal';
+import { PaymentLinkPreviewModal } from '../../links-pagamento/criar/components/PaymentLinkPreviewModal';
 import { Button } from '@/components/ui/Button';
 import { useState } from 'react';
 import { useTheme } from 'next-themes';
@@ -13,7 +13,7 @@ import { useProductPlatforms } from '@/hooks/use-product-platforms';
 import { saveCoproduction } from '@/features/coproduction/coproduction.service';
 import { useCoproductionDraft } from '@/features/coproduction/use-coproduction-draft';
 import { endpoints } from '@/services/api/endpoints';
-import { FormSwitch } from '../../links-pagamento/criar/components/FormSwitch';
+import { FormSwitch } from '../../cliente/links-pagamento/criar/components/FormSwitch';
 import {
   DebouncedInput as Input,
   ProductEditState,
@@ -21,13 +21,13 @@ import {
   ProductFormLayout,
   ProductFormSection,
   ProductPlatformSection,
-} from '../../components';
+} from '../../cliente/components';
 import {
   formatCurrencyFromNumber,
   formatCurrencyInput,
   parseCurrencyInput,
   useClienteApi,
-} from '../../_shared';
+} from '../../cliente/_shared';
 import {
   BOLETO_NOTE,
   MAX_BOLETO_DUE_DAYS,

@@ -6,8 +6,8 @@ import { Dropdown } from '@/components/ui/Dropdown';
 import { Button } from '@/components/ui/Button';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { endpoints } from '@/services/api/endpoints';
-import { ProductFormSection } from '../../components';
-import { fmtBRL, useClienteApi } from '../../_shared';
+import { ProductFormSection } from '../../cliente/components';
+import { fmtBRL, useClienteApi } from '../../cliente/_shared';
 import {
   BUMP_ROLES,
   addBump,

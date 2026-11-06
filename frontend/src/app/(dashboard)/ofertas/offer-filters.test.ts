@@ -91,13 +91,13 @@ describe('offer filters', () => {
     });
     const filters = { ...emptyOfferFilters, kind: 'PLAN' as const };
     expect(screenHref({ mode: 'list' }, filters)).toBe(
-      '/cliente/ofertas?tipo=PLAN',
+      '/ofertas?tipo=PLAN',
     );
     expect(screenHref({ mode: 'edit', id: 'x y' }, filters)).toBe(
-      '/cliente/ofertas?tipo=PLAN&editar=x+y',
+      '/ofertas?tipo=PLAN&editar=x+y',
     );
     expect(screenHref({ mode: 'create' }, emptyOfferFilters)).toBe(
-      '/cliente/ofertas?novo=1',
+      '/ofertas?novo=1',
     );
   });
 });
