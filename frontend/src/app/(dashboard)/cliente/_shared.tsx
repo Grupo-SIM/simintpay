@@ -52,7 +52,7 @@ export function checkoutUrlOferta(
   code: string | null | undefined,
 ): string | null {
   return code
-    ? `${CHECKOUT_BASE_URL}/?ofertaCode=${encodeURIComponent(code)}`
+    ? `${CHECKOUT_BASE_URL}/?oferta=${encodeURIComponent(code)}`
     : null;
 }
 export function checkoutUrlBoleto(

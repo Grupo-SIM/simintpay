@@ -7,7 +7,7 @@ Guia para você migrar tudo. Os detalhes técnicos dos scripts estão em [offer-
 Planos, Planos por PIX, Links de pagamento, Links de assinatura e Boletos viram **Ofertas**. Uma oferta tem preço, meios de pagamento, recorrência, validade, limite de usos, entrega e coprodução, tudo no mesmo cadastro.
 
 - A migração **cria** as ofertas a partir dos produtos legados. **Não apaga nem altera** nenhum produto legado.
-- O código público de cada produto é preservado. A **URL muda** (`?ofertaCode=<código>`) e **não há redirecionamento automático**. Você troca as URLs divulgadas.
+- O código público de cada produto é preservado. A **URL muda** (`?oferta=<código>`) e **não há redirecionamento automático**. Você troca as URLs divulgadas.
 - As recorrências passam a ser cobradas pela SimIntPay, não mais pela DOM.
 - Cada script grava só com `--apply --i-understand-this-writes`. Sem isso, é sempre simulação.
 
@@ -88,16 +88,16 @@ bun --no-env-file scripts/offer-contract-migration.ts --database-url=<url> --ver
 
 O primeiro comando é a simulação. O script confere que carteiras e `BalanceLog` não mudaram, e aborta se mudarem. Confira também se as 5 ordens têm o documento do comprador preenchido: sem ele, o link de renovação responde pedindo contato com o suporte.
 
-**Passo 6: teste uma oferta de ponta a ponta.** Abra `?ofertaCode=<código>` de uma oferta migrada e pague um PIX real de valor mínimo. Confira o valor, o webhook, o e-mail e a carteira.
+**Passo 6: teste uma oferta de ponta a ponta.** Abra `?oferta=<código>` de uma oferta migrada e pague um PIX real de valor mínimo. Confira o valor, o webhook, o e-mail e a carteira.
 
 **Passo 7: troque as URLs.** Troque o endereço divulgado (site, e-mail, campanha, integrações):
 
-| Produto            | URL antiga                       | URL nova               |
-| ------------------ | -------------------------------- | ---------------------- |
-| Link de pagamento  | `?simLinkCode=<id>`              | `?ofertaCode=<código>` |
-| Link de assinatura | `?subscriptionLinkCode=<código>` | `?ofertaCode=<código>` |
-| Plano              | `?simPlanCode=<código>`          | `?ofertaCode=<código>` |
-| Boleto             | `?simBoletoCode=<id>`            | (mantenha o legado)    |
+| Produto            | URL antiga                       | URL nova            |
+| ------------------ | -------------------------------- | ------------------- |
+| Link de pagamento  | `?simLinkCode=<id>`              | `?oferta=<código>`  |
+| Link de assinatura | `?subscriptionLinkCode=<código>` | `?oferta=<código>`  |
+| Plano              | `?simPlanCode=<código>`          | `?oferta=<código>`  |
+| Boleto             | `?simBoletoCode=<id>`            | (mantenha o legado) |
 
 **Passo 8: desative o produto legado** (`isActive = false`) quando a URL nova estiver no ar. Enquanto o legado estiver ativo, um cartão pago nele continua criando assinatura na DOM, que cobra por fora do agendador novo.
 

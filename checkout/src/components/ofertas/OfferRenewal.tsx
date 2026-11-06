@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Renovação pública de assinatura (`?ofertaCode=&renovar=&sig=`), aberta pelo link dos avisos
+ * Renovação pública de assinatura (`?oferta=&renovar=&sig=`), aberta pelo link dos avisos
  * por e-mail: sem login e sem formulário. A cobrança só é criada após o clique de confirmação
  * (um GET de pré-visualização ou antivírus não gera PIX). Usa `POST /ofertas/public/:code/renew`
  * e acompanha o PIX com `usePixConfirmation`. A assinatura do link nunca é exibida nem logada.
@@ -44,7 +44,7 @@ import {
 
 export default function OfferRenewal() {
   const searchParams = useSearchParams();
-  const code = searchParams.get('ofertaCode') ?? '';
+  const code = searchParams.get('oferta') ?? '';
   const link = parseRenewalParams(searchParams);
 
   const [offer, setOffer] = useState<PublicOffer | null>(null);

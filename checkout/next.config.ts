@@ -2,7 +2,7 @@ import type { NextConfig } from 'next';
 import { resolve } from 'node:path';
 
 // Query params dos links antigos. As tabelas antigas estão sendo migradas para ofertas mantendo o
-// mesmo UUID, então o valor do param vira o `ofertaCode`.
+// mesmo UUID, então o valor do param vira o `oferta`.
 const LEGACY_OFFER_PARAMS = [
   'simPlanCode',
   'simLinkCode',
@@ -10,6 +10,7 @@ const LEGACY_OFFER_PARAMS = [
   'subscriptionLinkCode',
   'linkCode',
   'subscriptionCode',
+  'ofertaCode',
 ];
 
 const nextConfig: NextConfig = {
@@ -34,8 +35,8 @@ const nextConfig: NextConfig = {
     return LEGACY_OFFER_PARAMS.map((param) => ({
       source: '/',
       has: [{ type: 'query' as const, key: param, value: '(?<legacyCode>.+)' }],
-      missing: [{ type: 'query' as const, key: 'ofertaCode' }],
-      destination: '/?ofertaCode=:legacyCode',
+      missing: [{ type: 'query' as const, key: 'oferta' }],
+      destination: '/?oferta=:legacyCode',
       permanent: false,
     }));
   },

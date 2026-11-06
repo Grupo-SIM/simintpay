@@ -1,5 +1,5 @@
 /**
- * Lógica pura da renovação pública de assinatura (`?ofertaCode=&renovar=&sig=`), link enviado
+ * Lógica pura da renovação pública de assinatura (`?oferta=&renovar=&sig=`), link enviado
  * pelos avisos por e-mail. A assinatura (`sig`) nunca é exibida nem registrada em log.
  */
 

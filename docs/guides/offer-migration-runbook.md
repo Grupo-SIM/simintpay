@@ -85,12 +85,12 @@ Para desfazer só um tipo, filtre por `legacyType` (e apague os `ExternalRef` cu
 
 A migração cria a `Offer` e preserva o código público, mas **não** redireciona nada:
 
-| Produto            | URL legada                       | URL da oferta          |
-| ------------------ | -------------------------------- | ---------------------- |
-| Link de pagamento  | `?simLinkCode=<id>`              | `?ofertaCode=<código>` |
-| Link de assinatura | `?subscriptionLinkCode=<código>` | `?ofertaCode=<código>` |
-| Boleto             | `?simBoletoCode=<id>`            | `?ofertaCode=<código>` |
-| Plano              | `?simPlanCode=<código>`          | `?ofertaCode=<código>` |
+| Produto            | URL legada                       | URL da oferta      |
+| ------------------ | -------------------------------- | ------------------ |
+| Link de pagamento  | `?simLinkCode=<id>`              | `?oferta=<código>` |
+| Link de assinatura | `?subscriptionLinkCode=<código>` | `?oferta=<código>` |
+| Boleto             | `?simBoletoCode=<id>`            | `?oferta=<código>` |
+| Plano              | `?simPlanCode=<código>`          | `?oferta=<código>` |
 
 1. Troque a URL divulgada (site, e-mail, campanhas) pela da oferta.
 2. Desative o link legado (`isActive = false`) quando a URL nova estiver no ar. Enquanto o link antigo estiver ativo, **um cartão pago nele continua criando uma assinatura na DOM**, e essa assinatura cobra por fora do agendador novo. Compradores que já pagaram nele seguem o playbook [subscription-migration-playbook.md](subscription-migration-playbook.md).
