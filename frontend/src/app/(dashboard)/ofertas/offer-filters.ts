@@ -131,7 +131,7 @@ export function screenFromParams(params: Params): OfferScreen {
 export function screenHref(
   screen: OfferScreen,
   filters: OfferFilters,
-  base = '/cliente/ofertas',
+  base = '/ofertas',
 ): string {
   const params = filtersToParams(filters);
   if (screen.mode === 'create') params.set('novo', '1');

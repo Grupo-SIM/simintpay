@@ -10,7 +10,7 @@ import {
 } from './offer-filters';
 import { OfferFormScreen } from './components/OfferFormScreen';
 import { OfferListing } from './components/OfferListing';
-import { ProductEditState } from '../components';
+import { ProductEditState } from '../cliente/components';
 
 /** Tela única de ofertas: listagem com filtros e formulário (?novo=1 / ?editar=<id>). */
 function OfertasScreen() {

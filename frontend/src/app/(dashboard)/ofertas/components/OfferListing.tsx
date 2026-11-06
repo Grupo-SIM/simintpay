@@ -23,7 +23,7 @@ import {
   fmtBRL,
   LinkCell,
   useClienteApi,
-} from '../../_shared';
+} from '../../cliente/_shared';
 import {
   OFFER_PAGE_SIZE,
   filtersToApiQuery,
