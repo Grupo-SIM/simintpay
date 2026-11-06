@@ -1,3 +1,4 @@
+import { findOfferByCodeOrId } from './find-offer-by-code-or-id';
 import {
   BadRequestException,
   ForbiddenException,
@@ -345,7 +346,7 @@ export class OfferService {
   }
 
   async getPublicByCode(code: string, now = new Date()) {
-    const offer = await this.prisma.offer.findUnique({ where: { code } });
+    const offer = await findOfferByCodeOrId(this.prisma, code);
     const unavailable =
       !offer ||
       !offer.isActive ||

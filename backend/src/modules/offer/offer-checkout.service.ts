@@ -1,3 +1,4 @@
+import { findOfferByCodeOrId } from './find-offer-by-code-or-id';
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
@@ -94,7 +95,7 @@ export class OfferCheckoutService {
     input: OfferChargeDto,
     now = new Date(),
   ): Promise<OfferChargeResult> {
-    const offer = await this.prisma.offer.findUnique({ where: { code } });
+    const offer = await findOfferByCodeOrId(this.prisma, code);
     if (
       !offer ||
       !offer.isActive ||

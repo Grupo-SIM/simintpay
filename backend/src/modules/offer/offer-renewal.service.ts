@@ -1,3 +1,4 @@
+import { findOfferByCodeOrId } from './find-offer-by-code-or-id';
 import { randomUUID } from 'node:crypto';
 import { coproductionKeyFor } from './offer-coproduction';
 import {
@@ -75,7 +76,7 @@ export class OfferRenewalService {
   ): Promise<OfferRenewResult> {
     if (!verifyRenewalSignature(input.contractId, input.sig))
       throw new ForbiddenException(BAD_LINK);
-    const offer = await this.prisma.offer.findUnique({ where: { code } });
+    const offer = await findOfferByCodeOrId(this.prisma, code);
     const probe = await this.prisma.billingContract.findUnique({
       where: { id: input.contractId },
       select: { id: true, offerId: true, resourceType: true },
