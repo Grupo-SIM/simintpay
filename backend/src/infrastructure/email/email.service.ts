@@ -55,8 +55,14 @@ export class EmailService {
     redirectUrl?: string | null;
     attachments?: { filename: string; content: Buffer }[];
   }): Promise<void> {
-    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
-      throw new Error('SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)');
+    if (
+      !process.env.SMTP_HOST ||
+      !process.env.SMTP_USER ||
+      !process.env.SMTP_PASSWORD
+    ) {
+      throw new Error(
+        'SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)',
+      );
     }
 
     const transport = this.createTransport();
@@ -79,7 +85,10 @@ export class EmailService {
       attachments.length > 0
         ? `<p style="font-size: 14px; margin: 16px 0 4px;">Arquivos em anexo:</p>
            <ul style="padding-left: 20px;">${attachments
-             .map((a) => `<li style="margin: 4px 0; color: #4c1d95;">${a.filename}</li>`)
+             .map(
+               (a) =>
+                 `<li style="margin: 4px 0; color: #4c1d95;">${a.filename}</li>`,
+             )
              .join('')}</ul>`
         : '';
 
@@ -113,7 +122,9 @@ export class EmailService {
         })),
       });
     } catch (err) {
-      this.logger.error(`Falha ao enviar e-mail de ebook personalizado para ${input.to}: ${String(err)}`);
+      this.logger.error(
+        `Falha ao enviar e-mail de ebook personalizado para ${input.to}: ${String(err)}`,
+      );
       throw err;
     }
   }
@@ -140,8 +151,14 @@ export class EmailService {
     redirectUrl: string | null;
     orderId: string;
   }): Promise<void> {
-    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
-      throw new Error('SMTP não configurado no api-machine (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)');
+    if (
+      !process.env.SMTP_HOST ||
+      !process.env.SMTP_USER ||
+      !process.env.SMTP_PASSWORD
+    ) {
+      throw new Error(
+        'SMTP não configurado no api-machine (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)',
+      );
     }
 
     const transport = this.createTransport();
@@ -181,7 +198,9 @@ export class EmailService {
         `,
       });
     } catch (err) {
-      this.logger.error(`Falha ao enviar e-mail de acesso de assinatura para ${input.to}: ${String(err)}`);
+      this.logger.error(
+        `Falha ao enviar e-mail de acesso de assinatura para ${input.to}: ${String(err)}`,
+      );
       throw err;
     }
   }
@@ -234,7 +253,9 @@ export class EmailService {
         `,
       });
     } catch (err) {
-      this.logger.error(`Falha ao enviar e-mail de boas-vindas para ${input.to}: ${String(err)}`);
+      this.logger.error(
+        `Falha ao enviar e-mail de boas-vindas para ${input.to}: ${String(err)}`,
+      );
     }
   }
 
@@ -255,8 +276,12 @@ export class EmailService {
       ? `Atenção: Seu plano ${input.planName} expirou`
       : `Lembrete: Seu plano ${input.planName} vence em ${input.daysRemaining} ${input.daysRemaining === 1 ? 'dia' : 'dias'}`;
 
-    const dateStr = dayjs(input.expiresAt).tz('America/Sao_Paulo').format('DD/MM/YYYY [às] HH:mm');
-    const vendedorInfo = input.vendedorName ? ` de <strong>${input.vendedorName}</strong>` : '';
+    const dateStr = dayjs(input.expiresAt)
+      .tz('America/Sao_Paulo')
+      .format('DD/MM/YYYY [às] HH:mm');
+    const vendedorInfo = input.vendedorName
+      ? ` de <strong>${input.vendedorName}</strong>`
+      : '';
 
     const message = isExpired
       ? `Seu acesso ao plano <strong>${input.planName}</strong>${vendedorInfo} expirou hoje (${dateStr}). Para continuar aproveitando os benefícios, realize a renovação.`
@@ -298,8 +323,79 @@ export class EmailService {
         `,
       });
     } catch (err) {
-      this.logger.error(`Falha ao enviar e-mail de lembrete de expiração para ${input.to}: ${String(err)}`);
+      this.logger.error(
+        `Falha ao enviar e-mail de lembrete de expiração para ${input.to}: ${String(err)}`,
+      );
     }
+  }
+
+  /**
+   * Lembrete de renovação de um contrato pago pelo comprador a cada ciclo.
+   * Diferente dos demais, LANÇA em caso de falha: quem chama precisa saber que não foi entregue.
+   */
+  async sendRenewalReminder(input: {
+    to: string;
+    customerName: string;
+    offerName: string;
+    /** Valor do próximo ciclo, em reais. */
+    amount: number;
+    dueDate: Date;
+    daysRemaining: number;
+    renewUrl: string;
+  }): Promise<void> {
+    const esc = (s: string): string =>
+      s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    const from = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
+    const dateStr = dayjs(input.dueDate)
+      .tz('America/Sao_Paulo')
+      .format('DD/MM/YYYY');
+    const amountStr = input.amount.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    });
+    const when =
+      input.daysRemaining <= 0
+        ? 'vence hoje'
+        : input.daysRemaining === 1
+          ? 'vence amanhã'
+          : `vence em ${input.daysRemaining} dias`;
+    const subject = `Renove ${input.offerName}: sua assinatura ${when}`;
+
+    await this.createTransport().sendMail({
+      from: `"SIM INT PAY" <${from}>`,
+      to: input.to,
+      subject,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;">
+          <div style="background: #0f0c1e; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+            <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">SIM INT PAY</h1>
+          </div>
+          <div style="background: #f8f7ff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e3ff;">
+            <p style="font-size: 16px; margin-top: 0;">Olá, <strong>${esc(input.customerName)}</strong>!</p>
+            <p>Sua assinatura de <strong>${esc(input.offerName)}</strong> ${when}, em <strong>${dateStr}</strong>.
+               Para continuar com o acesso, pague a renovação de <strong>${amountStr}</strong> até essa data.</p>
+            <div style="margin-top: 24px;">
+              <a href="${esc(input.renewUrl)}"
+                 style="display: inline-block; background: #6d28d9; color: #fff; text-decoration: none;
+                        padding: 12px 28px; border-radius: 8px; font-weight: bold;">
+                Renovar agora
+              </a>
+            </div>
+            <hr style="border: none; border-top: 1px solid #e5e3ff; margin: 24px 0;" />
+            <p style="font-size: 11px; color: #6b7280;">
+              Se você já realizou a renovação, desconsidere este e-mail.
+            </p>
+          </div>
+          <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
+            SIM INT PAY · JB Mídia
+          </p>
+        </div>
+      `,
+    });
   }
 
   /** Botão de redirecionamento pós-pagamento (aparece só quando há redirectUrl). */
@@ -322,15 +418,23 @@ export class EmailService {
     attachments: { filename: string; content: Buffer }[];
     redirectUrl?: string | null;
   }): Promise<void> {
-    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
-      throw new Error('SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)');
+    if (
+      !process.env.SMTP_HOST ||
+      !process.env.SMTP_USER ||
+      !process.env.SMTP_PASSWORD
+    ) {
+      throw new Error(
+        'SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)',
+      );
     }
 
     const transport = this.createTransport();
     const from = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
 
     const fileList = input.attachments
-      .map((a) => `<li style="margin: 4px 0; color: #4c1d95;">${a.filename}</li>`)
+      .map(
+        (a) => `<li style="margin: 4px 0; color: #4c1d95;">${a.filename}</li>`,
+      )
       .join('');
 
     try {
@@ -364,7 +468,9 @@ export class EmailService {
         })),
       });
     } catch (err) {
-      this.logger.error(`Falha ao enviar e-mail com PDFs para ${input.to}: ${String(err)}`);
+      this.logger.error(
+        `Falha ao enviar e-mail com PDFs para ${input.to}: ${String(err)}`,
+      );
       throw err;
     }
   }
@@ -375,8 +481,14 @@ export class EmailService {
     name: string;
     resetUrl: string;
   }): Promise<void> {
-    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
-      throw new Error('SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)');
+    if (
+      !process.env.SMTP_HOST ||
+      !process.env.SMTP_USER ||
+      !process.env.SMTP_PASSWORD
+    ) {
+      throw new Error(
+        'SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)',
+      );
     }
     const transport = this.createTransport();
     const from = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
@@ -410,7 +522,9 @@ export class EmailService {
         `,
       });
     } catch (err) {
-      this.logger.error(`Falha ao enviar e-mail de redefinição para ${input.to}: ${String(err)}`);
+      this.logger.error(
+        `Falha ao enviar e-mail de redefinição para ${input.to}: ${String(err)}`,
+      );
       throw err;
     }
   }
@@ -422,8 +536,14 @@ export class EmailService {
     linkTitle: string;
     redirectUrl: string;
   }): Promise<void> {
-    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
-      throw new Error('SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)');
+    if (
+      !process.env.SMTP_HOST ||
+      !process.env.SMTP_USER ||
+      !process.env.SMTP_PASSWORD
+    ) {
+      throw new Error(
+        'SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)',
+      );
     }
     const transport = this.createTransport();
     const from = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
@@ -452,7 +572,9 @@ export class EmailService {
         `,
       });
     } catch (err) {
-      this.logger.error(`Falha ao enviar e-mail de confirmação para ${input.to}: ${String(err)}`);
+      this.logger.error(
+        `Falha ao enviar e-mail de confirmação para ${input.to}: ${String(err)}`,
+      );
       throw err;
     }
   }

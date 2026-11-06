@@ -18,6 +18,10 @@ import {
 } from './charge-status-lookup';
 import { ChargeDueDeliveryService } from './charge-due-delivery.service';
 import { ExternalRefService } from './external-ref.service';
+import { EmailService } from '../../infrastructure/email/email.service';
+import { RENEWAL_LINK_BUILDER, SignedRenewalLinkBuilder } from './renewal-link';
+import { RenewalReminderCron } from './renewal-reminder.cron';
+import { RenewalReminderService } from './renewal-reminder.service';
 import { StoredCardCycleExecutor } from './stored-card-cycle.executor';
 import { StoredCardVaultService } from './stored-card-vault.service';
 
@@ -28,6 +32,10 @@ import { StoredCardVaultService } from './stored-card-vault.service';
     BillingCycleService,
     ChargeDueDeliveryService,
     BillingCycleCron,
+    EmailService,
+    RenewalReminderService,
+    RenewalReminderCron,
+    { provide: RENEWAL_LINK_BUILDER, useClass: SignedRenewalLinkBuilder },
     StoredCardVaultService,
     StoredCardCycleExecutor,
     ChargeReconciler,
