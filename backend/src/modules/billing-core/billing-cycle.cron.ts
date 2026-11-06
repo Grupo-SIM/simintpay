@@ -29,11 +29,9 @@ export class BillingCycleCron {
           const rows = await tx.$queryRaw<{ locked: boolean }[]>`
             SELECT pg_try_advisory_xact_lock(hashtextextended(${LOCK_KEY}, 0)) AS locked`;
           if (!rows[0]?.locked) return false;
-          // O executor só cobra contratos cujo adquirente suporta cartão guardado
-          // (`canCharge`); os demais AUTO_CHARGE são ignorados, não falhados.
-          const result = await this.cycles.runDue(new Date(), this.executor, {
-            skipAutoChargeWithoutExecutor: true,
-          });
+          // O executor só cobra contratos com cartão utilizável num adquirente que suporta
+          // cartão guardado; os demais AUTO_CHARGE viram pagos pelo comprador (CHARGE_DUE).
+          const result = await this.cycles.runDue(new Date(), this.executor);
           const reconciled = await this.reconciler.run(new Date());
           const delivery = await this.delivery.deliverPending();
           this.logger.log(

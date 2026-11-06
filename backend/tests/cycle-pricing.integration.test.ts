@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { BillingCycleService } from '../src/modules/billing-core/billing-cycle.service';
 import { priceOfferCycle } from '../src/modules/billing-core/cycle-pricing';
 import { seedGlobalPolicy } from './billing-policy-fixture';
+import { giveStoredCard } from './stored-card-fixture';
 
 const url = process.env.BILLING_TEST_DATABASE_URL;
 if (url && new URL(url).hostname !== '127.0.0.1')
@@ -44,16 +45,6 @@ async function newOffer(ownerId: string, methods: ('PIX' | 'CREDIT_CARD')[]) {
   });
 }
 
-async function firstCharge(offerId: string, email: string) {
-  const { charge } = await service.subscribe({
-    offerId,
-    customerName: 'Buyer',
-    customerEmail: email,
-    now: t0,
-  });
-  return charge;
-}
-
 beforeAll(async () => {
   if (!db) return;
   service = new BillingCycleService(db as never);
@@ -64,8 +55,14 @@ afterAll(async () => {
 });
 
 async function activate(offerId: string, email: string) {
-  const charge = await firstCharge(offerId, email);
+  const { contract, charge } = await service.subscribe({
+    offerId,
+    customerName: 'Buyer',
+    customerEmail: email,
+    now: t0,
+  });
   await service.settle(charge.id, 'PAID', t0);
+  await giveStoredCard(db!, contract);
   return charge;
 }
 

@@ -5,6 +5,11 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { recordCyclePayment, type CyclePaymentDetails } from './cycle-ledger';
 import { advanceContractForCharge } from './contract-advance';
 import {
+  buyerPaidCycleMethod,
+  effectiveRenewalMode,
+  type EffectiveRenewalMode,
+} from './effective-renewal-mode';
+import {
   defaultCycleMethod,
   frozenQuoteFrom,
   frozenQuoteSnapshot,
@@ -19,7 +24,7 @@ export type CycleChargeOutcome = 'PAID' | 'FAILED' | 'UNKNOWN';
 
 /** Cobra um ciclo no cartão guardado. Implementada pelo cofre de cartões + adquirente. */
 export interface CycleChargeExecutor {
-  /** Quando existe e retorna false, o contrato AUTO_CHARGE é ignorado (adquirente sem cobrança de cartão guardado). */
+  /** Quando existe e retorna false, o contrato vira pago pelo comprador (adquirente sem cobrança de cartão guardado). */
   canCharge?(contract: BillingContract): boolean;
   charge(input: {
     charge: Charge;
@@ -35,12 +40,11 @@ export type CycleRunResult = {
   /** Cobranças automáticas sem resposta conclusiva do adquirente; seguem PENDING. */
   unknown: number;
   expired: number;
-  skippedNoExecutor: number;
-};
-
-export type RunDueOptions = {
-  /** Sem executor, contratos AUTO_CHARGE são ignorados (sem cobrança nem mudança de estado). */
-  skipAutoChargeWithoutExecutor?: boolean;
+  /**
+   * Contratos de oferta AUTO_CHARGE tratados como pagos pelo comprador (sem cartão utilizável
+   * ou adquirente sem cobrança de cartão guardado). Já contados em `awaitingBuyer`/`expired`.
+   */
+  buyerPaidFallback: number;
 };
 
 type ContractWithOffer = BillingContract & { offer: Offer };
@@ -159,7 +163,6 @@ export class BillingCycleService {
   async runDue(
     now: Date,
     executor?: CycleChargeExecutor,
-    options: RunDueOptions = {},
   ): Promise<CycleRunResult> {
     const result: CycleRunResult = {
       issued: 0,
@@ -168,7 +171,7 @@ export class BillingCycleService {
       awaitingBuyer: 0,
       unknown: 0,
       expired: 0,
-      skippedNoExecutor: 0,
+      buyerPaidFallback: 0,
     };
     const due = (await this.prisma.billingContract.findMany({
       where: {
@@ -182,32 +185,38 @@ export class BillingCycleService {
 
     for (const contract of due) {
       const { offer } = contract;
-      if (
-        offer.renewalMode === 'AUTO_CHARGE' &&
-        options.skipAutoChargeWithoutExecutor &&
-        (!executor || executor.canCharge?.(contract) === false)
-      ) {
-        result.skippedNoExecutor++;
-        continue;
-      }
+      // Modo efetivo por contrato: AUTO_CHARGE só com cartão utilizável; senão o comprador paga.
+      // (Antes, AUTO_CHARGE sem executor era ignorado para sempre; agora vira pago pelo comprador.)
+      const mode = await effectiveRenewalMode(
+        this.prisma,
+        contract,
+        offer,
+        executor,
+        now,
+      );
+      const buyerPaid = mode === 'MANUAL_PAY';
+      if (buyerPaid && offer.renewalMode === 'AUTO_CHARGE')
+        result.buyerPaidFallback++;
       const cycleKey = contract.currentPeriodEnd.toISOString();
       let claim: Charge | null;
       try {
-        claim = await this.claimCycleCharge(contract, cycleKey, now);
+        claim = await this.claimCycleCharge(contract, cycleKey, now, mode);
       } catch {
         // Pricing failed (e.g. invalid policy lane): leave the contract due for the next run
         // instead of aborting the other contracts.
         continue;
       }
       if (!claim) {
-        // Cobrança já aberta: no modo manual, expira se a carência acabou.
-        if (await this.expireIfOverdue(contract, cycleKey, now)) {
+        // Cobrança já aberta: pago pelo comprador garante o aviso (idempotente) e expira
+        // se a carência acabou.
+        if (buyerPaid) await this.emitChargeDue(contract, cycleKey);
+        if (await this.expireIfOverdue(contract, cycleKey, now, mode)) {
           result.expired++;
         }
         continue;
       }
       result.issued++;
-      if (offer.renewalMode === 'AUTO_CHARGE' && executor) {
+      if (!buyerPaid && executor) {
         const { outcome } = await executor.charge({ charge: claim, contract });
         if (outcome === 'UNKNOWN') {
           // Ambíguo: a cobrança segue PENDING e o contrato não muda até a conciliação.
@@ -225,16 +234,7 @@ export class BillingCycleService {
         if (outcome === 'PAID') result.autoPaid++;
         else result.autoFailed++;
       } else {
-        await this.prisma.billingContractEvent.upsert({
-          where: { eventKey: `charge-due:${claim.id}:${claim.attempts}` },
-          update: {},
-          create: {
-            contractId: contract.id,
-            eventKey: `charge-due:${claim.id}:${claim.attempts}`,
-            type: 'CHARGE_DUE',
-            payload: { chargeId: claim.id, amountCents: claim.amountCents },
-          },
-        });
+        await this.emitCharge(contract.id, claim);
         result.awaitingBuyer++;
       }
     }
@@ -246,7 +246,12 @@ export class BillingCycleService {
     contract: ContractWithOffer,
     cycleKey: string,
     now: Date,
+    mode: EffectiveRenewalMode,
   ): Promise<Charge | null> {
+    const cycleMethod =
+      mode === 'MANUAL_PAY' && contract.offer.renewalMode === 'AUTO_CHARGE'
+        ? buyerPaidCycleMethod(contract.offer)
+        : defaultCycleMethod(contract.offer);
     const existing = await this.prisma.charge.findUnique({
       where: { contractId_cycleKey: { contractId: contract.id, cycleKey } },
     });
@@ -256,7 +261,7 @@ export class BillingCycleService {
       const quote = await priceOfferCycle(
         this.prisma,
         contract.offer,
-        defaultCycleMethod(contract.offer),
+        cycleMethod,
         1,
       );
       try {
@@ -300,7 +305,7 @@ export class BillingCycleService {
       const quote = await priceOfferCycle(
         this.prisma,
         contract.offer,
-        existing.method ?? defaultCycleMethod(contract.offer),
+        existing.method ?? cycleMethod,
         1,
       );
       await this.prisma.charge.update({
@@ -315,12 +320,43 @@ export class BillingCycleService {
     return this.prisma.charge.findUniqueOrThrow({ where: { id: existing.id } });
   }
 
+  /** Emite CHARGE_DUE uma vez por (cobrança, tentativa): a chave do evento garante idempotência. */
+  private async emitCharge(
+    contractId: string,
+    charge: Pick<Charge, 'id' | 'attempts' | 'amountCents'>,
+  ): Promise<void> {
+    const eventKey = `charge-due:${charge.id}:${charge.attempts}`;
+    await this.prisma.billingContractEvent.upsert({
+      where: { eventKey },
+      update: {},
+      create: {
+        contractId,
+        eventKey,
+        type: 'CHARGE_DUE',
+        payload: { chargeId: charge.id, amountCents: charge.amountCents },
+      },
+    });
+  }
+
+  /** Cobrança PENDING do ciclo que ficou sem aviso (ex.: cartão revogado depois da cobrança aberta). */
+  private async emitChargeDue(
+    contract: ContractWithOffer,
+    cycleKey: string,
+  ): Promise<void> {
+    const charge = await this.prisma.charge.findUnique({
+      where: { contractId_cycleKey: { contractId: contract.id, cycleKey } },
+    });
+    if (charge?.status === 'PENDING')
+      await this.emitCharge(contract.id, charge);
+  }
+
   private async expireIfOverdue(
     contract: ContractWithOffer,
     cycleKey: string,
     now: Date,
+    mode: EffectiveRenewalMode,
   ): Promise<boolean> {
-    if (contract.offer.renewalMode !== 'MANUAL_PAY') return false;
+    if (mode !== 'MANUAL_PAY') return false;
     const charge = await this.prisma.charge.findUnique({
       where: { contractId_cycleKey: { contractId: contract.id, cycleKey } },
     });

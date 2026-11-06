@@ -3,6 +3,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import { BillingCycleService } from '../src/modules/billing-core/billing-cycle.service';
 import { seedGlobalPolicy } from './billing-policy-fixture';
+import { giveStoredCard } from './stored-card-fixture';
 import { ChargeDueDeliveryService } from '../src/modules/billing-core/charge-due-delivery.service';
 
 const url = process.env.BILLING_TEST_DATABASE_URL;
@@ -40,7 +41,7 @@ async function offer(renewalMode: 'AUTO_CHARGE' | 'MANUAL_PAY', extra = {}) {
   });
 }
 
-async function activate(offerId: string, email: string) {
+async function activate(offerId: string, email: string, card = true) {
   const { contract, charge } = await service.subscribe({
     offerId,
     customerName: 'Buyer',
@@ -48,7 +49,12 @@ async function activate(offerId: string, email: string) {
     now: t0,
   });
   await service.settle(charge.id, 'PAID', t0);
-  return db!.billingContract.findUniqueOrThrow({ where: { id: contract.id } });
+  const active = await db!.billingContract.findUniqueOrThrow({
+    where: { id: contract.id },
+  });
+  // AUTO_CHARGE is only effective with a usable stored card.
+  if (card) await giveStoredCard(db!, active);
+  return active;
 }
 
 beforeAll(async () => {
@@ -172,22 +178,19 @@ run(
 );
 
 run(
-  'skips AUTO_CHARGE without an executor and delivers CHARGE_DUE once',
+  'AUTO_CHARGE without an executor is buyer-paid and delivers CHARGE_DUE once',
   async () => {
     const auto = await offer('AUTO_CHARGE');
-    const ac = await activate(auto.id, 'skip@test.dev');
+    const ac = await activate(auto.id, 'nodelegate@test.dev');
     const manual = await offer('MANUAL_PAY');
     const mc = await activate(manual.id, 'deliver@test.dev');
-    const res = await service.runDue(at(31), undefined, {
-      skipAutoChargeWithoutExecutor: true,
-    });
-    expect(res.skippedNoExecutor).toBeGreaterThanOrEqual(1);
-    expect(await db!.charge.count({ where: { contractId: ac.id } })).toBe(1);
-    const untouched = await db!.billingContract.findUniqueOrThrow({
-      where: { id: ac.id },
-    });
-    expect(untouched.status).toBe('ACTIVE');
-    expect(untouched.nextChargeAt).toEqual(ac.nextChargeAt);
+    const res = await service.runDue(at(31));
+    expect(res.buyerPaidFallback).toBeGreaterThanOrEqual(1);
+    expect(
+      await db!.charge.count({
+        where: { contractId: ac.id, status: 'PENDING' },
+      }),
+    ).toBe(1);
 
     const notices: string[] = [];
     const delivery = new ChargeDueDeliveryService(db as never, {
@@ -245,22 +248,176 @@ run(
   },
 );
 
-run('skips AUTO_CHARGE contracts the executor cannot charge', async () => {
+run(
+  'AUTO_CHARGE contracts the executor cannot charge become buyer-paid, never charged',
+  async () => {
+    const o = await offer('AUTO_CHARGE');
+    const c = await activate(o.id, 'unsupported@test.dev');
+    let calls = 0;
+    const executor = {
+      canCharge: () => false,
+      charge: async () => {
+        calls++;
+        return { outcome: 'PAID' as const };
+      },
+    };
+    const res = await service.runDue(at(31), executor);
+    expect(calls).toBe(0);
+    expect(res.awaitingBuyer).toBeGreaterThanOrEqual(1);
+    expect(
+      await db!.charge.count({
+        where: { contractId: c.id, status: 'PENDING' },
+      }),
+    ).toBe(1);
+    expect(
+      await db!.billingContractEvent.count({
+        where: { contractId: c.id, type: 'CHARGE_DUE' },
+      }),
+    ).toBe(1);
+  },
+);
+
+run(
+  'AUTO_CHARGE offer, contract without a card: CHARGE_DUE once, PIX total, suspended only after grace',
+  async () => {
+    const o = await offer('AUTO_CHARGE');
+    const c = await activate(o.id, 'nocard@test.dev', false);
+    let calls = 0;
+    const executor = {
+      charge: async () => {
+        calls++;
+        return { outcome: 'FAILED' as const };
+      },
+    };
+    const first = await service.runDue(at(31), executor);
+    expect(first.awaitingBuyer).toBeGreaterThanOrEqual(1);
+    expect(calls).toBe(0);
+    const charge = await db!.charge.findFirstOrThrow({
+      where: { contractId: c.id, status: 'PENDING' },
+    });
+    expect(charge.method).toBe('PIX');
+    expect(charge.attempts).toBe(1);
+    // Re-runs inside the grace window are idempotent: no new charge, no new event, no suspension.
+    await service.runDue(at(31), executor);
+    await service.runDue(at(36), executor);
+    expect(
+      await db!.billingContractEvent.count({
+        where: { contractId: c.id, type: 'CHARGE_DUE' },
+      }),
+    ).toBe(1);
+    expect(await db!.charge.count({ where: { contractId: c.id } })).toBe(2);
+    expect(
+      (await db!.billingContract.findUniqueOrThrow({ where: { id: c.id } }))
+        .status,
+    ).toBe('ACTIVE');
+    const late = await service.runDue(at(40), executor);
+    expect(late.expired).toBeGreaterThanOrEqual(1);
+    expect(calls).toBe(0);
+    expect(
+      (await db!.billingContract.findUniqueOrThrow({ where: { id: c.id } }))
+        .status,
+    ).toBe('SUSPENDED');
+  },
+);
+
+run(
+  'AUTO_CHARGE offer, contract with a card: the card is charged',
+  async () => {
+    const o = await offer('AUTO_CHARGE');
+    const c = await activate(o.id, 'withcard@test.dev');
+    let calls = 0;
+    const executor = {
+      canCharge: () => true,
+      charge: async () => {
+        calls++;
+        return { outcome: 'PAID' as const };
+      },
+    };
+    const res = await service.runDue(at(31), executor);
+    expect(res.autoPaid).toBeGreaterThanOrEqual(1);
+    expect(calls).toBeGreaterThanOrEqual(1);
+    expect(
+      await db!.billingContractEvent.count({
+        where: { contractId: c.id, type: 'CHARGE_DUE' },
+      }),
+    ).toBe(0);
+  },
+);
+
+run(
+  'a declined card on a contract with a card keeps retry and past due',
+  async () => {
+    const o = await offer('AUTO_CHARGE');
+    const c = await activate(o.id, 'declined@test.dev');
+    const fail = { charge: async () => ({ outcome: 'FAILED' as const }) };
+    await service.runDue(at(31), fail);
+    const after = await db!.billingContract.findUniqueOrThrow({
+      where: { id: c.id },
+    });
+    expect(after.status).toBe('PAST_DUE');
+    expect(
+      await db!.billingContractEvent.count({
+        where: { contractId: c.id, type: 'CHARGE_DUE' },
+      }),
+    ).toBe(0);
+  },
+);
+
+run(
+  'a card revoked mid-life switches the contract to buyer-paid, also for an open charge',
+  async () => {
+    const o = await offer('AUTO_CHARGE');
+    const c = await activate(o.id, 'revoked@test.dev');
+    const card = await db!.storedCard.findFirstOrThrow({
+      where: { contractId: c.id },
+    });
+    let calls = 0;
+    const unknown = {
+      charge: async () => {
+        calls++;
+        return { outcome: 'UNKNOWN' as const };
+      },
+    };
+    // Cycle opened by the card executor (ambiguous outcome), then the card is revoked.
+    await service.runDue(at(31), unknown);
+    expect(calls).toBe(1);
+    expect(
+      await db!.billingContractEvent.count({
+        where: { contractId: c.id, type: 'CHARGE_DUE' },
+      }),
+    ).toBe(0);
+    await db!.storedCard.update({
+      where: { id: card.id },
+      data: { status: 'REVOKED', revokedAt: at(31) },
+    });
+    await service.runDue(at(32), unknown);
+    await service.runDue(at(33), unknown);
+    expect(calls).toBe(1);
+    expect(
+      await db!.billingContractEvent.count({
+        where: { contractId: c.id, type: 'CHARGE_DUE' },
+      }),
+    ).toBe(1);
+    const late = await service.runDue(at(40), unknown);
+    expect(late.expired).toBeGreaterThanOrEqual(1);
+    expect(
+      (await db!.billingContract.findUniqueOrThrow({ where: { id: c.id } }))
+        .status,
+    ).toBe('SUSPENDED');
+  },
+);
+
+run('an expired stored card counts as no card', async () => {
   const o = await offer('AUTO_CHARGE');
-  const c = await activate(o.id, 'unsupported@test.dev');
+  const c = await activate(o.id, 'expiredcard@test.dev', false);
+  await giveStoredCard(db!, c, 'DOM', 2025);
   let calls = 0;
-  const executor = {
-    canCharge: () => false,
+  const res = await service.runDue(at(31), {
     charge: async () => {
       calls++;
       return { outcome: 'PAID' as const };
     },
-  };
-  await service.runDue(at(31), executor, {
-    skipAutoChargeWithoutExecutor: true,
   });
   expect(calls).toBe(0);
-  expect(
-    await db!.charge.count({ where: { contractId: c.id, status: 'PENDING' } }),
-  ).toBe(0);
+  expect(res.awaitingBuyer).toBeGreaterThanOrEqual(1);
 });

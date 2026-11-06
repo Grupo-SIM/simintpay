@@ -8,6 +8,7 @@ import type {
   ChargeStatusLookup,
 } from '../src/modules/billing-core/charge-status-lookup';
 import { seedGlobalPolicy } from './billing-policy-fixture';
+import { giveStoredCard } from './stored-card-fixture';
 
 const url = process.env.BILLING_TEST_DATABASE_URL;
 if (url && new URL(url).hostname !== '127.0.0.1')
@@ -58,6 +59,7 @@ async function pendingUnknown(email: string) {
     now: t0,
   });
   await service.settle(charge.id, 'PAID', t0);
+  await giveStoredCard(db!, contract);
   await service.runDue(new Date(t0.getTime() + 31 * 24 * hour), {
     charge: async () => ({ outcome: 'UNKNOWN' as const }),
   });
