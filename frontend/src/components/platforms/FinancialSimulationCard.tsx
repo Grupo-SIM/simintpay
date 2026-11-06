@@ -1,7 +1,9 @@
 'use client';
 
-import { Pencil } from 'lucide-react';
+import { useState } from 'react';
+import { FileText, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { FinancialNumberField } from './FinancialNumberField';
 import {
   defaultOwner,
@@ -50,6 +52,7 @@ export function FinancialSimulationCard({
   onValidityChange: (name: string, valid: boolean) => void;
   onEditContract: () => void;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const owner = rule ?? { ...defaultOwner(), passInterestPpm: 1_000_000 },
     result = state?.result;
   const pct = (ppm: number) =>
@@ -85,7 +88,6 @@ export function FinancialSimulationCard({
   const lines: {
     label: string;
     value?: number;
-    adminOnly?: boolean;
     strong?: boolean;
     sign?: '+' | '-';
   }[] = [
@@ -96,21 +98,48 @@ export function FinancialSimulationCard({
     ...(additiveCents
       ? [{ label: 'Taxas aditivas', value: additiveCents, sign: '+' as const }]
       : []),
-    {
-      label: 'Custos da adquirente',
-      value: result?.acquirerCostCents,
-      adminOnly: true,
-      sign: '-',
-    },
-    {
-      label: admin ? 'Adicional SimIntPay' : 'Custos SimIntPay',
-      value: admin
-        ? result
-          ? (result.simAdditionCents ?? 0) + (result.simInterestCents ?? 0)
-          : undefined
-        : result?.contractedCostCents,
-      sign: '-',
-    },
+    ...(admin
+      ? [
+          {
+            label: 'Custos da adquirente',
+            value: result
+              ? (result.acquirerProcessingCents ??
+                (result.acquirerCostCents ?? 0) -
+                  (result.acquirerInterestCents ?? 0))
+              : undefined,
+            sign: '-' as const,
+          },
+          ...(showInterest
+            ? [
+                {
+                  label: 'Juros da adquirente',
+                  value: result?.acquirerInterestCents ?? 0,
+                  sign: '-' as const,
+                },
+              ]
+            : []),
+          {
+            label: 'Adicional SimIntPay',
+            value: result?.simAdditionCents ?? (result ? 0 : undefined),
+            sign: '-' as const,
+          },
+          ...(showInterest
+            ? [
+                {
+                  label: 'Juros SimIntPay',
+                  value: result?.simInterestCents ?? (result ? 0 : undefined),
+                  sign: '-' as const,
+                },
+              ]
+            : []),
+        ]
+      : [
+          {
+            label: 'Custos SimIntPay',
+            value: result?.contractedCostCents,
+            sign: '-' as const,
+          },
+        ]),
     { label: 'Vendedor recebe', value: sellerNetCents, strong: true },
   ];
   const simRule = lane ? (lane.total ?? lane.sim) : undefined;
@@ -155,7 +184,7 @@ export function FinancialSimulationCard({
     <article
       aria-label={title}
       aria-busy={state?.pending}
-      className={`row-span-4 grid min-w-0 grid-rows-subgrid gap-y-0 rounded-xl border border-zinc-200 bg-zinc-50/50 p-3 transition-opacity dark:border-white/10 dark:bg-white/[0.02] ${enabled ? '' : 'opacity-50 grayscale'}`}
+      className={`${credit && !admin ? 'row-span-3' : 'row-span-2'} grid min-w-0 grid-rows-subgrid gap-y-0 rounded-xl border border-zinc-200 bg-zinc-50/50 p-3 transition-opacity dark:border-white/10 dark:bg-white/[0.02] ${enabled ? '' : 'opacity-50 grayscale'}`}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
@@ -170,106 +199,48 @@ export function FinancialSimulationCard({
           )}
           <h3>{title}</h3>
         </label>
-        {admin && (
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             type="button"
             size="sm"
             disabled={!enabled}
             className="cursor-pointer"
-            onClick={onEditContract}
+            onClick={() => setDetailsOpen(true)}
           >
-            <Pencil />
-            Editar taxas
+            <FileText />
+            Detalhes
           </Button>
-        )}
-      </div>
-      <div>
-        {credit && !admin && (
-          <div className="mb-3">
-            <FinancialNumberField
-              name={`${rowKey}-passInterestPpm`}
-              label="Repassar juros (%)"
+          {admin && (
+            <Button
+              variant="outline"
+              type="button"
+              size="sm"
               disabled={!enabled}
-              rate
-              value={owner.passInterestPpm}
-              onValidityChange={onValidityChange}
-              onChange={(passInterestPpm) =>
-                onChange({ ...owner, passInterestPpm })
-              }
-            />
-          </div>
-        )}
-        {admin && lane && (
-          <table className="mb-3 w-full text-xs tabular-nums">
-            <thead>
-              <tr className="text-left text-zinc-500 dark:text-zinc-400">
-                <th scope="col" className="pb-1 font-normal">
-                  <span className="sr-only">Taxa</span>
-                </th>
-                <th scope="col" className="pb-1 text-right font-normal">
-                  Adquirente
-                </th>
-                <th
-                  scope="col"
-                  className="pb-1 text-right font-normal"
-                  title={
-                    lane.total ? 'Inclui o custo da adquirente' : undefined
-                  }
-                >
-                  {lane.total ? 'Total definido' : 'SimIntPay'}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {contractRows.map(([label, acquirer, sim]) => (
-                <tr
-                  key={label}
-                  className="border-t border-zinc-200 dark:border-white/10"
-                >
-                  <th
-                    scope="row"
-                    className="py-1 text-left font-normal text-zinc-500 dark:text-zinc-400"
-                  >
-                    {label}
-                  </th>
-                  <td className="py-1 text-right">{acquirer}</td>
-                  <td className="py-1 text-right font-medium">{sim}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {admin && effective && shortfall && lane && (
-          <div
-            className={`mb-3 rounded-lg border p-2 text-xs ${short ? 'border-amber-500 bg-amber-50 text-amber-800 dark:border-amber-400/60 dark:bg-amber-400/10 dark:text-amber-300' : 'border-zinc-200 text-zinc-600 dark:border-white/10 dark:text-zinc-300'}`}
-          >
-            <div className="flex justify-between gap-2">
-              <span>Taxa efetiva do lojista</span>
-              <span className="font-medium tabular-nums">
-                {formatPpm(effective.ratePpm)} +{' '}
-                {formatCents(effective.fixedCents)}
-              </span>
-            </div>
-            <div
-              role={short ? 'alert' : undefined}
-              className={`mt-1 ${short ? 'font-medium' : ''}`}
+              className="cursor-pointer"
+              onClick={onEditContract}
             >
-              {short
-                ? `Cobertura insuficiente${
-                    shortfall.rateShortfallPpm > 0
-                      ? `: faltam ${formatPpm(shortfall.rateShortfallPpm)}`
-                      : ''
-                  }${
-                    shortfall.fixedShortfallCents > 0
-                      ? `${shortfall.rateShortfallPpm > 0 ? ' e' : ': faltam'} ${formatCents(shortfall.fixedShortfallCents)}`
-                      : ''
-                  } sobre o custo da adquirente`
-                : 'Cobre o custo da adquirente'}
-            </div>
-          </div>
-        )}
+              <Pencil />
+              Editar taxas
+            </Button>
+          )}
+        </div>
       </div>
+      {credit && !admin && (
+        <div className="mb-3">
+          <FinancialNumberField
+            name={`${rowKey}-passInterestPpm`}
+            label="Repassar juros (%)"
+            disabled={!enabled}
+            rate
+            value={owner.passInterestPpm}
+            onValidityChange={onValidityChange}
+            onChange={(passInterestPpm) =>
+              onChange({ ...owner, passInterestPpm })
+            }
+          />
+        </div>
+      )}
       <div className="mb-3 grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">
           <div className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -289,42 +260,120 @@ export function FinancialSimulationCard({
             {state?.pending ? skeleton : format(profitCents)}
           </div>
         </div>
-      </div>
-      <div>
-        <dl className="divide-y divide-zinc-200 text-xs dark:divide-white/10">
-          {lines
-            .filter(
-              (line) => (admin || !line.adminOnly) && (admin || !line.strong),
-            )
-            .map((line) => (
-              <div
-                key={line.label}
-                className={`flex items-baseline justify-between gap-3 py-1 ${line.strong ? 'font-semibold' : ''}`}
-              >
-                <dt
-                  className={
-                    line.strong ? '' : 'text-zinc-500 dark:text-zinc-400'
-                  }
-                >
-                  {line.label}
-                </dt>
-                <dd className="m-0 shrink-0 tabular-nums">
-                  {state?.pending ? (
-                    skeleton
-                  ) : (
-                    <>
-                      {line.sign && line.value ? `${line.sign} ` : ''}
-                      {format(line.value)}
-                    </>
-                  )}
-                </dd>
-              </div>
-            ))}
-        </dl>
         {admin && !lane && !state?.pending && (
-          <p className="mt-3 text-xs text-amber-600">Taxas não configuradas</p>
+          <p className="col-span-2 text-xs text-amber-600">
+            Taxas não configuradas
+          </p>
         )}
       </div>
+      <Modal
+        open={detailsOpen}
+        title={`Detalhes — ${title}`}
+        maxWidth="max-w-md"
+        onClose={() => setDetailsOpen(false)}
+      >
+        <div>
+          {admin && lane && (
+            <table className="mb-3 w-full text-xs tabular-nums">
+              <thead>
+                <tr className="text-left text-zinc-500 dark:text-zinc-400">
+                  <th scope="col" className="pb-1 font-normal">
+                    <span className="sr-only">Taxa</span>
+                  </th>
+                  <th scope="col" className="pb-1 text-right font-normal">
+                    Adquirente
+                  </th>
+                  <th
+                    scope="col"
+                    className="pb-1 text-right font-normal"
+                    title={
+                      lane.total ? 'Inclui o custo da adquirente' : undefined
+                    }
+                  >
+                    {lane.total ? 'Total definido' : 'SimIntPay'}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {contractRows.map(([label, acquirer, sim]) => (
+                  <tr
+                    key={label}
+                    className="border-t border-zinc-200 dark:border-white/10"
+                  >
+                    <th
+                      scope="row"
+                      className="py-1 text-left font-normal text-zinc-500 dark:text-zinc-400"
+                    >
+                      {label}
+                    </th>
+                    <td className="py-1 text-right">{acquirer}</td>
+                    <td className="py-1 text-right font-medium">{sim}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {admin && effective && shortfall && lane && (
+            <div
+              className={`mb-3 rounded-lg border p-2 text-xs ${short ? 'border-amber-500 bg-amber-50 text-amber-800 dark:border-amber-400/60 dark:bg-amber-400/10 dark:text-amber-300' : 'border-zinc-200 text-zinc-600 dark:border-white/10 dark:text-zinc-300'}`}
+            >
+              <div className="flex justify-between gap-2">
+                <span>Taxa efetiva do lojista</span>
+                <span className="font-medium tabular-nums">
+                  {formatPpm(effective.ratePpm)} +{' '}
+                  {formatCents(effective.fixedCents)}
+                </span>
+              </div>
+              <div
+                role={short ? 'alert' : undefined}
+                className={`mt-1 ${short ? 'font-medium' : ''}`}
+              >
+                {short
+                  ? `Cobertura insuficiente${
+                      shortfall.rateShortfallPpm > 0
+                        ? `: faltam ${formatPpm(shortfall.rateShortfallPpm)}`
+                        : ''
+                    }${
+                      shortfall.fixedShortfallCents > 0
+                        ? `${shortfall.rateShortfallPpm > 0 ? ' e' : ': faltam'} ${formatCents(shortfall.fixedShortfallCents)}`
+                        : ''
+                    } sobre o custo da adquirente`
+                  : 'Cobre o custo da adquirente'}
+              </div>
+            </div>
+          )}
+          <div>
+            <dl className="divide-y divide-zinc-200 text-xs dark:divide-white/10">
+              {lines
+                .filter((line) => admin || !line.strong)
+                .map((line) => (
+                  <div
+                    key={line.label}
+                    className={`flex items-baseline justify-between gap-3 py-1 ${line.strong ? 'font-semibold' : ''}`}
+                  >
+                    <dt
+                      className={
+                        line.strong ? '' : 'text-zinc-500 dark:text-zinc-400'
+                      }
+                    >
+                      {line.label}
+                    </dt>
+                    <dd className="m-0 shrink-0 tabular-nums">
+                      {state?.pending ? (
+                        skeleton
+                      ) : (
+                        <>
+                          {line.sign && line.value ? `${line.sign} ` : ''}
+                          {format(line.value)}
+                        </>
+                      )}
+                    </dd>
+                  </div>
+                ))}
+            </dl>
+          </div>
+        </div>
+      </Modal>
     </article>
   );
 }
