@@ -51,4 +51,6 @@ export function proxy(request: NextRequest) {
   return response;
 }
 
-export const config = { matcher: ['/', '/preview/payment-link'] };
+export const config = {
+  matcher: ['/', '/preview/payment-link', '/preview/offer'],
+};

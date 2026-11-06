@@ -1,5 +1,7 @@
 'use client';
 
+import { PaymentLinkPreviewModal } from '../../../links-pagamento/criar/components/PaymentLinkPreviewModal';
+import { Button } from '@/components/ui/Button';
 import { useState } from 'react';
 import { useTheme } from 'next-themes';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -80,6 +82,7 @@ function FormBody({
       ? formFromOffer(offer, formatCurrencyFromNumber)
       : formFromPreset('PAYMENT_LINK'),
   );
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [platform, setPlatform] = useState<string | null>(null);
   const [amountError, setAmountError] = useState<string | null>(null);
   const patch = (changes: Partial<OfferForm>) =>
@@ -173,6 +176,35 @@ function FormBody({
   const title = id ? 'Editar oferta' : 'Criar oferta';
   return (
     <ProductFormLayout path={listHref} listTitle="Ofertas" title={title}>
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setPreviewOpen(true)}
+        >
+          Pré-visualizar checkout
+        </Button>
+      </div>
+      {previewOpen && (
+        <PaymentLinkPreviewModal
+          offerPreview
+          onClose={() => setPreviewOpen(false)}
+          draft={{
+            code: 'preview',
+            name: form.name || 'Nome da oferta',
+            description: form.description,
+            amountCents: Math.round(
+              (parseCurrencyInput(form.amount) || 0) * 100,
+            ),
+            acceptedMethods: form.methods,
+            maxInstallments: Number(form.maxInstallments) || 1,
+            renewalMode: form.renewalMode,
+            intervalType: form.intervalType,
+            intervalCount: Number(form.intervalCount) || 1,
+            trialDays: Number(form.trialDays) || 0,
+          }}
+        />
+      )}
       <ProductFormSection title="Básico">
         <div className="grid gap-4 md:grid-cols-2">
           <div className="md:col-span-2">

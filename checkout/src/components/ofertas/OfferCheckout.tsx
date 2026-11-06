@@ -98,12 +98,17 @@ function methodsOf(offer: PublicOffer): OfferMethod[] {
   return only ? [only] : [];
 }
 
-export default function OfferCheckout() {
+export default function OfferCheckout({
+  previewOffer,
+  onPreviewLoaded,
+}: { previewOffer?: PublicOffer; onPreviewLoaded?: () => void } = {}) {
   const code = useSearchParams().get('oferta');
-  const [offer, setOffer] = useState<PublicOffer | null>(null);
-  const [fetching, setFetching] = useState(Boolean(code));
+  const [offer, setOffer] = useState<PublicOffer | null>(previewOffer ?? null);
+  const [fetching, setFetching] = useState(!previewOffer && Boolean(code));
   const [offerError, setOfferError] = useState('');
-  const [method, setMethod] = useState<OfferMethod>('pix');
+  const [method, setMethod] = useState<OfferMethod>(
+    previewOffer ? (methodsOf(previewOffer)[0] ?? 'pix') : 'pix',
+  );
   const [options, setOptions] = useState<InstallmentOption[]>([]);
   const [installments, setInstallments] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -139,7 +144,7 @@ export default function OfferCheckout() {
   >('');
 
   useEffect(() => {
-    if (!code) return;
+    if (previewOffer || !code) return;
     fetch(`${SIM_API_URL}/ofertas/public/${encodeURIComponent(code)}`)
       .then((r) => {
         if (!r.ok) throw new Error('Esta oferta não está disponível.');
@@ -172,7 +177,11 @@ export default function OfferCheckout() {
       })
       .catch((err: Error) => setOfferError(err.message))
       .finally(() => setFetching(false));
-  }, [code]);
+  }, [code, previewOffer]);
+
+  useEffect(() => {
+    if (previewOffer) onPreviewLoaded?.();
+  }, [previewOffer, onPreviewLoaded]);
 
   usePixConfirmation(pix?.id ?? null, paidAmount !== null, () =>
     setPaidAmount(offer ? offerAmount(offer) : 0),
@@ -201,7 +210,7 @@ export default function OfferCheckout() {
 
   /** AUTO_CHARGE: card-customer -> SDK (token no navegador) -> subscribe. Só o token vai à API. */
   async function subscribe() {
-    if (!offer || !code) return;
+    if (previewOffer || !offer || !code) return;
     const target = `${SIM_API_URL}/ofertas/public/${encodeURIComponent(code)}`;
     const post = (path: string, body: unknown) =>
       fetch(`${target}/${path}`, {
@@ -289,7 +298,7 @@ export default function OfferCheckout() {
   }
 
   async function handleSubmit() {
-    if (!offer || !code) return;
+    if (previewOffer || !offer || !code) return;
     setError('');
     setLoading(true);
     try {
@@ -460,6 +469,14 @@ export default function OfferCheckout() {
 
   return (
     <CheckoutFlow
+      banner={
+        previewOffer ? (
+          <p role="note" className="p-3 text-center text-sm">
+            Prévia da oferta · Pagamentos desabilitados. Parcelas exibidas sem
+            simulação de juros.
+          </p>
+        ) : undefined
+      }
       product={{
         title: sanitizeCheckoutText(offer.name),
         description: offer.description
@@ -490,7 +507,9 @@ export default function OfferCheckout() {
             : 'Assinar'
           : 'Efetuar pagamento'
       }
-      finalDisabled={(isCard && !cardOk) || (autoCharge && !consent)}
+      finalDisabled={
+        Boolean(previewOffer) || (isCard && !cardOk) || (autoCharge && !consent)
+      }
       loading={loading}
       error={error}
       finalAction={

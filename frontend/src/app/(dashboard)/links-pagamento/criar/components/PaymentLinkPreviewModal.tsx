@@ -9,10 +9,18 @@ import {
 } from '@/features/links-pagamento/payment-link-preview';
 import { PaymentLinkPreviewSkeleton } from './PaymentLinkPreviewSkeleton';
 
-type Props = { draft: PaymentLinkPreviewDraft; onClose: () => void };
+type Props = {
+  draft: PaymentLinkPreviewDraft | Record<string, unknown>;
+  onClose: () => void;
+  offerPreview?: boolean;
+};
 
 /** Mounted only while open, so every open and retry uses a fresh handshake. */
-export function PaymentLinkPreviewModal({ draft, onClose }: Props) {
+export function PaymentLinkPreviewModal({
+  draft,
+  onClose,
+  offerPreview = false,
+}: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -25,11 +33,13 @@ export function PaymentLinkPreviewModal({ draft, onClose }: Props) {
   );
   const [preview] = useState(() => {
     try {
-      return checkoutPreviewUrl(
+      const url = checkoutPreviewUrl(
         process.env.NEXT_PUBLIC_CHECKOUT_BASE_URL ||
           'https://checkout.simintermediacoes.com',
         window.location.origin,
       );
+      if (offerPreview) url.pathname = '/preview/offer';
+      return url;
     } catch {
       return null;
     }
@@ -109,13 +119,17 @@ export function PaymentLinkPreviewModal({ draft, onClose }: Props) {
           id={titleId}
           className="font-semibold text-zinc-900 dark:text-zinc-100"
         >
-          Prévia do link de pagamento
+          {offerPreview ? 'Prévia da oferta' : 'Prévia do link de pagamento'}
         </h2>
         <button
           ref={closeRef}
           type="button"
           onClick={onClose}
-          aria-label="Fechar prévia do link de pagamento"
+          aria-label={
+            offerPreview
+              ? 'Fechar prévia da oferta'
+              : 'Fechar prévia do link de pagamento'
+          }
           className="cursor-pointer rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-white/20 dark:text-zinc-200 dark:hover:bg-white/10"
         >
           Fechar
@@ -135,28 +149,26 @@ export function PaymentLinkPreviewModal({ draft, onClose }: Props) {
           />
         )}
         {preview && status === 'loading' && <PaymentLinkPreviewSkeleton />}
-        {!preview ||
-          (status === 'error' && (
-            <div
-              role="alert"
-              className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center text-zinc-700 dark:text-zinc-200"
+        {(!preview || status === 'error') && (
+          <div
+            role="alert"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center text-zinc-700 dark:text-zinc-200"
+          >
+            <p>
+              Não foi possível carregar a prévia. Seu formulário foi preservado.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setStatus('loading');
+                setAttempt((value) => value + 1);
+              }}
+              className="cursor-pointer rounded-lg border border-zinc-300 px-4 py-2 hover:bg-zinc-100 dark:border-white/20 dark:hover:bg-white/10"
             >
-              <p>
-                Não foi possível carregar a prévia. Seu formulário foi
-                preservado.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setStatus('loading');
-                  setAttempt((value) => value + 1);
-                }}
-                className="cursor-pointer rounded-lg border border-zinc-300 px-4 py-2 hover:bg-zinc-100 dark:border-white/20 dark:hover:bg-white/10"
-              >
-                Tentar novamente
-              </button>
-            </div>
-          ))}
+              Tentar novamente
+            </button>
+          </div>
+        )}
       </div>
     </dialog>,
     document.body,
