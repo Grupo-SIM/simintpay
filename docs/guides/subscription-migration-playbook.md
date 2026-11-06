@@ -105,7 +105,8 @@ Não há cobrança a assumir. Crie o contrato **sem agendamento** e preserve o a
 - [ ] Tela de renovação no checkout (`?renovar=<contractId>&sig=<hmac>`): o backend existe, a página não.
 - [ ] Proteção do tratamento de `SIGNATURE-CANCELLED` durante a migração do cenário B.
 - [ ] Migrations aplicadas (nenhuma foi aplicada em banco real até agora) e as `Offer`s já criadas e verificadas.
-- [ ] `RENEWAL_LINK_SECRET` e, para plataformas com token próprio, `DOM_PUBLIC_KEY` definidos no ambiente.
+- [ ] `RENEWAL_LINK_SECRET` (gerar com `openssl rand -hex 32`; ver `docs/deployment.md`) e, para plataformas com token próprio, `DOM_PUBLIC_KEY` definidos no ambiente.
+- [ ] Dono: migrar os links legados para ofertas e desativar os antigos (ver o fim do runbook de migração de produtos).
 - [ ] Autorização do dono do produto para rodar contra o banco real.
 
 Observação sobre contratos migrados: o endpoint de renovação responde 409 pedindo contato com o suporte quando o contrato não tem documento do comprador. Confira nas 5 ordens se `customerDocument` está preenchido antes de enviar os links.

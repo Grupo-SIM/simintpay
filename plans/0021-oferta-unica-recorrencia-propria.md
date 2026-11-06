@@ -203,4 +203,4 @@ Pendências:
 - [ ] Validar na DOM sandbox: cobrança com token de carteira e `upsell: true`, `getTokenCard` com `customer_id`, repetição de `getOrCreateDomCustomer`, e se a chave pública global pertence à mesma conta que `DOM_TOKEN`.
 - [ ] `trialDays`: não há autorização de cartão no cadastro e nada é entregue durante o trial; decisão de produto.
 - [ ] `offer-pricing.ts` ainda duplica parte da precificação do checkout avulso.
-- [ ] Redirecionar o checkout de cartão dos links de assinatura legados para a oferta, para que novas assinaturas não voltem a ser criadas na DOM.
+- [ ] **Com o dono do produto:** migrar os links legados para ofertas (runbook `docs/guides/offer-migration-runbook.md`) e trocar as URLs divulgadas. Até lá, o cartão pago num link de assinatura antigo (`?subscriptionLinkCode=`) continua criando assinatura na DOM. Os códigos públicos são preservados, mas a URL nova é `?ofertaCode=`; a URL antiga não redireciona sozinha. Depois de migrar, desative o link legado (`isActive = false`) para ele deixar de vender.

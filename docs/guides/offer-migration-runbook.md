@@ -49,3 +49,18 @@ Para desfazer só um tipo, filtre por `legacyType` (e apague os `ExternalRef` cu
 - Itens `REFUSED`: corrigir o código (códigos duplicados entre tabelas, `Plan` sem código, `PixCreditPlan` sem `PixPlanLinkCode` ativo) ou aceitar que ficam de fora.
 - Valores abaixo do mínimo (R$ 14,99) e códigos extras de plano PIX: confirmar que são intencionais.
 - Que a migração é só sombra: nenhum fluxo de pagamento passa a usar `Offer` até o corte de fase posterior.
+
+## Depois de migrar: trocar as URLs e desativar o link legado
+
+A migração cria a `Offer` e preserva o código público, mas **não** redireciona nada:
+
+| Produto            | URL legada                       | URL da oferta          |
+| ------------------ | -------------------------------- | ---------------------- |
+| Link de pagamento  | `?simLinkCode=<id>`              | `?ofertaCode=<código>` |
+| Link de assinatura | `?subscriptionLinkCode=<código>` | `?ofertaCode=<código>` |
+| Boleto             | `?simBoletoCode=<id>`            | `?ofertaCode=<código>` |
+| Plano              | `?simPlanCode=<código>`          | `?ofertaCode=<código>` |
+
+1. Troque a URL divulgada (site, e-mail, campanhas) pela da oferta.
+2. Desative o link legado (`isActive = false`) quando a URL nova estiver no ar. Enquanto o link antigo estiver ativo, **um cartão pago nele continua criando uma assinatura na DOM**, e essa assinatura cobra por fora do agendador novo. Compradores que já pagaram nele seguem o playbook [subscription-migration-playbook.md](subscription-migration-playbook.md).
+3. Links com cartão recorrente só devem ser trocados depois de a sandbox da DOM validar o token com `customer_id` (ver o plano 0021).
