@@ -12,13 +12,27 @@ import { OfferCheckoutService } from './offer-checkout.service';
 import { OfferRenewalService } from './offer-renewal.service';
 import { OfferSubscribeService } from './offer-subscribe.service';
 import { OfferController } from './offer.controller';
+import {
+  PaymentLinksCompatController,
+  SubscriptionLinksCompatController,
+} from './legacy-links.compat.controller';
+import { compatLinkControllers } from './legacy-links.compat';
+import { LegacyLinksCompatService } from './legacy-links.compat.service';
 import { OfferService } from './offer.service';
 
 @Module({
   imports: [ApiDomModule, BillingCoreModule],
-  controllers: [OfferController],
+  // OFFER_LEGACY_LINKS_COMPAT=1 swaps the legacy link controllers for these adapters.
+  controllers: [
+    OfferController,
+    ...compatLinkControllers([
+      PaymentLinksCompatController,
+      SubscriptionLinksCompatController,
+    ]),
+  ],
   providers: [
     OfferService,
+    LegacyLinksCompatService,
     OfferCheckoutService,
     EmailService,
     PrismaFulfillmentMarkers,
