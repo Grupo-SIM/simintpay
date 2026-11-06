@@ -8,6 +8,11 @@ Plano proposto em 2026-11-06. **Nada foi executado. Nenhuma autorização de esc
 - **O `id` antigo vira o `id` da `Offer`** (os `id`s são UUIDs, e a base atual não tem colisão entre eles). Tudo que hoje aponta para o id antigo continua apontando, sem reescrever referências.
 - Boleto é um meio de pagamento normal da oferta, sem caso especial (em andamento).
 - A coluna `Offer.kind` e o enum `OfferKind` saem (em andamento). `legacyType` e `legacyId` também saem no fim, porque deixam de ter função quando o id é o mesmo.
+- **Decisões do dono (2026-11-06):**
+  - **Portar:** arquivos, cupons, funil (order bump, upsell, downsell), crédito de dias do plano PIX e pausa de assinatura.
+  - **Descontinuar:** comunidade e provisionamento CONTROLE-*/BETAI. Somem com as tabelas e o código.
+  - **Taxa individual por link:** aceitar a política financeira (o link com taxa própria passa a pagar a taxa da plataforma). Sem campo novo.
+  - **Rotas REST legadas** (`/links-pagamento`, `/links-assinatura`): manter adaptadores por um tempo, para o `saas-netflix-back` (AreaFlix) continuar criando links.
 - O dono executa a migração de dados. Este plano define a ordem, as condições de cada fase e o que precisa estar pronto antes.
 
 ## 2. Estado verificado (consulta agregada de leitura, 2026-11-06)
@@ -75,22 +80,23 @@ O `ofertaCode` dos links novos continua sendo o `code`. A documentação `migrac
 | `PaymentLinkOffer` (bump, upsell, downsell)                                     | `Offer.fulfillment.bumps` (ofertas de verdade, com id próprio)            | 0 linhas hoje                                                               |
 | `PaymentLinkFile`, imagens                                                      | **sem destino**                                                           | ver decisão 2                                                               |
 
-## 6. O que a oferta precisa ganhar (ou o que a gente descontinua)
+## 6. O que a oferta precisa ganhar
 
-Vazias hoje em produção, mas ainda usadas pelo código e por sistemas vizinhos. Para cada uma, o dono decide **portar** ou **descontinuar** (seção 12).
+Todas vazias em produção hoje. Decisão do dono: portar as cinco primeiras, descontinuar as duas últimas.
 
-| Capacidade                                                                               | Quem usa                                     | Esforço para portar                                                            |
-| ---------------------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------ |
-| Cupons (`Voucher`, validação no checkout e na plataforma PAGATG)                         | `validate-voucher` no checkout, `api-pagatg` | médio: serviço consciente de oferta e desconto no cálculo de taxa e coprodução |
-| Arquivos e imagens de bump                                                               | links de pagamento com PDF                   | médio: tabela ou `fulfillment.files` com upload                                |
-| Comunidade (`CommunityLinkBinding`)                                                      | links de assinatura                          | médio: trocar duas FKs por `offerId` e ligar o consumidor                      |
-| Plano PIX com crédito de dias (`CustomerPlanAccess`, `PX-`, decremento, rotas de acesso) | `api-pagatg` (maior dependente)              | **grande**: tabela de acesso, aliases de código, rotas de compatibilidade      |
-| Provisionamento CONTROLE-* e BETAI                                                       | plataformas SaaS                             | médio: gancho de liquidação                                                    |
-| Pausa de assinatura (`SubscriptionPause`)                                                | admin                                        | pequeno: campo no contrato                                                     |
-| Evento `subscription_activated`                                                          | AreaFlix (`saas-netflix-back`)               | pequeno: emitir também no fluxo de oferta                                      |
-| Taxa individual por link                                                                 | 1 link hoje                                  | decisão 1                                                                      |
-| Boleto na oferta                                                                         | todos                                        | em andamento                                                                   |
-| Tela de assinantes, comunidades e cupons na tela de ofertas                              | dashboard                                    | médio                                                                          |
+| Capacidade                                                                                                             | Decisão                                                         | Quem usa                        | Esforço                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------- |
+| Arquivos de entrega e imagens de bump                                                                                  | **portar**                                                      | links de pagamento com PDF      | médio: upload e remoção, tabela própria ou `fulfillment.files` com tamanho          |
+| Cupons (`Voucher`, validação no checkout e na plataforma PAGATG)                                                       | **portar**                                                      | checkout, `api-pagatg`          | médio: serviço consciente de oferta; desconto entra no cálculo de taxa e coprodução |
+| Funil: order bump, upsell, downsell                                                                                    | **portar** (o backend já aceita `bumpCodes` e `parentChargeId`) | checkout                        | pequeno a médio: tela de pós-compra, seleção de bumps e imagens no checkout         |
+| Crédito de dias do plano PIX (`CustomerPlanAccess`, códigos `PX-`, decremento, rotas de acesso, notificação ao PAGATG) | **portar**                                                      | `api-pagatg` (maior dependente) | **grande**: tabela de acesso, aliases de código, rotas de compatibilidade           |
+| Pausa de assinatura                                                                                                    | **portar**                                                      | admin e vendedor                | pequeno: campos no contrato, retomar recalcula o período                            |
+| Evento `subscription_activated`                                                                                        | **portar**                                                      | AreaFlix                        | pequeno: emitir também no fluxo de oferta                                           |
+| Comunidade (`CommunityLinkBinding`)                                                                                    | **descontinuar**                                                | links de assinatura             | remover tabelas, cron, relatórios e telas                                           |
+| Provisionamento CONTROLE-* e BETAI                                                                                     | **descontinuar**                                                | plataformas SaaS                | remover `platform-betai`, `platform-saas-access` e capacidades de assinatura        |
+| Taxa individual por link                                                                                               | **política financeira**                                         | 1 link                          | nenhum                                                                              |
+| Boleto na oferta                                                                                                       | em andamento                                                    | todos                           | em andamento                                                                        |
+| Telas de assinantes e de cupons na área de ofertas                                                                     | portar                                                          | dashboard                       | médio                                                                               |
 
 ## 7. Fases
 
@@ -98,13 +104,21 @@ Cada fase termina em commits atômicos e deixa o sistema funcionando. As fases 3
 
 ### Fase 0: pré-requisitos de código (sem banco real)
 
-- [x] Remover `Offer.kind` e `OfferKind` (agente em andamento; migration nova, pois a antiga já foi aplicada).
-- [x] Boleto como meio normal da oferta (agente em andamento).
-- [ ] Busca pública por `code` e, na falta, por `id` (seção 4), com teste.
-- [ ] Ajustar o `offer-migration-apply` para criar a `Offer` **com o id antigo** (`id = legacyId`), preservando `code`; recusar o produto se o id já existir em `Offer`.
-- [ ] Alargar as constraints que enumeram produtos: `ProductOwnershipChange_productType_check` não aceita `'Offer'`.
-- [ ] Resolver as decisões 1 a 4 (seção 12) e construir o que for "portar".
-- [ ] Corrigir a documentação do redirecionamento.
+Primeira leva (arquivos novos, sem conflito com os agentes em andamento):
+
+- [x] Remover `Offer.kind` e `OfferKind` (migration nova, pois a antiga já foi aplicada).
+- [x] Boleto como meio normal da oferta.
+- [ ] Preparação: busca pública por `code` e, na falta, por `id` (seção 4); `offer-migration-apply` criando a `Offer` com o id antigo; constraint `ProductOwnershipChange_productType_check` aceitando `'Offer'`; documentação do redirecionamento corrigida.
+- [ ] Crédito de dias do plano PIX: tabela de acesso, crédito ao pagar, decremento, aliases `PX-`, rotas de compatibilidade para o `api-pagatg` e notificação ao PAGATG.
+- [ ] Adaptadores REST legados (`/links-pagamento`, `/links-assinatura`) respondendo a partir de `Offer`, e evento `subscription_activated` emitido pelo fluxo de oferta.
+
+Segunda leva (mexem em arquivos que a primeira leva ainda edita: começam quando ela terminar):
+
+- [ ] Arquivos de entrega e imagens de bump.
+- [ ] Cupons.
+- [ ] Funil no checkout: seleção de bumps, imagens, tela de pós-compra de upsell e downsell.
+- [ ] Pausa e retomada de assinatura, e lista de assinantes de ofertas para o vendedor.
+- [ ] Remover comunidade e provisionamento (código, cron, relatórios, telas).
 
 ### Fase 1: expandir o schema (migration aditiva)
 
@@ -208,13 +222,19 @@ Em uma cópia restaurada de produção, nunca no banco real:
 9. **Médio:** `plataformas[]` perdendo valores (hoje não ocorre).
 10. **Baixo:** `PaymentLinkOffer` (funil) e `Offer` parecem o mesmo conceito e não são: coluna `PaymentLinkOfferSale.offerId` aponta para o funil, nunca para `Offer`. Não repontar.
 
-## 12. Decisões que dependem do dono
+## 12. Decisões
 
-1. **Taxa individual por link.** Só 1 link tem taxa própria. As ofertas usam a política financeira. Aceitar a política (o link muda de taxa) ou criar o campo `Offer.metadata.feeOverride` e ler no preço?
-2. **Arquivos, cupons, comunidade, funil, plano PIX com crédito, pausa, provisionamento CONTROLE/BETAI:** todos estão com **0 linhas** hoje. Portar cada um ou **descontinuar** a funcionalidade junto com as tabelas? Descontinuar encurta muito o plano, mas o `api-pagatg` depende do plano PIX e dos cupons.
-3. **Rotas REST legadas** (`/links-pagamento`, `/links-assinatura`) usadas pelo `saas-netflix-back`: manter adaptadores por quanto tempo, ou migrar esse cliente antes de cortar?
-4. **Janela de congelamento** e **tempo de retenção** das tabelas `*_legacy` antes do `DROP`.
-5. **Quando aplicar** cada fase em produção (cada uma exige a sua autorização).
+Respondidas em 2026-11-06:
+
+1. Taxa individual por link: aceitar a política financeira.
+2. Funcionalidades: portar arquivos, cupons, funil, crédito de dias e pausa; descontinuar comunidade e provisionamento.
+3. Rotas REST legadas: manter adaptadores por um tempo.
+
+Ainda abertas:
+
+4. **Por quanto tempo** manter os adaptadores REST, e quando migrar o `saas-netflix-back` para `/ofertas`.
+5. **Janela de congelamento** e **tempo de retenção** das tabelas `*_legacy` antes do `DROP`.
+6. **Quando aplicar** cada fase em produção (cada uma exige a sua autorização).
 
 ## 13. Esforço indicativo
 
