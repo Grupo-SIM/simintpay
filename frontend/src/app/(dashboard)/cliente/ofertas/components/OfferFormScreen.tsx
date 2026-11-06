@@ -366,6 +366,7 @@ function FormBody({
               theme={theme}
               variant="navbar"
               inputMode="numeric"
+              placeholder="Padrão: 3"
               value={form.retryDays}
               onChange={(value) => patch({ retryDays: digitsOnly(value) })}
             />
@@ -374,6 +375,7 @@ function FormBody({
               theme={theme}
               variant="navbar"
               inputMode="numeric"
+              placeholder="Padrão: 7"
               value={form.graceDays}
               onChange={(value) => patch({ graceDays: digitsOnly(value) })}
             />
