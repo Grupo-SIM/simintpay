@@ -382,7 +382,7 @@ function fulfillmentOf(form: OfferForm, create: boolean) {
 export function offerPayload(
   form: OfferForm,
   amount: number,
-  create?: { platformTag: string },
+  create?: { platformTag?: string },
 ) {
   const edit = !create;
   const recurring = isRecurring(form);

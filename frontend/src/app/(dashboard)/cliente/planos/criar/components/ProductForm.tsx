@@ -97,12 +97,13 @@ export default function CriarPlanoClientePage() {
       !edit.id &&
       (platformCatalog.isLoading ||
         platformCatalog.isError ||
-        !platformCatalog.selectableTags.includes(selectedPlatform ?? ''))
+        !platformCatalog.isDestinationValid(selectedPlatform))
     ) {
       toast({
         type: 'error',
         title: 'Erro',
-        description: 'Selecione uma plataforma ativa para continuar.',
+        description:
+          'Selecione um titular ou uma plataforma válida para continuar.',
       });
       return;
     }
@@ -122,7 +123,7 @@ export default function CriarPlanoClientePage() {
     }
     setValorError(null);
     createMutation.mutate({
-      ...(edit.id ? {} : { plataformas: [selectedPlatform] }),
+      ...(edit.id ? {} : platformCatalog.destinationBody(selectedPlatform)),
       nome: nome.trim(),
       preco,
       ...(edit.id &&
@@ -238,7 +239,7 @@ export default function CriarPlanoClientePage() {
           (Boolean(edit.id) ||
             (!platformCatalog.isLoading &&
               !platformCatalog.isError &&
-              platformCatalog.selectableTags.includes(selectedPlatform ?? '')))
+              platformCatalog.isDestinationValid(selectedPlatform)))
         }
         onSave={handleSave}
       />

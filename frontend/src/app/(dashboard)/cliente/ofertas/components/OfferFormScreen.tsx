@@ -93,7 +93,7 @@ function FormBody({
     Boolean(id) ||
     (!platformCatalog.isLoading &&
       !platformCatalog.isError &&
-      platformCatalog.selectableTags.includes(platform ?? ''));
+      platformCatalog.isDestinationValid(platform));
 
   const save = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
@@ -147,7 +147,7 @@ function FormBody({
   function handleSave() {
     if (save.isPending) return;
     if (!id && !platformReady) {
-      fail('Selecione uma plataforma ativa para continuar.');
+      fail('Selecione um titular ou uma plataforma válida para continuar.');
       return;
     }
     const amount = parseCurrencyInput(form.amount);
@@ -158,9 +158,16 @@ function FormBody({
       return;
     }
     setAmountError(null);
-    save.mutate(
-      offerPayload(form, amount, id ? undefined : { platformTag: platform! }),
-    );
+    save.mutate({
+      ...offerPayload(
+        form,
+        amount,
+        id ? undefined : { platformTag: platform ?? undefined },
+      ),
+      ...(!id && !platform && platformCatalog.user?.isAdmin
+        ? { ownerUserId: platformCatalog.financialOwner?.id }
+        : {}),
+    });
   }
 
   const title = id ? 'Editar oferta' : 'Criar oferta';

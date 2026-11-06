@@ -129,12 +129,13 @@ export default function CriarLinkAssinaturaClientePage() {
       !edit.id &&
       (platformCatalog.isLoading ||
         platformCatalog.isError ||
-        !platformCatalog.selectableTags.includes(selectedPlatform ?? ''))
+        !platformCatalog.isDestinationValid(selectedPlatform))
     ) {
       toast({
         type: 'error',
         title: 'Erro',
-        description: 'Selecione uma plataforma ativa para continuar.',
+        description:
+          'Selecione um titular ou uma plataforma válida para continuar.',
       });
       return;
     }
@@ -190,7 +191,10 @@ export default function CriarLinkAssinaturaClientePage() {
     createMutation.mutate({
       ...(edit.id
         ? {}
-        : { platformTag: selectedPlatform, plataformas: [selectedPlatform] }),
+        : {
+            ...platformCatalog.destinationBody(selectedPlatform),
+            ...(selectedPlatform ? { platformTag: selectedPlatform } : {}),
+          }),
       nome: nome.trim(),
       descricao: descricao.trim(),
       valor,
@@ -364,7 +368,7 @@ export default function CriarLinkAssinaturaClientePage() {
           (Boolean(edit.id) ||
             (!platformCatalog.isLoading &&
               !platformCatalog.isError &&
-              platformCatalog.selectableTags.includes(selectedPlatform ?? '')))
+              platformCatalog.isDestinationValid(selectedPlatform)))
         }
         onSave={handleSave}
       />
