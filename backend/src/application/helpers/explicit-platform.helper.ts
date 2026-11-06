@@ -46,7 +46,7 @@ export function assertExplicitPlatform(
   return platform.tag ?? tag;
 }
 
-/** Registered platforms never fall back to another account's credentials. */
+/** There is a single central DOM account: a platform without its own DOM_TOKEN uses the global one. */
 export function platformGatewayToken(
   tag: string | null | undefined,
   globalToken?: string | null,
@@ -59,7 +59,8 @@ export function platformGatewayToken(
     return globalToken ?? null;
   if (!getRegisteredPlatform(normalized))
     throw new BadRequestException('Plataforma não cadastrada ou inativa');
-  const token = getPlatformIntegrationValue(normalized, 'DOM_TOKEN');
+  const token =
+    getPlatformIntegrationValue(normalized, 'DOM_TOKEN') ?? globalToken;
   if (!token)
     throw new BadRequestException('Credencial da plataforma não configurada');
   return token;
