@@ -176,10 +176,15 @@ export class OfferService {
         renewalMode === 'NONE'
           ? (dto.repetitions ?? null)
           : (dto.repetitions ?? existing.repetitions),
-      trialDays: dto.trialDays ?? existing.trialDays,
-      retryDays: dto.retryDays ?? existing.retryDays,
-      graceDays: dto.graceDays ?? existing.graceDays,
-      accessDays: dto.accessDays ?? existing.accessDays,
+      // null limpa o campo; omitido mantém o valor atual.
+      trialDays:
+        dto.trialDays === undefined ? existing.trialDays : dto.trialDays,
+      retryDays:
+        dto.retryDays === undefined ? existing.retryDays : dto.retryDays,
+      graceDays:
+        dto.graceDays === undefined ? existing.graceDays : dto.graceDays,
+      accessDays:
+        dto.accessDays === undefined ? existing.accessDays : dto.accessDays,
       metadata:
         dto.metadata ?? (existing.metadata as Record<string, unknown> | null),
       acquirer: getModuleAcquirer(existing.platformTag),
@@ -195,7 +200,12 @@ export class OfferService {
         ...this.persistable(normalized),
         name: dto.name,
         description: dto.description,
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
+        expiresAt:
+          dto.expiresAt === null
+            ? null
+            : dto.expiresAt
+              ? new Date(dto.expiresAt)
+              : undefined,
         maxUses: dto.maxUses,
         fulfillment: await this.checkFulfillment(
           dto.fulfillment,

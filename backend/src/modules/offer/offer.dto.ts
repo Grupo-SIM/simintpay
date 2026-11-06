@@ -81,36 +81,36 @@ export class UpdateOfferDto {
   @IsInt()
   repetitions?: number;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: Number, nullable: true })
   @IsOptional()
   @IsInt()
-  trialDays?: number;
+  trialDays?: number | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: Number, nullable: true })
   @IsOptional()
   @IsInt()
-  retryDays?: number;
+  retryDays?: number | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: Number, nullable: true })
   @IsOptional()
   @IsInt()
-  graceDays?: number;
+  graceDays?: number | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: Number, nullable: true })
   @IsOptional()
   @IsInt()
-  accessDays?: number;
+  accessDays?: number | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()
   @IsDateString()
-  expiresAt?: string;
+  expiresAt?: string | null;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: Number, nullable: true })
   @IsOptional()
   @IsInt()
   @Min(1)
-  maxUses?: number;
+  maxUses?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()
