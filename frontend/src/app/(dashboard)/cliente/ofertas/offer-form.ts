@@ -174,6 +174,18 @@ const isInt = (value: number | undefined, min: number): value is number =>
 
 export const isRecurring = (form: Pick<OfferForm, 'renewalMode'>) =>
   form.renewalMode !== 'NONE';
+/**
+ * Modo de renovação gravado: com cartão aceito a renovação é automática (quem paga por PIX
+ * cai no pagamento manual no backend); sem cartão, o comprador paga a cada ciclo.
+ */
+export function renewalModeOf(
+  form: Pick<OfferForm, 'renewalMode' | 'methods'>,
+): OfferRenewal {
+  if (form.renewalMode === 'NONE') return 'NONE';
+  return form.methods.some((m) => m === 'CREDIT_CARD' || m === 'DEBIT_CARD')
+    ? 'AUTO_CHARGE'
+    : 'MANUAL_PAY';
+}
 export const hasBoleto = (form: Pick<OfferForm, 'methods'>) =>
   form.methods.includes('BOLETO');
 
@@ -299,11 +311,6 @@ export function validateOfferForm(
     const repetitions = toInt(form.repetitions);
     if (repetitions !== undefined && !isInt(repetitions, 0))
       return 'O número de cobranças deve ser zero ou mais.';
-    if (
-      form.renewalMode === 'AUTO_CHARGE' &&
-      !form.methods.some((m) => m === 'CREDIT_CARD' || m === 'DEBIT_CARD')
-    )
-      return 'Cobrança automática exige cartão.';
     for (const [label, value] of [
       ['Dias de teste', form.trialDays],
       ['Dias de retentativa', form.retryDays],
@@ -405,7 +412,7 @@ export function offerPayload(
     amountCents: Math.round(amount * 100),
     acceptedMethods: form.methods,
     maxInstallments: installments,
-    renewalMode: form.renewalMode,
+    renewalMode: renewalModeOf(form),
     ...(recurring
       ? {
           intervalType: form.intervalType,

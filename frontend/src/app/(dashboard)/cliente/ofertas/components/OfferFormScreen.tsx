@@ -49,10 +49,8 @@ import {
   kindDescriptions,
   kindLabels,
   methodLabels,
-  renewalLabels,
   type Offer,
   type OfferInterval,
-  type OfferRenewal,
 } from '../offers';
 import { OfferBumpsSection } from './OfferBumpsSection';
 
@@ -282,20 +280,6 @@ function FormBody({
               value: String(i + 1),
             }))}
           />
-          <div className="md:col-span-2">
-            <Dropdown
-              label="Cobrança"
-              theme={theme}
-              variant="navbar"
-              value={form.renewalMode}
-              onChange={(value) =>
-                patch({ renewalMode: value as OfferRenewal })
-              }
-              options={(Object.keys(renewalLabels) as OfferRenewal[]).map(
-                (mode) => ({ value: mode, label: renewalLabels[mode] }),
-              )}
-            />
-          </div>
         </div>
         <p className="mb-3 mt-5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
           Meios de pagamento aceitos
@@ -318,9 +302,20 @@ function FormBody({
         </div>
       </ProductFormSection>
 
-      {recurring && (
-        <ProductFormSection title="Recorrência">
-          <div className="grid gap-4 md:grid-cols-2">
+      <ProductFormSection title="Recorrência">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            Oferta recorrente
+          </span>
+          <FormSwitch
+            checked={recurring}
+            onChange={(on) =>
+              patch({ renewalMode: on ? 'AUTO_CHARGE' : 'NONE' })
+            }
+          />
+        </div>
+        {recurring && (
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Input
               label="A cada"
               theme={theme}
@@ -380,8 +375,8 @@ function FormBody({
               onChange={(value) => patch({ graceDays: digitsOnly(value) })}
             />
           </div>
-        </ProductFormSection>
-      )}
+        )}
+      </ProductFormSection>
 
       <ProductFormSection title="Validade e limites">
         <div className="grid gap-4 md:grid-cols-3">

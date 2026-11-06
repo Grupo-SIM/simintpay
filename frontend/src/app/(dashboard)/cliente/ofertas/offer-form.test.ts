@@ -8,6 +8,7 @@ import {
   formFromPreset,
   offerPayload,
   removeBump,
+  renewalModeOf,
   toDateInput,
   unsafeUrlReason,
   validateOfferForm,
@@ -60,12 +61,6 @@ describe('validateOfferForm (espelha offer.validator.ts)', () => {
     expect(validateOfferForm({ ...base, maxInstallments: '13' }, 50)).toMatch(
       /1x e 12x/,
     );
-    expect(
-      validateOfferForm(
-        { ...base, methods: ['PIX'], renewalMode: 'AUTO_CHARGE' },
-        50,
-      ),
-    ).toMatch(/cartão/);
   });
 
   test('recorrência: intervalo, repetições e dias', () => {
@@ -345,5 +340,17 @@ describe('formFromOffer', () => {
     expect(toDateInput('lixo')).toBe('');
     const local = new Date(2026, 11, 31, 23, 59, 59).toISOString();
     expect(toDateInput(local)).toBe('2026-12-31');
+  });
+});
+
+describe('renewalModeOf', () => {
+  test('deriva o modo de renovação dos meios aceitos', () => {
+    const rec = formFromPreset('SUBSCRIPTION_LINK');
+    expect(renewalModeOf(rec)).toBe('AUTO_CHARGE');
+    expect(renewalModeOf({ ...rec, methods: ['PIX'] })).toBe('MANUAL_PAY');
+    expect(renewalModeOf({ ...rec, methods: ['PIX', 'CREDIT_CARD'] })).toBe(
+      'AUTO_CHARGE',
+    );
+    expect(renewalModeOf({ ...rec, renewalMode: 'NONE' })).toBe('NONE');
   });
 });
