@@ -25,7 +25,7 @@ import {
 
 /**
  * Base compartilhada dos checkouts (layout "Checkout Novo"):
- * - mobile: Pedido → Dados → Pagamento, uma etapa por vez, CTA no rodapé;
+ * - mobile: Pedido (etapa 0) → Dados → Pagamento, uma etapa por vez, CTA no rodapé;
  * - desktop (lg): sem etapas, tudo na mesma tela com o resumo fixo à direita.
  * Cada checkout só informa o conteúdo das etapas; chamadas de API e regras ficam com ele.
  */
@@ -191,10 +191,7 @@ export function CheckoutFlow({
       </div>
       {step === 0 ? (
         <div className="flex flex-col gap-4 lg:hidden">
-          <div className="flex flex-col gap-2">
-            <div className="text-2xl font-medium">Seu pedido</div>
-            <MobileProgress step={1} />
-          </div>
+          <div className="text-2xl font-medium">Seu pedido</div>
         </div>
       ) : (
         <>
@@ -211,9 +208,7 @@ export function CheckoutFlow({
               setStep(step - 1);
             }}
           />
-          {!(paymentSplit && step === 3) && (
-            <MobileProgress step={step === 1 ? 2 : 3} />
-          )}
+          <MobileProgress step={step} total={paymentSplit ? 3 : 2} />
         </>
       )}
 
