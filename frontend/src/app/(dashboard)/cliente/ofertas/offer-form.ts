@@ -43,7 +43,6 @@ export type OfferForm = {
   expiresAt: string;
   maxUses: string;
   redirectUrl: string;
-  webhookUrl: string;
   emailBody: string;
   bumps: FormBump[];
   boletoDueDays: string;
@@ -81,7 +80,6 @@ export function formFromPreset(kind: OfferKind): OfferForm {
     expiresAt: '',
     maxUses: '',
     redirectUrl: '',
-    webhookUrl: '',
     emailBody: '',
     bumps: [],
     boletoDueDays: '',
@@ -150,7 +148,6 @@ export function formFromOffer(
     expiresAt: toDateInput(offer.expiresAt),
     maxUses: num(offer.maxUses),
     redirectUrl: text(fulfillment.redirectUrl),
-    webhookUrl: text(fulfillment.webhookUrl),
     emailBody: text(fulfillment.emailBody),
     bumps,
     boletoDueDays:
@@ -331,7 +328,6 @@ export function validateOfferForm(
     return 'Data de validade inválida.';
   for (const [label, value] of [
     ['URL de redirecionamento', form.redirectUrl],
-    ['URL do webhook', form.webhookUrl],
   ] as const) {
     const url = value.trim();
     if (!url) continue;
@@ -367,15 +363,10 @@ function metadataOf(form: OfferForm): Record<string, unknown> | undefined {
 function fulfillmentOf(form: OfferForm, create: boolean) {
   const base = {
     emailBody: form.emailBody.trim(),
-    webhookUrl: form.webhookUrl.trim(),
     redirectUrl: form.redirectUrl.trim(),
     bumps: form.bumps,
   };
-  const empty =
-    !base.emailBody &&
-    !base.webhookUrl &&
-    !base.redirectUrl &&
-    base.bumps.length === 0;
+  const empty = !base.emailBody && !base.redirectUrl && base.bumps.length === 0;
   if (create && empty) return undefined;
   return {
     ...base,

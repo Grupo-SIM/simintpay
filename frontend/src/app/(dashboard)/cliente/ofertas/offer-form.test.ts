@@ -32,14 +32,12 @@ describe('presets', () => {
       ...base,
       name: 'Curso',
       amount: '99,90',
-      webhookUrl: 'https://a.com/h',
     };
     const next = applyPreset(form, 'SUBSCRIPTION_LINK');
     expect(next).toMatchObject({
       kind: 'SUBSCRIPTION_LINK',
       name: 'Curso',
       amount: '99,90',
-      webhookUrl: 'https://a.com/h',
       renewalMode: 'AUTO_CHARGE',
       methods: ['CREDIT_CARD'],
     });
@@ -81,8 +79,8 @@ describe('validateOfferForm (espelha offer.validator.ts)', () => {
 
   test('entrega: URLs seguras, bumps e boleto', () => {
     expect(
-      validateOfferForm({ ...base, webhookUrl: 'http://localhost/x' }, 50),
-    ).toMatch(/webhook/);
+      validateOfferForm({ ...base, redirectUrl: 'http://localhost/x' }, 50),
+    ).toMatch(/redirecionamento/);
     expect(
       validateOfferForm({ ...base, redirectUrl: 'ftp://a.com' }, 50),
     ).toMatch(/redirecionamento/);
@@ -220,14 +218,13 @@ describe('offerPayload', () => {
   test('entrega: só envia o que foi preenchido na criação, nunca arquivos novos', () => {
     const form = {
       ...base,
-      webhookUrl: ' https://a.com/h ',
+      redirectUrl: ' https://a.com/h ',
       bumps: [{ offerId: 'o1', role: 'BUMP' as const }],
     };
     const payload = offerPayload(form, 50, { platformTag: 'G' });
     expect(payload.fulfillment).toEqual({
       emailBody: '',
-      webhookUrl: 'https://a.com/h',
-      redirectUrl: '',
+      redirectUrl: 'https://a.com/h',
       bumps: [{ offerId: 'o1', role: 'BUMP' }],
       files: [],
     });

@@ -419,14 +419,6 @@ function FormBody({
             value={form.redirectUrl}
             onChange={(redirectUrl) => patch({ redirectUrl })}
           />
-          <Input
-            label="URL do webhook"
-            theme={theme}
-            variant="navbar"
-            placeholder="https://seusite.com/webhook"
-            value={form.webhookUrl}
-            onChange={(webhookUrl) => patch({ webhookUrl })}
-          />
           <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
             Mensagem do e-mail de entrega
             <textarea
