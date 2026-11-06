@@ -8,7 +8,7 @@ Script: `backend/scripts/offer-migration-apply.ts`. Mapeamento: `backend/src/mod
 
 ## O que o script faz
 
-- Cria uma `Offer` por produto legado, preservando o código público (`PixCreditPlan`: `PixPlanLinkCode` ativo mais antigo) reutilizando o ID legado como `Offer.id` e gravando `(legacyType, legacyId)`. Um `Offer` pré-existente com esse ID recusa a criação (`DUPLICATE_ID`); Offers já migradas com ID aleatório aparecem como divergência no `--verify`. Linhas já migradas são puladas (idempotente).
+- Cria uma `Offer` por produto legado, preservando o código público (`PixCreditPlan`: `PixPlanLinkCode` ativo mais antigo) reutilizando o ID legado como `Offer.id`; `legacyType`/`legacyId` não são mais gravados. Linhas cujo ID já existe em `Offer` são puladas (idempotente). Offers migradas antes com ID aleatório não são reconhecidas: o código delas aparece como `DUPLICATE_CODE` e o `--verify` as acusa.
 - Para produtos com `domPaymentLinkId` (link de pagamento, boleto) ou `domPlanId` (link de assinatura, plano) grava um `ExternalRef` (adquirente `DOM`, tipo `PAYMENT_LINK` ou `PLAN`, `entityType` `Offer`). Requer `AcquirerCatalogue` com código `DOM`; sem ele a transação daquele tipo é abortada sem escrever nada. Se a `Offer` já existe e falta só o `ExternalRef`, ele é criado.
 - **Recusa** (não cria, lista no plano): `INVALID_AMOUNT`, `MISSING_CODE`, `MISSING_OWNER` (inclusive dono inexistente) e `DUPLICATE_CODE` (código igual em outra `Offer` ou compartilhado por várias linhas legadas; o script não escolhe vencedor).
 - **BLOCKED**: produtos cujo dono é `ADMIN` (plano [0009](../../plans/0009-titularidade-ofertas-cobrancas.md)). Nunca reatribui donos; a transferência é feita antes, por `scripts/reassign-products.ts`, com mapa aprovado.
@@ -66,11 +66,14 @@ Nada referencia `Offer` ainda (`BillingContract.offerId` e `Charge.offerId` est�
 ```sql
 BEGIN;
 DELETE FROM "ExternalRef" WHERE "entityType" = 'Offer';
-DELETE FROM "Offer" WHERE "legacyType" IN ('PaymentLink','SubscriptionLink','Plan','PixCreditPlan','Boleto');
+DELETE FROM "Offer" WHERE "id" IN (
+  SELECT "id" FROM "PaymentLink" UNION SELECT "id" FROM "SubscriptionLink" UNION SELECT "id" FROM "Plan"
+  UNION SELECT "id" FROM "PixCreditPlan" UNION SELECT "id" FROM "Boleto"
+);
 COMMIT;
 ```
 
-Para desfazer só um tipo, filtre por `legacyType` (e apague os `ExternalRef` cujo `entityId` pertence a ele antes). Se já existirem `BillingContract`/`Charge` apontando para `Offer`, **não** use este rollback: a `Offer` é protegida por chave estrangeira e o apagamento falhará.
+Para desfazer só um tipo, filtre pelos IDs da tabela legada correspondente (e apague os `ExternalRef` cujo `entityId` pertence a ele antes). Se já existirem `BillingContract`/`Charge` apontando para `Offer`, **não** use este rollback: a `Offer` é protegida por chave estrangeira e o apagamento falhará.
 
 ## O que o dono deve checar antes de rodar em banco real
 
