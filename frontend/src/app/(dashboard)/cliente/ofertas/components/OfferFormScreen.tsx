@@ -304,20 +304,25 @@ function FormBody({
         </div>
       </ProductFormSection>
 
-      <ProductFormSection title="Recorrência">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Oferta recorrente
-          </span>
+      <ProductFormSection
+        title="Recorrência"
+        action={
           <FormSwitch
+            aria-label="Oferta recorrente"
+            aria-expanded={recurring}
+            aria-controls="offer-recurrence-fields"
             checked={recurring}
             onChange={(on) =>
               patch({ renewalMode: on ? 'AUTO_CHARGE' : 'NONE' })
             }
           />
-        </div>
+        }
+      >
         {recurring && (
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div
+            id="offer-recurrence-fields"
+            className="grid gap-4 md:grid-cols-2"
+          >
             <Input
               label="A cada"
               theme={theme}

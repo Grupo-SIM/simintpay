@@ -1,11 +1,13 @@
 'use client';
 
+import type { AriaAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
 export function FormSwitch({
   checked,
   onChange,
-}: {
+  ...ariaProps
+}: AriaAttributes & {
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
@@ -13,6 +15,7 @@ export function FormSwitch({
     <button
       type="button"
       role="switch"
+      {...ariaProps}
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className={cn(
