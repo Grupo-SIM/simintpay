@@ -1701,6 +1701,8 @@ model Offer {
   updatedAt       DateTime            @updatedAt
   contracts       BillingContract[]
   charges         Charge[]
+  accesses        OfferAccess[]
+  codeAliases     OfferCodeAlias[]
 
   @@unique([legacyType, legacyId])
   @@index([ownerUserId])
@@ -1743,6 +1745,68 @@ model Charge {
   @@index([status, dueAt])
 }
 
+
+/// Days of access credited to a buyer by paid charges of an offer with `accessDays`
+/// (port of the legacy PIX credit plan access). `expiresAt` is the source of truth.
+model OfferAccess {
+  id                String    @id @default(uuid())
+  offerId           String
+  ownerUserId       String
+  /// Customer row of the seller (plain id, no FK: the legacy Customer table is being retired).
+  customerId        String?
+  customerEmail     String
+  customerDocument  String
+  customerName      String?
+  isActive          Boolean   @default(false)
+  expiresAt         DateTime
+  /// Remaining days kept while the access is suspended; 0 otherwise.
+  frozenDays        Int       @default(0)
+  /// Cumulative days ever credited.
+  totalDaysCredited Int       @default(0)
+  lastChargeId      String?
+  lastTransactionId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  offer             Offer     @relation(fields: [offerId], references: [id], onDelete: Restrict)
+
+  @@unique([offerId, customerDocument])
+  @@unique([offerId, customerId])
+  @@index([offerId])
+  @@index([ownerUserId, isActive])
+  @@index([customerEmail])
+  @@index([isActive, expiresAt])
+}
+
+/// Idempotent, auditable events of an OfferAccess: `credit:<chargeId>` (a charge credits once)
+/// and `reminder:<accessId>:<expiresAt>:<offset>` (an expiry e-mail is sent once).
+model OfferAccessEvent {
+  id          String   @id @default(uuid())
+  accessId    String
+  eventKey    String   @unique @db.VarChar(191)
+  type        String   @db.VarChar(40)
+  payload     Json
+  deliveredAt DateTime?
+  attempts    Int      @default(0)
+  lastError   String?
+  createdAt   DateTime @default(now())
+
+  @@index([accessId, type])
+}
+
+/// Extra public codes of an offer (e.g. `PX-ABC123` from the legacy PIX plan link code).
+/// `Offer.code` stays the primary code.
+model OfferCodeAlias {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  offerId   String
+  /// Origin of the code, e.g. `PX` for the legacy PixPlanLinkCode.
+  kind      String   @db.VarChar(20)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  offer     Offer    @relation(fields: [offerId], references: [id], onDelete: Restrict)
+
+  @@index([offerId, isActive])
+}
 
 enum StoredCardStatus {
   ACTIVE
