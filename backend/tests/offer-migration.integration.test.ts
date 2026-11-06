@@ -79,6 +79,31 @@ beforeAll(async () => {
         amount: '99.00',
       },
       {
+        id: 'pl-hook',
+        userId: sellerA,
+        code: 'PL-HOOK',
+        title: 'With delivery',
+        amount: '97.00',
+        webhookUrl: 'https://hooks.example.com/purchase_approved',
+        emailBody: 'Obrigado pela compra',
+        platformFee1x: 5,
+      },
+      {
+        id: 'pl-funnel',
+        userId: sellerA,
+        code: 'PL-FUNNEL',
+        title: 'With bump',
+        amount: '97.00',
+      },
+      {
+        id: 'pl-badhook',
+        userId: sellerA,
+        code: 'PL-BADHOOK',
+        title: 'Internal webhook',
+        amount: '97.00',
+        webhookUrl: 'http://10.0.0.5/hook',
+      },
+      {
         id: 'pl-dup',
         userId: sellerA,
         code: 'SHARED',
@@ -87,8 +112,24 @@ beforeAll(async () => {
       },
     ],
   });
+  await db.paymentLinkOffer.create({
+    data: {
+      paymentLinkId: 'pl-funnel',
+      type: 'ORDER_BUMP',
+      title: 'Bump',
+      price: '19.90',
+    },
+  });
   await db.subscriptionLink.createMany({
     data: [
+      {
+        id: 'sl-live',
+        userId: sellerB,
+        code: 'SL-LIVE',
+        name: 'Assinatura viva',
+        amount: '29.90',
+        frequencyType: 'MONTHLY',
+      },
       {
         id: 'sl-ok',
         userId: sellerB,
@@ -107,6 +148,18 @@ beforeAll(async () => {
         frequencyType: 'MONTHLY',
       },
     ],
+  });
+  await db.subscriptionLinkOrder.create({
+    data: {
+      subscriptionLinkId: 'sl-live',
+      userId: sellerB,
+      customerName: 'Buyer',
+      customerEmail: 'buyer@test.dev',
+      customerDocument: '00000000000',
+      amountCharged: '29.90',
+      status: 'active',
+      domSubscriptionId: 'dom-sub-live',
+    },
   });
   await db.plan.createMany({
     data: [
@@ -162,6 +215,8 @@ beforeAll(async () => {
       code: 'BOL-OK',
       title: 'Boleto',
       amount: '150.00',
+      vencimentoDias: 7,
+      webhookUrl: 'https://hooks.example.com/boleto',
       domPaymentLinkId: 'dom-pl-2',
     },
   });
@@ -184,6 +239,13 @@ test('CLI refuses unsafe invocations', () => {
     ]),
   ).toThrow('mutually exclusive');
   expect(parseArgs(['--database-url=postgresql://h/d']).apply).toBe(false);
+  expect(parseArgs(['--database-url=postgresql://h/d'])).toMatchObject({
+    includeBoleto: false,
+    allowBlocked: false,
+  });
+  expect(
+    parseArgs(['--database-url=x', '--include-boleto', '--allow-blocked']),
+  ).toMatchObject({ includeBoleto: true, allowBlocked: true });
 });
 
 run('dry run classifies rows and writes nothing', async () => {
@@ -197,14 +259,42 @@ run('dry run classifies rows and writes nothing', async () => {
     'pl-low': 'CREATE',
     'pl-admin': 'BLOCKED_ADMIN_OWNER',
     'pl-dup': 'REFUSED',
+    'pl-hook': 'CREATE',
+    'pl-funnel': 'BLOCKED',
+    'pl-badhook': 'REFUSED',
+    'sl-live': 'BLOCKED',
     'sl-ok': 'CREATE',
     'sl-dup': 'REFUSED',
     'plan-ok': 'CREATE',
     'plan-nocode': 'REFUSED',
     'px-ok': 'CREATE',
     'px-nocode': 'REFUSED',
-    'bol-ok': 'CREATE',
+    'bol-ok': 'BLOCKED',
   });
+  const decision = (id: string) =>
+    plan.decisions.find((d) => d.candidate.draft.legacyId === id)!;
+  expect(decision('pl-funnel').reasons.join()).toContain(
+    'BLOCKED_HAS_FUNNEL_OFFERS',
+  );
+  expect(decision('sl-live').reasons.join()).toContain(
+    'BLOCKED_LIVE_DOM_SUBSCRIPTION',
+  );
+  expect(decision('sl-live').reasons.join()).not.toContain('buyer@');
+  expect(decision('bol-ok').reasons.join()).toContain(
+    'BLOCKED_BOLETO_CHARGE_UNSUPPORTED',
+  );
+  expect(decision('pl-badhook').reasons.join()).toContain(
+    'INVALID_FULFILLMENT: webhookUrl',
+  );
+  expect(decision('pl-hook').warnings.join()).toContain(
+    'FEE_OVERRIDE_NOT_CARRIED: platformFee1x',
+  );
+  expect(decision('pl-ok').warnings.join()).not.toContain('FEE_OVERRIDE');
+  const withBoleto = await buildPlan(db!, { includeBoleto: true });
+  expect(
+    withBoleto.decisions.find((d) => d.candidate.draft.legacyId === 'bol-ok')!
+      .status,
+  ).toBe('CREATE');
   const low = plan.decisions.find(
     (d) => d.candidate.draft.legacyId === 'pl-low',
   )!;
@@ -221,15 +311,15 @@ run('apply creates offers and external refs, keeps legacy intact', async () => {
   const before = await legacySnapshot();
   const result = await applyPlan(db!, await buildPlan(db!));
   expect(result.created).toBe(6);
-  expect(result.refs).toBe(4);
+  expect(result.refs).toBe(3);
   expect(await legacySnapshot()).toBe(before);
 
   const offers = await db!.offer.findMany({ orderBy: { code: 'asc' } });
   expect(offers.map((o) => o.code)).toEqual([
-    'BOL-OK',
+    'PLAN-OK',
+    'PL-HOOK',
     'PL-LOW',
     'PL-OK',
-    'PLAN-OK',
     'PX-OLDEST',
     'SL-OK',
   ]);
@@ -248,6 +338,17 @@ run('apply creates offers and external refs, keeps legacy intact', async () => {
     intervalCount: 2,
   });
   expect(offers.some((o) => o.ownerUserId === adminId)).toBe(false);
+  expect(offers.find((o) => o.code === 'PL-HOOK')).toMatchObject({
+    fulfillment: {
+      webhookUrl: 'https://hooks.example.com/purchase_approved',
+      emailBody: 'Obrigado pela compra',
+    },
+    metadata: null,
+  });
+  expect(offers.find((o) => o.code === 'PL-OK')!.fulfillment).toBeNull();
+  expect(
+    offers.some((o) => ['PL-FUNNEL', 'SL-LIVE', 'BOL-OK'].includes(o.code)),
+  ).toBe(false);
 
   const refs = await db!.externalRef.findMany({
     where: { entityType: 'Offer' },
@@ -257,20 +358,79 @@ run('apply creates offers and external refs, keeps legacy intact', async () => {
   expect(ref('PAYMENT_LINK', 'dom-pl-1')?.entityId).toBe(pl.id);
   expect(ref('PLAN', 'dom-plan-1')).toBeDefined();
   expect(ref('PLAN', 'dom-plan-2')).toBeDefined();
-  expect(ref('PAYMENT_LINK', 'dom-pl-2')).toBeDefined();
+  expect(ref('PAYMENT_LINK', 'dom-pl-2')).toBeUndefined();
   expect(refs.every((r) => r.acquirerCode === 'DOM')).toBe(true);
 });
 
+run(
+  '--include-boleto migrates the boleto with due days and address flag',
+  async () => {
+    const options = { includeBoleto: true };
+    const result = await applyPlan(db!, await buildPlan(db!, options));
+    expect(result).toMatchObject({ created: 1, refs: 1 });
+    const boleto = await db!.offer.findUniqueOrThrow({
+      where: { code: 'BOL-OK' },
+    });
+    expect(boleto.metadata).toEqual({
+      boletoDueDays: 7,
+      requiresBuyerAddress: true,
+    });
+    expect(boleto.fulfillment).toEqual({
+      webhookUrl: 'https://hooks.example.com/boleto',
+    });
+  },
+);
+
 run('apply is idempotent', async () => {
-  const again = await applyPlan(db!, await buildPlan(db!));
+  const options = { includeBoleto: true };
+  const again = await applyPlan(db!, await buildPlan(db!, options));
   expect(again).toMatchObject({ created: 0, refs: 0 });
-  expect(await db!.offer.count()).toBe(6);
-  const plan = await buildPlan(db!);
+  expect(await db!.offer.count()).toBe(7);
+  const plan = await buildPlan(db!, options);
   expect(plan.decisions.filter((d) => d.status === 'CREATE')).toHaveLength(0);
 });
 
+run(
+  'verify reports blocked products unless includeBoleto covers them',
+  async () => {
+    const problems = await verify(db!, { includeBoleto: true });
+    expect(problems).toEqual([]);
+    // Without the flag the boleto Offer has no eligible legacy row.
+    expect((await verify(db!)).join('\n')).toContain('Boleto:bol-ok');
+  },
+);
+
+run('verify detects fulfillment and metadata mismatches', async () => {
+  const options = { includeBoleto: true };
+  await db!.offer.update({
+    where: { code: 'PL-HOOK' },
+    data: { fulfillment: { webhookUrl: 'https://evil.example.com/x' } },
+  });
+  await db!.offer.update({
+    where: { code: 'BOL-OK' },
+    data: { metadata: { boletoDueDays: 1, requiresBuyerAddress: true } },
+  });
+  const problems = (await verify(db!, options)).join('\n');
+  expect(problems).toContain('PaymentLink:pl-hook: fulfillment');
+  expect(problems).toContain('Boleto:bol-ok: metadata');
+  await db!.offer.update({
+    where: { code: 'PL-HOOK' },
+    data: {
+      fulfillment: {
+        emailBody: 'Obrigado pela compra',
+        webhookUrl: 'https://hooks.example.com/purchase_approved',
+      },
+    },
+  });
+  await db!.offer.update({
+    where: { code: 'BOL-OK' },
+    data: { metadata: { requiresBuyerAddress: true, boletoDueDays: 7 } },
+  });
+  expect(await verify(db!, options)).toEqual([]);
+});
+
 run('verify passes, then reports tampering', async () => {
-  expect(await verify(db!)).toEqual([]);
+  expect(await verify(db!, { includeBoleto: true })).toEqual([]);
 
   await db!.offer.update({
     where: { code: 'PL-OK' },
@@ -280,12 +440,14 @@ run('verify passes, then reports tampering', async () => {
     where: { code: 'BOL-OK' },
     data: { ownerUserId: sellerB },
   });
-  const problems = await verify(db!);
+  const problems = await verify(db!, { includeBoleto: true });
   expect(problems.join('\n')).toContain('PaymentLink:pl-ok: amountCents 1');
   expect(problems.join('\n')).toContain('Boleto:bol-ok: owner');
 
   await db!.offer.deleteMany({ where: { code: 'SL-OK' } });
-  expect((await verify(db!)).join('\n')).toContain('SubscriptionLink:sl-ok');
+  expect((await verify(db!, { includeBoleto: true })).join('\n')).toContain(
+    'SubscriptionLink:sl-ok',
+  );
 });
 
 run('rollback by legacyType leaves legacy rows untouched', async () => {

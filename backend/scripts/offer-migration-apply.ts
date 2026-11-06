@@ -13,7 +13,7 @@
  * See docs/guides/offer-migration-runbook.md.
  */
 import { PrismaPg } from '@prisma/adapter-pg';
-import { type Prisma, PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import {
   type LegacyType,
   mapBoleto,
@@ -38,7 +38,13 @@ export type CliOptions = {
   databaseUrl: string;
   apply: boolean;
   verify: boolean;
+  /** Migrate Boleto products too (the Offer checkout has no boleto charge yet). */
+  includeBoleto: boolean;
+  /** Do not fail (exit code) when some product is BLOCKED. */
+  allowBlocked: boolean;
 };
+
+export type PreflightOptions = { includeBoleto?: boolean };
 
 export function parseArgs(argv: string[]): CliOptions {
   let databaseUrl: string | undefined;
@@ -60,7 +66,13 @@ export function parseArgs(argv: string[]): CliOptions {
     throw new Error(
       'Refusing to write: --apply also requires --i-understand-this-writes.',
     );
-  return { databaseUrl, apply, verify };
+  return {
+    databaseUrl,
+    apply,
+    verify,
+    includeBoleto: argv.includes('--include-boleto'),
+    allowBlocked: argv.includes('--allow-blocked'),
+  };
 }
 
 export function describeTarget(url: string): string {
@@ -74,8 +86,26 @@ export type Candidate = {
   ref?: ExternalRefSpec;
   ownerRole?: string;
 };
+export const BLOCKER_CODES = [
+  'BLOCKED_HAS_FUNNEL_OFFERS',
+  'BLOCKED_HAS_FILES',
+  'BLOCKED_HAS_VOUCHERS',
+  'BLOCKED_HAS_COMMUNITY',
+  'BLOCKED_HAS_PIX_ACCESS',
+  'BLOCKED_LIVE_DOM_SUBSCRIPTION',
+  'BLOCKED_BOLETO_CHARGE_UNSUPPORTED',
+] as const;
+export type BlockerCode = (typeof BLOCKER_CODES)[number];
+export type Preflight = {
+  /** Why the product must not be migrated (it would lose data or behaviour). */
+  blockers: { code: BlockerCode; detail: string }[];
+  /** Non-blocking observations, printed. */
+  notes: string[];
+};
+export type PreflightMap = Map<string, Preflight>;
+
 export type Status =
-  'CREATE' | 'SKIP_EXISTING' | 'REFUSED' | 'BLOCKED_ADMIN_OWNER';
+  'CREATE' | 'SKIP_EXISTING' | 'REFUSED' | 'BLOCKED_ADMIN_OWNER' | 'BLOCKED';
 export type Decision = {
   candidate: Candidate;
   status: Status;
@@ -86,6 +116,241 @@ export type Decision = {
 const key = (type: string, id: string) => `${type}:${id}`;
 
 type Reader = Prisma.TransactionClient | PrismaClient;
+
+/** Order/subscription statuses that no longer charge anyone. Anything else counts as live. */
+export const TERMINAL_SUBSCRIPTION_STATUSES = [
+  'cancelled',
+  'canceled',
+  'inactive',
+  'expired',
+  'failed',
+  'deactivated',
+  'disabled',
+];
+
+/** Platform defaults of the per-link fee columns (schema.prisma, PaymentLink / SubscriptionLink). */
+const PAYMENT_LINK_FEE_DEFAULTS: Record<string, number | boolean> = {
+  platformFee1x: 9.0,
+  platformFee2x: 13.3,
+  platformFee3x: 14.68,
+  platformFee4x: 16.04,
+  platformFee5x: 17.37,
+  platformFee6x: 18.67,
+  platformFee7x: 19.95,
+  platformFee8x: 21.21,
+  platformFee9x: 22.44,
+  platformFee10x: 23.64,
+  platformFee11x: 24.83,
+  platformFee12x: 25.99,
+  cashbackFee: 3.0,
+  debitFeePercent: 2.0,
+  debitFeeFixed: 2.0,
+  isStandalone: true,
+};
+const SUBSCRIPTION_LINK_FEE_DEFAULTS: Record<string, number | boolean> = {
+  platformFee: 9.0,
+  isStandalone: true,
+};
+
+/** Names of the fee columns whose value differs from the platform default. */
+export function feeOverrides(
+  row: Record<string, unknown>,
+  defaults: Record<string, number | boolean>,
+): string[] {
+  return Object.entries(defaults)
+    .filter(([column, value]) => {
+      const actual = row[column];
+      if (typeof value === 'boolean') return actual !== value;
+      return Math.abs(Number(actual) - value) > 1e-9;
+    })
+    .map(([column]) => column);
+}
+
+const lc = (v: string) => v.trim().toLowerCase();
+
+/**
+ * Shared by the report and the apply: finds legacy products that still carry data or behaviour an
+ * Offer cannot represent yet. Read-only. Counts only; no customer data is returned or printed.
+ */
+export async function findPreflight(
+  db: Reader,
+  drafts: OfferDraft[],
+  options: PreflightOptions = {},
+): Promise<PreflightMap> {
+  const result: PreflightMap = new Map();
+  const of = (d: OfferDraft): Preflight => {
+    const k = key(d.legacyType, d.legacyId);
+    let entry = result.get(k);
+    if (!entry) result.set(k, (entry = { blockers: [], notes: [] }));
+    return entry;
+  };
+  const block = (d: OfferDraft, code: BlockerCode, detail: string) =>
+    of(d).blockers.push({ code, detail });
+  const ofType = (type: LegacyType) =>
+    drafts.filter((d) => d.legacyType === type);
+  const ids = (type: LegacyType) => ofType(type).map((d) => d.legacyId);
+
+  const paymentLinkIds = ids('PaymentLink');
+  const subscriptionLinkIds = ids('SubscriptionLink');
+  const planIds = ids('Plan');
+  const pixPlanIds = ids('PixCreditPlan');
+
+  // Sequential on purpose: a transaction client holds a single connection.
+  const funnel = await db.paymentLinkOffer.groupBy({
+    by: ['paymentLinkId'],
+    where: { paymentLinkId: { in: paymentLinkIds }, deletedAt: null },
+    _count: { _all: true },
+  });
+  const files = await db.paymentLinkFile.groupBy({
+    by: ['paymentLinkId'],
+    where: { paymentLinkId: { in: paymentLinkIds } },
+    _count: { _all: true },
+  });
+  const bindings = await db.communityLinkBinding.findMany({
+    where: {
+      OR: [
+        { paymentLinkId: { in: paymentLinkIds } },
+        { subscriptionLinkId: { in: subscriptionLinkIds } },
+      ],
+    },
+    select: { paymentLinkId: true, subscriptionLinkId: true },
+  });
+  const subOrders = await db.subscriptionLinkOrder.groupBy({
+    by: ['subscriptionLinkId'],
+    where: {
+      subscriptionLinkId: { in: subscriptionLinkIds },
+      domSubscriptionId: { not: null },
+      status: { notIn: TERMINAL_SUBSCRIPTION_STATUSES },
+    },
+    _count: { _all: true },
+  });
+  const subscriptions = await db.subscription.groupBy({
+    by: ['planId'],
+    where: {
+      planId: { in: planIds },
+      domSubscriptionId: { not: null },
+      status: { notIn: TERMINAL_SUBSCRIPTION_STATUSES },
+    },
+    _count: { _all: true },
+  });
+  const pixOrders = await db.pixPlanOrder.groupBy({
+    by: ['pixCreditPlanId'],
+    where: { pixCreditPlanId: { in: pixPlanIds } },
+    _count: { _all: true },
+  });
+  const pixAccesses = await db.customerPlanAccess.groupBy({
+    by: ['pixPlanId'],
+    where: { pixPlanId: { in: pixPlanIds } },
+    _count: { _all: true },
+  });
+  const vouchers = await db.voucher.findMany({
+    select: { allowedLinkCodes: true, applicablePlans: true },
+  });
+  const voucherCodes = new Set(
+    vouchers.flatMap((v) => v.allowedLinkCodes.map(lc)),
+  );
+  const voucherPlans = new Set(vouchers.flatMap((v) => v.applicablePlans));
+
+  const pixCodeRows = await db.pixPlanLinkCode.findMany({
+    where: { pixCreditPlanId: { in: pixPlanIds } },
+    select: { code: true, pixCreditPlanId: true },
+  });
+  const pixCodes = new Map<string, string[]>();
+  for (const r of pixCodeRows)
+    pixCodes.set(r.pixCreditPlanId, [
+      ...(pixCodes.get(r.pixCreditPlanId) ?? []),
+      r.code,
+    ]);
+
+  const count = <T extends { _count: { _all: number } }>(
+    rows: T[],
+    field: keyof T,
+  ) => new Map(rows.map((r) => [String(r[field]), r._count._all]));
+  const funnelBy = count(funnel, 'paymentLinkId');
+  const filesBy = count(files, 'paymentLinkId');
+  const subOrdersBy = count(subOrders, 'subscriptionLinkId');
+  const subscriptionsBy = count(subscriptions, 'planId');
+  const pixOrdersBy = count(pixOrders, 'pixCreditPlanId');
+  const pixAccessesBy = count(pixAccesses, 'pixPlanId');
+  const boundLinks = new Set(
+    bindings.flatMap((b) => [b.paymentLinkId, b.subscriptionLinkId]),
+  );
+
+  for (const d of drafts) {
+    const id = d.legacyId;
+    const n = (m: Map<string, number>) => m.get(id) ?? 0;
+    if (n(funnelBy))
+      block(
+        d,
+        'BLOCKED_HAS_FUNNEL_OFFERS',
+        `${n(funnelBy)} order bump/upsell/downsell row(s)`,
+      );
+    if (n(filesBy))
+      block(d, 'BLOCKED_HAS_FILES', `${n(filesBy)} delivery file(s)`);
+    if (boundLinks.has(id))
+      block(d, 'BLOCKED_HAS_COMMUNITY', 'bound to a community');
+    if (n(subOrdersBy) || n(subscriptionsBy))
+      block(
+        d,
+        'BLOCKED_LIVE_DOM_SUBSCRIPTION',
+        `${n(subOrdersBy) + n(subscriptionsBy)} live DOM subscription(s) still charging`,
+      );
+    if (n(pixOrdersBy) || n(pixAccessesBy))
+      block(
+        d,
+        'BLOCKED_HAS_PIX_ACCESS',
+        `${n(pixOrdersBy)} order(s), ${n(pixAccessesBy)} access row(s)`,
+      );
+    const codes = [d.code, ...(pixCodes.get(id) ?? [])];
+    if (
+      codes.some((c) => c && voucherCodes.has(lc(c))) ||
+      voucherCodes.has(lc(id)) ||
+      voucherPlans.has(id)
+    )
+      block(d, 'BLOCKED_HAS_VOUCHERS', 'a voucher is bound to this product');
+    if (d.legacyType === 'Boleto' && !options.includeBoleto)
+      block(
+        d,
+        'BLOCKED_BOLETO_CHARGE_UNSUPPORTED',
+        'the Offer public checkout has no boleto charge yet (pass --include-boleto)',
+      );
+  }
+
+  const paymentLinks = await db.paymentLink.findMany({
+    where: { id: { in: paymentLinkIds } },
+  });
+  const subscriptionLinks = await db.subscriptionLink.findMany({
+    where: { id: { in: subscriptionLinkIds } },
+  });
+  const noteFees = (
+    type: LegacyType,
+    rows: Record<string, unknown>[],
+    defaults: Record<string, number | boolean>,
+  ) => {
+    const byId = new Map(
+      drafts.filter((d) => d.legacyType === type).map((d) => [d.legacyId, d]),
+    );
+    for (const row of rows) {
+      const fields = feeOverrides(row, defaults);
+      const d = byId.get(String(row.id));
+      if (d && fields.length)
+        of(d).notes.push(
+          `FEE_OVERRIDE_NOT_CARRIED: ${fields.join(', ')} (Offers use the financial-policy quote)`,
+        );
+    }
+  };
+  noteFees('PaymentLink', paymentLinks, PAYMENT_LINK_FEE_DEFAULTS);
+  noteFees(
+    'SubscriptionLink',
+    subscriptionLinks,
+    SUBSCRIPTION_LINK_FEE_DEFAULTS,
+  );
+  return result;
+}
+
+/** Number of products BLOCKED by the preflight (admin-owner blocks are counted apart). */
+export const countBlocked = (plan: Plan) =>
+  plan.decisions.filter((d) => d.status === 'BLOCKED').length;
 
 export async function loadCandidates(db: Reader) {
   // Sequential on purpose: a transaction client holds a single connection.
@@ -145,6 +410,7 @@ export function decide(
     legacyType: string | null;
     legacyId: string | null;
   }[],
+  preflight: PreflightMap = new Map(),
 ): Decision[] {
   const existingLegacy = new Set(
     offers
@@ -168,7 +434,8 @@ export function decide(
   return candidates.map((candidate) => {
     const d = candidate.draft;
     const k = key(d.legacyType, d.legacyId);
-    const warnings = [...d.notes];
+    const pre = preflight.get(k);
+    const warnings = [...d.notes, ...(pre?.notes ?? [])];
     if (d.amountCents !== null && d.amountCents < MIN_AMOUNT_CENTS)
       warnings.push(`BELOW_MINIMUM_AMOUNT: ${d.amountCents} cents`);
     const make = (status: Status, reasons: string[] = []): Decision => ({
@@ -177,12 +444,24 @@ export function decide(
       reasons,
       warnings,
     });
+    // Blockers win over SKIP_EXISTING: a product that now carries live data is surfaced.
+    if (pre?.blockers.length)
+      return make(
+        'BLOCKED',
+        pre.blockers.map((b) => `${b.code}: ${b.detail}`),
+      );
     if (existingLegacy.has(k)) return make('SKIP_EXISTING');
     if (candidate.ownerRole === 'ADMIN')
       return make('BLOCKED_ADMIN_OWNER', [
         'owner is ADMIN (plan 0009); owners are never reassigned here',
       ]);
-    const reasons: string[] = [...d.issues];
+    // INVALID_FULFILLMENT / INVALID_BOLETO_DUE_DAYS are reported with their detailed reason.
+    const reasons: string[] = [
+      ...d.issues.filter(
+        (i) => i !== 'INVALID_FULFILLMENT' && i !== 'INVALID_BOLETO_DUE_DAYS',
+      ),
+      ...d.issueDetails,
+    ];
     if (d.ownerUserId && !userIds.has(d.ownerUserId))
       reasons.push('MISSING_OWNER');
     if (d.code) {
@@ -219,19 +498,33 @@ const offerData = (d: OfferDraft): Prisma.OfferUncheckedCreateInput => ({
   intervalCount: d.intervalCount,
   repetitions: d.repetitions,
   retryDays: d.retryDays,
+  fulfillment: d.fulfillment ?? Prisma.DbNull,
+  metadata: (d.metadata as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
   legacyType: d.legacyType,
   legacyId: d.legacyId,
 });
 
 export type Plan = { decisions: Decision[]; existingOffers: number };
 
-export async function buildPlan(db: Reader): Promise<Plan> {
+export async function buildPlan(
+  db: Reader,
+  options: PreflightOptions = {},
+): Promise<Plan> {
   const { candidates, userIds } = await loadCandidates(db);
   const offers = await db.offer.findMany({
     select: { code: true, legacyType: true, legacyId: true },
   });
   return {
-    decisions: decide(candidates, userIds, offers),
+    decisions: decide(
+      candidates,
+      userIds,
+      offers,
+      await findPreflight(
+        db,
+        candidates.map((c) => c.draft),
+        options,
+      ),
+    ),
     existingOffers: offers.length,
   };
 }
@@ -336,9 +629,27 @@ export async function applyPlan(
   return result;
 }
 
+/** Key-sorted JSON so that stored JSON and drafts compare regardless of key order. */
+export function canonical(value: unknown): string {
+  const sort = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(sort)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(
+            Object.entries(v as Record<string, unknown>)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([k, x]) => [k, sort(x)]),
+          )
+        : v;
+  return JSON.stringify(sort(value ?? null));
+}
+
 /** Compares legacy rows with Offers (counts, cents, codes, owners, external refs). */
-export async function verify(db: Reader): Promise<string[]> {
-  const plan = await buildPlan(db);
+export async function verify(
+  db: Reader,
+  options: PreflightOptions = {},
+): Promise<string[]> {
+  const plan = await buildPlan(db, options);
   const offers = await db.offer.findMany({
     where: { legacyType: { not: null } },
   });
@@ -383,6 +694,14 @@ export async function verify(db: Reader): Promise<string[]> {
         problems.push(
           `${k}: owner ${offer.ownerUserId} != legacy ${draft.ownerUserId}`,
         );
+      if (canonical(offer.fulfillment) !== canonical(draft.fulfillment))
+        problems.push(
+          `${k}: fulfillment ${canonical(offer.fulfillment)} != legacy ${canonical(draft.fulfillment)}`,
+        );
+      if (canonical(offer.metadata) !== canonical(draft.metadata))
+        problems.push(
+          `${k}: metadata ${canonical(offer.metadata)} != legacy ${canonical(draft.metadata)}`,
+        );
       const ref = d.candidate.ref;
       if (ref && !refKeys.has(`${ref.kind}:${ref.externalId}:${offer.id}`))
         problems.push(
@@ -406,7 +725,7 @@ export function printPlan(
     plan.decisions.filter((d) => d.status === s).length;
   log(`Existing Offer rows: ${plan.existingOffers}`);
   log(
-    `Plan: ${count('CREATE')} to create, ${count('SKIP_EXISTING')} already migrated, ${count('REFUSED')} refused, ${count('BLOCKED_ADMIN_OWNER')} BLOCKED (admin owner)`,
+    `Plan: ${count('CREATE')} to create, ${count('SKIP_EXISTING')} already migrated, ${count('REFUSED')} refused, ${count('BLOCKED_ADMIN_OWNER')} BLOCKED (admin owner), ${count('BLOCKED')} BLOCKED (would lose data)`,
   );
   for (const type of KIND_ORDER) {
     const mine = plan.decisions.filter(
@@ -420,9 +739,26 @@ export function printPlan(
       const warns = d.warnings.length
         ? ` (warn: ${d.warnings.join('; ')})`
         : '';
-      const status = d.status === 'BLOCKED_ADMIN_OWNER' ? 'BLOCKED' : d.status;
+      const status = d.status.startsWith('BLOCKED') ? 'BLOCKED' : d.status;
       log(`  ${status.padEnd(13)} ${label}${reasons}${warns}`);
     }
+  }
+}
+
+async function exitIfBlocked(prisma: PrismaClient, options: CliOptions) {
+  const plan = await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
+      return buildPlan(tx, options);
+    },
+    { timeout: 120_000, maxWait: 15_000 },
+  );
+  const blocked = countBlocked(plan);
+  if (blocked && !options.allowBlocked) {
+    console.error(
+      `${blocked} product(s) are BLOCKED and were not migrated (use --allow-blocked to accept).`,
+    );
+    process.exitCode = 1;
   }
 }
 
@@ -444,7 +780,7 @@ async function main() {
       const problems = await prisma.$transaction(
         async (tx) => {
           await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
-          return verify(tx);
+          return verify(tx, options);
         },
         { timeout: 120_000, maxWait: 15_000 },
       );
@@ -453,18 +789,23 @@ async function main() {
         for (const p of problems) console.error(`  ${p}`);
         process.exitCode = 1;
       } else console.log('VERIFY OK: legacy rows and Offers match.');
+      await exitIfBlocked(prisma, options);
       return;
     }
     const plan = await prisma.$transaction(
       async (tx) => {
         await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
-        return buildPlan(tx);
+        return buildPlan(tx, options);
       },
       { timeout: 120_000, maxWait: 15_000 },
     );
     printPlan(plan);
     if (!options.apply) {
       console.log('\nDry run: nothing was written.');
+      if (countBlocked(plan))
+        console.log(
+          `${countBlocked(plan)} product(s) are BLOCKED and will not be migrated.`,
+        );
       return;
     }
     console.log('\nApplying (one transaction per kind)...');

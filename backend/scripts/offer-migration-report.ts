@@ -4,6 +4,7 @@
  *   bun --no-env-file scripts/offer-migration-report.ts --database-url=postgresql://... [--json]
  *   OFFER_REPORT_DATABASE_URL=postgresql://... bun --no-env-file scripts/offer-migration-report.ts
  *
+ * Flags: --json, --include-boleto (Boleto is otherwise BLOCKED), --allow-blocked (exit 0 despite BLOCKED).
  * The database must be given explicitly; `DATABASE_URL` and `.env` are intentionally never read.
  * The host is printed before any query, and all reads run in one `SET TRANSACTION READ ONLY` transaction.
  */
@@ -17,6 +18,7 @@ import {
   mapSubscriptionLink,
   type OfferDraft,
 } from '../src/modules/offer/legacy-offer-mapper';
+import { findPreflight, type PreflightMap } from './offer-migration-apply';
 
 export const MIN_AMOUNT_CENTS = 1499;
 
@@ -50,6 +52,10 @@ export type Conflicts = {
   invalidAmount: string[];
   adminOwner: string[];
   belowMinimumAmount: string[];
+  /** `ref: reason` of webhook/redirect/email values or boleto due days that fail validation. */
+  invalidFulfillment: string[];
+  /** `ref: CODE: detail` of products that would lose data (never migrated). */
+  blocked: string[];
   notes: string[];
 };
 
@@ -59,6 +65,7 @@ export function findConflicts(
   drafts: OfferDraft[],
   roleByUser: Map<string, string>,
   existingUsers: Set<string>,
+  preflight: PreflightMap = new Map(),
 ): Conflicts {
   const byCode = new Map<string, string[]>();
   const out: Conflicts = {
@@ -68,6 +75,8 @@ export function findConflicts(
     invalidAmount: [],
     adminOwner: [],
     belowMinimumAmount: [],
+    invalidFulfillment: [],
+    blocked: [],
     notes: [],
   };
   for (const d of drafts) {
@@ -78,6 +87,12 @@ export function findConflicts(
     else if (roleByUser.get(d.ownerUserId) === 'ADMIN')
       out.adminOwner.push(ref(d));
     for (const n of d.notes) out.notes.push(`${ref(d)} ${n}`);
+    for (const detail of d.issueDetails)
+      out.invalidFulfillment.push(`${ref(d)}: ${detail}`);
+    const pre = preflight.get(ref(d));
+    for (const b of pre?.blockers ?? [])
+      out.blocked.push(`${ref(d)}: ${b.code}: ${b.detail}`);
+    for (const n of pre?.notes ?? []) out.notes.push(`${ref(d)} ${n}`);
     if (d.amountCents === null) out.invalidAmount.push(ref(d));
     else if (d.amountCents < MIN_AMOUNT_CENTS)
       out.belowMinimumAmount.push(ref(d));
@@ -89,6 +104,8 @@ export function findConflicts(
 
 async function main() {
   const url = resolveDatabaseUrl(process.argv.slice(2), process.env);
+  const includeBoleto = process.argv.includes('--include-boleto');
+  const allowBlocked = process.argv.includes('--allow-blocked');
   console.log(`Target database: ${describeTarget(url)}`);
   console.log('Mode: DRY RUN, read-only transaction, no writes.');
 
@@ -99,7 +116,7 @@ async function main() {
     const data = await prisma.$transaction(
       async (tx) => {
         await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
-        return {
+        const rows = {
           paymentLinks: await tx.paymentLink.findMany(),
           subscriptionLinks: await tx.subscriptionLink.findMany(),
           plans: await tx.plan.findMany(),
@@ -110,21 +127,25 @@ async function main() {
           users: await tx.user.findMany({ select: { id: true, role: true } }),
           existingOffers: await tx.offer.count(),
         };
+        const drafts: OfferDraft[] = [
+          ...rows.paymentLinks.map(mapPaymentLink),
+          ...rows.subscriptionLinks.map(mapSubscriptionLink),
+          ...rows.plans.map(mapPlan),
+          ...rows.pixPlans.map(mapPixCreditPlan),
+          ...rows.boletos.map(mapBoleto),
+        ];
+        const preflight = await findPreflight(tx, drafts, { includeBoleto });
+        return { ...rows, drafts, preflight };
       },
       { timeout: 120_000, maxWait: 15_000 },
     );
+    const { drafts } = data;
 
-    const drafts: OfferDraft[] = [
-      ...data.paymentLinks.map(mapPaymentLink),
-      ...data.subscriptionLinks.map(mapSubscriptionLink),
-      ...data.plans.map(mapPlan),
-      ...data.pixPlans.map(mapPixCreditPlan),
-      ...data.boletos.map(mapBoleto),
-    ];
     const conflicts = findConflicts(
       drafts,
       new Map(data.users.map((u) => [u.id, String(u.role)])),
       new Set(data.users.map((u) => u.id)),
+      data.preflight,
     );
     const perKind: Record<string, number> = {};
     for (const d of drafts) perKind[d.kind] = (perKind[d.kind] ?? 0) + 1;
@@ -163,15 +184,27 @@ async function main() {
         `  invalid amount:         ${conflicts.invalidAmount.length}`,
       );
       console.log(`  missing code:           ${conflicts.missingCode.length}`);
+      console.log(
+        `  invalid fulfillment:    ${conflicts.invalidFulfillment.length}`,
+      );
+      console.log(`  BLOCKED (data loss):    ${conflicts.blocked.length}`);
       for (const [label, list] of [
         ['missing owner', conflicts.missingOwner],
         ['admin owner', conflicts.adminOwner],
         ['amount below minimum', conflicts.belowMinimumAmount],
         ['invalid amount', conflicts.invalidAmount],
         ['missing code', conflicts.missingCode],
+        ['invalid fulfillment', conflicts.invalidFulfillment],
+        ['BLOCKED', conflicts.blocked],
         ['notes', conflicts.notes],
       ] as const)
         if (list.length) console.log(`  ${label}: ${list.join(', ')}`);
+    }
+    if (conflicts.blocked.length && !allowBlocked) {
+      console.error(
+        `\n${conflicts.blocked.length} blocker(s): those products would lose data and are never migrated (pass --allow-blocked to accept).`,
+      );
+      process.exitCode = 1;
     }
   } finally {
     await prisma.$disconnect();

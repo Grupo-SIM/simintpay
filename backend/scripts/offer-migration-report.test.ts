@@ -73,3 +73,38 @@ test('detects duplicate codes, admin owners, missing owners and low amounts', ()
   expect(c.belowMinimumAmount).toEqual(['PaymentLink:1', 'Boleto:3']);
   expect(c.notes).toEqual([]);
 });
+
+test('reports invalid fulfillment and preflight blockers', () => {
+  const draft = mapPaymentLink({
+    id: 'p1',
+    userId: 'u',
+    code: 'c',
+    title: 't',
+    amount: '20.00',
+    webhookUrl: 'http://localhost/hook',
+  });
+  const conflicts = findConflicts(
+    [draft],
+    new Map(),
+    new Set(['u']),
+    new Map([
+      [
+        'PaymentLink:p1',
+        {
+          blockers: [
+            {
+              code: 'BLOCKED_HAS_FILES' as const,
+              detail: '2 delivery file(s)',
+            },
+          ],
+          notes: ['FEE_OVERRIDE_NOT_CARRIED: platformFee1x'],
+        },
+      ],
+    ]),
+  );
+  expect(conflicts.invalidFulfillment.join()).toContain('PaymentLink:p1');
+  expect(conflicts.blocked).toEqual([
+    'PaymentLink:p1: BLOCKED_HAS_FILES: 2 delivery file(s)',
+  ]);
+  expect(conflicts.notes.join()).toContain('FEE_OVERRIDE_NOT_CARRIED');
+});
