@@ -2175,19 +2175,6 @@ export default function PainelPage() {
                           {p.label}
                         </button>
                       ))}
-                      <button
-                        onClick={() =>
-                          setCustomRange((cr) =>
-                            cr.start ? { start: null, end: null } : cr,
-                          )
-                        }
-                        className={`period-btn${customRange.start ? ' active' : ''}`}
-                        style={
-                          customRange.start ? {} : { borderStyle: 'dashed' }
-                        }
-                      >
-                        Personalizar
-                      </button>
                     </div>
                     <div style={{ width: 280 }}>
                       <DateRangePickerField
