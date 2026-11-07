@@ -31,7 +31,6 @@ export type FulfillmentBump = { offerId: string; role: FulfillmentRole };
 export type OfferFulfillment = {
   files: FulfillmentFile[];
   emailBody: string | null;
-  webhookUrl: string | null;
   redirectUrl: string | null;
   /** Reservado: vínculo com comunidade. Validado como texto e ignorado por enquanto. */
   communityId: string | null;
@@ -48,7 +47,6 @@ export class OfferFulfillmentError extends Error {
 const KEYS = new Set([
   'files',
   'emailBody',
-  'webhookUrl',
   'redirectUrl',
   'communityId',
   'bumps',
@@ -134,7 +132,6 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
   const empty: OfferFulfillment = {
     files: [],
     emailBody: null,
-    webhookUrl: null,
     redirectUrl: null,
     communityId: null,
     bumps: [],
@@ -174,7 +171,7 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
     }
     return s || null;
   };
-  const optionalUrl = (key: 'webhookUrl' | 'redirectUrl') => {
+  const optionalUrl = (key: 'redirectUrl') => {
     const s = optionalText(key, 2048);
     if (!s) return null;
     const reason = unsafeUrlReason(s);
@@ -186,7 +183,6 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
   };
 
   const emailBody = optionalText('emailBody', 20_000);
-  const webhookUrl = optionalUrl('webhookUrl');
   const redirectUrl = optionalUrl('redirectUrl');
   const communityId = optionalText('communityId', 200);
 
@@ -217,7 +213,7 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
   }
 
   if (issues.length) throw new OfferFulfillmentError(issues);
-  return { files, emailBody, webhookUrl, redirectUrl, communityId, bumps };
+  return { files, emailBody, redirectUrl, communityId, bumps };
 }
 
 /** Leitura tolerante para o checkout/entrega: JSON inválido já gravado vira entrega vazia. */

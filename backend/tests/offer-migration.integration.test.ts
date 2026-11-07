@@ -84,7 +84,7 @@ beforeAll(async () => {
         code: 'PL-HOOK',
         title: 'With delivery',
         amount: '97.00',
-        webhookUrl: 'https://hooks.example.com/purchase_approved',
+        redirectUrl: 'https://example.com/obrigado',
         emailBody: 'Obrigado pela compra',
         platformFee1x: 5,
       },
@@ -101,7 +101,7 @@ beforeAll(async () => {
         code: 'PL-BADHOOK',
         title: 'Internal webhook',
         amount: '97.00',
-        webhookUrl: 'http://10.0.0.5/hook',
+        redirectUrl: 'http://10.0.0.5/hook',
       },
       {
         id: 'pl-dup',
@@ -216,7 +216,7 @@ beforeAll(async () => {
       title: 'Boleto',
       amount: '150.00',
       vencimentoDias: 7,
-      webhookUrl: 'https://hooks.example.com/boleto',
+      redirectUrl: 'https://example.com/boleto',
       domPaymentLinkId: 'dom-pl-2',
     },
   });
@@ -282,7 +282,7 @@ run('dry run classifies rows and writes nothing', async () => {
   expect(decision('sl-live').reasons.join()).not.toContain('buyer@');
   expect(decision('bol-ok').reasons).toEqual([]);
   expect(decision('pl-badhook').reasons.join()).toContain(
-    'INVALID_FULFILLMENT: webhookUrl',
+    'INVALID_FULFILLMENT: redirectUrl',
   );
   expect(decision('pl-hook').warnings.join()).toContain(
     'FEE_OVERRIDE_NOT_CARRIED: platformFee1x',
@@ -322,11 +322,10 @@ run('apply creates offers and external refs, keeps legacy intact', async () => {
     amountCents: 4990,
     ownerUserId: sellerA,
     platformTag: 'PAGATG',
-    legacyType: 'PaymentLink',
-    legacyId: 'pl-ok',
+    id: 'pl-ok',
   });
   expect(offers.find((o) => o.code === 'PL-LOW')!.platformTag).toBeNull();
-  expect(offers.find((o) => o.code === 'PX-OLDEST')!.legacyId).toBe('px-ok');
+  expect(offers.find((o) => o.code === 'PX-OLDEST')!.id).toBe('px-ok');
   expect(offers.find((o) => o.code === 'PLAN-OK')).toMatchObject({
     intervalType: 'MONTH',
     intervalCount: 2,
@@ -334,7 +333,7 @@ run('apply creates offers and external refs, keeps legacy intact', async () => {
   expect(offers.some((o) => o.ownerUserId === adminId)).toBe(false);
   expect(offers.find((o) => o.code === 'PL-HOOK')).toMatchObject({
     fulfillment: {
-      webhookUrl: 'https://hooks.example.com/purchase_approved',
+      redirectUrl: 'https://example.com/obrigado',
       emailBody: 'Obrigado pela compra',
     },
     metadata: null,
@@ -360,7 +359,7 @@ run('apply creates offers and external refs, keeps legacy intact', async () => {
     requiresBuyerAddress: true,
   });
   expect(boleto.fulfillment).toEqual({
-    webhookUrl: 'https://hooks.example.com/boleto',
+    redirectUrl: 'https://example.com/boleto',
   });
   expect(refs.every((r) => r.acquirerCode === 'DOM')).toBe(true);
 });
@@ -380,7 +379,7 @@ run('verify passes right after the apply', async () => {
 run('verify detects fulfillment and metadata mismatches', async () => {
   await db!.offer.update({
     where: { code: 'PL-HOOK' },
-    data: { fulfillment: { webhookUrl: 'https://evil.example.com/x' } },
+    data: { fulfillment: { redirectUrl: 'https://evil.example.com/x' } },
   });
   await db!.offer.update({
     where: { code: 'BOL-OK' },
@@ -394,7 +393,7 @@ run('verify detects fulfillment and metadata mismatches', async () => {
     data: {
       fulfillment: {
         emailBody: 'Obrigado pela compra',
-        webhookUrl: 'https://hooks.example.com/purchase_approved',
+        redirectUrl: 'https://example.com/obrigado',
       },
     },
   });
@@ -424,10 +423,10 @@ run('verify passes, then reports tampering', async () => {
   expect((await verify(db!)).join('\n')).toContain('SubscriptionLink:sl-ok');
 });
 
-run('rollback by legacyType leaves legacy rows untouched', async () => {
+run('rollback leaves legacy rows untouched', async () => {
   const before = await legacySnapshot();
   await db!.externalRef.deleteMany({ where: { entityType: 'Offer' } });
-  await db!.offer.deleteMany({ where: { legacyType: { not: null } } });
+  await db!.offer.deleteMany({});
   expect(await db!.offer.count()).toBe(0);
   expect(await legacySnapshot()).toBe(before);
 });

@@ -43,7 +43,6 @@ export type OfferForm = {
   expiresAt: string;
   maxUses: string;
   redirectUrl: string;
-  webhookUrl: string;
   emailBody: string;
   bumps: FormBump[];
   boletoDueDays: string;
@@ -81,7 +80,6 @@ export function formFromPreset(kind: OfferKind): OfferForm {
     expiresAt: '',
     maxUses: '',
     redirectUrl: '',
-    webhookUrl: '',
     emailBody: '',
     bumps: [],
     boletoDueDays: '',
@@ -150,7 +148,6 @@ export function formFromOffer(
     expiresAt: toDateInput(offer.expiresAt),
     maxUses: num(offer.maxUses),
     redirectUrl: text(fulfillment.redirectUrl),
-    webhookUrl: text(fulfillment.webhookUrl),
     emailBody: text(fulfillment.emailBody),
     bumps,
     boletoDueDays:
@@ -174,6 +171,18 @@ const isInt = (value: number | undefined, min: number): value is number =>
 
 export const isRecurring = (form: Pick<OfferForm, 'renewalMode'>) =>
   form.renewalMode !== 'NONE';
+/**
+ * Modo de renovação gravado: com cartão aceito a renovação é automática (quem paga por PIX
+ * cai no pagamento manual no backend); sem cartão, o comprador paga a cada ciclo.
+ */
+export function renewalModeOf(
+  form: Pick<OfferForm, 'renewalMode' | 'methods'>,
+): OfferRenewal {
+  if (form.renewalMode === 'NONE') return 'NONE';
+  return form.methods.some((m) => m === 'CREDIT_CARD' || m === 'DEBIT_CARD')
+    ? 'AUTO_CHARGE'
+    : 'MANUAL_PAY';
+}
 export const hasBoleto = (form: Pick<OfferForm, 'methods'>) =>
   form.methods.includes('BOLETO');
 
@@ -299,11 +308,6 @@ export function validateOfferForm(
     const repetitions = toInt(form.repetitions);
     if (repetitions !== undefined && !isInt(repetitions, 0))
       return 'O número de cobranças deve ser zero ou mais.';
-    if (
-      form.renewalMode === 'AUTO_CHARGE' &&
-      !form.methods.some((m) => m === 'CREDIT_CARD' || m === 'DEBIT_CARD')
-    )
-      return 'Cobrança automática exige cartão.';
     for (const [label, value] of [
       ['Dias de teste', form.trialDays],
       ['Dias de retentativa', form.retryDays],
@@ -324,7 +328,6 @@ export function validateOfferForm(
     return 'Data de validade inválida.';
   for (const [label, value] of [
     ['URL de redirecionamento', form.redirectUrl],
-    ['URL do webhook', form.webhookUrl],
   ] as const) {
     const url = value.trim();
     if (!url) continue;
@@ -360,15 +363,10 @@ function metadataOf(form: OfferForm): Record<string, unknown> | undefined {
 function fulfillmentOf(form: OfferForm, create: boolean) {
   const base = {
     emailBody: form.emailBody.trim(),
-    webhookUrl: form.webhookUrl.trim(),
     redirectUrl: form.redirectUrl.trim(),
     bumps: form.bumps,
   };
-  const empty =
-    !base.emailBody &&
-    !base.webhookUrl &&
-    !base.redirectUrl &&
-    base.bumps.length === 0;
+  const empty = !base.emailBody && !base.redirectUrl && base.bumps.length === 0;
   if (create && empty) return undefined;
   return {
     ...base,
@@ -405,7 +403,7 @@ export function offerPayload(
     amountCents: Math.round(amount * 100),
     acceptedMethods: form.methods,
     maxInstallments: installments,
-    renewalMode: form.renewalMode,
+    renewalMode: renewalModeOf(form),
     ...(recurring
       ? {
           intervalType: form.intervalType,

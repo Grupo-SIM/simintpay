@@ -22,7 +22,8 @@ for (const workspace of ['backend', 'checkout', 'frontend'].filter(
   if (!files.length) continue;
   const child = Bun.spawn(
     [
-      'bunx',
+      'bun',
+      'x',
       '--no-install',
       'eslint',
       '--quiet',

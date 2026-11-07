@@ -81,7 +81,7 @@ test('reports invalid fulfillment and preflight blockers', () => {
     code: 'c',
     title: 't',
     amount: '20.00',
-    webhookUrl: 'http://localhost/hook',
+    redirectUrl: 'http://localhost/hook',
   });
   const conflicts = findConflicts(
     [draft],

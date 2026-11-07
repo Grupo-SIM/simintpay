@@ -8,11 +8,11 @@ Script: `backend/scripts/offer-migration-apply.ts`. Mapeamento: `backend/src/mod
 
 ## O que o script faz
 
-- Cria uma `Offer` por produto legado, preservando o código público (`PixCreditPlan`: `PixPlanLinkCode` ativo mais antigo) e gravando `(legacyType, legacyId)`. Linhas já migradas são puladas (idempotente).
+- Cria uma `Offer` por produto legado, preservando o código público (`PixCreditPlan`: `PixPlanLinkCode` ativo mais antigo) reutilizando o ID legado como `Offer.id`; `legacyType`/`legacyId` não são mais gravados. Linhas cujo ID já existe em `Offer` são puladas (idempotente). Offers migradas antes com ID aleatório não são reconhecidas: o código delas aparece como `DUPLICATE_CODE` e o `--verify` as acusa.
 - Para produtos com `domPaymentLinkId` (link de pagamento, boleto) ou `domPlanId` (link de assinatura, plano) grava um `ExternalRef` (adquirente `DOM`, tipo `PAYMENT_LINK` ou `PLAN`, `entityType` `Offer`). Requer `AcquirerCatalogue` com código `DOM`; sem ele a transação daquele tipo é abortada sem escrever nada. Se a `Offer` já existe e falta só o `ExternalRef`, ele é criado.
 - **Recusa** (não cria, lista no plano): `INVALID_AMOUNT`, `MISSING_CODE`, `MISSING_OWNER` (inclusive dono inexistente) e `DUPLICATE_CODE` (código igual em outra `Offer` ou compartilhado por várias linhas legadas; o script não escolhe vencedor).
 - **BLOCKED**: produtos cujo dono é `ADMIN` (plano [0009](../../plans/0009-titularidade-ofertas-cobrancas.md)). Nunca reatribui donos; a transferência é feita antes, por `scripts/reassign-products.ts`, com mapa aprovado.
-- **Carrega a entrega**: `webhookUrl`, `redirectUrl` e `emailBody` (só os preenchidos) de link de pagamento, link de assinatura, plano e plano PIX viram `Offer.fulfillment`, validados por `parseOfferFulfillment` (inclui as checagens de SSRF). Boleto também grava `metadata = { boletoDueDays: vencimentoDias (0-90, 0 = sem vencimento), requiresBuyerAddress: true }`; o checkout de oferta cobra boleto (vencimento = `boletoDueDays`, endereço completo obrigatório). Valor que não passa na validação **recusa** o produto (`INVALID_FULFILLMENT: <campo>: <motivo>`, ou `INVALID_BOLETO_DUE_DAYS`); nada é descartado em silêncio.
+- **Carrega a entrega**: `redirectUrl` e `emailBody` (só os preenchidos; o `webhookUrl` legado não é migrado, a oferta não tem webhook próprio) de link de pagamento, link de assinatura, plano e plano PIX viram `Offer.fulfillment`, validados por `parseOfferFulfillment` (inclui as checagens de SSRF). Boleto também grava `metadata = { boletoDueDays: vencimentoDias (0-90, 0 = sem vencimento), requiresBuyerAddress: true }`; o checkout de oferta cobra boleto (vencimento = `boletoDueDays`, endereço completo obrigatório). Valor que não passa na validação **recusa** o produto (`INVALID_FULFILLMENT: <campo>: <motivo>`, ou `INVALID_BOLETO_DUE_DAYS`); nada é descartado em silêncio.
 - **BLOCKED (pré-checagem "perderia dados")**, no relatório e no apply (mesma função): produto que carrega algo que a `Offer` ainda não representa nunca é migrado. Ver a tabela de códigos abaixo.
 - **Avisos** (não bloqueiam): valor abaixo de R$ 14,99 (reflete o legado fielmente) e códigos extras de `PixCreditPlan`.
 
@@ -64,11 +64,14 @@ Nada referencia `Offer` ainda (`BillingContract.offerId` e `Charge.offerId` est�
 ```sql
 BEGIN;
 DELETE FROM "ExternalRef" WHERE "entityType" = 'Offer';
-DELETE FROM "Offer" WHERE "legacyType" IN ('PaymentLink','SubscriptionLink','Plan','PixCreditPlan','Boleto');
+DELETE FROM "Offer" WHERE "id" IN (
+  SELECT "id" FROM "PaymentLink" UNION SELECT "id" FROM "SubscriptionLink" UNION SELECT "id" FROM "Plan"
+  UNION SELECT "id" FROM "PixCreditPlan" UNION SELECT "id" FROM "Boleto"
+);
 COMMIT;
 ```
 
-Para desfazer só um tipo, filtre por `legacyType` (e apague os `ExternalRef` cujo `entityId` pertence a ele antes). Se já existirem `BillingContract`/`Charge` apontando para `Offer`, **não** use este rollback: a `Offer` é protegida por chave estrangeira e o apagamento falhará.
+Para desfazer só um tipo, filtre pelos IDs da tabela legada correspondente (e apague os `ExternalRef` cujo `entityId` pertence a ele antes). Se já existirem `BillingContract`/`Charge` apontando para `Offer`, **não** use este rollback: a `Offer` é protegida por chave estrangeira e o apagamento falhará.
 
 ## O que o dono deve checar antes de rodar em banco real
 
@@ -83,12 +86,12 @@ Para desfazer só um tipo, filtre por `legacyType` (e apague os `ExternalRef` cu
 
 A migração cria a `Offer` e preserva o código público, mas **não** redireciona nada:
 
-| Produto            | URL legada                       | URL da oferta          |
-| ------------------ | -------------------------------- | ---------------------- |
-| Link de pagamento  | `?simLinkCode=<id>`              | `?ofertaCode=<código>` |
-| Link de assinatura | `?subscriptionLinkCode=<código>` | `?ofertaCode=<código>` |
-| Boleto             | `?simBoletoCode=<id>`            | `?ofertaCode=<código>` |
-| Plano              | `?simPlanCode=<código>`          | `?ofertaCode=<código>` |
+| Produto            | URL legada                       | URL da oferta      |
+| ------------------ | -------------------------------- | ------------------ |
+| Link de pagamento  | `?simLinkCode=<id>`              | `?oferta=<código>` |
+| Link de assinatura | `?subscriptionLinkCode=<código>` | `?oferta=<código>` |
+| Boleto             | `?simBoletoCode=<id>`            | `?oferta=<código>` |
+| Plano              | `?simPlanCode=<código>`          | `?oferta=<código>` |
 
 1. Troque a URL divulgada (site, e-mail, campanhas) pela da oferta.
 2. Desative o link legado (`isActive = false`) quando a URL nova estiver no ar. Enquanto o link antigo estiver ativo, **um cartão pago nele continua criando uma assinatura na DOM**, e essa assinatura cobra por fora do agendador novo. Compradores que já pagaram nele seguem o playbook [subscription-migration-playbook.md](subscription-migration-playbook.md).

@@ -46,6 +46,12 @@ export const OFFER_KINDS: OfferKind[] = [
   'PIX_PLAN',
   'BOLETO',
 ];
+/** Modelos oferecidos na criação; PLAN e PIX_PLAN seguem existindo em ofertas antigas. */
+export const OFFER_PRESET_KINDS: OfferKind[] = [
+  'PAYMENT_LINK',
+  'SUBSCRIPTION_LINK',
+  'BOLETO',
+];
 export const OFFER_METHODS: OfferMethod[] = [
   'PIX',
   'CREDIT_CARD',
@@ -56,14 +62,15 @@ export const OFFER_METHODS: OfferMethod[] = [
 /** Rótulos dos enums do backend; o valor bruto nunca é exibido sem passar por aqui. */
 export const kindLabels: Record<OfferKind, string> = {
   PAYMENT_LINK: 'Link de pagamento',
-  SUBSCRIPTION_LINK: 'Link de assinatura',
+  SUBSCRIPTION_LINK: 'Assinatura',
   PLAN: 'Plano',
   PIX_PLAN: 'Plano PIX',
   BOLETO: 'Boleto',
 };
 export const kindDescriptions: Record<OfferKind, string> = {
   PAYMENT_LINK: 'Cobrança única com PIX, crédito ou débito.',
-  SUBSCRIPTION_LINK: 'Assinatura recorrente no cartão de crédito.',
+  SUBSCRIPTION_LINK:
+    'Assinatura recorrente cobrada automaticamente no cartão de crédito ou débito.',
   PLAN: 'Plano recorrente cobrado automaticamente no cartão.',
   PIX_PLAN: 'Acesso por período, renovado com um novo PIX a cada ciclo.',
   BOLETO: 'Cobrança única por boleto.',
@@ -108,14 +115,14 @@ export type OfferPreset = {
 export const OFFER_PRESETS: Record<OfferKind, OfferPreset> = {
   PAYMENT_LINK: {
     acceptedMethods: ['CREDIT_CARD', 'DEBIT_CARD', 'PIX'],
-    maxInstallments: 1,
+    maxInstallments: 12,
     renewalMode: 'NONE',
     intervalType: null,
     intervalCount: null,
     accessDays: null,
   },
   SUBSCRIPTION_LINK: {
-    acceptedMethods: ['CREDIT_CARD'],
+    acceptedMethods: ['CREDIT_CARD', 'DEBIT_CARD'],
     maxInstallments: 1,
     renewalMode: 'AUTO_CHARGE',
     intervalType: 'MONTH',

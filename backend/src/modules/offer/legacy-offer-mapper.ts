@@ -67,7 +67,7 @@ export type OfferDraft = {
   intervalCount: number | null;
   repetitions: number | null;
   retryDays: number | null;
-  /** Non-empty legacy webhookUrl/redirectUrl/emailBody, validated; null when none is set. */
+  /** Non-empty legacy redirectUrl/emailBody, validated; null when none is set. */
   fulfillment: OfferDraftFulfillment | null;
   /** Boleto only: `boletoDueDays` and `requiresBuyerAddress`. */
   metadata: Record<string, unknown> | null;
@@ -81,14 +81,12 @@ export type OfferDraft = {
 };
 
 export type OfferDraftFulfillment = {
-  webhookUrl?: string;
   redirectUrl?: string;
   emailBody?: string;
 };
 
-/** The three legacy columns that become `Offer.fulfillment`. */
+/** The legacy columns that become `Offer.fulfillment`. */
 type FulfillmentSource = {
-  webhookUrl?: string | null;
   redirectUrl?: string | null;
   emailBody?: string | null;
 };
@@ -151,7 +149,7 @@ export function buildFulfillment(source: FulfillmentSource): {
   errors: string[];
 } {
   const raw: Record<string, string> = {};
-  for (const key of ['webhookUrl', 'redirectUrl', 'emailBody'] as const) {
+  for (const key of ['redirectUrl', 'emailBody'] as const) {
     const value = clean(source[key]);
     if (value) raw[key] = value;
   }
@@ -159,7 +157,6 @@ export function buildFulfillment(source: FulfillmentSource): {
   try {
     const parsed = parseOfferFulfillment(raw);
     const fulfillment: OfferDraftFulfillment = {};
-    if (parsed.webhookUrl) fulfillment.webhookUrl = parsed.webhookUrl;
     if (parsed.redirectUrl) fulfillment.redirectUrl = parsed.redirectUrl;
     if (parsed.emailBody) fulfillment.emailBody = parsed.emailBody;
     return { fulfillment, errors: [] };
@@ -229,7 +226,6 @@ export type PaymentLinkRow = Common & {
   maxUses?: number | null;
   currentUses?: number | null;
   plataformas?: string[] | null;
-  webhookUrl?: string | null;
   redirectUrl?: string | null;
   emailBody?: string | null;
 };
@@ -280,7 +276,6 @@ export type SubscriptionLinkRow = Common & {
   paymentMethods?: string | null;
   platformTag?: string | null;
   plataformas?: string[] | null;
-  webhookUrl?: string | null;
   redirectUrl?: string | null;
   emailBody?: string | null;
 };
@@ -333,7 +328,6 @@ export type PlanRow = Common & {
   isActive?: boolean | null;
   paymentMethods?: string | null;
   plataformas?: string[] | null;
-  webhookUrl?: string | null;
   redirectUrl?: string | null;
   emailBody?: string | null;
 };
@@ -413,7 +407,6 @@ export type PixCreditPlanRow = Common & {
   description?: string | null;
   status?: string | null;
   tenantTag?: string | null;
-  webhookUrl?: string | null;
   redirectUrl?: string | null;
   emailBody?: string | null;
 };
@@ -462,7 +455,6 @@ export type BoletoRow = Common & {
   maxUses?: number | null;
   currentUses?: number | null;
   plataformas?: string[] | null;
-  webhookUrl?: string | null;
   redirectUrl?: string | null;
   emailBody?: string | null;
 };

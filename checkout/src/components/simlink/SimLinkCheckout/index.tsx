@@ -1019,6 +1019,7 @@ export default function SimLinkCheckout({
       <div
         className={cx(
           'flex flex-col gap-3.5 rounded-[28px] p-3 lg:hidden',
+          !link.imagemUrl && 'pt-[18px]',
           GLASS,
         )}
       >

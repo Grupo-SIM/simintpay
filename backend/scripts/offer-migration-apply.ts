@@ -1,6 +1,8 @@
 /**
  * Additive migration of the five legacy products into shadow `Offer` rows (plan 0021, phase 4).
- * Legacy rows are never changed or deleted; they remain the live source.
+ * Legacy rows are never changed or deleted; they remain the live source. Each Offer reuses the
+ * legacy row's id as its own `id`; `legacyType`/`legacyId` are no longer written, so the id is the
+ * only link back to the legacy row.
  *
  *   # plan only (default, read-only transaction)
  *   bun --no-env-file scripts/offer-migration-apply.ts --database-url=postgresql://...
@@ -393,29 +395,16 @@ export function decide(
   candidates: Candidate[],
   userIds: Set<string>,
   offers: {
+    id: string;
     code: string;
-    legacyType: string | null;
-    legacyId: string | null;
   }[],
   preflight: PreflightMap = new Map(),
 ): Decision[] {
-  const existingLegacy = new Set(
-    offers
-      .filter((o) => o.legacyType && o.legacyId)
-      .map((o) => key(o.legacyType!, o.legacyId!)),
-  );
-  const codeHolder = new Map(
-    offers.map((o) => [
-      o.code,
-      o.legacyType && o.legacyId ? key(o.legacyType, o.legacyId) : '(manual)',
-    ]),
-  );
+  const existingIds = new Set(offers.map((o) => o.id));
+  const codeHolder = new Map(offers.map((o) => [o.code, o.id]));
   const batch = new Map<string, number>();
   for (const { draft } of candidates)
-    if (
-      draft.code &&
-      !existingLegacy.has(key(draft.legacyType, draft.legacyId))
-    )
+    if (draft.code && !existingIds.has(draft.legacyId))
       batch.set(draft.code, (batch.get(draft.code) ?? 0) + 1);
 
   return candidates.map((candidate) => {
@@ -437,7 +426,7 @@ export function decide(
         'BLOCKED',
         pre.blockers.map((b) => `${b.code}: ${b.detail}`),
       );
-    if (existingLegacy.has(k)) return make('SKIP_EXISTING');
+    if (existingIds.has(d.legacyId)) return make('SKIP_EXISTING');
     if (candidate.ownerRole === 'ADMIN')
       return make('BLOCKED_ADMIN_OWNER', [
         'owner is ADMIN (plan 0009); owners are never reassigned here',
@@ -453,7 +442,7 @@ export function decide(
       reasons.push('MISSING_OWNER');
     if (d.code) {
       const holder = codeHolder.get(d.code);
-      if (holder && holder !== k)
+      if (holder && holder !== d.legacyId)
         reasons.push(`DUPLICATE_CODE: held by Offer ${holder}`);
       else if ((batch.get(d.code) ?? 0) > 1)
         reasons.push('DUPLICATE_CODE: shared by several legacy rows');
@@ -465,6 +454,7 @@ export function decide(
 }
 
 const offerData = (d: OfferDraft): Prisma.OfferUncheckedCreateInput => ({
+  id: d.legacyId,
   ownerUserId: d.ownerUserId!,
   createdByUserId: d.createdByUserId ?? d.ownerUserId!,
   platformTag: d.platformTag,
@@ -487,8 +477,6 @@ const offerData = (d: OfferDraft): Prisma.OfferUncheckedCreateInput => ({
   retryDays: d.retryDays,
   fulfillment: d.fulfillment ?? Prisma.DbNull,
   metadata: (d.metadata as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
-  legacyType: d.legacyType,
-  legacyId: d.legacyId,
 });
 
 export type Plan = { decisions: Decision[]; existingOffers: number };
@@ -496,7 +484,7 @@ export type Plan = { decisions: Decision[]; existingOffers: number };
 export async function buildPlan(db: Reader): Promise<Plan> {
   const { candidates, userIds } = await loadCandidates(db);
   const offers = await db.offer.findMany({
-    select: { code: true, legacyType: true, legacyId: true },
+    select: { id: true, code: true },
   });
   return {
     decisions: decide(
@@ -560,12 +548,7 @@ export async function applyPlan(
           } else if (d.candidate.ref) {
             offerId = (
               await tx.offer.findUnique({
-                where: {
-                  legacyType_legacyId: {
-                    legacyType: draft.legacyType,
-                    legacyId: draft.legacyId,
-                  },
-                },
+                where: { id: draft.legacyId },
                 select: { id: true },
               })
             )?.id;
@@ -630,12 +613,13 @@ export function canonical(value: unknown): string {
 /** Compares legacy rows with Offers (counts, cents, codes, owners, external refs). */
 export async function verify(db: Reader): Promise<string[]> {
   const plan = await buildPlan(db);
-  const offers = await db.offer.findMany({
-    where: { legacyType: { not: null } },
-  });
-  const byLegacy = new Map(
-    offers.map((o) => [key(o.legacyType!, o.legacyId!), o]),
+  const legacyIds = new Set(
+    plan.decisions.map((d) => d.candidate.draft.legacyId),
   );
+  const offers = await db.offer.findMany({
+    where: { id: { in: [...legacyIds] } },
+  });
+  const byLegacy = new Map(offers.map((o) => [o.id, o]));
   const refs = await db.externalRef.findMany({
     where: { entityType: 'Offer', acquirerCode: ACQUIRER_CODE },
   });
@@ -643,14 +627,15 @@ export async function verify(db: Reader): Promise<string[]> {
     refs.map((r) => `${r.kind}:${r.externalId}:${r.entityId}`),
   );
   const problems: string[] = [];
-  const expectedKeys = new Set<string>();
   for (const type of KIND_ORDER) {
     const eligible = plan.decisions.filter(
       (d) =>
         d.candidate.draft.legacyType === type &&
         (d.status === 'CREATE' || d.status === 'SKIP_EXISTING'),
     );
-    const actual = offers.filter((o) => o.legacyType === type).length;
+    const actual = eligible.filter((d) =>
+      byLegacy.has(d.candidate.draft.legacyId),
+    ).length;
     if (actual !== eligible.length)
       problems.push(
         `${type}: ${eligible.length} eligible legacy rows but ${actual} Offers`,
@@ -658,8 +643,7 @@ export async function verify(db: Reader): Promise<string[]> {
     for (const d of eligible) {
       const draft = d.candidate.draft;
       const k = key(draft.legacyType, draft.legacyId);
-      expectedKeys.add(k);
-      const offer = byLegacy.get(k);
+      const offer = byLegacy.get(draft.legacyId);
       if (!offer) {
         problems.push(`${k}: Offer missing`);
         continue;
@@ -689,11 +673,14 @@ export async function verify(db: Reader): Promise<string[]> {
         );
     }
   }
+  const eligibleIds = new Set(
+    plan.decisions
+      .filter((d) => d.status === 'CREATE' || d.status === 'SKIP_EXISTING')
+      .map((d) => d.candidate.draft.legacyId),
+  );
   for (const o of offers)
-    if (!expectedKeys.has(key(o.legacyType!, o.legacyId!)))
-      problems.push(
-        `${o.legacyType}:${o.legacyId}: Offer ${o.id} has no eligible legacy row`,
-      );
+    if (!eligibleIds.has(o.id))
+      problems.push(`Offer ${o.id} has no eligible legacy row`);
   return problems;
 }
 

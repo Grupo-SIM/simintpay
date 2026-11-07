@@ -35,12 +35,12 @@ const shared =
   files.some(
     (file) =>
       /^(package.json|bun.lock|turbo.jsonc?|bunfig.toml)$/.test(file) ||
-      file.startsWith('scripts/') ||
+      /^scripts\/(check|validate-staged)\.ts$/.test(file) ||
       file.startsWith('backend/prisma/'),
   );
 const runs = (workspace: string) =>
   (!only || only === workspace) && (all || shared || touches(`${workspace}/`));
-const turbo = ['bunx', '--no-install', 'turbo', 'run'];
+const turbo = ['bun', 'x', '--no-install', 'turbo', 'run'];
 
 const tasks: { name: string; cmd: string[] }[] = [
   {

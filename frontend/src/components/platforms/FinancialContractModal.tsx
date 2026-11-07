@@ -3,9 +3,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { CustomSelect } from '@/components/ui/CustomSelect';
 import { FinancialNumberField } from './FinancialNumberField';
-import { PlatformField } from './PlatformField';
 import type { Lane } from './financial-types';
 
 export function FinancialContractModal({
@@ -83,65 +81,11 @@ export function FinancialContractModal({
       }
     >
       <div className="space-y-5">
-        <PlatformField
-          name="contract-reference"
-          label="Referência (opcional)"
-          value={draft.contract.reference}
-          placeholder="Ex: Tabela DOM outubro/2026"
-          onChange={(reference) =>
-            setDraft((previous) => ({
-              ...previous,
-              contract: { ...previous.contract, reference },
-            }))
-          }
-        />
-        <details open className="group rounded border p-3">
-          <summary className="cursor-pointer font-semibold">
-            Custo interno da adquirente{' '}
-            <span className="text-xs font-normal group-open:hidden">
-              · Expandir
-            </span>
-            <span className="hidden text-xs font-normal group-open:inline">
-              · Minimizar
-            </span>
-            <span className="block text-xs font-normal">
-              Fixo, percentual, cashback e base de cálculo
-            </span>
-          </summary>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {field('contract', 'fixedCents', 'Fixo')}
-            {field('contract', 'ratePpm', 'Percentual')}
-            <FinancialNumberField
-              name="cashback"
-              label="Custo cashback"
-              value={draft.contract.cashbackCents}
-              onValidityChange={validity}
-              onChange={(cashbackCents) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  contract: { ...previous.contract, cashbackCents },
-                }))
-              }
-            />
-            <CustomSelect
-              label="Base de cálculo"
-              value={draft.contract.base}
-              options={[
-                { value: 'ORIGINAL', label: 'Valor original' },
-                { value: 'BUYER_TOTAL', label: 'Total do comprador' },
-              ]}
-              onChange={(base) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  contract: {
-                    ...previous.contract,
-                    base: base as Lane['contract']['base'],
-                  },
-                }))
-              }
-            />
-          </div>
-        </details>
+        <p className="rounded border p-3 text-sm text-zinc-500">
+          O custo da adquirente é obtido diretamente de cada adquirente e
+          atualizado periodicamente. Aqui você define apenas o adicional
+          SimIntPay, somado ao custo da adquirente.
+        </p>
         {draft.total && (
           <div className="grid gap-3 rounded border p-3 sm:grid-cols-2">
             <FinancialNumberField
@@ -174,7 +118,7 @@ export function FinancialContractModal({
         {!draft.total && (
           <details open className="group rounded border p-3">
             <summary className="cursor-pointer font-semibold">
-              Valores definidos SimIntPay{' '}
+              Adicional SimIntPay{' '}
               <span className="text-xs font-normal group-open:hidden">
                 · Expandir
               </span>
@@ -182,19 +126,23 @@ export function FinancialContractModal({
                 · Minimizar
               </span>
               <span className="block text-xs font-normal">
-                Fixo e percentual sobre valor original
+                Fixo e percentual adicionais sobre o valor original
               </span>
             </summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {field('sim', 'fixedCents', 'Fixo')}
-              {field('sim', 'ratePpm', 'Percentual do valor original')}
+              {field('sim', 'fixedCents', 'Fixo adicional')}
+              {field(
+                'sim',
+                'ratePpm',
+                'Percentual adicional do valor original',
+              )}
             </div>
           </details>
         )}
         {credit && (
           <details open className="group rounded border p-3">
             <summary className="cursor-pointer font-semibold">
-              Juros por parcela{' '}
+              Juros adicionais por parcela{' '}
               <span className="text-xs font-normal group-open:hidden">
                 · Expandir
               </span>
@@ -202,12 +150,11 @@ export function FinancialContractModal({
                 · Minimizar
               </span>
               <span className="block text-xs font-normal">
-                Adquirente e SimIntPay somados
+                Somente o adicional SimIntPay; os juros da adquirente vêm dela
               </span>
             </summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {field('contract', 'interestPpm', 'Juros internos adquirente')}
-              {field('sim', 'interestPpm', 'Juros definidos SimIntPay')}
+              {field('sim', 'interestPpm', 'Juros adicionais SimIntPay')}
             </div>
           </details>
         )}

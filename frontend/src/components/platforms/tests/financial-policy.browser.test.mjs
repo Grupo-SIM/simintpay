@@ -397,12 +397,7 @@ test('incremental simulation, stale responses, isolated error, discard and save'
         .getByRole('button', { name: 'Salvar no rascunho', exact: true })
         .isEnabled(),
     ).toBe(true);
-    expect(
-      await page
-        .locator('input[name="contract-reference"]')
-        .getAttribute('required'),
-    ).toBeNull();
-    await page.locator('input[name="contract-fixedCents"]').fill('1,50');
+    expect(await page.locator('input[name^="contract-"]').count()).toBe(0);
     await page.locator('input[name="sim-interestPpm"]').fill('2,5');
     await page
       .getByRole('button', { name: 'Salvar no rascunho', exact: true })
@@ -423,9 +418,6 @@ test('incremental simulation, stale responses, isolated error, discard and save'
       25000,
     );
     expect(adminBody.lanes['DOM/CREDIT_CARD/ONLINE/2'].sim.interestPpm).toBe(0);
-    expect(
-      adminBody.lanes['DOM/CREDIT_CARD/ONLINE/1'].contract.fixedCents,
-    ).toBe(150);
   } finally {
     await browser.close();
     server.stop(true);

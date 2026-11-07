@@ -7,7 +7,7 @@ Guia para você migrar tudo. Os detalhes técnicos dos scripts estão em [offer-
 Planos, Planos por PIX, Links de pagamento, Links de assinatura e Boletos viram **Ofertas**. Uma oferta tem preço, meios de pagamento, recorrência, validade, limite de usos, entrega e coprodução, tudo no mesmo cadastro.
 
 - A migração **cria** as ofertas a partir dos produtos legados. **Não apaga nem altera** nenhum produto legado.
-- O código público de cada produto é preservado. A **URL muda** (`?ofertaCode=<código>`) e **não há redirecionamento automático**. Você troca as URLs divulgadas.
+- O código público de cada produto é preservado. A **URL muda** (`?oferta=<código>`) e **não há redirecionamento automático**. Você troca as URLs divulgadas.
 - As recorrências passam a ser cobradas pela SimIntPay, não mais pela DOM.
 - Cada script grava só com `--apply --i-understand-this-writes`. Sem isso, é sempre simulação.
 
@@ -88,16 +88,16 @@ bun --no-env-file scripts/offer-contract-migration.ts --database-url=<url> --ver
 
 O primeiro comando é a simulação. O script confere que carteiras e `BalanceLog` não mudaram, e aborta se mudarem. Confira também se as 5 ordens têm o documento do comprador preenchido: sem ele, o link de renovação responde pedindo contato com o suporte.
 
-**Passo 6: teste uma oferta de ponta a ponta.** Abra `?ofertaCode=<código>` de uma oferta migrada e pague um PIX real de valor mínimo. Confira o valor, o webhook, o e-mail e a carteira.
+**Passo 6: teste uma oferta de ponta a ponta.** Abra `?oferta=<código>` de uma oferta migrada e pague um PIX real de valor mínimo. Confira o valor, o webhook, o e-mail e a carteira.
 
 **Passo 7: troque as URLs.** Troque o endereço divulgado (site, e-mail, campanha, integrações):
 
-| Produto            | URL antiga                       | URL nova               |
-| ------------------ | -------------------------------- | ---------------------- |
-| Link de pagamento  | `?simLinkCode=<id>`              | `?ofertaCode=<código>` |
-| Link de assinatura | `?subscriptionLinkCode=<código>` | `?ofertaCode=<código>` |
-| Plano              | `?simPlanCode=<código>`          | `?ofertaCode=<código>` |
-| Boleto             | `?simBoletoCode=<id>`            | `?ofertaCode=<código>` |
+| Produto            | URL antiga                       | URL nova           |
+| ------------------ | -------------------------------- | ------------------ |
+| Link de pagamento  | `?simLinkCode=<id>`              | `?oferta=<código>` |
+| Link de assinatura | `?subscriptionLinkCode=<código>` | `?oferta=<código>` |
+| Plano              | `?simPlanCode=<código>`          | `?oferta=<código>` |
+| Boleto             | `?simBoletoCode=<id>`            | `?oferta=<código>` |
 
 **Passo 8: desative o produto legado** (`isActive = false`) quando a URL nova estiver no ar. Enquanto o legado estiver ativo, um cartão pago nele continua criando assinatura na DOM, que cobra por fora do agendador novo.
 
@@ -126,7 +126,7 @@ Um valor abaixo de R$ 14,99 só gera aviso, não bloqueio.
 - **Taxas por link:** as ofertas **ignoram** as taxas individuais do link (parcelas, cashback, débito) e usam a política financeira. O script avisa com `FEE_OVERRIDE_NOT_CARRIED` quando o link tinha uma taxa diferente do padrão. Confira esses links antes de migrar.
 - **AREAFLIX:** o checkout de oferta aplica a mesma regra de líquido do link AREAFLIX.
 - **Coprodução:** o acordo existente é preservado. Uma oferta migrada continua lendo o acordo do produto original.
-- **Entrega:** o webhook de compra aprovada e estornada, o redirect e o e-mail são copiados. Webhooks para endereço de rede interna são recusados por segurança.
+- **Entrega:** o redirect e o e-mail são copiados; URLs para endereço de rede interna são recusadas por segurança. O webhook do link legado não é migrado: a oferta não tem webhook próprio, só o da plataforma.
 - **Histórico:** as vendas antigas continuam ligadas ao produto legado e aparecem nos relatórios como hoje. As vendas novas vêm da oferta.
 
 ## 7. Se algo der errado

@@ -49,10 +49,10 @@ export default function CheckoutRouter() {
   const simLinkCode = searchParams.get('simLinkCode');
   const simBoletoCode = searchParams.get('simBoletoCode');
   const subscriptionLinkCode = searchParams.get('subscriptionLinkCode');
-  const ofertaCode = searchParams.get('ofertaCode');
+  const oferta = searchParams.get('oferta');
   const code = searchParams.get('code');
 
-  if (ofertaCode) {
+  if (oferta) {
     if (searchParams.has('renovar')) return <OfferRenewal />;
     return <OfferCheckout />;
   }

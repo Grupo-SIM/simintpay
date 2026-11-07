@@ -5,7 +5,8 @@ const packages: string[] = JSON.parse(process.env.TASKS ?? '{}')[task] ?? [];
 if (packages.length) {
   const child = Bun.spawn(
     [
-      'bunx',
+      'bun',
+      'x',
       '--no-install',
       'turbo',
       'run',

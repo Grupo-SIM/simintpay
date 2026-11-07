@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Checkout público de oferta avulsa (`?ofertaCode=`): PIX, crédito (com parcelas), débito e boleto.
+ * Checkout público de oferta avulsa (`?oferta=`): PIX, crédito (com parcelas), débito e boleto.
  * Lê `GET /ofertas/public/:code` e cobra em `POST /ofertas/public/:code/charge`, reutilizando
  * CheckoutFlow, os campos de vidro, o cartão ilustrado e o PIX do restante do checkout.
  * Ofertas recorrentes (`renewalMode` AUTO_CHARGE com cartão, MANUAL_PAY com PIX) usam
@@ -109,7 +109,7 @@ function methodsOf(offer: PublicOffer): OfferMethod[] {
 }
 
 export default function OfferCheckout() {
-  const code = useSearchParams().get('ofertaCode');
+  const code = useSearchParams().get('oferta');
   const [offer, setOffer] = useState<PublicOffer | null>(null);
   const [fetching, setFetching] = useState(Boolean(code));
   const [offerError, setOfferError] = useState('');

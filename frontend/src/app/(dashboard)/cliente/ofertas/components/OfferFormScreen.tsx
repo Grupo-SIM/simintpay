@@ -41,7 +41,7 @@ import {
 } from '../offer-form';
 import {
   OFFERS_QUERY_KEY,
-  OFFER_KINDS,
+  OFFER_PRESET_KINDS,
   OFFER_METHODS,
   OFFER_PRESETS,
   enumLabel,
@@ -49,10 +49,8 @@ import {
   kindDescriptions,
   kindLabels,
   methodLabels,
-  renewalLabels,
   type Offer,
   type OfferInterval,
-  type OfferRenewal,
 } from '../offers';
 import { OfferBumpsSection } from './OfferBumpsSection';
 
@@ -210,7 +208,7 @@ function FormBody({
                 tudo abaixo.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
-                {OFFER_KINDS.map((kind) => (
+                {OFFER_PRESET_KINDS.map((kind) => (
                   <button
                     key={kind}
                     type="button"
@@ -282,20 +280,6 @@ function FormBody({
               value: String(i + 1),
             }))}
           />
-          <div className="md:col-span-2">
-            <Dropdown
-              label="Cobrança"
-              theme={theme}
-              variant="navbar"
-              value={form.renewalMode}
-              onChange={(value) =>
-                patch({ renewalMode: value as OfferRenewal })
-              }
-              options={(Object.keys(renewalLabels) as OfferRenewal[]).map(
-                (mode) => ({ value: mode, label: renewalLabels[mode] }),
-              )}
-            />
-          </div>
         </div>
         <p className="mb-3 mt-5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
           Meios de pagamento aceitos
@@ -318,9 +302,20 @@ function FormBody({
         </div>
       </ProductFormSection>
 
-      {recurring && (
-        <ProductFormSection title="Recorrência">
-          <div className="grid gap-4 md:grid-cols-2">
+      <ProductFormSection title="Recorrência">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            Oferta recorrente
+          </span>
+          <FormSwitch
+            checked={recurring}
+            onChange={(on) =>
+              patch({ renewalMode: on ? 'AUTO_CHARGE' : 'NONE' })
+            }
+          />
+        </div>
+        {recurring && (
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Input
               label="A cada"
               theme={theme}
@@ -366,6 +361,7 @@ function FormBody({
               theme={theme}
               variant="navbar"
               inputMode="numeric"
+              placeholder="Padrão: 3"
               value={form.retryDays}
               onChange={(value) => patch({ retryDays: digitsOnly(value) })}
             />
@@ -374,12 +370,13 @@ function FormBody({
               theme={theme}
               variant="navbar"
               inputMode="numeric"
+              placeholder="Padrão: 7"
               value={form.graceDays}
               onChange={(value) => patch({ graceDays: digitsOnly(value) })}
             />
           </div>
-        </ProductFormSection>
-      )}
+        )}
+      </ProductFormSection>
 
       <ProductFormSection title="Validade e limites">
         <div className="grid gap-4 md:grid-cols-3">
@@ -421,14 +418,6 @@ function FormBody({
             placeholder="https://seusite.com/obrigado"
             value={form.redirectUrl}
             onChange={(redirectUrl) => patch({ redirectUrl })}
-          />
-          <Input
-            label="URL do webhook"
-            theme={theme}
-            variant="navbar"
-            placeholder="https://seusite.com/webhook"
-            value={form.webhookUrl}
-            onChange={(webhookUrl) => patch({ webhookUrl })}
           />
           <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
             Mensagem do e-mail de entrega
