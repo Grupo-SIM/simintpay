@@ -25,8 +25,10 @@ export function isOfferPreviewMessage(
     'intervalType',
     'intervalCount',
     'trialDays',
+    'pricing',
   ];
   return (
+    validPricing(d.pricing, Number(d.maxInstallments)) &&
     Object.keys(d).length === keys.length &&
     keys.every((key) => Object.hasOwn(d, key)) &&
     d.code === 'preview' &&
@@ -51,5 +53,29 @@ export function isOfferPreviewMessage(
     Number(d.intervalCount) >= 1 &&
     Number.isSafeInteger(d.trialDays) &&
     Number(d.trialDays) >= 0
+  );
+}
+
+function validPricing(value: unknown, max: number) {
+  if (!value || typeof value !== 'object') return false;
+  const p = value as Record<string, unknown>;
+  const money = (v: unknown) =>
+    typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1e12;
+  return (
+    money(p.pixAmount) &&
+    money(p.debitAmount) &&
+    Array.isArray(p.options) &&
+    p.options.length <= max &&
+    p.options.every(
+      (o, i) =>
+        o &&
+        typeof o === 'object' &&
+        o.installments === i + 1 &&
+        money(o.totalAmount) &&
+        money(o.installmentAmount) &&
+        money(o.interestAmount) &&
+        Math.abs(o.installmentAmount * o.installments - o.totalAmount) <=
+          o.installments * 0.011,
+    )
   );
 }

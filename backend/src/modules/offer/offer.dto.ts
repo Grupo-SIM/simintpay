@@ -314,3 +314,34 @@ export class OfferChargeDto {
   @IsString()
   parentChargeId?: string;
 }
+
+/** Read-only quote of an unsaved offer; ownership is resolved exactly as on creation. */
+export class OfferPreviewPricingDto {
+  @ApiProperty()
+  @IsInt()
+  @Min(1)
+  @Max(100000000000)
+  amountCents!: number;
+  @ApiProperty()
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  maxInstallments!: number;
+  @ApiProperty({ enum: METHODS, isArray: true })
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(METHODS, { each: true })
+  acceptedMethods!: (typeof METHODS)[number][];
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  platformTag?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ownerUserId?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  offerId?: string;
+}

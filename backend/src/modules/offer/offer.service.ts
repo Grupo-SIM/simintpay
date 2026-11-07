@@ -30,9 +30,14 @@ import {
 } from './offer-fulfillment';
 import type {
   CreateOfferDto,
+  OfferPreviewPricingDto,
   ListOffersQueryDto,
   UpdateOfferDto,
 } from './offer.dto';
+import {
+  loadCyclePolicyContext,
+  quoteOfferCycle,
+} from '../billing-core/cycle-pricing';
 import { OFFER_PRESETS } from './offer.presets';
 import {
   OfferValidationError,
@@ -275,6 +280,68 @@ export class OfferService {
       where: { id },
       data: { isActive: false },
     });
+  }
+
+  async previewPricing(actor: OfferActor, dto: OfferPreviewPricingDto) {
+    const stored = dto.offerId ? await this.owned(actor, dto.offerId) : null;
+    const destination: Pick<Offer, 'ownerUserId' | 'platformTag'> =
+      stored ??
+      (await resolveFinancialOwner(this.users, actor.id, {
+        ownerUserId: dto.ownerUserId,
+        platforms: dto.platformTag ? [dto.platformTag] : undefined,
+      }).then(({ owner, platformTag }) => ({
+        ownerUserId: String(owner.id),
+        platformTag: platformTag ?? null,
+      })));
+    return this.checkoutPricing({
+      ...destination,
+      amountCents: dto.amountCents,
+      maxInstallments: dto.maxInstallments,
+      acceptedMethods: dto.acceptedMethods,
+    });
+  }
+
+  async publicPricing(code: string) {
+    await this.getPublicByCode(code);
+    const offer = await this.prisma.offer.findUniqueOrThrow({
+      where: { code },
+    });
+    return this.checkoutPricing(offer);
+  }
+
+  private async checkoutPricing(
+    offer: Pick<
+      Offer,
+      | 'amountCents'
+      | 'platformTag'
+      | 'ownerUserId'
+      | 'maxInstallments'
+      | 'acceptedMethods'
+    >,
+  ) {
+    const context = await loadCyclePolicyContext(this.prisma, offer);
+    const quote = (method: 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD', n = 1) =>
+      quoteOfferCycle(context, offer, method, n);
+    return {
+      options: offer.acceptedMethods.includes('CREDIT_CARD')
+        ? Array.from({ length: offer.maxInstallments }, (_, i) => {
+            const price = quote('CREDIT_CARD', i + 1);
+            return {
+              installments: i + 1,
+              totalAmount: price.totalAmount,
+              installmentAmount:
+                Math.round((price.totalAmount / (i + 1)) * 100) / 100,
+              interestAmount: price.interestAmount ?? 0,
+            };
+          })
+        : [],
+      pixAmount: offer.acceptedMethods.includes('PIX')
+        ? quote('PIX').totalAmount
+        : offer.amountCents / 100,
+      debitAmount: offer.acceptedMethods.includes('DEBIT_CARD')
+        ? quote('DEBIT_CARD').totalAmount
+        : offer.amountCents / 100,
+    };
   }
 
   async getPublicByCode(code: string, now = new Date()) {

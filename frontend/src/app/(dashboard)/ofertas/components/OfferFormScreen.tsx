@@ -84,6 +84,11 @@ function FormBody({
       ? formFromOffer(offer, formatCurrencyFromNumber)
       : formFromPreset('PAYMENT_LINK'),
   );
+  const [previewDraft, setPreviewDraft] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [previewPending, setPreviewPending] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [platform, setPlatform] = useState<string | null>(null);
   const [amountError, setAmountError] = useState<string | null>(null);
@@ -175,6 +180,59 @@ function FormBody({
     });
   }
 
+  async function openPreview() {
+    const amountCents = Math.round(
+      (parseCurrencyInput(form.amount) || 0) * 100,
+    );
+    if (amountCents <= 0) {
+      fail('Informe um valor para pré-visualizar o checkout.');
+      return;
+    }
+    if (!platformReady) {
+      fail('Selecione o destino financeiro da oferta.');
+      return;
+    }
+    setPreviewPending(true);
+    try {
+      const pricing = await api.post<Record<string, unknown>>(
+        '/ofertas/preview-pricing',
+        {
+          amountCents,
+          maxInstallments: recurring ? 1 : Number(form.maxInstallments) || 1,
+          acceptedMethods: form.methods,
+          ...(id
+            ? { offerId: id }
+            : {
+                platformTag: platform ?? undefined,
+                ownerUserId: platformCatalog.financialOwner?.id,
+              }),
+        },
+      );
+      setPreviewDraft({
+        code: 'preview',
+        name: form.name || 'Nome da oferta',
+        description: form.description,
+        amountCents,
+        acceptedMethods: form.methods,
+        maxInstallments: recurring ? 1 : Number(form.maxInstallments) || 1,
+        renewalMode: form.renewalMode,
+        intervalType: form.intervalType,
+        intervalCount: Number(form.intervalCount) || 1,
+        trialDays: Number(form.trialDays) || 0,
+        pricing,
+      });
+      setPreviewOpen(true);
+    } catch (error) {
+      fail(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível calcular os juros.',
+      );
+    } finally {
+      setPreviewPending(false);
+    }
+  }
+
   const title = id ? 'Editar oferta' : 'Criar oferta';
   return (
     <ProductFormLayout path={listHref} listTitle="Ofertas" title={title}>
@@ -182,10 +240,11 @@ function FormBody({
         <Button
           type="button"
           variant="outline"
-          onClick={() => setPreviewOpen(true)}
+          disabled={previewPending}
+          onClick={() => void openPreview()}
         >
           <Eye aria-hidden className="h-4 w-4" />
-          Pré-visualizar
+          {previewPending ? 'Calculando…' : 'Pré-visualizar'}
         </Button>
         <CoproductionButton
           product="ofertas"
@@ -199,20 +258,7 @@ function FormBody({
         <PaymentLinkPreviewModal
           offerPreview
           onClose={() => setPreviewOpen(false)}
-          draft={{
-            code: 'preview',
-            name: form.name || 'Nome da oferta',
-            description: form.description,
-            amountCents: Math.round(
-              (parseCurrencyInput(form.amount) || 0) * 100,
-            ),
-            acceptedMethods: form.methods,
-            maxInstallments: Number(form.maxInstallments) || 1,
-            renewalMode: form.renewalMode,
-            intervalType: form.intervalType,
-            intervalCount: Number(form.intervalCount) || 1,
-            trialDays: Number(form.trialDays) || 0,
-          }}
+          draft={previewDraft!}
         />
       )}
       <ProductFormSection title="Básico">

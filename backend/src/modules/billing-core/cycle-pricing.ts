@@ -29,6 +29,7 @@ export type CycleQuote = {
   baseAmountCents: number;
   /** What the buyer pays. */
   totalAmount: number;
+  interestAmount?: number;
   netAmount: number;
   domFee: number;
   totalFee: number;
@@ -132,6 +133,7 @@ export function quoteOfferCycle(
     installments: effectiveInstallments,
     baseAmountCents: offer.amountCents,
     totalAmount,
+    interestAmount: 'interestAmount' in fees ? Number(fees.interestAmount) : 0,
     netAmount,
     domFee,
     totalFee,
