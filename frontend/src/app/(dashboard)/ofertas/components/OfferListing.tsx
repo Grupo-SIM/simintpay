@@ -83,7 +83,9 @@ export function OfferListing({
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const platformCatalog = useProductPlatforms();
-  const apiQuery = filtersToApiQuery(filters);
+  const apiQuery = filtersToApiQuery(
+    user?.isAdmin ? filters : { ...filters, ownerSearch: '' },
+  );
   const query = useQuery({
     queryKey: [OFFERS_QUERY_KEY, 'list', user?.id, apiQuery],
     enabled: Boolean(
@@ -261,6 +263,25 @@ export function OfferListing({
     },
   ];
 
+  if (user?.isAdmin)
+    columns.splice(1, 0, {
+      key: 'owner',
+      header: 'Dono do link',
+      defaultWidth: 240,
+      className: 'text-left',
+      headerClassName: 'text-left',
+      render: (row) => (
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate font-medium">
+            {row.owner?.name || row.owner?.email || 'Não informado'}
+          </span>
+          <span className="truncate text-xs text-zinc-500">
+            {row.owner?.email}
+          </span>
+        </span>
+      ),
+    });
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -277,6 +298,7 @@ export function OfferListing({
       </div>
       <OfferFiltersBar
         filters={filters}
+        isAdmin={Boolean(user?.isAdmin)}
         theme={theme}
         platforms={platformCatalog.options.map(({ value, label }) => ({
           value,
@@ -308,7 +330,7 @@ export function OfferListing({
           pageSize={query.data?.meta.pageSize ?? OFFER_PAGE_SIZE}
           total={total}
           onPageChange={(page) => onFiltersChange({ ...filters, page })}
-          minWidth="min-w-[1766px]"
+          minWidth={user?.isAdmin ? 'min-w-[2006px]' : 'min-w-[1766px]'}
           emptyTitle="Nenhuma oferta encontrada"
         />
       )}

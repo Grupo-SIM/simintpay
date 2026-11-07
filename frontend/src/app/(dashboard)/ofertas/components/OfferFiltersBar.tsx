@@ -32,9 +32,11 @@ export function OfferFiltersBar({
   filters,
   theme,
   platforms,
+  isAdmin = false,
   onChange,
 }: {
   filters: OfferFilters;
+  isAdmin?: boolean;
   theme: 'light' | 'dark';
   platforms: { value: string; label: string }[];
   onChange: (next: OfferFilters) => void;
@@ -45,10 +47,14 @@ export function OfferFiltersBar({
   const [search, setSearch] = useDebouncedInput(filters.search, (value) =>
     change({ search: value }),
   );
+  const [ownerSearch, setOwnerSearch] = useDebouncedInput(
+    filters.ownerSearch,
+    (value) => change({ ownerSearch: value }),
+  );
   return (
     <div
       data-testid="offer-filters"
-      className="grid gap-4 rounded-2xl border border-white/40 bg-zinc-50/50 p-4 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-white/5 sm:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto]"
+      className="grid gap-4 rounded-2xl border border-white/40 bg-zinc-50/50 p-4 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-white/5 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8"
     >
       <Input
         label="Nome ou código"
@@ -58,6 +64,16 @@ export function OfferFiltersBar({
         value={search}
         onChange={setSearch}
       />
+      {isAdmin && (
+        <Input
+          label="Dono do link"
+          name="offer-owner-search"
+          placeholder="Nome ou e-mail"
+          theme={theme}
+          value={ownerSearch}
+          onChange={setOwnerSearch}
+        />
+      )}
       <Dropdown
         label="Tipo"
         portal

@@ -229,13 +229,25 @@ export class OfferService {
         maxUses: this.prisma.offer.fields.maxUses,
       },
     );
+    const ownerSearch = isAdmin ? query.ownerSearch?.trim() : undefined;
+    if (ownerSearch)
+      where.owner = {
+        OR: [
+          { name: { contains: ownerSearch, mode: 'insensitive' } },
+          { email: { contains: ownerSearch, mode: 'insensitive' } },
+        ],
+      };
+    const include = isAdmin
+      ? { owner: { select: { id: true, name: true, email: true } } }
+      : undefined;
     const orderBy = buildOfferListOrder(query.sort);
     const paging = offerListPaging(query);
     // Sem page/pageSize a resposta segue sendo a lista completa (compatibilidade).
-    if (!paging) return this.prisma.offer.findMany({ where, orderBy });
+    if (!paging) return this.prisma.offer.findMany({ where, orderBy, include });
     const [data, total] = await Promise.all([
       this.prisma.offer.findMany({
         where,
+        include,
         orderBy,
         skip: paging.skip,
         take: paging.pageSize,

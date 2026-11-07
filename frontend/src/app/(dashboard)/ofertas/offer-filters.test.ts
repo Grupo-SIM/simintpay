@@ -22,6 +22,7 @@ describe('offer filters', () => {
   test('round trip pela query string', () => {
     const filters = {
       search: 'mentoria',
+      ownerSearch: 'ana@example.test',
       kind: 'PIX_PLAN' as const,
       status: 'EXHAUSTED' as const,
       platformTag: 'GLOBAL',
@@ -90,9 +91,7 @@ describe('offer filters', () => {
       mode: 'list',
     });
     const filters = { ...emptyOfferFilters, kind: 'PLAN' as const };
-    expect(screenHref({ mode: 'list' }, filters)).toBe(
-      '/ofertas?tipo=PLAN',
-    );
+    expect(screenHref({ mode: 'list' }, filters)).toBe('/ofertas?tipo=PLAN');
     expect(screenHref({ mode: 'edit', id: 'x y' }, filters)).toBe(
       '/ofertas?tipo=PLAN&editar=x+y',
     );

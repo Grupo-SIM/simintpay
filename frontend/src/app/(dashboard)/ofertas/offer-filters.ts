@@ -15,6 +15,7 @@ const RENEWALS: OfferRenewal[] = ['NONE', 'AUTO_CHARGE', 'MANUAL_PAY'];
 /** Filtros da listagem; '' = sem filtro. Os valores são os mesmos do GET /ofertas. */
 export type OfferFilters = {
   search: string;
+  ownerSearch: string;
   kind: OfferKind | '';
   status: OfferStatus | '';
   platformTag: string;
@@ -25,6 +26,7 @@ export type OfferFilters = {
 
 export const emptyOfferFilters: OfferFilters = {
   search: '',
+  ownerSearch: '',
   kind: '',
   status: '',
   platformTag: '',
@@ -45,6 +47,7 @@ export function filtersFromParams(params: Params): OfferFilters {
   const page = Number(params.get('pagina'));
   return {
     search: (params.get('busca') ?? '').slice(0, 120),
+    ownerSearch: (params.get('dono') ?? '').slice(0, 120),
     kind: oneOf(OFFER_KINDS, params.get('tipo')),
     status: oneOf(OFFER_STATUSES, params.get('status')),
     platformTag: params.get('plataforma') ?? '',
@@ -59,6 +62,7 @@ export function filtersToParams(filters: OfferFilters): URLSearchParams {
   const params = new URLSearchParams();
   const set = (key: string, value: string) => value && params.set(key, value);
   set('busca', filters.search.trim());
+  set('dono', filters.ownerSearch.trim());
   set('tipo', filters.kind);
   set('status', filters.status);
   set('plataforma', filters.platformTag);
@@ -79,6 +83,8 @@ export function filtersToApiQuery(
   };
   const search = filters.search.trim();
   if (search) query.search = search;
+  if (filters.ownerSearch.trim())
+    query.ownerSearch = filters.ownerSearch.trim();
   if (filters.kind) query.kind = filters.kind;
   if (filters.status) query.status = filters.status;
   if (filters.platformTag) query.platformTag = filters.platformTag;

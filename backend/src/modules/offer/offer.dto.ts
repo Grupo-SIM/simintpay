@@ -177,6 +177,14 @@ export const OFFER_LIST_MAX_PAGE_SIZE = 100;
 export const OFFER_LIST_DEFAULT_PAGE_SIZE = 20;
 
 export class ListOffersQueryDto {
+  @ApiPropertyOptional({
+    description: 'Busca administrativa por nome ou e-mail do dono',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  ownerSearch?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

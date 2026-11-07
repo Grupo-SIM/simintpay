@@ -30,6 +30,7 @@ export type Offer = {
   usedCount: number;
   currency?: string;
   ownerUserId?: string;
+  owner?: { id: string; name: string; email: string };
   fulfillment?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
   createdAt: string;
