@@ -28,7 +28,7 @@ export function ProductFormActions({
       </Button>
       <Button
         type="button"
-        className="h-11 min-w-[200px] cursor-pointer rounded-lg border border-emerald-700 bg-emerald-700 text-base font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-11 cursor-pointer rounded-lg border border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
         onClick={onSave}
         disabled={pending || !ready}
       >
