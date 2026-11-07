@@ -1,8 +1,10 @@
+import { useTheme } from 'next-themes';
 import { useState } from 'react';
 import { ProductPlatformSection } from '@/app/(dashboard)/cliente/components/ProductPlatformSection';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
 
 export function ProductPlatformFixture() {
+  const { resolvedTheme } = useTheme();
   const catalog = useProductPlatforms();
   const [value, setValue] = useState<string | null>(null);
   return (
@@ -11,7 +13,7 @@ export function ProductPlatformFixture() {
         catalog={catalog}
         value={value}
         onChange={setValue}
-        theme="light"
+        theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
       />
       <button
         type="button"

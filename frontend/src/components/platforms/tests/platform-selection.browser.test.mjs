@@ -29,7 +29,7 @@ test('admin manages platforms and selects product financial owners', async () =>
       new Response(
         new URL(request.url).pathname === '/app.js'
           ? script
-          : `<meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style><div id="root" style="padding:24px;max-width:1000px;margin:auto"></div><script src="/app.js"></script>`,
+          : `<html><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style><div id="root" style="padding:24px;max-width:1000px;margin:auto"></div><script src="/app.js"></script>`,
         {
           headers: {
             'Content-Type':
@@ -219,35 +219,50 @@ test('admin manages platforms and selects product financial owners', async () =>
     await page.goto(`http://127.0.0.1:${server.port}/?product`);
     const fs = await import('node:fs/promises');
     await fs.mkdir('/tmp/simintpay-owner-screenshots', { recursive: true });
-    for (const width of [1280, 390]) {
-      await page.setViewportSize({ width, height: 850 });
-      await page.getByRole('combobox', { name: 'Proprietário' }).waitFor();
-      expect(
-        await page
-          .getByRole('combobox', { name: 'Proprietário' })
-          .getAttribute('aria-required'),
-      ).toBe('false');
-      await page.screenshot({
-        path: `/tmp/simintpay-owner-screenshots/${width}-empty.png`,
-      });
-      expect(
-        await page.getByRole('button', { name: 'Salvar destino' }).isDisabled(),
-      ).toBe(true);
-      await page.getByRole('combobox', { name: 'Proprietário' }).click();
-      await page.getByRole('option', { name: /Maria Silva/ }).waitFor();
-      await page.screenshot({
-        path: `/tmp/simintpay-owner-screenshots/${width}-options.png`,
-      });
-      expect(await page.getByRole('option', { name: /Admin/ }).count()).toBe(0);
-      await page.getByRole('option', { name: /Maria Silva/ }).click();
-      await page.getByRole('button', { name: 'Salvar destino' }).click();
-      expect(
-        JSON.parse(await page.locator('#destination').textContent()),
-      ).toEqual({ plataformas: [], ownerUserId: 'other' });
-      await page.screenshot({
-        path: `/tmp/simintpay-owner-screenshots/${width}-selected.png`,
-      });
-      await page.reload();
+    for (const mode of ['light', 'dark']) {
+      await page.goto(`http://127.0.0.1:${server.port}/?product&${mode}`);
+      await page.evaluate(
+        (theme) => (document.documentElement.dataset.theme = theme),
+        mode,
+      );
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 850 });
+        await page.getByRole('combobox', { name: 'Proprietário' }).waitFor();
+        expect(
+          await page
+            .getByRole('combobox', { name: 'Proprietário' })
+            .getAttribute('aria-required'),
+        ).toBe('false');
+        await page.screenshot({
+          path: `/tmp/simintpay-owner-screenshots/${mode}-${width}-empty.png`,
+        });
+        expect(
+          await page
+            .getByRole('button', { name: 'Salvar destino' })
+            .isDisabled(),
+        ).toBe(true);
+        await page.getByRole('combobox', { name: 'Proprietário' }).click();
+        await page.getByRole('option', { name: /Maria Silva/ }).waitFor();
+        await page.screenshot({
+          path: `/tmp/simintpay-owner-screenshots/${mode}-${width}-options.png`,
+        });
+        expect(await page.getByRole('option', { name: /Admin/ }).count()).toBe(
+          0,
+        );
+        await page.getByRole('option', { name: /Maria Silva/ }).click();
+        await page.getByRole('button', { name: 'Salvar destino' }).click();
+        expect(
+          JSON.parse(await page.locator('#destination').textContent()),
+        ).toEqual({ plataformas: [], ownerUserId: 'other' });
+        await page.screenshot({
+          path: `/tmp/simintpay-owner-screenshots/${mode}-${width}-selected.png`,
+        });
+        await page.reload();
+        await page.evaluate(
+          (theme) => (document.documentElement.dataset.theme = theme),
+          mode,
+        );
+      }
     }
     await page.locator('button[aria-haspopup="listbox"]').click();
     expect(await page.getByText(/Usuário:/).count()).toBe(0);
@@ -279,4 +294,4 @@ test('admin manages platforms and selects product financial owners', async () =>
     await browser.close();
     server.stop(true);
   }
-}, 180000);
+}, 360000);

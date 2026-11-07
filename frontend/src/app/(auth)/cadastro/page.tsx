@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { useTheme } from 'next-themes';
+import { Dropdown } from '@/components/ui/Dropdown';
 
 import { useToast } from '@/components/ui/Toast';
 import {
@@ -69,6 +71,7 @@ function maskCnpj(v: string) {
 }
 
 export default function CadastroPage() {
+  const { resolvedTheme } = useTheme();
   const { toast } = useToast();
 
   const searchParams = useSearchParams();
@@ -379,86 +382,67 @@ export default function CadastroPage() {
             </Field>
 
             <Field label="Faturamento *" error={errors.faturamento}>
-              <select
-                className={`lp-input lp-select${errors.faturamento ? ' lp-input-error' : ''}`}
+              <Dropdown
+                theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
                 value={form.faturamento}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, faturamento: e.target.value }))
+                onChange={(value) =>
+                  setForm((p) => ({ ...p, faturamento: value }))
                 }
-              >
-                <option value="">Selecione</option>
-                {faturamentoOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                options={faturamentoOptions}
+                placeholder="Selecione"
+                required
+                className={errors.faturamento ? 'border-red-500' : undefined}
+              />
             </Field>
 
             <Field label="Tempo de Operação *" error={errors.tempoOperacao}>
-              <select
-                className={`lp-input lp-select${errors.tempoOperacao ? ' lp-input-error' : ''}`}
+              <Dropdown
+                theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
                 value={form.tempoOperacao}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, tempoOperacao: e.target.value }))
+                onChange={(value) =>
+                  setForm((p) => ({ ...p, tempoOperacao: value }))
                 }
-              >
-                <option value="">Selecione</option>
-                {tempoOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                options={tempoOptions}
+                placeholder="Selecione"
+                required
+                className={errors.tempoOperacao ? 'border-red-500' : undefined}
+              />
             </Field>
 
             <Field label="Modelo de Operação">
-              <select
-                className="lp-input lp-select"
+              <Dropdown
+                theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
                 value={form.modeloOperacao}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, modeloOperacao: e.target.value }))
+                onChange={(value) =>
+                  setForm((p) => ({ ...p, modeloOperacao: value }))
                 }
-              >
-                {modeloOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                options={modeloOptions}
+                placeholder="Selecione"
+              />
             </Field>
 
             <Field label="Cargo na empresa *" error={errors.cargo}>
-              <select
-                className={`lp-input lp-select${errors.cargo ? ' lp-input-error' : ''}`}
+              <Dropdown
+                theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
                 value={form.cargo}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, cargo: e.target.value }))
-                }
-              >
-                <option value="">Selecione</option>
-                {cargoOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => setForm((p) => ({ ...p, cargo: value }))}
+                options={cargoOptions}
+                placeholder="Selecione"
+                required
+                className={errors.cargo ? 'border-red-500' : undefined}
+              />
             </Field>
 
             <Field label="Como conheceu a Simintpay?">
-              <select
-                className="lp-input lp-select"
+              <Dropdown
+                theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
                 value={form.comoConheceu}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, comoConheceu: e.target.value }))
+                onChange={(value) =>
+                  setForm((p) => ({ ...p, comoConheceu: value }))
                 }
-              >
-                {comoConheceuOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                options={comoConheceuOptions}
+                placeholder="Selecione"
+              />
             </Field>
 
             <div
@@ -611,20 +595,6 @@ function Style() {
         border-color: rgba(248, 113, 113, 0.6) !important;
       }
 
-      .lp-select {
-        appearance: none;
-        -webkit-appearance: none;
-        cursor: pointer;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 14px center;
-        padding-right: 38px;
-      }
-
-      .lp-select option {
-        background: #1e1b4b;
-        color: #fff;
-      }
 
       .lp-error-msg {
         font-family: 'Inter', sans-serif;

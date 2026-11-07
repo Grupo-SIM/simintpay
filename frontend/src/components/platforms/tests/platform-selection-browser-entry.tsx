@@ -1,3 +1,4 @@
+import { ThemeProvider } from 'next-themes';
 import { ProductPlatformFixture } from './ProductPlatformFixture';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -11,14 +12,21 @@ const client = new QueryClient({
 localStorage.setItem('access_token', 'local-test');
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={client}>
-    <ToastProvider>
-      {location.search.includes('product') ? (
-        <ProductPlatformFixture />
-      ) : location.search.includes('admin') ? (
-        <AdminFees />
-      ) : (
-        <PlatformManager />
-      )}
-    </ToastProvider>
+    <ThemeProvider
+      attribute="class"
+      enableSystem={false}
+      defaultTheme={location.search.includes('dark') ? 'dark' : 'light'}
+      storageKey={location.search.includes('dark') ? 'test-dark' : 'test-light'}
+    >
+      <ToastProvider>
+        {location.search.includes('product') ? (
+          <ProductPlatformFixture />
+        ) : location.search.includes('admin') ? (
+          <AdminFees />
+        ) : (
+          <PlatformManager />
+        )}
+      </ToastProvider>
+    </ThemeProvider>
   </QueryClientProvider>,
 );
