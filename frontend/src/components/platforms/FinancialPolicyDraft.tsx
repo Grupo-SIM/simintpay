@@ -349,7 +349,7 @@ export function FinancialPolicyDraft({
               onChange={setAcquirer}
               options={acquirers.data!.data.map((item) => ({
                 value: item.code,
-                label: `${item.name} (${item.code})`,
+                label: item.name,
               }))}
             />
           </div>
