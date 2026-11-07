@@ -387,8 +387,8 @@ describe('financialQuote present vs absent (PIX lane configured)', () => {
     f.input.paymentMethod = 'pix';
     await f.service.execute(f.input);
     expect(money(f.db.row())).toEqual({
-      amount: 105.48,
-      netAmount: 100,
+      amount: 100,
+      netAmount: 94.52,
       totalFee: 5.48,
       domFee: 1.48,
       platformFee: 4,

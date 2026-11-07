@@ -448,11 +448,11 @@ describe('financialQuote present vs absent', () => {
     const f = setup(makeLink(), { financial: true });
     const out = await f.service.execute(f.input);
     const row = f.db.row();
-    // Buyer is grossed up (PIX legacy path charged exactly the base): 100 + sim 2% + R$2 + contracted cost.
-    expect(out.amount).toBe(105.48);
+    // Processing and SimIntPay costs are deducted from the base without increasing the buyer total.
+    expect(out.amount).toBe(100);
     expect(money(row)).toEqual({
-      amount: 105.48,
-      netAmount: 100,
+      amount: 100,
+      netAmount: 94.52,
       totalFee: 5.48,
       domFee: 1.48, // contracted acquirer cost: 0.98% * 100 + R$0.50
       platformFee: 4, // sim fee: 2% * 100 + R$2

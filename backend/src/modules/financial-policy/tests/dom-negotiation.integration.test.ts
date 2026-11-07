@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { parseDomNegotiation } from '../dom-negotiation';
 import {
+  calculateFinancials,
+  emptyPolicy,
+  laneKey,
+  ownerResult,
+  resolvePolicy,
+} from '../financial-policy';
+import {
   acquirerCostFloor,
   estimatedCost,
   orderByCost,
@@ -203,5 +210,145 @@ describe('DOM negotiation import', () => {
       ),
     ).toEqual(['OTHER', 'DOM']);
     expect(estimatedCost(base, 10_000, 10_000)).toBe(499);
+  });
+});
+
+test('simulation exposes synchronized DOM rates instead of a stale policy contract', () => {
+  const document = emptyPolicy();
+  const key = laneKey('DOM', 'CREDIT_CARD', 'ONLINE', 2);
+  document.interestOnly = true;
+  document.lanes[key] = {
+    active: true,
+    contract: {
+      fixedCents: 100,
+      ratePpm: 91500,
+      interestPpm: 45100,
+      cashbackCents: 0,
+      base: 'BUYER_TOTAL',
+      reference: 'Legacy',
+    },
+    sim: { fixedCents: 400, ratePpm: 90000, interestPpm: 35200 },
+  };
+  document.owner[key] = { fixedCents: 0, ratePpm: 0, passInterestPpm: 1000000 };
+  const imported = parseDomNegotiation(response).find(
+    (fee) => fee.method === 'CREDIT_CARD' && fee.installments === 2,
+  )!;
+  const result = calculateFinancials(
+    resolvePolicy(document, emptyPolicy(), '1:0'),
+    key,
+    10000,
+    undefined,
+    {
+      fees: [
+        {
+          ...imported,
+          base: imported.base!,
+          acquirer: 'DOM',
+          source: 'SYNC',
+          createdAt: new Date('2026-11-06').toISOString(),
+        },
+      ],
+      routedAcquirer: 'DOM',
+    },
+  );
+  expect(result.effectiveFees.acquirer?.ratePpm).toBe(39900);
+  expect(result.effectiveFees.acquirer?.interestPpm).toBe(43100);
+  expect(result.acquirerInterestCents).toBe(431);
+  expect(result.simInterestCents).toBe(352);
+  expect(result.buyerInterestCents).toBe(783);
+  expect(ownerResult(result)).not.toHaveProperty('effectiveFees');
+  expect(document.lanes[key]!.contract.interestPpm).toBe(45100);
+});
+
+test('effective interest includes the SimIntPay residual preserved by a historical floor', () => {
+  const key = laneKey('DOM', 'CREDIT_CARD', 'ONLINE', 2);
+  const document = emptyPolicy();
+  document.interestOnly = true;
+  document.owner[key] = { fixedCents: 0, ratePpm: 0, passInterestPpm: 1000000 };
+  const current = {
+    acquirer: 'DOM',
+    fixedCents: 100,
+    ratePpm: 39900,
+    interestPpm: 43100,
+    base: 'BUYER_TOTAL' as const,
+    source: 'SYNC',
+    createdAt: new Date('2026-11-06').toISOString(),
+  };
+  document.lanes[key] = {
+    active: true,
+    contract: {
+      ...current,
+      interestPpm: 45100,
+      cashbackCents: 0,
+      reference: 'Legacy',
+    },
+    sim: { fixedCents: 400, ratePpm: 90000, interestPpm: 35200 },
+    priceFloor: {
+      fees: [{ ...current, ratePpm: 91500, interestPpm: 45100 }],
+      sim: { fixedCents: 400, ratePpm: 90000, interestPpm: 35200 },
+    },
+  };
+  const result = calculateFinancials(
+    resolvePolicy(document, emptyPolicy(), '1:0'),
+    key,
+    10000,
+    undefined,
+    { fees: [current], routedAcquirer: 'DOM' },
+  );
+  expect(result.effectiveFees.priceFloorApplied).toBe(true);
+  expect(result.effectiveFees.acquirer?.interestPpm).toBe(43100);
+  expect(result.effectiveFees.sim.interestPpm).toBe(37200);
+  expect(result.simInterestCents).toBe(372);
+  expect(result).toMatchObject({
+    buyerTotalCents: 10803,
+    buyerAdditionCents: 0,
+    buyerInterestCents: 803,
+    acquirerProcessingCents: 531,
+    acquirerInterestCents: 431,
+  });
+});
+
+test('current scheduled PIX deducts additions without grossing up processor costs', () => {
+  const key = laneKey('DOM', 'PIX', 'ONLINE', 1);
+  const document = emptyPolicy();
+  document.interestOnly = true;
+  document.lanes[key] = {
+    active: true,
+    contract: {
+      fixedCents: 0,
+      ratePpm: 9800,
+      interestPpm: 0,
+      cashbackCents: 0,
+      base: 'BUYER_TOTAL',
+      reference: 'Legacy',
+    },
+    sim: { fixedCents: 800, ratePpm: 90000, interestPpm: 0 },
+  };
+  const result = calculateFinancials(
+    resolvePolicy(document, emptyPolicy(), '1:0'),
+    key,
+    10000,
+    undefined,
+    {
+      fees: [
+        {
+          acquirer: 'DOM',
+          fixedCents: 100,
+          ratePpm: 9800,
+          interestPpm: 0,
+          base: 'BUYER_TOTAL',
+          source: 'SYNC',
+          createdAt: new Date('2026-11-06').toISOString(),
+        },
+      ],
+      routedAcquirer: 'DOM',
+    },
+  );
+  expect(result).toMatchObject({
+    buyerTotalCents: 10000,
+    buyerAdditionCents: 0,
+    acquirerProcessingCents: 198,
+    simAdditionCents: 1700,
+    netCents: 8102,
   });
 });

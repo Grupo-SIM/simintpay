@@ -241,6 +241,11 @@ export function calculateFinancials(
     simAdditionCents,
     simInterestCents,
     simMarginCents: contractedCostCents - acquirerCostCents,
+    effectiveFees: {
+      acquirer: { ...lane.contract },
+      sim: { ...lane.sim },
+      priceFloorApplied: false,
+    },
   };
 }
 function calculateUnconfiguredFinancials(
@@ -260,10 +265,11 @@ function calculateUnconfiguredFinancials(
   const interestCostCents =
     2 * round(fraction(originalCents, lane.sim.interestPpm));
   const contractedCostCents = processingCostCents + interestCostCents;
-  const buyerAdditionCents =
-    processingCostCents +
-    owner.fixedCents +
-    round(fraction(originalCents, owner.ratePpm));
+  const buyerAdditionCents = policy.document.interestOnly
+    ? 0
+    : processingCostCents +
+      owner.fixedCents +
+      round(fraction(originalCents, owner.ratePpm));
   const buyerInterestCents = interestFree
     ? 0
     : round(fraction(interestCostCents, owner.passInterestPpm));
@@ -300,6 +306,11 @@ function calculateUnconfiguredFinancials(
     simAdditionCents: processingCostCents,
     simInterestCents: interestCostCents,
     simMarginCents: 0,
+    effectiveFees: {
+      acquirer: null,
+      sim: { ...lane.sim },
+      priceFloorApplied: false,
+    },
   };
 }
 
@@ -352,7 +363,9 @@ function calculateScheduledFinancials(
           );
       const next = buyerTotalAsInput
         ? originalCents
-        : originalCents + buyerAdditionCents + buyerInterestCents;
+        : originalCents +
+          (policy.document.interestOnly ? 0 : buyerAdditionCents) +
+          buyerInterestCents;
       if (next === buyerTotalCents) break;
       buyerTotalCents = next;
       if (i === 11)
@@ -383,7 +396,7 @@ function calculateScheduledFinancials(
   // Preserve the seller's original repass when a cheaper schedule would lower the buyer charge.
   const floored =
     !!floor &&
-    (buyerTotalAsInput
+    (buyerTotalAsInput || policy.document.interestOnly
       ? floor.contracted > current.contracted
       : floor.buyerTotalCents > current.buyerTotalCents);
   const selected = floored ? floor : current;
@@ -462,6 +475,19 @@ function calculateScheduledFinancials(
       (interestCostCents - acquirerInterestCents),
     simInterestCents: interestCostCents - acquirerInterestCents,
     simMarginCents: contractedCostCents - acquirerCostCents,
+    effectiveFees: {
+      acquirer: { ...routed },
+      sim: {
+        ...(floored ? lane.priceFloor!.sim : lane.sim),
+        // A preserved price can include the difference between the pricing provider
+        // and the current routed provider; that residual belongs to SimIntPay.
+        interestPpm:
+          selected.winner.interestPpm +
+          (floored ? lane.priceFloor!.sim.interestPpm : lane.sim.interestPpm) -
+          routed.interestPpm,
+      },
+      priceFloorApplied: floored,
+    },
   };
 }
 export type FinancialResult = ReturnType<typeof calculateFinancials>;

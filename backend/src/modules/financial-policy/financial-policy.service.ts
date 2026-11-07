@@ -34,6 +34,24 @@ type Client = Pick<
   Prisma.TransactionClient,
   'financialPolicyRevision' | 'platform'
 >;
+/** Current administration configures a SimIntPay addition, never an inclusive total.
+ * Historical restores bypass this projection and keep their frozen total semantics.
+ */
+function normalizeCurrentAdditions(document: Policy) {
+  for (const [key, lane] of Object.entries(document.lanes)) {
+    if (!lane.total) continue;
+    const { total, ...rest } = lane;
+    document.lanes[key] = {
+      ...rest,
+      sim: {
+        ...lane.sim,
+        fixedCents: total.fixedCents,
+        ratePpm: total.ratePpm,
+      },
+    };
+  }
+}
+
 export async function loadFinancialPolicy(
   prisma: Client,
   tag: string,
@@ -63,6 +81,7 @@ export async function loadFinancialPolicy(
         );
   // Current quotes only pass contracted interest. Historical restores resolve their frozen documents directly.
   resolved.document.interestOnly = true;
+  normalizeCurrentAdditions(resolved.document);
   // Materialize current defaults so frozen snapshots preserve their exact owner rule.
   for (const key of Object.keys(resolved.document.lanes)) {
     resolved.document.owner[key] ??= {
@@ -290,6 +309,7 @@ export async function saveFinancialPolicy(
         if (input.lanes !== undefined)
           document.lanes = input.lanes as Policy['lanes'];
         document.interestOnly = true;
+        normalizeCurrentAdditions(document);
         validatePolicy(document);
         if (input.feeMode !== undefined)
           await tx.platform.update({
@@ -439,6 +459,7 @@ export async function simulateFinancialPolicy(
       policy.version,
     );
   }
+  normalizeCurrentAdditions(policy.document);
   // Simulations show the fee actually charged under the (possibly drafted) mode: ADDITIVE_ONLY ignores the configured SimIntPay fee.
   if (feeMode === 'ADDITIVE_ONLY') {
     const lanes: Policy['lanes'] = {};
@@ -455,6 +476,7 @@ export async function simulateFinancialPolicy(
   }
   try {
     policy.document.interestOnly = true;
+    normalizeCurrentAdditions(policy.document);
     for (const key of Object.keys(policy.document.lanes)) {
       policy.document.owner[key] ??= {
         ...defaultOwner(),

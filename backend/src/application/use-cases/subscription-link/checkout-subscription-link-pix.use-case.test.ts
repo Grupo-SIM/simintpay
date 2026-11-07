@@ -208,7 +208,7 @@ describe('legacy fees (financialQuote absent)', () => {
     f.dto.voucherCode = 'OFF20';
     await f.service.execute({ code: 'c', dto: f.dto });
     expect(f.orders[0].financialSnapshot.originalCents).toBe(8000);
-    expect(f.orders[0].amountCharged).toBeLessThan(105.48);
+    expect(f.orders[0].amountCharged).toBeLessThan(100);
   });
 
   test('invalid voucher is rejected before any order exists', async () => {
@@ -233,12 +233,12 @@ describe('legacy fees (financialQuote absent)', () => {
 });
 
 describe('financialQuote present', () => {
-  test('buyer is grossed up and the whole quoted fee becomes platformFeeAmount, snapshot saved', async () => {
+  test('buyer pays the base and the quoted fee is deducted with its snapshot saved', async () => {
     const f = setup(makeSub({ isStandalone: true }), { financial: true });
     const out = await f.service.execute({ code: 'c', dto: f.dto });
-    expect(out.amount).toBe(105.48);
-    expect(f.calls[0].input.amount).toBe(105.48);
-    expect(f.orders[0].amountCharged).toBe(105.48);
+    expect(out.amount).toBe(100);
+    expect(f.calls[0].input.amount).toBe(100);
+    expect(f.orders[0].amountCharged).toBe(100);
     expect(f.orders[0].platformFeeAmount).toBe(5.48); // SUSPECT: contracted acquirer cost + sim fee lumped together
     expect(f.orders[0].financialSnapshot.originalCents).toBe(10000);
   });

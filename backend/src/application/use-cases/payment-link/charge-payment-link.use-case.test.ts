@@ -138,9 +138,9 @@ function fixture(early = false, fail = false, financial = false) {
   const gateway: any = {
     chargePaymentLink: async (_: string, input: any) => {
       expect(row.status).toBe('DRAFT');
-      expect(row.netAmount.toNumber()).toBe(financial ? 100 : 87);
+      expect(row.netAmount.toNumber()).toBe(financial ? 92 : 87);
       if (financial) {
-        expect(input.amount).toBe(113);
+        expect(input.amount).toBe(105);
         lane.sim.fixedCents = 5000;
       }
       expect(linkChargeReference(input.description)).toBe(row.id);
@@ -205,7 +205,7 @@ test('new financial policy charges the simulated total and settles its immutable
     await f.service.execute(f.input);
     expect(f.row().financialSnapshot.originalCents).toBe(10000);
     expect(f.row().financialSnapshot).not.toHaveProperty('acquirerCostCents');
-    expect(f.wallet().balance.toNumber()).toBe(100);
+    expect(f.wallet().balance.toNumber()).toBe(92);
     expect(f.logs()).toHaveLength(1);
   }
 });

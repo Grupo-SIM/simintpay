@@ -163,10 +163,10 @@ describe('financialQuote present', () => {
     expect(f.gatewayCalls[0].draft.status).toBe('DRAFT');
     expect(f.gatewayCalls[0].draft.settlementBasis).toBe('FINAL_NET');
     expect(f.gatewayCalls[0].input.description).toContain('[LINK_CHARGE:');
-    expect(out.amount).toBe(105.48);
+    expect(out.amount).toBe(100);
     expect(money(f.db.row())).toEqual({
-      amount: 105.48,
-      netAmount: 100,
+      amount: 100,
+      netAmount: 94.52,
       totalFee: 5.48,
       domFee: 1.48,
       platformFee: 4,
