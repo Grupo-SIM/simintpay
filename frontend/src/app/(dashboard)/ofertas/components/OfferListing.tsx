@@ -229,6 +229,7 @@ export function OfferListing({
           >
             <Pencil aria-hidden className="h-4 w-4" />
           </Button>
+          <CoproductionButton product="ofertas" productId={row.id} iconOnly />
           {row.isActive ? (
             <ConfirmActionButton
               variant="outline"
@@ -255,7 +256,6 @@ export function OfferListing({
               <Power aria-hidden className="h-4 w-4" />
             </Button>
           )}
-          <CoproductionButton product="ofertas" productId={row.id} iconOnly />
         </div>
       ),
     },
