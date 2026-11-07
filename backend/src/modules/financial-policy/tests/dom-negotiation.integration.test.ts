@@ -28,6 +28,31 @@ const response = {
         interest_rate_our: i === 0 ? 0 : 4.31,
       })),
     },
+    pix_physical: { negotiation: { mdr: 0, fee_transaction: 0 } },
+    debit_physical: {
+      fee_transaction: '0',
+      brands: {
+        VISA: { mdr: 3.99 },
+        MASTERCARD: { mdr: 3.99 },
+        OTHERS: { mdr: 3.99 },
+      },
+    },
+    credit_physical: {
+      fee_transaction: '0',
+      installments: Array.from({ length: 12 }, (_, i) => ({
+        installment: i + 1,
+        ...Object.fromEntries(
+          ['VISA', 'MASTERCARD', 'OTHERS'].map((brand) => [
+            brand,
+            {
+              mdr: 3.99,
+              effective_rate: i === 0 ? 3.99 : 8.3,
+              interest_rate_our: i === 0 ? 0 : 4.31,
+            },
+          ]),
+        ),
+      })),
+    },
     pix_online: { mdr: 0.98, fee_transaction: 1 },
     boleto: { mdr: 3.49, mdr_type: 'FIXED', fee_transaction: 1 },
   },
@@ -126,7 +151,7 @@ describe('DOM negotiation import', () => {
 
   test('maps credit 1x, installment interest, PIX and fixed boleto without identity data', () => {
     const fees = parseDomNegotiation(response);
-    expect(fees).toHaveLength(14);
+    expect(fees).toHaveLength(28);
     expect(fees[0]).toEqual({
       method: 'CREDIT_CARD',
       channel: 'ONLINE',
@@ -351,4 +376,70 @@ test('current scheduled PIX deducts additions without grossing up processor cost
     simAdditionCents: 1700,
     netCents: 8102,
   });
+});
+
+test('physical negotiation imports zero fixed fees and preserves MDR plus interest separately', () => {
+  const fees = parseDomNegotiation(response).filter(
+    (fee) => fee.channel === 'POS',
+  );
+  expect(fees).toHaveLength(14);
+  expect(fees.find((fee) => fee.method === 'PIX')).toMatchObject({
+    fixedCents: 0,
+    ratePpm: 0,
+    interestPpm: 0,
+    base: 'ORIGINAL',
+  });
+  expect(fees.find((fee) => fee.method === 'DEBIT_CARD')).toMatchObject({
+    fixedCents: 0,
+    ratePpm: 39900,
+    interestPpm: 0,
+  });
+  expect(
+    fees.find((fee) => fee.method === 'CREDIT_CARD' && fee.installments === 2),
+  ).toMatchObject({ fixedCents: 0, ratePpm: 39900, interestPpm: 43100 });
+});
+
+test('physical brand aggregation selects one complete rate instead of summing unrelated maxima', () => {
+  const changed = structuredClone(response);
+  changed.negotiation.credit_physical.installments[1]!.VISA = {
+    mdr: 6,
+    interest_rate_our: 2,
+    effective_rate: 8,
+  };
+  const fee = parseDomNegotiation(changed).find(
+    (fee) =>
+      fee.channel === 'POS' &&
+      fee.method === 'CREDIT_CARD' &&
+      fee.installments === 2,
+  )!;
+  expect(fee.ratePpm).toBe(39900);
+  expect(fee.interestPpm).toBe(43100);
+});
+
+test('malformed physical schedules reject the entire negotiation', () => {
+  for (const mutate of [
+    (n: typeof response.negotiation) => {
+      n.credit_physical.installments.pop();
+    },
+    (n: typeof response.negotiation) => {
+      n.credit_physical.installments[1]!.installment = 1;
+    },
+    (n: typeof response.negotiation) => {
+      n.credit_physical.installments[1]!.VISA.effective_rate = 90;
+    },
+    (n: typeof response.negotiation) => {
+      n.debit_physical.brands.VISA.mdr = -1;
+    },
+    (n: typeof response.negotiation) => {
+      n.pix_physical.negotiation.mdr = -1;
+    },
+    (n: typeof response.negotiation) => {
+      delete (n.credit_physical.installments[1] as Record<string, unknown>)
+        .OTHERS;
+    },
+  ]) {
+    const changed = structuredClone(response);
+    mutate(changed.negotiation);
+    expect(() => parseDomNegotiation(changed)).toThrow();
+  }
 });

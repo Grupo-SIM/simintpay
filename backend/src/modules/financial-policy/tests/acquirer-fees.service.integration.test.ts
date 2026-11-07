@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { Prisma, Role } from '@prisma/client';
+import { of } from 'rxjs';
 import { AcquirerFeesService } from '../acquirer-fees.service';
 import type { JwtPayload } from '../../../infrastructure/security/strategies/jwt.strategy';
 
@@ -160,5 +161,144 @@ describe('acquirer fee service transactions', () => {
     });
     expect(increasing.created[0]?.changeDirection).toBe('INCREASE');
     expect(increasing.revisions).toHaveLength(0);
+  });
+});
+
+function physicalNegotiation() {
+  const installments = Array.from({ length: 12 }, (_, index) => ({
+    installment: index + 1,
+    mdr: 3.99,
+    interest_rate_our: index === 0 ? 0 : 4.31,
+    effective_rate: index === 0 ? 3.99 : 8.3,
+  }));
+  return {
+    negotiation: {
+      credit: { fee_transaction: 1, installments },
+      pix_online: { mdr: 0.98, fee_transaction: 1 },
+      boleto: { mdr: 3.49, mdr_type: 'FIXED', fee_transaction: 1 },
+      pix_physical: { negotiation: { mdr: 0, fee_transaction: 0 } },
+      debit_physical: {
+        fee_transaction: 0,
+        brands: {
+          VISA: { mdr: 3.99 },
+          MASTERCARD: { mdr: 3.5 },
+          OTHERS: { mdr: 3.5 },
+        },
+      },
+      credit_physical: {
+        fee_transaction: 0,
+        installments: installments.map(({ installment, ...rates }) => ({
+          installment,
+          VISA: rates,
+          OTHERS: rates,
+          MASTERCARD: { mdr: 3.5, interest_rate_our: 0, effective_rate: 3.5 },
+        })),
+      },
+    },
+  };
+}
+
+function mockDomSync(response: unknown) {
+  const schedules: Array<Record<string, unknown>> = [];
+  let transactions = 0;
+  const tx = {
+    acquirerCatalogue: {
+      findUnique: async () => ({
+        code: 'DOM',
+        active: true,
+        syncAdapter: 'DOM',
+      }),
+    },
+    acquirerFeeSchedule: {
+      findMany: async () => [...schedules].reverse(),
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { ...data, id: String(schedules.length), createdAt: now };
+        schedules.push(row);
+        return row;
+      },
+    },
+  };
+  const prisma = {
+    $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => {
+      transactions++;
+      return callback(tx);
+    },
+  };
+  const http = { get: () => of({ data: response }) };
+  return {
+    service: new AcquirerFeesService(prisma as never, http as never),
+    schedules,
+    transactions: () => transactions,
+  };
+}
+
+describe('DOM physical fee synchronization', () => {
+  test('persists physical negotiation separately from online fees and is idempotent', async () => {
+    const previousToken = process.env.DOM_TOKEN;
+    process.env.DOM_TOKEN = 'local-test-token';
+    try {
+      const { service, schedules } = mockDomSync(physicalNegotiation());
+      const first = await service.syncDom();
+      expect(first.data.changed).toHaveLength(28);
+      const physical = schedules.filter((row) => row.channel === 'POS');
+      expect(physical).toHaveLength(14);
+      expect(physical.find((row) => row.method === 'PIX')).toMatchObject({
+        acquirerCode: 'DOM',
+        channel: 'POS',
+        installments: 1,
+        fixedCents: 0,
+        ratePpm: 0,
+        interestPpm: 0,
+        source: 'SYNC',
+      });
+      expect(physical.find((row) => row.method === 'DEBIT_CARD')).toMatchObject(
+        {
+          fixedCents: 0,
+          ratePpm: 39_900,
+          interestPpm: 0,
+          source: 'SYNC',
+        },
+      );
+      expect(
+        physical.find(
+          (row) => row.method === 'CREDIT_CARD' && row.installments === 2,
+        ),
+      ).toMatchObject({
+        fixedCents: 0,
+        ratePpm: 39_900,
+        interestPpm: 43_100,
+        source: 'SYNC',
+      });
+      expect(
+        schedules.find(
+          (row) =>
+            row.channel === 'ONLINE' &&
+            row.method === 'CREDIT_CARD' &&
+            row.installments === 2,
+        ),
+      ).toMatchObject({ fixedCents: 100 });
+      const second = await service.syncDom();
+      expect(second.data.changed).toEqual([]);
+      expect(schedules).toHaveLength(28);
+    } finally {
+      if (previousToken === undefined) delete process.env.DOM_TOKEN;
+      else process.env.DOM_TOKEN = previousToken;
+    }
+  });
+
+  test('rejects malformed physical rates before starting a transaction or writing online fees', async () => {
+    const previousToken = process.env.DOM_TOKEN;
+    process.env.DOM_TOKEN = 'local-test-token';
+    try {
+      const response = physicalNegotiation();
+      response.negotiation.credit_physical.installments[11]!.VISA.effective_rate = 0;
+      const { service, schedules, transactions } = mockDomSync(response);
+      await expect(service.syncDom()).rejects.toThrow();
+      expect(transactions()).toBe(0);
+      expect(schedules).toEqual([]);
+    } finally {
+      if (previousToken === undefined) delete process.env.DOM_TOKEN;
+      else process.env.DOM_TOKEN = previousToken;
+    }
   });
 });

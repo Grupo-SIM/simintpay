@@ -8,6 +8,10 @@ O detalhe `GET /transacoes/:id` só entrega a clientes (donos e coprodutores) ca
 
 O piso por método/canal/parcela considera somente adquirentes ativas e a tabela mais recente de cada uma. O percentual efetivo é o maior `ratePpm + interestPpm` de uma mesma adquirente, nunca a soma dos máximos separados; o custo fixo usa seu próprio máximo. Na DOM, MDR de 3,99% mais juros de 4,31% resulta em piso de 8,30%, sem capitalização ou nova multiplicação pelas parcelas. Juros zero preservam o MDR. Esse piso alimenta `finance/acquirer-costs` do núcleo de plataformas e `costs` da integração Delivery, sem alterar tabelas brutas nem a base e o arredondamento do estimador de custo monetário.
 
+## Sincronização de taxas DOM
+
+A negociação DOM sincroniza crédito online (1–12x), Pix online e boleto, além de Pix, débito e crédito físico (1–12x) no canal POS. Custos fixos iguais a zero são preservados; MDR e juros `interest_rate_our` permanecem componentes separados. As taxas físicas incidem sobre o valor original. Como a tabela de custos guarda uma linha por modalidade/canal/parcela, diferenças entre bandeiras usam o maior MDR + juros de uma mesma bandeira, nunca máximos separados. A negociação completa é validada antes de gravar; blocos físicos ausentes, parcelas incompletas ou taxas inconsistentes impedem atualização parcial. A sincronização mantém registros históricos e não recalcula transações anteriores.
+
 ## Cadastro e dono
 
 Plataforma existe somente após cadastro explícito em `Platform`, com dono obrigatório em `User`. Usuário ativo cria plataformas próprias; administrador atribui e transfere para outro usuário ativo. Uma pessoa pode possuir várias plataformas. Tags `GLOBAL`, `SIMINTPAY` e `CLIENT:<email>` são contextos financeiros reservados, não plataformas descobertas.
