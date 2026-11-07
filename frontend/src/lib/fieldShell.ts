@@ -22,7 +22,11 @@ export function fieldShellClassNames(
           focusRing,
         ]
       : theme === 'dark'
-        ? ['border-white/10 bg-black/60', 'hover:border-white/15', focusRing]
+        ? [
+            'border-white/10 bg-white/5',
+            'hover:bg-white/[0.07] hover:border-white/15',
+            focusRing,
+          ]
         : ['border-zinc-200 bg-white', focusRing],
     hasError && 'border-red-400',
   );

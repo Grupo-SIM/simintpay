@@ -129,7 +129,7 @@ export default function MeuPerfilPage() {
   }
 
   const inputClass =
-    'h-11 w-full rounded-xl border border-zinc-200 bg-white/50 px-4 text-sm text-zinc-900 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/10 dark:bg-zinc-950/20 dark:text-zinc-100 dark:focus:border-violet-400';
+    'h-11 w-full rounded-xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 dark:focus:border-violet-400';
   const readOnlyClass =
     'h-11 w-full cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-100/70 px-4 text-sm text-zinc-600 outline-none dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400';
   const labelClass =

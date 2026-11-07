@@ -31,7 +31,7 @@ export function CoproducerRow({
         <label htmlFor={percentageId} className="text-sm font-medium">
           Participação <span className="text-red-500">*</span>
         </label>
-        <div className="flex h-11 items-center rounded-md border border-zinc-200 bg-white focus-within:border-[#7c3aed] focus-within:ring-2 focus-within:ring-[#7c3aed]/20 dark:border-white/10 dark:bg-black/30">
+        <div className="flex h-11 items-center rounded-md border border-zinc-200 bg-white focus-within:border-[#7c3aed] focus-within:ring-2 focus-within:ring-[#7c3aed]/20 dark:border-white/10 dark:bg-white/5">
           <input
             id={percentageId}
             type="text"
