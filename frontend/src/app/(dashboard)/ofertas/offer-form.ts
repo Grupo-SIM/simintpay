@@ -295,8 +295,6 @@ export function validateOfferForm(
   const installments = toInt(form.maxInstallments) ?? 1;
   if (!Number.isInteger(installments) || installments < 1 || installments > 12)
     return 'O parcelamento deve ficar entre 1x e 12x.';
-  if (installments > 1 && !form.methods.includes('CREDIT_CARD'))
-    return 'Parcelamento exige cartão de crédito.';
   if (isRecurring(form)) {
     if (!isInt(toInt(form.intervalCount), 1))
       return 'Informe o intervalo da recorrência.';

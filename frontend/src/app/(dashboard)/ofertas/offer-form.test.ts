@@ -55,7 +55,7 @@ describe('validateOfferForm (espelha offer.validator.ts)', () => {
         { ...base, methods: ['PIX'], maxInstallments: '3' },
         50,
       ),
-    ).toMatch(/crédito/);
+    ).toBeNull();
     expect(validateOfferForm({ ...base, maxInstallments: '13' }, 50)).toMatch(
       /1x e 12x/,
     );

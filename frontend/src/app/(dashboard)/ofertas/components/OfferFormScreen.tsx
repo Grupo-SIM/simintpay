@@ -148,10 +148,7 @@ function FormBody({
     const methods = on
       ? [...new Set([...form.methods, method])]
       : form.methods.filter((item) => item !== method);
-    patch({
-      methods,
-      ...(method === 'CREDIT_CARD' && !on ? { maxInstallments: '1' } : {}),
-    });
+    patch({ methods });
   }
 
   function handleSave() {
@@ -198,7 +195,10 @@ function FormBody({
         '/ofertas/preview-pricing',
         {
           amountCents,
-          maxInstallments: recurring ? 1 : Number(form.maxInstallments) || 1,
+          maxInstallments:
+            recurring || !form.methods.includes('CREDIT_CARD')
+              ? 1
+              : Number(form.maxInstallments) || 1,
           acceptedMethods: form.methods,
           ...(id
             ? { offerId: id }
@@ -214,7 +214,10 @@ function FormBody({
         description: form.description,
         amountCents,
         acceptedMethods: form.methods,
-        maxInstallments: recurring ? 1 : Number(form.maxInstallments) || 1,
+        maxInstallments:
+          recurring || !form.methods.includes('CREDIT_CARD')
+            ? 1
+            : Number(form.maxInstallments) || 1,
         renewalMode: form.renewalMode,
         intervalType: form.intervalType,
         intervalCount: Number(form.intervalCount) || 1,
