@@ -1,6 +1,8 @@
 'use client';
 
-import { Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { PaymentLinkPreviewModal } from '../../links-pagamento/criar/components/PaymentLinkPreviewModal';
+import { Eye, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { Button } from '@/components/ui/Button';
@@ -40,6 +42,46 @@ export function OfferBumpsSection({
   onError: (message: string) => void;
 }) {
   const api = useClienteApi();
+  const [previewDraft, setPreviewDraft] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [previewPending, setPreviewPending] = useState(false);
+  async function previewFunnel() {
+    if (previewPending) return;
+    setPreviewPending(true);
+    try {
+      const selected = bumps.filter((bump) => bump.role !== 'BUMP');
+      const offers = await Promise.all(
+        selected.map((bump) =>
+          api.get<Offer>(endpoints.ofertas.detail(bump.offerId)),
+        ),
+      );
+      if (
+        offers.some((offer) => !offer.isActive || offer.renewalMode !== 'NONE')
+      ) {
+        onError(
+          'O funil contém uma oferta inativa ou recorrente. Atualize as ofertas para pré-visualizar.',
+        );
+        return;
+      }
+      setPreviewDraft({
+        offers: selected.map((bump, index) => ({
+          id: bump.offerId,
+          role: bump.role,
+          name: offers[index].name,
+          description: offers[index].description,
+          amountCents: offers[index].amountCents,
+        })),
+      });
+    } catch {
+      onError(
+        'Não foi possível carregar as ofertas do funil. Tente novamente.',
+      );
+    } finally {
+      setPreviewPending(false);
+    }
+  }
   const { user } = useCurrentUser();
   const query = useQuery({
     queryKey: [OFFERS_QUERY_KEY, 'bump-candidates', user?.id, ownerUserId],
@@ -76,7 +118,31 @@ export function OfferBumpsSection({
   };
 
   return (
-    <ProductFormSection title="Funil">
+    <ProductFormSection
+      title="Funil"
+      action={
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="cursor-pointer"
+          disabled={
+            previewPending || !bumps.some((bump) => bump.role === 'UPSELL')
+          }
+          onClick={() => void previewFunnel()}
+        >
+          <Eye aria-hidden className="h-4 w-4" />
+          {previewPending ? 'Carregando...' : 'Pré-visualizar funil'}
+        </Button>
+      }
+    >
+      {previewDraft && (
+        <PaymentLinkPreviewModal
+          funnelPreview
+          draft={previewDraft}
+          onClose={() => setPreviewDraft(null)}
+        />
+      )}
       <div className="flex flex-col gap-4" data-testid="bumps-section">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Ofereça outras ofertas ativas de compra única no checkout. Obs:

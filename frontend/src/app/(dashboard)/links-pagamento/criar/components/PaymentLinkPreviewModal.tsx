@@ -13,6 +13,7 @@ type Props = {
   draft: PaymentLinkPreviewDraft | Record<string, unknown>;
   onClose: () => void;
   offerPreview?: boolean;
+  funnelPreview?: boolean;
 };
 
 /** Mounted only while open, so every open and retry uses a fresh handshake. */
@@ -20,6 +21,7 @@ export function PaymentLinkPreviewModal({
   draft,
   onClose,
   offerPreview = false,
+  funnelPreview = false,
 }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -39,6 +41,7 @@ export function PaymentLinkPreviewModal({
         window.location.origin,
       );
       if (offerPreview) url.pathname = '/preview/offer';
+      if (funnelPreview) url.pathname = '/preview/funnel';
       return url;
     } catch {
       return null;
@@ -119,16 +122,22 @@ export function PaymentLinkPreviewModal({
           id={titleId}
           className="font-semibold text-zinc-900 dark:text-zinc-100"
         >
-          {offerPreview ? 'Prévia da oferta' : 'Prévia do link de pagamento'}
+          {funnelPreview
+            ? 'Prévia do funil'
+            : offerPreview
+              ? 'Prévia da oferta'
+              : 'Prévia do link de pagamento'}
         </h2>
         <button
           ref={closeRef}
           type="button"
           onClick={onClose}
           aria-label={
-            offerPreview
-              ? 'Fechar prévia da oferta'
-              : 'Fechar prévia do link de pagamento'
+            funnelPreview
+              ? 'Fechar prévia do funil'
+              : offerPreview
+                ? 'Fechar prévia da oferta'
+                : 'Fechar prévia do link de pagamento'
           }
           className="cursor-pointer rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-white/20 dark:text-zinc-200 dark:hover:bg-white/10"
         >

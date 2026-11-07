@@ -141,6 +141,7 @@ describe('preview embedding policy', () => {
       '/',
       '/preview/payment-link',
       '/preview/offer',
+      '/preview/funnel',
     ]);
     expect(
       new NextRequest(
