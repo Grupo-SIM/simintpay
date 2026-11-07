@@ -30,9 +30,11 @@ export function PlatformOwnerSelect({
   owner,
   disabled,
   onChange,
+  required = true,
 }: {
   owner: Accounts['data'][number] | null;
   disabled: boolean;
+  required?: boolean;
   onChange: (account: Accounts['data'][number]) => void;
 }) {
   const { user } = useCurrentUser();
@@ -66,7 +68,7 @@ export function PlatformOwnerSelect({
   return (
     <CustomSelect
       label="Proprietário"
-      required
+      required={required}
       search={{
         open,
         onOpenChange: setOpen,

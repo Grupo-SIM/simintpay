@@ -17,7 +17,9 @@ export function ProductPlatformSection(props: Props) {
     <ProductFormSection title="Plataforma">
       <div className="space-y-2">
         <p className="text-sm text-zinc-500">
-          Selecione o destino financeiro cujas taxas serão aplicadas ao produto.{' '}
+          {props.catalog.user?.isAdmin
+            ? 'Selecione um proprietário ou uma plataforma para definir o destino financeiro do produto.'
+            : 'Selecione o destino financeiro cujas taxas serão aplicadas ao produto.'}{' '}
           <span className="text-red-500" aria-label="Obrigatório">
             *
           </span>
@@ -27,6 +29,7 @@ export function ProductPlatformSection(props: Props) {
             <PlatformOwnerSelect
               owner={props.catalog.financialOwner}
               disabled={false}
+              required={false}
               onChange={props.catalog.setFinancialOwner}
             />
           )}

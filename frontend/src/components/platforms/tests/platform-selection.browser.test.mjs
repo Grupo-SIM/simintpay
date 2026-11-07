@@ -222,6 +222,11 @@ test('admin manages platforms and selects product financial owners', async () =>
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 850 });
       await page.getByRole('combobox', { name: 'Proprietário' }).waitFor();
+      expect(
+        await page
+          .getByRole('combobox', { name: 'Proprietário' })
+          .getAttribute('aria-required'),
+      ).toBe('false');
       await page.screenshot({
         path: `/tmp/simintpay-owner-screenshots/${width}-empty.png`,
       });
@@ -244,9 +249,7 @@ test('admin manages platforms and selects product financial owners', async () =>
       });
       await page.reload();
     }
-    await page
-      .getByRole('button', { name: /Selecionar titular sem plataforma/ })
-      .click();
+    await page.locator('button[aria-haspopup="listbox"]').click();
     expect(await page.getByText(/Usuário:/).count()).toBe(0);
     for (const [width, height] of [
       [1440, 900],
@@ -257,9 +260,7 @@ test('admin manages platforms and selects product financial owners', async () =>
     }
     const otherOption = page.getByRole('option', { name: /^Outra loja$/ });
     if (!(await otherOption.isVisible())) {
-      await page
-        .getByRole('button', { name: /Selecionar titular sem plataforma/ })
-        .click();
+      await page.locator('button[aria-haspopup="listbox"]').click();
     }
     await otherOption.click();
     await page.waitForFunction(
