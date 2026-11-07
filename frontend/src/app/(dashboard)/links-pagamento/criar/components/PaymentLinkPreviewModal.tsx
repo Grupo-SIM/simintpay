@@ -30,6 +30,7 @@ export function PaymentLinkPreviewModal({
   const draftRef = useRef(draft);
   const titleId = useId();
   const [attempt, setAttempt] = useState(0);
+  const [mobile, setMobile] = useState(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(
     'loading',
   );
@@ -128,23 +129,35 @@ export function PaymentLinkPreviewModal({
               ? 'Prévia da oferta'
               : 'Prévia do link de pagamento'}
         </h2>
-        <button
-          ref={closeRef}
-          type="button"
-          onClick={onClose}
-          aria-label={
-            funnelPreview
-              ? 'Fechar prévia do funil'
-              : offerPreview
-                ? 'Fechar prévia da oferta'
-                : 'Fechar prévia do link de pagamento'
-          }
-          className="cursor-pointer rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-white/20 dark:text-zinc-200 dark:hover:bg-white/10"
-        >
-          Fechar
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMobile((value) => !value)}
+            aria-pressed={mobile}
+            className={`cursor-pointer rounded-lg border px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-white/10 ${mobile ? 'border-zinc-900 bg-zinc-100 text-zinc-900 dark:border-white/60 dark:bg-white/10 dark:text-zinc-100' : 'border-zinc-300 text-zinc-700 dark:border-white/20 dark:text-zinc-200'}`}
+          >
+            {mobile ? 'Layout desktop' : 'Layout mobile'}
+          </button>
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={onClose}
+            aria-label={
+              funnelPreview
+                ? 'Fechar prévia do funil'
+                : offerPreview
+                  ? 'Fechar prévia da oferta'
+                  : 'Fechar prévia do link de pagamento'
+            }
+            className="cursor-pointer rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-white/20 dark:text-zinc-200 dark:hover:bg-white/10"
+          >
+            Fechar
+          </button>
+        </div>
       </div>
-      <div className="relative h-[calc(100%-3.5rem)]">
+      <div
+        className={`relative h-[calc(100%-3.5rem)] ${mobile ? 'flex justify-center bg-zinc-200 dark:bg-black' : ''}`}
+      >
         {url && status !== 'error' && (
           <iframe
             key={attempt}
@@ -154,7 +167,7 @@ export function PaymentLinkPreviewModal({
             sandbox="allow-scripts allow-same-origin"
             referrerPolicy="no-referrer"
             onError={() => setStatus('error')}
-            className={`h-full w-full border-0 ${status === 'ready' ? 'visible' : 'invisible'}`}
+            className={`h-full border-0 ${mobile ? 'w-[390px] max-w-full' : 'w-full'} ${status === 'ready' ? 'visible' : 'invisible'}`}
           />
         )}
         {preview && status === 'loading' && <PaymentLinkPreviewSkeleton />}
