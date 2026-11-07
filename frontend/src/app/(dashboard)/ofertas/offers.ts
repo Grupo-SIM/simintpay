@@ -1,7 +1,5 @@
 export const OFFERS_QUERY_KEY = 'cliente-ofertas';
 
-export type OfferKind =
-  'PAYMENT_LINK' | 'SUBSCRIPTION_LINK' | 'PLAN' | 'PIX_PLAN' | 'BOLETO';
 export type OfferMethod = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
 export type OfferRenewal = 'NONE' | 'AUTO_CHARGE' | 'MANUAL_PAY';
 export type OfferInterval = 'DAY' | 'WEEK' | 'MONTH' | 'YEAR';
@@ -9,7 +7,6 @@ export type OfferInterval = 'DAY' | 'WEEK' | 'MONTH' | 'YEAR';
 export type Offer = {
   id: string;
   code: string;
-  kind: OfferKind;
   name: string;
   description: string | null;
   amountCents: number;
@@ -40,19 +37,6 @@ export type Offer = {
 export const OFFER_MIN_AMOUNT_CENTS = 1499;
 export const OFFER_MIN_AMOUNT_ERROR = 'O valor mínimo é R$ 14,99';
 
-export const OFFER_KINDS: OfferKind[] = [
-  'PAYMENT_LINK',
-  'SUBSCRIPTION_LINK',
-  'PLAN',
-  'PIX_PLAN',
-  'BOLETO',
-];
-/** Modelos oferecidos na criação; PLAN e PIX_PLAN seguem existindo em ofertas antigas. */
-export const OFFER_PRESET_KINDS: OfferKind[] = [
-  'PAYMENT_LINK',
-  'SUBSCRIPTION_LINK',
-  'BOLETO',
-];
 export const OFFER_METHODS: OfferMethod[] = [
   'PIX',
   'CREDIT_CARD',
@@ -61,20 +45,6 @@ export const OFFER_METHODS: OfferMethod[] = [
 ];
 
 /** Rótulos dos enums do backend; o valor bruto nunca é exibido sem passar por aqui. */
-export const kindLabels: Record<OfferKind, string> = {
-  PAYMENT_LINK: 'Link de pagamento',
-  SUBSCRIPTION_LINK: 'Assinatura',
-  PLAN: 'Plano',
-  PIX_PLAN: 'Plano PIX',
-  BOLETO: 'Boleto',
-};
-export const kindDescriptions: Record<OfferKind, string> = {
-  PAYMENT_LINK: 'Cobrança única com PIX, crédito ou débito.',
-  SUBSCRIPTION_LINK: 'Assinatura recorrente cobrada automaticamente no cartão.',
-  PLAN: 'Plano recorrente cobrado automaticamente no cartão.',
-  PIX_PLAN: 'Acesso por período, renovado com um novo PIX a cada ciclo.',
-  BOLETO: 'Cobrança única por boleto.',
-};
 export const methodLabels: Record<OfferMethod, string> = {
   PIX: 'PIX',
   CREDIT_CARD: 'Cartão de crédito',
@@ -111,9 +81,25 @@ export type OfferPreset = {
   accessDays: number | null;
 };
 
-/** Espelho de backend/src/modules/offer/offer.presets.ts. */
-export const OFFER_PRESETS: Record<OfferKind, OfferPreset> = {
-  PAYMENT_LINK: {
+/** Modelos rápidos do formulário: só preenchem campos no cliente e nunca são salvos na oferta. */
+export type OfferTemplateId = 'ONE_TIME' | 'CARD_SUBSCRIPTION' | 'BOLETO';
+export const OFFER_TEMPLATE_IDS: OfferTemplateId[] = [
+  'ONE_TIME',
+  'CARD_SUBSCRIPTION',
+  'BOLETO',
+];
+export const templateLabels: Record<OfferTemplateId, string> = {
+  ONE_TIME: 'Link de pagamento',
+  CARD_SUBSCRIPTION: 'Assinatura',
+  BOLETO: 'Boleto',
+};
+export const templateDescriptions: Record<OfferTemplateId, string> = {
+  ONE_TIME: 'Cobrança única com PIX, crédito ou débito.',
+  CARD_SUBSCRIPTION: 'Assinatura recorrente cobrada automaticamente no cartão.',
+  BOLETO: 'Cobrança única por boleto.',
+};
+export const OFFER_TEMPLATES: Record<OfferTemplateId, OfferPreset> = {
+  ONE_TIME: {
     acceptedMethods: ['CREDIT_CARD', 'DEBIT_CARD', 'PIX'],
     maxInstallments: 12,
     renewalMode: 'NONE',
@@ -121,29 +107,13 @@ export const OFFER_PRESETS: Record<OfferKind, OfferPreset> = {
     intervalCount: null,
     accessDays: null,
   },
-  SUBSCRIPTION_LINK: {
+  CARD_SUBSCRIPTION: {
     acceptedMethods: ['CREDIT_CARD', 'DEBIT_CARD'],
     maxInstallments: 1,
     renewalMode: 'AUTO_CHARGE',
     intervalType: 'MONTH',
     intervalCount: 1,
     accessDays: null,
-  },
-  PLAN: {
-    acceptedMethods: ['CREDIT_CARD'],
-    maxInstallments: 1,
-    renewalMode: 'AUTO_CHARGE',
-    intervalType: 'MONTH',
-    intervalCount: 1,
-    accessDays: null,
-  },
-  PIX_PLAN: {
-    acceptedMethods: ['PIX'],
-    maxInstallments: 1,
-    renewalMode: 'MANUAL_PAY',
-    intervalType: 'MONTH',
-    intervalCount: 1,
-    accessDays: 30,
   },
   BOLETO: {
     acceptedMethods: ['BOLETO'],
@@ -154,6 +124,15 @@ export const OFFER_PRESETS: Record<OfferKind, OfferPreset> = {
     accessDays: null,
   },
 };
+
+/** Descrição derivada dos atributos da oferta (não existe tipo armazenado). */
+export function offerLabel(
+  offer: Pick<Offer, 'renewalMode' | 'accessDays'>,
+): string {
+  if (offer.renewalMode === 'AUTO_CHARGE') return 'Assinatura no cartão';
+  if (offer.renewalMode === 'MANUAL_PAY') return 'Assinatura por PIX';
+  return offer.accessDays != null ? 'Acesso por tempo' : 'Compra única';
+}
 
 export type OfferStatus = 'ACTIVE' | 'INACTIVE' | 'EXHAUSTED' | 'EXPIRED';
 export const OFFER_STATUSES: OfferStatus[] = [

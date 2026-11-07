@@ -17,14 +17,13 @@ import {
 import type { Offer } from './offers';
 
 const fmt = (v: number) => v.toFixed(2).replace('.', ',');
-const base = { ...formFromPreset('PAYMENT_LINK'), name: 'X' };
+const base = { ...formFromPreset('ONE_TIME'), name: 'X' };
 
 describe('presets', () => {
-  test('PIX_PLAN preenche recorrência manual e dias de acesso', () => {
-    const form = formFromPreset('PIX_PLAN');
-    expect(form.methods).toEqual(['PIX']);
-    expect(form.renewalMode).toBe('MANUAL_PAY');
-    expect(form.accessDays).toBe('30');
+  test('modelo de boleto preenche só o meio de pagamento', () => {
+    const form = formFromPreset('BOLETO');
+    expect(form.methods).toEqual(['BOLETO']);
+    expect(form.renewalMode).toBe('NONE');
   });
 
   test('aplicar modelo mantém nome, valor e entrega', () => {
@@ -33,9 +32,8 @@ describe('presets', () => {
       name: 'Curso',
       amount: '99,90',
     };
-    const next = applyPreset(form, 'SUBSCRIPTION_LINK');
+    const next = applyPreset(form, 'CARD_SUBSCRIPTION');
     expect(next).toMatchObject({
-      kind: 'SUBSCRIPTION_LINK',
       name: 'Curso',
       amount: '99,90',
       renewalMode: 'AUTO_CHARGE',
@@ -62,7 +60,7 @@ describe('validateOfferForm (espelha offer.validator.ts)', () => {
   });
 
   test('recorrência: intervalo, repetições e dias', () => {
-    const rec = { ...formFromPreset('SUBSCRIPTION_LINK'), name: 'C' };
+    const rec = { ...formFromPreset('CARD_SUBSCRIPTION'), name: 'C' };
     expect(validateOfferForm(rec, 50)).toBeNull();
     expect(validateOfferForm({ ...rec, intervalCount: '0' }, 50)).toMatch(
       /intervalo/,
@@ -179,11 +177,10 @@ describe('bumps', () => {
 });
 
 describe('offerPayload', () => {
-  test('criação de compra única: kind/plataforma, sem intervalo nem nulos', () => {
+  test('criação de compra única: plataforma, sem intervalo nem nulos', () => {
     const form = { ...base, name: ' Mentoria ' };
     const created = offerPayload(form, 99.9, { platformTag: 'GLOBAL' });
     expect(created).toMatchObject({
-      kind: 'PAYMENT_LINK',
       platformTag: 'GLOBAL',
       name: 'Mentoria',
       amountCents: 9990,
@@ -199,12 +196,13 @@ describe('offerPayload', () => {
       'accessDays',
     ])
       expect(key in created).toBe(false);
-    expect('kind' in offerPayload(form, 99.9)).toBe(false);
+    expect('platformTag' in offerPayload(form, 99.9)).toBe(false);
+    expect('kind' in created).toBe(false);
   });
 
   test('recorrente envia intervalo, repetições e dias', () => {
     const form = {
-      ...formFromPreset('SUBSCRIPTION_LINK'),
+      ...formFromPreset('CARD_SUBSCRIPTION'),
       name: 'Clube',
       repetitions: '12',
       trialDays: '7',
@@ -260,7 +258,7 @@ describe('offerPayload', () => {
 
   test('edição limpa campos vazios com null (e repetições com 0)', () => {
     const payload = offerPayload(
-      { ...formFromPreset('SUBSCRIPTION_LINK'), name: 'C' },
+      { ...formFromPreset('CARD_SUBSCRIPTION'), name: 'C' },
       50,
     );
     expect(payload).toMatchObject({
@@ -289,7 +287,6 @@ describe('offerPayload', () => {
 describe('formFromOffer', () => {
   test('hidrata entrega, bumps, boleto e preserva arquivos e metadata desconhecido', () => {
     const offer = {
-      kind: 'PLAN',
       name: 'N',
       description: null,
       amountCents: 4990,
@@ -349,7 +346,7 @@ describe('formFromOffer', () => {
 
 describe('renewalModeOf', () => {
   test('deriva o modo de renovação dos meios aceitos', () => {
-    const rec = formFromPreset('SUBSCRIPTION_LINK');
+    const rec = formFromPreset('CARD_SUBSCRIPTION');
     expect(renewalModeOf(rec)).toBe('AUTO_CHARGE');
     expect(renewalModeOf({ ...rec, methods: ['PIX'] })).toBe('MANUAL_PAY');
     expect(renewalModeOf({ ...rec, methods: ['PIX', 'CREDIT_CARD'] })).toBe(

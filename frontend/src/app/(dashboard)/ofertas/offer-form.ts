@@ -1,12 +1,12 @@
 import {
   OFFER_MIN_AMOUNT_CENTS,
   OFFER_MIN_AMOUNT_ERROR,
-  OFFER_PRESETS,
+  OFFER_TEMPLATES,
   type Offer,
   type OfferInterval,
-  type OfferKind,
   type OfferMethod,
   type OfferRenewal,
+  type OfferTemplateId,
 } from './offers';
 
 export type BumpRole = 'BUMP' | 'UPSELL' | 'DOWNSELL';
@@ -24,7 +24,6 @@ export const BOLETO_NOTE =
 
 /** Estado do formulário; números e data ficam em texto até o envio. */
 export type OfferForm = {
-  kind: OfferKind;
   name: string;
   description: string;
   amount: string;
@@ -58,10 +57,9 @@ const emptyKeep = (): OfferForm['keep'] => ({
   metadata: {},
 });
 
-export function formFromPreset(kind: OfferKind): OfferForm {
-  const preset = OFFER_PRESETS[kind];
+export function formFromPreset(template: OfferTemplateId): OfferForm {
+  const preset = OFFER_TEMPLATES[template];
   return {
-    kind,
     name: '',
     description: '',
     amount: '0,00',
@@ -86,11 +84,13 @@ export function formFromPreset(kind: OfferKind): OfferForm {
 }
 
 /** Modelo rápido: troca só o que o preset define e mantém nome, valor, entrega e limites. */
-export function applyPreset(form: OfferForm, kind: OfferKind): OfferForm {
-  const preset = formFromPreset(kind);
+export function applyPreset(
+  form: OfferForm,
+  template: OfferTemplateId,
+): OfferForm {
+  const preset = formFromPreset(template);
   return {
     ...form,
-    kind,
     methods: preset.methods,
     maxInstallments: preset.maxInstallments,
     renewalMode: preset.renewalMode,
@@ -129,7 +129,6 @@ export function formFromOffer(
       )
     : [];
   return {
-    kind: offer.kind,
     name: offer.name,
     description: offer.description ?? '',
     amount: formatAmount(offer.amountCents / 100),
@@ -369,7 +368,7 @@ function fulfillmentOf(form: OfferForm, create: boolean) {
 }
 
 /**
- * Corpo de POST/PATCH /ofertas. `kind` e plataforma só vão na criação. Na edição, campos
+ * Corpo de POST/PATCH /ofertas. A plataforma só vai na criação. Na edição, campos
  * vazios vão como `null` para limpar o valor salvo (omitido manteria o anterior).
  */
 export function offerPayload(
@@ -390,7 +389,7 @@ export function offerPayload(
   const metadata = metadataOf(form);
   const fulfillment = fulfillmentOf(form, !edit);
   const payload: Record<string, unknown> = {
-    ...(create ? { kind: form.kind, platformTag: create.platformTag } : {}),
+    ...(create ? { platformTag: create.platformTag } : {}),
     name: form.name.trim(),
     description: form.description.trim(),
     amountCents: Math.round(amount * 100),

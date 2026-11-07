@@ -45,16 +45,17 @@ import {
 } from '../offer-form';
 import {
   OFFERS_QUERY_KEY,
-  OFFER_PRESET_KINDS,
+  OFFER_TEMPLATE_IDS,
   OFFER_METHODS,
-  OFFER_PRESETS,
-  enumLabel,
+  OFFER_TEMPLATES,
   intervalLabels,
-  kindDescriptions,
-  kindLabels,
+  offerLabel,
+  templateDescriptions,
+  templateLabels,
   methodLabels,
   type Offer,
   type OfferInterval,
+  type OfferTemplateId,
 } from '../offers';
 import { OfferBumpsSection } from './OfferBumpsSection';
 
@@ -82,7 +83,7 @@ function FormBody({
   const [form, setForm] = useState<OfferForm>(() =>
     offer
       ? formFromOffer(offer, formatCurrencyFromNumber)
-      : formFromPreset('PAYMENT_LINK'),
+      : formFromPreset('ONE_TIME'),
   );
   const [previewDraft, setPreviewDraft] = useState<Record<
     string,
@@ -90,6 +91,8 @@ function FormBody({
   > | null>(null);
   const [previewPending, setPreviewPending] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<OfferTemplateId>('ONE_TIME');
   const [platform, setPlatform] = useState<string | null>(null);
   const [amountError, setAmountError] = useState<string | null>(null);
   const patch = (changes: Partial<OfferForm>) =>
@@ -294,7 +297,7 @@ function FormBody({
           </p>
           {id ? (
             <p className="text-sm" data-testid="offer-kind">
-              {enumLabel(kindLabels, form.kind)}
+              {offer ? offerLabel(offer) : ''}
               {offer?.platformTag
                 ? ` · Plataforma ${offer.platformTag.toUpperCase()}`
                 : ''}
@@ -306,30 +309,31 @@ function FormBody({
                 tudo abaixo.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
-                {OFFER_PRESET_KINDS.map((kind) => (
+                {OFFER_TEMPLATE_IDS.map((template) => (
                   <button
-                    key={kind}
+                    key={template}
                     type="button"
-                    data-testid={`preset-${kind}`}
-                    aria-pressed={form.kind === kind}
-                    onClick={() =>
-                      setForm((current) => applyPreset(current, kind))
-                    }
+                    data-testid={`preset-${template}`}
+                    aria-pressed={selectedTemplate === template}
+                    onClick={() => {
+                      setSelectedTemplate(template);
+                      setForm((current) => applyPreset(current, template));
+                    }}
                     className={`cursor-pointer rounded-xl border p-3 text-left transition-colors hover:border-emerald-600 dark:hover:bg-white/5 ${
-                      form.kind === kind
+                      selectedTemplate === template
                         ? 'border-emerald-600 bg-emerald-50/60 dark:bg-white/5'
                         : 'border-zinc-200 dark:border-white/10'
                     }`}
                   >
                     <span className="block text-sm font-semibold">
-                      {kindLabels[kind]}
+                      {templateLabels[template]}
                     </span>
                     <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
-                      {kindDescriptions[kind]}
+                      {templateDescriptions[template]}
                     </span>
-                    {kind !== 'BOLETO' && (
+                    {template !== 'BOLETO' && (
                       <span className="mt-1 block text-xs text-zinc-400">
-                        {OFFER_PRESETS[kind].acceptedMethods
+                        {OFFER_TEMPLATES[template].acceptedMethods
                           .map((method) => methodLabels[method])
                           .join(' · ')}
                       </span>

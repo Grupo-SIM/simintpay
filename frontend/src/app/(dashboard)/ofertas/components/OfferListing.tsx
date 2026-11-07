@@ -34,7 +34,7 @@ import {
 import {
   OFFERS_QUERY_KEY,
   enumLabel,
-  kindLabels,
+  offerLabel,
   methodLabels,
   offerStatus,
   recurrenceSummary,
@@ -153,7 +153,7 @@ export function OfferListing({
       defaultWidth: 150,
       render: (row) => (
         <Badge tone="border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/20 dark:bg-violet-500/10 dark:text-violet-300">
-          {enumLabel(kindLabels, row.kind)}
+          {offerLabel(row)}
         </Badge>
       ),
     },

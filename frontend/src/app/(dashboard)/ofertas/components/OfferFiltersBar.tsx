@@ -11,10 +11,8 @@ import {
   type OfferFilters,
 } from '../offer-filters';
 import {
-  OFFER_KINDS,
   OFFER_METHODS,
   OFFER_STATUSES,
-  kindLabels,
   methodLabels,
   renewalLabels,
   statusLabels,
@@ -74,19 +72,6 @@ export function OfferFiltersBar({
           onChange={setOwnerSearch}
         />
       )}
-      <Dropdown
-        label="Tipo"
-        portal
-        theme={theme}
-        value={filters.kind || ALL}
-        options={withAll(
-          'Todos',
-          OFFER_KINDS.map((kind) => ({ value: kind, label: kindLabels[kind] })),
-        )}
-        onChange={(value) =>
-          change({ kind: value === ALL ? '' : (value as OfferFilters['kind']) })
-        }
-      />
       <Dropdown
         label="Status"
         portal

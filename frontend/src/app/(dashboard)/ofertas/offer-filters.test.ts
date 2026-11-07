@@ -23,7 +23,6 @@ describe('offer filters', () => {
     const filters = {
       search: 'mentoria',
       ownerSearch: 'ana@example.test',
-      kind: 'PIX_PLAN' as const,
       status: 'EXHAUSTED' as const,
       platformTag: 'GLOBAL',
       paymentMethod: 'BOLETO' as const,
@@ -32,13 +31,15 @@ describe('offer filters', () => {
     };
     expect(parse(filtersToParams(filters).toString())).toEqual(filters);
     expect(hasActiveFilters({ ...emptyOfferFilters, page: 4 })).toBe(false);
-    expect(hasActiveFilters({ ...emptyOfferFilters, kind: 'PLAN' })).toBe(true);
+    expect(hasActiveFilters({ ...emptyOfferFilters, status: 'INACTIVE' })).toBe(
+      true,
+    );
   });
 
   test('valores inválidos na URL são ignorados', () => {
-    expect(
-      parse('tipo=NOPE&status=x&meio=CASH&recorrencia=y&pagina=-2'),
-    ).toEqual(emptyOfferFilters);
+    expect(parse('status=x&meio=CASH&recorrencia=y&pagina=-2')).toEqual(
+      emptyOfferFilters,
+    );
     expect(parse('pagina=abc').page).toBe(1);
   });
 
@@ -90,10 +91,15 @@ describe('offer filters', () => {
     expect(screenFromParams(new URLSearchParams('novo=0'))).toEqual({
       mode: 'list',
     });
-    const filters = { ...emptyOfferFilters, kind: 'PLAN' as const };
-    expect(screenHref({ mode: 'list' }, filters)).toBe('/ofertas?tipo=PLAN');
+    const filters = {
+      ...emptyOfferFilters,
+      renewalMode: 'AUTO_CHARGE' as const,
+    };
+    expect(screenHref({ mode: 'list' }, filters)).toBe(
+      '/ofertas?recorrencia=AUTO_CHARGE',
+    );
     expect(screenHref({ mode: 'edit', id: 'x y' }, filters)).toBe(
-      '/ofertas?tipo=PLAN&editar=x+y',
+      '/ofertas?recorrencia=AUTO_CHARGE&editar=x+y',
     );
     expect(screenHref({ mode: 'create' }, emptyOfferFilters)).toBe(
       '/ofertas?novo=1',

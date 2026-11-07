@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   enumLabel,
-  kindLabels,
+  offerLabel,
   offerStatus,
   recurrenceSummary,
   statusLabels,
@@ -11,9 +11,24 @@ import {
 
 describe('offers', () => {
   test('enum desconhecido cai no valor bruto', () => {
-    expect(enumLabel(kindLabels, 'PLAN')).toBe('Plano');
-    expect(enumLabel(kindLabels, 'NOVO')).toBe('NOVO');
-    expect(enumLabel(kindLabels, null)).toBe('—');
+    expect(enumLabel(statusLabels, 'ACTIVE')).toBe('Ativa');
+    expect(enumLabel(statusLabels, 'NOVO')).toBe('NOVO');
+    expect(enumLabel(statusLabels, null)).toBe('—');
+  });
+
+  test('rótulo da oferta é derivado dos atributos', () => {
+    expect(offerLabel({ renewalMode: 'NONE', accessDays: null })).toBe(
+      'Compra única',
+    );
+    expect(offerLabel({ renewalMode: 'NONE', accessDays: 30 })).toBe(
+      'Acesso por tempo',
+    );
+    expect(offerLabel({ renewalMode: 'AUTO_CHARGE', accessDays: null })).toBe(
+      'Assinatura no cartão',
+    );
+    expect(offerLabel({ renewalMode: 'MANUAL_PAY', accessDays: 30 })).toBe(
+      'Assinatura por PIX',
+    );
   });
 
   test('status segue a precedência inativa > expirada > esgotada > ativa', () => {
