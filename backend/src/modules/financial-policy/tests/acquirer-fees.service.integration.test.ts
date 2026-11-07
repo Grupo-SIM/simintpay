@@ -1,3 +1,4 @@
+import type { FeeIncreaseChange } from '../../../infrastructure/email/email.service';
 import { describe, expect, test } from 'bun:test';
 import { Prisma, Role } from '@prisma/client';
 import { of } from 'rxjs';
@@ -32,7 +33,23 @@ const lane = () => ({
   sim: { fixedCents: 0, ratePpm: 20_000, interestPpm: 0 },
 });
 
+function mockEmail() {
+  const sent: Array<{ to: string; changes: FeeIncreaseChange[] }> = [];
+  return {
+    sent,
+    email: {
+      sendFeeIncreaseAlert: async (input: {
+        to: string;
+        changes: FeeIncreaseChange[];
+      }) => {
+        sent.push(input);
+      },
+    },
+  };
+}
+
 function mockService(overrides: Record<string, unknown> = {}) {
+  const mail = mockEmail();
   const created: Array<Record<string, unknown>> = [];
   const revisions: Array<Record<string, unknown>> = [];
   const tx = {
@@ -91,7 +108,12 @@ function mockService(overrides: Record<string, unknown> = {}) {
     },
   };
   return {
-    service: new AcquirerFeesService(prisma as never, {} as never),
+    service: new AcquirerFeesService(
+      prisma as never,
+      {} as never,
+      mail.email as never,
+    ),
+    sent: mail.sent,
     created,
     revisions,
   };
@@ -127,6 +149,47 @@ describe('acquirer fee service transactions', () => {
     });
     expect(increasing.created[0]?.changeDirection).toBe('INCREASE');
     expect(increasing.revisions).toHaveLength(0);
+  });
+
+  test('only a manual increase emails CONTACT_EMAIL with old and new fees', async () => {
+    const previousContact = process.env.CONTACT_EMAIL;
+    process.env.CONTACT_EMAIL = 'contato@example.com';
+    try {
+      const lowered = mockService();
+      await lowered.service.save(admin, 'DOM', {
+        method: 'PIX',
+        channel: 'ONLINE',
+        installments: 1,
+        fixedCents: 0,
+        ratePpm: 80_000,
+        interestPpm: 0,
+      });
+      expect(lowered.sent).toHaveLength(0);
+      const raised = mockService();
+      await raised.service.save(admin, 'DOM', {
+        method: 'PIX',
+        channel: 'ONLINE',
+        installments: 1,
+        fixedCents: 0,
+        ratePpm: 120_000,
+        interestPpm: 0,
+      });
+      expect(raised.sent).toHaveLength(1);
+      expect(raised.sent[0]!.to).toBe('contato@example.com');
+      expect(raised.sent[0]!.changes).toMatchObject([
+        {
+          acquirer: 'DOM',
+          method: 'PIX',
+          channel: 'ONLINE',
+          installments: 1,
+          previous: { ratePpm: 100_000 },
+          next: { ratePpm: 120_000 },
+        },
+      ]);
+    } finally {
+      if (previousContact === undefined) delete process.env.CONTACT_EMAIL;
+      else process.env.CONTACT_EMAIL = previousContact;
+    }
   });
 });
 
@@ -192,7 +255,11 @@ function mockDomSync(response: unknown) {
   };
   const http = { get: () => of({ data: response }) };
   return {
-    service: new AcquirerFeesService(prisma as never, http as never),
+    service: new AcquirerFeesService(
+      prisma as never,
+      http as never,
+      { sendFeeIncreaseAlert: async () => {} } as never,
+    ),
     schedules,
     transactions: () => transactions,
   };

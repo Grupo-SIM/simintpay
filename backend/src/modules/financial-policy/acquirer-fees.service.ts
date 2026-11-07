@@ -11,6 +11,10 @@ import { firstValueFrom } from 'rxjs';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
+import {
+  EmailService,
+  type FeeIncreaseChange,
+} from '../../infrastructure/email/email.service';
 import { validateFee, type FeeInput } from './acquirer-fees';
 import { parseDomNegotiation } from './dom-negotiation';
 import { initializePlatformTaxasCache } from '../platform-taxas/platform-taxas.store';
@@ -50,7 +54,24 @@ export class AcquirerFeesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly http: HttpService,
+    private readonly email: EmailService,
   ) {}
+
+  private async notifyIncreases(changes: FeeIncreaseChange[]) {
+    if (!changes.length) return;
+    const to = process.env.CONTACT_EMAIL;
+    if (!to) {
+      this.logger.warn(
+        'CONTACT_EMAIL não configurado; aumento de custo não foi notificado',
+      );
+      return;
+    }
+    try {
+      await this.email.sendFeeIncreaseAlert({ to, changes });
+    } catch {
+      // A taxa já foi gravada; a falha do email é registrada pelo EmailService.
+    }
+  }
 
   private async serializable<T>(
     operation: (tx: Prisma.TransactionClient) => Promise<T>,
@@ -228,7 +249,7 @@ export class AcquirerFeesService {
     const fees = parseDomNegotiation(response);
     // Parse the entire negotiated schedule before inserting a single row. Never log the response:
     // the API also returns identity, MFA and permissions that have no place in financial records.
-    const changed = await this.serializable(async (tx) => {
+    const result = await this.serializable(async (tx) => {
       const acquirer = await tx.acquirerCatalogue.findUnique({
         where: { code: 'DOM' },
       });
@@ -276,22 +297,33 @@ export class AcquirerFeesService {
             ),
           },
         });
-      return updates.map((fee) => {
+      const increases: FeeIncreaseChange[] = [];
+      const changed = updates.map((fee) => {
         const previous = latest.get(
           `${fee.method}/${fee.channel}/${fee.installments}`,
         );
+        const next = { ...fee, base: fee.base ?? 'BUYER_TOTAL' };
+        const increased = feeDirection(previous, next) === 'INCREASE';
+        if (increased && previous)
+          increases.push({
+            acquirer: 'DOM',
+            method: fee.method,
+            channel: fee.channel,
+            installments: fee.installments,
+            previous,
+            next,
+          });
         return {
           method: fee.method,
           channel: fee.channel,
           installments: fee.installments,
-          increased:
-            feeDirection(previous, {
-              ...fee,
-              base: fee.base ?? 'BUYER_TOTAL',
-            }) === 'INCREASE',
+          increased,
         };
       });
+      return { changed, increases };
     });
+    await this.notifyIncreases(result.increases);
+    const changed = result.changed;
     if (changed.some((change) => change.increased))
       this.logger.warn(
         `Custos DOM aumentaram em ${changed.filter((change) => change.increased).length} faixas; revisar margem e preço ao comprador`,
@@ -302,7 +334,7 @@ export class AcquirerFeesService {
   async save(user: JwtPayload, code: string, fee: FeeInput) {
     await this.admin(user);
     validateFee(fee);
-    const created = await this.serializable(async (tx) => {
+    const saved = await this.serializable(async (tx) => {
       const acquirer = await tx.acquirerCatalogue.findUnique({
         where: { code },
       });
@@ -316,7 +348,7 @@ export class AcquirerFeesService {
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       });
-      return tx.acquirerFeeSchedule.create({
+      const row = await tx.acquirerFeeSchedule.create({
         data: {
           method: fee.method,
           channel: fee.channel,
@@ -334,7 +366,21 @@ export class AcquirerFeesService {
           }),
         },
       });
+      return { row, previous };
     });
+    const { row: created, previous } = saved;
+    const next = { ...fee, base: fee.base ?? 'BUYER_TOTAL' };
+    if (previous && feeDirection(previous, next) === 'INCREASE')
+      await this.notifyIncreases([
+        {
+          acquirer: code,
+          method: fee.method,
+          channel: fee.channel,
+          installments: fee.installments,
+          previous,
+          next,
+        },
+      ]);
     return { data: created };
   }
 }
