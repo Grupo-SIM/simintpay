@@ -1,5 +1,10 @@
 import { expect, test } from 'bun:test';
-import { mappingHash, normalizeTags, parseMapping } from './product-ownership';
+import {
+  mappingHash,
+  normalizeTags,
+  ownerColumn,
+  parseMapping,
+} from './product-ownership';
 
 test('normalizes legacy tag fields without inventing platforms', () => {
   expect(
@@ -40,4 +45,16 @@ test('mapping hash ignores order and changes with any approved field', () => {
   expect(mappingHash([a, b])).not.toBe(
     mappingHash([a, { ...b, newOwnerUserId: 'w' }]),
   );
+});
+
+test('accepts Offer products and reads their owner from ownerUserId', () => {
+  const entry = {
+    productType: 'Offer',
+    productId: 'o1',
+    newOwnerUserId: 'u',
+    reason: 'approved',
+  };
+  expect(parseMapping([entry])).toEqual([entry]);
+  expect(ownerColumn('Offer')).toBe('ownerUserId');
+  expect(ownerColumn('PaymentLink')).toBe('userId');
 });

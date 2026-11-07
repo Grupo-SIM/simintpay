@@ -15,6 +15,7 @@ import {
   classifyProduct,
   hostOf,
   normalizeTags,
+  ownerColumn,
   parseMapping,
   warningsFor,
   type Classification,
@@ -31,6 +32,7 @@ const AGREEMENT_KEY: Record<string, ProductType> = {
   boletos: 'Boleto',
   planos: 'Plan',
   'planos-pix': 'PixCreditPlan',
+  ofertas: 'Offer',
 };
 const SETTLED_ORDER_EXCLUDED = [
   'pending',
@@ -162,7 +164,7 @@ export async function runAudit(
           row.platformTag,
           row.tenantTag,
         );
-        const ownerFacts = users.get(row.userId) ?? null;
+        const ownerFacts = users.get(row[ownerColumn(type)]) ?? null;
         const agreementKey = Object.entries(AGREEMENT_KEY).find(
           ([, v]) => v === type,
         )![0];
@@ -378,7 +380,7 @@ async function collectStats(
           activeOrders: null,
           allocations: null,
           adminAllocations: null,
-          note: 'Boleto has no transaction link in the schema',
+          note: 'Boleto has no transaction link in the schema; Offer stats are not collected here',
         };
     }
   };

@@ -346,3 +346,46 @@ run(
     ).not.toBeNull();
   },
 );
+
+run('audits and reassigns an Offer through ownerUserId', async () => {
+  const admin = await user('ADMIN'),
+    owner = await user();
+  const tag = (await platform(owner.id)).tag;
+  const offer = await db!.offer.create({
+    data: {
+      ownerUserId: admin.id,
+      createdByUserId: admin.id,
+      platformTag: tag,
+      code: `OWN${id().slice(0, 8).toUpperCase()}`,
+      kind: 'PAYMENT_LINK',
+      name: 'Offer',
+      amountCents: 5000,
+      acceptedMethods: ['PIX'],
+    } as never,
+  });
+  const row = (await audit()).find(
+    (p) => p.productType === 'Offer' && p.productId === offer.id,
+  )!;
+  expect(row.classification).toMatchObject({
+    status: 'PROPOSE_TRANSFER',
+    targetUserId: owner.id,
+  });
+  const mapping = [
+    entry(offer.id, owner.id, {
+      productType: 'Offer',
+      expectedFromUserId: admin.id,
+    }),
+  ];
+  expect(
+    (await reassignProducts(db!, mapping, { apply: true }))[0].outcome,
+  ).toBe('CHANGED');
+  expect(
+    (await db!.offer.findUniqueOrThrow({ where: { id: offer.id } }))
+      .ownerUserId,
+  ).toBe(owner.id);
+  expect(
+    await db!.productOwnershipChange.count({
+      where: { productType: 'Offer', productId: offer.id },
+    }),
+  ).toBe(1);
+});

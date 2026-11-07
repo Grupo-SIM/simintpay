@@ -18,6 +18,7 @@ import {
   hostOf,
   mappingHash,
   normalizeTags,
+  ownerColumn,
   parseMapping,
   type MappingEntry,
   type ProductType,
@@ -44,6 +45,7 @@ const agreementKey: Record<ProductType, string> = {
   Plan: 'planos',
   PixCreditPlan: 'planos-pix',
   Boleto: 'boletos',
+  Offer: 'ofertas',
 };
 const delegate = (tx: Prisma.TransactionClient, type: ProductType) =>
   (tx as any)[type.charAt(0).toLowerCase() + type.slice(1)];
@@ -79,9 +81,10 @@ export async function reassignProducts(
       ): EntryResult => ({ ...base, fromUserId, outcome: 'REJECTED', detail });
       const table = Prisma.raw(`"${entry.productType}"`);
       const lock = options.apply ? Prisma.sql`FOR UPDATE` : Prisma.empty;
+      const column = Prisma.raw(`"${ownerColumn(entry.productType)}"`);
       const rows = await tx.$queryRaw<
         { userId: string }[]
-      >`SELECT "userId" FROM ${table} WHERE id = ${entry.productId} ${lock}`;
+      >`SELECT ${column} AS "userId" FROM ${table} WHERE id = ${entry.productId} ${lock}`;
       if (!rows.length) {
         results.push(reject(null, 'PRODUCT_NOT_FOUND'));
         continue;
@@ -173,8 +176,11 @@ export async function reassignProducts(
       if (result.outcome !== 'CHANGED') continue;
       const entry = ordered[index];
       const updated = await delegate(tx, entry.productType).updateMany({
-        where: { id: entry.productId, userId: result.fromUserId },
-        data: { userId: entry.newOwnerUserId },
+        where: {
+          id: entry.productId,
+          [ownerColumn(entry.productType)]: result.fromUserId,
+        },
+        data: { [ownerColumn(entry.productType)]: entry.newOwnerUserId },
       });
       if (updated.count !== 1)
         throw new Error(
