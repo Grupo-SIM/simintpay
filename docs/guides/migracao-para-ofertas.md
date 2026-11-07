@@ -7,7 +7,7 @@ Guia para você migrar tudo. Os detalhes técnicos dos scripts estão em [offer-
 Planos, Planos por PIX, Links de pagamento, Links de assinatura e Boletos viram **Ofertas**. Uma oferta tem preço, meios de pagamento, recorrência, validade, limite de usos, entrega e coprodução, tudo no mesmo cadastro.
 
 - A migração **cria** as ofertas a partir dos produtos legados. **Não apaga nem altera** nenhum produto legado.
-- O código público de cada produto é preservado. A **URL muda** (`?oferta=<código>`) e **não há redirecionamento automático**. Você troca as URLs divulgadas.
+- O código público de cada produto é preservado. A URL nova é `?oferta=<código>`. As URLs antigas continuam funcionando: o checkout as redireciona (307) para `?oferta=<mesmo valor>`, e a busca pública da oferta aceita o **código ou o ID** (o ID da oferta migrada é o ID do produto legado). Mesmo assim, troque as URLs divulgadas quando puder.
 - As recorrências passam a ser cobradas pela SimIntPay, não mais pela DOM.
 - Cada script grava só com `--apply --i-understand-this-writes`. Sem isso, é sempre simulação.
 
@@ -90,14 +90,16 @@ O primeiro comando é a simulação. O script confere que carteiras e `BalanceLo
 
 **Passo 6: teste uma oferta de ponta a ponta.** Abra `?oferta=<código>` de uma oferta migrada e pague um PIX real de valor mínimo. Confira o valor, o webhook, o e-mail e a carteira.
 
-**Passo 7: troque as URLs.** Troque o endereço divulgado (site, e-mail, campanha, integrações):
+**Passo 7: troque as URLs.** As URLs antigas seguem funcionando pelo redirecionamento (307) do checkout para `?oferta=<mesmo valor>`; a oferta é encontrada pelo código ou, se não houver, pelo ID. Troque o endereço divulgado (site, e-mail, campanha, integrações) para o novo quando possível:
 
-| Produto            | URL antiga                       | URL nova            |
-| ------------------ | -------------------------------- | ------------------- |
-| Link de pagamento  | `?simLinkCode=<id>`              | `?oferta=<código>`  |
-| Link de assinatura | `?subscriptionLinkCode=<código>` | `?oferta=<código>`  |
-| Plano              | `?simPlanCode=<código>`          | `?oferta=<código>`  |
-| Boleto             | `?simBoletoCode=<id>`            | (mantenha o legado) |
+| Produto            | URL antiga (continua funcionando) | URL nova           |
+| ------------------ | --------------------------------- | ------------------ |
+| Link de pagamento  | `?simLinkCode=<id>`               | `?oferta=<código>` |
+| Link de assinatura | `?subscriptionLinkCode=<código>`  | `?oferta=<código>` |
+| Plano              | `?simPlanCode=<código>`           | `?oferta=<código>` |
+| Boleto             | `?simBoletoCode=<id>`             | `?oferta=<código>` |
+
+O boleto só tem oferta depois de migrado com `--include-boleto`.
 
 **Passo 8: desative o produto legado** (`isActive = false`) quando a URL nova estiver no ar. Enquanto o legado estiver ativo, um cartão pago nele continua criando assinatura na DOM, que cobra por fora do agendador novo.
 
@@ -126,7 +128,7 @@ Um valor abaixo de R$ 14,99 só gera aviso, não bloqueio.
 - **Cartão recorrente:** o fluxo novo (token da DOM ligado ao `customer_id`, cobrado por nós a cada ciclo) está testado só com a DOM simulada. Faça um teste na sandbox da DOM antes de trocar as URLs dos links de assinatura que vendem no cartão. Os pontos a conferir estão no plano 0021.
 - **Taxas por link:** as ofertas **ignoram** as taxas individuais do link (parcelas, cashback, débito) e usam a política financeira. O script avisa com `FEE_OVERRIDE_NOT_CARRIED` quando o link tinha uma taxa diferente do padrão. Confira esses links antes de migrar.
 - **AREAFLIX:** o checkout de oferta aplica a mesma regra de líquido do link AREAFLIX.
-- **Coprodução:** o acordo existente é preservado. Uma oferta migrada continua lendo o acordo do produto original.
+- **Coprodução:** o acordo existente é preservado. Os acordos de links migrados só continuam valendo depois que as linhas de acordo forem re-chaveadas para o produto `ofertas` com o mesmo `productId` (plano 0023, fase 2).
 - **Entrega:** o redirect e o e-mail são copiados; URLs para endereço de rede interna são recusadas por segurança. O webhook do link legado não é migrado: a oferta não tem webhook próprio, só o da plataforma.
 - **Histórico:** as vendas antigas continuam ligadas ao produto legado e aparecem nos relatórios como hoje. As vendas novas vêm da oferta.
 
