@@ -2,6 +2,7 @@ import type { PrismaClient, Prisma } from '@prisma/client';
 import type { ModuleConfig } from './module-config.interface';
 import { Acquirer, toAcquirer } from '../core/services/acquirer.enum';
 import {
+  resolveWithdrawalFixedFee,
   canonicalPlatformTaxaTag,
   getPlatformTaxaEffective,
 } from './platform-taxas/platform-taxas.store';
@@ -98,7 +99,7 @@ export function getModuleConfig(
         return effective('SAQUE_MIN');
       },
       get taxaFixa() {
-        return effective('TAXA_SAQUE_FIXA');
+        return resolveWithdrawalFixedFee(platform.tag);
       },
       get taxaPercentual() {
         return effective('TAXA_SAQUE_PERCENT');

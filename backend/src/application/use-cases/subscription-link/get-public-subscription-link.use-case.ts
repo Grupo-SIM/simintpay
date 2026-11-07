@@ -8,16 +8,18 @@ import {
   loadChargePolicy,
   quoteFinancialCharge,
 } from '../../../modules/financial-policy/financial-charge';
-import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PlanType } from '@prisma/client';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { ISubscriptionLinkRepository } from '../../../core/repositories/subscription-link.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 function mapFrequencyLabel(t: PlanType): string {
   switch (t) {
@@ -54,48 +56,29 @@ export class GetPublicSubscriptionLinkUseCase {
 
     // Valor que o comprador pagará (com ou sem taxa de assinatura da plataforma)
     const base = Number(link.amount);
-    let effectivePlatformFee = link.platformFee; // fallback: valor gravado no link
-    let platformTag = link.platformTag ?? link.plataformas?.[0] ?? 'GLOBAL';
+    const platformTag = link.platformTag ?? link.plataformas?.[0] ?? 'GLOBAL';
     platformGatewayToken(platformTag, process.env.DOM_TOKEN);
-
-    if (!link.isStandalone) {
-      const owner = await this.users.findById(link.userId);
-      // Hierarquia de detecção de plataforma:
-      // 1º platformTag gravado diretamente no link (campo explícito)
-      // 2º slugTag do platform do dono
-      // 3º AREAFLIX se webhookUrl contiver 'areaflix'
-      // 4º GLOBAL (fallback)
-      const linkPlatformTag = (link as any).platformTag?.toUpperCase?.();
-      const slugTag = owner?.platform?.tag?.toUpperCase();
-      platformTag =
-        linkPlatformTag ?? link.plataformas?.[0] ?? slugTag ?? 'GLOBAL';
-
-      // Taxa ao cliente (cartão) = MDR_CC_1X + MDR_CC_MASTER_1X por plataforma
-      const mdrDom1x = getPlatformTaxaEffective(
-        platformTag,
-        'MDR_CC_1X',
-        PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
-      );
-      const mdrMaster1x = getCustomerInterestRate(platformTag, 1);
-      effectivePlatformFee = Math.round((mdrDom1x + mdrMaster1x) * 10000) / 100;
-    }
-
-    const valorComJuros = link.isStandalone
-      ? base
-      : Math.round(base * (1 + effectivePlatformFee / 100) * 100) / 100;
 
     const context = await loadChargePolicy(this.prisma, platformTag);
     const quote = quoteFinancialCharge(context, base, 'CREDIT_CARD');
     const pixQuote = quoteFinancialCharge(context, base, 'PIX');
+    if (acceptsCard(link.paymentMethods) && !quote)
+      throw new BadRequestException(
+        'Política financeira não configurada para cartão',
+      );
+    if (acceptsPix(link.paymentMethods) && !pixQuote)
+      throw new BadRequestException(
+        'Política financeira não configurada para PIX',
+      );
     return {
       id: link.id,
       codigo: link.code,
       nome: link.name,
       descricao: link.description ?? null,
       valor: base,
-      valorComJuros: quote?.totalAmount ?? valorComJuros,
+      valorComJuros: quote?.totalAmount ?? base,
       valorPix: pixQuote?.totalAmount ?? base,
-      platformFee: effectivePlatformFee,
+      platformFee: quote?.platformFeeRate ?? 0,
       isStandalone: link.isStandalone,
       frequencia: mapFrequencyLabel(link.frequencyType),
       ativo: link.isActive,

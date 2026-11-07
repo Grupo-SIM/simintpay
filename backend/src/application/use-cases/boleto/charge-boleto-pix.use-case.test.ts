@@ -15,11 +15,6 @@ import {
   type FixtureOptions,
 } from '../payment-link/charge-characterization.fixture';
 
-/**
- * CHARACTERIZATION of ChargeBoletoPixUseCase (PIX charged against a boleto link).
- * Always settles FINAL_NET (DRAFT -> gateway -> persistLinkCharge). Without a financial quote the net
- * follows exactly what a PIX payment link of the same amount nets (Areaflix included).
- */
 const oldToken = process.env.DOM_TOKEN;
 beforeAll(useEmptyCaches);
 beforeEach(() => {
@@ -48,7 +43,7 @@ function makeBoleto(over: Record<string, unknown> = {}): any {
 }
 
 function setup(boleto: any = makeBoleto(), opts: FixtureOptions = {}) {
-  const db = makeFakePrisma(opts);
+  const db = makeFakePrisma({ financial: true, ...opts });
   const gatewayCalls: { token: string; input: any; draft: any }[] = [];
   const updates: any[] = [];
   const gateway: any = {
@@ -89,76 +84,21 @@ function setup(boleto: any = makeBoleto(), opts: FixtureOptions = {}) {
   return { service, input, db, gatewayCalls, updates };
 }
 
-describe('without financial quote (same rule as a PIX payment link)', () => {
-  test('numbers: net = base - (9% + R$4) = 87, domFee from MDR_PIX (FIXED)', async () => {
-    const f = setup();
-    const out = await f.service.execute(f.input);
-    expect(out.amount).toBe(100);
-    expect(f.gatewayCalls[0].input.amount).toBe(100);
-    // before: net 83 (extra R$3 cashback + R$1 fixed), totalFee 17, domFee 0, platformFee 17
-    expect(money(f.db.row())).toEqual({
-      amount: 100,
-      netAmount: 87,
-      totalFee: 13,
-      domFee: 0.98,
-      platformFee: 12.02,
-    });
-  });
+describe('editable financial policy', () => {
+  test('missing policy rejects before draft, gateway or use reservation', async () => {
+    const f = setup(makeBoleto(), { financial: false });
 
-  test('always a DRAFT -> PENDING FINAL_NET charge with the link reference', async () => {
-    const f = setup();
-    await f.service.execute(f.input);
-    expect(f.gatewayCalls[0].draft.status).toBe('DRAFT');
-    expect(f.gatewayCalls[0].draft.settlementBasis).toBe('FINAL_NET');
-    expect(f.gatewayCalls[0].input.description).toContain('[LINK_CHARGE:');
-    expect(f.gatewayCalls[0].input.codExternal).toMatch(
-      /^pix-boleto-boleto-\d+$/,
+    await expect(f.service.execute(f.input)).rejects.toThrow(
+      'Taxas da plataforma não configuradas',
     );
-    expect(f.gatewayCalls[0].input.documentType).toBe('CPF');
-    const row = f.db.row();
-    expect(f.db.rows()).toHaveLength(1);
-    expect(row.status).toBe('PENDING');
-    expect(row.settlementBasis).toBe('FINAL_NET');
-    expect(row.domPaymentId).toBe('dom-pay-1');
-    expect(row.pixContent).toBe('pix-copy-paste');
-    expect(row.description).toBe('Boleto [TENANT:GLOBAL]');
-    expect(f.db.wallet().balance.toNumber()).toBe(0);
+    expect(f.gatewayCalls).toHaveLength(0);
+    expect(f.db.rows()).toHaveLength(0);
+    expect(f.updates).toHaveLength(0);
   });
 
-  test('currentUses +1 on the boleto', async () => {
-    const f = setup(makeBoleto({ currentUses: 4 }));
-    await f.service.execute(f.input);
-    expect(f.updates).toEqual([{ id: 'boleto', data: { currentUses: 5 } }]);
-  });
-
-  test('non-GLOBAL platform: tenant marker and token from the platform', async () => {
-    await withAreaflixPlatform(async () => {
-      const f = setup(makeBoleto({ plataformas: ['AREAFLIX'] }));
-      await f.service.execute(f.input);
-      expect(f.gatewayCalls[0].token).toBe('test-token');
-      expect(f.db.row().description).toBe('Boleto [TENANT:AREAFLIX]');
-    });
-  });
-
-  test('Areaflix boleto-PIX nets the Areaflix seller net, like an Areaflix PIX link (FIXED)', async () => {
-    await withAreaflixPlatform(async () => {
-      const f = setup(makeBoleto({ plataformas: ['AREAFLIX'] }));
-      await f.service.execute(f.input);
-      // before: net 83, totalFee 17, domFee 0, platformFee 17
-      expect(money(f.db.row())).toEqual({
-        amount: 100,
-        netAmount: 89.01,
-        totalFee: 10.99,
-        domFee: 0.98,
-        platformFee: 10.01,
-      });
-    });
-  });
-});
-
-describe('financialQuote present', () => {
-  test('uses the DRAFT -> FINAL_NET path with quote numbers and snapshot', async () => {
+  test('configured PIX freezes amount, fees and seller net before gateway', async () => {
     const f = setup(makeBoleto(), { financial: true });
+
     const out = await f.service.execute(f.input);
     expect(f.gatewayCalls[0].draft.status).toBe('DRAFT');
     expect(f.gatewayCalls[0].draft.settlementBasis).toBe('FINAL_NET');
@@ -171,41 +111,31 @@ describe('financialQuote present', () => {
       domFee: 1.48,
       platformFee: 4,
     });
-    expect(f.db.row().status).toBe('PENDING');
-    expect(f.db.row().settlementBasis).toBe('FINAL_NET');
     expect(f.db.row().financialSnapshot.originalCents).toBe(10000);
-    expect(f.db.row().description).toBe('Boleto [TENANT:GLOBAL]');
-    expect(f.db.row().customerPhone).toBe('81999999999');
+    expect(f.db.row().status).toBe('PENDING');
+    expect(f.db.wallet().balance.toNumber()).toBe(0);
   });
-});
 
-describe('coproduction snapshot', () => {
-  test('coproduction alone (no quote) keeps the FINAL_NET path with the link PIX numbers', async () => {
-    const f = setup(makeBoleto(), {
-      agreement: {
-        version: 1,
-        participants: [{ userId: 'co-1', percentageBps: 4000 }],
-      },
+  test('Areaflix uses the configured policy without a special seller-net formula', async () => {
+    await withAreaflixPlatform(async () => {
+      const f = setup(makeBoleto({ plataformas: ['AREAFLIX'] }), {
+        financial: true,
+      });
+
+      await f.service.execute(f.input);
+      expect(money(f.db.row()).netAmount).toBe(94.52);
+      expect(f.db.row().financialSnapshot.originalCents).toBe(10000);
     });
-    await f.service.execute(f.input);
-    expect(f.gatewayCalls[0].draft.status).toBe('DRAFT');
-    expect(f.db.row().settlementBasis).toBe('FINAL_NET');
-    expect(money(f.db.row())).toEqual({
-      amount: 100,
-      netAmount: 87,
-      totalFee: 13,
-      domFee: 0.98,
-      platformFee: 12.02,
+  });
+
+  test('expired product rejects without charging even with policy configured', async () => {
+    const f = setup(makeBoleto({ expiresAt: new Date(Date.now() - 1000) }), {
+      financial: true,
     });
-    expect(f.db.row().financialSnapshot.coproduction).toMatchObject({
-      basis: 'NET',
-      version: 1,
-      product: 'boletos',
-      productId: 'boleto',
-      ownerUserId: 'owner',
-      participants: [{ userId: 'co-1', percentageBps: 4000 }],
-    });
-    expect(f.db.row().financialSnapshot.coproductionLegacy).toBeUndefined();
+
+    await expect(f.service.execute(f.input)).rejects.toThrow();
+    expect(f.gatewayCalls).toHaveLength(0);
+    expect(f.db.rows()).toHaveLength(0);
   });
 });
 

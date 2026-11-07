@@ -32,6 +32,7 @@ import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import {
+  resolveWithdrawalFixedFee,
   canonicalPlatformTaxaTag,
   initializePlatformTaxasCache,
   getPlatformTaxaEffective,
@@ -45,8 +46,10 @@ import {
   PLATFORM_TAXA_DEFAULTS,
   type PlataformaTaxaKey,
 } from '../../modules/platform-taxas/platform-taxas.keys';
-import type { PaymentLink } from '@prisma/client';
-import { calculatePaymentLinkFees } from '../use-cases/payment-link/payment-link-fees.helper';
+import {
+  loadChargePolicy,
+  quoteFinancialCharge,
+} from '../../modules/financial-policy/financial-charge';
 
 const publicSelect = {
   id: true,
@@ -196,9 +199,9 @@ export class PlatformsService {
         return {
           ...platform,
           coproducao,
-          // TAXA_SAQUE_FIXA resolves to the charged fee: highest active acquirer fee + platform extra.
+          // Charged fee: highest active acquirer fee + platform extra.
           withdrawalFees: {
-            fixed: withdrawalFee('TAXA_SAQUE_FIXA'),
+            fixed: resolveWithdrawalFixedFee(platform.tag),
             percent: withdrawalFee('TAXA_SAQUE_PERCENT'),
             minimum: withdrawalFee('SAQUE_MIN'),
           },
@@ -496,7 +499,7 @@ export class PlatformsService {
     return {
       data: updated,
       meta: {
-        warnings: this.simulation(platform.tag, 100)
+        warnings: (await this.simulation(platform.tag, 100))
           .filter((row) => row.negativeMargin)
           .map((row) =>
             this.projectLegacySimulation(row, user.role === Role.ADMIN),
@@ -508,12 +511,11 @@ export class PlatformsService {
   async simulate(tag: string, user: JwtPayload, amount: unknown) {
     user = await this.requireSession(user);
     const platform = await this.requireAccess(tag, user);
-    await this.assertLegacyPolicy(platform.tag);
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0)
       throw new BadRequestException('Valor deve ser positivo');
     return {
-      data: this.simulation(platform.tag, value).map((row) =>
+      data: (await this.simulation(platform.tag, value)).map((row) =>
         this.projectLegacySimulation(row, user.role === Role.ADMIN),
       ),
     };
@@ -528,60 +530,9 @@ export class PlatformsService {
       absorbCustomerInterest?: boolean;
     },
   ) {
-    user = await this.requireSession(user);
-    const platform = await this.requireAccess(tag, user);
-    await this.assertLegacyPolicy(platform.tag);
-    const amount = Number(body?.amount);
-    if (!Number.isFinite(amount) || amount <= 0)
-      throw new BadRequestException('Valor deve ser positivo');
-    if (
-      body.absorbCustomerInterest !== undefined &&
-      typeof body.absorbCustomerInterest !== 'boolean'
-    )
-      throw new BadRequestException('Opção de absorção inválida');
-    if (body.absorbCustomerInterest !== undefined)
-      await this.assertLegacyPolicy(platform.tag);
-    if (
-      body.rates !== undefined &&
-      (!body.rates ||
-        typeof body.rates !== 'object' ||
-        Array.isArray(body.rates))
-    )
-      throw new BadRequestException('Tabela de juros inválida');
-    for (const [key, value] of Object.entries(body.rates ?? {})) {
-      if (
-        !/^(?:[1-9]|1[0-2])$/.test(key) ||
-        typeof value !== 'number' ||
-        !Number.isFinite(value) ||
-        value < 0 ||
-        value > 1
-      )
-        throw new BadRequestException(
-          'Parcelas devem ser 1 a 12 e juros decimais entre 0 e 1',
-        );
-    }
-    const link = { amount, isStandalone: false } as unknown as PaymentLink;
-    return {
-      data: Array.from({ length: 12 }, (_, index) => {
-        const installments = index + 1;
-        const rate = body.rates?.[String(installments)] as number | undefined;
-        return this.projectLegacySimulation(
-          {
-            installments,
-            ...calculatePaymentLinkFees(
-              link,
-              installments,
-              platform.tag,
-              false,
-              body.absorbCustomerInterest ?? platform.absorbCustomerInterest,
-              rate,
-              body.absorbCustomerInterest,
-            ),
-          },
-          user.role === Role.ADMIN,
-        );
-      }),
-    };
+    if (body.rates !== undefined || body.absorbCustomerInterest !== undefined)
+      throw new GoneException('Edite e simule as taxas em /admin/taxas');
+    return this.simulate(tag, user, body.amount);
   }
 
   private projectLegacySimulation<
@@ -598,11 +549,19 @@ export class PlatformsService {
     return { ...visible, sellerFee: row.sellerFee + row.domFeeAmount };
   }
 
-  private simulation(tag: string, amount: number) {
-    const link = { amount, isStandalone: false } as unknown as PaymentLink;
-    return Array.from({ length: 12 }, (_, i) => ({
-      installments: i + 1,
-      ...calculatePaymentLinkFees(link, i + 1, tag),
-    }));
+  private async simulation(tag: string, amount: number) {
+    const context = await loadChargePolicy(this.prisma, tag);
+    return Array.from({ length: 12 }, (_, i) => {
+      const quote = quoteFinancialCharge(context, amount, 'CREDIT_CARD', i + 1);
+      if (!quote)
+        throw new BadRequestException(
+          'Taxas da plataforma não configuradas para esta modalidade',
+        );
+      return {
+        installments: i + 1,
+        ...quote,
+        negativeMargin: quote.platformProfit < 0,
+      };
+    });
   }
 }

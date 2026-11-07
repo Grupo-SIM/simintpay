@@ -1,8 +1,28 @@
+import {
+  makeFakePrisma,
+  PIX_LANE_POLICY,
+} from '../payment-link/charge-characterization.fixture';
 import { initializePlatformRegistryCache } from '../../../modules/module.registry';
 import { initializePlatformIntegrationsCache } from '../../../modules/platform-integrations/platform-integrations.store';
 import { initializePlatformTaxasCache } from '../../../modules/platform-taxas/platform-taxas.store';
 beforeEach(async () => {
-  const fixture = { platform: { findMany: async () => [{ tag: 'RENOVADA', ownerUserId: 'u1', customerInterestRates: {} }] }, platformIntegration: { findMany: async () => [{ platform: { tag: 'RENOVADA' }, key: 'DOM_TOKEN', url: 'assigned-token' }] }, platformTaxaOverride: { findMany: async () => [] } };
+  const fixture = {
+    platform: {
+      findMany: async () => [
+        { tag: 'RENOVADA', ownerUserId: 'u1', customerInterestRates: {} },
+      ],
+    },
+    platformIntegration: {
+      findMany: async () => [
+        {
+          platform: { tag: 'RENOVADA' },
+          key: 'DOM_TOKEN',
+          url: 'assigned-token',
+        },
+      ],
+    },
+    platformTaxaOverride: { findMany: async () => [] },
+  };
   await initializePlatformRegistryCache(fixture as never);
   await initializePlatformIntegrationsCache(fixture as never);
   await initializePlatformTaxasCache(fixture as never);
@@ -30,7 +50,26 @@ function build(owner: any) {
   } as any;
   const users = { findById: jest.fn().mockResolvedValue(owner) } as any;
   process.env.DOM_TOKEN = 'tok';
-  return { uc: new CreatePlanUseCase(plans, gateway, users), plans, gateway };
+  const db = makeFakePrisma();
+  db.prisma.financialPolicyRevision.findMany = async () =>
+    [
+      {
+        tag: 'GLOBAL',
+        version: 1,
+        document: {
+          ...PIX_LANE_POLICY,
+          lanes: {
+            'DOM/CREDIT_CARD/ONLINE/1':
+              PIX_LANE_POLICY.lanes['DOM/PIX/ONLINE/1'],
+          },
+        },
+      },
+    ] as never;
+  return {
+    uc: new CreatePlanUseCase(plans, gateway, users, db.prisma),
+    plans,
+    gateway,
+  };
 }
 
 describe('CreatePlanUseCase (cliente)', () => {

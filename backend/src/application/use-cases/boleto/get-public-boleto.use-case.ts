@@ -1,11 +1,13 @@
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
+import {
+  loadChargePolicy,
+  quoteFinancialCharge,
+} from '../../../modules/financial-policy/financial-charge';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { BOLETO_REPOSITORY } from '../../../core/repositories/boleto.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { IBoletoRepository } from '../../../core/repositories/boleto.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
-import { calculateBoletoFees } from './boleto-fees.helper';
 
 @Injectable()
 export class GetPublicBoletoUseCase {
@@ -47,11 +49,11 @@ export class GetPublicBoletoUseCase {
       platformTag = owner?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
     }
 
-    // Garante que o cálculo de taxa esteja disponível (não altera o retorno público,
-    // mas valida a plataforma). O líquido é calculado no charge.
-    calculateBoletoFees(Number(boleto.amount), platformTag);
-
-    const quote = quoteFinancialCharge(await loadChargePolicy(this.prisma, platformTag), Number(boleto.amount), 'BOLETO');
+    const quote = quoteFinancialCharge(
+      await loadChargePolicy(this.prisma, platformTag),
+      Number(boleto.amount),
+      'BOLETO',
+    );
     return {
       id: boleto.id,
       titulo: boleto.title,

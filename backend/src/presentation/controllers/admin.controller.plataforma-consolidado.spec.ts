@@ -21,6 +21,7 @@ jest.mock('uuid', () => ({
 jest.mock('../../modules/platform-taxas/platform-taxas.store', () => ({
   getPlatformTaxaEffective: (_tag: string, _key: string, fallback: number) =>
     fallback,
+  resolveWithdrawalFixedFee: () => 3.5,
   invalidatePlatformTaxaCache: jest.fn(),
   buildClientTaxaTag: (email: string) => `CLIENT:${email}`,
   canonicalPlatformTaxaTag: (tag: string) => tag,

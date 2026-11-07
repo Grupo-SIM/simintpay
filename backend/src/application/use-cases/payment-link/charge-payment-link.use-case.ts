@@ -27,18 +27,9 @@ import type { IPaymentLinkRepository } from '../../../core/repositories/payment-
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import {
-  calculatePaymentLinkFees,
-  calculateDebitFees,
-  round2,
-} from './payment-link-fees.helper';
-import { buildUserTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
-import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
+import { round2 } from './payment-link-fees.helper';
 import { splitDocument } from '../../utils/document.util';
-import {
-  isAreaflixLink,
-  calculateAreaflixSellerNet,
-} from '../../helpers/areaflix-fees.helper';
+
 import {
   offersDescriptionSuffix,
   recordOfferSales,
@@ -166,15 +157,8 @@ export class ChargePaymentLinkUseCase {
     const chargedBase = funnel
       ? Number(funnel.offer.price)
       : Number(link.amount) + sumOffers(bumps);
-    const pricedLink = { ...link, amount: new Prisma.Decimal(chargedBase) };
 
     // Resolve domToken: cliente SimintPay SEMPRE usa o token mestre; senão usuário > módulo > global.
-    const owner = await this.users.findById(link.userId);
-    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(
-      ((link as any).plataformas?.[0] ?? 'GLOBAL').toUpperCase(),
-    )
-      ? null
-      : clientTaxaTagFor(owner);
     const selectedTag = (link as any).plataformas?.[0] ?? 'GLOBAL';
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
 
@@ -187,13 +171,6 @@ export class ChargePaymentLinkUseCase {
     const linkPlatformTag =
       (link as any).plataformas?.[0]?.toUpperCase() ?? null;
     const platformTag = linkPlatformTag ?? 'GLOBAL';
-    // Taxa: se o DONO do link é cliente SimintPay, usa a tag do dono (CLIENT:<owner>).
-    // Senão, mantém a regra antiga (GLOBAL + email do comprador para taxa personalizada por comprador).
-    const taxaTag =
-      ownerClientTag ??
-      (['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-        ? buildUserTaxaTag(link.userId)
-        : platformTag);
     const isDebit = input.paymentMethod === 'debit_card';
     const isPix = input.paymentMethod === 'pix';
     if (isPix && !link.aceitaPix) {
@@ -213,50 +190,19 @@ export class ChargePaymentLinkUseCase {
     // Para débito: comprador paga valor base; taxas (DOM 3,49%+R$1 + plataforma) saem do líquido do vendedor.
     // Para PIX: comprador paga exatamente o valor base, sem juros de parcelamento.
     // Para crédito: cálculo normal com juros repassados ao comprador.
-    const financialContext = await loadChargePolicy(this.prisma, taxaTag);
+    const financialContext = await loadChargePolicy(this.prisma, platformTag);
     const financialQuote = quoteFinancialCharge(
       financialContext,
       chargedBase,
       isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
       installments,
     );
-    const fees =
-      financialQuote ??
-      (isDebit
-        ? (() => {
-            const d = calculateDebitFees(pricedLink, taxaTag);
-            return {
-              totalAmount: d.baseAmount, // comprador paga o valor base
-              netAmount: d.netAmount,
-              domFeeAmount: d.domFeeAmount, // só o custo DOM; a parte da plataforma sai de totalFee - domFee
-            };
-          })()
-        : calculatePaymentLinkFees(
-            pricedLink,
-            installments,
-            taxaTag,
-            isPix,
-            false,
-          ));
-    const { totalAmount, domFeeAmount } = fees;
-    let { netAmount } = fees;
-
-    // AREAFLIX: líquido do vendedor = valor − % do método − taxa fixa (taxas do painel)
-    const isAfLink = isAreaflixLink({
-      webhookUrl: (link as any).webhookUrl,
-      plataformas: (link as any).plataformas,
-    });
-    if (isAfLink && !financialQuote) {
-      // Cartão 1x: o líquido incide sobre o valor do link (base), nunca sobre o total do
-      // comprador, que inclui a taxa DOM repassada a ele. Demais métodos já cobram a base.
-      const areaflixGross =
-        !isPix && !isDebit && installments <= 1 ? chargedBase : totalAmount;
-      netAmount = calculateAreaflixSellerNet(
-        areaflixGross,
-        isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
-        installments,
+    if (!financialQuote) {
+      throw new BadRequestException(
+        'Taxas da plataforma não configuradas para esta modalidade',
       );
     }
+    const { totalAmount, domFeeAmount, netAmount } = financialQuote;
 
     const effectiveUserId = link.userId;
 
@@ -284,7 +230,7 @@ export class ChargePaymentLinkUseCase {
       platformTag,
     );
     const baseSnapshot = withCoproduction(
-      financialQuote?.financialSnapshot,
+      financialQuote.financialSnapshot,
       coproduction,
     );
     const snapshot = {

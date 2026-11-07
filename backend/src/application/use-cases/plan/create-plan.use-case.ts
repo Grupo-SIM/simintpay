@@ -1,5 +1,6 @@
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { requireFinancialCharge } from '../../../modules/financial-policy/require-financial-charge';
 import { resolveFinancialOwner } from '../../helpers/financial-owner.helper';
-import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
@@ -11,8 +12,6 @@ import type {
   CreatePlanDto,
   PlanTipoDto,
 } from '../../dtos/plan/create-plan.dto';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import {
@@ -42,6 +41,7 @@ export class CreatePlanUseCase {
     @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(input: {
@@ -62,26 +62,21 @@ export class CreatePlanUseCase {
 
     const { planType, frequency } = mapTipo(input.dto.tipo);
 
-    // Preço que o cliente do cliente paga = base + taxa DOM cartão 1x + taxa Master cartão 1x
-    // O preço base (sem markup) fica salvo no DB para cálculo de taxas do vendedor no webhook
-    // A plataforma de origem (ex.: PAGATG) sempre manda quando informada explicitamente — a
-    // mesma conta pode ser cliente SimintPay e também dona de um plano em outro produto.
-    // Só cai na tag CLIENT:<email> (herda do GLOBAL) quando nenhuma plataforma foi enviada.
+    // Resolve o total do comprador pela política financeira atual da plataforma.
     const domToken = platformGatewayToken(
       explicitPlatformTag,
       process.env.DOM_TOKEN,
     );
     if (!domToken)
       throw new UnauthorizedException('Token do gateway não configurado');
-    const platformTag = explicitPlatformTag ?? clientTag ?? 'GLOBAL';
-    const mdrDom1x = getPlatformTaxaEffective(
+    const platformTag = explicitPlatformTag ?? 'GLOBAL';
+    const quote = await requireFinancialCharge(
+      this.prisma,
       platformTag,
-      'MDR_CC_1X',
-      PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
+      input.dto.preco,
+      'CREDIT_CARD',
     );
-    const mdrMaster1x = getCustomerInterestRate(platformTag, 1);
-    const domPrice =
-      Math.round(input.dto.preco * (1 + mdrDom1x + mdrMaster1x) * 100) / 100;
+    const domPrice = quote.totalAmount;
 
     const dom = await this.gateway.createPlan(domToken, {
       price: domPrice,

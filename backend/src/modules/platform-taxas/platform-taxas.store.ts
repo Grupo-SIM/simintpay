@@ -1,9 +1,8 @@
-import { getRegisteredPlatform } from '../module.registry';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   PLATFORM_TAXA_DEFAULTS,
-  PLATAFORMA_TAXA_KEYS,
+  isEditablePlatformTaxaKey,
   type PlataformaTaxaKey,
 } from './platform-taxas.keys';
 
@@ -59,22 +58,14 @@ export async function initializePlatformTaxasCache(
     const records = await getPrisma().platformTaxaOverride.findMany();
     const newCache: Overrides = {};
     for (const req of records) {
+      if (!isEditablePlatformTaxaKey(req.key) || isClientTaxaTag(req.tag))
+        continue;
       if (!newCache[req.tag]) {
         newCache[req.tag] = {};
       }
       newCache[req.tag][req.key] = req.value;
     }
 
-    // Legacy aliases only for registered accounts; never infer ownership from an arbitrary email.
-    const users = await getPrisma().user?.findMany({
-      select: { id: true, email: true },
-    });
-    legacyUserTags.clear();
-    for (const user of users ?? [])
-      legacyUserTags.set(
-        buildUserTaxaTag(user.id),
-        buildClientTaxaTag(user.email),
-      );
     acquirerWithdrawalMax = await loadAcquirerWithdrawalMax();
     overridesCache = newCache;
     lastCacheUpdate = Date.now();
@@ -102,7 +93,6 @@ export const CLIENT_TAXA_TAG_PREFIX = 'CLIENT:';
 export function buildUserTaxaTag(id: string): string {
   return `USER:${id.toUpperCase()}`;
 }
-const legacyUserTags = new Map<string, string>();
 
 /** Monta a tag canônica de um cliente personalizado a partir do e-mail (ex.: CLIENT:JOAO@X.COM). */
 export function buildClientTaxaTag(email: string): string {
@@ -136,43 +126,32 @@ function finalizeResolvedTaxa(keySuffix: string, value: number): number {
   return value;
 }
 
+/** Taxa cobrada no saque: maior custo ativo da adquirente mais o extra configurado. */
+export function resolveWithdrawalFixedFee(tag: string): number {
+  readOverridesRaw();
+  return (
+    Math.round(
+      (acquirerWithdrawalMax +
+        getPlatformTaxaEffective(
+          tag,
+          'TAXA_SAQUE_EXTRA',
+          PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_EXTRA,
+        )) *
+        100,
+    ) / 100
+  );
+}
+
 export function getPlatformTaxaEffective(
   listOrModuleTag: string,
   keySuffix: string,
   fallback: number,
 ): number {
-  // Taxa de saque cobrada = maior taxa entre as adquirentes ativas + extra do admin.
-  if (keySuffix === 'TAXA_SAQUE_FIXA')
-    return (
-      Math.round(
-        (acquirerWithdrawalMax +
-          getPlatformTaxaEffective(
-            listOrModuleTag,
-            'TAXA_SAQUE_EXTRA',
-            PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_EXTRA,
-          )) *
-          100,
-      ) / 100
-    );
-  // Cliente personalizado (SIM INT PAY): usa o override do cliente; se não houver
-  // para esta chave, herda TODA a resolução do GLOBAL (override + default).
-  if (isClientTaxaTag(listOrModuleTag)) {
-    const clientTag = canonicalPlatformTaxaTag(listOrModuleTag);
-    const clientOverride = readOverridesRaw()[clientTag]?.[keySuffix];
-    if (
-      clientOverride !== undefined &&
-      Number.isFinite(Number(clientOverride))
-    ) {
-      return finalizeResolvedTaxa(keySuffix, Number(clientOverride));
-    }
-    const legacyTag = legacyUserTags.get(clientTag);
-    const legacyOverride = legacyTag
-      ? readOverridesRaw()[legacyTag]?.[keySuffix]
-      : undefined;
-    if (legacyOverride !== undefined && Number.isFinite(Number(legacyOverride)))
-      return finalizeResolvedTaxa(keySuffix, Number(legacyOverride));
+  // Legacy constants support historical projections only; no legacy override is applied.
+  if (!isEditablePlatformTaxaKey(keySuffix))
+    return PLATFORM_TAXA_DEFAULTS[keySuffix as PlataformaTaxaKey] ?? fallback;
+  if (isClientTaxaTag(listOrModuleTag))
     return getPlatformTaxaEffective('GLOBAL', keySuffix, fallback);
-  }
 
   const canonical = canonicalPlatformTaxaTag(listOrModuleTag);
   const overrides = readOverridesRaw();
@@ -189,16 +168,6 @@ export function getPlatformTaxaEffective(
 
   // 2º: override global (tag GLOBAL)
   if (canonical !== 'GLOBAL') {
-    const ownerId = getRegisteredPlatform(canonical)?.ownerUserId;
-    if (ownerId) {
-      const ownerTag = buildUserTaxaTag(ownerId);
-      const legacy = legacyUserTags.get(ownerTag);
-      const ownerValue =
-        overrides[ownerTag]?.[keySuffix] ??
-        (legacy ? overrides[legacy]?.[keySuffix] : undefined);
-      if (ownerValue !== undefined && Number.isFinite(Number(ownerValue)))
-        return finalizeResolvedTaxa(keySuffix, Number(ownerValue));
-    }
     const globalRow = overrides['GLOBAL'];
     const globalOverride = globalRow?.[keySuffix];
     if (
@@ -220,27 +189,9 @@ export function getPlatformTaxaSource(
   listOrModuleTag: string,
   keySuffix: string,
 ): 'override' | 'global' | 'default' {
-  // Cliente personalizado: 'override' se ele tem valor próprio; senão, a fonte é o GLOBAL.
-  if (isClientTaxaTag(listOrModuleTag)) {
-    const clientTag = canonicalPlatformTaxaTag(listOrModuleTag);
-    const clientRow = readOverridesRaw()[clientTag];
-    if (
-      clientRow &&
-      Object.prototype.hasOwnProperty.call(clientRow, keySuffix)
-    ) {
-      return 'override';
-    }
-    const legacyTag = legacyUserTags.get(clientTag);
-    if (
-      legacyTag &&
-      Object.prototype.hasOwnProperty.call(
-        readOverridesRaw()[legacyTag] ?? {},
-        keySuffix,
-      )
-    )
-      return 'override';
+  if (!isEditablePlatformTaxaKey(keySuffix)) return 'default';
+  if (isClientTaxaTag(listOrModuleTag))
     return getPlatformTaxaSource('GLOBAL', keySuffix);
-  }
 
   const canonical = canonicalPlatformTaxaTag(listOrModuleTag);
   const overrides = readOverridesRaw();
@@ -254,22 +205,6 @@ export function getPlatformTaxaSource(
   }
 
   if (canonical !== 'GLOBAL') {
-    const ownerId = getRegisteredPlatform(canonical)?.ownerUserId;
-    const ownerTag = ownerId ? buildUserTaxaTag(ownerId) : null;
-    const legacy = ownerTag ? legacyUserTags.get(ownerTag) : null;
-    if (
-      (ownerTag &&
-        Object.prototype.hasOwnProperty.call(
-          overrides[ownerTag] ?? {},
-          keySuffix,
-        )) ||
-      (legacy &&
-        Object.prototype.hasOwnProperty.call(
-          overrides[legacy] ?? {},
-          keySuffix,
-        ))
-    )
-      return 'override';
     const globalRow = overrides['GLOBAL'];
     if (
       globalRow &&
@@ -282,50 +217,6 @@ export function getPlatformTaxaSource(
   return 'default';
 }
 
-function isAllowedKey(k: string): k is PlataformaTaxaKey {
-  return (PLATAFORMA_TAXA_KEYS as readonly string[]).includes(k);
-}
-
-export function applyPatchToOverrides(
-  tagParam: string,
-  patch: Record<string, number | null>,
-): Overrides {
-  const canonical = canonicalPlatformTaxaTag(tagParam);
-  const all: Overrides = { ...readOverridesRaw() };
-  const prev = { ...(all[canonical] ?? {}) };
-  for (const [k, v] of Object.entries(patch)) {
-    if (!isAllowedKey(k)) continue;
-    if (v === null) {
-      delete prev[k];
-      continue;
-    }
-    if (typeof v !== 'number' || !Number.isFinite(v)) {
-      throw new Error(`Valor inválido para ${k}`);
-    }
-    prev[k] = v;
-  }
-  all[canonical] = prev;
-  return all;
-}
-
-export async function writeOverrides(data: Overrides): Promise<void> {
-  const newItems: { tag: string; key: string; value: number }[] = [];
-  for (const [tag, keys] of Object.entries(data)) {
-    for (const [key, value] of Object.entries(keys)) {
-      newItems.push({ tag, key, value });
-    }
-  }
-
-  // Persiste no banco antes de atualizar o cache: se falhar, lança erro para o chamador
-  await getPrisma().$transaction([
-    getPrisma().platformTaxaOverride.deleteMany(),
-    getPrisma().platformTaxaOverride.createMany({ data: newItems }),
-  ]);
-
-  overridesCache = JSON.parse(JSON.stringify(data));
-  lastCacheUpdate = Date.now();
-}
-
 export function defaultTaxaValue(key: PlataformaTaxaKey): number {
   return PLATFORM_TAXA_DEFAULTS[key];
 }
@@ -335,34 +226,18 @@ export function invalidatePlatformTaxaCache(): void {
   lastCacheUpdate = 0;
 }
 
-/** Customer interest belongs to the platform, independently of admin cost overrides. */
-export function getCustomerInterestRate(
-  tag: string,
-  installments: number,
-): number {
-  readOverridesRaw();
-  const n = Math.min(12, Math.max(1, Math.trunc(installments)));
-  const canonical = canonicalPlatformTaxaTag(tag);
-  const platform = getRegisteredPlatform(canonical);
-  if (platform?.absorbCustomerInterest) return 0;
-  const configured = (
-    platform?.customerInterestRates as Record<string, number> | undefined
-  )?.[String(n)];
-  return typeof configured === 'number' && Number.isFinite(configured)
-    ? configured
-    : getPlatformTaxaEffective(
-        'GLOBAL',
-        `MDR_LINK_${n}X`,
-        PLATFORM_TAXA_DEFAULTS[`MDR_LINK_${n}X` as PlataformaTaxaKey],
-      );
-}
-
 /** Update only requested keys, preserving concurrent changes to other platforms. */
 export async function patchPlatformOverrides(
   tag: string,
   patch: Record<string, number | null>,
 ): Promise<void> {
   const canonical = canonicalPlatformTaxaTag(tag);
+  if (isClientTaxaTag(canonical))
+    throw new Error('Configure taxas por plataforma em /admin/taxas');
+  if (Object.keys(patch).some((key) => !isEditablePlatformTaxaKey(key)))
+    throw new Error(
+      'Taxa legada: configure a política financeira em /admin/taxas',
+    );
   const operations = Object.entries(patch).map(([key, value]) =>
     value === null
       ? getPrisma().platformTaxaOverride.deleteMany({

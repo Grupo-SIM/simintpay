@@ -23,7 +23,10 @@ import {
 } from '@nestjs/common';
 import { Prisma, TransactionStatus } from '@prisma/client';
 import { whereTransactionPlatform } from '../../platform-core/transaction-platform';
-import { getPlatformTaxaEffective } from '../../platform-taxas/platform-taxas.store';
+import {
+  resolveWithdrawalFixedFee,
+  getPlatformTaxaEffective,
+} from '../../platform-taxas/platform-taxas.store';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
 export type FinancePlatformContext = {
@@ -466,11 +469,7 @@ export class PlatformFinanceService {
 
   /** Same resolver the legacy taxas/fees endpoints use; money converted to cents. */
   private withdrawalPolicy(tag: string) {
-    const fixed = getPlatformTaxaEffective(
-      tag,
-      'TAXA_SAQUE_FIXA',
-      PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA,
-    );
+    const fixed = resolveWithdrawalFixedFee(tag);
     const percent = getPlatformTaxaEffective(
       tag,
       'TAXA_SAQUE_PERCENT',

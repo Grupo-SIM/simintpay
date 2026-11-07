@@ -126,6 +126,7 @@ import { CommunityManagementService } from '../../application/services/community
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
 import {
+  resolveWithdrawalFixedFee,
   getPlatformTaxaEffective,
   invalidatePlatformTaxaCache,
   buildUserTaxaTag,
@@ -3794,11 +3795,7 @@ export class AdminController {
       const platformTag = normalizePlatformTag(
         w.platform ?? w.user?.platform?.tag ?? 'GLOBAL',
       );
-      const taxaSaqueFixa = getPlatformTaxaEffective(
-        platformTag,
-        'TAXA_SAQUE_FIXA',
-        PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA,
-      );
+      const taxaSaqueFixa = resolveWithdrawalFixedFee(platformTag);
       const lucroW = Math.max(0, taxaSaqueFixa - DOM_FEE_SAQUE);
       lucroSaqueAcum += lucroW;
       if (lucroW > 0) {
@@ -7931,11 +7928,7 @@ export class AdminController {
     );
     if ('error' in cards) throw new Error(cards.error);
 
-    const TAXA_SAQUE_FIXA = getPlatformTaxaEffective(
-      'ATLAS',
-      'TAXA_SAQUE_FIXA',
-      PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA,
-    );
+    const withdrawalFixedFee = resolveWithdrawalFixedFee('ATLAS');
 
     const atlasBaseUrl = String(
       getPlatformIntegrationValue('ATLAS', 'BACKEND_URL') ?? '',
@@ -7987,7 +7980,7 @@ export class AdminController {
     const saquePendente = atlasData?.withdrawals.pendingCount ?? 0;
     const qtdSaquesAprovados =
       atlasData?.withdrawals.approvedInPeriodCount ?? 0;
-    const lucroSimpayDeSaque = qtdSaquesAprovados * TAXA_SAQUE_FIXA;
+    const lucroSimpayDeSaque = qtdSaquesAprovados * withdrawalFixedFee;
 
     const receitaLiquidaSimintpay = cards.taxaSimIntPctNet + lucroSimpayDeSaque;
     const lucroLiquidoDominio =

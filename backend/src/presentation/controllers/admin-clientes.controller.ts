@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   ForbiddenException,
   Get,
@@ -21,7 +22,6 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
 import {
   buildUserTaxaTag,
-  patchPlatformOverrides,
   getPlatformTaxaEffective,
 } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
@@ -72,13 +72,11 @@ export class AdminClientesController {
   }
 
   private async applyTaxa(userId: string, body: TaxaBody): Promise<void> {
-    const tag = buildUserTaxaTag(userId);
-    const patch: Record<string, number | null> = {};
-    if (body.taxaCartao != null)
-      patch['MDR_CC_MASTER_1X'] = Number(body.taxaCartao);
-    if (body.taxaPix != null) patch['MDR_PIX'] = Number(body.taxaPix);
-    if (Object.keys(patch).length === 0) return;
-    await patchPlatformOverrides(tag, patch);
+    if (body.taxaCartao !== undefined || body.taxaPix !== undefined)
+      throw new BadRequestException(
+        'Taxas por cliente foram removidas; configure a plataforma em /admin/taxas',
+      );
+    void userId;
   }
 
   // ── Backfill: marca contas avulsas como cliente (clientStatus) ─────────────
@@ -381,11 +379,11 @@ export class AdminClientesController {
     await this.assertMaster(authUser);
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('Cliente não encontrado');
+    await this.applyTaxa(user.id, body);
     await this.prisma.user.update({
       where: { id },
       data: { clientStatus: 'APPROVED', clientApprovedAt: new Date() },
     });
-    await this.applyTaxa(user.id, body);
     return { success: true };
   }
 

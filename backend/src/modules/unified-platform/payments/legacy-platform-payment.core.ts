@@ -106,7 +106,7 @@ export class LegacyPlatformPaymentCore {
     private readonly prisma: PrismaService,
     private readonly reconcile: ReconcilePendingTransactionsUseCase | undefined,
     private readonly tag: string,
-    private readonly config: ModuleConfig,
+    _config: ModuleConfig,
     private readonly merchantId?: string,
     private readonly deliveryAllocation?: DeliveryAllocationDto,
   ) {}
@@ -239,31 +239,18 @@ export class LegacyPlatformPaymentCore {
         : quoteFinancialCharge(
             {
               ...(await loadChargePolicy(this.prisma, this.tag)),
-              legacyCosts: {
-                acquirerCents: Math.round(
-                  body.price * this.config.mdr.pix * 100,
-                ),
-                simCents: 0,
-              },
             },
             body.price,
             'PIX',
           );
-      const price = financialQuote?.totalAmount ?? body.price;
-      const liquidez = this.config.saque.fatorLiquidez;
-      const mdrPix = this.config.mdr.pix;
-      const amountWithoutAllFee =
-        financialQuote?.netAmount ?? parseFloat((price * liquidez).toFixed(2));
-      const totalFees =
-        financialQuote?.totalFeeAmount ??
-        parseFloat(
-          (this.tag === 'BOSQUE' || this.tag === 'RENOVADA'
-            ? price - amountWithoutAllFee
-            : price * (1 - liquidez)
-          ).toFixed(2),
-        );
-      const domFee =
-        financialQuote?.domFeeAmount ?? parseFloat((price * mdrPix).toFixed(2));
+      if (!financialQuote)
+        throw new UnprocessableEntityException({
+          code: 'FINANCIAL_POLICY_MISSING',
+        });
+      const price = financialQuote.totalAmount;
+      const amountWithoutAllFee = financialQuote.netAmount;
+      const totalFees = financialQuote.totalFeeAmount;
+      const domFee = financialQuote.domFeeAmount;
       const platformFeeCalc = parseFloat((totalFees - domFee).toFixed(2));
 
       await this.prisma.wallet.upsert({
@@ -423,37 +410,19 @@ export class LegacyPlatformPaymentCore {
         : quoteFinancialCharge(
             {
               ...(await loadChargePolicy(this.prisma, this.tag)),
-              legacyCosts: {
-                acquirerCents: Math.round(
-                  body.price *
-                    (this.config.mdr.cartao[body.installments] ??
-                      this.config.mdr.cartao[1]) *
-                    100,
-                ),
-                simCents: 0,
-              },
             },
             body.price,
             'CREDIT_CARD',
             body.installments,
           );
-      const price = financialQuote?.totalAmount ?? body.price;
-      const liquidezCC = this.config.saque.fatorLiquidez;
-      const mdrCC =
-        this.config.mdr.cartao[body.installments] ?? this.config.mdr.cartao[1];
-      const amountWithoutAllFee =
-        financialQuote?.netAmount ??
-        parseFloat((price * liquidezCC).toFixed(2));
-      const totalFeesFinal =
-        financialQuote?.totalFeeAmount ??
-        parseFloat(
-          (this.tag === 'BOSQUE' || this.tag === 'RENOVADA'
-            ? price - amountWithoutAllFee
-            : price * (1 - liquidezCC)
-          ).toFixed(2),
-        );
-      const domFee =
-        financialQuote?.domFeeAmount ?? parseFloat((price * mdrCC).toFixed(2));
+      if (!financialQuote)
+        throw new UnprocessableEntityException({
+          code: 'FINANCIAL_POLICY_MISSING',
+        });
+      const price = financialQuote.totalAmount;
+      const amountWithoutAllFee = financialQuote.netAmount;
+      const totalFeesFinal = financialQuote.totalFeeAmount;
+      const domFee = financialQuote.domFeeAmount;
       const platformFeeCC = parseFloat((totalFeesFinal - domFee).toFixed(2));
 
       await this.prisma.wallet.upsert({

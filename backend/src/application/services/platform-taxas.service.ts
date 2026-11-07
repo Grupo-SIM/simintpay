@@ -1,5 +1,3 @@
-import { calculatePaymentLinkFees } from '../use-cases/payment-link/payment-link-fees.helper';
-import type { PaymentLink } from '@prisma/client';
 import {
   getRegisteredPlatform,
   registeredPlatformTags,
@@ -13,7 +11,7 @@ import {
   patchPlatformOverrides,
 } from '../../modules/platform-taxas/platform-taxas.store';
 import {
-  PLATAFORMA_TAXA_KEYS,
+  EDITABLE_PLATFORM_TAXA_KEYS,
   type PlataformaTaxaKey,
 } from '../../modules/platform-taxas/platform-taxas.keys';
 
@@ -38,7 +36,7 @@ export class PlatformTaxasService {
       const srcRow: Partial<
         Record<PlataformaTaxaKey, 'default' | 'override' | 'global'>
       > = {};
-      for (const key of PLATAFORMA_TAXA_KEYS) {
+      for (const key of EDITABLE_PLATFORM_TAXA_KEYS) {
         const fb = defaultTaxaValue(key);
         row[key] = getPlatformTaxaEffective(tag, key, fb);
         srcRow[key] = getPlatformTaxaSource(tag, key);
@@ -47,26 +45,7 @@ export class PlatformTaxasService {
       sources[tag] = srcRow;
     }
 
-    // Taxas DOM fixas para links de pagamento (cobradas do comprador, não configuráveis)
-    const DOM_LINK_RATES: Record<string, number> = {
-      DOM_LINK_1X: 0.0,
-      DOM_LINK_2X: 0.0451,
-      DOM_LINK_3X: 0.0604,
-      DOM_LINK_4X: 0.0759,
-      DOM_LINK_5X: 0.0915,
-      DOM_LINK_6X: 0.1072,
-      DOM_LINK_7X: 0.1231,
-      DOM_LINK_8X: 0.1392,
-      DOM_LINK_9X: 0.1554,
-      DOM_LINK_10X: 0.1717,
-      DOM_LINK_11X: 0.1882,
-      DOM_LINK_12X: 0.2048,
-    };
-
-    return {
-      data,
-      meta: { sources, domLinkRates: DOM_LINK_RATES },
-    };
+    return { data, meta: { sources } };
   }
 
   /**
@@ -80,7 +59,7 @@ export class PlatformTaxasService {
       Record<PlataformaTaxaKey, 'default' | 'override' | 'global'>
     > = {};
 
-    for (const key of PLATAFORMA_TAXA_KEYS) {
+    for (const key of EDITABLE_PLATFORM_TAXA_KEYS) {
       data[key] = getPlatformTaxaEffective(tag, key, defaultTaxaValue(key));
       sources[key] = getPlatformTaxaSource(tag, key);
     }
@@ -97,30 +76,17 @@ export class PlatformTaxasService {
 
   async patchPlatform(tag: string, body: Record<string, unknown>) {
     tag = canonicalPlatformTaxaTag(tag);
-    if (
-      tag !== 'GLOBAL' &&
-      !/^(CLIENT:|USER:)/.test(tag) &&
-      !getRegisteredPlatform(tag)
-    )
+    if (tag !== 'GLOBAL' && !getRegisteredPlatform(tag))
       throw new BadRequestException('Plataforma não cadastrada');
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Body inválido');
     }
     const patch: Record<string, number | null> = {};
     for (const [k, v] of Object.entries(body)) {
-      if (k.startsWith('MDR_LINK_')) {
+      if (!(EDITABLE_PLATFORM_TAXA_KEYS as readonly string[]).includes(k))
         throw new BadRequestException(
-          'Juros do comprador devem ser configurados na plataforma pelo dono',
+          `Taxa legada: configure a política financeira em /admin/taxas (${k})`,
         );
-      }
-      if (!(PLATAFORMA_TAXA_KEYS as readonly string[]).includes(k)) {
-        throw new BadRequestException(`Chave não permitida: ${k}`);
-      }
-      if (k === 'TAXA_FIXA_TRANSACAO' || k === 'TAXA_CASHBACK') {
-        throw new BadRequestException(
-          `Chave é fixa e não pode ser alterada: ${k}`,
-        );
-      }
       // null means "remove this platform override, fall back to global/default"
       if (v === null) {
         patch[k] = null;
@@ -132,17 +98,8 @@ export class PlatformTaxasService {
           : typeof v === 'string'
             ? Number(String(v).replace(',', '.'))
             : NaN;
-      if (
-        !Number.isFinite(n) ||
-        n < 0 ||
-        (k === 'LIQUIDEZ' && n > 1) ||
-        ((k.startsWith('LINK_COST_') ||
-          k.startsWith('MDR_') ||
-          k.endsWith('_PERCENT')) &&
-          n > 1)
-      ) {
+      if (!Number.isFinite(n) || n < 0)
         throw new BadRequestException(`Número inválido: ${k}`);
-      }
       patch[k] = n;
     }
     if (Object.keys(patch).length === 0) {
@@ -154,22 +111,6 @@ export class PlatformTaxasService {
       const msg = e instanceof Error ? e.message : 'Falha ao persistir';
       throw new BadRequestException(msg);
     }
-    const response = this.getTaxasResponse([tag]);
-    const affected = tag === 'GLOBAL' ? registeredPlatformTags() : [tag];
-    const warnings = affected.flatMap((platformTag) =>
-      Array.from({ length: 12 }, (_, index) => ({
-        platformTag,
-        installments: index + 1,
-        ...calculatePaymentLinkFees(
-          { amount: 100, isStandalone: false } as unknown as PaymentLink,
-          index + 1,
-          platformTag,
-        ),
-      })).filter((row) => row.negativeMargin),
-    );
-    return {
-      ...response,
-      meta: { ...response.meta, simulationAmount: 100, warnings },
-    };
+    return this.getTaxasResponse([tag]);
   }
 }

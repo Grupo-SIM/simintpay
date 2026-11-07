@@ -57,7 +57,7 @@ function setup(
     gatewayFails?: boolean;
   } = {},
 ) {
-  const db = makeFakePrisma(opts);
+  const db = makeFakePrisma({ financial: true, ...opts });
   const calls: { token: string; input: any }[] = [];
   const orders: any[] = [];
   const repoUpdates: any[] = [];
@@ -111,8 +111,8 @@ function setup(
   return { service, dto, db, calls, orders, repoUpdates, pending, plans };
 }
 
-describe('legacy fees (financialQuote absent)', () => {
-  test('non-standalone: buyer pays base, platform fee = MDR_PIX 0.98% rounded to cents', async () => {
+describe('configured financial policy', () => {
+  test('non-standalone uses the current policy and persists its quote', async () => {
     const f = setup();
     const out = await f.service.execute({ code: 'c', dto: f.dto });
     expect(out.amount).toBe(100);
@@ -124,18 +124,27 @@ describe('legacy fees (financialQuote absent)', () => {
       paymentMethod: 'PIX',
       status: 'pending',
       amountCharged: 100,
-      platformFeeAmount: 0.98,
+      platformFeeAmount: 5.48,
       customerDocument: '12345678901',
       customerPhone: '81999999999',
     });
-    expect(f.orders[0]).not.toHaveProperty('financialSnapshot');
+    expect(f.orders[0].financialSnapshot.originalCents).toBe(10000);
   });
 
-  test('standalone link: no platform fee at all', async () => {
+  test('standalone link follows the same configured financial policy', async () => {
     const f = setup(makeSub({ isStandalone: true }));
     await f.service.execute({ code: 'c', dto: f.dto });
-    expect(f.orders[0].platformFeeAmount).toBe(0);
+    expect(f.orders[0].platformFeeAmount).toBe(5.48);
     expect(f.orders[0].amountCharged).toBe(100);
+  });
+
+  test('missing financial policy rejects before charge and order creation', async () => {
+    const f = setup(makeSub(), { financial: false });
+    await expect(f.service.execute({ code: 'c', dto: f.dto })).rejects.toThrow(
+      'Política financeira não configurada',
+    );
+    expect(f.calls).toHaveLength(0);
+    expect(f.orders).toHaveLength(0);
   });
 
   test('no Transaction, wallet or balance log is written', async () => {
@@ -197,7 +206,7 @@ describe('legacy fees (financialQuote absent)', () => {
     f.dto.voucherCode = 'OFF20';
     await f.service.execute({ code: 'c', dto: f.dto });
     expect(f.orders[0].amountCharged).toBe(80);
-    expect(f.orders[0].platformFeeAmount).toBe(0.78); // 80 * 0.98%, was 0.98 on the original 100
+    expect(f.orders[0].platformFeeAmount).toBe(4.88);
   });
 
   test('voucher with financial quote: quote is derived from the discounted base', async () => {
@@ -221,13 +230,13 @@ describe('legacy fees (financialQuote absent)', () => {
     expect(f.calls).toHaveLength(0);
   });
 
-  test('Areaflix tag: uses the global token and the platform MDR; no Areaflix seller-net rule here', async () => {
+  test('Areaflix tag: uses the assigned token and configured policy', async () => {
     await withAreaflixPlatform(async () => {
       const f = setup(makeSub({ platformTag: 'AREAFLIX' }));
       await f.service.execute({ code: 'c', dto: f.dto });
       expect(f.calls[0].token).toBe('test-token');
       expect(f.orders[0].amountCharged).toBe(100);
-      expect(f.orders[0].platformFeeAmount).toBe(0.98);
+      expect(f.orders[0].platformFeeAmount).toBe(5.48);
     });
   });
 });
@@ -239,7 +248,8 @@ describe('financialQuote present', () => {
     expect(out.amount).toBe(100);
     expect(f.calls[0].input.amount).toBe(100);
     expect(f.orders[0].amountCharged).toBe(100);
-    expect(f.orders[0].platformFeeAmount).toBe(5.48); // SUSPECT: contracted acquirer cost + sim fee lumped together
+    expect(f.orders[0].platformFeeAmount).toBe(5.48); // Total fee is persisted from the quote.
+    expect(f.orders[0].financialSnapshot.netCents).toBe(9452);
     expect(f.orders[0].financialSnapshot.originalCents).toBe(10000);
   });
 });
@@ -250,7 +260,7 @@ describe('coproduction snapshot', () => {
     participants: [{ userId: 'co-1', percentageBps: 1000 }],
   };
 
-  test('legacy path: stored with a coproductionLegacy block carrying the computed split', async () => {
+  test('configured quote stores the coproduction agreement without a legacy block', async () => {
     const f = setup(makeSub(), { agreement });
     await f.service.execute({ code: 'c', dto: f.dto });
     const snap = f.orders[0].financialSnapshot;
@@ -262,14 +272,9 @@ describe('coproduction snapshot', () => {
       ownerUserId: 'owner',
       participants: [{ userId: 'co-1', percentageBps: 1000 }],
     });
-    expect(snap.coproductionLegacy).toEqual({
-      totalAmount: 100,
-      netAmount: 99.02,
-      totalFeeAmount: 0.98,
-      domFeeAmount: 0,
-      platformProfit: 0.98,
-      policyTag: 'GLOBAL',
-    });
+    expect(snap.coproductionLegacy).toBeUndefined();
+    expect(snap.originalCents).toBe(10000);
+    expect(snap.netCents).toBe(9452);
   });
 
   test('quote path: no coproductionLegacy, quote snapshot is kept', async () => {

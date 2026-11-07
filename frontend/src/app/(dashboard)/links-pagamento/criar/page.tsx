@@ -12,16 +12,7 @@ import { FieldLabel } from '@/components/ui/FieldLabel';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import {
-  ArrowLeft,
-  Minus,
-  Paperclip,
-  Plus,
-  Scan,
-  Send,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { ArrowLeft, Minus, Paperclip, Plus, Scan, Trash2 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -29,14 +20,10 @@ import {
   getDefaultApiBaseUrl,
 } from '@/services/api/api.client';
 import { endpoints } from '@/services/api/endpoints';
-import { useCurrentUser } from '@/hooks/use-current-user';
-import {
-  PLATAFORMA_TAXA_LABELS,
-  taxaFromDisplay,
-  taxaToDisplay,
-  type PlataformaTaxaKey,
-} from '@/features/platform-taxas/taxa-fields';
-import type { PlataformaTaxasGetResponse } from '@/features/platform-taxas/types';
+import type {
+  FinancialConfiguration,
+  SimulationRow,
+} from '@/components/platforms/financial-types';
 import { cn } from '@/lib/utils';
 import { fieldDividerClassNames, fieldShellClassNames } from '@/lib/fieldShell';
 import { Input } from '@/components/ui/Input';
@@ -45,11 +32,6 @@ import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
 import { EmailPreview } from '@/components/ui/EmailPreview';
 import { PaymentLinkPreviewModal } from './components/PaymentLinkPreviewModal';
-import {
-  calcularParcela,
-  FALLBACK_SIMINTPAY_COSTS,
-  type CalcRates,
-} from '@/features/links-pagamento/payment-link-calculation';
 import type { PaymentLinkPreviewDraft } from '@/features/links-pagamento/payment-link-preview';
 import { SingleDatePickerField } from '../components/SingleDatePickerField';
 import type { PaymentLinkFile, PaymentLinkOffer } from '../types';
@@ -258,25 +240,6 @@ function formatCurrencyInput(value: string) {
   return `${integerWithThousands},${cents}`;
 }
 
-const DEFAULT_DOM_FEE_RATES: Record<number, number> = {
-  1: 0.0,
-  2: 0.0451,
-  3: 0.0604,
-  4: 0.0759,
-  5: 0.0915,
-  6: 0.1072,
-  7: 0.1231,
-  8: 0.1392,
-  9: 0.1554,
-  10: 0.1717,
-  11: 0.1882,
-  12: 0.2048,
-};
-
-function fmt(v: number) {
-  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-
 export default function CriarLinkPagamentoPage() {
   const router = useRouter();
   const coproduction = useCoproductionDraft();
@@ -300,34 +263,6 @@ export default function CriarLinkPagamentoPage() {
     [],
   );
 
-  const { user } = useCurrentUser();
-  const { data: taxasRes, isLoading: loadingTaxas } = useQuery({
-    queryKey: ['admin', 'platform-taxas'],
-    queryFn: () =>
-      api.get<PlataformaTaxasGetResponse>(
-        endpoints.admin.plataformas.taxasList,
-      ),
-  });
-
-  const activeTag = useMemo(() => {
-    return (user?.tenantModule?.slug ?? '').toUpperCase();
-  }, [user]);
-
-  const globalFees = useMemo(() => {
-    if (!taxasRes) return null;
-    return taxasRes.data[activeTag] || {};
-  }, [taxasRes, activeTag]);
-
-  const domLinkRates = useMemo(() => {
-    if (!taxasRes?.meta?.domLinkRates) return DEFAULT_DOM_FEE_RATES;
-    const raw = taxasRes.meta.domLinkRates as Record<string, number>;
-    const mapped: Record<number, number> = {};
-    for (let i = 1; i <= 12; i++) {
-      mapped[i] = raw[`DOM_LINK_${i}X`] ?? DEFAULT_DOM_FEE_RATES[i];
-    }
-    return mapped;
-  }, [taxasRes]);
-
   const [previewOpen, setPreviewOpen] = useState(false);
   const [status, setStatus] = useState('ativo');
   const [cashback, setCashback] = useState('ativo');
@@ -347,13 +282,6 @@ export default function CriarLinkPagamentoPage() {
   const [pix, setPix] = useState(true);
   const [pendingPdfFiles, setPendingPdfFiles] = useState<File[]>([]);
   const [existingFiles, setExistingFiles] = useState<PaymentLinkFile[]>([]);
-  const [, setAjustesModalOpen] = useState(false);
-  const [ajustesModalMounted, setAjustesModalMounted] = useState(false);
-  const [ajustesModalClosing, setAjustesModalClosing] = useState(false);
-  const [tabJuros, setTabJuros] = useState<
-    'editar' | 'parcela' | 'mes' | 'liquido'
-  >('editar');
-  const [assumirTaxas, setAssumirTaxas] = useState('nenhuma');
   const [isStandalone, setIsStandalone] = useState(true);
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [financialOwner, setFinancialOwner] = useState<{
@@ -367,52 +295,8 @@ export default function CriarLinkPagamentoPage() {
   // Só sincroniza ofertas quando houve edição (ou já existiam) — evita PUT desnecessário.
   const [offersTouched, setOffersTouched] = useState(false);
 
-  // Fees da plataforma selecionada para o link (prioridade sobre globalFees)
-  const selectedPlatformFees = useMemo(() => {
-    if (!taxasRes || !selectedPlatform) return null;
-    return taxasRes.data[selectedPlatform.toUpperCase()] ?? {};
-  }, [taxasRes, selectedPlatform]);
-
-  const activeFees = selectedPlatformFees ?? globalFees;
-  const calcRates: CalcRates = useMemo(
-    () => ({
-      domFees: domLinkRates,
-      sellerFees: Object.fromEntries(
-        Array.from({ length: 12 }, (_, index) => {
-          const n = index + 1;
-          return [
-            n,
-            activeFees?.[`LINK_COST_${n}X` as PlataformaTaxaKey] ??
-              FALLBACK_SIMINTPAY_COSTS[n] / 100,
-          ];
-        }),
-      ),
-      sellerFeeFixed: activeFees?.TAXA_LINK_FIXA ?? 4.0,
-      cashbackFee: activeFees?.TAXA_CASHBACK ?? 3.0,
-    }),
-    [domLinkRates, activeFees],
-  );
-
   const platformCatalog = useProductPlatforms();
   const allPlatformTags = platformCatalog.selectableTags;
-  // jurosEditaveis: chave "2x"-"12x" → valor % como string
-  const [jurosOverride, setJurosEditaveis] = useState<Record<string, string>>(
-    {},
-  );
-
-  const jurosEditaveis = useMemo(() => {
-    if (isEditing || Object.keys(jurosOverride).length > 0)
-      return jurosOverride;
-    const fees = selectedPlatformFees ?? globalFees;
-    if (!fees) return jurosOverride;
-    return Object.fromEntries(
-      Array.from({ length: 12 }, (_, index) => {
-        const i = index + 1;
-        const key = `MDR_LINK_${i}X` as PlataformaTaxaKey;
-        return [`${i}x`, taxaToDisplay(key, i === 1 ? 0 : (fees[key] ?? 0))];
-      }),
-    );
-  }, [isEditing, jurosOverride, selectedPlatformFees, globalFees]);
 
   const produtoPrincipal = produtos[0] ?? {
     id: '',
@@ -431,28 +315,54 @@ export default function CriarLinkPagamentoPage() {
         .replace(',', '.')
         .replace(/[^\d.]/g, ''),
     ) || 0;
-  const podeAjustarTaxas = cartaoCredito && precoNumerico > 0;
-
-  // Linhas calculadas dinamicamente com base no valor real e juros editáveis
-  const linhasSimulador = useMemo(() => {
-    const base = precoNumerico > 0 ? precoNumerico : 1000;
-    return Array.from({ length: 12 }, (_, i) => {
-      const n = i + 1;
-      const absorbed =
-        assumirTaxas !== 'nenhuma' && n <= parseInt(assumirTaxas, 10);
-      const rateStr = absorbed ? '0' : jurosEditaveis[`${n}x`];
-      const platformFeeRate =
-        rateStr !== undefined ? Number(rateStr.replace(',', '.')) : 0;
-      const calc = calcularParcela(
-        base,
-        n,
-        platformFeeRate,
-        isStandalone,
-        calcRates,
+  const previewQuote = useQuery({
+    queryKey: [
+      'link-preview-policy',
+      selectedPlatform ?? 'GLOBAL',
+      precoNumerico,
+      cartaoCredito,
+      debito,
+      pix,
+    ],
+    enabled: precoNumerico > 0,
+    queryFn: async () => {
+      const path = `/platforms/${encodeURIComponent(selectedPlatform ?? 'GLOBAL')}/financial-policy`;
+      const configuration = await api.get<{ data: FinancialConfiguration }>(
+        path,
       );
-      return { n, platformFeeRate, ...calc };
-    });
-  }, [jurosEditaveis, isStandalone, precoNumerico, calcRates, assumirTaxas]);
+      const simulate = async (method: string, installments: number[]) => {
+        const acquirer = configuration.data.keys
+          .find((key) => key.includes(`/${method}/ONLINE/`))
+          ?.split('/')[0];
+        if (!acquirer) throw new Error('Taxas não configuradas para a prévia');
+        const response = await api.post<{ data: SimulationRow[] }>(
+          `${path}/simulation`,
+          {
+            version: configuration.data.version,
+            amountCents: Math.round(precoNumerico * 100),
+            acquirer,
+            method,
+            channel: 'ONLINE',
+            installments,
+          },
+        );
+        if (response.data.some((row) => !row.result || row.error))
+          throw new Error('Taxas não configuradas para a prévia');
+        return response.data;
+      };
+      const [credit, debit, pixQuote] = await Promise.all([
+        cartaoCredito
+          ? simulate(
+              'CREDIT_CARD',
+              Array.from({ length: 12 }, (_, i) => i + 1),
+            )
+          : [],
+        debito ? simulate('DEBIT_CARD', [1]) : [],
+        pix ? simulate('PIX', [1]) : [],
+      ]);
+      return { credit, debit, pix: pixQuote };
+    },
+  });
 
   const previewDraft: PaymentLinkPreviewDraft = {
     title: titulo.trim() || produtoPrincipal.nome.trim() || 'Título do link',
@@ -460,21 +370,15 @@ export default function CriarLinkPagamentoPage() {
     amount: precoNumerico,
     methods: { credit: cartaoCredito, debit: debito, pix },
     maxInstallments: cartaoCredito ? 12 : 1,
-    installments: linhasSimulador
-      .slice(0, cartaoCredito ? 12 : 1)
-      .map((row) => {
-        // The simulator uses R$ 1.000 as an empty-form example; preview uses the real draft.
-        const calculation =
-          precoNumerico > 0 ? row : { total: 0, parcela: 0, juros: 0 };
-        return {
-          count: row.n,
-          total: calculation.total,
-          amount: calculation.parcela,
-          interest: calculation.juros,
-        };
-      }),
-    pixAmount: precoNumerico,
-    debitAmount: precoNumerico,
+    installments: (previewQuote.data?.credit ?? []).map((row) => ({
+      count: row.installments,
+      total: row.result!.buyerTotalCents / 100,
+      amount: Math.floor(row.result!.buyerTotalCents / row.installments) / 100,
+      interest: row.result!.buyerInterestCents / 100,
+    })),
+    pixAmount: (previewQuote.data?.pix[0]?.result?.buyerTotalCents ?? 0) / 100,
+    debitAmount:
+      (previewQuote.data?.debit[0]?.result?.buyerTotalCents ?? 0) / 100,
   };
 
   function updateProduto(id: string, updates: Partial<ProdutoFormItem>) {
@@ -492,46 +396,6 @@ export default function CriarLinkPagamentoPage() {
       const next = prev.filter((item) => item.id !== id);
       return next.length > 0 ? next : [createEmptyProdutoItem()];
     });
-  }
-
-  const updateGlobalTaxasMutation = useMutation({
-    mutationFn: (patch: Partial<Record<PlataformaTaxaKey, number>>) => {
-      return api.patch(
-        endpoints.admin.plataformas.taxasUpdate(activeTag.toLowerCase()),
-        patch,
-      );
-    },
-    onSuccess: () => {
-      toast({ type: 'success', title: 'Taxas globais atualizadas' });
-      void queryClient.invalidateQueries({
-        queryKey: ['admin', 'platform-taxas'],
-      });
-    },
-  });
-
-  function closeAjustesModal() {
-    setAjustesModalOpen(false);
-    setAjustesModalClosing(true);
-    setTimeout(() => {
-      setAjustesModalMounted(false);
-      setAjustesModalClosing(false);
-    }, 220);
-
-    // Sincroniza com a taxa global como solicitado pelo usuário
-    const patch: Partial<Record<PlataformaTaxaKey, number>> = {};
-    let changed = false;
-    for (let i = 1; i <= 12; i++) {
-      const k = `MDR_LINK_${i}X` as PlataformaTaxaKey;
-      const newVal = taxaFromDisplay(k, jurosEditaveis[`${i}x`] ?? '');
-      if (!Number.isNaN(newVal) && newVal !== globalFees?.[k]) {
-        patch[k] = newVal;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      updateGlobalTaxasMutation.mutate(patch);
-    }
   }
 
   const createMutation = useMutation({
@@ -632,22 +496,6 @@ export default function CriarLinkPagamentoPage() {
         setSelectedPlatform(platform);
       }
       setEmailBody(data.emailBody ?? '');
-      // Carrega as taxas salvas no link (2x-12x)
-      const nextJuros: Record<string, string> = {};
-      for (let i = 1; i <= 12; i++) {
-        const key = `platformFee${i}x` as keyof ApiLinkDetail;
-        const saved = data[key] as number | undefined;
-        nextJuros[`${i}x`] =
-          saved !== undefined
-            ? String(saved)
-            : globalFees
-              ? taxaToDisplay(
-                  `MDR_LINK_${i}X` as PlataformaTaxaKey,
-                  globalFees[`MDR_LINK_${i}X` as PlataformaTaxaKey] ?? 0,
-                )
-              : '0';
-      }
-      setJurosEditaveis(nextJuros);
       setExistingFiles(data.files ?? []);
 
       setOfferDrafts(offerDraftsFromApi(data.ofertas));
@@ -783,13 +631,36 @@ export default function CriarLinkPagamentoPage() {
           type="button"
           variant="outline"
           className="gap-2"
-          disabled={loadingTaxas || (isEditing && detailQuery.isPending)}
+          disabled={
+            !previewQuote.data ||
+            previewQuote.isFetching ||
+            previewQuote.isError ||
+            (isEditing && detailQuery.isPending)
+          }
           onClick={() => setPreviewOpen(true)}
         >
           <Scan className="h-4 w-4" />
           Pré visualizar
         </Button>
       </div>
+
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        As taxas deste link seguem a política financeira da plataforma.
+        {platformCatalog.user?.isAdmin && (
+          <>
+            {' '}
+            <Link
+              href="/admin/taxas"
+              className="text-emerald-700 underline dark:text-emerald-400"
+            >
+              Configurar taxas
+            </Link>
+            .
+          </>
+        )}
+        {previewQuote.isError &&
+          ' Prévia indisponível: confira a configuração das modalidades de pagamento.'}
+      </p>
 
       <section className={cardClass}>
         <h2 className="mb-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">
@@ -962,7 +833,7 @@ export default function CriarLinkPagamentoPage() {
               />
               {!selectedPlatform && (
                 <p className="text-xs text-zinc-500">
-                  Sem plataforma, aplicam-se as taxas do titular financeiro.
+                  Sem plataforma, aplica-se a política financeira global.
                 </p>
               )}
             </div>
@@ -1314,219 +1185,6 @@ export default function CriarLinkPagamentoPage() {
               : 'Salvar'}
         </Button>
       </div>
-
-      {ajustesModalMounted ? (
-        <div
-          className={cn(
-            'fixed inset-0 z-120 flex items-center justify-center p-4 backdrop-blur-sm transition-all duration-200',
-            ajustesModalClosing ? 'bg-black/0' : 'bg-black/35',
-          )}
-          onClick={closeAjustesModal}
-        >
-          <div
-            className={cn(
-              'w-full max-w-5xl rounded-xl border border-zinc-200 bg-white p-4 shadow-2xl transition-all duration-200 dark:border-white/10 dark:bg-zinc-900',
-              ajustesModalClosing
-                ? 'scale-95 opacity-0'
-                : 'scale-100 opacity-100',
-            )}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                Simulador de Parcelamento
-              </h3>
-              <button
-                type="button"
-                className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-white/10"
-                onClick={closeAjustesModal}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-4 overflow-hidden rounded-md border border-zinc-200 text-xs dark:border-white/10">
-              {[
-                { id: 'editar', label: 'Editar Juros' },
-                { id: 'parcela', label: 'Juros por Parcela' },
-                { id: 'mes', label: 'Juros ao Mês' },
-                { id: 'liquido', label: '100% Líquido' },
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTabJuros(t.id as typeof tabJuros)}
-                  className={cn(
-                    'border-r border-zinc-200 px-3 py-2 text-center last:border-r-0 dark:border-white/10',
-                    tabJuros === t.id
-                      ? 'bg-emerald-700 text-white'
-                      : 'bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-white/5',
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-              {tabJuros === 'editar' &&
-                'Edite os valores da coluna Juros ao Consumidor e veja o resultado atualizado automaticamente.'}
-              {tabJuros === 'parcela' &&
-                'Cada parcela tem uma taxa de juros fixa pré-definida de acordo com a sua negociação.'}
-              {tabJuros === 'mes' &&
-                'Os juros são calculados de forma composta com base na sua taxa UCM.'}
-              {tabJuros === 'liquido' &&
-                'O consumidor paga juros suficientes para que você receba exatamente o valor líquido.'}
-            </div>
-
-            <div className="mt-3 grid gap-3 md:grid-cols-4">
-              <Input
-                label="Valor do link"
-                value={`R$ ${preco}`}
-                theme={fieldTheme}
-                variant="navbar"
-                readOnly
-              />
-              <Input
-                label="Nº de parcelas"
-                value="12"
-                theme={fieldTheme}
-                variant="navbar"
-                readOnly
-              />
-              <div className="flex flex-col gap-1">
-                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  Tipo de link
-                </span>
-                <Dropdown
-                  theme={fieldTheme}
-                  variant="navbar"
-                  value={isStandalone ? 'avulso' : 'plataforma'}
-                  onChange={(v) => setIsStandalone(v === 'avulso')}
-                  options={[
-                    { label: 'Avulso (1x sem juros)', value: 'avulso' },
-                    {
-                      label: 'Plataforma (sempre com juros)',
-                      value: 'plataforma',
-                    },
-                  ]}
-                />
-              </div>
-              {tabJuros === 'mes' ? (
-                <Input
-                  label="Juros ao mês (%)"
-                  value="3,2"
-                  theme={fieldTheme}
-                  variant="navbar"
-                  readOnly
-                />
-              ) : null}
-              {tabJuros !== 'liquido' ? (
-                <Dropdown
-                  label="Assumir taxas de parcelamento"
-                  value={assumirTaxas}
-                  onChange={setAssumirTaxas}
-                  theme={fieldTheme}
-                  variant="navbar"
-                  options={[
-                    { label: 'Nenhuma', value: 'nenhuma' },
-                    { label: 'Até 2x sem juros', value: '2x' },
-                    { label: 'Até 3x sem juros', value: '3x' },
-                    { label: 'Até 4x sem juros', value: '4x' },
-                    { label: 'Até 5x sem juros', value: '5x' },
-                    { label: 'Até 6x sem juros', value: '6x' },
-                    { label: 'Até 7x sem juros', value: '7x' },
-                    { label: 'Até 8x sem juros', value: '8x' },
-                    { label: 'Até 9x sem juros', value: '9x' },
-                    { label: 'Até 10x sem juros', value: '10x' },
-                    { label: 'Até 11x sem juros', value: '11x' },
-                    { label: 'Até 12x sem juros', value: '12x' },
-                  ]}
-                />
-              ) : null}
-            </div>
-
-            <div className="mt-4 max-h-[340px] overflow-auto rounded-md border border-zinc-200 dark:border-white/10">
-              <table className="w-full min-w-[980px]">
-                <thead>
-                  <tr className="sticky top-0 border-b border-zinc-200 bg-zinc-50 dark:border-white/10 dark:bg-zinc-900">
-                    {[
-                      'Número de parcelas',
-                      'Taxa Dom',
-                      'Juros ao consumidor',
-                      'Valor da Cobrança',
-                      'Valor de juros',
-                      'Valor da Parcela',
-                      'Tarifa por transação',
-                      'Líquido Cliente',
-                    ].map((h) => (
-                      <th
-                        key={h}
-                        className="px-3 py-2 text-left text-xs font-semibold text-zinc-600 dark:text-zinc-300"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {linhasSimulador.map((row) => (
-                    <tr
-                      key={row.n}
-                      className="border-b border-zinc-100 text-sm dark:border-white/10"
-                    >
-                      <td className="px-3 py-2 font-medium">{row.n}x</td>
-                      <td className="px-3 py-2">
-                        {(domLinkRates[row.n] * 100).toFixed(2)}%
-                      </td>
-                      <td className="px-3 py-2">
-                        {tabJuros === 'editar' ? (
-                          <div className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 dark:border-white/20 dark:bg-white/5">
-                            <input
-                              type="text"
-                              value={jurosEditaveis[`${row.n}x`] ?? ''}
-                              onChange={(e) => {
-                                const value = e.target.value.replace(
-                                  /[^0-9.,]/g,
-                                  '',
-                                );
-                                setJurosEditaveis((prev) => ({
-                                  ...prev,
-                                  [`${row.n}x`]: value,
-                                }));
-                              }}
-                              className="w-12 bg-transparent text-right text-sm outline-none"
-                            />
-                            <span className="text-zinc-500">%</span>
-                          </div>
-                        ) : (
-                          <span>{`${jurosEditaveis[`${row.n}x`] ?? 0}%`}</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">{fmt(row.total)}</td>
-                      <td className="px-3 py-2">{fmt(row.juros)}</td>
-                      <td className="px-3 py-2">{fmt(row.parcela)}</td>
-                      <td className="px-3 py-2">{fmt(row.domFee)}</td>
-                      <td className="px-3 py-2">{fmt(row.liquido)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-3 flex justify-end">
-              <Button
-                type="button"
-                className="gap-2 bg-emerald-700 text-white hover:bg-emerald-800"
-                onClick={closeAjustesModal}
-              >
-                <Send className="h-4 w-4" />
-                Aplicar Taxas
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

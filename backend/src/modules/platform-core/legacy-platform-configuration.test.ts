@@ -4,7 +4,7 @@ function fixture() {
   const platformTaxas = {
     getTaxasResponse: mock(async (tags?: string[]) => ({
       tags,
-      data: { TAXA_SAQUE_FIXA: 2, TAXA_SAQUE_PERCENT: 0.01 },
+      data: { TAXA_SAQUE_EXTRA: 2, TAXA_SAQUE_PERCENT: 0.01 },
     })),
     patchPlatform: mock(async (tag: string, body: unknown) => ({ tag, body })),
     getResolvedTaxaForTag: mock((tag: string) => ({
@@ -35,12 +35,12 @@ test('legacy platform fee configuration preserves raw decimal rates and delegate
   const { controller, platformTaxas } = fixture();
   expect(await controller.listPlatformTaxas()).toEqual({
     tags: undefined,
-    data: { TAXA_SAQUE_FIXA: 2, TAXA_SAQUE_PERCENT: 0.01 },
+    data: { TAXA_SAQUE_EXTRA: 2, TAXA_SAQUE_PERCENT: 0.01 },
   });
   expect(
     await controller.getPlatformTaxasByTag('CLIENT:client@example.com'),
   ).toMatchObject({ tags: ['CLIENT:client@example.com'] });
-  const body = { TAXA_SAQUE_FIXA: 0.29, TAXA_SAQUE_PERCENT: 0.01 };
+  const body = { TAXA_SAQUE_EXTRA: 0.29, TAXA_SAQUE_PERCENT: 0.01 };
   expect(await controller.patchPlatformTaxas('SHOP', body)).toEqual({
     tag: 'SHOP',
     body,

@@ -24,9 +24,6 @@ import type { IBoletoRepository } from '../../../core/repositories/boleto.reposi
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
-import { buildUserTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
-import { calculateBoletoFees } from './boleto-fees.helper';
 import { discardDraftOnRejection } from '../../../modules/unified-platform/payments/dom-rejection';
 import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
@@ -52,7 +49,7 @@ export type ChargeBoletoInput = {
 export class ChargeBoletoUseCase {
   constructor(
     @Inject(BOLETO_REPOSITORY) private readonly boletos: IBoletoRepository,
-    @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
+    @Inject(USER_REPOSITORY) _users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
   ) {}
@@ -80,13 +77,6 @@ export class ChargeBoletoUseCase {
     if (boleto.maxUses != null && boleto.currentUses >= boleto.maxUses) {
       throw new BadRequestException('Limite de usos do boleto atingido');
     }
-
-    const owner = await this.users.findById(boleto.userId);
-    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(
-      (boleto.plataformas?.[0] ?? 'GLOBAL').toUpperCase(),
-    )
-      ? null
-      : clientTaxaTagFor(owner);
 
     const domToken = platformGatewayToken(
       boleto.plataformas?.[0],
@@ -118,18 +108,14 @@ export class ChargeBoletoUseCase {
     const platformTag =
       (boleto.plataformas?.[0] as string | undefined)?.toUpperCase() ||
       'GLOBAL';
-    const taxaTag =
-      ownerClientTag ??
-      (['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-        ? buildUserTaxaTag(boleto.userId)
-        : platformTag);
-
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, taxaTag),
+      await loadChargePolicy(this.prisma, platformTag),
       base,
       'BOLETO',
     );
-    const fees = financialQuote ?? calculateBoletoFees(base, taxaTag);
+    if (!financialQuote)
+      throw new BadRequestException({ code: 'FINANCIAL_POLICY_MISSING' });
+    const fees = financialQuote;
     const chargeId = randomUUID();
     const coproduction = await captureCoproduction(
       this.prisma,
@@ -138,13 +124,12 @@ export class ChargeBoletoUseCase {
       boleto.userId,
       platformTag,
     );
-    const finalSettlement = Boolean(financialQuote || coproduction);
     const snapshot = {
       userId: boleto.userId,
-      amount: new Prisma.Decimal(financialQuote?.totalAmount ?? base),
+      amount: new Prisma.Decimal(financialQuote.totalAmount),
       netAmount: new Prisma.Decimal(fees.netAmount),
       paymentMethod: PaymentMethod.BOLETO,
-      totalFee: new Prisma.Decimal(fees.platformFeeTotal),
+      totalFee: new Prisma.Decimal(fees.totalFeeAmount),
       domFee: new Prisma.Decimal(fees.domFeeAmount),
       platformFee: new Prisma.Decimal(fees.platformProfit),
       description:
@@ -158,33 +143,30 @@ export class ChargeBoletoUseCase {
       customerPhone: phone || null,
       tracking: paymentTracking(input.tracking),
       financialSnapshot: withCoproduction(
-        financialQuote?.financialSnapshot,
+        financialQuote.financialSnapshot,
         coproduction,
       ),
     };
-    if (finalSettlement)
-      await this.prisma.$transaction(async (tx) => {
-        await tx.wallet.upsert({
-          where: { userId: boleto.userId },
-          update: {},
-          create: { userId: boleto.userId, balance: 0 },
-        });
-        await tx.transaction.create({
-          data: {
-            ...snapshot,
-            id: chargeId,
-            status: 'DRAFT',
-            settlementBasis: 'FINAL_NET',
-          },
-        });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.wallet.upsert({
+        where: { userId: boleto.userId },
+        update: {},
+        create: { userId: boleto.userId, balance: 0 },
       });
+      await tx.transaction.create({
+        data: {
+          ...snapshot,
+          id: chargeId,
+          status: 'DRAFT',
+          settlementBasis: 'FINAL_NET',
+        },
+      });
+    });
 
     const result = await discardDraftOnRejection(this.prisma, chargeId, () =>
       this.gateway.chargeBoletoForLink(domToken, {
-        amount: financialQuote?.totalAmount ?? base,
-        description: finalSettlement
-          ? `${snapshot.description} [LINK_CHARGE:${chargeId}]`
-          : boleto.title,
+        amount: financialQuote.totalAmount,
+        description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,
         customerName: input.customerName,
         customerEmail: input.customerEmail,
         customerDocument: document,
@@ -224,56 +206,14 @@ export class ChargeBoletoUseCase {
       });
     }
 
-    const savedTx = finalSettlement
-      ? await this.prisma.$transaction((tx) =>
-          persistLinkCharge(
-            tx,
-            { ...snapshot, domPaymentId: result.id },
-            TransactionStatus.PENDING,
-            chargeId,
-          ),
-        )
-      : await this.prisma.transaction.upsert({
-          where: { domPaymentId: result.id },
-          update: {
-            status: TransactionStatus.PENDING,
-            paymentMethod: PaymentMethod.BOLETO,
-            amount: new Prisma.Decimal(base),
-            netAmount: new Prisma.Decimal(fees.netAmount),
-            totalFee: new Prisma.Decimal(fees.platformFeeTotal),
-            domFee: new Prisma.Decimal(fees.domFeeAmount),
-            platformFee: new Prisma.Decimal(fees.platformProfit),
-            userId: boleto.userId,
-            description:
-              platformTag !== 'GLOBAL'
-                ? `${boleto.description ?? boleto.title} [TENANT:${platformTag}]`
-                : (boleto.description ?? boleto.title),
-            customerName: input.customerName,
-            customerEmail: input.customerEmail,
-            customerDocument: document,
-            customerPhone: phone || null,
-          },
-          create: {
-            userId: boleto.userId,
-            amount: new Prisma.Decimal(base),
-            netAmount: new Prisma.Decimal(fees.netAmount),
-            status: TransactionStatus.PENDING,
-            paymentMethod: PaymentMethod.BOLETO,
-            totalFee: new Prisma.Decimal(fees.platformFeeTotal),
-            domFee: new Prisma.Decimal(fees.domFeeAmount),
-            platformFee: new Prisma.Decimal(fees.platformProfit),
-            domPaymentId: result.id,
-            description:
-              platformTag !== 'GLOBAL'
-                ? `${boleto.description ?? boleto.title} [TENANT:${platformTag}]`
-                : (boleto.description ?? boleto.title),
-            ...transactionPlatformTagData(platformTag),
-            customerName: input.customerName,
-            customerEmail: input.customerEmail,
-            customerDocument: document,
-            customerPhone: phone || null,
-          },
-        });
+    const savedTx = await this.prisma.$transaction((tx) =>
+      persistLinkCharge(
+        tx,
+        { ...snapshot, domPaymentId: result.id },
+        TransactionStatus.PENDING,
+        chargeId,
+      ),
+    );
 
     await this.boletos.update(boleto.id, {
       currentUses: boleto.currentUses + 1,
@@ -287,7 +227,7 @@ export class ChargeBoletoUseCase {
       barcode: result.barcode,
       digitableLine: result.digitableLine,
       dueDate: result.dueDate,
-      amount: financialQuote?.totalAmount ?? base,
+      amount: financialQuote.totalAmount,
     };
   }
 }

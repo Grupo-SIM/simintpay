@@ -1,7 +1,6 @@
-/** Chaves dos overrides persistidos no banco (alinhadas ao front). */
-export const PLATAFORMA_TAXA_KEYS = [
+/** Historical constants for legacy projections; never persisted as editable overrides. */
+export const LEGACY_TAXA_KEYS = [
   'MDR_PIX',
-  'TAXA_SAQUE_FIXA', // Derivada: maior taxa de saque entre adquirentes ativas + TAXA_SAQUE_EXTRA (não é mais editável)
   'TAXA_SAQUE_EXTRA', // Extra do admin (R$) somado à maior taxa de saque entre adquirentes
   'TAXA_SAQUE_DOM',
   'TAXA_SAQUE_PERCENT',
@@ -112,13 +111,12 @@ export const PLATAFORMA_TAXA_KEYS = [
   'POS_ABSORVER_TAXAS',
 ] as const;
 
-export type PlataformaTaxaKey = (typeof PLATAFORMA_TAXA_KEYS)[number];
+export type PlataformaTaxaKey = (typeof LEGACY_TAXA_KEYS)[number];
 
 /** Padrões únicos quando nenhum override de plataforma ou global existe. */
 export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   /** Taxa DOM sobre PIX (decimal): 0,98% sobre o valor pago. Sobrescreva pelo painel admin. */
   MDR_PIX: 0.0098,
-  TAXA_SAQUE_FIXA: 3.5,
   TAXA_SAQUE_EXTRA: 0,
   TAXA_SAQUE_DOM: 3.5,
   TAXA_SAQUE_PERCENT: 0,
@@ -229,3 +227,12 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   // 1 = ligado (absorve, comportamento atual/default). 0 = desligado (repassa).
   POS_ABSORVER_TAXAS: 1,
 };
+
+/** Only these scalar overrides are editable in /admin/taxas. Payment fees use FinancialPolicyRevision. */
+export const EDITABLE_PLATFORM_TAXA_KEYS = [
+  'SAQUE_MIN',
+  'TAXA_SAQUE_EXTRA',
+] as const;
+export function isEditablePlatformTaxaKey(key: string): boolean {
+  return (EDITABLE_PLATFORM_TAXA_KEYS as readonly string[]).includes(key);
+}

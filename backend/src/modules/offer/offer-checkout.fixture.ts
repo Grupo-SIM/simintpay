@@ -1,5 +1,8 @@
 import { Prisma } from '@prisma/client';
-import { makeFakePrisma } from '../../application/use-cases/payment-link/charge-characterization.fixture';
+import {
+  PIX_LANE_POLICY,
+  makeFakePrisma,
+} from '../../application/use-cases/payment-link/charge-characterization.fixture';
 
 /**
  * In-memory fake of the Prisma surface touched by the offer checkout, layered on the
@@ -162,3 +165,35 @@ export function makeOfferDb(
 }
 
 export const money = (v: any) => Number(new Prisma.Decimal(v).toString());
+
+export function configureCheckoutPolicy(prisma: any) {
+  const lane = PIX_LANE_POLICY.lanes['DOM/PIX/ONLINE/1'];
+  const lanes = Object.fromEntries(
+    ['PIX', 'DEBIT_CARD', 'CREDIT_CARD'].flatMap((method) =>
+      Array.from({ length: method === 'CREDIT_CARD' ? 12 : 1 }, (_, i) => [
+        `DOM/${method}/ONLINE/${i + 1}`,
+        lane,
+      ]),
+    ),
+  );
+  prisma.financialPolicyRevision = {
+    findMany: async () => [
+      { tag: 'GLOBAL', version: 1, document: { ...PIX_LANE_POLICY, lanes } },
+    ],
+  };
+  prisma.acquirerCatalogue = { findMany: async () => [{ code: 'DOM' }] };
+  prisma.acquirerFeeSchedule = {
+    findMany: async () => [
+      {
+        acquirerCode: 'DOM',
+        fixedCents: 50,
+        ratePpm: 9800,
+        interestPpm: 0,
+        base: 'ORIGINAL',
+        source: 'Signed',
+        createdAt: new Date('2026-01-01'),
+        id: 'fee',
+      },
+    ],
+  };
+}

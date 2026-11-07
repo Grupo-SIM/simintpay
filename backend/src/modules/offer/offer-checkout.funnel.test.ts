@@ -19,7 +19,11 @@ import { Acquirer } from '../../core/services/acquirer.enum';
 import { acquirerCapabilities } from '../../core/services/acquirer-capabilities';
 import { ExternalRefService } from '../billing-core/external-ref.service';
 import { OfferCheckoutService } from './offer-checkout.service';
-import { makeOffer, makeOfferDb } from './offer-checkout.fixture';
+import {
+  configureCheckoutPolicy,
+  makeOffer,
+  makeOfferDb,
+} from './offer-checkout.fixture';
 
 const oldToken = process.env.DOM_TOKEN;
 beforeAll(useEmptyCaches);
@@ -76,6 +80,7 @@ function setup(
     ...others.map((o) => makeOffer(o)),
   ];
   const db = makeOfferDb(main, {}, extra);
+  configureCheckoutPolicy(db.prisma);
   let links = 0;
   const gateway: any = {
     createPaymentLink: async () => ({ id: `dom-link-${++links}` }),
@@ -104,7 +109,7 @@ function setup(
   return { service, db, main, charge, byId };
 }
 
-async function legacyNumbers(bump: boolean, upsell: boolean) {
+async function linkNumbers(bump: boolean, upsell: boolean) {
   const db = makeFakePrisma(
     upsell
       ? {
@@ -124,6 +129,7 @@ async function legacyNumbers(bump: boolean, upsell: boolean) {
         }
       : { offers: [makeLegacyOffer()] },
   );
+  configureCheckoutPolicy(db.prisma);
   const link = makeLink();
   const service = new ChargePaymentLinkUseCase(
     { findById: async () => link, update: async () => link } as never,
@@ -145,16 +151,16 @@ async function legacyNumbers(bump: boolean, upsell: boolean) {
   return money(db.row());
 }
 
-describe('offer bumps and funnel match the legacy link numbers', () => {
+describe('offers and payment links use the same configured financial policy', () => {
   test('offer + order bump == link + order bump (amount, net, fees)', async () => {
     const f = setup();
     const out = await f.charge(f.main.code, { bumpCodes: ['BUMP00001'] });
-    const legacy = await legacyNumbers(true, false);
+    const legacy = await linkNumbers(true, false);
     expect(money(f.db.base.row())).toEqual(legacy);
-    expect(legacy.amount).toBe(125.79);
-    expect(out.amount).toBe(125.79);
+    expect(legacy.amount).toBe(120);
+    expect(out.amount).toBe(120);
     expect(f.db.base.row().description).toBe('Curso + Bump');
-    expect(f.db.charges[0].amountCents).toBe(12579);
+    expect(f.db.charges[0].amountCents).toBe(12000);
     expect(f.db.charges[0].snapshot.items.map((i: any) => i.role)).toEqual([
       'MAIN',
       'BUMP',
@@ -162,7 +168,7 @@ describe('offer bumps and funnel match the legacy link numbers', () => {
     expect(f.main.usedCount).toBe(1);
   });
 
-  test('upsell == legacy upsell, never consumes usedCount or maxUses', async () => {
+  test('upsell matches the payment link quote without consuming uses', async () => {
     const f = setup({ maxUses: 1 });
     const first = await f.charge(f.main.code);
     f.db.charges[0].status = 'PAID';
@@ -170,9 +176,9 @@ describe('offer bumps and funnel match the legacy link numbers', () => {
     expect(f.main.usedCount).toBe(1);
     const up = f.byId('up-1');
     await f.charge(up.code, { parentChargeId: first.chargeId });
-    const legacy = await legacyNumbers(false, true);
+    const legacy = await linkNumbers(false, true);
     expect(money(f.db.base.rows().at(-1))).toEqual(legacy);
-    expect(legacy.amount).toBe(53);
+    expect(legacy.amount).toBe(50);
     expect(up.usedCount).toBe(0);
     expect(f.main.usedCount).toBe(1);
     expect(f.db.charges[1].snapshot).toMatchObject({

@@ -8,6 +8,41 @@ beforeAll(async () => {
   } as never);
 });
 
+const chargePolicy = {
+  schemaVersion: 1,
+  lanes: Object.fromEntries(
+    ['PIX/1', 'CREDIT_CARD/1', 'CREDIT_CARD/3'].map((lane) => {
+      const [method, installments] = lane.split('/');
+      return [
+        `DOM/${method}/ONLINE/${installments}`,
+        {
+          active: true,
+          contract: {
+            fixedCents: 0,
+            ratePpm: 20000,
+            interestPpm: 0,
+            cashbackCents: 0,
+            base: 'ORIGINAL',
+            reference: 'Local test contract',
+          },
+          sim: { fixedCents: 100, ratePpm: 10000, interestPpm: 0 },
+        },
+      ];
+    }),
+  ),
+  owner: {},
+  interestFree: false,
+};
+const feeSchedule = {
+  acquirerCode: 'DOM',
+  fixedCents: 0,
+  ratePpm: 20000,
+  interestPpm: 0,
+  base: 'ORIGINAL',
+  source: 'LOCAL_TEST',
+  createdAt: new Date('2026-01-01'),
+};
+
 const card = {
   price: 10,
   document: '52998224725',
@@ -24,9 +59,15 @@ const card = {
 function fixture(gatewayStatus: string, localStatus: string) {
   let stored: any;
   const prisma = {
-    financialPolicyRevision: { findMany: mock(async () => []) },
-    acquirerCatalogue: { findMany: mock(async () => []) },
-    acquirerFeeSchedule: { findMany: mock(async () => []) },
+    financialPolicyRevision: {
+      findMany: mock(async () => [
+        { tag: 'GLOBAL', version: 1, document: chargePolicy },
+      ]),
+    },
+    acquirerCatalogue: {
+      findMany: mock(async () => [{ code: 'DOM', active: true }]),
+    },
+    acquirerFeeSchedule: { findMany: mock(async () => [feeSchedule]) },
     platform: {
       findUnique: mock(async () => ({
         ownerUserId: 'seller',

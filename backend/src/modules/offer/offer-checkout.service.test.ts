@@ -6,7 +6,10 @@ import {
   expect,
   test,
 } from 'bun:test';
-import { useEmptyCaches } from '../../application/use-cases/payment-link/charge-characterization.fixture';
+import {
+  PIX_LANE_POLICY,
+  useEmptyCaches,
+} from '../../application/use-cases/payment-link/charge-characterization.fixture';
 import { Acquirer } from '../../core/services/acquirer.enum';
 import { acquirerCapabilities } from '../../core/services/acquirer-capabilities';
 import { ExternalRefService } from '../billing-core/external-ref.service';
@@ -45,6 +48,16 @@ function setup(
 ) {
   const offer = makeOffer(offerOver);
   const db = makeOfferDb(offer);
+  const policy = structuredClone(PIX_LANE_POLICY);
+  for (const method of ['CREDIT_CARD', 'DEBIT_CARD']) {
+    for (let n = 1; n <= (method === 'CREDIT_CARD' ? 12 : 1); n++)
+      policy.lanes[`DOM/${method}/ONLINE/${n}`] = structuredClone(
+        policy.lanes['DOM/PIX/ONLINE/1'],
+      );
+  }
+  db.prisma.financialPolicyRevision.findMany = async () => [
+    { tag: 'GLOBAL', version: 1, document: policy },
+  ];
   const calls: any = { create: [], pix: [], card: [] };
   const gateway: any = {
     createPaymentLink: async (_t: string, input: any) => {
@@ -161,27 +174,23 @@ describe('OfferCheckoutService', () => {
     expect(migrated.seen[0]).toEqual(['links-pagamento', 'legacy-link-1']);
   });
 
-  test('fees match the legacy link helper for the same amount', async () => {
+  test('fees follow the editable financial policy', async () => {
     const { service, db, offer } = setup();
     await service.charge(offer.code, { paymentMethod: 'pix', ...buyer });
-    const { calculatePaymentLinkFees, round2 } =
-      await import('../../application/use-cases/payment-link/payment-link-fees.helper');
-    const { Prisma } = await import('@prisma/client');
-    const { buildUserTaxaTag } =
-      await import('../platform-taxas/platform-taxas.store');
-    const legacy = calculatePaymentLinkFees(
-      {
-        amount: new Prisma.Decimal(100),
-        isStandalone: true,
-        plataformas: ['GLOBAL'],
-      } as never,
-      1,
-      buildUserTaxaTag('owner'),
-      true,
-    );
     const row = db.base.row();
-    expect(money(row.netAmount)).toBe(legacy.netAmount);
-    expect(money(row.domFee)).toBe(round2(legacy.domFeeAmount));
+    expect(money(row.netAmount)).toBe(92);
+    expect(money(row.amount)).toBe(100);
+    expect(row.financialSnapshot.policyTag).toBe('GLOBAL');
+  });
+
+  test('missing policy blocks the gateway and draft creation', async () => {
+    const { service, db, offer, calls } = setup();
+    db.prisma.financialPolicyRevision.findMany = async () => [];
+    await expect(
+      service.charge(offer.code, { paymentMethod: 'pix', ...buyer }),
+    ).rejects.toThrow('não configuradas');
+    expect(calls.pix).toHaveLength(0);
+    expect(db.charges).toHaveLength(0);
   });
 
   test('credit card with installments within maxInstallments; approved settles the Charge', async () => {

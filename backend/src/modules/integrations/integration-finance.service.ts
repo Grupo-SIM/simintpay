@@ -13,7 +13,10 @@ import {
 } from '@nestjs/common';
 import { Prisma, WithdrawStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
-import { getPlatformTaxaEffective } from '../platform-taxas/platform-taxas.store';
+import {
+  resolveWithdrawalFixedFee,
+  getPlatformTaxaEffective,
+} from '../platform-taxas/platform-taxas.store';
 import { resolveLegacyMerchantPlatform } from './legacy-merchant-platform';
 
 interface ProvisionMerchantInput {
@@ -91,9 +94,7 @@ export class IntegrationFinanceService {
     if (!Number.isSafeInteger(grossAmountCents) || grossAmountCents <= 0) {
       throw new BadRequestException('Valor bruto inválido');
     }
-    const feeCents = new Prisma.Decimal(
-      getPlatformTaxaEffective(tag, 'TAXA_SAQUE_FIXA', 2),
-    )
+    const feeCents = new Prisma.Decimal(resolveWithdrawalFixedFee(tag))
       .plus(
         new Prisma.Decimal(grossAmountCents)
           .div(100)
@@ -169,9 +170,7 @@ export class IntegrationFinanceService {
       canRequest: active === 0,
       blockReason: active > 0 ? 'WITHDRAWAL_IN_PROGRESS' : null,
       feePolicy: {
-        fixedCents: Math.round(
-          getPlatformTaxaEffective(platform.tag, 'TAXA_SAQUE_FIXA', 2) * 100,
-        ),
+        fixedCents: Math.round(resolveWithdrawalFixedFee(platform.tag) * 100),
         percentBasisPoints: Math.round(
           getPlatformTaxaEffective(platform.tag, 'TAXA_SAQUE_PERCENT', 0) *
             10_000,

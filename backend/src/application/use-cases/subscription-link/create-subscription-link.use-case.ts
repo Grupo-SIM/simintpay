@@ -1,5 +1,5 @@
+import { requireFinancialCharge } from '../../../modules/financial-policy/require-financial-charge';
 import { resolveFinancialOwner } from '../../helpers/financial-owner.helper';
-import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { PlanType } from '@prisma/client';
@@ -14,8 +14,6 @@ import type {
   FrequencyTypeDto,
 } from '../../dtos/subscription-link/create-subscription-link.dto';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { CommunityManagementService } from '../../services/community-management.service';
 import {
   assertClientCanCreate,
@@ -84,20 +82,14 @@ export class CreateSubscriptionLinkUseCase {
     const isStandalone =
       owner.clientStatus != null ? false : (input.dto.isStandalone ?? true);
 
-    // Preço que o DOM cobrará do cliente no cartão = base × (1 + MDR_CC_1X + MDR_CC_MASTER_1X)
-    // Cliente: resolve a taxa pela tag CLIENT:<email> (herda do GLOBAL).
-    const platformTag = selectedTag ?? clientTag ?? 'GLOBAL';
-    let domPrice = input.dto.valor;
-    if (!isStandalone) {
-      const mdrDom1x = getPlatformTaxaEffective(
-        platformTag,
-        'MDR_CC_1X',
-        PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
-      );
-      const mdrMaster1x = getCustomerInterestRate(platformTag, 1);
-      domPrice =
-        Math.round(input.dto.valor * (1 + mdrDom1x + mdrMaster1x) * 100) / 100;
-    }
+    const platformTag = selectedTag ?? 'GLOBAL';
+    const quote = await requireFinancialCharge(
+      this.prisma,
+      platformTag,
+      input.dto.valor,
+      'CREDIT_CARD',
+    );
+    const domPrice = quote.totalAmount;
 
     // Sempre precisa de plano DOM para checkout (cartão e PIX), inclusive quando isStandalone=true.
     const domPlan = await this.gateway.createPlan(domToken, {
@@ -121,21 +113,13 @@ export class CreateSubscriptionLinkUseCase {
       amount: input.dto.valor,
       frequencyType: planType,
       isStandalone,
-      platformFee: (() => {
-        const m1x = getPlatformTaxaEffective(
-          platformTag,
-          'MDR_CC_1X',
-          PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
-        );
-        const mMaster = getCustomerInterestRate(platformTag, 1);
-        return isStandalone ? 0 : Math.round((m1x + mMaster) * 10000) / 100;
-      })(),
+      platformFee: quote.platformFeeRate,
       redirectUrl: input.dto.redirectUrl ?? null,
       webhookUrl: input.dto.webhookUrl ?? null,
       maxUses: input.dto.maxUses ?? null,
       domPlanId: domPlan.id,
       paymentMethods: input.dto.paymentMethods ?? 'BOTH',
-      platformTag: selectedTag ?? clientTag ?? null,
+      platformTag: selectedTag ?? null,
       emailBody: input.dto.emailBody ?? null,
       // Cliente SimintPay: atribui a plataforma "SIMINTPAY" (exibição/agrupamento) para o
       // master aplicar taxas via CLIENT:<email>. Mesmo padrão do link de pagamento e plano.

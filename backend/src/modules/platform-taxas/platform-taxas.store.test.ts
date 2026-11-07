@@ -4,6 +4,7 @@ import {
   readOverridesRaw,
   getPlatformTaxaEffective,
   getPlatformTaxaSource,
+  patchPlatformOverrides,
 } from './platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from './platform-taxas.keys';
 import { initializePlatformRegistryCache } from '../module.registry';
@@ -17,53 +18,52 @@ describe('database-only fee inheritance', () => {
     await initializePlatformTaxasCache(client as never);
   });
   afterEach(async () => {
-    delete process.env.ATLAS_LIQUIDEZ;
-    delete process.env.GLOBAL_LIQUIDEZ;
+    delete process.env.ATLAS_SAQUE_MIN;
+    delete process.env.GLOBAL_SAQUE_MIN;
     await initializePlatformTaxasCache(client as never);
   });
   test('ignores env and unifies caller-specific defaults', () => {
-    process.env.ATLAS_LIQUIDEZ = '0.1';
-    process.env.GLOBAL_LIQUIDEZ = '0.2';
-    expect(getPlatformTaxaEffective('ATLAS', 'LIQUIDEZ', 0.91)).toBe(
-      PLATFORM_TAXA_DEFAULTS.LIQUIDEZ,
+    process.env.ATLAS_SAQUE_MIN = '0.1';
+    process.env.GLOBAL_SAQUE_MIN = '0.2';
+    expect(getPlatformTaxaEffective('ATLAS', 'SAQUE_MIN', 0.91)).toBe(
+      PLATFORM_TAXA_DEFAULTS.SAQUE_MIN,
     );
-    expect(getPlatformTaxaSource('ATLAS', 'LIQUIDEZ')).toBe('default');
+    expect(getPlatformTaxaSource('ATLAS', 'SAQUE_MIN')).toBe('default');
   });
-  test('durable merchant override wins and legacy fallback preserves zero', async () => {
-    await initializePlatformTaxasCache({
-      user: {
-        findMany: async () => [{ id: 'owner', email: 'merchant@example.test' }],
-      },
-      platformTaxaOverride: {
-        findMany: async () => [
-          { tag: 'CLIENT:MERCHANT@EXAMPLE.TEST', key: 'MDR_PIX', value: 0 },
-          { tag: 'GLOBAL', key: 'MDR_PIX', value: 0.9 },
-        ],
-      },
-    } as never);
-    expect(getPlatformTaxaEffective('USER:OWNER', 'MDR_PIX', 1)).toBe(0);
-    expect(getPlatformTaxaSource('USER:OWNER', 'MDR_PIX')).toBe('override');
-    readOverridesRaw()['USER:OWNER'] = { MDR_PIX: 0.03 };
-    expect(getPlatformTaxaEffective('USER:OWNER', 'MDR_PIX', 1)).toBe(0.03);
-    expect(getPlatformTaxaEffective('USER:BUYER', 'MDR_PIX', 1)).toBe(0.9);
-  });
-  test('platform override then registered owner override then global', async () => {
+  test('ignores client and owner scopes and inherits only platform/global', async () => {
     await initializePlatformRegistryCache({
       platform: {
         findMany: async () => [{ tag: 'SHOP', ownerUserId: 'owner' }],
       },
     } as never);
+    await initializePlatformTaxasCache({
+      ...client,
+      platformTaxaOverride: {
+        findMany: async () => [
+          { tag: 'CLIENT:MERCHANT@EXAMPLE.TEST', key: 'SAQUE_MIN', value: 1 },
+          { tag: 'USER:OWNER', key: 'SAQUE_MIN', value: 2 },
+          { tag: 'GLOBAL', key: 'SAQUE_MIN', value: 90 },
+          { tag: 'SHOP', key: 'SAQUE_MIN', value: 0 },
+        ],
+      },
+    } as never);
     const cache = readOverridesRaw();
-    cache.GLOBAL = { MDR_PIX: 0.9 };
-    cache['USER:OWNER'] = { MDR_PIX: 0 };
-    expect(getPlatformTaxaEffective('SHOP', 'MDR_PIX', 1)).toBe(0);
-    expect(getPlatformTaxaSource('SHOP', 'MDR_PIX')).toBe('override');
-    cache.SHOP = { MDR_PIX: 0.03 };
-    expect(getPlatformTaxaEffective('SHOP', 'MDR_PIX', 1)).toBe(0.03);
-    delete cache.SHOP.MDR_PIX;
-    delete cache['USER:OWNER'].MDR_PIX;
-    expect(getPlatformTaxaEffective('SHOP', 'MDR_PIX', 1)).toBe(0.9);
-    expect(getPlatformTaxaSource('SHOP', 'MDR_PIX')).toBe('global');
+    expect(cache).toEqual({
+      GLOBAL: { SAQUE_MIN: 90 },
+      SHOP: { SAQUE_MIN: 0 },
+    });
+    expect(getPlatformTaxaEffective('SHOP', 'SAQUE_MIN', 1)).toBe(0);
+    expect(getPlatformTaxaSource('SHOP', 'SAQUE_MIN')).toBe('override');
+    delete cache.SHOP.SAQUE_MIN;
+    cache['USER:OWNER'] = { SAQUE_MIN: 3 };
+    expect(getPlatformTaxaEffective('SHOP', 'SAQUE_MIN', 1)).toBe(90);
+    expect(getPlatformTaxaSource('SHOP', 'SAQUE_MIN')).toBe('global');
+    expect(getPlatformTaxaEffective('USER:OWNER', 'SAQUE_MIN', 1)).toBe(90);
+    for (const tag of ['USER:OWNER', 'CLIENT:MERCHANT@EXAMPLE.TEST']) {
+      await expect(
+        patchPlatformOverrides(tag, { SAQUE_MIN: 0 }),
+      ).rejects.toThrow('por plataforma');
+    }
   });
   test('honors zero override then restores inheritance', () => {
     const cache = readOverridesRaw();
@@ -73,5 +73,28 @@ describe('database-only fee inheritance', () => {
     delete cache.ATLAS.TAXA_SAQUE_EXTRA;
     expect(getPlatformTaxaEffective('ATLAS', 'TAXA_SAQUE_EXTRA', 2)).toBe(5);
     expect(getPlatformTaxaSource('ATLAS', 'TAXA_SAQUE_EXTRA')).toBe('global');
+  });
+  test('ignores persisted legacy overrides and refuses new legacy writes', async () => {
+    await initializePlatformTaxasCache({
+      ...client,
+      platformTaxaOverride: {
+        findMany: async () => [
+          { tag: 'GLOBAL', key: 'LIQUIDEZ', value: 0.1 },
+          { tag: 'ATLAS', key: 'LINK_COST_2X', value: 0.99 },
+          { tag: 'ATLAS', key: 'MDR_CC_1X', value: 0.99 },
+          { tag: 'ATLAS', key: 'TAXA_SAQUE_EXTRA', value: 0 },
+        ],
+      },
+    } as never);
+    expect(readOverridesRaw()).toEqual({ ATLAS: { TAXA_SAQUE_EXTRA: 0 } });
+    for (const key of ['LIQUIDEZ', 'LINK_COST_2X', 'MDR_CC_1X'] as const) {
+      expect(getPlatformTaxaEffective('ATLAS', key, 0.42)).toBe(
+        PLATFORM_TAXA_DEFAULTS[key],
+      );
+      expect(getPlatformTaxaSource('ATLAS', key)).toBe('default');
+      await expect(
+        patchPlatformOverrides('ATLAS', { [key]: 0.1 }),
+      ).rejects.toThrow('Taxa legada');
+    }
   });
 });

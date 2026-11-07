@@ -2,7 +2,10 @@ import { LegacyInternalAuthGuard } from '../../modules/platform-core/legacy-inte
 import { SetMetadata, UseGuards } from '@nestjs/common';
 import { InternalRenovadaFinanceService } from '../../modules/unified-platform/finance/legacy-renovada-finance.service';
 import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
-import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import {
+  resolveWithdrawalFixedFee,
+  getPlatformTaxaEffective,
+} from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 
 @Controller('internal/renovada/finance')
@@ -14,9 +17,17 @@ export class InternalRenovadaFinanceController {
   @Get('fees')
   fees() {
     return {
-      taxaFixa: getPlatformTaxaEffective('RENOVADA', 'TAXA_SAQUE_FIXA', PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA),
-      taxaPercent: getPlatformTaxaEffective('RENOVADA', 'TAXA_SAQUE_PERCENT', PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_PERCENT),
-      saqueMin: getPlatformTaxaEffective('RENOVADA', 'SAQUE_MIN', PLATFORM_TAXA_DEFAULTS.SAQUE_MIN),
+      taxaFixa: resolveWithdrawalFixedFee('RENOVADA'),
+      taxaPercent: getPlatformTaxaEffective(
+        'RENOVADA',
+        'TAXA_SAQUE_PERCENT',
+        PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_PERCENT,
+      ),
+      saqueMin: getPlatformTaxaEffective(
+        'RENOVADA',
+        'SAQUE_MIN',
+        PLATFORM_TAXA_DEFAULTS.SAQUE_MIN,
+      ),
     };
   }
 
@@ -25,7 +36,9 @@ export class InternalRenovadaFinanceController {
     @Query('cpf') cpf: string,
     @Query('userId') userId?: string,
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.summary(cpf, userId, internalToken); }
+  ) {
+    return this.finance.summary(cpf, userId, internalToken);
+  }
 
   @Get('transactions')
   async transactions(
@@ -38,7 +51,19 @@ export class InternalRenovadaFinanceController {
     @Query('status') status?: string,
     @Query('description') description?: string,
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.transactions(cpf, userId, page, limit, startDate, endDate, status, description, internalToken); }
+  ) {
+    return this.finance.transactions(
+      cpf,
+      userId,
+      page,
+      limit,
+      startDate,
+      endDate,
+      status,
+      description,
+      internalToken,
+    );
+  }
 
   @Get('withdrawals')
   async withdrawals(
@@ -47,11 +72,16 @@ export class InternalRenovadaFinanceController {
     @Query('page') page = '1',
     @Query('limit') limit = '10',
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.withdrawals(cpf, userId, page, limit, internalToken); }
+  ) {
+    return this.finance.withdrawals(cpf, userId, page, limit, internalToken);
+  }
 
   @Post('withdraw')
   async requestWithdraw(
-    @Body() body: { cpf?: string; userId?: string; amount: number; pixKey: string },
+    @Body()
+    body: { cpf?: string; userId?: string; amount: number; pixKey: string },
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.requestWithdraw(body, internalToken); }
+  ) {
+    return this.finance.requestWithdraw(body, internalToken);
+  }
 }

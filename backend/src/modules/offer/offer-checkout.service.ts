@@ -11,14 +11,8 @@ import {
   TransactionStatus,
   type Offer,
 } from '@prisma/client';
-import { calculateAreaflixSellerNet } from '../../application/helpers/areaflix-fees.helper';
-import { clientTaxaTagFor } from '../../application/helpers/client-rules.helper';
 import { platformGatewayToken } from '../../application/helpers/explicit-platform.helper';
-import {
-  calculateDebitFees,
-  calculatePaymentLinkFees,
-  round2,
-} from '../../application/use-cases/payment-link/payment-link-fees.helper';
+import { round2 } from '../../application/use-cases/payment-link/payment-link-fees.helper';
 import { USER_REPOSITORY } from '../../core/repositories/user.repository.interface';
 import type { IUserRepository } from '../../core/repositories/user.repository.interface';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -37,7 +31,6 @@ import {
 import { paymentTracking } from '../platform-core/payment-tracking';
 import { persistLinkCharge } from '../platform-core/link-settlement';
 import { transactionPlatformTagData } from '../platform-core/transaction-platform';
-import { buildUserTaxaTag } from '../platform-taxas/platform-taxas.store';
 import { discardDraftOnRejection } from '../unified-platform/payments/dom-rejection';
 import {
   readOfferFulfillment,
@@ -154,16 +147,6 @@ export class OfferCheckoutService {
     if (!domToken)
       throw new BadRequestException('Token do gateway não configurado');
 
-    // ── Taxas: mesmo caminho do link (política financeira, senão cálculo legado) ──
-    const owner = await this.users.findById(offer.ownerUserId);
-    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-      ? null
-      : clientTaxaTagFor(owner);
-    const taxaTag =
-      ownerClientTag ??
-      (['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-        ? buildUserTaxaTag(offer.ownerUserId)
-        : platformTag);
     // ── Funil: upsell/downsell cobra só a oferta ligada a um pedido pago do mesmo comprador;
     //    senão a oferta principal + order bumps escolhidos. Taxas incidem sobre o cobrado. ──
     const funnel = isFunnel ? await this.resolveFunnel(offer, input) : null;
@@ -197,43 +180,18 @@ export class OfferCheckoutService {
         ];
     const chargedBaseCents = items.reduce((n, i) => n + i.amountCents, 0);
     const baseAmount = chargedBaseCents / 100;
-    const pricedLink = {
-      amount: new Prisma.Decimal(baseAmount),
-      isStandalone: true,
-      plataformas: [platformTag],
-    } as never;
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, taxaTag),
+      await loadChargePolicy(this.prisma, platformTag),
       baseAmount,
       isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
       installments,
     );
-    const fees =
-      financialQuote ??
-      (isDebit
-        ? (() => {
-            const d = calculateDebitFees(pricedLink, taxaTag);
-            return {
-              totalAmount: d.baseAmount,
-              netAmount: d.netAmount,
-              domFeeAmount: d.domFeeAmount,
-            };
-          })()
-        : calculatePaymentLinkFees(
-            pricedLink,
-            installments,
-            taxaTag,
-            isPix,
-            false,
-          ));
-    const { totalAmount, domFeeAmount } = fees;
-    let { netAmount } = fees;
-    if (platformTag === 'AREAFLIX' && !financialQuote)
-      netAmount = calculateAreaflixSellerNet(
-        totalAmount,
-        isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
-        installments,
+    if (!financialQuote) {
+      throw new BadRequestException(
+        'Taxas da plataforma não configuradas para esta modalidade',
       );
+    }
+    const { totalAmount, domFeeAmount, netAmount } = financialQuote;
 
     const domFee = round2(domFeeAmount);
     const totalFee = round2(totalAmount - netAmount);
@@ -259,7 +217,7 @@ export class OfferCheckoutService {
     const txId = randomUUID();
     const snapshot = {
       financialSnapshot: withCoproduction(
-        financialQuote?.financialSnapshot,
+        financialQuote.financialSnapshot,
         coproduction,
       ),
       userId: offer.ownerUserId,
