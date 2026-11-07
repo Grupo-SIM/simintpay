@@ -415,6 +415,10 @@ export function decide(
 ): Decision[] {
   const existingIds = new Set(offers.map((o) => o.id));
   const codeHolder = new Map(offers.map((o) => [o.code, o.id]));
+  const offerCodeById = new Map(offers.map((o) => [o.id, o.code]));
+  const idCount = new Map<string, number>();
+  for (const { draft } of candidates)
+    idCount.set(draft.legacyId, (idCount.get(draft.legacyId) ?? 0) + 1);
   const batch = new Map<string, number>();
   for (const { draft } of candidates)
     if (draft.code && !existingIds.has(draft.legacyId))
@@ -439,7 +443,19 @@ export function decide(
         'BLOCKED',
         pre.blockers.map((b) => `${b.code}: ${b.detail}`),
       );
-    if (existingIds.has(d.legacyId)) return make('SKIP_EXISTING');
+    // The Offer id is the legacy id, so the id must belong to exactly one legacy product.
+    if ((idCount.get(d.legacyId) ?? 0) > 1)
+      return make('REFUSED', [
+        `ID_COLLISION: id ${d.legacyId} appears in several legacy tables`,
+      ]);
+    if (existingIds.has(d.legacyId)) {
+      const heldCode = offerCodeById.get(d.legacyId);
+      if (d.code && heldCode !== d.code)
+        return make('REFUSED', [
+          `ID_COLLISION: Offer ${d.legacyId} exists with code ${heldCode}, not ${d.code}`,
+        ]);
+      return make('SKIP_EXISTING');
+    }
     if (candidate.ownerRole === 'ADMIN')
       return make('BLOCKED_ADMIN_OWNER', [
         'owner is ADMIN (plan 0009); owners are never reassigned here',

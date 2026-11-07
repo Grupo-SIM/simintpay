@@ -325,14 +325,13 @@ run('apply creates offers and external refs, keeps legacy intact', async () => {
   ]);
   const pl = offers.find((o) => o.code === 'PL-OK')!;
   expect(pl).toMatchObject({
+    id: 'pl-ok',
     amountCents: 4990,
     ownerUserId: sellerA,
     platformTag: 'PAGATG',
-    legacyType: 'PaymentLink',
-    legacyId: 'pl-ok',
   });
   expect(offers.find((o) => o.code === 'PL-LOW')!.platformTag).toBeNull();
-  expect(offers.find((o) => o.code === 'PX-OLDEST')!.legacyId).toBe('px-ok');
+  expect(offers.find((o) => o.code === 'PX-OLDEST')!.id).toBe('px-ok');
   expect(offers.find((o) => o.code === 'PLAN-OK')).toMatchObject({
     intervalType: 'MONTH',
     intervalCount: 2,
@@ -396,7 +395,9 @@ run(
     const problems = await verify(db!, { includeBoleto: true });
     expect(problems).toEqual([]);
     // Without the flag the boleto Offer has no eligible legacy row.
-    expect((await verify(db!)).join('\n')).toContain('Boleto:bol-ok');
+    expect((await verify(db!)).join('\n')).toContain(
+      'Offer bol-ok has no eligible',
+    );
   },
 );
 
@@ -450,10 +451,30 @@ run('verify passes, then reports tampering', async () => {
   );
 });
 
-run('rollback by legacyType leaves legacy rows untouched', async () => {
+run('rollback by id leaves legacy rows untouched', async () => {
   const before = await legacySnapshot();
   await db!.externalRef.deleteMany({ where: { entityType: 'Offer' } });
-  await db!.offer.deleteMany({ where: { legacyType: { not: null } } });
+  await db!.offer.deleteMany();
   expect(await db!.offer.count()).toBe(0);
   expect(await legacySnapshot()).toBe(before);
+});
+
+run('an Offer holding a legacy id with another code refuses it', async () => {
+  await db!.offer.create({
+    data: {
+      id: 'pl-ok',
+      ownerUserId: sellerB,
+      createdByUserId: sellerB,
+      code: 'FOREIGN',
+      kind: 'PAYMENT_LINK',
+      name: 'Foreign',
+      amountCents: 5000,
+      acceptedMethods: ['PIX'],
+    } as never,
+  });
+  const plan = await buildPlan(db!);
+  const d = plan.decisions.find((x) => x.candidate.draft.legacyId === 'pl-ok')!;
+  expect(d.status).toBe('REFUSED');
+  expect(d.reasons.join()).toContain('ID_COLLISION');
+  await db!.offer.delete({ where: { id: 'pl-ok' } });
 });
