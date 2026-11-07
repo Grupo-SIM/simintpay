@@ -100,6 +100,8 @@ export function quoteFinancialCharge(
   method: Method,
   installments = 1,
   channel: Channel = 'ONLINE',
+  /** Platform fee modes treat the amount as the buyer total; offers set the buyer total themselves. */
+  buyerTotalAsInput = !!context.platformFeeMode,
 ) {
   const routeKey = laneKey(context.acquirer, method, channel, installments);
   try {
@@ -176,7 +178,7 @@ export function quoteFinancialCharge(
     cents(amount),
     undefined,
     scheduled,
-    !!context.platformFeeMode,
+    buyerTotalAsInput,
   );
   if (additiveCents) {
     r.contractedCostCents += additiveCents;

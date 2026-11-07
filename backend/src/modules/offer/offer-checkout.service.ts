@@ -185,6 +185,8 @@ export class OfferCheckoutService {
       baseAmount,
       isPix ? 'PIX' : isDebit ? 'DEBIT_CARD' : 'CREDIT_CARD',
       installments,
+      'ONLINE',
+      false,
     );
     if (!financialQuote) {
       throw new BadRequestException(

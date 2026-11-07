@@ -83,6 +83,8 @@ export function quoteOfferCycle(
     baseAmount,
     financialMethod,
     effectiveInstallments,
+    'ONLINE',
+    false,
   );
   if (!financialQuote) {
     throw new BadRequestException(
