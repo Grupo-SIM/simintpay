@@ -2,7 +2,6 @@ import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayUnique,
-  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -19,13 +18,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-const KINDS = [
-  'PAYMENT_LINK',
-  'SUBSCRIPTION_LINK',
-  'PLAN',
-  'PIX_PLAN',
-  'BOLETO',
-] as const;
 const METHODS = ['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'BOLETO'] as const;
 const RENEWALS = ['NONE', 'AUTO_CHARGE', 'MANUAL_PAY'] as const;
 const INTERVALS = ['DAY', 'WEEK', 'MONTH', 'YEAR'] as const;
@@ -134,10 +126,6 @@ export class CreateOfferDto extends OmitType(UpdateOfferDto, [
   'amountCents',
   'isActive',
 ] as const) {
-  @ApiProperty({ enum: KINDS })
-  @IsIn(KINDS)
-  kind!: (typeof KINDS)[number];
-
   @ApiProperty()
   @IsString()
   @MinLength(1)
@@ -178,15 +166,18 @@ export const OFFER_LIST_MAX_PAGE_SIZE = 100;
 export const OFFER_LIST_DEFAULT_PAGE_SIZE = 20;
 
 export class ListOffersQueryDto {
+  @ApiPropertyOptional({
+    description: 'Busca administrativa por nome ou e-mail do dono',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  ownerSearch?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   ownerUserId?: string;
-
-  @ApiPropertyOptional({ enum: KINDS })
-  @IsOptional()
-  @IsIn(KINDS)
-  kind?: (typeof KINDS)[number];
 
   @ApiPropertyOptional({ description: 'Busca por nome ou código' })
   @IsOptional()
@@ -313,7 +304,6 @@ export class OfferChargeDto {
   })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(5)
   @IsString({ each: true })
   bumpCodes?: string[];
 
@@ -324,4 +314,35 @@ export class OfferChargeDto {
   @IsOptional()
   @IsString()
   parentChargeId?: string;
+}
+
+/** Read-only quote of an unsaved offer; ownership is resolved exactly as on creation. */
+export class OfferPreviewPricingDto {
+  @ApiProperty()
+  @IsInt()
+  @Min(1)
+  @Max(100000000000)
+  amountCents!: number;
+  @ApiProperty()
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  maxInstallments!: number;
+  @ApiProperty({ enum: METHODS, isArray: true })
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(METHODS, { each: true })
+  acceptedMethods!: (typeof METHODS)[number][];
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  platformTag?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ownerUserId?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  offerId?: string;
 }

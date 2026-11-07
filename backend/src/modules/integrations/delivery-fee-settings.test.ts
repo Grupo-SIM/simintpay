@@ -19,6 +19,32 @@ describe('delivery fee lanes', () => {
             effective_rate: index === 0 ? 3.99 : index === 11 ? 16 : 8.3,
           })),
         },
+        pix_physical: { negotiation: { mdr: 0, fee_transaction: 0 } },
+        debit_physical: {
+          fee_transaction: 0,
+          brands: Object.fromEntries(
+            ['VISA', 'MASTERCARD', 'OTHERS'].map((brand) => [
+              brand,
+              { mdr: 3.99 },
+            ]),
+          ),
+        },
+        credit_physical: {
+          fee_transaction: 0,
+          installments: Array.from({ length: 12 }, (_, index) => ({
+            installment: index + 1,
+            ...Object.fromEntries(
+              ['VISA', 'MASTERCARD', 'OTHERS'].map((brand) => [
+                brand,
+                {
+                  mdr: 3.99,
+                  interest_rate_our: 0,
+                  effective_rate: 3.99,
+                },
+              ]),
+            ),
+          })),
+        },
         pix_online: { mdr: 0.98, fee_transaction: 1 },
         boleto: { mdr: 3.49, mdr_type: 'FIXED', fee_transaction: 1 },
       },
@@ -95,7 +121,7 @@ describe('delivery fee lanes', () => {
       fixedCents: 50,
       ratePpm: 10_000,
     });
-    expect(result.costs).toHaveLength(13);
+    expect(result.costs).toHaveLength(14);
     expect(result.costs.find((fee) => fee.method === 'PIX')?.ratePpm).toBe(
       9_800,
     );

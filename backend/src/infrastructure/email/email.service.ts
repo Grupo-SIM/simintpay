@@ -11,6 +11,25 @@ import {
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+export type FeeIncreaseChange = {
+  acquirer: string;
+  method: string;
+  channel: string;
+  installments: number;
+  previous: {
+    fixedCents: number;
+    ratePpm: number;
+    interestPpm: number;
+    base: string;
+  };
+  next: {
+    fixedCents: number;
+    ratePpm: number;
+    interestPpm: number;
+    base: string;
+  };
+};
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -128,6 +147,94 @@ export class EmailService {
     } catch (err) {
       this.logger.error(
         `Falha ao enviar e-mail de ebook personalizado para ${input.to}: ${String(err)}`,
+      );
+      throw err;
+    }
+  }
+
+  /** Avisa o contato interno que o custo de uma adquirente aumentou; lista só o que mudou. */
+  async sendFeeIncreaseAlert(input: {
+    to: string;
+    changes: FeeIncreaseChange[];
+  }): Promise<void> {
+    if (
+      !process.env.SMTP_HOST ||
+      !process.env.SMTP_USER ||
+      !process.env.SMTP_PASSWORD
+    ) {
+      throw new Error(
+        'SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASSWORD)',
+      );
+    }
+    const esc = (s: string): string =>
+      s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    const from = process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
+    const brl = (cents: number) =>
+      (cents / 100).toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      });
+    const pct = (ppm: number) =>
+      `${(ppm / 10_000).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}%`;
+    const baseLabel = {
+      ORIGINAL: 'valor original',
+      BUYER_TOTAL: 'total do comprador',
+    } as const;
+    const methodLabel: Record<string, string> = {
+      PIX: 'Pix',
+      BOLETO: 'Boleto',
+      DEBIT_CARD: 'Débito',
+      CREDIT_CARD: 'Crédito',
+    };
+    const rows = input.changes.map((change) => {
+      const lines: string[] = [];
+      const { previous, next } = change;
+      if (previous.fixedCents !== next.fixedCents)
+        lines.push(
+          `Custo fixo: ${brl(previous.fixedCents)} → ${brl(next.fixedCents)}`,
+        );
+      if (previous.ratePpm !== next.ratePpm)
+        lines.push(`Taxa: ${pct(previous.ratePpm)} → ${pct(next.ratePpm)}`);
+      if (previous.interestPpm !== next.interestPpm)
+        lines.push(
+          `Juros: ${pct(previous.interestPpm)} → ${pct(next.interestPpm)}`,
+        );
+      if (previous.base !== next.base)
+        lines.push(
+          `Base: ${baseLabel[previous.base as keyof typeof baseLabel] ?? previous.base} → ${baseLabel[next.base as keyof typeof baseLabel] ?? next.base}`,
+        );
+      const parcelas =
+        change.method === 'CREDIT_CARD' ? ` ${change.installments}x` : '';
+      return {
+        title: `${change.acquirer} · ${methodLabel[change.method] ?? change.method}${parcelas} · ${change.channel === 'POS' ? 'presencial' : 'online'}`,
+        lines,
+      };
+    });
+    const text = rows
+      .map((row) => [row.title, ...row.lines.map((l) => `  ${l}`)].join('\n'))
+      .join('\n\n');
+    const html = rows
+      .map(
+        (row) =>
+          `<p style="margin: 0 0 14px;"><strong>${esc(row.title)}</strong><br />${row.lines.map((l) => esc(l)).join('<br />')}</p>`,
+      )
+      .join('');
+    const count = rows.length;
+    try {
+      await this.createTransport().sendMail({
+        from: `"SIM INT PAY" <${from}>`,
+        to: input.to,
+        subject: `Aumento de custo de adquirente em ${count} ${count === 1 ? 'modalidade' : 'modalidades'}`,
+        text: `Os custos abaixo aumentaram. Revise margem e preço ao comprador.\n\n${text}`,
+        html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e1b4b;"><p>Os custos abaixo aumentaram. Revise margem e preço ao comprador.</p>${html}</div>`,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Falha ao enviar alerta de aumento de custo: ${String(err)}`,
       );
       throw err;
     }

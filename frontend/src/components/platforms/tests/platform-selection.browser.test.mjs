@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { chromium } from 'playwright-core';
 
-test('admin manages all platforms and creates only for another client', async () => {
+test('admin manages platforms and selects product financial owners', async () => {
   const bundle = await Bun.build({
     entrypoints: [import.meta.dir + '/platform-selection-browser-entry.tsx'],
     target: 'browser',
@@ -14,6 +14,14 @@ test('admin manages all platforms and creates only for another client', async ()
   });
   if (!bundle.success) throw new Error(bundle.logs.join('\n'));
   const script = await bundle.outputs[0].text();
+  const { default: postcss } = await import('postcss');
+  const { default: tailwind } = await import('@tailwindcss/postcss');
+  const cssPath = import.meta.dir + '/../../../app/globals.css';
+  const css = (
+    await postcss([tailwind()]).process(await Bun.file(cssPath).text(), {
+      from: cssPath,
+    })
+  ).css;
   const server = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
@@ -21,7 +29,7 @@ test('admin manages all platforms and creates only for another client', async ()
       new Response(
         new URL(request.url).pathname === '/app.js'
           ? script
-          : '<div id="root"></div><script src="/app.js"></script>',
+          : `<html><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style><div id="root" style="padding:24px;max-width:1000px;margin:auto"></div><script src="/app.js"></script>`,
         {
           headers: {
             'Content-Type':
@@ -119,101 +127,166 @@ test('admin manages all platforms and creates only for another client', async ()
       }
       return route.fulfill({ status: 500, json: { message: 'Falha local' } });
     });
-    await page.goto(`http://127.0.0.1:${server.port}`);
-    await page
-      .getByRole('button', { name: /Selecionar ou gerenciar plataformas/ })
-      .click();
-    const manager = page.getByRole('dialog', { name: 'Gerenciar plataformas' });
-    await manager.getByRole('button', { name: /^Outra loja/ }).waitFor();
-    expect(requests).toContain('/api/platforms');
-    expect(requests).not.toContain('/api/platforms/owned');
-    await manager
-      .getByRole('button', { name: 'Criar plataforma', exact: true })
-      .click();
-    await page
-      .getByPlaceholder('Ex: Minha loja', { exact: true })
-      .last()
-      .fill('Nova loja');
-    expect(
+    if (!process.env.PRODUCT_OWNER_ONLY) {
+      await page.goto(`http://127.0.0.1:${server.port}`);
+      await page
+        .getByRole('button', { name: /Selecionar ou gerenciar plataformas/ })
+        .click();
+      const manager = page.getByRole('dialog', {
+        name: 'Gerenciar plataformas',
+      });
+      await manager.getByRole('button', { name: /^Outra loja/ }).waitFor();
+      expect(requests).toContain('/api/platforms');
+      expect(requests).not.toContain('/api/platforms/owned');
       await manager
         .getByRole('button', { name: 'Criar plataforma', exact: true })
-        .isDisabled(),
-    ).toBe(true);
-    await manager.getByRole('combobox', { name: 'Proprietário' }).click();
-    await page.getByText('Maria Silva', { exact: true }).waitFor();
-    expect(await page.getByRole('option', { name: /Admin/ }).count()).toBe(0);
-    await page.getByText('Maria Silva', { exact: true }).click();
-    await manager
-      .getByRole('button', { name: 'Criar plataforma', exact: true })
-      .click();
-    await page.waitForFunction(() =>
-      document.body.textContent.includes('Plataforma criada'),
-    );
-    expect(created.ownerUserId).toBe('other');
-    await page.keyboard.press('Escape');
-    await page.goto(`http://127.0.0.1:${server.port}/?admin`);
-    await page
-      .getByRole('button', { name: /Selecionar configuração financeira/ })
-      .click();
-    const picker = page.getByRole('dialog', {
-      name: 'Selecionar configuração financeira',
-    });
-    expect(
-      await picker.getByRole('button', { name: 'Padrão global' }).count(),
-    ).toBe(1);
-    await page.waitForFunction(() =>
-      document.body.textContent.includes('Usuário: Maria Silva'),
-    );
-    expect(
-      await picker
-        .getByRole('button', { name: /Outra loja.*Usuário: Maria Silva/ })
-        .count(),
-    ).toBe(1);
-    expect(
-      await picker
-        .getByRole('button', { name: /Atlas.*Usuário: Grupo SIM/ })
-        .count(),
-    ).toBe(1);
-    expect(
-      await picker
-        .getByRole('button', { name: /Áreaflix.*Usuário: Grupo SIM/ })
-        .count(),
-    ).toBe(1);
-    expect(
-      await picker.getByText('Nome do proprietário indisponível').count(),
-    ).toBe(0);
+        .click();
+      await page
+        .getByPlaceholder('Ex: Minha loja', { exact: true })
+        .last()
+        .fill('Nova loja');
+      expect(
+        await manager
+          .getByRole('button', { name: 'Criar plataforma', exact: true })
+          .isDisabled(),
+      ).toBe(true);
+      await manager.getByRole('combobox', { name: 'Proprietário' }).click();
+      await page.getByText('Maria Silva', { exact: true }).waitFor();
+      expect(await page.getByRole('option', { name: /Admin/ }).count()).toBe(0);
+      await page.getByText('Maria Silva', { exact: true }).click();
+      await manager
+        .getByRole('button', { name: 'Criar plataforma', exact: true })
+        .click();
+      await page.waitForFunction(() =>
+        document.body.textContent.includes('Plataforma criada'),
+      );
+      expect(created.ownerUserId).toBe('other');
+      await page.keyboard.press('Escape');
+      await page.goto(`http://127.0.0.1:${server.port}/?admin`);
+      await page
+        .getByRole('button', { name: /Selecionar configuração financeira/ })
+        .click();
+      const picker = page.getByRole('dialog', {
+        name: 'Selecionar configuração financeira',
+      });
+      expect(
+        await picker.getByRole('button', { name: 'Padrão global' }).count(),
+      ).toBe(1);
+      await page.waitForFunction(() =>
+        document.body.textContent.includes('Usuário: Maria Silva'),
+      );
+      expect(
+        await picker
+          .getByRole('button', { name: /Outra loja.*Usuário: Maria Silva/ })
+          .count(),
+      ).toBe(1);
+      expect(
+        await picker
+          .getByRole('button', { name: /Atlas.*Usuário: Grupo SIM/ })
+          .count(),
+      ).toBe(1);
+      expect(
+        await picker
+          .getByRole('button', { name: /Áreaflix.*Usuário: Grupo SIM/ })
+          .count(),
+      ).toBe(1);
+      expect(
+        await picker.getByText('Nome do proprietário indisponível').count(),
+      ).toBe(0);
 
-    expect(
-      await picker.getByRole('button', { name: 'Criar plataforma' }).count(),
-    ).toBe(0);
-    expect(await picker.getByRole('button', { name: /Excluir/ }).count()).toBe(
-      0,
-    );
-    await picker.getByRole('button', { name: /Outra loja/ }).click();
-    await page.waitForFunction(() =>
-      document.querySelector('header')?.textContent.includes('Outra loja'),
-    );
-    expect(requests).toContain('/api/platforms/OTHER/financial-policy');
-    await page
-      .getByRole('button', { name: /Selecionar configuração financeira/ })
-      .click();
-    await page
-      .getByRole('dialog')
-      .getByRole('button', { name: 'Padrão global' })
-      .click();
-    await page.waitForFunction(() =>
-      document.querySelector('header')?.textContent.includes('Padrão global'),
-    );
+      expect(
+        await picker.getByRole('button', { name: 'Criar plataforma' }).count(),
+      ).toBe(0);
+      expect(
+        await picker.getByRole('button', { name: /Excluir/ }).count(),
+      ).toBe(0);
+      await picker.getByRole('button', { name: /Outra loja/ }).click();
+      await page.waitForFunction(() =>
+        document.querySelector('header')?.textContent.includes('Outra loja'),
+      );
+      expect(requests).toContain('/api/platforms/OTHER/financial-policy');
+      await page
+        .getByRole('button', { name: /Selecionar configuração financeira/ })
+        .click();
+      await page
+        .getByRole('dialog')
+        .getByRole('button', { name: 'Padrão global' })
+        .click();
+      await page.waitForFunction(() =>
+        document.querySelector('header')?.textContent.includes('Padrão global'),
+      );
+    }
     await page.goto(`http://127.0.0.1:${server.port}/?product`);
-    await page
-      .getByRole('button', { name: /Selecione uma plataforma/ })
-      .click();
-    await page.getByRole('button', { name: /Outra loja.*Maria Silva/ }).click();
+    const fs = await import('node:fs/promises');
+    await fs.mkdir('/tmp/simintpay-owner-screenshots', { recursive: true });
+    for (const mode of ['light', 'dark']) {
+      await page.goto(`http://127.0.0.1:${server.port}/?product&${mode}`);
+      await page.evaluate(
+        (theme) => (document.documentElement.dataset.theme = theme),
+        mode,
+      );
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 850 });
+        await page.getByRole('combobox', { name: 'Proprietário' }).waitFor();
+        expect(
+          await page
+            .getByRole('combobox', { name: 'Proprietário' })
+            .getAttribute('aria-required'),
+        ).toBe('false');
+        await page.screenshot({
+          path: `/tmp/simintpay-owner-screenshots/${mode}-${width}-empty.png`,
+        });
+        expect(
+          await page
+            .getByRole('button', { name: 'Salvar destino' })
+            .isDisabled(),
+        ).toBe(true);
+        await page.getByRole('combobox', { name: 'Proprietário' }).click();
+        await page.getByRole('option', { name: /Maria Silva/ }).waitFor();
+        await page.screenshot({
+          path: `/tmp/simintpay-owner-screenshots/${mode}-${width}-options.png`,
+        });
+        expect(await page.getByRole('option', { name: /Admin/ }).count()).toBe(
+          0,
+        );
+        await page.getByRole('option', { name: /Maria Silva/ }).click();
+        await page.getByRole('button', { name: 'Salvar destino' }).click();
+        expect(
+          JSON.parse(await page.locator('#destination').textContent()),
+        ).toEqual({ plataformas: [], ownerUserId: 'other' });
+        await page.screenshot({
+          path: `/tmp/simintpay-owner-screenshots/${mode}-${width}-selected.png`,
+        });
+        await page.reload();
+        await page.evaluate(
+          (theme) => (document.documentElement.dataset.theme = theme),
+          mode,
+        );
+      }
+    }
+    await page.locator('button[aria-haspopup="listbox"]').click();
+    expect(await page.getByText(/Usuário:/).count()).toBe(0);
+    for (const [width, height] of [
+      [1440, 900],
+      [390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      await page.screenshot({ path: `/tmp/platform-options-${width}.png` });
+    }
+    const otherOption = page.getByRole('option', { name: /^Outra loja$/ });
+    if (!(await otherOption.isVisible())) {
+      await page.locator('button[aria-haspopup="listbox"]').click();
+    }
+    await otherOption.click();
     await page.waitForFunction(
       () =>
         document.querySelector('button[aria-haspopup="listbox"]')
           ?.textContent === 'Outra loja▾',
     );
+    await page.getByRole('button', { name: 'Salvar destino' }).click();
+    expect(
+      JSON.parse(await page.locator('#destination').textContent()),
+    ).toEqual({ plataformas: ['OTHER'] });
     expect(
       await page.getByText(/Nome do proprietário indisponível/).count(),
     ).toBe(0);
@@ -221,4 +294,4 @@ test('admin manages all platforms and creates only for another client', async ()
     await browser.close();
     server.stop(true);
   }
-}, 120000);
+}, 360000);

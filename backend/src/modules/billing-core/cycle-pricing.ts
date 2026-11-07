@@ -4,17 +4,12 @@ import {
   type Offer,
   type PaymentMethod,
 } from '@prisma/client';
-import { calculateAreaflixSellerNet } from '../../application/helpers/areaflix-fees.helper';
-import {
-  calculateDebitFees,
-  calculatePaymentLinkFees,
-  round2,
-} from '../../application/use-cases/payment-link/payment-link-fees.helper';
+import { round2 } from '../../application/use-cases/payment-link/payment-link-fees.helper';
 import {
   loadChargePolicy,
   quoteFinancialCharge,
 } from '../financial-policy/financial-charge';
-import { buildUserTaxaTag } from '../platform-taxas/platform-taxas.store';
+import { BadRequestException } from '@nestjs/common';
 
 export type CyclePolicyContext = Awaited<ReturnType<typeof loadChargePolicy>>;
 
@@ -29,6 +24,7 @@ export type CycleQuote = {
   baseAmountCents: number;
   /** What the buyer pays. */
   totalAmount: number;
+  interestAmount?: number;
   netAmount: number;
   domFee: number;
   totalFee: number;
@@ -36,14 +32,11 @@ export type CycleQuote = {
   financialSnapshot: Prisma.InputJsonValue | undefined;
 };
 
-/** Policy tag of an offer: platform tag, or the owner's own tag for GLOBAL/SIMINTPAY offers. */
+/** Current platform policy used for new offer charges. */
 export function cyclePolicyTag(
   offer: Pick<Offer, 'platformTag' | 'ownerUserId'>,
 ): string {
-  const platformTag = (offer.platformTag ?? 'GLOBAL').toUpperCase();
-  return ['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-    ? buildUserTaxaTag(offer.ownerUserId)
-    : platformTag;
+  return (offer.platformTag ?? 'GLOBAL').toUpperCase();
 }
 
 /** Method a recurring cycle is charged with when the buyer has not chosen one. */
@@ -65,8 +58,7 @@ export function loadCyclePolicyContext(
 }
 
 /**
- * The single pricing rule for an offer charge: financial policy first, legacy payment-link
- * calculation otherwise. Pure given the already loaded policy context. The first subscription
+ * The single pricing rule for an offer charge: the current financial policy. Pure given the already loaded policy context. The first subscription
  * charge and every later cycle use this, so the buyer total never drifts between cycles.
  */
 export function quoteOfferCycle(
@@ -86,43 +78,20 @@ export function quoteOfferCycle(
       ? 'DEBIT_CARD'
       : 'CREDIT_CARD';
   const baseAmount = offer.amountCents / 100;
-  const pricedLink = {
-    amount: new Prisma.Decimal(baseAmount),
-    isStandalone: true,
-    plataformas: [platformTag],
-  } as never;
   const financialQuote = quoteFinancialCharge(
     context,
     baseAmount,
     financialMethod,
     effectiveInstallments,
+    'ONLINE',
+    false,
   );
-  const fees =
-    financialQuote ??
-    (isDebit
-      ? (() => {
-          const d = calculateDebitFees(pricedLink, taxaTag);
-          return {
-            totalAmount: d.baseAmount,
-            netAmount: d.netAmount,
-            domFeeAmount: d.domFeeAmount,
-          };
-        })()
-      : calculatePaymentLinkFees(
-          pricedLink,
-          effectiveInstallments,
-          taxaTag,
-          isPix,
-          false,
-        ));
-  const { totalAmount, domFeeAmount } = fees;
-  let { netAmount } = fees;
-  if (platformTag === 'AREAFLIX' && !financialQuote)
-    netAmount = calculateAreaflixSellerNet(
-      totalAmount,
-      financialMethod,
-      effectiveInstallments,
+  if (!financialQuote) {
+    throw new BadRequestException(
+      'Taxas da plataforma não configuradas para esta modalidade',
     );
+  }
+  const { totalAmount, domFeeAmount, netAmount } = financialQuote;
   const domFee = round2(domFeeAmount);
   const totalFee = round2(totalAmount - netAmount);
   return {
@@ -132,11 +101,12 @@ export function quoteOfferCycle(
     installments: effectiveInstallments,
     baseAmountCents: offer.amountCents,
     totalAmount,
+    interestAmount: financialQuote.interestAmount ?? 0,
     netAmount,
     domFee,
     totalFee,
     platformFee: round2(totalFee - domFee),
-    financialSnapshot: financialQuote?.financialSnapshot as
+    financialSnapshot: financialQuote.financialSnapshot as
       | Prisma.InputJsonValue
       | undefined,
   };

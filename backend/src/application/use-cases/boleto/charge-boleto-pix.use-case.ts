@@ -16,12 +16,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  PaymentMethod,
-  Prisma,
-  TransactionStatus,
-  type PaymentLink,
-} from '@prisma/client';
+import { PaymentMethod, Prisma, TransactionStatus } from '@prisma/client';
 import { BOLETO_REPOSITORY } from '../../../core/repositories/boleto.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -29,13 +24,6 @@ import type { IBoletoRepository } from '../../../core/repositories/boleto.reposi
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
-import { buildUserTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
-import { calculatePaymentLinkFees } from '../payment-link/payment-link-fees.helper';
-import {
-  calculateAreaflixSellerNet,
-  isAreaflixLink,
-} from '../../helpers/areaflix-fees.helper';
 import { discardDraftOnRejection } from '../../../modules/unified-platform/payments/dom-rejection';
 import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
@@ -48,10 +36,6 @@ export type ChargeBoletoPixInput = {
   documentType?: 'CPF' | 'CNPJ';
   tracking?: Record<string, string>;
 };
-
-function round2(v: number): number {
-  return Math.round(v * 100) / 100;
-}
 
 @Injectable()
 export class ChargeBoletoPixUseCase {
@@ -90,13 +74,6 @@ export class ChargeBoletoPixUseCase {
       );
     }
 
-    const owner = await this.users.findById(boleto.userId);
-    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(
-      (boleto.plataformas?.[0] ?? 'GLOBAL').toUpperCase(),
-    )
-      ? null
-      : clientTaxaTagFor(owner);
-
     const domToken = platformGatewayToken(
       boleto.plataformas?.[0],
       process.env.DOM_TOKEN,
@@ -114,35 +91,21 @@ export class ChargeBoletoPixUseCase {
     const platformTag =
       (boleto.plataformas?.[0] as string | undefined)?.toUpperCase() ||
       'GLOBAL';
-    const taxaTag =
-      ownerClientTag ??
-      (['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-        ? buildUserTaxaTag(boleto.userId)
-        : platformTag);
-
-    // PIX à vista: mesma regra de um PIX de link de pagamento (comprador paga a base;
-    // taxa do vendedor = LINK_COST_1X + TAXA_LINK_FIXA; sem cashback/fixa extras).
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, taxaTag),
+      await loadChargePolicy(this.prisma, platformTag),
       base,
       'PIX',
     );
-    const linkFees = calculatePaymentLinkFees(
-      { amount: new Prisma.Decimal(base) } as PaymentLink,
-      1,
-      taxaTag,
-      true,
-      false,
-    );
-    let netAmount = financialQuote?.netAmount ?? linkFees.netAmount;
-    if (
-      !financialQuote &&
-      isAreaflixLink({ plataformas: boleto.plataformas })
-    ) {
-      netAmount = calculateAreaflixSellerNet(base, 'PIX');
+    if (!financialQuote) {
+      throw new BadRequestException(
+        'Taxas da plataforma não configuradas para esta modalidade',
+      );
     }
-    const domFeeAmount = financialQuote?.domFeeAmount ?? linkFees.domFeeAmount;
-    const totalFee = financialQuote?.totalFeeAmount ?? round2(base - netAmount);
+    const {
+      netAmount,
+      domFeeAmount,
+      totalFeeAmount: totalFee,
+    } = financialQuote;
     const chargeId = randomUUID();
     const coproduction = await captureCoproduction(
       this.prisma,
@@ -153,14 +116,11 @@ export class ChargeBoletoPixUseCase {
     );
     const snapshot = {
       userId: boleto.userId,
-      amount: new Prisma.Decimal(financialQuote?.totalAmount ?? base),
+      amount: new Prisma.Decimal(financialQuote.totalAmount),
       netAmount: new Prisma.Decimal(netAmount),
       totalFee: new Prisma.Decimal(totalFee),
       domFee: new Prisma.Decimal(domFeeAmount),
-      platformFee: new Prisma.Decimal(
-        financialQuote?.platformProfit ??
-          Math.max(0, round2(totalFee - domFeeAmount)),
-      ),
+      platformFee: new Prisma.Decimal(financialQuote.platformProfit),
       paymentMethod: PaymentMethod.PIX,
       description: `${boleto.title} [TENANT:${platformTag}]`,
       ...transactionPlatformTagData(platformTag),
@@ -170,7 +130,7 @@ export class ChargeBoletoPixUseCase {
       customerPhone: phone,
       tracking: paymentTracking(input.tracking),
       financialSnapshot: withCoproduction(
-        financialQuote?.financialSnapshot,
+        financialQuote.financialSnapshot,
         coproduction,
       ),
     };
@@ -194,7 +154,7 @@ export class ChargeBoletoPixUseCase {
     const result = await discardDraftOnRejection(this.prisma, chargeId, () =>
       this.gateway.chargePixForLink(domToken, {
         domLinkId,
-        amount: financialQuote?.totalAmount ?? base,
+        amount: financialQuote.totalAmount,
         description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,
         customerName: input.customerName,
         customerEmail: input.customerEmail,
@@ -234,7 +194,7 @@ export class ChargeBoletoPixUseCase {
     return {
       ...result,
       transactionId: savedTx.id,
-      amount: financialQuote?.totalAmount ?? base,
+      amount: financialQuote.totalAmount,
     };
   }
 }

@@ -168,7 +168,9 @@ export function FunnelOfferScreen({
   buildCardBody,
   onAccepted,
   onDeclined,
+  preview = false,
 }: {
+  preview?: boolean;
   stage: 'upsell' | 'downsell';
   offer: FunnelOffer;
   linkId: string;
@@ -209,6 +211,10 @@ export function FunnelOfferScreen({
   };
 
   async function accept() {
+    if (preview) {
+      onAccepted();
+      return;
+    }
     setError('');
     setLoading(true);
     try {

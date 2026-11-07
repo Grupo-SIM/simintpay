@@ -23,11 +23,6 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { CheckoutSubscriptionLinkPixDto } from '../../dtos/subscription-link/checkout-subscription-link.dto';
 import { CommunityManagementService } from '../../services/community-management.service';
-import {
-  getPlatformTaxaEffective,
-  buildUserTaxaTag,
-} from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { VoucherService } from '../voucher/voucher.service';
 import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
@@ -114,37 +109,17 @@ export class CheckoutSubscriptionLinkPixUseCase {
       }
     }
 
-    // MDR_PIX é descontado do repasse ao vendedor (não somado ao cliente) e incide sobre o valor
-    // efetivamente cobrado (já com cupom).
-    let platformFeeAmount = 0;
-    if (!link.isStandalone) {
-      const platformTag = selectedTag;
-      // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-      const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-        ? buildUserTaxaTag(link.userId)
-        : platformTag;
-      const mdrPix = getPlatformTaxaEffective(
-        taxaTag,
-        'MDR_PIX',
-        PLATFORM_TAXA_DEFAULTS.MDR_PIX,
-      );
-      platformFeeAmount = Math.round(amountCharged * mdrPix * 100) / 100;
-    }
-
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(
-        this.prisma,
-        ['GLOBAL', 'SIMINTPAY'].includes(selectedTag)
-          ? buildUserTaxaTag(link.userId)
-          : selectedTag,
-      ),
+      await loadChargePolicy(this.prisma, selectedTag),
       amountCharged,
       'PIX',
     );
-    if (financialQuote) {
-      amountCharged = financialQuote.totalAmount;
-      platformFeeAmount = financialQuote.totalFeeAmount;
-    }
+    if (!financialQuote)
+      throw new BadRequestException(
+        'Política financeira não configurada para esta modalidade',
+      );
+    const platformFeeAmount = financialQuote.totalFeeAmount;
+    amountCharged = financialQuote.totalAmount;
     const coproduction = await captureCoproduction(
       this.prisma,
       'links-assinatura',
@@ -152,20 +127,9 @@ export class CheckoutSubscriptionLinkPixUseCase {
       link.userId,
       selectedTag,
     );
-    const legacyDomFee = 0;
     const coproductionFinancialSnapshot = withCoproduction(
-      financialQuote?.financialSnapshot,
+      financialQuote.financialSnapshot,
       coproduction,
-      {
-        totalAmount: amountCharged,
-        netAmount:
-          Math.round((amountCharged - platformFeeAmount - legacyDomFee) * 100) /
-          100,
-        totalFeeAmount: platformFeeAmount + legacyDomFee,
-        domFeeAmount: legacyDomFee,
-        platformProfit: platformFeeAmount,
-        policyTag: selectedTag,
-      },
     );
     const cleanDoc = input.dto.customerDocument.replace(/\D/g, '');
     const documentType = cleanDoc.length === 14 ? 'CNPJ' : 'CPF';

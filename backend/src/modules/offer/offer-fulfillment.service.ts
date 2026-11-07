@@ -19,8 +19,13 @@ import {
   type ChargeSettledEvent,
 } from '../billing-core/charge-settlement';
 import { readOfferFulfillment, type ChargeItem } from './offer-fulfillment';
+import {
+  OFFER_SALES_EVENT_OUTBOX,
+  type OfferSalesEventOutbox,
+} from './offer-sales-event-outbox';
+import { subscriptionActivatedPayload } from './offer-subscription-event';
 
-export type DeliveryStep = 'email';
+export type DeliveryStep = 'email' | 'subscriptionActivated';
 
 /** Marcador de entrega por Charge (`Charge.snapshot.fulfillment.<step>`). */
 export interface FulfillmentMarkers {
@@ -73,6 +78,9 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
     private readonly markers: FulfillmentMarkers,
     @Optional() private readonly email?: EmailService,
     @Optional() private readonly storage?: StorageService,
+    @Optional()
+    @Inject(OFFER_SALES_EVENT_OUTBOX)
+    private readonly outbox?: OfferSalesEventOutbox,
   ) {}
 
   onModuleInit() {
@@ -154,6 +162,33 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
         );
         return sent;
       });
+    }
+
+    // `subscription_activated`: só quando o PRIMEIRO ciclo do contrato é pago. A liquidação do
+    // líquido (netAmount) pode aparecer um instante depois; sem ele o passo tenta de novo.
+    if (
+      !refunded &&
+      this.outbox &&
+      charge.contractId &&
+      offer.renewalMode !== 'NONE'
+    ) {
+      const first = await this.prisma.charge.findFirst({
+        where: { contractId: charge.contractId, status: 'PAID' },
+        orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true },
+      });
+      if (first?.id === charge.id) {
+        if (tx.netAmount === null) return 'retry';
+        await this.once(charge.id, 'subscriptionActivated', () =>
+          this.outbox!.enqueue({
+            platformTag: offer.platformTag,
+            event: 'subscription_activated',
+            orderId: tx.id,
+            occurredAt: charge.paidAt ?? new Date(),
+            payload: subscriptionActivatedPayload({ offer, charge, tx }),
+          }),
+        );
+      }
     }
 
     return 'done';

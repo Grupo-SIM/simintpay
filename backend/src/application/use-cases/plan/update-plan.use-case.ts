@@ -1,15 +1,11 @@
+import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { requireFinancialCharge } from '../../../modules/financial-policy/require-financial-charge';
 import { assertOwnershipPreserved } from '../../helpers/financial-owner.helper';
 import { recoverPlanRecurrence } from '../../helpers/plan-recurrence.helper';
-import {
-  getCustomerInterestRate,
-  getPlatformTaxaEffective,
-} from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
-import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
 import {
   assertExplicitPlatform,
   platformGatewayToken,
@@ -60,6 +56,7 @@ export class UpdatePlanUseCase {
     @Inject(PLAN_REPOSITORY) private readonly plans: IPlanRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(input: {
@@ -144,23 +141,18 @@ export class UpdatePlanUseCase {
       ) {
         throw new BadRequestException('Configuração de recorrência inválida');
       }
-      const owner = await this.users.findById(existing.userId);
       const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
       if (!domToken)
         throw new BadRequestException('Token do gateway não configurado');
-      const tag =
-        selectedTag &&
-        !['GLOBAL', 'SIMINTPAY'].includes(selectedTag.toUpperCase())
-          ? selectedTag
-          : (clientTaxaTagFor(owner) ?? 'GLOBAL');
-      const cost = getPlatformTaxaEffective(
+      const tag = selectedTag ?? 'GLOBAL';
+      const quote = await requireFinancialCharge(
+        this.prisma,
         tag,
-        'MDR_CC_1X',
-        PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
+        price,
+        'CREDIT_CARD',
       );
-      const interest = getCustomerInterestRate(tag, 1);
       const replacement = await this.gateway.createPlan(domToken, {
-        price: Math.round(price * (1 + cost + interest) * 100) / 100,
+        price: quote.totalAmount,
         description: input.dto.nome ?? existing.name,
         frequency_type:
           type === PlanType.WEEKLY

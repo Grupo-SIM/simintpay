@@ -51,6 +51,12 @@ export type FinancialConfiguration = {
   >;
 };
 export type FinancialResult = {
+  effectiveFees?: {
+    acquirer:
+      | (Addition & { interestPpm: number; base: 'ORIGINAL' | 'BUYER_TOTAL' })
+      | null;
+    sim: Addition & { interestPpm: number };
+  };
   installments: number;
   originalCents: number;
   buyerAdditionCents: number;

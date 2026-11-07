@@ -1,5 +1,8 @@
 import { assertExplicitPlatform } from '../../helpers/explicit-platform.helper';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import {
+  resolveWithdrawalFixedFee,
+  getPlatformTaxaEffective,
+} from '../../../modules/platform-taxas/platform-taxas.store';
 import {
   ConflictException,
   Inject,
@@ -79,7 +82,7 @@ export class RequestWithdrawUseCase {
         : config
           ? (v: number) => config.saque.calcularTaxa(v)
           : (v: number) =>
-              getPlatformTaxaEffective('GLOBAL', 'TAXA_SAQUE_FIXA', 2) +
+              resolveWithdrawalFixedFee('GLOBAL') +
               v * getPlatformTaxaEffective('GLOBAL', 'TAXA_SAQUE_PERCENT', 0);
 
     // Valor mínimo de saque

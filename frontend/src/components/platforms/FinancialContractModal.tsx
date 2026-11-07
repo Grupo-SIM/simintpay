@@ -17,7 +17,11 @@ export function FinancialContractModal({
   onSave: (lane: Lane, all?: boolean) => void;
   onClose: () => void;
 }) {
-  const [draft, setDraft] = useState(() => structuredClone(lane));
+  const [draft, setDraft] = useState(() => ({
+    ...structuredClone(lane),
+    total: undefined,
+    sim: { ...lane.sim, ...(lane.total ?? {}) },
+  }));
   const [invalid, setInvalid] = useState<Record<string, boolean>>({});
   const validity = (name: string, valid: boolean) =>
     setInvalid((previous) => ({ ...previous, [name]: !valid }));
@@ -86,59 +90,24 @@ export function FinancialContractModal({
           atualizado periodicamente. Aqui você define apenas o adicional
           SimIntPay, somado ao custo da adquirente.
         </p>
-        {draft.total && (
-          <div className="grid gap-3 rounded border p-3 sm:grid-cols-2">
-            <FinancialNumberField
-              name="total-fixed"
-              label="Custo total fixo (inclui adquirente)"
-              value={draft.total.fixedCents}
-              onValidityChange={validity}
-              onChange={(fixedCents) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  total: { ...previous.total!, fixedCents },
-                }))
-              }
-            />
-            <FinancialNumberField
-              name="total-rate"
-              label="Custo total percentual (inclui adquirente)"
-              rate
-              value={draft.total.ratePpm}
-              onValidityChange={validity}
-              onChange={(ratePpm) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  total: { ...previous.total!, ratePpm },
-                }))
-              }
-            />
+        <details open className="group rounded border p-3">
+          <summary className="cursor-pointer font-semibold">
+            Adicional SimIntPay{' '}
+            <span className="text-xs font-normal group-open:hidden">
+              · Expandir
+            </span>
+            <span className="hidden text-xs font-normal group-open:inline">
+              · Minimizar
+            </span>
+            <span className="block text-xs font-normal">
+              Fixo e percentual adicionais sobre o valor original
+            </span>
+          </summary>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {field('sim', 'fixedCents', 'Fixo adicional')}
+            {field('sim', 'ratePpm', 'Percentual adicional do valor original')}
           </div>
-        )}
-        {!draft.total && (
-          <details open className="group rounded border p-3">
-            <summary className="cursor-pointer font-semibold">
-              Adicional SimIntPay{' '}
-              <span className="text-xs font-normal group-open:hidden">
-                · Expandir
-              </span>
-              <span className="hidden text-xs font-normal group-open:inline">
-                · Minimizar
-              </span>
-              <span className="block text-xs font-normal">
-                Fixo e percentual adicionais sobre o valor original
-              </span>
-            </summary>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {field('sim', 'fixedCents', 'Fixo adicional')}
-              {field(
-                'sim',
-                'ratePpm',
-                'Percentual adicional do valor original',
-              )}
-            </div>
-          </details>
-        )}
+        </details>
         {credit && (
           <details open className="group rounded border p-3">
             <summary className="cursor-pointer font-semibold">

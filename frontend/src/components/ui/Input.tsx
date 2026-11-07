@@ -142,8 +142,8 @@ export function Input({
         ].join(' ')
       : theme === 'dark'
         ? [
-            'appearance-none border-white/10 bg-black/60 text-white placeholder:text-white/35',
-            'hover:border-white/15',
+            'appearance-none border-white/10 bg-white/5 text-white/75 placeholder:text-white/35',
+            'hover:bg-white/[0.07] hover:border-white/15',
             'focus:border-violet-400/40 ring-violet-500/20',
             'selection:bg-violet-500/30',
             'autofill:bg-white/[0.03] autofill:text-white',

@@ -40,32 +40,16 @@ describe('parseOfferFulfillment', () => {
     expect(f.bumps).toHaveLength(3);
   });
 
-  test('rejects unknown keys, bad shapes and funnel limits like the legacy link', () => {
+  test('rejects unknown keys, bad shapes, duplicate offers and downsell without upsell', () => {
     expect(issues('x')).toContain('objeto');
     expect(issues({ nope: 1 })).toContain('desconhecido');
     expect(issues({ files: [{ fileName: 'a' }] })).toContain('Arquivo');
     expect(issues({ bumps: [{ offerId: 'a', role: 'WAT' }] })).toContain(
       'role',
     );
-    expect(
-      issues({
-        bumps: Array.from({ length: 6 }, (_, i) => ({
-          offerId: `b${i}`,
-          role: 'BUMP',
-        })),
-      }),
-    ).toContain('order bumps');
     expect(issues({ bumps: [{ offerId: 'a', role: 'DOWNSELL' }] })).toContain(
       'Downsell exige',
     );
-    expect(
-      issues({
-        bumps: [
-          { offerId: 'a', role: 'UPSELL' },
-          { offerId: 'b', role: 'UPSELL' },
-        ],
-      }),
-    ).toContain('1 upsell');
     expect(
       issues({
         bumps: [
@@ -74,6 +58,14 @@ describe('parseOfferFulfillment', () => {
         ],
       }),
     ).toContain('repetida');
+  });
+
+  test('accepts more than five bumps and multiple upsells and downsells', () => {
+    const bumps = ['BUMP', 'UPSELL', 'DOWNSELL'].flatMap((role) =>
+      Array.from({ length: 6 }, (_, i) => ({ offerId: `${role}-${i}`, role })),
+    );
+    expect(parseOfferFulfillment({ bumps }).bumps).toEqual(bumps);
+    expect(readOfferFulfillment({ bumps }).bumps).toEqual(bumps);
   });
 
   test('redirect URLs are SSRF-checked', () => {

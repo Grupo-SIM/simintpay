@@ -36,7 +36,6 @@ test.skipIf(!db)(
           ownerUserId: owner,
           createdByUserId: owner,
           code: `L${sfx}${n++}`.toUpperCase(),
-          kind: 'PAYMENT_LINK',
           name,
           amountCents: 5000,
           acceptedMethods: ['PIX'],
@@ -53,7 +52,6 @@ test.skipIf(!db)(
       expiresAt: future,
     });
     await mk(me.id, 'Zeta plano', {
-      kind: 'PIX_PLAN',
       renewalMode: 'MANUAL_PAY',
       intervalType: 'MONTH',
       intervalCount: 1,
@@ -80,7 +78,6 @@ test.skipIf(!db)(
       'Epsilon com vaga',
       'Zeta plano',
     ]);
-    expect(await names({ kind: 'PIX_PLAN' })).toEqual(['Zeta plano']);
     expect(await names({ renewalMode: 'MANUAL_PAY' })).toEqual(['Zeta plano']);
     expect(await names({ renewalMode: 'NONE' })).toHaveLength(5);
     expect(await names({ paymentMethod: 'BOLETO' })).toEqual(['Zeta plano']);

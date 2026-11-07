@@ -11,10 +11,13 @@ import { firstValueFrom } from 'rxjs';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
+import {
+  EmailService,
+  type FeeIncreaseChange,
+} from '../../infrastructure/email/email.service';
 import { validateFee, type FeeInput } from './acquirer-fees';
 import { parseDomNegotiation } from './dom-negotiation';
 import { initializePlatformTaxasCache } from '../platform-taxas/platform-taxas.store';
-import { emptyPolicy, type Policy } from './financial-policy';
 
 type FeeAmounts = {
   fixedCents: number;
@@ -51,7 +54,24 @@ export class AcquirerFeesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly http: HttpService,
+    private readonly email: EmailService,
   ) {}
+
+  private async notifyIncreases(changes: FeeIncreaseChange[]) {
+    if (!changes.length) return;
+    const to = process.env.CONTACT_EMAIL;
+    if (!to) {
+      this.logger.warn(
+        'CONTACT_EMAIL não configurado; aumento de custo não foi notificado',
+      );
+      return;
+    }
+    try {
+      await this.email.sendFeeIncreaseAlert({ to, changes });
+    } catch {
+      // A taxa já foi gravada; a falha do email é registrada pelo EmailService.
+    }
+  }
 
   private async serializable<T>(
     operation: (tx: Prisma.TransactionClient) => Promise<T>,
@@ -134,67 +154,6 @@ export class AcquirerFeesService {
           where: { code },
         });
         if (!acquirer) throw new NotFoundException('Adquirente desconhecida');
-        if (acquirer.active && !active) {
-          const revisions = await tx.financialPolicyRevision.findMany({
-            orderBy: [{ version: 'desc' }, { createdAt: 'desc' }],
-          });
-          const latestPolicies = new Map<string, (typeof revisions)[number]>();
-          for (const revision of revisions)
-            if (!latestPolicies.has(revision.tag))
-              latestPolicies.set(revision.tag, revision);
-          const enabled = await tx.acquirerCatalogue.findMany({
-            where: { active: true },
-            select: { code: true },
-          });
-          const rows = await tx.acquirerFeeSchedule.findMany({
-            where: { acquirerCode: { in: enabled.map((row) => row.code) } },
-            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          });
-          const feesByLane = new Map<
-            string,
-            Map<string, (typeof rows)[number]>
-          >();
-          for (const row of rows) {
-            const lane = `${row.method}/${row.channel}/${row.installments}`;
-            const fees = feesByLane.get(lane) ?? new Map<string, typeof row>();
-            if (!fees.has(row.acquirerCode)) fees.set(row.acquirerCode, row);
-            feesByLane.set(lane, fees);
-          }
-          for (const revision of latestPolicies.values()) {
-            const policy = structuredClone(
-              (revision.document as Policy | undefined) ?? emptyPolicy(),
-            );
-            let preserved = false;
-            for (const [key, lane] of Object.entries(policy.lanes)) {
-              if (lane.priceFloor) continue;
-              const suffix = key.split('/').slice(-3).join('/');
-              const fees = feesByLane.get(suffix);
-              if (!fees?.has(code)) continue;
-              lane.priceFloor = {
-                fees: [...fees.values()].map((row) => ({
-                  acquirer: row.acquirerCode,
-                  fixedCents: row.fixedCents,
-                  ratePpm: row.ratePpm,
-                  interestPpm: row.interestPpm,
-                  base: row.base as 'ORIGINAL' | 'BUYER_TOTAL',
-                  source: row.source,
-                  createdAt: row.createdAt.toISOString(),
-                })),
-                sim: { ...lane.sim },
-              };
-              preserved = true;
-            }
-            if (preserved)
-              await tx.financialPolicyRevision.create({
-                data: {
-                  tag: revision.tag,
-                  version: revision.version + 1,
-                  actorId: user.sub,
-                  document: policy as unknown as Prisma.InputJsonValue,
-                },
-              });
-          }
-        }
         return tx.acquirerCatalogue.update({
           where: { code },
           data: { active },
@@ -290,7 +249,7 @@ export class AcquirerFeesService {
     const fees = parseDomNegotiation(response);
     // Parse the entire negotiated schedule before inserting a single row. Never log the response:
     // the API also returns identity, MFA and permissions that have no place in financial records.
-    const changed = await this.serializable(async (tx) => {
+    const result = await this.serializable(async (tx) => {
       const acquirer = await tx.acquirerCatalogue.findUnique({
         where: { code: 'DOM' },
       });
@@ -319,90 +278,6 @@ export class AcquirerFeesService {
           previous.base !== fee.base
         );
       });
-      const decreased = updates.filter((fee) => {
-        const prior = latest.get(
-          `${fee.method}/${fee.channel}/${fee.installments}`,
-        );
-        return (
-          acquirer.active &&
-          prior &&
-          (fee.fixedCents < prior.fixedCents ||
-            fee.ratePpm < prior.ratePpm ||
-            fee.interestPpm < prior.interestPpm ||
-            fee.base !== prior.base)
-        );
-      });
-      const revisions = decreased.length
-        ? await tx.financialPolicyRevision.findMany({
-            orderBy: [{ version: 'desc' }, { createdAt: 'desc' }],
-          })
-        : [];
-      const latestPolicies = new Map<string, (typeof revisions)[number]>();
-      for (const revision of revisions)
-        if (!latestPolicies.has(revision.tag))
-          latestPolicies.set(revision.tag, revision);
-      const enabled = decreased.length
-        ? await tx.acquirerCatalogue.findMany({
-            where: { active: true },
-            select: { code: true },
-          })
-        : [];
-      const allPrevious = decreased.length
-        ? await tx.acquirerFeeSchedule.findMany({
-            where: { acquirerCode: { in: enabled.map((row) => row.code) } },
-            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          })
-        : [];
-      for (const revision of latestPolicies.values()) {
-        const policy = structuredClone(
-          (revision.document as Policy | undefined) ?? emptyPolicy(),
-        );
-        let preserved = false;
-        for (const fee of decreased) {
-          for (const [key, lane] of Object.entries(policy.lanes)) {
-            if (
-              !key.endsWith(
-                `/${fee.method}/${fee.channel}/${fee.installments}`,
-              ) ||
-              lane.priceFloor
-            )
-              continue;
-            const previous = allPrevious.filter(
-              (row) =>
-                row.method === fee.method &&
-                row.channel === fee.channel &&
-                row.installments === fee.installments,
-            );
-            const priorFees = new Map<string, (typeof existing)[number]>();
-            for (const row of previous)
-              if (!priorFees.has(row.acquirerCode))
-                priorFees.set(row.acquirerCode, row);
-            if (!priorFees.size) continue;
-            lane.priceFloor = {
-              fees: [...priorFees.values()].map((row) => ({
-                acquirer: row.acquirerCode,
-                fixedCents: row.fixedCents,
-                ratePpm: row.ratePpm,
-                interestPpm: row.interestPpm,
-                base: row.base as 'ORIGINAL' | 'BUYER_TOTAL',
-                source: row.source,
-                createdAt: row.createdAt.toISOString(),
-              })),
-              sim: { ...lane.sim },
-            };
-            preserved = true;
-          }
-        }
-        if (preserved)
-          await tx.financialPolicyRevision.create({
-            data: {
-              tag: revision.tag,
-              version: revision.version + 1,
-              actorId: user?.sub ?? 'SYSTEM',
-              document: policy as unknown as Prisma.InputJsonValue,
-            },
-          });
-      }
       for (const fee of updates)
         await tx.acquirerFeeSchedule.create({
           data: {
@@ -422,22 +297,33 @@ export class AcquirerFeesService {
             ),
           },
         });
-      return updates.map((fee) => {
+      const increases: FeeIncreaseChange[] = [];
+      const changed = updates.map((fee) => {
         const previous = latest.get(
           `${fee.method}/${fee.channel}/${fee.installments}`,
         );
+        const next = { ...fee, base: fee.base ?? 'BUYER_TOTAL' };
+        const increased = feeDirection(previous, next) === 'INCREASE';
+        if (increased && previous)
+          increases.push({
+            acquirer: 'DOM',
+            method: fee.method,
+            channel: fee.channel,
+            installments: fee.installments,
+            previous,
+            next,
+          });
         return {
           method: fee.method,
           channel: fee.channel,
           installments: fee.installments,
-          increased:
-            feeDirection(previous, {
-              ...fee,
-              base: fee.base ?? 'BUYER_TOTAL',
-            }) === 'INCREASE',
+          increased,
         };
       });
+      return { changed, increases };
     });
+    await this.notifyIncreases(result.increases);
+    const changed = result.changed;
     if (changed.some((change) => change.increased))
       this.logger.warn(
         `Custos DOM aumentaram em ${changed.filter((change) => change.increased).length} faixas; revisar margem e preço ao comprador`,
@@ -448,7 +334,7 @@ export class AcquirerFeesService {
   async save(user: JwtPayload, code: string, fee: FeeInput) {
     await this.admin(user);
     validateFee(fee);
-    const created = await this.serializable(async (tx) => {
+    const saved = await this.serializable(async (tx) => {
       const acquirer = await tx.acquirerCatalogue.findUnique({
         where: { code },
       });
@@ -462,77 +348,7 @@ export class AcquirerFeesService {
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       });
-      const decrease =
-        previous &&
-        (fee.fixedCents < previous.fixedCents ||
-          fee.ratePpm < previous.ratePpm ||
-          fee.interestPpm < previous.interestPpm ||
-          (fee.base ?? 'BUYER_TOTAL') !== previous.base);
-      if (decrease && acquirer.active) {
-        const revisions = await tx.financialPolicyRevision.findMany({
-          orderBy: [{ version: 'desc' }, { createdAt: 'desc' }],
-        });
-        const latestPolicies = new Map<string, (typeof revisions)[number]>();
-        for (const revision of revisions)
-          if (!latestPolicies.has(revision.tag))
-            latestPolicies.set(revision.tag, revision);
-        const active = await tx.acquirerCatalogue.findMany({
-          where: { active: true },
-          select: { code: true },
-        });
-        const oldSchedules = await tx.acquirerFeeSchedule.findMany({
-          where: {
-            method: fee.method,
-            channel: fee.channel,
-            installments: fee.installments,
-            acquirerCode: { in: active.map((row) => row.code) },
-          },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        });
-        const priorFees = new Map<string, (typeof oldSchedules)[number]>();
-        for (const row of oldSchedules)
-          if (!priorFees.has(row.acquirerCode))
-            priorFees.set(row.acquirerCode, row);
-        for (const revision of latestPolicies.values()) {
-          const policy = structuredClone(
-            (revision.document as Policy | undefined) ?? emptyPolicy(),
-          );
-          let preserved = false;
-          for (const [key, lane] of Object.entries(policy.lanes)) {
-            if (
-              !key.endsWith(
-                `/${fee.method}/${fee.channel}/${fee.installments}`,
-              ) ||
-              lane.priceFloor ||
-              !priorFees.size
-            )
-              continue;
-            lane.priceFloor = {
-              fees: [...priorFees.values()].map((row) => ({
-                acquirer: row.acquirerCode,
-                fixedCents: row.fixedCents,
-                ratePpm: row.ratePpm,
-                interestPpm: row.interestPpm,
-                base: row.base as 'ORIGINAL' | 'BUYER_TOTAL',
-                source: row.source,
-                createdAt: row.createdAt.toISOString(),
-              })),
-              sim: { ...lane.sim },
-            };
-            preserved = true;
-          }
-          if (preserved)
-            await tx.financialPolicyRevision.create({
-              data: {
-                tag: revision.tag,
-                version: revision.version + 1,
-                actorId: user.sub,
-                document: policy as unknown as Prisma.InputJsonValue,
-              },
-            });
-        }
-      }
-      return tx.acquirerFeeSchedule.create({
+      const row = await tx.acquirerFeeSchedule.create({
         data: {
           method: fee.method,
           channel: fee.channel,
@@ -550,7 +366,21 @@ export class AcquirerFeesService {
           }),
         },
       });
+      return { row, previous };
     });
+    const { row: created, previous } = saved;
+    const next = { ...fee, base: fee.base ?? 'BUYER_TOTAL' };
+    if (previous && feeDirection(previous, next) === 'INCREASE')
+      await this.notifyIncreases([
+        {
+          acquirer: code,
+          method: fee.method,
+          channel: fee.channel,
+          installments: fee.installments,
+          previous,
+          next,
+        },
+      ]);
     return { data: created };
   }
 }

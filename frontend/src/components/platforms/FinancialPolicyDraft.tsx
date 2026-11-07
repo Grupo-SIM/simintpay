@@ -349,7 +349,7 @@ export function FinancialPolicyDraft({
               onChange={setAcquirer}
               options={acquirers.data!.data.map((item) => ({
                 value: item.code,
-                label: `${item.name} (${item.code})`,
+                label: item.name,
               }))}
             />
           </div>
@@ -529,23 +529,24 @@ export function FinancialPolicyDraft({
                     previous[key] ??
                     configuration.globalLanes?.[key] ??
                     defaultLane();
+                  // 1x has no installments, so bulk apply never gives it interest.
+                  const interestFromLane =
+                    key === editing || (all && key.split('/')[3] !== '1');
                   return [
                     key,
                     {
                       ...lane,
                       contract: {
                         ...lane.contract,
-                        interestPpm:
-                          all || key === editing
-                            ? lane.contract.interestPpm
-                            : existing.contract.interestPpm,
+                        interestPpm: interestFromLane
+                          ? lane.contract.interestPpm
+                          : existing.contract.interestPpm,
                       },
                       sim: {
                         ...lane.sim,
-                        interestPpm:
-                          all || key === editing
-                            ? lane.sim.interestPpm
-                            : existing.sim.interestPpm,
+                        interestPpm: interestFromLane
+                          ? lane.sim.interestPpm
+                          : existing.sim.interestPpm,
                       },
                     },
                   ];

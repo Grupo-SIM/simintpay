@@ -1,3 +1,15 @@
+export type OfferCheckoutPricing = {
+  options: {
+    installments: number;
+    totalAmount: number;
+    installmentAmount: number;
+    interestAmount: number;
+  }[];
+  pixAmount: number;
+  debitAmount: number;
+  /** Total do boleto (cotação BOLETO); ausente em prévias antigas. */
+  boletoAmount?: number;
+};
 export type OfferMethod = 'pix' | 'credit_card' | 'debit_card' | 'boleto';
 
 /** Campos de `GET /ofertas/public/:code` usados pelo checkout. */
@@ -12,6 +24,7 @@ export type PublicOffer = {
   intervalType: string | null;
   intervalCount: number | null;
   trialDays?: number | null;
+  pricing?: OfferCheckoutPricing;
 };
 
 const METHOD_FROM_BACKEND: Record<string, OfferMethod> = {

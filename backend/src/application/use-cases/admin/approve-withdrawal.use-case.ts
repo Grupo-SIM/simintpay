@@ -12,8 +12,7 @@ import {
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
 import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import { resolveWithdrawalFixedFee } from '../../../modules/platform-taxas/platform-taxas.store';
 
 @Injectable()
 export class ApproveWithdrawalUseCase {
@@ -118,7 +117,7 @@ export class ApproveWithdrawalUseCase {
       // 4. Sempre incrementa taxa e lucro no log administrativo (independente de quem aprova)
       const logUserId = adminUserId ?? withdraw.userId;
 
-      // Resolve a tag da plataforma do usuário que fez o saque para usar a TAXA_SAQUE_FIXA correta
+      // Resolve a tag da plataforma do usuário que fez o saque para resolver a taxa de saque correta
       const beneficiary = await tx.user.findUnique({
         where: { id: withdraw.userId },
         include: { platform: true },
@@ -126,11 +125,7 @@ export class ApproveWithdrawalUseCase {
       const platformTag = (
         beneficiary?.platform?.tag ?? 'GLOBAL'
       ).toUpperCase();
-      const taxaSaqueFixa = getPlatformTaxaEffective(
-        platformTag,
-        'TAXA_SAQUE_FIXA',
-        PLATFORM_TAXA_DEFAULTS.TAXA_SAQUE_FIXA,
-      );
+      const taxaSaqueFixa = resolveWithdrawalFixedFee(platformTag);
 
       // Taxa de saque = integral - R$1 fixo DOM (DOM é acumulador independente, registrado manualmente)
       const lucroSimpay = Math.max(0, taxaSaqueFixa - 1);

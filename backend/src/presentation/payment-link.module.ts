@@ -3,6 +3,7 @@ import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { PrismaService } from '../infrastructure/database/prisma/prisma.service';
 import { StorageService } from '../infrastructure/storage/storage.service';
 import { EmailService } from '../infrastructure/email/email.service';
+import { legacyLinkControllers } from '../modules/offer/legacy-links.compat';
 import { PaymentLinkController } from './controllers/payment-link.controller';
 import { CreatePaymentLinkUseCase } from '../application/use-cases/payment-link/create-payment-link.use-case';
 import { ListPaymentLinksUseCase } from '../application/use-cases/payment-link/list-payment-links.use-case';
@@ -20,7 +21,8 @@ import { PrismaUserRepository } from '../infrastructure/database/repositories/pr
 
 @Module({
   imports: [ApiDomModule],
-  controllers: [PaymentLinkController],
+  // OFFER_LEGACY_LINKS_COMPAT=1 replaces this controller by the Offer-backed adapter.
+  controllers: legacyLinkControllers([PaymentLinkController]),
   providers: [
     PrismaService,
     StorageService,

@@ -6,11 +6,8 @@ describe('IntegrationFinanceService', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('quotes positive values without applying the legacy withdrawal minimum', () => {
-    jest
-      .spyOn(platformTaxas, 'getPlatformTaxaEffective')
-      .mockImplementation((_tag, key) =>
-        key === 'TAXA_SAQUE_FIXA' ? 2 : 0.01,
-      );
+    jest.spyOn(platformTaxas, 'getPlatformTaxaEffective').mockReturnValue(0.01);
+    jest.spyOn(platformTaxas, 'resolveWithdrawalFixedFee').mockReturnValue(2);
     const service = new IntegrationFinanceService({} as never);
 
     expect(service.quote(10_000)).toEqual({

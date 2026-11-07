@@ -41,7 +41,6 @@ async function offer(over: Record<string, unknown> = {}) {
       ownerUserId: ownerId,
       createdByUserId: ownerId,
       code: `B${crypto.randomUUID().slice(0, 9).toUpperCase()}`,
-      kind: 'BOLETO',
       name: 'Boleto',
       amountCents: 10000,
       acceptedMethods: ['BOLETO'],

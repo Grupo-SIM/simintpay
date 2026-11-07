@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { parseDomNegotiation } from '../dom-negotiation';
 import {
+  calculateFinancials,
+  emptyPolicy,
+  laneKey,
+  ownerResult,
+  resolvePolicy,
+} from '../financial-policy';
+import {
   acquirerCostFloor,
   estimatedCost,
   orderByCost,
@@ -19,6 +26,31 @@ const response = {
         fees: i === 0 ? 0 : 4.51,
         effective_rate: i === 0 ? 3.99 : 8.3,
         interest_rate_our: i === 0 ? 0 : 4.31,
+      })),
+    },
+    pix_physical: { negotiation: { mdr: 0, fee_transaction: 0 } },
+    debit_physical: {
+      fee_transaction: '0',
+      brands: {
+        VISA: { mdr: 3.99 },
+        MASTERCARD: { mdr: 3.99 },
+        OTHERS: { mdr: 3.99 },
+      },
+    },
+    credit_physical: {
+      fee_transaction: '0',
+      installments: Array.from({ length: 12 }, (_, i) => ({
+        installment: i + 1,
+        ...Object.fromEntries(
+          ['VISA', 'MASTERCARD', 'OTHERS'].map((brand) => [
+            brand,
+            {
+              mdr: 3.99,
+              effective_rate: i === 0 ? 3.99 : 8.3,
+              interest_rate_our: i === 0 ? 0 : 4.31,
+            },
+          ]),
+        ),
       })),
     },
     pix_online: { mdr: 0.98, fee_transaction: 1 },
@@ -119,7 +151,7 @@ describe('DOM negotiation import', () => {
 
   test('maps credit 1x, installment interest, PIX and fixed boleto without identity data', () => {
     const fees = parseDomNegotiation(response);
-    expect(fees).toHaveLength(14);
+    expect(fees).toHaveLength(29);
     expect(fees[0]).toEqual({
       method: 'CREDIT_CARD',
       channel: 'ONLINE',
@@ -204,4 +236,213 @@ describe('DOM negotiation import', () => {
     ).toEqual(['OTHER', 'DOM']);
     expect(estimatedCost(base, 10_000, 10_000)).toBe(499);
   });
+});
+
+test('simulation exposes synchronized DOM rates instead of a stale policy contract', () => {
+  const document = emptyPolicy();
+  const key = laneKey('DOM', 'CREDIT_CARD', 'ONLINE', 2);
+  document.interestOnly = true;
+  document.lanes[key] = {
+    active: true,
+    contract: {
+      fixedCents: 100,
+      ratePpm: 91500,
+      interestPpm: 45100,
+      cashbackCents: 0,
+      base: 'BUYER_TOTAL',
+      reference: 'Legacy',
+    },
+    sim: { fixedCents: 400, ratePpm: 90000, interestPpm: 35200 },
+  };
+  document.owner[key] = { fixedCents: 0, ratePpm: 0, passInterestPpm: 1000000 };
+  const imported = parseDomNegotiation(response).find(
+    (fee) => fee.method === 'CREDIT_CARD' && fee.installments === 2,
+  )!;
+  const result = calculateFinancials(
+    resolvePolicy(document, emptyPolicy(), '1:0'),
+    key,
+    10000,
+    undefined,
+    {
+      fees: [
+        {
+          ...imported,
+          base: imported.base!,
+          acquirer: 'DOM',
+          source: 'SYNC',
+          createdAt: new Date('2026-11-06').toISOString(),
+        },
+      ],
+      routedAcquirer: 'DOM',
+    },
+  );
+  expect(result.effectiveFees.acquirer?.ratePpm).toBe(39900);
+  expect(result.effectiveFees.acquirer?.interestPpm).toBe(43100);
+  expect(result.acquirerInterestCents).toBe(431);
+  expect(result.simInterestCents).toBe(352);
+  expect(result.buyerInterestCents).toBe(783);
+  expect(ownerResult(result)).not.toHaveProperty('effectiveFees');
+  expect(document.lanes[key]!.contract.interestPpm).toBe(45100);
+});
+
+test('effective interest follows the current acquirer rate plus the SimIntPay margin', () => {
+  const key = laneKey('DOM', 'CREDIT_CARD', 'ONLINE', 2);
+  const document = emptyPolicy();
+  document.interestOnly = true;
+  document.owner[key] = { fixedCents: 0, ratePpm: 0, passInterestPpm: 1000000 };
+  const current = {
+    acquirer: 'DOM',
+    fixedCents: 100,
+    ratePpm: 39900,
+    interestPpm: 43100,
+    base: 'BUYER_TOTAL' as const,
+    source: 'SYNC',
+    createdAt: new Date('2026-11-06').toISOString(),
+  };
+  document.lanes[key] = {
+    active: true,
+    contract: {
+      ...current,
+      interestPpm: 45100,
+      cashbackCents: 0,
+      reference: 'Legacy',
+    },
+    sim: { fixedCents: 400, ratePpm: 90000, interestPpm: 35200 },
+  };
+  const result = calculateFinancials(
+    resolvePolicy(document, emptyPolicy(), '1:0'),
+    key,
+    10000,
+    undefined,
+    { fees: [current], routedAcquirer: 'DOM' },
+  );
+  expect(result.effectiveFees.acquirer?.interestPpm).toBe(43100);
+  expect(result.effectiveFees.sim.interestPpm).toBe(35200);
+  expect(result.simInterestCents).toBe(352);
+  expect(result).toMatchObject({
+    buyerTotalCents: 10783,
+    buyerAdditionCents: 0,
+    buyerInterestCents: 783,
+    acquirerProcessingCents: 530,
+    acquirerInterestCents: 431,
+  });
+});
+
+test('current scheduled PIX deducts additions without grossing up processor costs', () => {
+  const key = laneKey('DOM', 'PIX', 'ONLINE', 1);
+  const document = emptyPolicy();
+  document.interestOnly = true;
+  document.lanes[key] = {
+    active: true,
+    contract: {
+      fixedCents: 0,
+      ratePpm: 9800,
+      interestPpm: 0,
+      cashbackCents: 0,
+      base: 'BUYER_TOTAL',
+      reference: 'Legacy',
+    },
+    sim: { fixedCents: 800, ratePpm: 90000, interestPpm: 0 },
+  };
+  const result = calculateFinancials(
+    resolvePolicy(document, emptyPolicy(), '1:0'),
+    key,
+    10000,
+    undefined,
+    {
+      fees: [
+        {
+          acquirer: 'DOM',
+          fixedCents: 100,
+          ratePpm: 9800,
+          interestPpm: 0,
+          base: 'BUYER_TOTAL',
+          source: 'SYNC',
+          createdAt: new Date('2026-11-06').toISOString(),
+        },
+      ],
+      routedAcquirer: 'DOM',
+    },
+  );
+  expect(result).toMatchObject({
+    buyerTotalCents: 10000,
+    buyerAdditionCents: 0,
+    acquirerProcessingCents: 198,
+    simAdditionCents: 1700,
+    netCents: 8102,
+  });
+});
+
+test('physical negotiation imports zero fixed fees and preserves MDR plus interest separately', () => {
+  const fees = parseDomNegotiation(response).filter(
+    (fee) => fee.channel === 'POS',
+  );
+  expect(fees).toHaveLength(14);
+  expect(fees.find((fee) => fee.method === 'PIX')).toMatchObject({
+    fixedCents: 0,
+    ratePpm: 0,
+    interestPpm: 0,
+    base: 'ORIGINAL',
+  });
+  expect(fees.find((fee) => fee.method === 'DEBIT_CARD')).toMatchObject({
+    fixedCents: 0,
+    ratePpm: 39900,
+    interestPpm: 0,
+  });
+  expect(
+    fees.find((fee) => fee.method === 'CREDIT_CARD' && fee.installments === 2),
+  ).toMatchObject({ fixedCents: 0, ratePpm: 39900, interestPpm: 43100 });
+});
+
+test('online debit is imported from the negotiated physical debit contract', () => {
+  expect(
+    parseDomNegotiation(response).find(
+      (fee) => fee.method === 'DEBIT_CARD' && fee.channel === 'ONLINE',
+    ),
+  ).toMatchObject({ fixedCents: 0, ratePpm: 39900, interestPpm: 0 });
+});
+
+test('physical brand aggregation selects one complete rate instead of summing unrelated maxima', () => {
+  const changed = structuredClone(response);
+  changed.negotiation.credit_physical.installments[1]!.VISA = {
+    mdr: 6,
+    interest_rate_our: 2,
+    effective_rate: 8,
+  };
+  const fee = parseDomNegotiation(changed).find(
+    (fee) =>
+      fee.channel === 'POS' &&
+      fee.method === 'CREDIT_CARD' &&
+      fee.installments === 2,
+  )!;
+  expect(fee.ratePpm).toBe(39900);
+  expect(fee.interestPpm).toBe(43100);
+});
+
+test('malformed physical schedules reject the entire negotiation', () => {
+  for (const mutate of [
+    (n: typeof response.negotiation) => {
+      n.credit_physical.installments.pop();
+    },
+    (n: typeof response.negotiation) => {
+      n.credit_physical.installments[1]!.installment = 1;
+    },
+    (n: typeof response.negotiation) => {
+      n.credit_physical.installments[1]!.VISA.effective_rate = 90;
+    },
+    (n: typeof response.negotiation) => {
+      n.debit_physical.brands.VISA.mdr = -1;
+    },
+    (n: typeof response.negotiation) => {
+      n.pix_physical.negotiation.mdr = -1;
+    },
+    (n: typeof response.negotiation) => {
+      delete (n.credit_physical.installments[1] as Record<string, unknown>)
+        .OTHERS;
+    },
+  ]) {
+    const changed = structuredClone(response);
+    mutate(changed.negotiation);
+    expect(() => parseDomNegotiation(changed)).toThrow();
+  }
 });

@@ -19,6 +19,41 @@ beforeAll(async () => {
     platformTaxaOverride: { findMany: async () => [] },
   } as never);
 });
+const chargePolicy = {
+  schemaVersion: 1,
+  lanes: Object.fromEntries(
+    ['PIX/1', 'CREDIT_CARD/1', 'CREDIT_CARD/3'].map((lane) => {
+      const [method, installments] = lane.split('/');
+      return [
+        `DOM/${method}/ONLINE/${installments}`,
+        {
+          active: true,
+          contract: {
+            fixedCents: 0,
+            ratePpm: 20000,
+            interestPpm: 0,
+            cashbackCents: 0,
+            base: 'ORIGINAL',
+            reference: 'Local test contract',
+          },
+          sim: { fixedCents: 100, ratePpm: 10000, interestPpm: 0 },
+        },
+      ];
+    }),
+  ),
+  owner: {},
+  interestFree: false,
+};
+const feeSchedule = {
+  acquirerCode: 'DOM',
+  fixedCents: 0,
+  ratePpm: 20000,
+  interestPpm: 0,
+  base: 'ORIGINAL',
+  source: 'LOCAL_TEST',
+  createdAt: new Date('2026-01-01'),
+};
+
 const body = {
   price: 123.45,
   document: '52998224725',
@@ -55,9 +90,15 @@ function fixture(tag: string) {
   };
   const prisma = {
     $queryRaw: async () => [],
-    acquirerCatalogue: { findMany: async () => [] },
-    acquirerFeeSchedule: { findMany: async () => [] },
-    financialPolicyRevision: { findMany: async () => [] },
+    acquirerCatalogue: {
+      findMany: async () => [{ code: 'DOM', active: true }],
+    },
+    acquirerFeeSchedule: { findMany: async () => [feeSchedule] },
+    financialPolicyRevision: {
+      findMany: async () => [
+        { tag: 'GLOBAL', version: 1, document: chargePolicy },
+      ],
+    },
     platform: { findUnique: async () => platform },
     platformTaxaOverride: { findMany: async () => [] },
     wallet: {
@@ -276,7 +317,8 @@ describe('Legacy and canonical payment execution equivalence', () => {
             paymentId: current.paymentId,
             status: current.status,
           });
-          expect(current.amountCents).toBe(body.price * 100);
+          // Merchant fees reduce net proceeds without increasing the buyer total.
+          expect(current.amountCents).toBe(12345);
           expect(legacy.prisma.wallet.update).not.toHaveBeenCalled();
           expect(canonical.prisma.wallet.update).not.toHaveBeenCalled();
           expect(legacy.prisma.transaction.create).toHaveBeenCalledTimes(1);

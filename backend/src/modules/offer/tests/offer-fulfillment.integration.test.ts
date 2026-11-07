@@ -34,7 +34,6 @@ test.skipIf(!db)(
         ownerUserId: owner.id,
         createdByUserId: owner.id,
         code: `F${suffix}`.toUpperCase(),
-        kind: 'PAYMENT_LINK',
         name: 'Curso',
         amountCents: 10000,
         acceptedMethods: ['PIX'],

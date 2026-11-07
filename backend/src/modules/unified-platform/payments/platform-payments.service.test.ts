@@ -41,12 +41,49 @@ function fixture(acquirer: 'DOM' | 'FRENDZ' = 'DOM') {
       },
     ],
   };
+  const document = {
+    schemaVersion: 1,
+    lanes: {} as Record<string, any>,
+    owner: {},
+  };
+  for (const provider of ['DOM', 'FRENDZ'])
+    for (const method of ['PIX', 'CREDIT_CARD'])
+      for (let n = 1; n <= (method === 'CREDIT_CARD' ? 12 : 1); n++)
+        document.lanes[`${provider}/${method}/ONLINE/${n}`] = {
+          active: true,
+          contract: {
+            reference: 'configured',
+            fixedCents: 0,
+            ratePpm: 0,
+            interestPpm: 0,
+            cashbackCents: 0,
+            base: 'ORIGINAL',
+          },
+          sim: { fixedCents: 0, ratePpm: 0, interestPpm: 0 },
+        };
   let stored: any;
   const prisma = {
     $queryRaw: mock(async () => [] as any[]),
-    financialPolicyRevision: { findMany: mock(async () => []) },
-    acquirerCatalogue: { findMany: mock(async () => []) },
-    acquirerFeeSchedule: { findMany: mock(async () => []) },
+    financialPolicyRevision: {
+      findMany: mock(async () => [{ tag: 'GLOBAL', version: 1, document }]),
+    },
+    acquirerCatalogue: {
+      findMany: mock(async () => [{ code: acquirer, active: true }]),
+    },
+    acquirerFeeSchedule: {
+      findMany: mock(async () => [
+        {
+          id: acquirer,
+          acquirerCode: acquirer,
+          fixedCents: 0,
+          ratePpm: 0,
+          interestPpm: 0,
+          base: 'ORIGINAL',
+          source: 'manual',
+          createdAt: new Date('2026-01-01'),
+        },
+      ]),
+    },
     platformTaxaOverride: { findMany: mock(async () => []) },
     platform: { findUnique: mock(async () => platform) },
     wallet: {
@@ -164,6 +201,16 @@ function allowFallback(f: ReturnType<typeof fixture>) {
 }
 
 describe('platform payment core', () => {
+  test('missing editable policy blocks the draft, reservation and gateway', async () => {
+    const f = fixture();
+    f.prisma.financialPolicyRevision.findMany.mockResolvedValue([]);
+    await expect(f.service.create(context, input)).rejects.toThrow(
+      'não configuradas',
+    );
+    expect(f.prisma.transaction.create).not.toHaveBeenCalled();
+    expect(f.attempts.reserve).not.toHaveBeenCalled();
+    expect(f.charge).not.toHaveBeenCalled();
+  });
   test('DOM receives reais and canonical output preserves integer cents', async () => {
     const { service, charge, prisma } = fixture();
     expect(await service.create(context, input)).toMatchObject({

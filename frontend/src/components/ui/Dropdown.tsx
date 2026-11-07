@@ -8,6 +8,8 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
+import { useTheme } from 'next-themes';
+import { selectPopupClass, selectTriggerClass } from './select-styles';
 import { createPortal } from 'react-dom';
 import { getPopupPosition } from '@/lib/popup-position';
 import { useDebouncedInput } from '@/hooks/use-debounced-input';
@@ -46,8 +48,7 @@ export function Dropdown({
   placeholder,
   value,
   onChange,
-  theme = 'light',
-  variant = 'default',
+  theme,
   disabled,
   className,
   direction = 'down',
@@ -56,6 +57,7 @@ export function Dropdown({
   searchable = false,
   searchPlaceholder,
 }: Props) {
+  const { resolvedTheme } = useTheme();
   const id = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -141,7 +143,7 @@ export function Dropdown({
     rootRef.current?.querySelector('button')?.focus();
   }
 
-  const isDark = theme === 'dark';
+  const isDark = (theme ?? resolvedTheme) === 'dark';
   const selected = options.find((o) => o.value === value);
   const normalize = (value: string) =>
     value
@@ -181,12 +183,7 @@ export function Dropdown({
               : current - 1;
         buttons[(next + buttons.length) % buttons.length]?.focus();
       }}
-      className={cn(
-        'z-9999 flex flex-col overflow-hidden rounded-md border shadow-md',
-        isDark
-          ? 'border-white/10 bg-[#0b0b17] text-white'
-          : 'border-zinc-200 bg-white text-zinc-900',
-      )}
+      className={cn('z-9999 flex flex-col', selectPopupClass(isDark))}
       style={popupStyle}
     >
       {searchable ? (
@@ -290,17 +287,7 @@ export function Dropdown({
             );
           }
         }}
-        className={cn(
-          'relative h-11 cursor-pointer rounded-md border px-3 text-left outline-none transition-colors',
-          'ring-zinc-900/10 focus:ring-4',
-          isDark
-            ? variant === 'navbar'
-              ? 'border-white/10 bg-white/5 text-white/75 hover:bg-white/[0.07] hover:border-white/15 focus:border-violet-400/40 focus:ring-violet-300/20'
-              : 'border-white/10 bg-[#070712] text-white hover:border-white/15 focus:ring-violet-300/20'
-            : 'border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50',
-          disabled ? 'cursor-not-allowed opacity-60' : '',
-          className,
-        )}
+        className={cn(selectTriggerClass(isDark), className)}
       >
         <span
           className={cn(

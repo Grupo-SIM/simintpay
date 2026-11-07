@@ -59,7 +59,6 @@ async function offer(over: Record<string, unknown> = {}) {
       ownerUserId: ownerId,
       createdByUserId: ownerId,
       code: `R${crypto.randomUUID().slice(0, 9).toUpperCase()}`,
-      kind: 'PLAN',
       name: 'Plano',
       amountCents: 10000,
       acceptedMethods: ['PIX'],

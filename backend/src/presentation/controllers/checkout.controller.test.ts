@@ -42,7 +42,7 @@ test('public rates expose buyer charges only, including active policy version', 
   expect(result.installments).toHaveLength(12);
   expect(result.installments[0]).toEqual({
     n: 1,
-    buyerRate: 0.055,
+    buyerRate: 0.02,
     fixedFee: 0,
   });
   expect(JSON.stringify(result)).not.toMatch(

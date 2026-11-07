@@ -7,7 +7,6 @@ import {
   loadChargePolicy,
   quoteFinancialCharge,
 } from '../../../modules/financial-policy/financial-charge';
-import { getCustomerInterestRate } from '../../../modules/platform-taxas/platform-taxas.store';
 import { acceptsCard } from '../../helpers/accepted-payment-methods.helper';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
 import {
@@ -25,17 +24,8 @@ import type { IPaymentGateway } from '../../../core/services/payment-gateway.int
 import type { CheckoutSubscriptionLinkCardDto } from '../../dtos/subscription-link/checkout-subscription-link.dto';
 import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
-import {
-  getPlatformTaxaEffective,
-  buildUserTaxaTag,
-} from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import { VoucherService } from '../voucher/voucher.service';
 import { splitDocument } from '../../utils/document.util';
-import {
-  isAreaflixLink,
-  calculateAreaflixSellerNet,
-} from '../../helpers/areaflix-fees.helper';
 import { advanceSubscriptionPeriod } from '../../helpers/subscription-period.helper';
 import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
@@ -88,60 +78,9 @@ export class CheckoutSubscriptionLinkCardUseCase {
     if (!domToken)
       throw new BadRequestException('Token do gateway não configurado');
 
-    let domPlanId = link.domPlanId;
-    if (!domPlanId) {
-      const planFreq = mapPlanFrequencyToDom(link.frequencyType);
-      const syncedPlan = await this.gateway.createPlan(domToken, {
-        price: Number(link.amount),
-        description: link.name,
-        frequency_type: planFreq.frequency_type,
-        frequency: planFreq.frequency,
-        repetitions: 0,
-        retry_days: 3,
-        webhookUrl: link.webhookUrl ?? undefined,
-        redirectUrl: link.redirectUrl ?? undefined,
-      });
-      domPlanId = syncedPlan.id;
-      await this.repo.update(link.id, { domPlanId });
-    }
-
-    const base = Number(link.amount);
-
-    // Taxa de assinatura: hierarquia completa — override da plataforma → env var → GLOBAL → valor gravado no link
-    let platformFeeRate: number;
-    if (!link.isStandalone) {
-      // Plataforma: usa a selecionada no link (platformTag) → fallback platform → webhook heuristic
-      const platformTag = selectedTag;
-      // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-      const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-        ? buildUserTaxaTag(link.userId)
-        : platformTag;
-      // Passa link.platformFee como fallback final: se nada estiver configurado no admin,
-      // usa o valor que estava gravado no link. Se GLOBAL estiver configurado, GLOBAL prevalece.
-      const mdrDom1x = getPlatformTaxaEffective(
-        taxaTag,
-        'MDR_CC_1X',
-        PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
-      );
-      const mdrMaster1x = getCustomerInterestRate(taxaTag, 1);
-      platformFeeRate = mdrDom1x + mdrMaster1x;
-    } else {
-      platformFeeRate = 0;
-    }
-    let platformFeeAmount = Math.round(base * platformFeeRate * 100) / 100;
-    const context = await loadChargePolicy(
-      this.prisma,
-      ['GLOBAL', 'SIMINTPAY'].includes(selectedTag)
-        ? buildUserTaxaTag(link.userId)
-        : selectedTag,
-    );
-    const activated =
-      context.policy.document.lanes[`${context.acquirer}/CREDIT_CARD/ONLINE/1`]
-        ?.active;
-    const initialAmountCharged = activated ? base : base + platformFeeAmount;
-
+    const context = await loadChargePolicy(this.prisma, selectedTag);
+    const initialAmountCharged = Number(link.amount);
     let amountCharged = initialAmountCharged;
-
     if (input.dto.voucherCode) {
       const bridge = await this.voucherService.validateVoucher(link.userId, {
         code: input.dto.voucherCode,
@@ -152,12 +91,6 @@ export class CheckoutSubscriptionLinkCardUseCase {
 
       if (bridge && bridge.valid) {
         amountCharged = bridge.finalAmount;
-        // A taxa deve incidir sobre o valor efetivamente cobrado (com cupom), não sobre o original.
-        platformFeeAmount = activated
-          ? Math.round(amountCharged * platformFeeRate * 100) / 100
-          : Math.round(
-              (amountCharged - amountCharged / (1 + platformFeeRate)) * 100,
-            ) / 100;
       } else {
         throw new BadRequestException('Cupom inválido ou expirado');
       }
@@ -169,21 +102,23 @@ export class CheckoutSubscriptionLinkCardUseCase {
       amountCharged,
       'CREDIT_CARD',
     );
-    if (financialQuote) {
-      amountCharged = financialQuote.totalAmount;
-      platformFeeAmount = financialQuote.totalFeeAmount;
-      const frequency = mapPlanFrequencyToDom(link.frequencyType);
-      const plan = await this.gateway.createPlan(domToken, {
-        price: amountCharged,
-        description: link.name,
-        ...frequency,
-        repetitions: 0,
-        retry_days: 3,
-        webhookUrl: link.webhookUrl ?? undefined,
-        redirectUrl: link.redirectUrl ?? undefined,
-      });
-      domPlanId = plan.id;
-    }
+    if (!financialQuote)
+      throw new BadRequestException(
+        'Política financeira não configurada para esta modalidade',
+      );
+    const platformFeeAmount = financialQuote.totalFeeAmount;
+    amountCharged = financialQuote.totalAmount;
+    const frequency = mapPlanFrequencyToDom(link.frequencyType);
+    const plan = await this.gateway.createPlan(domToken, {
+      price: amountCharged,
+      description: link.name,
+      ...frequency,
+      repetitions: 0,
+      retry_days: 3,
+      webhookUrl: link.webhookUrl ?? undefined,
+      redirectUrl: link.redirectUrl ?? undefined,
+    });
+    const domPlanId = plan.id;
     const coproduction = await captureCoproduction(
       this.prisma,
       'links-assinatura',
@@ -191,29 +126,9 @@ export class CheckoutSubscriptionLinkCardUseCase {
       link.userId,
       selectedTag,
     );
-    const legacyDomFee =
-      Math.round(
-        amountCharged *
-          getPlatformTaxaEffective(
-            selectedTag,
-            'MDR_CC_1X',
-            PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
-          ) *
-          100,
-      ) / 100;
     const coproductionFinancialSnapshot = withCoproduction(
-      financialQuote?.financialSnapshot,
+      financialQuote.financialSnapshot,
       coproduction,
-      {
-        totalAmount: amountCharged,
-        netAmount:
-          Math.round((amountCharged - platformFeeAmount - legacyDomFee) * 100) /
-          100,
-        totalFeeAmount: platformFeeAmount + legacyDomFee,
-        domFeeAmount: legacyDomFee,
-        platformProfit: platformFeeAmount,
-        policyTag: selectedTag,
-      },
     );
     const cleanDoc = input.dto.customerDocument.replace(/\D/g, '');
     const cleanPhone = (input.dto.customerPhone ?? '').replace(/\D/g, '');
@@ -330,15 +245,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
       paymentMethod: 'CREDIT_CARD',
       frequencyType: link.frequencyType,
       amountCharged,
-      netAmount:
-        financialQuote?.netAmount ??
-        (isAreaflixLink({
-          webhookUrl: link.webhookUrl,
-          platformTag: (link as any).platformTag,
-          plataformas: (link as any).plataformas,
-        })
-          ? calculateAreaflixSellerNet(amountCharged, 'CREDIT_CARD', 1)
-          : Number((amountCharged - platformFeeAmount).toFixed(2))),
+      netAmount: financialQuote.netAmount,
       orderId: order.id,
       linkId: link.id,
       ...splitDocument(cleanDoc),

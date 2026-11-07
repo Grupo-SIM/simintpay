@@ -1,6 +1,9 @@
 import { getPlatformIntegrationValue } from '../platform-integrations/platform-integrations.store';
 import type { ModuleConfig } from '../module-config.interface';
-import { getPlatformTaxaEffective } from '../platform-taxas/platform-taxas.store';
+import {
+  resolveWithdrawalFixedFee,
+  getPlatformTaxaEffective,
+} from '../platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../platform-taxas/platform-taxas.keys';
 import { cartaoMdrProxy } from '../platform-taxas/cartao-mdr-proxy';
 
@@ -22,7 +25,7 @@ export const FrendzConfig: ModuleConfig = {
       return getPlatformTaxaEffective(TAG, 'SAQUE_MIN', 100);
     },
     get taxaFixa() {
-      return getPlatformTaxaEffective(TAG, 'TAXA_SAQUE_FIXA', 2);
+      return resolveWithdrawalFixedFee(TAG);
     },
     get taxaPercentual() {
       return getPlatformTaxaEffective(TAG, 'TAXA_SAQUE_PERCENT', 0);
@@ -41,7 +44,11 @@ export const FrendzConfig: ModuleConfig = {
 
   mdr: {
     get pix() {
-      return getPlatformTaxaEffective(TAG, 'MDR_PIX', PLATFORM_TAXA_DEFAULTS.MDR_PIX);
+      return getPlatformTaxaEffective(
+        TAG,
+        'MDR_PIX',
+        PLATFORM_TAXA_DEFAULTS.MDR_PIX,
+      );
     },
     cartao: cartaoMdrProxy(TAG),
     get taxaFixaPorTransacao() {

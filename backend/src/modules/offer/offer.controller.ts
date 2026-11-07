@@ -21,6 +21,7 @@ import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guar
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import {
   CreateOfferDto,
+  OfferPreviewPricingDto,
   ListOffersQueryDto,
   OfferChargeDto,
   UpdateOfferDto,
@@ -55,6 +56,27 @@ export class OfferController {
   @ApiResponse({ status: 404 })
   getPublic(@Param('code') code: string) {
     return this.offers.getPublicByCode(code);
+  }
+
+  @Get('public/:code/pricing')
+  @ApiOperation({
+    summary: 'Preços do checkout com a mesma política da cobrança',
+  })
+  pricing(@Param('code') code: string) {
+    return this.offers.publicPricing(code);
+  }
+
+  @Post('preview-pricing')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Simular preços de uma oferta sem salvar ou cobrar',
+  })
+  previewPricing(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: OfferPreviewPricingDto,
+  ) {
+    return this.offers.previewPricing(actorOf(user), body);
   }
 
   @Post('public/:code/charge')

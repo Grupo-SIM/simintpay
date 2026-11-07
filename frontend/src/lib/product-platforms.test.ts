@@ -35,15 +35,15 @@ describe('product platform visibility', () => {
     assert.deepEqual(productPlatformOptions(platforms, null), []);
   });
 
-  it('lists all platforms for admins with ownership and inactive indicators', () => {
+  it('lists all platforms for admins by name with inactive indicators', () => {
     const options = productPlatformOptions(platforms, {
       id: 'owner',
       isAdmin: true,
     });
     assert.equal(options.length, 3);
-    assert.match(options[0].label, /Admin \(você\)/);
-    assert.match(options[1].label, /Usuário: Ana/);
-    assert.match(options[2].label, /Admin.*Inativa/);
+    assert.equal(options[0].label, 'Minha loja');
+    assert.equal(options[1].label, 'Outra loja');
+    assert.equal(options[2].label, 'Loja inativa (Inativa)');
     assert.equal(options[2].disabled, true);
     assert.equal(options[0].selectedLabel, 'Minha loja');
     assert.equal(options[1].selectedLabel, 'Outra loja');

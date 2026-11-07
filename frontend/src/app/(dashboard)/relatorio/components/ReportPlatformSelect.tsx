@@ -1,15 +1,11 @@
 'use client';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
 import { adminPlatformLabel } from '@/lib/product-platforms';
-import { useId, useState } from 'react';
-import { Check, ChevronsUpDown } from 'lucide-react';
+import { useState } from 'react';
+import { Check } from 'lucide-react';
 import { useReportApi, useReportQuery } from '@/hooks/use-report-api';
 import { useDebouncedInput } from '@/hooks/use-debounced-input';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/Popover';
+import { CustomSelect } from '@/components/ui/CustomSelect';
 import {
   Command,
   CommandInput,
@@ -38,7 +34,6 @@ export function ReportPlatformSelect({
       },
       catalog.user,
     );
-  const labelId = useId();
   const api = useReportApi();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -60,33 +55,20 @@ export function ReportPlatformSelect({
     setOpen(false);
   };
   return (
-    <div className="space-y-2">
-      <span className="text-sm font-medium" id={labelId}>
-        Plataforma
-      </span>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            role="combobox"
-            aria-labelledby={labelId}
-            aria-expanded={open}
-            className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left text-sm sm:max-w-md"
-          >
-            {value
-              ? `${value.name}${value.isActive ? '' : ' (Inativa)'}`
-              : allowAll
-                ? catalog.user?.isAdmin
-                  ? 'Todas as plataformas'
-                  : 'Todas as minhas plataformas'
-                : 'Selecione uma plataforma'}
-            <ChevronsUpDown className="h-4 w-4 shrink-0" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          className="w-[min(28rem,calc(100vw-2rem))] p-0"
-          align="start"
-        >
+    <CustomSelect
+      label="Plataforma"
+      search={{
+        open,
+        onOpenChange: setOpen,
+        selection: value
+          ? `${value.name}${value.isActive ? '' : ' (Inativa)'}`
+          : allowAll
+            ? catalog.user?.isAdmin
+              ? 'Todas as plataformas'
+              : 'Todas as minhas plataformas'
+            : undefined,
+        placeholder: 'Selecione uma plataforma',
+        content: (
           <Command shouldFilter={false}>
             <CommandInput
               name="report-platform-search"
@@ -152,8 +134,8 @@ export function ReportPlatformSelect({
               </div>
             )}
           </Command>
-        </PopoverContent>
-      </Popover>
-    </div>
+        ),
+      }}
+    />
   );
 }

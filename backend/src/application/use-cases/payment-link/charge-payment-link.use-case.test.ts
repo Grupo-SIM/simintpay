@@ -11,7 +11,7 @@ afterEach(() => {
   if (oldToken === undefined) delete process.env.DOM_TOKEN;
   else process.env.DOM_TOKEN = oldToken;
 });
-function fixture(early = false, fail = false, financial = false) {
+function fixture(early = false, fail = false, financial = true) {
   process.env.DOM_TOKEN = 'test-token';
   let row: any,
     wallet: any = {
@@ -138,9 +138,9 @@ function fixture(early = false, fail = false, financial = false) {
   const gateway: any = {
     chargePaymentLink: async (_: string, input: any) => {
       expect(row.status).toBe('DRAFT');
-      expect(row.netAmount.toNumber()).toBe(financial ? 100 : 87);
+      expect(row.netAmount.toNumber()).toBe(financial ? 92 : 87);
       if (financial) {
-        expect(input.amount).toBe(113);
+        expect(input.amount).toBe(105);
         lane.sim.fixedCents = 5000;
       }
       expect(linkChargeReference(input.description)).toBe(row.id);
@@ -181,14 +181,14 @@ test('approved charge creates final snapshot before gateway and commits credit a
   const f = fixture();
   await f.service.execute(f.input);
   expect(f.row().status).toBe('COMPLETED');
-  expect(f.wallet().balance.toNumber()).toBe(87);
+  expect(f.wallet().balance.toNumber()).toBe(92);
   expect(f.logs()).toHaveLength(1);
 });
 test('webhook before gateway response fixes snapshot; pending response cannot regress or double credit', async () => {
   const f = fixture(true);
   await f.service.execute(f.input);
   expect(f.row().status).toBe('COMPLETED');
-  expect(f.wallet().balance.toNumber()).toBe(87);
+  expect(f.wallet().balance.toNumber()).toBe(92);
   expect(f.logs()).toHaveLength(1);
 });
 test('failed credit leaves draft and no approved ledger row', async () => {
@@ -205,7 +205,17 @@ test('new financial policy charges the simulated total and settles its immutable
     await f.service.execute(f.input);
     expect(f.row().financialSnapshot.originalCents).toBe(10000);
     expect(f.row().financialSnapshot).not.toHaveProperty('acquirerCostCents');
-    expect(f.wallet().balance.toNumber()).toBe(100);
+    expect(f.wallet().balance.toNumber()).toBe(92);
     expect(f.logs()).toHaveLength(1);
   }
+});
+
+test('missing financial policy rejects before creating a charge or calling the gateway', async () => {
+  const f = fixture(false, false, false);
+  await expect(f.service.execute(f.input)).rejects.toThrow(
+    'Taxas da plataforma não configuradas',
+  );
+  expect(f.row()).toBeUndefined();
+  expect(f.wallet().balance.toNumber()).toBe(0);
+  expect(f.logs()).toHaveLength(0);
 });

@@ -124,7 +124,7 @@ function setup(
     ...offerOver,
   });
   const db = makeOfferDb(offer);
-  if (opts.quote) {
+  if (opts.quote !== false) {
     withBoletoQuote(db.prisma);
     withBoletoQuote(db.base.prisma);
   }
@@ -278,13 +278,23 @@ describe('offer boleto charge', () => {
   });
 
   test('an existing card/PIX offer keeps its link flags (no boleto)', async () => {
-    const { calls, charge } = setup({ acceptedMethods: ['PIX'] });
-    await expect(charge()).rejects.toThrow('não aceita');
-    const pix = setup({ acceptedMethods: ['PIX', 'CREDIT_CARD'] });
-    await pix.charge({ paymentMethod: 'pix' });
-    expect(pix.calls.links[0].aceitaBoleto).toBeUndefined();
-    expect(pix.calls.links[0].boletoExpireDay).toBeUndefined();
-    expect(calls.links).toHaveLength(0);
+    const { offerGatewayLinkInput } = await import('./offer-gateway-link');
+    const input = offerGatewayLinkInput(
+      makeOffer({
+        acceptedMethods: ['PIX', 'CREDIT_CARD'],
+        maxInstallments: 3,
+      }),
+    );
+    expect(input).toMatchObject({
+      aceitaPix: true,
+      aceitaCartao: true,
+      maxInstallments: 3,
+    });
+    expect(input.aceitaBoleto).toBeUndefined();
+    expect(input.boletoExpireDay).toBeUndefined();
+    const pixOnly = setup({ acceptedMethods: ['PIX'] });
+    await expect(pixOnly.charge()).rejects.toThrow('não aceita');
+    expect(pixOnly.calls.links).toHaveLength(0);
   });
 
   test('address is mandatory with the legacy message; nothing is written', async () => {
@@ -462,50 +472,46 @@ async function legacyBoleto(amount: number, opts: { quote: boolean }) {
 }
 
 describe('offer boleto == legacy ChargeBoletoUseCase (characterization)', () => {
-  for (const quote of [false, true]) {
-    test(`same buyer total, seller net and fee split for R$ 100,00 (${quote ? 'financial policy BOLETO lane' : 'TAXA_BOLETO_FIXA + TAXA_BOLETO_TRANSACAO'})`, async () => {
-      const legacy = await legacyBoleto(100, { quote });
-      const f = setup({}, { quote });
-      const out = await f.charge();
+  test('same buyer total, seller net and fee split for R$ 100,00 (financial policy BOLETO lane)', async () => {
+    const legacy = await legacyBoleto(100, { quote: true });
+    const f = setup({}, { quote: true });
+    const out = await f.charge();
 
-      expect(money(f.db.base.row())).toEqual(legacy.numbers);
-      expect(out.amount).toBe(legacy.out.amount);
-      expect(f.db.charges[0].amountCents).toBe(
-        Math.round(legacy.numbers.amount * 100),
-      );
-      expect(f.calls.boleto[0].input.expireDays).toBe(legacy.sent.expireDays);
-      expect(f.calls.boleto[0].input.address).toEqual(legacy.sent.address);
-      expect(f.calls.boleto[0].input.amount).toBe(legacy.sent.amount);
-      // Frozen numbers: a silent pricing change in either flow fails here.
-      expect(legacy.numbers).toEqual(
-        quote
-          ? {
-              amount: 105,
-              netAmount: 100,
-              totalFee: 5,
-              domFee: 1.5,
-              platformFee: 3.5,
-            }
-          : {
-              amount: 100,
-              netAmount: 91,
-              totalFee: 9,
-              domFee: 4.49,
-              platformFee: 4.51,
-            },
-      );
+    expect(money(f.db.base.row())).toEqual(legacy.numbers);
+    expect(out.amount).toBe(legacy.out.amount);
+    expect(f.db.charges[0].amountCents).toBe(
+      Math.round(legacy.numbers.amount * 100),
+    );
+    expect(f.calls.boleto[0].input.expireDays).toBe(legacy.sent.expireDays);
+    expect(f.calls.boleto[0].input.address).toEqual(legacy.sent.address);
+    expect(f.calls.boleto[0].input.amount).toBe(legacy.sent.amount);
+    // Frozen numbers: a silent pricing change in either flow fails here.
+    expect(legacy.numbers).toEqual({
+      amount: 100,
+      netAmount: 95,
+      totalFee: 5,
+      domFee: 1.5,
+      platformFee: 3.5,
     });
-  }
+  });
 
   test('also equal at other amounts (R$ 14,99 and R$ 1.234,56)', async () => {
     for (const [amount, cents] of [
       [14.99, 1499],
       [1234.56, 123456],
     ] as const) {
-      const legacy = await legacyBoleto(amount, { quote: false });
-      const f = setup({ amountCents: cents });
+      const legacy = await legacyBoleto(amount, { quote: true });
+      const f = setup({ amountCents: cents }, { quote: true });
       await f.charge();
       expect(money(f.db.base.row())).toEqual(legacy.numbers);
     }
+  });
+
+  test('without a BOLETO policy lane both flows refuse with FINANCIAL_POLICY_MISSING', async () => {
+    await expect(legacyBoleto(100, { quote: false })).rejects.toThrow();
+    const f = setup({}, { quote: false });
+    await expect(f.charge()).rejects.toThrow();
+    expect(f.db.charges).toHaveLength(0);
+    expect(f.offer.usedCount).toBe(0);
   });
 });

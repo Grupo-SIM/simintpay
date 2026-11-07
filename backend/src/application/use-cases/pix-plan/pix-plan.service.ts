@@ -40,12 +40,6 @@ import {
   coproductionInfo,
   sharedProductIds,
 } from '../../../modules/coproduction/coproduction-view';
-import {
-  getPlatformTaxaEffective,
-  buildUserTaxaTag,
-} from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
-import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import { accessDaysForFrequency } from '../../helpers/billing-frequency.helper';
 import {
   assertClientCanCreate,
@@ -170,28 +164,18 @@ export class PixPlanService {
     const domToken = platformGatewayToken(tenantTag, process.env.DOM_TOKEN);
     if (!domToken)
       throw new UnauthorizedException('Credencial do gateway não configurada');
-    // Taxa personalizada por cliente na SIM INT PAY (GLOBAL): tag CLIENT:<email> (cai no GLOBAL se não houver).
-    const taxaTag = ['GLOBAL', 'SIMINTPAY'].includes(tenantTag)
-      ? buildUserTaxaTag(effectiveUserId)
-      : tenantTag;
-    const mdrPix = getPlatformTaxaEffective(
-      taxaTag,
-      'MDR_PIX',
-      PLATFORM_TAXA_DEFAULTS.MDR_PIX,
-    );
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, taxaTag),
+      await loadChargePolicy(this.prisma, tenantTag),
       amount,
       'PIX',
     );
-    amount = financialQuote?.totalAmount ?? amount;
-    const netAmount =
-      financialQuote?.netAmount ??
-      Number(calculateSellerNetValue(amount, 1, taxaTag, 'pix').toFixed(2));
-    const totalFee = parseFloat((amount - netAmount).toFixed(2));
-    const domFee =
-      financialQuote?.domFeeAmount ?? parseFloat((amount * mdrPix).toFixed(2));
-    const platformFee = parseFloat((totalFee - domFee).toFixed(2));
+    if (!financialQuote)
+      throw new BadRequestException({ code: 'FINANCIAL_POLICY_MISSING' });
+    amount = financialQuote.totalAmount;
+    const netAmount = financialQuote.netAmount;
+    const totalFee = financialQuote.totalFeeAmount;
+    const domFee = financialQuote.domFeeAmount;
+    const platformFee = financialQuote.platformProfit;
 
     const coproduction = body.pixCreditPlanId
       ? await captureCoproduction(
@@ -206,7 +190,7 @@ export class PixPlanService {
       data: {
         userId: effectiveUserId,
         financialSnapshot: withCoproduction(
-          financialQuote?.financialSnapshot,
+          financialQuote.financialSnapshot,
           coproduction,
         ),
         ...(financialQuote || coproduction

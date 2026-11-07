@@ -1,16 +1,32 @@
+import { useTheme } from 'next-themes';
 import { useState } from 'react';
-import { ProductPlatformSelect } from '@/components/product-platforms/ProductPlatformSelect';
+import { ProductPlatformSection } from '@/app/(dashboard)/cliente/components/ProductPlatformSection';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
 
 export function ProductPlatformFixture() {
+  const { resolvedTheme } = useTheme();
   const catalog = useProductPlatforms();
   const [value, setValue] = useState<string | null>(null);
   return (
-    <ProductPlatformSelect
-      catalog={catalog}
-      value={value}
-      onChange={setValue}
-      theme="light"
-    />
+    <>
+      <ProductPlatformSection
+        catalog={catalog}
+        value={value}
+        onChange={setValue}
+        theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+      />
+      <button
+        type="button"
+        disabled={!catalog.isDestinationValid(value)}
+        onClick={() => {
+          document.getElementById('destination')!.textContent = JSON.stringify(
+            catalog.destinationBody(value),
+          );
+        }}
+      >
+        Salvar destino
+      </button>
+      <output id="destination" />
+    </>
   );
 }

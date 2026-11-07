@@ -83,12 +83,13 @@ export default function CriarBoletoClientePage() {
       !edit.id &&
       (platformCatalog.isLoading ||
         platformCatalog.isError ||
-        !platformCatalog.selectableTags.includes(selectedPlatform ?? ''))
+        !platformCatalog.isDestinationValid(selectedPlatform))
     ) {
       toast({
         type: 'error',
         title: 'Erro',
-        description: 'Selecione uma plataforma ativa para continuar.',
+        description:
+          'Selecione um titular ou uma plataforma válida para continuar.',
       });
       return;
     }
@@ -108,7 +109,7 @@ export default function CriarBoletoClientePage() {
     }
     setValorError(null);
     createMutation.mutate({
-      ...(edit.id ? {} : { plataformas: [selectedPlatform] }),
+      ...(edit.id ? {} : platformCatalog.destinationBody(selectedPlatform)),
       titulo: titulo.trim(),
       descricao: descricao.trim(),
       valor,
@@ -208,7 +209,7 @@ export default function CriarBoletoClientePage() {
           (Boolean(edit.id) ||
             (!platformCatalog.isLoading &&
               !platformCatalog.isError &&
-              platformCatalog.selectableTags.includes(selectedPlatform ?? '')))
+              platformCatalog.isDestinationValid(selectedPlatform)))
         }
         onSave={handleSave}
       />

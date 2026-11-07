@@ -409,7 +409,7 @@ export function Sidebar() {
               open={open}
               pathname={pathname}
               labelStyle={labelStyle}
-              href="/cliente/ofertas"
+              href="/ofertas"
               icon={Link2}
               label="Ofertas"
             />

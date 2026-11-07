@@ -1,3 +1,4 @@
+import { findOfferByCodeOrId } from './find-offer-by-code-or-id';
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
@@ -168,7 +169,7 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
     input: OfferCardCustomerDto,
     now = new Date(),
   ): Promise<OfferCardCustomerResult> {
-    const offer = await this.prisma.offer.findUnique({ where: { code } });
+    const offer = await findOfferByCodeOrId(this.prisma, code);
     if (
       !offer ||
       !offer.isActive ||
@@ -210,7 +211,7 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
     input: OfferSubscribeDto,
     now = new Date(),
   ): Promise<OfferSubscribeResult> {
-    const offer = await this.prisma.offer.findUnique({ where: { code } });
+    const offer = await findOfferByCodeOrId(this.prisma, code);
     if (
       !offer ||
       !offer.isActive ||

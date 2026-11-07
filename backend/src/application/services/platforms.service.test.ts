@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, GoneException } from '@nestjs/common';
 import { PlatformsService } from './platforms.service';
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { initializePlatformTaxasCache } from '../../modules/platform-taxas/platform-taxas.store';
@@ -257,14 +257,14 @@ describe('Platform product ownership', () => {
 });
 
 describe('Platform draft simulation', () => {
-  test('simulates owner draft without persisting and rejects foreign owner', async () => {
+  test('legacy draft rate edits direct the owner to admin financial policy', async () => {
     const fixture = service();
-    const result = await fixture.service.simulateDraft('SHOP', user as never, {
-      amount: 200,
-      rates: { '2': 0.05 },
-    });
-    expect(result.data).toHaveLength(12);
-    expect(result.data[1].interestAmount).toBe(10);
+    await expect(
+      fixture.service.simulateDraft('SHOP', user as never, {
+        amount: 200,
+        rates: { '2': 0.05 },
+      }),
+    ).rejects.toBeInstanceOf(GoneException);
     expect(fixture.update).not.toHaveBeenCalled();
     await expect(
       service({
@@ -317,6 +317,7 @@ describe('Platform rate atomic update', () => {
       platformTaxaOverride: { findMany: async () => [] },
     };
     const service = new PlatformsService(prisma as never);
+    (service as any).simulation = async () => [];
     await service.patchCustomerInterestRates('SHOP', user as never, {
       rates: { '2': 0.025 },
       absorbCustomerInterest: true,

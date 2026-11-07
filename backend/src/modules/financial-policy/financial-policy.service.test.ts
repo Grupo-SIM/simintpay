@@ -399,3 +399,39 @@ describe('accepted payment lanes', () => {
     expect(prisma.platform.update).not.toHaveBeenCalled();
   });
 });
+
+test('current PIX and boleto interpret legacy totals as SimIntPay additions without rewriting revisions', async () => {
+  const { prisma, revisions } = fixture('ADMIN');
+  for (const method of ['PIX', 'BOLETO'] as const) {
+    const lane = structuredClone(revisions[0].document.lanes[key]);
+    lane.contract.interestPpm = 0;
+    lane.sim = { fixedCents: 0, ratePpm: 0, interestPpm: 0 };
+    lane.total = { fixedCents: 800, ratePpm: 90000 };
+    const target = laneKey('DOM', method, 'ONLINE', 1);
+    revisions[0].document.lanes[target] = lane;
+    const loaded = await loadFinancialPolicy(prisma, 'SHOP');
+    expect(loaded.document.lanes[target].total).toBeUndefined();
+    expect(loaded.document.lanes[target].sim).toEqual({
+      fixedCents: 800,
+      ratePpm: 90000,
+      interestPpm: 0,
+    });
+    expect(revisions[0].document.lanes[target].total).toEqual({
+      fixedCents: 800,
+      ratePpm: 90000,
+    });
+    const response = await simulateFinancialPolicy(prisma, 'SHOP', user, {
+      acquirer: 'DOM',
+      method,
+      channel: 'ONLINE',
+      amountCents: 10000,
+      installments: [1],
+    });
+    const result = response.data[0].result!;
+    expect(result).toMatchObject({
+      simAdditionCents: 1700,
+      acquirerProcessingCents: 300,
+      netCents: 8000,
+    });
+  }
+});

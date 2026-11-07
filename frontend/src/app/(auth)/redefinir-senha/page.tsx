@@ -12,7 +12,7 @@ import { useToast } from '@/components/ui/Toast';
 import { Eye, EyeOff, KeyRound } from 'lucide-react';
 
 const inputClass =
-  'h-12 w-full rounded-xl border border-zinc-300 bg-white px-4 pr-11 text-sm text-zinc-900 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/15 dark:bg-zinc-900/40 dark:text-zinc-100';
+  'h-12 w-full rounded-xl border border-zinc-300 bg-white px-4 pr-11 text-sm text-zinc-900 outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 dark:border-white/10 dark:bg-white/5 dark:text-zinc-100';
 
 export default function RedefinirSenhaPage() {
   const router = useRouter();

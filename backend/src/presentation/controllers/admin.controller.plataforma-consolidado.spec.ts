@@ -21,6 +21,29 @@ jest.mock('uuid', () => ({
 jest.mock('../../modules/platform-taxas/platform-taxas.store', () => ({
   getPlatformTaxaEffective: (_tag: string, _key: string, fallback: number) =>
     fallback,
+  // Synced acquirer schedule stand-in: [ratePpm, fixedCents] per METHOD/CHANNEL/installments.
+  syncedAcquirerCostReais: (
+    method: string,
+    channel: string,
+    installments: number,
+    amount: number,
+  ) => {
+    const schedule: Record<string, [number, number]> = {
+      'PIX/ONLINE/1': [9_800, 0],
+      'BOLETO/ONLINE/1': [0, 449],
+      'DEBIT_CARD/ONLINE/1': [34_900, 100],
+      'CREDIT_CARD/ONLINE/1': [39_900, 0],
+      'PIX/POS/1': [10_000, 0],
+      'DEBIT_CARD/POS/1': [34_900, 100],
+      'CREDIT_CARD/POS/1': [34_900, 100],
+    };
+    const [ratePpm, fixedCents] = schedule[
+      `${method}/${channel}/${installments}`
+    ] ?? [0, 0];
+    const pct = (amount * ratePpm) / 1_000_000;
+    return { pct, fixa: fixedCents / 100, total: pct + fixedCents / 100 };
+  },
+  resolveWithdrawalFixedFee: () => 3.5,
   invalidatePlatformTaxaCache: jest.fn(),
   buildClientTaxaTag: (email: string) => `CLIENT:${email}`,
   canonicalPlatformTaxaTag: (tag: string) => tag,

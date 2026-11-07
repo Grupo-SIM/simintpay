@@ -1,10 +1,7 @@
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import {
   captureCoproduction,
   withCoproduction,
 } from '../../../modules/coproduction/coproduction.service';
-import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import {
   loadChargePolicy,
   quoteFinancialCharge,
@@ -115,13 +112,14 @@ export class CreatePublicSubscriptionUseCase {
     });
 
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(
-        this.prisma,
-        plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL',
-      ),
+      await loadChargePolicy(this.prisma, plan.plataformas?.[0] ?? 'GLOBAL'),
       Number(plan.price),
       'CREDIT_CARD',
     );
+    if (!financialQuote)
+      throw new BadRequestException(
+        'Política financeira não configurada para esta modalidade',
+      );
     let gatewayPlanId = plan.domPlanId;
     if (financialQuote) {
       const synced = await this.gateway.createPlan(domToken, {
@@ -144,37 +142,11 @@ export class CreatePublicSubscriptionUseCase {
       'planos',
       plan.id,
       plan.userId,
-      plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL',
-    );
-    const legacyPrice = Number(plan.price);
-    const policyTag = plan.plataformas?.[0] ?? owner?.platform?.tag ?? 'GLOBAL';
-    const legacyDomFee =
-      Math.round(
-        legacyPrice *
-          getPlatformTaxaEffective(
-            policyTag,
-            'MDR_CC_1X',
-            PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
-          ) *
-          100,
-      ) / 100;
-    const legacyNet = Number(
-      calculateSellerNetValue(legacyPrice, 1, policyTag, 'credit_card')
-        .sub(legacyDomFee)
-        .toFixed(2),
+      plan.plataformas?.[0] ?? 'GLOBAL',
     );
     const coproductionFinancialSnapshot = withCoproduction(
-      financialQuote?.financialSnapshot,
+      financialQuote.financialSnapshot,
       coproduction,
-      {
-        totalAmount: legacyPrice,
-        netAmount: legacyNet,
-        totalFeeAmount: Math.round((legacyPrice - legacyNet) * 100) / 100,
-        domFeeAmount: legacyDomFee,
-        platformProfit:
-          Math.round((legacyPrice - legacyNet - legacyDomFee) * 100) / 100,
-        policyTag,
-      },
     );
     const subscriptionInput = {
       planId: gatewayPlanId,

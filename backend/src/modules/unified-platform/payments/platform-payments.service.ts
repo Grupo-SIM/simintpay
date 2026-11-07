@@ -290,18 +290,6 @@ export class PlatformPaymentsService {
       update: {},
       create: { userId: financialUserId, balance: 0, lockedBalance: 0 },
     });
-    const overrides = await this.prisma.platformTaxaOverride.findMany({
-      where: {
-        tag: {
-          in: ['GLOBAL', platform.tag, platform.tag.replaceAll('-', '_')],
-        },
-      },
-    });
-    const rates: Record<string, number> = {};
-    for (const row of overrides.filter((row) => row.tag === 'GLOBAL'))
-      rates[row.key] = row.value;
-    for (const row of overrides.filter((row) => row.tag !== 'GLOBAL'))
-      rates[row.key] = row.value;
     // Delivery credentials are tied to their configured acquirer; never route them
     // through another integration. For ordinary checkout, consider only gateways
     // that can actually process this method and have a usable credential.
@@ -341,7 +329,7 @@ export class PlatformPaymentsService {
       feesByLane: { [`${input.paymentMethod}/ONLINE/${installments}`]: fees },
     };
     // The quote engine prices every candidate from the same active schedule,
-    // including buyer-total bases and the shared price floor.
+    // including buyer-total bases.
     const pricingFee = fees.find(
       (fee) =>
         candidates.includes(fee.acquirer) &&
@@ -453,24 +441,6 @@ export class PlatformPaymentsService {
       : quoteFinancialCharge(
           {
             ...platformChargeContext,
-            legacyCosts: {
-              acquirerCents: selectedFee
-                ? estimatedCost(
-                    selectedFee,
-                    input.amountCents,
-                    input.amountCents,
-                  )
-                : new Prisma.Decimal(
-                    adapter.fees(
-                      amount,
-                      rates,
-                      cardAcquirer ? input.card!.installments : undefined,
-                    ).domFee,
-                  )
-                    .mul(100)
-                    .toNumber(),
-              simCents: 0,
-            },
             policy: policy!,
             acquirer: selectedAcquirer,
             tag: platform.tag,
@@ -482,9 +452,11 @@ export class PlatformPaymentsService {
           input.paymentMethod as 'PIX' | 'CREDIT_CARD',
           cardAcquirer ? input.card!.installments : 1,
         );
-    const chargeAmount = new Prisma.Decimal(
-      financialQuote?.totalAmount ?? amount,
-    );
+    if (!financialQuote)
+      throw new UnprocessableEntityException({
+        code: 'FINANCIAL_POLICY_MISSING',
+      });
+    const chargeAmount = new Prisma.Decimal(financialQuote.totalAmount);
     const chargeCents = chargeAmount.mul(100).toNumber();
     // Acquirer cost is recorded for every payment, Delivery included: it is a platform cost, never charged to the merchant.
     const realizedCostCents = selectedFee
@@ -503,25 +475,19 @@ export class PlatformPaymentsService {
             realizedCents: realizedCostCents,
           }
         : undefined;
-    const financialFields = financialQuote
-      ? {
-          amount: chargeAmount,
-          netAmount: new Prisma.Decimal(financialQuote.netAmount),
-          totalFee: new Prisma.Decimal(financialQuote.totalFeeAmount),
-          domFee: new Prisma.Decimal(
-            deliveryQuote && realizedCostCents !== undefined
-              ? realizedCostCents / 100
-              : financialQuote.domFeeAmount,
-          ),
-          platformFee: new Prisma.Decimal(financialQuote.platformProfit),
-          financialSnapshot: financialQuote.financialSnapshot,
-          settlementBasis: 'FINAL_NET' as const,
-        }
-      : adapter.fees(
-          amount,
-          rates,
-          cardAcquirer ? input.card!.installments : undefined,
-        );
+    const financialFields = {
+      amount: chargeAmount,
+      netAmount: new Prisma.Decimal(financialQuote.netAmount),
+      totalFee: new Prisma.Decimal(financialQuote.totalFeeAmount),
+      domFee: new Prisma.Decimal(
+        deliveryQuote && realizedCostCents !== undefined
+          ? realizedCostCents / 100
+          : financialQuote.domFeeAmount,
+      ),
+      platformFee: new Prisma.Decimal(financialQuote.platformProfit),
+      financialSnapshot: financialQuote.financialSnapshot,
+      settlementBasis: 'FINAL_NET' as const,
+    };
     const coproduction = input.linkId
       ? await captureCoproduction(
           this.prisma,
@@ -550,7 +516,7 @@ export class PlatformPaymentsService {
     if (coproduction && coproduction.baseCents === undefined)
       coproduction.baseCents = financialFields.netAmount.mul(100).toNumber();
     const finalSnapshot = withCoproduction(
-      financialQuote?.financialSnapshot ??
+      financialQuote.financialSnapshot ??
         (costSnapshot
           ? { acquirerCost: costSnapshot, originalCents: input.amountCents }
           : coproduction
@@ -579,7 +545,6 @@ export class PlatformPaymentsService {
             beneficiaryUserId: financialUserId,
           },
         },
-        amount,
         ...(input.linkId ? { paymentLinkId: input.linkId } : {}),
         ...financialFields,
         ...(finalSnapshot ? { financialSnapshot: finalSnapshot } : {}),

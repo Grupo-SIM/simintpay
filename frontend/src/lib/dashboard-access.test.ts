@@ -5,6 +5,8 @@ import { canClientAccessPath } from './dashboard-access';
 describe('client dashboard route boundary', () => {
   it('allows current client products, transactions and existing self-service', () => {
     for (const route of [
+      '/ofertas',
+      '/ofertas/criar',
       '/relatorio',
       '/plataformas',
       '/plataformas/SHOP',

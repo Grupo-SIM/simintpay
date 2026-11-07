@@ -36,6 +36,7 @@ export async function loadChargePolicy(
   tag: string,
   at?: Date,
 ) {
+  if (tag === 'SIMINTPAY' || /^(CLIENT:|USER:)/.test(tag)) tag = 'GLOBAL';
   const [policy, platform] = await Promise.all([
     loadFinancialPolicy(prisma, tag, at),
     loadPlatformChargeContext(prisma, tag),
@@ -94,12 +95,13 @@ export function quoteFinancialCharge(
     feesByLane?: Record<string, AcquirerCost[]>;
     platformFeeMode?: FeeMode;
     additiveTotals?: AdditiveTotals;
-    legacyCosts?: { acquirerCents: number; simCents: number };
   },
   amount: number,
   method: Method,
   installments = 1,
   channel: Channel = 'ONLINE',
+  /** Platform fee modes treat the amount as the buyer total; offers set the buyer total themselves. */
+  buyerTotalAsInput = !!context.platformFeeMode,
 ) {
   const routeKey = laneKey(context.acquirer, method, channel, installments);
   try {
@@ -129,50 +131,6 @@ export function quoteFinancialCharge(
         installments,
       )
     : routeKey;
-  if (
-    (!key || !context.policy.document.lanes[key] || !fees.length) &&
-    context.platformFeeMode &&
-    context.legacyCosts
-  ) {
-    const base = emptyPolicy();
-    base.lanes[routeKey] = {
-      active: true,
-      contract: {
-        fixedCents: context.legacyCosts.acquirerCents,
-        ratePpm: 0,
-        interestPpm: 0,
-        cashbackCents: 0,
-        base: 'ORIGINAL',
-        reference: 'LEGACY_AGGREGATE',
-      },
-      sim: {
-        fixedCents: context.legacyCosts.simCents,
-        ratePpm: 0,
-        interestPpm: 0,
-      },
-    };
-    const fee: AcquirerCost = {
-      acquirer: context.acquirer,
-      fixedCents: context.legacyCosts.acquirerCents,
-      ratePpm: 0,
-      interestPpm: 0,
-      base: 'ORIGINAL',
-      source: 'LEGACY_AGGREGATE',
-      createdAt: new Date(0),
-    };
-    return quoteFinancialCharge(
-      {
-        ...context,
-        legacyCosts: undefined,
-        policy: { ...context.policy, document: base },
-        feesByLane: { [`${method}/${channel}/${installments}`]: [fee] },
-      },
-      amount,
-      method,
-      installments,
-      channel,
-    );
-  }
   if (!key || !context.policy.document.lanes[key]) {
     if (context.platformFeeMode)
       throw new BadRequestException(
@@ -208,7 +166,6 @@ export function quoteFinancialCharge(
           ...policy.document.lanes,
           [key]: {
             ...policy.document.lanes[key]!,
-            priceFloor: undefined,
             sim: { ratePpm: 0, fixedCents: 0, interestPpm: 0 },
           },
         },
@@ -221,7 +178,7 @@ export function quoteFinancialCharge(
     cents(amount),
     undefined,
     scheduled,
-    !!context.platformFeeMode,
+    buyerTotalAsInput,
   );
   if (additiveCents) {
     r.contractedCostCents += additiveCents;

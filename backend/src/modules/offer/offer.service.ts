@@ -1,3 +1,4 @@
+import { findOfferByCodeOrId } from './find-offer-by-code-or-id';
 import {
   BadRequestException,
   ForbiddenException,
@@ -6,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { Offer } from '@prisma/client';
+import type { Offer, PaymentMethod } from '@prisma/client';
 import { assertClientCanCreate } from '../../application/helpers/client-rules.helper';
 import {
   assertOwnershipPreserved,
@@ -30,10 +31,14 @@ import {
 } from './offer-fulfillment';
 import type {
   CreateOfferDto,
+  OfferPreviewPricingDto,
   ListOffersQueryDto,
   UpdateOfferDto,
 } from './offer.dto';
-import { OFFER_PRESETS } from './offer.presets';
+import {
+  loadCyclePolicyContext,
+  quoteOfferCycle,
+} from '../billing-core/cycle-pricing';
 import {
   OfferValidationError,
   validateOfferInput,
@@ -59,7 +64,6 @@ export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
   const metadata = (offer.metadata ?? {}) as Record<string, unknown>;
   return {
     code: offer.code,
-    kind: offer.kind,
     name: offer.name,
     description: offer.description,
     amountCents: offer.amountCents,
@@ -77,6 +81,8 @@ export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
     bumps,
   };
 }
+
+const DEFAULT_METHODS: PaymentMethod[] = ['CREDIT_CARD', 'DEBIT_CARD', 'PIX'];
 
 @Injectable()
 export class OfferService {
@@ -96,25 +102,22 @@ export class OfferService {
     );
     assertClientCanCreate(owner, (dto.amountCents ?? 0) / 100);
 
-    // Preset do tipo; qualquer campo informado sobrescreve o padrão.
-    const preset = OFFER_PRESETS[dto.kind];
-    const renewalMode = dto.renewalMode ?? preset.renewalMode;
+    // Sem campos de recorrência a oferta é uma compra única.
+    const renewalMode = dto.renewalMode ?? 'NONE';
     const recurring = renewalMode !== 'NONE';
     const normalized = this.normalize({
       amountCents: dto.amountCents,
-      acceptedMethods: dto.acceptedMethods ?? preset.acceptedMethods,
-      maxInstallments: dto.maxInstallments ?? preset.maxInstallments,
+      acceptedMethods: dto.acceptedMethods ?? DEFAULT_METHODS,
+      maxInstallments: dto.maxInstallments ?? 12,
       renewalMode,
-      // O preset só preenche o intervalo quando o modo final é recorrente.
-      intervalType:
-        dto.intervalType ?? (recurring ? preset.intervalType : null),
-      intervalCount:
-        dto.intervalCount ?? (recurring ? preset.intervalCount : null),
+      // O intervalo padrão (mensal) só vale quando o modo é recorrente.
+      intervalType: dto.intervalType ?? (recurring ? 'MONTH' : null),
+      intervalCount: dto.intervalCount ?? (recurring ? 1 : null),
       repetitions: dto.repetitions,
       trialDays: dto.trialDays,
       retryDays: dto.retryDays,
       graceDays: dto.graceDays,
-      accessDays: dto.accessDays ?? preset.accessDays,
+      accessDays: dto.accessDays,
       metadata: dto.metadata,
       acquirer: getModuleAcquirer(platformTag),
     });
@@ -128,7 +131,6 @@ export class OfferService {
             createdByUserId,
             platformTag,
             code: generateOfferCode(),
-            kind: dto.kind,
             name: dto.name,
             description: dto.description ?? null,
             expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
@@ -229,13 +231,25 @@ export class OfferService {
         maxUses: this.prisma.offer.fields.maxUses,
       },
     );
+    const ownerSearch = isAdmin ? query.ownerSearch?.trim() : undefined;
+    if (ownerSearch)
+      where.owner = {
+        OR: [
+          { name: { contains: ownerSearch, mode: 'insensitive' } },
+          { email: { contains: ownerSearch, mode: 'insensitive' } },
+        ],
+      };
+    const include = isAdmin
+      ? { owner: { select: { id: true, name: true, email: true } } }
+      : undefined;
     const orderBy = buildOfferListOrder(query.sort);
     const paging = offerListPaging(query);
     // Sem page/pageSize a resposta segue sendo a lista completa (compatibilidade).
-    if (!paging) return this.prisma.offer.findMany({ where, orderBy });
+    if (!paging) return this.prisma.offer.findMany({ where, orderBy, include });
     const [data, total] = await Promise.all([
       this.prisma.offer.findMany({
         where,
+        include,
         orderBy,
         skip: paging.skip,
         take: paging.pageSize,
@@ -265,8 +279,75 @@ export class OfferService {
     });
   }
 
+  async previewPricing(actor: OfferActor, dto: OfferPreviewPricingDto) {
+    const stored = dto.offerId ? await this.owned(actor, dto.offerId) : null;
+    const destination: Pick<Offer, 'ownerUserId' | 'platformTag'> =
+      stored ??
+      (await resolveFinancialOwner(this.users, actor.id, {
+        ownerUserId: dto.ownerUserId,
+        platforms: dto.platformTag ? [dto.platformTag] : undefined,
+      }).then(({ owner, platformTag }) => ({
+        ownerUserId: String(owner.id),
+        platformTag: platformTag ?? null,
+      })));
+    return this.checkoutPricing({
+      ...destination,
+      amountCents: dto.amountCents,
+      maxInstallments: dto.maxInstallments,
+      acceptedMethods: dto.acceptedMethods,
+    });
+  }
+
+  async publicPricing(code: string) {
+    await this.getPublicByCode(code);
+    const offer = await this.prisma.offer.findUniqueOrThrow({
+      where: { code },
+    });
+    return this.checkoutPricing(offer);
+  }
+
+  private async checkoutPricing(
+    offer: Pick<
+      Offer,
+      | 'amountCents'
+      | 'platformTag'
+      | 'ownerUserId'
+      | 'maxInstallments'
+      | 'acceptedMethods'
+    >,
+  ) {
+    const context = await loadCyclePolicyContext(this.prisma, offer);
+    const quote = (
+      method: 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD' | 'BOLETO',
+      n = 1,
+    ) => quoteOfferCycle(context, offer, method, n);
+    return {
+      options: offer.acceptedMethods.includes('CREDIT_CARD')
+        ? Array.from({ length: offer.maxInstallments }, (_, i) => {
+            const price = quote('CREDIT_CARD', i + 1);
+            return {
+              installments: i + 1,
+              totalAmount: price.totalAmount,
+              installmentAmount:
+                Math.round((price.totalAmount / (i + 1)) * 100) / 100,
+              interestAmount: price.interestAmount ?? 0,
+            };
+          })
+        : [],
+      pixAmount: offer.acceptedMethods.includes('PIX')
+        ? quote('PIX').totalAmount
+        : offer.amountCents / 100,
+      debitAmount: offer.acceptedMethods.includes('DEBIT_CARD')
+        ? quote('DEBIT_CARD').totalAmount
+        : offer.amountCents / 100,
+      boletoAmount: offer.acceptedMethods.includes('BOLETO')
+        ? quote('BOLETO').totalAmount
+        : offer.amountCents / 100,
+    };
+  }
+
   async getPublicByCode(code: string, now = new Date()) {
-    const offer = await this.prisma.offer.findUnique({ where: { code } });
+    const offer = await findOfferByCodeOrId(this.prisma, code);
     const unavailable =
       !offer ||
       !offer.isActive ||

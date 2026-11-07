@@ -1564,7 +1564,7 @@ export class PlatformAdministrationService {
       // Modelo: o cliente só perde a taxa Sim Int Pay; o custo DOM sai da margem da casa.
       //   repasse            = netAmount real  (= bruto − taxa Sim Int Pay nas transações novas)
       //   taxa Sim Int Pay   = bruto − netAmount  (exatamente o que o cliente pagou)
-      //   custo DOM          = tabela POS (POS_MDR_*, + R$1 em débito/crédito; PIX físico não paga)
+      //   custo DOM          = tabela de custos sincronizada (canal POS)
       //   lucro Sim Int Pay  = taxa Sim Int Pay − custo DOM
       const maqBruto = maqTxs.reduce((s, t) => s + Number(t.amount), 0);
       const maqNet = maqTxs.reduce((s, t) => s + Number(t.netAmount ?? 0), 0);

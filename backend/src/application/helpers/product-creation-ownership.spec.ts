@@ -40,6 +40,35 @@ function dependencies() {
     createPlan: jest.fn().mockResolvedValue({ id: 'dom' }),
   };
   const prisma = {
+    financialPolicyRevision: {
+      findMany: async () => [
+        {
+          tag: 'GLOBAL',
+          version: 1,
+          document: {
+            schemaVersion: 1,
+            lanes: {
+              'DOM/CREDIT_CARD/ONLINE/1': {
+                active: true,
+                contract: {
+                  reference: 'Signed',
+                  fixedCents: 0,
+                  ratePpm: 0,
+                  interestPpm: 0,
+                  cashbackCents: 0,
+                  base: 'ORIGINAL',
+                },
+                sim: { fixedCents: 0, ratePpm: 0, interestPpm: 0 },
+              },
+            },
+            owner: {},
+          },
+        },
+      ],
+    },
+    platform: { findUnique: async () => null },
+    acquirerCatalogue: { findMany: async () => [] },
+    acquirerFeeSchedule: { findMany: async () => [] },
     user: { findUnique: async ({ where }: any) => users.findById(where.id) },
   };
   return { repo, gateway, prisma };
@@ -92,12 +121,15 @@ describe('five products retain beneficiary separately from administrator actor',
           } as any,
         });
       if (kind === 'plan')
-        await new CreatePlanUseCase(repo as any, gateway as any, users).execute(
-          {
-            userId: actor.id,
-            dto: { ...target, nome: 'Produto', preco: 20, tipo: 'MENSAL' },
-          },
-        );
+        await new CreatePlanUseCase(
+          repo as any,
+          gateway as any,
+          users,
+          prisma as any,
+        ).execute({
+          userId: actor.id,
+          dto: { ...target, nome: 'Produto', preco: 20, tipo: 'MENSAL' },
+        });
       if (kind === 'boleto')
         await new CreateBoletoUseCase(
           repo as any,

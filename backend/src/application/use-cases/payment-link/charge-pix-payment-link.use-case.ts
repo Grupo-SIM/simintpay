@@ -25,13 +25,8 @@ import type { IPaymentLinkRepository } from '../../../core/repositories/payment-
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { calculatePaymentLinkFees, round2 } from './payment-link-fees.helper';
-import { buildUserTaxaTag } from '../../../modules/platform-taxas/platform-taxas.store';
-import { clientTaxaTagFor } from '../../helpers/client-rules.helper';
-import {
-  isAreaflixLink,
-  calculateAreaflixSellerNet,
-} from '../../helpers/areaflix-fees.helper';
+import { round2 } from './payment-link-fees.helper';
+
 import {
   offersDescriptionSuffix,
   recordOfferSales,
@@ -128,21 +123,7 @@ export class ChargePixPaymentLinkUseCase {
     const chargedBase = funnel
       ? Number(funnel.offer.price)
       : Number(link.amount) + sumOffers(bumps);
-    const pricedLink = { ...link, amount: new Prisma.Decimal(chargedBase) };
 
-    const owner = await this.users.findById(link.userId);
-    const ownerClientTag = !['GLOBAL', 'SIMINTPAY'].includes(
-      ((link as any).plataformas?.[0] ?? 'GLOBAL').toUpperCase(),
-    )
-      ? null
-      : clientTaxaTagFor(owner);
-
-    const isAreaflix = isAreaflixLink({
-      webhookUrl: (link as any).webhookUrl,
-      plataformas: (link as any).plataformas,
-    });
-
-    // Cliente SimintPay e Areaflix usam o token mestre (SimintPay) sempre.
     const selectedTag = (link as any).plataformas?.[0] ?? 'GLOBAL';
     const domToken = platformGatewayToken(selectedTag, process.env.DOM_TOKEN);
 
@@ -159,26 +140,17 @@ export class ChargePixPaymentLinkUseCase {
     const platformTag =
       ((link as any).plataformas?.[0] as string | undefined)?.toUpperCase() ||
       'GLOBAL';
-    // Taxa: dono cliente SimintPay → tag do dono (CLIENT:<owner>); senão regra antiga por comprador.
-    const taxaTag =
-      ownerClientTag ??
-      (['GLOBAL', 'SIMINTPAY'].includes(platformTag)
-        ? buildUserTaxaTag(link.userId)
-        : platformTag);
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, taxaTag),
+      await loadChargePolicy(this.prisma, platformTag),
       chargedBase,
       'PIX',
     );
-    const fees =
-      financialQuote ?? calculatePaymentLinkFees(pricedLink, 1, taxaTag, true);
-    const { totalAmount, domFeeAmount } = fees;
-    let { netAmount } = fees;
-
-    // AREAFLIX: líquido do vendedor = valor − % PIX − taxa fixa (taxas do painel)
-    if (isAreaflix && !financialQuote) {
-      netAmount = calculateAreaflixSellerNet(totalAmount, 'PIX');
+    if (!financialQuote) {
+      throw new BadRequestException(
+        'Taxas da plataforma não configuradas para esta modalidade',
+      );
     }
+    const { totalAmount, domFeeAmount, netAmount } = financialQuote;
 
     const effectiveUserId = link.userId;
 
@@ -199,7 +171,7 @@ export class ChargePixPaymentLinkUseCase {
     );
     const snapshot = {
       financialSnapshot: withCoproduction(
-        financialQuote?.financialSnapshot,
+        financialQuote.financialSnapshot,
         coproduction,
       ),
       userId: effectiveUserId,

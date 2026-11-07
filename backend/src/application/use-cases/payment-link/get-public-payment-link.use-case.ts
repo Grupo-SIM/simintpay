@@ -1,14 +1,26 @@
-import { loadChargePolicy, quoteFinancialCharge } from '../../../modules/financial-policy/financial-charge';
+import {
+  loadChargePolicy,
+  quoteFinancialCharge,
+} from '../../../modules/financial-policy/financial-charge';
 import { platformGatewayToken } from '../../helpers/explicit-platform.helper';
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PAYMENT_LINK_REPOSITORY } from '../../../core/repositories/payment-link.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentLinkRepository } from '../../../core/repositories/payment-link.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { calculatePaymentLinkFees, calculateDebitFees } from './payment-link-fees.helper';
-import { listLinkOffers, resolveOrderBumps, sumOffers, toOfferView, type OfferView } from './payment-link-offers.helper';
+import {
+  listLinkOffers,
+  resolveOrderBumps,
+  sumOffers,
+  toOfferView,
+  type OfferView,
+} from './payment-link-offers.helper';
 
 type FunnelOfferView = OfferView & { valorCartao: number };
 
@@ -37,7 +49,10 @@ export class GetPublicPaymentLinkUseCase {
    * @param orderBumpIds order bumps marcados pelo comprador — quando informados, as opções de
    * parcelamento/valores são recalculadas sobre (valor do link + order bumps).
    */
-  async execute(id: string, orderBumpIds?: string[]): Promise<{
+  async execute(
+    id: string,
+    orderBumpIds?: string[],
+  ): Promise<{
     id: string;
     titulo: string;
     descricao: string | null;
@@ -74,57 +89,80 @@ export class GetPublicPaymentLinkUseCase {
       Boolean((link as any)?.expiresAt) &&
       new Date((link as any).expiresAt).getTime() <= Date.now();
     if (!link || !link.isActive || isExpired) {
-      throw new NotFoundException('Link de pagamento não encontrado ou inativo');
+      throw new NotFoundException(
+        'Link de pagamento não encontrado ou inativo',
+      );
     }
 
-    // 1º plataforma explícita salva no link (campo plataformas[0])
-    // 2º formato legado na descrição (compatibilidade)
-    // 3º módulo do dono do link
-    // 4º fallback final: GLOBAL
     const linkPlataformas = (link as any).plataformas as string[] | undefined;
-    const owner = await this.users.findById(link.userId);
-    const platformTag = linkPlataformas?.[0]?.toUpperCase() ?? owner?.platform?.tag?.toUpperCase() ?? 'GLOBAL';
+    const platformTag = linkPlataformas?.[0]?.toUpperCase() ?? 'GLOBAL';
 
     // Validate platform lifecycle without resolving another platform from user identity.
     platformGatewayToken(platformTag, 'public-global');
 
     const financialContext = await loadChargePolicy(this.prisma, platformTag);
+    const quote = (
+      amount: number,
+      method: 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD',
+      installments = 1,
+    ) => {
+      const result = quoteFinancialCharge(
+        financialContext,
+        amount,
+        method,
+        installments,
+      );
+      if (!result) {
+        throw new BadRequestException(
+          'Taxas da plataforma não configuradas para esta modalidade',
+        );
+      }
+      return result;
+    };
     const offers = await listLinkOffers(this.prisma, link.id, true);
-    const selectedBumps = await resolveOrderBumps(this.prisma, link.id, orderBumpIds);
+    const selectedBumps = await resolveOrderBumps(
+      this.prisma,
+      link.id,
+      orderBumpIds,
+    );
     const chargedBase = Number(link.amount) + sumOffers(selectedBumps);
-    const pricedLink = { ...link, amount: new Prisma.Decimal(chargedBase) };
-    const funnelView = (type: 'UPSELL' | 'DOWNSELL'): FunnelOfferView | null => {
-      const offer = offers.find(o => o.type === type);
-      if (!offer) return null;
+    const funnelView = (
+      type: 'UPSELL' | 'DOWNSELL',
+    ): FunnelOfferView | null => {
+      const offer = offers.find((o) => o.type === type);
+      if (!offer || !(link.aceitaCartao ?? true)) return null;
       // Upsell/downsell no cartão são cobrados à vista (1x).
-      const card = quoteFinancialCharge(financialContext, Number(offer.price), 'CREDIT_CARD') ?? calculatePaymentLinkFees({ ...link, amount: offer.price }, 1, platformTag);
+      const card = quote(Number(offer.price), 'CREDIT_CARD');
       return { ...toOfferView(offer), valorCartao: card.totalAmount };
     };
 
     const maxInstallments = link.maxInstallments;
     const opcoesParcelas: InstallmentOption[] = [];
 
-    for (let i = 1; i <= maxInstallments; i++) {
-      const financialQuote = quoteFinancialCharge(financialContext, chargedBase, 'CREDIT_CARD', i);
-      const f = financialQuote ?? calculatePaymentLinkFees(pricedLink, i, platformTag);
+    for (let i = 1; (link.aceitaCartao ?? true) && i <= maxInstallments; i++) {
+      const f = quote(chargedBase, 'CREDIT_CARD', i);
       opcoesParcelas.push({
         parcelas: i,
         taxaJurosPlatforma: f.platformFeeRate,
         valorJurosPlatforma: f.interestAmount,
         taxaDom: f.domFeeRate * 100,
-        valorTaxaDom: financialQuote ? 0 : f.domFeeAmount,
+        valorTaxaDom: 0,
         valorTotal: f.totalAmount,
         valorParcela: f.installmentAmount,
         temJuros: f.platformFeeRate > 0,
       });
     }
 
-    const debitQuote = quoteFinancialCharge(financialContext, chargedBase, 'DEBIT_CARD');
-    const debitCalc = debitQuote ?? calculateDebitFees(pricedLink, platformTag);
+    const debitQuote =
+      (link.aceitaDebito ?? true) ? quote(chargedBase, 'DEBIT_CARD') : null;
+    const debitCalc = debitQuote;
 
     // Para PIX, o cliente paga o valor base sem acréscimo de taxa de crédito.
     // A taxa de processamento PIX (MDR_PIX) fica do lado do vendedor, igual ao débito.
-    const valorPix = quoteFinancialCharge(financialContext, chargedBase, 'PIX')?.totalAmount ?? chargedBase;
+    const valorPix =
+      (link.aceitaPix ?? true)
+        ? quote(chargedBase, 'PIX').totalAmount
+        : chargedBase;
 
     return {
       id: link.id,
@@ -137,22 +175,26 @@ export class GetPublicPaymentLinkUseCase {
       aceitaPix: (link as any).aceitaPix ?? true,
       ativo: link.isActive,
       isStandalone: (link as any).isStandalone ?? true,
-      dataExpiracao: (link as any).expiresAt ? (link as any).expiresAt.toISOString() : null,
+      dataExpiracao: (link as any).expiresAt
+        ? (link as any).expiresAt.toISOString()
+        : null,
       redirectUrl: (link as any).redirectUrl ?? null,
       opcoesParcelas,
       valorPix,
       valorDebito: debitQuote?.totalAmount ?? chargedBase,
       platformTag,
-      debitFeePercent: debitCalc.platformFeePercent,
-      debitFeeFixed: debitCalc.platformFeeFixed,
-      debitTaxaDomPercent: debitCalc.domFeePercent,
-      debitTaxaDomFixed: debitCalc.domFeeFixed,
-      debitTotalFee: debitQuote ? 0 : debitCalc.totalFeeAmount,
-      debitNetAmount: debitQuote ? 0 : debitCalc.netAmount,
+      debitFeePercent: debitCalc?.platformFeePercent ?? 0,
+      debitFeeFixed: debitCalc?.platformFeeFixed ?? 0,
+      debitTaxaDomPercent: debitCalc?.domFeePercent ?? 0,
+      debitTaxaDomFixed: debitCalc?.domFeeFixed ?? 0,
+      debitTotalFee: 0,
+      debitNetAmount: 0,
       valorComOfertas: chargedBase,
-      orderBumpsSelecionados: selectedBumps.map(o => o.id),
+      orderBumpsSelecionados: selectedBumps.map((o) => o.id),
       ofertas: {
-        orderBumps: offers.filter(o => o.type === 'ORDER_BUMP').map(toOfferView),
+        orderBumps: offers
+          .filter((o) => o.type === 'ORDER_BUMP')
+          .map(toOfferView),
         upsell: funnelView('UPSELL'),
         downsell: funnelView('DOWNSELL'),
       },

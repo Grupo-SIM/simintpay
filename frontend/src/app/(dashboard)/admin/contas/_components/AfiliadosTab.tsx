@@ -2,6 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTheme } from 'next-themes';
+import { Dropdown } from '@/components/ui/Dropdown';
 import {
   RefreshCw,
   Search,
@@ -193,6 +195,7 @@ function Avatar({ name, tone }: { name: string; tone: 'violet' | 'zinc' }) {
 }
 
 export default function AfiliadosTab() {
+  const { resolvedTheme } = useTheme();
   const router = useRouter();
   const { toast } = useToast();
   const { user, loading: loadingUser } = useCurrentUser();
@@ -659,16 +662,24 @@ export default function AfiliadosTab() {
                   : "Sem afiliado vinculado atualmente."}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <select
-                  value={linkAffiliateId}
-                  onChange={(e) => setLinkAffiliateId(e.target.value)}
-                  className="h-9 min-w-[200px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-violet-500 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100"
-                >
-                  <option value="">Sem afiliado (remover vínculo)</option>
-                  {affiliates.filter((a) => !a.platform || a.platform === "SIMINTPAY").map((a) => (
-                    <option key={a.id} value={a.id}>{a.name} ({a.email})</option>
-                  ))}
-                </select>
+                <div className="min-w-[200px] flex-1">
+                  <Dropdown
+                    theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+                    value={linkAffiliateId}
+                    onChange={setLinkAffiliateId}
+                    searchable
+                    searchPlaceholder="Buscar afiliado..."
+                    options={[
+                      { value: '', label: 'Sem afiliado (remover vínculo)' },
+                      ...affiliates
+                        .filter((affiliate) => !affiliate.platform || affiliate.platform === 'SIMINTPAY')
+                        .map((affiliate) => ({
+                          value: affiliate.id,
+                          label: `${affiliate.name} (${affiliate.email})`,
+                        })),
+                    ]}
+                  />
+                </div>
                 <button
                   onClick={handleSaveLink}
                   disabled={linkSaving}

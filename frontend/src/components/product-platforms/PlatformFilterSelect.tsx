@@ -50,11 +50,7 @@ export function PlatformFilterSelect({ hideOwner, ...props }: Props) {
             : props.value
         }
         searchable
-        searchPlaceholder={
-          hideOwner
-            ? 'Buscar plataforma...'
-            : 'Buscar plataforma ou proprietário...'
-        }
+        searchPlaceholder={'Buscar plataforma...'}
         disabled={
           props.disabled || (admin && (catalog.isLoading || catalog.isError))
         }

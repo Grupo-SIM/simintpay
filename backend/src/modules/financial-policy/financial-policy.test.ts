@@ -100,28 +100,6 @@ describe('scheduled acquirer quotes and immutable floors', () => {
     expect(quote.totalFeeAmount).toBe(20);
   });
 
-  test('a historical price floor does not combine its fee with a rising current fee', () => {
-    const policy = fixture();
-    policy.document.lanes[key]!.priceFloor = {
-      fees: [scheduled(other)],
-      sim: { fixedCents: 200, ratePpm: 30_000, interestPpm: 10_000 },
-    };
-    const now = { ...dom, fixedCents: 0, ratePpm: 0, interestPpm: 100_000 };
-    const floored = calculateFinancials(policy, key, 10_000, undefined, {
-      fees: [scheduled(now)],
-      routedAcquirer: 'DOM',
-    });
-    const historical = calculateFinancials(policy, key, 10_000, undefined, {
-      fees: [scheduled(other)],
-      routedAcquirer: 'OTHER',
-    });
-    expect(floored.buyerTotalCents).toBeGreaterThanOrEqual(
-      historical.buyerTotalCents,
-    );
-    expect(floored.contractedCostCents).toBe(historical.contractedCostCents);
-    expect(floored.netCents).toBe(historical.netCents);
-  });
-
   test('buyer price and canonical lane remain unchanged when processor route changes', () => {
     const policy = fixture();
     const otherKey = laneKey('OTHER', 'CREDIT_CARD', 'ONLINE', 2);
@@ -291,50 +269,6 @@ describe('scheduled acquirer quotes and immutable floors', () => {
     expect(result.simMarginCents).toBe(500);
   });
 
-  test('fee decrease preserves price through stored floor at any amount', () => {
-    const policy = fixture();
-    policy.document.lanes[key]!.priceFloor = {
-      fees: [scheduled(dom), scheduled(other)],
-      sim: { ...policy.document.lanes[key]!.sim },
-    };
-    const lowered = { ...dom, fixedCents: 0, ratePpm: 0, interestPpm: 0 };
-    const currentOther = {
-      ...other,
-      fixedCents: 0,
-      ratePpm: 0,
-      interestPpm: 0,
-    };
-    for (const amount of [99, 10_000, 500_000]) {
-      const result = calculateFinancials(policy, key, amount, undefined, {
-        fees: [scheduled(lowered), scheduled(currentOther)],
-        routedAcquirer: 'DOM',
-      });
-      const previous = calculateFinancials(
-        {
-          ...policy,
-          document: {
-            ...policy.document,
-            lanes: {
-              ...policy.document.lanes,
-              [key]: { ...policy.document.lanes[key]!, priceFloor: undefined },
-            },
-          },
-        },
-        key,
-        amount,
-        undefined,
-        { fees: [scheduled(dom), scheduled(other)], routedAcquirer: 'DOM' },
-      );
-      expect(result.buyerTotalCents).toBe(previous.buyerTotalCents);
-      expect(result.contractedCostCents).toBe(previous.contractedCostCents);
-      expect(result.simMarginCents).toBe(
-        result.contractedCostCents - result.acquirerCostCents,
-      );
-    }
-  });
-});
-
-describe('precise three-layer financial policy', () => {
   test('every modality/channel and installment agrees with actual charge adapter', () => {
     const policy = fixture();
     for (const method of METHODS)

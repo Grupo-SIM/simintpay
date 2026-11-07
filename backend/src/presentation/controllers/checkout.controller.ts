@@ -15,7 +15,6 @@ import {
   getRegisteredPlatform,
 } from '../../modules/module.registry';
 import { platformGatewayToken } from '../../application/helpers/explicit-platform.helper';
-import { getCustomerInterestRate } from '../../modules/platform-taxas/platform-taxas.store';
 import {
   BadRequestException,
   Body,
@@ -43,48 +42,10 @@ import {
 import { PaymentGatewayResolver } from '../../infrastructure/http/payment-gateway.resolver';
 import { Acquirer } from '../../core/services/acquirer.enum';
 import { getFrendzApiToken } from '../../modules/frendz/frendz.config';
-import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
-import {
-  PLATFORM_TAXA_DEFAULTS,
-  type PlataformaTaxaKey,
-} from '../../modules/platform-taxas/platform-taxas.keys';
 import { Prisma } from '@prisma/client';
 import { VoucherService } from '../../application/use-cases/voucher/voucher.service';
-import { calculateSellerNetValue } from '../../application/helpers/transaction-fee.helper';
 import { CheckoutEventsService } from '../../application/services/checkout-events.service';
 import { Observable, map, merge, timer, NEVER } from 'rxjs';
-
-// Taxas DOM para modo "absorver juros" (vendedor absorve, ex: ebook)
-const DOM_CC_FEE_RATES: Record<number, number> = {
-  1: 0.0399,
-  2: 0.083,
-  3: 0.0968,
-  4: 0.1104,
-  5: 0.1237,
-  6: 0.1367,
-  7: 0.1495,
-  8: 0.1621,
-  9: 0.1744,
-  10: 0.1864,
-  11: 0.1983,
-  12: 0.2099,
-};
-
-// Taxas DOM para modo "link de pagamento" (comprador paga, ex: pagatg)
-const DOM_LINK_FEE_RATES: Record<number, number> = {
-  1: 0.0,
-  2: 0.0451,
-  3: 0.0604,
-  4: 0.0759,
-  5: 0.0915,
-  6: 0.1072,
-  7: 0.1231,
-  8: 0.1392,
-  9: 0.1554,
-  10: 0.1717,
-  11: 0.1882,
-  12: 0.2048,
-};
 
 type BuildEbookCheckoutBody = {
   value: number | string;
@@ -261,6 +222,8 @@ export class CheckoutController {
       price,
       'PIX',
     );
+    if (!financialQuote)
+      throw new BadRequestException({ code: 'FINANCIAL_POLICY_MISSING' });
     const acquirer = this.gatewayResolver.acquirerForSlug(storeSlug);
 
     // Busca a transação criada pelo back-ebook via notifyPendingTransaction
@@ -286,22 +249,10 @@ export class CheckoutController {
       if (!platformUserId)
         throw new BadRequestException('Plataforma sem dono ativo cadastrado');
 
-      const price = Number(body.price);
-      const netAmountDec = financialQuote
-        ? new Prisma.Decimal(financialQuote.netAmount)
-        : calculateSellerNetValue(price, 1, tenantTag, 'pix');
-      const netAmount = Number(netAmountDec.toFixed(2));
-      const totalFee =
-        financialQuote?.totalFeeAmount ??
-        parseFloat((price - netAmount).toFixed(2));
-      const mdrPix = getPlatformTaxaEffective(
-        tenantTag,
-        'MDR_PIX',
-        PLATFORM_TAXA_DEFAULTS.MDR_PIX,
-      );
-      const domFee =
-        financialQuote?.domFeeAmount ?? parseFloat((price * mdrPix).toFixed(2));
-      const platformFee = parseFloat((totalFee - domFee).toFixed(2));
+      const netAmountDec = new Prisma.Decimal(financialQuote.netAmount);
+      const totalFee = financialQuote.totalFeeAmount;
+      const domFee = financialQuote.domFeeAmount;
+      const platformFee = financialQuote.platformProfit;
 
       transaction = await this.prisma.transaction.create({
         data: {
@@ -475,7 +426,6 @@ export class CheckoutController {
     const tenantTag = store === 'CARDMACHINE' ? 'GLOBAL' : store;
     if (tenantTag !== 'GLOBAL' && !getRegisteredPlatform(tenantTag))
       throw new BadRequestException('Plataforma não cadastrada');
-    const isLinkMode = tenantTag === 'PAGATG';
     const max = Math.min(Math.max(Number(body.maxInstallments) || 1, 1), 12);
 
     const financialContext = await loadChargePolicy(this.prisma, tenantTag);
@@ -500,43 +450,7 @@ export class CheckoutController {
         });
         continue;
       }
-      const masterRate = getCustomerInterestRate(tenantTag, n);
-      const domRate = isLinkMode
-        ? (DOM_LINK_FEE_RATES[n] ?? 0)
-        : (DOM_CC_FEE_RATES[n] ?? 0);
-      const domFixed = n > 1 ? 1.0 : 0;
-
-      let totalAmount: number;
-      let domFeeAmount: number;
-      let interestAmount: number;
-
-      if (n === 1) {
-        // 1x: fórmula aditiva — comprador paga price × (1 + DOM + plataforma)
-        interestAmount = Math.round(price * masterRate * 100) / 100;
-        domFeeAmount = Math.round(price * domRate * 100) / 100;
-        totalAmount =
-          Math.round((price + interestAmount + domFeeAmount) * 100) / 100;
-      } else {
-        // 2x+: plataforma aplica juros primeiro, depois DOM incide sobre o total com juros
-        interestAmount = Math.round(price * masterRate * 100) / 100;
-        const valueWithInterest = price + interestAmount;
-        domFeeAmount =
-          Math.round((valueWithInterest * domRate + domFixed) * 100) / 100;
-        totalAmount =
-          Math.round((valueWithInterest + domFeeAmount) * 100) / 100;
-      }
-
-      const installmentAmount = Math.round((totalAmount / n) * 100) / 100;
-      options.push({
-        installments: n,
-        masterRate,
-        interestAmount,
-        domRate,
-        domFeeAmount,
-        totalAmount,
-        installmentAmount,
-        hasInterest: masterRate > 0,
-      });
+      throw new BadRequestException({ code: 'FINANCIAL_POLICY_MISSING' });
     }
     return { options };
   }
@@ -596,7 +510,6 @@ export class CheckoutController {
     const tenantTag = store === 'CARDMACHINE' ? 'GLOBAL' : store;
     if (tenantTag !== 'GLOBAL' && !getRegisteredPlatform(tenantTag))
       throw new BadRequestException('Plataforma não cadastrada');
-    const isLinkMode = tenantTag === 'PAGATG';
     const orderNumber = body.orderNumber
       ? String(body.orderNumber).trim()
       : null;
@@ -605,41 +518,16 @@ export class CheckoutController {
       body.document_type ??
       (body.document.replace(/\D/g, '').length <= 11 ? 'CPF' : 'CNPJ');
 
-    // Calcular total com MDR_CC_MASTER
-    const masterRate = getCustomerInterestRate(tenantTag, n);
-    const domRate = isLinkMode
-      ? (DOM_LINK_FEE_RATES[n] ?? 0)
-      : (DOM_CC_FEE_RATES[n] ?? 0);
-    const domFixed = n > 1 ? 1.0 : 0;
-
-    let totalAmount: number;
-    let domFeeAmount: number;
-
-    if (n === 1) {
-      // 1x: fórmula aditiva — price + (DOM_1x + plataforma_1x) × price
-      domFeeAmount = Math.round(price * domRate * 100) / 100;
-      const platformFeeAmount = Math.round(price * masterRate * 100) / 100;
-      totalAmount =
-        Math.round((price + domFeeAmount + platformFeeAmount) * 100) / 100;
-    } else {
-      // 2x+: plataforma aplica juros primeiro, depois DOM incide sobre o total
-      const interestAmount = price * masterRate;
-      const valueWithInterest = price + interestAmount;
-      domFeeAmount =
-        Math.round((valueWithInterest * domRate + domFixed) * 100) / 100;
-      totalAmount = Math.round((valueWithInterest + domFeeAmount) * 100) / 100;
-    }
-
     const financialQuote = quoteFinancialCharge(
       await loadChargePolicy(this.prisma, tenantTag),
       price,
       'CREDIT_CARD',
       n,
     );
-    if (financialQuote) {
-      totalAmount = financialQuote.totalAmount;
-      domFeeAmount = financialQuote.domFeeAmount;
-    }
+    if (!financialQuote)
+      throw new BadRequestException({ code: 'FINANCIAL_POLICY_MISSING' });
+    const totalAmount = financialQuote.totalAmount;
+    const domFeeAmount = financialQuote.domFeeAmount;
     const installmentAmount = Math.round((totalAmount / n) * 100) / 100;
 
     // Busca ou cria transação
@@ -656,9 +544,7 @@ export class CheckoutController {
       if (!ebookUserId)
         throw new BadRequestException('Plataforma sem dono ativo cadastrado');
 
-      const netAmountDec = financialQuote
-        ? new Prisma.Decimal(financialQuote.netAmount)
-        : calculateSellerNetValue(price, n, tenantTag, 'credit_card');
+      const netAmountDec = new Prisma.Decimal(financialQuote.netAmount);
       const netAmount = Number(netAmountDec.toFixed(2));
       const totalFee = Math.round((totalAmount - netAmount) * 100) / 100;
       const domFee = Math.round(domFeeAmount * 100) / 100;
@@ -918,30 +804,6 @@ export class CheckoutController {
         }),
       };
     }
-    const fb = (k: PlataformaTaxaKey) => PLATFORM_TAXA_DEFAULTS[k] ?? 0;
-
-    const masterCcRate = getCustomerInterestRate(tag, 1);
-    // 1x: comprador não paga DOM (absorvido pela SimIntPay); só paga masterCcRate (0% para ATLAS 1x)
-    const buyerCcRate = masterCcRate;
-
-    const installments = ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const).map(
-      (n) => {
-        const domKey = `MDR_CC_${n}X` as PlataformaTaxaKey;
-        const domRate = getPlatformTaxaEffective(tag, domKey, fb(domKey));
-        const masterRate = getCustomerInterestRate(tag, n);
-        // 1x: grátis ao comprador. 2x+: DOM + master + R$1 fixo
-        return {
-          n,
-          buyerRate: n === 1 ? 0 : domRate + masterRate,
-          fixedFee: n === 1 ? 0 : 1,
-        };
-      },
-    );
-
-    return {
-      tag: tag.toUpperCase(),
-      buyerCcRate,
-      installments,
-    };
+    throw new BadRequestException({ code: 'FINANCIAL_POLICY_MISSING' });
   }
 }

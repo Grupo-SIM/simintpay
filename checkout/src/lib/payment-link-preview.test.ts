@@ -123,7 +123,11 @@ describe('preview embedding policy', () => {
     expect(previewFramePolicy([], false)).toBe("frame-ancestors 'none'");
   });
   test('route receives CSP, no-store and no-referrer; normal routes are outside matcher', () => {
-    const response = proxy();
+    const response = proxy(
+      new NextRequest(
+        'https://checkout.simintermediacoes.com/preview/payment-link',
+      ),
+    );
     expect(response.headers.get('Content-Security-Policy')).toBe(
       previewFramePolicy(
         configuredPreviewParents(),
@@ -133,11 +137,16 @@ describe('preview embedding policy', () => {
     expect(response.headers.get('Cache-Control')).toContain('no-store');
     expect(response.headers.get('Referrer-Policy')).toBe('no-referrer');
     expect(response.headers.has('X-Frame-Options')).toBe(false);
-    expect(config.matcher).toBe('/preview/payment-link');
+    expect(config.matcher).toEqual([
+      '/',
+      '/preview/payment-link',
+      '/preview/offer',
+      '/preview/funnel',
+    ]);
     expect(
       new NextRequest(
         'https://checkout.simintermediacoes.com/preview/payment-link',
       ).nextUrl.pathname,
-    ).toBe(config.matcher);
+    ).toBe(config.matcher[1]);
   });
 });

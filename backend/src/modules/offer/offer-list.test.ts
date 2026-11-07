@@ -30,23 +30,20 @@ describe('buildOfferListWhere', () => {
   test('always carries the owner scope and no filters by default', () => {
     expect(where({})).toEqual({
       ownerUserId: 'u1',
-      kind: undefined,
       platformTag: undefined,
       renewalMode: undefined,
       acceptedMethods: undefined,
     });
   });
 
-  test('maps search, kind, platform, method and recurrence', () => {
+  test('maps search, platform, method and recurrence', () => {
     const w = where({
       search: ' mentoria ',
-      kind: 'PLAN',
       platformTag: 'global',
       paymentMethod: 'PIX',
       renewalMode: 'MANUAL_PAY',
     });
     expect(w).toMatchObject({
-      kind: 'PLAN',
       platformTag: 'global',
       renewalMode: 'MANUAL_PAY',
       acceptedMethods: { has: 'PIX' },
@@ -181,7 +178,10 @@ describe('OfferService.list scoping', () => {
   test('without paging returns the plain array (backwards compatible)', async () => {
     const { svc } = service();
     expect(
-      await svc.list({ id: 'u1', role: 'USER' }, { kind: 'PLAN' }),
+      await svc.list(
+        { id: 'u1', role: 'USER' },
+        { renewalMode: 'AUTO_CHARGE' },
+      ),
     ).toEqual([{ id: 'o1' }]);
   });
 

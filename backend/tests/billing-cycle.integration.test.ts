@@ -27,7 +27,6 @@ async function offer(renewalMode: 'AUTO_CHARGE' | 'MANUAL_PAY', extra = {}) {
       ownerUserId: ownerId,
       createdByUserId: ownerId,
       code: `OFF-${crypto.randomUUID()}`,
-      kind: 'PLAN',
       name: 'Plano',
       amountCents: 4990,
       acceptedMethods: ['CREDIT_CARD', 'PIX'],

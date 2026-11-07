@@ -7,7 +7,6 @@ import {
   expect,
   test,
 } from 'bun:test';
-import { initializePlatformTaxasCache } from '../../../modules/platform-taxas/platform-taxas.store';
 import { CheckoutSubscriptionLinkCardUseCase } from './checkout-subscription-link-card.use-case';
 import {
   makeFakePrisma,
@@ -28,7 +27,7 @@ afterEach(() => {
 function setup(
   over: Record<string, unknown> = {},
   voucherFinal?: number,
-  financial = false,
+  financial = true,
 ) {
   const link: any = {
     id: 'sub',
@@ -46,6 +45,33 @@ function setup(
     ...over,
   };
   const db = makeFakePrisma({ financial });
+  if (financial)
+    db.prisma.financialPolicyRevision.findMany = async () =>
+      [
+        {
+          tag: 'GLOBAL',
+          version: 1,
+          document: {
+            schemaVersion: 1,
+            lanes: {
+              'DOM/CREDIT_CARD/ONLINE/1': {
+                active: true,
+                contract: {
+                  reference: 'Signed',
+                  fixedCents: 0,
+                  ratePpm: 0,
+                  cashbackCents: 0,
+                  interestPpm: 0,
+                  base: 'ORIGINAL',
+                },
+                sim: { fixedCents: 0, ratePpm: 100000, interestPpm: 0 },
+              },
+            },
+            owner: {},
+            interestFree: false,
+          },
+        },
+      ] as never;
   const orders: any[] = [];
   const gatewayCalls: any[] = [];
   const service = new CheckoutSubscriptionLinkCardUseCase(
@@ -59,6 +85,7 @@ function setup(
     } as never,
     {} as never,
     {
+      createPlan: async () => ({ id: 'quoted-plan' }),
       createSubscriptionFromCheckout: async (_t: string, i: any) => {
         gatewayCalls.push(i);
         return { id: 'dom-sub', status: 'active' };
@@ -96,14 +123,16 @@ describe('card checkout (subscription link)', () => {
     expect(f.gatewayCalls).toHaveLength(0);
   });
 
+  test('missing financial policy rejects before the gateway', async () => {
+    const f = setup({}, undefined, false);
+    await expect(f.service.execute({ code: 'c', dto: f.dto })).rejects.toThrow(
+      'Política financeira não configurada',
+    );
+    expect(f.orders).toHaveLength(0);
+    expect(f.gatewayCalls).toHaveLength(0);
+  });
+
   test('voucher: platform fee is computed on the discounted amount', async () => {
-    await initializePlatformTaxasCache({
-      platformTaxaOverride: {
-        findMany: async () => [
-          { tag: 'USER:OWNER', key: 'MDR_CC_1X', value: 0.1 },
-        ],
-      },
-    } as never);
     const full = setup();
     await full.service.execute({ code: 'c', dto: full.dto });
 
@@ -113,8 +142,8 @@ describe('card checkout (subscription link)', () => {
 
     const fullOrder = full.orders[0];
     expect(f.orders[0].amountCharged).toBe(80);
-    // not activated lane: buyer pays base + fee; discounted total 80 carries fee 80 - 80/1.1
-    expect(fullOrder.platformFeeAmount).toBe(10);
-    expect(f.orders[0].platformFeeAmount).toBe(7.27);
+    // Current policy applies the same configured rate to the discounted base.
+    expect(fullOrder.platformFeeAmount).toBe(20);
+    expect(f.orders[0].platformFeeAmount).toBe(16);
   });
 });

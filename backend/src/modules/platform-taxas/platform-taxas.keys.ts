@@ -1,7 +1,6 @@
-/** Chaves dos overrides persistidos no banco (alinhadas ao front). */
-export const PLATAFORMA_TAXA_KEYS = [
+/** Historical constants for legacy projections; never persisted as editable overrides. */
+export const LEGACY_TAXA_KEYS = [
   'MDR_PIX',
-  'TAXA_SAQUE_FIXA', // Derivada: maior taxa de saque entre adquirentes ativas + TAXA_SAQUE_EXTRA (não é mais editável)
   'TAXA_SAQUE_EXTRA', // Extra do admin (R$) somado à maior taxa de saque entre adquirentes
   'TAXA_SAQUE_DOM',
   'TAXA_SAQUE_PERCENT',
@@ -18,8 +17,6 @@ export const PLATAFORMA_TAXA_KEYS = [
   // Boleto — taxa fixa por boleto pago. SimIntPay (editável) inclui o custo DOM (desmembrado).
   'TAXA_BOLETO_FIXA', // Taxa fixa da casa (SimIntPay) por boleto (padrão R$7,00)
   'TAXA_BOLETO_TRANSACAO', // Taxa fixa por transação da casa no boleto (padrão R$2,00)
-  'TAXA_BOLETO_DOM', // Taxa DOM por boleto — read-only (padrão R$3,49)
-  'TAXA_BOLETO_DOM_FIXA', // Taxa fixa DOM por boleto — read-only (padrão R$1,00)
   // Taxa DOM para cartão (crédito direto / pix-plan / assinatura) — read-only
   'MDR_CC_1X',
   'MDR_CC_2X',
@@ -72,22 +69,6 @@ export const PLATAFORMA_TAXA_KEYS = [
   'MDR_CC_MASTER_11X',
   'MDR_CC_MASTER_12X',
   // ── Vendas FÍSICAS (maquineta / POS) ──────────────────────────────────────
-  // Taxas DOM em venda física — read-only (diferentes das online).
-  'POS_MDR_PIX', // PIX físico: 1% (sem taxa fixa)
-  'POS_MDR_DEBITO', // Débito físico: 3,49% + POS_TAXA_DOM_FIXA
-  'POS_TAXA_DOM_FIXA', // R$1,00 por transação física (débito e crédito; PIX não paga)
-  'POS_MDR_CC_1X',
-  'POS_MDR_CC_2X',
-  'POS_MDR_CC_3X',
-  'POS_MDR_CC_4X',
-  'POS_MDR_CC_5X',
-  'POS_MDR_CC_6X',
-  'POS_MDR_CC_7X',
-  'POS_MDR_CC_8X',
-  'POS_MDR_CC_9X',
-  'POS_MDR_CC_10X',
-  'POS_MDR_CC_11X',
-  'POS_MDR_CC_12X',
   // Taxa Sim Int Pay em venda física — editável, por método.
   // O cliente só perde esta taxa; o custo DOM sai da margem Sim Int Pay.
   'POS_TAXA_PIX_PERCENT',
@@ -112,13 +93,12 @@ export const PLATAFORMA_TAXA_KEYS = [
   'POS_ABSORVER_TAXAS',
 ] as const;
 
-export type PlataformaTaxaKey = (typeof PLATAFORMA_TAXA_KEYS)[number];
+export type PlataformaTaxaKey = (typeof LEGACY_TAXA_KEYS)[number];
 
 /** Padrões únicos quando nenhum override de plataforma ou global existe. */
 export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   /** Taxa DOM sobre PIX (decimal): 0,98% sobre o valor pago. Sobrescreva pelo painel admin. */
   MDR_PIX: 0.0098,
-  TAXA_SAQUE_FIXA: 3.5,
   TAXA_SAQUE_EXTRA: 0,
   TAXA_SAQUE_DOM: 3.5,
   TAXA_SAQUE_PERCENT: 0,
@@ -135,8 +115,6 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   // Boleto (valores fixos em R$ por boleto pago)
   TAXA_BOLETO_FIXA: 7.0, // SimIntPay: R$7,00
   TAXA_BOLETO_TRANSACAO: 2.0, // SimIntPay: R$2,00 por transação
-  TAXA_BOLETO_DOM: 3.49, // DOM: R$3,49 (read-only)
-  TAXA_BOLETO_DOM_FIXA: 1.0, // DOM: R$1,00 por transação (read-only)
   // DOM: taxa cobrada pelo gateway para cartão direto/pix-plan/assinatura
   // 1x = 0% (igual ao link de pagamento — custo real DOM ~3,99% é absorvido pelo master e visível nos relatórios)
   MDR_CC_1X: 0,
@@ -193,21 +171,6 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   // ── Vendas FÍSICAS (maquineta / POS) — tabela oficial DOM ─────────────────
   // Mastercard/Visa e demais bandeiras têm as mesmas taxas (não separar por bandeira).
   // Não há cobrança de cashback (R$3) em venda física — confirmado pelo suporte DOM.
-  POS_MDR_PIX: 0.01, // 1% (sem taxa fixa)
-  POS_MDR_DEBITO: 0.0349, // 3,49% + R$1
-  POS_TAXA_DOM_FIXA: 1.0, // R$1,00 por transação (débito e crédito)
-  POS_MDR_CC_1X: 0.0349,
-  POS_MDR_CC_2X: 0.062,
-  POS_MDR_CC_3X: 0.0695,
-  POS_MDR_CC_4X: 0.0767,
-  POS_MDR_CC_5X: 0.0838,
-  POS_MDR_CC_6X: 0.0995,
-  POS_MDR_CC_7X: 0.1061,
-  POS_MDR_CC_8X: 0.1126,
-  POS_MDR_CC_9X: 0.1181,
-  POS_MDR_CC_10X: 0.1251,
-  POS_MDR_CC_11X: 0.131,
-  POS_MDR_CC_12X: 0.1369,
   // Taxa Sim Int Pay em venda física (antes: TAXA_MAQUINETA hardcoded 9% para tudo)
   POS_TAXA_PIX_PERCENT: 0.09,
   POS_TAXA_DEBITO_PERCENT: 0.09,
@@ -229,3 +192,12 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   // 1 = ligado (absorve, comportamento atual/default). 0 = desligado (repassa).
   POS_ABSORVER_TAXAS: 1,
 };
+
+/** Only these scalar overrides are editable in /admin/taxas. Payment fees use FinancialPolicyRevision. */
+export const EDITABLE_PLATFORM_TAXA_KEYS = [
+  'SAQUE_MIN',
+  'TAXA_SAQUE_EXTRA',
+] as const;
+export function isEditablePlatformTaxaKey(key: string): boolean {
+  return (EDITABLE_PLATFORM_TAXA_KEYS as readonly string[]).includes(key);
+}

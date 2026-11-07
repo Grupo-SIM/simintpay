@@ -8,6 +8,10 @@ O detalhe `GET /transacoes/:id` só entrega a clientes (donos e coprodutores) ca
 
 O piso por método/canal/parcela considera somente adquirentes ativas e a tabela mais recente de cada uma. O percentual efetivo é o maior `ratePpm + interestPpm` de uma mesma adquirente, nunca a soma dos máximos separados; o custo fixo usa seu próprio máximo. Na DOM, MDR de 3,99% mais juros de 4,31% resulta em piso de 8,30%, sem capitalização ou nova multiplicação pelas parcelas. Juros zero preservam o MDR. Esse piso alimenta `finance/acquirer-costs` do núcleo de plataformas e `costs` da integração Delivery, sem alterar tabelas brutas nem a base e o arredondamento do estimador de custo monetário.
 
+## Sincronização de taxas DOM
+
+A negociação DOM sincroniza crédito online (1–12x), Pix online e boleto, além de Pix, débito e crédito físico (1–12x) no canal POS. Custos fixos iguais a zero são preservados; MDR e juros `interest_rate_our` permanecem componentes separados. As taxas físicas incidem sobre o valor original. Como a tabela de custos guarda uma linha por modalidade/canal/parcela, diferenças entre bandeiras usam o maior MDR + juros de uma mesma bandeira, nunca máximos separados. A negociação completa é validada antes de gravar; blocos físicos ausentes, parcelas incompletas ou taxas inconsistentes impedem atualização parcial. A sincronização mantém registros históricos e não recalcula transações anteriores.
+
 ## Cadastro e dono
 
 Plataforma existe somente após cadastro explícito em `Platform`, com dono obrigatório em `User`. Usuário ativo cria plataformas próprias; administrador atribui e transfere para outro usuário ativo. Uma pessoa pode possuir várias plataformas. Tags `GLOBAL`, `SIMINTPAY` e `CLIENT:<email>` são contextos financeiros reservados, não plataformas descobertas.
@@ -333,7 +337,7 @@ Listagem mescla assinaturas DOM e pausas locais, resolve plataformas e aplica bu
 
 Novas plataformas de integração automática Delivery usam tag derivada do nome: maiúsculas, sem acentos e com espaços/separadores convertidos em hífen, sem hífens repetidos ou nas extremidades (`Zero Grau` → `ZERO-GRAU`). Nome sem letras/números é inválido. Colisão com plataforma de outro dono retorna conflito; não acrescenta hash ou sufixo. Plataformas já vinculadas preservam tag e histórico, inclusive após mudança de nome.
 
-`GET /platforms/:tag/finance/config` para BOSQUE/RENOVADA devolve `withdrawal {minimumCents, fixedFeeCents, percentFee}` resolvido pela mesma política efetiva (TAXA_SAQUE_FIXA, TAXA_SAQUE_PERCENT, SAQUE_MIN) das rotas legadas de taxas. Lista/detalhe de saques da plataforma incluem `receiptAvailable` e `customer {name,email}` do dono; `GET /platforms/:tag/finance/withdrawals/:id/receipt` entrega o comprovante armazenado somente de saque do dono e da plataforma autenticados (404 caso contrário ou se oculto).
+`GET /platforms/:tag/finance/config` para BOSQUE/RENOVADA devolve `withdrawal {minimumCents, fixedFeeCents, percentFee}` resolvido pela mesma política efetiva (maior custo de saque das adquirentes ativas + TAXA_SAQUE_EXTRA, SAQUE_MIN) das rotas legadas de taxas. Lista/detalhe de saques da plataforma incluem `receiptAvailable` e `customer {name,email}` do dono; `GET /platforms/:tag/finance/withdrawals/:id/receipt` entrega o comprovante armazenado somente de saque do dono e da plataforma autenticados (404 caso contrário ou se oculto).
 
 ### Configuração genérica de taxas da plataforma
 
@@ -342,3 +346,7 @@ O modo aplica-se a todos os pagamentos de plataformas cadastradas, não somente 
 Taxas por pedido usam o calculador aditivo existente; taxas por produto exigem uma base explícita de itens, sem presumir quantidades. Contratos legados explícitos preservam MDR e o excedente definido pela liquidez; no núcleo canônico sem política de excedente, este permanece zero. Sem tabela da adquirente, o custo monetário do adaptador é congelado com origem LEGACY_AGGREGATE, sem inferir percentual. Ausência de política e de contrato legado autorizado impede a cobrança antes do gateway. Líquido negativo também impede a cobrança. Snapshots congelam modo, total, líquido e custos; replays e estornos não adotam configuração atual.
 
 `Platform.feeMode` usa `PlatformFeeMode` (SIMINTPAY_ONLY, ADDITIVE_ONLY, BOTH), preservando valores e padrão existentes. `Platform.disabledPaymentLanes` define modalidades indisponíveis. Esses dados não pertencem a uma integração específica; contratos HTTP existentes mantêm `feeMode`/`disabledLanes`. A migração apenas renomeia enum e colunas, sem substituir dados.
+
+### Fonte única de taxas editáveis
+
+Novas cobranças de links, assinaturas e plataformas usam exclusivamente a política financeira versionada configurada em `/admin/taxas`; não consultam overrides antigos de MDR, liquidez ou custos de links. Sem política da modalidade, a cobrança é bloqueada antes do gateway. `PlatformTaxaOverride` aceita somente `SAQUE_MIN` e `TAXA_SAQUE_EXTRA`, por plataforma ou GLOBAL; taxas por cliente não são mais editáveis. A taxa fixa efetiva de saque é calculada pela maior taxa das adquirentes ativas mais o extra configurado, sem chave de override para o total. Migração remove outros overrides, preservando revisões financeiras e snapshots históricos. Constantes legadas remanescentes atendem compatibilidade de projeções e liquidação histórica, sem aceitar overrides.

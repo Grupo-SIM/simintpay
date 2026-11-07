@@ -1,18 +1,6 @@
 import type { NextConfig } from 'next';
 import { resolve } from 'node:path';
 
-// Query params dos links antigos. As tabelas antigas estão sendo migradas para ofertas mantendo o
-// mesmo UUID, então o valor do param vira o `oferta`.
-const LEGACY_OFFER_PARAMS = [
-  'simPlanCode',
-  'simLinkCode',
-  'simBoletoCode',
-  'subscriptionLinkCode',
-  'linkCode',
-  'subscriptionCode',
-  'ofertaCode',
-];
-
 const nextConfig: NextConfig = {
   allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS?.split(',')
     .map((origin) => origin.trim())
@@ -30,15 +18,6 @@ const nextConfig: NextConfig = {
     // Desabilitar otimizações que causam problemas
     optimizeCss: false,
     optimizePackageImports: ['lucide-react'],
-  },
-  async redirects() {
-    return LEGACY_OFFER_PARAMS.map((param) => ({
-      source: '/',
-      has: [{ type: 'query' as const, key: param, value: '(?<legacyCode>.+)' }],
-      missing: [{ type: 'query' as const, key: 'oferta' }],
-      destination: '/?oferta=:legacyCode',
-      permanent: false,
-    }));
   },
   // Headers para melhor compatibilidade mobile
   async headers() {

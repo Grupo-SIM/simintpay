@@ -10,10 +10,14 @@ import { PixPlanEventsService } from '../application/services/pix-plan-events.se
 import { PIX_PLAN_REPOSITORY } from '../core/repositories/pix-plan.repository.interface';
 import { PrismaPixPlanRepository } from '../infrastructure/database/repositories/prisma-pix-plan.repository';
 import { EmailService } from '../infrastructure/email/email.service';
+import { offerPixPlanCompatEnabled } from '../modules/offer-access/pixplan-compat-flag';
 
 @Module({
   imports: [ApiDomModule],
-  controllers: [PixPlanController, PublicPixPlanController, BotPixPlanController],
+  // Com OFFER_PIXPLAN_COMPAT=1 os mesmos caminhos passam a ser servidos pelo OfferAccessModule.
+  controllers: offerPixPlanCompatEnabled()
+    ? []
+    : [PixPlanController, PublicPixPlanController, BotPixPlanController],
   providers: [
     PixPlanService,
     PixPlanEventsService,

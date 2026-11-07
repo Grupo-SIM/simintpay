@@ -23,7 +23,7 @@ test('withdrawal fees preserve global inheritance and explicit Renovada zero ove
   const controller = new InternalRenovadaFinanceController(undefined as never);
   expect(controller.fees()).toEqual({
     taxaFixa: 0,
-    taxaPercent: 1,
+    taxaPercent: 0,
     saqueMin: 80,
   });
 });
