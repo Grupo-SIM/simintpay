@@ -26,6 +26,14 @@ function getPrisma(): PrismaClient {
 let overridesCache: Overrides = {};
 /** Maior taxa de saque (R$) entre as adquirentes ativas, vinda da última revisão de cada uma. */
 let acquirerWithdrawalMax = 0;
+/** Custo sincronizado por faixa `METHOD/CHANNEL/N`: o maior entre as adquirentes ativas. */
+type SyncedAcquirerFee = {
+  fixedCents: number;
+  ratePpm: number;
+  interestPpm: number;
+  base: string;
+};
+let acquirerFeeCache = new Map<string, SyncedAcquirerFee>();
 let lastCacheUpdate = 0;
 const CACHE_TTL = 30 * 1000;
 let isFetching = false;
@@ -50,6 +58,60 @@ async function loadAcquirerWithdrawalMax(): Promise<number> {
   return Math.max(0, ...latest.values()) / 100;
 }
 
+async function loadAcquirerFees(): Promise<Map<string, SyncedAcquirerFee>> {
+  const client = getPrisma();
+  const active =
+    (await client.acquirerCatalogue?.findMany({
+      where: { active: true },
+      select: { code: true },
+    })) ?? [];
+  const result = new Map<string, SyncedAcquirerFee>();
+  if (!active.length) return result;
+  const rows =
+    (await client.acquirerFeeSchedule?.findMany({
+      where: { acquirerCode: { in: active.map((a) => a.code) } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    })) ?? [];
+  const latest = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const key = `${row.acquirerCode}/${row.method}/${row.channel}/${row.installments}`;
+    if (!latest.has(key)) latest.set(key, row);
+  }
+  for (const row of latest.values()) {
+    const key = `${row.method}/${row.channel}/${row.installments}`;
+    const current = result.get(key);
+    if (
+      !current ||
+      row.ratePpm + row.interestPpm > current.ratePpm + current.interestPpm
+    )
+      result.set(key, {
+        fixedCents: row.fixedCents,
+        ratePpm: row.ratePpm,
+        interestPpm: row.interestPpm,
+        base: row.base,
+      });
+  }
+  return result;
+}
+
+/**
+ * Custo (R$) da adquirente para a faixa, lido só da tabela sincronizada.
+ * Sem linha sincronizada devolve 0 (custo desconhecido, nunca um valor presumido).
+ */
+export function syncedAcquirerCostReais(
+  method: 'PIX' | 'BOLETO' | 'DEBIT_CARD' | 'CREDIT_CARD',
+  channel: 'ONLINE' | 'POS',
+  installments: number,
+  amountReais: number,
+): { pct: number; fixa: number; total: number } {
+  readOverridesRaw();
+  const fee = acquirerFeeCache.get(`${method}/${channel}/${installments}`);
+  if (!fee) return { pct: 0, fixa: 0, total: 0 };
+  const pct = (amountReais * (fee.ratePpm + fee.interestPpm)) / 1_000_000;
+  const fixa = fee.fixedCents / 100;
+  return { pct, fixa, total: pct + fixa };
+}
+
 export async function initializePlatformTaxasCache(
   client?: PrismaClient,
 ): Promise<void> {
@@ -67,6 +129,7 @@ export async function initializePlatformTaxasCache(
     }
 
     acquirerWithdrawalMax = await loadAcquirerWithdrawalMax();
+    acquirerFeeCache = await loadAcquirerFees();
     overridesCache = newCache;
     lastCacheUpdate = Date.now();
   } catch (err: unknown) {

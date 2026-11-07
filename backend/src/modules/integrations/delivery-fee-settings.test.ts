@@ -121,7 +121,7 @@ describe('delivery fee lanes', () => {
       fixedCents: 50,
       ratePpm: 10_000,
     });
-    expect(result.costs).toHaveLength(13);
+    expect(result.costs).toHaveLength(14);
     expect(result.costs.find((fee) => fee.method === 'PIX')?.ratePpm).toBe(
       9_800,
     );

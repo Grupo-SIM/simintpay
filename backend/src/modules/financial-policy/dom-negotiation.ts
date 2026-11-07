@@ -100,6 +100,16 @@ export function parseDomNegotiation(response: unknown): FeeInput[] {
   });
   const physicalDebit = object(negotiation.debit_physical);
   const debitBrands = brands(physicalDebit.brands);
+  // DOM exposes no online debit contract: it is priced like the negotiated physical debit.
+  rows.push({
+    method: 'DEBIT_CARD',
+    channel: 'ONLINE',
+    installments: 1,
+    fixedCents: fixed(physicalDebit.fee_transaction),
+    ratePpm: Math.max(...debitBrands.map(({ rate }) => ppm(rate.mdr))),
+    interestPpm: 0,
+    base: 'ORIGINAL',
+  });
   rows.push({
     method: 'DEBIT_CARD',
     channel: 'POS',

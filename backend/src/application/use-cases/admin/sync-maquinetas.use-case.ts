@@ -24,7 +24,7 @@ import { calculateMaquinetaFees } from '../../helpers/maquineta-fee.helper';
 
 /**
  * Plataformas que operam maquineta (POS). As taxas saem da aba /admin/taxas
- * resolvidas por `tag` (POS_TAXA_*_PERCENT da Sim Int Pay e POS_MDR_* da DOM).
+ * resolvidas por `tag` (POS_TAXA_*_PERCENT da Sim Int Pay e custo sincronizado da DOM).
  *
  * Para ligar uma plataforma nova: adicione uma entrada aqui com o CNPJ usado nas
  * vendas físicas e/ou os seriais dos terminais. Nada mais precisa mudar.

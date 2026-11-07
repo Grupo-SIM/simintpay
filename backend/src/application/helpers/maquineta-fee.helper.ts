@@ -1,6 +1,9 @@
 import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
-import { estimatePhysicalDomFeeReais, isPhysicalDebit } from './dom-fee-estimate.helper';
+import {
+  estimatePhysicalDomFeeReais,
+  isPhysicalDebit,
+} from './dom-fee-estimate.helper';
 
 /** Taxas de uma venda física (maquineta / POS). */
 export type MaquinetaFees = {
@@ -33,7 +36,8 @@ export function posTaxaKeyForPaymentMethod(
   cardBrandRaw?: string | null,
 ): string {
   const pm = String(paymentMethodRaw ?? '').toLowerCase();
-  if (isPhysicalDebit(paymentMethodRaw, cardBrandRaw)) return 'POS_TAXA_DEBITO_PERCENT';
+  if (isPhysicalDebit(paymentMethodRaw, cardBrandRaw))
+    return 'POS_TAXA_DEBITO_PERCENT';
   if (pm.includes('card') || pm.includes('credit')) {
     const inst = Math.min(Math.max(Number(installments ?? 1) || 1, 1), 12);
     return `POS_TAXA_CREDITO_${inst}X`;
@@ -45,7 +49,7 @@ export function posTaxaKeyForPaymentMethod(
  * Taxas de uma venda física, resolvidas pela aba /admin/taxas da plataforma.
  *
  *   líquido do cliente = bruto × (1 − taxa Sim Int Pay do método/parcela)
- *   custo DOM          = tabela POS_MDR_* (+ POS_TAXA_DOM_FIXA em débito/crédito)
+ *   custo DOM          = tabela de custos sincronizada (canal POS)
  *   lucro Sim Int Pay  = taxa Sim Int Pay − custo DOM
  *
  * Por padrão (POS_ABSORVER_TAXAS = 1) o custo DOM sai da margem da Sim Int Pay,
@@ -63,7 +67,11 @@ export function calculateMaquinetaFees(
   cardBrandRaw?: string | null,
 ): MaquinetaFees {
   const amount = Number(amountReais) || 0;
-  const key = posTaxaKeyForPaymentMethod(paymentMethodRaw, installments, cardBrandRaw);
+  const key = posTaxaKeyForPaymentMethod(
+    paymentMethodRaw,
+    installments,
+    cardBrandRaw,
+  );
 
   const simIntRate = getPlatformTaxaEffective(
     platformTag,
@@ -83,7 +91,8 @@ export function calculateMaquinetaFees(
   // Toggle "Absorver taxas de maquineta" (aba admin/taxas → Vendas Físicas):
   // 1 (default) = custo DOM sai da margem Sim Int Pay, lojista recebe (bruto − taxa Sim Int Pay).
   // 0 = custo DOM é descontado do repasse ao lojista também.
-  const absorve = getPlatformTaxaEffective(platformTag, 'POS_ABSORVER_TAXAS', 1) !== 0;
+  const absorve =
+    getPlatformTaxaEffective(platformTag, 'POS_ABSORVER_TAXAS', 1) !== 0;
   const netAmount = absorve
     ? round2(amount - platformFeeAmt)
     : round2(amount - platformFeeAmt - domFeeAmt);

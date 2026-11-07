@@ -128,6 +128,7 @@ import { PlatformTaxasService } from '../../application/services/platform-taxas.
 import {
   resolveWithdrawalFixedFee,
   getPlatformTaxaEffective,
+  syncedAcquirerCostReais,
   invalidatePlatformTaxaCache,
   buildUserTaxaTag,
 } from '../../modules/platform-taxas/platform-taxas.store';
@@ -620,7 +621,7 @@ function buildLucroSimpayDetalhePorPlataforma(
         : snapshotBuyerTotal(tx) - Number(tx.netAmount ?? 0);
     const pm = String(tx.paymentMethod ?? 'PIX');
     const inst = Number(tx.installments ?? 1);
-    const taxaMdr = realized ?? mdrDomPct(pm, inst, bruto, tag);
+    const taxaMdr = realized ?? mdrDomPct(pm, inst, bruto);
     // Snapshot buyer total and recorded net are the actual buyer charge and
     // seller repass; current platform rates are only for legacy transactions.
     const lucroTx =
@@ -860,7 +861,7 @@ function lucroSimpayUmaTransacaoConsolidado(
   const parteAdmin = bruto * (1 - liquidezLojista);
   const pm = String(tx.paymentMethod ?? 'PIX');
   const inst = Number(tx.installments ?? 1);
-  const taxaMdr = mdrDomPct(pm, inst, bruto, tag);
+  const taxaMdr = mdrDomPct(pm, inst, bruto);
   return parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback;
 }
 
@@ -1003,53 +1004,21 @@ type DashboardFinanceHistoricoRow = {
   taxaSaqueDom: number;
 };
 
-/**
- * Tabela DOM de cartão por parcela. Usada apenas como fallback de `MDR_CC_{n}X`
- * quando a plataforma não tem override no admin nem variável de ambiente própria —
- * preserva o custo histórico em vez de cair no default 0 de PLATFORM_TAXA_DEFAULTS,
- * que zeraria o custo e inflaria o lucro.
- */
-const DOM_CC_RATE_BY_INSTALLMENT_ADM: Record<number, number> = {
-  1: 0.0399,
-  2: 0.083,
-  3: 0.0968,
-  4: 0.1104,
-  5: 0.1237,
-  6: 0.1367,
-  7: 0.1495,
-  8: 0.1621,
-  9: 0.1744,
-  10: 0.1864,
-  11: 0.1983,
-  12: 0.2099,
-};
-
-/** Taxa MDR que a DOM cobra (somente a parte percentual, sem taxas fixas). */
+/** Custo total da adquirente (percentual + fixo), lido só da tabela sincronizada. */
 function mdrDomPct(
   paymentMethod: string,
   installments: number,
   amount: number,
-  tag: string,
 ): number {
   const inst = Math.min(Math.max(installments || 1, 1), 12);
-  if (String(paymentMethod).toUpperCase().includes('BOLETO')) {
-    // Boleto: custo DOM é FIXO por boleto (TAXA_BOLETO_DOM + TAXA_BOLETO_DOM_FIXA), não % do valor.
-    return calculateBoletoFees(amount, tag).domFeeAmount;
-  }
-  if (paymentMethod === 'DEBIT_CARD') return amount * 0.0349;
-  if (paymentMethod === 'CREDIT_CARD') {
-    // Respeita a aba de taxas (override do admin → env da plataforma → global);
-    // só cai na tabela fixa acima se nenhuma dessas fontes definir a parcela.
-    const ccKey = `MDR_CC_${inst}X` as PlataformaTaxaKey;
-    const ccFallback = DOM_CC_RATE_BY_INSTALLMENT_ADM[inst] ?? 0.0399;
-    return amount * getPlatformTaxaEffective(tag, ccKey, ccFallback);
-  }
-  const mdrPix = getPlatformTaxaEffective(
-    tag,
-    'MDR_PIX',
-    PLATFORM_TAXA_DEFAULTS.MDR_PIX,
-  );
-  return amount * mdrPix;
+  const method = String(paymentMethod).toUpperCase();
+  if (method.includes('BOLETO'))
+    return syncedAcquirerCostReais('BOLETO', 'ONLINE', 1, amount).total;
+  if (method === 'DEBIT_CARD')
+    return syncedAcquirerCostReais('DEBIT_CARD', 'ONLINE', 1, amount).total;
+  if (method === 'CREDIT_CARD')
+    return syncedAcquirerCostReais('CREDIT_CARD', 'ONLINE', inst, amount).total;
+  return syncedAcquirerCostReais('PIX', 'ONLINE', 1, amount).total;
 }
 
 function accumTxFinancePorDia(
@@ -3693,17 +3662,13 @@ export class AdminController {
         .reduce((sum, tx) => {
           const amount = Number(tx.amount);
           if (!Number.isFinite(amount) || amount <= 0) return sum;
-          const tag = consolidadoTagParaTransacao(
-            { userId: tx.userId, platformTag: tx.platformTag ?? null },
-            platforms,
-          );
           const pm = String(
             (tx as { paymentMethod?: string }).paymentMethod ?? 'PIX',
           );
           const inst = Number(
             (tx as { installments?: number }).installments ?? 1,
           );
-          return sum + mdrDomPct(pm, inst, amount, tag);
+          return sum + mdrDomPct(pm, inst, amount);
         }, 0)
         .toFixed(4),
     );

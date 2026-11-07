@@ -1,9 +1,8 @@
 import { transactionPlatformTag } from '../../modules/platform-core/transaction-platform';
 import {
-  getPlatformTaxaEffective,
   canonicalPlatformTaxaTag,
+  syncedAcquirerCostReais,
 } from '../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 import { isMaquinetaDescription } from '../utils/internal-tags.util';
 
 /** Extrai `[TENANT:FOO]` da descrição/produto para taxas efetivas (MDR PIX etc.). */
@@ -25,22 +24,6 @@ export function platformTaxaTagForTransaction(tx: {
   const tag = transactionPlatformTag(tx);
   return tag ? canonicalPlatformTaxaTag(tag) : 'GLOBAL';
 }
-
-/** Taxa DOM cartão crédito por parcelas (mesmo padrão do checkout / api-dom.client). */
-const DOM_CC_RATE_BY_INSTALLMENT: Record<number, number> = {
-  1: 0.0399,
-  2: 0.083,
-  3: 0.0968,
-  4: 0.1104,
-  5: 0.1237,
-  6: 0.1367,
-  7: 0.1495,
-  8: 0.1621,
-  9: 0.1744,
-  10: 0.1864,
-  11: 0.1983,
-  12: 0.2099,
-};
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -82,7 +65,7 @@ export function isPhysicalSale(input: {
 
 /**
  * Custo DOM em venda FÍSICA (maquineta / POS) — tabela oficial, diferente da online.
- * PIX 1% sem fixa; débito e crédito somam POS_TAXA_DOM_FIXA (R$1) por transação.
+ * Valores lidos da tabela de custos sincronizada (canal POS).
  * Não há cobrança de cashback em POS (o cliente não registra os dados do bônus).
  */
 export function estimatePhysicalDomFeeReais(input: {
@@ -94,27 +77,26 @@ export function estimatePhysicalDomFeeReais(input: {
   cardBrand?: string | null;
 }): { pct: number; fixa: number; total: number } {
   const amount = Number(input.amountReais) || 0;
-  const tag = (input.tenantTag ?? 'GLOBAL').toUpperCase();
   const pm = String(input.paymentMethod ?? 'pix').toLowerCase();
   const inst = Math.min(Math.max(Number(input.installments ?? 1) || 1, 1), 12);
-  const taxa = (key: string) =>
-    getPlatformTaxaEffective(
-      tag,
-      key,
-      (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[key] ?? 0,
-    );
-
-  // PIX físico: só percentual, sem taxa fixa.
-  if (!pm.includes('card') && !pm.includes('credit') && !pm.includes('debit')) {
-    const pct = round4(amount * taxa('POS_MDR_PIX'));
-    return { pct, fixa: 0, total: pct };
+  const method =
+    !pm.includes('card') && !pm.includes('credit') && !pm.includes('debit')
+      ? 'PIX'
+      : isPhysicalDebit(input.paymentMethod, input.cardBrand)
+        ? 'DEBIT_CARD'
+        : 'CREDIT_CARD';
+  const cost = syncedAcquirerCostReais(
+    method,
+    'POS',
+    method === 'CREDIT_CARD' ? inst : 1,
+    amount,
+  );
+  if (method === 'PIX') {
+    const pct = round4(cost.pct);
+    return { pct, fixa: round2(cost.fixa), total: round4(pct + cost.fixa) };
   }
-
-  const rateKey = isPhysicalDebit(input.paymentMethod, input.cardBrand)
-    ? 'POS_MDR_DEBITO'
-    : `POS_MDR_CC_${inst}X`;
-  const pct = round2(amount * taxa(rateKey));
-  const fixa = round2(taxa('POS_TAXA_DOM_FIXA'));
+  const pct = round2(cost.pct);
+  const fixa = round2(cost.fixa);
   return { pct, fixa, total: round2(pct + fixa) };
 }
 
@@ -125,7 +107,7 @@ export function round4(n: number): number {
 
 /**
  * Estima taxa DOM quando a listagem não traz mdr_value/dom_fee (comum no GET /transactions).
- * PIX: MDR_PIX (decimal sobre o valor pago; padrão 2% = 0,02). Débito: 3,49% + R$1. Crédito: tabela por parcela + R$1 em 2x+.
+ * Valores lidos da tabela de custos sincronizada da adquirente (canal ONLINE).
  */
 export function estimateDomFeeReais(input: {
   amountReais: number;
@@ -155,35 +137,20 @@ export function estimateDomFeeReais(input: {
     }).total;
   }
 
-  if (pm.includes('boleto')) {
-    // Boleto: custo DOM fixo por boleto pago = TAXA_BOLETO_DOM + TAXA_BOLETO_DOM_FIXA (padrão 3,49 + 1,00).
-    const domFixa = getPlatformTaxaEffective(
-      tag,
-      'TAXA_BOLETO_DOM',
-      PLATFORM_TAXA_DEFAULTS.TAXA_BOLETO_DOM,
-    );
-    const domTransacao = getPlatformTaxaEffective(
-      tag,
-      'TAXA_BOLETO_DOM_FIXA',
-      PLATFORM_TAXA_DEFAULTS.TAXA_BOLETO_DOM_FIXA,
-    );
-    return round2(domFixa + domTransacao);
-  }
-  if (pm.includes('debit')) {
-    return round2(amount * 0.0349 + 1.0);
-  }
-  if (pm.includes('card') || pm.includes('credit')) {
-    const rate =
-      DOM_CC_RATE_BY_INSTALLMENT[inst] ?? DOM_CC_RATE_BY_INSTALLMENT[1];
-    const fixed = inst > 1 ? 1.0 : 0;
-    return round2(amount * rate + fixed);
-  }
-  const mdrPix = getPlatformTaxaEffective(
-    tag,
-    'MDR_PIX',
-    PLATFORM_TAXA_DEFAULTS.MDR_PIX,
+  const method = pm.includes('boleto')
+    ? 'BOLETO'
+    : pm.includes('debit')
+      ? 'DEBIT_CARD'
+      : pm.includes('card') || pm.includes('credit')
+        ? 'CREDIT_CARD'
+        : 'PIX';
+  const cost = syncedAcquirerCostReais(
+    method,
+    'ONLINE',
+    method === 'CREDIT_CARD' ? inst : 1,
+    amount,
   );
-  return round4(amount * mdrPix);
+  return method === 'PIX' ? round4(cost.total) : round2(cost.total);
 }
 
 /** Taxa implícita antiga 0,98% no valor gravado pela DOM / Prisma — recalcular com MDR_PIX atual. */

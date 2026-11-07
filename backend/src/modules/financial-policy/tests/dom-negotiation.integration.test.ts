@@ -151,7 +151,7 @@ describe('DOM negotiation import', () => {
 
   test('maps credit 1x, installment interest, PIX and fixed boleto without identity data', () => {
     const fees = parseDomNegotiation(response);
-    expect(fees).toHaveLength(28);
+    expect(fees).toHaveLength(29);
     expect(fees[0]).toEqual({
       method: 'CREDIT_CARD',
       channel: 'ONLINE',
@@ -392,6 +392,14 @@ test('physical negotiation imports zero fixed fees and preserves MDR plus intere
   expect(
     fees.find((fee) => fee.method === 'CREDIT_CARD' && fee.installments === 2),
   ).toMatchObject({ fixedCents: 0, ratePpm: 39900, interestPpm: 43100 });
+});
+
+test('online debit is imported from the negotiated physical debit contract', () => {
+  expect(
+    parseDomNegotiation(response).find(
+      (fee) => fee.method === 'DEBIT_CARD' && fee.channel === 'ONLINE',
+    ),
+  ).toMatchObject({ fixedCents: 0, ratePpm: 39900, interestPpm: 0 });
 });
 
 test('physical brand aggregation selects one complete rate instead of summing unrelated maxima', () => {
