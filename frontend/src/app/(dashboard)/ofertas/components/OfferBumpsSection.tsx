@@ -6,6 +6,7 @@ import { Eye, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { Button } from '@/components/ui/Button';
+import { PortalTooltip } from '@/components/ui/PortalTooltip';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { endpoints } from '@/services/api/endpoints';
 import { ProductFormSection } from '../../cliente/components';
@@ -117,23 +118,33 @@ export function OfferBumpsSection({
     );
   };
 
+  const hasUpsell = bumps.some((bump) => bump.role === 'UPSELL');
+
   return (
     <ProductFormSection
       title="Funil"
       action={
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="cursor-pointer"
-          disabled={
-            previewPending || !bumps.some((bump) => bump.role === 'UPSELL')
+        <PortalTooltip
+          content={
+            hasUpsell ? null : (
+              <div className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
+                Adicione um upsell para pré-visualizar
+              </div>
+            )
           }
-          onClick={() => void previewFunnel()}
         >
-          <Eye aria-hidden className="h-4 w-4" />
-          {previewPending ? 'Carregando...' : 'Pré-visualizar funil'}
-        </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="cursor-pointer"
+            disabled={previewPending || !hasUpsell}
+            onClick={() => void previewFunnel()}
+          >
+            <Eye aria-hidden className="h-4 w-4" />
+            {previewPending ? 'Carregando...' : 'Pré-visualizar funil'}
+          </Button>
+        </PortalTooltip>
       }
     >
       {previewDraft && (
