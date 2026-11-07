@@ -1,5 +1,6 @@
 'use client';
 
+import { Fragment } from 'react';
 import { PlatformOwnerSelect } from '@/components/platforms/PlatformOwnerSelect';
 import { ProductPlatformSelect } from '@/components/product-platforms/ProductPlatformSelect';
 import type { useProductPlatforms } from '@/hooks/use-product-platforms';
@@ -10,11 +11,12 @@ type Props = {
   value: string | null;
   onChange: (value: string) => void;
   theme: 'light' | 'dark';
+  embedded?: boolean;
 };
 
-export function ProductPlatformSection(props: Props) {
-  return (
-    <ProductFormSection title="Plataforma">
+export function ProductPlatformSection({ embedded, ...props }: Props) {
+  const content = (
+    <Fragment>
       <div className="space-y-2">
         <p className="text-sm text-zinc-500">
           {props.catalog.user?.isAdmin
@@ -42,6 +44,11 @@ export function ProductPlatformSection(props: Props) {
           />
         </div>
       </div>
-    </ProductFormSection>
+    </Fragment>
+  );
+  return embedded ? (
+    content
+  ) : (
+    <ProductFormSection title="Plataforma">{content}</ProductFormSection>
   );
 }

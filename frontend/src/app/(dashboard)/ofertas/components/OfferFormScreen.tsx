@@ -2,6 +2,7 @@
 
 import { PaymentLinkPreviewModal } from '../../links-pagamento/criar/components/PaymentLinkPreviewModal';
 import { Button } from '@/components/ui/Button';
+import { HelpTooltip } from '@/components/ui/HelpTooltip';
 import { useState } from 'react';
 import { ChevronDown, Eye } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -290,16 +291,18 @@ function FormBody({
             </>
           )}
         </div>
+        {!id && (
+          <div className="mt-5">
+            <ProductPlatformSection
+              embedded
+              catalog={platformCatalog}
+              value={platform}
+              onChange={setPlatform}
+              theme={theme}
+            />
+          </div>
+        )}
       </ProductFormSection>
-
-      {!id && (
-        <ProductPlatformSection
-          catalog={platformCatalog}
-          value={platform}
-          onChange={setPlatform}
-          theme={theme}
-        />
-      )}
 
       <ProductFormSection title="Preço e pagamento">
         <div className="grid gap-4 md:grid-cols-2">
@@ -350,6 +353,46 @@ function FormBody({
             </div>
           ))}
         </div>
+        {hasBoleto(form) && (
+          <div className="mt-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <label
+                    htmlFor="offer-boleto-due-days"
+                    className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                  >
+                    Vencimento do boleto
+                  </label>
+                  <HelpTooltip label="Sobre o vencimento do boleto">
+                    Prazo em dias, contado a partir da emissão de cada boleto
+                    gerado para uma compra desta oferta. Não é a validade da
+                    oferta. Informe de 0 a {MAX_BOLETO_DUE_DAYS} dias; zero
+                    significa ausência de prazo configurado.
+                  </HelpTooltip>
+                </div>
+                <Input
+                  id="offer-boleto-due-days"
+                  name="offer-boleto-due-days"
+                  theme={theme}
+                  variant="navbar"
+                  inputMode="numeric"
+                  placeholder="Ex: 3"
+                  value={form.boletoDueDays}
+                  onChange={(value) =>
+                    patch({ boletoDueDays: digitsOnly(value) })
+                  }
+                />
+              </div>
+            </div>
+            <p
+              role="note"
+              className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"
+            >
+              {BOLETO_NOTE}
+            </p>
+          </div>
+        )}
       </ProductFormSection>
 
       <ProductFormSection
@@ -512,28 +555,6 @@ function FormBody({
           </div>
         </div>
       </details>
-
-      {hasBoleto(form) && (
-        <ProductFormSection title="Boleto">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Input
-              label={`Vencimento em dias (0 a ${MAX_BOLETO_DUE_DAYS})`}
-              theme={theme}
-              variant="navbar"
-              inputMode="numeric"
-              placeholder="Ex: 3"
-              value={form.boletoDueDays}
-              onChange={(value) => patch({ boletoDueDays: digitsOnly(value) })}
-            />
-          </div>
-          <p
-            role="note"
-            className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"
-          >
-            {BOLETO_NOTE}
-          </p>
-        </ProductFormSection>
-      )}
 
       <ProductFormActions
         path={listHref}
