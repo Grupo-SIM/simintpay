@@ -104,21 +104,29 @@ Cada fase termina em commits atômicos e deixa o sistema funcionando. As fases 3
 
 ### Fase 0: pré-requisitos de código (sem banco real)
 
-Primeira leva (arquivos novos, sem conflito com os agentes em andamento):
+Primeira leva, **concluída e em `main`** (2026-11-07):
 
-- [x] Remover `Offer.kind` e `OfferKind` (migration nova, pois a antiga já foi aplicada).
-- [x] Boleto como meio normal da oferta.
-- [ ] Preparação: busca pública por `code` e, na falta, por `id` (seção 4); `offer-migration-apply` criando a `Offer` com o id antigo; constraint `ProductOwnershipChange_productType_check` aceitando `'Offer'`; documentação do redirecionamento corrigida.
-- [ ] Crédito de dias do plano PIX: tabela de acesso, crédito ao pagar, decremento, aliases `PX-`, rotas de compatibilidade para o `api-pagatg` e notificação ao PAGATG.
-- [ ] Adaptadores REST legados (`/links-pagamento`, `/links-assinatura`) respondendo a partir de `Offer`, e evento `subscription_activated` emitido pelo fluxo de oferta.
+- [x] Remover `Offer.kind` e `OfferKind` (migration `20261111110000_drop_offer_kind`), com a tela: sem a coluna e o filtro "Tipo", atalhos só no cliente e etiqueta derivada na listagem.
+- [x] Boleto como meio normal da oferta: cobrança no checkout público (vencimento de `metadata.boletoDueDays`, endereço obrigatório), taxa igual à do boleto legado provada por teste (R$ 100: líquido 95, taxa 5), tela com linha digitável e PDF, ferramentas de migração sem caso especial de boleto. Boleto em oferta recorrente é recusado.
+- [x] Busca pública por `code` e, na falta, por `id`; a recusa `ID_COLLISION` quando o mesmo id aparece em duas tabelas; `offer-migration-apply` cria a oferta com o id antigo; auditoria e reatribuição de titularidade aceitam `Offer` (migration `20261112100000_product_ownership_change_offer_type`); guia corrigido para `?oferta=<código>`.
+- [x] Crédito de dias do plano PIX: `OfferAccess`, `OfferAccessEvent` e `OfferCodeAlias`, crédito ao pagar, decremento diário, notificação ao PAGATG e rotas de compatibilidade atrás de `OFFER_PIXPLAN_COMPAT` (desligado por padrão).
+- [x] Adaptadores REST legados (`/links-pagamento`, `/links-assinatura`) atrás de `OFFER_LEGACY_LINKS_COMPAT` (desligado por padrão) e evento `subscription_activated` pelo mecanismo de webhook da plataforma.
 
-Segunda leva (mexem em arquivos que a primeira leva ainda edita: começam quando ela terminar):
+Pontos que a primeira leva deixou em aberto:
+
+- [ ] **Coprodução na migração:** o script de aplicação não renomeia os acordos (`links-pagamento` para `ofertas`, mesmo `productId`). `coproductionKeyFor` depende de `legacyType`, que a migração não grava mais. Sem a renomeação o coprodutor deixa de receber.
+- [ ] Os adaptadores REST **perdem em silêncio** a `coproduction` enviada na criação (`OfferService.create` não a recebe) e `DELETE` desativa em vez de apagar.
+- [ ] O webhook da plataforma envia `x-simintpay-signature`, e o `saas-netflix-back` espera `x-simpay-token`.
+- [ ] Testes de integração já quebrados em `main` por mudança de preço (renovação/reativação, ledger do ciclo, preço do ciclo, `stored-card-vault`), independentes desta leva.
+
+Segunda leva (mexem em arquivos da primeira, começam agora):
 
 - [ ] Arquivos de entrega e imagens de bump.
 - [ ] Cupons.
 - [ ] Funil no checkout: seleção de bumps, imagens, tela de pós-compra de upsell e downsell.
 - [ ] Pausa e retomada de assinatura, e lista de assinantes de ofertas para o vendedor.
 - [ ] Remover comunidade e provisionamento (código, cron, relatórios, telas).
+- [ ] Corrigir os pontos em aberto acima.
 
 ### Fase 1: expandir o schema (migration aditiva)
 
