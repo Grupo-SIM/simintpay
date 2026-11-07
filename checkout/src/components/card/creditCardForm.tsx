@@ -1,4 +1,6 @@
 'use client';
+
+import { Dropdown } from '@/components/ui/Dropdown';
 import { EBOOK_API_URL, PAGATG_API_URL, SIM_API_URL } from '@/lib/api-config';
 
 import { EmailNoticeModal } from '@/components/checkout/EmailNoticeModal';
@@ -2198,85 +2200,71 @@ const CheckoutForm = () => {
                 {/* Parcelas — payment link */}
                 {paymentLinkData && paymentLinkData.maxInstallments > 1 && (
                   <CheckoutGlassField label="Número de parcelas" required>
-                    <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
-                      <select
-                        name="installments"
-                        value={formData.installments}
-                        onChange={handleChange}
-                        className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
-                      >
-                        {Array.from(
-                          { length: paymentLinkData.maxInstallments },
-                          (_, i) => i + 1,
-                        ).map((num) => {
-                          const option = allInstallmentOptions.find(
-                            (opt) => opt.installments === num,
-                          );
-                          // "(com juros)" só quando a opção tem juros de fato.
-                          const label = option
-                            ? buildInstallmentLabel({
-                                installments: num,
-                                perInstallment: option.installmentAmount,
-                                total:
-                                  option.totalAmount ??
-                                  option.installmentAmount * num,
-                                interestAmount: option.interestAmount,
-                                formatCurrency,
-                              })
-                            : buildInstallmentLabel({
-                                installments: num,
-                                perInstallment: paymentLinkData.amount / num,
-                                total: paymentLinkData.amount,
-                                formatCurrency,
-                              });
-                          return (
-                            <option
-                              key={num}
-                              value={num}
-                              className="bg-zinc-900"
-                            >
-                              {label}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
+                    <Dropdown
+                      ariaLabel="Número de parcelas"
+                      value={String(formData.installments)}
+                      onChange={(value) =>
+                        setFormData((previous: typeof formData) => ({
+                          ...previous,
+                          installments: Number(value),
+                        }))
+                      }
+                      options={Array.from(
+                        { length: paymentLinkData.maxInstallments },
+                        (_, i) => i + 1,
+                      ).map((num) => {
+                        const option = allInstallmentOptions.find(
+                          (opt) => opt.installments === num,
+                        );
+                        // "(com juros)" só quando a opção tem juros de fato.
+                        const label = option
+                          ? buildInstallmentLabel({
+                              installments: num,
+                              perInstallment: option.installmentAmount,
+                              total:
+                                option.totalAmount ??
+                                option.installmentAmount * num,
+                              interestAmount: option.interestAmount,
+                              formatCurrency,
+                            })
+                          : buildInstallmentLabel({
+                              installments: num,
+                              perInstallment: paymentLinkData.amount / num,
+                              total: paymentLinkData.amount,
+                              formatCurrency,
+                            });
+                        return { value: String(num), label };
+                      })}
+                    />
                   </CheckoutGlassField>
                 )}
 
                 {/* Parcelas — ebook com maxInstallments >= 1 */}
                 {isEbookCheckout && ebookInstallmentOptions.length >= 1 && (
                   <CheckoutGlassField label="Número de parcelas" required>
-                    <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
-                      <select
-                        name="installments"
-                        value={formData.installments}
-                        onChange={handleChange}
-                        className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
-                      >
-                        {ebookInstallmentOptions.map((opt) => {
-                          // "(com juros)" só quando a opção tem juros de fato.
-                          const label = buildInstallmentLabel({
-                            installments: opt.installments,
-                            perInstallment: opt.installmentAmount,
-                            total:
-                              opt.totalAmount ??
-                              opt.installmentAmount * opt.installments,
-                            interestAmount: opt.interestAmount,
-                            formatCurrency,
-                          });
-                          return (
-                            <option
-                              key={opt.installments}
-                              value={opt.installments}
-                              className="bg-zinc-900"
-                            >
-                              {label}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
+                    <Dropdown
+                      ariaLabel="Número de parcelas"
+                      value={String(formData.installments)}
+                      onChange={(value) =>
+                        setFormData((previous: typeof formData) => ({
+                          ...previous,
+                          installments: Number(value),
+                        }))
+                      }
+                      options={ebookInstallmentOptions.map((opt) => {
+                        // "(com juros)" só quando a opção tem juros de fato.
+                        const label = buildInstallmentLabel({
+                          installments: opt.installments,
+                          perInstallment: opt.installmentAmount,
+                          total:
+                            opt.totalAmount ??
+                            opt.installmentAmount * opt.installments,
+                          interestAmount: opt.interestAmount,
+                          formatCurrency,
+                        });
+                        return { value: String(opt.installments), label };
+                      })}
+                    />
                   </CheckoutGlassField>
                 )}
 
@@ -2345,30 +2333,23 @@ const CheckoutForm = () => {
 
                 <div className="grid grid-cols-3 gap-3">
                   <CheckoutGlassField label="Mês" required>
-                    <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
-                      <select
-                        name="month"
-                        value={formData.month}
-                        onChange={handleChange}
-                        className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
-                      >
-                        <option value="" className="bg-zinc-900">
-                          MM
-                        </option>
-                        {Array.from({ length: 12 }, (_, i) => {
-                          const month = (i + 1).toString().padStart(2, '0');
-                          return (
-                            <option
-                              key={month}
-                              value={month}
-                              className="bg-zinc-900"
-                            >
-                              {month}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
+                    <Dropdown
+                      ariaLabel="Mês"
+                      value={String(formData.month)}
+                      onChange={(value) =>
+                        setFormData((previous: typeof formData) => ({
+                          ...previous,
+                          month: value,
+                        }))
+                      }
+                      options={[
+                        { value: '', label: 'MM' },
+                        ...Array.from({ length: 12 }, (_, i) => {
+                          const value = (i + 1).toString().padStart(2, '0');
+                          return { value, label: value };
+                        }),
+                      ]}
+                    />
                     {formErrors.month && (
                       <p className="mt-1 text-xs text-red-400">
                         {formErrors.month}
@@ -2377,32 +2358,25 @@ const CheckoutForm = () => {
                   </CheckoutGlassField>
 
                   <CheckoutGlassField label="Ano" required>
-                    <div className="flex overflow-hidden rounded-2xl border border-white/[0.06] bg-white/10 focus-within:border-[rgba(240,168,108,.7)] focus-within:ring-1 focus-within:ring-[rgba(240,168,108,.3)]">
-                      <select
-                        name="year"
-                        value={formData.year}
-                        onChange={handleChange}
-                        className="flex-1 bg-transparent px-3 py-2.5 text-sm text-zinc-50 outline-none"
-                      >
-                        <option value="" className="bg-zinc-900">
-                          AA
-                        </option>
-                        {Array.from({ length: 10 }, (_, i) => {
-                          const year = (new Date().getFullYear() + i)
+                    <Dropdown
+                      ariaLabel="Ano"
+                      value={String(formData.year)}
+                      onChange={(value) =>
+                        setFormData((previous: typeof formData) => ({
+                          ...previous,
+                          year: value,
+                        }))
+                      }
+                      options={[
+                        { value: '', label: 'AA' },
+                        ...Array.from({ length: 10 }, (_, i) => {
+                          const value = (new Date().getFullYear() + i)
                             .toString()
                             .slice(-2);
-                          return (
-                            <option
-                              key={year}
-                              value={year}
-                              className="bg-zinc-900"
-                            >
-                              {year}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
+                          return { value, label: value };
+                        }),
+                      ]}
+                    />
                     {formErrors.year && (
                       <p className="mt-1 text-xs text-red-400">
                         {formErrors.year}

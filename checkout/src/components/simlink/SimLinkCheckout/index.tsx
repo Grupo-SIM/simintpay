@@ -1,4 +1,5 @@
 'use client';
+import { Dropdown } from '@/components/ui/Dropdown';
 import { useCheckoutSteps } from '@/hooks/use-checkout-steps';
 import { CheckoutFlow } from '@/components/checkout/CheckoutFlow';
 /**
@@ -1396,17 +1397,15 @@ export default function SimLinkCheckout({
             </Field>
             {paymentMethod === 'credit' && link.parcelasMax > 1 && (
               <Field className="col-span-2" label="Parcelas">
-                <select
-                  className="sp2-input h-[50px] lg:h-[52px]"
-                  value={installments}
-                  onChange={(e) => setInstallments(Number(e.target.value))}
-                >
-                  {installmentOptions.map((n) => (
-                    <option key={n} value={n}>
-                      {installmentLabelFor(n)}
-                    </option>
-                  ))}
-                </select>
+                <Dropdown
+                  ariaLabel="Parcelas"
+                  value={String(installments)}
+                  onChange={(value) => setInstallments(Number(value))}
+                  options={installmentOptions.map((n) => ({
+                    value: String(n),
+                    label: installmentLabelFor(n),
+                  }))}
+                />
               </Field>
             )}
           </div>
