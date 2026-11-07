@@ -298,6 +298,7 @@ Aliases de criação retornam status financeiro persistido. Resposta `paid` da a
 - `vencimentoDias` aceita inteiros de 0 a 90. Zero representa ausência de prazo configurado; omissão mantém padrão de criação (3 dias) ou valor existente na edição. Zero explícito é preservado no armazenamento.
 - Cobrança sem prazo configurado não envia `boleto_due_days` nem retorna data calculada artificialmente. Data de vencimento retornada pela adquirente prevalece, inclusive nessa modalidade.
 - Itens da cobrança de boleto são enviados como lista, conforme demais cobranças em `/transactions`.
+- Checkout público de oferta avulsa aceita boleto quando a oferta o lista: exige endereço completo do pagador (CEP, rua, número, bairro, cidade e UF), vence em `metadata.boletoDueDays` (0 a 90; 0 = sem vencimento; ausente = 3 dias), grava Charge e Transaction `FINAL_NET` com as mesmas taxas do boleto (taxas fixas ou política financeira da modalidade BOLETO) e liquida, expira ou falha pelos mesmos webhooks. Não aceita order bump nem upsell/downsell, e ofertas recorrentes não aceitam boleto.
 
 ## Delivery canônico
 
