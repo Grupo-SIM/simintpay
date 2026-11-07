@@ -38,7 +38,11 @@ type Client = Pick<
  * Historical restores bypass this projection and keep their frozen total semantics.
  */
 function normalizeCurrentAdditions(document: Policy) {
-  for (const [key, lane] of Object.entries(document.lanes)) {
+  for (const [key, stored] of Object.entries(document.lanes)) {
+    // Revisions saved before the historical price floor was removed still carry it.
+    const lane = { ...stored } as typeof stored & { priceFloor?: unknown };
+    delete lane.priceFloor;
+    document.lanes[key] = lane;
     if (!lane.total) continue;
     const { total, ...rest } = lane;
     document.lanes[key] = {
@@ -466,7 +470,6 @@ export async function simulateFinancialPolicy(
     for (const [key, lane] of Object.entries(policy.document.lanes))
       lanes[key] = {
         ...lane,
-        priceFloor: undefined,
         sim: { ratePpm: 0, fixedCents: 0, interestPpm: 0 },
       };
     policy = {

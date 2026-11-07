@@ -164,7 +164,6 @@ export function quoteFinancialCharge(
           ...policy.document.lanes,
           [key]: {
             ...policy.document.lanes[key]!,
-            priceFloor: undefined,
             sim: { ratePpm: 0, fixedCents: 0, interestPpm: 0 },
           },
         },

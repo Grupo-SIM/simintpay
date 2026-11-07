@@ -301,13 +301,6 @@ export function FinancialSimulationCard({
             </tbody>
           </table>
         )}
-        {admin && result?.effectiveFees?.priceFloorApplied && (
-          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-            Piso histórico aplicado. Custos fixos e percentuais SimIntPay
-            mostram a configuração; o adicional em Detalhes inclui a diferença
-            do piso. Juros mostram as taxas efetivas sobre o valor base.
-          </p>
-        )}
       </div>
       <div className="mb-3 grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">

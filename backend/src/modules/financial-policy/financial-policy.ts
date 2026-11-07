@@ -28,10 +28,6 @@ export type Lane = {
   active: boolean;
   contract: Contract;
   sim: Addition & { interestPpm: number };
-  priceFloor?: {
-    fees: ScheduledFee[];
-    sim: Addition & { interestPpm: number };
-  };
 };
 export type OwnerRule = Addition & { passInterestPpm: number };
 export type Policy = {
@@ -244,7 +240,6 @@ export function calculateFinancials(
     effectiveFees: {
       acquirer: { ...lane.contract },
       sim: { ...lane.sim },
-      priceFloorApplied: false,
     },
   };
 }
@@ -309,7 +304,6 @@ function calculateUnconfiguredFinancials(
     effectiveFees: {
       acquirer: null,
       sim: { ...lane.sim },
-      priceFloorApplied: false,
     },
   };
 }
@@ -388,18 +382,7 @@ function calculateScheduledFinancials(
       winner,
     };
   };
-  const current = price(scheduled.fees, lane.sim);
-  const floor = lane.priceFloor?.fees.length
-    ? price(lane.priceFloor.fees, lane.priceFloor.sim)
-    : undefined;
-  // A floor is one historical quote, not independent maxima of its price and costs.
-  // Preserve the seller's original repass when a cheaper schedule would lower the buyer charge.
-  const floored =
-    !!floor &&
-    (buyerTotalAsInput || policy.document.interestOnly
-      ? floor.contracted > current.contracted
-      : floor.buyerTotalCents > current.buyerTotalCents);
-  const selected = floored ? floor : current;
+  const selected = price(scheduled.fees, lane.sim);
   const buyerTotalCents = selected.buyerTotalCents;
   const contractedCostCents = selected.contracted;
   const interestCostCents = selected.interest;
@@ -448,17 +431,12 @@ function calculateScheduledFinancials(
     contractedCostCents,
     processingCostCents,
     interestCostCents,
-    interestRatePpm:
-      selected.winner.interestPpm +
-      (floored ? lane.priceFloor!.sim.interestPpm : lane.sim.interestPpm),
+    interestRatePpm: selected.winner.interestPpm + lane.sim.interestPpm,
     buyerInterestRatePpm: interestFree
       ? 0
       : round(
           fraction(
-            selected.winner.interestPpm +
-              (floored
-                ? lane.priceFloor!.sim.interestPpm
-                : lane.sim.interestPpm),
+            selected.winner.interestPpm + lane.sim.interestPpm,
             owner.passInterestPpm,
           ),
         ),
@@ -478,15 +456,14 @@ function calculateScheduledFinancials(
     effectiveFees: {
       acquirer: { ...routed },
       sim: {
-        ...(floored ? lane.priceFloor!.sim : lane.sim),
-        // A preserved price can include the difference between the pricing provider
-        // and the current routed provider; that residual belongs to SimIntPay.
+        ...lane.sim,
+        // The price follows the most expensive current provider; the difference to
+        // the routed provider belongs to SimIntPay.
         interestPpm:
           selected.winner.interestPpm +
-          (floored ? lane.priceFloor!.sim.interestPpm : lane.sim.interestPpm) -
+          lane.sim.interestPpm -
           routed.interestPpm,
       },
-      priceFloorApplied: floored,
     },
   };
 }
@@ -615,45 +592,7 @@ export function validatePolicy(value: unknown): asserts value is Policy {
       !record(lane.sim)
     )
       throw new Error('Taxas administrativas incompletas');
-    exact(lane, ['active', 'contract', 'sim', 'total', 'priceFloor']);
-    if (lane.priceFloor !== undefined) {
-      if (
-        !record(lane.priceFloor) ||
-        !record(lane.priceFloor.sim) ||
-        !Array.isArray(lane.priceFloor.fees) ||
-        lane.priceFloor.fees.length > 100
-      )
-        throw new Error('Piso financeiro inválido');
-      exact(lane.priceFloor, ['fees', 'sim']);
-      exact(lane.priceFloor.sim, ['fixedCents', 'ratePpm', 'interestPpm']);
-      integer(lane.priceFloor.sim.fixedCents, 1_000_000_000);
-      integer(lane.priceFloor.sim.ratePpm, 1_000_000);
-      integer(lane.priceFloor.sim.interestPpm, 1_000_000);
-      for (const fee of lane.priceFloor.fees) {
-        if (!record(fee)) throw new Error('Piso financeiro inválido');
-        exact(fee, [
-          'acquirer',
-          'fixedCents',
-          'ratePpm',
-          'interestPpm',
-          'base',
-          'source',
-          'createdAt',
-        ]);
-        if (
-          typeof fee.acquirer !== 'string' ||
-          !/^[A-Z][A-Z0-9_-]{0,39}$/.test(fee.acquirer) ||
-          typeof fee.source !== 'string' ||
-          typeof fee.createdAt !== 'string' ||
-          !Number.isFinite(Date.parse(fee.createdAt)) ||
-          !['ORIGINAL', 'BUYER_TOTAL'].includes(fee.base as string)
-        )
-          throw new Error('Piso financeiro inválido');
-        integer(fee.fixedCents, 1_000_000_000);
-        integer(fee.ratePpm, 1_000_000);
-        integer(fee.interestPpm, 1_000_000);
-      }
-    }
+    exact(lane, ['active', 'contract', 'sim', 'total']);
     if (lane.total !== undefined) {
       if (!record(lane.total)) throw new Error('Custo total inválido');
       exact(lane.total, ['fixedCents', 'ratePpm']);

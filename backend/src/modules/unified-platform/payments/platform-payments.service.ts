@@ -329,7 +329,7 @@ export class PlatformPaymentsService {
       feesByLane: { [`${input.paymentMethod}/ONLINE/${installments}`]: fees },
     };
     // The quote engine prices every candidate from the same active schedule,
-    // including buyer-total bases and the shared price floor.
+    // including buyer-total bases.
     const pricingFee = fees.find(
       (fee) =>
         candidates.includes(fee.acquirer) &&

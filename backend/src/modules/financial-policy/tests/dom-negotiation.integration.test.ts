@@ -285,7 +285,7 @@ test('simulation exposes synchronized DOM rates instead of a stale policy contra
   expect(document.lanes[key]!.contract.interestPpm).toBe(45100);
 });
 
-test('effective interest includes the SimIntPay residual preserved by a historical floor', () => {
+test('effective interest follows the current acquirer rate plus the SimIntPay margin', () => {
   const key = laneKey('DOM', 'CREDIT_CARD', 'ONLINE', 2);
   const document = emptyPolicy();
   document.interestOnly = true;
@@ -308,10 +308,6 @@ test('effective interest includes the SimIntPay residual preserved by a historic
       reference: 'Legacy',
     },
     sim: { fixedCents: 400, ratePpm: 90000, interestPpm: 35200 },
-    priceFloor: {
-      fees: [{ ...current, ratePpm: 91500, interestPpm: 45100 }],
-      sim: { fixedCents: 400, ratePpm: 90000, interestPpm: 35200 },
-    },
   };
   const result = calculateFinancials(
     resolvePolicy(document, emptyPolicy(), '1:0'),
@@ -320,15 +316,14 @@ test('effective interest includes the SimIntPay residual preserved by a historic
     undefined,
     { fees: [current], routedAcquirer: 'DOM' },
   );
-  expect(result.effectiveFees.priceFloorApplied).toBe(true);
   expect(result.effectiveFees.acquirer?.interestPpm).toBe(43100);
-  expect(result.effectiveFees.sim.interestPpm).toBe(37200);
-  expect(result.simInterestCents).toBe(372);
+  expect(result.effectiveFees.sim.interestPpm).toBe(35200);
+  expect(result.simInterestCents).toBe(352);
   expect(result).toMatchObject({
-    buyerTotalCents: 10803,
+    buyerTotalCents: 10783,
     buyerAdditionCents: 0,
-    buyerInterestCents: 803,
-    acquirerProcessingCents: 531,
+    buyerInterestCents: 783,
+    acquirerProcessingCents: 530,
     acquirerInterestCents: 431,
   });
 });

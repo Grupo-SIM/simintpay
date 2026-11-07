@@ -98,36 +98,13 @@ function mockService(overrides: Record<string, unknown> = {}) {
 }
 
 describe('acquirer fee service transactions', () => {
-  test('deactivation snapshots every active provider and SIM before disabling', async () => {
+  test('deactivation does not freeze a historical price floor', async () => {
     const { service, revisions } = mockService();
     await service.setActive(admin, 'DOM', false);
-    expect(revisions).toHaveLength(1);
-    const document = revisions[0]!.document as {
-      lanes: Record<
-        string,
-        {
-          priceFloor: {
-            fees: Array<{ acquirer: string; ratePpm: number }>;
-            sim: { ratePpm: number };
-          };
-        }
-      >;
-    };
-    expect(
-      document.lanes['DOM/PIX/ONLINE/1']!.priceFloor.fees.map((row) => [
-        row.acquirer,
-        row.ratePpm,
-      ]),
-    ).toEqual([
-      ['DOM', 100_000],
-      ['FRENDZ', 50_000],
-    ]);
-    expect(document.lanes['DOM/PIX/ONLINE/1']!.priceFloor.sim.ratePpm).toBe(
-      20_000,
-    );
+    expect(revisions).toHaveLength(0);
   });
 
-  test('manual fee saves classify increases and decreases and retain the old floor', async () => {
+  test('manual fee saves classify increases and decreases without freezing a price floor', async () => {
     const { service, created, revisions } = mockService();
     await service.save(admin, 'DOM', {
       method: 'PIX',
@@ -138,18 +115,7 @@ describe('acquirer fee service transactions', () => {
       interestPpm: 0,
     });
     expect(created[0]?.changeDirection).toBe('DECREASE');
-    expect(revisions).toHaveLength(1);
-    const document = revisions[0]!.document as {
-      lanes: Record<
-        string,
-        { priceFloor: { fees: Array<{ acquirer: string }> } }
-      >;
-    };
-    expect(
-      document.lanes['DOM/PIX/ONLINE/1']!.priceFloor.fees.map(
-        (row) => row.acquirer,
-      ),
-    ).toEqual(['DOM', 'FRENDZ']);
+    expect(revisions).toHaveLength(0);
     const increasing = mockService();
     await increasing.service.save(admin, 'DOM', {
       method: 'PIX',

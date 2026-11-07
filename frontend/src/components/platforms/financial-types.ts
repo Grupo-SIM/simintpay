@@ -56,7 +56,6 @@ export type FinancialResult = {
       | (Addition & { interestPpm: number; base: 'ORIGINAL' | 'BUYER_TOTAL' })
       | null;
     sim: Addition & { interestPpm: number };
-    priceFloorApplied: boolean;
   };
   installments: number;
   originalCents: number;
