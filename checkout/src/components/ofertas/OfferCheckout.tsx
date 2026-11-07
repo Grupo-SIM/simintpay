@@ -38,7 +38,7 @@ import {
   maskCvv,
   maskPhoneBr,
 } from '@/lib/input-masks';
-import { buildInstallmentLabel } from '@/lib/installment-label';
+import { InstallmentSelect } from './InstallmentSelect';
 import { browserCheckoutTracking } from '@/lib/payment-tracking';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import {
@@ -49,6 +49,7 @@ import {
   offerAmount,
   type OfferMethod,
   type PublicOffer,
+  type OfferCheckoutPricing,
 } from '@/lib/offer-checkout-model';
 import {
   cardCustomerBody,
@@ -109,7 +110,15 @@ export default function OfferCheckout({
   const [method, setMethod] = useState<OfferMethod>(
     previewOffer ? (methodsOf(previewOffer)[0] ?? 'pix') : 'pix',
   );
-  const [options, setOptions] = useState<InstallmentOption[]>([]);
+  const [options, setOptions] = useState<InstallmentOption[]>(
+    previewOffer?.pricing?.options ?? [],
+  );
+  const [pricing, setPricing] = useState<OfferCheckoutPricing | null>(
+    previewOffer?.pricing ?? null,
+  );
+  const [pricingLoading, setPricingLoading] = useState(!previewOffer);
+  const [pricingError, setPricingError] = useState('');
+  const [pricingAttempt, setPricingAttempt] = useState(0);
   const [installments, setInstallments] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -154,30 +163,36 @@ export default function OfferCheckout({
         setOffer(data);
         const methods = methodsOf(data);
         if (methods.length) setMethod(methods[0]);
-        if (
-          !isRecurringOffer(data) &&
-          methods.includes('credit_card') &&
-          data.maxInstallments > 1
-        ) {
-          fetch(`${SIM_API_URL}/checkout/card/installment-options`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              price: offerAmount(data),
-              store: 'GLOBAL',
-              maxInstallments: data.maxInstallments,
-            }),
-          })
-            .then((res) => res.json())
-            .then((quote) => {
-              if (Array.isArray(quote?.options)) setOptions(quote.options);
-            })
-            .catch(() => setOptions([]));
-        }
       })
       .catch((err: Error) => setOfferError(err.message))
       .finally(() => setFetching(false));
   }, [code, previewOffer]);
+
+  useEffect(() => {
+    if (previewOffer || !offer || !code) return;
+    const controller = new AbortController();
+    fetch(`${SIM_API_URL}/ofertas/public/${encodeURIComponent(code)}/pricing`, {
+      signal: controller.signal,
+    })
+      .then((r) => {
+        if (!r.ok)
+          throw new Error(
+            'Não foi possível calcular o preço. Tente novamente.',
+          );
+        return r.json();
+      })
+      .then((data: OfferCheckoutPricing) => {
+        setPricing(data);
+        setOptions(data.options);
+      })
+      .catch((e) => {
+        if (!controller.signal.aborted) setPricingError(e.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPricingLoading(false);
+      });
+    return () => controller.abort();
+  }, [offer, code, previewOffer, pricingAttempt]);
 
   useEffect(() => {
     if (previewOffer) onPreviewLoaded?.();
@@ -212,7 +227,16 @@ export default function OfferCheckout({
 
   /** AUTO_CHARGE: card-customer -> SDK (token no navegador) -> subscribe. Só o token vai à API. */
   async function subscribe() {
-    if (previewOffer || !offer || !code || !hasMethod) return;
+    if (
+      previewOffer ||
+      !offer ||
+      !code ||
+      !hasMethod ||
+      !pricing ||
+      pricingLoading ||
+      pricingError
+    )
+      return;
     const target = `${SIM_API_URL}/ofertas/public/${encodeURIComponent(code)}`;
     const post = (path: string, body: unknown) =>
       fetch(`${target}/${path}`, {
@@ -300,7 +324,16 @@ export default function OfferCheckout({
   }
 
   async function handleSubmit() {
-    if (previewOffer || !offer || !code || !hasMethod) return;
+    if (
+      previewOffer ||
+      !offer ||
+      !code ||
+      !hasMethod ||
+      !pricing ||
+      pricingLoading ||
+      pricingError
+    )
+      return;
     setError('');
     setLoading(true);
     try {
@@ -400,7 +433,11 @@ export default function OfferCheckout({
   const total =
     isCard && method === 'credit_card' && selected
       ? selected.totalAmount
-      : base;
+      : method === 'pix'
+        ? (pricing?.pixAmount ?? base)
+        : method === 'debit_card'
+          ? (pricing?.debitAmount ?? base)
+          : base;
 
   if (paidAmount !== null && recurring) {
     const next = done?.nextChargeAt
@@ -465,8 +502,7 @@ export default function OfferCheckout({
       banner={
         previewOffer ? (
           <p role="note" className="p-3 text-center text-sm">
-            Prévia da oferta · Pagamentos desabilitados. Parcelas exibidas sem
-            simulação de juros.
+            Prévia da oferta · Pagamentos desabilitados.
           </p>
         ) : undefined
       }
@@ -480,6 +516,20 @@ export default function OfferCheckout({
       }}
       total={recurring && trialDaysOf(offer) > 0 ? money(0) : money(total)}
       totalCaption={recurring ? frequencyLabel(offer) : 'Pagamento único'}
+      orderExtra={
+        pricingError ? (
+          <button
+            type="button"
+            onClick={() => {
+              setPricingLoading(true);
+              setPricingError('');
+              setPricingAttempt((v) => v + 1);
+            }}
+          >
+            Tentar calcular novamente
+          </button>
+        ) : undefined
+      }
       asideRows={
         recurring && trialDaysOf(offer) > 0 ? (
           <SummaryRow
@@ -502,12 +552,15 @@ export default function OfferCheckout({
       }
       finalDisabled={
         Boolean(previewOffer) ||
+        !pricing ||
+        pricingLoading ||
+        Boolean(pricingError) ||
         !hasMethod ||
         (isCard && !cardOk) ||
         (autoCharge && !consent)
       }
-      loading={loading}
-      error={error}
+      loading={loading || pricingLoading}
+      error={pricingError || error}
       finalAction={
         pix ? (
           <StatusPill>
@@ -745,45 +798,14 @@ export default function OfferCheckout({
                 method === 'credit_card' &&
                 offer.maxInstallments > 1 && (
                   <CheckoutGlassField label="Parcelas">
-                    <div
-                      role="radiogroup"
-                      aria-label="Parcelas"
-                      className="flex flex-col gap-2"
-                    >
-                      {Array.from(
-                        { length: offer.maxInstallments },
-                        (_, i) => i + 1,
-                      ).map((n) => {
-                        const option = options.find(
-                          (o) => o.installments === n,
-                        );
-                        return (
-                          <button
-                            key={n}
-                            type="button"
-                            role="radio"
-                            aria-checked={installments === n}
-                            data-testid={`installments-${n}`}
-                            onClick={() => setInstallments(n)}
-                            className={`rounded-[16px] border px-4 py-3 text-left text-sm transition-colors ${
-                              installments === n
-                                ? 'border-[rgba(240,168,108,.7)] bg-white/[0.1] text-white'
-                                : 'border-white/[0.07] bg-white/[0.06] text-zinc-300'
-                            }`}
-                          >
-                            {option
-                              ? buildInstallmentLabel({
-                                  installments: n,
-                                  perInstallment: option.installmentAmount,
-                                  total: option.totalAmount,
-                                  interestAmount: option.interestAmount,
-                                  formatCurrency: money,
-                                })
-                              : `${n}x`}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <InstallmentSelect
+                      options={options}
+                      value={installments}
+                      onChange={setInstallments}
+                      disabled={
+                        pricingLoading || Boolean(pricingError) || !pricing
+                      }
+                    />
                   </CheckoutGlassField>
                 )}
             </>
@@ -792,7 +814,7 @@ export default function OfferCheckout({
       }
       status={
         <CheckoutStatusCard
-          error={error}
+          error={pricingError || error}
           items={[
             { ok: dadosOk, label: 'Dados pessoais completos' },
             ...(isCard
