@@ -8,6 +8,10 @@ import {
   OfferFulfillmentService,
   PrismaFulfillmentMarkers,
 } from './offer-fulfillment.service';
+import {
+  OFFER_SALES_EVENT_OUTBOX,
+  PrismaOfferSalesEventOutbox,
+} from './offer-sales-event-outbox';
 import { OfferCheckoutService } from './offer-checkout.service';
 import { OfferRenewalService } from './offer-renewal.service';
 import { OfferSubscribeService } from './offer-subscribe.service';
@@ -36,6 +40,10 @@ import { OfferService } from './offer.service';
     OfferCheckoutService,
     EmailService,
     PrismaFulfillmentMarkers,
+    {
+      provide: OFFER_SALES_EVENT_OUTBOX,
+      useClass: PrismaOfferSalesEventOutbox,
+    },
     OfferFulfillmentService,
     OfferSubscribeService,
     OfferRenewalService,
