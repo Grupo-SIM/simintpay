@@ -11,8 +11,13 @@ export const PRODUCT_TYPES = [
   'Plan',
   'PixCreditPlan',
   'Boleto',
+  'Offer',
 ] as const;
 export type ProductType = (typeof PRODUCT_TYPES)[number];
+
+/** Column that holds the owner: legacy products use `userId`, Offers use `ownerUserId`. */
+export const ownerColumn = (type: ProductType) =>
+  type === 'Offer' ? 'ownerUserId' : 'userId';
 
 export type OwnerFacts = {
   id: string;
