@@ -51,7 +51,6 @@ const offer = {
   renewalMode: 'MANUAL_PAY',
   intervalType: 'MONTH',
   intervalCount: 3,
-  accessDays: 90,
   fulfillment: { redirectUrl: 'https://shop.example.com/ok' },
   metadata: {
     pixPlan: { kind: 'PLAN', webhookUrl: 'https://shop.example.com/hook' },

@@ -54,7 +54,6 @@ const row = (over: Record<string, unknown> = {}): any => ({
   expiresAt: null,
   maxUses: null,
   usedCount: 0,
-  accessDays: null,
   renewalMode: 'NONE',
   intervalType: null,
   intervalCount: null,
@@ -215,7 +214,6 @@ describe('request translation', () => {
       renewalMode: 'AUTO_CHARGE',
       intervalType: 'MONTH',
       intervalCount: 1,
-      accessDays: 30,
       acceptedMethods: ['CREDIT_CARD', 'PIX'],
       platformTag: 'AREAFLIX',
     });
@@ -228,7 +226,6 @@ describe('request translation', () => {
     expect(weekly).toMatchObject({
       renewalMode: 'MANUAL_PAY',
       intervalType: 'WEEK',
-      accessDays: 7,
       acceptedMethods: ['PIX'],
     });
   });

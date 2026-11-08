@@ -63,22 +63,22 @@ O `ofertaCode` dos links novos continua sendo o `code`. A documentação `migrac
 
 ## 5. Mapeamento de colunas (o que cada coluna antiga vira)
 
-| Coluna antiga                                                                   | Destino                                                                   | Observação                                                                  |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `id`, `code`, `userId`, `createdByUserId`                                       | `Offer.id`, `code`, `ownerUserId`, `createdByUserId`                      | `createdByUserId` é obrigatório na oferta: preencher com o dono quando nulo |
-| `titulo`/`nome`/`description`, `descricao`, `valor`/`preco`/`price`             | `name`, `description`, `amountCents`                                      | valor exato em centavos                                                     |
-| `aceitaCartao/Debito/Pix`, `paymentMethods`                                     | `acceptedMethods`                                                         |                                                                             |
-| `parcelasMax`                                                                   | `maxInstallments`                                                         |                                                                             |
-| `plataformas[]`, `platformTag`, `tenantTag`                                     | `platformTag`                                                             | nenhum caso multi-plataforma hoje; **recusar** se aparecer                  |
-| `maxUses`, `currentUses`, `dataExpiracao`                                       | `maxUses`, `usedCount`, `expiresAt`                                       |                                                                             |
-| `frequencia`/`tipo`/`frequency_type`, `repeticoes`, `diasRetentativa`           | `intervalType`, `intervalCount`, `repetitions`, `retryDays`, `accessDays` | `Plan.frequency` multiplica o intervalo                                     |
-| `webhookUrl`, `redirectUrl`, `emailBody`                                        | `fulfillment`                                                             | já migrados pelo mapeador                                                   |
-| `vencimentoDias`                                                                | `metadata.boletoDueDays`                                                  |                                                                             |
-| `domPaymentLinkId`, `domPlanId`                                                 | `ExternalRef` (`PAYMENT_LINK`, `PLAN`)                                    | preservar, senão o link na DOM perde o dono                                 |
-| `domSubscriptionId`, `domPixPaymentId`                                          | `ExternalRef` ou `BillingContract.externalSubscriptionId`                 | webhooks da DOM consultam por eles                                          |
-| `platformFee1x..12x`, `cashbackFee`, `debitFee*`, `platformFee`, `isStandalone` | **sem destino**                                                           | ver decisão 1                                                               |
-| `PaymentLinkOffer` (bump, upsell, downsell)                                     | `Offer.fulfillment.bumps` (ofertas de verdade, com id próprio)            | 0 linhas hoje                                                               |
-| `PaymentLinkFile`, imagens                                                      | **sem destino**                                                           | ver decisão 2                                                               |
+| Coluna antiga                                                                   | Destino                                                        | Observação                                                                  |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `id`, `code`, `userId`, `createdByUserId`                                       | `Offer.id`, `code`, `ownerUserId`, `createdByUserId`           | `createdByUserId` é obrigatório na oferta: preencher com o dono quando nulo |
+| `titulo`/`nome`/`description`, `descricao`, `valor`/`preco`/`price`             | `name`, `description`, `amountCents`                           | valor exato em centavos                                                     |
+| `aceitaCartao/Debito/Pix`, `paymentMethods`                                     | `acceptedMethods`                                              |                                                                             |
+| `parcelasMax`                                                                   | `maxInstallments`                                              |                                                                             |
+| `plataformas[]`, `platformTag`, `tenantTag`                                     | `platformTag`                                                  | nenhum caso multi-plataforma hoje; **recusar** se aparecer                  |
+| `maxUses`, `currentUses`, `dataExpiracao`                                       | `maxUses`, `usedCount`, `expiresAt`                            |                                                                             |
+| `frequencia`/`tipo`/`frequency_type`, `repeticoes`, `diasRetentativa`           | `intervalType`, `intervalCount`, `repetitions`, `retryDays`    | `Plan.frequency` multiplica o intervalo                                     |
+| `webhookUrl`, `redirectUrl`, `emailBody`                                        | `fulfillment`                                                  | já migrados pelo mapeador                                                   |
+| `vencimentoDias`                                                                | `metadata.boletoDueDays`                                       |                                                                             |
+| `domPaymentLinkId`, `domPlanId`                                                 | `ExternalRef` (`PAYMENT_LINK`, `PLAN`)                         | preservar, senão o link na DOM perde o dono                                 |
+| `domSubscriptionId`, `domPixPaymentId`                                          | `ExternalRef` ou `BillingContract.externalSubscriptionId`      | webhooks da DOM consultam por eles                                          |
+| `platformFee1x..12x`, `cashbackFee`, `debitFee*`, `platformFee`, `isStandalone` | **sem destino**                                                | ver decisão 1                                                               |
+| `PaymentLinkOffer` (bump, upsell, downsell)                                     | `Offer.fulfillment.bumps` (ofertas de verdade, com id próprio) | 0 linhas hoje                                                               |
+| `PaymentLinkFile`, imagens                                                      | **sem destino**                                                | ver decisão 2                                                               |
 
 ## 6. O que a oferta precisa ganhar
 

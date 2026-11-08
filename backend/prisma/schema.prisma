@@ -1702,8 +1702,6 @@ model Offer {
   expiresAt       DateTime?
   maxUses         Int?
   usedCount       Int                 @default(0)
-  /// Access window granted per paid cycle or purchase.
-  accessDays      Int?
   renewalMode     RenewalMode         @default(NONE)
   intervalType    BillingIntervalType?
   intervalCount   Int?
@@ -1765,7 +1763,7 @@ model Charge {
 }
 
 
-/// Days of access credited to a buyer by paid charges of an offer with `accessDays`
+/// Days of access credited to a buyer by paid charges of a recurring offer, one renewal interval per charge
 /// (port of the legacy PIX credit plan access). `expiresAt` is the source of truth.
 model OfferAccess {
   id                String    @id @default(uuid())

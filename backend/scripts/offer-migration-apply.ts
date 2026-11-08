@@ -484,7 +484,6 @@ const offerData = (d: OfferDraft): Prisma.OfferUncheckedCreateInput => ({
   expiresAt: d.expiresAt,
   maxUses: d.maxUses,
   usedCount: d.usedCount,
-  accessDays: d.accessDays,
   renewalMode: d.renewalMode,
   intervalType: d.intervalType,
   intervalCount: d.intervalCount,

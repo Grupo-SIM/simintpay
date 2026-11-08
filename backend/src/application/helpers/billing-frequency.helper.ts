@@ -26,3 +26,21 @@ export function accessDaysForFrequency(freq?: string | null): number {
       return 30; // MONTHLY / MONTH / MENSAL
   }
 }
+
+const INTERVAL_DAYS: Record<string, number> = {
+  DAY: 1,
+  WEEK: 7,
+  MONTH: 30,
+  YEAR: 365,
+};
+
+/** Dias de acesso por ciclo de uma oferta, derivados da renovação; null para compra única. */
+export function accessDaysForOffer(offer: {
+  renewalMode: string;
+  intervalType?: string | null;
+  intervalCount?: number | null;
+}): number | null {
+  if (offer.renewalMode === 'NONE' || !offer.intervalType) return null;
+  const unit = INTERVAL_DAYS[offer.intervalType];
+  return unit ? unit * (offer.intervalCount ?? 1) : null;
+}

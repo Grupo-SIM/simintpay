@@ -46,7 +46,7 @@ Consequências:
 
 - `AUTO_CHARGE`: a SimIntPay emite a cobrança do ciclo no cartão tokenizado.
 - `MANUAL_PAY`: a SimIntPay emite PIX/boleto a cada ciclo e envia ao comprador (generaliza o plano PIX atual).
-- `NONE`: compra única; `accessDays` opcional dá acesso por prazo.
+- `NONE`: compra única, sem crédito de dias de acesso.
 
 Presets que reproduzem os cinco produtos: link de pagamento (`NONE`), link de assinatura (`PERIODIC` + `AUTO_CHARGE`), plano (idem, sem URL pública), plano PIX (`MANUAL_PAY` + `accessDays`), boleto (cobrança avulsa nominal, sem oferta pública reutilizável).
 
@@ -207,3 +207,5 @@ Pendências:
 - [ ] **Com o dono do produto:** migrar os links legados para ofertas (runbook `docs/guides/offer-migration-runbook.md`) e trocar as URLs divulgadas. Até lá, o cartão pago num link de assinatura antigo (`?subscriptionLinkCode=`) continua criando assinatura na DOM. Os códigos públicos são preservados, mas a URL nova é `?ofertaCode=`; a URL antiga não redireciona sozinha. Depois de migrar, desative o link legado (`isActive = false`) para ele deixar de vender.
 
 Decisão do dono: `Offer.kind` e o enum `OfferKind` foram removidos (migration `20261111110000_drop_offer_kind`; a `20261105130000_offer_charge_core` já aplicada não foi editada). O comportamento vem de `renewalMode`, `acceptedMethods`, intervalo, `accessDays`, `maxUses`, `expiresAt` e `fulfillment`. Os modelos rápidos do formulário passaram a ser só valores iniciais no cliente, e o rótulo da listagem é derivado dos atributos. O mapa legado continua em `legacyType`/`legacyId`.
+
+Decisão do dono: `Offer.accessDays` foi removido (migration `20261115100000_drop_offer_access_days`). O crédito de dias do `offer-access` (serviço, cron, lembretes e rotas compat do plano PIX) continua, mas os dias por cobrança paga vêm da renovação da oferta (`accessDaysForOffer`: unidade de `intervalType` × `intervalCount`, com DAY=1, WEEK=7, MONTH=30, YEAR=365). Ofertas `NONE` não creditam dias.

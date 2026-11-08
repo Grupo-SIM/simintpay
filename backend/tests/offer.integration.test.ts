@@ -55,12 +55,10 @@ run(
       acceptedMethods: ['PIX'],
       maxInstallments: 1,
       renewalMode: 'MANUAL_PAY',
-      accessDays: 30,
     });
     expect(offer.ownerUserId).toBe(seller.id);
     expect(offer.createdByUserId).toBe(seller.id);
     expect(offer.renewalMode).toBe('MANUAL_PAY');
-    expect(offer.accessDays).toBe(30);
     expect(offer.code).toMatch(/^[A-Z0-9]{10}$/);
 
     const pub = await service.getPublicByCode(offer.code);

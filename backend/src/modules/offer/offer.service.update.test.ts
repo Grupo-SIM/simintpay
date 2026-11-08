@@ -15,7 +15,6 @@ const existing = {
   trialDays: 3,
   retryDays: 2,
   graceDays: 1,
-  accessDays: 30,
   metadata: null,
   expiresAt: new Date('2027-01-01'),
   maxUses: 10,
@@ -41,7 +40,6 @@ describe('OfferService.update clearing optional fields', () => {
     const { svc, updates } = service();
     await svc.update({ id: 'u1', role: 'USER' }, 'o1', { name: 'Novo' });
     expect(updates[0]).toMatchObject({
-      accessDays: 30,
       trialDays: 3,
       retryDays: 2,
       graceDays: 1,
@@ -66,7 +64,6 @@ describe('OfferService.update clearing optional fields', () => {
     await svc.update({ id: 'u1', role: 'USER' }, 'o1', {
       expiresAt: null,
       maxUses: null,
-      accessDays: null,
       trialDays: null,
       retryDays: null,
       graceDays: null,
@@ -74,7 +71,6 @@ describe('OfferService.update clearing optional fields', () => {
     expect(updates[0]).toMatchObject({
       expiresAt: null,
       maxUses: null,
-      accessDays: null,
       trialDays: null,
       retryDays: null,
       graceDays: null,

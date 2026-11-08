@@ -16,7 +16,7 @@ import { offerPixPlanCompatEnabled } from './pixplan-compat-flag';
 import { PagatgNotifier } from './pagatg-notifier';
 
 /**
- * Crédito de dias das ofertas com `accessDays`. O serviço, o cron e os lembretes sempre rodam.
+ * Crédito de dias das ofertas com renovação. O serviço, o cron e os lembretes sempre rodam.
  * As rotas de compatibilidade do plano PIX (mesmos caminhos do `PixPlanController` legado) só são
  * montadas com `OFFER_PIXPLAN_COMPAT=1`; o `PixPlanModule` legado desmonta as suas na mesma
  * condição, então exatamente um dos dois controllers responde por cada caminho.

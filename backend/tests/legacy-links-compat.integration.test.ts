@@ -241,7 +241,6 @@ run('subscription link: compat responses have the legacy shapes', async () => {
     renewalMode: 'AUTO_CHARGE',
     intervalType: 'MONTH',
     intervalCount: 6,
-    accessDays: 180,
   });
   const detail = await compat.getSubscriptionLink(seller, b.data.id);
   expect(detail.data).toMatchObject({

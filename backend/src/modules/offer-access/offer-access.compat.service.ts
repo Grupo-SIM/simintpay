@@ -10,7 +10,7 @@ import {
   type OfferCodeAlias,
 } from '@prisma/client';
 import { assertExplicitPlatform } from '../../application/helpers/explicit-platform.helper';
-import { accessDaysForFrequency } from '../../application/helpers/billing-frequency.helper';
+import { accessDaysForOffer } from '../../application/helpers/billing-frequency.helper';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { signRenewal } from '../billing-core/renewal-signature';
 import { coproductionInfo } from '../coproduction/coproduction-view';
@@ -178,7 +178,6 @@ export class OfferAccessCompatService {
       renewalMode: 'MANUAL_PAY',
       intervalType: freq.intervalType,
       intervalCount: freq.intervalCount,
-      accessDays: accessDaysForFrequency(freq.type),
       fulfillment: Object.keys(fulfillment).length ? fulfillment : undefined,
       metadata: { pixPlan: input.meta },
     } as unknown as CreateOfferDto;
@@ -476,7 +475,6 @@ export class OfferAccessCompatService {
         ...(freq && {
           intervalType: freq.intervalType,
           intervalCount: freq.intervalCount,
-          accessDays: accessDaysForFrequency(freq.type),
         }),
         ...(body.tenantTag !== undefined && { platformTag: selectedTag }),
         ...((body.redirectUrl !== undefined ||
@@ -842,7 +840,7 @@ export class OfferAccessCompatService {
       createdAt: transaction.createdAt,
       description: transaction.description,
     };
-    if (!charge?.offer?.accessDays)
+    if (!charge?.offer || !accessDaysForOffer(charge.offer))
       return { type: 'UNKNOWN', transaction: base, seller: transaction.user };
 
     const offer = charge.offer;
@@ -872,7 +870,7 @@ export class OfferAccessCompatService {
       plan: {
         name: offer.description || offer.name,
         type: planTypeOfOffer(offer),
-        daysCredited: offer.accessDays,
+        daysCredited: accessDaysForOffer(offer),
         price: offer.amountCents / 100 || Number(transaction.amount),
         code: alias?.code ?? null,
       },

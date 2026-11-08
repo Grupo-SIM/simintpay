@@ -1,5 +1,4 @@
 import { acceptedMethodList } from '../../application/helpers/accepted-payment-methods.helper';
-import { accessDaysForFrequency } from '../../application/helpers/billing-frequency.helper';
 import {
   OfferFulfillmentError,
   parseOfferFulfillment,
@@ -54,7 +53,6 @@ export type OfferDraft = {
   expiresAt: Date | null;
   maxUses: number | null;
   usedCount: number;
-  accessDays: number | null;
   renewalMode: RenewalModeValue;
   intervalType: IntervalTypeValue | null;
   intervalCount: number | null;
@@ -242,7 +240,6 @@ export function mapPaymentLink(row: PaymentLinkRow): OfferDraft {
       expiresAt: row.expiresAt ?? null,
       maxUses: row.maxUses ?? null,
       usedCount: row.currentUses ?? 0,
-      accessDays: null,
       renewalMode: 'NONE',
       intervalType: null,
       intervalCount: null,
@@ -288,7 +285,6 @@ export function mapSubscriptionLink(row: SubscriptionLinkRow): OfferDraft {
       expiresAt: null,
       maxUses: row.maxUses ?? null,
       usedCount: row.currentUses ?? 0,
-      accessDays: accessDaysForFrequency(row.frequencyType),
       renewalMode: 'AUTO_CHARGE',
       intervalType: interval.type,
       intervalCount: interval.count,
@@ -346,7 +342,6 @@ export function mapPlan(row: PlanRow): OfferDraft {
       expiresAt: null,
       maxUses: null,
       usedCount: 0,
-      accessDays: accessDaysForFrequency(row.type) * multiplier,
       renewalMode: 'AUTO_CHARGE',
       intervalType: interval.type,
       intervalCount: interval.count,
@@ -418,7 +413,6 @@ export function mapPixCreditPlan(row: PixCreditPlanRow): OfferDraft {
       expiresAt: null,
       maxUses: null,
       usedCount: 0,
-      accessDays: accessDaysForFrequency(row.type),
       renewalMode: 'MANUAL_PAY',
       intervalType: interval.type,
       intervalCount: interval.count,
@@ -466,7 +460,6 @@ export function mapBoleto(row: BoletoRow): OfferDraft {
       expiresAt: row.expiresAt ?? null,
       maxUses: row.maxUses ?? null,
       usedCount: row.currentUses ?? 0,
-      accessDays: null,
       renewalMode: 'NONE',
       intervalType: null,
       intervalCount: null,

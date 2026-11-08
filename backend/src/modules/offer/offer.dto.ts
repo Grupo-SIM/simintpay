@@ -89,11 +89,6 @@ export class UpdateOfferDto {
   @IsInt()
   graceDays?: number | null;
 
-  @ApiPropertyOptional({ type: Number, nullable: true })
-  @IsOptional()
-  @IsInt()
-  accessDays?: number | null;
-
   @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()
   @IsDateString()

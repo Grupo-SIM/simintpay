@@ -69,10 +69,8 @@ describe('validateOfferInput', () => {
       renewalMode: 'MANUAL_PAY',
       intervalType: 'MONTH',
       intervalCount: 1,
-      accessDays: 30,
     });
     expect(out.intervalCount).toBe(1);
-    expect(out.accessDays).toBe(30);
   });
 
   test('AUTO_CHARGE requires stored-card capability', () => {
@@ -120,9 +118,5 @@ describe('validateOfferInput', () => {
     expect(
       issues({ acceptedMethods: ['PIX'], metadata: { boletoDueDays: 500 } }),
     ).toBe('');
-  });
-
-  test('accessDays must be at least 1', () => {
-    expect(issues({ accessDays: 0 })).toContain('Dias de acesso');
   });
 });

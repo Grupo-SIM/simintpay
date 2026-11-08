@@ -75,7 +75,6 @@ export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
     intervalCount: offer.intervalCount,
     repetitions: offer.repetitions,
     trialDays: offer.trialDays,
-    accessDays: offer.accessDays,
     expiresAt: offer.expiresAt,
     requiresBuyerAddress: metadata.requiresBuyerAddress === true,
     bumps,
@@ -117,7 +116,6 @@ export class OfferService {
       trialDays: dto.trialDays,
       retryDays: dto.retryDays,
       graceDays: dto.graceDays,
-      accessDays: dto.accessDays,
       metadata: dto.metadata,
       acquirer: getModuleAcquirer(platformTag),
     });
@@ -185,8 +183,6 @@ export class OfferService {
         dto.retryDays === undefined ? existing.retryDays : dto.retryDays,
       graceDays:
         dto.graceDays === undefined ? existing.graceDays : dto.graceDays,
-      accessDays:
-        dto.accessDays === undefined ? existing.accessDays : dto.accessDays,
       metadata:
         dto.metadata ?? (existing.metadata as Record<string, unknown> | null),
       acquirer: getModuleAcquirer(existing.platformTag),

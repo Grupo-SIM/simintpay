@@ -49,7 +49,6 @@ test('PaymentLink maps methods, usage and keeps the code', () => {
     maxUses: 10,
     usedCount: 3,
     renewalMode: 'NONE',
-    accessDays: null,
     legacyType: 'PaymentLink',
     legacyId: 'p1',
     issues: [],
@@ -100,7 +99,6 @@ test('SubscriptionLink ANUAL is yearly, auto charge, 365 days', () => {
     renewalMode: 'AUTO_CHARGE',
     intervalType: 'YEAR',
     intervalCount: 1,
-    accessDays: 365,
     amountCents: 149900,
     acceptedMethods: ['CREDIT_CARD', 'PIX'],
     platformTag: 'GLOBAL',
@@ -121,7 +119,6 @@ test('SubscriptionLink PIX-only and TRIMESTRAL', () => {
   expect(d).toMatchObject({
     intervalType: 'MONTH',
     intervalCount: 3,
-    accessDays: 90,
   });
 });
 
@@ -144,7 +141,6 @@ test('Plan keeps repetitions, retryDays and tolerates null code/methods', () => 
     retryDays: 3,
     intervalType: 'MONTH',
     intervalCount: 1,
-    accessDays: 30,
     acceptedMethods: ['CREDIT_CARD', 'PIX'],
     platformTag: 'BOSQUE',
   });
@@ -154,10 +150,10 @@ test('Plan keeps repetitions, retryDays and tolerates null code/methods', () => 
 test('Plan SEMESTRAL and WEEKLY', () => {
   expect(
     mapPlan({ id: 'a', userId: 'u', name: 'n', price: 1, type: 'SEMESTRAL' }),
-  ).toMatchObject({ intervalType: 'MONTH', intervalCount: 6, accessDays: 180 });
+  ).toMatchObject({ intervalType: 'MONTH', intervalCount: 6 });
   expect(
     mapPlan({ id: 'b', userId: 'u', name: 'n', price: 1, type: 'WEEKLY' }),
-  ).toMatchObject({ intervalType: 'WEEK', accessDays: 7 });
+  ).toMatchObject({ intervalType: 'WEEK' });
 });
 
 test('PixCreditPlan is PIX manual pay and float price has no drift', () => {
@@ -175,7 +171,6 @@ test('PixCreditPlan is PIX manual pay and float price has no drift', () => {
     amountCents: 1999,
     isActive: false,
     platformTag: 'RENOVADA',
-    accessDays: 30,
     code: null,
   });
   expect(d.name).toBe('PIX MONTHLY');
@@ -219,22 +214,18 @@ test('Plan.frequency multiplies the interval of type (gateway "every N units")',
   expect(mapPlan({ ...base, type: 'MONTHLY', frequency: 2 })).toMatchObject({
     intervalType: 'MONTH',
     intervalCount: 2,
-    accessDays: 60,
   });
   expect(mapPlan({ ...base, type: 'WEEKLY', frequency: 3 })).toMatchObject({
     intervalType: 'WEEK',
     intervalCount: 3,
-    accessDays: 21,
   });
   expect(mapPlan({ ...base, type: 'ANUAL', frequency: 2 })).toMatchObject({
     intervalType: 'YEAR',
     intervalCount: 2,
-    accessDays: 730,
   });
   for (const frequency of [null, undefined, 1, 0, -1, 1.5])
     expect(mapPlan({ ...base, type: 'MONTHLY', frequency })).toMatchObject({
       intervalCount: 1,
-      accessDays: 30,
     });
 });
 

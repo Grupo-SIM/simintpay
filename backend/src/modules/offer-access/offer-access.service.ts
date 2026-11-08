@@ -7,6 +7,7 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import { ChargeStatus, type OfferAccess } from '@prisma/client';
+import { accessDaysForOffer } from '../../application/helpers/billing-frequency.helper';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import {
   onChargeSettled,
@@ -40,7 +41,7 @@ const stateOf = (a: OfferAccess): AccessState => ({
 });
 
 /**
- * Crédito de dias de acesso das ofertas com `accessDays` (porte do plano PIX de crédito).
+ * Crédito de dias de acesso das ofertas com renovação (porte do plano PIX de crédito).
  * Uma Charge paga credita uma única vez: o evento `credit:<chargeId>` é gravado na mesma
  * transação que atualiza o acesso, e uma liquidação repetida cai no `duplicate`.
  */
@@ -102,8 +103,8 @@ export class OfferAccessService implements OnModuleInit, OnModuleDestroy {
     });
     if (!charge) return 'retry';
     if (!charge.offerId || !charge.offer) return 'skipped';
-    const days = charge.offer.accessDays;
-    if (!days || days <= 0) return 'skipped';
+    const days = accessDaysForOffer(charge.offer);
+    if (!days) return 'skipped';
     if (charge.status !== ChargeStatus.PAID) return 'retry';
     const email = charge.customerEmail?.trim();
     const document = charge.customerDocument
@@ -212,7 +213,7 @@ export class OfferAccessService implements OnModuleInit, OnModuleDestroy {
   /**
    * Rede de segurança: cobranças de ciclo liquidadas pelo reconciliador ou pelo cartão guardado
    * (`BillingCycleService.settle`) não passam por `markChargeSettled` e portanto não emitem o
-   * evento de liquidação. Credita as pagas, com `accessDays`, que ainda não têm o evento
+   * evento de liquidação. Credita as pagas, de ofertas com renovação, que ainda não têm o evento
    * `credit:<id>` (idempotente), usando `paidAt` como instante do crédito.
    */
   async creditMissed(now = new Date(), lookbackDays = 14) {
@@ -222,7 +223,7 @@ export class OfferAccessService implements OnModuleInit, OnModuleDestroy {
     >`SELECT c."transactionId", c."paidAt" FROM "Charge" c
       JOIN "Offer" o ON o."id" = c."offerId"
       WHERE c."status" = 'PAID' AND c."transactionId" IS NOT NULL
-        AND o."accessDays" > 0 AND c."paidAt" >= ${since}
+        AND o."renewalMode" <> 'NONE' AND o."intervalType" IS NOT NULL AND c."paidAt" >= ${since}
         AND NOT EXISTS (SELECT 1 FROM "OfferAccessEvent" e WHERE e."eventKey" = 'credit:' || c."id")`;
     let credited = 0;
     for (const row of rows) {

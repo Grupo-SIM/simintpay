@@ -51,7 +51,6 @@ async function offer(over: Record<string, unknown> = {}, alias = true) {
       renewalMode: 'MANUAL_PAY',
       intervalType: 'MONTH',
       intervalCount: 1,
-      accessDays: 30,
       metadata: { pixPlan: { kind: 'PLAN' } },
       ...over,
     } as never,
@@ -159,12 +158,15 @@ run(
 );
 
 run(
-  'does not credit a charge that is not paid yet or has no accessDays',
+  'does not credit a charge that is not paid yet or is a one-off offer without renewal',
   async () => {
     const o = await offer();
     const { tx } = await charge(o, buyerOf());
     expect(await service.creditForTransaction(tx.id, t0)).toBe('retry');
-    const plain = await offer({ accessDays: null }, false);
+    const plain = await offer(
+      { renewalMode: 'NONE', intervalType: null, intervalCount: null },
+      false,
+    );
     const other = await charge(plain, buyerOf());
     await pay(other.tx.id);
     expect(await service.creditForTransaction(other.tx.id, t0)).toBe('skipped');

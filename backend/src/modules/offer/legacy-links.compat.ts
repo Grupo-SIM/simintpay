@@ -9,7 +9,6 @@ import {
   normalizeStoredPaymentMethods,
   type StoredPaymentMethods,
 } from '../../application/helpers/accepted-payment-methods.helper';
-import { accessDaysForFrequency } from '../../application/helpers/billing-frequency.helper';
 import { intervalForFrequency } from './legacy-offer-mapper';
 import { readOfferFulfillment } from './offer-fulfillment';
 import type { CreateOfferDto, UpdateOfferDto } from './offer.dto';
@@ -290,7 +289,6 @@ const scheduleFor = (freq: string | undefined | null) => {
   return {
     intervalType: interval.type,
     intervalCount: interval.count,
-    accessDays: accessDaysForFrequency(freq),
   };
 };
 

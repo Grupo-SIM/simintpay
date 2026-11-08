@@ -34,7 +34,6 @@ export type OfferInput = {
   trialDays?: number | null;
   retryDays?: number | null;
   graceDays?: number | null;
-  accessDays?: number | null;
   metadata?: Record<string, unknown> | null;
   /** Adquirente roteado para a plataforma da oferta. */
   acquirer: Acquirer;
@@ -51,7 +50,6 @@ export type NormalizedOffer = {
   trialDays: number | null;
   retryDays: number | null;
   graceDays: number | null;
-  accessDays: number | null;
   metadata: Record<string, unknown> | null;
 };
 
@@ -159,9 +157,6 @@ export function validateOfferInput(input: OfferInput): NormalizedOffer {
     issues.push('Modo de renovação inválido');
   }
 
-  if (present(input.accessDays) && !isInt(input.accessDays, 1)) {
-    issues.push('Dias de acesso deve ser um inteiro maior ou igual a 1');
-  }
   for (const [label, value] of [
     ['Dias de teste', input.trialDays],
     ['Dias de retentativa', input.retryDays],
@@ -208,7 +203,6 @@ export function validateOfferInput(input: OfferInput): NormalizedOffer {
     trialDays: input.trialDays ?? null,
     retryDays: input.retryDays ?? null,
     graceDays: input.graceDays ?? null,
-    accessDays: input.accessDays ?? null,
     metadata,
   };
 }
