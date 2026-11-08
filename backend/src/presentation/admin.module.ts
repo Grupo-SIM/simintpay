@@ -49,6 +49,8 @@ import { PlatformReportingModule } from '../application/services/platform-report
 import { ExternalPlatformDbModule } from '../modules/external-platform-db/external-platform-db.module';
 import { AcquirerFeesController } from '../modules/financial-policy/acquirer-fees.controller';
 import { AcquirerFeesService } from '../modules/financial-policy/acquirer-fees.service';
+import { AcquirerWithdrawalsController } from '../modules/financial-policy/acquirer-withdrawals.controller';
+import { AcquirerWithdrawalsService } from '../modules/financial-policy/acquirer-withdrawals.service';
 import { SyncAcquirerFeesCron } from '../infrastructure/cron/sync-acquirer-fees.cron';
 
 @Module({
@@ -66,6 +68,7 @@ import { SyncAcquirerFeesCron } from '../infrastructure/cron/sync-acquirer-fees.
     PlatformIntegrationsController,
     PlatformsController,
     AcquirerFeesController,
+    AcquirerWithdrawalsController,
     AdminController,
     AdminClientesController,
     AdminAfiliadosController,
@@ -73,6 +76,7 @@ import { SyncAcquirerFeesCron } from '../infrastructure/cron/sync-acquirer-fees.
   providers: [
     PlatformsService,
     AcquirerFeesService,
+    AcquirerWithdrawalsService,
     SyncAcquirerFeesCron,
     SyncDomTransactionsCron,
     SyncMaquinetasCron,

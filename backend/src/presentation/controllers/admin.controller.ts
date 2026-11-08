@@ -5583,40 +5583,6 @@ export class AdminController {
     return { success: true, comprovanteVisivel: body.comprovanteVisivel };
   }
 
-  @Post('saques/dom-fee')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @ApiBearerAuth()
-  @ApiOperation({
-    summary:
-      'Registrar manualmente taxa de saque DOM para uma plataforma (+R$1)',
-  })
-  async applyDomFee(
-    @Body() body: { platformTag?: string },
-    @CurrentUser() user: JwtPayload | undefined,
-  ) {
-    const platformTag = ((body?.platformTag ?? '') || 'GLOBAL').toUpperCase();
-    const domFee = getPlatformTaxaEffective(platformTag, 'TAXA_SAQUE_DOM', 3.5);
-    const adminUserId = user?.sub;
-    if (!adminUserId) throw new BadRequestException('Usuário não identificado');
-    await this.prisma.balanceLog.create({
-      data: {
-        userId: adminUserId,
-        action: 'ADMIN_WITHDRAW_FEE_INC',
-        bookkeepingAmount: new Prisma.Decimal(domFee),
-
-        balanceDelta: 0,
-
-        lockedDelta: 0,
-
-        source: 'MASTER_ADMIN_CONTROL',
-        description: `Taxa DOM manual — plataforma: ${platformTag}`,
-        metadata: { platformTag, domFee, manual: true },
-      },
-    });
-    return { amount: domFee, platformTag };
-  }
-
   @Post('test-ebook-email')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
@@ -5638,39 +5604,6 @@ export class AdminController {
       redirectUrl: body.redirectUrl?.trim() || null,
     });
     return { ok: true, sentTo: body.to.trim() };
-  }
-
-  @Post('saques/dom-fee/undo')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
-  @ApiBearerAuth()
-  @ApiOperation({
-    summary: 'Desfazer taxa de saque DOM registrada manualmente (-R$1)',
-  })
-  async undoDomFee(
-    @Body() body: { platformTag?: string },
-    @CurrentUser() user: JwtPayload | undefined,
-  ) {
-    const platformTag = ((body?.platformTag ?? '') || 'GLOBAL').toUpperCase();
-    const domFee = getPlatformTaxaEffective(platformTag, 'TAXA_SAQUE_DOM', 3.5);
-    const adminUserId = user?.sub;
-    if (!adminUserId) throw new BadRequestException('Usuário não identificado');
-    await this.prisma.balanceLog.create({
-      data: {
-        userId: adminUserId,
-        action: 'ADMIN_WITHDRAW_FEE_INC',
-        bookkeepingAmount: new Prisma.Decimal(-domFee),
-
-        balanceDelta: 0,
-
-        lockedDelta: 0,
-
-        source: 'MASTER_ADMIN_CONTROL',
-        description: `Taxa DOM desfeita — plataforma: ${platformTag}`,
-        metadata: { platformTag, domFee: -domFee, manual: true, undo: true },
-      },
-    });
-    return { amount: -domFee, platformTag };
   }
 
   // ──────────── RENOVADA: TRANSAÇÕES & RESUMO ────────────

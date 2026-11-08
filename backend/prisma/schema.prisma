@@ -1468,6 +1468,7 @@ model AcquirerCatalogue {
   syncAdapter String?
   feeSchedules AcquirerFeeSchedule[]
   withdrawalFees AcquirerWithdrawalFee[]
+  withdrawals AcquirerWithdrawal[]
   externalRefs ExternalRef[]
   storedCardTokens StoredCardToken[]
 }
@@ -1482,6 +1483,20 @@ model AcquirerWithdrawalFee {
   actorId String?
   createdAt DateTime @default(now())
   @@index([acquirerCode, createdAt], map: "acquirer_withdrawal_fee_created_idx")
+}
+
+/// Withdrawal made from an acquirer on a given day. Each row has a matching ADMIN_WITHDRAW_FEE_INC
+/// BalanceLog (balanceLogId) carrying the cost into the financial reports.
+model AcquirerWithdrawal {
+  id String @id @default(uuid())
+  acquirerCode String
+  acquirer AcquirerCatalogue @relation(fields: [acquirerCode], references: [code], onDelete: Restrict)
+  feeCents Int
+  date DateTime @db.Date
+  balanceLogId String? @unique
+  actorId String?
+  createdAt DateTime @default(now())
+  @@index([date])
 }
 
 /// Append-only negotiated costs. A newer revision supersedes older rows for the same lane.
