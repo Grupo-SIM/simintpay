@@ -6,8 +6,7 @@ import {
   filtersToParams,
   hasActiveFilters,
   normalizeListResponse,
-  screenFromParams,
-  screenHref,
+  offerRoutes,
 } from './offer-filters';
 
 const parse = (qs: string) => filtersFromParams(new URLSearchParams(qs));
@@ -77,32 +76,15 @@ describe('offer filters', () => {
     expect(normalizeListResponse(paged, { page: 2 })).toBe(paged);
   });
 
-  test('tela por ?novo=1 e ?editar=id, preservando filtros', () => {
-    expect(screenFromParams(new URLSearchParams(''))).toEqual({
-      mode: 'list',
-    });
-    expect(screenFromParams(new URLSearchParams('novo=1'))).toEqual({
-      mode: 'create',
-    });
-    expect(screenFromParams(new URLSearchParams('editar=abc'))).toEqual({
-      mode: 'edit',
-      id: 'abc',
-    });
-    expect(screenFromParams(new URLSearchParams('novo=0'))).toEqual({
-      mode: 'list',
-    });
+  test('rotas das telas, preservando filtros', () => {
     const filters = {
       ...emptyOfferFilters,
       renewalMode: 'AUTO_CHARGE' as const,
     };
-    expect(screenHref({ mode: 'list' }, filters)).toBe(
-      '/ofertas?recorrencia=AUTO_CHARGE',
+    expect(offerRoutes.list(filters)).toBe('/ofertas?recorrencia=AUTO_CHARGE');
+    expect(offerRoutes.edit('x y', filters)).toBe(
+      '/ofertas/x%20y/editar?recorrencia=AUTO_CHARGE',
     );
-    expect(screenHref({ mode: 'edit', id: 'x y' }, filters)).toBe(
-      '/ofertas?recorrencia=AUTO_CHARGE&editar=x+y',
-    );
-    expect(screenHref({ mode: 'create' }, emptyOfferFilters)).toBe(
-      '/ofertas?novo=1',
-    );
+    expect(offerRoutes.create()).toBe('/ofertas/criar');
   });
 });

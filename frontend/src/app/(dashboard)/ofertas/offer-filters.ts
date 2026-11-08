@@ -115,26 +115,17 @@ export function normalizeListResponse(
   return response;
 }
 
-/** Estado da tela (listagem ou formulário) a partir de ?novo=1 / ?editar=<id>. */
-export type OfferScreen =
-  { mode: 'list' } | { mode: 'create' } | { mode: 'edit'; id: string };
+/** Rotas das telas de ofertas; os filtros da listagem viajam na querystring para voltar ao mesmo recorte. */
+export const offerRoutes = {
+  create: (filters: OfferFilters = emptyOfferFilters) =>
+    withFilters('/ofertas/criar', filters),
+  edit: (id: string, filters: OfferFilters = emptyOfferFilters) =>
+    withFilters(`/ofertas/${encodeURIComponent(id)}/editar`, filters),
+  list: (filters: OfferFilters = emptyOfferFilters) =>
+    withFilters('/ofertas', filters),
+};
 
-export function screenFromParams(params: Params): OfferScreen {
-  const id = params.get('editar')?.trim();
-  if (id) return { mode: 'edit', id };
-  if (params.get('novo') === '1') return { mode: 'create' };
-  return { mode: 'list' };
-}
-
-/** Querystring de cada tela, preservando os filtros da listagem ao abrir/fechar o formulário. */
-export function screenHref(
-  screen: OfferScreen,
-  filters: OfferFilters,
-  base = '/ofertas',
-): string {
-  const params = filtersToParams(filters);
-  if (screen.mode === 'create') params.set('novo', '1');
-  if (screen.mode === 'edit') params.set('editar', screen.id);
-  const qs = params.toString();
+function withFilters(base: string, filters: OfferFilters): string {
+  const qs = filtersToParams(filters).toString();
   return qs ? `${base}?${qs}` : base;
 }

@@ -1,15 +1,13 @@
 import { redirect } from 'next/navigation';
+import { OfferFormRoute } from '../components/OfferFormRoute';
 
-/** Rota antiga do assistente: a criação/edição agora vive na tela única de ofertas. */
-export default async function CriarOfertaRedirect({
+export default async function CriarOfertaPage({
   searchParams,
 }: {
   searchParams: Promise<{ id?: string }>;
 }) {
+  // Link antigo do assistente: ?id=<oferta> abria a edição.
   const { id } = await searchParams;
-  redirect(
-    id
-      ? `/ofertas?editar=${encodeURIComponent(id)}`
-      : '/ofertas?novo=1',
-  );
+  if (id) redirect(`/ofertas/${encodeURIComponent(id)}/editar`);
+  return <OfferFormRoute editId={null} />;
 }
