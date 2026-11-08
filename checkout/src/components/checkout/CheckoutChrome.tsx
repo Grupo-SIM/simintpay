@@ -27,7 +27,7 @@ export function CheckoutFooter() {
     <footer className="mt-auto px-4 pb-6 pt-4 text-center">
       <p className="text-xs text-[#7d778b]">
         Processado por{' '}
-        <span className="font-medium text-[#d9d4e3]">Simintpay</span>
+        <span className="font-medium text-[#d9d4e3]">Simintpay</span>.
       </p>
     </footer>
   );

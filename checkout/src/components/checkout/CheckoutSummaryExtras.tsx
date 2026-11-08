@@ -4,8 +4,8 @@ import { Lock, ShieldCheck } from 'lucide-react';
 import { cx } from '@/utils/cx';
 
 const trustItems = [
-  { Icon: ShieldCheck, text: 'Conexão criptografada de ponta a ponta' },
-  { Icon: Lock, text: 'Dados tratados conforme a LGPD' },
+  { Icon: ShieldCheck, text: 'Conexão criptografada de ponta a ponta.' },
+  { Icon: Lock, text: 'Dados tratados conforme a LGPD.' },
 ] as const;
 
 /** Selos de confiança (dentro de um CheckoutUiCard). */
