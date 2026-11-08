@@ -49,11 +49,7 @@ const MANAGE_ITEMS = [
 const ADMIN_ITEMS = [
   { href: '/admin/contas', icon: UsersRound, label: 'Contas' },
   { href: '/admin/taxas', icon: Percent, label: 'Taxas' },
-  {
-    href: '/admin/taxa-saque-dom',
-    icon: ArrowDownToLine,
-    label: 'Taxa Saque DOM',
-  },
+  { href: '/admin/saques', icon: ArrowDownToLine, label: 'Saques' },
 ];
 
 const W_OPEN = 200;
@@ -347,14 +343,16 @@ export function Sidebar() {
           icon={CreditCard}
           label="Transações"
         />
-        <NavLink
-          open={open}
-          pathname={pathname}
-          labelStyle={labelStyle}
-          href="/saques"
-          icon={ArrowDownToLine}
-          label="Saques"
-        />
+        {!user?.isAdmin && (
+          <NavLink
+            open={open}
+            pathname={pathname}
+            labelStyle={labelStyle}
+            href="/saques"
+            icon={ArrowDownToLine}
+            label="Saques"
+          />
+        )}
         {!user?.isAdmin && (
           <>
             {/* Cobranças geradas pelo master para este cliente — a bolinha indica pendência */}

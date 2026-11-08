@@ -163,6 +163,14 @@ export const endpoints = {
       updateReceipt: (id: string) => `/admin/saques/${id}/comprovante`,
       toggleVisibilidade: (id: string) => `/admin/saques/${id}/visibilidade`,
     },
+    acquirerWithdrawals: {
+      list: '/admin/acquirer-withdrawals',
+      create: '/admin/acquirer-withdrawals',
+      update: (id: string) =>
+        `/admin/acquirer-withdrawals/${encodeURIComponent(id)}`,
+      remove: (id: string) =>
+        `/admin/acquirer-withdrawals/${encodeURIComponent(id)}`,
+    },
     transacoesDom: '/admin/transacoes-dom',
     maquinetas: '/admin/maquinetas',
     criarConta: '/admin/criar-conta',
