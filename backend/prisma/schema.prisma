@@ -1499,6 +1499,21 @@ model AcquirerWithdrawal {
   @@index([date])
 }
 
+/// Cashback avulso (DOM Vale Bônus) concedido a compras aprovadas em outras adquirentes.
+/// Uma linha por transação (idempotente); o envio à DOM acontece fora da transação de liquidação.
+model CashbackGrant {
+  id String @id @default(uuid())
+  transactionId String @unique
+  valueCents Int
+  status String @default("PENDING")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, nextAttemptAt])
+}
+
 /// Append-only negotiated costs. A newer revision supersedes older rows for the same lane.
 model AcquirerFeeSchedule {
   id String @id @default(uuid())

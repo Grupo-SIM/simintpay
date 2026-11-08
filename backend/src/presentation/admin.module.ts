@@ -11,6 +11,7 @@ import { SyncDomTransactionsCron } from '../infrastructure/cron/sync-dom-transac
 import { SyncMaquinetasCron } from '../infrastructure/cron/sync-maquinetas.cron';
 import { CommunityAccessCron } from '../infrastructure/cron/community-access.cron';
 import { ExpirationReminderCron } from '../infrastructure/cron/expiration-reminder.cron';
+import { CashbackGrantCron } from '../infrastructure/cron/cashback-grant.cron';
 import { WalletConsistencyCron } from '../infrastructure/cron/wallet-consistency.cron';
 import { AdminController } from './controllers/admin.controller';
 import { AdminClientesController } from './controllers/admin-clientes.controller';
@@ -83,6 +84,7 @@ import { SyncAcquirerFeesCron } from '../infrastructure/cron/sync-acquirer-fees.
     CommunityAccessCron,
     ExpirationReminderCron,
     WalletConsistencyCron,
+    CashbackGrantCron,
     ListLeadsUseCase,
     ApproveLeadUseCase,
     RejectLeadUseCase,

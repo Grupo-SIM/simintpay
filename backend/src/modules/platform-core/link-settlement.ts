@@ -1,5 +1,6 @@
 import { settleCoproduction } from '../coproduction/coproduction-settlement';
 import { AffiliateCommissionService } from '../../application/services/affiliate-commission.service';
+import { enqueueCashbackGrant } from './cashback-grant';
 import { applyWalletEntry } from '../wallet-ledger/wallet-ledger';
 import { ConflictException } from '@nestjs/common';
 import { Prisma, TransactionStatus, type Transaction } from '@prisma/client';
@@ -63,6 +64,8 @@ export async function settleFinalNet(
     });
   }
   const commissions = new AffiliateCommissionService();
+  if (status === 'COMPLETED' && from !== 'IN_MEDIATION')
+    await enqueueCashbackGrant(p, row);
   if (status === 'COMPLETED')
     await commissions.applyForTransaction(p, {
       transactionId: row.id,

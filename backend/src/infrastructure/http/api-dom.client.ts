@@ -1060,6 +1060,46 @@ export class ApiDomClient implements IPaymentGateway {
     });
   }
 
+  /** Cashback avulso (Vale Bônus) sem transação DOM: serve compras de outras adquirentes. */
+  async addStandaloneCashback(
+    domToken: string,
+    input: {
+      valueReais: number;
+      name: string;
+      document: string;
+      mobilePhone: string;
+      codExternal: string;
+      idempotencyKey: string;
+    },
+  ): Promise<{ status: 'delivered' | 'pending' }> {
+    const res = await firstValueFrom(
+      this.http.post<{ status?: string; msg?: string }>(
+        `${this.domRealApiUrl}/cashback`,
+        {
+          value: input.valueReais,
+          customer: {
+            name: input.name,
+            document: input.document,
+            mobile_phone: input.mobilePhone,
+          },
+          cod_external: input.codExternal,
+          idempotency_key: input.idempotencyKey,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${domToken}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15_000,
+        },
+      ),
+    );
+    const status = res.data?.status;
+    if (status !== 'delivered' && status !== 'pending')
+      throw new BadRequestException(res.data?.msg ?? 'Cashback recusado');
+    return { status };
+  }
+
   /** Cobra um token do cofre da SimIntPay (mesma chamada de /transactions usada pelas assinaturas DOM). */
   async chargeStoredCardToken(
     domToken: string,

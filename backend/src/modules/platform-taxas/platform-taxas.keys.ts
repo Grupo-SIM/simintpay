@@ -8,6 +8,7 @@ export const LEGACY_TAXA_KEYS = [
   'LIQUIDEZ',
   'TAXA_FIXA_TRANSACAO',
   'CASHBACK_DOM_ATIVO', // 1 = DOM gera cashback e cobra o custo; 0 = cashback desativado nas transações
+  'CASHBACK_DOM_VALOR', // Bônus (R$) concedido ao comprador em compras de outras adquirentes; 0 = não concede
   'CASHBACK_DOM_CUSTO', // Custo fixo (R$) do cashback DOM por transação online
   'TAXA_SERVICO', // Taxa de Serviço Sim Int Pay (padrão R$ 4.00)
   'TAXA_COMISSAO_AFILIADO', // Comissão % de afiliado sobre venda de livro afiliado (ebook) (padrão 10%)
@@ -110,6 +111,7 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   LIQUIDEZ: 0.9301,
   TAXA_FIXA_TRANSACAO: 1.0,
   CASHBACK_DOM_ATIVO: 1,
+  CASHBACK_DOM_VALOR: 0,
   CASHBACK_DOM_CUSTO: 0,
   TAXA_SERVICO: 4.0,
   TAXA_COMISSAO_AFILIADO: 0.1, // 10%
@@ -204,6 +206,7 @@ export const EDITABLE_PLATFORM_TAXA_KEYS = [
   'TAXA_SAQUE_EXTRA',
   'CASHBACK_DOM_ATIVO',
   'CASHBACK_DOM_CUSTO',
+  'CASHBACK_DOM_VALOR',
 ] as const;
 export function isEditablePlatformTaxaKey(key: string): boolean {
   return (EDITABLE_PLATFORM_TAXA_KEYS as readonly string[]).includes(key);

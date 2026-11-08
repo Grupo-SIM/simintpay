@@ -271,9 +271,25 @@ export function domCashbackReais(): number {
     : 0;
 }
 
-/** Cashback DOM entra como custo fixo apenas nas tabelas online da DOM. */
+/**
+ * Cashback DOM entra no preço apenas nas tabelas online da DOM. Em outras adquirentes o custo
+ * (cashback avulso) é da SimIntPay e aparece só nos relatórios como taxa de cashback DOM.
+ */
 export function domCashbackFixedCents(acquirer: string, channel: string) {
   return acquirer === 'DOM' && channel === 'ONLINE' ? domCashbackCents() : 0;
+}
+
+/** Bônus em centavos concedido ao comprador de outra adquirente; 0 quando desativado. */
+export function domCashbackGrantCents(): number {
+  return isDomCashbackActive()
+    ? Math.round(
+        getPlatformTaxaEffective(
+          'GLOBAL',
+          'CASHBACK_DOM_VALOR',
+          PLATFORM_TAXA_DEFAULTS.CASHBACK_DOM_VALOR,
+        ) * 100,
+      )
+    : 0;
 }
 
 export function domCashbackCents(): number {
