@@ -55,7 +55,6 @@ import {
   methodLabels,
   type Offer,
   type OfferInterval,
-  type OfferTemplateId,
 } from '../offers';
 import { OfferBumpsSection } from './OfferBumpsSection';
 
@@ -91,8 +90,6 @@ function FormBody({
   > | null>(null);
   const [previewPending, setPreviewPending] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] =
-    useState<OfferTemplateId>('ONE_TIME');
   const [platform, setPlatform] = useState<string | null>(null);
   const [amountError, setAmountError] = useState<string | null>(null);
   const patch = (changes: Partial<OfferForm>) =>
@@ -314,16 +311,10 @@ function FormBody({
                     key={template}
                     type="button"
                     data-testid={`preset-${template}`}
-                    aria-pressed={selectedTemplate === template}
-                    onClick={() => {
-                      setSelectedTemplate(template);
-                      setForm((current) => applyPreset(current, template));
-                    }}
-                    className={`cursor-pointer rounded-xl border p-3 text-left transition-colors hover:border-emerald-600 dark:hover:bg-white/5 ${
-                      selectedTemplate === template
-                        ? 'border-emerald-600 bg-emerald-50/60 dark:bg-white/5'
-                        : 'border-zinc-200 dark:border-white/10'
-                    }`}
+                    onClick={() =>
+                      setForm((current) => applyPreset(current, template))
+                    }
+                    className="cursor-pointer rounded-xl border border-zinc-200 p-3 text-left transition-colors hover:border-emerald-600 dark:border-white/10 dark:hover:bg-white/5"
                   >
                     <span className="block text-sm font-semibold">
                       {templateLabels[template]}
