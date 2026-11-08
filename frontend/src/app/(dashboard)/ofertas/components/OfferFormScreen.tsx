@@ -2,6 +2,7 @@
 
 import { PaymentLinkPreviewModal } from '../../links-pagamento/criar/components/PaymentLinkPreviewModal';
 import { Button } from '@/components/ui/Button';
+import { EmailPreview } from '@/components/ui/EmailPreview';
 import { HelpTooltip } from '@/components/ui/HelpTooltip';
 import { useState } from 'react';
 import { ChevronDown, Eye } from 'lucide-react';
@@ -596,6 +597,11 @@ function FormBody({
                 onChange={(event) => patch({ emailBody: event.target.value })}
               />
             </label>
+            <EmailPreview
+              body={form.emailBody}
+              title={form.name}
+              redirectUrl={form.redirectUrl}
+            />
           </div>
         </div>
       </details>
