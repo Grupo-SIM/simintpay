@@ -1,7 +1,6 @@
 'use client';
 
 import { InfoRow } from './components';
-import { useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -23,10 +22,8 @@ import {
 import Link from 'next/link';
 
 import { formatTransacaoDescricaoUi, transacaoPlataformaUi } from '@/lib/utils';
-import { PlatformBadges } from '@/components/ui/PlatformBadges';
-import { Badge } from '@/components/ui/Badge';
+import { platformLabel } from '@/components/ui/platform-label';
 import { CopyButton } from '@/components/ui/CopyButton';
-import { StatusTimeline } from '@/components/ui/StatusTimeline';
 import { useToast } from '@/components/ui/Toast';
 import { ActionButton } from '../../relatorio/components/ActionButton';
 
@@ -83,22 +80,6 @@ export default function TransacaoDetailPage() {
 
   const order = data?.order;
 
-  const timelineItems = useMemo(() => {
-    const items = order?.historic_status ?? [];
-    // The image shows descending 2, 1
-    // We reverse if the API returns chronologically or vice versa
-    // DOM usually returns items in order, let's just reverse for the descending look (2, 1)
-    return [...items].reverse().map((it, idx, arr) => ({
-      title: (
-        <div className="flex items-center gap-2">
-          <span className="font-semibold">{it.status}</span>
-        </div>
-      ),
-      description: formatDateTime(it.date),
-      // we can use it.id for custom markers if needed
-    }));
-  }, [order?.historic_status]);
-
   if (loading || loadingUser) {
     return (
       <div className="flex flex-col gap-6 animate-pulse">
@@ -132,7 +113,9 @@ export default function TransacaoDetailPage() {
     );
   }
 
-  const statusType = order.type?.toUpperCase();
+  const platformTag = order.items
+    ?.map((item) => transacaoPlataformaUi(undefined, item.name))
+    .find(Boolean);
   const isPix = order.type_payment?.toUpperCase() === 'PIX';
   const valorBrutoVenda = safeNum(order.valor_bruto_venda ?? order.total);
   const taxaDom = safeNum(order.taxa_dom ?? order.mdr_value);
@@ -178,42 +161,51 @@ export default function TransacaoDetailPage() {
             <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-white/10 rounded-full blur-3xl pointer-events-none" />
 
             <div className="relative space-y-6">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[11px] font-bold uppercase tracking-widest text-emerald-100/70">
-                    Código da transação
+              {isAdmin && (
+                <>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[11px] font-bold uppercase tracking-widest text-emerald-100/70">
+                        Código da transação
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 group">
+                      <span className="text-lg font-mono font-semibold truncate">
+                        {id}
+                      </span>
+                      <CopyButton
+                        value={id}
+                        size={32}
+                        iconOnly
+                        className="opacity-0 group-hover:opacity-100 bg-white/10 border-white/20 text-white hover:bg-white/20"
+                      />
+                    </div>
                   </div>
-                  <Badge value={order.type}>
-                    {order.type_payment || 'Aprovado'}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-2 group">
-                  <span className="text-lg font-mono font-semibold truncate">
-                    {id}
-                  </span>
-                  <CopyButton
-                    value={id}
-                    size={32}
-                    iconOnly
-                    className="opacity-0 group-hover:opacity-100 bg-white/10 border-white/20 text-white hover:bg-white/20"
-                  />
-                </div>
-              </div>
 
+                  <div>
+                    <div className="text-[11px] font-bold uppercase tracking-widest text-emerald-100/70 mb-1">
+                      Código de referência
+                    </div>
+                    <div className="flex items-center gap-2 group">
+                      <span className="text-sm font-medium opacity-90 truncate">
+                        {order.id_transaction}
+                      </span>
+                      <CopyButton
+                        value={String(order.id_transaction ?? '')}
+                        size={28}
+                        iconOnly
+                        className="opacity-0 group-hover:opacity-100 bg-white/10 border-white/20 text-white hover:bg-white/20"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-widest text-emerald-100/70 mb-1">
-                  Código de referência
+                  Plataforma
                 </div>
-                <div className="flex items-center gap-2 group">
-                  <span className="text-sm font-medium opacity-90 truncate">
-                    {order.id_transaction}
-                  </span>
-                  <CopyButton
-                    value={String(order.id_transaction ?? '')}
-                    size={28}
-                    iconOnly
-                    className="opacity-0 group-hover:opacity-100 bg-white/10 border-white/20 text-white hover:bg-white/20"
-                  />
+                <div className="text-lg font-semibold truncate">
+                  {platformTag ? platformLabel(platformTag) : '—'}
                 </div>
               </div>
             </div>
@@ -227,12 +219,16 @@ export default function TransacaoDetailPage() {
                   {formatDateTime(order.date_register)}
                 </div>
               </div>
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-100/50">
-                  Método de captura
+              {isAdmin && (
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-100/50">
+                    Método de captura
+                  </div>
+                  <div className="mt-0.5 text-xs font-medium">
+                    {order.origin}
+                  </div>
                 </div>
-                <div className="mt-0.5 text-xs font-medium">{order.origin}</div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -419,13 +415,6 @@ export default function TransacaoDetailPage() {
                     <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100 truncate">
                       {formatTransacaoDescricaoUi(item.name) || '—'}
                     </div>
-                    {transacaoPlataformaUi(undefined, item.name) && (
-                      <PlatformBadges
-                        platforms={[
-                          transacaoPlataformaUi(undefined, item.name)!,
-                        ]}
-                      />
-                    )}
                   </div>
                   <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                     {formatBRL(item.price * item.quant)}
@@ -433,18 +422,6 @@ export default function TransacaoDetailPage() {
                 </div>
               ))}
             </div>
-          </div>
-
-          {/* Timeline */}
-          <div className="rounded-3xl border border-white/40 bg-white/70 p-6 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-white/5 flex-1">
-            <div className="flex items-center gap-2 border-b border-zinc-100 dark:border-white/5 pb-4 mb-6">
-              <History className="h-4 w-4 text-zinc-400" />
-              <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-900 dark:text-zinc-100 px-1">
-                Histórico da transação
-              </h3>
-            </div>
-
-            <StatusTimeline items={timelineItems} />
           </div>
         </div>
       </div>
