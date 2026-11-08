@@ -36,7 +36,6 @@ export type OfferForm = {
   trialDays: string;
   retryDays: string;
   graceDays: string;
-  accessDays: string;
   expiresAt: string;
   maxUses: string;
   redirectUrl: string;
@@ -72,7 +71,6 @@ export function formFromPreset(template: OfferTemplateId): OfferForm {
     trialDays: '',
     retryDays: '',
     graceDays: '',
-    accessDays: preset.accessDays == null ? '' : String(preset.accessDays),
     expiresAt: '',
     maxUses: '',
     redirectUrl: '',
@@ -96,7 +94,6 @@ export function applyPreset(
     renewalMode: preset.renewalMode,
     intervalType: preset.intervalType,
     intervalCount: preset.intervalCount,
-    accessDays: preset.accessDays,
   };
 }
 
@@ -141,7 +138,6 @@ export function formFromOffer(
     trialDays: num(offer.trialDays),
     retryDays: num(offer.retryDays),
     graceDays: num(offer.graceDays),
-    accessDays: num(offer.accessDays),
     expiresAt: toDateInput(offer.expiresAt),
     maxUses: num(offer.maxUses),
     redirectUrl: text(fulfillment.redirectUrl),
@@ -310,9 +306,6 @@ export function validateOfferForm(
         return `${label} deve ser zero ou mais.`;
     }
   }
-  const accessDays = toInt(form.accessDays);
-  if (accessDays !== undefined && !isInt(accessDays, 1))
-    return 'Dias de acesso deve ser no mínimo 1.';
   const maxUses = toInt(form.maxUses);
   if (maxUses !== undefined && !isInt(maxUses, 1))
     return 'O limite de usos deve ser no mínimo 1.';
@@ -409,7 +402,6 @@ export function offerPayload(
     trialDays: optional(form.trialDays, recurring),
     retryDays: optional(form.retryDays, recurring),
     graceDays: optional(form.graceDays, recurring),
-    accessDays: optional(form.accessDays),
     expiresAt: form.expiresAt
       ? new Date(`${form.expiresAt}T23:59:59`).toISOString()
       : edit

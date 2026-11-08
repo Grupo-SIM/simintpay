@@ -532,7 +532,7 @@ function FormBody({
       />
 
       <ProductFormSection title="Validade e limites">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           <Input
             type="date"
             label="Expira em"
@@ -549,15 +549,6 @@ function FormBody({
             placeholder="Ilimitado"
             value={form.maxUses}
             onChange={(value) => patch({ maxUses: digitsOnly(value) })}
-          />
-          <Input
-            label="Dias de acesso"
-            theme={theme}
-            variant="navbar"
-            inputMode="numeric"
-            placeholder="Sem prazo"
-            value={form.accessDays}
-            onChange={(value) => patch({ accessDays: digitsOnly(value) })}
           />
         </div>
       </ProductFormSection>

@@ -69,9 +69,6 @@ describe('validateOfferForm (espelha offer.validator.ts)', () => {
     expect(validateOfferForm({ ...rec, graceDays: '1.5' }, 50)).toMatch(
       /carência/,
     );
-    expect(validateOfferForm({ ...base, accessDays: '0' }, 50)).toMatch(
-      /acesso/,
-    );
     expect(validateOfferForm({ ...base, maxUses: '0' }, 50)).toMatch(/usos/);
   });
 
@@ -193,7 +190,6 @@ describe('offerPayload', () => {
       'description',
       'expiresAt',
       'maxUses',
-      'accessDays',
     ])
       expect(key in created).toBe(false);
     expect('platformTag' in offerPayload(form, 99.9)).toBe(false);
@@ -266,7 +262,6 @@ describe('offerPayload', () => {
       trialDays: null,
       retryDays: null,
       graceDays: null,
-      accessDays: null,
       expiresAt: null,
       maxUses: null,
       metadata: {},
@@ -299,7 +294,6 @@ describe('formFromOffer', () => {
       trialDays: null,
       retryDays: null,
       graceDays: null,
-      accessDays: 30,
       expiresAt: null,
       maxUses: 5,
       fulfillment: {
@@ -314,7 +308,6 @@ describe('formFromOffer', () => {
     const form = formFromOffer(offer, fmt);
     expect(form).toMatchObject({
       amount: '49,90',
-      accessDays: '30',
       maxUses: '5',
       redirectUrl: 'https://a.com',
       emailBody: 'oi',

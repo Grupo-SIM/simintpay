@@ -17,16 +17,13 @@ describe('offers', () => {
   });
 
   test('rótulo da oferta é derivado dos atributos', () => {
-    expect(offerLabel({ renewalMode: 'NONE', accessDays: null })).toBe(
+    expect(offerLabel({ renewalMode: 'NONE' })).toBe(
       'Compra única',
     );
-    expect(offerLabel({ renewalMode: 'NONE', accessDays: 30 })).toBe(
-      'Acesso por tempo',
-    );
-    expect(offerLabel({ renewalMode: 'AUTO_CHARGE', accessDays: null })).toBe(
+    expect(offerLabel({ renewalMode: 'AUTO_CHARGE' })).toBe(
       'Assinatura no cartão',
     );
-    expect(offerLabel({ renewalMode: 'MANUAL_PAY', accessDays: 30 })).toBe(
+    expect(offerLabel({ renewalMode: 'MANUAL_PAY' })).toBe(
       'Assinatura por PIX',
     );
   });

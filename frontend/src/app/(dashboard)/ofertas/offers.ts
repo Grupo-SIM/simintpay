@@ -21,7 +21,6 @@ export type Offer = {
   trialDays: number | null;
   retryDays: number | null;
   graceDays: number | null;
-  accessDays: number | null;
   expiresAt: string | null;
   maxUses: number | null;
   usedCount: number;
@@ -78,7 +77,6 @@ export type OfferPreset = {
   renewalMode: OfferRenewal;
   intervalType: OfferInterval | null;
   intervalCount: number | null;
-  accessDays: number | null;
 };
 
 /** Modelos rápidos do formulário: só preenchem campos no cliente e nunca são salvos na oferta. */
@@ -105,7 +103,6 @@ export const OFFER_TEMPLATES: Record<OfferTemplateId, OfferPreset> = {
     renewalMode: 'NONE',
     intervalType: null,
     intervalCount: null,
-    accessDays: null,
   },
   CARD_SUBSCRIPTION: {
     acceptedMethods: ['CREDIT_CARD', 'DEBIT_CARD'],
@@ -113,7 +110,6 @@ export const OFFER_TEMPLATES: Record<OfferTemplateId, OfferPreset> = {
     renewalMode: 'AUTO_CHARGE',
     intervalType: 'MONTH',
     intervalCount: 1,
-    accessDays: null,
   },
   BOLETO: {
     acceptedMethods: ['BOLETO'],
@@ -121,17 +117,16 @@ export const OFFER_TEMPLATES: Record<OfferTemplateId, OfferPreset> = {
     renewalMode: 'NONE',
     intervalType: null,
     intervalCount: null,
-    accessDays: null,
   },
 };
 
 /** Descrição derivada dos atributos da oferta (não existe tipo armazenado). */
 export function offerLabel(
-  offer: Pick<Offer, 'renewalMode' | 'accessDays'>,
+  offer: Pick<Offer, 'renewalMode'>,
 ): string {
   if (offer.renewalMode === 'AUTO_CHARGE') return 'Assinatura no cartão';
   if (offer.renewalMode === 'MANUAL_PAY') return 'Assinatura por PIX';
-  return offer.accessDays != null ? 'Acesso por tempo' : 'Compra única';
+  return 'Compra única';
 }
 
 export type OfferStatus = 'ACTIVE' | 'INACTIVE' | 'EXHAUSTED' | 'EXPIRED';
