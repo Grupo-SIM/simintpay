@@ -51,7 +51,10 @@ import {
   TENANT_EBOOK_TAG,
 } from '../../utils/internal-tags.util';
 import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import {
+  PLATFORM_TAXA_DEFAULTS,
+  LEGACY_DOM_CASHBACK_REAIS,
+} from '../../../modules/platform-taxas/platform-taxas.keys';
 import { calculateSellerNetValue } from '../../helpers/transaction-fee.helper';
 import { getEbookTaxaServico } from '../../../modules/ebooksim/ebooksim.config';
 import { calculateMaquinetaFees } from '../../helpers/maquineta-fee.helper';
@@ -468,13 +471,7 @@ export class ProcessDomWebhookUseCase {
               PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
             ),
           )
-          .sub(
-            getPlatformTaxaEffective(
-              feeTag,
-              'TAXA_CASHBACK',
-              PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-            ),
-          )
+          .sub(LEGACY_DOM_CASHBACK_REAIS)
           .sub(
             getPlatformTaxaEffective(
               feeTag,

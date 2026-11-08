@@ -7,7 +7,8 @@ export const LEGACY_TAXA_KEYS = [
   'SAQUE_MIN',
   'LIQUIDEZ',
   'TAXA_FIXA_TRANSACAO',
-  'TAXA_CASHBACK',
+  'CASHBACK_DOM_ATIVO', // 1 = DOM gera cashback e cobra o custo; 0 = cashback desativado nas transações
+  'CASHBACK_DOM_CUSTO', // Custo fixo (R$) do cashback DOM por transação online
   'TAXA_SERVICO', // Taxa de Serviço Sim Int Pay (padrão R$ 4.00)
   'TAXA_COMISSAO_AFILIADO', // Comissão % de afiliado sobre venda de livro afiliado (ebook) (padrão 10%)
   'TAXA_LINK_PERCENT', // Taxa % da casa sobre links de pagamento (padrão 9%)
@@ -95,6 +96,9 @@ export const LEGACY_TAXA_KEYS = [
 
 export type PlataformaTaxaKey = (typeof LEGACY_TAXA_KEYS)[number];
 
+/** Cashback DOM (R$) já embutido nos créditos de webhooks legados; nunca muda com a configuração atual. */
+export const LEGACY_DOM_CASHBACK_REAIS = 3;
+
 /** Padrões únicos quando nenhum override de plataforma ou global existe. */
 export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   /** Taxa DOM sobre PIX (decimal): 0,98% sobre o valor pago. Sobrescreva pelo painel admin. */
@@ -105,7 +109,8 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   SAQUE_MIN: 100,
   LIQUIDEZ: 0.9301,
   TAXA_FIXA_TRANSACAO: 1.0,
-  TAXA_CASHBACK: 3.0,
+  CASHBACK_DOM_ATIVO: 1,
+  CASHBACK_DOM_CUSTO: 0,
   TAXA_SERVICO: 4.0,
   TAXA_COMISSAO_AFILIADO: 0.1, // 10%
   TAXA_LINK_PERCENT: 0.09,
@@ -197,6 +202,8 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
 export const EDITABLE_PLATFORM_TAXA_KEYS = [
   'SAQUE_MIN',
   'TAXA_SAQUE_EXTRA',
+  'CASHBACK_DOM_ATIVO',
+  'CASHBACK_DOM_CUSTO',
 ] as const;
 export function isEditablePlatformTaxaKey(key: string): boolean {
   return (EDITABLE_PLATFORM_TAXA_KEYS as readonly string[]).includes(key);

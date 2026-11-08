@@ -21,7 +21,10 @@ import {
   type DomTransactionItem,
   type IPaymentGateway,
 } from '../../core/services/payment-gateway.interface';
-import { getPlatformTaxaEffective } from '../../modules/platform-taxas/platform-taxas.store';
+import {
+  getPlatformTaxaEffective,
+  domCashbackReais,
+} from '../../modules/platform-taxas/platform-taxas.store';
 import {
   PLATFORM_TAXA_DEFAULTS,
   type PlataformaTaxaKey,
@@ -268,11 +271,7 @@ export class PlatformAdministrationService {
       'TAXA_FIXA_TRANSACAO',
       1.0,
     );
-    const taxaCashback = getPlatformTaxaEffective(
-      'ATLAS',
-      'TAXA_CASHBACK',
-      3.0,
-    );
+    const taxaCashback = domCashbackReais();
 
     const isDomain = (desc: string | null | undefined) =>
       getAtlasProductType(desc) === 'DOMAIN';
@@ -524,11 +523,7 @@ export class PlatformAdministrationService {
           'TAXA_FIXA_TRANSACAO',
           PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
         );
-        const taxaServicoCashback = getPlatformTaxaEffective(
-          upperTag,
-          'TAXA_CASHBACK',
-          PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-        );
+        const taxaServicoCashback = domCashbackReais();
         const taxaServicoRate = getPlatformTaxaEffective(
           upperTag,
           'TAXA_SERVICO',
@@ -882,9 +877,7 @@ export class PlatformAdministrationService {
               ))
             : 0;
           const netFromDb = t.netAmount != null ? Number(t.netAmount) : null;
-          const cashbackDeduction =
-            valorBruto *
-            (getPlatformTaxaEffective(upperTag, 'TAXA_CASHBACK', 0) / 100);
+          const cashbackDeduction = valorBruto * (domCashbackReais() / 100);
           const fallbackNet = Number(
             (
               valorBruto * liquidityFactor -
@@ -1076,11 +1069,7 @@ export class PlatformAdministrationService {
       'TAXA_FIXA_TRANSACAO',
       0.0,
     );
-    const cashbackFee = getPlatformTaxaEffective(
-      upperTag,
-      'TAXA_CASHBACK',
-      0.0,
-    );
+    const cashbackFee = domCashbackReais();
 
     // DOM fee deductions (R$1+R$3): nenhuma plataforma é isenta, alinhado a
     // /relatorios/plataforma-consolidado. BOSQUE era isenta aqui, o que zerava as colunas
@@ -1097,11 +1086,7 @@ export class PlatformAdministrationService {
         );
     const taxaServicoCashback = TAXA_DOM_FEE_EXEMPT.has(upperTag)
       ? 0
-      : getPlatformTaxaEffective(
-          upperTag,
-          'TAXA_CASHBACK',
-          PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-        );
+      : domCashbackReais();
     const taxaServicoRate = TAXA_SERVICO_RATE_EXEMPT.has(upperTag)
       ? 0
       : getPlatformTaxaEffective(
@@ -1377,11 +1362,7 @@ export class PlatformAdministrationService {
       'TAXA_FIXA_TRANSACAO',
       PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
     );
-    const TAXA_CASHBACK = getPlatformTaxaEffective(
-      tag,
-      'TAXA_CASHBACK',
-      PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-    );
+    const TAXA_CASHBACK = domCashbackReais();
     const LIQUIDEZ = getPlatformTaxaEffective(
       tag,
       'LIQUIDEZ',

@@ -21,6 +21,7 @@ jest.mock('uuid', () => ({
 jest.mock('../../modules/platform-taxas/platform-taxas.store', () => ({
   getPlatformTaxaEffective: (_tag: string, _key: string, fallback: number) =>
     fallback,
+  domCashbackReais: () => 3,
   // Synced acquirer schedule stand-in: [ratePpm, fixedCents] per METHOD/CHANNEL/installments.
   syncedAcquirerCostReais: (
     method: string,

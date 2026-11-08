@@ -1,7 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import {
+  getPlatformTaxaEffective,
+  domCashbackReais,
+} from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 @Injectable()
@@ -25,11 +28,7 @@ export class GetTaxesUseCase {
       'TAXA_FIXA_TRANSACAO',
       PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
     );
-    const taxaCashback = getPlatformTaxaEffective(
-      platformTag,
-      'TAXA_CASHBACK',
-      PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-    );
+    const taxaCashback = domCashbackReais();
     const liquidez = getPlatformTaxaEffective(
       platformTag,
       'LIQUIDEZ',

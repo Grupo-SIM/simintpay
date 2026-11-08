@@ -14,7 +14,10 @@ import {
   getEbookTaxaServico,
 } from '../../../modules/ebooksim/ebooksim.config';
 import { calculateSellerNetValue } from '../../../application/helpers/transaction-fee.helper';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import {
+  getPlatformTaxaEffective,
+  domCashbackReais,
+} from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 type TxStatus =
@@ -417,11 +420,7 @@ export class InternalEbookFinanceService {
       'TAXA_FIXA_TRANSACAO',
       PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
     );
-    const taxaCashbackSummary = getPlatformTaxaEffective(
-      'EBOOK',
-      'TAXA_CASHBACK',
-      PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-    );
+    const taxaCashbackSummary = domCashbackReais();
     return {
       liquidez: EbookSimConfig.saque.fatorLiquidez,
       mdrPix: EbookSimConfig.mdr.pix,

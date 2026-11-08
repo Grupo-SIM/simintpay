@@ -18,7 +18,14 @@ import {
   SubscriptionBillingSnapshot,
   SubscriptionPlanChangeOutput,
 } from '../../core/services/payment-gateway.interface';
-import { syncedAcquirerCostReais } from '../../modules/platform-taxas/platform-taxas.store';
+import {
+  isDomCashbackActive,
+  syncedAcquirerCostReais,
+} from '../../modules/platform-taxas/platform-taxas.store';
+
+/** Cashback desligado é desativado ativamente em cada transação (requer autorização da DOM). */
+const domCashbackPayment = () =>
+  isDomCashbackActive() ? {} : { cashback_disabled: true };
 
 @Injectable()
 export class ApiDomClient implements IPaymentGateway {
@@ -544,6 +551,7 @@ export class ApiDomClient implements IPaymentGateway {
         quantity: 1,
       },
       payment: {
+        ...domCashbackPayment(),
         pix: { pix_expire: pixExpireFormatted },
         payment_method: 'pix',
         total: input.amount,
@@ -671,6 +679,7 @@ export class ApiDomClient implements IPaymentGateway {
         },
       ],
       payment: {
+        ...domCashbackPayment(),
         // DOM: dias até o vencimento do boleto (campo correto = boleto_due_days).
         boleto:
           input.expireDays > 0 ? { boleto_due_days: input.expireDays } : {},
@@ -785,6 +794,7 @@ export class ApiDomClient implements IPaymentGateway {
         { description: input.description, price: input.amount, quantity: 1 },
       ],
       payment: {
+        ...domCashbackPayment(),
         payment_method: input.paymentMethod,
         total: input.amount,
         [input.paymentMethod]: {
@@ -1072,6 +1082,7 @@ export class ApiDomClient implements IPaymentGateway {
         { description: input.description, price: input.amount, quantity: 1 },
       ],
       payment: {
+        ...domCashbackPayment(),
         total: input.amount,
         payment_method: 'credit_card',
         credit_card: {
@@ -1228,7 +1239,7 @@ export class ApiDomClient implements IPaymentGateway {
       },
       external_reference: `sub_${Date.now()}_${input.customer.document.slice(-4)}`,
       metadata: null,
-      cashback_active: false,
+      cashback_active: isDomCashbackActive(),
       postbackurl: `${appUrl}/subscription/webhook`,
     };
     this.logger.log(
@@ -1622,6 +1633,7 @@ export class ApiDomClient implements IPaymentGateway {
         quantity: 1,
       },
       payment: {
+        ...domCashbackPayment(),
         pix: { pix_expire: pixExpireFormatted },
         payment_method: 'pix',
         total: input.amount,

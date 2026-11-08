@@ -2,6 +2,7 @@ import type { ModuleConfig } from '../module-config.interface';
 import {
   resolveWithdrawalFixedFee,
   getPlatformTaxaEffective,
+  domCashbackReais,
 } from '../platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../platform-taxas/platform-taxas.keys';
 import { cartaoMdrProxy } from '../platform-taxas/cartao-mdr-proxy';
@@ -47,7 +48,7 @@ export const BosqueConfig: ModuleConfig = {
       return getPlatformTaxaEffective(TAG, 'TAXA_FIXA_TRANSACAO', 1.0);
     },
     get taxaCashback() {
-      return getPlatformTaxaEffective(TAG, 'TAXA_CASHBACK', 3.0);
+      return domCashbackReais();
     },
   },
 

@@ -85,7 +85,8 @@ async function loadAcquirerFees(): Promise<Map<string, SyncedAcquirerFee>> {
       row.ratePpm + row.interestPpm > current.ratePpm + current.interestPpm
     )
       result.set(key, {
-        fixedCents: row.fixedCents,
+        fixedCents:
+          row.fixedCents + domCashbackFixedCents(row.acquirerCode, row.channel),
         ratePpm: row.ratePpm,
         interestPpm: row.interestPpm,
         base: row.base,
@@ -246,6 +247,37 @@ export function getPlatformTaxaEffective(
     keySuffix,
     PLATFORM_TAXA_DEFAULTS[keySuffix as PlataformaTaxaKey] ?? fallback,
   );
+}
+
+/** Cashback DOM é uma configuração global manual: desligado, não é cobrado nem gerado. */
+export function isDomCashbackActive(): boolean {
+  return (
+    getPlatformTaxaEffective(
+      'GLOBAL',
+      'CASHBACK_DOM_ATIVO',
+      PLATFORM_TAXA_DEFAULTS.CASHBACK_DOM_ATIVO,
+    ) !== 0
+  );
+}
+
+/** Custo fixo (R$) do cashback DOM por transação online; 0 quando desativado. */
+export function domCashbackReais(): number {
+  return isDomCashbackActive()
+    ? getPlatformTaxaEffective(
+        'GLOBAL',
+        'CASHBACK_DOM_CUSTO',
+        PLATFORM_TAXA_DEFAULTS.CASHBACK_DOM_CUSTO,
+      )
+    : 0;
+}
+
+/** Cashback DOM entra como custo fixo apenas nas tabelas online da DOM. */
+export function domCashbackFixedCents(acquirer: string, channel: string) {
+  return acquirer === 'DOM' && channel === 'ONLINE' ? domCashbackCents() : 0;
+}
+
+export function domCashbackCents(): number {
+  return Math.round(domCashbackReais() * 100);
 }
 
 export function getPlatformTaxaSource(

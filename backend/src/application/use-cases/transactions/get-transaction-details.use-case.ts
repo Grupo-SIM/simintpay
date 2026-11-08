@@ -2,7 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { stripInternalTags } from '../../utils/internal-tags.util';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import {
+  getPlatformTaxaEffective,
+  domCashbackReais,
+} from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import {
   estimateDomFeeReais,
@@ -78,11 +81,7 @@ export class GetTransactionDetailsUseCase {
       'TAXA_FIXA_TRANSACAO',
       PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
     );
-    const fixedCashback = getPlatformTaxaEffective(
-      'GLOBAL',
-      'TAXA_CASHBACK',
-      PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-    );
+    const fixedCashback = domCashbackReais();
     return {
       transactionFixedFee: fixedTx,
       cashbackFee: fixedCashback,

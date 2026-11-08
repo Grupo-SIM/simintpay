@@ -29,7 +29,10 @@ import {
   getPlatformTaxaEffective,
   canonicalPlatformTaxaTag,
 } from '../../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
+import {
+  PLATFORM_TAXA_DEFAULTS,
+  LEGACY_DOM_CASHBACK_REAIS,
+} from '../../../modules/platform-taxas/platform-taxas.keys';
 import { AffiliateCommissionService } from '../../services/affiliate-commission.service';
 
 import type { ITransactionRepository } from '../../../core/repositories/transaction.repository.interface';
@@ -307,11 +310,7 @@ export class ProcessWebhookUseCase {
           'TAXA_FIXA_TRANSACAO',
           PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
         );
-        const fixedCashback = getPlatformTaxaEffective(
-          feeTag,
-          'TAXA_CASHBACK',
-          PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-        );
+        const fixedCashback = LEGACY_DOM_CASHBACK_REAIS;
         creditAmount = amountWithoutAllFee.sub(
           new Prisma.Decimal(fixedTx + fixedCashback),
         );

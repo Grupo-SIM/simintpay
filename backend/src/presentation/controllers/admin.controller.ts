@@ -131,6 +131,7 @@ import {
   syncedAcquirerCostReais,
   invalidatePlatformTaxaCache,
   buildUserTaxaTag,
+  domCashbackReais,
 } from '../../modules/platform-taxas/platform-taxas.store';
 import {
   PLATFORM_TAXA_DEFAULTS,
@@ -599,12 +600,12 @@ function buildLucroSimpayDetalhePorPlataforma(
     const canonicalUserId = platformEntry?.id ?? tx.userId;
     const liquidezKey = `${tag}_LIQUIDEZ`;
     const fixaKey = `${tag}_TAXA_FIXA_TRANSACAO`;
-    const cbKey = `${tag}_TAXA_CASHBACK`;
+    const cbKey = `${tag}_CASHBACK_DOM_CUSTO`;
     const servicoKey = `${tag}_TAXA_SERVICO`;
 
     const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
     const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
-    const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
+    const taxaCashback = domCashbackReais();
     const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag)
       ? 0
       : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
@@ -692,11 +693,11 @@ function buildLucroSimpayDetalhePorPlataforma(
     const hit = byTag.get(p.tag);
     const liquidezKey = `${p.tag}_LIQUIDEZ`;
     const fixaKey = `${p.tag}_TAXA_FIXA_TRANSACAO`;
-    const cbKey = `${p.tag}_TAXA_CASHBACK`;
+    const cbKey = `${p.tag}_CASHBACK_DOM_CUSTO`;
     const servicoKey = `${p.tag}_TAXA_SERVICO`;
     const L = getPlatformTaxaEffective(p.tag, 'LIQUIDEZ', 0.91);
     const tf = getPlatformTaxaEffective(p.tag, 'TAXA_FIXA_TRANSACAO', 1.0);
-    const tc = getPlatformTaxaEffective(p.tag, 'TAXA_CASHBACK', 3.0);
+    const tc = domCashbackReais();
     const ts = TAGS_SEM_TAXA_SERVICO.has(p.tag)
       ? 0
       : getPlatformTaxaEffective(p.tag, 'TAXA_SERVICO', 4.0);
@@ -758,7 +759,7 @@ function buildLucroSimpayDetalhePorPlataforma(
     if (platformTagsResolvidas.has(tag)) continue;
     const liquidezKey = `${tag}_LIQUIDEZ`;
     const fixaKey = `${tag}_TAXA_FIXA_TRANSACAO`;
-    const cbKey = `${tag}_TAXA_CASHBACK`;
+    const cbKey = `${tag}_CASHBACK_DOM_CUSTO`;
     const servicoKey = `${tag}_TAXA_SERVICO`;
     plataformas.push({
       tag,
@@ -844,7 +845,7 @@ function lucroSimpayUmaTransacaoConsolidado(
   );
   const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
   const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
-  const taxaCashback = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
+  const taxaCashback = domCashbackReais();
   const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag)
     ? 0
     : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
@@ -1061,7 +1062,7 @@ function accumTxFinancePorDia(
     liquido.set(ymd, (liquido.get(ymd) ?? 0) + liq);
     const l = lucroSimpayUmaTransacaoConsolidado(tx, platforms);
     lucro.set(ymd, (lucro.get(ymd) ?? 0) + l);
-    const tc = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
+    const tc = domCashbackReais();
     cashback.set(ymd, (cashback.get(ymd) ?? 0) + tc);
     const tf = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
     taxaAdquirente.set(ymd, (taxaAdquirente.get(ymd) ?? 0) + tf + tc);
@@ -1186,7 +1187,7 @@ function buildDashboardFinanceHistoricoPorHora(
       h,
       (lucro.get(h) ?? 0) + lucroSimpayUmaTransacaoConsolidado(tx, platforms),
     );
-    const tc = getPlatformTaxaEffective(tag, 'TAXA_CASHBACK', 3.0);
+    const tc = domCashbackReais();
     cashback.set(h, (cashback.get(h) ?? 0) + tc);
     const tf = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
     taxaAdquirente.set(h, (taxaAdquirente.get(h) ?? 0) + tf + tc);
@@ -3644,7 +3645,7 @@ export class AdminController {
         )
         .toFixed(2),
     );
-    // Custo cashback = soma da TAXA_CASHBACK por transação por plataforma (padrão R$3, configurável)
+    // Custo cashback = soma do cashback DOM (configuração global, padrão R$3) por transação
     const custoCashback = Number(
       plataformasLucroDetalhe
         .reduce((s, p) => s + p.subtotalDeducaoTaxaCashback, 0)
@@ -4077,7 +4078,7 @@ export class AdminController {
 
       payload.lucroSimpayDetalhe = {
         formula:
-          'Com custo adquirido realizado: lucro = total cobrado do comprador (snapshot) − repasse do vendedor (netAmount) − custo realizado da adquirente. Sem custo realizado no snapshot, mantém a estimativa legada baseada em LIQUIDEZ_LOJISTA, TAXA_SERVICO, MDR, TAXA_FIXA_TRANSACAO e TAXA_CASHBACK.',
+          'Com custo adquirido realizado: lucro = total cobrado do comprador (snapshot) − repasse do vendedor (netAmount) − custo realizado da adquirente. Sem custo realizado no snapshot, mantém a estimativa legada baseada em LIQUIDEZ_LOJISTA, TAXA_SERVICO, MDR, TAXA_FIXA_TRANSACAO e cashback DOM (configuração global).',
         exclusoesDoCalculo: {
           regra:
             'Não entram: bruto ≤ 0; ou descrição contendo "Sincronização de Saldo", "Ajuste Administrativo" ou "balance sync" (ajustes internos, não venda).',

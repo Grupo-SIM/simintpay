@@ -11,7 +11,10 @@ import {
   UpdateVoucherDto,
   ValidateVoucherDto,
 } from '../../../application/dtos/voucher/voucher.dto';
-import { getPlatformTaxaEffective } from '../../../modules/platform-taxas/platform-taxas.store';
+import {
+  getPlatformTaxaEffective,
+  domCashbackReais,
+} from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
 const TENANT_PAGATG_TAG = '[TENANT:PAGATG]';
@@ -116,11 +119,7 @@ export class InternalPagatgFinanceService {
       'TAXA_FIXA_TRANSACAO',
       PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
     );
-    const taxaCashbackSummary = getPlatformTaxaEffective(
-      'PAGATG',
-      'TAXA_CASHBACK',
-      PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-    );
+    const taxaCashbackSummary = domCashbackReais();
     const taxaServicoSummary = taxaFixaSummary + taxaCashbackSummary;
     const totalReceived = txCompleted.reduce((sum, tx) => {
       const net = Number(tx.netAmount ?? tx.amount ?? 0);
@@ -211,11 +210,7 @@ export class InternalPagatgFinanceService {
       'TAXA_FIXA_TRANSACAO',
       PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
     );
-    const taxaCashback = getPlatformTaxaEffective(
-      'PAGATG',
-      'TAXA_CASHBACK',
-      PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-    );
+    const taxaCashback = domCashbackReais();
     const taxaServico = taxaFixa + taxaCashback;
 
     return {

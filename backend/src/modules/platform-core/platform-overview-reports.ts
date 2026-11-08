@@ -9,7 +9,10 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import 'dayjs/locale/pt-br';
-import { getPlatformTaxaEffective } from '../platform-taxas/platform-taxas.store';
+import {
+  getPlatformTaxaEffective,
+  domCashbackReais,
+} from '../platform-taxas/platform-taxas.store';
 import { summarizeRefunds } from '../../application/helpers/refund-report.helper';
 
 dayjs.extend(utc);
@@ -360,11 +363,7 @@ export class PlatformOverviewReports {
       'TAXA_FIXA_TRANSACAO',
       1.0,
     );
-    const cashbackFee = getPlatformTaxaEffective(
-      upperTag,
-      'TAXA_CASHBACK',
-      3.0,
-    );
+    const cashbackFee = domCashbackReais();
     const adminMargin = 1 - liquidityFactor;
 
     const getProfit = (txs: any[]) => {

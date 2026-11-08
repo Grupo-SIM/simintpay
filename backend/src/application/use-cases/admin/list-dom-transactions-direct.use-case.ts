@@ -8,6 +8,7 @@ import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interfac
 import {
   canonicalPlatformTaxaTag,
   getPlatformTaxaEffective,
+  domCashbackReais,
 } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 import {
@@ -284,11 +285,7 @@ export class ListDomTransactionsDirectUseCase {
         'TAXA_FIXA_TRANSACAO',
         PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
       );
-      const fixedCashback = getPlatformTaxaEffective(
-        tenantTag,
-        'TAXA_CASHBACK',
-        PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-      );
+      const fixedCashback = domCashbackReais();
       const fixedFees = fixedTx + fixedCashback;
       const mdr = resolveDomFeeReais({
         amountReais: amount,

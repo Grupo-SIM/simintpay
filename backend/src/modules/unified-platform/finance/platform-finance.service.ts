@@ -26,6 +26,7 @@ import { whereTransactionPlatform } from '../../platform-core/transaction-platfo
 import {
   resolveWithdrawalFixedFee,
   getPlatformTaxaEffective,
+  domCashbackReais,
 } from '../../platform-taxas/platform-taxas.store';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
@@ -518,13 +519,7 @@ export class PlatformFinanceService {
           PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
         ),
       ),
-      cashbackAmountCents: this.cents(
-        getPlatformTaxaEffective(
-          'EBOOK',
-          'TAXA_CASHBACK',
-          PLATFORM_TAXA_DEFAULTS.TAXA_CASHBACK,
-        ),
-      ),
+      cashbackAmountCents: this.cents(domCashbackReais()),
       affiliateCommissionRate: getPlatformTaxaEffective(
         'EBOOK',
         'TAXA_COMISSAO_AFILIADO',

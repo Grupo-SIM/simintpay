@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { Channel, Method } from './financial-policy';
+import { domCashbackFixedCents } from '../platform-taxas/platform-taxas.store';
 
 export type CostFloor = {
   method: Method;
@@ -76,7 +77,8 @@ export async function listAcquirerFees(
     if (!byCode.has(row.acquirerCode))
       byCode.set(row.acquirerCode, {
         acquirer: row.acquirerCode,
-        fixedCents: row.fixedCents,
+        fixedCents:
+          row.fixedCents + domCashbackFixedCents(row.acquirerCode, channel),
         ratePpm: row.ratePpm,
         interestPpm: row.interestPpm,
         base: row.base as AcquirerCost['base'],

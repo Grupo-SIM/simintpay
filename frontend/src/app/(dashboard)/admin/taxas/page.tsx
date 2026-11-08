@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { FinancialPolicyEditor } from '@/components/platforms/FinancialPolicyEditor';
+import { CashbackDomSection } from '@/components/platforms/CashbackDomSection';
 import { WithdrawalSection } from '@/components/platforms/WithdrawalSection';
 import { PlatformSelectionHeader } from '@/components/platforms/PlatformSelectionHeader';
 import type { Platform } from '@/components/platforms/types';
@@ -74,6 +75,7 @@ export default function AdminTaxasPlataformasPage() {
           />
         </div>
       )}
+      {tag === 'GLOBAL' && <CashbackDomSection />}
       <WithdrawalSection key={`withdrawal-${tag}`} tag={tag} />
       <FinancialPolicyEditor key={tag} tag={tag} admin />
     </div>

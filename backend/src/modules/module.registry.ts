@@ -5,6 +5,7 @@ import {
   resolveWithdrawalFixedFee,
   canonicalPlatformTaxaTag,
   getPlatformTaxaEffective,
+  domCashbackReais,
 } from './platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from './platform-taxas/platform-taxas.keys';
 import { cartaoMdrProxy } from './platform-taxas/cartao-mdr-proxy';
@@ -123,7 +124,7 @@ export function getModuleConfig(
         return effective('TAXA_FIXA_TRANSACAO');
       },
       get taxaCashback() {
-        return effective('TAXA_CASHBACK');
+        return domCashbackReais();
       },
     },
     limites: { saldoMaximo: null, saqueMaximo: null, saquesPendentesMax: 1 },
