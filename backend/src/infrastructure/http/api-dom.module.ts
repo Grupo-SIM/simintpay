@@ -34,6 +34,7 @@ import { PaymentGatewayResolver } from './payment-gateway.resolver';
     { provide: PAYMENT_GATEWAY_FRENDZ, useExisting: FrendzClient },
   ],
   exports: [
+    ApiDomClient,
     PAYMENT_GATEWAY,
     PAYMENT_GATEWAY_DOM,
     PAYMENT_GATEWAY_FRENDZ,
