@@ -308,7 +308,13 @@ function DeleteAcquirerWithdrawalModal({
   );
 }
 
-export function AcquirerWithdrawalsSection() {
+export function AcquirerWithdrawalsModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   const { data: rows = [], isPending } = useAcquirerWithdrawals();
   const [editing, setEditing] = useState<AcquirerWithdrawal | null>(null);
   const [deleting, setDeleting] = useState<AcquirerWithdrawal | null>(null);
@@ -320,77 +326,81 @@ export function AcquirerWithdrawalsSection() {
   );
 
   return (
-    <section className="flex flex-col gap-3">
-      <div>
-        <h2 className="text-lg font-semibold">Saques de adquirente</h2>
+    <Modal
+      open={open}
+      title="Saques de adquirente"
+      onClose={onClose}
+      maxWidth="max-w-3xl"
+    >
+      <div className="flex flex-col gap-3">
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Custos de saque registrados manualmente por adquirente
+          Custos de saque registrados por adquirente
         </p>
+        <DataTable
+          columns={[
+            {
+              key: 'acquirer',
+              header: 'Adquirente',
+              render: (row: AcquirerWithdrawal) => (
+                <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                  {row.acquirerName}
+                </span>
+              ),
+            },
+            {
+              key: 'cost',
+              header: 'Custo',
+              render: (row: AcquirerWithdrawal) => (
+                <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  {formatCents(row.feeCents)}
+                </span>
+              ),
+            },
+            {
+              key: 'date',
+              header: 'Data',
+              render: (row: AcquirerWithdrawal) => (
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                  {formatYmd(row.date)}
+                </span>
+              ),
+            },
+            {
+              key: 'actions',
+              header: 'Ações',
+              render: (row: AcquirerWithdrawal) => (
+                <div className="flex items-center justify-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditing(row)}
+                    className="rounded-lg p-1.5 text-violet-600 transition-colors hover:bg-violet-50 dark:text-violet-400 dark:hover:bg-violet-500/10"
+                    title="Editar data"
+                  >
+                    <Pencil size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleting(row)}
+                    className="rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                    title="Excluir"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              ),
+            },
+          ]}
+          rows={sorted}
+          loading={isPending}
+          page={1}
+          pageSize={Math.max(sorted.length, 1)}
+          total={sorted.length}
+          onPageChange={() => {}}
+          emptyTitle="Nenhum saque de adquirente"
+          emptyDescription="Use “Registrar saque de adquirente” para adicionar o primeiro."
+          minWidth="min-w-[520px]"
+        />
       </div>
-      <DataTable
-        columns={[
-          {
-            key: 'acquirer',
-            header: 'Adquirente',
-            render: (row: AcquirerWithdrawal) => (
-              <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                {row.acquirerName}
-              </span>
-            ),
-          },
-          {
-            key: 'valor',
-            header: 'Valor',
-            render: (row: AcquirerWithdrawal) => (
-              <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                {formatCents(row.feeCents)}
-              </span>
-            ),
-          },
-          {
-            key: 'date',
-            header: 'Data',
-            render: (row: AcquirerWithdrawal) => (
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                {formatYmd(row.date)}
-              </span>
-            ),
-          },
-          {
-            key: 'actions',
-            header: 'Ações',
-            render: (row: AcquirerWithdrawal) => (
-              <div className="flex items-center justify-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setEditing(row)}
-                  className="rounded-lg p-1.5 text-violet-600 transition-colors hover:bg-violet-50 dark:text-violet-400 dark:hover:bg-violet-500/10"
-                  title="Editar data"
-                >
-                  <Pencil size={15} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDeleting(row)}
-                  className="rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
-                  title="Excluir"
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            ),
-          },
-        ]}
-        rows={sorted}
-        loading={isPending}
-        page={1}
-        pageSize={Math.max(sorted.length, 1)}
-        total={sorted.length}
-        onPageChange={() => {}}
-        emptyTitle="Nenhum saque de adquirente"
-        emptyDescription="Use “Registrar saque de adquirente” para adicionar o primeiro."
-        minWidth="min-w-[600px]"
-      />
       <EditAcquirerWithdrawalDateModal
         key={editing?.id ?? 'none'}
         withdrawal={editing}
@@ -400,6 +410,6 @@ export function AcquirerWithdrawalsSection() {
         withdrawal={deleting}
         onClose={() => setDeleting(null)}
       />
-    </section>
+    </Modal>
   );
 }

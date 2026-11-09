@@ -3,7 +3,15 @@
 import { useState, Suspense, useCallback, useMemo, useEffect } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { Download, Eye, EyeOff, Upload, Eraser, Landmark } from 'lucide-react';
+import {
+  Download,
+  Eye,
+  EyeOff,
+  Upload,
+  Eraser,
+  Landmark,
+  List,
+} from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
@@ -21,7 +29,7 @@ import {
   useToggleComprovanteVisivel,
 } from '@/features/saques/hooks/use-saques';
 import {
-  AcquirerWithdrawalsSection,
+  AcquirerWithdrawalsModal,
   RegisterAcquirerWithdrawalModal,
 } from '@/features/saques/components/AcquirerWithdrawalsSection';
 import { AdminActionsModal } from '@/features/saques/components/AdminActionsModal';
@@ -79,6 +87,7 @@ function AdminSaquesContent() {
     ),
   );
   const [acquirerModalOpen, setAcquirerModalOpen] = useState(false);
+  const [acquirerListOpen, setAcquirerListOpen] = useState(false);
 
   const [adminModalOpen, setAdminModalOpen] = useState(false);
   const [selectedSaque, setSelectedSaque] = useState<Saque | null>(null);
@@ -465,6 +474,13 @@ function AdminSaquesContent() {
         </div>
         <div className="flex items-center gap-2">
           <ActionButton
+            variant="outline"
+            onClick={() => setAcquirerListOpen(true)}
+          >
+            <List className="h-4 w-4" />
+            Saques de adquirente
+          </ActionButton>
+          <ActionButton
             variant="primary"
             onClick={() => setAcquirerModalOpen(true)}
           >
@@ -556,7 +572,10 @@ function AdminSaquesContent() {
         minWidth="min-w-[1200px]"
       />
 
-      <AcquirerWithdrawalsSection />
+      <AcquirerWithdrawalsModal
+        open={acquirerListOpen}
+        onClose={() => setAcquirerListOpen(false)}
+      />
       <RegisterAcquirerWithdrawalModal
         open={acquirerModalOpen}
         onClose={() => setAcquirerModalOpen(false)}
