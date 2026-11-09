@@ -20,6 +20,11 @@ export async function loadOwnedDashboard(
   ]);
   const summary = report.summary;
   const approved = transactions.filter((row) => row.status === 'COMPLETED');
+  // Pending charges are undecided: they count neither as approved nor as declined.
+  const decided = transactions.filter((row) => row.status !== 'PENDING');
+  const accepted = decided.filter((row) =>
+    ['COMPLETED', 'REFUNDED', 'CHARGEBACK'].includes(row.status),
+  );
   const dailyCents = new Map<string, number>();
   const hourlyCents = new Array<number>(24).fill(0);
   for (const row of approved) {
@@ -64,8 +69,8 @@ export async function loadOwnedDashboard(
     transactionsByPeriod: {
       totalSales: summary.grossCents / 100,
       paidTransactions: summary.salesCount,
-      approvalRate: transactions.length
-        ? (approved.length / transactions.length) * 100
+      approvalRate: decided.length
+        ? (accepted.length / decided.length) * 100
         : 0,
       chartData,
     },

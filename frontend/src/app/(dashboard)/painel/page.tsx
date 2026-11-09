@@ -2783,7 +2783,7 @@ export default function PainelPage() {
                         {showOnline && (
                           <Area
                             dataKey="online"
-                            type="natural"
+                            type="monotone"
                             fill="url(#gOnline)"
                             stroke="#7c3aed"
                             strokeWidth={2}
@@ -2796,7 +2796,7 @@ export default function PainelPage() {
                         !isOwnedDashboard ? (
                           <Area
                             dataKey="physical"
-                            type="natural"
+                            type="monotone"
                             fill="url(#gPhysical)"
                             stroke="#3b82f6"
                             strokeWidth={2}
