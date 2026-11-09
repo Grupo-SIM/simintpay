@@ -38,7 +38,7 @@ export function CoproductionSummaryCard({
   return (
     <section
       aria-label="Coprodução"
-      className="mb-5 rounded-xl border border-zinc-200 p-4 dark:border-white/10"
+      className="rounded-xl border border-zinc-200 p-4 dark:border-white/10"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-base font-semibold">Coprodução</h2>

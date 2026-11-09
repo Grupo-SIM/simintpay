@@ -1699,23 +1699,6 @@ export default function PainelPage() {
         .dash-tab-btn.active { background: #6d28d9; border-color: #6d28d9; color: #fff; }
       `}</style>
 
-      {!isAdmin && (
-        <CoproductionSummaryCard
-          filters={{
-            startDate: formatYmd(
-              customRange.start && customRange.end
-                ? customRange.start
-                : periodToInclusiveRange(selectedPeriod).start,
-            ),
-            endDate: formatYmd(
-              customRange.start && customRange.end
-                ? customRange.end
-                : periodToInclusiveRange(selectedPeriod).end,
-            ),
-          }}
-        />
-      )}
-
       {/* ── Tab switcher (apenas módulo master/admin) ── */}
       {isAdmin && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
@@ -2057,6 +2040,24 @@ export default function PainelPage() {
                   </p>
                 </div>
               </div>
+
+              {/* ── Coprodução ── */}
+              {!isAdmin && (
+                <CoproductionSummaryCard
+                  filters={{
+                    startDate: formatYmd(
+                      customRange.start && customRange.end
+                        ? customRange.start
+                        : periodToInclusiveRange(selectedPeriod).start,
+                    ),
+                    endDate: formatYmd(
+                      customRange.start && customRange.end
+                        ? customRange.end
+                        : periodToInclusiveRange(selectedPeriod).end,
+                    ),
+                  }}
+                />
+              )}
 
               {/* ── Chart card ── */}
               <div style={{ ...card, padding: 24, position: 'relative' }}>
