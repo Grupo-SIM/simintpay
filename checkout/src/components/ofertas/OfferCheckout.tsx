@@ -25,7 +25,9 @@ import {
   CheckoutLoadingScreen,
   CheckoutSuccessScreen,
 } from '@/components/checkout/CheckoutStateScreens';
-import { StatusPill, SummaryRow } from '@/components/checkout/ui';
+import { GLASS, StatusPill, SummaryRow } from '@/components/checkout/ui';
+import { OrderBumpCard } from '@/components/simlink/LinkOffers';
+import { cx } from '@/utils/cx';
 import {
   PixDisplay,
   usePixConfirmation,
@@ -44,11 +46,13 @@ import { browserCheckoutTracking } from '@/lib/payment-tracking';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import {
   availableMethods,
+  bumpSelectionKey,
   chargeBody,
   isDeclined,
   isRecurringOffer,
   mapBoletoResponse,
   offerAmount,
+  orderBumpsOf,
   type BoletoAddressFields,
   type BoletoResult,
   type OfferMethod,
@@ -129,6 +133,7 @@ export default function OfferCheckout({
   const [pricingLoading, setPricingLoading] = useState(!previewOffer);
   const [pricingError, setPricingError] = useState('');
   const [pricingAttempt, setPricingAttempt] = useState(0);
+  const [selectedBumps, setSelectedBumps] = useState<string[]>([]);
   const [installments, setInstallments] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -183,9 +188,13 @@ export default function OfferCheckout({
   useEffect(() => {
     if (previewOffer || !offer || !code) return;
     const controller = new AbortController();
-    fetch(`${SIM_API_URL}/ofertas/public/${encodeURIComponent(code)}/pricing`, {
-      signal: controller.signal,
-    })
+    const query = selectedBumps.length
+      ? `?bumps=${encodeURIComponent(selectedBumps.join(','))}`
+      : '';
+    fetch(
+      `${SIM_API_URL}/ofertas/public/${encodeURIComponent(code)}/pricing${query}`,
+      { signal: controller.signal },
+    )
       .then((r) => {
         if (!r.ok)
           throw new Error(
@@ -204,7 +213,7 @@ export default function OfferCheckout({
         if (!controller.signal.aborted) setPricingLoading(false);
       });
     return () => controller.abort();
-  }, [offer, code, previewOffer, pricingAttempt]);
+  }, [offer, code, previewOffer, pricingAttempt, selectedBumps]);
 
   useEffect(() => {
     if (previewOffer) onPreviewLoaded?.();
@@ -347,6 +356,24 @@ export default function OfferCheckout({
     setPaidAmount(outcome.amount);
   }
 
+  /** Marca/desmarca um order bump e recalcula o preço (na prévia, a partir das combinações já calculadas). */
+  function toggleBump(bumpCode: string) {
+    const next = selectedBumps.includes(bumpCode)
+      ? selectedBumps.filter((c) => c !== bumpCode)
+      : [...selectedBumps, bumpCode];
+    setSelectedBumps(next);
+    if (previewOffer) {
+      const priced = previewOffer.pricingSelections?.[bumpSelectionKey(next)];
+      if (priced) {
+        setPricing(priced);
+        setOptions(priced.options);
+      }
+      return;
+    }
+    setPricingError('');
+    setPricingLoading(true);
+  }
+
   async function handleSubmit() {
     if (
       previewOffer ||
@@ -414,6 +441,7 @@ export default function OfferCheckout({
               installments,
               card,
               address: isBoleto ? address : undefined,
+              bumpCodes: selectedBumps,
             }),
             tracking: browserCheckoutTracking(),
           }),
@@ -465,7 +493,11 @@ export default function OfferCheckout({
     return (
       <CheckoutErrorScreen title="Não foi possível concluir" message={error} />
     );
-  const base = offerAmount(offer);
+  const bumps = orderBumpsOf(offer);
+  const chosenBumps = bumps.filter((b) => selectedBumps.includes(b.code));
+  const base =
+    offerAmount(offer) +
+    chosenBumps.reduce((n, b) => n + b.amountCents, 0) / 100;
   const selected = options.find((o) => o.installments === installments);
   const total =
     isCard && method === 'credit_card' && selected
@@ -543,27 +575,76 @@ export default function OfferCheckout({
         description: offer.description
           ? sanitizeCheckoutText(offer.description)
           : undefined,
-        price: money(base),
+        price: money(offerAmount(offer)),
         frequency: recurring ? frequencyLabel(offer) : 'Pagamento único',
+        itemsLabel: `${1 + chosenBumps.length} ${chosenBumps.length ? 'itens' : 'item'}`,
       }}
       total={recurring && trialDaysOf(offer) > 0 ? money(0) : money(total)}
       totalCaption={recurring ? frequencyLabel(offer) : 'Pagamento único'}
       orderExtra={
-        pricingError ? (
-          <button
-            type="button"
-            onClick={() => {
-              setPricingLoading(true);
-              setPricingError('');
-              setPricingAttempt((v) => v + 1);
-            }}
-          >
-            Tentar calcular novamente
-          </button>
-        ) : undefined
+        <>
+          {bumps.length > 0 && (
+            <div
+              className={cx(
+                'flex flex-col gap-2.5 rounded-[26px] p-3.5 lg:gap-3.5 lg:rounded-[28px] lg:p-6',
+                GLASS,
+              )}
+            >
+              <div className="px-1 pb-1 pt-0.5 lg:p-0">
+                <div className="text-base lg:text-2xl lg:font-medium">
+                  Aproveite também
+                </div>
+                <div className="mt-0.5 text-xs text-[#a9a3b8] lg:mt-1 lg:text-sm">
+                  Condições disponíveis só nesta compra
+                </div>
+              </div>
+              {bumps.map((bump) => (
+                <OrderBumpCard
+                  key={bump.code}
+                  offer={{
+                    id: bump.code,
+                    tipo: 'ORDER_BUMP',
+                    chamada: null,
+                    titulo: bump.name,
+                    descricao: bump.description,
+                    imagemUrl: null,
+                    valor: bump.amountCents / 100,
+                    valorOriginal: null,
+                  }}
+                  checked={selectedBumps.includes(bump.code)}
+                  disabled={loading || pricingLoading || Boolean(pix || boleto)}
+                  onToggle={() => toggleBump(bump.code)}
+                />
+              ))}
+            </div>
+          )}
+          {pricingError && (
+            <button
+              type="button"
+              onClick={() => {
+                setPricingLoading(true);
+                setPricingError('');
+                setPricingAttempt((v) => v + 1);
+              }}
+            >
+              Tentar calcular novamente
+            </button>
+          )}
+        </>
       }
       asideRows={
-        recurring && trialDaysOf(offer) > 0 ? (
+        chosenBumps.length > 0 ? (
+          <>
+            {chosenBumps.map((b) => (
+              <SummaryRow
+                key={b.code}
+                accent
+                label={`+ ${sanitizeCheckoutText(b.name)}`}
+                value={money(b.amountCents / 100)}
+              />
+            ))}
+          </>
+        ) : recurring && trialDaysOf(offer) > 0 ? (
           <SummaryRow
             muted
             label={`Após ${trialDaysOf(offer)} dias`}
@@ -573,7 +654,7 @@ export default function OfferCheckout({
         ) : undefined
       }
       dadosSubtitle="Usados para emitir a cobrança e enviar seu acesso"
-      validateDados={() => dadosOk}
+      validateDados={() => Boolean(previewOffer) || dadosOk}
       onSubmit={handleSubmit}
       finalLabel={
         recurring

@@ -12,6 +12,7 @@ import {
 import {
   ApiBearerAuth,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -62,8 +63,16 @@ export class OfferController {
   @ApiOperation({
     summary: 'Preços do checkout com a mesma política da cobrança',
   })
-  pricing(@Param('code') code: string) {
-    return this.offers.publicPricing(code);
+  @ApiQuery({
+    name: 'bumps',
+    required: false,
+    description: 'Códigos dos order bumps escolhidos, separados por vírgula',
+  })
+  pricing(@Param('code') code: string, @Query('bumps') bumps?: string) {
+    return this.offers.publicPricing(
+      code,
+      bumps ? bumps.split(',').filter(Boolean) : [],
+    );
   }
 
   @Post('preview-pricing')

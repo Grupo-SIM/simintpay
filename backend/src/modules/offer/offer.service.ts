@@ -62,6 +62,17 @@ export type PublicBump = {
   currency: string;
 };
 
+function toPublicBump(o: Offer, role: PublicBump['role'] = 'BUMP'): PublicBump {
+  return {
+    code: o.code,
+    role,
+    name: o.name,
+    description: o.description,
+    amountCents: o.amountCents,
+    currency: o.currency,
+  };
+}
+
 export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
   const metadata = (offer.metadata ?? {}) as Record<string, unknown>;
   return {
@@ -80,6 +91,49 @@ export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
     expiresAt: offer.expiresAt,
     requiresBuyerAddress: metadata.requiresBuyerAddress === true,
     bumps,
+  };
+}
+
+type PricedOffer = Pick<
+  Offer,
+  | 'amountCents'
+  | 'platformTag'
+  | 'ownerUserId'
+  | 'maxInstallments'
+  | 'acceptedMethods'
+>;
+
+/** Preços do checkout (PIX, débito, boleto e parcelas) pela política financeira atual. */
+function pricingFor(
+  context: Awaited<ReturnType<typeof loadCyclePolicyContext>>,
+  offer: PricedOffer,
+) {
+  const quote = (
+    method: 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD' | 'BOLETO',
+    n = 1,
+  ) => quoteOfferCycle(context, offer, method, n);
+  return {
+    options: offer.acceptedMethods.includes('CREDIT_CARD')
+      ? Array.from({ length: offer.maxInstallments }, (_, i) => {
+          const price = quote('CREDIT_CARD', i + 1);
+          return {
+            installments: i + 1,
+            totalAmount: price.totalAmount,
+            installmentAmount:
+              Math.round((price.totalAmount / (i + 1)) * 100) / 100,
+            interestAmount: price.interestAmount ?? 0,
+          };
+        })
+      : [],
+    pixAmount: offer.acceptedMethods.includes('PIX')
+      ? quote('PIX').totalAmount
+      : offer.amountCents / 100,
+    debitAmount: offer.acceptedMethods.includes('DEBIT_CARD')
+      ? quote('DEBIT_CARD').totalAmount
+      : offer.amountCents / 100,
+    boletoAmount: offer.acceptedMethods.includes('BOLETO')
+      ? quote('BOLETO').totalAmount
+      : offer.amountCents / 100,
   };
 }
 
@@ -308,60 +362,72 @@ export class OfferService {
         ownerUserId: String(owner.id),
         platformTag: platformTag ?? null,
       })));
-    return this.checkoutPricing({
+    const draft = {
       ...destination,
       amountCents: dto.amountCents,
       maxInstallments: dto.maxInstallments,
       acceptedMethods: dto.acceptedMethods,
+    };
+    const rows = dto.bumpOfferIds?.length
+      ? await this.prisma.offer.findMany({
+          where: {
+            id: { in: dto.bumpOfferIds },
+            ownerUserId: destination.ownerUserId,
+            isActive: true,
+            renewalMode: 'NONE',
+          },
+        })
+      : [];
+    const byId = new Map(rows.map((o) => [o.id, o]));
+    const bumps = (dto.bumpOfferIds ?? []).flatMap((id) => {
+      const o = byId.get(id);
+      return o ? [o] : [];
     });
+    const context = await loadCyclePolicyContext(this.prisma, draft);
+    // Todas as combinações de bumps, para a prévia recalcular o total sem nova chamada.
+    const selections: Record<string, ReturnType<typeof pricingFor>> = {};
+    for (let mask = 0; mask < 1 << bumps.length; mask++) {
+      const chosen = bumps.filter((_, i) => mask & (1 << i));
+      selections[
+        chosen
+          .map((o) => o.code)
+          .sort()
+          .join(',')
+      ] = pricingFor(context, {
+        ...draft,
+        amountCents:
+          draft.amountCents + chosen.reduce((n, o) => n + o.amountCents, 0),
+      });
+    }
+    return {
+      pricing: selections[''],
+      selections,
+      bumps: bumps.map((o) => toPublicBump(o)),
+    };
   }
 
-  async publicPricing(code: string) {
+  async publicPricing(code: string, bumpCodes: string[] = []) {
     await this.getPublicByCode(code);
     const offer = await this.prisma.offer.findUniqueOrThrow({
       where: { code },
     });
-    return this.checkoutPricing(offer);
+    const available = (await this.publicBumps(offer, new Date())).filter(
+      (b) => b.role === 'BUMP',
+    );
+    const chosen = [...new Set(bumpCodes)].map((c) => {
+      const bump = available.find((b) => b.code === c);
+      if (!bump) throw new BadRequestException('Order bump indisponível');
+      return bump;
+    });
+    return this.checkoutPricing({
+      ...offer,
+      amountCents:
+        offer.amountCents + chosen.reduce((n, b) => n + b.amountCents, 0),
+    });
   }
 
-  private async checkoutPricing(
-    offer: Pick<
-      Offer,
-      | 'amountCents'
-      | 'platformTag'
-      | 'ownerUserId'
-      | 'maxInstallments'
-      | 'acceptedMethods'
-    >,
-  ) {
-    const context = await loadCyclePolicyContext(this.prisma, offer);
-    const quote = (
-      method: 'PIX' | 'DEBIT_CARD' | 'CREDIT_CARD' | 'BOLETO',
-      n = 1,
-    ) => quoteOfferCycle(context, offer, method, n);
-    return {
-      options: offer.acceptedMethods.includes('CREDIT_CARD')
-        ? Array.from({ length: offer.maxInstallments }, (_, i) => {
-            const price = quote('CREDIT_CARD', i + 1);
-            return {
-              installments: i + 1,
-              totalAmount: price.totalAmount,
-              installmentAmount:
-                Math.round((price.totalAmount / (i + 1)) * 100) / 100,
-              interestAmount: price.interestAmount ?? 0,
-            };
-          })
-        : [],
-      pixAmount: offer.acceptedMethods.includes('PIX')
-        ? quote('PIX').totalAmount
-        : offer.amountCents / 100,
-      debitAmount: offer.acceptedMethods.includes('DEBIT_CARD')
-        ? quote('DEBIT_CARD').totalAmount
-        : offer.amountCents / 100,
-      boletoAmount: offer.acceptedMethods.includes('BOLETO')
-        ? quote('BOLETO').totalAmount
-        : offer.amountCents / 100,
-    };
+  private async checkoutPricing(offer: PricedOffer) {
+    return pricingFor(await loadCyclePolicyContext(this.prisma, offer), offer);
   }
 
   async getPublicByCode(code: string, now = new Date()) {

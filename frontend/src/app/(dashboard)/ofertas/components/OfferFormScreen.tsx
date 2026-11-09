@@ -192,23 +192,30 @@ function FormBody({
     }
     setPreviewPending(true);
     try {
-      const pricing = await api.post<Record<string, unknown>>(
-        '/ofertas/preview-pricing',
-        {
-          amountCents,
-          maxInstallments:
-            recurring || !form.methods.includes('CREDIT_CARD')
-              ? 1
-              : Number(form.maxInstallments) || 1,
-          acceptedMethods: form.methods,
-          ...(id
-            ? { offerId: id }
-            : {
-                platformTag: platform ?? undefined,
-                ownerUserId: platformCatalog.financialOwner?.id,
-              }),
-        },
-      );
+      const priced = await api.post<{
+        pricing: Record<string, unknown>;
+        selections: Record<string, unknown>;
+        bumps: unknown[];
+      }>('/ofertas/preview-pricing', {
+        amountCents,
+        maxInstallments:
+          recurring || !form.methods.includes('CREDIT_CARD')
+            ? 1
+            : Number(form.maxInstallments) || 1,
+        acceptedMethods: form.methods,
+        bumpOfferIds: recurring
+          ? []
+          : form.bumps
+              .filter((bump) => bump.role === 'BUMP')
+              .map((bump) => bump.offerId)
+              .slice(0, 6),
+        ...(id
+          ? { offerId: id }
+          : {
+              platformTag: platform ?? undefined,
+              ownerUserId: platformCatalog.financialOwner?.id,
+            }),
+      });
       setPreviewDraft({
         code: 'preview',
         name: form.name || 'Nome da oferta',
@@ -223,7 +230,9 @@ function FormBody({
         intervalType: form.intervalType,
         intervalCount: Number(form.intervalCount) || 1,
         trialDays: Number(form.trialDays) || 0,
-        pricing,
+        pricing: priced.pricing,
+        bumps: priced.bumps,
+        pricingSelections: priced.selections,
       });
       setPreviewOpen(true);
     } catch (error) {

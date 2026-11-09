@@ -25,7 +25,28 @@ export type PublicOffer = {
   intervalCount: number | null;
   trialDays?: number | null;
   pricing?: OfferCheckoutPricing;
+  /** Order bumps vendáveis com a oferta (`GET /ofertas/public/:code`). */
+  bumps?: PublicBump[];
+  /** Só na prévia: preços de cada combinação de bumps, chaveados pelos códigos ordenados. */
+  pricingSelections?: Record<string, OfferCheckoutPricing>;
 };
+
+export type PublicBump = {
+  code: string;
+  role: 'BUMP' | 'UPSELL' | 'DOWNSELL';
+  name: string;
+  description: string | null;
+  amountCents: number;
+};
+
+/** Order bumps oferecidos no checkout (avulsos; upsell/downsell são pós-compra). */
+export const orderBumpsOf = (offer: PublicOffer): PublicBump[] =>
+  offer.renewalMode === 'NONE'
+    ? (offer.bumps ?? []).filter((bump) => bump.role === 'BUMP')
+    : [];
+
+export const bumpSelectionKey = (codes: string[]) =>
+  [...codes].sort().join(',');
 
 const METHOD_FROM_BACKEND: Record<string, OfferMethod> = {
   PIX: 'pix',
@@ -95,6 +116,7 @@ export function chargeBody(input: {
   installments: number;
   card?: Card;
   address?: BoletoAddressFields;
+  bumpCodes?: string[];
 }) {
   const { method, customer } = input;
   return {
@@ -104,6 +126,7 @@ export function chargeBody(input: {
     customerDocument: customer.document,
     customerPhone: customer.phone,
     documentType: customer.document.length === 14 ? 'CNPJ' : 'CPF',
+    ...(input.bumpCodes?.length ? { bumpCodes: input.bumpCodes } : {}),
     ...(method === 'pix'
       ? {}
       : method === 'boleto'

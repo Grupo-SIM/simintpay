@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
@@ -340,4 +341,11 @@ export class OfferPreviewPricingDto {
   @IsOptional()
   @IsString()
   offerId?: string;
+  @ApiPropertyOptional({ type: String, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(6)
+  @IsString({ each: true })
+  bumpOfferIds?: string[];
 }

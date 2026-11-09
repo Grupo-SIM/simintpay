@@ -26,9 +26,13 @@ export function isOfferPreviewMessage(
     'intervalCount',
     'trialDays',
     'pricing',
+    'bumps',
+    'pricingSelections',
   ];
   return (
     validPricing(d.pricing, Number(d.maxInstallments)) &&
+    validBumps(d.bumps) &&
+    validSelections(d.pricingSelections, Number(d.maxInstallments)) &&
     Object.keys(d).length === keys.length &&
     keys.every((key) => Object.hasOwn(d, key)) &&
     d.code === 'preview' &&
@@ -78,4 +82,31 @@ function validPricing(value: unknown, max: number) {
           o.installments * 0.011,
     )
   );
+}
+
+function validBumps(value: unknown) {
+  return (
+    Array.isArray(value) &&
+    value.length <= 6 &&
+    value.every(
+      (b) =>
+        b &&
+        typeof b === 'object' &&
+        typeof b.code === 'string' &&
+        b.role === 'BUMP' &&
+        typeof b.name === 'string' &&
+        b.name.length <= 500 &&
+        (b.description === null ||
+          (typeof b.description === 'string' &&
+            b.description.length <= 10000)) &&
+        Number.isSafeInteger(b.amountCents) &&
+        b.amountCents >= 0,
+    )
+  );
+}
+
+function validSelections(value: unknown, max: number) {
+  if (!value || typeof value !== 'object') return false;
+  const entries = Object.values(value);
+  return entries.length <= 64 && entries.every((p) => validPricing(p, max));
 }
