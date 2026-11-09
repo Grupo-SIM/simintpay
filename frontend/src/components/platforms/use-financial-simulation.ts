@@ -22,6 +22,7 @@ export function useFinancialSimulation({
   interestFree,
   feeMode,
   additiveTotals,
+  targetFeePpm,
   valid,
   admin,
 }: {
@@ -36,6 +37,8 @@ export function useFinancialSimulation({
   feeMode?: FeeMode | null;
   /** Additive values; part of the cache signature so stale rows are never reused. */
   additiveTotals?: AdditiveTotals;
+  /** Drafted target fee; null turns it off for the draft, undefined keeps the stored one. */
+  targetFeePpm?: number | null;
   valid: boolean;
   admin: boolean;
 }) {
@@ -55,6 +58,7 @@ export function useFinancialSimulation({
       interestFree,
       feeMode,
       additiveTotals,
+      targetFeePpm,
     ]),
   );
   const identity = JSON.stringify(signatures);
@@ -100,7 +104,11 @@ export function useFinancialSimulation({
           channel,
           installments: groupKeys.map((key) => Number(key.split('/')[3])),
           draft: admin
-            ? { lanes, ...(feeMode ? { feeMode } : {}) }
+            ? {
+                lanes,
+                ...(feeMode ? { feeMode } : {}),
+                ...(targetFeePpm !== undefined ? { targetFeePpm } : {}),
+              }
             : { owner, interestFree },
         },
       );

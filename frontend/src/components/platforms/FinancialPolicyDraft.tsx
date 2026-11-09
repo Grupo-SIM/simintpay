@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/Toast';
 import { CustomSelect } from '@/components/ui/CustomSelect';
 import { FeeModeField } from './FeeModeField';
 import { AdditiveFeesSection } from './AdditiveFeesSection';
+import { TargetFeeSection } from './TargetFeeSection';
 import { FinancialBulkInterestField } from './FinancialBulkInterestField';
 import { FinancialNumberField } from './FinancialNumberField';
 import { FinancialContractModal } from './FinancialContractModal';
@@ -47,6 +48,11 @@ export function FinancialPolicyDraft({
   const [feeMode, setFeeMode] = useState<FeeMode | null>(
     configuration.feeMode ?? null,
   );
+  // Admin-only: GLOBAL has no platform row, so it never carries a target fee.
+  const [targetFeePpm, setTargetFeePpm] = useState<number | null>(
+    configuration.targetFeePpm ?? null,
+  );
+  const targetActive = targetFeePpm !== null;
   const [disabledLanes, setDisabledLanes] = useState<string[]>(
     configuration.disabledLanes ?? [],
   );
@@ -171,6 +177,7 @@ export function FinancialPolicyDraft({
     ? JSON.stringify(lanes) !==
         JSON.stringify(configuration.laneOverrides ?? {}) ||
       feeMode !== (configuration.feeMode ?? null) ||
+      targetFeePpm !== (configuration.targetFeePpm ?? null) ||
       additiveFeesDraftChanged ||
       disabledLanesChanged
     : JSON.stringify(owner) !== JSON.stringify(configuration.ownerOverrides) ||
@@ -186,8 +193,10 @@ export function FinancialPolicyDraft({
     owner,
     lanes,
     interestFree: false,
-    feeMode,
-    additiveTotals,
+    feeMode: targetActive ? null : feeMode,
+    additiveTotals: targetActive ? undefined : additiveTotals,
+    targetFeePpm:
+      admin && configuration.feeMode !== undefined ? targetFeePpm : undefined,
     valid,
     admin,
   });
@@ -208,6 +217,9 @@ export function FinancialPolicyDraft({
                   : {}),
                 ...(additiveFeesDraftChanged
                   ? { additiveFees: additiveFeesDraft }
+                  : {}),
+                ...(targetFeePpm !== (configuration.targetFeePpm ?? null)
+                  ? { targetFeePpm }
                   : {}),
               }
             : { owner, interestFree: interestFreeOverride }),
@@ -320,8 +332,8 @@ export function FinancialPolicyDraft({
       }
       rule={owner[key] ?? configuration.globalOwner[key]}
       lane={lanes[key] ?? configuration.globalLanes?.[key]}
-      feeMode={feeMode}
-      additiveTotals={additiveTotals}
+      feeMode={targetActive ? null : feeMode}
+      additiveTotals={targetActive ? undefined : additiveTotals}
       state={
         simulation.rows[key] ?? {
           installments: Number(key.split('/')[3]),
@@ -376,15 +388,28 @@ export function FinancialPolicyDraft({
         </div>
       </div>
       {admin && feeMode !== null && (
-        <FeeModeField value={feeMode} onChange={setFeeMode} />
-      )}
-      {admin && feeMode !== null && additiveView && (
-        <AdditiveFeesSection
-          value={additiveFeesDraft}
-          onChange={setAdditiveFeesDraft}
+        <TargetFeeSection
+          value={targetFeePpm}
+          onChange={setTargetFeePpm}
           onValidityChange={validity}
         />
       )}
+      {/* Manual fees stay editable and stored, but do not apply while a target fee is set. */}
+      <div
+        className={targetActive ? 'space-y-5 opacity-50' : 'space-y-5'}
+        title={targetActive ? 'Desconsiderado pela taxa alvo' : undefined}
+      >
+        {admin && feeMode !== null && (
+          <FeeModeField value={feeMode} onChange={setFeeMode} />
+        )}
+        {admin && feeMode !== null && additiveView && (
+          <AdditiveFeesSection
+            value={additiveFeesDraft}
+            onChange={setAdditiveFeesDraft}
+            onValidityChange={validity}
+          />
+        )}
+      </div>
       <p className="text-sm text-zinc-500">
         {admin &&
           'Configure taxas e juros SimIntPay comparando custos internos da adquirente. Cada parcela mantém juros próprios; repasse ao comprador é definido pelo dono da plataforma. '}

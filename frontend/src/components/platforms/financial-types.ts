@@ -30,6 +30,8 @@ export const ZERO_ADDITIVE_TOTALS: AdditiveTotals = {
 export type FinancialConfiguration = {
   /** Additive totals for this platform (admin only; GLOBAL has none). */
   additiveFees?: AdditiveFeesView;
+  /** Target fee in ppm of the purchase total; set means manual fees are ignored (kept stored). */
+  targetFeePpm?: number | null;
   /** Null for GLOBAL, which has no platform row. */
   feeMode?: FeeMode | null;
   /** `METHOD/installments` lanes the platform does not accept; null for GLOBAL. */
@@ -58,6 +60,9 @@ export type FinancialResult = {
     sim: Addition & { interestPpm: number };
   };
   installments: number;
+  targetFeePpm?: number;
+  /** The most expensive acquirer already costs more than the target. */
+  targetUnreachable?: boolean;
   originalCents: number;
   buyerAdditionCents: number;
   buyerInterestCents: number;
