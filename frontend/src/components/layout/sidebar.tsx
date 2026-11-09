@@ -401,18 +401,14 @@ export function Sidebar() {
             />
           ))}
 
-        {(user?.isClient || user?.isAdmin) && (
-          <>
-            <NavLink
-              open={open}
-              pathname={pathname}
-              labelStyle={labelStyle}
-              href="/ofertas"
-              icon={Link2}
-              label="Ofertas"
-            />
-          </>
-        )}
+        <NavLink
+          open={open}
+          pathname={pathname}
+          labelStyle={labelStyle}
+          href="/ofertas"
+          icon={Link2}
+          label="Ofertas"
+        />
 
         {user?.isAffiliate && (
           <NavLink

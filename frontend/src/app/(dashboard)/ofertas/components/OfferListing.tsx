@@ -89,7 +89,7 @@ export function OfferListing({
   const query = useQuery({
     queryKey: [OFFERS_QUERY_KEY, 'list', user?.id, apiQuery],
     enabled: Boolean(
-      user?.isAdmin || (user?.isClient && user.clientStatus === 'APPROVED'),
+      user && (!user.isClient || user.clientStatus === 'APPROVED'),
     ),
     queryFn: async () =>
       normalizeListResponse(

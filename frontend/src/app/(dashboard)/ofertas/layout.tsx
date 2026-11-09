@@ -1,1 +1,1 @@
-export { default } from '../cliente/layout';
+export { default } from './OfferAccessLayout';
