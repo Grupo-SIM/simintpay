@@ -1,29 +1,12 @@
 import type { ReactNode } from 'react';
-import { Inter, Lora, Poppins } from 'next/font/google';
-
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700'],
-  variable: '--font-landing-inter',
-});
-
-const lora = Lora({
-  subsets: ['latin'],
-  weight: ['600'],
-  style: ['italic'],
-  variable: '--font-landing-lora',
-});
-
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['800'],
-  variable: '--font-landing-poppins',
-});
+import '@fontsource/inter/latin-300.css';
+import '@fontsource/inter/latin-400.css';
+import '@fontsource/inter/latin-500.css';
+import '@fontsource/inter/latin-600.css';
+import '@fontsource/inter/latin-700.css';
+import '@fontsource/lora/latin-600-italic.css';
+import '@fontsource/poppins/latin-800.css';
 
 export default function MarketingLayout({ children }: { children: ReactNode }) {
-  return (
-    <div className={`${inter.variable} ${lora.variable} ${poppins.variable}`}>
-      {children}
-    </div>
-  );
+  return <div>{children}</div>;
 }

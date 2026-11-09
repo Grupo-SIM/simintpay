@@ -13,6 +13,11 @@
     "test:e2e": "bun test src/components/coproduction/tests/coproduction.browser.test.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/lora": "^5.3.0",
+    "@fontsource/poppins": "^5.3.0",
     "@tanstack/react-query": "^5.91.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

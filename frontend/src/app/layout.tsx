@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
 import NextTopLoader from 'nextjs-toploader';
 import './globals.css';
 import { ToastProvider } from '@/components/ui/Toast';
@@ -7,16 +8,6 @@ import { ThemeProvider } from '@/components/theme/ThemeProvider';
 import { ScrollToTopOnPathChange } from '@/components/layout/ScrollToTopOnPathChange';
 import { QueryProvider } from '@/providers/QueryProvider';
 import Preloader from '@/components/ui/Preloader';
-
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-});
 
 export const metadata: Metadata = {
   title: 'Simintpay',
@@ -33,9 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className="antialiased">
         <Preloader />
         <NextTopLoader
           color="#8B5CF6"

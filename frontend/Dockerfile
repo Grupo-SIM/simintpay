@@ -7,7 +7,7 @@ COPY checkout/package.json checkout/package.json
 COPY frontend/package.json frontend/package.json
 RUN bun install --frozen-lockfile --ignore-scripts --filter frontend
 
-# Build under real Node: next/font/google misparses Google's CSS when run on Bun's runtime.
+# Fonts are self-hosted via @fontsource, so the build needs no access to Google Fonts.
 FROM node:22-bookworm-slim AS build
 COPY --from=dependencies /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
