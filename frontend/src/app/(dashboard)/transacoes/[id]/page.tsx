@@ -29,6 +29,7 @@ import { ActionButton } from '../../relatorio/components/ActionButton';
 
 import { useTransacaoDetail } from '@/features/transacoes/hooks/use-transacao-detail';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { useProductPlatforms } from '@/hooks/use-product-platforms';
 
 function formatBRL(
   value: number | string | undefined | null,
@@ -42,6 +43,17 @@ function formatBRL(
     minimumFractionDigits: 2,
     maximumFractionDigits,
   });
+}
+
+function paymentMethodLabel(value: string | null | undefined) {
+  const v = String(value ?? '').toLowerCase();
+  if (!v) return '—';
+  if (v.includes('pix')) return 'Pix';
+  if (v.includes('boleto')) return 'Boleto';
+  if (v.includes('debit')) return 'Cartão de débito';
+  if (v.includes('credit') || v.includes('card') || v.includes('cart'))
+    return 'Cartão de crédito';
+  return value as string;
 }
 
 function safeNum(value: number | string | undefined | null): number {
@@ -76,6 +88,7 @@ export default function TransacaoDetailPage() {
   const { toast } = useToast();
   const { data, loading, error } = useTransacaoDetail(id);
   const { user, loading: loadingUser } = useCurrentUser();
+  const { platforms: catalogPlatforms } = useProductPlatforms();
   const isAdmin = user?.isAdmin ?? false;
 
   const order = data?.order;
@@ -113,9 +126,16 @@ export default function TransacaoDetailPage() {
     );
   }
 
-  const platformTag = order.items
-    ?.map((item) => transacaoPlataformaUi(undefined, item.name))
-    .find(Boolean);
+  const platformTag =
+    data?.platformTag ||
+    order.items
+      ?.map((item) => transacaoPlataformaUi(undefined, item.name))
+      .find(Boolean);
+  const platformDisplay = platformTag
+    ? (catalogPlatforms.find(
+        (p) => p.tag.trim().toUpperCase() === platformTag.trim().toUpperCase(),
+      )?.name ?? platformLabel(platformTag))
+    : '—';
   const isPix = order.type_payment?.toUpperCase() === 'PIX';
   const valorBrutoVenda = safeNum(order.valor_bruto_venda ?? order.total);
   const taxaDom = safeNum(order.taxa_dom ?? order.mdr_value);
@@ -205,7 +225,7 @@ export default function TransacaoDetailPage() {
                   Plataforma
                 </div>
                 <div className="text-lg font-semibold truncate">
-                  {platformTag ? platformLabel(platformTag) : '—'}
+                  {platformDisplay}
                 </div>
               </div>
             </div>
@@ -308,7 +328,10 @@ export default function TransacaoDetailPage() {
           </div>
 
           <div className="space-y-6">
-            <InfoRow label="Pagamento no" value={order.type_payment} />
+            <InfoRow
+              label="Pagamento no"
+              value={paymentMethodLabel(order.type_payment)}
+            />
             <InfoRow
               label="Data do pagamento"
               value={

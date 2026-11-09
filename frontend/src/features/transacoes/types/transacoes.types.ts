@@ -66,6 +66,7 @@ export type TransacaoItem = {
 
 export type TransacaoDetail = {
   coproducao?: TransacaoCoproducao | null;
+  platformTag?: string | null;
   status: string;
   user?: { id: string; name: string; email: string };
   order: {

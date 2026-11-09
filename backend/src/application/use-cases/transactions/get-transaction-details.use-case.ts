@@ -241,20 +241,45 @@ export class GetTransactionDetailsUseCase {
   /** Coprodutores veem a transação completa, somente leitura; `coproducao` identifica o papel. */
   async execute(input: { userId: string; role: string; id: string }) {
     const loaded = await this.load(input);
-    const detail =
-      input.role === 'ADMIN'
-        ? loaded
-        : { ...loaded, order: this.toCustomerOrder((loaded as any).order) };
     const tx = await this.prisma.transaction.findUnique({
       where: { id: input.id },
-      select: { id: true, userId: true, financialSnapshot: true },
+      select: {
+        id: true,
+        userId: true,
+        financialSnapshot: true,
+        platformTag: true,
+        totalFee: true,
+        netAmount: true,
+      },
     });
+    const settled = this.withStoredAmounts((loaded as any).order, tx);
+    const detail =
+      input.role === 'ADMIN'
+        ? { ...loaded, order: settled }
+        : { ...loaded, order: this.toCustomerOrder(settled) };
     const coproducao = tx
       ? ((
           await transactionCoproductionInfo(this.prisma, input.userId, [tx])
         ).get(tx.id) ?? null)
       : null;
-    return { ...detail, coproducao };
+    return { ...detail, platformTag: tx?.platformTag ?? null, coproducao };
+  }
+
+  /** A lista exibe os valores gravados na transação; o detalhe precisa bater com eles. */
+  private withStoredAmounts(
+    order: any,
+    tx: { totalFee: Prisma.Decimal; netAmount: Prisma.Decimal | null } | null,
+  ): any {
+    if (!order || !tx || Number(tx.totalFee) <= 0 || tx.netAmount == null) {
+      return order;
+    }
+    const net = Number(tx.netAmount);
+    return {
+      ...order,
+      fee_total_value: Number(tx.totalFee),
+      total_liquid: net,
+      valor_liquido_vendedor: net,
+    };
   }
 
   /**
