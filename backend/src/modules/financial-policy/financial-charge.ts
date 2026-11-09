@@ -23,6 +23,7 @@ import {
 } from './financial-policy';
 import { listAcquirerFees, type AcquirerCost } from './acquirer-fees';
 import { loadFinancialPolicy } from './financial-policy.service';
+import { calculateTargetFinancials } from './target-fee';
 import type { Prisma } from '@prisma/client';
 
 export async function loadChargePolicy(
@@ -68,12 +69,18 @@ export async function loadPlatformChargeContext(
     return null;
   const platform = await prisma.platform.findUnique({
     where: { tag },
-    select: { acquirer: true, feeMode: true, additiveFees: true },
+    select: {
+      acquirer: true,
+      feeMode: true,
+      additiveFees: true,
+      targetFeePpm: true,
+    },
   });
   return platform
     ? {
         acquirer: platform.acquirer,
         platformFeeMode: platform.feeMode,
+        targetFeePpm: platform.targetFeePpm,
         additiveTotals: {
           order: {
             percentageValue: platform.additiveFees?.orderPct ?? 0,
@@ -95,6 +102,8 @@ export function quoteFinancialCharge(
     feesByLane?: Record<string, AcquirerCost[]>;
     platformFeeMode?: FeeMode;
     additiveTotals?: AdditiveTotals;
+    /** Set: manual fees and the fee mode are ignored; see `calculateTargetFinancials`. */
+    targetFeePpm?: number | null;
   },
   amount: number,
   method: Method,
@@ -122,27 +131,35 @@ export function quoteFinancialCharge(
         routedAcquirer: context.acquirer,
       }
     : undefined;
-  const key = scheduled
-    ? pricingLaneKey(
-        context.policy,
-        scheduled.fees,
-        method,
-        channel,
-        installments,
-      )
-    : routeKey;
-  if (!key || !context.policy.document.lanes[key]) {
+  const targetFeePpm = context.targetFeePpm ?? null;
+  const key =
+    targetFeePpm !== null
+      ? routeKey
+      : scheduled
+        ? pricingLaneKey(
+            context.policy,
+            scheduled.fees,
+            method,
+            channel,
+            installments,
+          )
+        : routeKey;
+  if (targetFeePpm === null && (!key || !context.policy.document.lanes[key])) {
     if (context.platformFeeMode)
       throw new BadRequestException(
         'Taxas da plataforma não configuradas para esta modalidade',
       );
     return null;
   }
-  if (context.platformFeeMode && !fees.length)
+  if (!key) return null;
+  if (targetFeePpm !== null && !scheduled)
+    throw new BadRequestException('Custo da adquirente não configurado');
+  if ((context.platformFeeMode || targetFeePpm !== null) && !fees.length)
     throw new BadRequestException('Custo da adquirente não configurado');
   let policy = context.policy;
   let additiveCents = 0;
   if (
+    targetFeePpm === null &&
     context.platformFeeMode &&
     context.platformFeeMode !== 'SIMINTPAY_ONLY' &&
     context.additiveTotals
@@ -157,7 +174,7 @@ export function quoteFinancialCharge(
       [{ key: 'order', quantity: 1, unitPrice: cents(amount) }],
     ).feeTotalCents;
   }
-  if (context.platformFeeMode === 'ADDITIVE_ONLY') {
+  if (targetFeePpm === null && context.platformFeeMode === 'ADDITIVE_ONLY') {
     policy = {
       ...policy,
       document: {
@@ -172,14 +189,23 @@ export function quoteFinancialCharge(
       },
     };
   }
-  const r = calculateFinancials(
-    policy,
-    key,
-    cents(amount),
-    undefined,
-    scheduled,
-    buyerTotalAsInput,
-  );
+  const r =
+    targetFeePpm !== null
+      ? calculateTargetFinancials(
+          policy.version,
+          key,
+          cents(amount),
+          targetFeePpm,
+          scheduled!,
+        )
+      : calculateFinancials(
+          policy,
+          key,
+          cents(amount),
+          undefined,
+          scheduled,
+          buyerTotalAsInput,
+        );
   if (additiveCents) {
     r.contractedCostCents += additiveCents;
     r.processingCostCents += additiveCents;
@@ -199,6 +225,7 @@ export function quoteFinancialCharge(
         ? {
             platformFeeMode: context.platformFeeMode,
             additiveFeeCents: additiveCents,
+            ...(targetFeePpm !== null ? { targetFeePpm } : {}),
             processingCostCents: r.processingCostCents,
             interestCostCents: r.interestCostCents,
           }

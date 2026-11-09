@@ -410,7 +410,11 @@ export class PlatformPaymentsService {
       });
     const token =
       acquiring?.token ?? decryptPlatformSecret(integration!.encryptedValue!);
-    const feeMode = input.allocation ? platform.feeMode : undefined;
+    // A target fee replaces the Delivery fee modes: it is priced by the shared quote below.
+    const feeMode =
+      input.allocation && platform.targetFeePpm == null
+        ? platform.feeMode
+        : undefined;
     const deliveryQuote =
       input.allocation && feeMode
         ? quoteDeliveryCharge(

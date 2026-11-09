@@ -1363,6 +1363,8 @@ model Platform {
   absorbCustomerInterest Boolean @default(true)
   /// Which fee sets apply to platform payments. SIMINTPAY_ONLY is the default.
   feeMode PlatformFeeMode @default(SIMINTPAY_ONLY)
+  /// Target fee in millionths of the purchase total. Set: the seller is charged this share (highest acquirer cost plus a SimIntPay addition) and manual fees/fee mode are ignored but kept.
+  targetFeePpm Int?
   /// `METHOD/installments` lanes the platform does not accept; ignored by fee listing and coverage.
   disabledPaymentLanes String[] @default([])
   integrations   PlatformIntegration[]

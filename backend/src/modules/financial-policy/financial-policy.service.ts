@@ -29,6 +29,7 @@ import {
   type AdditiveFeesView,
 } from '../additive-fees/additive-fees.service';
 import { listAcquirerFees } from './acquirer-fees';
+import { calculateTargetFinancials, validateTargetFeePpm } from './target-fee';
 
 type Client = Pick<
   Prisma.TransactionClient,
@@ -103,12 +104,15 @@ export function projectPolicy(
   feeMode: PlatformFeeMode | null = null,
   disabledLanes: string[] | null = null,
   additiveFees: AdditiveFeesView | null = null,
+  targetFeePpm: number | null = null,
 ) {
   const { version, sources } = policy;
   return {
     version,
     sources,
     feeMode,
+    /** Set: manual fees are kept but not applied; simulations show the dynamic fees. */
+    targetFeePpm,
     disabledLanes,
     ownerOverrides: policy.own.owner,
     globalOwner: policy.global.owner,
@@ -148,19 +152,21 @@ async function authorizeWithFeeMode(
     throw new ForbiddenException('Conta inativa');
   const admin = actor.role === Role.ADMIN;
   let feeMode: PlatformFeeMode | null = null;
+  let targetFeePpm: number | null = null;
   if (tag === 'GLOBAL') {
     if (!admin) throw new ForbiddenException('Exige administrador');
   } else {
     const platform = await prisma.platform.findUnique({
       where: { tag },
-      select: { ownerUserId: true, feeMode: true },
+      select: { ownerUserId: true, feeMode: true, targetFeePpm: true },
     });
     if (!platform) throw new NotFoundException('Plataforma não cadastrada');
     if (!admin && platform.ownerUserId !== user.sub)
       throw new ForbiddenException('Plataforma pertence a outro usuário');
     feeMode = platform.feeMode ?? null;
+    targetFeePpm = platform.targetFeePpm ?? null;
   }
-  return { admin, feeMode };
+  return { admin, feeMode, targetFeePpm };
 }
 
 /** GLOBAL has no platform row, so it carries no fee mode. */
@@ -174,6 +180,19 @@ async function platformFeeMode(
     select: { feeMode: true },
   });
   return platform?.feeMode ?? null;
+}
+
+/** GLOBAL has no platform row, so it carries no target fee. */
+async function platformTargetFee(
+  prisma: Pick<Prisma.TransactionClient, 'platform'>,
+  tag: string,
+): Promise<number | null> {
+  if (tag === 'GLOBAL') return null;
+  const platform = await prisma.platform.findUnique({
+    where: { tag },
+    select: { targetFeePpm: true },
+  });
+  return platform?.targetFeePpm ?? null;
 }
 
 /** Generic additive totals and revision; GLOBAL has none. Only admins can change them. */
@@ -215,6 +234,7 @@ export async function getFinancialPolicy(
       await platformFeeMode(prisma, tag),
       await platformDisabledLanes(prisma, tag),
       await platformAdditiveFees(prisma, tag),
+      await platformTargetFee(prisma, tag),
     ),
   };
 }
@@ -236,6 +256,7 @@ export async function saveFinancialPolicy(
     feeMode?: unknown;
     disabledLanes?: unknown;
     additiveFees?: unknown;
+    targetFeePpm?: unknown;
   };
   if (
     Object.keys(body).some(
@@ -248,6 +269,7 @@ export async function saveFinancialPolicy(
           'feeMode',
           'disabledLanes',
           'additiveFees',
+          'targetFeePpm',
         ].includes(key),
     )
   )
@@ -266,6 +288,16 @@ export async function saveFinancialPolicy(
       )
     )
       throw new BadRequestException('Modo de taxas inválido');
+  }
+  if (input.targetFeePpm !== undefined) {
+    if (!admin)
+      throw new ForbiddenException('Taxa alvo exclusiva do administrador');
+    if (tag === 'GLOBAL') throw new BadRequestException('Taxa alvo inválida');
+    try {
+      input.targetFeePpm = validateTargetFeePpm(input.targetFeePpm);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
   }
   if (input.additiveFees !== undefined) {
     if (!admin)
@@ -320,6 +352,12 @@ export async function saveFinancialPolicy(
             where: { tag },
             data: { feeMode: input.feeMode as PlatformFeeMode },
           });
+        // Manual fees stay stored; the target only takes precedence while it is set.
+        if (input.targetFeePpm !== undefined)
+          await tx.platform.update({
+            where: { tag },
+            data: { targetFeePpm: input.targetFeePpm as number | null },
+          });
         if (input.disabledLanes !== undefined)
           await tx.platform.update({
             where: { tag },
@@ -371,6 +409,7 @@ export async function saveFinancialPolicy(
             await platformFeeMode(tx, tag),
             await platformDisabledLanes(tx, tag),
             await platformAdditiveFees(tx, tag),
+            await platformTargetFee(tx, tag),
           ),
         };
       },
@@ -402,6 +441,7 @@ export type SimulationInput = {
     interestFree?: boolean;
     lanes?: Policy['lanes'];
     feeMode?: unknown;
+    targetFeePpm?: unknown;
   };
 };
 export async function simulateFinancialPolicy(
@@ -410,12 +450,13 @@ export async function simulateFinancialPolicy(
   user: JwtPayload,
   body: SimulationInput,
 ) {
-  const { admin, feeMode: storedFeeMode } = await authorizeWithFeeMode(
-    prisma,
-    tag,
-    user,
-  );
+  const {
+    admin,
+    feeMode: storedFeeMode,
+    targetFeePpm: storedTargetFeePpm,
+  } = await authorizeWithFeeMode(prisma, tag, user);
   let feeMode = storedFeeMode;
+  let targetFeePpm = storedTargetFeePpm;
   if (
     !body ||
     !Array.isArray(body.installments) ||
@@ -433,7 +474,14 @@ export async function simulateFinancialPolicy(
   if (draft) {
     if (
       Object.keys(draft).some(
-        (key) => !['owner', 'interestFree', 'lanes', 'feeMode'].includes(key),
+        (key) =>
+          ![
+            'owner',
+            'interestFree',
+            'lanes',
+            'feeMode',
+            'targetFeePpm',
+          ].includes(key),
       )
     )
       throw new BadRequestException('Rascunho inválido');
@@ -454,8 +502,19 @@ export async function simulateFinancialPolicy(
         throw new BadRequestException('Modo de taxas inválido');
       if (tag !== 'GLOBAL') feeMode = draft.feeMode as PlatformFeeMode;
     }
+    if (draft.targetFeePpm !== undefined) {
+      if (!admin)
+        throw new ForbiddenException('Taxa alvo exclusiva do administrador');
+      try {
+        targetFeePpm = validateTargetFeePpm(draft.targetFeePpm);
+      } catch (error) {
+        throw new BadRequestException((error as Error).message);
+      }
+    }
     const policyDraft = Object.fromEntries(
-      Object.entries(draft).filter(([key]) => key !== 'feeMode'),
+      Object.entries(draft).filter(
+        ([key]) => key !== 'feeMode' && key !== 'targetFeePpm',
+      ),
     );
     policy = resolvePolicy(
       policy.global,
@@ -513,6 +572,21 @@ export async function simulateFinancialPolicy(
                 routedAcquirer: body.acquirer,
               }
             : undefined;
+        if (targetFeePpm !== null) {
+          if (!scheduled?.fees.length)
+            throw new Error('Custo da adquirente não configurado');
+          const result = calculateTargetFinancials(
+            policy.version,
+            routeKey,
+            body.amountCents,
+            targetFeePpm,
+            scheduled,
+          );
+          return {
+            installments: n,
+            result: admin ? result : ownerResult(result),
+          };
+        }
         const key = scheduled
           ? (pricingLaneKey(
               policy,
