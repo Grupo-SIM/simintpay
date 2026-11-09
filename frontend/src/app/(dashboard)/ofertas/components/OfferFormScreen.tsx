@@ -312,9 +312,13 @@ function FormBody({
                     key={template}
                     type="button"
                     data-testid={`preset-${template}`}
-                    onClick={() =>
-                      setForm((current) => applyPreset(current, template))
-                    }
+                    onClick={() => {
+                      setForm((current) => applyPreset(current, template));
+                      toast({
+                        type: 'success',
+                        title: 'Modelo aplicado com sucesso.',
+                      });
+                    }}
                     className="cursor-pointer rounded-xl border border-zinc-200 p-3 text-left transition-colors hover:border-emerald-600 dark:border-white/10 dark:hover:bg-white/5"
                   >
                     <span className="block text-sm font-semibold">
