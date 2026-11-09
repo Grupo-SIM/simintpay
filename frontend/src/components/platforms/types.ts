@@ -8,6 +8,7 @@ export type Platform = PlatformOwnership & {
   coproducao?: {
     role: 'OWNER' | 'COPRODUCER';
     readOnly: boolean;
+    myPercentageBps?: number | null;
   };
   ownerUserId: string;
   customerInterestRates: Record<string, number> | null;
