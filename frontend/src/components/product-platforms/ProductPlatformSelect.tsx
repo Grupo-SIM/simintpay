@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
 
@@ -64,17 +63,6 @@ export function ProductPlatformSelect({
         placeholder="Selecione uma plataforma"
         disabled={disabled}
       />
-      {catalog.options.length === 0 && (
-        <p className="text-sm text-zinc-500">
-          Nenhuma plataforma ativa disponível para sua conta.{' '}
-          <Link
-            href="/plataformas"
-            className="cursor-pointer font-medium text-emerald-600 underline dark:text-emerald-400"
-          >
-            Criar plataforma
-          </Link>
-        </p>
-      )}
       {disabled && (
         <p className="text-xs text-zinc-500">
           A plataforma vinculada será preservada.
