@@ -176,22 +176,21 @@ export function FinancialSimulationCard({
             : []),
         ]
       : [];
-  const effective =
-    lane && feeMode !== undefined && feeMode !== null
-      ? effectiveFee(
-          {
-            ...lane,
-            sim: simRule
-              ? {
-                  ...simRule,
-                  interestPpm: simRule.interestPpm ?? lane.sim.interestPpm,
-                }
-              : lane.sim,
-          },
-          feeMode,
-          additiveTotals,
-        )
-      : undefined;
+  const effective = lane
+    ? effectiveFee(
+        {
+          ...lane,
+          sim: simRule
+            ? {
+                ...simRule,
+                interestPpm: simRule.interestPpm ?? lane.sim.interestPpm,
+              }
+            : lane.sim,
+        },
+        feeMode,
+        additiveTotals,
+      )
+    : undefined;
   const shortfall =
     displayedContract && effective
       ? feeShortfall(effective, displayedContract)
