@@ -3617,8 +3617,17 @@ export class AdminController {
       buildLucroSimpayDetalhePorPlataforma(txRowsLucro, platforms);
 
     const totalTransacoes = txRowsLucro.length;
+    // Clientes contam apenas compradores de plataformas cadastradas; vendas
+    // sem plataforma identificada (SimIntPay, links avulsos) ficam de fora.
     const customersCount = new Set(
       txRowsLucro
+        .filter(
+          (t) =>
+            consolidadoTagParaTransacao(
+              { userId: t.userId, platformTag: t.platformTag ?? null },
+              platforms,
+            ) !== TAG_NAO_IDENTIFICADA,
+        )
         .map((t) => reportBuyerCpf(t.customerDocument))
         .filter((cpf): cpf is string => cpf !== null),
     ).size;

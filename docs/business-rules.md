@@ -8,6 +8,10 @@ O detalhe `GET /transacoes/:id` só entrega a clientes (donos e coprodutores) ca
 
 O piso por método/canal/parcela considera somente adquirentes ativas e a tabela mais recente de cada uma. O percentual efetivo é o maior `ratePpm + interestPpm` de uma mesma adquirente, nunca a soma dos máximos separados; o custo fixo usa seu próprio máximo. Na DOM, MDR de 3,99% mais juros de 4,31% resulta em piso de 8,30%, sem capitalização ou nova multiplicação pelas parcelas. Juros zero preservam o MDR. Esse piso alimenta `finance/acquirer-costs` do núcleo de plataformas e `costs` da integração Delivery, sem alterar tabelas brutas nem a base e o arredondamento do estimador de custo monetário.
 
+## Valor mínimo de ofertas
+
+Não há valor fixo. O piso é o menor valor, à vista no canal online, em que o líquido do vendedor é positivo e a margem SimIntPay não é negativa, calculado do custo da adquirente (fixo + percentual) e da taxa SimIntPay da política financeira vigente da plataforma. Vale o maior piso entre os meios aceitos, arredondado para reais inteiros; meio sem custo ou política configurados não impõe piso (mínimo de R$ 0,01). Exemplo: boleto com custo fixo de R$ 4,49 e margem de R$ 5,50 resulta em R$ 10; crédito DOM (R$ 1,00 + 3,99%) pede o piso que cubra esse custo mais a margem configurada. `OfferService` calcula o piso em toda criação e edição de valor (`offer-minimum.ts`).
+
 ## Taxa alvo
 
 `Platform.targetFeePpm` (milionésimos do total da compra, só admin, via `PATCH /platforms/:tag/financial-policy`; `null` desativa) substitui as taxas manuais. Cada transação cobra do vendedor a maior taxa entre as adquirentes ativas (MDR + juros da parcela/canal, sobre o total da compra) mais um adicional SimIntPay que completa a taxa alvo; o comprador não paga juros nem adicionais e o vendedor recebe total − taxa alvo. Se a adquirente mais cara já custar mais que o alvo, o adicional é zero e vale o custo dela (`targetUnreachable`). Taxas manuais, modo de taxas e taxas aditivas permanecem gravados, mas são desconsideradas enquanto a taxa alvo estiver definida; as simulações exibem as taxas dinâmicas. O alvo vale para novas cobranças, substitui os modos Delivery nos pagamentos canônicos e exige tabela de custo da adquirente configurada.
@@ -105,7 +109,7 @@ Existe uma única conta DOM: todas as plataformas cobram com o `DOM_TOKEN` do am
 
 ## Painel do cliente e notificações de vendas
 
-Cliente aprovado cria/edita somente os cinco produtos atuais de sua propriedade: planos, planos PIX, links de pagamento/assinatura e boletos. Valor mínimo R$ 14,99. Sessão de admin mantém seu escopo; clientes não alteram proprietário, código público, taxas ou vínculos administrativos. URLs administrativas não autorizam cliente; endpoints de dashboard, cobranças e taxas próprias mantêm acesso autenticado por usuário.
+Cliente aprovado cria/edita somente os cinco produtos atuais de sua propriedade: planos, planos PIX, links de pagamento/assinatura e boletos. Valor mínimo R$ 14,99 para os produtos legados (ofertas têm piso próprio, ver abaixo). Sessão de admin mantém seu escopo; clientes não alteram proprietário, código público, taxas ou vínculos administrativos. URLs administrativas não autorizam cliente; endpoints de dashboard, cobranças e taxas próprias mantêm acesso autenticado por usuário.
 
 Dashboard do cliente integra a coprodução às próprias métricas: transações, vendas (valor e gráfico) e receita líquida somam as participações já creditadas (`AVAILABLE`) ao que o cliente vende; mediação e estornos não entram. Não há card separado de coprodução; a listagem de recebimentos fica em relatórios.
 
@@ -318,7 +322,7 @@ Empresas reservam plataforma antes do primeiro dono; bootstrap autenticado concl
 
 ## Compradores nos relatórios
 
-- “Quantidade de clientes” conta CPFs únicos nas vendas aprovadas do escopo e período selecionados, respeitando o método de pagamento. Inclui e-books e demais produtos; o mesmo CPF em várias compras/produtos conta uma vez no consolidado.
+- “Quantidade de clientes” conta CPFs únicos nas vendas aprovadas do escopo e período selecionados, respeitando o método de pagamento. Inclui e-books e demais produtos; o mesmo CPF em várias compras/produtos conta uma vez no consolidado. Somente compradores de vendas atribuídas a plataformas cadastradas entram; vendas sem plataforma identificada não contam.
 - CPF é normalizado para 11 dígitos, removendo pontuação. Compras sem CPF de 11 dígitos não aumentam a contagem; e-mail, telefone e cadastros de plataforma não substituem CPF.
 
 ### Coprodução por plataforma
