@@ -1,6 +1,4 @@
 import {
-  OFFER_MIN_AMOUNT_CENTS,
-  OFFER_MIN_AMOUNT_ERROR,
   OFFER_TEMPLATES,
   type Offer,
   type OfferInterval,
@@ -283,8 +281,8 @@ export function validateOfferForm(
     return 'O nome deve ter no máximo 120 caracteres.';
   if (form.description.trim().length > 1000)
     return 'A descrição deve ter no máximo 1000 caracteres.';
-  if (Math.round(amount * 100) < OFFER_MIN_AMOUNT_CENTS)
-    return OFFER_MIN_AMOUNT_ERROR;
+  // O piso depende do custo da adquirente e da margem; o backend valida e devolve a mensagem.
+  if (!(Math.round(amount * 100) >= 1)) return 'Informe o valor da oferta.';
   if (form.methods.length === 0)
     return 'Selecione ao menos uma forma de pagamento.';
   const installments = toInt(form.maxInstallments) ?? 1;

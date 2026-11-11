@@ -32,10 +32,6 @@ export type Offer = {
   createdAt: string;
 };
 
-/** Valor mínimo de uma oferta (espelho de MIN_OFFER_AMOUNT_CENTS no backend). */
-export const OFFER_MIN_AMOUNT_CENTS = 1499;
-export const OFFER_MIN_AMOUNT_ERROR = 'O valor mínimo é R$ 14,99';
-
 export const OFFER_METHODS: OfferMethod[] = [
   'PIX',
   'CREDIT_CARD',
@@ -121,9 +117,7 @@ export const OFFER_TEMPLATES: Record<OfferTemplateId, OfferPreset> = {
 };
 
 /** Descrição derivada dos atributos da oferta (não existe tipo armazenado). */
-export function offerLabel(
-  offer: Pick<Offer, 'renewalMode'>,
-): string {
+export function offerLabel(offer: Pick<Offer, 'renewalMode'>): string {
   if (offer.renewalMode === 'AUTO_CHARGE') return 'Assinatura no cartão';
   if (offer.renewalMode === 'MANUAL_PAY') return 'Assinatura por PIX';
   return 'Compra única';

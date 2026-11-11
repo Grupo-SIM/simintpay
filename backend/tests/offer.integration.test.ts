@@ -69,13 +69,13 @@ run(
   },
 );
 
-run('rejects amounts below the minimum and unsupported combos', async () => {
+run('rejects non-positive amounts and unsupported combos', async () => {
   await expect(
     service.create(seller, {
       name: 'x',
-      amountCents: 1000,
+      amountCents: 0,
     }),
-  ).rejects.toThrow('14,99');
+  ).rejects.toThrow('valor mínimo');
   await expect(
     service.create(seller, {
       name: 'x',
@@ -125,8 +125,8 @@ run('clients only see and change their own offers', async () => {
     service.update(other, offer.id, { name: 'hack' }),
   ).rejects.toThrow('não encontrada');
   await expect(
-    service.update(seller, offer.id, { amountCents: 100 }),
-  ).rejects.toThrow('14,99');
+    service.update(seller, offer.id, { amountCents: 0 }),
+  ).rejects.toThrow('valor mínimo');
   const updated = await service.update(seller, offer.id, { name: 'Novo' });
   expect(updated.name).toBe('Novo');
   expect(updated.ownerUserId).toBe(seller.id);

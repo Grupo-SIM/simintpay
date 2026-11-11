@@ -45,8 +45,8 @@ describe('presets', () => {
 describe('validateOfferForm (espelha offer.validator.ts)', () => {
   test('nome, valor mínimo, meios, parcelas e cartão automático', () => {
     expect(validateOfferForm({ ...base, name: ' ' }, 50)).toMatch(/nome/);
-    expect(validateOfferForm(base, 14.98)).toBe('O valor mínimo é R$ 14,99');
-    expect(validateOfferForm(base, 14.99)).toBeNull();
+    expect(validateOfferForm(base, 0)).toBe('Informe o valor da oferta.');
+    expect(validateOfferForm(base, 0.01)).toBeNull();
     expect(validateOfferForm({ ...base, methods: [] }, 50)).toMatch(/forma/);
     expect(
       validateOfferForm(

@@ -25,11 +25,11 @@ export function clientTaxaTagFor(
 /**
  * Aplica as regras de criação para clientes. No-op se a conta não for cliente.
  * - cliente não-APPROVED → 403 (conta em análise)
- * - valor < CLIENT_MIN_AMOUNT → 400
+ * - valor < CLIENT_MIN_AMOUNT → 400 (somente quando `amount` é informado; ofertas usam o piso calculado)
  */
 export function assertClientCanCreate(
   user: ClientUserLike | null | undefined,
-  amount: number,
+  amount?: number,
 ): void {
   if (!isClientUser(user)) return;
   if (user!.clientStatus !== 'APPROVED') {
@@ -37,7 +37,7 @@ export function assertClientCanCreate(
       'Sua conta está em análise. Aguarde a aprovação para criar links e planos.',
     );
   }
-  if (!(Number(amount) >= CLIENT_MIN_AMOUNT)) {
+  if (amount !== undefined && !(Number(amount) >= CLIENT_MIN_AMOUNT)) {
     throw new BadRequestException('O valor mínimo é R$ 14,99');
   }
 }

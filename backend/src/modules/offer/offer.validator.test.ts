@@ -34,9 +34,19 @@ describe('validateOfferInput', () => {
     expect(out.metadata).toBeNull();
   });
 
-  test('rejects amounts below R$ 14,99', () => {
-    expect(issues({ amountCents: 1498 })).toContain('R$ 14,99');
-    expect(issues({ amountCents: 1499.5 })).toContain('R$ 14,99');
+  test('rejects amounts below the computed minimum', () => {
+    expect(issues({ amountCents: 999, minAmountCents: 1000 })).toContain(
+      'R$ 10,00',
+    );
+    expect(issues({ amountCents: 1000.5, minAmountCents: 1000 })).toContain(
+      'R$ 10,00',
+    );
+    expect(issues({ amountCents: 1000, minAmountCents: 1000 })).toBe('');
+  });
+
+  test('has no fixed floor without a computed minimum', () => {
+    expect(issues({ amountCents: 1 })).toBe('');
+    expect(issues({ amountCents: 0 })).toContain('R$ 0,01');
   });
 
   test('requires methods supported by the acquirer', () => {

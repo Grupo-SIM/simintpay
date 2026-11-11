@@ -6,9 +6,6 @@ import type {
 import type { Acquirer } from '../../core/services/acquirer.enum';
 import { acquirerCapabilities } from '../../core/services/acquirer-capabilities';
 
-/** Valor mínimo de uma oferta (R$ 14,99), conforme docs/business-rules.md. */
-export const MIN_OFFER_AMOUNT_CENTS = 1499;
-
 const INTERVALS: readonly BillingIntervalType[] = [
   'DAY',
   'WEEK',
@@ -25,6 +22,8 @@ const CARD_METHODS: readonly PaymentMethod[] = ['CREDIT_CARD', 'DEBIT_CARD'];
 
 export type OfferInput = {
   amountCents: number;
+  /** Piso calculado por `offerMinimumCents` (custo da adquirente + margem SimIntPay); 1 centavo quando sem custo configurado. */
+  minAmountCents?: number;
   acceptedMethods: readonly PaymentMethod[];
   maxInstallments?: number | null;
   renewalMode?: RenewalMode | null;
@@ -71,8 +70,11 @@ export function validateOfferInput(input: OfferInput): NormalizedOffer {
   const caps = acquirerCapabilities(input.acquirer);
   const renewalMode = input.renewalMode ?? 'NONE';
 
-  if (!isInt(input.amountCents, MIN_OFFER_AMOUNT_CENTS)) {
-    issues.push('O valor mínimo é R$ 14,99');
+  const minAmountCents = Math.max(1, input.minAmountCents ?? 1);
+  if (!isInt(input.amountCents, minAmountCents)) {
+    issues.push(
+      `O valor mínimo é R$ ${(minAmountCents / 100).toFixed(2).replace('.', ',')}`,
+    );
   }
 
   const requested = Array.isArray(input.acceptedMethods)

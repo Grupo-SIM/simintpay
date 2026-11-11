@@ -19,6 +19,7 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { createWithCoproduction } from '../coproduction/coproduction.service';
 import { getModuleAcquirer } from '../module.registry';
 import { generateOfferCode } from './offer-code';
+import { offerMinimumCents } from './offer-minimum';
 import {
   buildOfferListOrder,
   buildOfferListWhere,
@@ -109,26 +110,29 @@ export class OfferService {
         platforms: dto.platformTag ? [dto.platformTag] : undefined,
       },
     );
-    assertClientCanCreate(owner, (dto.amountCents ?? 0) / 100);
+    assertClientCanCreate(owner);
 
     // Sem campos de recorrência a oferta é uma compra única.
     const renewalMode = dto.renewalMode ?? 'NONE';
     const recurring = renewalMode !== 'NONE';
-    const normalized = this.normalize({
-      amountCents: dto.amountCents,
-      acceptedMethods: dto.acceptedMethods ?? DEFAULT_METHODS,
-      maxInstallments: dto.maxInstallments ?? 12,
-      renewalMode,
-      // O intervalo padrão (mensal) só vale quando o modo é recorrente.
-      intervalType: dto.intervalType ?? (recurring ? 'MONTH' : null),
-      intervalCount: dto.intervalCount ?? (recurring ? 1 : null),
-      repetitions: dto.repetitions,
-      trialDays: dto.trialDays,
-      retryDays: dto.retryDays,
-      graceDays: dto.graceDays,
-      metadata: dto.metadata,
-      acquirer: getModuleAcquirer(platformTag),
-    });
+    const normalized = await this.normalize(
+      {
+        amountCents: dto.amountCents,
+        acceptedMethods: dto.acceptedMethods ?? DEFAULT_METHODS,
+        maxInstallments: dto.maxInstallments ?? 12,
+        renewalMode,
+        // O intervalo padrão (mensal) só vale quando o modo é recorrente.
+        intervalType: dto.intervalType ?? (recurring ? 'MONTH' : null),
+        intervalCount: dto.intervalCount ?? (recurring ? 1 : null),
+        repetitions: dto.repetitions,
+        trialDays: dto.trialDays,
+        retryDays: dto.retryDays,
+        graceDays: dto.graceDays,
+        metadata: dto.metadata,
+        acquirer: getModuleAcquirer(platformTag),
+      },
+      platformTag,
+    );
 
     const fulfillment = await this.checkFulfillment(dto.fulfillment, owner.id);
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
@@ -207,9 +211,9 @@ export class OfferService {
     };
     if (dto.amountCents !== undefined) {
       const owner = await this.users.findById(existing.ownerUserId);
-      assertClientCanCreate(owner, dto.amountCents / 100);
+      assertClientCanCreate(owner);
     }
-    const normalized = this.normalize(input);
+    const normalized = await this.normalize(input, existing.platformTag);
     return this.prisma.offer.update({
       where: { id },
       data: {
@@ -439,9 +443,19 @@ export class OfferService {
     return parsed as unknown as Prisma.InputJsonValue;
   }
 
-  private normalize(input: OfferInput): NormalizedOffer {
+  private async normalize(
+    input: OfferInput,
+    platformTag?: string | null,
+  ): Promise<NormalizedOffer> {
     try {
-      return validateOfferInput(input);
+      return validateOfferInput({
+        ...input,
+        minAmountCents: await offerMinimumCents(
+          this.prisma,
+          platformTag ?? null,
+          Array.isArray(input.acceptedMethods) ? input.acceptedMethods : [],
+        ),
+      });
     } catch (error) {
       if (error instanceof OfferValidationError)
         throw new BadRequestException(error.issues.join('. '));
