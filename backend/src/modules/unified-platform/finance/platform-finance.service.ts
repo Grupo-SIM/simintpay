@@ -642,6 +642,10 @@ export class PlatformFinanceService {
         status: row.status,
         paymentMethod: row.paymentMethod,
         description: row.description,
+        customerName: row.customerName ?? null,
+        customerEmail: row.customerEmail ?? null,
+        customerPhone: row.customerPhone ?? null,
+        customerDocument: row.customerDocument ?? null,
         createdAt: row.createdAt,
       })),
       meta: {
