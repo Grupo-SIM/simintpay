@@ -1,5 +1,6 @@
 'use client';
 
+import { Monitor, Smartphone } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -130,14 +131,24 @@ export function PaymentLinkPreviewModal({
               : 'Prévia do link de pagamento'}
         </h2>
         <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setMobile((value) => !value)}
-            aria-pressed={mobile}
-            className={`cursor-pointer rounded-lg border px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-white/10 ${mobile ? 'border-zinc-900 bg-zinc-100 text-zinc-900 dark:border-white/60 dark:bg-white/10 dark:text-zinc-100' : 'border-zinc-300 text-zinc-700 dark:border-white/20 dark:text-zinc-200'}`}
-          >
-            {mobile ? 'Desktop' : 'Mobile'}
-          </button>
+          {(
+            [
+              { Icon: Monitor, label: 'Desktop', value: false },
+              { Icon: Smartphone, label: 'Mobile', value: true },
+            ] as const
+          ).map(({ Icon, label, value }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setMobile(value)}
+              aria-pressed={mobile === value}
+              aria-label={label}
+              title={label}
+              className={`cursor-pointer rounded-lg border p-2 hover:bg-zinc-100 dark:hover:bg-white/10 ${mobile === value ? 'border-zinc-900 bg-zinc-100 text-zinc-900 dark:border-white/60 dark:bg-white/10 dark:text-zinc-100' : 'border-zinc-300 text-zinc-700 dark:border-white/20 dark:text-zinc-200'}`}
+            >
+              <Icon className="size-4" />
+            </button>
+          ))}
           <button
             ref={closeRef}
             type="button"
