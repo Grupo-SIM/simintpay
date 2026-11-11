@@ -22,8 +22,10 @@ export function PlatformSelectionHeader({
   const selectedName =
     selectedTag === 'GLOBAL'
       ? 'Padrão global'
-      : (platforms.find((platform) => platform.tag === selectedTag)?.name ??
-        'Plataformas');
+      : selectedTag?.startsWith('USER:')
+        ? 'Selecionar plataforma'
+        : (platforms.find((platform) => platform.tag === selectedTag)?.name ??
+          'Plataformas');
   return (
     <>
       <PlatformHeader
