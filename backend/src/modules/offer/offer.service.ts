@@ -16,6 +16,7 @@ import {
 import { USER_REPOSITORY } from '../../core/repositories/user.repository.interface';
 import type { IUserRepository } from '../../core/repositories/user.repository.interface';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { createWithCoproduction } from '../coproduction/coproduction.service';
 import { getModuleAcquirer } from '../module.registry';
 import { generateOfferCode } from './offer-code';
 import {
@@ -90,7 +91,16 @@ export class OfferService {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
   ) {}
 
-  async create(actor: OfferActor, dto: CreateOfferDto): Promise<Offer> {
+  /**
+   * `options.coproduction` is the initial agreement (version 0). It is persisted in the same
+   * transaction as the offer, under `ofertas`; the legacy REST adapters use it so an agreement sent
+   * at creation is never silently dropped.
+   */
+  async create(
+    actor: OfferActor,
+    dto: CreateOfferDto,
+    options: { coproduction?: unknown } = {},
+  ): Promise<Offer> {
     const { owner, platformTag, createdByUserId } = await resolveFinancialOwner(
       this.users,
       actor.id,
@@ -120,22 +130,30 @@ export class OfferService {
       acquirer: getModuleAcquirer(platformTag),
     });
 
+    const fulfillment = await this.checkFulfillment(dto.fulfillment, owner.id);
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       try {
-        return await this.prisma.offer.create({
-          data: {
-            ...this.persistable(normalized),
-            ownerUserId: owner.id,
-            createdByUserId,
-            platformTag,
-            code: generateOfferCode(),
-            name: dto.name,
-            description: dto.description ?? null,
-            expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
-            maxUses: dto.maxUses ?? null,
-            fulfillment: await this.checkFulfillment(dto.fulfillment, owner.id),
-          },
-        });
+        return await createWithCoproduction(
+          this.prisma,
+          'ofertas',
+          owner.id,
+          options.coproduction,
+          (db) =>
+            db.offer.create({
+              data: {
+                ...this.persistable(normalized),
+                ownerUserId: owner.id,
+                createdByUserId,
+                platformTag,
+                code: generateOfferCode(),
+                name: dto.name,
+                description: dto.description ?? null,
+                expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+                maxUses: dto.maxUses ?? null,
+                fulfillment,
+              },
+            }),
+        );
       } catch (error) {
         const collision =
           error instanceof Prisma.PrismaClientKnownRequestError &&

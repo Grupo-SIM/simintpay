@@ -260,8 +260,8 @@ describe('HTTP adapters (fake OfferService)', () => {
   const store: any[] = [];
 
   const offers = {
-    create: async (actor: any, dto: any) => {
-      calls.push({ fn: 'create', args: [actor, dto] });
+    create: async (actor: any, dto: any, options?: any) => {
+      calls.push({ fn: 'create', args: [actor, dto, options] });
       const created = row({
         id: `o-${store.length + 1}`,
         ownerUserId: actor.id,
@@ -447,6 +447,40 @@ describe('HTTP adapters (fake OfferService)', () => {
       method: 'DELETE',
     });
     expect(await del.json()).toEqual({ deleted: true });
+  });
+
+  test('the coproduction sent at creation is forwarded, not dropped', async () => {
+    const agreement = {
+      basis: 'NET',
+      version: 0,
+      participants: [{ email: 'co@test.dev', percentageBps: 1000 }],
+    };
+    calls.length = 0;
+    const stored = store.length;
+    const pay = await call('/links-pagamento', {
+      method: 'POST',
+      body: JSON.stringify({
+        titulo: 'Co',
+        valor: 50,
+        coproduction: agreement,
+      }),
+    });
+    expect(pay.status).toBe(201);
+    const sub = await call('/links-assinatura', {
+      method: 'POST',
+      body: JSON.stringify({
+        nome: 'CoS',
+        valor: 50,
+        frequencia: 'MENSAL',
+        coproduction: agreement,
+      }),
+    });
+    expect(sub.status).toBe(201);
+    const creates = calls.filter((c) => c.fn === 'create');
+    expect(creates).toHaveLength(2);
+    for (const c of creates)
+      expect(c.args[2]).toEqual({ coproduction: agreement });
+    store.splice(stored);
   });
 
   test('legacy DTO validation still applies (unknown and invalid fields)', async () => {

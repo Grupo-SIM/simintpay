@@ -117,6 +117,7 @@ O primeiro comando é a simulação. O script confere que carteiras e `BalanceLo
 | `INVALID_FULFILLMENT`                             | Um webhook, redirect ou e-mail é inválido (por exemplo, endereço de rede interna) | Corrija o campo no produto legado e rode de novo                   |
 | `INVALID_AMOUNT`, `MISSING_CODE`, `MISSING_OWNER` | Valor com fração de centavo, produto sem código ou sem dono                       | Corrija o produto legado                                           |
 | `DUPLICATE_CODE`                                  | Dois produtos com o mesmo código                                                  | Renomeie um deles                                                  |
+| `COPRODUCTION_CONFLICT`                           | Já existe, em `ofertas`, um acordo diferente para o mesmo id                      | Decida qual vale, apague o outro e rode de novo                    |
 
 Um valor abaixo de R$ 14,99 só gera aviso, não bloqueio.
 
@@ -125,7 +126,7 @@ Um valor abaixo de R$ 14,99 só gera aviso, não bloqueio.
 - **Cartão recorrente:** o fluxo novo (token da DOM ligado ao `customer_id`, cobrado por nós a cada ciclo) está testado só com a DOM simulada. Faça um teste na sandbox da DOM antes de trocar as URLs dos links de assinatura que vendem no cartão. Os pontos a conferir estão no plano 0021.
 - **Taxas por link:** as ofertas **ignoram** as taxas individuais do link (parcelas, cashback, débito) e usam a política financeira. O script avisa com `FEE_OVERRIDE_NOT_CARRIED` quando o link tinha uma taxa diferente do padrão. Confira esses links antes de migrar.
 - **AREAFLIX:** o checkout de oferta aplica a mesma regra de líquido do link AREAFLIX.
-- **Coprodução:** o acordo existente é preservado. Os acordos de links migrados só continuam valendo depois que as linhas de acordo forem re-chaveadas para o produto `ofertas` com o mesmo `productId` (plano 0023, fase 2).
+- **Coprodução:** o acordo existente é preservado. Ao aplicar, o script move o acordo e o histórico de revisões do produto legado (`links-pagamento`, `links-assinatura`, `boletos`, `planos`, `planos-pix`) para `ofertas`, com o mesmo `productId`, na mesma transação que cria a oferta. Se já houver um acordo diferente em `ofertas` para esse id, o produto é recusado com `COPRODUCTION_CONFLICT` e nada é sobrescrito; acordos idênticos só têm a cópia legada descartada. Vendas já gravadas guardam o `product` antigo no snapshot e não mudam.
 - **Entrega:** o redirect e o e-mail são copiados; URLs para endereço de rede interna são recusadas por segurança. O webhook do link legado não é migrado: a oferta não tem webhook próprio, só o da plataforma.
 - **Histórico:** as vendas antigas continuam ligadas ao produto legado e aparecem nos relatórios como hoje. As vendas novas vêm da oferta.
 

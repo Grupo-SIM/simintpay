@@ -148,7 +148,7 @@ describe('OfferCheckoutService', () => {
     expect(db.refs).toHaveLength(1);
   });
 
-  test('coproduction agreement is read under `ofertas` for a native offer and under the link for a migrated one', async () => {
+  test('coproduction agreement is read under `ofertas` with the offer id, migrated or not', async () => {
     async function lookups(offerOver: Record<string, unknown>) {
       const { service, db, offer } = setup(offerOver);
       const seen: unknown[][] = [];
@@ -167,11 +167,12 @@ describe('OfferCheckoutService', () => {
     const native = await lookups({});
     expect(native.seen[0]).toEqual(['ofertas', native.offer.id]);
 
+    // A migrated offer keeps the legacy id; the migration renamed its agreement to `ofertas`.
     const migrated = await lookups({
       legacyType: 'PaymentLink',
       legacyId: 'legacy-link-1',
     });
-    expect(migrated.seen[0]).toEqual(['links-pagamento', 'legacy-link-1']);
+    expect(migrated.seen[0]).toEqual(['ofertas', migrated.offer.id]);
   });
 
   test('fees follow the editable financial policy', async () => {

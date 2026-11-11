@@ -1,5 +1,9 @@
 import { expect, test } from 'bun:test';
-import { type Candidate, decide } from './offer-migration-apply';
+import {
+  type Candidate,
+  coproductionConflict,
+  decide,
+} from './offer-migration-apply';
 
 const candidate = (
   legacyType: string,
@@ -49,4 +53,51 @@ test('an already migrated product stays idempotent', () => {
     { id: 'a', code: 'A' },
   ]);
   expect(d.status).toBe('SKIP_EXISTING');
+});
+
+const agreement = (over: Record<string, unknown> = {}) => ({
+  mode: 'OWN',
+  version: 1,
+  actorId: 'u1',
+  participants: [{ userId: 'u2', percentageBps: 1000 }],
+  ...over,
+});
+
+test('refuses with COPRODUCTION_CONFLICT when the key has a conflict', () => {
+  const [d] = decide(
+    [candidate('PaymentLink', 'a', 'A')],
+    users,
+    [],
+    new Map(),
+    new Map([['PaymentLink:a', 'different content']]),
+  );
+  expect(d.status).toBe('REFUSED');
+  expect(d.reasons.join()).toContain('COPRODUCTION_CONFLICT');
+});
+
+test('coproductionConflict: identical or absent target is safe, different is not', () => {
+  const legacy = { agreement: agreement(), revisions: [agreement()] };
+  expect(
+    coproductionConflict(legacy, { agreement: undefined, revisions: [] }),
+  ).toBeUndefined();
+  expect(
+    coproductionConflict(legacy, {
+      agreement: agreement({
+        participants: [{ percentageBps: 1000, userId: 'u2' }],
+      }),
+      revisions: [agreement()],
+    }),
+  ).toBeUndefined();
+  expect(
+    coproductionConflict(legacy, {
+      agreement: agreement({ version: 2 }),
+      revisions: [],
+    }),
+  ).toContain('different content');
+  expect(
+    coproductionConflict(legacy, {
+      agreement: undefined,
+      revisions: [agreement({ actorId: 'u9' })],
+    }),
+  ).toContain('revision v1');
 });

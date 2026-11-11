@@ -220,7 +220,21 @@ beforeAll(async () => {
       domPaymentLinkId: 'dom-pl-2',
     },
   });
+  await seedAgreement('links-pagamento', 'pl-ok');
+  await seedAgreement('links-assinatura', 'sl-ok');
 });
+const participants = () => [{ userId: sellerB, percentageBps: 1500 }];
+const seedAgreement = async (product: string, productId: string) => {
+  const data = {
+    product,
+    productId,
+    version: 1,
+    participants: participants(),
+    actorId: sellerA,
+  };
+  await db!.coproductionAgreement.create({ data });
+  await db!.coproductionRevision.create({ data });
+};
 afterAll(async () => {
   await db?.$disconnect();
 });
@@ -438,7 +452,6 @@ run('an Offer holding a legacy id with another code refuses it', async () => {
       ownerUserId: sellerB,
       createdByUserId: sellerB,
       code: 'FOREIGN',
-      kind: 'PAYMENT_LINK',
       name: 'Foreign',
       amountCents: 5000,
       acceptedMethods: ['PIX'],

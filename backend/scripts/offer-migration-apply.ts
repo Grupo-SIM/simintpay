@@ -399,6 +399,8 @@ export function decide(
     code: string;
   }[],
   preflight: PreflightMap = new Map(),
+  /** `key(type, id)` -> why the coproduction agreement cannot be moved to `ofertas`. */
+  coproductionConflicts: Map<string, string> = new Map(),
 ): Decision[] {
   const existingIds = new Set(offers.map((o) => o.id));
   const codeHolder = new Map(offers.map((o) => [o.code, o.id]));
@@ -435,6 +437,9 @@ export function decide(
       return make('REFUSED', [
         `ID_COLLISION: id ${d.legacyId} appears in several legacy tables`,
       ]);
+    const conflict = coproductionConflicts.get(k);
+    if (conflict)
+      return make('REFUSED', [`COPRODUCTION_CONFLICT: ${conflict}`]);
     if (existingIds.has(d.legacyId)) {
       const heldCode = offerCodeById.get(d.legacyId);
       if (d.code && heldCode !== d.code)
@@ -469,6 +474,135 @@ export function decide(
   });
 }
 
+/** Product key under which each legacy table registered its coproduction agreements. */
+export const LEGACY_COPRODUCTION_PRODUCT: Record<LegacyType, string> = {
+  PaymentLink: 'links-pagamento',
+  SubscriptionLink: 'links-assinatura',
+  Boleto: 'boletos',
+  Plan: 'planos',
+  PixCreditPlan: 'planos-pix',
+};
+export const OFFER_COPRODUCTION_PRODUCT = 'ofertas';
+
+type AgreementRow = {
+  mode: string;
+  version: number;
+  participants: unknown;
+  actorId: string;
+};
+const sameAgreement = (a: AgreementRow, b: AgreementRow) =>
+  a.mode === b.mode &&
+  a.version === b.version &&
+  a.actorId === b.actorId &&
+  canonical(a.participants) === canonical(b.participants);
+
+/**
+ * Why the agreements (and their revisions) of `legacy` cannot be renamed onto `target`: the same
+ * `productId` already has a different one under `ofertas`. Identical rows are not a conflict
+ * (the legacy duplicate is just dropped). Returns undefined when the rename is safe.
+ */
+export function coproductionConflict(
+  legacy: { agreement?: AgreementRow; revisions: AgreementRow[] },
+  target: { agreement?: AgreementRow; revisions: AgreementRow[] },
+): string | undefined {
+  if (
+    legacy.agreement &&
+    target.agreement &&
+    !sameAgreement(legacy.agreement, target.agreement)
+  )
+    return `an agreement already exists under '${OFFER_COPRODUCTION_PRODUCT}' with different content (v${target.agreement.version}, legacy v${legacy.agreement.version})`;
+  for (const revision of legacy.revisions) {
+    const held = target.revisions.find((r) => r.version === revision.version);
+    if (held && !sameAgreement(revision, held))
+      return `revision v${revision.version} already exists under '${OFFER_COPRODUCTION_PRODUCT}' with different content`;
+  }
+  return undefined;
+}
+
+async function readCoproduction(db: Reader, product: string, id: string) {
+  const agreement = await db.coproductionAgreement.findUnique({
+    where: { product_productId: { product, productId: id } },
+  });
+  const revisions = await db.coproductionRevision.findMany({
+    where: { product, productId: id },
+    orderBy: { version: 'asc' },
+  });
+  return { agreement: agreement ?? undefined, revisions };
+}
+
+/** Conflicts of every candidate, keyed like the preflight. Read-only. */
+export async function findCoproductionConflicts(
+  db: Reader,
+  drafts: OfferDraft[],
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  for (const d of drafts) {
+    const legacy = await readCoproduction(
+      db,
+      LEGACY_COPRODUCTION_PRODUCT[d.legacyType],
+      d.legacyId,
+    );
+    if (!legacy.agreement && !legacy.revisions.length) continue;
+    const conflict = coproductionConflict(
+      legacy,
+      await readCoproduction(db, OFFER_COPRODUCTION_PRODUCT, d.legacyId),
+    );
+    if (conflict) result.set(key(d.legacyType, d.legacyId), conflict);
+  }
+  return result;
+}
+
+/**
+ * Moves the agreement and its revisions from the legacy product key to `ofertas`, keeping the
+ * `productId` (the Offer id). Runs in the transaction that creates the Offer. Idempotent; refuses
+ * (throws, rolling back the kind) if an `ofertas` agreement with different content exists.
+ */
+export async function renameCoproduction(
+  tx: Prisma.TransactionClient,
+  legacyType: LegacyType,
+  id: string,
+): Promise<{ agreements: number; revisions: number }> {
+  const from = LEGACY_COPRODUCTION_PRODUCT[legacyType];
+  const to = OFFER_COPRODUCTION_PRODUCT;
+  for (const product of [from, to])
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`coproduction:${product}:${id}`}, 0))::text`;
+  const legacy = await readCoproduction(tx, from, id);
+  if (!legacy.agreement && !legacy.revisions.length)
+    return { agreements: 0, revisions: 0 };
+  const target = await readCoproduction(tx, to, id);
+  const conflict = coproductionConflict(legacy, target);
+  if (conflict)
+    throw new Error(`COPRODUCTION_CONFLICT for ${from}:${id}: ${conflict}`);
+  let agreements = 0;
+  let revisions = 0;
+  if (legacy.agreement) {
+    if (target.agreement)
+      await tx.coproductionAgreement.delete({
+        where: { product_productId: { product: from, productId: id } },
+      });
+    else
+      await tx.coproductionAgreement.update({
+        where: { product_productId: { product: from, productId: id } },
+        data: { product: to },
+      });
+    agreements++;
+  }
+  for (const revision of legacy.revisions) {
+    const where = {
+      product_productId_version: {
+        product: from,
+        productId: id,
+        version: revision.version,
+      },
+    };
+    if (target.revisions.some((r) => r.version === revision.version))
+      await tx.coproductionRevision.delete({ where });
+    else await tx.coproductionRevision.update({ where, data: { product: to } });
+    revisions++;
+  }
+  return { agreements, revisions };
+}
+
 const offerData = (d: OfferDraft): Prisma.OfferUncheckedCreateInput => ({
   id: d.legacyId,
   ownerUserId: d.ownerUserId!,
@@ -500,15 +634,14 @@ export async function buildPlan(db: Reader): Promise<Plan> {
   const offers = await db.offer.findMany({
     select: { id: true, code: true },
   });
+  const drafts = candidates.map((c) => c.draft);
   return {
     decisions: decide(
       candidates,
       userIds,
       offers,
-      await findPreflight(
-        db,
-        candidates.map((c) => c.draft),
-      ),
+      await findPreflight(db, drafts),
+      await findCoproductionConflicts(db, drafts),
     ),
     existingOffers: offers.length,
   };
@@ -517,7 +650,12 @@ export async function buildPlan(db: Reader): Promise<Plan> {
 export type ApplyResult = {
   created: number;
   refs: number;
-  perKind: Record<string, { created: number; refs: number }>;
+  /** Coproduction agreements moved to `ofertas`. */
+  agreements: number;
+  perKind: Record<
+    string,
+    { created: number; refs: number; agreements: number }
+  >;
 };
 
 /** One transaction per legacy kind; a failure rolls back only that kind. */
@@ -526,12 +664,17 @@ export async function applyPlan(
   plan: Plan,
   log: (line: string) => void = () => {},
 ): Promise<ApplyResult> {
-  const result: ApplyResult = { created: 0, refs: 0, perKind: {} };
+  const result: ApplyResult = {
+    created: 0,
+    refs: 0,
+    agreements: 0,
+    perKind: {},
+  };
   for (const type of KIND_ORDER) {
     const mine = plan.decisions.filter(
       (d) => d.candidate.draft.legacyType === type,
     );
-    const stats = { created: 0, refs: 0 };
+    const stats = { created: 0, refs: 0, agreements: 0 };
     await prisma.$transaction(
       async (tx) => {
         const needsRef = mine.some(
@@ -566,6 +709,14 @@ export async function applyPlan(
                 select: { id: true },
               })
             )?.id;
+          }
+          if (offerId) {
+            const moved = await renameCoproduction(
+              tx,
+              draft.legacyType,
+              draft.legacyId,
+            );
+            stats.agreements += moved.agreements;
           }
           const ref = d.candidate.ref;
           if (!ref || !offerId) continue;
@@ -604,7 +755,10 @@ export async function applyPlan(
     result.perKind[type] = stats;
     result.created += stats.created;
     result.refs += stats.refs;
-    log(`  ${type}: ${stats.created} offers, ${stats.refs} external refs`);
+    result.agreements += stats.agreements;
+    log(
+      `  ${type}: ${stats.created} offers, ${stats.refs} external refs, ${stats.agreements} coproduction agreements`,
+    );
   }
   return result;
 }
@@ -679,6 +833,15 @@ export async function verify(db: Reader): Promise<string[]> {
       if (canonical(offer.metadata) !== canonical(draft.metadata))
         problems.push(
           `${k}: metadata ${canonical(offer.metadata)} != legacy ${canonical(draft.metadata)}`,
+        );
+      const left = await readCoproduction(
+        db,
+        LEGACY_COPRODUCTION_PRODUCT[draft.legacyType],
+        draft.legacyId,
+      );
+      if (left.agreement || left.revisions.length)
+        problems.push(
+          `${k}: coproduction agreement still under '${LEGACY_COPRODUCTION_PRODUCT[draft.legacyType]}'`,
         );
       const ref = d.candidate.ref;
       if (ref && !refKeys.has(`${ref.kind}:${ref.externalId}:${offer.id}`))
@@ -792,7 +955,7 @@ async function main() {
     console.log('\nApplying (one transaction per kind)...');
     const result = await applyPlan(prisma, plan, console.log);
     console.log(
-      `Done: ${result.created} offers, ${result.refs} external refs.`,
+      `Done: ${result.created} offers, ${result.refs} external refs, ${result.agreements} coproduction agreements.`,
     );
   } finally {
     await prisma.$disconnect();

@@ -114,8 +114,8 @@ Primeira leva, **concluída e em `main`** (2026-11-07):
 
 Pontos que a primeira leva deixou em aberto:
 
-- [ ] **Coprodução na migração:** o script de aplicação não renomeia os acordos (`links-pagamento` para `ofertas`, mesmo `productId`). `coproductionKeyFor` depende de `legacyType`, que a migração não grava mais. Sem a renomeação o coprodutor deixa de receber.
-- [ ] Os adaptadores REST **perdem em silêncio** a `coproduction` enviada na criação (`OfferService.create` não a recebe) e `DELETE` desativa em vez de apagar.
+- [x] **Coprodução na migração:** `offer-migration-apply` renomeia acordos e revisões (`links-pagamento`, `links-assinatura`, `boletos`, `planos`, `planos-pix` para `ofertas`, mesmo `productId`) na mesma transação que cria a `Offer`; recusa com `COPRODUCTION_CONFLICT` se já existir acordo diferente em `ofertas`; `--verify` acusa acordo que sobrou na chave antiga. `coproductionKeyFor` não depende mais de `legacyType` (sempre `ofertas` + id da oferta).
+- [x] Os adaptadores REST gravam a `coproduction` enviada na criação (`OfferService.create(actor, dto, { coproduction })`, na mesma transação da oferta). `DELETE` continua desativando em vez de apagar, por decisão.
 - [ ] O webhook da plataforma envia `x-simintpay-signature`, e o `saas-netflix-back` espera `x-simpay-token`.
 - [ ] Testes de integração já quebrados em `main` por mudança de preço (renovação/reativação, ledger do ciclo, preço do ciclo, `stored-card-vault`), independentes desta leva.
 
@@ -140,7 +140,7 @@ Segunda leva (mexem em arquivos da primeira, começam agora):
 - [ ] Relatório e `--verify` sem bloqueios (os `BLOCKED_*` de dados que não migram viram erro de parada).
 - [ ] Criar as ofertas (dry-run, aplicar, verificar) e os `ExternalRef` da DOM.
 - [ ] Migrar os 5 contratos de assinatura (script já existente).
-- [ ] Reescrever `CoproductionAgreement` e `CoproductionRevision` (`product = 'ofertas'`, mesmo `productId`), na mesma transação, e manter os leitores entendendo os valores antigos nos snapshots já gravados.
+- [x] Reescrever `CoproductionAgreement` e `CoproductionRevision` (`product = 'ofertas'`, mesmo `productId`), na mesma transação (feito no `offer-migration-apply`). Os snapshots já gravados em transações mantêm o valor antigo de `product`; os leitores de snapshot não dependem do acordo.
 
 ### Fase 3: reescrever os leitores (classe B), atrás de um flag
 

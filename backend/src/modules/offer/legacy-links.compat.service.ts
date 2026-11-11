@@ -66,6 +66,7 @@ export class LegacyLinksCompatService {
     const offer = await this.offers.create(
       actor,
       paymentLinkToCreateOffer(dto, ownerUserId),
+      { coproduction: dto.coproduction },
     );
     return { data: paymentLinkCreated(offer) };
   }
@@ -109,6 +110,7 @@ export class LegacyLinksCompatService {
     const offer = await this.offers.create(
       actor,
       subscriptionLinkToCreateOffer(dto, ownerUserId),
+      { coproduction: dto.coproduction },
     );
     return { data: subscriptionLinkCreated(offer) };
   }
