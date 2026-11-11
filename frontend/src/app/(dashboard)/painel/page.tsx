@@ -7,7 +7,6 @@ import { loadOwnedDashboard } from './utils/owned-dashboard';
 import type {
   ReportPage,
   ReportSummary,
-  ReportTransaction,
 } from '../relatorio/components/report-types';
 import { DashboardPageSkeleton } from '../components/DashboardPageSkeleton';
 import { useCurrentUser } from '@/hooks/use-current-user';
@@ -1241,17 +1240,9 @@ export default function PainelPage() {
       if (!isAdmin) {
         const [todayResult, withdrawalsResult, monthResult] =
           await Promise.allSettled([
-            api.get<ReportPage<ReportTransaction>>(
-              '/relatorios/financeiro/transacoes',
-              {
-                query: {
-                  startDate: todayStr,
-                  endDate: todayStr,
-                  page: 1,
-                  pageSize: 1,
-                },
-              },
-            ),
+            api.get<ReportSummary>('/relatorios/financeiro', {
+              query: { startDate: todayStr, endDate: todayStr },
+            }),
             api.get<ReportPage<Saque>>(endpoints.saque.list, {
               query: { status: 'PENDING', page: 1, pageSize: 1 },
             }),
@@ -1262,7 +1253,7 @@ export default function PainelPage() {
         setQuickStats({
           transacoesHoje:
             todayResult.status === 'fulfilled'
-              ? todayResult.value.total +
+              ? todayResult.value.summary.salesCount +
                 (monthResult.status === 'fulfilled'
                   ? (monthResult.value.coproducao?.hourly ?? [])
                       .filter(({ bucket }) => bucket.startsWith(todayStr))
