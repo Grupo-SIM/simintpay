@@ -53,13 +53,16 @@ function userNetAmount(row: Transacao) {
   return mine == null ? row.netAmount : mine / 100;
 }
 
-/** Percentual do líquido que não ficou com o usuário atual, ou null sem coprodução. */
-function coproductionSharedPercentage(row: Transacao) {
+/** Parte do líquido desviada para outros coprodutores, ou null sem coprodução. */
+function coproductionDiverted(row: Transacao) {
   const mine = row.coproducao?.myAmountCents;
   const net = Number(row.netAmount ?? 0) * 100;
   if (mine == null || !(net > 0)) return null;
-  const pct = Math.min(100, Math.max(0, ((net - mine) / net) * 100));
-  return pct.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+  const cents = Math.max(0, net - mine);
+  return {
+    amount: cents / 100,
+    percentage: (cents / net) * 100,
+  };
 }
 
 function formatBRL(
@@ -847,22 +850,35 @@ function TransacoesContent() {
           />
         ),
       },
-      {
-        key: 'coproducao',
-        header: 'Coprodução',
-        className: 'text-right whitespace-nowrap',
-        headerClassName: 'text-right',
-        render: (row: Transacao) => {
-          const shared = coproductionSharedPercentage(row);
-          return shared == null ? (
-            <span className="text-xs text-zinc-400">-</span>
-          ) : (
-            <span className="text-sm font-medium text-violet-600 dark:text-violet-300">
-              {shared}%
-            </span>
-          );
-        },
-      },
+      ...(isAdmin
+        ? []
+        : [
+            {
+              key: 'coproducao',
+              header: 'Coprodução',
+              className: 'text-right whitespace-nowrap',
+              headerClassName: 'text-right',
+              render: (row: Transacao) => {
+                const diverted = coproductionDiverted(row);
+                return diverted == null ? (
+                  <span className="text-xs text-zinc-400">-</span>
+                ) : (
+                  <div className="flex flex-col items-end">
+                    <MoneyCell
+                      value={diverted.amount}
+                      className="text-sm font-medium text-violet-600 dark:text-violet-300"
+                    />
+                    <span className="text-xs text-zinc-400">
+                      {diverted.percentage.toLocaleString('pt-BR', {
+                        maximumFractionDigits: 2,
+                      })}
+                      %
+                    </span>
+                  </div>
+                );
+              },
+            },
+          ]),
       {
         key: 'netAmount',
         header: 'Valor líquido',
