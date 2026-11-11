@@ -32,6 +32,10 @@ export type FinancialConfiguration = {
   additiveFees?: AdditiveFeesView;
   /** Target fee in ppm of the purchase total; set means manual fees are ignored (kept stored). */
   targetFeePpm?: number | null;
+  /** Default target fee set on the global configuration; platforms inherit it unless they override. */
+  globalTargetFeePpm?: number | null;
+  /** Target fee actually applied (override, else global); null when none. */
+  effectiveTargetFeePpm?: number | null;
   /** Null for GLOBAL, which has no platform row. */
   feeMode?: FeeMode | null;
   /** `METHOD/installments` lanes the platform does not accept; null for GLOBAL. */

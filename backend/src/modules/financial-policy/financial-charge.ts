@@ -23,7 +23,7 @@ import {
 } from './financial-policy';
 import { listAcquirerFees, type AcquirerCost } from './acquirer-fees';
 import { loadFinancialPolicy } from './financial-policy.service';
-import { calculateTargetFinancials } from './target-fee';
+import { calculateTargetFinancials, resolveTargetFee } from './target-fee';
 import {
   buildUserTaxaTag,
   isDomCashbackActive,
@@ -121,7 +121,7 @@ export function quoteFinancialCharge(
     feesByLane?: Record<string, AcquirerCost[]>;
     platformFeeMode?: FeeMode;
     additiveTotals?: AdditiveTotals;
-    /** Set: manual fees and the fee mode are ignored; see `calculateTargetFinancials`. */
+    /** Platform override (null inherits the global target, 0 turns it off); absent for non-platform charges. */
     targetFeePpm?: number | null;
   },
   amount: number,
@@ -150,7 +150,14 @@ export function quoteFinancialCharge(
         routedAcquirer: context.acquirer,
       }
     : undefined;
-  const targetFeePpm = context.targetFeePpm ?? null;
+  // The global target (policy document) is the default; platform charges only, never frozen-snapshot requotes.
+  const targetFeePpm =
+    context.targetFeePpm === undefined
+      ? null
+      : resolveTargetFee(
+          context.policy.document.targetFeePpm,
+          context.targetFeePpm,
+        );
   const key =
     targetFeePpm !== null
       ? routeKey

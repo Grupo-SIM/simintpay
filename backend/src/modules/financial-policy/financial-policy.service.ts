@@ -29,7 +29,11 @@ import {
   type AdditiveFeesView,
 } from '../additive-fees/additive-fees.service';
 import { listAcquirerFees } from './acquirer-fees';
-import { calculateTargetFinancials, validateTargetFeePpm } from './target-fee';
+import {
+  calculateTargetFinancials,
+  resolveTargetFee,
+  validateTargetFeePpm,
+} from './target-fee';
 
 type Client = Pick<
   Prisma.TransactionClient,
@@ -86,6 +90,10 @@ export async function loadFinancialPolicy(
         );
   // Current quotes only pass contracted interest. Historical restores resolve their frozen documents directly.
   resolved.document.interestOnly = true;
+  // The global target is the default of every platform; platform overrides live on `Platform.targetFeePpm`.
+  const globalTarget = (global?.document as Policy | undefined)?.targetFeePpm;
+  if (globalTarget) resolved.document.targetFeePpm = globalTarget;
+  else delete resolved.document.targetFeePpm;
   normalizeCurrentAdditions(resolved.document);
   // Materialize current defaults so frozen snapshots preserve their exact owner rule.
   for (const key of Object.keys(resolved.document.lanes)) {
@@ -107,12 +115,19 @@ export function projectPolicy(
   targetFeePpm: number | null = null,
 ) {
   const { version, sources } = policy;
+  const globalTargetFeePpm = policy.document.targetFeePpm ?? null;
   return {
     version,
     sources,
     feeMode,
+    /** Stored value: GLOBAL = default target; platform = override (null inherits, 0 turns it off). */
+    targetFeePpm: feeMode === null ? globalTargetFeePpm : targetFeePpm,
+    globalTargetFeePpm,
     /** Set: manual fees are kept but not applied; simulations show the dynamic fees. */
-    targetFeePpm,
+    effectiveTargetFeePpm: resolveTargetFee(
+      globalTargetFeePpm,
+      feeMode === null ? null : targetFeePpm,
+    ),
     disabledLanes,
     ownerOverrides: policy.own.owner,
     globalOwner: policy.global.owner,
@@ -304,10 +319,14 @@ export async function saveFinancialPolicy(
   if (input.targetFeePpm !== undefined) {
     if (!admin)
       throw new ForbiddenException('Taxa alvo exclusiva do administrador');
-    if (hasNoPlatformRow(tag))
+    // GLOBAL stores the default target in its document; platforms store an override (0 = off, null = inherit).
+    if (tag !== 'GLOBAL' && hasNoPlatformRow(tag))
       throw new BadRequestException('Taxa alvo inválida');
     try {
-      input.targetFeePpm = validateTargetFeePpm(input.targetFeePpm);
+      input.targetFeePpm = validateTargetFeePpm(
+        input.targetFeePpm,
+        tag !== 'GLOBAL',
+      );
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
@@ -357,6 +376,11 @@ export async function saveFinancialPolicy(
           document.interestFree = input.interestFree as boolean;
         if (input.lanes !== undefined)
           document.lanes = input.lanes as Policy['lanes'];
+        if (tag === 'GLOBAL' && input.targetFeePpm !== undefined) {
+          if (input.targetFeePpm)
+            document.targetFeePpm = input.targetFeePpm as number;
+          else delete document.targetFeePpm;
+        }
         document.interestOnly = true;
         normalizeCurrentAdditions(document);
         validatePolicy(document);
@@ -366,7 +390,7 @@ export async function saveFinancialPolicy(
             data: { feeMode: input.feeMode as PlatformFeeMode },
           });
         // Manual fees stay stored; the target only takes precedence while it is set.
-        if (input.targetFeePpm !== undefined)
+        if (tag !== 'GLOBAL' && input.targetFeePpm !== undefined)
           await tx.platform.update({
             where: { tag },
             data: { targetFeePpm: input.targetFeePpm as number | null },
@@ -469,7 +493,7 @@ export async function simulateFinancialPolicy(
     targetFeePpm: storedTargetFeePpm,
   } = await authorizeWithFeeMode(prisma, tag, user);
   let feeMode = storedFeeMode;
-  let targetFeePpm = storedTargetFeePpm;
+  let targetOverride = storedTargetFeePpm;
   if (
     !body ||
     !Array.isArray(body.installments) ||
@@ -483,6 +507,7 @@ export async function simulateFinancialPolicy(
     throw new ConflictException(
       'Configuração alterada. Recarregue antes de simular.',
     );
+  let globalTarget = policy.document.targetFeePpm ?? null;
   const draft = body.draft;
   if (draft) {
     if (
@@ -519,7 +544,13 @@ export async function simulateFinancialPolicy(
       if (!admin)
         throw new ForbiddenException('Taxa alvo exclusiva do administrador');
       try {
-        targetFeePpm = validateTargetFeePpm(draft.targetFeePpm);
+        // GLOBAL drafts the default target; a platform drafts its override.
+        const drafted = validateTargetFeePpm(
+          draft.targetFeePpm,
+          tag !== 'GLOBAL',
+        );
+        if (tag === 'GLOBAL') globalTarget = drafted;
+        else targetOverride = drafted;
       } catch (error) {
         throw new BadRequestException((error as Error).message);
       }
@@ -535,6 +566,9 @@ export async function simulateFinancialPolicy(
       policy.version,
     );
   }
+  const targetFeePpm = tag.startsWith('USER:')
+    ? null
+    : resolveTargetFee(globalTarget, targetOverride);
   normalizeCurrentAdditions(policy.document);
   // Simulations show the fee actually charged under the (possibly drafted) mode: ADDITIVE_ONLY ignores the configured SimIntPay fee.
   if (feeMode === 'ADDITIVE_ONLY') {

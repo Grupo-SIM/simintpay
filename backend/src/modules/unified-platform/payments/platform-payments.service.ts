@@ -11,6 +11,7 @@ import {
 import { deliveryProfile } from '../../platform-core/delivery-profile';
 import type { PlatformContext } from '../../platform-core/platform-context.service';
 import { loadFinancialPolicy } from '../../financial-policy/financial-policy.service';
+import { resolveTargetFee } from '../../financial-policy/target-fee';
 import {
   quoteFinancialCharge,
   loadPlatformChargeContext,
@@ -293,9 +294,14 @@ export class PlatformPaymentsService {
     // Delivery credentials are tied to their configured acquirer; never route them
     // through another integration. For ordinary checkout, consider only gateways
     // that can actually process this method and have a usable credential.
-    const policy = input.allocation
-      ? undefined
-      : await loadFinancialPolicy(this.prisma, platform.tag);
+    const globalPolicy = await loadFinancialPolicy(this.prisma, platform.tag);
+    // Target fee (global default or platform override) prices every method without manual lanes.
+    const targetActive =
+      resolveTargetFee(
+        globalPolicy.document.targetFeePpm,
+        platform.targetFeePpm,
+      ) !== null;
+    const policy = input.allocation && !targetActive ? undefined : globalPolicy;
     const installments =
       input.paymentMethod === 'CREDIT_CARD' ? input.card!.installments : 1;
     const supported =
@@ -333,9 +339,10 @@ export class PlatformPaymentsService {
     const pricingFee = fees.find(
       (fee) =>
         candidates.includes(fee.acquirer) &&
-        !!policy?.document.lanes[
-          `${fee.acquirer}/${input.paymentMethod}/ONLINE/${installments}`
-        ],
+        (targetActive ||
+          !!policy?.document.lanes[
+            `${fee.acquirer}/${input.paymentMethod}/ONLINE/${installments}`
+          ]),
     );
     const priced =
       !acquiring && !existing && policy && pricingFee
@@ -358,7 +365,8 @@ export class PlatformPaymentsService {
       fees.filter(
         (fee) =>
           candidates.includes(fee.acquirer) &&
-          (!policy ||
+          (targetActive ||
+            !policy ||
             !Object.keys(policy.document.lanes).length ||
             !!policy.document.lanes[
               `${fee.acquirer}/${input.paymentMethod}/ONLINE/${installments}`
@@ -412,9 +420,7 @@ export class PlatformPaymentsService {
       acquiring?.token ?? decryptPlatformSecret(integration!.encryptedValue!);
     // A target fee replaces the Delivery fee modes: it is priced by the shared quote below.
     const feeMode =
-      input.allocation && platform.targetFeePpm == null
-        ? platform.feeMode
-        : undefined;
+      input.allocation && !targetActive ? platform.feeMode : undefined;
     const deliveryQuote =
       input.allocation && feeMode
         ? quoteDeliveryCharge(

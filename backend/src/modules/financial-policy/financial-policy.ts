@@ -36,6 +36,8 @@ export type Policy = {
   owner: Record<string, OwnerRule>;
   interestFree?: boolean;
   interestOnly?: boolean;
+  /** GLOBAL document only: default target fee (ppm of the purchase total) for every platform. */
+  targetFeePpm?: number;
   legacyAudit?: unknown;
 };
 export type ResolvedPolicy = {
@@ -553,6 +555,7 @@ export function validatePolicy(value: unknown): asserts value is Policy {
     'owner',
     'interestFree',
     'interestOnly',
+    'targetFeePpm',
     'legacyAudit',
   ]);
   if (
@@ -565,6 +568,7 @@ export function validatePolicy(value: unknown): asserts value is Policy {
       typeof value.interestOnly !== 'boolean')
   )
     throw new Error('Configuração inválida');
+  if (value.targetFeePpm !== undefined) integer(value.targetFeePpm, 999_999);
   if (
     Object.keys(value.lanes).length > 500 ||
     Object.keys(value.owner).length > 500

@@ -48,11 +48,15 @@ export function FinancialPolicyDraft({
   const [feeMode, setFeeMode] = useState<FeeMode | null>(
     configuration.feeMode ?? null,
   );
-  // Admin-only: GLOBAL has no platform row, so it never carries a target fee.
+  // Admin-only. GLOBAL: the default target (null = off). Platform: override (null inherits, 0 = off).
+  const isGlobal = tag === 'GLOBAL';
   const [targetFeePpm, setTargetFeePpm] = useState<number | null>(
     configuration.targetFeePpm ?? null,
   );
-  const targetActive = targetFeePpm !== null;
+  const effectiveTarget = isGlobal
+    ? targetFeePpm
+    : (targetFeePpm ?? configuration.globalTargetFeePpm ?? null);
+  const targetActive = !!effectiveTarget;
   const [disabledLanes, setDisabledLanes] = useState<string[]>(
     configuration.disabledLanes ?? [],
   );
@@ -195,8 +199,7 @@ export function FinancialPolicyDraft({
     interestFree: false,
     feeMode: targetActive ? null : feeMode,
     additiveTotals: targetActive ? undefined : additiveTotals,
-    targetFeePpm:
-      admin && configuration.feeMode !== undefined ? targetFeePpm : undefined,
+    targetFeePpm: admin ? targetFeePpm : undefined,
     valid,
     admin,
   });
@@ -387,9 +390,11 @@ export function FinancialPolicyDraft({
           />
         </div>
       </div>
-      {admin && feeMode !== null && (
+      {admin && (
         <TargetFeeSection
+          global={isGlobal}
           value={targetFeePpm}
+          globalValue={configuration.globalTargetFeePpm ?? null}
           onChange={setTargetFeePpm}
           onValidityChange={validity}
         />

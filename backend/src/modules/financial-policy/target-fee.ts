@@ -10,17 +10,32 @@ const fraction = (cents: number, ppm: number) =>
 
 export const MAX_TARGET_FEE_PPM = 1_000_000;
 
-/** A target fee is a whole-percentage-or-finer share of the purchase total, in millionths. */
-export function validateTargetFeePpm(value: unknown): number | null {
+/**
+ * A target fee is a share of the purchase total, in millionths. Platform overrides may also be 0 ("off,
+ * ignore the global target"); `null` means "inherit the global target".
+ */
+export function validateTargetFeePpm(
+  value: unknown,
+  allowZero = false,
+): number | null {
   if (value === null) return null;
   if (
     typeof value !== 'number' ||
     !Number.isSafeInteger(value) ||
-    value <= 0 ||
+    value < (allowZero ? 0 : 1) ||
     value >= MAX_TARGET_FEE_PPM
   )
     throw new Error('Taxa alvo inválida');
   return value;
+}
+
+/** Platform override wins (0 turns the target off); otherwise the global target applies. */
+export function resolveTargetFee(
+  globalPpm: number | null | undefined,
+  platformPpm: number | null | undefined,
+): number | null {
+  const ppm = platformPpm ?? globalPpm ?? null;
+  return ppm ? ppm : null;
 }
 
 /**
