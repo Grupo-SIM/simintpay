@@ -15,4 +15,4 @@ pre-commit:
       run: bun scripts/lint-staged.ts {staged_files}
       stage_fixed: true
     3-check:
-      run: bun check --staged --skip-lint
+      run: bun scripts/validate-staged.ts
