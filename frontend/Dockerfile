@@ -21,6 +21,8 @@ ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL \
     NEXT_PUBLIC_CLIENT_MIN_AMOUNT=$NEXT_PUBLIC_CLIENT_MIN_AMOUNT \
     NEXT_PUBLIC_RECAPTCHA_SITE_KEY=$NEXT_PUBLIC_RECAPTCHA_SITE_KEY \
     NEXT_TELEMETRY_DISABLED=1
+# Pré-visualização do e-mail importa o template do backend (access-email-template, @backend-email/*).
+COPY backend/src/infrastructure/email/access-email-template.ts backend/src/infrastructure/email/simintpay-email-logo.asset.ts ./backend/src/infrastructure/email/
 COPY frontend ./frontend
 RUN bun run --cwd frontend build
 

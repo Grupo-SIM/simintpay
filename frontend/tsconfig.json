@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@backend-email/*": ["../backend/src/infrastructure/email/*"]
     },
     "types": ["bun", "node", "react", "react-dom"]
   },
