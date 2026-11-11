@@ -24,8 +24,8 @@ import {
 } from '../../modules/platform-taxas/platform-taxas.store';
 
 /** Cashback desligado é desativado ativamente em cada transação (requer autorização da DOM). */
-const domCashbackPayment = () =>
-  isDomCashbackActive() ? {} : { cashback_disabled: true };
+const domCashbackPayment = (disabled?: boolean) =>
+  (disabled ?? !isDomCashbackActive()) ? { cashback_disabled: true } : {};
 
 @Injectable()
 export class ApiDomClient implements IPaymentGateway {
@@ -508,6 +508,8 @@ export class ApiDomClient implements IPaymentGateway {
   async chargePixForLink(
     domToken: string,
     input: {
+      /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+      cashbackDisabled?: boolean;
       domLinkId: string;
       amount: number;
       description: string;
@@ -551,7 +553,7 @@ export class ApiDomClient implements IPaymentGateway {
         quantity: 1,
       },
       payment: {
-        ...domCashbackPayment(),
+        ...domCashbackPayment(input.cashbackDisabled),
         pix: { pix_expire: pixExpireFormatted },
         payment_method: 'pix',
         total: input.amount,
@@ -616,6 +618,8 @@ export class ApiDomClient implements IPaymentGateway {
   async chargeBoletoForLink(
     domToken: string,
     input: {
+      /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+      cashbackDisabled?: boolean;
       amount: number;
       description: string;
       customerName: string;
@@ -679,7 +683,7 @@ export class ApiDomClient implements IPaymentGateway {
         },
       ],
       payment: {
-        ...domCashbackPayment(),
+        ...domCashbackPayment(input.cashbackDisabled),
         // DOM: dias até o vencimento do boleto (campo correto = boleto_due_days).
         boleto:
           input.expireDays > 0 ? { boleto_due_days: input.expireDays } : {},
@@ -750,6 +754,8 @@ export class ApiDomClient implements IPaymentGateway {
   async chargePaymentLink(
     domToken: string,
     input: {
+      /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+      cashbackDisabled?: boolean;
       domLinkId: string;
       amount: number;
       description: string;
@@ -794,7 +800,7 @@ export class ApiDomClient implements IPaymentGateway {
         { description: input.description, price: input.amount, quantity: 1 },
       ],
       payment: {
-        ...domCashbackPayment(),
+        ...domCashbackPayment(input.cashbackDisabled),
         payment_method: input.paymentMethod,
         total: input.amount,
         [input.paymentMethod]: {
@@ -1122,7 +1128,7 @@ export class ApiDomClient implements IPaymentGateway {
         { description: input.description, price: input.amount, quantity: 1 },
       ],
       payment: {
-        ...domCashbackPayment(),
+        ...domCashbackPayment(input.cashbackDisabled),
         total: input.amount,
         payment_method: 'credit_card',
         credit_card: {
@@ -1223,6 +1229,8 @@ export class ApiDomClient implements IPaymentGateway {
   async createSubscriptionFromCheckout(
     domToken: string,
     input: {
+      /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+      cashbackDisabled?: boolean;
       planId: string;
       customer: {
         name: string;
@@ -1279,7 +1287,7 @@ export class ApiDomClient implements IPaymentGateway {
       },
       external_reference: `sub_${Date.now()}_${input.customer.document.slice(-4)}`,
       metadata: null,
-      cashback_active: isDomCashbackActive(),
+      cashback_active: !(input.cashbackDisabled ?? !isDomCashbackActive()),
       postbackurl: `${appUrl}/subscription/webhook`,
     };
     this.logger.log(
@@ -1632,6 +1640,8 @@ export class ApiDomClient implements IPaymentGateway {
   async createPixCheckout(
     domToken: string,
     input: {
+      /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+      cashbackDisabled?: boolean;
       codExternal: string;
       amount: number;
       description: string;
@@ -1673,7 +1683,7 @@ export class ApiDomClient implements IPaymentGateway {
         quantity: 1,
       },
       payment: {
-        ...domCashbackPayment(),
+        ...domCashbackPayment(input.cashbackDisabled),
         pix: { pix_expire: pixExpireFormatted },
         payment_method: 'pix',
         total: input.amount,

@@ -200,6 +200,8 @@ export type StoredPaymentChargeOutput = {
 
 /** Cobrança de um token de cartão reutilizável guardado pela SimIntPay (sem comprador presente). */
 export type StoredCardTokenChargeInput = {
+  /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+  cashbackDisabled?: boolean;
   /** Token do adquirente, já decifrado. Nunca registrar em log. */
   cardToken: string;
   amount: number;
@@ -269,6 +271,8 @@ export interface IPaymentGateway {
   chargePixForLink(
     domToken: string,
     input: {
+      /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+      cashbackDisabled?: boolean;
       domLinkId: string;
       amount: number;
       description: string;
@@ -291,6 +295,8 @@ export interface IPaymentGateway {
   chargeBoletoForLink(
     domToken: string,
     input: {
+      /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+      cashbackDisabled?: boolean;
       amount: number;
       description: string;
       customerName: string;
@@ -323,6 +329,8 @@ export interface IPaymentGateway {
   chargePaymentLink(
     domToken: string,
     input: {
+      /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+      cashbackDisabled?: boolean;
       domLinkId: string;
       amount: number;
       description: string;
@@ -412,6 +420,8 @@ export interface IPaymentGateway {
   createSubscriptionFromCheckout(
     domToken: string,
     input: {
+      /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+      cashbackDisabled?: boolean;
       planId: string;
       customer: {
         name: string;
@@ -505,6 +515,8 @@ export interface IPaymentGateway {
   createPixCheckout(
     domToken: string,
     input: {
+      /** Cashback desligado para o dono da cobrança: a DOM recebe `cashback_disabled`. */
+      cashbackDisabled?: boolean;
       codExternal: string;
       amount: number;
       description: string;

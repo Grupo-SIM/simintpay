@@ -121,7 +121,7 @@ export async function initializePlatformTaxasCache(
     const records = await getPrisma().platformTaxaOverride.findMany();
     const newCache: Overrides = {};
     for (const req of records) {
-      if (!isEditablePlatformTaxaKey(req.key) || isClientTaxaTag(req.tag))
+      if (!isEditablePlatformTaxaKey(req.key) || isLegacyClientTaxaTag(req.tag))
         continue;
       if (!newCache[req.tag]) {
         newCache[req.tag] = {};
@@ -163,6 +163,16 @@ export function buildClientTaxaTag(email: string): string {
   return `${CLIENT_TAXA_TAG_PREFIX}${String(email || '')
     .trim()
     .toUpperCase()}`;
+}
+
+/** Tag de usuário (USER:<id>): overrides próprios, com herança do GLOBAL. */
+export function isUserTaxaTag(tag: string): boolean {
+  return /^USER:/.test(String(tag || '').toUpperCase());
+}
+
+/** Tag legada por e-mail (CLIENT:<email>): sem overrides próprios, sempre herda do GLOBAL. */
+export function isLegacyClientTaxaTag(tag: string): boolean {
+  return /^CLIENT:/.test(String(tag || '').toUpperCase());
 }
 
 /** True se a tag representa um cliente personalizado (CLIENT:<email>). */
@@ -214,7 +224,7 @@ export function getPlatformTaxaEffective(
   // Legacy constants support historical projections only; no legacy override is applied.
   if (!isEditablePlatformTaxaKey(keySuffix))
     return PLATFORM_TAXA_DEFAULTS[keySuffix as PlataformaTaxaKey] ?? fallback;
-  if (isClientTaxaTag(listOrModuleTag))
+  if (isLegacyClientTaxaTag(listOrModuleTag))
     return getPlatformTaxaEffective('GLOBAL', keySuffix, fallback);
 
   const canonical = canonicalPlatformTaxaTag(listOrModuleTag);
@@ -249,20 +259,23 @@ export function getPlatformTaxaEffective(
   );
 }
 
-/** Cashback DOM é uma configuração global manual: desligado, não é cobrado nem gerado. */
-export function isDomCashbackActive(): boolean {
+/**
+ * Cashback DOM: chave global manual, com override por plataforma ou usuário (`tag`).
+ * Desligado, não é cobrado nem gerado. Sem override, herda do GLOBAL.
+ */
+export function isDomCashbackActive(tag = 'GLOBAL'): boolean {
   return (
     getPlatformTaxaEffective(
-      'GLOBAL',
+      tag,
       'CASHBACK_DOM_ATIVO',
       PLATFORM_TAXA_DEFAULTS.CASHBACK_DOM_ATIVO,
     ) !== 0
   );
 }
 
-/** Custo fixo (R$) do cashback DOM por transação online; 0 quando desativado. */
-export function domCashbackReais(): number {
-  return isDomCashbackActive()
+/** Custo fixo (R$) do cashback DOM por transação online; 0 quando desativado para a tag. */
+export function domCashbackReais(tag = 'GLOBAL'): number {
+  return isDomCashbackActive(tag)
     ? getPlatformTaxaEffective(
         'GLOBAL',
         'CASHBACK_DOM_CUSTO',
@@ -271,17 +284,9 @@ export function domCashbackReais(): number {
     : 0;
 }
 
-/**
- * Cashback DOM entra no preço apenas nas tabelas online da DOM. Em outras adquirentes o custo
- * (cashback avulso) é da SimIntPay e aparece só nos relatórios como taxa de cashback DOM.
- */
-export function domCashbackFixedCents(acquirer: string, channel: string) {
-  return acquirer === 'DOM' && channel === 'ONLINE' ? domCashbackCents() : 0;
-}
-
-/** Bônus em centavos concedido ao comprador de outra adquirente; 0 quando desativado. */
-export function domCashbackGrantCents(): number {
-  return isDomCashbackActive()
+/** Bônus em centavos concedido ao comprador de outra adquirente; 0 quando desativado para a tag. */
+export function domCashbackGrantCents(tag = 'GLOBAL'): number {
+  return isDomCashbackActive(tag)
     ? Math.round(
         getPlatformTaxaEffective(
           'GLOBAL',
@@ -292,8 +297,20 @@ export function domCashbackGrantCents(): number {
     : 0;
 }
 
-export function domCashbackCents(): number {
-  return Math.round(domCashbackReais() * 100);
+export function domCashbackCents(tag = 'GLOBAL'): number {
+  return Math.round(domCashbackReais(tag) * 100);
+}
+
+/**
+ * Cashback DOM entra no preço apenas nas tabelas online da DOM. Em outras adquirentes o custo
+ * (cashback avulso) é da SimIntPay e aparece só nos relatórios como taxa de cashback DOM.
+ */
+export function domCashbackFixedCents(
+  acquirer: string,
+  channel: string,
+  tag = 'GLOBAL',
+) {
+  return acquirer === 'DOM' && channel === 'ONLINE' ? domCashbackCents(tag) : 0;
 }
 
 export function getPlatformTaxaSource(
@@ -301,7 +318,7 @@ export function getPlatformTaxaSource(
   keySuffix: string,
 ): 'override' | 'global' | 'default' {
   if (!isEditablePlatformTaxaKey(keySuffix)) return 'default';
-  if (isClientTaxaTag(listOrModuleTag))
+  if (isLegacyClientTaxaTag(listOrModuleTag))
     return getPlatformTaxaSource('GLOBAL', keySuffix);
 
   const canonical = canonicalPlatformTaxaTag(listOrModuleTag);
@@ -343,12 +360,21 @@ export async function patchPlatformOverrides(
   patch: Record<string, number | null>,
 ): Promise<void> {
   const canonical = canonicalPlatformTaxaTag(tag);
-  if (isClientTaxaTag(canonical))
-    throw new Error('Configure taxas por plataforma em /admin/taxas');
+  if (isLegacyClientTaxaTag(canonical))
+    throw new Error(
+      'Configure taxas por plataforma ou usuário em /admin/taxas',
+    );
   if (Object.keys(patch).some((key) => !isEditablePlatformTaxaKey(key)))
     throw new Error(
       'Taxa legada: configure a política financeira em /admin/taxas',
     );
+  if (isUserTaxaTag(canonical)) {
+    const exists = await getPrisma().user.findUnique({
+      where: { id: canonical.slice(5).toLowerCase() },
+      select: { id: true },
+    });
+    if (!exists) throw new Error('Usuário não encontrado');
+  }
   const operations = Object.entries(patch).map(([key, value]) =>
     value === null
       ? getPrisma().platformTaxaOverride.deleteMany({

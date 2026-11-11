@@ -91,11 +91,13 @@ export class ChargeBoletoPixUseCase {
     const platformTag =
       (boleto.plataformas?.[0] as string | undefined)?.toUpperCase() ||
       'GLOBAL';
-    const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, platformTag),
-      base,
-      'PIX',
+    const financialContext = await loadChargePolicy(
+      this.prisma,
+      platformTag,
+      undefined,
+      boleto.userId,
     );
+    const financialQuote = quoteFinancialCharge(financialContext, base, 'PIX');
     if (!financialQuote) {
       throw new BadRequestException(
         'Taxas da plataforma não configuradas para esta modalidade',
@@ -153,6 +155,7 @@ export class ChargeBoletoPixUseCase {
     const domLinkId = boleto.domPaymentLinkId;
     const result = await discardDraftOnRejection(this.prisma, chargeId, () =>
       this.gateway.chargePixForLink(domToken, {
+        cashbackDisabled: !financialContext.cashbackActive,
         domLinkId,
         amount: financialQuote.totalAmount,
         description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,

@@ -8,6 +8,7 @@ import { useCurrentUser } from '@/hooks/use-current-user';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { FinancialPolicyEditor } from '@/components/platforms/FinancialPolicyEditor';
 import { CashbackDomSection } from '@/components/platforms/CashbackDomSection';
+import { UserTaxaPicker } from '@/components/platforms/UserTaxaPicker';
 import { WithdrawalSection } from '@/components/platforms/WithdrawalSection';
 import { PlatformSelectionHeader } from '@/components/platforms/PlatformSelectionHeader';
 import type { Platform } from '@/components/platforms/types';
@@ -17,6 +18,8 @@ export default function AdminTaxasPlataformasPage() {
   const { user, loading } = useCurrentUser();
   const api = useClienteApi();
   const [tag, setTag] = useState('GLOBAL');
+  const [userLabel, setUserLabel] = useState<string | null>(null);
+  const isUser = tag.startsWith('USER:');
   const platforms = useQuery({
     queryKey: ['admin-platforms', user?.id],
     enabled: !!user?.isAdmin,
@@ -65,9 +68,24 @@ export default function AdminTaxasPlataformasPage() {
         platforms={platforms.data.data}
         selectedTag={tag}
         admin
-        onSelect={setTag}
+        onSelect={(next) => {
+          setTag(next);
+          setUserLabel(null);
+        }}
       />
-      {selectedPlatform?.id && (
+      <UserTaxaPicker
+        selectedTag={tag}
+        onSelect={(next, label) => {
+          setTag(next);
+          setUserLabel(label);
+        }}
+      />
+      {isUser && (
+        <p role="status" className="text-sm font-medium">
+          Configurando o usuário: {userLabel ?? tag}
+        </p>
+      )}
+      {!isUser && selectedPlatform?.id && (
         <div className="flex justify-end">
           <CoproductionButton
             product="plataformas"
@@ -75,7 +93,7 @@ export default function AdminTaxasPlataformasPage() {
           />
         </div>
       )}
-      {tag === 'GLOBAL' && <CashbackDomSection />}
+      <CashbackDomSection key={`cashback-${tag}`} tag={tag} />
       <WithdrawalSection key={`withdrawal-${tag}`} tag={tag} />
       <FinancialPolicyEditor key={tag} tag={tag} admin />
     </div>

@@ -30,7 +30,7 @@ describe('database-only fee inheritance', () => {
     );
     expect(getPlatformTaxaSource('ATLAS', 'SAQUE_MIN')).toBe('default');
   });
-  test('ignores client and owner scopes and inherits only platform/global', async () => {
+  test('ignores legacy client scope; user scope overrides global and platform stays separate', async () => {
     await initializePlatformRegistryCache({
       platform: {
         findMany: async () => [{ tag: 'SHOP', ownerUserId: 'owner' }],
@@ -51,19 +51,21 @@ describe('database-only fee inheritance', () => {
     expect(cache).toEqual({
       GLOBAL: { SAQUE_MIN: 90 },
       SHOP: { SAQUE_MIN: 0 },
+      'USER:OWNER': { SAQUE_MIN: 2 },
     });
     expect(getPlatformTaxaEffective('SHOP', 'SAQUE_MIN', 1)).toBe(0);
     expect(getPlatformTaxaSource('SHOP', 'SAQUE_MIN')).toBe('override');
     delete cache.SHOP.SAQUE_MIN;
-    cache['USER:OWNER'] = { SAQUE_MIN: 3 };
     expect(getPlatformTaxaEffective('SHOP', 'SAQUE_MIN', 1)).toBe(90);
     expect(getPlatformTaxaSource('SHOP', 'SAQUE_MIN')).toBe('global');
-    expect(getPlatformTaxaEffective('USER:OWNER', 'SAQUE_MIN', 1)).toBe(90);
-    for (const tag of ['USER:OWNER', 'CLIENT:MERCHANT@EXAMPLE.TEST']) {
-      await expect(
-        patchPlatformOverrides(tag, { SAQUE_MIN: 0 }),
-      ).rejects.toThrow('por plataforma');
-    }
+    expect(getPlatformTaxaEffective('USER:OWNER', 'SAQUE_MIN', 1)).toBe(2);
+    expect(getPlatformTaxaEffective('USER:OTHER', 'SAQUE_MIN', 1)).toBe(90);
+    expect(
+      getPlatformTaxaEffective('CLIENT:MERCHANT@EXAMPLE.TEST', 'SAQUE_MIN', 1),
+    ).toBe(90);
+    await expect(
+      patchPlatformOverrides('CLIENT:MERCHANT@EXAMPLE.TEST', { SAQUE_MIN: 0 }),
+    ).rejects.toThrow('por plataforma');
   });
   test('honors zero override then restores inheritance', () => {
     const cache = readOverridesRaw();

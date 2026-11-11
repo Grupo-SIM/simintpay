@@ -133,6 +133,11 @@ export function projectPolicy(
   };
 }
 
+/** GLOBAL e usuários (USER:<id>) não têm linha de plataforma: só o administrador os configura. */
+function hasNoPlatformRow(tag: string) {
+  return tag === 'GLOBAL' || tag.startsWith('USER:');
+}
+
 async function authorize(prisma: PrismaService, tag: string, user: JwtPayload) {
   return (await authorizeWithFeeMode(prisma, tag, user)).admin;
 }
@@ -153,8 +158,15 @@ async function authorizeWithFeeMode(
   const admin = actor.role === Role.ADMIN;
   let feeMode: PlatformFeeMode | null = null;
   let targetFeePpm: number | null = null;
-  if (tag === 'GLOBAL') {
+  if (hasNoPlatformRow(tag)) {
     if (!admin) throw new ForbiddenException('Exige administrador');
+    if (tag.startsWith('USER:')) {
+      const target = await prisma.user.findUnique({
+        where: { id: tag.slice(5).toLowerCase() },
+        select: { id: true },
+      });
+      if (!target) throw new NotFoundException('Usuário não encontrado');
+    }
   } else {
     const platform = await prisma.platform.findUnique({
       where: { tag },
@@ -174,7 +186,7 @@ async function platformFeeMode(
   prisma: Pick<Prisma.TransactionClient, 'platform'>,
   tag: string,
 ): Promise<PlatformFeeMode | null> {
-  if (tag === 'GLOBAL') return null;
+  if (hasNoPlatformRow(tag)) return null;
   const platform = await prisma.platform.findUnique({
     where: { tag },
     select: { feeMode: true },
@@ -187,7 +199,7 @@ async function platformTargetFee(
   prisma: Pick<Prisma.TransactionClient, 'platform'>,
   tag: string,
 ): Promise<number | null> {
-  if (tag === 'GLOBAL') return null;
+  if (hasNoPlatformRow(tag)) return null;
   const platform = await prisma.platform.findUnique({
     where: { tag },
     select: { targetFeePpm: true },
@@ -200,7 +212,7 @@ async function platformAdditiveFees(
   prisma: Pick<Prisma.TransactionClient, 'platform' | 'platformAdditiveFees'>,
   tag: string,
 ): Promise<AdditiveFeesView | null> {
-  if (tag === 'GLOBAL') return null;
+  if (hasNoPlatformRow(tag)) return null;
   const platform = await prisma.platform.findUnique({
     where: { tag },
     select: { id: true },
@@ -213,7 +225,7 @@ async function platformDisabledLanes(
   prisma: Pick<Prisma.TransactionClient, 'platform'>,
   tag: string,
 ): Promise<string[] | null> {
-  if (tag === 'GLOBAL') return null;
+  if (hasNoPlatformRow(tag)) return null;
   const platform = await prisma.platform.findUnique({
     where: { tag },
     select: { disabledPaymentLanes: true },
@@ -282,7 +294,7 @@ export async function saveFinancialPolicy(
     if (!admin)
       throw new ForbiddenException('Modo de taxas exclusivo do administrador');
     if (
-      tag === 'GLOBAL' ||
+      hasNoPlatformRow(tag) ||
       !['SIMINTPAY_ONLY', 'ADDITIVE_ONLY', 'BOTH'].includes(
         String(input.feeMode),
       )
@@ -292,7 +304,8 @@ export async function saveFinancialPolicy(
   if (input.targetFeePpm !== undefined) {
     if (!admin)
       throw new ForbiddenException('Taxa alvo exclusiva do administrador');
-    if (tag === 'GLOBAL') throw new BadRequestException('Taxa alvo inválida');
+    if (hasNoPlatformRow(tag))
+      throw new BadRequestException('Taxa alvo inválida');
     try {
       input.targetFeePpm = validateTargetFeePpm(input.targetFeePpm);
     } catch (error) {
@@ -304,14 +317,14 @@ export async function saveFinancialPolicy(
       throw new ForbiddenException(
         'Taxas aditivas exclusivas do administrador',
       );
-    if (tag === 'GLOBAL')
+    if (hasNoPlatformRow(tag))
       throw new BadRequestException('Taxas aditivas inválidas');
     input.additiveFees = validateAdditiveTotals(input.additiveFees);
   }
   if (input.disabledLanes !== undefined) {
     // Admins and the platform owner (checked by `authorize`) both choose which lanes the platform offers.
     if (
-      tag === 'GLOBAL' ||
+      hasNoPlatformRow(tag) ||
       !Array.isArray(input.disabledLanes) ||
       input.disabledLanes.length > 14 ||
       input.disabledLanes.some(
@@ -500,7 +513,7 @@ export async function simulateFinancialPolicy(
         )
       )
         throw new BadRequestException('Modo de taxas inválido');
-      if (tag !== 'GLOBAL') feeMode = draft.feeMode as PlatformFeeMode;
+      if (!hasNoPlatformRow(tag)) feeMode = draft.feeMode as PlatformFeeMode;
     }
     if (draft.targetFeePpm !== undefined) {
       if (!admin)

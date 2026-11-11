@@ -57,6 +57,7 @@ export async function listAcquirerFees(
   method: Method,
   channel: Channel,
   installments: number,
+  cashbackTag = 'GLOBAL',
 ): Promise<AcquirerCost[]> {
   const active = await prisma.acquirerCatalogue.findMany({
     where: { active: true },
@@ -78,7 +79,8 @@ export async function listAcquirerFees(
       byCode.set(row.acquirerCode, {
         acquirer: row.acquirerCode,
         fixedCents:
-          row.fixedCents + domCashbackFixedCents(row.acquirerCode, channel),
+          row.fixedCents +
+          domCashbackFixedCents(row.acquirerCode, channel, cashbackTag),
         ratePpm: row.ratePpm,
         interestPpm: row.interestPpm,
         base: row.base as AcquirerCost['base'],

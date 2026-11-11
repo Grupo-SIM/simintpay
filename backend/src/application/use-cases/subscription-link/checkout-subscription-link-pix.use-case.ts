@@ -109,8 +109,14 @@ export class CheckoutSubscriptionLinkPixUseCase {
       }
     }
 
+    const financialContext = await loadChargePolicy(
+      this.prisma,
+      selectedTag,
+      undefined,
+      link.userId,
+    );
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, selectedTag),
+      financialContext,
       amountCharged,
       'PIX',
     );
@@ -155,6 +161,7 @@ export class CheckoutSubscriptionLinkPixUseCase {
 
     const result = await this.gateway
       .chargePixForLink(domToken, {
+        cashbackDisabled: !financialContext.cashbackActive,
         domLinkId: domPlanId,
         amount: amountCharged,
         description: link.name,

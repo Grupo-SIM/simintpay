@@ -729,7 +729,7 @@ export class SubscriptionWebhookService {
       await this.prisma.transaction.updateMany({
         where: { domPaymentId: domTransactionId, userId: linkOrder.userId },
         data: {
-          description: `${link.name} [TENANT:${financialQuote.financialSnapshot.policyTag}] subOrder=${newOrder.id}`,
+          description: `${link.name} [TENANT:${financialQuote.financialSnapshot.policyTag.replace(/^USER:.*/, 'GLOBAL')}] subOrder=${newOrder.id}`,
         },
       });
     }

@@ -69,7 +69,11 @@ export async function settleFinancialSubscription(
         domFee: new Prisma.Decimal(quote.domFeeAmount ?? 0),
         platformFee: new Prisma.Decimal(quote.platformProfit ?? 0),
         ...transactionPlatformTagData(quote.financialSnapshot.policyTag),
-        description: `${input.name} [TENANT:${quote.financialSnapshot.policyTag}]`,
+        description: `${input.name} [TENANT:${
+          quote.financialSnapshot.policyTag.startsWith('USER:')
+            ? 'GLOBAL'
+            : quote.financialSnapshot.policyTag
+        }]`,
         customerName: input.customerName,
         customerEmail: input.customerEmail,
         customerDocument: input.customerDocument,

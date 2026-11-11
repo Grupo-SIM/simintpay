@@ -78,7 +78,12 @@ export class CheckoutSubscriptionLinkCardUseCase {
     if (!domToken)
       throw new BadRequestException('Token do gateway não configurado');
 
-    const context = await loadChargePolicy(this.prisma, selectedTag);
+    const context = await loadChargePolicy(
+      this.prisma,
+      selectedTag,
+      undefined,
+      link.userId,
+    );
     const initialAmountCharged = Number(link.amount);
     let amountCharged = initialAmountCharged;
     if (input.dto.voucherCode) {
@@ -156,6 +161,7 @@ export class CheckoutSubscriptionLinkCardUseCase {
 
     const domResult = await this.gateway
       .createSubscriptionFromCheckout(domToken, {
+        cashbackDisabled: !context.cashbackActive,
         planId: domPlanId,
         customer: {
           name: input.dto.customerName,

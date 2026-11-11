@@ -8,6 +8,7 @@ import {
   defaultTaxaValue,
   getPlatformTaxaEffective,
   getPlatformTaxaSource,
+  isUserTaxaTag,
   patchPlatformOverrides,
 } from '../../modules/platform-taxas/platform-taxas.store';
 import {
@@ -76,7 +77,7 @@ export class PlatformTaxasService {
 
   async patchPlatform(tag: string, body: Record<string, unknown>) {
     tag = canonicalPlatformTaxaTag(tag);
-    if (tag !== 'GLOBAL' && !getRegisteredPlatform(tag))
+    if (tag !== 'GLOBAL' && !isUserTaxaTag(tag) && !getRegisteredPlatform(tag))
       throw new BadRequestException('Plataforma não cadastrada');
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Body inválido');

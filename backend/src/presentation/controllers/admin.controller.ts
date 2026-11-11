@@ -6792,7 +6792,7 @@ export class AdminController {
 
     const users = await this.prisma.user.findMany({
       where: userWhere,
-      select: { email: true, name: true },
+      select: { id: true, email: true, name: true },
       orderBy: { createdAt: 'desc' },
       skip,
       take: size + 1, // +1 para saber se há próxima página
@@ -6800,6 +6800,7 @@ export class AdminController {
 
     const hasMore = users.length > size;
     const data = users.slice(0, size).map((u) => ({
+      id: u.id,
       email: u.email.toLowerCase(),
       name: u.name ?? null,
     }));

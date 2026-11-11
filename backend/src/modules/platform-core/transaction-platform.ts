@@ -18,6 +18,8 @@ export function canonicalTransactionPlatformTag(
     .toUpperCase();
   if (!value) return null;
   if (value === 'EBOOKSIM') return 'EBOOK';
+  // Tags de política (usuário/cliente) não são plataformas.
+  if (/^(USER|CLIENT):/.test(value)) return null;
   return value.replaceAll('_', '-');
 }
 

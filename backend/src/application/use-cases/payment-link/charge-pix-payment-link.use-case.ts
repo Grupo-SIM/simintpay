@@ -140,8 +140,14 @@ export class ChargePixPaymentLinkUseCase {
     const platformTag =
       ((link as any).plataformas?.[0] as string | undefined)?.toUpperCase() ||
       'GLOBAL';
+    const financialContext = await loadChargePolicy(
+      this.prisma,
+      platformTag,
+      undefined,
+      link.userId,
+    );
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, platformTag),
+      financialContext,
       chargedBase,
       'PIX',
     );
@@ -212,6 +218,7 @@ export class ChargePixPaymentLinkUseCase {
     const domLinkId = link.domPaymentLinkId;
     const result = await discardDraftOnRejection(this.prisma, chargeId, () =>
       this.gateway.chargePixForLink(domToken, {
+        cashbackDisabled: !financialContext.cashbackActive,
         domLinkId,
         amount: totalAmount,
         description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,

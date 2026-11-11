@@ -108,8 +108,14 @@ export class ChargeBoletoUseCase {
     const platformTag =
       (boleto.plataformas?.[0] as string | undefined)?.toUpperCase() ||
       'GLOBAL';
+    const financialContext = await loadChargePolicy(
+      this.prisma,
+      platformTag,
+      undefined,
+      boleto.userId,
+    );
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, platformTag),
+      financialContext,
       base,
       'BOLETO',
     );
@@ -165,6 +171,7 @@ export class ChargeBoletoUseCase {
 
     const result = await discardDraftOnRejection(this.prisma, chargeId, () =>
       this.gateway.chargeBoletoForLink(domToken, {
+        cashbackDisabled: !financialContext.cashbackActive,
         amount: financialQuote.totalAmount,
         description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,
         customerName: input.customerName,

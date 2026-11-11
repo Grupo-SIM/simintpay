@@ -190,7 +190,12 @@ export class ChargePaymentLinkUseCase {
     // Para débito: comprador paga valor base; taxas (DOM 3,49%+R$1 + plataforma) saem do líquido do vendedor.
     // Para PIX: comprador paga exatamente o valor base, sem juros de parcelamento.
     // Para crédito: cálculo normal com juros repassados ao comprador.
-    const financialContext = await loadChargePolicy(this.prisma, platformTag);
+    const financialContext = await loadChargePolicy(
+      this.prisma,
+      platformTag,
+      undefined,
+      link.userId,
+    );
     const financialQuote = quoteFinancialCharge(
       financialContext,
       chargedBase,
@@ -280,6 +285,7 @@ export class ChargePaymentLinkUseCase {
     const domLinkId = link.domPaymentLinkId;
     const result = await discardDraftOnRejection(this.prisma, chargeId, () =>
       this.gateway.chargePaymentLink(domToken, {
+        cashbackDisabled: !financialContext.cashbackActive,
         domLinkId,
         amount: totalAmount,
         description: `${snapshot.description} [LINK_CHARGE:${chargeId}]`,

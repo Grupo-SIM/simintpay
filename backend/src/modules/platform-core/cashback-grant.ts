@@ -8,10 +8,19 @@ import { domCashbackGrantCents } from '../platform-taxas/platform-taxas.store';
  */
 export async function enqueueCashbackGrant(
   p: Prisma.TransactionClient,
-  row: Pick<Transaction, 'id' | 'acquirer'>,
+  row: Pick<
+    Transaction,
+    'id' | 'acquirer' | 'platformTag' | 'financialSnapshot'
+  >,
 ) {
   if (row.acquirer === 'DOM') return;
-  const valueCents = domCashbackGrantCents();
+  // Escopo do cashback: a tag de política congelada na cobrança (usuário ou plataforma).
+  const snapshot = row.financialSnapshot as { policyTag?: unknown } | null;
+  const scope =
+    typeof snapshot?.policyTag === 'string'
+      ? snapshot.policyTag
+      : (row.platformTag ?? 'GLOBAL');
+  const valueCents = domCashbackGrantCents(scope);
   if (valueCents <= 0) return;
   await p.cashbackGrant.upsert({
     where: { transactionId: row.id },

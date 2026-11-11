@@ -24,6 +24,10 @@ import {
 import { listAcquirerFees, type AcquirerCost } from './acquirer-fees';
 import { loadFinancialPolicy } from './financial-policy.service';
 import { calculateTargetFinancials } from './target-fee';
+import {
+  buildUserTaxaTag,
+  isDomCashbackActive,
+} from '../platform-taxas/platform-taxas.store';
 import type { Prisma } from '@prisma/client';
 
 export async function loadChargePolicy(
@@ -36,8 +40,11 @@ export async function loadChargePolicy(
   >,
   tag: string,
   at?: Date,
+  /** Dono da cobrança: sem plataforma, as taxas e o cashback do usuário substituem as do GLOBAL. */
+  ownerUserId?: string,
 ) {
-  if (tag === 'SIMINTPAY' || /^(CLIENT:|USER:)/.test(tag)) tag = 'GLOBAL';
+  if (tag === 'SIMINTPAY' || /^CLIENT:/.test(tag)) tag = 'GLOBAL';
+  if (tag === 'GLOBAL' && ownerUserId) tag = buildUserTaxaTag(ownerUserId);
   const [policy, platform] = await Promise.all([
     loadFinancialPolicy(prisma, tag, at),
     loadPlatformChargeContext(prisma, tag),
@@ -52,20 +59,32 @@ export async function loadChargePolicy(
             { length: method === 'CREDIT_CARD' ? 12 : 1 },
             async (_, index) => {
               feesByLane[`${method}/${channel}/${index + 1}`] =
-                await listAcquirerFees(prisma, method, channel, index + 1);
+                await listAcquirerFees(prisma, method, channel, index + 1, tag);
             },
           ),
         ),
     ),
   );
-  return { policy, tag, acquirer, feesByLane, ...platform };
+  return {
+    policy,
+    tag,
+    acquirer,
+    feesByLane,
+    cashbackActive: isDomCashbackActive(tag),
+    ...platform,
+  };
 }
 /** Reserved policy tags are not registered payment platforms. */
 export async function loadPlatformChargeContext(
   prisma: Pick<Prisma.TransactionClient, 'platform'>,
   tag: string,
 ) {
-  if (tag === 'GLOBAL' || tag === 'SIMINTPAY' || tag.startsWith('CLIENT:'))
+  if (
+    tag === 'GLOBAL' ||
+    tag === 'SIMINTPAY' ||
+    tag.startsWith('CLIENT:') ||
+    tag.startsWith('USER:')
+  )
     return null;
   const platform = await prisma.platform.findUnique({
     where: { tag },

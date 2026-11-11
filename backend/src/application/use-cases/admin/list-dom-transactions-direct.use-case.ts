@@ -285,7 +285,7 @@ export class ListDomTransactionsDirectUseCase {
         'TAXA_FIXA_TRANSACAO',
         PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
       );
-      const fixedCashback = domCashbackReais();
+      const fixedCashback = domCashbackReais(tenantTag);
       const fixedFees = fixedTx + fixedCashback;
       const mdr = resolveDomFeeReais({
         amountReais: amount,

@@ -111,8 +111,14 @@ export class CreatePublicSubscriptionUseCase {
       },
     });
 
+    const financialContext = await loadChargePolicy(
+      this.prisma,
+      plan.plataformas?.[0] ?? 'GLOBAL',
+      undefined,
+      plan.userId,
+    );
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, plan.plataformas?.[0] ?? 'GLOBAL'),
+      financialContext,
       Number(plan.price),
       'CREDIT_CARD',
     );
@@ -173,7 +179,10 @@ export class CreatePublicSubscriptionUseCase {
     });
 
     const domResult = await this.gateway
-      .createSubscriptionFromCheckout(domToken, subscriptionInput)
+      .createSubscriptionFromCheckout(domToken, {
+        ...subscriptionInput,
+        cashbackDisabled: !financialContext.cashbackActive,
+      })
       .catch(async (error: unknown) => {
         await this.prisma.subscription.update({
           where: { id: saved.id },
