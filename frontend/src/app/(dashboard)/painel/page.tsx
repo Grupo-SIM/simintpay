@@ -10,7 +10,6 @@ import type {
   ReportTransaction,
 } from '../relatorio/components/report-types';
 import { DashboardPageSkeleton } from '../components/DashboardPageSkeleton';
-import { CoproductionSummaryCard } from '@/components/coproduction';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import { cn, isNegativeMoneyString } from '@/lib/utils';
 import { DateRangePickerField } from '@/app/(dashboard)/relatorio/components/DateRangePickerField';
@@ -1262,7 +1261,14 @@ export default function PainelPage() {
           ]);
         setQuickStats({
           transacoesHoje:
-            todayResult.status === 'fulfilled' ? todayResult.value.total : null,
+            todayResult.status === 'fulfilled'
+              ? todayResult.value.total +
+                (monthResult.status === 'fulfilled'
+                  ? (monthResult.value.coproducao?.hourly ?? [])
+                      .filter(({ bucket }) => bucket.startsWith(todayStr))
+                      .reduce((total, { count }) => total + count, 0)
+                  : 0)
+              : null,
           saquesPendentesCount:
             withdrawalsResult.status === 'fulfilled'
               ? withdrawalsResult.value.total
@@ -1270,7 +1276,9 @@ export default function PainelPage() {
           saquesPendentesValor: null,
           receitaMensalLiquida:
             monthResult.status === 'fulfilled'
-              ? monthResult.value.summary.netCents / 100
+              ? (monthResult.value.summary.netCents +
+                  (monthResult.value.coproducao?.creditedCents ?? 0)) /
+                100
               : null,
         });
         return;
@@ -2040,24 +2048,6 @@ export default function PainelPage() {
                   </p>
                 </div>
               </div>
-
-              {/* ── Coprodução ── */}
-              {!isAdmin && (
-                <CoproductionSummaryCard
-                  filters={{
-                    startDate: formatYmd(
-                      customRange.start && customRange.end
-                        ? customRange.start
-                        : periodToInclusiveRange(selectedPeriod).start,
-                    ),
-                    endDate: formatYmd(
-                      customRange.start && customRange.end
-                        ? customRange.end
-                        : periodToInclusiveRange(selectedPeriod).end,
-                    ),
-                  }}
-                />
-              )}
 
               {/* ── Chart card ── */}
               <div style={{ ...card, padding: 24, position: 'relative' }}>

@@ -40,6 +40,14 @@ export async function loadOwnedDashboard(
     );
     hourlyCents[hour] += row.grossCents;
   }
+  // Coproduction shares credited to the user count as sales alongside owned ones.
+  const coproduction = report.coproducao;
+  for (const { bucket, creditedCents } of coproduction?.hourly ?? []) {
+    const day = bucket.slice(0, 10);
+    if (day < startDate || day > endDate) continue;
+    dailyCents.set(day, (dailyCents.get(day) ?? 0) + creditedCents);
+    hourlyCents[Number(bucket.slice(11, 13))] += creditedCents;
+  }
   const chartData: { label: string; online: number; physical: number }[] = [];
   if (startDate === endDate) {
     hourlyCents.forEach((cents, hour) =>
@@ -67,8 +75,9 @@ export async function loadOwnedDashboard(
   const refundedCount = summary.refundedCount ?? summary.refundsCount;
   return {
     transactionsByPeriod: {
-      totalSales: summary.grossCents / 100,
-      paidTransactions: summary.salesCount,
+      totalSales:
+        (summary.grossCents + (coproduction?.creditedCents ?? 0)) / 100,
+      paidTransactions: summary.salesCount + (coproduction?.creditedCount ?? 0),
       approvalRate: decided.length
         ? (accepted.length / decided.length) * 100
         : 0,

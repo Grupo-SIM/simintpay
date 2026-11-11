@@ -107,6 +107,8 @@ Existe uma única conta DOM: todas as plataformas cobram com o `DOM_TOKEN` do am
 
 Cliente aprovado cria/edita somente os cinco produtos atuais de sua propriedade: planos, planos PIX, links de pagamento/assinatura e boletos. Valor mínimo R$ 14,99. Sessão de admin mantém seu escopo; clientes não alteram proprietário, código público, taxas ou vínculos administrativos. URLs administrativas não autorizam cliente; endpoints de dashboard, cobranças e taxas próprias mantêm acesso autenticado por usuário.
 
+Dashboard do cliente integra a coprodução às próprias métricas: transações, vendas (valor e gráfico) e receita líquida somam as participações já creditadas (`AVAILABLE`) ao que o cliente vende; mediação e estornos não entram. Não há card separado de coprodução; a listagem de recebimentos fica em relatórios.
+
 Edição preserva campos não apresentados no formulário e links públicos. Recorrência legada de planos é recuperada do plano exato no gateway, sem inferir frequência/repetições/retentativa. Se configuração não puder ser recuperada, erro impede edição em vez de gravar valores presumidos. Alteração de preço/recorrência cria configuração no gateway mantendo ID/código locais; assinaturas existentes conservam seu plano do gateway.
 
 Web Push é opt-in por dispositivo para cliente aprovado. Cadastro recebe assinatura padrão do navegador; usuário vem da sessão. Endpoint tem associação única a usuário; troca remove entregas anteriores. Remoção autenticada do próprio dispositivo continua permitida depois de revogar aprovação, para concluir logout.

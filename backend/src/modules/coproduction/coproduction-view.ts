@@ -162,24 +162,36 @@ export async function coproductionTotals(
     ${range?.end ? Prisma.sql`AND t."createdAt" <= ${range.end}` : Prisma.empty}
     ${range?.platform ? Prisma.sql`AND t."platformTag" = ${canonicalTransactionPlatformTag(range.platform)}` : Prisma.empty}
     ${range?.paymentMethod ? Prisma.sql`AND t."paymentMethod"::text = ${range.paymentMethod}` : Prisma.empty}`;
-  const [row] = await db.$queryRaw<
-    {
-      count: bigint;
-      available: Prisma.Decimal;
-      locked: Prisma.Decimal;
-      reversed: Prisma.Decimal;
-    }[]
-  >(Prisma.sql`SELECT count(*) AS count,
-    coalesce(sum(a.amount) FILTER (WHERE a.state = 'AVAILABLE'), 0) AS available,
-    coalesce(sum(a.amount) FILTER (WHERE a.state = 'LOCKED'), 0) AS locked,
-    coalesce(sum(a.amount) FILTER (WHERE a.state = 'REVERSED'), 0) AS reversed
-    FROM "CoproductionAllocation" a JOIN "Transaction" t ON t.id = a."transactionId" WHERE a."userId" = ${userId} AND t."userId" <> ${userId} ${period}`);
+  // One grouped scan: totals per state plus credited allocations bucketed by hour
+  // (America/Sao_Paulo) so dashboards can merge them into daily/hourly series.
+  const rows = await db.$queryRaw<
+    { bucket: string; state: string; count: bigint; amount: Prisma.Decimal }[]
+  >(Prisma.sql`SELECT to_char((t."createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD HH24') AS bucket,
+    a.state::text AS state, count(*) AS count, coalesce(sum(a.amount), 0) AS amount
+    FROM "CoproductionAllocation" a JOIN "Transaction" t ON t.id = a."transactionId" WHERE a."userId" = ${userId} AND t."userId" <> ${userId} ${period}
+    GROUP BY 1, 2 ORDER BY 1`);
   const cents = (amount: Prisma.Decimal) =>
     new Prisma.Decimal(amount).mul(100).toNumber();
+  const stateCents = (state: string) =>
+    cents(
+      rows
+        .filter((row) => row.state === state)
+        .reduce((total, row) => total.plus(row.amount), new Prisma.Decimal(0)),
+    );
+  const credited = rows.filter((row) => row.state === 'AVAILABLE');
   return {
-    count: Number(row.count),
-    creditedCents: cents(row.available),
-    lockedCents: cents(row.locked),
-    reversedCents: cents(row.reversed),
+    count: rows.reduce((total, row) => total + Number(row.count), 0),
+    creditedCents: stateCents('AVAILABLE'),
+    lockedCents: stateCents('LOCKED'),
+    reversedCents: stateCents('REVERSED'),
+    creditedCount: credited.reduce(
+      (total, row) => total + Number(row.count),
+      0,
+    ),
+    hourly: credited.map((row) => ({
+      bucket: row.bucket,
+      count: Number(row.count),
+      creditedCents: cents(row.amount),
+    })),
   };
 }

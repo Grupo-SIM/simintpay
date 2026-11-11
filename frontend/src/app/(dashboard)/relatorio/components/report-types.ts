@@ -18,6 +18,9 @@ export type ReportSummary = {
     creditedCents: number;
     lockedCents: number;
     reversedCents: number;
+    /** Credited allocations only, bucketed by `YYYY-MM-DD HH` in America/Sao_Paulo. */
+    creditedCount: number;
+    hourly: { bucket: string; count: number; creditedCents: number }[];
   };
   platformsCount: number;
   summary: {

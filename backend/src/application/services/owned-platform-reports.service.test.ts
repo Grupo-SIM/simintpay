@@ -10,14 +10,7 @@ const user = { sub: 'owner', email: 'owner@test.local', role: 'USER' };
 function fixture() {
   const raw = mock(async (query: any) =>
     query.text.includes('FROM "CoproductionAllocation"')
-      ? [
-          {
-            count: 0n,
-            available: new Prisma.Decimal(0),
-            locked: new Prisma.Decimal(0),
-            reversed: new Prisma.Decimal(0),
-          },
-        ]
+      ? []
       : query.text.includes('FROM (SELECT "productId", participants')
         ? []
         : query.text.includes('SELECT p.id')
