@@ -3,7 +3,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
-import { ScrollArea } from '@/components/ui/ScrollArea';
+import { Clock, HandCoins, Undo2 } from 'lucide-react';
+import { MetricCard } from '@/app/(dashboard)/relatorio/components/MetricCard';
+import { ReportDataTable } from '@/app/(dashboard)/relatorio/components/ReportDataTable';
+import { ReportMetricSection } from '@/app/(dashboard)/relatorio/components/ReportMetricSection';
+import { ReportPagination } from '@/app/(dashboard)/relatorio/components/ReportPagination';
+import { ReportSkeleton } from '@/app/(dashboard)/relatorio/components/ReportSkeleton';
 import { useCurrentUser } from '@/hooks/use-current-user';
 import {
   createApiClient,
@@ -52,34 +57,13 @@ export function CoproductionReceipts({
   });
   if (!user || user.isAdmin) return null;
   return (
-    <section
-      className="space-y-4 rounded-xl border border-zinc-200 p-5 dark:border-white/10"
+    <div
+      role="region"
+      className="flex flex-col gap-8"
       aria-label="Recebimentos de coprodução"
     >
-      <div>
-        <h2 className="text-lg font-semibold">Recebimentos de coprodução</h2>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Histórico completo das suas participações em produtos de outros
-          proprietários. Créditos integram sua carteira; totais abaixo não
-          representam saldo disponível para saque.
-        </p>
-      </div>
       {query.isPending ? (
-        <div
-          role="status"
-          aria-label="Carregando recebimentos"
-          className="animate-pulse space-y-3"
-        >
-          <div className="grid grid-cols-3 gap-3">
-            {[1, 2, 3].map((key) => (
-              <div
-                key={key}
-                className="h-20 rounded-lg bg-zinc-200 dark:bg-white/10"
-              />
-            ))}
-          </div>
-          <div className="h-40 rounded-lg bg-zinc-200 dark:bg-white/10" />
-        </div>
+        <ReportSkeleton />
       ) : query.isError ? (
         <div className="space-y-3">
           <p role="alert" className="text-sm text-red-600 dark:text-red-400">
@@ -95,77 +79,76 @@ export function CoproductionReceipts({
         </div>
       ) : query.data ? (
         <>
-          <dl className="grid gap-3 sm:grid-cols-3">
-            {(
-              [
-                ['Creditado', query.data.summary.creditedCents],
-                ['Em mediação', query.data.summary.lockedCents],
-                ['Estornado', query.data.summary.reversedCents],
-              ] as const
-            ).map(([label, cents]) => (
-              <div
-                key={label}
-                className="rounded-lg border border-zinc-200 p-3 dark:border-white/10"
+          <ReportMetricSection title="Coprodução">
+            <MetricCard
+              label="Creditado"
+              value={money(query.data.summary.creditedCents)}
+              icon={HandCoins}
+              tooltip="Participações de coprodução já creditadas na sua carteira. Não representa saldo disponível para saque."
+              valueClassName="text-emerald-600 dark:text-emerald-400"
+              iconClassName="text-emerald-600 dark:text-emerald-400"
+            />
+            <MetricCard
+              label="Em mediação"
+              value={money(query.data.summary.lockedCents)}
+              icon={Clock}
+              tooltip="Participações retidas até o fim do prazo de mediação."
+              valueClassName="text-amber-600 dark:text-amber-400"
+              iconClassName="text-amber-600 dark:text-amber-400"
+            />
+            <MetricCard
+              label="Estornado"
+              value={money(query.data.summary.reversedCents)}
+              icon={Undo2}
+              tooltip="Participações revertidas por estorno da venda."
+              valueClassName="text-rose-600 dark:text-rose-400"
+              iconClassName="text-rose-600 dark:text-rose-400"
+            />
+          </ReportMetricSection>
+          <ReportDataTable
+            title="Recebimentos de coprodução"
+            columns={[
+              { label: 'Data' },
+              { label: 'Produto' },
+              { label: 'Status' },
+              { label: 'Valor', numeric: true },
+            ]}
+            summary={`${query.data.total.toLocaleString('pt-BR')} ${query.data.total === 1 ? 'recebimento' : 'recebimentos'}`}
+            empty={query.data.data.length === 0}
+            emptyMessage="Nenhum recebimento de coprodução no período."
+            footer={
+              query.data.total > query.data.pageSize ? (
+                <ReportPagination
+                  page={page}
+                  total={query.data.total}
+                  pageSize={query.data.pageSize}
+                  onChange={setPage}
+                />
+              ) : undefined
+            }
+          >
+            {query.data.data.map((row) => (
+              <tr
+                key={row.transactionId}
+                className="transition-colors hover:bg-zinc-50 dark:hover:bg-white/[0.025]"
               >
-                <dt className="text-sm text-zinc-500 dark:text-zinc-400">
-                  {label}
-                </dt>
-                <dd className="text-lg font-semibold">{money(cents)}</dd>
-              </div>
+                <td className="whitespace-nowrap px-5 py-4 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
+                  {new Date(row.createdAt).toLocaleDateString('pt-BR')}
+                </td>
+                <td className="px-5 py-4 font-medium">
+                  {products[row.product] ?? 'Produto'}
+                </td>
+                <td className="whitespace-nowrap px-5 py-4 text-xs text-zinc-600 dark:text-zinc-300">
+                  {states[row.state] ?? 'Indisponível'}
+                </td>
+                <td className="whitespace-nowrap px-5 py-4 text-right font-semibold tabular-nums">
+                  {money(row.amountCents)}
+                </td>
+              </tr>
             ))}
-          </dl>
-          <ScrollArea className="max-h-80">
-            {query.data.data.length ? (
-              <ul className="space-y-2">
-                {query.data.data.map((row) => (
-                  <li
-                    key={row.transactionId}
-                    className="flex items-center justify-between gap-4 rounded-lg border border-zinc-200 p-3 dark:border-white/10"
-                  >
-                    <div>
-                      <p className="text-sm font-medium">
-                        {products[row.product] ?? 'Produto'}
-                      </p>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                        {new Date(row.createdAt).toLocaleString('pt-BR')} ·{' '}
-                        {states[row.state] ?? 'Indisponível'}
-                      </p>
-                    </div>
-                    <strong className="shrink-0 text-sm">
-                      {money(row.amountCents)}
-                    </strong>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="py-5 text-sm text-zinc-500 dark:text-zinc-400">
-                Nenhum recebimento de coprodução registrado.
-              </p>
-            )}
-          </ScrollArea>
-          {query.data.total > query.data.pageSize && (
-            <div className="flex items-center justify-end gap-3">
-              <Button
-                variant="outline"
-                className="cursor-pointer disabled:cursor-not-allowed"
-                disabled={page === 1}
-                onClick={() => setPage((value) => value - 1)}
-              >
-                Anterior
-              </Button>
-              <span className="text-sm">Página {page}</span>
-              <Button
-                variant="outline"
-                className="cursor-pointer disabled:cursor-not-allowed"
-                disabled={page * query.data.pageSize >= query.data.total}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                Próxima
-              </Button>
-            </div>
-          )}
+          </ReportDataTable>
         </>
       ) : null}
-    </section>
+    </div>
   );
 }
