@@ -10,6 +10,7 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import { platformBalanceRules } from '../../modules/platform-core/platform-balance.adapter';
 import {
+  coproductionBuyerKeys,
   coproductionTotals,
   sharedProductIds,
 } from '../../modules/coproduction/coproduction-view';
@@ -304,15 +305,16 @@ export class OwnedPlatformReportsService {
       const scope = await this.scope(db, user, filters.platform, true);
       const actor = await this.actor(db, user);
       const range = reportPeriod(filters);
+      const coproductionRange = {
+        start: range.start,
+        end: range.end ? new Date(range.end.getTime() - 1) : undefined,
+        platform: filters.platform,
+        paymentMethod: filters.paymentMethod,
+      };
       const coproducao =
         actor.role === 'ADMIN'
           ? undefined
-          : await coproductionTotals(db, actor.id, {
-              start: range.start,
-              end: range.end ? new Date(range.end.getTime() - 1) : undefined,
-              platform: filters.platform,
-              paymentMethod: filters.paymentMethod,
-            });
+          : await coproductionTotals(db, actor.id, coproductionRange);
       const [rows, withdrawals, gaps] = await Promise.all([
         db.$queryRaw<
           {
@@ -359,6 +361,19 @@ export class OwnedPlatformReportsService {
         this.attributionGaps(db, scope, filters),
       ]);
       const row = rows[0];
+      // Buyers are unique across own and coproduction sales: count the CPF union.
+      const customers = coproducao?.creditedCount
+        ? Number(
+            (
+              await db.$queryRaw<{ customers: bigint }[]>(Prisma.sql`
+                SELECT count(*) AS customers FROM (
+                  SELECT "customerKey" FROM (${this.transactions(scope, filters)}) scoped
+                  WHERE status = 'COMPLETED' AND "customerKey" IS NOT NULL
+                  UNION ${coproductionBuyerKeys(actor.id, coproductionRange)}
+                ) buyers WHERE "customerKey" IS NOT NULL`)
+            )[0].customers,
+          )
+        : Number(row.customers ?? 0);
       const sum = (statuses: string[]) =>
         withdrawals
           .filter((w) => statuses.includes(w.status))
@@ -377,7 +392,7 @@ export class OwnedPlatformReportsService {
           netCents: cents(row.net),
           refundsCents: cents(row.refunds),
           refundsCount: Number(row.refundCount),
-          customersCount: Number(row.customers ?? 0),
+          customersCount: customers,
           interestCents: cents(row.interest),
           missingInterestSnapshots: Number(row.unknownInterest ?? 0),
           refundedCents: cents(row.refunded),

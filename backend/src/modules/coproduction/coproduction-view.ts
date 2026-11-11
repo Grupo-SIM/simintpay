@@ -1,5 +1,6 @@
 import { canonicalTransactionPlatformTag } from '../platform-core/transaction-platform';
 import { Prisma } from '@prisma/client';
+import { reportBuyerCpfSql } from '../../application/helpers/report-buyer.helper';
 import {
   productOwnerColumn,
   productTables,
@@ -147,21 +148,37 @@ export async function transactionCoproductionInfo(
   return info;
 }
 
-export async function coproductionTotals(
-  db: Db,
-  userId: string,
-  range?: {
-    start?: Date;
-    end?: Date;
-    platform?: string;
-    paymentMethod?: string;
-  },
-) {
-  const period = Prisma.sql`
+type CoproductionRange = {
+  start?: Date;
+  end?: Date;
+  platform?: string;
+  paymentMethod?: string;
+};
+
+function coproductionPeriod(range?: CoproductionRange) {
+  return Prisma.sql`
     ${range?.start ? Prisma.sql`AND t."createdAt" >= ${range.start}` : Prisma.empty}
     ${range?.end ? Prisma.sql`AND t."createdAt" <= ${range.end}` : Prisma.empty}
     ${range?.platform ? Prisma.sql`AND t."platformTag" = ${canonicalTransactionPlatformTag(range.platform)}` : Prisma.empty}
     ${range?.paymentMethod ? Prisma.sql`AND t."paymentMethod"::text = ${range.paymentMethod}` : Prisma.empty}`;
+}
+
+/** Distinct buyer CPFs of credited coproduction receipts, as a one-column ("customerKey") subquery. */
+export function coproductionBuyerKeys(
+  userId: string,
+  range?: CoproductionRange,
+) {
+  return Prisma.sql`SELECT DISTINCT ${reportBuyerCpfSql(Prisma.sql`t."customerDocument"`)} AS "customerKey"
+    FROM "CoproductionAllocation" a JOIN "Transaction" t ON t.id = a."transactionId"
+    WHERE a."userId" = ${userId} AND t."userId" <> ${userId} AND a.state::text = 'AVAILABLE' ${coproductionPeriod(range)}`;
+}
+
+export async function coproductionTotals(
+  db: Db,
+  userId: string,
+  range?: CoproductionRange,
+) {
+  const period = coproductionPeriod(range);
   // One grouped scan: totals per state plus credited allocations bucketed by hour
   // (America/Sao_Paulo) so dashboards can merge them into daily/hourly series.
   const rows = await db.$queryRaw<

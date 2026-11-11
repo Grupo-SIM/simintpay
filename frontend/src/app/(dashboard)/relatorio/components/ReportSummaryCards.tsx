@@ -15,30 +15,33 @@ import { reportMoney } from './report-types';
 
 export function ReportSummaryCards({ data }: { data: ReportSummary }) {
   const s = data.summary;
+  // Coproduction receipts count as sales, revenue and gross profit of the overview.
+  const coSales = data.coproducao?.creditedCount ?? 0;
+  const coCents = data.coproducao?.creditedCents ?? 0;
   return (
     <div className="flex flex-col gap-8">
       <ReportMetricSection title="Visão Geral">
         <MetricCard
           label="Total de vendas"
-          value={String(s.salesCount)}
+          value={String(s.salesCount + coSales)}
           icon={Hash}
-          tooltip="Transações aprovadas no período."
+          tooltip="Transações aprovadas no período, incluindo recebimentos de coprodução creditados."
           valueClassName="text-sky-600 dark:text-sky-400"
           iconClassName="text-sky-600 dark:text-sky-400"
         />
         <MetricCard
           label="Receita Total"
-          value={reportMoney(s.grossCents)}
+          value={reportMoney(s.grossCents + coCents)}
           icon={TrendingUp}
-          tooltip="Valor bruto das vendas aprovadas."
+          tooltip="Valor bruto das vendas aprovadas, somado às participações de coprodução creditadas."
           valueClassName="text-emerald-600 dark:text-emerald-400"
           iconClassName="text-emerald-600 dark:text-emerald-400"
         />
         <MetricCard
           label="Lucro bruto"
-          value={reportMoney(s.netCents)}
+          value={reportMoney(s.netCents + coCents)}
           icon={Banknote}
-          tooltip="Líquido das vendas antes da taxa de saque."
+          tooltip="Líquido das vendas e participações de coprodução antes da taxa de saque."
           valueClassName="text-cyan-600 dark:text-cyan-400"
           iconClassName="text-cyan-600 dark:text-cyan-400"
         />
