@@ -1,3 +1,5 @@
+import { isDomCashbackActive } from '../platform-taxas/platform-taxas.store';
+import { cyclePolicyTag } from '../billing-core/cycle-pricing';
 import { findOfferByCodeOrId } from './find-offer-by-code-or-id';
 import { randomUUID } from 'node:crypto';
 import { coproductionKeyFor } from './offer-coproduction';
@@ -361,6 +363,7 @@ export class OfferRenewalService {
     });
     const domLinkId = await this.gatewayLinkId(offer, ctx);
     const pix = await ctx.gateway.chargePixForLink(ctx.domToken, {
+      cashbackDisabled: !isDomCashbackActive(cyclePolicyTag(offer)),
       domLinkId,
       amount,
       description: `${snapshot.description} [LINK_CHARGE:${txId}]`,

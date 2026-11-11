@@ -199,8 +199,14 @@ export class OfferCheckoutService {
         ];
     const chargedBaseCents = items.reduce((n, i) => n + i.amountCents, 0);
     const baseAmount = chargedBaseCents / 100;
+    const financialContext = await loadChargePolicy(
+      this.prisma,
+      platformTag,
+      undefined,
+      offer.ownerUserId,
+    );
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, platformTag),
+      financialContext,
       baseAmount,
       isPix
         ? 'PIX'
@@ -366,6 +372,7 @@ export class OfferCheckoutService {
         txId,
         async () => {
           const out = await gateway.chargeBoletoForLink(domToken, {
+            cashbackDisabled: !financialContext.cashbackActive,
             amount: totalAmount,
             description,
             customerName: input.customerName,
@@ -420,6 +427,7 @@ export class OfferCheckoutService {
     if (isPix) {
       const result = await discardDraftOnRejection(releasing, txId, () =>
         gateway.chargePixForLink(domToken, {
+          cashbackDisabled: !financialContext.cashbackActive,
           domLinkId,
           amount: totalAmount,
           description,
@@ -450,6 +458,7 @@ export class OfferCheckoutService {
 
     const result = await discardDraftOnRejection(releasing, txId, () =>
       gateway.chargePaymentLink(domToken, {
+        cashbackDisabled: !financialContext.cashbackActive,
         domLinkId,
         amount: totalAmount,
         description,

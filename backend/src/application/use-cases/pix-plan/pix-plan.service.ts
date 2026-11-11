@@ -164,8 +164,14 @@ export class PixPlanService {
     const domToken = platformGatewayToken(tenantTag, process.env.DOM_TOKEN);
     if (!domToken)
       throw new UnauthorizedException('Credencial do gateway não configurada');
+    const financialContext = await loadChargePolicy(
+      this.prisma,
+      tenantTag,
+      undefined,
+      effectiveUserId,
+    );
     const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, tenantTag),
+      financialContext,
       amount,
       'PIX',
     );
@@ -215,6 +221,7 @@ export class PixPlanService {
 
     try {
       const payment = await this.gateway.createPixCheckout(domToken, {
+        cashbackDisabled: !financialContext.cashbackActive,
         codExternal: transaction.id,
         amount,
         description: body.description ?? `Plano PIX ${body.planType}`,

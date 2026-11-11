@@ -1,3 +1,5 @@
+import { isDomCashbackActive } from '../platform-taxas/platform-taxas.store';
+import { cyclePolicyTag } from '../billing-core/cycle-pricing';
 import { findOfferByCodeOrId } from './find-offer-by-code-or-id';
 import { randomUUID } from 'node:crypto';
 import {
@@ -452,6 +454,7 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
       let pix;
       try {
         pix = await gateway.chargePixForLink(domToken, {
+          cashbackDisabled: !isDomCashbackActive(cyclePolicyTag(offer)),
           domLinkId,
           amount: pricing.totalAmount,
           description,

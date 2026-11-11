@@ -1,3 +1,4 @@
+import { buildUserTaxaTag } from '../platform-taxas/platform-taxas.store';
 import {
   Prisma,
   type Charge,
@@ -32,11 +33,13 @@ export type CycleQuote = {
   financialSnapshot: Prisma.InputJsonValue | undefined;
 };
 
-/** Current platform policy used for new offer charges. */
+/** Current policy used for new offer charges: the platform's, or the owner's when there is none. */
 export function cyclePolicyTag(
   offer: Pick<Offer, 'platformTag' | 'ownerUserId'>,
 ): string {
-  return (offer.platformTag ?? 'GLOBAL').toUpperCase();
+  return offer.platformTag
+    ? offer.platformTag.toUpperCase()
+    : buildUserTaxaTag(offer.ownerUserId);
 }
 
 /** Method a recurring cycle is charged with when the buyer has not chosen one. */
