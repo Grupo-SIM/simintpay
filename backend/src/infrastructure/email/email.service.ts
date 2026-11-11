@@ -269,7 +269,7 @@ export class EmailService {
               <p style="font-size: 12px; color: #9ca3af;">ID da assinatura: ${input.orderId}</p>
             </div>
             <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-              SIM INT PAY · JB Mídia
+              SIM INT PAY
             </p>
           </div>
         `,
@@ -324,7 +324,7 @@ export class EmailService {
               </a>
             </div>
             <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-              SIM INT PAY · JB Mídia
+              SIM INT PAY
             </p>
           </div>
         `,
@@ -394,7 +394,7 @@ export class EmailService {
               </p>
             </div>
             <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-              SIM INT PAY · JB Mídia
+              SIM INT PAY
             </p>
           </div>
         `,
@@ -468,7 +468,7 @@ export class EmailService {
             </p>
           </div>
           <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-            SIM INT PAY · JB Mídia
+            SIM INT PAY
           </p>
         </div>
       `,
@@ -534,7 +534,7 @@ export class EmailService {
               <p style="font-size: 12px; color: #9ca3af;">Se você não realizou este pagamento, entre em contato conosco.</p>
             </div>
             <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-              SIM INT PAY · JB Mídia
+              SIM INT PAY
             </p>
           </div>
         `,
@@ -593,7 +593,7 @@ export class EmailService {
               <p style="font-size: 13px; color: #6b7280;">Este link expira em 1 hora. Se você não solicitou a redefinição, ignore este e-mail — sua senha continua a mesma.</p>
             </div>
             <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-              SIM INT PAY · JB Mídia
+              SIM INT PAY
             </p>
           </div>
         `,
@@ -643,7 +643,7 @@ export class EmailService {
               <p style="font-size: 12px; color: #9ca3af;">Se você não realizou este pagamento, entre em contato conosco.</p>
             </div>
             <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-              SIM INT PAY · JB Mídia
+              SIM INT PAY
             </p>
           </div>
         `,

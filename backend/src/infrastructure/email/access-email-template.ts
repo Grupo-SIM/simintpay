@@ -90,7 +90,7 @@ export function renderAccessEmail(input: AccessEmailInput): {
               <p style="font-size: 12px; color: #9ca3af;">Se você não realizou este pagamento, entre em contato conosco.</p>
             </div>
             <p style="text-align: center; font-size: 11px; color: #9ca3af; margin-top: 16px;">
-              SIM INT PAY · JB Mídia
+              SIM INT PAY
             </p>
           </div>
         `,
