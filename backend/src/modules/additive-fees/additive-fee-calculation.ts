@@ -106,8 +106,9 @@ export function surchargeComponents(
 }
 
 /**
- * Compares fees charged for each lane against the global acquirer cost. Percentage and fixed parts are checked
- * independently, which is conservative: a higher fixed part never hides a lower percentage.
+ * Fees charged on top of the acquirer cost for each lane. The acquirer cost is always charged to the seller in
+ * addition to the SimIntPay excess and the additive fees, so a lane is never under-covered: the shortfall only
+ * appears if a charged component is negative. `cost` is kept for consumers that show it next to the excess.
  */
 export function evaluateCoverage(input: {
   costs: (FeeComponents & LaneId)[];
@@ -136,10 +137,10 @@ export function evaluateCoverage(input: {
       return {
         cost: { fixedCents: cost.fixedCents, ratePpm: cost.ratePpm },
         covered,
-        fixedShortfallCents: Math.max(0, cost.fixedCents - covered.fixedCents),
+        fixedShortfallCents: Math.max(0, -covered.fixedCents),
         installments: cost.installments,
         method: cost.method,
-        rateShortfallPpm: Math.max(0, cost.ratePpm - covered.ratePpm),
+        rateShortfallPpm: Math.max(0, -covered.ratePpm),
       };
     });
 }

@@ -88,8 +88,8 @@ describe('coverage per mode', () => {
     });
     expect(result!.covered).toEqual({ ratePpm: 5_000, fixedCents: 50 });
     expect(result).toMatchObject({
-      rateShortfallPpm: 4_800,
-      fixedShortfallCents: 50,
+      rateShortfallPpm: 0,
+      fixedShortfallCents: 0,
     });
   });
 
@@ -103,7 +103,7 @@ describe('coverage per mode', () => {
     expect(result!.covered).toEqual({ ratePpm: 5_000, fixedCents: 50 });
   });
 
-  it('BOTH sums components and can cover the cost', () => {
+  it('BOTH sums the components charged on top of the cost', () => {
     const lanes = evaluateCoverage({
       costs,
       simintpay,
@@ -114,14 +114,24 @@ describe('coverage per mode', () => {
     expect(hasShortfall(lanes)).toBe(false);
   });
 
-  it('flags a shortfall when only one component falls short and skips disabled lanes', () => {
+  it('never flags a shortfall for charges below the acquirer cost and skips disabled lanes', () => {
     const low = evaluateCoverage({
       costs,
       simintpay: [{ ...lane, ratePpm: 20_000, fixedCents: 0 }],
       surcharges: { ratePpm: 0, fixedCents: 0 },
       mode: 'SIMINTPAY_ONLY',
     });
-    expect(hasShortfall(low)).toBe(true);
+    expect(hasShortfall(low)).toBe(false);
+    expect(
+      hasShortfall(
+        evaluateCoverage({
+          costs,
+          simintpay: [{ ...lane, ratePpm: -1, fixedCents: 0 }],
+          surcharges: { ratePpm: 0, fixedCents: 0 },
+          mode: 'SIMINTPAY_ONLY',
+        }),
+      ),
+    ).toBe(true);
     expect(
       evaluateCoverage({
         costs,

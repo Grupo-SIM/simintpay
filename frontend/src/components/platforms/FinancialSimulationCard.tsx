@@ -8,7 +8,6 @@ import { FinancialNumberField } from './FinancialNumberField';
 import {
   defaultOwner,
   effectiveFee,
-  feeShortfall,
   formatCents,
   formatPpm,
   laneId,
@@ -191,13 +190,6 @@ export function FinancialSimulationCard({
         additiveTotals,
       )
     : undefined;
-  const shortfall =
-    displayedContract && effective
-      ? feeShortfall(effective, displayedContract)
-      : undefined;
-  const short =
-    !!shortfall &&
-    (shortfall.rateShortfallPpm > 0 || shortfall.fixedShortfallCents > 0);
   // Acquirer cost + merchant effective fee (percentage and fixed) as one rate over the purchase amount.
   const effectiveLabel =
     effective && displayedContract && result?.originalCents
@@ -390,33 +382,16 @@ export function FinancialSimulationCard({
           onClose={() => setDetailsOpen(false)}
         >
           <div>
-            {admin && effective && shortfall && lane && (
-              <div
-                className={`mb-3 rounded-lg border p-2 text-xs ${short ? 'border-amber-500 bg-amber-50 text-amber-800 dark:border-amber-400/60 dark:bg-amber-400/10 dark:text-amber-300' : 'border-zinc-200 text-zinc-600 dark:border-white/10 dark:text-zinc-300'}`}
-              >
+            {admin && effective && lane && (
+              <div className="mb-3 rounded-lg border border-zinc-200 p-2 text-xs text-zinc-600 dark:border-white/10 dark:text-zinc-300">
                 <div className="flex justify-between gap-2">
-                  <span>Taxa efetiva do lojista</span>
+                  <span>Adicional do lojista</span>
                   <span className="font-medium tabular-nums">
                     {formatPpm(effective.ratePpm)} +{' '}
                     {formatCents(effective.fixedCents)}
                   </span>
                 </div>
-                <div
-                  role={short ? 'alert' : undefined}
-                  className={`mt-1 ${short ? 'font-medium' : ''}`}
-                >
-                  {short
-                    ? `Cobertura insuficiente${
-                        shortfall.rateShortfallPpm > 0
-                          ? `: faltam ${formatPpm(shortfall.rateShortfallPpm)}`
-                          : ''
-                      }${
-                        shortfall.fixedShortfallCents > 0
-                          ? `${shortfall.rateShortfallPpm > 0 ? ' e' : ': faltam'} ${formatCents(shortfall.fixedShortfallCents)}`
-                          : ''
-                      } sobre o custo da adquirente`
-                    : 'Cobre o custo da adquirente'}
-                </div>
+                <div className="mt-1">Somado ao custo da adquirente</div>
               </div>
             )}
             <div>{breakdown}</div>

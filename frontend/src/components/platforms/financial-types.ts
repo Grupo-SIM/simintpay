@@ -120,7 +120,7 @@ export const formatCents = (value: number) =>
   (value / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 /**
- * Merchant's effective fee for a lane: additive values (unless SIMINTPAY_ONLY) plus the
+ * Merchant's additional fee for a lane, charged on top of the acquirer cost: additive values (unless SIMINTPAY_ONLY) plus the
  * SimIntPay lane fee (unless ADDITIVE_ONLY), percentage and fixed summed separately.
  * The SimIntPay part is always `lane.sim`, same as backend `evaluateCoverage` (`lane.total` is ignored).
  */
@@ -144,11 +144,6 @@ export const effectiveFee = (
       additive.reduce((sum, fee) => sum + fee.fixedValue, 0),
   };
 };
-/** Short when the effective fee is below the acquirer cost on either component. */
-export const feeShortfall = (effective: Addition, cost: Addition) => ({
-  rateShortfallPpm: Math.max(0, cost.ratePpm - effective.ratePpm),
-  fixedShortfallCents: Math.max(0, cost.fixedCents - effective.fixedCents),
-});
 export const formatPpm = (ppm: number) =>
   `${(ppm / 10_000).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}%`;
 export const formatFeeValue = (percentageBp: number, fixedCents: number) =>

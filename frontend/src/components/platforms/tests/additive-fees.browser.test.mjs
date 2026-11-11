@@ -85,12 +85,9 @@ test('admin edits additive totals, effective merchant fee and coverage', async (
     await page.goto(`http://127.0.0.1:${server.port}/?admin`);
     await page.getByText('Taxas adicionais', { exact: true }).waitFor();
     const card = page.getByRole('article').first();
-    expect(await card.innerText()).toContain('Taxa efetiva do lojista');
+    expect(await card.innerText()).toContain('Adicional do lojista');
     expect(await card.innerText()).toContain('1,5%');
-    await card
-      .getByRole('alert')
-      .filter({ hasText: 'Cobertura insuficiente' })
-      .waitFor();
+    expect(await page.getByRole('alert').count()).toBe(0);
     const body = await page.locator('body').innerText();
     expect(body).not.toContain('Gerenciadas no SIM Delivery');
     expect(body).not.toContain('Definidas na SimIntPay');
@@ -102,7 +99,7 @@ test('admin edits additive totals, effective merchant fee and coverage', async (
     // Editing changes actual generic totals, with no origin or restore affordance.
     await page.getByLabel('Percentual (%)').first().fill('1,5');
     await page.getByLabel('Valor fixo (R$)').first().fill('1,00');
-    await card.getByText('Cobre o custo da adquirente').waitFor();
+    await card.getByText('Somado ao custo da adquirente').waitFor();
     expect(await card.innerText()).toContain('2,5%');
     expect(
       await page
