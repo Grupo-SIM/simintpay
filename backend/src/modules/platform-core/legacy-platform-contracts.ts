@@ -1397,6 +1397,11 @@ export const ORIGINAL_LEGACY_PLATFORM_CONTRACTS = [
 // upstream mensalidade endpoints do not exist and the system is offline.
 const isRetired = (path: string) =>
   path.startsWith('/admin/betai/') ||
+  // Community and CONTROLE-*/BETAI provisioning were discontinued (plan 0023).
+  path.startsWith('/internal/betai/') ||
+  path === '/admin/plataformas/:tag/comunidades' ||
+  path === '/admin/plataformas/:tag/usuarios' ||
+  path === '/admin/plataformas/:tag/usuarios/:userId/toggle' ||
   // Exposed every resolved fee key; platforms now return their own withdrawal fees.
   path === '/admin/plataformas/minhas-taxas';
 export const RETIRED_LEGACY_PLATFORM_CONTRACTS =

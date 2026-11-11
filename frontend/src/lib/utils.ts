@@ -96,10 +96,6 @@ export function getPlatformBadgeClass(
     return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-500/20 dark:text-cyan-300';
   if (k.includes('marketing raiz') || k.includes('marketing-raiz'))
     return 'bg-pink-100 text-pink-800 dark:bg-pink-500/20 dark:text-pink-300';
-  if (k.includes('comunidade') || k.includes('community'))
-    return 'bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300';
-  if (k.includes('controle-motorista') || k.includes('controle motorista'))
-    return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-300';
   if (k.includes('atlas'))
     return 'bg-teal-100 text-teal-800 dark:bg-teal-500/20 dark:text-teal-300';
   if (

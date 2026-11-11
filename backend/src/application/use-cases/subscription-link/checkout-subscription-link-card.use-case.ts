@@ -22,7 +22,6 @@ import type { ISubscriptionLinkRepository } from '../../../core/repositories/sub
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { CheckoutSubscriptionLinkCardDto } from '../../dtos/subscription-link/checkout-subscription-link.dto';
-import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { VoucherService } from '../voucher/voucher.service';
 import { splitDocument } from '../../utils/document.util';
@@ -53,7 +52,6 @@ export class CheckoutSubscriptionLinkCardUseCase {
     private readonly repo: ISubscriptionLinkRepository,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
-    private readonly communities: CommunityManagementService,
     private readonly emailService: EmailService,
     private readonly voucherService: VoucherService,
     private readonly prisma: PrismaService,
@@ -206,19 +204,6 @@ export class CheckoutSubscriptionLinkCardUseCase {
     }
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });
-
-    const community =
-      await this.communities.findBoundCommunityForSubscriptionLink(link.id);
-    if (community) {
-      await this.communities.activateOrRenewCommunityAccess({
-        communityId: community.id,
-        userId: link.userId,
-        frequencyType: link.frequencyType,
-        paymentMethod: 'CREDIT_CARD',
-        amountCharged,
-        subscriptionLinkOrderId: order.id,
-      });
-    }
 
     try {
       if (link.emailBody?.trim()) {

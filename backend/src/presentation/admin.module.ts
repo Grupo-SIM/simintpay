@@ -9,7 +9,6 @@ import { LinkExternalPlatformUserService } from '../application/services/link-ex
 import { CpfLookupService } from '../infrastructure/http/cpf-lookup.service';
 import { SyncDomTransactionsCron } from '../infrastructure/cron/sync-dom-transactions.cron';
 import { SyncMaquinetasCron } from '../infrastructure/cron/sync-maquinetas.cron';
-import { CommunityAccessCron } from '../infrastructure/cron/community-access.cron';
 import { ExpirationReminderCron } from '../infrastructure/cron/expiration-reminder.cron';
 import { CashbackGrantCron } from '../infrastructure/cron/cashback-grant.cron';
 import { WalletConsistencyCron } from '../infrastructure/cron/wallet-consistency.cron';
@@ -39,14 +38,11 @@ import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { EmailService } from '../infrastructure/email/email.service';
 import { ModuleRealtimeModule } from '../infrastructure/realtime/module-realtime.module';
 import { RevalidaModule } from '../modules/revalida/revalida.module';
-import { CommunityManagementService } from '../application/services/community-management.service';
 import { PlatformTaxasService } from '../application/services/platform-taxas.service';
-import { PlatformAccessService } from '../application/services/platform-access.service';
 import { RolesGuard } from '../infrastructure/security/guards/roles.guard';
 import { WebhookModule } from './webhook.module';
 import { AuthModule } from './auth.module';
 import { AuthTokensService } from '../application/use-cases/auth/auth-tokens.service';
-import { PlatformReportingModule } from '../application/services/platform-reporting.module';
 import { ExternalPlatformDbModule } from '../modules/external-platform-db/external-platform-db.module';
 import { AcquirerFeesController } from '../modules/financial-policy/acquirer-fees.controller';
 import { AcquirerFeesService } from '../modules/financial-policy/acquirer-fees.service';
@@ -62,7 +58,6 @@ import { SyncAcquirerWithdrawalsCron } from '../infrastructure/cron/sync-acquire
     ModuleRealtimeModule,
     RevalidaModule,
     WebhookModule,
-    PlatformReportingModule,
     ExternalPlatformDbModule,
     AuthModule,
   ],
@@ -83,7 +78,6 @@ import { SyncAcquirerWithdrawalsCron } from '../infrastructure/cron/sync-acquire
     SyncAcquirerWithdrawalsCron,
     SyncDomTransactionsCron,
     SyncMaquinetasCron,
-    CommunityAccessCron,
     ExpirationReminderCron,
     WalletConsistencyCron,
     CashbackGrantCron,
@@ -99,9 +93,7 @@ import { SyncAcquirerWithdrawalsCron } from '../infrastructure/cron/sync-acquire
     ListDomTransactionsDirectUseCase,
     SyncMaquinetasUseCase,
     EmailService,
-    CommunityManagementService,
     PlatformTaxasService,
-    PlatformAccessService,
     AuthTokensService,
     RolesGuard,
     ScanPlatformOwnersUseCase,

@@ -53,7 +53,6 @@ function setup(
   link: any = makeSub(),
   opts: FixtureOptions & {
     voucher?: { valid: boolean; finalAmount: number } | null;
-    community?: any;
     gatewayFails?: boolean;
   } = {},
 ) {
@@ -92,10 +91,6 @@ function setup(
     } as never,
     { findById: async () => ({ id: 'owner' }) } as never,
     gateway,
-    {
-      findBoundCommunityForSubscriptionLink: async () => opts.community ?? null,
-      registerPendingPix: async (a: any) => pending.push(a),
-    } as never,
     {
       validateVoucher: async () =>
         opts.voucher === undefined ? null : opts.voucher,
@@ -287,22 +282,7 @@ describe('coproduction snapshot', () => {
   });
 });
 
-describe('community, failures and guards', () => {
-  test('bound community registers a pending PIX with the charged amount', async () => {
-    const f = setup(makeSub(), { community: { id: 'comm' } });
-    await f.service.execute({ code: 'c', dto: f.dto });
-    expect(f.pending).toEqual([
-      {
-        communityId: 'comm',
-        userId: 'owner',
-        frequencyType: 'MENSAL',
-        paymentMethod: 'PIX',
-        amountCharged: 100,
-        subscriptionLinkOrderId: 'order-1',
-      },
-    ]);
-  });
-
+describe('failures and guards', () => {
   test('gateway failure marks the order failed, rethrows and does not consume a use', async () => {
     const f = setup(makeSub(), { gatewayFails: true });
     await expect(f.service.execute({ code: 'c', dto: f.dto })).rejects.toThrow(

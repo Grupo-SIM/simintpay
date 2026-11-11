@@ -91,7 +91,6 @@ function setup(
         return { id: 'dom-sub', status: 'active' };
       },
     } as never,
-    { findBoundCommunityForSubscriptionLink: async () => null } as never,
     {
       sendSubscriptionAccess: async () => undefined,
       sendEbookAccessEmail: async () => undefined,

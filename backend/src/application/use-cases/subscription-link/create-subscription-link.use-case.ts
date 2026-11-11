@@ -14,7 +14,6 @@ import type {
   FrequencyTypeDto,
 } from '../../dtos/subscription-link/create-subscription-link.dto';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
-import { CommunityManagementService } from '../../services/community-management.service';
 import {
   assertClientCanCreate,
   clientTaxaTagFor,
@@ -44,7 +43,6 @@ export class CreateSubscriptionLinkUseCase {
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
     private readonly prisma: PrismaService,
-    private readonly communities: CommunityManagementService,
   ) {}
 
   async execute(input: {
@@ -53,7 +51,6 @@ export class CreateSubscriptionLinkUseCase {
     dto: CreateSubscriptionLinkDto;
   }) {
     const {
-      actor,
       owner,
       platformTag: selectedTag,
       createdByUserId,
@@ -64,10 +61,6 @@ export class CreateSubscriptionLinkUseCase {
         ...(input.dto.platformTag ? [input.dto.platformTag] : []),
       ],
     });
-    if (input.dto.communityId && actor.role !== 'ADMIN')
-      throw new BadRequestException(
-        'Somente administradores podem vincular comunidades',
-      );
     const targetUserId = owner.id;
     const ownerEmail = owner.email;
     assertClientCanCreate(owner, input.dto.valor);
@@ -125,15 +118,6 @@ export class CreateSubscriptionLinkUseCase {
       // master aplicar taxas via CLIENT:<email>. Mesmo padrão do link de pagamento e plano.
       plataformas: selectedTag ? [selectedTag] : clientTag ? ['SIMINTPAY'] : [],
     });
-
-    // Regra de negócio: link de assinatura NUNCA cria comunidade automaticamente.
-    // Apenas vincula quando communityId é informado no cadastro.
-    if (input.dto.communityId) {
-      await this.communities.bindSubscriptionLinkManually({
-        communityId: input.dto.communityId,
-        subscriptionLinkId: saved.id,
-      });
-    }
 
     return {
       data: {

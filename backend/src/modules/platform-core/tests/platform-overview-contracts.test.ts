@@ -75,12 +75,8 @@ function fixture() {
     rows,
     withdrawals,
     p,
-    alias: new PlatformDashboardController(
-      new PlatformDashboardService(p),
-      p,
-      {} as any,
-    ),
-    canonical: new PlatformReportProjectionsController(p, {} as any, {} as any),
+    alias: new PlatformDashboardController(new PlatformDashboardService(p), p),
+    canonical: new PlatformReportProjectionsController(p, {} as any),
   };
 }
 test('generic dashboard alias and canonical overview preserve financial projection and count units', async () => {

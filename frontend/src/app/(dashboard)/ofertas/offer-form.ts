@@ -43,14 +43,12 @@ export type OfferForm = {
   /** Partes do fulfillment/metadata que a tela não edita e que a edição deve preservar. */
   keep: {
     files: unknown[];
-    communityId: string | null;
     metadata: Record<string, unknown>;
   };
 };
 
 const emptyKeep = (): OfferForm['keep'] => ({
   files: [],
-  communityId: null,
   metadata: {},
 });
 
@@ -145,10 +143,6 @@ export function formFromOffer(
       typeof boletoDueDays === 'number' ? String(boletoDueDays) : '',
     keep: {
       files: Array.isArray(fulfillment.files) ? fulfillment.files : [],
-      communityId:
-        typeof fulfillment.communityId === 'string'
-          ? fulfillment.communityId
-          : null,
       metadata,
     },
   };
@@ -354,7 +348,6 @@ function fulfillmentOf(form: OfferForm, create: boolean) {
   return {
     ...base,
     files: form.keep.files,
-    ...(form.keep.communityId ? { communityId: form.keep.communityId } : {}),
   };
 }
 

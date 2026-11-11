@@ -1,6 +1,5 @@
 import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
-import { getPlatformIntegrationValue } from '../../../modules/platform-integrations/platform-integrations.store';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, TransactionStatus, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
@@ -15,7 +14,6 @@ import {
   isAreaflixLink,
   calculateAreaflixSellerNet,
 } from '../../helpers/areaflix-fees.helper';
-import { PlatformAccessService } from '../../services/platform-access.service';
 import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import { advanceSubscriptionPeriod } from '../../helpers/subscription-period.helper';
 import { buildBillingTransactionDescription } from '../../helpers/billing-transaction-description.helper';
@@ -24,10 +22,7 @@ import { buildBillingTransactionDescription } from '../../helpers/billing-transa
 export class SubscriptionWebhookService {
   private readonly logger = new Logger(SubscriptionWebhookService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly platformAccess: PlatformAccessService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private getString(v: unknown): string | null {
     if (typeof v === 'string' && v.length > 0) return v;
@@ -498,85 +493,6 @@ export class SubscriptionWebhookService {
     return true;
   }
 
-  /**
-   * Provisiona a conta do cliente na plataforma SaaS correspondente ao link
-   * (CONTROLE-MOTORISTA → saas-consumo-back, CONTROLE-PATRIMONIAL → saas-controle-patrimonial-back)
-   * e dispara o email de credenciais (login + senha aleatória) na conta nova, ou de renovação
-   * quando a conta já existe. Idempotente no SaaS. Plataformas sem provisionamento são ignoradas.
-   * Mesma chamada usada no fluxo PIX (process-dom-webhook) — agora também no cartão recorrente.
-   */
-  private async provisionSaasUserForLink(
-    link: any,
-    order: {
-      customerEmail?: string | null;
-      customerName?: string | null;
-      customerDocument?: string | null;
-      customerPhone?: string | null;
-    },
-  ): Promise<void> {
-    const tag = ((link?.platformTag ?? link?.plataformas?.[0] ?? '') as string)
-      .toString()
-      .toUpperCase();
-    let url = '';
-    if (tag === 'CONTROLE-MOTORISTA') {
-      url = String(
-        getPlatformIntegrationValue('CONTROLE-MOTORISTA', 'BACKEND_URL') ?? '',
-      ).replace(/\/+$/, '');
-    } else if (tag === 'CONTROLE-PATRIMONIAL') {
-      url = String(
-        getPlatformIntegrationValue('CONTROLE-PATRIMONIAL', 'BACKEND_URL') ??
-          '',
-      ).replace(/\/+$/, '');
-    } else if (tag === 'BETAI') {
-      url = String(
-        getPlatformIntegrationValue('BETAI', 'BACKEND_URL') ?? '',
-      ).replace(/\/+$/, '');
-    } else {
-      return; // plataforma sem provisionamento de conta automática
-    }
-
-    const token =
-      process.env.API_MACHINE_INTERNAL_TOKEN ||
-      process.env.INTERNAL_SERVICE_TOKEN ||
-      '';
-    if (!url || !token) {
-      this.logger.warn(
-        `[SubscriptionLink][${tag}] URL ou token interno não configurado — provisão ignorada`,
-      );
-      return;
-    }
-    if (!order.customerEmail || !order.customerName) {
-      this.logger.warn(
-        `[SubscriptionLink][${tag}] email ou nome do cliente ausente — provisão ignorada`,
-      );
-      return;
-    }
-
-    try {
-      const res = await fetch(`${url}/internal/users/provision`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-internal-token': token,
-        },
-        body: JSON.stringify({
-          email: order.customerEmail,
-          name: order.customerName,
-          ...splitDocument(order.customerDocument),
-          phone: order.customerPhone ?? undefined,
-        }),
-      });
-      const text = await res.text();
-      this.logger.log(
-        `[SubscriptionLink][${tag}] provision HTTP ${res.status} email=${order.customerEmail}: ${text.slice(0, 200)}`,
-      );
-    } catch (err: unknown) {
-      this.logger.warn(
-        `[SubscriptionLink][${tag}] provision falhou: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
   private async handleSubscriptionLinkRenewal(
     linkOrder: any,
     amount: Prisma.Decimal,
@@ -619,35 +535,6 @@ export class SubscriptionWebhookService {
         cancelledAt: null,
       },
     });
-
-    // Cartão recorrente: provisiona/garante a conta do cliente na plataforma SaaS
-    // (motorista/patrimonial) e dispara o email com login + senha (conta nova) ou de renovação.
-    // O webhook é quem credita a wallet, então ele sempre dispara — inclusive na 1ª cobrança do
-    // cartão. Logo isto cobre o primeiro pagamento E as renovações (idempotente no SaaS).
-    void this.provisionSaasUserForLink(link, linkOrder);
-
-    // Credita/estende a janela de acesso (PlatformSubscriberAccess) também no cartão — antes só
-    // o PIX fazia isso. Sem esta janela o cron de expiração não teria como avisar/bloquear o
-    // cartão. Dias conforme a frequência do link (MENSAL 30 … ANUAL 365).
-    const accessTag = (
-      (link?.platformTag ?? link?.plataformas?.[0] ?? '') as string
-    ).toUpperCase();
-    if (
-      accessTag === 'CONTROLE-MOTORISTA' ||
-      accessTag === 'CONTROLE-PATRIMONIAL' ||
-      accessTag === 'BETAI'
-    ) {
-      void this.platformAccess.creditAccess({
-        platformTag: accessTag,
-        email: linkOrder.customerEmail,
-        name: linkOrder.customerName,
-        cpf: linkOrder.customerDocument,
-        phone: linkOrder.customerPhone,
-        paymentMethod: 'CREDIT_CARD',
-        planDays: this.platformAccess.daysForFrequency(link?.frequencyType),
-        transactionId: domTransactionId ?? linkOrder.id,
-      });
-    }
 
     const isAfLink = isAreaflixLink({
       webhookUrl: link.webhookUrl,
@@ -817,63 +704,6 @@ export class SubscriptionWebhookService {
               | undefined,
           },
         });
-      }
-    } else {
-      // Resolve a tag de tenant: plataforma do link (CONTROLE-MOTORISTA/PATRIMONIAL) tem
-      // prioridade; senão, comunidade vinculada. A Transaction [TENANT:<tag>] é necessária
-      // para os relatórios por produto e para o dedup por domPaymentId nos handlers acima
-      // (evita crédito de wallet e provisão de conta em duplicidade quando o DOM reenvia o webhook).
-      const linkTag = (
-        (link as any).platformTag ??
-        (link as any).plataformas?.[0] ??
-        ''
-      )
-        .toString()
-        .toUpperCase();
-      let tenantTag: string | null = null;
-      if (
-        linkTag === 'CONTROLE-MOTORISTA' ||
-        linkTag === 'CONTROLE-PATRIMONIAL' ||
-        linkTag === 'BETAI'
-      ) {
-        tenantTag = linkTag;
-      } else {
-        const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
-          where: { subscriptionLinkId: link.id },
-          select: { id: true, community: { select: { slug: true } } },
-        });
-        if (hasCommunity) tenantTag = hasCommunity.community.slug.toUpperCase();
-      }
-      if (tenantTag) {
-        const payId =
-          domTransactionId?.trim() || `SL_${tenantTag}_${newOrder.id}`;
-        const dup = await this.prisma.transaction.findFirst({
-          where: { domPaymentId: payId },
-          select: { id: true },
-        });
-        if (!dup) {
-          await this.prisma.transaction.create({
-            data: {
-              userId: link.userId,
-              amount: amount.toNumber(),
-              netAmount: netAmount.toNumber(),
-              status: TransactionStatus.COMPLETED,
-              paymentMethod: PaymentMethod.CREDIT_CARD,
-              totalFee: domFee.toNumber(),
-              domFee: domFee.toNumber(),
-              platformFee: platformFeeAmount,
-              description: `Assinatura link ${link.name} [TENANT:${tenantTag}] order=${newOrder.id}`,
-              domPaymentId: payId,
-              customerName: linkOrder.customerName ?? undefined,
-              customerEmail: linkOrder.customerEmail ?? undefined,
-              customerDocument: linkOrder.customerDocument ?? undefined,
-              customerPhone: linkOrder.customerPhone ?? undefined,
-              tracking: (linkOrder.tracking ?? undefined) as
-                | Prisma.InputJsonValue
-                | undefined,
-            },
-          });
-        }
       }
     }
   }

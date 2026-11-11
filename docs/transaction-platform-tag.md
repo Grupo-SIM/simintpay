@@ -35,10 +35,10 @@ Any Prisma `select` feeding an in-memory reader must include `platformTag`.
 
 ## Readers switched to the column
 
-owned-report-source (raw SQL, report cards/charts/details), platform-reporting.service,
+owned-report-source (raw SQL, report cards/charts/details),
 platform-overview-reports (dashboard, withdrawals, charts; Atlas, Bosque, Areaflix, Ebook, Revalida, Betai,
-Controle, communities), platform-dashboard-reports, platform-customer-reports, platform-administration.service
-(+ helpers for community order rows), platform-attributed-balance (owner wallet), platform-finance.service,
+Controle), platform-dashboard-reports, platform-customer-reports, platform-administration.service,
+platform-attributed-balance (owner wallet), platform-finance.service,
 legacy Renovada/PagaTG/Ebook/Bosque finance listings, platform-payment-lookup, platform-webhook-settlement,
 platform-sync(.persistence), platform-ledger replay, integration-finance.service, platform-sales-events,
 reconcile-pending-transactions, process-dom-webhook / process-webhook fee-tag and routing decisions,

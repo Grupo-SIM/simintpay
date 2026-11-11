@@ -70,9 +70,7 @@ describe('AdminController.getPlataformaConsolidado', () => {
           acquirer: 'DOM',
         },
       ]),
-      prisma: {
-        community: { findUnique: jest.fn().mockResolvedValue(null) },
-      },
+      prisma: {},
     } as any;
 
     const result = await (
@@ -191,9 +189,7 @@ describe('AdminController.getPlataformaConsolidado', () => {
           acquirer: 'DOM',
         },
       ]),
-      prisma: {
-        community: { findUnique: jest.fn().mockResolvedValue(null) },
-      },
+      prisma: {},
     } as any;
 
     const result = await (
@@ -247,9 +243,7 @@ describe('AdminController.getPlataformaConsolidado', () => {
           acquirer: 'DOM',
         },
       ]),
-      prisma: {
-        community: { findUnique: jest.fn().mockResolvedValue(null) },
-      },
+      prisma: {},
     } as any;
 
     const result = await (
@@ -292,9 +286,7 @@ describe('AdminController.getPlataformaConsolidado', () => {
           acquirer: 'DOM',
         },
       ]),
-      prisma: {
-        community: { findUnique: jest.fn().mockResolvedValue(null) },
-      },
+      prisma: {},
     } as any;
 
     const result = await (
@@ -336,9 +328,7 @@ describe('AdminController.getPlataformaConsolidado', () => {
           acquirer: 'DOM',
         },
       ]),
-      prisma: {
-        community: { findUnique: jest.fn().mockResolvedValue(null) },
-      },
+      prisma: {},
     } as any;
 
     const result = await (
@@ -376,9 +366,7 @@ describe('AdminController.getPlataformaConsolidado', () => {
           acquirer: 'DOM',
         },
       ]),
-      prisma: {
-        community: { findUnique: jest.fn().mockResolvedValue(null) },
-      },
+      prisma: {},
     } as any;
 
     const result = await (

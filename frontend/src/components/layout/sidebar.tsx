@@ -82,10 +82,7 @@ function NavLink({
   labelStyle: CSSProperties;
 }) {
   const active =
-    href !== '#' &&
-    ((href === '/admin/contas' && pathname.startsWith('/comunidades/')) ||
-      pathname === href ||
-      pathname.startsWith(href + '/'));
+    href !== '#' && (pathname === href || pathname.startsWith(href + '/'));
   return (
     <Link
       href={href}

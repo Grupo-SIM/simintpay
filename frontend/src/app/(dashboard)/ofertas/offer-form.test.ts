@@ -245,7 +245,6 @@ describe('offerPayload', () => {
       ...base,
       keep: {
         files: [],
-        communityId: null,
         metadata: { other: 1, boletoDueDays: 9, requiresBuyerAddress: true },
       },
     };
@@ -300,7 +299,6 @@ describe('formFromOffer', () => {
         redirectUrl: 'https://a.com',
         emailBody: 'oi',
         files: [{ fileName: 'a', fileUrl: 'https://s/a' }],
-        communityId: 'c1',
         bumps: [{ offerId: 'x', role: 'UPSELL' }],
       },
       metadata: { boletoDueDays: 4, requiresBuyerAddress: true, custom: true },
@@ -318,10 +316,8 @@ describe('formFromOffer', () => {
     const payload = offerPayload(form, 49.9);
     const fulfillment = payload.fulfillment as {
       files: unknown[];
-      communityId: string;
     };
     expect(fulfillment.files).toHaveLength(1);
-    expect(fulfillment.communityId).toBe('c1');
     expect(payload.metadata).toEqual({
       custom: true,
       boletoDueDays: 4,

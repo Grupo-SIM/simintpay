@@ -85,7 +85,7 @@ function fixture() {
     p,
     rows,
     alias: new ClienteDashboardController(new ClienteDashboardService(p)),
-    canonical: new PlatformReportProjectionsController(p, {} as any, {} as any),
+    canonical: new PlatformReportProjectionsController(p, {} as any),
   };
 }
 test('customer alias and product report share projection with preserved reais/cents and count units', async () => {

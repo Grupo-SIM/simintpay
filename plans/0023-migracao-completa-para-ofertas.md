@@ -125,13 +125,16 @@ Segunda leva (mexem em arquivos da primeira, começam agora):
 - [x] Cupons: `POST /ofertas/public/:code/validate-voucher`, desconto antes das taxas na cobrança avulsa e no primeiro ciclo da assinatura, uso registrado ao pagar (idempotente por transação), campo de cupom no checkout, CRUD e capacidade PAGATG com ofertas.
 - [ ] Funil no checkout: seleção de bumps, imagens, tela de pós-compra de upsell e downsell.
 - [ ] Pausa e retomada de assinatura, e lista de assinantes de ofertas para o vendedor.
-- [ ] Remover comunidade e provisionamento (código, cron, relatórios, telas).
+- [x] Remover comunidade e provisionamento (código, cron, relatórios, telas) e as tabelas.
+  - Código removido: `CommunityManagementService`, `CommunityAccessCron`, rotas `/admin/comunidades*` e `backfill-comunidade`, `PlatformReportingService` (só servia comunidade), `PlatformAccessService`, provisionamento CONTROLE-MOTORISTA/PATRIMONIAL/BETAI nos webhooks da DOM, `PlatformBetai*`, `PlatformSaasAccessService`, `InternalBetaiModule`, capacidades `saas/*` de assinatura, telas `comunidades`, `betai-dashboard`, `BetaiReportPanel` e `api/betai`.
+  - Migration `20261116110000_drop_community_and_saas_provisioning` (testada só em Postgres descartável): remove `Community`, `CommunityLinkBinding`, `CommunityAccess`, `CommunitySubscriptionEvent`, `PlatformSubscriberAccess`, os enums `CommunitySource`, `CommunityLinkType`, `CommunityStatus`, `CommunityEventType` e as FKs dessas tabelas.
+  - Pendente do dono: aplicar a migration no banco real (hoje 0 linhas em `Community*`; `PlatformSubscriberAccess` não foi contada).
 - [ ] Corrigir os pontos em aberto acima.
 
 ### Fase 1: expandir o schema (migration aditiva)
 
 - [ ] `Transaction.offerId` (nulo, indexado, FK para `Offer`), preenchido por `UPDATE ... SET "offerId" = "paymentLinkId"`. As vendas de assinatura já se ligam pela `Charge` criada na migração de contratos.
-- [ ] `CommunityLinkBinding.offerId` (se a comunidade for portada).
+- [x] ~~`CommunityLinkBinding.offerId`~~: não se aplica, a comunidade foi descontinuada e a tabela removida.
 - [ ] Qualquer coluna nova de `Offer` decidida na Fase 0.
 - [ ] Ensaio: restaurar um backup em Postgres descartável, `migrate deploy`, rodar a fase inteira e a paridade da seção 10.
 

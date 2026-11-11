@@ -18,7 +18,6 @@ import {
   PAYMENT_GATEWAY,
   type IPaymentGateway,
 } from '../../core/services/payment-gateway.interface';
-import { PlatformReportingService } from '../../application/services/platform-reporting.service';
 import { PlatformAdministrationService } from './platform-administration.service';
 import { PlatformCustomerReports } from './platform-customer-reports';
 import { PlatformAuthGuard } from './platform-auth.guard';
@@ -30,7 +29,6 @@ export class PlatformReportProjectionsController {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
-    private readonly reporting: PlatformReportingService,
   ) {}
 
   @Get('customer')
@@ -91,7 +89,6 @@ export class PlatformReportProjectionsController {
     return new PlatformAdministrationService(
       this.prisma,
       this.gateway,
-      this.reporting,
       context,
     );
   }
@@ -206,22 +203,6 @@ export class PlatformReportProjectionsController {
     };
   }
 
-  @Get('communities')
-  @SetMetadata('platform-operation', 'reports:read')
-  async communities(@Req() request: { platformContext: PlatformContext }) {
-    await this.administration(
-      request.platformContext,
-    ).getPlatformTransactionScope(request.platformContext.tag);
-    return {
-      unit: 'cents',
-      ...this.serialize(
-        await this.administration(
-          request.platformContext,
-        ).listPlataformaComunidades(request.platformContext.tag),
-      ),
-    };
-  }
-
   @Get('transactions')
   @SetMetadata('platform-operation', 'reports:read')
   async transactionDetails(
@@ -250,7 +231,6 @@ export class PlatformReportProjectionsController {
   sellerStats(@Req() request: { platformContext: PlatformContext }) {
     return new PlatformSellerReports(
       this.prisma,
-      this.reporting,
       request.platformContext,
     ).getSellerStats(request.platformContext.tag);
   }
@@ -265,7 +245,6 @@ export class PlatformReportProjectionsController {
   ) {
     const result = await new PlatformSellerReports(
       this.prisma,
-      this.reporting,
       request.platformContext,
     ).getActiveSellers(
       request.platformContext.tag,
@@ -324,7 +303,6 @@ export class PlatformReportProjectionsController {
     const result = await new PlatformAdministrationService(
       this.prisma,
       this.gateway,
-      this.reporting,
       request.platformContext,
     ).getPlataformaConsolidado(
       request.platformContext.tag,

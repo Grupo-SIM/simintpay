@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useTheme } from 'next-themes';
-import BetaiDashboard from './betai-dashboard';
 import { loadOwnedDashboard } from './utils/owned-dashboard';
 import type {
   ReportPage,
@@ -817,9 +816,9 @@ export default function PainelPage() {
   const { resolvedTheme } = useTheme();
   const fieldTheme: 'light' | 'dark' =
     resolvedTheme === 'dark' ? 'dark' : 'light';
-  const [activeTab, setActiveTab] = useState<
-    'simintpay' | 'betai' | 'futura-adquirente'
-  >('simintpay');
+  const [activeTab, setActiveTab] = useState<'simintpay' | 'futura-adquirente'>(
+    'simintpay',
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isChartLoading, setIsChartLoading] = useState(false);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -1707,9 +1706,6 @@ export default function PainelPage() {
           >
             Dom
           </button>
-          {/* <button className={`dash-tab-btn${activeTab === "betai" ? " active" : ""}`} onClick={() => setActiveTab("betai")}>
-            Betai
-          </button> */}
           <button
             className={`dash-tab-btn${activeTab === 'futura-adquirente' ? ' active' : ''}`}
             onClick={() => setActiveTab('futura-adquirente')}
@@ -1719,7 +1715,6 @@ export default function PainelPage() {
         </div>
       )}
 
-      {/* {activeTab === "betai" && <BetaiDashboard />} */}
       {activeTab === 'futura-adquirente' && (
         <div
           className="dk-page"

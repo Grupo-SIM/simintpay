@@ -5,8 +5,6 @@ const platformLabels: Record<string, string> = {
   EBOOKSIM: 'EbookSim',
   EBOOK: 'EbookSim',
   ATLAS: 'AtlasHosting',
-  'CONTROLE-MOTORISTA': 'Controle de Motorista',
-  'CONTROLE-PATRIMONIAL': 'Controle Patrimonial',
 };
 
 export function platformLabel(tag: string) {

@@ -409,7 +409,6 @@ export function subscriptionLinkDetail(
     maxUsos: offer.maxUses ?? null,
     redirectUrl: fulfillment.redirectUrl,
     webhookUrl: null,
-    communityId: null,
     platformTag: offer.platformTag ?? null,
     emailBody: fulfillment.emailBody,
     plataformas: plataformasOf(offer),

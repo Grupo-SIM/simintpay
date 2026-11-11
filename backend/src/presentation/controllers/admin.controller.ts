@@ -3,7 +3,6 @@ import { AuthTokensService } from '../../application/use-cases/auth/auth-tokens.
 import {
   canonicalTransactionPlatformTag,
   transactionPlatformTag,
-  transactionPlatformTagData,
   whereTransactionHasPlatform,
   whereTransactionPlatform,
 } from '../../modules/platform-core/transaction-platform';
@@ -16,7 +15,6 @@ import { PlatformAttributedBalance } from '../../modules/platform-core/platform-
 import { PlatformAdministrationService } from '../../modules/platform-core/platform-administration.service';
 import {
   resolveConsolidadoPlatforms,
-  getComunidadeOrderRows,
   parseYmdSp,
   normalizePlatformTag,
   TZ,
@@ -24,7 +22,6 @@ import {
   TAGS_SEM_TAXA_SERVICO,
   ConsolidadoPlatformEntry,
 } from '../../modules/platform-core/platform-administration.helpers';
-import { PlatformSaasAccessService } from '../../modules/platform-core/platform-saas-access.service';
 import { getPlatformIntegrationValue } from '../../modules/platform-integrations/platform-integrations.store';
 import {
   BadRequestException,
@@ -40,7 +37,6 @@ import {
   Param,
   Patch,
   Post,
-  Put,
   Query,
   Req,
   Res,
@@ -125,14 +121,12 @@ import {
   lockWalletLedger,
   assertWalletLedgerConsistency,
 } from '../../modules/wallet-ledger/wallet-ledger';
-import { CommunityManagementService } from '../../application/services/community-management.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { PlatformTaxasService } from '../../application/services/platform-taxas.service';
 import {
   resolveWithdrawalFixedFee,
   getPlatformTaxaEffective,
   syncedAcquirerCostReais,
-  invalidatePlatformTaxaCache,
   domCashbackReais,
 } from '../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
@@ -147,7 +141,6 @@ import {
   ORIGEM_MAQUINETA_TAG,
   TENANT_RENOVADA_TAG,
 } from '../../application/utils/internal-tags.util';
-import { PlatformReportingService } from '../../application/services/platform-reporting.service';
 
 /** Extrai o serial do terminal a partir da descrição da transação */
 function extractTerminal(description: string | null | undefined): string {
@@ -175,36 +168,6 @@ async function resolveRegisteredOwner(
 }
 
 /** Resolve todos os user IDs das plataformas do consolidado em paralelo. */
-
-/**
- * Busca ordens de assinatura de comunidade pagas no período, via CommunityLinkBinding.
- * Retorna rows no mesmo formato de txRowsLucro para serem mescladas no consolidado.
- */
-
-/**
- * Remove as ordens de comunidade sintéticas (`comunidade_order_<X>`) que JÁ possuem uma
- * transação real correspondente (descrição contém `subOrder=<X>`, criada pelo webhook).
- * Sem isso, o mesmo pagamento de comunidade entra duas vezes no consolidado (uma como
- * transação, outra como ordem) e infla bruto/líquido/lucro/contagem. Mantém a transação
- * (fonte da verdade) e descarta a ordem sintética. Ordens sem transação correspondente
- * (legado/edge) permanecem, para não perder pagamentos.
- */
-function dedupeComunidadeRows<T extends { id: string }>(
-  txRows: ReadonlyArray<{ description: string | null }>,
-  comunidadeRows: ReadonlyArray<T>,
-): T[] {
-  const subOrderIds = new Set<string>();
-  for (const t of txRows) {
-    const m = (t.description ?? '').match(/subOrder=([^\s\]]+)/i);
-    if (m) subOrderIds.add(m[1]);
-  }
-  if (subOrderIds.size === 0) return [...comunidadeRows];
-  const PREFIX = 'comunidade_order_';
-  return comunidadeRows.filter((r) => {
-    if (!r.id.startsWith(PREFIX)) return true;
-    return !subOrderIds.has(r.id.slice(PREFIX.length));
-  });
-}
 
 /**
  * Escopo do consolidado: contas plataforma OU qualquer transação com tag de tenant.
@@ -1288,7 +1251,6 @@ export class AdminController {
     private readonly syncMaquinetasUseCase: SyncMaquinetasUseCase,
     private readonly syncDomTransactionsCron: SyncDomTransactionsCron,
     private readonly revalidaSyncService: RevalidaSyncService,
-    private readonly communities: CommunityManagementService,
     private readonly storageService: StorageService,
     private readonly emailService: EmailService,
     private readonly prisma: PrismaService,
@@ -1300,7 +1262,6 @@ export class AdminController {
     private readonly linkExternal: LinkExternalPlatformUserService,
     private readonly scanPlatformOwners: ScanPlatformOwnersUseCase,
     private readonly getWalletComposition: GetWalletCompositionUseCase,
-    private readonly platformReporting: PlatformReportingService,
     private readonly externalPlatformDb: ExternalPlatformDbService,
     private readonly authTokens: AuthTokensService,
   ) {}
@@ -1362,7 +1323,6 @@ export class AdminController {
     return new PlatformAdministrationService(
       this.prisma,
       this.paymentGateway,
-      this.platformReporting,
     ).getPlatformTransactionScope(tag);
   }
 
@@ -1382,7 +1342,6 @@ export class AdminController {
     return new PlatformAdministrationService(
       this.prisma,
       this.paymentGateway,
-      this.platformReporting,
     ).findLocalPlatformReportTransactions(
       tag,
       startDate,
@@ -1397,7 +1356,6 @@ export class AdminController {
     return new PlatformAdministrationService(
       this.prisma,
       this.paymentGateway,
-      this.platformReporting,
     ).extractOrderNumberFromText(value);
   }
 
@@ -1405,7 +1363,6 @@ export class AdminController {
     return new PlatformAdministrationService(
       this.prisma,
       this.paymentGateway,
-      this.platformReporting,
     ).parseDomCreatedAt(raw);
   }
 
@@ -3374,60 +3331,6 @@ export class AdminController {
     };
   }
 
-  // ──────────── COMUNIDADES ────────────
-
-  @Get('comunidades')
-  @ApiOperation({ summary: 'Listar comunidades (automáticas e manuais)' })
-  async listComunidades(
-    @Query('page') page = '1',
-    @Query('pageSize') pageSize = '20',
-    @Query('search') search = '',
-  ) {
-    const pageNum = Math.max(1, Number(page));
-    const size = Math.min(Math.max(1, Number(pageSize)), 100);
-    const baseWhere = {};
-    const where = search.trim()
-      ? {
-          AND: [
-            baseWhere,
-            {
-              OR: [
-                {
-                  name: {
-                    contains: search.trim(),
-                    mode: 'insensitive' as const,
-                  },
-                },
-                {
-                  slug: {
-                    contains: search.trim(),
-                    mode: 'insensitive' as const,
-                  },
-                },
-              ],
-            },
-          ],
-        }
-      : baseWhere;
-
-    const [items, total] = await Promise.all([
-      this.prisma.community.findMany({
-        where,
-        include: {
-          _count: {
-            select: { bindings: true, accesses: true },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip: (pageNum - 1) * size,
-        take: size,
-      }),
-      this.prisma.community.count({ where }),
-    ]);
-
-    return { data: items, page: pageNum, pageSize: size, total };
-  }
-
   @Get('relatorios/consolidado/transacoes')
   @ApiOperation({
     summary:
@@ -3561,36 +3464,25 @@ export class AdminController {
       whereResumo.paymentMethod =
         metodoPagamento as Prisma.TransactionWhereInput['paymentMethod'];
 
-    const [txRowsTodas, comunidadeRows] = await Promise.all([
-      this.prisma.transaction.findMany({
-        where: whereResumo,
-        select: {
-          id: true,
-          customerDocument: true,
-          userId: true,
-          amount: true,
-          netAmount: true,
-          createdAt: true,
-          description: true,
-          platformTag: true,
-          installments: true,
-          paymentMethod: true,
-          financialSnapshot: true,
-        },
-        orderBy: { createdAt: 'asc' },
-      }),
-      // Ordens sem réplica Transaction continuam fazendo parte do consolidado.
-      // SubscriptionLinkOrder possui paymentMethod; filtrá-las na origem evita que
-      // o filtro (por exemplo, PIX) transforme 8 linhas da tabela em 7 nos cards.
-      getComunidadeOrderRows(this.prisma, dataInicio, dataFim, metodoPagamento),
-    ]);
+    const txRowsTodas = await this.prisma.transaction.findMany({
+      where: whereResumo,
+      select: {
+        id: true,
+        customerDocument: true,
+        userId: true,
+        amount: true,
+        netAmount: true,
+        createdAt: true,
+        description: true,
+        platformTag: true,
+        installments: true,
+        paymentMethod: true,
+        financialSnapshot: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
 
-    const txRowsComComunidade = [
-      ...txRowsTodas,
-      ...dedupeComunidadeRows(txRowsTodas, comunidadeRows),
-    ];
-
-    const txRowsLucro = txRowsComComunidade.filter((t) =>
+    const txRowsLucro = txRowsTodas.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
     );
 
@@ -4245,38 +4137,23 @@ export class AdminController {
         throw new BadRequestException('Método inválido');
       where.paymentMethod = metodoPagamento as PaymentMethod;
     }
-    const [txRowsBase, comunidadeRowsMensal] = await Promise.all([
-      this.prisma.transaction.findMany({
-        where,
-        select: {
-          userId: true,
-          amount: true,
-          netAmount: true,
-          createdAt: true,
-          description: true,
-          platformTag: true,
-          installments: true,
-          domFee: true,
-          financialSnapshot: true,
-        },
-        orderBy: { createdAt: 'asc' },
-      }),
-      getComunidadeOrderRows(
-        this.prisma,
-        dataInicioMes?.length === 10
-          ? dataInicioMes
-          : inicioJanela.format('YYYY-MM-DD'),
-        dataFimMes?.length === 10 ? dataFimMes : fimJanela.format('YYYY-MM-DD'),
-        metodoPagamento,
-      ),
-    ]);
+    const txRowsBase = await this.prisma.transaction.findMany({
+      where,
+      select: {
+        userId: true,
+        amount: true,
+        netAmount: true,
+        createdAt: true,
+        description: true,
+        platformTag: true,
+        installments: true,
+        domFee: true,
+        financialSnapshot: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
 
-    const txRows = [
-      ...txRowsBase,
-      ...dedupeComunidadeRows(txRowsBase, comunidadeRowsMensal).filter(
-        (tx) => !metodoPagamento || tx.paymentMethod === metodoPagamento,
-      ),
-    ];
+    const txRows = txRowsBase;
 
     type MesRow = {
       mes: string;
@@ -4372,29 +4249,23 @@ export class AdminController {
       platforms,
     );
 
-    const [txRowsTodas, comunidadeRowsRepasse] = await Promise.all([
-      this.prisma.transaction.findMany({
-        where: whereResumo,
-        select: {
-          id: true,
-          userId: true,
-          amount: true,
-          netAmount: true,
-          createdAt: true,
-          description: true,
-          platformTag: true,
-          installments: true,
-          financialSnapshot: true,
-        },
-        orderBy: { createdAt: 'asc' },
-      }),
-      getComunidadeOrderRows(this.prisma, dataInicio, dataFim),
-    ]);
+    const txRowsTodas = await this.prisma.transaction.findMany({
+      where: whereResumo,
+      select: {
+        id: true,
+        userId: true,
+        amount: true,
+        netAmount: true,
+        createdAt: true,
+        description: true,
+        platformTag: true,
+        installments: true,
+        financialSnapshot: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
 
-    const txRowsAll = [
-      ...txRowsTodas,
-      ...dedupeComunidadeRows(txRowsTodas, comunidadeRowsRepasse),
-    ];
+    const txRowsAll = txRowsTodas;
     const txRowsLucro = txRowsAll.filter((t) =>
       transacaoEntraNoLucroSimpayConsolidado(t.amount, t.description),
     );
@@ -4460,7 +4331,6 @@ export class AdminController {
     return new PlatformAdministrationService(
       this.prisma,
       this.paymentGateway,
-      this.platformReporting,
     ).getPlataformasSaldosResumo();
   }
 
@@ -4553,316 +4423,6 @@ export class AdminController {
       .filter((row) => row.quantidade > 0)
       .sort((a, b) => b.quantidade - a.quantidade);
     return { total, items };
-  }
-
-  @Post('comunidades')
-  @ApiOperation({ summary: 'Criar comunidade manualmente' })
-  async createComunidade(
-    @Body()
-    body: {
-      name: string;
-      slug?: string;
-      description?: string;
-      isActive?: boolean;
-    },
-  ) {
-    const name = body.name?.trim();
-    if (!name)
-      throw new BadRequestException('Nome da comunidade é obrigatório');
-    const slugBase = (body.slug ?? name)
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    if (!slugBase) throw new BadRequestException('Slug inválido');
-
-    const already = await this.prisma.community.findUnique({
-      where: { slug: slugBase },
-    });
-    if (already) {
-      throw new ConflictException(
-        `Já existe uma comunidade com slug "${slugBase}"`,
-      );
-    }
-
-    const created = await this.prisma.community.create({
-      data: {
-        name,
-        slug: slugBase,
-        description: body.description?.trim() || null,
-        source: 'MANUAL',
-        isActive: body.isActive ?? true,
-      },
-    });
-    return { data: created };
-  }
-
-  @Put('comunidades/:id')
-  @ApiOperation({ summary: 'Atualizar comunidade' })
-  async updateComunidade(
-    @Param('id') id: string,
-    @Body() body: { name?: string; description?: string; isActive?: boolean },
-  ) {
-    const existing = await this.prisma.community.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Comunidade não encontrada');
-    const updated = await this.prisma.community.update({
-      where: { id },
-      data: {
-        name: body.name?.trim() || existing.name,
-        description: body.description?.trim() ?? existing.description,
-        isActive: body.isActive ?? existing.isActive,
-      },
-    });
-    return { data: updated };
-  }
-
-  @Delete('comunidades/:id')
-  @ApiOperation({ summary: 'Excluir comunidade' })
-  async deleteComunidade(@Param('id') id: string) {
-    const existing = await this.prisma.community.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Comunidade não encontrada');
-    const tag = existing.slug.toUpperCase();
-    await this.prisma.$transaction([
-      this.prisma.platformTaxaOverride.deleteMany({ where: { tag } }),
-      this.prisma.community.delete({ where: { id } }),
-    ]);
-    invalidatePlatformTaxaCache();
-    return { success: true };
-  }
-
-  @Get('comunidades/:id/resumo')
-  @ApiOperation({ summary: 'Resumo da comunidade: status, dias e métricas' })
-  async comunidadeResumo(@Param('id') id: string) {
-    const community = await this.prisma.community.findUnique({
-      where: { id },
-      include: {
-        bindings: true,
-        accesses: true,
-        _count: {
-          select: {
-            accesses: true,
-            events: true,
-          },
-        },
-      },
-    });
-    if (!community) throw new NotFoundException('Comunidade não encontrada');
-
-    const now = new Date();
-    const activeAccesses = community.accesses.filter(
-      (a) => a.isActive && a.expiresAt > now,
-    );
-    const expiredAccesses = community.accesses.filter(
-      (a) => !a.isActive || a.expiresAt <= now,
-    );
-    const minDays = activeAccesses.length
-      ? Math.min(
-          ...activeAccesses.map((a) =>
-            Math.max(
-              0,
-              Math.floor((a.expiresAt.getTime() - now.getTime()) / 86400000),
-            ),
-          ),
-        )
-      : 0;
-
-    return {
-      data: {
-        id: community.id,
-        name: community.name,
-        slug: community.slug,
-        source: community.source,
-        isActive: community.isActive,
-        bindings: community.bindings.length,
-        accessesTotal: community._count.accesses,
-        accessesActive: activeAccesses.length,
-        accessesExpired: expiredAccesses.length,
-        minDaysRemaining: minDays,
-      },
-    };
-  }
-
-  @Get('comunidades/:id/assinantes')
-  @ApiOperation({ summary: 'Listar assinantes/acessos da comunidade' })
-  async comunidadeAssinantes(
-    @Param('id') id: string,
-    @Query('page') page = '1',
-    @Query('pageSize') pageSize = '20',
-    @Query('nome') nome?: string,
-    @Query('cpf') cpf?: string,
-    @Query('email') email?: string,
-    @Query('dataInicio') dataInicio?: string,
-    @Query('dataFim') dataFim?: string,
-  ) {
-    const pageNum = Math.max(1, Number(page));
-    const size = Math.min(Math.max(1, Number(pageSize)), 100);
-
-    const community = await this.prisma.community.findUnique({
-      where: { id },
-      include: {
-        bindings: {
-          where: { subscriptionLinkId: { not: null } },
-          include: {
-            subscriptionLink: {
-              include: {
-                subscriptions: {
-                  orderBy: { createdAt: 'desc' },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-    if (!community) throw new NotFoundException('Comunidade não encontrada');
-
-    const mapFrequencyToDays = (frequencyType: string) => {
-      if (frequencyType === 'TRIMESTRAL') return 90;
-      if (frequencyType === 'SEMESTRAL') return 180;
-      if (frequencyType === 'ANUAL') return 365;
-      return 30;
-    };
-
-    const allRows = community.bindings.flatMap((binding) => {
-      const link = binding.subscriptionLink;
-      if (!link) return [];
-      return link.subscriptions.map((sub) => {
-        const createdAt = sub.createdAt;
-        const normalized = (sub.status ?? '').toLowerCase();
-        const isPaidOrActive = [
-          'active',
-          'completed',
-          'approved',
-          'paid',
-          'success',
-          'trial',
-        ].includes(normalized);
-        const isPending = [
-          'pending',
-          'waiting',
-          'waiting_payment',
-          'processing',
-          'pix_pending',
-        ].includes(normalized);
-        const renewAt = isPaidOrActive
-          ? new Date(
-              createdAt.getTime() +
-                mapFrequencyToDays(link.frequencyType) * 86400000,
-            )
-          : null;
-
-        const statusLabel = isPaidOrActive
-          ? 'Ativo'
-          : isPending
-            ? 'Pendente'
-            : 'Inativo';
-        return {
-          id: sub.id,
-          nome: sub.customerName,
-          email: sub.customerEmail,
-          cpf: sub.customerDocument,
-          telefone: sub.customerPhone,
-          dataAssinatura: createdAt,
-          dataRenovacao: renewAt,
-          status: statusLabel,
-        };
-      });
-    });
-
-    const filtered = allRows.filter((row) => {
-      const nomeMatch =
-        !nome?.trim() ||
-        row.nome?.toLowerCase().includes(nome.trim().toLowerCase());
-      const emailMatch =
-        !email?.trim() ||
-        row.email?.toLowerCase().includes(email.trim().toLowerCase());
-      const cpfDigits = (cpf ?? '').replace(/\D/g, '');
-      const rowCpfDigits = (row.cpf ?? '').replace(/\D/g, '');
-      const cpfMatch = !cpfDigits || rowCpfDigits.includes(cpfDigits);
-
-      const start = dataInicio ? new Date(`${dataInicio}T00:00:00`) : null;
-      const end = dataFim ? new Date(`${dataFim}T23:59:59`) : null;
-      const assinaturaDate = row.dataAssinatura
-        ? new Date(row.dataAssinatura)
-        : null;
-      const dateMatch = !assinaturaDate
-        ? true
-        : (!start || assinaturaDate >= start) &&
-          (!end || assinaturaDate <= end);
-
-      return Boolean(nomeMatch && emailMatch && cpfMatch && dateMatch);
-    });
-
-    const total = filtered.length;
-    const rows = filtered.slice((pageNum - 1) * size, pageNum * size);
-
-    return {
-      data: rows,
-      page: pageNum,
-      pageSize: size,
-      total,
-    };
-  }
-
-  @Post('comunidades/:id/vinculos')
-  @ApiOperation({ summary: 'Vincular link manualmente a uma comunidade' })
-  async bindComunidade(
-    @Param('id') communityId: string,
-    @Body()
-    body: { type: 'SUBSCRIPTION_LINK' | 'PAYMENT_LINK'; linkId: string },
-  ) {
-    const community = await this.prisma.community.findUnique({
-      where: { id: communityId },
-    });
-    if (!community) throw new NotFoundException('Comunidade não encontrada');
-    if (!body?.linkId) throw new BadRequestException('linkId é obrigatório');
-
-    if (body.type === 'SUBSCRIPTION_LINK') {
-      const rawLinkId = body.linkId.trim();
-      const link = await this.prisma.subscriptionLink.findFirst({
-        where: {
-          OR: [
-            { id: rawLinkId },
-            { code: rawLinkId },
-            { domPlanId: rawLinkId },
-          ],
-        },
-        select: { id: true },
-      });
-      if (!link) {
-        throw new BadRequestException(
-          'Link de assinatura não encontrado. Informe o ID interno, código do link ou domPlanId.',
-        );
-      }
-
-      const result = await this.communities.bindSubscriptionLinkManually({
-        communityId,
-        subscriptionLinkId: link.id,
-      });
-      return { data: result };
-    }
-
-    const result = await this.communities.bindPaymentLinkManually({
-      communityId,
-      paymentLinkId: body.linkId,
-    });
-    return { data: result };
-  }
-
-  @Delete('comunidades/:id/vinculos/:bindingId')
-  @ApiOperation({ summary: 'Remover vínculo de comunidade' })
-  async unbindComunidade(
-    @Param('id') communityId: string,
-    @Param('bindingId') bindingId: string,
-  ) {
-    const binding = await this.prisma.communityLinkBinding.findFirst({
-      where: { id: bindingId, communityId },
-    });
-    if (!binding) throw new NotFoundException('Vínculo não encontrado');
-    await this.communities.unbind(bindingId);
-    return { success: true };
   }
 
   @Post('sync-transactions')
@@ -5036,87 +4596,6 @@ export class AdminController {
   })
   async syncFullRevalida() {
     return this.revalidaSyncService.syncFull();
-  }
-
-  @Post('sync/backfill-comunidade')
-  @HttpCode(200)
-  @ApiOperation({
-    summary:
-      'Backfill: cria Transaction com [TENANT:SLUG] para ordens de assinatura de comunidade sem Transaction correspondente',
-  })
-  async backfillComunidadeTransactions() {
-    const communityLinkIds = await this.prisma.communityLinkBinding.findMany({
-      where: { subscriptionLinkId: { not: null } },
-      select: {
-        subscriptionLinkId: true,
-        community: { select: { slug: true } },
-      },
-      distinct: ['subscriptionLinkId'],
-    });
-    const linkToSlug = new Map(
-      communityLinkIds.map((b) => [
-        b.subscriptionLinkId!,
-        b.community.slug.toUpperCase(),
-      ]),
-    );
-    const subscriptionLinkIds = [...linkToSlug.keys()].filter(Boolean);
-
-    if (subscriptionLinkIds.length === 0) return { created: 0, skipped: 0 };
-
-    const orders = await this.prisma.subscriptionLinkOrder.findMany({
-      where: {
-        subscriptionLinkId: { in: subscriptionLinkIds },
-        status: 'paid',
-      },
-      include: { subscriptionLink: { select: { name: true, userId: true } } },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    let created = 0;
-    let skipped = 0;
-
-    for (const order of orders) {
-      const communityTag =
-        linkToSlug.get(order.subscriptionLinkId ?? '') ?? 'UNKNOWN';
-      const payId =
-        order.domPixPaymentId?.trim() || `SL_${communityTag}_${order.id}`;
-      const exists = await this.prisma.transaction.findFirst({
-        where: { domPaymentId: payId },
-        select: { id: true },
-      });
-      if (exists) {
-        skipped++;
-        continue;
-      }
-
-      const gross = Number(order.amountCharged);
-      const pf = Number(order.platformFeeAmount);
-      const netAmount = gross - pf;
-
-      await this.prisma.transaction.create({
-        data: {
-          userId: order.subscriptionLink.userId,
-          amount: gross,
-          netAmount,
-          totalFee: pf,
-          domFee: 0,
-          platformFee: pf,
-          status: 'COMPLETED',
-          paymentMethod: order.paymentMethod,
-          description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
-          ...transactionPlatformTagData(communityTag),
-          domPaymentId: payId,
-          customerName: order.customerName,
-          customerEmail: order.customerEmail,
-          customerDocument: order.customerDocument,
-          customerPhone: order.customerPhone ?? undefined,
-          createdAt: order.createdAt,
-        },
-      });
-      created++;
-    }
-
-    return { created, skipped };
   }
 
   @Post('sync/sync-wallet-renovada')
@@ -7420,21 +6899,7 @@ export class AdminController {
     return new PlatformAdministrationService(
       this.prisma,
       this.paymentGateway,
-      this.platformReporting,
     ).listPlataformas();
-  }
-
-  @Get('plataformas/:tag/comunidades')
-  @ApiOperation({
-    summary:
-      'Listar comunidades vinculadas a links de assinatura de uma plataforma',
-  })
-  async listPlataformaComunidades(@Param('tag') tag: string) {
-    return new PlatformAdministrationService(
-      this.prisma,
-      this.paymentGateway,
-      this.platformReporting,
-    ).listPlataformaComunidades(tag);
   }
 
   @Get('plataformas/atlas/breakdown')
@@ -7450,7 +6915,6 @@ export class AdminController {
     return new PlatformAdministrationService(
       this.prisma,
       this.paymentGateway,
-      this.platformReporting,
     ).getAtlasBreakdown(dataInicio, dataFim);
   }
 
@@ -7469,7 +6933,6 @@ export class AdminController {
     return new PlatformAdministrationService(
       this.prisma,
       this.paymentGateway,
-      this.platformReporting,
     ).getPlataformaDistribuicaoMetodo(tag, dataInicio, dataFim);
   }
 
@@ -7510,7 +6973,6 @@ export class AdminController {
     return new PlatformAdministrationService(
       this.prisma,
       this.paymentGateway,
-      this.platformReporting,
     ).listPlataformaTransacoes(
       tag,
       page,
@@ -7777,45 +7239,6 @@ export class AdminController {
     };
   }
 
-  // ── Gestão de usuários das plataformas SaaS (PlatformSubscriberAccess) ───────
-
-  @Get('plataformas/:tag/usuarios')
-  @ApiOperation({
-    summary: 'Listar assinantes de uma plataforma SaaS com dias restantes',
-  })
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    description: 'all | active | inactive',
-  })
-  @ApiQuery({ name: 'page', required: false })
-  @ApiQuery({ name: 'limit', required: false })
-  async listPlataformaUsuarios(
-    @Param('tag') tag: string,
-    @Query('status') status = 'all',
-    @Query('page') page = '1',
-    @Query('limit') limit = '20',
-  ) {
-    return new PlatformSaasAccessService(this.prisma).list(
-      tag,
-      status,
-      page,
-      limit,
-    );
-  }
-
-  @Patch('plataformas/:tag/usuarios/:userId/toggle')
-  @ApiOperation({
-    summary:
-      'Pausar/retomar acesso de assinante (freeze de dias + notifica SaaS backend)',
-  })
-  async togglePlataformaUsuario(
-    @Param('tag') tag: string,
-    @Param('userId') userId: string,
-  ) {
-    return new PlatformSaasAccessService(this.prisma).toggle(tag, userId);
-  }
-
   @Get('relatorios/atlas-consolidado')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
@@ -8004,7 +7427,6 @@ export class AdminController {
     return new PlatformAdministrationService(
       this.prisma,
       this.paymentGateway,
-      this.platformReporting,
     ).getPlataformaConsolidado(
       tagParam,
       startDate,

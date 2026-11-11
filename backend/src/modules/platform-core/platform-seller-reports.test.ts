@@ -24,7 +24,6 @@ function fixture() {
         walletLocked: new Prisma.Decimal('0.01'),
       },
     ],
-    community: { findUnique: async () => null },
     platform: { findUnique: mock(async () => platform) },
     externalPlatformUser: {
       count: async () => 1,
@@ -44,12 +43,8 @@ function fixture() {
 }
 test('generic seller listing alias and canonical share scope and monetary units', async () => {
   const { context, prisma } = fixture();
-  const alias = new PlatformDashboardController({} as any, prisma, {} as any);
-  const canonical = new PlatformReportProjectionsController(
-    prisma,
-    {} as any,
-    {} as any,
-  );
+  const alias = new PlatformDashboardController({} as any, prisma);
+  const canonical = new PlatformReportProjectionsController(prisma, {} as any);
   const old = await alias.getActiveSellers(
     'SHOP',
     '1',
@@ -69,7 +64,7 @@ test('generic seller listing alias and canonical share scope and monetary units'
 test('inactive platform and stale owner prevent seller queries', async () => {
   const { context, platform, prisma } = fixture();
   platform.ownerUserId = 'transferred';
-  const core = new PlatformSellerReports(prisma, {} as any, context);
+  const core = new PlatformSellerReports(prisma, context);
   await expect(core.getActiveSellers(context.tag)).rejects.toThrow(
     'Plataforma ou dono',
   );
@@ -85,10 +80,13 @@ test('multiple products expose shared stored owner wallet without recalculating 
   prisma.wallet = {
     findUnique: async () => ({ balance: 100, lockedBalance: 5 }),
   };
-  const result = await new PlatformSellerReports(
-    prisma,
-    {} as any,
-  ).getActiveSellers('BOSQUE', '1', '20', 'true', 'carteiras');
+  const result = await new PlatformSellerReports(prisma).getActiveSellers(
+    'BOSQUE',
+    '1',
+    '20',
+    'true',
+    'carteiras',
+  );
   expect(result.data[0]).toMatchObject({
     walletScope: 'shared-owner',
     balance: 95,
@@ -114,11 +112,9 @@ test('generic seller stats alias equals scoped canonical projection with real su
   const old = await new PlatformDashboardController(
     {} as any,
     p,
-    {} as any,
   ).getSellerStats('AREAFLIX');
   const current = await new PlatformReportProjectionsController(
     p,
-    {} as any,
     {} as any,
   ).sellerStats({ platformContext: f.context });
   expect(old).toEqual({ totalContas: 2, sellersAtivos: 1 });

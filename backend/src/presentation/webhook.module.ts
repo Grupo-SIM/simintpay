@@ -16,21 +16,30 @@ import { TRANSACTION_REPOSITORY } from '../core/repositories/transaction.reposit
 import { PrismaTransactionRepository } from '../infrastructure/database/repositories/prisma-transaction.repository';
 import { BALANCE_LOG_REPOSITORY } from '../core/repositories/balance-log.repository.interface';
 import { PrismaBalanceLogRepository } from '../infrastructure/database/repositories/prisma-balance-log.repository';
-import { CommunityManagementService } from '../application/services/community-management.service';
 import { AffiliateCommissionService } from '../application/services/affiliate-commission.service';
 import { EmailService } from '../infrastructure/email/email.service';
 import { StorageService } from '../infrastructure/storage/storage.service';
 
 import { RenovadaModule } from '../modules/renovada/renovada.module';
 import { PixPlanModule } from './pix-plan.module';
-import { PixPlanEventsService } from '../application/services/pix-plan-events.service';
 import { ApiDomModule } from '../infrastructure/http/api-dom.module';
 import { VoucherModule } from './voucher.module';
 import { CheckoutModule } from './checkout.module';
 
 @Module({
-  imports: [RabbitMqModule, RenovadaModule, VoucherModule, forwardRef(() => PixPlanModule), ApiDomModule, CheckoutModule],
-  controllers: [WebhookController, FrendzWebhookController, InternalReconcileController],
+  imports: [
+    RabbitMqModule,
+    RenovadaModule,
+    VoucherModule,
+    forwardRef(() => PixPlanModule),
+    ApiDomModule,
+    CheckoutModule,
+  ],
+  controllers: [
+    WebhookController,
+    FrendzWebhookController,
+    InternalReconcileController,
+  ],
   providers: [
     ProcessWebhookUseCase,
     ProcessDomWebhookUseCase,
@@ -39,7 +48,6 @@ import { CheckoutModule } from './checkout.module';
     WebhookConsumer,
     ZeroGrauNotificationConsumer,
     DomWebhookConsumer,
-    CommunityManagementService,
     AffiliateCommissionService,
     EmailService,
     StorageService,

@@ -174,7 +174,7 @@ function displayPlanoPixDescription(raw: string | null | undefined) {
     .replace(/\s*\[NOME_DONO:[^\]]*\]/gi, '')
     .replace(/\s+\d{11}\b/g, '')
     .replace(
-      /\s+(pagatg|atlashosting|areaflix|bosque|comunidade|renovada|ebooksim|frendz|revalida|controle-motorista|controle-patrimonial)\b/gi,
+      /\s+(pagatg|atlashosting|areaflix|bosque|renovada|ebooksim|frendz|revalida)\b/gi,
       '',
     )
     .trim();
@@ -258,8 +258,6 @@ const PLATFORM_LABELS: Record<string, string> = {
   AREAFLIX: 'Áreaflix',
   EBOOK: 'EbookSim',
   ATLAS: 'AtlasHosting',
-  'CONTROLE-MOTORISTA': 'Controle de Motorista',
-  'CONTROLE-PATRIMONIAL': 'Controle Patrimonial',
   PAGATG: 'PagaTG',
 };
 
@@ -823,8 +821,6 @@ function PlanosPixContent() {
                               EBOOKSIM: 'EbookSim',
                               EBOOK: 'EbookSim',
                               ATLAS: 'AtlasHosting',
-                              'CONTROLE-MOTORISTA': 'Controle de Motorista',
-                              'CONTROLE-PATRIMONIAL': 'Controle Patrimonial',
                             } as Record<string, string>
                           )[row.tenantTag.toUpperCase()] ?? row.tenantTag}
                         </span>

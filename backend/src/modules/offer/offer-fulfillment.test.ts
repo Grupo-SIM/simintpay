@@ -28,7 +28,6 @@ describe('parseOfferFulfillment', () => {
       ],
       emailBody: ' hi ',
       redirectUrl: 'https://example.com/ok',
-      communityId: 'c1',
       bumps: [
         { offerId: 'a', role: 'BUMP' },
         { offerId: 'b', role: 'UPSELL' },

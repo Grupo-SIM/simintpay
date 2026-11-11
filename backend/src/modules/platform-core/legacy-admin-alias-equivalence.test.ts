@@ -2,11 +2,18 @@ import { expect, test } from 'bun:test';
 import { AdminController } from '../../presentation/controllers/admin.controller';
 import { PlatformAdministrationService } from './platform-administration.service';
 const cases: [string, unknown[]][] = [
-  ['getPlataformasSaldosResumo', []], ['listPlataformas', []], ['listPlataformaComunidades', ['BOSQUE']],
+  ['getPlataformasSaldosResumo', []],
+  ['listPlataformas', []],
   ['getAtlasBreakdown', ['2026-09-01', '2026-09-30']],
   ['getPlataformaDistribuicaoMetodo', ['BOSQUE', '2026-09-01', '2026-09-30']],
-  ['listPlataformaTransacoes', ['BOSQUE', '1', '20', 'COMPLETED', 'Buyer', '2026-09-01', '2026-09-30']],
-  ['getPlataformaConsolidado', ['BOSQUE', '2026-09-01', '2026-09-30', 'PIX', false]],
+  [
+    'listPlataformaTransacoes',
+    ['BOSQUE', '1', '20', 'COMPLETED', 'Buyer', '2026-09-01', '2026-09-30'],
+  ],
+  [
+    'getPlataformaConsolidado',
+    ['BOSQUE', '2026-09-01', '2026-09-30', 'PIX', false],
+  ],
 ];
 for (const [method, args] of cases) {
   test(`${method} alias returns shared administration result without changing values`, async () => {
@@ -14,11 +21,19 @@ for (const [method, args] of cases) {
     const original = prototype[method];
     const response = { data: [{ amount: 12.34 }], meta: { total: 1 } };
     let received: unknown[] = [];
-    prototype[method] = async (...values: unknown[]) => { received = values; return response; };
+    prototype[method] = async (...values: unknown[]) => {
+      received = values;
+      return response;
+    };
     try {
-      const alias = Object.assign(Object.create(AdminController.prototype), { prisma: {}, paymentGateway: {}, platformReporting: {} });
+      const alias = Object.assign(Object.create(AdminController.prototype), {
+        prisma: {},
+        paymentGateway: {},
+      });
       expect(await alias[method](...args)).toBe(response);
       expect(received).toEqual(args);
-    } finally { prototype[method] = original; }
+    } finally {
+      prototype[method] = original;
+    }
   });
 }

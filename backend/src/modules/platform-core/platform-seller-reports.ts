@@ -5,7 +5,6 @@ import {
 import type { PlatformContext } from './platform-context.service';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
-import { PlatformReportingService } from '../../application/services/platform-reporting.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { computeBosqueAvailableSinceLastWithdrawal } from '../../application/helpers/bosque-available.helper';
 import { getPlatformIntegrationValue } from '../platform-integrations/platform-integrations.store';
@@ -19,7 +18,6 @@ const OWNER_BALANCE_TAGS = new Set([
 export class PlatformSellerReports {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly platformReporting: PlatformReportingService,
     private readonly expectedContext?: PlatformContext,
   ) {}
 
@@ -118,18 +116,6 @@ export class PlatformSellerReports {
         totalContas: clientesTotais.length,
         sellersAtivos: assinantesAtivos.length,
       };
-    }
-
-    // Community-specific tag: find by slug
-    const community = await this.prisma.community.findUnique({
-      where: { slug: upperTag.toLowerCase() },
-      select: { id: true },
-    });
-    if (community) {
-      return this.platformReporting.getCommunityCustomerStats(
-        upperTag,
-        community.id,
-      );
     }
 
     return { totalContas: 0, sellersAtivos: 0 };
@@ -310,67 +296,6 @@ export class PlatformSellerReports {
         page: pageNum,
         pageSize: size,
       };
-    }
-
-    // ── Community (slug-identified) ───────────────────────────────────────────
-    const community = await this.prisma.community.findUnique({
-      where: { slug: tagLower },
-      select: { id: true },
-    });
-    if (community) {
-      if (!usarCarteiras) {
-        return this.platformReporting.listCommunityCustomers(
-          upperTag,
-          community.id,
-          { page: pageNum, pageSize: size, onlyActive: somenteAtivos },
-        );
-      }
-      const bindings = await this.prisma.communityLinkBinding.findMany({
-        where: { communityId: community.id, subscriptionLinkId: { not: null } },
-        select: { subscriptionLinkId: true },
-        distinct: ['subscriptionLinkId'],
-      });
-      const linkIds = bindings
-        .map((b) => b.subscriptionLinkId!)
-        .filter(Boolean);
-      if (!linkIds.length) return empty;
-
-      // fonteSaldo=carteiras: comunidade não tem "saldo de carteira" por assinante —
-      // o card soma o valor líquido (amountCharged − platformFeeAmount) de cada pedido
-      // PAGO (mesma fonte de getComunidadeOrderRows, usada em /admin/plataformas/
-      // saldos-resumo). Listamos os pedidos pagos com o valor de cada um, em vez de
-      // "contas com saldo" — aqui balance = valor líquido do pedido, não carteira.
-      if (usarCarteiras) {
-        const paidOrders = await this.prisma.subscriptionLinkOrder.findMany({
-          where: { subscriptionLinkId: { in: linkIds }, status: 'paid' },
-          select: {
-            customerEmail: true,
-            customerName: true,
-            customerDocument: true,
-            createdAt: true,
-            amountCharged: true,
-            platformFeeAmount: true,
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-
-        const total = paidOrders.length;
-        const paged = paidOrders.slice(skip, skip + size);
-
-        return {
-          data: paged.map((o) => ({
-            name: o.customerName,
-            email: o.customerEmail,
-            cpf: o.customerDocument,
-            balance: Number(o.amountCharged) - Number(o.platformFeeAmount),
-            lockedBalance: 0,
-            createdAt: o.createdAt,
-          })),
-          total,
-          page: pageNum,
-          pageSize: size,
-        };
-      }
     }
 
     // ── Atlas Hosting ─────────────────────────────────────────────────────────

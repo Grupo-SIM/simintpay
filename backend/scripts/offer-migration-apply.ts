@@ -87,7 +87,6 @@ export const BLOCKER_CODES = [
   'BLOCKED_HAS_FUNNEL_OFFERS',
   'BLOCKED_HAS_FILES',
   'BLOCKED_HAS_VOUCHERS',
-  'BLOCKED_HAS_COMMUNITY',
   'BLOCKED_HAS_PIX_ACCESS',
   'BLOCKED_LIVE_DOM_SUBSCRIPTION',
 ] as const;
@@ -201,15 +200,6 @@ export async function findPreflight(
     where: { paymentLinkId: { in: paymentLinkIds } },
     _count: { _all: true },
   });
-  const bindings = await db.communityLinkBinding.findMany({
-    where: {
-      OR: [
-        { paymentLinkId: { in: paymentLinkIds } },
-        { subscriptionLinkId: { in: subscriptionLinkIds } },
-      ],
-    },
-    select: { paymentLinkId: true, subscriptionLinkId: true },
-  });
   const subOrders = await db.subscriptionLinkOrder.groupBy({
     by: ['subscriptionLinkId'],
     where: {
@@ -267,9 +257,6 @@ export async function findPreflight(
   const subscriptionsBy = count(subscriptions, 'planId');
   const pixOrdersBy = count(pixOrders, 'pixCreditPlanId');
   const pixAccessesBy = count(pixAccesses, 'pixPlanId');
-  const boundLinks = new Set(
-    bindings.flatMap((b) => [b.paymentLinkId, b.subscriptionLinkId]),
-  );
 
   for (const d of drafts) {
     const id = d.legacyId;
@@ -282,8 +269,6 @@ export async function findPreflight(
       );
     if (n(filesBy))
       block(d, 'BLOCKED_HAS_FILES', `${n(filesBy)} delivery file(s)`);
-    if (boundLinks.has(id))
-      block(d, 'BLOCKED_HAS_COMMUNITY', 'bound to a community');
     if (n(subOrdersBy) || n(subscriptionsBy))
       block(
         d,

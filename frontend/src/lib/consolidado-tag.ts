@@ -12,10 +12,6 @@ export function consolidadoTagFor(produtoTag: string): string {
     .toUpperCase()
     .replaceAll('_', '-');
   if (upper === 'EBOOKSIM' || upper === 'EBOOK') return 'EBOOK';
-  if (upper === 'CONTROLE_MOTORISTA' || upper === 'CONTROLE-MOTORISTA')
-    return 'CONTROLE-MOTORISTA';
-  if (upper === 'CONTROLE_PATRIMONIAL' || upper === 'CONTROLE-PATRIMONIAL')
-    return 'CONTROLE-PATRIMONIAL';
   return upper;
 }
 

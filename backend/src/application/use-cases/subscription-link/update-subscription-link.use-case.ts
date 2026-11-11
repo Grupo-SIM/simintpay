@@ -10,7 +10,6 @@ import type { ISubscriptionLinkRepository } from '../../../core/repositories/sub
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { UpdateSubscriptionLinkDto } from '../../dtos/subscription-link/update-subscription-link.dto';
-import { CommunityManagementService } from '../../services/community-management.service';
 
 /** Converte a frequência do form (MENSAL/TRIMESTRAL/...) para o enum PlanType. */
 function frequenciaToPlanType(f: string): PlanType {
@@ -37,7 +36,6 @@ export class UpdateSubscriptionLinkUseCase {
     @Inject(SUBSCRIPTION_LINK_REPOSITORY)
     private readonly repo: ISubscriptionLinkRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
-    private readonly communities: CommunityManagementService,
   ) {}
 
   async execute(input: {

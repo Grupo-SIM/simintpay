@@ -18,7 +18,8 @@ function mapFreq(t: PlanType): string {
 @Injectable()
 export class GetSubscriptionLinkUseCase {
   constructor(
-    @Inject(SUBSCRIPTION_LINK_REPOSITORY) private readonly repo: ISubscriptionLinkRepository,
+    @Inject(SUBSCRIPTION_LINK_REPOSITORY)
+    private readonly repo: ISubscriptionLinkRepository,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -26,17 +27,14 @@ export class GetSubscriptionLinkUseCase {
     const link =
       input.role === 'ADMIN'
         ? await this.repo.findById(input.id)
-        : await this.repo.findByIdForUser({ id: input.id, userId: input.userId });
+        : await this.repo.findByIdForUser({
+            id: input.id,
+            userId: input.userId,
+          });
 
     if (!link) {
       throw new NotFoundException('Link de assinatura não encontrado');
     }
-
-    const binding = await this.prisma.communityLinkBinding.findFirst({
-      where: { subscriptionLinkId: link.id },
-      select: { communityId: true },
-      orderBy: { createdAt: 'desc' },
-    });
 
     return {
       data: {
@@ -56,7 +54,6 @@ export class GetSubscriptionLinkUseCase {
         maxUsos: link.maxUses ?? null,
         redirectUrl: link.redirectUrl ?? null,
         webhookUrl: link.webhookUrl ?? null,
-        communityId: binding?.communityId ?? null,
         platformTag: link.platformTag ?? null,
         emailBody: link.emailBody ?? null,
         plataformas: link.plataformas ?? [],
@@ -65,4 +62,3 @@ export class GetSubscriptionLinkUseCase {
     };
   }
 }
-

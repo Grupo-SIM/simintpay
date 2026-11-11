@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import dayjs from 'dayjs';
 import { getRegisteredPlatform } from '../../modules/module.registry';
@@ -18,92 +17,6 @@ export async function resolveConsolidadoPlatforms(
     tag: platform.tag,
     id: platform.ownerUserId,
   }));
-}
-
-export async function getComunidadeOrderRows(
-  prisma: PrismaService,
-  dataInicio?: string,
-  dataFim?: string,
-  metodoPagamento?: string,
-): Promise<
-  Array<{
-    id: string;
-    userId: string;
-    amount: unknown;
-    netAmount: unknown;
-    createdAt: Date;
-    description: string;
-    platformTag: string;
-    installments: number;
-    paymentMethod: string | null;
-    customerDocument: string | null;
-  }>
-> {
-  const bindings = await prisma.communityLinkBinding.findMany({
-    where: { subscriptionLinkId: { not: null } },
-    select: {
-      subscriptionLinkId: true,
-      community: { select: { slug: true } },
-    },
-    distinct: ['subscriptionLinkId'],
-  });
-  // Map linkId → community slug (uppercased) for per-community tagging
-  const linkIdToTag = new Map(
-    bindings.map((b) => [
-      b.subscriptionLinkId!,
-      b.community.slug.toUpperCase(),
-    ]),
-  );
-  const linkIds = [...linkIdToTag.keys()].filter(Boolean);
-  if (linkIds.length === 0) return [];
-
-  const createdAt: Prisma.DateTimeFilter = {};
-  if (dataInicio) {
-    const d = dayjs.tz(dataInicio, TZ).startOf('day');
-    if (d.isValid()) createdAt.gte = d.toDate();
-  }
-  if (dataFim) {
-    const d = dayjs.tz(dataFim, TZ).endOf('day');
-    if (d.isValid()) createdAt.lte = d.toDate();
-  }
-
-  const orders = await prisma.subscriptionLinkOrder.findMany({
-    where: {
-      subscriptionLinkId: { in: linkIds },
-      status: 'paid',
-      ...(metodoPagamento ? { paymentMethod: metodoPagamento as any } : {}),
-      ...(Object.keys(createdAt).length > 0 ? { createdAt } : {}),
-    },
-    select: {
-      id: true,
-      amountCharged: true,
-      customerDocument: true,
-      platformFeeAmount: true,
-      createdAt: true,
-      paymentMethod: true,
-      subscriptionLinkId: true,
-      subscriptionLink: { select: { userId: true, name: true } },
-    },
-  });
-
-  return orders.flatMap((o) => {
-    const tag = linkIdToTag.get(o.subscriptionLinkId ?? '');
-    if (!tag) return [];
-    return [
-      {
-        id: `comunidade_order_${o.id}`,
-        userId: o.subscriptionLink.userId,
-        amount: o.amountCharged,
-        customerDocument: o.customerDocument,
-        netAmount: Number(o.amountCharged) - Number(o.platformFeeAmount),
-        createdAt: o.createdAt,
-        description: `${o.subscriptionLink.name} [TENANT:${tag}]`,
-        platformTag: tag,
-        installments: 1,
-        paymentMethod: o.paymentMethod ?? null,
-      },
-    ];
-  });
 }
 
 export const FIXED_PLATFORM_TAGS = {

@@ -267,7 +267,6 @@ export class ListSubscribersUseCase {
       {
         platformTag: string | null;
         name: string;
-        communityName: string | null;
         plataformas: string[];
         isPlan: boolean;
       }
@@ -283,10 +282,6 @@ export class ListSubscribersUseCase {
           name: true,
           platformTag: true,
           plataformas: true,
-          communityBindings: {
-            select: { community: { select: { name: true } } },
-            take: 1,
-          },
         },
       }),
       this.prisma.plan.findMany({
@@ -305,7 +300,6 @@ export class ListSubscribersUseCase {
       {
         platformTag: string | null;
         name: string;
-        communityName: string | null;
         plataformas: string[];
         isPlan: boolean;
       }
@@ -316,7 +310,6 @@ export class ListSubscribersUseCase {
       map.set(link.domPlanId, {
         platformTag: link.platformTag ?? plataformas[0] ?? null,
         name: link.name,
-        communityName: link.communityBindings?.[0]?.community?.name ?? null,
         plataformas,
         isPlan: false,
       });
@@ -330,7 +323,6 @@ export class ListSubscribersUseCase {
       map.set(plan.domPlanId, {
         platformTag: plataformas[0] ?? null,
         name: plan.name,
-        communityName: null,
         plataformas,
         isPlan: true,
       });
@@ -343,7 +335,6 @@ export class ListSubscribersUseCase {
       | {
           platformTag: string | null;
           name: string;
-          communityName: string | null;
           plataformas: string[];
           isPlan: boolean;
         }
@@ -352,7 +343,6 @@ export class ListSubscribersUseCase {
   ): string {
     if (source) {
       const tag = (source.platformTag ?? '').toUpperCase();
-      if (tag === 'COMUNIDADE') return source.communityName ?? source.name;
       if (tag === 'AREAFLIX') return 'Areaflix';
       if (tag === 'GLOBAL') return source.name || 'Plataforma';
       if (source.isPlan) return (source.platformTag ?? source.name) || '—';

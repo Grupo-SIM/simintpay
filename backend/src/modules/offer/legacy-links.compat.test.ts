@@ -549,7 +549,6 @@ describe('HTTP adapters (fake OfferService)', () => {
       paymentMethods: 'BOTH',
       ownerEmail: 'dono@test.dev',
       webhookUrl: null,
-      communityId: null,
     });
     const list = (await (await call('/links-assinatura')).json()) as any;
     expect(list.total).toBe(1);

@@ -30,8 +30,6 @@ export type OfferFulfillment = {
   files: FulfillmentFile[];
   emailBody: string | null;
   redirectUrl: string | null;
-  /** Reservado: vínculo com comunidade. Validado como texto e ignorado por enquanto. */
-  communityId: string | null;
   bumps: FulfillmentBump[];
 };
 
@@ -46,6 +44,7 @@ const KEYS = new Set([
   'files',
   'emailBody',
   'redirectUrl',
+  // Legacy key: communities were discontinued; stored values are tolerated and dropped.
   'communityId',
   'bumps',
 ]);
@@ -131,7 +130,6 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
     files: [],
     emailBody: null,
     redirectUrl: null,
-    communityId: null,
     bumps: [],
   };
   if (raw === null || raw === undefined) return empty;
@@ -182,7 +180,6 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
 
   const emailBody = optionalText('emailBody', 20_000);
   const redirectUrl = optionalUrl('redirectUrl');
-  const communityId = optionalText('communityId', 200);
 
   const bumps: FulfillmentBump[] = [];
   if (input.bumps !== undefined && input.bumps !== null) {
@@ -207,7 +204,7 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
   }
 
   if (issues.length) throw new OfferFulfillmentError(issues);
-  return { files, emailBody, redirectUrl, communityId, bumps };
+  return { files, emailBody, redirectUrl, bumps };
 }
 
 /** Leitura tolerante para o checkout/entrega: JSON inválido já gravado vira entrega vazia. */

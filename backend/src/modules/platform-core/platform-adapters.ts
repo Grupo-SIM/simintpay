@@ -43,21 +43,10 @@ const corporate = new Map<string, PlatformBusinessAdapter>(
             capability !== 'payments' ||
             ['ATLAS', 'BOSQUE', 'RENOVADA', 'ZERO-GRAU'].includes(tag),
         ),
-        ...([
-          'BETAI',
-          'PAGATG',
-          'CONTROLE-MOTORISTA',
-          'CONTROLE-PATRIMONIAL',
-        ].includes(tag)
+        ...(tag === 'PAGATG'
           ? ['subscriptions.create', 'subscriptions.status']
           : []),
-        ...(['CONTROLE-MOTORISTA', 'CONTROLE-PATRIMONIAL'].includes(tag)
-          ? ['saas.access']
-          : []),
         ...(tag === 'PAGATG' ? ['vouchers'] : []),
-        ...(tag === 'BETAI'
-          ? ['billing.create', 'billing.status', 'subscriptions.cancel']
-          : []),
         ...(tag === 'ATLAS' ? ['mail.vm-access'] : []),
       ],
     },

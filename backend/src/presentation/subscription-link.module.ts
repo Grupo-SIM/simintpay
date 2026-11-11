@@ -17,7 +17,6 @@ import { CheckoutSubscriptionLinkCardUseCase } from '../application/use-cases/su
 import { CheckoutSubscriptionLinkPixUseCase } from '../application/use-cases/subscription-link/checkout-subscription-link-pix.use-case';
 import { ListSubscriptionLinkOrdersUseCase } from '../application/use-cases/subscription-link/list-subscription-link-orders.use-case';
 import { SendSubscriptionLinkAccessEmailUseCase } from '../application/use-cases/subscription-link/send-access-email.use-case';
-import { CommunityManagementService } from '../application/services/community-management.service';
 import { EmailService } from '../infrastructure/email/email.service';
 import { VoucherService } from '../application/use-cases/voucher/voucher.service';
 
@@ -45,7 +44,6 @@ import { VoucherService } from '../application/use-cases/voucher/voucher.service
     CheckoutSubscriptionLinkPixUseCase,
     ListSubscriptionLinkOrdersUseCase,
     SendSubscriptionLinkAccessEmailUseCase,
-    CommunityManagementService,
     EmailService,
     VoucherService,
   ],

@@ -34,12 +34,6 @@ type ApiAdminUser = {
   document?: string | null;
 };
 
-type ApiCommunity = {
-  id: string;
-  name: string;
-  slug: string;
-};
-
 /** Limite de caracteres da mensagem de e-mail ao comprador. */
 const EMAIL_BODY_MAX = 2000;
 
@@ -88,7 +82,6 @@ export default function CriarLinkAssinaturaPage() {
     'PIX' | 'CREDIT_CARD' | 'BOTH'
   >('BOTH');
   const [ownerEmail, setOwnerEmail] = useState('');
-  const [storedCommunityId, setCommunityId] = useState('');
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [financialOwner, setFinancialOwner] = useState<{
     id: string;
@@ -123,42 +116,9 @@ export default function CriarLinkAssinaturaPage() {
     staleTime: 20_000,
   });
 
-  // Lista de comunidades disponíveis
-  const communitiesQuery = useQuery({
-    queryKey: ['comunidades-all'],
-    queryFn: async () => {
-      const res = await api.get<{ data?: ApiCommunity[] }>(
-        endpoints.admin.comunidades.list,
-        {
-          query: { page: 1, pageSize: 100 },
-        },
-      );
-      return res.data ?? [];
-    },
-    staleTime: 60_000,
-  });
-
-  const communities = useMemo(
-    () => communitiesQuery.data ?? [],
-    [communitiesQuery.data],
-  );
-
   // Lista de plataformas disponíveis
   const platformCatalog = useProductPlatforms();
   const allPlatformTags = platformCatalog.selectableTags;
-
-  const communitySlugToId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const c of communities) map.set(c.slug.toUpperCase(), c.id);
-    return map;
-  }, [communities]);
-
-  const communityId =
-    selectedPlatform && communitySlugToId.size > 0
-      ? (communitySlugToId.get(selectedPlatform.toUpperCase()) ?? '')
-      : storedCommunityId;
-
-  // Auto-set communityId when selected platform is a community slug
 
   const linkDetailQuery = useQuery({
     queryKey: ['links-assinatura-detail', linkId],
@@ -177,7 +137,6 @@ export default function CriarLinkAssinaturaPage() {
           webhookUrl?: string | null;
           paymentMethods?: 'PIX' | 'CREDIT_CARD' | 'BOTH';
           ownerEmail?: string | null;
-          communityId?: string | null;
           platformTag?: string | null;
           emailBody?: string | null;
           plataformas?: string[];
@@ -196,7 +155,6 @@ export default function CriarLinkAssinaturaPage() {
         setWebhookUrl(detail.webhookUrl ?? '');
         setPaymentMethods(detail.paymentMethods ?? 'BOTH');
         setOwnerEmail(detail.ownerEmail ?? '');
-        setCommunityId(detail.communityId ?? '');
         setSelectedPlatform(
           detail.platformTag ??
             detail.plataformas?.[0] ??
@@ -246,7 +204,6 @@ export default function CriarLinkAssinaturaPage() {
         redirectUrl: redirectUrl.trim() || undefined,
         webhookUrl: webhookUrl.trim() || undefined,
         paymentMethods,
-        communityId: communityId || undefined,
         email: ownerEmail.trim() || undefined,
         ...(!isEditing
           ? {

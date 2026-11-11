@@ -111,7 +111,6 @@ O primeiro comando é a simulação. O script confere que carteiras e `BalanceLo
 | `BLOCKED_HAS_FUNNEL_OFFERS`                       | O link tem order bump, upsell ou downsell                                         | Recrie o funil como ofertas e ligue-as depois da migração          |
 | `BLOCKED_HAS_FILES`                               | O link tem arquivos                                                               | Arquivos ainda não migram: mantenha o legado                       |
 | `BLOCKED_HAS_VOUCHERS`                            | Há cupom ligado ao produto                                                        | Cupons ainda não existem em oferta: mantenha o legado              |
-| `BLOCKED_HAS_COMMUNITY`                           | Há comunidade ligada                                                              | Acesso por comunidade ainda não migra: mantenha o legado           |
 | `BLOCKED_HAS_PIX_ACCESS`                          | Plano PIX com compradores e dias de acesso                                        | O crédito de dias ainda não migra: mantenha o legado               |
 | `BLOCKED_LIVE_DOM_SUBSCRIPTION`                   | Há assinatura viva na DOM cobrando                                                | Siga o cenário B do [playbook](subscription-migration-playbook.md) |
 | `INVALID_FULFILLMENT`                             | Um webhook, redirect ou e-mail é inválido (por exemplo, endereço de rede interna) | Corrija o campo no produto legado e rode de novo                   |

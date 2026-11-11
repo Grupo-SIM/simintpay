@@ -22,7 +22,6 @@ import type { ISubscriptionLinkRepository } from '../../../core/repositories/sub
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import type { CheckoutSubscriptionLinkPixDto } from '../../dtos/subscription-link/checkout-subscription-link.dto';
-import { CommunityManagementService } from '../../services/community-management.service';
 import { VoucherService } from '../voucher/voucher.service';
 import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
@@ -50,7 +49,6 @@ export class CheckoutSubscriptionLinkPixUseCase {
     private readonly repo: ISubscriptionLinkRepository,
     @Inject(USER_REPOSITORY) private readonly users: IUserRepository,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: IPaymentGateway,
-    private readonly communities: CommunityManagementService,
     private readonly voucherService: VoucherService,
     private readonly prisma: PrismaService,
   ) {}
@@ -192,19 +190,6 @@ export class CheckoutSubscriptionLinkPixUseCase {
     });
 
     await this.repo.update(link.id, { currentUses: link.currentUses + 1 });
-
-    const community =
-      await this.communities.findBoundCommunityForSubscriptionLink(link.id);
-    if (community) {
-      await this.communities.registerPendingPix({
-        communityId: community.id,
-        userId: link.userId,
-        frequencyType: link.frequencyType,
-        paymentMethod: 'PIX',
-        amountCharged,
-        subscriptionLinkOrderId: order.id,
-      });
-    }
 
     return {
       id: order.id,

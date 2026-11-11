@@ -22,7 +22,6 @@ function subscriptionTags() {
   return Prisma.sql`ARRAY(SELECT DISTINCT ${canonical(Prisma.sql`tag`)} FROM (
       SELECT unnest(sl.plataformas) AS tag
       UNION ALL SELECT sl."platformTag" WHERE sl."platformTag" IS NOT NULL
-      UNION ALL SELECT c.slug FROM "CommunityLinkBinding" b JOIN "Community" c ON c.id = b."communityId" WHERE b."subscriptionLinkId" = sl.id
     ) bindings WHERE tag IS NOT NULL AND tag <> '')`;
 }
 

@@ -99,7 +99,7 @@ function stripPlanDescription(raw: string | null | undefined) {
     .replace(/\s*\[NOME_DONO:[^\]]*\]/gi, '')
     .replace(/\s+\d{11}\b/g, '')
     .replace(
-      /\s+(pagatg|atlashosting|areaflix|bosque|comunidade|renovada|ebooksim|frendz|revalida|controle-motorista|controle-patrimonial)\b/gi,
+      /\s+(pagatg|atlashosting|areaflix|bosque|renovada|ebooksim|frendz|revalida)\b/gi,
       '',
     )
     .trim();

@@ -365,12 +365,7 @@ test(
     const browser = await chromium.launch(browserOptions);
     try {
       const { context, page, state } = await scenario(browser);
-      for (const path of [
-        '/admin/usuarios',
-        '/comunidades',
-        '/planos',
-        '/assinantes',
-      ]) {
+      for (const path of ['/admin/usuarios', '/planos', '/assinantes']) {
         state.calls.length = 0;
         await page.goto(`${appUrl}${path}`);
         await page

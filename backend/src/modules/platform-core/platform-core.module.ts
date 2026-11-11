@@ -7,9 +7,6 @@ import { PlatformSalesEventsController } from './platform-sales-events.controlle
 import { PlatformSalesEventsService } from './platform-sales-events.service';
 import { PaymentLinkModule } from '../../presentation/payment-link.module';
 import { PlatformReportProjectionsController } from './platform-report-projections.controller';
-import { PlatformReportingModule } from '../../application/services/platform-reporting.module';
-import { PlatformBetaiController } from './platform-betai.controller';
-import { PlatformBetaiService } from './platform-betai.service';
 import { PlatformSubscriptionCapabilitiesController } from './platform-subscription-capabilities.controller';
 import { PlatformSubscriptionCapabilitiesService } from './platform-subscription-capabilities.service';
 import { PlatformVoucherCapabilitiesController } from './platform-voucher-capabilities.controller';
@@ -35,7 +32,6 @@ import { PlatformEventsModule } from './platform-events.module';
 @Module({
   imports: [
     PaymentLinkModule,
-    PlatformReportingModule,
     WebhookModule,
     PrismaModule,
     ApiDomModule,
@@ -48,7 +44,6 @@ import { PlatformEventsModule } from './platform-events.module';
     PlatformLinksController,
     PlatformSalesEventsController,
     PlatformReportProjectionsController,
-    PlatformBetaiController,
     PlatformSubscriptionCapabilitiesController,
     PlatformVoucherCapabilitiesController,
     PlatformCorporateController,
@@ -61,7 +56,6 @@ import { PlatformEventsModule } from './platform-events.module';
     CanonicalCardsService,
     ReportSessionGuard,
     PlatformSalesEventsService,
-    PlatformBetaiService,
     PlatformSubscriptionCapabilitiesService,
     PlatformVoucherCapabilitiesService,
     PlatformContextService,
@@ -72,7 +66,6 @@ import { PlatformEventsModule } from './platform-events.module';
     PlatformMerchantsService,
   ],
   exports: [
-    PlatformBetaiService,
     PlatformContextService,
     PlatformPaymentsService,
     PlatformSyncService,

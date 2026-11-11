@@ -20,10 +20,9 @@ describe('client dashboard route boundary', () => {
     ])
       assert.equal(canClientAccessPath(route), true, route);
   });
-  it('blocks direct admin/platform/community and expanded operational URLs', () => {
+  it('blocks direct admin/platform and expanded operational URLs', () => {
     for (const route of [
       '/admin/leads',
-      '/comunidades/123',
       '/painel/revalida',
       '/painel/renovada',
       '/assinantes',

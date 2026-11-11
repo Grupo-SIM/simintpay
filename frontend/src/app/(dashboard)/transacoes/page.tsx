@@ -159,26 +159,19 @@ const PLATFORM_DISPLAY: Record<string, string> = {
   ebook: 'EbookSim',
   ebooksim: 'EbookSim',
   atlas: 'AtlasHosting',
-  'controle-motorista': 'Controle de Motorista',
-  'controle-patrimonial': 'Controle Patrimonial',
   pagatg: 'PagaTG',
-  betai: 'Betai',
   frendz: 'Frendz',
 };
 
 /**
  * Tags canônicas (tenant_tag) de todas as plataformas fixas.
  * O dropdown do admin não pode depender só das linhas da página atual da tabela —
- * plataforma sem transação na página sumia do filtro. Comunidades entram
- * dinamicamente via /admin/comunidades.
+ * plataforma sem transação na página sumia do filtro.
  */
 const ADMIN_PLATFORM_TAGS = [
   'ATLAS',
   'AREAFLIX',
-  'BETAI',
   'BOSQUE',
-  'CONTROLE-MOTORISTA',
-  'CONTROLE-PATRIMONIAL',
   'EBOOK',
   'FRENDZ',
   'PAGATG',
@@ -396,17 +389,6 @@ function TransacoesContent() {
     queryFn: () => listTransacoes(api, { page: 1, pageSize: 200 }),
   });
 
-  // Comunidades (tags dinâmicas como MARKETING-RAIZ, IA-TECH) para completar o filtro do admin
-  const { data: comunidadesData } = useQuery({
-    queryKey: ['transacoes-comunidades', isAdmin],
-    enabled: isAdmin,
-    staleTime: 5 * 60_000,
-    queryFn: () =>
-      api.get<{ data: { slug: string }[] }>(
-        `${endpoints.admin.comunidades.list}?pageSize=100`,
-      ),
-  });
-
   // Master: lista canônica de TODAS as plataformas (mesma fonte da tela de Taxas),
   // para o filtro do master não depender só das tags fixas / linhas da página atual.
   const { data: platformsListData } = useQuery({
@@ -448,13 +430,9 @@ function TransacoesContent() {
 
   const uniquePlatforms = useMemo(() => {
     const seen = new Set<string>();
-    // Admin: sempre oferece todas as plataformas fixas + comunidades, não só as da página atual
+    // Admin: sempre oferece todas as plataformas fixas, não só as da página atual
     if (isAdmin) {
       for (const t of ADMIN_PLATFORM_TAGS) seen.add(t);
-      for (const c of comunidadesData?.data ?? []) {
-        const slug = c.slug?.trim().toUpperCase();
-        if (slug) seen.add(slug);
-      }
       // Master: adiciona a lista canônica completa (/admin/plataformas) — todas as opções.
       if (isMaster) {
         for (const p of platformsListData?.data ?? []) {
@@ -462,7 +440,6 @@ function TransacoesContent() {
           if (
             tag &&
             tag !== 'GLOBAL' &&
-            tag !== 'COMUNIDADE' &&
             tag !== 'E-BOOKS-LP' &&
             !tag.startsWith('CLIENT:')
           ) {
@@ -484,7 +461,6 @@ function TransacoesContent() {
     isMaster,
     data?.data,
     platformDiscoveryData?.data,
-    comunidadesData?.data,
     platformsListData?.data,
   ]);
 

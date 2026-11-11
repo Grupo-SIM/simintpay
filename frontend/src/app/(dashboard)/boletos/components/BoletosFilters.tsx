@@ -10,8 +10,6 @@ const PLATFORM_LABELS: Record<string, string> = {
   AREAFLIX: 'Áreaflix',
   EBOOK: 'EbookSim',
   ATLAS: 'AtlasHosting',
-  'CONTROLE-MOTORISTA': 'Controle de Motorista',
-  'CONTROLE-PATRIMONIAL': 'Controle Patrimonial',
   PAGATG: 'PagaTG',
   REVALIDA: 'Revalida',
 };

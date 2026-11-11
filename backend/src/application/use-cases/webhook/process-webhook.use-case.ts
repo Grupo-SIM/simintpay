@@ -21,7 +21,6 @@ import { PrismaService } from '../../../infrastructure/database/prisma/prisma.se
 import { RenovadaEventsService } from '../../../modules/renovada/events/renovada-events.service';
 import { PixPlanService } from '../pix-plan/pix-plan.service';
 import { PixPlanEventsService } from '../../services/pix-plan-events.service';
-import { CommunityManagementService } from '../../services/community-management.service';
 import { EmailService } from '../../../infrastructure/email/email.service';
 import { TENANT_AREAFLIX_TAG } from '../../utils/internal-tags.util';
 import { platformTaxaTagForTransaction } from '../../helpers/dom-fee-estimate.helper';
@@ -82,7 +81,6 @@ export class ProcessWebhookUseCase {
     private readonly affiliateCommission: AffiliateCommissionService,
     @Optional() private readonly pixPlanService?: PixPlanService,
     @Optional() private readonly pixPlanEvents?: PixPlanEventsService,
-    @Optional() private readonly communities?: CommunityManagementService,
     @Optional() private readonly emailService?: EmailService,
     @Optional() private readonly platformEvents?: PlatformEventsService,
     @Optional() private readonly checkoutEvents?: CheckoutEventsService,
@@ -520,33 +518,6 @@ export class ProcessWebhookUseCase {
       data: { status: 'paid' },
     });
 
-    // Activate community access
-    if (this.communities) {
-      try {
-        const binding = await this.prisma.communityLinkBinding.findFirst({
-          where: { subscriptionLinkId: order.subscriptionLinkId },
-        });
-
-        if (binding) {
-          await this.communities.activateOrRenewCommunityAccess({
-            communityId: binding.communityId,
-            userId: order.userId,
-            frequencyType: order.subscriptionLink.frequencyType,
-            paymentMethod: 'PIX',
-            amountCharged: Number(order.amountCharged),
-            subscriptionLinkOrderId: order.id,
-          });
-          this.logger.log(
-            `[WEBHOOK] Community access activated for order ${order.id}`,
-          );
-        }
-      } catch (err: unknown) {
-        this.logger.error(
-          `[WEBHOOK] Error activating community for order ${order.id}: ${err instanceof Error ? err.message : 'unknown'}`,
-        );
-      }
-    }
-
     // Send access email
     if (this.emailService) {
       try {
@@ -621,58 +592,6 @@ export class ProcessWebhookUseCase {
           this.logger.error(
             `[WEBHOOK] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
           );
-        }
-      }
-    } else if (order.domPixPaymentId) {
-      const hasCommunity = await this.prisma.communityLinkBinding.findFirst({
-        where: { subscriptionLinkId: order.subscriptionLinkId },
-        select: { id: true, community: { select: { slug: true } } },
-      });
-      if (hasCommunity) {
-        const communityTag = hasCommunity.community.slug.toUpperCase();
-        const exists = await this.prisma.transaction.findFirst({
-          where: { domPaymentId: order.domPixPaymentId },
-          select: { id: true },
-        });
-        if (!exists) {
-          const gross = Number(order.amountCharged);
-          const pf = Number(order.platformFeeAmount);
-          const communityTx = await this.prisma.transaction.create({
-            data: {
-              userId: order.userId,
-              amount: gross,
-              netAmount: gross - pf,
-              status: TransactionStatus.COMPLETED,
-              paymentMethod: PaymentMethod.PIX,
-              totalFee: 0,
-              domFee: 0,
-              platformFee: pf,
-              ...transactionPlatformTagData(communityTag),
-              description: `${order.subscriptionLink.name} [TENANT:${communityTag}] subOrder=${order.id}`,
-              domPaymentId: order.domPixPaymentId,
-              customerName: order.customerName,
-              customerEmail: order.customerEmail,
-              customerDocument: order.customerDocument,
-              customerPhone: order.customerPhone ?? undefined,
-              tracking: (order.tracking ?? undefined) as
-                | Prisma.InputJsonValue
-                | undefined,
-            },
-          });
-
-          try {
-            await this.prisma.$transaction((p) =>
-              this.affiliateCommission.applyForTransaction(p, {
-                transactionId: communityTx.id,
-                referredUserId: order.userId,
-                platformFee: communityTx.platformFee,
-              }),
-            );
-          } catch (err: unknown) {
-            this.logger.error(
-              `[WEBHOOK] Falha ao creditar comissão de afiliado (subOrder ${order.id}): ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
         }
       }
     }

@@ -196,8 +196,6 @@ const TAG_LABEL_PT: Record<string, string> = {
   AREAFLIX: 'Áreaflix',
   RENOVACAO: 'Renovação',
   RESCISAO: 'Rescisão',
-  'CONTROLE-MOTORISTA': 'Controle de Motorista',
-  'CONTROLE-PATRIMONIAL': 'Controle Patrimonial',
 };
 
 export function tagLabel(tag: string): string {

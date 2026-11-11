@@ -36,7 +36,6 @@ test('monthly sales count and recorded fees include every acquirer, and honor ex
       platform: {
         findMany: async () => [{ tag: 'RENOVADA', ownerUserId: 'owner' }],
       },
-      communityLinkBinding: { findMany: async () => [] },
       transaction: { findMany },
     },
   };
@@ -88,7 +87,6 @@ test('consolidated profit uses buyer charge, seller repass and realized cost wit
           { id: 'owner', tag: 'RENOVADA', ownerUserId: 'owner' },
         ],
       },
-      communityLinkBinding: { findMany: async () => [] },
       transaction: {
         findMany: mock(async ({ where }: any) =>
           where?.status === 'REFUNDED' ? [] : [tx],
@@ -193,7 +191,6 @@ test('Grupo SIM platforms contribute their full net sales to monthly and consoli
           { tag: 'SHOP', ownerUserId: 'other-owner' },
         ],
       },
-      communityLinkBinding: { findMany: async () => [] },
       transaction: {
         findMany: async ({ where }: any) =>
           ['REFUNDED', 'CHARGEBACK'].includes(where.status) ? [] : rows,

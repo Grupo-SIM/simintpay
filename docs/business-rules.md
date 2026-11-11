@@ -285,7 +285,7 @@ Na aprovação de um saque de cliente, toda a taxa cobrada (`WithdrawRequest.fee
 
 ### Coleta dos relatórios próprios
 
-- Resumo, séries e transações compartilham a mesma projeção SQL e filtros. Ordens pagas de assinatura com plataforma exclusiva (catálogo do link ou comunidade vinculada) entram pelo beneficiário original; referência `subOrder` ou pagamento PIX já representado por transação impede duplicação, inclusive após estorno.
+- Resumo, séries e transações compartilham a mesma projeção SQL e filtros. Ordens pagas de assinatura com plataforma exclusiva (catálogo do link) entram pelo beneficiário original; referência `subOrder` ou pagamento PIX já representado por transação impede duplicação, inclusive após estorno.
 - Taxas totais são bruto menos líquido persistido. Sem líquido, conserva-se `totalFee` e sinaliza-se falta do snapshot; nunca se inventa líquido com taxa atual. Importações novas preenchem taxa ausente pela diferença bruto/líquido.
 - Histórico de vendedor sem snapshot do dono não é atribuído retroativamente usando vínculo atual. Marcadores desconhecidos e histórico de integração sem atribuição segura sinalizam incompletude. Saques sem plataforma não são rateados; filtro de método aplica-se às vendas, não aos saques.
 

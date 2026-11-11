@@ -65,7 +65,6 @@ import { ActionButton } from './ActionButton';
 import { DateRangePickerField } from './DateRangePickerField';
 import type { DateRange } from '../types';
 import type { Plataforma as PlataformaDetalhe } from './LucroSimpayDetalhePanel';
-import { BetaiReportPanel } from './BetaiReportPanel';
 import { PlatformBalancesView } from './PlatformBalancesView';
 import { ReportPlatformSelect } from './ReportPlatformSelect';
 import { ReportSkeleton } from './ReportSkeleton';
@@ -132,10 +131,6 @@ type ProdutoConfig = {
   icon: 'building' | 'tv';
   tab: { active: string; inactive: string };
   accent: string;
-  /** Slug exato do tenantModule no banco quando difere de tag.toLowerCase(). */
-  moduleSlug?: string;
-  /** Se true, trata como plataforma de assinaturas (comunidade individual). */
-  isCommunity?: boolean;
 };
 
 const PRODUTOS_BASE: ProdutoConfig[] = [
@@ -217,29 +212,6 @@ const PRODUTOS_BASE: ProdutoConfig[] = [
     accent: '#e11d48',
   },
   {
-    tag: 'BETAI',
-    label: 'Betai',
-    icon: 'building',
-    tab: {
-      active: 'bg-green-700 text-white border-green-700',
-      inactive:
-        'text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30 hover:bg-green-50 dark:hover:bg-green-500/10',
-    },
-    accent: '#16a34a',
-  },
-  {
-    tag: 'CONTROLE-MOTORISTA',
-    label: 'Controle de Motorista',
-    icon: 'building',
-    tab: {
-      active: 'bg-blue-600 text-white border-blue-600',
-      inactive:
-        'text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/30 hover:bg-blue-50 dark:hover:bg-blue-500/10',
-    },
-    accent: '#2563eb',
-    moduleSlug: 'controle-motorista',
-  },
-  {
     tag: 'ZERO_GRAU',
     label: 'Zero Grau',
     icon: 'building',
@@ -249,18 +221,6 @@ const PRODUTOS_BASE: ProdutoConfig[] = [
         'text-sky-700 dark:text-sky-400 border-sky-200 dark:border-sky-500/30 hover:bg-sky-50 dark:hover:bg-sky-500/10',
     },
     accent: '#0284c7',
-  },
-  {
-    tag: 'CONTROLE-PATRIMONIAL',
-    label: 'Controle Patrimonial',
-    icon: 'building',
-    tab: {
-      active: 'bg-indigo-600 text-white border-indigo-600',
-      inactive:
-        'text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/10',
-    },
-    accent: '#4f46e5',
-    moduleSlug: 'controle-patrimonial',
   },
 ];
 
@@ -2845,10 +2805,8 @@ const PAGE_SIZE = 20;
 
 function GenericPlatformPanel({
   tag,
-  moduleSlug,
   accent,
   isEbook,
-  isCommunity,
   dashDataInicio,
   dashDataFim,
   unified = false,
@@ -2857,10 +2815,8 @@ function GenericPlatformPanel({
   unified?: boolean;
   initialMethod?: string;
   tag: string;
-  moduleSlug?: string;
   accent: string;
   isEbook: boolean;
-  isCommunity?: boolean;
   dashDataInicio?: string;
   dashDataFim?: string;
 }) {
@@ -2924,17 +2880,6 @@ function GenericPlatformPanel({
   const [showEstornoValue, setShowEstornoValue] = useState(false);
   const [showChargebackValue, setShowChargebackValue] = useState(false);
 
-  // Gestão de usuários (CONTROLE-MOTORISTA e CONTROLE-PATRIMONIAL)
-  const isSaasPlataforma =
-    tag === 'CONTROLE-MOTORISTA' || tag === 'CONTROLE-PATRIMONIAL';
-  const [usuarioStatusFiltro, setUsuarioStatusFiltro] = useState<
-    'all' | 'active' | 'inactive'
-  >('all');
-  const [usuarioPage, setUsuarioPage] = useState(1);
-  const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
-  const [confirmToggle, setConfirmToggle] = useState<{
-    user: ProdutoSubscriber;
-  } | null>(null);
   const [showActiveSellersModal, setShowActiveSellersModal] = useState(false);
   const [activeSellersPage, setActiveSellersPage] = useState(1);
   const [activeSellersSearch, setActiveSellersSearch] = useState('');
@@ -2966,11 +2911,6 @@ function GenericPlatformPanel({
     },
   });
 
-  // Produtos sem saque centralizado (SaaS e comunidades)
-  const showSaqueCards =
-    !isCommunity &&
-    tag !== 'CONTROLE-MOTORISTA' &&
-    tag !== 'CONTROLE-PATRIMONIAL';
   // Só a Renovada opera maquineta física — nas demais a seção fica oculta.
   const showMaquinetaCards = tag === 'RENOVADA';
 
@@ -3142,7 +3082,7 @@ function GenericPlatformPanel({
   });
 
   // Pending withdrawals filtrados pela plataforma selecionada
-  const slugModulo = moduleSlug ?? tag.toLowerCase();
+  const slugModulo = tag.toLowerCase();
   const {
     data: saquesPendentesData,
     isLoading: isLoadingSaquesPendentes,
@@ -3163,25 +3103,22 @@ function GenericPlatformPanel({
     },
   });
 
-  // Seller / subscriber stats (EBOOK, PAGATG, AREAFLIX and individual communities)
+  // Seller / subscriber stats (EBOOK, PAGATG, AREAFLIX)
   const showSellerStats =
     tag === 'EBOOK' ||
     tag === 'EBOOKSIM' ||
     tag === 'PAGATG' ||
-    tag === 'AREAFLIX' ||
-    !!isCommunity;
+    tag === 'AREAFLIX';
   const sellerLabel =
-    tag === 'AREAFLIX' || isCommunity ? 'Assinantes Ativos' : 'Sellers Ativos';
+    tag === 'AREAFLIX' ? 'Assinantes Ativos' : 'Sellers Ativos';
   const contasLabel =
-    tag === 'AREAFLIX' || isCommunity
-      ? 'Clientes Totais'
-      : 'Quantidade de Contas';
+    tag === 'AREAFLIX' ? 'Clientes Totais' : 'Quantidade de Contas';
   const sellerTooltip =
-    tag === 'AREAFLIX' || isCommunity
+    tag === 'AREAFLIX'
       ? 'Clientes com assinatura ativa na plataforma.'
       : 'Vendedores que realizaram ao menos 1 venda no mês atual.';
   const contasTooltip =
-    tag === 'AREAFLIX' || isCommunity
+    tag === 'AREAFLIX'
       ? 'Total de clientes que pagaram ao menos uma vez.'
       : 'Total de contas cadastradas na plataforma.';
   const {
@@ -3319,47 +3256,6 @@ function GenericPlatformPanel({
     setMetodoPagamentoTx('');
     setTxPage(1);
   }, []);
-
-  const {
-    data: usuariosData,
-    isLoading: isLoadingUsuarios,
-    refetch: refetchUsuarios,
-  } = useQuery({
-    queryKey: ['plataforma-usuarios', tag, usuarioStatusFiltro, usuarioPage],
-    enabled: isSaasPlataforma,
-    queryFn: async () => {
-      const api = createApiClient({
-        baseUrl: getDefaultApiBaseUrl(),
-        getToken: () => localStorage.getItem('access_token') ?? undefined,
-      });
-      return api.get<SubscriberPage>(
-        endpoints.admin.plataformas.usuarios(tag.toLowerCase()),
-        {
-          query: { status: usuarioStatusFiltro, page: usuarioPage, limit: 20 },
-        },
-      );
-    },
-  });
-
-  const handleToggleUsuario = useCallback(
-    async (userId: string) => {
-      setTogglingUserId(userId);
-      try {
-        const api = createApiClient({
-          baseUrl: getDefaultApiBaseUrl(),
-          getToken: () => localStorage.getItem('access_token') ?? undefined,
-        });
-        await api.patch(
-          endpoints.admin.plataformas.usuarioToggle(tag.toLowerCase(), userId),
-          {},
-        );
-        void refetchUsuarios();
-      } finally {
-        setTogglingUserId(null);
-      }
-    },
-    [tag, refetchUsuarios],
-  );
 
   const columns = useMemo(
     () => [
@@ -3622,8 +3518,8 @@ function GenericPlatformPanel({
   const totalRepasseVal =
     plataformaConsolidado?.totalRepasse ?? detBruto - totalTaxasSimIntVal;
   // O backend calcula esta parcela na mesma base das linhas da tabela. Não
-  // derive de bruto/repasse: esses dados podem vir de recortes distintos para
-  // comunidades e gerar cards divergentes.
+  // derive de bruto/repasse: esses dados podem vir de recortes distintos e gerar
+  // cards divergentes.
   const taxaSimIntPercentualBruta =
     plataformaConsolidado?.taxaSimIntPctBruta ?? 0;
 
@@ -3788,7 +3684,7 @@ function GenericPlatformPanel({
                     iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
                     valueClassName="text-violet-600 dark:text-violet-400"
                   />
-                  {showSaqueCards && (
+                  {
                     <MetricCard
                       label="Taxa de Saque — Simintpay"
                       tooltip={`Lucro com saques aprovados (${dashStats?.saqueFees?.quantidade ?? 0} saques). Clique para ver saque a saque.`}
@@ -3803,7 +3699,7 @@ function GenericPlatformPanel({
                       onAction={() => setShowSaquesModal(true)}
                       actionIcon={Eye}
                     />
-                  )}
+                  }
                   <MetricCard
                     label="Receita Líquida - Sim Int Pay"
                     tooltip="Receita líquida da Sim Int Pay: o que sobra depois de pagar todos os custos da DOM (MDR percentual + R$ 1 por transação + R$ 3 de cashback)."
@@ -3852,8 +3748,7 @@ function GenericPlatformPanel({
                     tag !== 'BOSQUE' &&
                     tag !== 'EBOOK' &&
                     tag !== 'EBOOKSIM' &&
-                    tag !== 'REVALIDA' &&
-                    !isCommunity && (
+                    tag !== 'REVALIDA' && (
                       <MetricCard
                         label="ROI"
                         tooltip="(Lucro Sim Int Pay + lucro de saque) ÷ receita bruta."
@@ -3867,7 +3762,7 @@ function GenericPlatformPanel({
                         iconClassName="text-cyan-600 bg-cyan-50 dark:bg-cyan-950/30 dark:text-cyan-400"
                       />
                     )}
-                  {(!!isCommunity || tag === 'AREAFLIX') && (
+                  {tag === 'AREAFLIX' && (
                     <MetricCard
                       label="ROI Sim Int"
                       tooltip="Lucro de taxas ÷ receita bruta do produto."
@@ -3881,7 +3776,7 @@ function GenericPlatformPanel({
                       iconClassName="text-cyan-600 bg-cyan-50 dark:bg-cyan-950/30 dark:text-cyan-400"
                     />
                   )}
-                  {(!!isCommunity || tag === 'AREAFLIX') && (
+                  {tag === 'AREAFLIX' && (
                     <MetricCard
                       label="ROI Produto"
                       tooltip="Repasse ao produto ÷ receita bruta."
@@ -4093,7 +3988,7 @@ function GenericPlatformPanel({
                 </section>
               )}
 
-              {showSaqueCards && (
+              {
                 <section className="flex flex-col gap-3">
                   <h2 className="text-sm font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
                     Saques
@@ -4113,7 +4008,7 @@ function GenericPlatformPanel({
                     />
                   </div>
                 </section>
-              )}
+              }
 
               {/* ── Contas — só renderiza quando a plataforma expõe stats de seller/cliente ── */}
               {showSellerStats && (
@@ -4151,7 +4046,7 @@ function GenericPlatformPanel({
                           value={
                             isLoadingSellerStats
                               ? 'Carregando...'
-                              : `${sellerStats?.sellersAtivos ?? 0} ${tag === 'AREAFLIX' || isCommunity ? 'ativos' : 'sellers'}`
+                              : `${sellerStats?.sellersAtivos ?? 0} ${tag === 'AREAFLIX' ? 'ativos' : 'sellers'}`
                           }
                           valueClassName="text-sky-600 dark:text-sky-400"
                           icon={Users}
@@ -4172,7 +4067,7 @@ function GenericPlatformPanel({
                           value={
                             isLoadingSellerStats
                               ? 'Carregando...'
-                              : `${sellerStats?.totalContas ?? 0} ${tag === 'AREAFLIX' || isCommunity ? 'clientes' : 'contas'}`
+                              : `${sellerStats?.totalContas ?? 0} ${tag === 'AREAFLIX' ? 'clientes' : 'contas'}`
                           }
                           valueClassName="text-indigo-600 dark:text-indigo-400"
                           icon={BarChart3}
@@ -4441,29 +4336,24 @@ function GenericPlatformPanel({
             />
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            {!isEbook &&
-              tag !== 'PAGATG' &&
-              tag !== 'REVALIDA' &&
-              !isCommunity &&
-              tag !== 'CONTROLE-MOTORISTA' &&
-              tag !== 'CONTROLE-PATRIMONIAL' && (
-                <div className="flex rounded-lg border border-zinc-200 bg-white p-1 dark:border-white/10 dark:bg-white/5">
-                  {[
-                    { id: 'todos', label: 'Todos' },
-                    { id: 'maquinetas', label: 'Maquinetas' },
-                    { id: 'online', label: 'App' },
-                  ].map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setTipoTransacao(t.id)}
-                      className={`rounded-md px-4 py-1.5 text-sm font-medium transition-all ${tipoTransacao === t.id ? 'bg-blue-600 text-white shadow-md' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white'}`}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+            {!isEbook && tag !== 'PAGATG' && tag !== 'REVALIDA' && (
+              <div className="flex rounded-lg border border-zinc-200 bg-white p-1 dark:border-white/10 dark:bg-white/5">
+                {[
+                  { id: 'todos', label: 'Todos' },
+                  { id: 'maquinetas', label: 'Maquinetas' },
+                  { id: 'online', label: 'App' },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTipoTransacao(t.id)}
+                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-all ${tipoTransacao === t.id ? 'bg-blue-600 text-white shadow-md' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white'}`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="ml-auto flex gap-2">
               <ActionButton variant="danger" onClick={handleClear}>
                 <Eraser className="h-4 w-4" />
@@ -4487,372 +4377,6 @@ function GenericPlatformPanel({
         </div>
       </section>
 
-      {/* ── Gestão de Usuários (apenas CONTROLE-MOTORISTA e CONTROLE-PATRIMONIAL) ── */}
-      {isSaasPlataforma && (
-        <section className="rounded-2xl border border-zinc-200/80 bg-white/80 shadow-sm dark:border-white/10 dark:bg-zinc-900/40 overflow-hidden">
-          <div className="flex items-center gap-3 border-b border-zinc-200/70 px-4 py-3 dark:border-white/10">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300">
-              <Users className="h-4 w-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                Usuários da plataforma
-              </h3>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                Gerencie os assinantes — ative ou inative o acesso
-              </p>
-            </div>
-          </div>
-
-          {/* Tabs de status */}
-          <div className="flex gap-1 border-b border-zinc-100 px-4 py-2 dark:border-white/10">
-            {(
-              [
-                { id: 'all', label: 'Todos' },
-                { id: 'active', label: 'Ativos' },
-                { id: 'inactive', label: 'Inativos' },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => {
-                  setUsuarioStatusFiltro(t.id);
-                  setUsuarioPage(1);
-                }}
-                className={`rounded-md px-4 py-1.5 text-xs font-medium transition-all ${
-                  usuarioStatusFiltro === t.id
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/5 dark:hover:text-white'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Tabela de usuários */}
-          <div className="overflow-x-auto">
-            {isLoadingUsuarios ? (
-              <div className="flex h-24 items-center justify-center">
-                <Spinner />
-              </div>
-            ) : (
-              <table className="w-full min-w-[900px]">
-                <thead>
-                  <tr className="border-b border-zinc-100 text-left text-xs font-medium text-zinc-500 dark:border-white/10 dark:text-zinc-400">
-                    {[
-                      'E-mail',
-                      'Nome',
-                      'CPF',
-                      'Telefone',
-                      'Status',
-                      'Dias restantes',
-                      'Expira em',
-                      'Desde',
-                      'Ações',
-                    ].map((h) => (
-                      <th key={h} className="px-4 py-3">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-100 dark:divide-white/10">
-                  {(usuariosData?.users ?? []).map((u) => {
-                    const rd: number = u.remainingDays ?? 0;
-                    const expiring = u.isActive && rd <= 5 && rd > 0;
-                    return (
-                      <tr
-                        key={u.id}
-                        className="transition-colors hover:bg-zinc-50/60 dark:hover:bg-white/5"
-                      >
-                        <td className="px-4 py-2.5 text-sm text-zinc-700 dark:text-zinc-300">
-                          {u.email}
-                        </td>
-                        <td className="px-4 py-2.5 text-sm text-zinc-700 dark:text-zinc-300">
-                          {u.name ?? '—'}
-                        </td>
-                        <td className="px-4 py-2.5 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                          {u.cpf ?? '—'}
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-zinc-500 dark:text-zinc-400">
-                          {u.phone ?? '—'}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {u.isActive && !expiring && (
-                            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400">
-                              Ativo
-                            </span>
-                          )}
-                          {u.isActive && expiring && (
-                            <span className="inline-flex items-center rounded-full border border-orange-200 bg-orange-50 px-2.5 py-0.5 text-xs font-medium text-orange-700 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300">
-                              Expirando
-                            </span>
-                          )}
-                          {!u.isActive && (
-                            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
-                              Pausado
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2.5 text-sm font-medium tabular-nums">
-                          {u.isActive ? (
-                            <span
-                              className={
-                                rd <= 5
-                                  ? 'text-orange-600 dark:text-orange-400'
-                                  : 'text-zinc-700 dark:text-zinc-300'
-                              }
-                            >
-                              {rd}d
-                            </span>
-                          ) : (
-                            <span className="text-zinc-400 dark:text-zinc-500">
-                              {rd}d{' '}
-                              <span className="text-[10px] font-normal">
-                                (pausado)
-                              </span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-zinc-500 dark:text-zinc-400">
-                          {u.isActive && u.expiresAt
-                            ? new Date(u.expiresAt).toLocaleDateString('pt-BR')
-                            : '—'}
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-zinc-500 dark:text-zinc-400">
-                          {u.createdAt
-                            ? new Date(u.createdAt).toLocaleDateString('pt-BR')
-                            : '—'}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <button
-                            type="button"
-                            disabled={togglingUserId === u.id}
-                            onClick={() => setConfirmToggle({ user: u })}
-                            className={[
-                              'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50',
-                              u.isActive
-                                ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300'
-                                : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400',
-                            ].join(' ')}
-                          >
-                            {togglingUserId === u.id ? (
-                              <RefreshCw className="h-3 w-3 animate-spin" />
-                            ) : u.isActive ? (
-                              <>
-                                <Clock className="h-3 w-3" /> Pausar
-                              </>
-                            ) : (
-                              <>
-                                <Users className="h-3 w-3" /> Retomar
-                              </>
-                            )}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {(usuariosData?.users ?? []).length === 0 &&
-                    !isLoadingUsuarios && (
-                      <tr>
-                        <td
-                          colSpan={9}
-                          className="px-4 py-8 text-center text-xs text-zinc-400"
-                        >
-                          Nenhum usuário encontrado.
-                        </td>
-                      </tr>
-                    )}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* Paginação */}
-          {(usuariosData?.totalPages ?? 1) > 1 && (
-            <div className="flex items-center justify-between border-t border-zinc-100 px-4 py-2.5 dark:border-white/10">
-              <span className="text-xs text-zinc-400">
-                {usuariosData?.total ?? 0} usuários · pág. {usuarioPage} de{' '}
-                {usuariosData?.totalPages ?? 1}
-              </span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={usuarioPage <= 1}
-                  onClick={() => setUsuarioPage((p) => p - 1)}
-                  className="rounded-md border border-zinc-200 px-3 py-1 text-xs disabled:opacity-40 dark:border-white/10"
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  disabled={usuarioPage >= (usuariosData?.totalPages ?? 1)}
-                  onClick={() => setUsuarioPage((p) => p + 1)}
-                  className="rounded-md border border-zinc-200 px-3 py-1 text-xs disabled:opacity-40 dark:border-white/10"
-                >
-                  Próxima
-                </button>
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* ── Modal de confirmação de pausar / retomar ──────────────────────────── */}
-      {confirmToggle &&
-        (() => {
-          const u = confirmToggle.user;
-          const isPausing = u.isActive;
-          const isCard = u.lastPaymentMethod === 'CREDIT_CARD';
-          const rd: number = u.remainingDays ?? 0;
-          return (
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-              onClick={() => setConfirmToggle(null)}
-            >
-              <div
-                className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Cabeçalho */}
-                <div className="mb-4 flex items-center gap-3">
-                  <div
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                      isPausing
-                        ? 'bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400'
-                        : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400'
-                    }`}
-                  >
-                    {isPausing ? (
-                      <Clock className="h-5 w-5" />
-                    ) : (
-                      <Users className="h-5 w-5" />
-                    )}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                      {isPausing ? 'Pausar acesso' : 'Retomar acesso'}
-                    </h4>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {u.email}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Informações do plano */}
-                <div className="mb-4 rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3 dark:border-white/10 dark:bg-white/5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-500 dark:text-zinc-400">
-                      Dias restantes
-                    </span>
-                    <span className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
-                      {rd}d
-                    </span>
-                  </div>
-                  <div className="mt-1.5 flex items-center justify-between text-xs">
-                    <span className="text-zinc-500 dark:text-zinc-400">
-                      Método de pagamento
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 font-medium text-zinc-700 dark:text-zinc-300">
-                      {isCard ? (
-                        <>
-                          <CreditCard className="h-3.5 w-3.5 text-blue-500" />{' '}
-                          Cartão de crédito
-                        </>
-                      ) : (
-                        <>
-                          <QrCode className="h-3.5 w-3.5 text-emerald-500" />{' '}
-                          PIX
-                        </>
-                      )}
-                    </span>
-                  </div>
-                  {!isPausing && (
-                    <div className="mt-1.5 flex items-center justify-between text-xs">
-                      <span className="text-zinc-500 dark:text-zinc-400">
-                        Dias a restaurar
-                      </span>
-                      <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                        {u.frozenDays ?? rd}d
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Avisos contextuais */}
-                {isPausing && isCard && (
-                  <div className="mb-4 flex gap-2.5 rounded-xl border border-orange-200 bg-orange-50 px-3.5 py-3 dark:border-orange-500/20 dark:bg-orange-500/10">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" />
-                    <p className="text-xs leading-relaxed text-orange-700 dark:text-orange-300">
-                      <strong>Assinatura via cartão de crédito.</strong> Ao
-                      pausar, o usuário perde o acesso imediatamente e os {rd}{' '}
-                      dias restantes serão congelados. Se o cartão for cobrado
-                      novamente (renovação automática), o acesso será restaurado
-                      automaticamente. Caso contrário, o usuário precisará{' '}
-                      <strong>reassinar o plano</strong> para retomar.
-                    </p>
-                  </div>
-                )}
-                {isPausing && !isCard && (
-                  <div className="mb-4 flex gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 dark:border-amber-500/20 dark:bg-amber-500/10">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                    <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-300">
-                      Os <strong>{rd} dias restantes</strong> serão congelados.
-                      Para retomar, o acesso pode ser reativado manualmente ou o
-                      usuário precisará <strong>reassinar o plano</strong>.
-                    </p>
-                  </div>
-                )}
-                {!isPausing && (
-                  <div className="mb-4 flex gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 dark:border-emerald-500/20 dark:bg-emerald-500/10">
-                    <Users className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                    <p className="text-xs leading-relaxed text-emerald-700 dark:text-emerald-300">
-                      O acesso será reativado e os{' '}
-                      <strong>{u.frozenDays ?? rd} dias congelados</strong>{' '}
-                      serão devolvidos ao usuário.
-                    </p>
-                  </div>
-                )}
-
-                {/* Botões */}
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmToggle(null)}
-                    className="flex-1 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:bg-white/10"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    disabled={togglingUserId === u.id}
-                    onClick={async () => {
-                      setConfirmToggle(null);
-                      await handleToggleUsuario(u.id);
-                    }}
-                    className={[
-                      'flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-colors disabled:opacity-50',
-                      isPausing
-                        ? 'bg-amber-500 hover:bg-amber-600'
-                        : 'bg-emerald-600 hover:bg-emerald-700',
-                    ].join(' ')}
-                  >
-                    {togglingUserId === u.id ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                    ) : isPausing ? (
-                      'Confirmar pausa'
-                    ) : (
-                      'Confirmar retomada'
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
       {/* ── Modal de usuários ativos ─────────────────────────────────────────── */}
       {showActiveSellersModal && (
         <div
@@ -4875,10 +4399,7 @@ function GenericPlatformPanel({
                   </h4>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     {activeSellersData?.total ?? 0}{' '}
-                    {tag === 'AREAFLIX' || isCommunity
-                      ? 'assinantes'
-                      : 'sellers'}{' '}
-                    ativos
+                    {tag === 'AREAFLIX' ? 'assinantes' : 'sellers'} ativos
                   </p>
                 </div>
               </div>
@@ -5149,8 +4670,7 @@ function GenericPlatformPanel({
                     {contasLabel} — {tag}
                   </h4>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {allUsersData?.total ?? 0}{' '}
-                    {isCommunity ? 'clientes' : 'usuários'} cadastrados
+                    {allUsersData?.total ?? 0} usuários cadastrados
                   </p>
                 </div>
               </div>
@@ -5210,24 +4730,17 @@ function GenericPlatformPanel({
                           <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
                             Email
                           </th>
-                          {!isCommunity && (
-                            <>
-                              <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
-                                Saldo Atribuído
-                              </th>
-                              <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
-                                Saldo Bloqueado
-                              </th>
-                            </>
-                          )}
+                          <>
+                            <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
+                              Saldo Atribuído
+                            </th>
+                            <th className="px-3 py-2 text-right font-medium text-zinc-500 dark:text-zinc-400">
+                              Saldo Bloqueado
+                            </th>
+                          </>
                           <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
                             Cadastro
                           </th>
-                          {isCommunity && (
-                            <th className="px-3 py-2 text-left font-medium text-zinc-500 dark:text-zinc-400">
-                              Origem
-                            </th>
-                          )}
                         </tr>
                       </thead>
                       <tbody>
@@ -5252,52 +4765,37 @@ function GenericPlatformPanel({
                             <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">
                               {u.email || '—'}
                             </td>
-                            {!isCommunity && (
-                              <>
-                                <td className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-400">
-                                  {u.balance === null ? (
-                                    <span title="Histórico de atribuição incompleto ou carteira inconsistente; não representa saldo zero.">
-                                      Indisponível
-                                    </span>
-                                  ) : (
-                                    u.balance.toLocaleString('pt-BR', {
-                                      style: 'currency',
-                                      currency: 'BRL',
-                                    })
-                                  )}
-                                </td>
-                                <td className="px-3 py-2 text-right text-amber-600 dark:text-amber-400">
-                                  {u.lockedBalance === null ? (
-                                    <span title="Histórico de atribuição incompleto ou carteira inconsistente; não representa saldo zero.">
-                                      Indisponível
-                                    </span>
-                                  ) : (
-                                    u.lockedBalance.toLocaleString('pt-BR', {
-                                      style: 'currency',
-                                      currency: 'BRL',
-                                    })
-                                  )}
-                                </td>
-                              </>
-                            )}
+                            <>
+                              <td className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-400">
+                                {u.balance === null ? (
+                                  <span title="Histórico de atribuição incompleto ou carteira inconsistente; não representa saldo zero.">
+                                    Indisponível
+                                  </span>
+                                ) : (
+                                  u.balance.toLocaleString('pt-BR', {
+                                    style: 'currency',
+                                    currency: 'BRL',
+                                  })
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right text-amber-600 dark:text-amber-400">
+                                {u.lockedBalance === null ? (
+                                  <span title="Histórico de atribuição incompleto ou carteira inconsistente; não representa saldo zero.">
+                                    Indisponível
+                                  </span>
+                                ) : (
+                                  u.lockedBalance.toLocaleString('pt-BR', {
+                                    style: 'currency',
+                                    currency: 'BRL',
+                                  })
+                                )}
+                              </td>
+                            </>
                             <td className="px-3 py-2 text-zinc-500 dark:text-zinc-400">
                               {new Date(u.createdAt).toLocaleDateString(
                                 'pt-BR',
                               )}
                             </td>
-                            {isCommunity && (
-                              <td className="px-3 py-2">
-                                {u.isRegisteredInSimIntPay ? (
-                                  <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
-                                    Sim Int Pay
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-white/10 dark:text-zinc-400">
-                                    Externo
-                                  </span>
-                                )}
-                              </td>
-                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -5462,7 +4960,7 @@ export function ProdutoReportSection({
               <div className="p-6">
                 {!config ||
                 (method !== 'all' &&
-                  ['AREAFLIX', 'ATLAS', 'BETAI'].includes(selectedTag)) ? (
+                  ['AREAFLIX', 'ATLAS'].includes(selectedTag)) ? (
                   <OwnedReportContent
                     filters={{
                       platform: selectedTag,
@@ -5482,23 +4980,16 @@ export function ProdutoReportSection({
                     dashDataInicio={dataInicio}
                     dashDataFim={dataFim}
                   />
-                ) : selectedTag === 'BETAI' ? (
-                  <BetaiReportPanel
-                    dashDataInicio={dataInicio}
-                    dashDataFim={dataFim}
-                  />
                 ) : (
                   <GenericPlatformPanel
                     key={`${selectedTag}:${dataInicio}:${dataFim}:${method}`}
                     unified
                     initialMethod={method === 'all' ? '' : method}
                     tag={selectedTag}
-                    moduleSlug={produtoAtual.moduleSlug}
                     accent={produtoAtual.accent}
                     isEbook={
                       selectedTag === 'EBOOK' || selectedTag === 'EBOOKSIM'
                     }
-                    isCommunity={produtoAtual.isCommunity}
                     dashDataInicio={dataInicio}
                     dashDataFim={dataFim}
                   />

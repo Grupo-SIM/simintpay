@@ -52,7 +52,6 @@ function renderCell(column: string, row: SubscriberRow) {
         ebooksim: 'EbookSim',
         ebook: 'EbookSim',
         atlas: 'AtlasHosting',
-        'controle-motorista': 'Controle de Motorista',
       };
       const platLabel =
         DISPLAY[row.plataforma?.toLowerCase()] ?? row.plataforma;

@@ -198,22 +198,6 @@ export const endpoints = {
       taxasByTag: (tag: string) =>
         `/admin/plataformas/taxas/${encodeURIComponent(tag)}`,
       simintpayClientes: '/admin/plataformas/simintpay-clientes',
-      /** Taxas resolvidas do cliente logado (somente leitura). */
-      /** Gestão de usuários das plataformas SaaS (controle-motorista, controle-patrimonial). */
-      usuarios: (tag: string) => `/admin/plataformas/${tag}/usuarios`,
-      usuarioToggle: (tag: string, userId: string) =>
-        `/admin/plataformas/${tag}/usuarios/${userId}/toggle`,
-    },
-    comunidades: {
-      list: '/admin/comunidades',
-      create: '/admin/comunidades',
-      update: (id: string) => `/admin/comunidades/${id}`,
-      delete: (id: string) => `/admin/comunidades/${id}`,
-      resumo: (id: string) => `/admin/comunidades/${id}/resumo`,
-      assinantes: (id: string) => `/admin/comunidades/${id}/assinantes`,
-      bind: (id: string) => `/admin/comunidades/${id}/vinculos`,
-      unbind: (id: string, bindingId: string) =>
-        `/admin/comunidades/${id}/vinculos/${bindingId}`,
     },
     usuarios: {
       list: '/admin/usuarios',

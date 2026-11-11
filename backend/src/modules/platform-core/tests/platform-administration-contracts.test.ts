@@ -72,7 +72,6 @@ function fixture() {
         rows.filter((row) => matches(row, where)).length,
     },
     pixCreditPlan: { count: async () => 2 },
-    community: { findUnique: async () => null },
     $queryRaw: async () => [
       {
         platform: 'atlas',
@@ -89,28 +88,10 @@ function fixture() {
       ],
     },
     subscriptionLink: { findMany: async () => [link] },
-    communityLinkBinding: {
-      findMany: async ({ include }: any) =>
-        include
-          ? [
-              {
-                subscriptionLink: link,
-                community: {
-                  id: 'community',
-                  name: 'Grupo',
-                  slug: 'grupo',
-                  isActive: true,
-                  accesses: [],
-                },
-              },
-            ]
-          : [],
-    },
   };
   const alias = Object.assign(Object.create(AdminController.prototype), {
     prisma: p,
     paymentGateway: {},
-    platformReporting: {},
   });
   return {
     p,
@@ -118,8 +99,8 @@ function fixture() {
     rows,
     context,
     alias,
-    canonical: new PlatformReportProjectionsController(p, {} as any, {} as any),
-    core: new PlatformAdministrationService(p, {} as any, {} as any),
+    canonical: new PlatformReportProjectionsController(p, {} as any),
+    core: new PlatformAdministrationService(p, {} as any),
   };
 }
 test('administrative platform listing and balances preserve actual persisted projections', async () => {
@@ -174,13 +155,8 @@ test('administrative method distribution and Atlas breakdown match canonical amo
     breakdown.hospedagem.quantidade,
   );
 });
-test('administrative community and transaction detail projections preserve counts and legacy units', async () => {
+test('administrative transaction detail projections preserve counts and legacy units', async () => {
   const f = fixture();
-  const old = await f.alias.listPlataformaComunidades('ATLAS');
-  const current = await f.canonical.communities({ platformContext: f.context });
-  expect(current.data[0].links[0].amountCents).toBe(
-    Math.round(Number(old.data[0].links[0].amount) * 100),
-  );
   const transactions = await f.alias.listPlataformaTransacoes('ATLAS');
   const details = await f.canonical.transactionDetails({
     platformContext: f.context,
