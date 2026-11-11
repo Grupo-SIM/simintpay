@@ -16,7 +16,6 @@ import {
 import { useTheme } from 'next-themes';
 
 import { Badge } from '@/components/ui/Badge';
-import { CoproductionTransactionBadge } from '@/components/coproduction';
 import { MoneyCell } from '@/components/ui/MoneyCell';
 import { DataTable } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
@@ -47,6 +46,21 @@ import {
   formatTransacaoDescricaoUi,
   transacaoPlataformaUi,
 } from '@/lib/utils';
+
+/** Valor líquido que ficou com o usuário atual (parte da coprodução, quando houver). */
+function userNetAmount(row: Transacao) {
+  const mine = row.coproducao?.myAmountCents;
+  return mine == null ? row.netAmount : mine / 100;
+}
+
+/** Percentual do líquido que não ficou com o usuário atual, ou null sem coprodução. */
+function coproductionSharedPercentage(row: Transacao) {
+  const mine = row.coproducao?.myAmountCents;
+  const net = Number(row.netAmount ?? 0) * 100;
+  if (mine == null || !(net > 0)) return null;
+  const pct = Math.min(100, Math.max(0, ((net - mine) / net) * 100));
+  return pct.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+}
 
 function formatBRL(
   value: number | undefined | null,
@@ -792,7 +806,6 @@ function TransacoesContent() {
         render: (row: Transacao) => (
           <span className="text-sm text-zinc-600 dark:text-zinc-400">
             {formatTransacaoDescricaoUi(row.descricao) || '—'}
-            <CoproductionTransactionBadge info={row.coproducao} />
           </span>
         ),
       },
@@ -835,13 +848,29 @@ function TransacoesContent() {
         ),
       },
       {
+        key: 'coproducao',
+        header: 'Coprodução',
+        className: 'text-right whitespace-nowrap',
+        headerClassName: 'text-right',
+        render: (row: Transacao) => {
+          const shared = coproductionSharedPercentage(row);
+          return shared == null ? (
+            <span className="text-xs text-zinc-400">-</span>
+          ) : (
+            <span className="text-sm font-medium text-violet-600 dark:text-violet-300">
+              {shared}%
+            </span>
+          );
+        },
+      },
+      {
         key: 'netAmount',
         header: 'Valor líquido',
         className: 'text-right whitespace-nowrap',
         headerClassName: 'text-right',
         render: (row: Transacao) => (
           <MoneyCell
-            value={row.netAmount}
+            value={userNetAmount(row)}
             className="text-sm font-medium text-emerald-600 dark:text-emerald-400"
           />
         ),
