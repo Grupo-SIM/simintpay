@@ -86,11 +86,11 @@ export function TargetFeeSection({
           />
         </div>
       )}
-      <p className="text-sm text-zinc-500">
-        {effective
-          ? `Cada transação cobra do vendedor ${formatPpm(effective)} do valor da compra (sem juros): a maior taxa entre as adquirentes ativas mais um adicional SimIntPay calculado automaticamente. Substitui apenas as taxas SimIntPay manuais, que ficam preservadas. Taxas aditivas e juros do comprador não entram nesse cálculo e seguem normalmente. Se a adquirente mais cara custar mais que a taxa alvo, vale o custo dela.`
-          : 'Sem taxa alvo: valem as taxas SimIntPay manuais.'}
-      </p>
+      {!effective && (
+        <p className="text-sm text-zinc-500">
+          Sem taxa alvo: valem as taxas SimIntPay manuais.
+        </p>
+      )}
     </fieldset>
   );
 }
