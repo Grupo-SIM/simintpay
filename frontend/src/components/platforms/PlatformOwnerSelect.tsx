@@ -132,6 +132,13 @@ export function PlatformOwnerSelect({
                   .filter(
                     (account) => account.id !== user?.id && !account.isAdmin,
                   )
+                  .sort((a, b) =>
+                    (a.name || a.email).localeCompare(
+                      b.name || b.email,
+                      'pt-BR',
+                      { sensitivity: 'base' },
+                    ),
+                  )
                   .map((account) => (
                     <CommandItem
                       key={account.id}
