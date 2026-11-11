@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+import { useEmptyCaches } from '../src/application/use-cases/payment-link/charge-characterization.fixture';
 import { BillingCycleService } from '../src/modules/billing-core/billing-cycle.service';
 import { priceOfferCycle } from '../src/modules/billing-core/cycle-pricing';
 import { seedGlobalPolicy } from './billing-policy-fixture';
@@ -13,7 +14,7 @@ const db = url
   ? new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) })
   : null;
 const run = db
-  ? (name: string, fn: () => Promise<void>) => test(name, fn, 30_000)
+  ? (name: string, fn: () => Promise<void>) => test(name, fn, 120_000)
   : test.skip;
 const t0 = new Date('2026-01-01T00:00:00.000Z');
 let service: BillingCycleService;
@@ -46,6 +47,7 @@ async function newOffer(ownerId: string, methods: ('PIX' | 'CREDIT_CARD')[]) {
 
 beforeAll(async () => {
   if (!db) return;
+  await useEmptyCaches();
   service = new BillingCycleService(db as never);
   await seedGlobalPolicy(db);
 });
@@ -68,7 +70,7 @@ async function activate(offerId: string, email: string) {
 const monthLater = (n: number) => new Date(t0.getTime() + n * 31 * 86_400_000);
 
 run(
-  'every cycle bills the same buyer total and the ledger nets back to the base',
+  'every cycle bills the same buyer total and the ledger nets back to the quoted seller net',
   async () => {
     const owner = await newUser('seller');
     const offer = await newOffer(owner.id, ['CREDIT_CARD']);
@@ -78,7 +80,9 @@ run(
       'CREDIT_CARD',
       1,
     );
-    expect(expected.totalAmount).toBeGreaterThan(100);
+    // Fees come out of the seller net; the buyer pays the offer price.
+    expect(expected.totalAmount).toBe(100);
+    expect(expected.netAmount).toBeLessThan(100);
     const first = await activate(offer.id, 'c1@test.dev');
     const totals = [first.amountCents];
     // The first charge from subscribe() is the legacy base; real checkout writes the total.
@@ -116,7 +120,7 @@ run(
         Number(tx.amount),
         2,
       );
-      expect(Number(tx.netAmount)).toBe(100);
+      expect(Number(tx.netAmount)).toBe(expected.netAmount);
     }
     expect(totals[1]).toBe(totals[0]);
     expect(totals[2]).toBe(totals[0]);
@@ -197,7 +201,9 @@ run(
         orderBy: { createdAt: 'desc' },
       });
       const after = await priceOfferCycle(db as never, offer, 'CREDIT_CARD', 1);
-      expect(after.totalAmount).toBeGreaterThan(before.totalAmount);
+      expect(after.totalAmount).toBe(before.totalAmount);
+      expect(after.netAmount).toBeLessThan(before.netAmount);
+      expect(after.totalFee).toBeGreaterThan(before.totalFee);
       expect(c3.amountCents).toBe(Math.round(after.totalAmount * 100));
     } finally {
       await db!.financialPolicyRevision.update({

@@ -13,6 +13,9 @@ const lane = (rate: number, fixed: number) => ({
   sim: { fixedCents: fixed, ratePpm: rate, interestPpm: 0 },
 });
 
+// Quotes at a given date only see revisions created before it; tests use past dates.
+const effectiveFrom = new Date('2000-01-01T00:00:00.000Z');
+
 /** GLOBAL financial policy for DOM PIX (1% + R$0.50) and card (3% + R$1.00), ONLINE channel. */
 export async function seedGlobalPolicy(db: PrismaClient) {
   const document = {
@@ -29,7 +32,7 @@ export async function seedGlobalPolicy(db: PrismaClient) {
   if (existing) {
     await db.financialPolicyRevision.update({
       where: { id: existing.id },
-      data: { document },
+      data: { document, createdAt: effectiveFrom },
     });
     return;
   }
@@ -41,6 +44,12 @@ export async function seedGlobalPolicy(db: PrismaClient) {
     },
   });
   await db.financialPolicyRevision.create({
-    data: { tag: 'GLOBAL', version: 1, actorId: actor.id, document },
+    data: {
+      tag: 'GLOBAL',
+      version: 1,
+      actorId: actor.id,
+      document,
+      createdAt: effectiveFrom,
+    },
   });
 }

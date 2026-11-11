@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+import { useEmptyCaches } from '../src/application/use-cases/payment-link/charge-characterization.fixture';
 import { BillingCycleService } from '../src/modules/billing-core/billing-cycle.service';
 import { StoredCardCycleExecutor } from '../src/modules/billing-core/stored-card-cycle.executor';
 import { StoredCardVaultService } from '../src/modules/billing-core/stored-card-vault.service';
@@ -21,6 +22,9 @@ let ownerId: string;
 beforeAll(async () => {
   if (!db) return;
   process.env.PLATFORM_CONFIG_ENCRYPTION_KEY = 'ab'.repeat(32);
+  // Cycle charges are issued with the platform DOM token (cycle-dom-token.ts), not a per-user one.
+  process.env.DOM_TOKEN = 'test-token';
+  await useEmptyCaches();
   vault = new StoredCardVaultService(db as never);
   cycles = new BillingCycleService(db as never);
   await db.acquirerCatalogue.upsert({
@@ -38,7 +42,6 @@ beforeAll(async () => {
       name: 'Seller',
       email: `seller-${crypto.randomUUID()}@test.dev`,
       password: 'x',
-      domToken: 'seller-dom-token',
     },
   });
   ownerId = owner.id;
@@ -95,6 +98,7 @@ run(
     expect(row.encryptedToken.startsWith('v1:')).toBe(true);
     expect(await vault.resolveForContract(contract.id, 'DOM')).toEqual({
       storedCardId: card.id,
+      acquirerCustomerId: null,
       token: 'tok_plain_secret',
     });
     expect(await vault.resolveForContract(contract.id, 'FRENDZ')).toBeNull();

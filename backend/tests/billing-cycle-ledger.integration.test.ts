@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+import { useEmptyCaches } from '../src/application/use-cases/payment-link/charge-characterization.fixture';
+import { priceOfferCycle } from '../src/modules/billing-core/cycle-pricing';
 import { BillingCycleService } from '../src/modules/billing-core/billing-cycle.service';
 import { seedGlobalPolicy } from './billing-policy-fixture';
 
@@ -54,6 +56,7 @@ async function firstCharge(offerId: string, email: string) {
 
 beforeAll(async () => {
   if (!db) return;
+  await useEmptyCaches();
   service = new BillingCycleService(db as never);
   await seedGlobalPolicy(db);
 });
@@ -86,15 +89,15 @@ run(
     expect(tx.status).toBe('COMPLETED');
     expect(tx.settlementBasis).toBe('FINAL_NET');
     expect(tx.userId).toBe(owner.id);
-    // Default owner rule passes the 3% + R$1.00 cost to the buyer: seller keeps the offer price.
-    expect(Number(tx.amount)).toBe(104);
-    expect(Number(tx.netAmount)).toBe(100);
+    // Offer fees are deducted from the seller net: the buyer pays the offer price.
+    expect(Number(tx.amount)).toBe(100);
+    expect(Number(tx.netAmount)).toBe(96);
     expect(Number(tx.totalFee)).toBe(4);
 
     const wallet = await db!.wallet.findUniqueOrThrow({
       where: { userId: owner.id },
     });
-    expect(Number(wallet.balance)).toBe(100);
+    expect(Number(wallet.balance)).toBe(96);
     expect(
       await db!.balanceLog.count({ where: { transactionId: tx.id } }),
     ).toBe(1);
@@ -121,7 +124,7 @@ run(
     const wallet = await db!.wallet.findUniqueOrThrow({
       where: { userId: owner.id },
     });
-    expect(Number(wallet.balance)).toBe(100);
+    expect(Number(wallet.balance)).toBe(96);
   },
 );
 
@@ -147,9 +150,11 @@ run('PIX offers are quoted with the PIX lane', async () => {
     where: { id: paid.transactionId! },
   });
   expect(tx.paymentMethod).toBe('PIX');
-  // PIX lane fee goes on top of the buyer total.
-  expect(Number(tx.amount)).toBeGreaterThan(100);
-  expect(Number(tx.netAmount)).toBe(100);
+  // Fees (PIX lane plus the scheduled acquirer cost) are deducted from the seller net.
+  const quote = await priceOfferCycle(db as never, offer, 'PIX', 1, t0);
+  expect(Number(tx.amount)).toBe(100);
+  expect(Number(tx.netAmount)).toBe(quote.netAmount);
+  expect(quote.netAmount).toBeLessThan(100);
 });
 
 run(
@@ -177,10 +182,10 @@ run(
     >`SELECT "userId", amount, state FROM "CoproductionAllocation" WHERE "transactionId" = ${paid.transactionId}`;
     const partnerShare = allocations.find((a) => a.userId === partner.id);
     expect(partnerShare?.state).toBe('AVAILABLE');
-    expect(Number(partnerShare?.amount)).toBe(25);
+    expect(Number(partnerShare?.amount)).toBe(24);
     const ownerWallet = await db!.wallet.findUniqueOrThrow({
       where: { userId: owner.id },
     });
-    expect(Number(ownerWallet.balance)).toBe(75);
+    expect(Number(ownerWallet.balance)).toBe(72);
   },
 );
