@@ -85,7 +85,11 @@ export function ReportSummaryCards({ data }: { data: ReportSummary }) {
           iconClassName="text-orange-600 dark:text-orange-400"
         />
       </ReportMetricSection>
-      <ReportMovementSections summary={s} />
+      <ReportMovementSections
+        summary={s}
+        coproducao={data.coproducao}
+        hasPlatforms={data.platformsCount > 0}
+      />
       {!s.historicalAttributionComplete && (
         <p role="status" className="text-sm text-amber-600">
           Histórico com atribuição incompleta. Lançamentos sem identificação ou

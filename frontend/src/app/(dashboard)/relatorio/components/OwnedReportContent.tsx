@@ -44,26 +44,25 @@ export function OwnedReportContent({
         estão disponíveis.
       </p>
     );
-  if (!query.data.platformsCount)
-    return (
-      <p className="rounded-xl border p-6 text-sm">
-        Nenhuma plataforma própria disponível para relatório.
-      </p>
-    );
+  const hasPlatforms = query.data.platformsCount > 0;
   return (
     <div className="space-y-6">
       <ReportSummaryCards data={query.data} />
-      {!product && <OwnedReportProfitChart filters={filters} />}
-      <OwnedReportSeries filters={filters} kind="mensal" />
-      <div className="grid gap-4 xl:grid-cols-2">
-        <OwnedReportSeries filters={filters} kind="metodos" />
-        <OwnedReportSeries filters={filters} kind="status" />
-      </div>
-      <OwnedReportTransactions
-        key={JSON.stringify(filters)}
-        filters={filters}
-        product={product}
-      />
+      {hasPlatforms && (
+        <>
+          {!product && <OwnedReportProfitChart filters={filters} />}
+          <OwnedReportSeries filters={filters} kind="mensal" />
+          <div className="grid gap-4 xl:grid-cols-2">
+            <OwnedReportSeries filters={filters} kind="metodos" />
+            <OwnedReportSeries filters={filters} kind="status" />
+          </div>
+          <OwnedReportTransactions
+            key={JSON.stringify(filters)}
+            filters={filters}
+            product={product}
+          />
+        </>
+      )}
     </div>
   );
 }

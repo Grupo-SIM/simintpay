@@ -3,10 +3,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
-import { Clock, HandCoins, Undo2 } from 'lucide-react';
-import { MetricCard } from '@/app/(dashboard)/relatorio/components/MetricCard';
 import { ReportDataTable } from '@/app/(dashboard)/relatorio/components/ReportDataTable';
-import { ReportMetricSection } from '@/app/(dashboard)/relatorio/components/ReportMetricSection';
 import { ReportPagination } from '@/app/(dashboard)/relatorio/components/ReportPagination';
 import { ReportSkeleton } from '@/app/(dashboard)/relatorio/components/ReportSkeleton';
 import { useCurrentUser } from '@/hooks/use-current-user';
@@ -79,32 +76,6 @@ export function CoproductionReceipts({
         </div>
       ) : query.data ? (
         <>
-          <ReportMetricSection title="Coprodução">
-            <MetricCard
-              label="Creditado"
-              value={money(query.data.summary.creditedCents)}
-              icon={HandCoins}
-              tooltip="Participações de coprodução já creditadas na sua carteira. Não representa saldo disponível para saque."
-              valueClassName="text-emerald-600 dark:text-emerald-400"
-              iconClassName="text-emerald-600 dark:text-emerald-400"
-            />
-            <MetricCard
-              label="Em mediação"
-              value={money(query.data.summary.lockedCents)}
-              icon={Clock}
-              tooltip="Participações retidas até o fim do prazo de mediação."
-              valueClassName="text-amber-600 dark:text-amber-400"
-              iconClassName="text-amber-600 dark:text-amber-400"
-            />
-            <MetricCard
-              label="Estornado"
-              value={money(query.data.summary.reversedCents)}
-              icon={Undo2}
-              tooltip="Participações revertidas por estorno da venda."
-              valueClassName="text-rose-600 dark:text-rose-400"
-              iconClassName="text-rose-600 dark:text-rose-400"
-            />
-          </ReportMetricSection>
           <ReportDataTable
             title="Recebimentos de coprodução"
             columns={[
