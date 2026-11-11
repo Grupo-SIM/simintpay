@@ -407,12 +407,13 @@ export class CheckoutController {
   }
 
   /**
-   * Retorna as opções de parcelamento com MDR_CC_MASTER para checkout de cartão avulso (ebook).
+   * Retorna as opções de parcelamento pela política financeira para checkout de cartão avulso (ebook).
    * Usado pelo frontend antes de exibir o dropdown de parcelas.
    */
   @Post('card/installment-options')
   @ApiOperation({
-    summary: 'Calcular opções de parcelamento com MDR_CC_MASTER por plataforma',
+    summary:
+      'Calcular opções de parcelamento pela política financeira por plataforma',
   })
   async getCardInstallmentOptions(
     @Body() body: { price: number; store?: string; maxInstallments?: number },
@@ -458,7 +459,7 @@ export class CheckoutController {
   /**
    * Endpoint público para pagamento com cartão de crédito avulso (ebook e outros).
    * Substitui o endpoint api-dom.jbmidia.com/payments/credit-card para store=ebook.
-   * Aplica MDR_CC_MASTER por parcela para calcular o valor que o comprador paga.
+   * Aplica os juros da política financeira por parcela para calcular o valor que o comprador paga.
    */
   @Post('card')
   @ApiOperation({

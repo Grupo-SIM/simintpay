@@ -13,7 +13,12 @@ export function isAreaflixLink(input: {
   plataformas?: string[] | null;
 }): boolean {
   if ((input.platformTag ?? '').toUpperCase() === 'AREAFLIX') return true;
-  if ((input.plataformas ?? []).some((p) => (p ?? '').toUpperCase() === 'AREAFLIX')) return true;
+  if (
+    (input.plataformas ?? []).some(
+      (p) => (p ?? '').toUpperCase() === 'AREAFLIX',
+    )
+  )
+    return true;
   return false;
 }
 
@@ -22,13 +27,12 @@ export function isAreaflixLink(input: {
  * Usa exatamente as taxas configuradas pelo admin no painel (plataforma AREAFLIX):
  * - PIX: LIQUIDEZ (fator; ex. 0,91 = taxa 9%) + TAXA_SERVICO (fixa)
  * - Cartão 1x: TAXA_LINK_PERCENT + TAXA_LINK_FIXA
- * - Cartão Nx: MDR_LINK_{N}X + TAXA_LINK_FIXA
+ * - Cartão Nx: TAXA_LINK_PERCENT + TAXA_LINK_FIXA (juros vêm da política financeira)
  * - Débito: TAXA_DEBITO_PERCENT + TAXA_DEBITO_FIXA
  */
 export function calculateAreaflixSellerNet(
   gross: number,
   method: AreaflixPaymentMethod,
-  installments = 1,
 ): number {
   const taxa = (key: PlataformaTaxaKey) =>
     getPlatformTaxaEffective('AREAFLIX', key, PLATFORM_TAXA_DEFAULTS[key]);
@@ -44,11 +48,7 @@ export function calculateAreaflixSellerNet(
     const fixa = taxa('TAXA_DEBITO_FIXA');
     net = gross * (1 - percent) - fixa;
   } else {
-    const n = Math.min(Math.max(1, Math.trunc(installments || 1)), 12);
-    const percent =
-      n <= 1
-        ? taxa('TAXA_LINK_PERCENT')
-        : taxa(`LINK_COST_${n}X` as PlataformaTaxaKey);
+    const percent = taxa('TAXA_LINK_PERCENT');
     const fixa = taxa('TAXA_LINK_FIXA');
     net = gross * (1 - percent) - fixa;
   }

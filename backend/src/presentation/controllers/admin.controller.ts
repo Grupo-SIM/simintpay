@@ -133,13 +133,9 @@ import {
   getPlatformTaxaEffective,
   syncedAcquirerCostReais,
   invalidatePlatformTaxaCache,
-  buildUserTaxaTag,
   domCashbackReais,
 } from '../../modules/platform-taxas/platform-taxas.store';
-import {
-  PLATFORM_TAXA_DEFAULTS,
-  type PlataformaTaxaKey,
-} from '../../modules/platform-taxas/platform-taxas.keys';
+import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
 import { calculateBoletoFees } from '../../application/use-cases/boleto/boleto-fees.helper';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
@@ -2549,13 +2545,6 @@ export class AdminController {
                   isCompany: simpayUser.isCompany,
                   phone: simpayUser.phone ?? null,
                   clientStatus: simpayUser.clientStatus,
-                  taxaCartao: simpayUser.clientStatus
-                    ? getPlatformTaxaEffective(
-                        buildUserTaxaTag(simpayUser.id),
-                        'MDR_CC_MASTER_1X',
-                        PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X,
-                      )
-                    : null,
                 }
               : null,
             createdAt: records.reduce(
@@ -2649,13 +2638,6 @@ export class AdminController {
               isCompany: u.isCompany,
               phone: u.phone ?? null,
               clientStatus: u.clientStatus,
-              taxaCartao: u.clientStatus
-                ? getPlatformTaxaEffective(
-                    buildUserTaxaTag(u.id),
-                    'MDR_CC_MASTER_1X',
-                    PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X,
-                  )
-                : null,
             },
             createdAt: u.createdAt,
             updatedAt: u.updatedAt,
@@ -4000,14 +3982,7 @@ export class AdminController {
         installments: inst,
         tenantTag: tag,
       });
-      const masterKey = `MDR_CC_MASTER_${inst}X` as PlataformaTaxaKey;
-      const masterRate = getPlatformTaxaEffective(
-        tag,
-        masterKey,
-        (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0,
-      );
-      totalParcelamentoBruto += domFee + amount * masterRate;
-      totalParcelamentoSimIntPay += amount * masterRate;
+      totalParcelamentoBruto += domFee;
     }
 
     // Recorte só de boleto para os cards do relatório (quantidade, bruto, DOM, SimIntPay, lucro).

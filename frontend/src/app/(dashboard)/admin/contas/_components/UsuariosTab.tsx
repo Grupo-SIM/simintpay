@@ -51,7 +51,6 @@ type SimpayUser = {
   isCompany?: boolean;
   phone?: string | null;
   clientStatus?: ClientStatus | null;
-  taxaCartao?: number | null;
 };
 
 type PlatformEntry = {

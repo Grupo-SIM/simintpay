@@ -26,10 +26,7 @@ import {
   domCashbackReais,
   syncedAcquirerRate,
 } from '../../modules/platform-taxas/platform-taxas.store';
-import {
-  PLATFORM_TAXA_DEFAULTS,
-  type PlataformaTaxaKey,
-} from '../../modules/platform-taxas/platform-taxas.keys';
+import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 import {
   estimateDomFeeReais,
   estimatePhysicalDomFeeReais,
@@ -816,17 +813,9 @@ export class PlatformAdministrationService {
                 'TAXA_FIXA_TRANSACAO',
                 PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
               );
-              const masterKey =
-                `MDR_CC_MASTER_${installments}X` as PlataformaTaxaKey;
-              const simBuyerPct = getPlatformTaxaEffective(
-                upperTag,
-                masterKey,
-                (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ??
-                  0,
-              );
               taxaSimIntPay = Number(
                 (
-                  valorBruto * (Math.max(0, linkPct - domPct1x) + simBuyerPct) +
+                  valorBruto * Math.max(0, linkPct - domPct1x) +
                   Math.max(0, linkFixo - domFixo)
                 ).toFixed(2),
               );
@@ -1619,10 +1608,7 @@ export class PlatformAdministrationService {
           parcRepasse += netBase - svc;
         }
         const domFee = estimateDomFeeReais({ amountReais: amount, paymentMethod: t.paymentMethod, installments: inst, tenantTag: tag });
-        const masterKey = `MDR_CC_MASTER_${inst}X` as PlataformaTaxaKey;
-        const masterRate = getPlatformTaxaEffective(tag, masterKey, (PLATFORM_TAXA_DEFAULTS as Record<string, number>)[masterKey] ?? 0);
-        taxaParcelamentoBruto += domFee + amount * masterRate;
-        taxaParcelamentoSimIntPay += amount * masterRate;
+        taxaParcelamentoBruto += domFee;
       }
       */
 

@@ -694,7 +694,6 @@ export class SubscriptionWebhookService {
             calculateAreaflixSellerNet(
               amount.toNumber(),
               'CREDIT_CARD',
-              1,
             ).toFixed(2),
           )
         : amount.sub(domFee).sub(new Prisma.Decimal(platformFeeAmount));

@@ -20,49 +20,13 @@ export const LEGACY_TAXA_KEYS = [
   'TAXA_BOLETO_TRANSACAO', // Taxa fixa por transação da casa no boleto (padrão R$2,00)
   // Taxa DOM para cartão (crédito direto / pix-plan / assinatura) — read-only
   // Taxa master (plataforma) sobre link de pagamento por parcela — configurável
-  'LINK_COST_1X',
-  'LINK_COST_2X',
-  'LINK_COST_3X',
-  'LINK_COST_4X',
-  'LINK_COST_5X',
-  'LINK_COST_6X',
-  'LINK_COST_7X',
-  'LINK_COST_8X',
-  'LINK_COST_9X',
-  'LINK_COST_10X',
-  'LINK_COST_11X',
-  'LINK_COST_12X',
-  'MDR_LINK_1X',
-  'MDR_LINK_2X',
-  'MDR_LINK_3X',
-  'MDR_LINK_4X',
-  'MDR_LINK_5X',
-  'MDR_LINK_6X',
-  'MDR_LINK_7X',
-  'MDR_LINK_8X',
-  'MDR_LINK_9X',
-  'MDR_LINK_10X',
-  'MDR_LINK_11X',
-  'MDR_LINK_12X',
   // Taxa master (plataforma) adicional sobre cartão ao absorver juros — configurável
-  'MDR_CC_MASTER_1X',
-  'MDR_CC_MASTER_2X',
-  'MDR_CC_MASTER_3X',
-  'MDR_CC_MASTER_4X',
-  'MDR_CC_MASTER_5X',
-  'MDR_CC_MASTER_6X',
-  'MDR_CC_MASTER_7X',
-  'MDR_CC_MASTER_8X',
-  'MDR_CC_MASTER_9X',
-  'MDR_CC_MASTER_10X',
-  'MDR_CC_MASTER_11X',
-  'MDR_CC_MASTER_12X',
   // ── Vendas FÍSICAS (maquineta / POS) ──────────────────────────────────────
   // Taxa Sim Int Pay em venda física — editável, por método.
   // O cliente só perde esta taxa; o custo DOM sai da margem Sim Int Pay.
   'POS_TAXA_PIX_PERCENT',
   'POS_TAXA_DEBITO_PERCENT',
-  // Crédito físico: taxa da casa por parcela (mesmo padrão do MDR_CC_MASTER online),
+  // Crédito físico: taxa da casa por parcela,
   // porque o custo DOM cresce com o parcelamento e uma taxa única daria prejuízo.
   'POS_TAXA_CREDITO_1X',
   'POS_TAXA_CREDITO_2X',
@@ -111,44 +75,8 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   // DOM: taxa cobrada pelo gateway para cartão direto/pix-plan/assinatura
   // 1x = 0% (igual ao link de pagamento — custo real DOM ~3,99% é absorvido pelo master e visível nos relatórios)
   // Custos SimIntPay do vendedor, independentes dos juros do comprador.
-  LINK_COST_1X: 0.09,
-  LINK_COST_2X: 0.09,
-  LINK_COST_3X: 0.09,
-  LINK_COST_4X: 0.09,
-  LINK_COST_5X: 0.09,
-  LINK_COST_6X: 0.09,
-  LINK_COST_7X: 0.09,
-  LINK_COST_8X: 0.09,
-  LINK_COST_9X: 0.09,
-  LINK_COST_10X: 0.09,
-  LINK_COST_11X: 0.09,
-  LINK_COST_12X: 0.09,
   // Juros legados do comprador: pagamento à vista não tem juros.
-  MDR_LINK_1X: 0,
-  MDR_LINK_2X: 0.0352, // 3,52% (total 8,03% − DOM 4,51%)
-  MDR_LINK_3X: 0.0573, // 5,73% (total 11,77% − DOM 6,04%)
-  MDR_LINK_4X: 0.0916, // 9,16% (total 16,75% − DOM 7,59%)
-  MDR_LINK_5X: 0.1104, // 11,04% (total 20,19% − DOM 9,15%)
-  MDR_LINK_6X: 0.1299, // 12,99% (total 23,71% − DOM 10,72%)
-  MDR_LINK_7X: 0.1371, // 13,71% (total 26,02% − DOM 12,31%)
-  MDR_LINK_8X: 0.132, // 13,20% (total 27,12% − DOM 13,92%)
-  MDR_LINK_9X: 0.1303, // 13,03% (total 28,57% − DOM 15,54%)
-  MDR_LINK_10X: 0.129, // 12,90% (total 30,07% − DOM 17,17%)
-  MDR_LINK_11X: 0.1483, // 14,83% (total 33,65% − DOM 18,82%)
-  MDR_LINK_12X: 0.1556, // 15,56% (total 36,04% − DOM 20,48%)
-  // Master adicional sobre cartão ao absorver juros (mesmo padrão do MDR_LINK)
-  MDR_CC_MASTER_1X: 0.0152,
-  MDR_CC_MASTER_2X: 0.0352,
-  MDR_CC_MASTER_3X: 0.0573,
-  MDR_CC_MASTER_4X: 0.0916,
-  MDR_CC_MASTER_5X: 0.1104,
-  MDR_CC_MASTER_6X: 0.1299,
-  MDR_CC_MASTER_7X: 0.1371,
-  MDR_CC_MASTER_8X: 0.132,
-  MDR_CC_MASTER_9X: 0.1303,
-  MDR_CC_MASTER_10X: 0.129,
-  MDR_CC_MASTER_11X: 0.1483,
-  MDR_CC_MASTER_12X: 0.1556,
+  // Master adicional sobre cartão ao absorver juros
   // ── Vendas FÍSICAS (maquineta / POS) — tabela oficial DOM ─────────────────
   // Mastercard/Visa e demais bandeiras têm as mesmas taxas (não separar por bandeira).
   // Não há cobrança de cashback (R$3) em venda física — confirmado pelo suporte DOM.

@@ -215,14 +215,7 @@ export class PlatformsService {
                       string,
                       number
                     > | null
-                  )?.[String(i + 1)] ??
-                  getPlatformTaxaEffective(
-                    'GLOBAL',
-                    `MDR_LINK_${i + 1}X`,
-                    PLATFORM_TAXA_DEFAULTS[
-                      `MDR_LINK_${i + 1}X` as PlataformaTaxaKey
-                    ],
-                  )),
+                  )?.[String(i + 1)] ?? 0),
             ]),
           ),
         };

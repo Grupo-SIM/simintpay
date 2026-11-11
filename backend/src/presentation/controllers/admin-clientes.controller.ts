@@ -20,12 +20,6 @@ import { CurrentUser } from '../../infrastructure/security/decorators/current-us
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { isMasterAdminUser } from '../../shared/utils/is-master-admin.util';
-import {
-  buildUserTaxaTag,
-  getPlatformTaxaEffective,
-  syncedAcquirerRate,
-} from '../../modules/platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../../modules/platform-taxas/platform-taxas.keys';
 
 type TaxaBody = {
   taxaCartao?: number;
@@ -357,12 +351,6 @@ export class AdminClientesController {
 
     const data = clientes.map((c) => ({
       ...c,
-      taxaCartao: getPlatformTaxaEffective(
-        buildUserTaxaTag(c.id),
-        'MDR_CC_MASTER_1X',
-        PLATFORM_TAXA_DEFAULTS.MDR_CC_MASTER_1X,
-      ),
-      taxaPix: syncedAcquirerRate('PIX', 'ONLINE', 1),
     }));
     return { data };
   }

@@ -28,7 +28,7 @@ function round2(n: number): number {
 /**
  * Chave da taxa Sim Int Pay física conforme o método de pagamento da DOM.
  * No crédito a taxa é POR PARCELA (POS_TAXA_CREDITO_{N}X), porque o custo DOM
- * cresce com o parcelamento — mesmo padrão do MDR_CC_MASTER nas vendas online.
+ * cresce com o parcelamento — mesmo padrão das vendas online.
  */
 export function posTaxaKeyForPaymentMethod(
   paymentMethodRaw: string | null | undefined,

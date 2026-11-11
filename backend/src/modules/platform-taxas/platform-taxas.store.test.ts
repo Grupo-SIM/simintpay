@@ -89,7 +89,7 @@ describe('database-only fee inheritance', () => {
       },
     } as never);
     expect(readOverridesRaw()).toEqual({ ATLAS: { TAXA_SAQUE_EXTRA: 0 } });
-    for (const key of ['LIQUIDEZ', 'LINK_COST_2X'] as const) {
+    for (const key of ['LIQUIDEZ'] as const) {
       expect(getPlatformTaxaEffective('ATLAS', key, 0.42)).toBe(
         PLATFORM_TAXA_DEFAULTS[key],
       );
