@@ -2,8 +2,16 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Check } from 'lucide-react';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
-import { panel } from './types';
+import {
+  Command,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/Command';
+import { CustomSelect } from '@/components/ui/CustomSelect';
+import { useDebouncedInput } from '@/hooks/use-debounced-input';
 
 type UserOption = { id: string; email: string; name: string | null };
 
@@ -12,66 +20,97 @@ export const userTaxaTag = (id: string) => `USER:${id.toUpperCase()}`;
 
 export function UserTaxaPicker({
   selectedTag,
+  selectedLabel,
   onSelect,
 }: {
   selectedTag: string;
+  selectedLabel: string | null;
   onSelect: (tag: string, label: string) => void;
 }) {
   const api = useClienteApi();
+  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [local, setLocal] = useDebouncedInput(search, setSearch);
   const users = useQuery({
-    queryKey: ['taxa-users', search],
-    enabled: search.trim().length >= 2,
+    queryKey: ['taxa-users', search.trim()],
+    enabled: open,
     queryFn: () =>
       api.get<{ data: UserOption[] }>(
-        `/admin/plataformas/simintpay-clientes?pageSize=8&search=${encodeURIComponent(search.trim())}`,
+        `/admin/plataformas/simintpay-clientes?pageSize=20&search=${encodeURIComponent(search.trim())}`,
       ),
   });
+  const isUser = selectedTag.startsWith('USER:');
   return (
-    <section className={panel} aria-label="Taxas por usuário">
-      <h2 className="mb-1 font-semibold">Taxas por usuário</h2>
-      <p className="mb-3 text-sm opacity-70">
-        Vale para cobranças sem plataforma (links de pagamento avulsos). Sem
-        configuração própria, o usuário herda o padrão global.
-      </p>
-      <input
-        type="search"
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-        placeholder="Buscar por e-mail, nome ou documento"
-        aria-label="Buscar usuário"
-        className="w-full max-w-md rounded border bg-transparent px-3 py-2 text-sm"
+    <div className="w-72">
+      <CustomSelect
+        label="Taxas por usuário"
+        search={{
+          open,
+          onOpenChange: setOpen,
+          placeholder: 'Selecionar usuário',
+          selection: isUser ? (
+            <span className="block truncate font-medium">
+              {selectedLabel ?? selectedTag}
+            </span>
+          ) : undefined,
+          content: (
+            <Command shouldFilter={false}>
+              <CommandInput
+                name="taxa-user-search"
+                aria-label="Buscar usuário"
+                placeholder="E-mail, nome ou documento"
+                value={local}
+                onValueChange={setLocal}
+                maxLength={100}
+              />
+              <CommandList className="scrollbar-themed">
+                {users.isPending || local !== search ? (
+                  <p role="status" className="p-4 text-sm opacity-70">
+                    Carregando usuários...
+                  </p>
+                ) : users.isError ? (
+                  <p role="alert" className="p-4 text-sm text-red-500">
+                    Falha ao buscar usuários.
+                  </p>
+                ) : users.data.data.length === 0 ? (
+                  <p className="p-4 text-sm opacity-70">
+                    Nenhum usuário encontrado.
+                  </p>
+                ) : (
+                  users.data.data.map((user) => {
+                    const tag = userTaxaTag(user.id);
+                    return (
+                      <CommandItem
+                        key={user.id}
+                        value={user.id}
+                        className="cursor-pointer gap-2"
+                        onSelect={() => {
+                          onSelect(tag, user.name ?? user.email);
+                          setOpen(false);
+                        }}
+                      >
+                        <Check
+                          className={`h-4 w-4 shrink-0 ${selectedTag === tag ? 'opacity-100' : 'opacity-0'}`}
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">
+                            {user.name ?? user.email}
+                          </p>
+                          {user.name && (
+                            <p className="truncate text-xs opacity-60">
+                              {user.email}
+                            </p>
+                          )}
+                        </div>
+                      </CommandItem>
+                    );
+                  })
+                )}
+              </CommandList>
+            </Command>
+          ),
+        }}
       />
-      {users.isError && (
-        <p role="alert" className="mt-2 text-sm text-red-500">
-          Falha ao buscar usuários.
-        </p>
-      )}
-      {users.data && (
-        <ul className="mt-2 max-w-md divide-y rounded border text-sm">
-          {users.data.data.length === 0 && (
-            <li className="p-2 opacity-70">Nenhum usuário encontrado.</li>
-          )}
-          {users.data.data.map((user) => {
-            const tag = userTaxaTag(user.id);
-            return (
-              <li key={user.id}>
-                <button
-                  type="button"
-                  aria-pressed={selectedTag === tag}
-                  className="w-full cursor-pointer p-2 text-left hover:bg-zinc-100 aria-pressed:font-semibold dark:hover:bg-white/10"
-                  onClick={() => onSelect(tag, user.name ?? user.email)}
-                >
-                  {user.name ?? user.email}
-                  {user.name && (
-                    <span className="ml-2 opacity-60">{user.email}</span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
+    </div>
   );
 }

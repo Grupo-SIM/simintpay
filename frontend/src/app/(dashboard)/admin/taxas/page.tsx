@@ -72,13 +72,16 @@ export default function AdminTaxasPlataformasPage() {
           setTag(next);
           setUserLabel(null);
         }}
-      />
-      <UserTaxaPicker
-        selectedTag={tag}
-        onSelect={(next, label) => {
-          setTag(next);
-          setUserLabel(label);
-        }}
+        actions={
+          <UserTaxaPicker
+            selectedTag={tag}
+            selectedLabel={userLabel}
+            onSelect={(next, label) => {
+              setTag(next);
+              setUserLabel(label);
+            }}
+          />
+        }
       />
       {isUser && (
         <p role="status" className="text-sm font-medium">
