@@ -3368,7 +3368,7 @@ export class AdminController {
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
         where,
-        orderBy: { email: 'asc' },
+        orderBy: [{ name: 'asc' }, { email: 'asc' }],
         skip: (pageNum - 1) * size,
         take: size,
         select: {
