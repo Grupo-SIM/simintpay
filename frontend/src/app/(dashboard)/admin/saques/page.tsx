@@ -3,15 +3,7 @@
 import { useState, Suspense, useCallback, useMemo, useEffect } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import {
-  Download,
-  Eye,
-  EyeOff,
-  Upload,
-  Eraser,
-  Landmark,
-  List,
-} from 'lucide-react';
+import { Download, Eye, EyeOff, Upload, Eraser, List } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
@@ -28,10 +20,7 @@ import {
   useSaquesAdmin,
   useToggleComprovanteVisivel,
 } from '@/features/saques/hooks/use-saques';
-import {
-  AcquirerWithdrawalsModal,
-  RegisterAcquirerWithdrawalModal,
-} from '@/features/saques/components/AcquirerWithdrawalsSection';
+import { AcquirerWithdrawalsModal } from '@/features/saques/components/AcquirerWithdrawalsSection';
 import { AdminActionsModal } from '@/features/saques/components/AdminActionsModal';
 import { RejectionTooltip } from '@/features/saques/components/RejectionTooltip';
 import { UpdateReceiptModal } from '@/features/saques/components/UpdateReceiptModal';
@@ -86,7 +75,6 @@ function AdminSaquesContent() {
       searchParams.get('dataFim') || undefined,
     ),
   );
-  const [acquirerModalOpen, setAcquirerModalOpen] = useState(false);
   const [acquirerListOpen, setAcquirerListOpen] = useState(false);
 
   const [adminModalOpen, setAdminModalOpen] = useState(false);
@@ -480,13 +468,6 @@ function AdminSaquesContent() {
             <List className="h-4 w-4" />
             Saques de adquirente
           </ActionButton>
-          <ActionButton
-            variant="primary"
-            onClick={() => setAcquirerModalOpen(true)}
-          >
-            <Landmark className="h-4 w-4" />
-            Registrar saque de adquirente
-          </ActionButton>
         </div>
       </div>
 
@@ -575,10 +556,6 @@ function AdminSaquesContent() {
       <AcquirerWithdrawalsModal
         open={acquirerListOpen}
         onClose={() => setAcquirerListOpen(false)}
-      />
-      <RegisterAcquirerWithdrawalModal
-        open={acquirerModalOpen}
-        onClose={() => setAcquirerModalOpen(false)}
       />
       <AdminActionsModal
         key={`${selectedSaque?.id ?? 'none'}-${adminActionType}`}

@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useTheme } from 'next-themes';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { DataTable } from '@/components/ui/DataTable';
 import { Dropdown } from '@/components/ui/Dropdown';
+import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
 import {
@@ -27,6 +28,18 @@ function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
+function centsFromMasked(value: string): number | null {
+  const digits = value.replace(/\D+/g, '');
+  const cents = digits ? parseInt(digits, 10) : 0;
+  return cents > 0 ? cents : null;
+}
+
+function maskedFromCents(cents: number | null | undefined): string {
+  return cents
+    ? (cents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+    : '';
+}
+
 function useFieldTheme(): 'light' | 'dark' {
   const { resolvedTheme } = useTheme();
   return resolvedTheme === 'dark' ? 'dark' : 'light';
@@ -46,10 +59,12 @@ export function RegisterAcquirerWithdrawalModal({
   const { mutate, isPending } = useCreateAcquirerWithdrawal();
   const [acquirerCode, setAcquirerCode] = useState('');
   const [date, setDate] = useState(() => todayYmdSaoPaulo());
+  const [amount, setAmount] = useState('');
   const today = todayYmdSaoPaulo();
 
   function handleClose() {
     setAcquirerCode('');
+    setAmount('');
     setDate(todayYmdSaoPaulo());
     onClose();
   }
@@ -72,7 +87,13 @@ export function RegisterAcquirerWithdrawalModal({
       return;
     }
     mutate(
-      { acquirerCode, date },
+      {
+        acquirerCode,
+        date,
+        ...(centsFromMasked(amount)
+          ? { amountCents: centsFromMasked(amount) as number }
+          : {}),
+      },
       {
         onSuccess: () => {
           toast({
@@ -95,7 +116,7 @@ export function RegisterAcquirerWithdrawalModal({
   return (
     <Modal
       open={open}
-      title="Registrar saque de adquirente"
+      title="Registrar novo saque"
       onClose={handleClose}
       footer={
         <>
@@ -151,6 +172,19 @@ export function RegisterAcquirerWithdrawalModal({
           theme={fieldTheme}
           disabled={isPending}
         />
+        <Input
+          label="Valor sacado (opcional):"
+          type="text"
+          inputMode="numeric"
+          placeholder="0,00"
+          value={amount}
+          onChange={setAmount}
+          prefix="R$"
+          mask="currency"
+          theme={fieldTheme}
+          variant={fieldTheme === 'dark' ? 'navbar' : 'default'}
+          disabled={isPending}
+        />
       </div>
     </Modal>
   );
@@ -167,6 +201,9 @@ function EditAcquirerWithdrawalDateModal({
   const fieldTheme = useFieldTheme();
   const { mutate, isPending } = useUpdateAcquirerWithdrawal();
   const [date, setDate] = useState(withdrawal?.date ?? '');
+  const [amount, setAmount] = useState(
+    maskedFromCents(withdrawal?.amountCents),
+  );
   const today = todayYmdSaoPaulo();
 
   function handleSubmit() {
@@ -180,12 +217,12 @@ function EditAcquirerWithdrawalDateModal({
       return;
     }
     mutate(
-      { id: withdrawal.id, date },
+      { id: withdrawal.id, date, amountCents: centsFromMasked(amount) },
       {
         onSuccess: () => {
           toast({
             type: 'success',
-            title: 'Data atualizada',
+            title: 'Saque atualizado',
             description: `Saque agora em ${formatYmd(date)}.`,
           });
           onClose();
@@ -194,7 +231,7 @@ function EditAcquirerWithdrawalDateModal({
           toast({
             type: 'error',
             title: 'Erro',
-            description: errorMessage(err, 'Erro ao atualizar data.'),
+            description: errorMessage(err, 'Erro ao atualizar saque.'),
           }),
       },
     );
@@ -203,7 +240,7 @@ function EditAcquirerWithdrawalDateModal({
   return (
     <Modal
       open={withdrawal !== null}
-      title="Editar data do saque"
+      title="Editar saque"
       onClose={onClose}
       footer={
         <>
@@ -218,7 +255,12 @@ function EditAcquirerWithdrawalDateModal({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isPending || !date || date === withdrawal?.date}
+            disabled={
+              isPending ||
+              !date ||
+              (date === withdrawal?.date &&
+                centsFromMasked(amount) === (withdrawal?.amountCents ?? null))
+            }
             className={PRIMARY_BUTTON_CLASS}
           >
             {isPending ? 'Salvando...' : 'Salvar'}
@@ -236,6 +278,19 @@ function EditAcquirerWithdrawalDateModal({
           onChange={setDate}
           max={today}
           theme={fieldTheme}
+          disabled={isPending}
+        />
+        <Input
+          label="Valor sacado (opcional):"
+          type="text"
+          inputMode="numeric"
+          placeholder="0,00"
+          value={amount}
+          onChange={setAmount}
+          prefix="R$"
+          mask="currency"
+          theme={fieldTheme}
+          variant={fieldTheme === 'dark' ? 'navbar' : 'default'}
           disabled={isPending}
         />
       </div>
@@ -316,6 +371,7 @@ export function AcquirerWithdrawalsModal({
   onClose: () => void;
 }) {
   const { data: rows = [], isPending } = useAcquirerWithdrawals();
+  const [registering, setRegistering] = useState(false);
   const [editing, setEditing] = useState<AcquirerWithdrawal | null>(null);
   const [deleting, setDeleting] = useState<AcquirerWithdrawal | null>(null);
 
@@ -333,9 +389,19 @@ export function AcquirerWithdrawalsModal({
       maxWidth="max-w-3xl"
     >
       <div className="flex flex-col gap-3">
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Custos de saque registrados por adquirente
-        </p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Custos de saque registrados por adquirente
+          </p>
+          <button
+            type="button"
+            onClick={() => setRegistering(true)}
+            className={`${PRIMARY_BUTTON_CLASS} flex items-center gap-1.5`}
+          >
+            <Plus size={15} />
+            Registrar novo saque
+          </button>
+        </div>
         <DataTable
           columns={[
             {
@@ -344,6 +410,15 @@ export function AcquirerWithdrawalsModal({
               render: (row: AcquirerWithdrawal) => (
                 <span className="font-medium text-zinc-900 dark:text-zinc-100">
                   {row.acquirerName}
+                </span>
+              ),
+            },
+            {
+              key: 'amount',
+              header: 'Valor',
+              render: (row: AcquirerWithdrawal) => (
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                  {row.amountCents ? formatCents(row.amountCents) : '—'}
                 </span>
               ),
             },
@@ -374,7 +449,7 @@ export function AcquirerWithdrawalsModal({
                     type="button"
                     onClick={() => setEditing(row)}
                     className="rounded-lg p-1.5 text-violet-600 transition-colors hover:bg-violet-50 dark:text-violet-400 dark:hover:bg-violet-500/10"
-                    title="Editar data"
+                    title="Editar"
                   >
                     <Pencil size={15} />
                   </button>
@@ -397,10 +472,14 @@ export function AcquirerWithdrawalsModal({
           total={sorted.length}
           onPageChange={() => {}}
           emptyTitle="Nenhum saque de adquirente"
-          emptyDescription="Use “Registrar saque de adquirente” para adicionar o primeiro."
-          minWidth="min-w-[520px]"
+          emptyDescription="Use “Registrar novo saque” para adicionar o primeiro."
+          minWidth="min-w-[620px]"
         />
       </div>
+      <RegisterAcquirerWithdrawalModal
+        open={registering}
+        onClose={() => setRegistering(false)}
+      />
       <EditAcquirerWithdrawalDateModal
         key={editing?.id ?? 'none'}
         withdrawal={editing}

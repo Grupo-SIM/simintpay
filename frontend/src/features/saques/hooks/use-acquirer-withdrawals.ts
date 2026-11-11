@@ -19,6 +19,9 @@ export type AcquirerWithdrawal = {
   acquirerCode: string;
   acquirerName: string;
   feeCents: number;
+  /** Valor sacado em centavos; opcional em registros manuais. */
+  amountCents: number | null;
+  source: 'MANUAL' | 'SYNC';
   /** Data plana YYYY-MM-DD (sem fuso). */
   date: string;
   createdAt: string;
@@ -62,7 +65,11 @@ export function useAcquirerWithdrawals() {
 export function useCreateAcquirerWithdrawal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { acquirerCode: string; date: string }) =>
+    mutationFn: (body: {
+      acquirerCode: string;
+      date: string;
+      amountCents?: number;
+    }) =>
       makeApiClient().post(endpoints.admin.acquirerWithdrawals.create, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
   });
@@ -71,9 +78,18 @@ export function useCreateAcquirerWithdrawal() {
 export function useUpdateAcquirerWithdrawal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, date }: { id: string; date: string }) =>
+    mutationFn: ({
+      id,
+      date,
+      amountCents,
+    }: {
+      id: string;
+      date: string;
+      amountCents: number | null;
+    }) =>
       makeApiClient().patch(endpoints.admin.acquirerWithdrawals.update(id), {
         date,
+        amountCents,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
   });
