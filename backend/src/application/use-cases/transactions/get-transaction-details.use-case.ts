@@ -1,3 +1,4 @@
+import { acquirerCostReais } from '../../helpers/acquirer-cost.helper';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
@@ -248,6 +249,7 @@ export class GetTransactionDetailsUseCase {
         userId: true,
         financialSnapshot: true,
         platformTag: true,
+        acquirer: true,
         totalFee: true,
         domFee: true,
         netAmount: true,
@@ -263,7 +265,12 @@ export class GetTransactionDetailsUseCase {
           await transactionCoproductionInfo(this.prisma, input.userId, [tx])
         ).get(tx.id) ?? null)
       : null;
-    return { ...detail, platformTag: tx?.platformTag ?? null, coproducao };
+    return {
+      ...detail,
+      platformTag: tx?.platformTag ?? null,
+      acquirer: tx?.acquirer ?? null,
+      coproducao,
+    };
   }
 
   /**
@@ -276,6 +283,7 @@ export class GetTransactionDetailsUseCase {
     tx: {
       totalFee: Prisma.Decimal;
       domFee: Prisma.Decimal;
+      financialSnapshot: Prisma.JsonValue;
       netAmount: Prisma.Decimal | null;
     } | null,
   ): any {
@@ -283,7 +291,7 @@ export class GetTransactionDetailsUseCase {
       return order;
     }
     const totalFee = Number(tx.totalFee);
-    const domFee = Number(tx.domFee);
+    const domFee = acquirerCostReais(tx);
     const net = Number(tx.netAmount);
     const profit = Number(Math.max(0, totalFee - domFee).toFixed(2));
     return {

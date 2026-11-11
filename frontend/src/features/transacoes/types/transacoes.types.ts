@@ -31,7 +31,7 @@ export type Transacao = {
   plataforma?: string;
   descricao?: string;
   totalFee?: number | string | null;
-  domFee?: number | string | null;
+  acquirerFee?: number | string | null;
   valorBrutoVenda?: number;
   taxaDom?: number;
   taxaVendedor?: number;
