@@ -406,6 +406,8 @@ export function AcquirerWithdrawalsModal({
           columns={[
             {
               key: 'acquirer',
+              grow: true,
+              defaultWidth: 120,
               header: 'Adquirente',
               render: (row: AcquirerWithdrawal) => (
                 <span className="font-medium text-zinc-900 dark:text-zinc-100">
@@ -415,6 +417,7 @@ export function AcquirerWithdrawalsModal({
             },
             {
               key: 'amount',
+              defaultWidth: 110,
               header: 'Valor',
               render: (row: AcquirerWithdrawal) => (
                 <span className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -424,6 +427,7 @@ export function AcquirerWithdrawalsModal({
             },
             {
               key: 'cost',
+              defaultWidth: 110,
               header: 'Custo',
               render: (row: AcquirerWithdrawal) => (
                 <span className="font-semibold text-zinc-900 dark:text-zinc-100">
@@ -433,6 +437,7 @@ export function AcquirerWithdrawalsModal({
             },
             {
               key: 'date',
+              defaultWidth: 110,
               header: 'Data',
               render: (row: AcquirerWithdrawal) => (
                 <span className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -442,6 +447,7 @@ export function AcquirerWithdrawalsModal({
             },
             {
               key: 'actions',
+              defaultWidth: 80,
               header: 'Ações',
               render: (row: AcquirerWithdrawal) => (
                 <div className="flex items-center justify-center gap-1.5">
@@ -473,7 +479,7 @@ export function AcquirerWithdrawalsModal({
           onPageChange={() => {}}
           emptyTitle="Nenhum saque de adquirente"
           emptyDescription="Use “Registrar novo saque” para adicionar o primeiro."
-          minWidth="min-w-[620px]"
+          minWidth="min-w-0"
         />
       </div>
       <RegisterAcquirerWithdrawalModal
