@@ -274,6 +274,10 @@ Documentos novos recebem `interestOnly=true`. Snapshots novos também congelam e
 - `/admin/relatorios/saldos-plataformas` é exclusivo do admin, com catálogo completo paginado por nome/tag. Saldo atribuído, disponível projetado e reservas vêm da mesma projeção no card/detalhe. Carteira do dono é informação separada; carteira compartilhada nunca é somada entre produtos. Histórico inativo é legível; operações financeiras continuam bloqueadas.
 - Valores monetários das novas APIs são centavos; saldo atribuído negativo permanece explícito e disponível tem piso zero. Projeção não autoriza saque nem recalcula carteira.
 
+## Lucro e custo do saque
+
+Na aprovação de um saque de cliente, toda a taxa cobrada (`WithdrawRequest.fee`) é lucro SimIntPay: o log `ADMIN_WITHDRAW_PROFIT_INC` recebe a taxa integral, marcado com `metadata.accountingVersion = full_fee_v2`. O único custo de saque é a taxa da adquirente, lançada em `ADMIN_WITHDRAW_FEE_INC` quando o admin registra um saque da adquirente. Logs sem a marca são anteriores à regra e mantêm o cálculo antigo (taxa fixa − R$ 1), de modo que os relatórios históricos não mudam.
+
 ## Saldo restante após saque
 
 `saldoRestanteAposSaque` nas listagens administrativa e do usuário é snapshot persistido do disponível (saldo menos bloqueios). Solicitação com reserva registra disponível após bloquear o bruto; aprovação com débito local atualiza o snapshot com o disponível retornado pela carteira dentro da mesma transação. Movimentações posteriores não alteram o histórico. Histórico anterior, importações e operações sem reserva/débito confiável retornam `null`; saques recusados retornam `null`. Nenhum saldo histórico é estimado a partir da carteira atual. Migração somente preparada localmente, sem aplicação em banco.

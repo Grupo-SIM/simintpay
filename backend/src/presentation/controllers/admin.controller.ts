@@ -92,7 +92,10 @@ import { DeleteLeadsDto } from '../../application/dtos/admin/delete-leads.dto';
 import { SyncDomTransactionsUseCase } from '../../application/use-cases/admin/sync-dom-transactions.use-case';
 import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { ListWithdrawalsAdminUseCase } from '../../application/use-cases/admin/list-withdrawals-admin.use-case';
-import { ApproveWithdrawalUseCase } from '../../application/use-cases/admin/approve-withdrawal.use-case';
+import {
+  ApproveWithdrawalUseCase,
+  WITHDRAWAL_PROFIT_FULL_FEE_VERSION,
+} from '../../application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../../application/use-cases/admin/reject-withdrawal.use-case';
 import { MigrateRenovadaTxsToAdminUseCase } from '../../application/use-cases/admin/migrate-renovada-txs-to-admin.use-case';
 import { ListDomTransactionsDirectUseCase } from '../../application/use-cases/admin/list-dom-transactions-direct.use-case';
@@ -3762,7 +3765,32 @@ export class AdminController {
       },
     });
 
+    // Saques aprovados com a regra nova (toda a taxa é lucro) trazem o valor no
+    // próprio log; os demais seguem a regra antiga, preservando o histórico.
     const DOM_FEE_SAQUE = 1;
+    const lucroFullFeePorSaque = new Map<string, number>();
+    if (withdrawsAprovados.length > 0) {
+      const logsFullFee = await this.prisma.balanceLog.findMany({
+        where: {
+          action: 'ADMIN_WITHDRAW_PROFIT_INC',
+          source: 'MASTER_ADMIN_CONTROL',
+          metadata: {
+            path: ['accountingVersion'],
+            equals: WITHDRAWAL_PROFIT_FULL_FEE_VERSION,
+          },
+        },
+        select: { bookkeepingAmount: true, metadata: true },
+      });
+      for (const log of logsFullFee) {
+        const withdrawId = (log.metadata as { withdrawId?: string } | null)
+          ?.withdrawId;
+        if (withdrawId)
+          lucroFullFeePorSaque.set(
+            withdrawId,
+            Number(log.bookkeepingAmount ?? 0),
+          );
+      }
+    }
     let lucroSaqueAcum = 0;
     // saquesPorDia: lucro de saque agregado por dia (updatedAt SP) e tag da plataforma
     const saquesPorDiaMap = new Map<string, number>(); // key = `${ymd}|${tag}`
@@ -3770,8 +3798,9 @@ export class AdminController {
       const platformTag = normalizePlatformTag(
         w.platform ?? w.user?.platform?.tag ?? 'GLOBAL',
       );
-      const taxaSaqueFixa = resolveWithdrawalFixedFee(platformTag);
-      const lucroW = Math.max(0, taxaSaqueFixa - DOM_FEE_SAQUE);
+      const lucroW =
+        lucroFullFeePorSaque.get(w.id) ??
+        Math.max(0, resolveWithdrawalFixedFee(platformTag) - DOM_FEE_SAQUE);
       lucroSaqueAcum += lucroW;
       if (lucroW > 0) {
         const ymd = dayjs(w.updatedAt).tz(TZ).format('YYYY-MM-DD');

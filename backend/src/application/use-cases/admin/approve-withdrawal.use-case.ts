@@ -12,7 +12,13 @@ import {
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { ModuleRealtimeNotifyService } from '../../../infrastructure/realtime/module-realtime-notify.service';
 import { isMasterAdminUser } from '../../../shared/utils/is-master-admin.util';
-import { resolveWithdrawalFixedFee } from '../../../modules/platform-taxas/platform-taxas.store';
+
+/**
+ * Marca os lucros de saque aprovados com a regra "toda a taxa do cliente é
+ * lucro". Logs sem a marca usam a regra antiga (taxa fixa − R$ 1), mantendo o
+ * histórico dos relatórios.
+ */
+export const WITHDRAWAL_PROFIT_FULL_FEE_VERSION = 'full_fee_v2';
 
 @Injectable()
 export class ApproveWithdrawalUseCase {
@@ -125,10 +131,10 @@ export class ApproveWithdrawalUseCase {
       const platformTag = (
         beneficiary?.platform?.tag ?? 'GLOBAL'
       ).toUpperCase();
-      const taxaSaqueFixa = resolveWithdrawalFixedFee(platformTag);
 
-      // Taxa de saque = integral - R$1 fixo DOM (DOM é acumulador independente, registrado manualmente)
-      const lucroSimpay = Math.max(0, taxaSaqueFixa - 1);
+      // Toda a taxa cobrada do cliente é lucro; o custo da adquirente entra à
+      // parte, no registro de saque da adquirente (ADMIN_WITHDRAW_FEE_INC).
+      const lucroSimpay = Number(new Prisma.Decimal(withdraw.fee).toFixed(2));
       await tx.balanceLog.create({
         data: {
           userId: logUserId,
@@ -140,8 +146,13 @@ export class ApproveWithdrawalUseCase {
           lockedDelta: 0,
 
           source: 'MASTER_ADMIN_CONTROL',
-          description: `Taxa de saque Simintpay${isMasterAdmin ? ' (Master)' : ''} — plataforma: ${platformTag} (${taxaSaqueFixa} − 1 = ${lucroSimpay})`,
-          metadata: { withdrawId, platformTag, taxaSaqueFixa, lucroSimpay },
+          description: `Taxa de saque Simintpay${isMasterAdmin ? ' (Master)' : ''} — plataforma: ${platformTag} (${lucroSimpay.toFixed(2)})`,
+          metadata: {
+            withdrawId,
+            platformTag,
+            lucroSimpay,
+            accountingVersion: WITHDRAWAL_PROFIT_FULL_FEE_VERSION,
+          },
         },
       });
     });

@@ -20,6 +20,7 @@ import {
   Percent,
   UsersRound,
   Receipt,
+  Landmark,
 } from 'lucide-react';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import {
@@ -49,7 +50,7 @@ const MANAGE_ITEMS = [
 const ADMIN_ITEMS = [
   { href: '/admin/contas', icon: UsersRound, label: 'Contas' },
   { href: '/admin/taxas', icon: Percent, label: 'Taxas' },
-  { href: '/admin/saques', icon: ArrowDownToLine, label: 'Saques' },
+  { href: '/admin/saques', icon: Landmark, label: 'Saques' },
 ];
 
 const W_OPEN = 200;
