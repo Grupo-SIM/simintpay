@@ -26,10 +26,16 @@ export class AcquirerWithdrawalsController {
     return this.withdrawals.list(user);
   }
 
+  @Post('sync')
+  sync(@CurrentUser() user: JwtPayload) {
+    return this.withdrawals.syncDomAsAdmin(user);
+  }
+
   @Post()
   create(
     @CurrentUser() user: JwtPayload,
-    @Body() body: { acquirerCode?: string; date?: string },
+    @Body()
+    body: { acquirerCode?: string; date?: string; amountCents?: number },
   ) {
     return this.withdrawals.create(user, body);
   }
@@ -38,9 +44,9 @@ export class AcquirerWithdrawalsController {
   update(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
-    @Body() body: { date?: string },
+    @Body() body: { date?: string; amountCents?: number | null },
   ) {
-    return this.withdrawals.updateDate(user, id, body);
+    return this.withdrawals.update(user, id, body);
   }
 
   @Delete(':id')

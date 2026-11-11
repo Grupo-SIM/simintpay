@@ -53,6 +53,7 @@ import { AcquirerFeesService } from '../modules/financial-policy/acquirer-fees.s
 import { AcquirerWithdrawalsController } from '../modules/financial-policy/acquirer-withdrawals.controller';
 import { AcquirerWithdrawalsService } from '../modules/financial-policy/acquirer-withdrawals.service';
 import { SyncAcquirerFeesCron } from '../infrastructure/cron/sync-acquirer-fees.cron';
+import { SyncAcquirerWithdrawalsCron } from '../infrastructure/cron/sync-acquirer-withdrawals.cron';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { SyncAcquirerFeesCron } from '../infrastructure/cron/sync-acquirer-fees.
     AcquirerFeesService,
     AcquirerWithdrawalsService,
     SyncAcquirerFeesCron,
+    SyncAcquirerWithdrawalsCron,
     SyncDomTransactionsCron,
     SyncMaquinetasCron,
     CommunityAccessCron,

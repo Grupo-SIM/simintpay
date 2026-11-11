@@ -1494,10 +1494,17 @@ model AcquirerWithdrawal {
   acquirerCode String
   acquirer AcquirerCatalogue @relation(fields: [acquirerCode], references: [code], onDelete: Restrict)
   feeCents Int
+  /// Amount withdrawn in cents; optional for manual entries.
+  amountCents Int?
   date DateTime @db.Date
   balanceLogId String? @unique
   actorId String?
+  /// MANUAL (admin) or SYNC (imported from the acquirer).
+  source String @default("MANUAL")
+  /// Acquirer-side transfer id; makes the sync idempotent.
+  externalId String?
   createdAt DateTime @default(now())
+  @@unique([acquirerCode, externalId])
   @@index([date])
 }
 
