@@ -198,11 +198,17 @@ export function FinancialSimulationCard({
   const short =
     !!shortfall &&
     (shortfall.rateShortfallPpm > 0 || shortfall.fixedShortfallCents > 0);
-  const effectiveLabel = effective
-    ? effective.fixedCents > 0
-      ? `${formatPpm(effective.ratePpm)} + ${formatCents(effective.fixedCents)}`
-      : formatPpm(effective.ratePpm)
-    : '—';
+  // Acquirer cost + merchant effective fee (percentage and fixed) as one rate over the purchase amount.
+  const effectiveLabel =
+    effective && displayedContract && result?.originalCents
+      ? formatPpm(
+          displayedContract.ratePpm +
+            effective.ratePpm +
+            ((displayedContract.fixedCents + effective.fixedCents) /
+              result.originalCents) *
+              1_000_000,
+        )
+      : '—';
   const format = (value?: number) =>
     value === undefined ? '—' : formatCents(value);
   const skeleton = (
