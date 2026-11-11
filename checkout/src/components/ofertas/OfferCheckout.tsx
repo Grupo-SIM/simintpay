@@ -142,6 +142,8 @@ export default function OfferCheckout({
   const [pricingAttempt, setPricingAttempt] = useState(0);
   const [selectedBumps, setSelectedBumps] = useState<string[]>([]);
   const previewRequest = useRef(0);
+  /** Última seleção de bumps que a prévia conseguiu precificar. */
+  const pricedBumps = useRef<string[]>([]);
   const [installments, setInstallments] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -375,11 +377,15 @@ export default function OfferCheckout({
     previewPricing(codes)
       .then((priced) => {
         if (request !== previewRequest.current) return;
+        pricedBumps.current = codes;
         setPricing(priced);
         setOptions(priced.options);
       })
       .catch((e: Error) => {
-        if (request === previewRequest.current) setPricingError(e.message);
+        if (request !== previewRequest.current) return;
+        // Total e seleção não podem divergir: volta à última seleção precificada.
+        setSelectedBumps(pricedBumps.current);
+        setPricingError(e.message);
       })
       .finally(() => {
         if (request === previewRequest.current) setPricingLoading(false);
