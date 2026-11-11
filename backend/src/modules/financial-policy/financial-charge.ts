@@ -158,18 +158,15 @@ export function quoteFinancialCharge(
           context.policy.document.targetFeePpm,
           context.targetFeePpm,
         );
-  const key =
-    targetFeePpm !== null
-      ? routeKey
-      : scheduled
-        ? pricingLaneKey(
-            context.policy,
-            scheduled.fees,
-            method,
-            channel,
-            installments,
-          )
-        : routeKey;
+  const key = scheduled
+    ? (pricingLaneKey(
+        context.policy,
+        scheduled.fees,
+        method,
+        channel,
+        installments,
+      ) ?? (targetFeePpm !== null ? routeKey : undefined))
+    : routeKey;
   if (targetFeePpm === null && (!key || !context.policy.document.lanes[key])) {
     if (context.platformFeeMode)
       throw new BadRequestException(
@@ -184,8 +181,8 @@ export function quoteFinancialCharge(
     throw new BadRequestException('Custo da adquirente não configurado');
   let policy = context.policy;
   let additiveCents = 0;
+  // Additive fees are independent of the target fee: they follow the platform fee mode either way.
   if (
-    targetFeePpm === null &&
     context.platformFeeMode &&
     context.platformFeeMode !== 'SIMINTPAY_ONLY' &&
     context.additiveTotals
@@ -200,6 +197,7 @@ export function quoteFinancialCharge(
       [{ key: 'order', quantity: 1, unitPrice: cents(amount) }],
     ).feeTotalCents;
   }
+  // ADDITIVE_ONLY drops the manual SimIntPay fee; the target fee replaces that fee itself.
   if (targetFeePpm === null && context.platformFeeMode === 'ADDITIVE_ONLY') {
     policy = {
       ...policy,
@@ -218,11 +216,13 @@ export function quoteFinancialCharge(
   const r =
     targetFeePpm !== null
       ? calculateTargetFinancials(
-          policy.version,
+          policy,
           key,
           cents(amount),
           targetFeePpm,
           scheduled!,
+          // Buyer interest is charged normally on top of the amount; only the seller's fees change.
+          false,
         )
       : calculateFinancials(
           policy,

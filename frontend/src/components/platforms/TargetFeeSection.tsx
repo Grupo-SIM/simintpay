@@ -88,8 +88,8 @@ export function TargetFeeSection({
       )}
       <p className="text-sm text-zinc-500">
         {effective
-          ? `Cada transação cobra do vendedor ${formatPpm(effective)} do total, sem juros: a maior taxa entre as adquirentes ativas mais um adicional SimIntPay calculado automaticamente. Taxas manuais e modo de taxas ficam preservados, mas são desconsiderados. Se a adquirente mais cara custar mais que a taxa alvo, vale o custo dela.`
-          : 'Sem taxa alvo: valem as taxas manuais e o modo de taxas.'}
+          ? `Cada transação cobra do vendedor ${formatPpm(effective)} do valor da compra (sem juros): a maior taxa entre as adquirentes ativas mais um adicional SimIntPay calculado automaticamente. Substitui apenas as taxas SimIntPay manuais, que ficam preservadas. Taxas aditivas e juros do comprador não entram nesse cálculo e seguem normalmente. Se a adquirente mais cara custar mais que a taxa alvo, vale o custo dela.`
+          : 'Sem taxa alvo: valem as taxas SimIntPay manuais.'}
       </p>
     </fieldset>
   );

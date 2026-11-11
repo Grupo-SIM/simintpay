@@ -197,8 +197,8 @@ export function FinancialPolicyDraft({
     owner,
     lanes,
     interestFree: false,
-    feeMode: targetActive ? null : feeMode,
-    additiveTotals: targetActive ? undefined : additiveTotals,
+    feeMode,
+    additiveTotals,
     targetFeePpm: admin ? targetFeePpm : undefined,
     valid,
     admin,
@@ -335,8 +335,8 @@ export function FinancialPolicyDraft({
       }
       rule={owner[key] ?? configuration.globalOwner[key]}
       lane={lanes[key] ?? configuration.globalLanes?.[key]}
-      feeMode={targetActive ? null : feeMode}
-      additiveTotals={targetActive ? undefined : additiveTotals}
+      feeMode={feeMode}
+      additiveTotals={additiveTotals}
       state={
         simulation.rows[key] ?? {
           installments: Number(key.split('/')[3]),
@@ -399,22 +399,17 @@ export function FinancialPolicyDraft({
           onValidityChange={validity}
         />
       )}
-      {/* Manual fees stay editable and stored, but do not apply while a target fee is set. */}
-      <div
-        className={targetActive ? 'space-y-5 opacity-50' : 'space-y-5'}
-        title={targetActive ? 'Desconsiderado pela taxa alvo' : undefined}
-      >
-        {admin && feeMode !== null && (
-          <FeeModeField value={feeMode} onChange={setFeeMode} />
-        )}
-        {admin && feeMode !== null && additiveView && (
-          <AdditiveFeesSection
-            value={additiveFeesDraft}
-            onChange={setAdditiveFeesDraft}
-            onValidityChange={validity}
-          />
-        )}
-      </div>
+      {/* Manual SimIntPay fees stay stored but do not apply while a target fee is set; additive fees are independent. */}
+      {admin && feeMode !== null && (
+        <FeeModeField value={feeMode} onChange={setFeeMode} />
+      )}
+      {admin && feeMode !== null && additiveView && (
+        <AdditiveFeesSection
+          value={additiveFeesDraft}
+          onChange={setAdditiveFeesDraft}
+          onValidityChange={validity}
+        />
+      )}
       <p className="text-sm text-zinc-500">
         {admin &&
           'Configure taxas e juros SimIntPay comparando custos internos da adquirente. Cada parcela mantém juros próprios; repasse ao comprador é definido pelo dono da plataforma. '}

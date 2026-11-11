@@ -623,8 +623,14 @@ export async function simulateFinancialPolicy(
           if (!scheduled?.fees.length)
             throw new Error('Custo da adquirente não configurado');
           const result = calculateTargetFinancials(
-            policy.version,
-            routeKey,
+            policy,
+            pricingLaneKey(
+              policy,
+              scheduled.fees,
+              body.method,
+              body.channel,
+              n,
+            ) ?? routeKey,
             body.amountCents,
             targetFeePpm,
             scheduled,

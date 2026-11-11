@@ -1,6 +1,10 @@
 import { Prisma } from '@prisma/client';
-import { estimatedCost } from './acquirer-fees';
-import type { ScheduledFee } from './financial-policy';
+import {
+  calculateFinancials,
+  type Lane,
+  type ResolvedPolicy,
+  type ScheduledFee,
+} from './financial-policy';
 
 const D = Prisma.Decimal;
 const round = (value: Prisma.Decimal) =>
@@ -39,85 +43,75 @@ export function resolveTargetFee(
 }
 
 /**
- * Target fee: the seller is charged `targetFeePpm` of the purchase total, interest-free. The price is the most
- * expensive active acquirer cost plus a SimIntPay addition that completes the target. Manual fees are not read.
- * When the most expensive acquirer already costs more than the target the addition is zero and the target is
- * unreachable (`targetUnreachable`); the seller is never charged below the acquirer's price.
+ * Target fee: replaces only the normal SimIntPay processing fees charged to the seller. The seller pays
+ * `targetFeePpm` of the original amount: the most expensive active acquirer's processing cost (MDR + fixed) plus a
+ * SimIntPay addition that completes the target. Interest is unchanged: acquirer/SimIntPay interest and the
+ * buyer's pass-through follow the normal calculation, and additive fees are applied by the caller, outside it.
+ * When the most expensive acquirer already costs more than the target the addition is zero (`targetUnreachable`).
  */
 export function calculateTargetFinancials(
-  version: string,
+  policy: ResolvedPolicy,
   key: string,
-  totalCents: number,
+  originalCents: number,
   targetFeePpm: number,
   scheduled: { fees: ScheduledFee[]; routedAcquirer: string },
+  buyerTotalAsInput = false,
 ) {
-  if (
-    !Number.isSafeInteger(totalCents) ||
-    totalCents <= 0 ||
-    totalCents > 1_000_000_000
-  )
-    throw new Error('Valor inválido');
-  const costOf = (fee: ScheduledFee) =>
-    estimatedCost(
-      { ...fee, createdAt: new Date(fee.createdAt) },
-      totalCents,
-      totalCents,
-    );
-  const routed = scheduled.fees.find(
-    (fee) => fee.acquirer === scheduled.routedAcquirer,
-  );
-  if (!routed)
-    throw new Error(
-      'Adquirente sem tabela ativa para esta modalidade, canal e parcela',
-    );
-  const winner = [...scheduled.fees].sort(
-    (a, b) => costOf(b) - costOf(a) || a.acquirer.localeCompare(b.acquirer),
-  )[0]!;
-  const winnerCostCents = costOf(winner);
-  const targetCents = round(fraction(totalCents, targetFeePpm));
-  const contractedCostCents = Math.max(targetCents, winnerCostCents);
-  const simAdditionCents = contractedCostCents - winnerCostCents;
-  const acquirerCostCents = costOf(routed);
-  const acquirerInterestCents = round(fraction(totalCents, routed.interestPpm));
-  const n = Number(key.split('/')[3]);
-  const installmentCents = Math.floor(totalCents / n);
-  const netCents = totalCents - contractedCostCents;
-  return {
-    version,
-    key,
-    installments: n,
-    originalCents: totalCents,
-    buyerAdditionCents: 0,
-    buyerInterestCents: 0,
-    buyerTotalCents: totalCents,
-    pricingAcquirer: winner.acquirer,
-    realizedAcquirer: scheduled.routedAcquirer,
-    fallbackPricing: winner.acquirer !== scheduled.routedAcquirer,
-    interestPassThroughCents: 0,
-    installmentCents,
-    lastInstallmentCents: totalCents - installmentCents * (n - 1),
-    contractedCostCents,
-    processingCostCents: contractedCostCents,
-    interestCostCents: 0,
-    interestRatePpm: 0,
-    buyerInterestRatePpm: 0,
-    netCents,
-    differenceCents: netCents - totalCents,
-    acquirerCostCents,
-    acquirerProcessingCents: acquirerCostCents - acquirerInterestCents,
-    acquirerInterestCents,
-    simAdditionCents,
-    simInterestCents: 0,
-    simMarginCents: contractedCostCents - acquirerCostCents,
-    targetFeePpm,
-    targetUnreachable: winnerCostCents > targetCents,
-    effectiveFees: {
-      acquirer: { ...routed },
-      sim: {
-        fixedCents: 0,
-        ratePpm: round(new D(simAdditionCents).mul(1_000_000).div(totalCents)),
-        interestPpm: 0,
+  // Manual SimIntPay fee (fixed and %) is not read; the lane may not even exist. Sim interest is kept.
+  const stored = policy.document.lanes[key];
+  const lane: Lane = {
+    active: true,
+    contract: stored?.contract ?? {
+      fixedCents: 0,
+      ratePpm: 0,
+      cashbackCents: 0,
+      interestPpm: 0,
+      base: 'ORIGINAL',
+      reference: '',
+    },
+    sim: {
+      fixedCents: 0,
+      ratePpm: 0,
+      interestPpm: stored?.sim.interestPpm ?? 0,
+    },
+  };
+  const credit = key.includes('/CREDIT_CARD/');
+  const base = calculateFinancials(
+    {
+      ...policy,
+      document: {
+        ...policy.document,
+        lanes: { ...policy.document.lanes, [key]: lane },
+        owner: {
+          ...policy.document.owner,
+          [key]: policy.document.owner[key] ?? {
+            fixedCents: 0,
+            ratePpm: 0,
+            passInterestPpm: credit ? 1_000_000 : 0,
+          },
+        },
       },
     },
+    key,
+    originalCents,
+    undefined,
+    scheduled,
+    buyerTotalAsInput,
+  );
+  const targetCents = round(fraction(originalCents, targetFeePpm));
+  const addition = Math.max(0, targetCents - base.processingCostCents);
+  base.contractedCostCents += addition;
+  base.processingCostCents += addition;
+  base.netCents -= addition;
+  base.differenceCents -= addition;
+  base.simAdditionCents += addition;
+  base.simMarginCents += addition;
+  base.effectiveFees.sim.ratePpm = round(
+    new D(addition).mul(1_000_000).div(originalCents),
+  );
+  return {
+    ...base,
+    targetFeePpm,
+    targetUnreachable: base.processingCostCents - addition > targetCents,
   };
 }
