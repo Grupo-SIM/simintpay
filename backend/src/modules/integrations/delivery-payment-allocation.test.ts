@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import {
   deliveryAllocation,
-  quoteDeliveryCharge,
+  quoteAllocationCharge,
 } from './delivery-payment-allocation';
 
 test('requires explicit safe cent allocation only for Delivery', () => {
@@ -34,9 +34,7 @@ test('preserves final total and exact merchant proceeds including zero-fee and z
     { merchantAmountCents: 0, platformFeeCents: 100 },
   ]) {
     const total = allocation.merchantAmountCents + allocation.platformFeeCents;
-    expect(
-      quoteDeliveryCharge(total / 100, allocation, 'ADDITIVE_ONLY'),
-    ).toMatchObject({
+    expect(quoteAllocationCharge(total / 100, allocation)).toMatchObject({
       totalAmount: total / 100,
       netAmount: allocation.merchantAmountCents / 100,
       totalFeeAmount: allocation.platformFeeCents / 100,
@@ -44,8 +42,6 @@ test('preserves final total and exact merchant proceeds including zero-fee and z
       financialSnapshot: {
         contract: 'SIM_DELIVERY_ALLOCATION_V1',
         totalAmountCents: total,
-        feeMode: 'ADDITIVE_ONLY',
-        simFeeCents: 0,
         ...allocation,
       },
     });
@@ -55,101 +51,30 @@ test('preserves final total and exact merchant proceeds including zero-fee and z
 test('rejects mismatched totals, fractional cents and empty charges', () => {
   for (const price of [104.99, 105.001, 106, 0, -105]) {
     expect(() =>
-      quoteDeliveryCharge(
-        price,
-        { merchantAmountCents: 10000, platformFeeCents: 500 },
-        'ADDITIVE_ONLY',
-      ),
+      quoteAllocationCharge(price, {
+        merchantAmountCents: 10000,
+        platformFeeCents: 500,
+      }),
     ).toThrow();
   }
   expect(() =>
-    quoteDeliveryCharge(
-      0,
-      { merchantAmountCents: 0, platformFeeCents: 0 },
-      'ADDITIVE_ONLY',
-    ),
+    quoteAllocationCharge(0, { merchantAmountCents: 0, platformFeeCents: 0 }),
   ).toThrow();
 });
 
-test('additive-only keeps the merchant share untouched and ignores SimIntPay fees', () => {
-  const quote = quoteDeliveryCharge(
-    105,
-    { merchantAmountCents: 10000, platformFeeCents: 500 },
-    'ADDITIVE_ONLY',
-    { fixedCents: 99, ratePpm: 50000 },
-  );
+test('keeps the merchant share untouched: no SimIntPay fee is deducted', () => {
+  const quote = quoteAllocationCharge(105, {
+    merchantAmountCents: 10000,
+    platformFeeCents: 500,
+  });
   expect(quote).toMatchObject({
     totalAmount: 105,
     netAmount: 100,
     totalFeeAmount: 5,
-    simFeeAmount: 0,
+    domFeeAmount: 0,
   });
-  expect(quote.financialSnapshot).toMatchObject({
-    feeMode: 'ADDITIVE_ONLY',
-    simFeeCents: 0,
-  });
-});
-
-test('SimIntPay-only deducts the sim fee from the merchant', () => {
-  const sim = { fixedCents: 100, ratePpm: 20000 };
-  const quote = quoteDeliveryCharge(
-    100,
-    { merchantAmountCents: 10000, platformFeeCents: 0 },
-    'SIMINTPAY_ONLY',
-    sim,
-  );
-  // 1.00 fixed + 2% of the 100.00 buyer total
-  expect(quote).toMatchObject({
-    totalAmount: 100,
-    netAmount: 97,
-    totalFeeAmount: 3,
-    simFeeAmount: 3,
-  });
-  expect(() =>
-    quoteDeliveryCharge(
-      100,
-      { merchantAmountCents: 10000, platformFeeCents: 0 },
-      'SIMINTPAY_ONLY',
-    ),
-  ).toThrow();
-});
-
-test('a surcharge sent under SIMINTPAY_ONLY means the mode changed and is rejected', () => {
-  expect(() =>
-    quoteDeliveryCharge(
-      105,
-      { merchantAmountCents: 10000, platformFeeCents: 500 },
-      'SIMINTPAY_ONLY',
-      { fixedCents: 0, ratePpm: 0 },
-    ),
-  ).toThrow('O modo de taxas da plataforma mudou');
-});
-
-test('both applies the surcharge and the sim fee on the buyer total', () => {
-  const quote = quoteDeliveryCharge(
-    105,
-    { merchantAmountCents: 10000, platformFeeCents: 500 },
-    'BOTH',
-    { fixedCents: 0, ratePpm: 20000 },
-  );
-  // 2% of 105.00 = 2.10 comes out of the merchant's 100.00
-  expect(quote).toMatchObject({
-    totalAmount: 105,
-    netAmount: 97.9,
-    totalFeeAmount: 7.1,
-    simFeeAmount: 2.1,
-  });
-});
-
-test('rejects a sim fee larger than the merchant share', () => {
-  expect(() =>
-    quoteDeliveryCharge(
-      1,
-      { merchantAmountCents: 100, platformFeeCents: 0 },
-      'BOTH',
-      { fixedCents: 500, ratePpm: 0 },
-    ),
-  ).toThrow();
+  expect(quote.financialSnapshot).not.toHaveProperty('simFeeCents');
+  expect(quote.financialSnapshot).not.toHaveProperty('feeMode');
 });
 
 test('recomputes the additive surcharge from order items and rejects a mismatch with FEE_MISMATCH', () => {
@@ -169,17 +94,12 @@ test('recomputes the additive surcharge from order items and rejects a mismatch 
     merchantAmountCents: 10_000,
     platformFeeCents: 1_000,
   };
-  expect(
-    quoteDeliveryCharge(110, ok, 'ADDITIVE_ONLY', undefined, surcharges),
-  ).toMatchObject({ totalAmount: 110, netAmount: 100 });
+  expect(quoteAllocationCharge(110, ok, surcharges)).toMatchObject({
+    totalAmount: 110,
+    netAmount: 100,
+  });
   try {
-    quoteDeliveryCharge(
-      109,
-      { ...ok, platformFeeCents: 900 },
-      'ADDITIVE_ONLY',
-      undefined,
-      surcharges,
-    );
+    quoteAllocationCharge(109, { ...ok, platformFeeCents: 900 }, surcharges);
     throw new Error('expected FEE_MISMATCH');
   } catch (error) {
     expect((error as { getResponse(): unknown }).getResponse()).toMatchObject({
@@ -188,15 +108,14 @@ test('recomputes the additive surcharge from order items and rejects a mismatch 
     });
   }
   // No associated fees: any surcharge sent with items is a mismatch.
-  expect(() => quoteDeliveryCharge(110, ok, 'ADDITIVE_ONLY')).toThrow();
+  expect(() => quoteAllocationCharge(110, ok)).toThrow();
 });
 
 test('keeps trusting platformFeeCents when items are absent', () => {
   expect(
-    quoteDeliveryCharge(
-      110,
-      { merchantAmountCents: 10_000, platformFeeCents: 1_000 },
-      'ADDITIVE_ONLY',
-    ),
+    quoteAllocationCharge(110, {
+      merchantAmountCents: 10_000,
+      platformFeeCents: 1_000,
+    }),
   ).toMatchObject({ totalAmount: 110 });
 });

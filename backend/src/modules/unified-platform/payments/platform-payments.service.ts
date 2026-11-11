@@ -3,11 +3,11 @@ import {
   captureCoproduction,
   withCoproduction,
 } from '../../coproduction/coproduction.service';
-import { quoteDeliveryCharge } from '../../integrations/delivery-payment-allocation';
+import { quoteAllocationCharge } from '../../integrations/delivery-payment-allocation';
 import {
-  loadDeliverySimFee,
+  assertPaymentLaneEnabled,
   loadDeliverySurcharges,
-} from '../../integrations/delivery-sim-fee';
+} from '../../integrations/delivery-surcharges';
 import { deliveryProfile } from '../../platform-core/delivery-profile';
 import type { PlatformContext } from '../../platform-core/platform-context.service';
 import { loadFinancialPolicy } from '../../financial-policy/financial-policy.service';
@@ -294,14 +294,15 @@ export class PlatformPaymentsService {
     // Delivery credentials are tied to their configured acquirer; never route them
     // through another integration. For ordinary checkout, consider only gateways
     // that can actually process this method and have a usable credential.
-    const globalPolicy = await loadFinancialPolicy(this.prisma, platform.tag);
-    // Target fee (global default or platform override) prices every method without manual lanes.
+    const policy = input.allocation
+      ? undefined
+      : await loadFinancialPolicy(this.prisma, platform.tag);
+    // Target fee (global default or platform override) prices every method without manual lanes. Allocation
+    // (Delivery) payments are additive-only and never use it.
     const targetActive =
-      resolveTargetFee(
-        globalPolicy.document.targetFeePpm,
-        platform.targetFeePpm,
-      ) !== null;
-    const policy = input.allocation && !targetActive ? undefined : globalPolicy;
+      !!policy &&
+      resolveTargetFee(policy.document.targetFeePpm, platform.targetFeePpm) !==
+        null;
     const installments =
       input.paymentMethod === 'CREDIT_CARD' ? input.card!.installments : 1;
     const supported =
@@ -418,30 +419,23 @@ export class PlatformPaymentsService {
       });
     const token =
       acquiring?.token ?? decryptPlatformSecret(integration!.encryptedValue!);
-    // A target fee replaces the Delivery fee modes: it is priced by the shared quote below.
-    const feeMode =
-      input.allocation && !targetActive ? platform.feeMode : undefined;
-    const deliveryQuote =
-      input.allocation && feeMode
-        ? quoteDeliveryCharge(
-            amount.toNumber(),
+    await assertPaymentLaneEnabled(
+      this.prisma,
+      platform.tag,
+      input.paymentMethod as 'PIX' | 'CREDIT_CARD',
+      installments,
+    );
+    const deliveryQuote = input.allocation
+      ? quoteAllocationCharge(
+          amount.toNumber(),
+          input.allocation,
+          await loadDeliverySurcharges(
+            this.prisma,
+            platform.tag,
             input.allocation,
-            feeMode,
-            await loadDeliverySimFee(
-              this.prisma,
-              platform.tag,
-              feeMode,
-              input.paymentMethod as 'PIX' | 'CREDIT_CARD',
-              installments,
-            ),
-            await loadDeliverySurcharges(
-              this.prisma,
-              platform.tag,
-              input.allocation,
-              feeMode,
-            ),
-          )
-        : undefined;
+          ),
+        )
+      : undefined;
     const financialQuote = deliveryQuote
       ? {
           ...deliveryQuote,

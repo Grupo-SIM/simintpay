@@ -3,11 +3,10 @@ import {
   markDefinitiveDomRejection,
 } from './dom-rejection';
 import {
-  loadPlatformFeeMode,
-  loadDeliverySimFee,
+  assertPaymentLaneEnabled,
   loadDeliverySurcharges,
-} from '../../integrations/delivery-sim-fee';
-import { quoteDeliveryCharge } from '../../integrations/delivery-payment-allocation';
+} from '../../integrations/delivery-surcharges';
+import { quoteAllocationCharge } from '../../integrations/delivery-payment-allocation';
 import type { DeliveryAllocationDto } from '../../integrations/integration-checkout.dto';
 import {
   loadChargePolicy,
@@ -216,23 +215,14 @@ export class LegacyPlatformPaymentCore {
       const platform = await this.assertPlatformOwner(userId);
       const financialQuote = this.deliveryAllocation
         ? await (async () => {
-            const feeMode = await loadPlatformFeeMode(this.prisma, this.tag);
-            return quoteDeliveryCharge(
+            await assertPaymentLaneEnabled(this.prisma, this.tag, 'PIX', 1);
+            return quoteAllocationCharge(
               body.price,
               this.deliveryAllocation!,
-              feeMode,
-              await loadDeliverySimFee(
-                this.prisma,
-                this.tag,
-                feeMode,
-                'PIX',
-                1,
-              ),
               await loadDeliverySurcharges(
                 this.prisma,
                 this.tag,
                 this.deliveryAllocation!,
-                feeMode,
               ),
             );
           })()
@@ -393,17 +383,19 @@ export class LegacyPlatformPaymentCore {
       const platform = await this.assertPlatformOwner(userId);
       const financialQuote = this.deliveryAllocation
         ? await (async () => {
-            const feeMode = await loadPlatformFeeMode(this.prisma, this.tag);
-            return quoteDeliveryCharge(
+            await assertPaymentLaneEnabled(
+              this.prisma,
+              this.tag,
+              'CREDIT_CARD',
+              body.installments ?? 1,
+            );
+            return quoteAllocationCharge(
               body.price,
               this.deliveryAllocation!,
-              feeMode,
-              await loadDeliverySimFee(
+              await loadDeliverySurcharges(
                 this.prisma,
                 this.tag,
-                feeMode,
-                'CREDIT_CARD',
-                body.installments ?? 1,
+                this.deliveryAllocation!,
               ),
             );
           })()

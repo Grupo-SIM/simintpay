@@ -1,14 +1,10 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { PlatformFeeMode } from '@prisma/client';
 import {
   calculatePlatformFees,
   type EffectiveFee,
 } from '../additive-fees/additive-fee-calculation';
 import type { DeliveryAllocationDto } from './integration-checkout.dto';
-
-/** SimIntPay's own fee for a lane, charged on the buyer total and deducted from the merchant share. */
-export type DeliverySimFee = { fixedCents: number; ratePpm: number };
 
 /** Trusted internal contract. General/public checkouts cannot override financial policies. */
 export function deliveryAllocation(
@@ -72,14 +68,14 @@ export function deliveryAllocation(
 }
 
 /**
- * Buyer total is already final. No interest, liquidity or processing charge is added to it. In SIMINTPAY_ONLY and
- * BOTH modes SimIntPay's own `sim` fee (never `owner` or acquirer terms) is deducted from the merchant share.
+ * Delivery platforms only carry additive fees in SimIntPay. The buyer total is already final (merchant share plus the
+ * additive surcharge Delivery priced): no interest, liquidity, SimIntPay fee or target fee is added or deducted, so the
+ * merchant receives exactly `merchantAmountCents` and the surcharge is platform revenue. The acquirer cost is booked
+ * separately by the caller.
  */
-export function quoteDeliveryCharge(
+export function quoteAllocationCharge(
   price: number,
   allocation: DeliveryAllocationDto,
-  feeMode: PlatformFeeMode,
-  sim?: DeliverySimFee,
   surcharges: EffectiveFee[] = [],
 ) {
   const valid = deliveryAllocation('sim-delivery_quote', allocation)!;
@@ -95,27 +91,17 @@ export function quoteDeliveryCharge(
       'Total da cobrança difere da divisão Sim Delivery',
     );
   }
-  // The platform decides the mode; Delivery only prices accordingly. A surcharge sent under SIMINTPAY_ONLY means the
-  // mode changed after the order was priced, so it must be repriced rather than silently charged.
-  if (feeMode === 'SIMINTPAY_ONLY' && valid.platformFeeCents !== 0)
-    throw new ConflictException({
-      code: 'FEE_MODE_CHANGED',
-      message: 'O modo de taxas da plataforma mudou; recalcule o pedido',
-    });
   // With order lines SimIntPay is the source of truth for the surcharge: recompute it from the platform's effective additive
   // totals (two synthetic fees) instead of trusting the caller. Without lines the legacy trusted `platformFeeCents` applies.
   if (valid.items) {
-    const expected =
-      feeMode === 'SIMINTPAY_ONLY'
-        ? 0
-        : calculatePlatformFees(
-            surcharges,
-            valid.items.map((item) => ({
-              key: item.key,
-              quantity: item.quantity,
-              unitPrice: item.unitPriceCents,
-            })),
-          ).feeTotalCents;
+    const expected = calculatePlatformFees(
+      surcharges,
+      valid.items.map((item) => ({
+        key: item.key,
+        quantity: item.quantity,
+        unitPrice: item.unitPriceCents,
+      })),
+    ).feeTotalCents;
     if (expected !== valid.platformFeeCents)
       throw new ConflictException({
         code: 'FEE_MISMATCH',
@@ -123,36 +109,14 @@ export function quoteDeliveryCharge(
         expectedPlatformFeeCents: expected,
       });
   }
-  const deducts = feeMode !== 'ADDITIVE_ONLY';
-  if (deducts && !sim)
-    throw new BadRequestException({
-      code: 'DELIVERY_SIM_FEE_UNCONFIGURED',
-      message: 'Taxas SimIntPay não configuradas para esta modalidade',
-    });
-  const simFeeCents = deducts
-    ? sim!.fixedCents +
-      new Prisma.Decimal(total)
-        .mul(sim!.ratePpm)
-        .div(1_000_000)
-        .toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP)
-        .toNumber()
-    : 0;
-  if (simFeeCents > valid.merchantAmountCents)
-    throw new BadRequestException({
-      code: 'DELIVERY_SIM_FEE_EXCEEDS_MERCHANT',
-      message: 'Taxa SimIntPay maior que o valor da empresa',
-    });
   return {
     totalAmount: total / 100,
-    netAmount: (valid.merchantAmountCents - simFeeCents) / 100,
-    totalFeeAmount: (valid.platformFeeCents + simFeeCents) / 100,
+    netAmount: valid.merchantAmountCents / 100,
+    totalFeeAmount: valid.platformFeeCents / 100,
     domFeeAmount: 0,
-    simFeeAmount: simFeeCents / 100,
     financialSnapshot: {
       contract: 'SIM_DELIVERY_ALLOCATION_V1',
       totalAmountCents: total,
-      feeMode,
-      simFeeCents,
       ...valid,
       // Plain objects so the frozen snapshot stays JSON-serializable.
       items: valid.items?.map((item) => ({
