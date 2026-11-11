@@ -838,18 +838,50 @@ function TransacoesContent() {
           />
         ),
       },
-      {
-        key: 'totalFee',
-        header: 'Taxas',
-        className: 'text-right whitespace-nowrap',
-        headerClassName: 'text-right',
-        render: (row: Transacao) => (
-          <MoneyCell
-            value={row.totalFee}
-            className="text-sm text-red-500 dark:text-red-400"
-          />
-        ),
-      },
+      ...(isAdmin
+        ? [
+            {
+              key: 'acquirerCost',
+              header: 'Custo da adquirente',
+              className: 'text-right whitespace-nowrap',
+              headerClassName: 'text-right',
+              render: (row: Transacao) => (
+                <MoneyCell
+                  value={row.domFee}
+                  className="text-sm text-red-500 dark:text-red-400"
+                />
+              ),
+            },
+            {
+              key: 'platformAddition',
+              header: 'Adicional SimIntPay',
+              className: 'text-right whitespace-nowrap',
+              headerClassName: 'text-right',
+              render: (row: Transacao) => (
+                <MoneyCell
+                  value={Math.max(
+                    0,
+                    Number(row.totalFee ?? 0) - Number(row.domFee ?? 0),
+                  )}
+                  className="text-sm text-red-500 dark:text-red-400"
+                />
+              ),
+            },
+          ]
+        : [
+            {
+              key: 'totalFee',
+              header: 'Taxas',
+              className: 'text-right whitespace-nowrap',
+              headerClassName: 'text-right',
+              render: (row: Transacao) => (
+                <MoneyCell
+                  value={row.totalFee}
+                  className="text-sm text-red-500 dark:text-red-400"
+                />
+              ),
+            },
+          ]),
       ...(isAdmin
         ? []
         : [

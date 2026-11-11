@@ -249,6 +249,7 @@ export class GetTransactionDetailsUseCase {
         financialSnapshot: true,
         platformTag: true,
         totalFee: true,
+        domFee: true,
         netAmount: true,
       },
     });
@@ -265,20 +266,36 @@ export class GetTransactionDetailsUseCase {
     return { ...detail, platformTag: tx?.platformTag ?? null, coproducao };
   }
 
-  /** A lista exibe os valores gravados na transação; o detalhe precisa bater com eles. */
+  /**
+   * A lista exibe os valores gravados na transação; o detalhe precisa bater com eles.
+   * Custo da adquirente = domFee; adicional SimIntPay = totalFee − domFee, do qual
+   * é o lucro. Taxa fixa e cashback já estão contidos no valor gravado.
+   */
   private withStoredAmounts(
     order: any,
-    tx: { totalFee: Prisma.Decimal; netAmount: Prisma.Decimal | null } | null,
+    tx: {
+      totalFee: Prisma.Decimal;
+      domFee: Prisma.Decimal;
+      netAmount: Prisma.Decimal | null;
+    } | null,
   ): any {
     if (!order || !tx || Number(tx.totalFee) <= 0 || tx.netAmount == null) {
       return order;
     }
+    const totalFee = Number(tx.totalFee);
+    const domFee = Number(tx.domFee);
     const net = Number(tx.netAmount);
+    const profit = Number(Math.max(0, totalFee - domFee).toFixed(2));
     return {
       ...order,
-      fee_total_value: Number(tx.totalFee),
+      fee_total_value: totalFee,
       total_liquid: net,
       valor_liquido_vendedor: net,
+      taxa_dom: domFee,
+      taxa_vendedor: profit,
+      taxa_fixa_transacao: 0,
+      taxa_cashback: 0,
+      lucro_master: profit,
     };
   }
 
