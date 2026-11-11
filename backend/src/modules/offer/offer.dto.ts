@@ -305,6 +305,14 @@ export class OfferChargeDto {
 
   @ApiPropertyOptional({
     description:
+      'Cupom do vendedor: o desconto incide sobre o valor da venda, antes das taxas. O uso só é contado quando o pagamento é aprovado',
+  })
+  @IsOptional()
+  @IsString()
+  voucherCode?: string;
+
+  @ApiPropertyOptional({
+    description:
       'Upsell/downsell: id da Charge PAGA do pedido principal, do mesmo comprador',
   })
   @IsOptional()
@@ -355,4 +363,22 @@ export class OfferPreviewPricingDto {
   @ArrayMaxSize(20)
   @IsString({ each: true })
   selectedBumpOfferIds?: string[];
+}
+
+/** Validação pública de cupom no checkout de uma oferta. */
+export class OfferValidateVoucherDto {
+  @ApiProperty({ description: 'Código do cupom' })
+  @IsString()
+  @MinLength(1)
+  voucherCode!: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Order bumps escolhidos: entram no valor sobre o qual o cupom incide',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  bumpCodes?: string[];
 }

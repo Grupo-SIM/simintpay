@@ -11,6 +11,7 @@ import {
   type LinkDelivery,
   type PurchasedItem,
 } from '../../application/use-cases/payment-link/payment-link-delivery';
+import { recordVoucherUsageOnce } from '../../application/use-cases/voucher/voucher-offer';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { EmailService } from '../../infrastructure/email/email.service';
 import { StorageService } from '../../infrastructure/storage/storage.service';
@@ -132,7 +133,16 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
 
     const snap = (charge.snapshot ?? {}) as {
       items?: ChargeItem[];
+      voucher?: {
+        voucherId: string;
+        originalAmountCents: number;
+        discountAmountCents: number;
+        finalAmountCents: number;
+      };
     };
+    // O cupom só consome um uso depois do pagamento aprovado; repetir o evento não conta de novo.
+    if (!refunded && snap.voucher?.voucherId)
+      await this.recordVoucherUse(charge, tx, snap.voucher);
     const offer = await this.prisma.offer.findUnique({
       where: { id: charge.offerId },
     });
@@ -192,6 +202,37 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
     }
 
     return 'done';
+  }
+
+  private async recordVoucherUse(
+    charge: { customerEmail: string | null; customerDocument: string | null },
+    tx: {
+      id: string;
+      customerEmail: string | null;
+      customerDocument: string | null;
+    },
+    voucher: {
+      voucherId: string;
+      originalAmountCents: number;
+      discountAmountCents: number;
+      finalAmountCents: number;
+    },
+  ) {
+    try {
+      await recordVoucherUsageOnce(this.prisma as never, {
+        voucherId: voucher.voucherId,
+        transactionId: tx.id,
+        customerEmail: charge.customerEmail ?? tx.customerEmail ?? '',
+        customerDocument: charge.customerDocument ?? tx.customerDocument ?? '',
+        originalAmount: voucher.originalAmountCents / 100,
+        discountAmount: voucher.discountAmountCents / 100,
+        finalAmount: voucher.finalAmountCents / 100,
+      });
+    } catch (err: unknown) {
+      this.logger.error(
+        `[OfferFulfillment] Uso do cupom não registrado (tx=${tx.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /** Executa o passo uma vez por Charge; falha devolve o marcador para uma nova tentativa. */

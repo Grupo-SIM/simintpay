@@ -25,6 +25,7 @@ import {
   OfferPreviewPricingDto,
   ListOffersQueryDto,
   OfferChargeDto,
+  OfferValidateVoucherDto,
   UpdateOfferDto,
 } from './offer.dto';
 import { OfferCheckoutService } from './offer-checkout.service';
@@ -105,6 +106,27 @@ export class OfferController {
       ...body,
       tracking: { ...query, ...body.tracking },
     });
+  }
+
+  @Post('public/:code/validate-voucher')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({
+    summary:
+      'Validar um cupom no checkout da oferta: desconto, valor final e preços já com o desconto',
+  })
+  @ApiResponse({ status: 201 })
+  @ApiResponse({ status: 400 })
+  @ApiResponse({ status: 404 })
+  async validateVoucher(
+    @Param('code') code: string,
+    @Body() body: OfferValidateVoucherDto,
+  ) {
+    const quote = await this.checkout.validateVoucher(code, body);
+    const pricing = await this.offers.pricingAtAmount(
+      quote.offerId,
+      quote.finalAmountCents,
+    );
+    return { ...quote, pricing };
   }
 
   @Post('public/:code/card-customer')

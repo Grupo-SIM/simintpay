@@ -42,6 +42,8 @@ import {
 } from '@/lib/input-masks';
 import { validateBoletoCheckout } from '@/lib/boleto-checkout-validation';
 import { InstallmentSelect } from './InstallmentSelect';
+import { OfferVoucherField } from './OfferVoucherField';
+import { voucherField, type AppliedVoucher } from '@/lib/offer-voucher-model';
 import { browserCheckoutTracking } from '@/lib/payment-tracking';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import {
@@ -150,6 +152,7 @@ export default function OfferCheckout({
     { kind: 'paid' | 'trial' }
   > | null>(null);
   const [consent, setConsent] = useState(false);
+  const [voucher, setVoucher] = useState<AppliedVoucher | null>(null);
   const [blocked, setBlocked] = useState(false);
 
   const [boleto, setBoleto] = useState<BoletoResult | null>(null);
@@ -336,6 +339,7 @@ export default function OfferCheckout({
         customer,
         card,
         tracking: browserCheckoutTracking(),
+        ...(voucher ? { voucherCode: voucher.code } : {}),
       }),
     );
     const data = await res.json().catch(() => ({}));
@@ -464,6 +468,7 @@ export default function OfferCheckout({
               card,
               address: isBoleto ? address : undefined,
               bumpCodes: selectedBumps,
+              ...voucherField(voucher),
             }),
             tracking: browserCheckoutTracking(),
           }),
@@ -520,17 +525,21 @@ export default function OfferCheckout({
   const base =
     offerAmount(offer) +
     chosenBumps.reduce((n, b) => n + b.amountCents, 0) / 100;
-  const selected = options.find((o) => o.installments === installments);
+  // Com cupom, os preços vêm da API já calculados sobre o valor descontado.
+  const activePricing = voucher ? voucher.quote.pricing : pricing;
+  const activeOptions = voucher ? voucher.quote.pricing.options : options;
+  const discount = voucher ? voucher.quote.discountAmountCents / 100 : 0;
+  const selected = activeOptions.find((o) => o.installments === installments);
   const total =
     isCard && method === 'credit_card' && selected
       ? selected.totalAmount
       : method === 'pix'
-        ? (pricing?.pixAmount ?? base)
+        ? (activePricing?.pixAmount ?? base - discount)
         : method === 'debit_card'
-          ? (pricing?.debitAmount ?? base)
+          ? (activePricing?.debitAmount ?? base - discount)
           : method === 'boleto'
-            ? (pricing?.boletoAmount ?? base)
-            : base;
+            ? (activePricing?.boletoAmount ?? base - discount)
+            : base - discount;
 
   if (paidAmount !== null && recurring) {
     const next = done?.nextChargeAt
@@ -656,25 +665,30 @@ export default function OfferCheckout({
         </>
       }
       asideRows={
-        chosenBumps.length > 0 ? (
-          <>
-            {chosenBumps.map((b) => (
-              <SummaryRow
-                key={b.code}
-                accent
-                label={`+ ${sanitizeCheckoutText(b.name)}`}
-                value={money(b.amountCents / 100)}
-              />
-            ))}
-          </>
-        ) : recurring && trialDaysOf(offer) > 0 ? (
-          <SummaryRow
-            muted
-            label={`Após ${trialDaysOf(offer)} dias`}
-            value={money(base)}
-            last
-          />
-        ) : undefined
+        <>
+          {chosenBumps.map((b) => (
+            <SummaryRow
+              key={b.code}
+              accent
+              label={`+ ${sanitizeCheckoutText(b.name)}`}
+              value={money(b.amountCents / 100)}
+            />
+          ))}
+          {voucher && (
+            <SummaryRow
+              label={`Cupom ${voucher.code}`}
+              value={`- ${money(discount)}`}
+            />
+          )}
+          {recurring && trialDaysOf(offer) > 0 ? (
+            <SummaryRow
+              muted
+              label={`Após ${trialDaysOf(offer)} dias`}
+              value={money(base)}
+              last
+            />
+          ) : null}
+        </>
       }
       dadosSubtitle="Usados para emitir a cobrança e enviar seu acesso"
       validateDados={() => Boolean(previewOffer) || dadosOk}
@@ -754,6 +768,17 @@ export default function OfferCheckout({
       }
       pagamento={
         <div className="flex flex-col gap-3 pt-1">
+          {code && !previewOffer && !(recurring && trialDaysOf(offer) > 0) && (
+            <OfferVoucherField
+              offerCode={code}
+              applied={voucher}
+              onChange={(next) => {
+                setVoucher(next);
+                setInstallments(1);
+              }}
+              disabled={Boolean(pix) || Boolean(boleto) || loading}
+            />
+          )}
           <div
             role="radiogroup"
             aria-label="Forma de pagamento"
@@ -943,7 +968,7 @@ export default function OfferCheckout({
                 offer.maxInstallments > 1 && (
                   <CheckoutGlassField label="Parcelas">
                     <InstallmentSelect
-                      options={options}
+                      options={activeOptions}
                       value={installments}
                       onChange={setInstallments}
                       disabled={

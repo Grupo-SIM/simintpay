@@ -1295,6 +1295,7 @@ model VoucherUsage {
   createdAt        DateTime @default(now())
   voucher          Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
 
+  @@unique([voucherId, transactionId])
   @@index([voucherId])
 }
 

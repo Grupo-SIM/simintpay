@@ -126,9 +126,11 @@ export function subscribeBody(input: {
     holderName: string;
   };
   tracking?: Record<string, string>;
+  voucherCode?: string;
 }) {
   const { method, customer, card } = input;
   return {
+    ...(input.voucherCode ? { voucherCode: input.voucherCode } : {}),
     paymentMethod: method,
     customerName: customer.name,
     customerEmail: customer.email,

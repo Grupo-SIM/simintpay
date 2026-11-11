@@ -112,9 +112,11 @@ export function chargeBody(input: {
   card?: Card;
   address?: BoletoAddressFields;
   bumpCodes?: string[];
+  voucherCode?: string;
 }) {
   const { method, customer } = input;
   return {
+    ...(input.voucherCode ? { voucherCode: input.voucherCode } : {}),
     paymentMethod: method,
     customerName: customer.name,
     customerEmail: customer.email,

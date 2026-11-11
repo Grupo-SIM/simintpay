@@ -417,6 +417,14 @@ export class OfferService {
     });
   }
 
+  /** Checkout prices of an offer as if it cost `amountCents` (e.g. after a voucher). */
+  async pricingAtAmount(offerId: string, amountCents: number) {
+    const offer = await this.prisma.offer.findUniqueOrThrow({
+      where: { id: offerId },
+    });
+    return this.checkoutPricing({ ...offer, amountCents });
+  }
+
   private async checkoutPricing(offer: PricedOffer) {
     return pricingFor(await loadCyclePolicyContext(this.prisma, offer), offer);
   }

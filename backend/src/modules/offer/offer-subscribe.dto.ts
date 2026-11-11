@@ -94,4 +94,12 @@ export class OfferSubscribeDto {
   @IsOptional()
   @IsObject()
   tracking?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    description:
+      'Cupom do vendedor: vale para o primeiro ciclo (os ciclos seguintes voltam ao preço da oferta). Não vale com período de teste',
+  })
+  @IsOptional()
+  @IsString()
+  voucherCode?: string;
 }

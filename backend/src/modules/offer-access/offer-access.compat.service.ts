@@ -595,6 +595,7 @@ export class OfferAccessCompatService {
       document_type: string;
       mobile_phone: string;
       tracking?: Record<string, string>;
+      voucherCode?: string;
     },
   ) {
     const result = await this.subscriptions.subscribe(offer.code, {
@@ -605,6 +606,7 @@ export class OfferAccessCompatService {
       customerPhone: customer.mobile_phone,
       documentType: customer.document_type as 'CPF' | 'CNPJ',
       tracking: customer.tracking,
+      voucherCode: customer.voucherCode,
     });
     // Comprador que já tem contrato e nada pendente: renovação por um novo PIX.
     if (result.existing && !result.pix) {
@@ -701,8 +703,8 @@ export class OfferAccessCompatService {
       throw new NotFoundException(
         'Link-code PIX-PLAN não encontrado ou inativo',
       );
-    // Voucher/finalAmount: cupons de oferta ainda não existem (plano 0023, segunda leva);
-    // o PIX sai pelo valor cheio da oferta.
+    // `voucherCode` é validado pelo servidor (cupom da oferta); `finalAmount` do cliente é
+    // ignorado: o valor cobrado sempre vem do cupom e da política de taxas.
     return this.paymentResponse(await this.pixFor(alias.offer, body));
   }
 

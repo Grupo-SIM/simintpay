@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DiscountType } from '@prisma/client';
+import { findOfferByCodeOrId } from '../../../modules/offer/find-offer-by-code-or-id';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import type {
   CreateVoucherDto,
@@ -12,6 +13,13 @@ import type {
   ValidateVoucherDto,
   RecordVoucherUsageDto,
 } from '../../dtos/voucher/voucher.dto';
+import {
+  findOfferVoucherQuote,
+  recordVoucherUsageOnce,
+  type OfferVoucherQuote,
+  type VoucherOfferTarget,
+  type VoucherUsageInput,
+} from './voucher-offer';
 
 const DEFAULT_VALID_UNTIL = '9999-12-31T23:59:59.999Z';
 
@@ -69,17 +77,26 @@ export class VoucherService {
     return voucher;
   }
 
-  async updateVoucher(userId: string, role: string, voucherId: string, dto: UpdateVoucherDto) {
-    const voucher = await (this.prisma as any).voucher.findUnique({ where: { id: voucherId } });
+  async updateVoucher(
+    userId: string,
+    role: string,
+    voucherId: string,
+    dto: UpdateVoucherDto,
+  ) {
+    const voucher = await (this.prisma as any).voucher.findUnique({
+      where: { id: voucherId },
+    });
     if (!voucher) throw new NotFoundException('Voucher não encontrado');
     if (role !== 'ADMIN' && voucher.userId !== userId) {
       throw new NotFoundException('Voucher não encontrado');
     }
 
     const updateData: any = { ...dto };
-    if (dto.validUntil != null) updateData.validUntil = new Date(dto.validUntil);
+    if (dto.validUntil != null)
+      updateData.validUntil = new Date(dto.validUntil);
     if (dto.validFrom != null) updateData.validFrom = new Date(dto.validFrom);
-    if (dto.discountType) updateData.discountType = dto.discountType as DiscountType;
+    if (dto.discountType)
+      updateData.discountType = dto.discountType as DiscountType;
     if (dto.allowedLinkCodes !== undefined) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       updateData['allowedLinkCodes'] = dto.allowedLinkCodes;
@@ -94,7 +111,9 @@ export class VoucherService {
   }
 
   async deleteVoucher(userId: string, role: string, voucherId: string) {
-    const voucher = await (this.prisma as any).voucher.findUnique({ where: { id: voucherId } });
+    const voucher = await (this.prisma as any).voucher.findUnique({
+      where: { id: voucherId },
+    });
     if (!voucher) throw new NotFoundException('Voucher não encontrado');
     if (role !== 'ADMIN' && voucher.userId !== userId) {
       throw new NotFoundException('Voucher não encontrado');
@@ -111,6 +130,9 @@ export class VoucherService {
     if (!finalCode) {
       throw new BadRequestException('Código do voucher não informado');
     }
+
+    const offerResult = await this.validateAgainstOffer(finalCode, dto);
+    if (offerResult) return offerResult;
 
     let searchUserId = userId;
 
@@ -138,7 +160,10 @@ export class VoucherService {
 
       if (pixPlan) {
         // Resolve o dono real do plano (lógica de shadow user)
-        searchUserId = await this.resolveEffectiveMerchantId(pixPlan.userId, pixPlan.description);
+        searchUserId = await this.resolveEffectiveMerchantId(
+          pixPlan.userId,
+          pixPlan.description,
+        );
       } else {
         // Tenta buscar no SubscriptionLink (LinkAssinatura)
         const subLink = await (this.prisma as any).subscriptionLink.findFirst({
@@ -202,30 +227,40 @@ export class VoucherService {
     const applicablePlans = voucher.applicablePlans ?? [];
     if (applicablePlans.length > 0) {
       if (!dto.planId) {
-        throw new BadRequestException('Este voucher requer um plano específico');
+        throw new BadRequestException(
+          'Este voucher requer um plano específico',
+        );
       }
       if (!applicablePlans.includes(dto.planId)) {
         throw new BadRequestException('Voucher não é válido para este plano');
       }
     }
 
-    const voucherAllowedLinkCodes = (voucher.allowedLinkCodes as string[]) ?? [];
+    const voucherAllowedLinkCodes =
+      (voucher.allowedLinkCodes as string[]) ?? [];
     if (voucherAllowedLinkCodes.length > 0) {
       if (!dto.linkCode) {
-        throw new BadRequestException('Este voucher requer um link de checkout específico');
+        throw new BadRequestException(
+          'Este voucher requer um link de checkout específico',
+        );
       }
       const isAllowed = voucherAllowedLinkCodes.some(
-        (c) => c.trim().toLowerCase() === dto.linkCode?.trim().toLowerCase()
+        (c) => c.trim().toLowerCase() === dto.linkCode?.trim().toLowerCase(),
       );
       if (!isAllowed) {
-        throw new BadRequestException('Código de voucher inválido para este link');
+        throw new BadRequestException(
+          'Código de voucher inválido para este link',
+        );
       }
     }
 
     let discountAmount: number;
     if (voucher.discountType === 'PERCENTAGE') {
       discountAmount = (dto.amount * voucher.discountValue) / 100;
-      if (voucher.maxDiscountValue != null && discountAmount > voucher.maxDiscountValue) {
+      if (
+        voucher.maxDiscountValue != null &&
+        discountAmount > voucher.maxDiscountValue
+      ) {
         discountAmount = voucher.maxDiscountValue;
       }
     } else {
@@ -263,6 +298,9 @@ export class VoucherService {
     const finalCode = dto.code.toUpperCase().trim();
     const now = new Date();
 
+    const offerResult = await this.validateAgainstOffer(finalCode, dto);
+    if (offerResult) return offerResult;
+
     // Se houver targetOwnerId, resolve o dono real caso seja um usuário shadow (para planos PIX)
     let resolvedOwnerId = dto.targetOwnerId;
     if (resolvedOwnerId) {
@@ -275,7 +313,10 @@ export class VoucherService {
         });
         description = plan?.description ?? null;
       }
-      resolvedOwnerId = await this.resolveEffectiveMerchantId(resolvedOwnerId, description);
+      resolvedOwnerId = await this.resolveEffectiveMerchantId(
+        resolvedOwnerId,
+        description,
+      );
     }
 
     const voucher = await (this.prisma as any).voucher.findFirst({
@@ -313,7 +354,9 @@ export class VoucherService {
     const applicablePlans = voucher.applicablePlans ?? [];
     if (applicablePlans.length > 0) {
       if (!dto.planId) {
-        throw new BadRequestException('Este voucher requer um plano específico');
+        throw new BadRequestException(
+          'Este voucher requer um plano específico',
+        );
       }
       if (!applicablePlans.includes(dto.planId)) {
         throw new BadRequestException('Voucher não é válido para este plano');
@@ -327,20 +370,27 @@ export class VoucherService {
 
     if (allowedLinkCodes.length > 0) {
       if (!dto.linkCode) {
-        throw new BadRequestException('Este voucher requer um link de checkout específico');
+        throw new BadRequestException(
+          'Este voucher requer um link de checkout específico',
+        );
       }
       const isAllowed = allowedLinkCodes.some(
-        (c) => c.trim().toLowerCase() === dto.linkCode?.trim().toLowerCase()
+        (c) => c.trim().toLowerCase() === dto.linkCode?.trim().toLowerCase(),
       );
       if (!isAllowed) {
-        throw new BadRequestException('Código de voucher inválido para este link');
+        throw new BadRequestException(
+          'Código de voucher inválido para este link',
+        );
       }
     }
 
     let discountAmount: number;
     if (voucher.discountType === 'PERCENTAGE') {
       discountAmount = (dto.amount * voucher.discountValue) / 100;
-      if (voucher.maxDiscountValue != null && discountAmount > voucher.maxDiscountValue) {
+      if (
+        voucher.maxDiscountValue != null &&
+        discountAmount > voucher.maxDiscountValue
+      ) {
         discountAmount = voucher.maxDiscountValue;
       }
     } else {
@@ -362,8 +412,61 @@ export class VoucherService {
     };
   }
 
+  /**
+   * When `linkCode`/`planId` identify an Offer (its code, or its id: ids and codes of migrated
+   * legacy links are preserved), the voucher is validated by the offer rules and answered in
+   * the legacy shape (reais). Returns null when no offer matches, so the legacy lookups run.
+   */
+  private async validateAgainstOffer(
+    code: string,
+    dto: { amount: number; linkCode?: string; planId?: string },
+  ) {
+    const ref = dto.linkCode?.trim() || dto.planId?.trim();
+    if (!ref) return null;
+    const offer = await findOfferByCodeOrId(this.prisma, ref);
+    if (!offer) return null;
+    const quote = await this.validateForOffer(
+      offer,
+      code,
+      Math.round(dto.amount * 100),
+    );
+    return {
+      valid: true,
+      voucherId: quote.voucherId,
+      code: quote.code,
+      discountType: quote.discountType,
+      discountValue: quote.discountValue,
+      discountAmount: quote.discountAmountCents / 100,
+      finalAmount: quote.finalAmountCents / 100,
+      originalAmount: dto.amount,
+    };
+  }
+
+  /** Quotes a voucher against an offer charge (cents, before fees). Read-only. */
+  validateForOffer(
+    offer: VoucherOfferTarget & { ownerUserId: string },
+    code: string,
+    amountCents: number,
+    now = new Date(),
+  ): Promise<OfferVoucherQuote> {
+    return findOfferVoucherQuote(
+      this.prisma as any,
+      offer,
+      code,
+      amountCents,
+      now,
+    );
+  }
+
+  /** Idempotent per (voucher, transaction); see `recordVoucherUsageOnce`. */
+  recordUsageOnce(dto: VoucherUsageInput): Promise<boolean> {
+    return recordVoucherUsageOnce(this.prisma as any, dto);
+  }
+
   async recordUsage(dto: RecordVoucherUsageDto) {
-    const voucher = await (this.prisma as any).voucher.findUnique({ where: { id: dto.voucherId } });
+    const voucher = await (this.prisma as any).voucher.findUnique({
+      where: { id: dto.voucherId },
+    });
     if (!voucher) throw new NotFoundException('Voucher não encontrado');
 
     await this.prisma.$transaction([
@@ -392,14 +495,20 @@ export class VoucherService {
    * Resolve o ID real do merchant caso o userId atual pertença a um usuário 'shadow'
    * (técnico/automático) criado por integrações como api-pagatg.
    */
-  private async resolveEffectiveMerchantId(userId: string, description?: string | null): Promise<string> {
+  private async resolveEffectiveMerchantId(
+    userId: string,
+    description?: string | null,
+  ): Promise<string> {
     const owner = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { email: true, id: true },
     });
 
     // Se não for usuário shadow (@auto.simpay.com), retorna o próprio userId
-    if (!owner || !(owner.email ?? '').toLowerCase().endsWith('@auto.simpay.com')) {
+    if (
+      !owner ||
+      !(owner.email ?? '').toLowerCase().endsWith('@auto.simpay.com')
+    ) {
       return userId;
     }
 
@@ -413,9 +522,13 @@ export class VoucherService {
     // Busca usuário real pelo CPF
     const variants: string[] = [digits];
     if (digits.length === 11) {
-      variants.push(digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'));
+      variants.push(
+        digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'),
+      );
     } else if (digits.length === 14) {
-      variants.push(digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5'));
+      variants.push(
+        digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5'),
+      );
     }
 
     const realUser = await this.prisma.user.findFirst({

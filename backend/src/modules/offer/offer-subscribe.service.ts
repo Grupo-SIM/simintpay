@@ -60,6 +60,7 @@ import type {
 } from './offer-subscribe.dto';
 import { offerGatewayLinkInput } from './offer-gateway-link';
 import { priceOfferCharge } from './offer-pricing';
+import { findOfferVoucherQuote } from '../../application/use-cases/voucher/voucher-offer';
 
 export type OfferSubscribeResult = {
   contractId: string;
@@ -287,6 +288,10 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
         );
     }
 
+    if (trial && input.voucherCode?.trim())
+      throw new BadRequestException(
+        'Cupom não vale para ofertas com período de teste',
+      );
     if (trial) {
       return this.startTrial(offer, input, {
         email,
@@ -296,10 +301,27 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    // Cupom: vale para o primeiro ciclo e sai do preço da oferta, antes das taxas.
+    const voucher = input.voucherCode?.trim()
+      ? await findOfferVoucherQuote(
+          this.prisma as never,
+          offer,
+          input.voucherCode,
+          offer.amountCents,
+          now,
+        )
+      : null;
+    if (voucher && voucher.finalAmountCents <= 0)
+      throw new BadRequestException(
+        'O cupom não pode zerar a cobrança; use um desconto menor',
+      );
+    const firstCycleOffer = voucher
+      ? { ...offer, amountCents: voucher.finalAmountCents }
+      : offer;
     const pricing = await priceOfferCharge(
       this.prisma,
       this.users,
-      offer,
+      firstCycleOffer,
       method,
       1,
     );
@@ -403,7 +425,18 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
             amountCents,
             attempts: 1,
             snapshot: {
-              baseAmountCents: offer.amountCents,
+              baseAmountCents: firstCycleOffer.amountCents,
+              ...(voucher
+                ? {
+                    voucher: {
+                      voucherId: voucher.voucherId,
+                      code: voucher.code,
+                      originalAmountCents: voucher.originalAmountCents,
+                      discountAmountCents: voucher.discountAmountCents,
+                      finalAmountCents: voucher.finalAmountCents,
+                    },
+                  }
+                : {}),
               installments: 1,
               totalFee: pricing.totalFee,
               domFee: pricing.domFee,

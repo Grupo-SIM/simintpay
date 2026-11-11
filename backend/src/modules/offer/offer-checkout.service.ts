@@ -43,7 +43,11 @@ import {
   type ChargeItem,
   type FulfillmentRole,
 } from './offer-fulfillment';
-import type { OfferChargeDto } from './offer.dto';
+import {
+  findOfferVoucherQuote,
+  type OfferVoucherQuote,
+} from '../../application/use-cases/voucher/voucher-offer';
+import type { OfferChargeDto, OfferValidateVoucherDto } from './offer.dto';
 
 const METHODS: Record<OfferChargeDto['paymentMethod'], PaymentMethod> = {
   pix: PaymentMethod.PIX,
@@ -105,13 +109,7 @@ export class OfferCheckoutService {
     input: OfferChargeDto,
     now = new Date(),
   ): Promise<OfferChargeResult> {
-    const offer = await findOfferByCodeOrId(this.prisma, code);
-    if (
-      !offer ||
-      !offer.isActive ||
-      (offer.expiresAt && offer.expiresAt <= now)
-    )
-      throw new NotFoundException('Oferta não encontrada');
+    const offer = await this.findCheckoutOffer(code, now);
     const isFunnel = Boolean(input.parentChargeId);
     // Upsell/downsell não consome a cota da oferta (como no link legado).
     if (!isFunnel && offer.maxUses !== null && offer.usedCount >= offer.maxUses)
@@ -197,7 +195,19 @@ export class OfferCheckoutService {
             }),
           ),
         ];
-    const chargedBaseCents = items.reduce((n, i) => n + i.amountCents, 0);
+    const itemsCents = items.reduce((n, i) => n + i.amountCents, 0);
+    // Cupom: o desconto sai do valor da venda, antes das taxas (taxas e coprodução incidem sobre
+    // o valor já descontado). O uso só é consumido quando a Charge é paga.
+    const voucher = input.voucherCode?.trim()
+      ? await this.quoteVoucher(
+          offer,
+          input.voucherCode,
+          itemsCents,
+          funnel,
+          now,
+        )
+      : null;
+    const chargedBaseCents = voucher ? voucher.finalAmountCents : itemsCents;
     const baseAmount = chargedBaseCents / 100;
     const financialContext = await loadChargePolicy(
       this.prisma,
@@ -330,6 +340,17 @@ export class OfferCheckoutService {
           snapshot: {
             baseAmountCents: chargedBaseCents,
             items: items as unknown as Prisma.InputJsonValue,
+            ...(voucher
+              ? {
+                  voucher: {
+                    voucherId: voucher.voucherId,
+                    code: voucher.code,
+                    originalAmountCents: voucher.originalAmountCents,
+                    discountAmountCents: voucher.discountAmountCents,
+                    finalAmountCents: voucher.finalAmountCents,
+                  },
+                }
+              : {}),
             ...(funnel
               ? {
                   parentChargeId: funnel.parentChargeId,
@@ -496,6 +517,67 @@ export class OfferCheckoutService {
             ? metadata.redirectUrl
             : null)),
     };
+  }
+
+  /**
+   * Cupom no checkout público: valida contra o valor da venda (oferta + bumps escolhidos) e
+   * devolve o desconto e o valor final, sem consumir o uso.
+   */
+  async validateVoucher(
+    code: string,
+    input: OfferValidateVoucherDto,
+    now = new Date(),
+  ) {
+    const offer = await this.findCheckoutOffer(code, now);
+    const bumps = await this.resolveBumps(
+      offer,
+      { bumpCodes: input.bumpCodes } as OfferChargeDto,
+      now,
+    );
+    const itemsCents =
+      offer.amountCents + bumps.reduce((n, b) => n + b.amountCents, 0);
+    const quote = await this.quoteVoucher(
+      offer,
+      input.voucherCode,
+      itemsCents,
+      null,
+      now,
+    );
+    return { ...quote, offerId: offer.id, offerCode: offer.code };
+  }
+
+  private async findCheckoutOffer(code: string, now: Date) {
+    const offer = await findOfferByCodeOrId(this.prisma, code);
+    if (
+      !offer ||
+      !offer.isActive ||
+      (offer.expiresAt && offer.expiresAt <= now)
+    )
+      throw new NotFoundException('Oferta não encontrada');
+    return offer;
+  }
+
+  private async quoteVoucher(
+    offer: Offer,
+    voucherCode: string,
+    amountCents: number,
+    funnel: unknown,
+    now: Date,
+  ): Promise<OfferVoucherQuote> {
+    if (funnel)
+      throw new BadRequestException('Cupom não vale para upsell/downsell');
+    const quote = await findOfferVoucherQuote(
+      this.prisma as never,
+      offer,
+      voucherCode,
+      amountCents,
+      now,
+    );
+    if (quote.finalAmountCents <= 0)
+      throw new BadRequestException(
+        'O cupom não pode zerar a cobrança; use um desconto menor',
+      );
+    return quote;
   }
 
   /** Order bumps escolhidos: só os que a oferta principal lista como BUMP (mesmo titular, avulsos e ativos). */

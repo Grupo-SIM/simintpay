@@ -122,7 +122,7 @@ Pontos que a primeira leva deixou em aberto:
 Segunda leva (mexem em arquivos da primeira, começam agora):
 
 - [ ] Arquivos de entrega e imagens de bump.
-- [ ] Cupons.
+- [x] Cupons: `POST /ofertas/public/:code/validate-voucher`, desconto antes das taxas na cobrança avulsa e no primeiro ciclo da assinatura, uso registrado ao pagar (idempotente por transação), campo de cupom no checkout, CRUD e capacidade PAGATG com ofertas.
 - [ ] Funil no checkout: seleção de bumps, imagens, tela de pós-compra de upsell e downsell.
 - [ ] Pausa e retomada de assinatura, e lista de assinantes de ofertas para o vendedor.
 - [ ] Remover comunidade e provisionamento (código, cron, relatórios, telas).
