@@ -106,6 +106,7 @@ interface LedgerTransactionsResponse {
       amount: string;
       netAmount: string | null;
       totalFee: string | null;
+      domFee?: string | null;
       status: string;
       paymentMethod: string;
       acquirer: string;
@@ -167,6 +168,7 @@ function mapDomTransacao(raw: DomTransacao): Transacao {
     amount: raw.amount,
     netAmount: raw.netAmount,
     totalFee: raw.totalFee,
+    domFee: raw.domFee,
     paymentMethod: raw.paymentMethod,
     installments: raw.installments,
     descricao: raw.description ?? undefined,
@@ -261,6 +263,7 @@ export async function listTransacoes(
       amount: transaction.amount,
       netAmount: transaction.netAmount,
       totalFee: transaction.totalFee,
+      domFee: transaction.domFee,
       status: transaction.status,
       paymentMethod: transaction.paymentMethod,
       acquirer: transaction.acquirer,
