@@ -162,7 +162,7 @@ export class PlatformSyncPersistenceService {
       amount,
       netAmount,
       totalFee,
-      domFee,
+      acquirerFee: domFee,
       platformFee: Prisma.Decimal.max(0, totalFee.minus(domFee)),
       status,
       description: description.includes(marker)

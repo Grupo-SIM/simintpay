@@ -644,7 +644,7 @@ export class PlatformFinanceService {
         amountCents: this.cents(row.amount),
         netAmountCents: this.cents(row.netAmount ?? row.amount),
         platformFeeCents: this.cents(row.platformFee),
-        acquirerFeeCents: this.cents(row.domFee),
+        acquirerFeeCents: this.cents(row.acquirerFee),
         status: row.status,
         paymentMethod: row.paymentMethod,
         description: row.description,
@@ -711,11 +711,11 @@ export class PlatformFinanceService {
         amount: true,
         netAmount: true,
         platformFee: true,
-        domFee: true,
+        acquirerFee: true,
       },
     });
     const rows = candidates;
-    const sum = (key: 'amount' | 'netAmount' | 'platformFee' | 'domFee') =>
+    const sum = (key: 'amount' | 'netAmount' | 'platformFee' | 'acquirerFee') =>
       rows.reduce(
         (total, row) => total.plus(row[key] ?? 0),
         new Prisma.Decimal(0),
@@ -726,7 +726,7 @@ export class PlatformFinanceService {
         amount: sum('amount'),
         netAmount: sum('netAmount'),
         platformFee: sum('platformFee'),
-        domFee: sum('domFee'),
+        acquirerFee: sum('acquirerFee'),
       },
     };
     return {
@@ -736,7 +736,7 @@ export class PlatformFinanceService {
       grossAmountCents: this.cents(aggregate._sum.amount),
       netAmountCents: this.cents(aggregate._sum.netAmount),
       platformFeeCents: this.cents(aggregate._sum.platformFee),
-      acquirerFeeCents: this.cents(aggregate._sum.domFee),
+      acquirerFeeCents: this.cents(aggregate._sum.acquirerFee),
     };
   }
 

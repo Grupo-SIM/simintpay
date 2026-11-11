@@ -61,7 +61,7 @@ function fixture(tag: string, Service: any, Controller: any) {
     amount: new Prisma.Decimal(120),
     netAmount: new Prisma.Decimal(110),
     platformFee: new Prisma.Decimal(7),
-    domFee: new Prisma.Decimal(3),
+    acquirerFee: new Prisma.Decimal(3),
     status: 'COMPLETED',
     description: `[TENANT:${tag}] Buyer`,
     platformTag: tag,

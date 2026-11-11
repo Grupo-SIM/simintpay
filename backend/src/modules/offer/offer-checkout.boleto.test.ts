@@ -490,7 +490,7 @@ describe('offer boleto == legacy ChargeBoletoUseCase (characterization)', () => 
       amount: 100,
       netAmount: 95,
       totalFee: 5,
-      domFee: 1.5,
+      acquirerFee: 1.5,
       platformFee: 3.5,
     });
   });

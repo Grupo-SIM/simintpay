@@ -208,7 +208,7 @@ export class SyncMaquinetasUseCase {
                 totalFee: new Prisma.Decimal(
                   domFeeCorrigido + platformFeeCorrigido,
                 ),
-                domFee: new Prisma.Decimal(domFeeCorrigido),
+                acquirerFee: new Prisma.Decimal(domFeeCorrigido),
                 platformFee: new Prisma.Decimal(platformFeeCorrigido),
                 description: appendInternalTags(
                   `Maquineta (CORRIGIDA) - Terminal: ${serial}`,
@@ -295,7 +295,7 @@ export class SyncMaquinetasUseCase {
               totalFee: new Prisma.Decimal(
                 fees.domFeeAmt + fees.platformFeeAmt,
               ),
-              domFee: new Prisma.Decimal(fees.domFeeAmt),
+              acquirerFee: new Prisma.Decimal(fees.domFeeAmt),
               platformFee: new Prisma.Decimal(fees.platformFeeAmt),
               status: TransactionStatus.COMPLETED,
               paymentMethod,

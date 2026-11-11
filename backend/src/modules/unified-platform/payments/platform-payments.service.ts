@@ -489,7 +489,7 @@ export class PlatformPaymentsService {
       amount: chargeAmount,
       netAmount: new Prisma.Decimal(financialQuote.netAmount),
       totalFee: new Prisma.Decimal(financialQuote.totalFeeAmount),
-      domFee: new Prisma.Decimal(
+      acquirerFee: new Prisma.Decimal(
         deliveryQuote && realizedCostCents !== undefined
           ? realizedCostCents / 100
           : financialQuote.domFeeAmount,
@@ -835,7 +835,9 @@ export class PlatformPaymentsService {
                   ...snapshot,
                   acquirerCost: currentCost,
                 } as Prisma.InputJsonValue,
-                domFee: new Prisma.Decimal(currentCost.realizedCents).div(100),
+                acquirerFee: new Prisma.Decimal(currentCost.realizedCents).div(
+                  100,
+                ),
               }
             : {}),
         },

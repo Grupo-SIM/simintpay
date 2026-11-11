@@ -929,7 +929,7 @@ export class PlatformAdministrationService {
                 }
               : {
                   total: Number(t.totalFee),
-                  dom: Number(t.domFee),
+                  dom: Number(t.acquirerFee),
                   plataforma: Number(t.platformFee),
                 },
             criadoEm: t.createdAt,
@@ -1169,7 +1169,7 @@ export class PlatformAdministrationService {
       const taxaDom = isCompleted
         ? physicalDom
           ? Number(physicalDom.pct.toFixed(2))
-          : Number(t.domFee ?? 0)
+          : Number(t.acquirerFee ?? 0)
         : 0;
       const taxaSimIntPay = isCompleted ? Number(t.platformFee ?? 0) : 0;
       // Taxa de serviço é venda online. Maquineta já cobra somente a taxa POS
@@ -1314,7 +1314,7 @@ export class PlatformAdministrationService {
             }
           : {
               total: Number(t.totalFee),
-              dom: Number(t.domFee),
+              dom: Number(t.acquirerFee),
               plataforma: Number(t.platformFee),
             },
         criadoEm: t.createdAt,
@@ -1384,7 +1384,7 @@ export class PlatformAdministrationService {
         description?: string | null;
         platformTag?: string | null;
         netAmount?: unknown;
-        domFee?: unknown;
+        acquirerFee?: unknown;
         mdrValue?: unknown;
         platformFee?: unknown;
         createdAt?: Date | null;
@@ -1493,7 +1493,7 @@ export class PlatformAdministrationService {
               installments: t.installments,
               tenantTag: tag,
             })
-          : Number(t.domFee ?? 0);
+          : Number(t.acquirerFee ?? 0);
         return s + Number(domFee.toFixed(2));
       }, 0);
       // Cashback (R$3): a DOM NÃO cobra em maquineta (o cliente não consegue registrar os dados
@@ -1671,7 +1671,7 @@ export class PlatformAdministrationService {
         netAmount: tx.netAmount,
         // Snapshot local imutável. A tabela de transações e os cards passam a
         // somar a mesma cópia, independente da adquirente de origem.
-        domFee: tx.domFee,
+        acquirerFee: tx.acquirerFee,
         platformFee: tx.platformFee,
         financialSnapshot: tx.financialSnapshot,
         cardBrand: tx.cardBrand,
@@ -1767,7 +1767,7 @@ export class PlatformAdministrationService {
         );
         tx.isStandalone = true;
         tx.platformFee = Number(order.platformFeeAmount);
-        tx.domFee = domFee;
+        tx.acquirerFee = domFee;
         tx.netAmount = Number(
           (amount - Number(order.platformFeeAmount)).toFixed(2),
         );
@@ -1798,7 +1798,7 @@ export class PlatformAdministrationService {
           createdAt: order.createdAt,
           description: `[TENANT:${tag}] subOrder=${order.id}`,
           netAmount: Number((amount - platformFee).toFixed(2)),
-          domFee,
+          acquirerFee: domFee,
           platformFee,
           cardBrand: null,
           acquirer: 'DOM',
@@ -1897,7 +1897,7 @@ export class PlatformAdministrationService {
         description: true,
         platformTag: true,
         netAmount: true,
-        domFee: true,
+        acquirerFee: true,
         platformFee: true,
         financialSnapshot: true,
         cardBrand: true,

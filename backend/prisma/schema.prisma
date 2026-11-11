@@ -197,7 +197,7 @@ model Transaction {
   description      String?
   installments     Int                        @default(1)
   totalFee         Decimal                    @default(0) @db.Decimal(12, 2)
-  domFee           Decimal                    @default(0) @db.Decimal(12, 2)
+  acquirerFee      Decimal                    @default(0) @db.Decimal(12, 2)
   platformFee      Decimal                    @default(0) @db.Decimal(12, 2)
   domTransactionId String?                    @unique
   domPaymentId     String?                    @unique

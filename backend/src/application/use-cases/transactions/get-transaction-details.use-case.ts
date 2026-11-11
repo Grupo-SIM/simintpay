@@ -176,7 +176,7 @@ export class GetTransactionDetailsUseCase {
     // Prefer stored totalFee; calculate from amount-netAmount as fallback
     const totalFee =
       Number(tx.totalFee ?? 0) || Math.max(0, amount - netAmount);
-    const domFee = Number(tx.domFee ?? 0);
+    const domFee = Number(tx.acquirerFee ?? 0);
 
     const historicStatus = tx.statusHistory?.length
       ? tx.statusHistory.map((h: any) => ({
@@ -251,7 +251,7 @@ export class GetTransactionDetailsUseCase {
         platformTag: true,
         acquirer: true,
         totalFee: true,
-        domFee: true,
+        acquirerFee: true,
         netAmount: true,
       },
     });
@@ -282,7 +282,7 @@ export class GetTransactionDetailsUseCase {
     order: any,
     tx: {
       totalFee: Prisma.Decimal;
-      domFee: Prisma.Decimal;
+      acquirerFee: Prisma.Decimal;
       financialSnapshot: Prisma.JsonValue;
       netAmount: Prisma.Decimal | null;
     } | null,
@@ -384,7 +384,7 @@ export class GetTransactionDetailsUseCase {
               this.prisma.transaction
                 .update({
                   where: { id: tx.id },
-                  data: { domFee: new Prisma.Decimal(mdrVal) },
+                  data: { acquirerFee: new Prisma.Decimal(mdrVal) },
                 })
                 .catch(() => {});
             }

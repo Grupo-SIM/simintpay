@@ -18,7 +18,8 @@ interface DomTransacao {
   description: string | null;
   installments: number;
   totalFee: string | null;
-  domFee: string | null;
+  acquirerFee: string | null;
+  acquirer?: string;
   platformFee: string | null;
   domTransactionId: string | null;
   domPaymentId: string | null;
@@ -168,8 +169,8 @@ function mapDomTransacao(raw: DomTransacao): Transacao {
     amount: raw.amount,
     netAmount: raw.netAmount,
     totalFee: raw.totalFee,
-    acquirerFee: raw.domFee,
-    acquirer: 'DOM',
+    acquirerFee: raw.acquirerFee,
+    acquirer: raw.acquirer,
     paymentMethod: raw.paymentMethod,
     installments: raw.installments,
     descricao: raw.description ?? undefined,

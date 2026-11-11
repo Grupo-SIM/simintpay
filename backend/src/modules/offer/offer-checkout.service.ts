@@ -263,7 +263,7 @@ export class OfferCheckoutService {
       netAmount: new Prisma.Decimal(netAmount),
       paymentMethod: method,
       totalFee: new Prisma.Decimal(totalFee),
-      domFee: new Prisma.Decimal(domFee),
+      acquirerFee: new Prisma.Decimal(domFee),
       platformFee: new Prisma.Decimal(platformFee),
       description:
         platformTag !== 'GLOBAL'
@@ -338,7 +338,7 @@ export class OfferCheckoutService {
               : {}),
             installments,
             totalFee,
-            domFee,
+            acquirerFee: domFee,
             platformFee,
             netAmount,
             acquirer,

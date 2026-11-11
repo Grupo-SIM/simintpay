@@ -21,7 +21,7 @@ export class PrismaTransactionRepository implements ITransactionRepository {
         description: data.description ?? undefined,
         installments: data.installments ?? 1,
         totalFee: data.totalFee ?? 0,
-        domFee: data.domFee ?? 0,
+        acquirerFee: data.acquirerFee ?? 0,
         platformFee: data.platformFee ?? 0,
         domPaymentId: data.domPaymentId ?? undefined,
         domTransactionId: data.domTransactionId ?? undefined,

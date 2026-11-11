@@ -335,7 +335,7 @@ export class OfferRenewalService {
       netAmount: new Prisma.Decimal(frozen.netAmount),
       paymentMethod: 'PIX' as const,
       totalFee: new Prisma.Decimal(frozen.totalFee),
-      domFee: new Prisma.Decimal(frozen.domFee),
+      acquirerFee: new Prisma.Decimal(frozen.domFee),
       platformFee: new Prisma.Decimal(frozen.platformFee),
       description:
         ctx.platformTag !== 'GLOBAL'

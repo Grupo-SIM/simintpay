@@ -11,7 +11,7 @@ export type CreateTransactionData = {
   description?: string | null;
   installments?: number;
   totalFee?: number;
-  domFee?: number;
+  acquirerFee?: number;
   platformFee?: number;
   domPaymentId?: string | null;
   domTransactionId?: string | null;

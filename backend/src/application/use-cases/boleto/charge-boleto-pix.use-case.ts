@@ -121,7 +121,7 @@ export class ChargeBoletoPixUseCase {
       amount: new Prisma.Decimal(financialQuote.totalAmount),
       netAmount: new Prisma.Decimal(netAmount),
       totalFee: new Prisma.Decimal(totalFee),
-      domFee: new Prisma.Decimal(domFeeAmount),
+      acquirerFee: new Prisma.Decimal(domFeeAmount),
       platformFee: new Prisma.Decimal(financialQuote.platformProfit),
       paymentMethod: PaymentMethod.PIX,
       description: `${boleto.title} [TENANT:${platformTag}]`,

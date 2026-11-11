@@ -1,10 +1,10 @@
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { TransactionStatus } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -27,10 +27,16 @@ export class MaquinetasController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Listar transações de maquinetas do usuário autenticado' })
+  @ApiOperation({
+    summary: 'Listar transações de maquinetas do usuário autenticado',
+  })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
-  @ApiQuery({ name: 'status', required: false, enum: ['COMPLETED', 'PENDING', 'FAILED'] })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['COMPLETED', 'PENDING', 'FAILED'],
+  })
   @ApiQuery({ name: 'startDate', required: false, description: 'YYYY-MM-DD' })
   @ApiQuery({ name: 'endDate', required: false, description: 'YYYY-MM-DD' })
   async getMaquinetas(
@@ -58,7 +64,9 @@ export class MaquinetasController {
       ...(startDate || endDate
         ? {
             createdAt: {
-              ...(startDate ? { gte: dayjs(startDate).startOf('day').toDate() } : {}),
+              ...(startDate
+                ? { gte: dayjs(startDate).startOf('day').toDate() }
+                : {}),
               ...(endDate ? { lte: dayjs(endDate).endOf('day').toDate() } : {}),
             },
           }
@@ -78,14 +86,19 @@ export class MaquinetasController {
     const mapped = transactions.map((tx) => {
       const netAmt = Number(tx.netAmount);
       const amt = Number(tx.amount);
-      const domFeeVal = Number(tx.domFee ?? 0);
+      const domFeeVal = Number(tx.acquirerFee ?? 0);
       const liquidAmt = amt - domFeeVal;
-      const sLabel = tx.status === 'COMPLETED' ? 'Aprovado'
-        : tx.status === 'PENDING' ? 'Pendente'
-        : tx.status === 'FAILED' ? 'Falhou'
-        : tx.status === 'REFUNDED' ? 'Estornado'
-        : tx.status;
-      
+      const sLabel =
+        tx.status === 'COMPLETED'
+          ? 'Aprovado'
+          : tx.status === 'PENDING'
+            ? 'Pendente'
+            : tx.status === 'FAILED'
+              ? 'Falhou'
+              : tx.status === 'REFUNDED'
+                ? 'Estornado'
+                : tx.status;
+
       return {
         // Camel case fields for current dashboard
         id: tx.domPaymentId || tx.id,

@@ -303,7 +303,7 @@ export class InternalEbookFinanceService {
           description: t.description ?? null,
           appliedGlobalFee: false,
           fee: Number(t.platformFee ?? 0),
-          dom_fee: Number(t.domFee ?? 0),
+          dom_fee: Number(t.acquirerFee ?? 0),
           payment_method: t.paymentMethod,
           taxa_fixa_transacao: Number(taxaServico.toFixed(2)),
           taxa_cashback: 0,

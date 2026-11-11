@@ -228,7 +228,7 @@ export class InternalPagatgFinanceService {
           pixCode: (t.description ?? '').split(':')[1]?.split(' ')[0] ?? null,
           appliedGlobalFee: false,
           fee: Number(t.platformFee ?? 0),
-          dom_fee: Number(t.domFee ?? 0),
+          dom_fee: Number(t.acquirerFee ?? 0),
           payment_method: t.paymentMethod,
           taxa_fixa_transacao: Number(taxaFixa.toFixed(2)),
           taxa_cashback: Number(taxaCashback.toFixed(2)),
