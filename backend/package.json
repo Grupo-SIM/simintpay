@@ -22,7 +22,7 @@
     "replicate:dom-transactions": "bun scripts/replicate-dom-transactions.ts",
     "dev": "nest start --watch --path tsconfig.watch.json",
     "check": "bun ../scripts/check.ts --only=backend",
-    "check-types": "tsc --project tsconfig.build.json --noEmit",
+    "check-types": "bun check --no-script --project tsconfig.build.json",
     "generate": "prisma generate",
     "migrate:deploy": "prisma migrate deploy",
     "test:unit": "bun ../scripts/test-unit.ts",

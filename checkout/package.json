@@ -6,7 +6,7 @@
     "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --port 3000",
     "build": "NEXT_TELEMETRY_DISABLED=1 next build --webpack",
     "check": "bun ../scripts/check.ts --only=checkout",
-    "check-types": "NEXT_TELEMETRY_DISABLED=1 next typegen && tsc --noEmit",
+    "check-types": "NEXT_TELEMETRY_DISABLED=1 next typegen && bun check --no-script",
     "start": "NEXT_TELEMETRY_DISABLED=1 next start --port 3000",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
