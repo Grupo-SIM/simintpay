@@ -6,6 +6,7 @@ import {
   canonicalPlatformTaxaTag,
   getPlatformTaxaEffective,
   domCashbackReais,
+  syncedAcquirerRate,
 } from './platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from './platform-taxas/platform-taxas.keys';
 import { cartaoMdrProxy } from './platform-taxas/cartao-mdr-proxy';
@@ -117,9 +118,9 @@ export function getModuleConfig(
     },
     mdr: {
       get pix() {
-        return effective('MDR_PIX');
+        return syncedAcquirerRate('PIX', 'ONLINE', 1);
       },
-      cartao: cartaoMdrProxy(platform.tag),
+      cartao: cartaoMdrProxy(),
       get taxaFixaPorTransacao() {
         return effective('TAXA_FIXA_TRANSACAO');
       },

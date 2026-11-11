@@ -158,7 +158,7 @@ export class GetPublicPaymentLinkUseCase {
     const debitCalc = debitQuote;
 
     // Para PIX, o cliente paga o valor base sem acréscimo de taxa de crédito.
-    // A taxa de processamento PIX (MDR_PIX) fica do lado do vendedor, igual ao débito.
+    // A taxa de processamento PIX (custo sincronizado) fica do lado do vendedor, igual ao débito.
     const valorPix =
       (link.aceitaPix ?? true)
         ? quote(chargedBase, 'PIX').totalAmount

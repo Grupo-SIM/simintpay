@@ -3,8 +3,8 @@ import {
   resolveWithdrawalFixedFee,
   getPlatformTaxaEffective,
   domCashbackReais,
+  syncedAcquirerRate,
 } from '../platform-taxas/platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS } from '../platform-taxas/platform-taxas.keys';
 import { cartaoMdrProxy } from '../platform-taxas/cartao-mdr-proxy';
 
 const TAG = 'RENOVADA';
@@ -37,13 +37,9 @@ export const RenovadaConfig: ModuleConfig = {
 
   mdr: {
     get pix() {
-      return getPlatformTaxaEffective(
-        TAG,
-        'MDR_PIX',
-        PLATFORM_TAXA_DEFAULTS.MDR_PIX,
-      );
+      return syncedAcquirerRate('PIX', 'ONLINE', 1);
     },
-    cartao: cartaoMdrProxy(TAG),
+    cartao: cartaoMdrProxy(),
     get taxaFixaPorTransacao() {
       return getPlatformTaxaEffective(TAG, 'TAXA_FIXA_TRANSACAO', 1.0);
     },

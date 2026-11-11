@@ -153,9 +153,6 @@ export function estimateDomFeeReais(input: {
   return method === 'PIX' ? round4(cost.total) : round2(cost.total);
 }
 
-/** Taxa implícita antiga 0,98% no valor gravado pela DOM / Prisma — recalcular com MDR_PIX atual. */
-const LEGACY_DOM_PIX_RATE = 0.0098;
-
 export function resolveDomFeeReais(input: {
   amountReais: number;
   paymentMethod?: string | null;
@@ -167,11 +164,7 @@ export function resolveDomFeeReais(input: {
   description?: string | null;
   cardBrand?: string | null;
 }): number {
-  const amount = Number(input.amountReais) || 0;
   const fromApi = Number(input.mdrFromGateway ?? input.domFeeFromGateway ?? 0);
-  const pm = String(input.paymentMethod ?? 'pix').toLowerCase();
-  const isPixLike =
-    !pm.includes('debit') && !pm.includes('card') && !pm.includes('credit');
   const estimate = () =>
     estimateDomFeeReais({
       amountReais: input.amountReais,
@@ -184,12 +177,6 @@ export function resolveDomFeeReais(input: {
     });
 
   if (Number.isFinite(fromApi) && fromApi > 0) {
-    if (isPixLike && amount > 0 && !isPhysicalSale(input)) {
-      const impliedRate = fromApi / amount;
-      if (Math.abs(impliedRate - LEGACY_DOM_PIX_RATE) < 0.00015) {
-        return estimate();
-      }
-    }
     return round4(fromApi);
   }
   return estimate();

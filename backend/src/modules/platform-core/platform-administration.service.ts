@@ -24,6 +24,7 @@ import {
 import {
   getPlatformTaxaEffective,
   domCashbackReais,
+  syncedAcquirerRate,
 } from '../../modules/platform-taxas/platform-taxas.store';
 import {
   PLATFORM_TAXA_DEFAULTS,
@@ -809,11 +810,7 @@ export class PlatformAdministrationService {
                 'TAXA_LINK_FIXA',
                 PLATFORM_TAXA_DEFAULTS.TAXA_LINK_FIXA,
               );
-              const domPct1x = getPlatformTaxaEffective(
-                upperTag,
-                'MDR_CC_1X',
-                PLATFORM_TAXA_DEFAULTS.MDR_CC_1X,
-              );
+              const domPct1x = syncedAcquirerRate('CREDIT_CARD', 'ONLINE', 1);
               const domFixo = getPlatformTaxaEffective(
                 upperTag,
                 'TAXA_FIXA_TRANSACAO',

@@ -4,6 +4,7 @@ import type { IUserRepository } from '../../../core/repositories/user.repository
 import {
   getPlatformTaxaEffective,
   domCashbackReais,
+  syncedAcquirerRate,
 } from '../../../modules/platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../../modules/platform-taxas/platform-taxas.keys';
 
@@ -34,11 +35,7 @@ export class GetTaxesUseCase {
       'LIQUIDEZ',
       PLATFORM_TAXA_DEFAULTS.LIQUIDEZ,
     );
-    const mdrPix = getPlatformTaxaEffective(
-      platformTag,
-      'MDR_PIX',
-      PLATFORM_TAXA_DEFAULTS.MDR_PIX,
-    );
+    const mdrPix = syncedAcquirerRate('PIX', 'ONLINE', 1);
 
     const plataforma = {
       taxaServico,

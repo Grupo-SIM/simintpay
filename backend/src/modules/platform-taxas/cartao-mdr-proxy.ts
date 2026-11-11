@@ -1,20 +1,14 @@
 import type { ModuleConfig } from '../module-config.interface';
-import { getPlatformTaxaEffective } from './platform-taxas.store';
-import { PLATFORM_TAXA_DEFAULTS, type PlataformaTaxaKey } from './platform-taxas.keys';
+import { syncedAcquirerRate } from './platform-taxas.store';
 
-function ccKey(n: number): PlataformaTaxaKey {
-  return `MDR_CC_${n}X` as PlataformaTaxaKey;
-}
-
-/** MDR cartão 1..12 com leitura dinâmica (.env + overrides). */
-export function cartaoMdrProxy(canonicalTag: string): ModuleConfig['mdr']['cartao'] {
+/** MDR cartão 1..12 lido da tabela sincronizada da adquirente. */
+export function cartaoMdrProxy(): ModuleConfig['mdr']['cartao'] {
   return new Proxy({} as ModuleConfig['mdr']['cartao'], {
     get(_t, prop: string | symbol) {
       if (typeof prop === 'symbol') return undefined;
       const n = Number(prop);
       if (!Number.isInteger(n) || n < 1 || n > 12) return undefined;
-      const key = ccKey(n);
-      return getPlatformTaxaEffective(canonicalTag, key, PLATFORM_TAXA_DEFAULTS[key]);
+      return syncedAcquirerRate('CREDIT_CARD', 'ONLINE', n);
     },
     ownKeys() {
       return Array.from({ length: 12 }, (_, i) => String(i + 1));

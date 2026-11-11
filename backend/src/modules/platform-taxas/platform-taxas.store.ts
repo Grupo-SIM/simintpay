@@ -95,6 +95,17 @@ async function loadAcquirerFees(): Promise<Map<string, SyncedAcquirerFee>> {
   return result;
 }
 
+/** Taxa percentual (decimal) da adquirente para a faixa, só da tabela sincronizada; 0 sem linha. */
+export function syncedAcquirerRate(
+  method: 'PIX' | 'BOLETO' | 'DEBIT_CARD' | 'CREDIT_CARD',
+  channel: 'ONLINE' | 'POS',
+  installments: number,
+): number {
+  readOverridesRaw();
+  const fee = acquirerFeeCache.get(`${method}/${channel}/${installments}`);
+  return fee ? (fee.ratePpm + fee.interestPpm) / 1_000_000 : 0;
+}
+
 /**
  * Custo (R$) da adquirente para a faixa, lido só da tabela sincronizada.
  * Sem linha sincronizada devolve 0 (custo desconhecido, nunca um valor presumido).
@@ -188,18 +199,6 @@ export function readOverridesRaw(): Overrides {
   return overridesCache;
 }
 
-/** Antigo padrão DOM PIX 0,98% (decimal 0,0098). Overrides/env antigos: mapear para `MDR_PIX` atual das keys. */
-const LEGACY_MDR_PIX_098 = 0.0098;
-
-function finalizeResolvedTaxa(keySuffix: string, value: number): number {
-  if (keySuffix !== 'MDR_PIX') return value;
-  if (!Number.isFinite(value)) return PLATFORM_TAXA_DEFAULTS.MDR_PIX;
-  if (Math.abs(value - LEGACY_MDR_PIX_098) < 1e-9) {
-    return PLATFORM_TAXA_DEFAULTS.MDR_PIX;
-  }
-  return value;
-}
-
 /** Taxa cobrada no saque: maior custo ativo da adquirente mais o extra configurado. */
 export function resolveWithdrawalFixedFee(tag: string): number {
   readOverridesRaw();
@@ -237,7 +236,7 @@ export function getPlatformTaxaEffective(
     platformOverride !== undefined &&
     Number.isFinite(Number(platformOverride))
   ) {
-    return finalizeResolvedTaxa(keySuffix, Number(platformOverride));
+    return Number(platformOverride);
   }
 
   // 2º: override global (tag GLOBAL)
@@ -248,15 +247,12 @@ export function getPlatformTaxaEffective(
       globalOverride !== undefined &&
       Number.isFinite(Number(globalOverride))
     ) {
-      return finalizeResolvedTaxa(keySuffix, Number(globalOverride));
+      return Number(globalOverride);
     }
   }
 
   // 3º: padrão único para todos os consumidores.
-  return finalizeResolvedTaxa(
-    keySuffix,
-    PLATFORM_TAXA_DEFAULTS[keySuffix as PlataformaTaxaKey] ?? fallback,
-  );
+  return PLATFORM_TAXA_DEFAULTS[keySuffix as PlataformaTaxaKey] ?? fallback;
 }
 
 /**

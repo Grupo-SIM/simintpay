@@ -1,6 +1,5 @@
 /** Historical constants for legacy projections; never persisted as editable overrides. */
 export const LEGACY_TAXA_KEYS = [
-  'MDR_PIX',
   'TAXA_SAQUE_EXTRA', // Extra do admin (R$) somado à maior taxa de saque entre adquirentes
   'TAXA_SAQUE_DOM',
   'TAXA_SAQUE_PERCENT',
@@ -20,18 +19,6 @@ export const LEGACY_TAXA_KEYS = [
   'TAXA_BOLETO_FIXA', // Taxa fixa da casa (SimIntPay) por boleto (padrão R$7,00)
   'TAXA_BOLETO_TRANSACAO', // Taxa fixa por transação da casa no boleto (padrão R$2,00)
   // Taxa DOM para cartão (crédito direto / pix-plan / assinatura) — read-only
-  'MDR_CC_1X',
-  'MDR_CC_2X',
-  'MDR_CC_3X',
-  'MDR_CC_4X',
-  'MDR_CC_5X',
-  'MDR_CC_6X',
-  'MDR_CC_7X',
-  'MDR_CC_8X',
-  'MDR_CC_9X',
-  'MDR_CC_10X',
-  'MDR_CC_11X',
-  'MDR_CC_12X',
   // Taxa master (plataforma) sobre link de pagamento por parcela — configurável
   'LINK_COST_1X',
   'LINK_COST_2X',
@@ -103,7 +90,6 @@ export const LEGACY_DOM_CASHBACK_REAIS = 3;
 /** Padrões únicos quando nenhum override de plataforma ou global existe. */
 export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   /** Taxa DOM sobre PIX (decimal): 0,98% sobre o valor pago. Sobrescreva pelo painel admin. */
-  MDR_PIX: 0.0098,
   TAXA_SAQUE_EXTRA: 0,
   TAXA_SAQUE_DOM: 3.5,
   TAXA_SAQUE_PERCENT: 0,
@@ -124,18 +110,6 @@ export const PLATFORM_TAXA_DEFAULTS: Record<PlataformaTaxaKey, number> = {
   TAXA_BOLETO_TRANSACAO: 2.0, // SimIntPay: R$2,00 por transação
   // DOM: taxa cobrada pelo gateway para cartão direto/pix-plan/assinatura
   // 1x = 0% (igual ao link de pagamento — custo real DOM ~3,99% é absorvido pelo master e visível nos relatórios)
-  MDR_CC_1X: 0,
-  MDR_CC_2X: 0.083,
-  MDR_CC_3X: 0.0968,
-  MDR_CC_4X: 0.1104,
-  MDR_CC_5X: 0.1237,
-  MDR_CC_6X: 0.1367,
-  MDR_CC_7X: 0.1495,
-  MDR_CC_8X: 0.1621,
-  MDR_CC_9X: 0.1744,
-  MDR_CC_10X: 0.1864,
-  MDR_CC_11X: 0.1983,
-  MDR_CC_12X: 0.2099,
   // Custos SimIntPay do vendedor, independentes dos juros do comprador.
   LINK_COST_1X: 0.09,
   LINK_COST_2X: 0.09,

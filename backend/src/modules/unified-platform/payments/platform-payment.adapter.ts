@@ -1,5 +1,9 @@
-import { CORPORATE_PLATFORM_TAGS, unsupportedCapability } from '../../platform-core/platform-adapters';
+import {
+  CORPORATE_PLATFORM_TAGS,
+  unsupportedCapability,
+} from '../../platform-core/platform-adapters';
 import { Prisma } from '@prisma/client';
+import { syncedAcquirerRate } from '../../platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../../platform-taxas/platform-taxas.keys';
 
 /** Business transformations only: gateways and persistence belong to the core. */
@@ -10,10 +14,19 @@ export class PlatformPaymentAdapter {
     return value?.replace(/\[TENANT:[^\]]*\]/gi, '').trim() || 'Pagamento PIX';
   }
 
-  fees(amount: Prisma.Decimal, rates: Record<string, number>, installments?: number) {
-    const liquidity = new Prisma.Decimal(rates.LIQUIDEZ ?? PLATFORM_TAXA_DEFAULTS.LIQUIDEZ);
-    const key = installments ? `MDR_CC_${installments}X` : 'MDR_PIX';
-    const mdr = new Prisma.Decimal(rates[key] ?? PLATFORM_TAXA_DEFAULTS[key as keyof typeof PLATFORM_TAXA_DEFAULTS]);
+  fees(
+    amount: Prisma.Decimal,
+    rates: Record<string, number>,
+    installments?: number,
+  ) {
+    const liquidity = new Prisma.Decimal(
+      rates.LIQUIDEZ ?? PLATFORM_TAXA_DEFAULTS.LIQUIDEZ,
+    );
+    const mdr = new Prisma.Decimal(
+      installments
+        ? syncedAcquirerRate('CREDIT_CARD', 'ONLINE', installments)
+        : syncedAcquirerRate('PIX', 'ONLINE', 1),
+    );
     const netAmount = amount.mul(liquidity).toDecimalPlaces(2);
     const totalFee = amount.minus(netAmount);
     const domFee = amount.mul(mdr).toDecimalPlaces(2);
@@ -23,7 +36,10 @@ export class PlatformPaymentAdapter {
 
 class AtlasPaymentAdapter extends PlatformPaymentAdapter {
   override description(value?: string): string {
-    return value?.replace(/\[TENANT:[^\]]*\]/gi, '').trim() || 'HOSTING Compra Atlas Hosting';
+    return (
+      value?.replace(/\[TENANT:[^\]]*\]/gi, '').trim() ||
+      'HOSTING Compra Atlas Hosting'
+    );
   }
 }
 
@@ -35,7 +51,8 @@ const corporateAdapters: Record<string, typeof PlatformPaymentAdapter> = {
 };
 
 export function resolvePaymentAdapter(tag: string): PlatformPaymentAdapter {
-  if (CORPORATE_PLATFORM_TAGS.has(tag) && !corporateAdapters[tag]) unsupportedCapability('payments.corporate-contract');
+  if (CORPORATE_PLATFORM_TAGS.has(tag) && !corporateAdapters[tag])
+    unsupportedCapability('payments.corporate-contract');
   const Adapter = corporateAdapters[tag] ?? PlatformPaymentAdapter;
   return new Adapter(tag);
 }
