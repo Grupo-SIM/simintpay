@@ -9,6 +9,7 @@ import {
   applyWalletEntry,
   assertWalletLedgerConsistency,
 } from '../../wallet-ledger/wallet-ledger';
+import { parseYmdSp } from '../../platform-core/platform-administration.helpers';
 import { PlatformLedger } from './platform-ledger';
 import { platformMachines, MachinesQuery } from './platform-machines';
 import { PlatformMaintenanceService } from './platform-maintenance.service';
@@ -37,6 +38,11 @@ export type FinancePlatformContext = {
   acquirer: 'DOM' | 'FRENDZ';
 };
 export type FinancePage = { page?: number; limit?: number; status?: string };
+export type FinanceTransactionsQuery = FinancePage & {
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+};
 
 /** Wallets belong to users; transaction reports belong to explicitly tagged platforms. */
 @Injectable()
@@ -313,6 +319,15 @@ export class PlatformFinanceService {
     return result;
   }
 
+  private parseFilterDay(value: string | undefined, name: string) {
+    if (!value) return undefined;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
+      throw new BadRequestException(`${name} inválida`);
+    const parsed = parseYmdSp(value);
+    if (!parsed.isValid()) throw new BadRequestException(`${name} inválida`);
+    return parsed;
+  }
+
   private pagination(options: FinancePage) {
     const page = options.page ?? 1;
     const limit = options.limit ?? 20;
@@ -580,17 +595,33 @@ export class PlatformFinanceService {
 
   async transactions(
     context: FinancePlatformContext,
-    options: FinancePage = {},
+    options: FinanceTransactionsQuery = {},
   ) {
     const { page, limit, skip } = this.pagination(options);
     const statuses: string[] = Object.values(TransactionStatus);
     if (options.status && !statuses.includes(options.status))
       throw new BadRequestException('Status inválido');
+    const start = this.parseFilterDay(options.startDate, 'startDate');
+    const end = this.parseFilterDay(options.endDate, 'endDate');
+    if (start && end && end.isBefore(start, 'day'))
+      throw new BadRequestException('Período inválido');
+    const search = options.search?.trim();
     const where: Prisma.TransactionWhereInput = {
       userId: context.ownerUserId,
       ...whereTransactionPlatform(context.tag),
       ...(options.status
         ? { status: options.status as Prisma.TransactionWhereInput['status'] }
+        : {}),
+      ...(search
+        ? { description: { contains: search, mode: 'insensitive' } }
+        : {}),
+      ...(start || end
+        ? {
+            createdAt: {
+              ...(start ? { gte: start.startOf('day').toDate() } : {}),
+              ...(end ? { lte: end.endOf('day').toDate() } : {}),
+            },
+          }
         : {}),
     };
     const candidates = await this.prisma.transaction.findMany({

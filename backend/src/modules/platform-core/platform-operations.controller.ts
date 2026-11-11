@@ -175,11 +175,17 @@ export class PlatformOperationsController {
     @Query('page') page = '1',
     @Query('limit') limit = '20',
     @Query('status') status?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('search') search?: string,
   ) {
     return this.finance.transactions(request.platformContext, {
       page: Number(page),
       limit: Number(limit),
       status,
+      startDate,
+      endDate,
+      search,
     });
   }
 
