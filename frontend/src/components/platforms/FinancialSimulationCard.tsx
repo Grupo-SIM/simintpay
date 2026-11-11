@@ -84,10 +84,6 @@ export function FinancialSimulationCard({
     result && buyerTotalCents !== undefined
       ? buyerTotalCents - result.contractedCostCents
       : undefined;
-  const effectiveRate =
-    result && result.originalCents > 0
-      ? `${((result.contractedCostCents / result.originalCents) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
-      : undefined;
   const profitCents = admin ? result?.simMarginCents : sellerNetCents;
   const lines: {
     label: string;
@@ -203,6 +199,11 @@ export function FinancialSimulationCard({
   const short =
     !!shortfall &&
     (shortfall.rateShortfallPpm > 0 || shortfall.fixedShortfallCents > 0);
+  const effectiveLabel = effective
+    ? effective.fixedCents > 0
+      ? `${formatPpm(effective.ratePpm)} + ${formatCents(effective.fixedCents)}`
+      : formatPpm(effective.ratePpm)
+    : '—';
   const format = (value?: number) =>
     value === undefined ? '—' : formatCents(value);
   const skeleton = (
@@ -367,15 +368,7 @@ export function FinancialSimulationCard({
             Taxa efetiva
           </div>
           <div className="text-base font-semibold tabular-nums">
-            {state?.pending ? skeleton : (effectiveRate ?? '—')}
-          </div>
-        </div>
-        <div className="rounded-lg bg-zinc-100 p-2 dark:bg-white/5">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            Vendedor recebe
-          </div>
-          <div className="text-base font-semibold tabular-nums">
-            {state?.pending ? skeleton : format(sellerNetCents)}
+            {state?.pending ? skeleton : effectiveLabel}
           </div>
         </div>
         {admin && !lane && !state?.pending && (
