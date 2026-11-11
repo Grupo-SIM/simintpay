@@ -538,13 +538,6 @@ export default function OfferCheckout({
 
   return (
     <CheckoutFlow
-      banner={
-        previewOffer ? (
-          <p role="note" className="p-3 text-center text-sm">
-            Prévia da oferta · Pagamentos desabilitados.
-          </p>
-        ) : undefined
-      }
       product={{
         title: sanitizeCheckoutText(offer.name),
         description: offer.description
