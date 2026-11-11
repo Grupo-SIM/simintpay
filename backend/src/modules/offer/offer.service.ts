@@ -383,26 +383,17 @@ export class OfferService {
       const o = byId.get(id);
       return o ? [o] : [];
     });
-    const context = await loadCyclePolicyContext(this.prisma, draft);
-    // Todas as combinações de bumps, para a prévia recalcular o total sem nova chamada.
-    const selections: Record<string, ReturnType<typeof pricingFor>> = {};
-    for (let mask = 0; mask < 1 << bumps.length; mask++) {
-      const chosen = bumps.filter((_, i) => mask & (1 << i));
-      selections[
-        chosen
-          .map((o) => o.code)
-          .sort()
-          .join(',')
-      ] = pricingFor(context, {
+    // Só os bumps marcados entram no preço; a prévia pede de novo a cada marcação.
+    const chosen = bumps.filter((o) =>
+      dto.selectedBumpOfferIds?.includes(o.id),
+    );
+    return {
+      pricing: pricingFor(await loadCyclePolicyContext(this.prisma, draft), {
         ...draft,
         amountCents:
           draft.amountCents + chosen.reduce((n, o) => n + o.amountCents, 0),
-      });
-    }
-    return {
-      pricing: selections[''],
-      selections,
-      bumps: bumps.map((o) => toPublicBump(o)),
+      }),
+      bumps: bumps.map((o) => ({ offerId: o.id, ...toPublicBump(o) })),
     };
   }
 

@@ -27,8 +27,6 @@ export type PublicOffer = {
   pricing?: OfferCheckoutPricing;
   /** Order bumps vendáveis com a oferta (`GET /ofertas/public/:code`). */
   bumps?: PublicBump[];
-  /** Só na prévia: preços de cada combinação de bumps, chaveados pelos códigos ordenados. */
-  pricingSelections?: Record<string, OfferCheckoutPricing>;
 };
 
 export type PublicBump = {
@@ -44,9 +42,6 @@ export const orderBumpsOf = (offer: PublicOffer): PublicBump[] =>
   offer.renewalMode === 'NONE'
     ? (offer.bumps ?? []).filter((bump) => bump.role === 'BUMP')
     : [];
-
-export const bumpSelectionKey = (codes: string[]) =>
-  [...codes].sort().join(',');
 
 const METHOD_FROM_BACKEND: Record<string, OfferMethod> = {
   PIX: 'pix',

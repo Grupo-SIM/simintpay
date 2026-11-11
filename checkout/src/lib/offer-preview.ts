@@ -27,12 +27,10 @@ export function isOfferPreviewMessage(
     'trialDays',
     'pricing',
     'bumps',
-    'pricingSelections',
   ];
   return (
     validPricing(d.pricing, Number(d.maxInstallments)) &&
     validBumps(d.bumps) &&
-    validSelections(d.pricingSelections, Number(d.maxInstallments)) &&
     Object.keys(d).length === keys.length &&
     keys.every((key) => Object.hasOwn(d, key)) &&
     d.code === 'preview' &&
@@ -60,7 +58,7 @@ export function isOfferPreviewMessage(
   );
 }
 
-function validPricing(value: unknown, max: number) {
+export function validPricing(value: unknown, max: number) {
   if (!value || typeof value !== 'object') return false;
   const p = value as Record<string, unknown>;
   const money = (v: unknown) =>
@@ -103,10 +101,4 @@ function validBumps(value: unknown) {
         b.amountCents >= 0,
     )
   );
-}
-
-function validSelections(value: unknown, max: number) {
-  if (!value || typeof value !== 'object') return false;
-  const entries = Object.values(value);
-  return entries.length <= 64 && entries.every((p) => validPricing(p, max));
 }

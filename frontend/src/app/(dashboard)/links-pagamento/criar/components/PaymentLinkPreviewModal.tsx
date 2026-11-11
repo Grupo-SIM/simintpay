@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import {
   checkoutPreviewUrl,
   isPreviewSignal,
+  parsePricingRequest,
   type PaymentLinkPreviewDraft,
 } from '@/features/links-pagamento/payment-link-preview';
 import { PaymentLinkPreviewSkeleton } from './PaymentLinkPreviewSkeleton';
@@ -15,6 +16,8 @@ type Props = {
   onClose: () => void;
   offerPreview?: boolean;
   funnelPreview?: boolean;
+  /** Preço da oferta com os order bumps marcados no checkout (o iframe não tem credenciais). */
+  onPricing?: (bumpCodes: string[]) => Promise<Record<string, unknown>>;
 };
 
 /** Mounted only while open, so every open and retry uses a fresh handshake. */
@@ -23,12 +26,14 @@ export function PaymentLinkPreviewModal({
   onClose,
   offerPreview = false,
   funnelPreview = false,
+  onPricing,
 }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   const draftRef = useRef(draft);
+  const onPricingRef = useRef(onPricing);
   const titleId = useId();
   const [attempt, setAttempt] = useState(0);
   const [mobile, setMobile] = useState(false);
@@ -53,7 +58,8 @@ export function PaymentLinkPreviewModal({
   useEffect(() => {
     onCloseRef.current = onClose;
     draftRef.current = draft;
-  }, [onClose, draft]);
+    onPricingRef.current = onPricing;
+  }, [onClose, draft, onPricing]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -100,6 +106,23 @@ export function PaymentLinkPreviewModal({
         setStatus('ready');
       } else if (isPreviewSignal(event.data, 'close')) {
         onCloseRef.current();
+      } else if (sent && onPricingRef.current) {
+        const request = parsePricingRequest(event.data);
+        if (!request) return;
+        const reply = (body: Record<string, unknown>) =>
+          frame.postMessage(
+            {
+              type: 'payment-link-preview:pricing-result',
+              version: 1,
+              requestId: request.requestId,
+              ...body,
+            },
+            checkoutUrl.origin,
+          );
+        onPricingRef.current(request.bumpCodes).then(
+          (pricing) => reply({ pricing }),
+          () => reply({ error: 'Não foi possível calcular o preço.' }),
+        );
       }
     }
     window.addEventListener('message', receive);

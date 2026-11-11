@@ -4,7 +4,7 @@ import { PaymentLinkPreviewModal } from '../../links-pagamento/criar/components/
 import { Button } from '@/components/ui/Button';
 import { EmailPreview } from '@/components/ui/EmailPreview';
 import { HelpTooltip } from '@/components/ui/HelpTooltip';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ChevronDown, Eye } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -90,6 +90,9 @@ function FormBody({
     unknown
   > | null>(null);
   const [previewPending, setPreviewPending] = useState(false);
+  const previewPricingRef = useRef<
+    ((codes: string[]) => Promise<Record<string, unknown>>) | null
+  >(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [platform, setPlatform] = useState<string | null>(null);
   const [amountError, setAmountError] = useState<string | null>(null);
@@ -192,47 +195,58 @@ function FormBody({
     }
     setPreviewPending(true);
     try {
-      const priced = await api.post<{
-        pricing: Record<string, unknown>;
-        selections: Record<string, unknown>;
-        bumps: unknown[];
-      }>('/ofertas/preview-pricing', {
-        amountCents,
-        maxInstallments:
-          recurring || !form.methods.includes('CREDIT_CARD')
-            ? 1
-            : Number(form.maxInstallments) || 1,
-        acceptedMethods: form.methods,
-        bumpOfferIds: recurring
-          ? []
-          : form.bumps
-              .filter((bump) => bump.role === 'BUMP')
-              .map((bump) => bump.offerId)
-              .slice(0, 6),
-        ...(id
-          ? { offerId: id }
-          : {
-              platformTag: platform ?? undefined,
-              ownerUserId: platformCatalog.financialOwner?.id,
-            }),
-      });
+      const maxInstallments =
+        recurring || !form.methods.includes('CREDIT_CARD')
+          ? 1
+          : Number(form.maxInstallments) || 1;
+      const priceDraft = (selectedBumpOfferIds: string[]) =>
+        api.post<{
+          pricing: Record<string, unknown>;
+          bumps: ({ offerId: string; code: string } & Record<
+            string,
+            unknown
+          >)[];
+        }>('/ofertas/preview-pricing', {
+          amountCents,
+          maxInstallments,
+          acceptedMethods: form.methods,
+          bumpOfferIds: recurring
+            ? []
+            : form.bumps
+                .filter((bump) => bump.role === 'BUMP')
+                .map((bump) => bump.offerId),
+          selectedBumpOfferIds,
+          ...(id
+            ? { offerId: id }
+            : {
+                platformTag: platform ?? undefined,
+                ownerUserId: platformCatalog.financialOwner?.id,
+              }),
+        });
+      const priced = await priceDraft([]);
+      const offerIdByCode = new Map(
+        priced.bumps.map((b) => [b.code, b.offerId]),
+      );
+      // Cada marcação de bump no checkout pede o preço de novo, com a seleção atual.
+      previewPricingRef.current = async (codes) =>
+        (
+          await priceDraft(
+            codes.flatMap((code) => offerIdByCode.get(code) ?? []),
+          )
+        ).pricing;
       setPreviewDraft({
         code: 'preview',
         name: form.name || 'Nome da oferta',
         description: form.description,
         amountCents,
         acceptedMethods: form.methods,
-        maxInstallments:
-          recurring || !form.methods.includes('CREDIT_CARD')
-            ? 1
-            : Number(form.maxInstallments) || 1,
+        maxInstallments,
         renewalMode: form.renewalMode,
         intervalType: form.intervalType,
         intervalCount: Number(form.intervalCount) || 1,
         trialDays: Number(form.trialDays) || 0,
         pricing: priced.pricing,
-        bumps: priced.bumps,
-        pricingSelections: priced.selections,
+        bumps: priced.bumps.map(({ offerId: _offerId, ...bump }) => bump),
       });
       setPreviewOpen(true);
     } catch (error) {
@@ -272,6 +286,7 @@ function FormBody({
           offerPreview
           onClose={() => setPreviewOpen(false)}
           draft={previewDraft!}
+          onPricing={(codes) => previewPricingRef.current!(codes)}
         />
       )}
       <ProductFormSection title="Básico">

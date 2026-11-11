@@ -45,3 +45,23 @@ export function isPreviewSignal(
     signal.type === `payment-link-preview:${type}`
   );
 }
+
+/** Pedido de preço do checkout (iframe): códigos dos order bumps marcados. */
+export function parsePricingRequest(data: unknown) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const m = data as Record<string, unknown>;
+  if (
+    Object.keys(m).length !== 4 ||
+    m.version !== 1 ||
+    m.type !== 'payment-link-preview:pricing' ||
+    !Number.isSafeInteger(m.requestId) ||
+    !Array.isArray(m.bumpCodes) ||
+    m.bumpCodes.length > 20 ||
+    !m.bumpCodes.every((c) => typeof c === 'string' && c.length <= 100)
+  )
+    return null;
+  return {
+    requestId: m.requestId as number,
+    bumpCodes: m.bumpCodes as string[],
+  };
+}

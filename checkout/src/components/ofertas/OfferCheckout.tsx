@@ -7,7 +7,7 @@
  * Ofertas recorrentes (`renewalMode` AUTO_CHARGE com cartão, MANUAL_PAY com PIX) usam
  * `card-customer` + `subscribe`: o cartão é tokenizado no navegador (SDK) e só o token vai à API.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { CheckCircle, Loader2 } from 'lucide-react';
@@ -46,7 +46,6 @@ import { browserCheckoutTracking } from '@/lib/payment-tracking';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import {
   availableMethods,
-  bumpSelectionKey,
   chargeBody,
   isDeclined,
   isRecurringOffer,
@@ -116,7 +115,13 @@ function methodsOf(offer: PublicOffer): OfferMethod[] {
 export default function OfferCheckout({
   previewOffer,
   onPreviewLoaded,
-}: { previewOffer?: PublicOffer; onPreviewLoaded?: () => void } = {}) {
+  previewPricing,
+}: {
+  previewOffer?: PublicOffer;
+  onPreviewLoaded?: () => void;
+  /** Prévia: pede ao painel o preço com os order bumps marcados. */
+  previewPricing?: (bumpCodes: string[]) => Promise<OfferCheckoutPricing>;
+} = {}) {
   const code = useSearchParams().get('oferta');
   const [offer, setOffer] = useState<PublicOffer | null>(previewOffer ?? null);
   const [fetching, setFetching] = useState(!previewOffer && Boolean(code));
@@ -134,6 +139,7 @@ export default function OfferCheckout({
   const [pricingError, setPricingError] = useState('');
   const [pricingAttempt, setPricingAttempt] = useState(0);
   const [selectedBumps, setSelectedBumps] = useState<string[]>([]);
+  const previewRequest = useRef(0);
   const [installments, setInstallments] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -356,18 +362,34 @@ export default function OfferCheckout({
     setPaidAmount(outcome.amount);
   }
 
-  /** Marca/desmarca um order bump e recalcula o preço (na prévia, a partir das combinações já calculadas). */
+  /** Prévia: o painel recalcula o preço; respostas antigas são descartadas. */
+  function repricePreview(codes: string[]) {
+    if (!previewPricing) return;
+    const request = ++previewRequest.current;
+    setPricingError('');
+    setPricingLoading(true);
+    previewPricing(codes)
+      .then((priced) => {
+        if (request !== previewRequest.current) return;
+        setPricing(priced);
+        setOptions(priced.options);
+      })
+      .catch((e: Error) => {
+        if (request === previewRequest.current) setPricingError(e.message);
+      })
+      .finally(() => {
+        if (request === previewRequest.current) setPricingLoading(false);
+      });
+  }
+
+  /** Marca/desmarca um order bump e recalcula o preço (na prévia, pedindo o preço ao painel). */
   function toggleBump(bumpCode: string) {
     const next = selectedBumps.includes(bumpCode)
       ? selectedBumps.filter((c) => c !== bumpCode)
       : [...selectedBumps, bumpCode];
     setSelectedBumps(next);
     if (previewOffer) {
-      const priced = previewOffer.pricingSelections?.[bumpSelectionKey(next)];
-      if (priced) {
-        setPricing(priced);
-        setOptions(priced.options);
-      }
+      repricePreview(next);
       return;
     }
     setPricingError('');
@@ -622,6 +644,7 @@ export default function OfferCheckout({
             <button
               type="button"
               onClick={() => {
+                if (previewOffer) return repricePreview(selectedBumps);
                 setPricingLoading(true);
                 setPricingError('');
                 setPricingAttempt((v) => v + 1);

@@ -345,7 +345,14 @@ export class OfferPreviewPricingDto {
   @IsOptional()
   @IsArray()
   @ArrayUnique()
-  @ArrayMaxSize(6)
+  @ArrayMaxSize(20)
   @IsString({ each: true })
   bumpOfferIds?: string[];
+  @ApiPropertyOptional({ type: String, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  selectedBumpOfferIds?: string[];
 }
