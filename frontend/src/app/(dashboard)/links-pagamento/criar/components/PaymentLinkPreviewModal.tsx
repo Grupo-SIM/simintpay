@@ -136,7 +136,7 @@ export function PaymentLinkPreviewModal({
             aria-pressed={mobile}
             className={`cursor-pointer rounded-lg border px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-white/10 ${mobile ? 'border-zinc-900 bg-zinc-100 text-zinc-900 dark:border-white/60 dark:bg-white/10 dark:text-zinc-100' : 'border-zinc-300 text-zinc-700 dark:border-white/20 dark:text-zinc-200'}`}
           >
-            {mobile ? 'Layout desktop' : 'Layout mobile'}
+            {mobile ? 'Desktop' : 'Mobile'}
           </button>
           <button
             ref={closeRef}
