@@ -11,7 +11,11 @@ import {
 } from '../../wallet-ledger/wallet-ledger';
 import { parseYmdSp } from '../../platform-core/platform-administration.helpers';
 import { PlatformLedger } from './platform-ledger';
-import { platformMachines, MachinesQuery } from './platform-machines';
+import {
+  platformMachines,
+  MachinesQuery,
+  MACHINE_DESCRIPTION_MATCHERS,
+} from './platform-machines';
 import { PlatformMaintenanceService } from './platform-maintenance.service';
 import { platformWithdrawalQuote } from '../../platform-core/platform-withdrawal.adapter';
 import {
@@ -609,6 +613,8 @@ export class PlatformFinanceService {
     const where: Prisma.TransactionWhereInput = {
       userId: context.ownerUserId,
       ...whereTransactionPlatform(context.tag),
+      // Vendas de maquineta têm tela própria (finance/machines).
+      NOT: MACHINE_DESCRIPTION_MATCHERS,
       ...(options.status
         ? { status: options.status as Prisma.TransactionWhereInput['status'] }
         : {}),

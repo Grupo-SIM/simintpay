@@ -19,6 +19,13 @@ export function machineTerminal(description: string | null | undefined) {
 const cents = (value: Prisma.Decimal | number | string | null | undefined) =>
   new Prisma.Decimal(value ?? 0).mul(100).toDecimalPlaces(0).toNumber();
 
+/** Descrições que identificam uma venda de maquineta; usadas também para excluí-las da listagem de transações. */
+export const MACHINE_DESCRIPTION_MATCHERS: Prisma.TransactionWhereInput[] = [
+  { description: { contains: ORIGEM_MAQUINETA_TAG, mode: 'insensitive' } },
+  { description: { contains: 'Terminal:', mode: 'insensitive' } },
+  { description: { contains: 'Maquineta', mode: 'insensitive' } },
+];
+
 function parseDay(value: string | undefined, name: string) {
   if (!value) return undefined;
   const parsed = dayjs(value);
@@ -70,11 +77,7 @@ export async function platformMachines(
 
   const where: Prisma.TransactionWhereInput = {
     userId: platform.ownerUserId,
-    OR: [
-      { description: { contains: ORIGEM_MAQUINETA_TAG, mode: 'insensitive' } },
-      { description: { contains: 'Terminal:', mode: 'insensitive' } },
-      { description: { contains: 'Maquineta', mode: 'insensitive' } },
-    ],
+    OR: MACHINE_DESCRIPTION_MATCHERS,
     ...(start || end
       ? {
           createdAt: {
