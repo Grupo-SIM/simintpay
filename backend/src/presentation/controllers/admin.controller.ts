@@ -3407,7 +3407,7 @@ export class AdminController {
         },
         taxas: {
           total: Number(t.totalFee),
-          dom: Number(t.domFee),
+          dom: Number(t.acquirerFee),
           plataforma: Number(t.platformFee),
         },
         criadoEm: t.createdAt.toISOString(),
@@ -4147,7 +4147,7 @@ export class AdminController {
         description: true,
         platformTag: true,
         installments: true,
-        domFee: true,
+        acquirerFee: true,
         financialSnapshot: true,
       },
       orderBy: { createdAt: 'asc' },
@@ -4201,7 +4201,7 @@ export class AdminController {
         acquirerFees:
           prev.acquirerFees +
           (realizedAcquirerCost(tx) ??
-            ('domFee' in tx ? Number(tx.domFee ?? 0) : 0)),
+            ('acquirerFee' in tx ? Number(tx.acquirerFee ?? 0) : 0)),
       });
     }
 
@@ -5169,7 +5169,7 @@ export class AdminController {
       description: tx.description,
       appliedGlobalFee: false,
       fee: Number(tx.totalFee),
-      dom_fee: Number(tx.domFee),
+      dom_fee: Number(tx.acquirerFee),
       payment_method: tx.paymentMethod,
       amountWithoutAllFee: Number(tx.netAmount || tx.amount),
       walletId: '',

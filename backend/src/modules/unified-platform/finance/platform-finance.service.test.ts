@@ -65,7 +65,7 @@ function fixture() {
           amount: null,
           netAmount: null,
           platformFee: null,
-          domFee: null,
+          acquirerFee: null,
         },
       })),
     },
@@ -291,7 +291,7 @@ test('platform scope is a database filter on platformTag, so counts and sums onl
     amount: decimal(10.29),
     netAmount: decimal(9.99),
     platformFee: decimal(0.2),
-    domFee: decimal(0.1),
+    acquirerFee: decimal(0.1),
   });
   prisma.transaction.findMany.mockImplementation(
     async () => [row('valid', '[TENANT:SHOP]')] as any,

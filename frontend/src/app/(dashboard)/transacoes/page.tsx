@@ -822,10 +822,17 @@ function TransacoesContent() {
               className: 'text-right whitespace-nowrap',
               headerClassName: 'text-right',
               render: (row: Transacao) => (
-                <MoneyCell
-                  value={row.domFee}
-                  className="text-sm text-red-500 dark:text-red-400"
-                />
+                <div className="flex flex-col items-end">
+                  <MoneyCell
+                    value={row.acquirerFee}
+                    className="text-sm text-red-500 dark:text-red-400"
+                  />
+                  {row.acquirer && (
+                    <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+                      {row.acquirer}
+                    </span>
+                  )}
+                </div>
               ),
             },
             {
@@ -837,7 +844,7 @@ function TransacoesContent() {
                 <MoneyCell
                   value={Math.max(
                     0,
-                    Number(row.totalFee ?? 0) - Number(row.domFee ?? 0),
+                    Number(row.totalFee ?? 0) - Number(row.acquirerFee ?? 0),
                   )}
                   className="text-sm text-red-500 dark:text-red-400"
                 />

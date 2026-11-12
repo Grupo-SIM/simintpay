@@ -138,7 +138,7 @@ describe('Delivery internal charge and wallet allocation', () => {
           userId: 'seller',
           settlementBasis: 'FINAL_NET',
           totalFee: 5.37,
-          domFee: 0,
+          acquirerFee: 0,
           financialSnapshot: {
             contract: 'SIM_DELIVERY_ALLOCATION_V1',
             totalAmountCents: 10537,

@@ -118,10 +118,10 @@ const stored = (t: {
   amount: Prisma.Decimal;
   netAmount: Prisma.Decimal | null;
   totalFee: Prisma.Decimal | null;
-  domFee: Prisma.Decimal | null;
+  acquirerFee: Prisma.Decimal | null;
   platformFee: Prisma.Decimal | null;
 }) =>
-  [t.amount, t.netAmount, t.totalFee, t.domFee, t.platformFee].map((v) =>
+  [t.amount, t.netAmount, t.totalFee, t.acquirerFee, t.platformFee].map((v) =>
     v?.toFixed(2),
   );
 const walletOf = (userId: string) =>

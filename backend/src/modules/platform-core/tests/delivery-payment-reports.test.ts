@@ -18,7 +18,7 @@ function fixture(merchantAmountCents = 10000, includeLegacy = false) {
       netAmount: merchantAmountCents / 100,
       totalFee: (10537 - merchantAmountCents) / 100,
       platformFee: (10537 - merchantAmountCents) / 100,
-      domFee: 0,
+      acquirerFee: 0,
       status: 'COMPLETED',
       description: '[TENANT:ZERO-GRAU]',
       paymentMethod: 'PIX',

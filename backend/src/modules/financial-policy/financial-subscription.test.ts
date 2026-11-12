@@ -57,6 +57,6 @@ test('subscription renewal persists unknown realized cost without inventing a pr
   expect(quote && 'platformProfit' in quote).toBe(false);
   expect(created?.financialSnapshot).toEqual(snapshot);
   expect(new Prisma.Decimal(created!.totalFee!).toNumber()).toBe(5);
-  expect(new Prisma.Decimal(created!.domFee!).toNumber()).toBe(0);
+  expect(new Prisma.Decimal(created!.acquirerFee!).toNumber()).toBe(0);
   expect(new Prisma.Decimal(created!.platformFee!).toNumber()).toBe(0);
 });

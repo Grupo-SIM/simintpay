@@ -24,7 +24,7 @@ function fixture() {
           id: 'tx',
           amount: new Prisma.Decimal(100),
           netAmount: new Prisma.Decimal(90),
-          domFee: new Prisma.Decimal(2),
+          acquirerFee: new Prisma.Decimal(2),
           platformFee: new Prisma.Decimal(8),
           description: '[TENANT:BOSQUE]',
           paymentMethod: 'PIX',

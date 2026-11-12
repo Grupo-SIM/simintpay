@@ -353,7 +353,7 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
       netAmount: new Prisma.Decimal(pricing.netAmount),
       paymentMethod: method,
       totalFee: new Prisma.Decimal(pricing.totalFee),
-      domFee: new Prisma.Decimal(pricing.domFee),
+      acquirerFee: new Prisma.Decimal(pricing.domFee),
       platformFee: new Prisma.Decimal(pricing.platformFee),
       description:
         pricing.platformTag !== 'GLOBAL'

@@ -1095,7 +1095,7 @@ export class BillingService {
       paymentMethod: PaymentMethod.CREDIT_CARD,
       installments: 1,
       totalFee,
-      domFee: totalFee,
+      acquirerFee: totalFee,
       platformFee: new Prisma.Decimal(0),
       description: `Ajuste proporcional [BILLING_CHANGE:${change.id}]`,
       acquirer: Acquirer.DOM,

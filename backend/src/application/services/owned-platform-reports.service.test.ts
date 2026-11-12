@@ -122,7 +122,7 @@ test('empty ownership returns empty totals and cannot scan global transactions',
   expect(db.$queryRaw.mock.calls[1][0].text).toContain('WHERE false');
   expect(result.coproducao?.creditedCents).toBe(0);
   expect(JSON.stringify(result)).not.toMatch(
-    /domFee|platformFee|lucro|acquirer|Wallet/,
+    /acquirerFee|platformFee|lucro|acquirer|Wallet/,
   );
 });
 test('scope exact marker and original owner; stable database pagination', async () => {

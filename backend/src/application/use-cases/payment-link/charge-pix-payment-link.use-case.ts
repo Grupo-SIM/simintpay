@@ -186,7 +186,7 @@ export class ChargePixPaymentLinkUseCase {
 
       paymentMethod: PaymentMethod.PIX,
       totalFee: new Prisma.Decimal(totalFee),
-      domFee: new Prisma.Decimal(domFee),
+      acquirerFee: new Prisma.Decimal(domFee),
       platformFee: new Prisma.Decimal(platformFee),
       description:
         platformTag !== 'GLOBAL'

@@ -565,7 +565,7 @@ export class ProcessWebhookUseCase {
             status: TransactionStatus.COMPLETED,
             paymentMethod: PaymentMethod.PIX,
             totalFee: 0,
-            domFee: 0,
+            acquirerFee: 0,
             platformFee: pf,
             ...transactionPlatformTagData('AREAFLIX'),
             description: `${order.subscriptionLink.name} ${TENANT_AREAFLIX_TAG} subOrder=${order.id}`,

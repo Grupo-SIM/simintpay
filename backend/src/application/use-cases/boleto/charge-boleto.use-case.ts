@@ -136,7 +136,7 @@ export class ChargeBoletoUseCase {
       netAmount: new Prisma.Decimal(fees.netAmount),
       paymentMethod: PaymentMethod.BOLETO,
       totalFee: new Prisma.Decimal(fees.totalFeeAmount),
-      domFee: new Prisma.Decimal(fees.domFeeAmount),
+      acquirerFee: new Prisma.Decimal(fees.domFeeAmount),
       platformFee: new Prisma.Decimal(fees.platformProfit),
       description:
         platformTag !== 'GLOBAL'

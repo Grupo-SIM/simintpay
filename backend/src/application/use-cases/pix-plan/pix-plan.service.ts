@@ -207,7 +207,7 @@ export class PixPlanService {
         status: 'DRAFT',
         paymentMethod: 'PIX',
         totalFee: new Prisma.Decimal(totalFee),
-        domFee: new Prisma.Decimal(domFee),
+        acquirerFee: new Prisma.Decimal(domFee),
         platformFee: new Prisma.Decimal(platformFee),
         ...transactionPlatformTagData(planTenantTag),
         description: `${body.description ?? `PIX_PLAN:${body.planType}`}${planTenantTag ? ` [TENANT:${planTenantTag}]` : ''}${planOwnerCpf ? ` [CPF_DONO:${planOwnerCpf}]` : ''}${planOwnerName ? ` [NOME_DONO:${planOwnerName}]` : ''}`,

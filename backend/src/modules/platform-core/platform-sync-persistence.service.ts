@@ -18,6 +18,7 @@ import {
 } from './transaction-platform';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { estimateDomFeeReais } from '../../application/helpers/dom-fee-estimate.helper';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import {
   PAYMENT_GATEWAY,
@@ -135,6 +136,17 @@ export class PlatformSyncPersistenceService {
       );
       totalFee = new Prisma.Decimal(row.fee_total ?? row.fee ?? 0);
       domFee = new Prisma.Decimal(row.dom_fee ?? 0);
+      // A DOM reporta só o MDR percentual; o custo real inclui o fixo da tabela de taxas.
+      const scheduled = new Prisma.Decimal(
+        estimateDomFeeReais({
+          amountReais: Number(amount),
+          paymentMethod: row.payment_method,
+          installments: Number(row.installments ?? 1),
+          tenantTag: platform.tag,
+          cardBrand: row.card_brand,
+        }),
+      ).toDecimalPlaces(2);
+      if (scheduled.gt(domFee)) domFee = scheduled;
     } catch {
       return false;
     }
@@ -162,7 +174,7 @@ export class PlatformSyncPersistenceService {
       amount,
       netAmount,
       totalFee,
-      domFee,
+      acquirerFee: domFee,
       platformFee: Prisma.Decimal.max(0, totalFee.minus(domFee)),
       status,
       description: description.includes(marker)

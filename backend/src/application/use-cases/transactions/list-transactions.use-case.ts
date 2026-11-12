@@ -1,3 +1,4 @@
+import { acquirerCostReais } from '../../helpers/acquirer-cost.helper';
 import { getPlatformOwnerId } from '../../../modules/module.registry';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -246,7 +247,7 @@ export class ListTransactionsUseCase {
           platformTag: transaction.platformTag,
           installments: transaction.installments,
           totalFee: transaction.totalFee.toString(),
-          domFee: transaction.domFee.toString(),
+          acquirerFee: acquirerCostReais(transaction).toFixed(2),
           platformFee: transaction.platformFee.toString(),
           domTransactionId: transaction.domTransactionId,
           domPaymentId: transaction.domPaymentId,

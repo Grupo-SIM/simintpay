@@ -87,7 +87,7 @@ export async function recordCyclePayment(
       amount: new Prisma.Decimal(quote.totalAmount),
       netAmount: new Prisma.Decimal(quote.netAmount),
       totalFee: new Prisma.Decimal(totalFee),
-      domFee: new Prisma.Decimal(domFee),
+      acquirerFee: new Prisma.Decimal(domFee),
       platformFee: new Prisma.Decimal(platformFee),
       paymentMethod: method,
       status: 'PENDING',

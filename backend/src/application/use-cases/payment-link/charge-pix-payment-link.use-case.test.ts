@@ -92,7 +92,7 @@ describe('editable financial policy', () => {
       amount: 100,
       netAmount: 94.52,
       totalFee: 5.48,
-      domFee: 1.48,
+      acquirerFee: 1.48,
       platformFee: 4,
     });
     expect(f.db.row().financialSnapshot.originalCents).toBe(10000);

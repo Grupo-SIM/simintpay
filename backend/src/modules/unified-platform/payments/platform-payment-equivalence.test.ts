@@ -178,7 +178,7 @@ function financial(row: any) {
     amount: new Prisma.Decimal(row.amount).toString(),
     net: new Prisma.Decimal(row.netAmount).toString(),
     total: new Prisma.Decimal(row.totalFee).toString(),
-    gateway: new Prisma.Decimal(row.domFee).toString(),
+    gateway: new Prisma.Decimal(row.acquirerFee).toString(),
     fee: new Prisma.Decimal(row.platformFee).toString(),
     settlementBasis: row.settlementBasis,
     tracking: row.tracking

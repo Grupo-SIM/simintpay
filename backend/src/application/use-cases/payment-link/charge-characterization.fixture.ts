@@ -254,7 +254,7 @@ export function money(row: any) {
     amount: n(row.amount),
     netAmount: n(row.netAmount),
     totalFee: n(row.totalFee),
-    domFee: n(row.domFee),
+    acquirerFee: n(row.acquirerFee),
     platformFee: n(row.platformFee),
   };
 }

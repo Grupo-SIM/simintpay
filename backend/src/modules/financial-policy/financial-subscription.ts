@@ -66,7 +66,7 @@ export async function settleFinancialSubscription(
         totalFee: new Prisma.Decimal(quote.totalFeeAmount),
         // These legacy columns are non-nullable; unknown realized cost and profit stay
         // explicitly unknown in the immutable financial snapshot, not measured as zero.
-        domFee: new Prisma.Decimal(quote.domFeeAmount ?? 0),
+        acquirerFee: new Prisma.Decimal(quote.domFeeAmount ?? 0),
         platformFee: new Prisma.Decimal(quote.platformProfit ?? 0),
         ...transactionPlatformTagData(quote.financialSnapshot.policyTag),
         description: `${input.name} [TENANT:${
