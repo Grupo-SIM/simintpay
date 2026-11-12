@@ -999,7 +999,7 @@ export default function UsuariosTab({
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                  CPF
+                  CPF/CNPJ
                 </span>
                 <input
                   type="text"
