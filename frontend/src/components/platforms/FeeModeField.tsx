@@ -6,17 +6,17 @@ import type { FeeMode } from './financial-types';
 const MODES: { value: FeeMode; label: string; hint: string }[] = [
   {
     value: 'ADDITIVE_ONLY',
-    label: 'Somente taxas aditivas',
+    label: 'Taxas do comprador',
     hint: 'Somadas ao preço do comprador. A SimIntPay não desconta suas taxas do lojista.',
   },
   {
     value: 'SIMINTPAY_ONLY',
-    label: 'Somente taxas SimIntPay',
+    label: 'Taxas do vendedor',
     hint: 'Descontadas do valor do lojista. Nenhuma taxa é somada ao comprador.',
   },
   {
     value: 'BOTH',
-    label: 'Taxas aditivas e SimIntPay',
+    label: 'Taxas do comprador e vendedor',
     hint: 'Taxas aditivas somam ao comprador e as taxas SimIntPay são descontadas do lojista.',
   },
 ];
