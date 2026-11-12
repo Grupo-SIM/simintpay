@@ -231,26 +231,29 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
         'Esta oferta não é recorrente; use a cobrança avulsa',
       );
 
-    const auto = offer.renewalMode === 'AUTO_CHARGE';
+    // Cartão só em AUTO_CHARGE (renovação automática); PIX vale em qualquer oferta recorrente e
+    // as renovações dele são pagas pelo comprador via link enviado por e-mail.
+    const autoOffer = offer.renewalMode === 'AUTO_CHARGE';
     const trial = (offer.trialDays ?? 0) > 0;
+    if ((input.paymentMethod as string) === 'boleto')
+      throw new BadRequestException(
+        'Ofertas recorrentes não aceitam boleto; use cartão (cobrança automática) ou PIX (renovação por link)',
+      );
+    if (input.paymentMethod !== 'pix' && input.paymentMethod !== 'credit_card')
+      throw new BadRequestException('Meio de pagamento inválido');
+    const auto = input.paymentMethod === 'credit_card';
+    if (auto && !autoOffer)
+      throw new BadRequestException(
+        'Assinaturas com pagamento manual começam por PIX',
+      );
     if (trial && !(auto && this.tokenSource.kind === 'customer-token'))
       throw new BadRequestException(
         'Ofertas com período de teste exigem cobrança automática com tokenização no navegador',
       );
-    if ((input.paymentMethod as string) === 'boleto')
-      throw new BadRequestException(
-        'Ofertas recorrentes não aceitam boleto; use cartão (cobrança automática) ou PIX (pagamento manual)',
-      );
     const method: PaymentMethod = auto ? 'CREDIT_CARD' : 'PIX';
-    if (input.paymentMethod !== (auto ? 'credit_card' : 'pix'))
-      throw new BadRequestException(
-        auto
-          ? 'Assinaturas com cobrança automática exigem cartão de crédito'
-          : 'Assinaturas com pagamento manual começam por PIX',
-      );
     if (!offer.acceptedMethods.includes(method))
       throw new BadRequestException(
-        'Esta oferta não aceita o meio de pagamento da recorrência',
+        'Esta oferta não aceita o meio de pagamento escolhido',
       );
 
     const email = input.customerEmail.trim().toLowerCase();
@@ -888,7 +891,7 @@ export class OfferSubscribeService implements OnModuleInit, OnModuleDestroy {
     });
     const metadata = (offer.metadata ?? {}) as Record<string, unknown>;
     const pix =
-      offer.renewalMode === 'MANUAL_PAY' && first?.status === 'PENDING'
+      first?.method === 'PIX' && first?.status === 'PENDING'
         ? {
             pixContent: first?.transaction?.pixContent ?? null,
             qrCode: null,
