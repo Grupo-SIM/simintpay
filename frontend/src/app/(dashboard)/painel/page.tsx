@@ -2385,6 +2385,10 @@ export default function PainelPage() {
                                     const cfg = adminFinanceChartConfig[key];
                                     if (!cfg) return null;
                                     const isLiquid = key === 'lucroSimpay';
+                                    const liquidColor =
+                                      Number(item.value) < 0
+                                        ? '#ef4444'
+                                        : '#22c55e';
                                     return (
                                       <div
                                         key={String(item.dataKey)}
@@ -2397,7 +2401,7 @@ export default function PainelPage() {
                                         <span
                                           style={{
                                             color: isLiquid
-                                              ? '#22c55e'
+                                              ? liquidColor
                                               : 'var(--painel-chart-tooltip-title)',
                                             fontWeight: isLiquid ? 700 : 400,
                                           }}
@@ -2408,7 +2412,7 @@ export default function PainelPage() {
                                           style={{
                                             fontWeight: isLiquid ? 700 : 600,
                                             color: isLiquid
-                                              ? '#22c55e'
+                                              ? liquidColor
                                               : 'var(--painel-chart-tooltip-value)',
                                           }}
                                         >
