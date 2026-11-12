@@ -841,3 +841,25 @@ test('platform defaults freeze item-only distribution, reject missing base and p
     }),
   ).rejects.toMatchObject({ status: 409 });
 });
+
+test('exposes the coproducers share frozen in the financial snapshot', () => {
+  const service = Object.create(PlatformPaymentsService.prototype) as any;
+  const base = {
+    id: 't',
+    externalPaymentId: 'p',
+    status: 'COMPLETED',
+    amount: new Prisma.Decimal('61.82'),
+    netAmount: new Prisma.Decimal('55.55'),
+    pixContent: null,
+    pixQrCode: null,
+    pixExpire: null,
+  };
+  const withShare = service.result({
+    ...base,
+    financialSnapshot: {
+      coproduction: { baseCents: 5800, participants: [{ percentageBps: 412 }] },
+    },
+  });
+  expect(withShare.coproductionCents).toBe(238);
+  expect(service.result(base).coproductionCents).toBe(0);
+});

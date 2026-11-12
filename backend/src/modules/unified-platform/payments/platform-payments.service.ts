@@ -58,6 +58,27 @@ export type PaymentPlatformContext = {
   delivery?: PlatformContext['delivery'];
 };
 
+/** Sum of the beneficiaries' floored shares over the frozen base, as allocated at settlement. */
+function coproductionCents(
+  financialSnapshot: unknown,
+  netAmount: Prisma.Decimal | null | undefined,
+): number {
+  const snapshot = (
+    financialSnapshot as {
+      coproduction?: {
+        baseCents?: number;
+        participants?: { percentageBps: number }[];
+      };
+    } | null
+  )?.coproduction;
+  if (!snapshot?.participants?.length) return 0;
+  const base = snapshot.baseCents ?? netAmount?.mul(100).toNumber() ?? 0;
+  return snapshot.participants.reduce(
+    (total, p) => total + Math.floor((base * p.percentageBps) / 10000),
+    0,
+  );
+}
+
 @Injectable()
 export class PlatformPaymentsService {
   constructor(
@@ -878,6 +899,11 @@ export class PlatformPaymentsService {
       status: transaction.status,
       amountCents: transaction.amount.mul(100).toNumber(),
       netAmountCents: transaction.netAmount?.mul(100).toNumber() ?? null,
+      // Coproducers' share frozen with the charge (everything except the owner's residual); zero without agreement.
+      coproductionCents: coproductionCents(
+        transaction.financialSnapshot,
+        transaction.netAmount,
+      ),
       // Frozen with the Delivery allocation; zero for additive-only and for every non-Delivery payment.
       simintpayFeeCents: Number(
         (transaction.financialSnapshot as { simFeeCents?: unknown } | null)
