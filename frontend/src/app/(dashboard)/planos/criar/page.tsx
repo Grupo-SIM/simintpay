@@ -1,5 +1,4 @@
 'use client';
-import { PlatformOwnerSelect } from '@/components/platforms/PlatformOwnerSelect';
 
 import { useCoproductionDraft } from '@/features/coproduction/use-coproduction-draft';
 import { CoproductionButton } from '@/components/coproduction';
@@ -588,18 +587,11 @@ export default function CriarPlanoPage() {
             <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
               Opcional: associe uma plataforma ou use o titular financeiro.
             </p>
-            {!isEditing &&
-              platformCatalog.user?.isAdmin &&
-              !selectedPlatform && (
-                <PlatformOwnerSelect
-                  owner={financialOwner}
-                  disabled={false}
-                  onChange={setFinancialOwner}
-                />
-              )}
             <ProductPlatformSelect
               catalog={platformCatalog}
               value={selectedPlatform}
+              owner={financialOwner}
+              onOwnerChange={setFinancialOwner}
               onChange={(tag) => {
                 setSelectedPlatform(tag || null);
                 setFinancialOwner(null);

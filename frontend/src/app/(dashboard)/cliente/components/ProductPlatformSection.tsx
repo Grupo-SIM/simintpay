@@ -1,7 +1,6 @@
 'use client';
 
 import { Fragment } from 'react';
-import { PlatformOwnerSelect } from '@/components/platforms/PlatformOwnerSelect';
 import { ProductPlatformSelect } from '@/components/product-platforms/ProductPlatformSelect';
 import { HelpTooltip } from '@/components/ui/HelpTooltip';
 import type { useProductPlatforms } from '@/hooks/use-product-platforms';
@@ -21,24 +20,18 @@ export function ProductPlatformSection({ embedded, ...props }: Props) {
       <div className="space-y-2">
         {props.catalog.user?.isAdmin && (
           <p className="text-sm text-zinc-500">
-            Selecione um proprietário ou uma plataforma para definir o destino
-            financeiro do produto.{' '}
+            Escolha entre um proprietário ou uma plataforma para definir o
+            destino financeiro do produto.{' '}
             <span className="text-red-500" aria-label="Obrigatório">
               *
             </span>
           </p>
         )}
-        <div className="grid items-start gap-4 md:grid-cols-2">
-          {props.catalog.user?.isAdmin && !props.value && (
-            <PlatformOwnerSelect
-              owner={props.catalog.financialOwner}
-              disabled={false}
-              required={false}
-              onChange={props.catalog.setFinancialOwner}
-            />
-          )}
+        <div>
           <ProductPlatformSelect
             {...props}
+            owner={props.catalog.financialOwner}
+            onOwnerChange={props.catalog.setFinancialOwner}
             onChange={(tag) => {
               props.catalog.setFinancialOwner(null);
               props.onChange(tag);

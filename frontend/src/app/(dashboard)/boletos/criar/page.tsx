@@ -1,5 +1,4 @@
 'use client';
-import { PlatformOwnerSelect } from '@/components/platforms/PlatformOwnerSelect';
 
 import { BoletoDueDaysField } from '@/components/boletos/BoletoDueDaysField';
 import { FieldLabel } from '@/components/ui/FieldLabel';
@@ -403,18 +402,11 @@ export default function CriarBoletoPage() {
               <FieldLabel info="Plataforma à qual este produto pertence. Define a associação usada no processamento do pagamento.">
                 Plataforma associada (opcional)
               </FieldLabel>
-              {!isEditing &&
-                platformCatalog.user?.isAdmin &&
-                !selectedPlatform && (
-                  <PlatformOwnerSelect
-                    owner={financialOwner}
-                    disabled={false}
-                    onChange={setFinancialOwner}
-                  />
-                )}
               <ProductPlatformSelect
                 catalog={platformCatalog}
                 value={selectedPlatform}
+                owner={financialOwner}
+                onOwnerChange={setFinancialOwner}
                 onChange={(tag) => {
                   setSelectedPlatform(tag || null);
                   setFinancialOwner(null);

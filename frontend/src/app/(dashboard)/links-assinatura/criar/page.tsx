@@ -1,5 +1,4 @@
 'use client';
-import { PlatformOwnerSelect } from '@/components/platforms/PlatformOwnerSelect';
 
 import { useCoproductionDraft } from '@/features/coproduction/use-coproduction-draft';
 import { CoproductionButton } from '@/components/coproduction';
@@ -505,16 +504,11 @@ export default function CriarLinkAssinaturaPage() {
           <p className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
             Plataforma associada (opcional)
           </p>
-          {!isEditing && platformCatalog.user?.isAdmin && !selectedPlatform && (
-            <PlatformOwnerSelect
-              owner={financialOwner}
-              disabled={false}
-              onChange={setFinancialOwner}
-            />
-          )}
           <ProductPlatformSelect
             catalog={platformCatalog}
             value={selectedPlatform}
+            owner={financialOwner}
+            onOwnerChange={setFinancialOwner}
             onChange={(tag) => {
               setSelectedPlatform(tag || null);
               setFinancialOwner(null);
