@@ -124,7 +124,8 @@ export default function OfferCheckout({
   /** Prévia: pede ao painel o preço com os order bumps marcados. */
   previewPricing?: (bumpCodes: string[]) => Promise<OfferCheckoutPricing>;
 } = {}) {
-  const code = useSearchParams().get('oferta');
+  const searchParams = useSearchParams();
+  const code = searchParams.get('oferta');
   const [offer, setOffer] = useState<PublicOffer | null>(previewOffer ?? null);
   const [fetching, setFetching] = useState(!previewOffer && Boolean(code));
   const [offerError, setOfferError] = useState('');
@@ -166,10 +167,19 @@ export default function OfferCheckout({
     expire: string | null;
   } | null>(null);
 
-  const [name, setName] = useState('');
-  const [document, setDocument] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  // Dados já informados pelo parceiro (?name=&document=&email=&phone=) iniciam preenchidos.
+  const [name, setName] = useState(
+    () => searchParams.get('name')?.trim() ?? '',
+  );
+  const [document, setDocument] = useState(() =>
+    maskCpfCnpj(searchParams.get('document') ?? ''),
+  );
+  const [email, setEmail] = useState(
+    () => searchParams.get('email')?.trim() ?? '',
+  );
+  const [phone, setPhone] = useState(() =>
+    maskPhoneBr(searchParams.get('phone') ?? ''),
+  );
   const [cardNumber, setCardNumber] = useState('');
   const [cardMonth, setCardMonth] = useState('');
   const [cardYear, setCardYear] = useState('');
