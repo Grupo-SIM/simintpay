@@ -557,6 +557,8 @@ function FormBody({
         theme={theme}
         onChange={(bumps) => patch({ bumps })}
         onError={fail}
+        onPreviewBumps={() => void openPreview()}
+        bumpPreviewPending={previewPending}
       />
 
       <ProductFormSection title="Validade e limites">

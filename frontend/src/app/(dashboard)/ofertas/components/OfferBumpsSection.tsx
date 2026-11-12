@@ -33,6 +33,8 @@ export function OfferBumpsSection({
   theme,
   onChange,
   onError,
+  onPreviewBumps,
+  bumpPreviewPending = false,
 }: {
   bumps: FormBump[];
   selfId: string | null;
@@ -41,6 +43,9 @@ export function OfferBumpsSection({
   theme: 'light' | 'dark';
   onChange: (bumps: FormBump[]) => void;
   onError: (message: string) => void;
+  /** Abre a prévia do checkout da oferta, com os order bumps. */
+  onPreviewBumps: () => void;
+  bumpPreviewPending?: boolean;
 }) {
   const api = useClienteApi();
   const [previewDraft, setPreviewDraft] = useState<Record<
@@ -119,32 +124,56 @@ export function OfferBumpsSection({
   };
 
   const hasUpsell = bumps.some((bump) => bump.role === 'UPSELL');
+  const hasBump = bumps.some((bump) => bump.role === 'BUMP');
 
   return (
     <ProductFormSection
       title="Funil"
       action={
-        <PortalTooltip
-          content={
-            hasUpsell ? null : (
-              <div className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
-                Adicione um upsell para pré-visualizar
-              </div>
-            )
-          }
-        >
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="cursor-pointer"
-            disabled={previewPending || !hasUpsell}
-            onClick={() => void previewFunnel()}
+        <div className="flex flex-wrap gap-2">
+          <PortalTooltip
+            content={
+              hasBump ? null : (
+                <div className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
+                  Adicione um order bump para pré-visualizar
+                </div>
+              )
+            }
           >
-            <Eye aria-hidden className="h-4 w-4" />
-            {previewPending ? 'Carregando...' : 'Pré-visualizar funil'}
-          </Button>
-        </PortalTooltip>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="cursor-pointer"
+              disabled={bumpPreviewPending || !hasBump}
+              onClick={onPreviewBumps}
+            >
+              <Eye aria-hidden className="h-4 w-4" />
+              {bumpPreviewPending ? 'Calculando…' : 'Pré-visualizar order bump'}
+            </Button>
+          </PortalTooltip>
+          <PortalTooltip
+            content={
+              hasUpsell ? null : (
+                <div className="rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
+                  Adicione um upsell para pré-visualizar
+                </div>
+              )
+            }
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="cursor-pointer"
+              disabled={previewPending || !hasUpsell}
+              onClick={() => void previewFunnel()}
+            >
+              <Eye aria-hidden className="h-4 w-4" />
+              {previewPending ? 'Carregando...' : 'Pré-visualizar funil'}
+            </Button>
+          </PortalTooltip>
+        </div>
       }
     >
       {previewDraft && (
