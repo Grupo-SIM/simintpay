@@ -1,14 +1,21 @@
 import type { PublicOffer } from './offer-checkout-model';
 
-/** Meios do checkout de assinatura: AUTO_CHARGE só cartão de crédito, MANUAL_PAY só PIX. */
+/** Meios do checkout de assinatura. Cartão só renova sozinho em AUTO_CHARGE; PIX vale em toda oferta recorrente. */
 export type SubscribeMethod = 'pix' | 'credit_card';
 
-export function subscribeMethod(offer: PublicOffer): SubscribeMethod | null {
-  if (offer.renewalMode === 'AUTO_CHARGE')
-    return offer.acceptedMethods.includes('CREDIT_CARD') ? 'credit_card' : null;
-  if (offer.renewalMode === 'MANUAL_PAY')
-    return offer.acceptedMethods.includes('PIX') ? 'pix' : null;
-  return null;
+export function subscribeMethods(offer: PublicOffer): SubscribeMethod[] {
+  if (offer.renewalMode !== 'AUTO_CHARGE' && offer.renewalMode !== 'MANUAL_PAY')
+    return [];
+  const methods: SubscribeMethod[] = [];
+  if (
+    offer.renewalMode === 'AUTO_CHARGE' &&
+    offer.acceptedMethods.includes('CREDIT_CARD')
+  )
+    methods.push('credit_card');
+  // Teste grátis não cobra hoje: exige o cartão guardado, PIX não tem como começar.
+  if (offer.acceptedMethods.includes('PIX') && !(offer.trialDays! > 0))
+    methods.push('pix');
+  return methods;
 }
 
 const UNITS: Record<string, [string, string, string]> = {
@@ -64,9 +71,15 @@ export function trialNotice(
 }
 
 /** Como a renovação funciona. `money` já formatado (ex.: "R$ 49,90"). */
-export function renewalNotice(offer: PublicOffer, money: string): string {
+export function renewalNotice(
+  offer: PublicOffer,
+  money: string,
+  method: SubscribeMethod = offer.renewalMode === 'AUTO_CHARGE'
+    ? 'credit_card'
+    : 'pix',
+): string {
   const base = `${money} ${intervalPhrase(offer)}`;
-  return offer.renewalMode === 'AUTO_CHARGE'
+  return method === 'credit_card'
     ? `${base}, cobrado automaticamente no cartão.`
     : `${base}. Você receberá um aviso e pagará o PIX a cada ciclo.`;
 }

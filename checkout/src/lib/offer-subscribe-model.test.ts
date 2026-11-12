@@ -11,7 +11,7 @@ import {
   parseCardExpiry,
   renewalNotice,
   subscribeBody,
-  subscribeMethod,
+  subscribeMethods,
   trialNotice,
   type SubscribeResponse,
 } from './offer-subscribe-model';
@@ -37,13 +37,21 @@ const customer = {
 const now = new Date(2026, 10, 5, 12);
 
 describe('offer subscribe model', () => {
-  test('escolhe o meio pelo modo de renovação', () => {
-    expect(subscribeMethod(offer)).toBe('credit_card');
-    expect(subscribeMethod({ ...offer, renewalMode: 'MANUAL_PAY' })).toBe(
+  test('escolhe os meios aceitos pela oferta', () => {
+    expect(subscribeMethods(offer)).toEqual(['credit_card', 'pix']);
+    expect(subscribeMethods({ ...offer, acceptedMethods: ['PIX'] })).toEqual([
       'pix',
-    );
-    expect(subscribeMethod({ ...offer, acceptedMethods: ['PIX'] })).toBeNull();
-    expect(subscribeMethod({ ...offer, renewalMode: 'NONE' })).toBeNull();
+    ]);
+    expect(
+      subscribeMethods({ ...offer, acceptedMethods: ['CREDIT_CARD'] }),
+    ).toEqual(['credit_card']);
+    expect(subscribeMethods({ ...offer, renewalMode: 'MANUAL_PAY' })).toEqual([
+      'pix',
+    ]);
+    expect(subscribeMethods({ ...offer, trialDays: 7 })).toEqual([
+      'credit_card',
+    ]);
+    expect(subscribeMethods({ ...offer, renewalMode: 'NONE' })).toEqual([]);
   });
 
   test('textos de intervalo', () => {

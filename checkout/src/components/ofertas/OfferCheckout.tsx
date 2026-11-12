@@ -75,7 +75,7 @@ import {
   parseCardExpiry,
   renewalNotice,
   subscribeBody,
-  subscribeMethod,
+  subscribeMethods,
   trialDaysOf,
   trialNotice,
   type SubscribeOutcome,
@@ -107,11 +107,10 @@ const METHOD_TITLE: Record<OfferMethod, string> = {
   boleto: 'Boleto bancário',
 };
 
-/** Recorrente: um único meio por modo de renovação; avulsa: PIX/crédito/débito. */
+/** Recorrente: cartão (só AUTO_CHARGE) e PIX conforme aceitos; avulsa: PIX/crédito/débito. */
 function methodsOf(offer: PublicOffer): OfferMethod[] {
   if (!isRecurringOffer(offer)) return availableMethods(offer);
-  const only = subscribeMethod(offer);
-  return only ? [only] : [];
+  return subscribeMethods(offer);
 }
 
 export default function OfferCheckout({
@@ -247,7 +246,8 @@ export default function OfferCheckout({
     () => setPaidAmount(boleto?.amount ?? (offer ? offerAmount(offer) : 0)),
   );
   const recurring = offer ? isRecurringOffer(offer) : false;
-  const autoCharge = offer?.renewalMode === 'AUTO_CHARGE';
+  const autoCharge =
+    offer?.renewalMode === 'AUTO_CHARGE' && method === 'credit_card';
 
   const docDigits = document.replace(/\D/g, '');
   const dadosOk =
@@ -835,7 +835,11 @@ export default function OfferCheckout({
               className="flex flex-col gap-1 rounded-lg border border-white/10 bg-black/25 px-4 py-3 text-sm text-zinc-300"
             >
               <p className="font-semibold text-white">
-                {renewalNotice(offer, money(base))}
+                {renewalNotice(
+                  offer,
+                  money(base),
+                  method === 'credit_card' ? 'credit_card' : 'pix',
+                )}
               </p>
               {trialNotice(offer) && (
                 <p data-testid="trial-notice">{trialNotice(offer)}</p>
