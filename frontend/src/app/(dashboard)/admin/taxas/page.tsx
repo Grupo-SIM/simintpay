@@ -8,6 +8,7 @@ import { useCurrentUser } from '@/hooks/use-current-user';
 import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { FinancialPolicyEditor } from '@/components/platforms/FinancialPolicyEditor';
 import { CashbackDomSection } from '@/components/platforms/CashbackDomSection';
+import { TaxaScopeToggle } from '@/components/platforms/TaxaScopeToggle';
 import { UserTaxaPicker } from '@/components/platforms/UserTaxaPicker';
 import { WithdrawalSection } from '@/components/platforms/WithdrawalSection';
 import { PlatformSelectionHeader } from '@/components/platforms/PlatformSelectionHeader';
@@ -62,6 +63,13 @@ export default function AdminTaxasPlataformasPage() {
   const selectedPlatform = platforms.data.data.find(
     (platform) => platform.tag === tag,
   );
+  const sections = (
+    <>
+      <CashbackDomSection key={`cashback-${tag}`} tag={tag} />
+      <WithdrawalSection key={`withdrawal-${tag}`} tag={tag} />
+      <FinancialPolicyEditor key={tag} tag={tag} admin />
+    </>
+  );
   return (
     <div className="space-y-5">
       <PlatformSelectionHeader
@@ -96,9 +104,13 @@ export default function AdminTaxasPlataformasPage() {
           />
         </div>
       )}
-      <CashbackDomSection key={`cashback-${tag}`} tag={tag} />
-      <WithdrawalSection key={`withdrawal-${tag}`} tag={tag} />
-      <FinancialPolicyEditor key={tag} tag={tag} admin />
+      {tag === 'GLOBAL' ? (
+        sections
+      ) : (
+        <TaxaScopeToggle key={`scope-${tag}`} tag={tag}>
+          {sections}
+        </TaxaScopeToggle>
+      )}
     </div>
   );
 }
