@@ -67,6 +67,7 @@ beforeAll(async () => {
   for (const migration of [
     '20261031130000_balance_log_drives_wallet',
     '20261102120000_ebook_settlement_v1',
+    '20261118090000_transaction_settlement_basis_ebook_v1',
   ])
     await pg.query(
       readFileSync(
