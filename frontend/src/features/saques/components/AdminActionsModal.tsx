@@ -163,13 +163,31 @@ export function AdminActionsModal({
               Total retirado da carteira: {formatBRL(saque.valorBruto)}
             </div>
           )}
-          {(saque?.cliente ?? saque?.usuario) && (
+          {saque && (
             <div className="mt-3 flex flex-col gap-1 border-t border-zinc-200 pt-3 dark:border-white/5">
-              <span className="text-sm font-medium text-zinc-800 dark:text-white/80">
-                {(saque.cliente ?? saque.usuario)!.nome}
+              {(saque.cliente ?? saque.usuario) && (
+                <>
+                  <span className="text-sm font-medium text-zinc-800 dark:text-white/80">
+                    {(saque.cliente ?? saque.usuario)!.nome}
+                  </span>
+                  <span className="text-xs text-zinc-500 dark:text-white/40">
+                    {(saque.cliente ?? saque.usuario)!.email}
+                  </span>
+                </>
+              )}
+              <span className="text-xs text-zinc-500 dark:text-white/40">
+                Chave PIX:{' '}
+                <span className="select-all font-medium text-zinc-800 dark:text-white/80">
+                  {saque.chavePix || '—'}
+                </span>
               </span>
               <span className="text-xs text-zinc-500 dark:text-white/40">
-                {(saque.cliente ?? saque.usuario)!.email}
+                Saldo restante na conta:{' '}
+                <span className="font-medium text-zinc-800 dark:text-white/80">
+                  {saque.saldoRestanteAposSaque != null
+                    ? formatBRL(saque.saldoRestanteAposSaque)
+                    : '—'}
+                </span>
               </span>
             </div>
           )}
