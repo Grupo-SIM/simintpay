@@ -16,29 +16,31 @@ import {
 } from './ebook-manifest';
 import { buildEbookFunding } from './ebook-settlement';
 
+type Capability = { hash: string; issuedAt: string };
 type Enrollment = {
   id: string;
   manifestHash: string;
   manifest: EbookManifest;
   identities: Record<string, string>;
   capabilityHash: string;
-  capabilityHashes: string[] | null;
+  capabilityHashes: Capability[] | null;
   state: string;
   transactionId: string | null;
 };
-const MAX_CAPABILITY_HASHES = 20;
+/** Quanto tempo um token emitido continua aceito; reinscrições não invalidam os anteriores. */
+export const CAPABILITY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const hashToken = (value: string) =>
   createHash('sha256').update(value).digest('hex');
-/** Reinscrições emitem tokens novos sem invalidar os links já entregues ao cliente. */
-const capabilityMatches = (row: Enrollment, candidate: string) => {
-  const known = [row.capabilityHash, ...(row.capabilityHashes ?? [])];
+const isLive = (capability: Capability, now: number) =>
+  now - Date.parse(capability.issuedAt) < CAPABILITY_TTL_MS;
+const capabilityMatches = (row: Enrollment, candidate: string, now: number) => {
   const input = Buffer.from(candidate);
   // Sem curto-circuito: o tempo não revela qual hash bateu.
-  return known.reduce((ok, hash) => {
-    const stored = Buffer.from(hash);
-    return (
-      (stored.length === input.length && timingSafeEqual(stored, input)) || ok
-    );
+  return (row.capabilityHashes ?? []).reduce((ok, capability) => {
+    const stored = Buffer.from(capability.hash);
+    const match =
+      stored.length === input.length && timingSafeEqual(stored, input);
+    return (match && isLive(capability, now)) || ok;
   }, false);
 };
 export async function enrollEbook(prisma: PrismaService, value: unknown) {
@@ -56,14 +58,12 @@ export async function enrollEbook(prisma: PrismaService, value: unknown) {
       if (existing[0].state !== 'ENROLLED')
         throw new ConflictException('EBOOK_PAYMENT_ALREADY_STARTED');
       const issued = hashToken(token);
-      const hashes = [
-        ...new Set([
-          ...(existing[0].capabilityHashes ?? []),
-          existing[0].capabilityHash,
-          issued,
-        ]),
-      ].slice(-MAX_CAPABILITY_HASHES);
-      await p.$executeRaw`UPDATE "EbookSettlement" SET "capabilityHash" = ${issued}, "capabilityHashes" = ${hashes}::text[] WHERE id = ${existing[0].id}`;
+      const now = Date.now();
+      const capabilities: Capability[] = [
+        ...(existing[0].capabilityHashes ?? []).filter((c) => isLive(c, now)),
+        { hash: issued, issuedAt: new Date(now).toISOString() },
+      ];
+      await p.$executeRaw`UPDATE "EbookSettlement" SET "capabilityHash" = ${issued}, "capabilityHashes" = ${JSON.stringify(capabilities)}::jsonb WHERE id = ${existing[0].id}`;
       return existing[0].id;
     }
     const identities: Record<string, string> = {};
@@ -98,7 +98,7 @@ export async function enrollEbook(prisma: PrismaService, value: unknown) {
       identities[claim.externalUserId] = users[0].id;
     }
     const settlementId = randomUUID();
-    await p.$executeRaw`INSERT INTO "EbookSettlement" (id,"manifestId","orderNumber","manifestHash",manifest,identities,"capabilityHash","capabilityHashes") VALUES (${settlementId},${manifest.manifestId},${manifest.orderNumber},${manifestHash},${JSON.stringify(manifest)}::jsonb,${JSON.stringify(identities)}::jsonb,${hashToken(token)},ARRAY[${hashToken(token)}]::text[])`;
+    await p.$executeRaw`INSERT INTO "EbookSettlement" (id,"manifestId","orderNumber","manifestHash",manifest,identities,"capabilityHash","capabilityHashes") VALUES (${settlementId},${manifest.manifestId},${manifest.orderNumber},${manifestHash},${JSON.stringify(manifest)}::jsonb,${JSON.stringify(identities)}::jsonb,${hashToken(token)},${JSON.stringify([{ hash: hashToken(token), issuedAt: new Date().toISOString() }])}::jsonb)`;
     return settlementId;
   });
   return { settlementId: id, settlementToken: token, manifestHash };
@@ -139,7 +139,7 @@ export async function claimEbookPayment(
       return false;
     }
     const candidate = hashToken(input.settlementToken ?? '');
-    if (!input.settlementId || !capabilityMatches(row, candidate))
+    if (!input.settlementId || !capabilityMatches(row, candidate, Date.now()))
       throw new UnauthorizedException('EBOOK_CAPABILITY_REQUIRED');
     if (
       (input.store ?? 'ebook').toUpperCase() !== 'EBOOK' ||

@@ -644,9 +644,14 @@ run(
       );
     for (const bad of ['', 'forged-token'])
       await expect(claim(bad)).rejects.toThrow('EBOOK_CAPABILITY_REQUIRED');
-    // O token da primeira emissão continua válido: a checagem de capability passa e
-    // o fluxo segue até o bloqueio por fundos insuficientes (mesmo cenário de BLOCKED-1).
-    await expect(claim(first.settlementToken)).rejects.toThrow('INSUFFICIENT');
+    // Token além da validade deixa de valer; os emitidos depois continuam, passam da
+    // checagem de capability e seguem até o bloqueio por fundos (mesmo cenário de BLOCKED-1).
+    await db!
+      .$executeRaw`UPDATE "EbookSettlement" SET "capabilityHashes" = (SELECT jsonb_agg(CASE WHEN ord = 1 THEN jsonb_set(e, '{issuedAt}', to_jsonb(to_char(now() - interval '8 days', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))) ELSE e END ORDER BY ord) FROM jsonb_array_elements("capabilityHashes") WITH ORDINALITY AS t(e, ord)) WHERE id = ${first.settlementId}`;
+    await expect(claim(first.settlementToken)).rejects.toThrow(
+      'EBOOK_CAPABILITY_REQUIRED',
+    );
+    await expect(claim(second.settlementToken)).rejects.toThrow('INSUFFICIENT');
   },
 );
 run(
