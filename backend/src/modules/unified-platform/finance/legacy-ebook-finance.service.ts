@@ -13,6 +13,7 @@ import {
   EbookSimConfig,
   getEbookTaxaServico,
 } from '../../../modules/ebooksim/ebooksim.config';
+import { estimateDomFeeReais } from '../../../application/helpers/dom-fee-estimate.helper';
 import { calculateSellerNetValue } from '../../../application/helpers/transaction-fee.helper';
 import {
   getPlatformTaxaEffective,
@@ -401,6 +402,13 @@ export class InternalEbookFinanceService {
       userId,
       amount,
       netAmount,
+      // Cotação do custo da adquirente já na criação; o pagamento a substitui pelo valor real.
+      acquirerFee: estimateDomFeeReais({
+        amountReais: amount,
+        paymentMethod: method,
+        installments,
+        tenantTag: 'EBOOK',
+      }),
       status: 'PENDING',
       paymentMethod: method as any,
       description,

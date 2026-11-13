@@ -5,7 +5,10 @@ import {
   loadChargePolicy,
   quoteReportedPos,
 } from '../../../modules/financial-policy/financial-charge';
-import { isPhysicalDebit } from '../../helpers/dom-fee-estimate.helper';
+import {
+  isPhysicalDebit,
+  resolveDomFeeReais,
+} from '../../helpers/dom-fee-estimate.helper';
 import { markChargeSettled } from '../../../modules/billing-core/charge-settlement';
 import {
   creditedSettlementAmount,
@@ -1142,7 +1145,15 @@ export class ProcessDomWebhookUseCase {
               amount: amountDec,
               netAmount: netDec,
               totalFee: amountDec.sub(netDec),
-              acquirerFee: new Prisma.Decimal(data.dom_fee ?? 0),
+              acquirerFee: new Prisma.Decimal(
+                resolveDomFeeReais({
+                  amountReais: data.amount / 100,
+                  paymentMethod: data.payment_method,
+                  installments: Number(data.installments ?? 1),
+                  domFeeFromGateway: data.dom_fee,
+                  tenantTag: 'EBOOK',
+                }),
+              ),
               customerName: custName,
               customerEmail: custEmail,
               customerDocument: custDoc,
@@ -1248,7 +1259,15 @@ export class ProcessDomWebhookUseCase {
             amount: amountDec,
             netAmount: netDec,
             totalFee: amountDec.sub(netDec),
-            acquirerFee: new Prisma.Decimal(data.dom_fee ?? 0),
+            acquirerFee: new Prisma.Decimal(
+              resolveDomFeeReais({
+                amountReais: data.amount / 100,
+                paymentMethod: data.payment_method,
+                installments: Number(data.installments ?? 1),
+                domFeeFromGateway: data.dom_fee,
+                tenantTag: 'EBOOK',
+              }),
+            ),
             status: TransactionStatus.COMPLETED,
             paymentMethod: this.calcPaymentMethod(data.payment_method),
             ...transactionPlatformTagData('EBOOK'),

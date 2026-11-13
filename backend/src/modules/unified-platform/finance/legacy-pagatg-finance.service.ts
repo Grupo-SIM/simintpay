@@ -1,3 +1,4 @@
+import { estimateDomFeeReais } from '../../../application/helpers/dom-fee-estimate.helper';
 import { whereTransactionPlatform } from '../../platform-core/transaction-platform';
 import { PlatformFinanceService } from './platform-finance.service';
 import { Injectable } from '@nestjs/common';
@@ -396,6 +397,11 @@ export class InternalPagatgFinanceService {
         amount: amountDec,
         netAmount: netDec,
         totalFee: amountDec.sub(netDec),
+        acquirerFee: estimateDomFeeReais({
+          amountReais: amount,
+          paymentMethod: body.paymentMethod === 'PIX' ? 'PIX' : 'CREDIT_CARD',
+          tenantTag: 'PAGATG',
+        }),
         status: 'COMPLETED',
         paymentMethod: body.paymentMethod === 'PIX' ? 'PIX' : 'CREDIT_CARD',
         description,

@@ -10,6 +10,7 @@ import {
   assertWalletLedgerConsistency,
 } from '../../wallet-ledger/wallet-ledger';
 import { parseYmdSp } from '../../platform-core/platform-administration.helpers';
+import { estimateDomFeeReais } from '../../../application/helpers/dom-fee-estimate.helper';
 import { PlatformLedger } from './platform-ledger';
 import {
   platformMachines,
@@ -221,6 +222,16 @@ export class PlatformFinanceService {
         amount,
         netAmount: net,
         totalFee: kind === 'payment' ? amount.minus(net) : 0,
+        ...(kind === 'commission'
+          ? {}
+          : {
+              acquirerFee: estimateDomFeeReais({
+                amountReais: amount.toNumber(),
+                paymentMethod: String(body.paymentMethod),
+                installments: Number(body.installments ?? 1),
+                tenantTag: context.tag,
+              }),
+            }),
         installments: Number(body.installments ?? 1),
         customerName: body.customerName as string | undefined,
         customerEmail: body.customerEmail as string | undefined,
