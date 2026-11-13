@@ -190,12 +190,12 @@ export function FinancialSimulationCard({
         additiveTotals,
       )
     : undefined;
-  // Acquirer cost + merchant effective fee over the real amount (without interest). Percentages are charged on what the customer pays, interest included.
+  // Acquirer cost + merchant effective fee over the real amount (without interest).
   const effectiveLabel =
     effective && displayedContract && result?.originalCents
       ? `${(
           ((((displayedContract.ratePpm + effective.ratePpm) / 1_000_000) *
-            (result.originalCents + result.buyerInterestCents) +
+            result.originalCents +
             displayedContract.fixedCents +
             effective.fixedCents) /
             result.originalCents) *
