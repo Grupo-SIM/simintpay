@@ -7,6 +7,7 @@ import {
 } from '@/services/api/api.client';
 import { endpoints } from '@/services/api/endpoints';
 import { LoadingOverlay } from '@/components/ui/Loading';
+import { formatPixKey } from '@/lib/utils';
 import {
   CheckCircle2,
   Clock,
@@ -414,7 +415,7 @@ export default function RevalidaSaquesPage() {
                       color: 'rgba(255,255,255,0.6)',
                     }}
                   >
-                    {w.pixKey}
+                    {formatPixKey(w.pixKey)}
                   </td>
                   <td style={{ padding: '14px 16px' }}>
                     <StatusBadge

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { Download, Eye, EyeOff, Upload, Eraser, List } from 'lucide-react';
 
-import { cn } from '@/lib/utils';
+import { cn, formatPixKey } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable } from '@/components/ui/DataTable';
 import { Dropdown } from '@/components/ui/Dropdown';
@@ -264,7 +264,7 @@ function AdminSaquesContent() {
         header: 'Chave PIX',
         render: (row: Saque) => (
           <span className="text-sm text-zinc-600 dark:text-zinc-400">
-            {row.chavePix ?? '---'}
+            {formatPixKey(row.chavePix)}
           </span>
         ),
       },

@@ -14,7 +14,7 @@ import {
   Eraser,
 } from 'lucide-react';
 
-import { cn, negativeMoneyClass } from '@/lib/utils';
+import { cn, formatPixKey, negativeMoneyClass } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable } from '@/components/ui/DataTable';
 import { Dropdown } from '@/components/ui/Dropdown';
@@ -250,7 +250,7 @@ function SaquesContent() {
         header: 'Chave PIX',
         render: (row: Saque) => (
           <span className="text-sm text-zinc-600 dark:text-zinc-400">
-            {row.chavePix ?? '---'}
+            {formatPixKey(row.chavePix)}
           </span>
         ),
       },

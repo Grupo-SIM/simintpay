@@ -41,6 +41,26 @@ export function formatDocument(doc: string | null | undefined): string {
   return doc;
 }
 
+function isValidCpf(digits: string): boolean {
+  if (/^(\d)\1{10}$/.test(digits)) return false;
+  const check = (len: number) => {
+    let sum = 0;
+    for (let i = 0; i < len; i++) sum += Number(digits[i]) * (len + 1 - i);
+    return ((sum * 10) % 11) % 10;
+  };
+  return check(9) === Number(digits[9]) && check(10) === Number(digits[10]);
+}
+
+/** Formata chave Pix quando for CPF (válido) ou CNPJ; demais tipos (telefone, e-mail, aleatória) ficam intactos. */
+export function formatPixKey(key: string | null | undefined): string {
+  if (!key) return '---';
+  if (!/^[\d.\-/\s]+$/.test(key)) return key;
+  const digits = key.replace(/\D/g, '');
+  if (digits.length === 14) return formatDocument(digits);
+  if (digits.length === 11 && isValidCpf(digits)) return formatDocument(digits);
+  return key;
+}
+
 export function formatBRL(v: number | undefined | null): string {
   return (v ?? 0).toLocaleString('pt-BR', {
     style: 'currency',

@@ -9,7 +9,7 @@ import type {
 } from '../relatorio/components/report-types';
 import { DashboardPageSkeleton } from '../components/DashboardPageSkeleton';
 import { useCurrentUser } from '@/hooks/use-current-user';
-import { cn, isNegativeMoneyString } from '@/lib/utils';
+import { cn, formatPixKey, isNegativeMoneyString } from '@/lib/utils';
 import { DateRangePickerField } from '@/app/(dashboard)/relatorio/components/DateRangePickerField';
 import type { DateRange } from '@/app/(dashboard)/relatorio/types';
 import {
@@ -3365,7 +3365,10 @@ export default function PainelPage() {
                   '—'}
               </span>
               <span className="text-xs text-zinc-500 dark:text-white/40">
-                Chave Pix: {adminSaqueSelected?.chavePix ?? '—'}
+                Chave Pix:{' '}
+                {adminSaqueSelected?.chavePix
+                  ? formatPixKey(adminSaqueSelected.chavePix)
+                  : '—'}
               </span>
             </div>
           </div>
