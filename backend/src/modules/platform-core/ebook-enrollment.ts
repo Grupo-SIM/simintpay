@@ -22,11 +22,25 @@ type Enrollment = {
   manifest: EbookManifest;
   identities: Record<string, string>;
   capabilityHash: string;
+  capabilityHashes: string[] | null;
   state: string;
   transactionId: string | null;
 };
+const MAX_CAPABILITY_HASHES = 20;
 const hashToken = (value: string) =>
   createHash('sha256').update(value).digest('hex');
+/** Reinscrições emitem tokens novos sem invalidar os links já entregues ao cliente. */
+const capabilityMatches = (row: Enrollment, candidate: string) => {
+  const known = [row.capabilityHash, ...(row.capabilityHashes ?? [])];
+  const input = Buffer.from(candidate);
+  // Sem curto-circuito: o tempo não revela qual hash bateu.
+  return known.reduce((ok, hash) => {
+    const stored = Buffer.from(hash);
+    return (
+      (stored.length === input.length && timingSafeEqual(stored, input)) || ok
+    );
+  }, false);
+};
 export async function enrollEbook(prisma: PrismaService, value: unknown) {
   const manifest = validateEbookManifest(value);
   const manifestHash = ebookHash(manifest);
@@ -41,7 +55,15 @@ export async function enrollEbook(prisma: PrismaService, value: unknown) {
         throw new ConflictException('EBOOK_MANIFEST_CONFLICT');
       if (existing[0].state !== 'ENROLLED')
         throw new ConflictException('EBOOK_PAYMENT_ALREADY_STARTED');
-      await p.$executeRaw`UPDATE "EbookSettlement" SET "capabilityHash" = ${hashToken(token)} WHERE id = ${existing[0].id}`;
+      const issued = hashToken(token);
+      const hashes = [
+        ...new Set([
+          ...(existing[0].capabilityHashes ?? []),
+          existing[0].capabilityHash,
+          issued,
+        ]),
+      ].slice(-MAX_CAPABILITY_HASHES);
+      await p.$executeRaw`UPDATE "EbookSettlement" SET "capabilityHash" = ${issued}, "capabilityHashes" = ${hashes}::text[] WHERE id = ${existing[0].id}`;
       return existing[0].id;
     }
     const identities: Record<string, string> = {};
@@ -76,7 +98,7 @@ export async function enrollEbook(prisma: PrismaService, value: unknown) {
       identities[claim.externalUserId] = users[0].id;
     }
     const settlementId = randomUUID();
-    await p.$executeRaw`INSERT INTO "EbookSettlement" (id,"manifestId","orderNumber","manifestHash",manifest,identities,"capabilityHash") VALUES (${settlementId},${manifest.manifestId},${manifest.orderNumber},${manifestHash},${JSON.stringify(manifest)}::jsonb,${JSON.stringify(identities)}::jsonb,${hashToken(token)})`;
+    await p.$executeRaw`INSERT INTO "EbookSettlement" (id,"manifestId","orderNumber","manifestHash",manifest,identities,"capabilityHash","capabilityHashes") VALUES (${settlementId},${manifest.manifestId},${manifest.orderNumber},${manifestHash},${JSON.stringify(manifest)}::jsonb,${JSON.stringify(identities)}::jsonb,${hashToken(token)},ARRAY[${hashToken(token)}]::text[])`;
     return settlementId;
   });
   return { settlementId: id, settlementToken: token, manifestHash };
@@ -117,10 +139,7 @@ export async function claimEbookPayment(
       return false;
     }
     const candidate = hashToken(input.settlementToken ?? '');
-    if (
-      !input.settlementId ||
-      !timingSafeEqual(Buffer.from(candidate), Buffer.from(row.capabilityHash))
-    )
+    if (!input.settlementId || !capabilityMatches(row, candidate))
       throw new UnauthorizedException('EBOOK_CAPABILITY_REQUIRED');
     if (
       (input.store ?? 'ebook').toUpperCase() !== 'EBOOK' ||

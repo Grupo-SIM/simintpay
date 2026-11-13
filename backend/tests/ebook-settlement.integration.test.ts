@@ -68,6 +68,7 @@ beforeAll(async () => {
     '20261031130000_balance_log_drives_wallet',
     '20261102120000_ebook_settlement_v1',
     '20261118090000_transaction_settlement_basis_ebook_v1',
+    '20261118100000_ebook_settlement_capability_hashes',
   ])
     await pg.query(
       readFileSync(
@@ -599,6 +600,53 @@ run(
     expect(await db!.balanceLog.count({ where: { transactionId: t.id } })).toBe(
       2,
     );
+  },
+);
+run(
+  're-enrollment keeps every issued capability valid and still rejects unknown tokens',
+  async () => {
+    const m = {
+      ...manifest,
+      manifestId: '55555555-5555-4555-8555-555555555555',
+      orderNumber: 'REENROLL-1',
+    };
+    const first = await enrollEbook(db as any, m);
+    const second = await enrollEbook(db as any, m);
+    const third = await enrollEbook(db as any, m);
+    expect(second.settlementId).toBe(first.settlementId);
+    expect(
+      new Set([first, second, third].map((e) => e.settlementToken)).size,
+    ).toBe(3);
+    const t = await db!.transaction.create({
+      data: {
+        userId: owner,
+        amount: 100,
+        status: 'PENDING',
+        platformTag: 'EBOOK',
+      },
+    });
+    const claim = (token: string) =>
+      claimEbookPayment(
+        db as any,
+        {
+          settlementId: first.settlementId,
+          settlementToken: token,
+          orderNumber: m.orderNumber,
+          store: 'ebook',
+          price: 100,
+        },
+        t.id,
+        {
+          totalAmount: 100,
+          netAmount: 10,
+          financialSnapshot: { fixedFeeCents: 9000 },
+        },
+      );
+    for (const bad of ['', 'forged-token'])
+      await expect(claim(bad)).rejects.toThrow('EBOOK_CAPABILITY_REQUIRED');
+    // O token da primeira emissão continua válido: a checagem de capability passa e
+    // o fluxo segue até o bloqueio por fundos insuficientes (mesmo cenário de BLOCKED-1).
+    await expect(claim(first.settlementToken)).rejects.toThrow('INSUFFICIENT');
   },
 );
 run(
