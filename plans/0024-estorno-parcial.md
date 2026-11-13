@@ -8,7 +8,7 @@ Hoje todo estorno é tratado como total. A Dom permite estornar parte do valor, 
 
 - registrar cada estorno parcial (valor e data) e o total estornado por transação;
 - debitar da carteira (dono, coprodutores, afiliado) só a parte proporcional ao valor estornado;
-- informar o valor estornado nos avisos ao webhook externo, sem quebrar quem só entende estorno total;
+- informar o valor estornado ao webhook externo por um evento próprio (`purchase_partially_refunded`), sem quebrar quem só entende estorno total;
 - manter relatórios, dashboards e exportações coerentes com estorno parcial.
 
 ## 2. O que a Dom documenta (verificado em 2026-11-13)
@@ -84,10 +84,16 @@ Cada fase vira commits atômicos (`feat(backend)`, `fix(backend)`, `docs`), sem 
 
 ### Fase 4: avisos ao webhook externo (contrato)
 
-- [ ] `purchase_refunded` passa a incluir `refundedAmount`, `refundedNetAmount` (reais, nos dois caminhos) e `totalRefundedAmount`, `fullyRefunded` (booleano), além de `amountCharged`/`netAmount` originais. Campos novos são aditivos: consumidores atuais continuam funcionando, mas passam a receber `purchase_refunded` também em estornos parciais.
-- [ ] Caminho assinado: incluir o sequencial/`externalRef` do estorno no `eventId`, para estornos parciais distintos não colidirem; manter o `eventId` atual para o estorno total histórico (compatibilidade, sem reenvio de eventos antigos).
-- [ ] **Semântica de revogação de acesso**: quem integra (ex.: Areaflix) hoje revoga o acesso em `purchase_refunded`. Estorno parcial normalmente não deve revogar. Por isso `fullyRefunded` é obrigatório no contrato, e `docs/central-sales-api.md` deve dizer explicitamente: "revogue acesso apenas quando `fullyRefunded=true`". Avisar os integradores antes de ligar o evento para estornos parciais; considerar um evento separado `purchase_partially_refunded` se algum integrador não puder ler o campo.
-- [ ] Atualizar `docs/central-sales-api.md` e o OpenAPI/SDK conforme a skill `backend-endpoint-sdk`, se algum DTO ou resposta mudar.
+Decisão (2026-11-13): **evento separado**. `purchase_refunded` continua significando estorno total e é o único que revoga acesso; cada estorno parcial gera `purchase_partially_refunded`. Quem não conhece o evento novo o ignora e não revoga acesso por engano.
+
+- [ ] Novo evento `purchase_partially_refunded` e campos aditivos em `purchase_refunded`, nos dois caminhos. Corpos, unidades e regras de uso em `docs/central-sales-api.md`.
+- [ ] Campos novos (centavos no caminho assinado, reais no não assinado): `refundedAmountCents`, `refundedNetAmountCents`, `totalRefundedAmountCents`, `remainingAmountCents`, `refundSequence`, `fullyRefunded`. `amountCents`/`netAmountCents` continuam sendo os valores originais da venda.
+- [ ] `fullyRefunded=false` em `purchase_partially_refunded`; `true` em `purchase_refunded`. O estorno que zera o saldo estornável emite `purchase_refunded` (com `refundSequence` do estorno final), não `purchase_partially_refunded`.
+- [ ] Caminho assinado (`platform-sales-events.service.ts`): o evento deixa de ser derivado só do status. Estornos parciais são lidos de `TransactionRefund`, um evento por linha, com `eventId = sha256(plataforma:tx:evento:refundSequence)` e `occurredAt = TransactionRefund.occurredAt`. O `eventId` do estorno total histórico (sem `refundSequence`) não muda, para não reenviar eventos antigos.
+- [ ] Caminho não assinado (`notifyPaymentLinkExternalWebhook`): mesmo evento e mesmos campos, em reais (`refundedAmount`, `refundedNetAmount`, `totalRefundedAmount`, `remainingAmount`, `refundSequence`, `fullyRefunded`), com `x-simpay-token`.
+- [ ] `GET /platforms/:tag/event-history` passa a listar os estornos parciais com o mesmo corpo.
+- [ ] Avisar os integradores (ex.: Areaflix) antes de ligar o evento em produção. Como `purchase_refunded` não muda de significado, não há risco de revogação indevida; o aviso serve para quem quiser registrar o valor devolvido.
+- [ ] OpenAPI/SDK conforme a skill `backend-endpoint-sdk`, se algum DTO ou resposta mudar.
 
 ### Fase 5: relatórios, dashboard e frontend
 
@@ -99,6 +105,7 @@ Cada fase vira commits atômicos (`feat(backend)`, `fix(backend)`, `docs`), sem 
 ### Fase 6: escopo excluído e documentação
 
 - [ ] `process-webhook.use-case.ts` (adquirente com `PENDING_REFUND`) permanece só com estorno total; registrar em `docs/business-rules.md` que estorno parcial é suportado apenas para a Dom.
+- [ ] Contrato do evento documentado em `docs/central-sales-api.md` (feito junto com este plano; implementação pendente).
 - [ ] Atualizar `docs/business-rules.md` com a regra de estorno parcial (proporção, resíduo, coprodução, afiliado, status, avisos).
 - [ ] Mover este plano para `plans/done/` quando todo o código estiver implementado, registrando validações pendentes.
 
@@ -114,14 +121,14 @@ Sem testes unitários novos (regra do repositório). Cenários de integração:
 6. Afiliado: comissão revertida proporcionalmente; total fecha em `REVERSED`.
 7. Chargeback após estorno parcial: reverte só o restante.
 8. Linha legada sem `refundedAmount` (estorno total histórico) continua igual nos relatórios.
-9. Caminho assinado: dois estornos parciais geram dois `eventId` distintos; reentrega do mesmo não duplica.
+9. Caminho assinado: dois estornos parciais geram dois `purchase_partially_refunded` com `eventId` distintos; reentrega do mesmo não duplica; o estorno que fecha o total emite `purchase_refunded` com `fullyRefunded=true`; o evento total histórico mantém o `eventId` antigo.
 10. Concorrência: dois webhooks simultâneos do mesmo estorno → um débito.
 
 Falha com dinheiro real não é testada: gateways reais e bancos compartilhados ficam fora (limite local do repositório).
 
 ## 7. Riscos
 
-- **Maior risco:** integradores que revogam acesso em qualquer `purchase_refunded`. Mitigação: `fullyRefunded` obrigatório, documentação, aviso prévio e opção de evento separado.
+- **Maior risco:** integradores que revogam acesso em qualquer `purchase_refunded`. Mitigação: estorno parcial usa evento separado (`purchase_partially_refunded`); `purchase_refunded` só sai no estorno total.
 - Arredondamento acumulado em centavos: coberto pelo resíduo no último estorno e pelo teste 2.
 - Taxa/MDR retido pela Dom no estorno pode tornar o débito proporcional maior que o devolvido: depende da fase 0.
 - Webhook parcial não chegar: coberto pela reconciliação por polling (fase 3).
@@ -135,4 +142,4 @@ Falha com dinheiro real não é testada: gateways reais e bancos compartilhados 
 ## 9. Pendências de validação
 
 - Fase 0 inteira (sandbox da Dom) e aprovação do dono das decisões da seção 4.
-- Aviso aos integradores sobre o novo contrato de `purchase_refunded`.
+- Aviso aos integradores sobre o novo evento `purchase_partially_refunded` e os campos aditivos de `purchase_refunded`.
