@@ -6,6 +6,8 @@ import { AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
+import { useCurrentUser } from '@/hooks/use-current-user';
+import { formatDocument } from '@/lib/utils';
 import { useRequestSaque, useSaquesSummary } from '../hooks/use-saques';
 import { formatBRL } from '../utils/saques-format';
 
@@ -21,16 +23,16 @@ export function RequestSaqueModal({
   const { toast } = useToast();
   const { mutate, isPending } = useRequestSaque();
   const { resolvedTheme } = useTheme();
+  const { user } = useCurrentUser();
+  const chavePix = formatDocument(user?.cpf ?? user?.cnpj);
   const fieldTheme: 'light' | 'dark' =
     resolvedTheme === 'dark' ? 'dark' : 'light';
 
   const [valor, setValor] = useState('');
-  const [chavePix, setChavePix] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
   function handleClose() {
     setValor('');
-    setChavePix('');
     setFormError(null);
     onClose();
   }
@@ -55,13 +57,13 @@ export function RequestSaqueModal({
       );
       return;
     }
-    if (!chavePix.trim()) {
-      setFormError('Informe sua chave Pix.');
+    if (!user?.cpf && !user?.cnpj) {
+      setFormError('Cadastre seu CPF ou CNPJ no perfil para solicitar saques.');
       return;
     }
 
     mutate(
-      { valor: parsed, chavePix: chavePix.trim() },
+      { valor: parsed, chavePix },
       {
         onSuccess: (res) => {
           toast({
@@ -109,31 +111,17 @@ export function RequestSaqueModal({
       }
     >
       <div className="flex flex-col gap-4">
-        <div className="space-y-1 text-sm text-zinc-600 dark:text-white/55">
-          <p>Informe o valor e sua chave Pix para solicitar a transferência.</p>
-          <div className="mt-1 space-y-1 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-white/10 dark:bg-white/5">
-            <div className="flex items-center justify-between text-xs">
-              <span>Estimativa de recebimento:</span>
-              <span className="font-bold text-emerald-700 dark:text-emerald-400">
-                {formatBRL(
-                  isNaN(parseFloat(valor.replace(/\./g, '').replace(',', '.')))
-                    ? 0
-                    : Math.max(
-                        0,
-                        parseFloat(valor.replace(/\./g, '').replace(',', '.')) -
-                          (summaryData?.config?.taxaFixa ?? 2),
-                      ),
-                )}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-[10px] text-zinc-500 dark:text-white/40">
-              <span>Taxa de saque:</span>
-              <span>{formatBRL(summaryData?.config?.taxaFixa ?? 2)}</span>
-            </div>
-          </div>
-        </div>
         <Input
-          label="Valor do saque (Total a retirar da carteira)"
+          label="Chave Pix (CPF/CNPJ da conta)"
+          type="text"
+          value={chavePix}
+          onChange={() => {}}
+          theme={fieldTheme}
+          variant={fieldTheme === 'dark' ? 'navbar' : 'default'}
+          disabled
+        />
+        <Input
+          label="Valor do saque"
           type="text"
           inputMode="numeric"
           placeholder="0,00"
@@ -141,16 +129,6 @@ export function RequestSaqueModal({
           onChange={setValor}
           prefix="R$"
           mask="currency"
-          theme={fieldTheme}
-          variant={fieldTheme === 'dark' ? 'navbar' : 'default'}
-          disabled={isPending}
-        />
-        <Input
-          label="Chave Pix"
-          type="text"
-          placeholder="CPF, e-mail, telefone ou chave aleatória"
-          value={chavePix}
-          onChange={setChavePix}
           theme={fieldTheme}
           variant={fieldTheme === 'dark' ? 'navbar' : 'default'}
           disabled={isPending}
@@ -178,9 +156,30 @@ export function RequestSaqueModal({
           </div>
         ) : null}
         <p className="text-xs text-zinc-500 dark:text-white/40 text-center">
-          Valor mínimo: {formatBRL(summaryData?.config?.minValor ?? 100)} ·
-          Taxa: {formatBRL(summaryData?.config?.taxaFixa ?? 2)}
+          Valor mínimo: {formatBRL(summaryData?.config?.minValor ?? 100)}
         </p>
+        <div className="space-y-1 text-sm text-zinc-600 dark:text-white/55">
+          <div className="space-y-1 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-white/10 dark:bg-white/5">
+            <div className="flex items-center justify-between text-xs">
+              <span>Estimativa de recebimento:</span>
+              <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                {formatBRL(
+                  isNaN(parseFloat(valor.replace(/\./g, '').replace(',', '.')))
+                    ? 0
+                    : Math.max(
+                        0,
+                        parseFloat(valor.replace(/\./g, '').replace(',', '.')) -
+                          (summaryData?.config?.taxaFixa ?? 2),
+                      ),
+                )}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-zinc-500 dark:text-white/40">
+              <span>Taxa de saque:</span>
+              <span>{formatBRL(summaryData?.config?.taxaFixa ?? 2)}</span>
+            </div>
+          </div>
+        </div>
         {formError ? (
           <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5">
             <AlertCircle size={15} className="mt-0.5 shrink-0 text-red-400" />
