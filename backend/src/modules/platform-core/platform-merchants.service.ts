@@ -24,6 +24,10 @@ import {
   domCashbackReais,
 } from '../platform-taxas/platform-taxas.store';
 import { PLATFORM_TAXA_DEFAULTS } from '../platform-taxas/platform-taxas.keys';
+import {
+  isPlatformScopedBalance,
+  merchantScopedBalance,
+} from './platform-merchant-balance';
 import type { PlatformContext } from './platform-context.service';
 
 @Injectable()
@@ -77,11 +81,15 @@ export class PlatformMerchantsService {
     const { feePolicy, ...processing } = await new IntegrationFinanceService(
       this.prisma,
     ).summary(merchant.integrationKey, externalMerchantId, true);
+    const wallet = await this.finance.summary({
+      ...context,
+      ownerUserId: merchant.userId,
+    });
+    const scoped = isPlatformScopedBalance(context.tag)
+      ? await this.scopedSummary(context, merchant.userId)
+      : {};
     return {
-      ...(await this.finance.summary({
-        ...context,
-        ownerUserId: merchant.userId,
-      })),
+      ...wallet,
       ...processing,
       feePolicy: {
         fixedCents: feePolicy.fixedCents,
@@ -90,6 +98,28 @@ export class PlatformMerchantsService {
           .toNumber(),
       },
       walletScope: 'merchant-user',
+      ...scoped,
+    };
+  }
+  /**
+   * The seller wallet is shared by all of a seller's platforms; on scoped platforms the balance shown and
+   * withdrawable is only what this platform earned (net of its own withdrawals and reservations).
+   */
+  private async scopedSummary(context: PlatformContext, userId: string) {
+    const scoped = await this.prisma.$transaction((tx) =>
+      merchantScopedBalance(tx, context, userId),
+    );
+    const { attributed } = scoped;
+    return {
+      walletScope: 'merchant-platform',
+      poolBalanceCents: this.finance.cents(scoped.poolBalance),
+      poolAvailableBalanceCents: this.finance.cents(scoped.poolAvailable),
+      earnedCents: attributed.earnedCents,
+      withdrawnGrossCents: attributed.withdrawnGrossCents,
+      balanceCents: attributed.balanceCents,
+      lockedBalanceCents: attributed.pendingWithdrawalsGrossCents,
+      availableBalanceCents: this.finance.cents(scoped.available),
+      historicalAttributionComplete: attributed.historicalAttributionComplete,
     };
   }
   async paymentAttempt(

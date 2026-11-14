@@ -13,6 +13,10 @@ import { parseYmdSp } from '../../platform-core/platform-administration.helpers'
 import { estimateDomFeeReais } from '../../../application/helpers/dom-fee-estimate.helper';
 import { PlatformLedger } from './platform-ledger';
 import {
+  isPlatformScopedBalance,
+  merchantScopedBalance,
+} from '../../platform-core/platform-merchant-balance';
+import {
   platformMachines,
   MachinesQuery,
   MACHINE_DESCRIPTION_MATCHERS,
@@ -812,6 +816,11 @@ export class PlatformFinanceService {
           context,
           merchantId: merchant?.id,
           merchantNamespace: merchant?.integrationKey,
+          // Merchant funds are platform-scoped: no drawing on another platform's earnings.
+          platformBalanceScope:
+            merchant && isPlatformScopedBalance(context.tag)
+              ? context.tag
+              : undefined,
         });
       } catch (error) {
         if (
@@ -866,6 +875,8 @@ export class PlatformFinanceService {
     merchantId?: string;
     merchantNamespace?: string;
     singlePending?: boolean;
+    /** Tag whose platform-scoped balance (plan 0026) bounds this reservation instead of the pooled wallet. */
+    platformBalanceScope?: string;
   }) {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.platform.findUnique({
@@ -976,6 +987,14 @@ export class PlatformFinanceService {
         );
         if (available.lt(input.grossAmount))
           throw new BadRequestException('Saldo insuficiente');
+        if (
+          input.platformBalanceScope &&
+          input.context &&
+          (
+            await merchantScopedBalance(tx, input.context, input.userId)
+          ).available.lt(input.grossAmount)
+        )
+          throw new BadRequestException('Saldo insuficiente na plataforma');
         remainingBalanceAfterWithdrawal = available.minus(input.grossAmount);
         // Every reservation is logged, whichever route created the withdrawal (plan 0007).
         await applyWalletEntry(tx, {

@@ -302,3 +302,189 @@ test('merchant ledger entries are EBOOK-only and reject unknown kinds', async ()
     }),
   ).rejects.toMatchObject({ status: 400 });
 });
+
+const sale = (platformTag: string | null, net: number, description = '') => ({
+  platformTag,
+  netAmount: new Prisma.Decimal(net),
+  financialSnapshot: null,
+  description,
+});
+type Withdrawal = {
+  platform: string | null;
+  status: string;
+  grossAmount: Prisma.Decimal;
+};
+const withdrawal = (
+  platform: string | null,
+  status: string,
+  gross: number,
+): Withdrawal => ({
+  platform,
+  status,
+  grossAmount: new Prisma.Decimal(gross),
+});
+/** Seller with sales on EBOOK and on another platform, sharing one pooled wallet. */
+function scopedFixture(
+  pool: number,
+  rows: any[],
+  withdrawals: Withdrawal[] = [],
+) {
+  const wallet = {
+    userId: 'seller',
+    balance: new Prisma.Decimal(pool),
+    lockedBalance: new Prisma.Decimal(0),
+    version: 1,
+  };
+  const user = { id: 'seller', isActive: true, isPurged: false, wallet };
+  const merchant = {
+    id: 'm',
+    integrationKey: 'platform:p',
+    userId: 'seller',
+    user,
+  };
+  const p: any = {
+    platform: {
+      count: async () => 2,
+      findUnique: async () => ({
+        ...context,
+        isActive: true,
+        owner: { isActive: true, isPurged: false },
+      }),
+    },
+    integrationMerchant: { findUnique: async () => merchant },
+    wallet: { findUnique: async () => wallet },
+    transaction: { findMany: mock(async () => rows) },
+    withdrawRequest: {
+      aggregate: async () => ({
+        _count: { id: 0 },
+        _sum: { grossAmount: null },
+      }),
+      count: async () => 0,
+      findMany: mock(async ({ where }: any) =>
+        withdrawals.filter(
+          (row) =>
+            row.platform !== null &&
+            where.platform.in.includes(row.platform.toLowerCase()) &&
+            where.status.in.includes(row.status),
+        ),
+      ),
+    },
+    $transaction: async (callback: any) => callback(p),
+  };
+  return {
+    p,
+    service: new PlatformMerchantsService(
+      p,
+      {} as never,
+      new PlatformFinanceService(p),
+    ),
+  };
+}
+const mixed = [
+  sale('EBOOK', 100, 'ORD-2026-000001 [TENANT:EBOOK]'),
+  sale('EBOOK', 50, 'ORD-2026-000002 [TENANT:EBOOK]'),
+  sale('EBOOK', 10, 'Comissão [TENANT:EBOOK][AFFILIATE_COMMISSION]'),
+  sale('BOSQUE', 300, '[TENANT:BOSQUE]'),
+  sale(null, 70, 'untagged history'),
+];
+
+test('EBOOK merchant summary counts only EBOOK sales (net of the sale fee), not the pooled wallet', async () => {
+  const { p, service } = scopedFixture(500, mixed);
+  const summary = await service.summary(context, 'seller-ext');
+  // (100 - 4) + (50 - 4); the commission was only recorded, BOSQUE and untagged rows never count.
+  expect(summary).toMatchObject({
+    walletScope: 'merchant-platform',
+    unit: 'cents',
+    poolBalanceCents: 50_000,
+    earnedCents: 14_200,
+    balanceCents: 14_200,
+    availableBalanceCents: 14_200,
+  });
+  expect(p.transaction.findMany.mock.calls[0][0].where).toEqual({
+    userId: 'seller',
+    status: 'COMPLETED',
+  });
+});
+
+test('EBOOK reservations and settled withdrawals reduce only the EBOOK balance', async () => {
+  const { service } = scopedFixture(500, mixed, [
+    withdrawal('ebook', 'PENDING', 40),
+    withdrawal('ebook', 'COMPLETED', 30),
+    withdrawal('bosque', 'COMPLETED', 200),
+  ]);
+  expect(await service.summary(context, 'seller-ext')).toMatchObject({
+    earnedCents: 14_200,
+    withdrawnGrossCents: 3_000,
+    balanceCents: 11_200,
+    lockedBalanceCents: 4_000,
+    availableBalanceCents: 7_200,
+  });
+});
+
+test('EBOOK balance never exceeds what the pooled wallet actually holds', async () => {
+  const { service } = scopedFixture(60, mixed);
+  expect(await service.summary(context, 'seller-ext')).toMatchObject({
+    earnedCents: 14_200,
+    availableBalanceCents: 6_000,
+  });
+});
+
+test('platform owner balance keeps its checks: merchant mode reuses the real platform context', async () => {
+  const { p } = scopedFixture(500, mixed);
+  p.platform.findUnique = async () => ({
+    ...context,
+    ownerUserId: 'someone-else',
+    isActive: true,
+    owner: { isActive: true, isPurged: false },
+  });
+  const { merchantScopedBalance } = await import('./platform-merchant-balance');
+  await expect(
+    merchantScopedBalance(p, context, 'seller'),
+  ).rejects.toMatchObject({ status: 409 });
+});
+
+test('EBOOK merchant withdrawal cannot draw on funds earned elsewhere', async () => {
+  const f = scopedFixture(500, mixed);
+  const p = f.p;
+  p.$executeRaw = mock(async () => 1);
+  p.integrationWebhookDelivery = { create: mock(async () => ({})) };
+  p.balanceLog = { create: mock(async () => ({})) };
+  p.wallet.findUniqueOrThrow = async () => p.wallet.findUnique();
+  p.withdrawRequest.findUnique = async () => null;
+  p.withdrawRequest.findFirst = async () => null;
+  p.withdrawRequest.create = mock(async ({ data }: any) => ({
+    id: 'w',
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    rejectionReason: null,
+    ...data,
+  }));
+  p.withdrawRequest.findUniqueOrThrow = async () => ({
+    pixKey: 'key',
+    rejectionReason: null,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  });
+  const service = new PlatformMerchantsService(
+    p,
+    {} as never,
+    new PlatformFinanceService(p),
+  );
+  // The pool holds R$ 500 but EBOOK earned R$ 142.
+  await expect(
+    service.withdraw(context, 'seller-ext', {
+      amountCents: 20_000,
+      pixKey: 'key',
+      idempotencyKey: 'r1',
+    }),
+  ).rejects.toThrow('Saldo insuficiente na plataforma');
+  expect(p.withdrawRequest.create).not.toHaveBeenCalled();
+  expect(p.balanceLog.create).not.toHaveBeenCalled();
+  const ok = await service.withdraw(context, 'seller-ext', {
+    amountCents: 14_000,
+    pixKey: 'key',
+    idempotencyKey: 'r2',
+  });
+  expect(ok).toMatchObject({ grossAmountCents: 14_000 });
+  expect(p.withdrawRequest.create).toHaveBeenCalledTimes(1);
+});

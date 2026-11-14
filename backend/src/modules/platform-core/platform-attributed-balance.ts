@@ -2,6 +2,8 @@ import { allocateNet, snapshotFrom } from '../coproduction/coproduction';
 import { platformBalanceRules } from './platform-balance.adapter';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { getPlatformTaxaEffective } from '../platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../platform-taxas/platform-taxas.keys';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import type { PlatformContext } from './platform-context.service';
 import {
@@ -18,12 +20,39 @@ export class PlatformAttributedBalance {
     });
   }
 
-  /** History-only reader; callers authorize the session inside the same snapshot. */
+  /**
+   * Balance of one merchant account of the platform. The platform context (and its owner check) is unchanged;
+   * only the account whose attribution is projected differs.
+   */
+  async readMerchant(context: PlatformContext, merchantUserId: string) {
+    return this.prisma.$transaction(
+      (p) => this.readSnapshot(p, context, false, merchantUserId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  /**
+   * History-only reader; callers authorize the session inside the same snapshot.
+   * `merchantUserId` projects a seller account instead of the platform owner: the pooled wallet is never the
+   * balance (it is shared with the seller's other platforms), affiliate commissions that were only recorded
+   * do not count (no wallet credit) and the per-sale service fee already deducted from each credit is applied.
+   */
   async readSnapshot(
     p: Prisma.TransactionClient,
     context: PlatformContext,
     allowInactive = false,
+    merchantUserId?: string,
   ) {
+    const accountUserId = merchantUserId ?? context.ownerUserId;
+    const saleFee = merchantUserId
+      ? new Prisma.Decimal(
+          getPlatformTaxaEffective(
+            context.tag,
+            'TAXA_SERVICO',
+            PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+          ),
+        )
+      : new Prisma.Decimal(0);
     const rules = platformBalanceRules(context.tag);
     const platform = await p.platform.findUnique({
       where: { id: context.id },
@@ -47,22 +76,27 @@ export class PlatformAttributedBalance {
       unidentifiedOwnerWithdrawals,
     ] = await Promise.all([
       p.transaction.findMany({
-        where: { userId: context.ownerUserId, status: 'COMPLETED' },
-        select: { platformTag: true, netAmount: true, financialSnapshot: true },
+        where: { userId: accountUserId, status: 'COMPLETED' },
+        select: {
+          platformTag: true,
+          netAmount: true,
+          financialSnapshot: true,
+          description: true,
+        },
       }),
       p.withdrawRequest.findMany({
         where: {
-          userId: context.ownerUserId,
+          userId: accountUserId,
           platform: { in: rules.withdrawalPlatforms, mode: 'insensitive' },
           status: { in: ['PENDING', 'APPROVED', 'COMPLETED'] },
         },
         select: { grossAmount: true, status: true },
       }),
-      p.wallet.findUnique({ where: { userId: context.ownerUserId } }),
+      p.wallet.findUnique({ where: { userId: accountUserId } }),
       p.platform.count({ where: { ownerUserId: context.ownerUserId } }),
       p.withdrawRequest.count({
         where: {
-          userId: context.ownerUserId,
+          userId: accountUserId,
           platform: null,
           status: { in: ['PENDING', 'APPROVED', 'COMPLETED'] },
         },
@@ -88,17 +122,21 @@ export class PlatformAttributedBalance {
       const agreement = snapshotFrom(row.financialSnapshot);
       const ownerAmount = agreement
         ? allocateNet(agreement, row.netAmount).find(
-            (p) => p.userId === context.ownerUserId,
+            (p) => p.userId === accountUserId,
           )?.amount
         : row.netAmount;
-      earned = earned.plus(ownerAmount ?? 0);
+      const recordOnly =
+        !!merchantUserId &&
+        /\[AFFILIATE_COMMISSION\]/i.test(row.description ?? '');
+      if (recordOnly) continue;
+      earned = earned.plus(ownerAmount ?? 0).minus(saleFee);
       identifiedTransactions++;
     }
     for (const row of withdrawals) {
       if (row.status === 'PENDING') reserved = reserved.plus(row.grossAmount);
       else settled = settled.plus(row.grossAmount);
     }
-    const singleProductOwner = productCount <= 1;
+    const singleProductOwner = !merchantUserId && productCount <= 1;
     // Dono de uma única plataforma: a carteira SimIntPay (ledger) é o saldo real; a projeção
     // por transações ignora ajustes de conciliação e legado sem lançamento.
     const balance = singleProductOwner
@@ -120,12 +158,17 @@ export class PlatformAttributedBalance {
       balanceBasis: rules.basis,
       platformTag: context.tag,
       ownerUserId: context.ownerUserId,
+      ...(merchantUserId ? { accountUserId } : {}),
       earnedCents: cents(earned),
       withdrawnGrossCents: cents(settled),
       pendingWithdrawalsGrossCents: cents(reserved),
       balanceCents: cents(balance),
       availableBalanceCents: cents(Prisma.Decimal.max(0, available)),
-      walletScope: singleProductOwner ? 'owner' : 'shared-owner',
+      walletScope: merchantUserId
+        ? 'merchant-platform'
+        : singleProductOwner
+          ? 'owner'
+          : 'shared-owner',
       ownerWalletBalanceCents: cents(wallet?.balance ?? 0),
       identifiedTransactions,
       unidentifiedOwnerTransactions: unidentifiedTransactions,
