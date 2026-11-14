@@ -198,7 +198,7 @@ test('merchant transactions are scoped to the merchant account and EBOOK tag, in
   });
 });
 
-function ledgerFixture() {
+function ledgerFixture(settledOrders: string[] = []) {
   const created: any[] = [];
   const prisma: any = merchantPrisma({
     platform: {
@@ -206,6 +206,9 @@ function ledgerFixture() {
         isActive: true,
         ownerUserId: 'owner',
         acquirer: 'DOM',
+        feeMode: null,
+        targetFeePpm: null,
+        additiveFees: null,
         owner: { isActive: true },
       }),
     },
@@ -228,6 +231,9 @@ function ledgerFixture() {
       })),
     },
     balanceLog: { create: mock(async () => ({})) },
+    $queryRaw: mock(async (_s: unknown, order: string) =>
+      settledOrders.includes(order) ? [{ id: 'settlement' }] : [],
+    ),
   });
   prisma.$transaction = async (f: any) => f(prisma);
   const service = new PlatformMerchantsService(
@@ -238,12 +244,11 @@ function ledgerFixture() {
   return { prisma, service, created };
 }
 
-test('pending entry credits the merchant account, keeps legacy reference prefix and is idempotent', async () => {
+test('pending entry is priced by the server, keeps the legacy prefix and is idempotent', async () => {
   const { service, created, prisma } = ledgerFixture();
   const body = {
     referenceId: 'ORD-2026-000001',
-    amountCents: 5_000,
-    netAmountCents: 4_250,
+    amountCents: 10_000,
     kind: 'pending',
     paymentMethod: 'PIX',
     description: 'ORD-2026-000001',
@@ -255,8 +260,10 @@ test('pending entry credits the merchant account, keeps legacy reference prefix 
     domPaymentId: 'EBOOK_PENDING_ORD-2026-000001',
     status: 'PENDING',
   });
+  // target fee 14.99% on R$ 100,00: same net as finance/fees.
+  expect(created[0].netAmount.toNumber()).toBe(85.01);
   expect(created[0].description).toBe('ORD-2026-000001 [TENANT:EBOOK]');
-  expect(prisma.wallet.update).not.toHaveBeenCalled();
+  expect(prisma.balanceLog.create).not.toHaveBeenCalled();
   expect(await service.importEntry(context, 'seller-ext', body)).toMatchObject({
     success: true,
     id: first.id,
@@ -268,22 +275,142 @@ test('pending entry credits the merchant account, keeps legacy reference prefix 
   ).rejects.toMatchObject({ status: 409 });
 });
 
-test('commission entry is a completed record without wallet credit, like the legacy credit-commission', async () => {
-  const { service, created, prisma } = ledgerFixture();
+test('a caller net is validated against the server quote and rejected on mismatch', async () => {
+  const { service, created } = ledgerFixture();
+  const body = {
+    referenceId: 'ORD-2',
+    amountCents: 10_000,
+    kind: 'pending',
+    paymentMethod: 'PIX',
+  };
+  await expect(
+    service.importEntry(context, 'seller-ext', {
+      ...body,
+      netAmountCents: 9_000,
+    }),
+  ).rejects.toMatchObject({
+    status: 409,
+    response: { code: 'LEDGER_NET_MISMATCH', expectedNetAmountCents: 8_501 },
+  });
+  expect(created).toHaveLength(0);
   await service.importEntry(context, 'seller-ext', {
+    ...body,
+    netAmountCents: 8_501,
+  });
+  expect(created).toHaveLength(1);
+});
+
+test('card entries record installments and the interest the buyer paid', async () => {
+  const { service, created } = ledgerFixture();
+  const quoted = await platformFeeSchedule(policyPrisma(), 'EBOOK');
+  const lane: any = quoted.credit[11];
+  // 12x on R$ 100,00 as quoted by finance/fees; amountCents is what the buyer paid (interest included).
+  const total = lane.buyerTotalCents;
+  expect(total).toBeGreaterThan(10_000);
+  await service.importEntry(context, 'seller-ext', {
+    referenceId: 'ORD-3',
+    amountCents: total,
+    kind: 'pending',
+    paymentMethod: 'CREDIT_CARD',
+    installments: 12,
+  });
+  expect(created[0]).toMatchObject({
+    installments: 12,
+    paymentMethod: 'CREDIT_CARD',
+  });
+  expect(created[0].amount.toNumber()).toBe(total / 100);
+  expect(created[0].netAmount.toNumber() * 100).toBeCloseTo(lane.netCents, 0);
+  expect(created[0].financialSnapshot.buyerInterestCents).toBe(
+    lane.buyerInterestCents,
+  );
+  await expect(
+    service.importEntry(context, 'seller-ext', {
+      referenceId: 'ORD-4',
+      amountCents: 10_001,
+      kind: 'pending',
+      paymentMethod: 'CREDIT_CARD',
+      installments: 12,
+    }),
+  ).rejects.toMatchObject({ status: 400 });
+  await expect(
+    service.importEntry(context, 'seller-ext', {
+      referenceId: 'ORD-5',
+      amountCents: 10_000,
+      kind: 'pending',
+      paymentMethod: 'PIX',
+      installments: 3,
+    }),
+  ).rejects.toMatchObject({ status: 400 });
+});
+
+test('commission credits the wallet through BalanceLog once and counts in the EBOOK balance', async () => {
+  const { service, created, prisma } = ledgerFixture();
+  const body = {
     referenceId: 'AFF-1-2',
+    orderNumber: 'ORD-2026-000009',
     amountCents: 800,
-    netAmountCents: 800,
     kind: 'commission',
     paymentMethod: 'PIX',
     description: 'Comissão de afiliado',
-  });
+  };
+  await service.importEntry(context, 'seller-ext', body);
   expect(created[0]).toMatchObject({
     userId: 'seller',
     domPaymentId: 'EBOOK_AFFCOMM_AFF-1-2',
     status: 'COMPLETED',
     description: 'Comissão de afiliado [TENANT:EBOOK][AFFILIATE_COMMISSION]',
   });
+  expect(prisma.balanceLog.create).toHaveBeenCalledTimes(1);
+  expect(prisma.balanceLog.create.mock.calls[0][0].data).toMatchObject({
+    userId: 'seller',
+    source: 'EBOOK_COMMISSION',
+    platformTag: 'EBOOK',
+    nature: 'COMMISSION',
+    balanceDelta: new Prisma.Decimal(8),
+  });
+  // Replay never credits again.
+  expect(await service.importEntry(context, 'seller-ext', body)).toMatchObject({
+    created: false,
+  });
+  expect(prisma.balanceLog.create).toHaveBeenCalledTimes(1);
+  await expect(
+    service.importEntry(context, 'seller-ext', {
+      ...body,
+      referenceId: 'x',
+      netAmountCents: 700,
+    }),
+  ).rejects.toMatchObject({ status: 409 });
+  await expect(
+    service.importEntry(context, 'seller-ext', {
+      ...body,
+      referenceId: 'y',
+      orderNumber: undefined,
+    }),
+  ).rejects.toMatchObject({ status: 400 });
+  // Credited commissions: the ledger credit counts, the Transaction row (still tagged) does not.
+  const { service: balance } = scopedFixture(
+    500,
+    [sale('EBOOK', 8, 'c [TENANT:EBOOK][AFFILIATE_COMMISSION]')],
+    [],
+    [8],
+  );
+  expect(await balance.summary(context, 'seller-ext')).toMatchObject({
+    earnedCents: 800,
+  });
+});
+
+test('commission of an order with a settlement is skipped: the settlement already credits the affiliate', async () => {
+  const { service, created, prisma } = ledgerFixture(['ORD-SETTLED']);
+  expect(
+    await service.importEntry(context, 'seller-ext', {
+      referenceId: 'AFF-9',
+      orderNumber: 'ORD-SETTLED',
+      amountCents: 800,
+      kind: 'commission',
+      paymentMethod: 'PIX',
+    }),
+  ).toMatchObject({ created: false, skipped: 'SETTLEMENT_CREDITS_AFFILIATE' });
+  expect(created).toHaveLength(0);
   expect(prisma.balanceLog.create).not.toHaveBeenCalled();
 });
 
@@ -434,7 +561,7 @@ test('EBOOK settlement allocations count once through the ledger; the settlement
   });
   expect(p.balanceLog.findMany.mock.calls[0][0].where).toEqual({
     userId: 'seller',
-    source: 'EBOOK_V1',
+    source: { in: ['EBOOK_V1', 'EBOOK_COMMISSION'] },
     platformTag: 'EBOOK',
   });
 });

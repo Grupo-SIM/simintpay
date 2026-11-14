@@ -11,6 +11,7 @@ import {
 } from '../../wallet-ledger/wallet-ledger';
 import { parseYmdSp } from '../../platform-core/platform-administration.helpers';
 import { estimateDomFeeReais } from '../../../application/helpers/dom-fee-estimate.helper';
+import { quotePaidAmount } from '../../financial-policy/platform-fee-schedule';
 import { PlatformLedger } from './platform-ledger';
 import {
   isPlatformScopedBalance,
@@ -27,6 +28,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -156,6 +158,11 @@ export class PlatformFinanceService {
     body: Record<string, unknown>,
     /** Account credited by the entry; defaults to the platform owner (platform-level import). */
     beneficiaryUserId: string = context.ownerUserId,
+    /**
+     * `merchant`: canonical per-seller route. The server prices the sale (interest included) and credits
+     * affiliate commissions to the wallet; the platform-level/legacy-equivalent route keeps its contract.
+     */
+    options: { merchant?: boolean } = {},
   ) {
     if (!['PAGATG', 'EBOOK'].includes(context.tag))
       throw new UnprocessableEntityException({
@@ -173,8 +180,15 @@ export class PlatformFinanceService {
       'customerName',
       'customerEmail',
       'customerDocument',
+      'orderNumber',
     ];
-    if (Object.keys(body).some((key) => !allowed.includes(key)))
+    if (
+      Object.keys(body).some(
+        (key) =>
+          !allowed.includes(key) ||
+          (key === 'orderNumber' && options.merchant !== true),
+      )
+    )
       throw new BadRequestException('Campo desconhecido');
     if (
       typeof body.referenceId !== 'string' ||
@@ -182,13 +196,17 @@ export class PlatformFinanceService {
       body.referenceId.length > 120
     )
       throw new BadRequestException('referenceId inválido');
+    const kind = body.kind;
+    const ebook = context.tag === 'EBOOK' && options.merchant === true;
+    // EBOOK computes the seller net on the server; the caller's net is optional and only validated.
     if (
       !Number.isSafeInteger(body.amountCents) ||
       Number(body.amountCents) <= 0 ||
-      !Number.isSafeInteger(body.netAmountCents)
+      (body.netAmountCents === undefined && !ebook) ||
+      (body.netAmountCents !== undefined &&
+        !Number.isSafeInteger(body.netAmountCents))
     )
       throw new BadRequestException('Centavos inteiros obrigatórios');
-    const kind = body.kind;
     if (
       (context.tag === 'PAGATG' && kind !== 'payment') ||
       (context.tag === 'EBOOK' &&
@@ -199,7 +217,12 @@ export class PlatformFinanceService {
       throw new BadRequestException('paymentMethod inválido');
     if (body.description !== undefined && typeof body.description !== 'string')
       throw new BadRequestException('description inválida');
-    for (const key of ['customerName', 'customerEmail', 'customerDocument'])
+    for (const key of [
+      'customerName',
+      'customerEmail',
+      'customerDocument',
+      'orderNumber',
+    ])
       if (body[key] !== undefined && typeof body[key] !== 'string')
         throw new BadRequestException(`${key} inválido`);
     if (
@@ -209,36 +232,121 @@ export class PlatformFinanceService {
         Number(body.installments) > 12)
     )
       throw new BadRequestException('installments inválido');
+    const installments = Number(body.installments ?? 1);
+    if (body.paymentMethod === 'PIX' && installments !== 1)
+      throw new BadRequestException('PIX não admite parcelas');
     const amount = new Prisma.Decimal(Number(body.amountCents)).div(100);
-    const net = new Prisma.Decimal(Number(body.netAmountCents)).div(100);
     const prefix =
       kind === 'pending'
         ? 'EBOOK_PENDING_'
         : kind === 'commission'
           ? 'EBOOK_AFFCOMM_'
           : '';
+    const domPaymentId = `${prefix}${body.referenceId.trim()}`;
+    const commission = kind === 'commission';
+    let net =
+      body.netAmountCents === undefined
+        ? undefined
+        : new Prisma.Decimal(Number(body.netAmountCents)).div(100);
+    let quote: Awaited<ReturnType<typeof quotePaidAmount>> = null;
+    if (ebook && commission) {
+      // A commission is a transfer of the already priced sale: no fee or interest applies.
+      if (net !== undefined && !net.eq(amount))
+        throw new ConflictException({
+          code: 'LEDGER_NET_MISMATCH',
+          expectedNetAmountCents: Number(body.amountCents),
+        });
+      net = amount;
+      if (
+        typeof body.orderNumber !== 'string' ||
+        !body.orderNumber.trim() ||
+        body.orderNumber.length > 60
+      )
+        throw new BadRequestException('orderNumber é obrigatório na comissão');
+      // The settlement (ebook-settlement.ts) credits the affiliate allocation itself: never credit twice.
+      const settlement = await this.prisma.$queryRaw<
+        { id: string }[]
+      >`SELECT id FROM "EbookSettlement" WHERE "orderNumber" = ${body.orderNumber.trim()} LIMIT 1`;
+      if (settlement.length)
+        return {
+          success: true,
+          created: false,
+          skipped: 'SETTLEMENT_CREDITS_AFFILIATE',
+        };
+    } else if (ebook) {
+      // Replays keep the net recorded the first time: a later fee change must not turn a retry into a conflict.
+      const existing = await this.prisma.transaction.findUnique({
+        where: { domPaymentId },
+        select: { amount: true, netAmount: true, userId: true },
+      });
+      if (
+        existing &&
+        existing.userId === beneficiaryUserId &&
+        new Prisma.Decimal(existing.amount).eq(amount)
+      ) {
+        net = new Prisma.Decimal(existing.netAmount ?? existing.amount);
+      } else {
+        try {
+          quote = await quotePaidAmount(
+            this.prisma,
+            context.tag,
+            Number(body.amountCents),
+            body.paymentMethod === 'PIX' ? 'PIX' : 'CREDIT_CARD',
+            installments,
+          );
+        } catch (error) {
+          if (error instanceof HttpException) throw error;
+          throw new BadRequestException(
+            'amountCents deve ser o valor pago pelo comprador (com juros) para as parcelas informadas',
+          );
+        }
+        if (!quote)
+          throw new UnprocessableEntityException({
+            code: 'FEE_POLICY_UNAVAILABLE',
+          });
+        const computed = new Prisma.Decimal(
+          Math.round(quote.netAmount * 100),
+        ).div(100);
+        if (net !== undefined && !net.eq(computed))
+          throw new ConflictException({
+            code: 'LEDGER_NET_MISMATCH',
+            expectedNetAmountCents: Math.round(quote.netAmount * 100),
+          });
+        net = computed;
+      }
+    }
     const text = String(body.description ?? '')
       .replace(/\[TENANT:[^\]]*\]/gi, '')
       .trim();
+    const fee = quote?.financialSnapshot as unknown as Prisma.InputJsonValue;
     return this.recordEntry(
       context.tag,
       {
         userId: beneficiaryUserId,
-        domPaymentId: `${prefix}${body.referenceId.trim()}`,
+        domPaymentId,
         amount,
         netAmount: net,
-        totalFee: kind === 'payment' ? amount.minus(net) : 0,
-        ...(kind === 'commission'
+        totalFee: kind === 'payment' ? amount.minus(net!) : 0,
+        ...(commission
           ? {}
           : {
-              acquirerFee: estimateDomFeeReais({
-                amountReais: amount.toNumber(),
-                paymentMethod: String(body.paymentMethod),
-                installments: Number(body.installments ?? 1),
-                tenantTag: context.tag,
-              }),
+              acquirerFee: quote
+                ? new Prisma.Decimal(quote.domFeeAmount)
+                : estimateDomFeeReais({
+                    amountReais: amount.toNumber(),
+                    paymentMethod: String(body.paymentMethod),
+                    installments,
+                    tenantTag: context.tag,
+                  }),
+              ...(quote
+                ? {
+                    totalFee: amount.minus(net!),
+                    platformFee: new Prisma.Decimal(quote.platformFeeAmount),
+                    financialSnapshot: fee,
+                  }
+                : {}),
             }),
-        installments: Number(body.installments ?? 1),
+        installments,
         customerName: body.customerName as string | undefined,
         customerEmail: body.customerEmail as string | undefined,
         customerDocument:
@@ -247,10 +355,18 @@ export class PlatformFinanceService {
             : String(body.customerDocument).replace(/\D/g, ''),
         status: kind === 'pending' ? 'PENDING' : 'COMPLETED',
         paymentMethod: body.paymentMethod as 'PIX' | 'CREDIT_CARD',
-        description: `${text} [TENANT:${context.tag}]${kind === 'commission' ? '[AFFILIATE_COMMISSION]' : ''}`,
+        description: `${text} [TENANT:${context.tag}]${commission ? '[AFFILIATE_COMMISSION]' : ''}`,
       },
-      kind === 'payment',
+      kind === 'payment' || (ebook && commission),
       context.ownerUserId,
+      ebook && commission
+        ? {
+            action: 'EBOOK_COMMISSION_CREDITED',
+            source: 'EBOOK_COMMISSION',
+            platformTag: 'EBOOK',
+            nature: 'COMMISSION',
+          }
+        : undefined,
     );
   }
 
@@ -309,12 +425,14 @@ export class PlatformFinanceService {
     data: Prisma.TransactionUncheckedCreateInput,
     creditWallet = false,
     expectedOwnerUserId?: string,
+    credit?: Parameters<PlatformLedger['record']>[4],
   ) {
     return new PlatformLedger(this.prisma).record(
       tag,
       data,
       creditWallet,
       expectedOwnerUserId,
+      credit,
     );
   }
 

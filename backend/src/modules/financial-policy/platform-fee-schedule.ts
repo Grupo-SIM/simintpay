@@ -85,3 +85,36 @@ export async function platformFeeSchedule(
     })),
   };
 }
+
+/**
+ * Seller settlement of a purchase the buyer actually paid `paidCents` for (interest included), priced by the
+ * same quote as `platformFeeSchedule`/checkout. The quote takes the pre-interest amount, so the paid total is
+ * inverted over the monotonic cent function (as `quoteReportedPos` does). Returns null when the lane is
+ * unavailable and throws when no pre-interest amount reproduces the paid total exactly.
+ */
+export async function quotePaidAmount(
+  prisma: Client,
+  tag: string,
+  paidCents: number,
+  method: Method,
+  installments: number,
+) {
+  const context = await loadChargePolicy(prisma, tag);
+  let low = 1,
+    high = paidCents;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const quote = quoteFinancialCharge(
+      context,
+      middle / 100,
+      method,
+      installments,
+    );
+    if (!quote) return null;
+    const total = Math.round(quote.totalAmount * 100);
+    if (total === paidCents) return quote;
+    if (total < paidCents) low = middle + 1;
+    else high = middle - 1;
+  }
+  throw new Error('Valor pago não corresponde à política de juros');
+}

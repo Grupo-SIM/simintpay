@@ -90,7 +90,7 @@ export class PlatformAttributedBalance {
         ? p.balanceLog.findMany({
             where: {
               userId: merchantUserId,
-              source: 'EBOOK_V1',
+              source: { in: ['EBOOK_V1', 'EBOOK_COMMISSION'] },
               platformTag: canonicalTransactionPlatformTag(context.tag),
             },
             select: { balanceDelta: true },
@@ -148,7 +148,7 @@ export class PlatformAttributedBalance {
       earned = earned.plus(ownerAmount ?? 0).minus(saleFee);
       identifiedTransactions++;
     }
-    // Settlement allocations (OWNER/AFFILIATE/COPRODUCER) already net of fee and reversals: the sum of
+    // Settlement allocations (OWNER/AFFILIATE/COPRODUCER) and credited canonical commissions (EBOOK_COMMISSION) already net of fee and reversals: the sum of
     // balanceDelta is the exact credited amount, exactly once per allocation.
     for (const credit of settlementCredits) {
       earned = earned.plus(credit.balanceDelta);

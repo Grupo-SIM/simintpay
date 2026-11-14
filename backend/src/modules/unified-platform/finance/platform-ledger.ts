@@ -1,4 +1,7 @@
-import { applyWalletEntry } from '../../wallet-ledger/wallet-ledger';
+import {
+  applyWalletEntry,
+  type WalletLedgerEntry,
+} from '../../wallet-ledger/wallet-ledger';
 import { hasPlatformMarker } from '../../platform-core/platform-sync.adapter';
 import {
   canonicalTransactionPlatformTag,
@@ -22,6 +25,10 @@ export class PlatformLedger {
     data: Prisma.TransactionUncheckedCreateInput,
     creditWallet = false,
     expectedOwnerUserId?: string,
+    /** Ledger attribution of the wallet credit (defaults keep the historical untagged PLATFORM_LEDGER entry). */
+    credit: Partial<
+      Pick<WalletLedgerEntry, 'action' | 'source' | 'platformTag' | 'nature'>
+    > = {},
   ) {
     const reference = data.domPaymentId;
     if (!reference || !hasPlatformMarker(data.description ?? '', tag))
@@ -111,8 +118,10 @@ export class PlatformLedger {
             throw new BadRequestException('Crédito exige lançamento concluído');
           await applyWalletEntry(p, {
             userId: data.userId,
-            action: 'PLATFORM_LEDGER_COMPLETED',
-            source: 'PLATFORM_LEDGER',
+            action: credit.action ?? 'PLATFORM_LEDGER_COMPLETED',
+            source: credit.source ?? 'PLATFORM_LEDGER',
+            platformTag: credit.platformTag,
+            nature: credit.nature,
             balanceDelta: net,
             transactionId: row.id,
             metadata: { tag, reference },

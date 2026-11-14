@@ -280,7 +280,9 @@ export class PlatformMerchantsService {
         capability: 'ledger.import',
       });
     const merchant = await this.resolve(context, externalMerchantId);
-    return this.finance.importEntry(context, body, merchant.userId);
+    return this.finance.importEntry(context, body, merchant.userId, {
+      merchant: true,
+    });
   }
   async withdrawals(
     context: PlatformContext,
