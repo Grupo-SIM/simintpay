@@ -238,7 +238,7 @@ Resumo canônico de comerciante mantém carteira por usuário e disponibilidade 
 
 ### Alcance da compatibilidade concluída
 
-136 contratos ativos permanecem aliases/entradas compatíveis, relacionados no manifesto `docs/legacy-platform-equivalence.json`. Oito proxies administrativos BetAI retirados não recebem substituto inventado. Diferenças de autorização, reais/centavos, taxas, SSE e envelopes ficam explícitas na matriz; APIs novas não herdam permissões legadas. Carteira física continua por usuário; histórico atribuído por produto não autoriza manutenção que zere carteira compartilhada. Relatórios canônicos usam dono revalidado mesmo quando cache legado ainda aponta dono anterior.
+120 contratos ativos permanecem aliases/entradas compatíveis, relacionados no manifesto `docs/legacy-platform-equivalence.json`. Oito proxies administrativos BetAI retirados não recebem substituto inventado. Diferenças de autorização, reais/centavos, taxas, SSE e envelopes ficam explícitas na matriz; APIs novas não herdam permissões legadas. Carteira física continua por usuário; histórico atribuído por produto não autoriza manutenção que zere carteira compartilhada. Relatórios canônicos usam dono revalidado mesmo quando cache legado ainda aponta dono anterior.
 
 ## Política financeira versionada
 

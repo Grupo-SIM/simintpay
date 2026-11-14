@@ -670,15 +670,6 @@
   },
   {
     "method": "GET",
-    "path": "/admin/plataformas/:tag/comunidades",
-    "canonical": "GET /platforms/:tag/reports/communities",
-    "evidence": [
-      "src/modules/platform-core/tests/platform-administration-contracts.test.ts"
-    ],
-    "compatibility": "Mesmo serviço administrativo; centavos/taxas decimais; histórico conflitante excluído no canônico."
-  },
-  {
-    "method": "GET",
     "path": "/admin/plataformas/atlas/breakdown",
     "canonical": "GET /platforms/:tag/reports/atlas-products",
     "evidence": [
@@ -703,24 +694,6 @@
       "src/modules/platform-core/tests/platform-administration-contracts.test.ts"
     ],
     "compatibility": "Mesmo serviço administrativo; centavos/taxas decimais; histórico conflitante excluído no canônico."
-  },
-  {
-    "method": "GET",
-    "path": "/admin/plataformas/:tag/usuarios",
-    "canonical": "GET /platforms/:tag/saas/subscribers",
-    "evidence": [
-      "src/modules/platform-core/platform-saas-access.service.test.ts"
-    ],
-    "compatibility": "Mesmo serviço SaaS com filtros e alteração de acesso."
-  },
-  {
-    "method": "PATCH",
-    "path": "/admin/plataformas/:tag/usuarios/:userId/toggle",
-    "canonical": "PATCH /platforms/:tag/saas/subscribers/:id/toggle",
-    "evidence": [
-      "src/modules/platform-core/platform-saas-access.service.test.ts"
-    ],
-    "compatibility": "Mesmo serviço SaaS com filtros e alteração de acesso."
   },
   {
     "method": "GET",
@@ -830,46 +803,6 @@
       "src/modules/platform-core/tests/platform-finance-read-contracts.test.ts"
     ],
     "compatibility": "Consultas e projeções corporativas preservadas; canônico estrito e valores em centavos."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/betai/cobranca",
-    "canonical": "POST /platforms/:tag/billing",
-    "evidence": [
-      "src/modules/platform-core/platform-betai.service.test.ts",
-      "src/modules/platform-core/platform-subscription-capabilities.service.test.ts"
-    ],
-    "compatibility": "Envelopes próprios; cancelamento parcial preservado; nenhuma chamada real."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/betai/plano",
-    "canonical": "POST /platforms/:tag/subscriptions/plans",
-    "evidence": [
-      "src/modules/platform-core/platform-betai.service.test.ts",
-      "src/modules/platform-core/platform-subscription-capabilities.service.test.ts"
-    ],
-    "compatibility": "Envelopes próprios; cancelamento parcial preservado; nenhuma chamada real."
-  },
-  {
-    "method": "POST",
-    "path": "/internal/betai/plano/cancelar",
-    "canonical": "POST /platforms/:tag/billing/subscriptions/cancel",
-    "evidence": [
-      "src/modules/platform-core/platform-betai.service.test.ts",
-      "src/modules/platform-core/platform-subscription-capabilities.service.test.ts"
-    ],
-    "compatibility": "Envelopes próprios; cancelamento parcial preservado; nenhuma chamada real."
-  },
-  {
-    "method": "GET",
-    "path": "/internal/betai/cobranca/:code/status",
-    "canonical": "GET /platforms/:tag/billing/:code/status",
-    "evidence": [
-      "src/modules/platform-core/platform-betai.service.test.ts",
-      "src/modules/platform-core/platform-subscription-capabilities.service.test.ts"
-    ],
-    "compatibility": "Envelopes próprios; cancelamento parcial preservado; nenhuma chamada real."
   },
   {
     "method": "GET",

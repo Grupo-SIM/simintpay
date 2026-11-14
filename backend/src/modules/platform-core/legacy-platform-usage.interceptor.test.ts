@@ -29,7 +29,7 @@ test('all inventoried aliases log template only; canonical/unrelated paths are e
       interceptor.intercept(request(c.method, c.path), {
         handle: () => of(null),
       });
-    expect(log).toHaveBeenCalledTimes(127);
+    expect(log).toHaveBeenCalledTimes(120);
     for (const [entry] of log.mock.calls as unknown as [
       Record<string, unknown>,
     ][])
@@ -44,7 +44,7 @@ test('all inventoried aliases log template only; canonical/unrelated paths are e
       interceptor.intercept(request(c.method, c.path), {
         handle: () => of(null),
       });
-    expect(log).toHaveBeenCalledTimes(127);
+    expect(log).toHaveBeenCalledTimes(120);
   } finally {
     Logger.prototype.log = original;
   }
