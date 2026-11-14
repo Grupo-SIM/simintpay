@@ -237,8 +237,36 @@ Investigação nos dois lados (back-ebook somente leitura). Achado central: `/au
 - [x] **Comissões de afiliado x carteira (análise; nenhuma mudança financeira).**
   - Credita carteira: só alocação `AFFILIATE` da liquidação (`EBOOK_V1`), de pedidos com manifesto. Conta no saldo EBOOK (acima).
   - **Não credita:** `credit-commission` legado e `POST .../finance/entries kind: "commission"` (`LEGACY_RECORD_ONLY`): `Transaction COMPLETED` `[AFFILIATE_COMMISSION]` sem `BalanceLog`; o back-ebook só as entrega para pedidos **sem** manifesto. O afiliado as vê no histórico e não consegue sacar. A projeção de vendedor as ignora de propósito (senão o saldo ficaria acima da carteira real; o teto `min(plataforma, carteira)` esconderia, mas não corrigiria).
-  - Opções para as record-only: (1) manter (histórico apenas) e migrar todo pedido para manifesto, o caminho correto e sem risco de crédito duplo; (2) novo `kind: "commission-credit"` que credita a carteira com `BalanceLog` `source EBOOK_COMMISSION`, `platformTag EBOOK`, idempotente por `referenceId`; **risco**: dinheiro real sem lastro (quem paga a comissão? o líquido do dono já foi creditado por inteiro no caminho sem manifesto, logo creditar o afiliado criaria saldo sem origem, ou exigiria debitar o dono) e crédito duplo se o pedido depois ganhar manifesto; (3) ajuste manual administrativo. **Não implementado**: exige decisão do dono sobre a origem do débito. Decisão pendente.
+  - Opções para as record-only: (1) manter (histórico apenas) e migrar todo pedido para manifesto, o caminho correto e sem risco de crédito duplo; (2) novo `kind: "commission-credit"` que credita a carteira com `BalanceLog` `source EBOOK_COMMISSION`, `platformTag EBOOK`, idempotente por `referenceId`; **risco**: dinheiro real sem lastro (quem paga a comissão? o líquido do dono já foi creditado por inteiro no caminho sem manifesto, logo creditar o afiliado criaria saldo sem origem, ou exigiria debitar o dono) e crédito duplo se o pedido depois ganhar manifesto; (3) ajuste manual administrativo. **Superado pela Fase A3**: por decisão do dono, comissões novas pela rota canônica creditam a carteira (opção 2, com dedupe por manifesto); linhas legadas gravadas continuam record-only.
   - Comparação do `summary` legado (soma de `Transaction COMPLETED` EBOOK do usuário, `net − TAXA_SERVICO`, comissão sem taxa, saques) com o novo (projeção atribuída): **dono (sem manifesto)** igual, exceto histórico sem `platformTag` (legado exclui pela mesma tag; o canônico idem) e coprodução: o legado soma o líquido inteiro, o novo aplica `allocateNet` do snapshot (parte do dono). **Dono (com manifesto)**: legado não vê a venda (a `Transaction` é do criador do checkout), novo soma a alocação OWNER. **Afiliado**: legado inclui as comissões record-only (sem lastro, valor maior que o sacável), novo as exclui e soma as alocações AFFILIATE de manifesto. **Coprodutor**: legado não tem `Transaction` própria, saldo zero; novo soma a alocação COPRODUCER só para liquidações (`EBOOK_V1`); a coprodução do caminho `FINAL_NET` não grava `platformTag` no `BalanceLog` e **continua fora** do saldo EBOOK por vendedor (lacuna conhecida, exige gravar `platformTag` nos créditos, plano 0019). Saques: legado soma todas as plataformas, novo só as da plataforma.
+
+### Fase A3. Preço no servidor, juros e comissão com crédito de carteira (feito, local, sem push)
+
+Decisão do dono: comissões novas devem creditar a carteira e as entradas de cartão devem registrar juros. Verificação: o gatilho `balance_log_sync_wallet` (`prisma/migrations/20261031130000_balance_log_drives_wallet`, `AFTER INSERT ON "BalanceLog"`) recalcula `Wallet` por `SUM(balanceDelta/lockedDelta)` sob trava por usuário e cria a carteira se faltar; `applyWalletEntry` (`wallet-ledger.ts`) só insere o `BalanceLog`. Logo, gravar `BalanceLog` basta para creditar.
+
+- [x] `POST .../finance/entries` (só a rota por vendedor; a rota de plataforma e a legada ficam iguais): `amountCents` = **valor pago pelo comprador, juros incluídos**; `netAmountCents` opcional. O servidor deriva o líquido de `paymentMethod` + `installments` + `amountCents` com a cotação do checkout (`loadChargePolicy`/`quoteFinancialCharge`, a mesma de `finance/fees`), invertendo o total pago sobre o valor sem juros (`quotePaidAmount` em `platform-fee-schedule.ts`). Se `netAmountCents` vier e diferir: **409 `LEDGER_NET_MISMATCH`** com `expectedNetAmountCents` (rejeitar, nunca aceitar silenciosamente). Total que nenhuma parcela reproduz (ou PIX com parcelas): 400. Modalidade sem custo/política configurada: 422 `FEE_POLICY_UNAVAILABLE`. Reenvio idempotente usa o líquido gravado na primeira vez (mudança de taxa não vira conflito). Gravado na `Transaction`: `installments`, `amount` (pago), `netAmount`, `totalFee`, `platformFee`, `acquirerFee` (custo cotado) e `financialSnapshot` com a cotação (juros do comprador `buyerInterestCents`, custo de juros etc.).
+- [x] O webhook DOM que conclui `EBOOK_PENDING_<ref>` passou a manter o líquido gravado quando a entrada tem `financialSnapshot` (antes recalculava pelo atalho LIQUIDEZ e perderia juros e taxa alvo); o crédito continua `líquido − TAXA_SERVICO`.
+- [x] `kind: "commission"`: **credita a carteira** por `BalanceLog` (`source EBOOK_COMMISSION`, `action EBOOK_COMMISSION_CREDITED`, `platformTag EBOOK`, `nature COMMISSION`), idempotente por `EBOOK_AFFCOMM_<referenceId>` (reenvio nunca credita de novo; mesma referência com valor diferente dá 409). Sem taxa nem juros (`netAmountCents`, se enviado, tem de ser igual a `amountCents`). **`orderNumber` obrigatório**: se existir `EbookSettlement` desse pedido, nada é gravado nem creditado (`created: false`, `skipped: "SETTLEMENT_CREDITS_AFFILIATE"`), pois `settleEbookPayment` já credita a alocação AFFILIATE. O risco inverso (liquidação matriculada depois da comissão) é barrado pelo back-ebook (`prepareSettlement` recusa se já existe comissão legada); manter essa trava.
+- [x] Saldo EBOOK por vendedor soma `BalanceLog` `EBOOK_COMMISSION` (e `EBOOK_V1`); a `Transaction` da comissão não é somada de novo, e linhas legadas `[AFFILIATE_COMMISSION]` sem `BalanceLog` continuam fora (record-only).
+- [x] Origem do dinheiro: o back-ebook decide o valor da comissão; no caminho sem manifesto o líquido do dono ainda é creditado por inteiro, então **este crédito não é debitado do dono** (decisão do dono: crédito novo). Documentado como ponto de atenção financeiro; não há débito automático.
+- Testes: `platform-merchant-ebook-finance.test.ts` (preço no servidor, 409 de líquido, parcelas com juros, comissão com `BalanceLog`, idempotência, pulo por liquidação, saldo). A rota legada `credit-commission` continua só registro.
+
+#### Contrato final de `POST /platforms/EBOOK/merchants/:externalMerchantId/finance/entries` (`ledger:write`)
+
+```json
+// venda pendente PIX (líquido calculado pelo servidor)
+{ "referenceId": "ORD-2026-000001", "kind": "pending", "amountCents": 10000,
+  "paymentMethod": "PIX", "description": "ORD-2026-000001 [CPF_DONO:12345678901] [NOME_DONO:Maria]",
+  "customerName": "Comprador", "customerEmail": "c@x.com", "customerDocument": "98765432100" }
+// venda pendente cartão 12x: amountCents = total pago com juros
+{ "referenceId": "ORD-2026-000002", "kind": "pending", "amountCents": 11965,
+  "paymentMethod": "CREDIT_CARD", "installments": 12, "netAmountCents": 8100 }
+// comissão (credita a carteira; orderNumber obrigatório)
+{ "referenceId": "AFF-1-2", "orderNumber": "ORD-2026-000009", "kind": "commission",
+  "amountCents": 800, "paymentMethod": "PIX", "description": "Comissão de afiliado" }
+```
+
+Campos aceitos: `referenceId, orderNumber (só comissão), kind, amountCents, netAmountCents?, paymentMethod (PIX|CREDIT_CARD), installments (1-12; PIX só 1), description, customerName, customerEmail, customerDocument`; qualquer outro: 400. Respostas: `{success, id, created}`; comissão de pedido com liquidação: `{success, created: false, skipped: "SETTLEMENT_CREDITS_AFFILIATE"}`. Erros: 409 `LEDGER_NET_MISMATCH {expectedNetAmountCents}`, 409 `LEDGER_REFERENCE_CONFLICT`, 422 `FEE_POLICY_UNAVAILABLE`, 400 total/parcelas incoerentes. O valor de `amountCents` do exemplo de 12x é ilustrativo: obtenha o total com `GET .../finance/fees` (`credit[n].buyerTotalCents`) para o valor-base.
 
 ### Fase B. Preparação (dono/ops; fora do código)
 
@@ -274,8 +302,8 @@ Investigação nos dois lados (back-ebook somente leitura). Achado central: `/au
 - Semântica do valor de saque exposta ao vendedor (líquido, como no legado, ou bruto), ver 3.5.
 - Fim do enriquecimento DOM (nome/e-mail) no histórico: aceitável, dado que `customerName/customerEmail` já são gravados no lançamento?
 - Fundos de outras plataformas sacando o saldo do EBOOK (3.1 Limites, item a): exige escopo no saque de todas as plataformas ou `BalanceLog.platformTag`; decisão do dono.
-- Comissão de afiliado sem crédito de carteira (legado) x crédito real via manifesto de liquidação: o canônico preserva o registro sem crédito.
-- Origem do débito para creditar comissões record-only na carteira (opção 2 da Fase A2), ou migrar todos os pedidos para manifesto.
+- Comissão de afiliado: resolvida na Fase A3 (nova comissão credita a carteira; pedido com liquidação é pulado).
+- Comissões record-only legadas (já gravadas sem `BalanceLog`): decidir se recebem crédito retroativo (backfill) ou ficam só no histórico; novas comissões já creditam (Fase A3).
 - `adoptByEmail`: o e-mail do back-ebook é verificado? Só então é seguro vincular contas legadas sem documento.
 - Coprodução fora da liquidação (`FINAL_NET`) sem `platformTag` no `BalanceLog`: fora do saldo EBOOK por vendedor.
 
