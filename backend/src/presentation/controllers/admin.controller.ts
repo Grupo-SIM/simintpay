@@ -1369,6 +1369,7 @@ export class AdminController {
   // ──────────── LEADS ────────────
 
   @Get('leads')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Listar solicitações de cadastro' })
   async leads(
     @Query('page') page = '1',
@@ -1389,6 +1390,8 @@ export class AdminController {
   }
 
   @Post('leads/:id/approve')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({ summary: 'Aprovar solicitação e criar conta do usuário' })
   async approve(
@@ -1403,6 +1406,8 @@ export class AdminController {
   }
 
   @Post('leads/:id/reject')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({ summary: 'Rejeitar solicitação' })
   async reject(@Param('id') id: string, @Body() body: RejectLeadDto) {
@@ -1426,6 +1431,8 @@ export class AdminController {
   // ──────────── CRIAR CONTA ────────────
 
   @Post('criar-conta')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(201)
   @ApiOperation({
     summary: 'Criar conta diretamente (admin master) — suporta CPF ou CNPJ',
@@ -1514,6 +1521,8 @@ export class AdminController {
   // ──────────── USUÁRIOS DE PLATAFORMAS EXTERNAS ────────────
 
   @Post('usuarios/scan')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -1742,6 +1751,7 @@ export class AdminController {
   }
 
   @Get('usuarios')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary:
       'Lista usuários externos agrupados por CPF com todas as plataformas',
@@ -3264,6 +3274,7 @@ export class AdminController {
   }
 
   @Get('users')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Listar usuários para autocomplete (admin master)' })
   @ApiQuery({
     name: 'search',
@@ -3332,6 +3343,7 @@ export class AdminController {
   }
 
   @Get('relatorios/consolidado/transacoes')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary:
       'Listar transações que entram no consolidado (base do cálculo do Lucro Simpay)',
@@ -3419,6 +3431,7 @@ export class AdminController {
   }
 
   @Get('relatorios/consolidado')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Obter resumo financeiro consolidado de todas as plataformas',
     description:
@@ -4021,6 +4034,7 @@ export class AdminController {
   }
 
   @Get('relatorios/taxa-saque')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Obter total de taxa de saque (admin master)' })
   async getTaxaSaque(
     @Query('dataInicio') dataInicio?: string,
@@ -4042,6 +4056,7 @@ export class AdminController {
   }
 
   @Get('relatorios/lucro-saque')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Obter total de lucro de saque (admin master)' })
   async getLucroSaque(
     @Query('dataInicio') dataInicio?: string,
@@ -4063,6 +4078,7 @@ export class AdminController {
   }
 
   @Get('relatorios/quantidade-usuarios-externos')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Total de usuários de plataformas (cadastro externo)',
     description:
@@ -4076,6 +4092,7 @@ export class AdminController {
   }
 
   @Get('relatorios/mensal')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Resultados mensais (últimos N meses ou intervalo YYYY-MM)',
   })
@@ -4230,6 +4247,7 @@ export class AdminController {
   }
 
   @Get('relatorios/total-repasse')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Total de repasse (líquido consolidado − lucro Simpay)',
     description:
@@ -4323,6 +4341,7 @@ export class AdminController {
   }
 
   @Get('plataformas/saldos-resumo')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary:
       'Saldo disponível (ao vivo) por plataforma — cards de "Saldos por Plataforma".',
@@ -4335,6 +4354,7 @@ export class AdminController {
   }
 
   @Get('relatorios/transacoes-por-status')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Distribuição de transações por status (API DOM)',
     description:
@@ -4381,6 +4401,7 @@ export class AdminController {
   }
 
   @Get('relatorios/transacoes-por-metodo')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Distribuição de transações por método de pagamento (API DOM)',
     description:
@@ -4426,6 +4447,8 @@ export class AdminController {
   }
 
   @Post('sync-transactions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Importar transações DOM do mês atual para o banco local',
@@ -4440,6 +4463,8 @@ export class AdminController {
   }
 
   @Post('reconciliar-pendentes')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -4477,6 +4502,8 @@ export class AdminController {
   }
 
   @Post('sync/cleanup-renovada')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -4523,6 +4550,8 @@ export class AdminController {
   }
 
   @Post('sync/cleanup-ebook')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Remover transações do EBOOK importadas via legado api-dom',
@@ -4590,6 +4619,8 @@ export class AdminController {
   }
 
   @Post('sync/full-revalida')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @ApiOperation({
     summary:
       'Sincronização completa de histórico (Revalida) - puxa da DOM Pagamentos',
@@ -4599,6 +4630,8 @@ export class AdminController {
   }
 
   @Post('sync/sync-wallet-renovada')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -4698,6 +4731,8 @@ export class AdminController {
   }
 
   @Post('sync/sync-wallet-bosque')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -4784,6 +4819,8 @@ export class AdminController {
   }
 
   @Post('sync/sync-wallet-revalida')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Definir saldo base da carteira Revalida (execução única)',
@@ -4801,6 +4838,8 @@ export class AdminController {
   }
 
   @Post('migrar-transacoes-para-admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -4812,6 +4851,7 @@ export class AdminController {
   }
 
   @Get('transacoes-dom')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary:
       'Lista transações diretamente da API DOM (conta master) sem passar pelo banco',
@@ -4860,6 +4900,8 @@ export class AdminController {
   }
 
   @Post('sync/reparar-status-transacoes-dom')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -4891,6 +4933,8 @@ export class AdminController {
   }
 
   @Post('sync/test-cron')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -4915,6 +4959,7 @@ export class AdminController {
   // ──────────── SAQUES ────────────
 
   @Get('saques')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Listar todos os saques (admin)' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'pageSize', required: false, example: 20 })
@@ -4948,6 +4993,7 @@ export class AdminController {
   }
 
   @Get('saques/user')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Listar saques de um específico usuário (conforme API DOM)',
   })
@@ -4966,6 +5012,8 @@ export class AdminController {
   }
 
   @Post('saques/:id/aprovar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Aprovar saque com upload de comprovante' })
@@ -4988,6 +5036,8 @@ export class AdminController {
   }
 
   @Post('saques/:id/rejeitar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({ summary: 'Rejeitar saque e desbloquear saldo' })
   async rejeitarSaque(
@@ -5023,6 +5073,8 @@ export class AdminController {
   }
 
   @Patch('saques/:id/comprovante')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({
     summary: 'Adicionar ou trocar comprovante de saque (aceita arquivo ou URL)',
@@ -5055,6 +5107,8 @@ export class AdminController {
   }
 
   @Patch('saques/:id/visibilidade')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Alternar visibilidade do comprovante para o cliente',
@@ -5103,6 +5157,7 @@ export class AdminController {
   // Equivalente ao api-dom GET /payments/history
 
   @Get('renovada/transactions')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary:
       'Listar transações da Renovada (equivalente ao api-dom /payments/history)',
@@ -5190,6 +5245,7 @@ export class AdminController {
   }
 
   @Get('renovada/transactions/export')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Exportar todas as transações da Renovada (sem paginação)',
   })
@@ -5248,6 +5304,7 @@ export class AdminController {
 
   // Equivalente ao api-dom GET /payments/summary
   @Get('renovada/summary')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary:
       'Resumo financeiro da Renovada (equivalente ao api-dom /payments/summary)',
@@ -5302,6 +5359,8 @@ export class AdminController {
   // ──────────── MAQUINETAS ────────────
 
   @Post('sync/maquinetas')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -5312,6 +5371,8 @@ export class AdminController {
   }
 
   @Post('sync/recalcular-balance-maquinetas')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -5386,6 +5447,7 @@ export class AdminController {
   }
 
   @Get('renovada/machines')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Transações de maquinetas da Renovada (lê do banco local)',
   })
@@ -5403,6 +5465,7 @@ export class AdminController {
   }
 
   @Get('maquinetas')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Transações de maquinetas centralizadas (lê do banco local)',
   })
@@ -5546,6 +5609,8 @@ export class AdminController {
   }
 
   @Delete('renovada/transactions/cleanup-plan-txs')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -5589,6 +5654,8 @@ export class AdminController {
   }
 
   @Delete('renovada/transactions/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({ summary: 'Deletar uma transação da Renovada' })
   async deleteRenovadaTransaction(@Param('id') id: string) {
@@ -5616,6 +5683,8 @@ export class AdminController {
   // ──────────── RENOVADA: RECALCULAR SALDO A PARTIR DE UMA DATA ────────────
 
   @Post('renovada/recalcular-saldo-por-data')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -5750,6 +5819,8 @@ export class AdminController {
   // ──────────── RENOVADA: LIMPAR TRANSAÇÕES + RECALCULAR SALDO ────────────
 
   @Post('renovada/recalcular')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -5841,6 +5912,8 @@ export class AdminController {
   // ──────────── RENOVADA: CORRIGIR SALDO WALLET (ofertas + maquinetas, sem ajustes) ────────────
 
   @Post('renovada/fix-wallet-balance')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -5988,6 +6061,8 @@ export class AdminController {
   // ──────────── RENOVADA: REGISTRAR LOGS DE SAQUE RETROATIVAMENTE ────────────
 
   @Post('renovada/fix-withdraw-logs')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -6073,6 +6148,8 @@ export class AdminController {
   // ──────────── BOSQUE: CORRIGIR SALDO WALLET (sem sincronizações, sem ajustes) ────────────
 
   @Post('bosque/fix-wallet-balance')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -6903,6 +6980,7 @@ export class AdminController {
   }
 
   @Get('plataformas/atlas/breakdown')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Breakdown de receita Atlas: domínios vs hospedagem, por produto',
   })
@@ -6919,6 +6997,7 @@ export class AdminController {
   }
 
   @Get('plataformas/:tag/distribuicao-metodo')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary:
       'Distribuição de pagamentos por método para uma plataforma (COMPLETED)',
@@ -6937,6 +7016,7 @@ export class AdminController {
   }
 
   @Get('plataformas/:tag/transacoes')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Listar transações de uma plataforma (por tag)' })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'pageSize', required: false })
@@ -6992,6 +7072,8 @@ export class AdminController {
   }
 
   @Post('withdrawals/approve-all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -7060,6 +7142,8 @@ export class AdminController {
   }
 
   @Post('renovada/reset-wallet')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary:
@@ -7067,7 +7151,7 @@ export class AdminController {
     description:
       'Zera wallet, remove todos os saques. O /auth/me Renovada usa wallet + saques COMPLETED/APPROVED; um saque sintético COMPLETED quebrava o saldo (gross × (fator−1) ficava negativo). Transações permanecem no banco.',
   })
-  async resetRenovadaWallet() {
+  async resetRenovadaWallet(@CurrentUser() admin: JwtPayload) {
     await this.requireExclusivePlatformWallet('RENOVADA');
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
 
@@ -7093,6 +7177,10 @@ export class AdminController {
           source: 'ADMIN_FORCE',
           description:
             'Reset Renovada: wallet zerada e histórico de saques removido.',
+          metadata: {
+            adminId: admin.sub,
+            balanceBefore: current.balance.toFixed(2),
+          },
         },
       });
     });
@@ -7105,6 +7193,8 @@ export class AdminController {
   }
 
   @Post('renovada/set-wallet-balance')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Define manualmente o saldo líquido da carteira Renovada',
@@ -7124,7 +7214,10 @@ export class AdminController {
       },
     },
   })
-  async setRenovadaWalletBalance(@Body() body: { balance: number }) {
+  async setRenovadaWalletBalance(
+    @Body() body: { balance: number },
+    @CurrentUser() admin: JwtPayload,
+  ) {
     const RENOVADA_ID = getPlatformOwnerId('RENOVADA') ?? '';
     const newBalance = Number(body.balance);
     if (!Number.isFinite(newBalance) || newBalance < 0) {
@@ -7154,6 +7247,10 @@ export class AdminController {
 
           source: 'ADMIN_FORCE',
           description: `Ajuste manual de saldo: R$ ${newBalance.toFixed(2)}`,
+          metadata: {
+            adminId: admin.sub,
+            balanceBefore: before.balance.toFixed(2),
+          },
         },
       });
     });
