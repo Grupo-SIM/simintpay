@@ -70,6 +70,7 @@ export class PlatformAttributedBalance {
       throw new ConflictException('Contexto da plataforma mudou');
     const [
       rows,
+      settlementCredits,
       withdrawals,
       wallet,
       productCount,
@@ -82,8 +83,19 @@ export class PlatformAttributedBalance {
           netAmount: true,
           financialSnapshot: true,
           description: true,
+          settlementBasis: true,
         },
       }),
+      merchantUserId
+        ? p.balanceLog.findMany({
+            where: {
+              userId: merchantUserId,
+              source: 'EBOOK_V1',
+              platformTag: canonicalTransactionPlatformTag(context.tag),
+            },
+            select: { balanceDelta: true },
+          })
+        : Promise.resolve([] as { balanceDelta: Prisma.Decimal }[]),
       p.withdrawRequest.findMany({
         where: {
           userId: accountUserId,
@@ -125,12 +137,22 @@ export class PlatformAttributedBalance {
             (p) => p.userId === accountUserId,
           )?.amount
         : row.netAmount;
+      // EBOOK_V1 settlements credit each allocation through BalanceLog (counted below), while the
+      // Transaction row belongs to the checkout creator: counting it here would double count or
+      // misattribute the whole sale.
+      if (merchantUserId && row.settlementBasis === 'EBOOK_V1') continue;
       const recordOnly =
         !!merchantUserId &&
         /\[AFFILIATE_COMMISSION\]/i.test(row.description ?? '');
       if (recordOnly) continue;
       earned = earned.plus(ownerAmount ?? 0).minus(saleFee);
       identifiedTransactions++;
+    }
+    // Settlement allocations (OWNER/AFFILIATE/COPRODUCER) already net of fee and reversals: the sum of
+    // balanceDelta is the exact credited amount, exactly once per allocation.
+    for (const credit of settlementCredits) {
+      earned = earned.plus(credit.balanceDelta);
+      if (!credit.balanceDelta.isZero()) identifiedTransactions++;
     }
     for (const row of withdrawals) {
       if (row.status === 'PENDING') reserved = reserved.plus(row.grossAmount);

@@ -303,7 +303,13 @@ test('merchant ledger entries are EBOOK-only and reject unknown kinds', async ()
   ).rejects.toMatchObject({ status: 400 });
 });
 
-const sale = (platformTag: string | null, net: number, description = '') => ({
+const sale = (
+  platformTag: string | null,
+  net: number,
+  description = '',
+  settlementBasis: string | null = null,
+) => ({
+  settlementBasis,
   platformTag,
   netAmount: new Prisma.Decimal(net),
   financialSnapshot: null,
@@ -328,6 +334,7 @@ function scopedFixture(
   pool: number,
   rows: any[],
   withdrawals: Withdrawal[] = [],
+  credits: number[] = [],
 ) {
   const wallet = {
     userId: 'seller',
@@ -354,6 +361,13 @@ function scopedFixture(
     integrationMerchant: { findUnique: async () => merchant },
     wallet: { findUnique: async () => wallet },
     transaction: { findMany: mock(async () => rows) },
+    balanceLog: {
+      findMany: mock(async () =>
+        credits.map((balanceDelta) => ({
+          balanceDelta: new Prisma.Decimal(balanceDelta),
+        })),
+      ),
+    },
     withdrawRequest: {
       aggregate: async () => ({
         _count: { id: 0 },
@@ -406,6 +420,25 @@ test('EBOOK merchant summary counts only EBOOK sales (net of the sale fee), not 
   });
 });
 
+test('EBOOK settlement allocations count once through the ledger; the settlement Transaction row is ignored', async () => {
+  const rows = [
+    sale('EBOOK', 100, 'ORD-1 [TENANT:EBOOK]'),
+    // Funding of an EBOOK_V1 sale, owned by the checkout creator: its allocations are the BalanceLog credits.
+    sale('EBOOK', 90, 'ORD-2 [TENANT:EBOOK]', 'EBOOK_V1'),
+  ];
+  // OWNER allocation (+60) of ORD-2, an AFFILIATE commission (+10) and a reversed sale (+40 then -40).
+  const { p, service } = scopedFixture(500, rows, [], [60, 10, 40, -40]);
+  expect(await service.summary(context, 'seller-ext')).toMatchObject({
+    earnedCents: 9_600 + 7_000,
+    availableBalanceCents: 16_600,
+  });
+  expect(p.balanceLog.findMany.mock.calls[0][0].where).toEqual({
+    userId: 'seller',
+    source: 'EBOOK_V1',
+    platformTag: 'EBOOK',
+  });
+});
+
 test('EBOOK reservations and settled withdrawals reduce only the EBOOK balance', async () => {
   const { service } = scopedFixture(500, mixed, [
     withdrawal('ebook', 'PENDING', 40),
@@ -448,7 +481,7 @@ test('EBOOK merchant withdrawal cannot draw on funds earned elsewhere', async ()
   const p = f.p;
   p.$executeRaw = mock(async () => 1);
   p.integrationWebhookDelivery = { create: mock(async () => ({})) };
-  p.balanceLog = { create: mock(async () => ({})) };
+  p.balanceLog = { ...p.balanceLog, create: mock(async () => ({})) };
   p.wallet.findUniqueOrThrow = async () => p.wallet.findUnique();
   p.withdrawRequest.findUnique = async () => null;
   p.withdrawRequest.findFirst = async () => null;

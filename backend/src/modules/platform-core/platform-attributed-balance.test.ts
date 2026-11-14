@@ -42,6 +42,7 @@ function fixture() {
       count: async () => 2,
     },
     transaction: { findMany: async () => rows },
+    balanceLog: { findMany: async () => [] },
     withdrawRequest: {
       count: async () => 0,
       findMany: async (q: any) => {
