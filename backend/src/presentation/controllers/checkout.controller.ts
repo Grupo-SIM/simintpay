@@ -564,6 +564,7 @@ export class CheckoutController {
           netAmount: netAmountDec,
           status: 'DRAFT',
           paymentMethod: 'CREDIT_CARD',
+          installments: n,
           totalFee: new Prisma.Decimal(totalFee),
           acquirerFee: new Prisma.Decimal(domFee),
           platformFee: new Prisma.Decimal(platformFee),

@@ -118,3 +118,25 @@ export async function quotePaidAmount(
   }
   throw new Error('Valor pago não corresponde à política de juros');
 }
+
+/**
+ * Seller share of a card purchase the buyer paid in `installments`. `baseCents` is the owner amount BEFORE interest
+ * (what the pending PIX 1x entry recorded: order total minus affiliate commission); the buyer interest of the lane is
+ * applied to that base only, exactly as the checkout quotes a card charge (`quoteFinancialCharge` on the
+ * pre-interest price). Interest on the affiliate commission share is not part of the commission base and stays
+ * with the fee schedule/acquirer cost model. Returns null when the lane is unavailable.
+ */
+export async function quoteCardOwnerShare(
+  prisma: Client,
+  tag: string,
+  baseCents: number,
+  installments: number,
+) {
+  const context = await loadChargePolicy(prisma, tag);
+  return quoteFinancialCharge(
+    context,
+    baseCents / 100,
+    'CREDIT_CARD',
+    installments,
+  );
+}

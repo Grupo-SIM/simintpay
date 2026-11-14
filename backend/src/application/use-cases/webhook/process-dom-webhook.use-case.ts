@@ -1,3 +1,4 @@
+import { quoteCardOwnerShare } from '../../../modules/financial-policy/platform-fee-schedule';
 import { settleEbookPayment } from '../../../modules/platform-core/ebook-settlement';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
@@ -1114,12 +1115,48 @@ export class ProcessDomWebhookUseCase {
           `[DomWebhook][ebook] atualizando tx PENDING → COMPLETED id=${pendingTx.id}`,
         );
         const amountDec = new Prisma.Decimal(data.amount / 100);
-        // EBOOK usa só as taxas cadastradas (LIQUIDEZ), não o líquido informado pela DOM
         // Entry recorded by the canonical merchant route: the server already priced it (fees and buyer
         // interest, with the quote kept in financialSnapshot); keep that net instead of the LIQUIDEZ shortcut.
-        const netDec =
-          pendingTx.financialSnapshot && pendingTx.netAmount !== null
-            ? new Prisma.Decimal(pendingTx.netAmount.toString())
+        const canonicalEntry =
+          !!pendingTx.financialSnapshot && pendingTx.netAmount !== null;
+        // The entry is always recorded as PIX 1x at the owner amount (the order exists before the buyer picks
+        // card/installments). Once the real card payment is confirmed, reprice the owner share with the paid
+        // installments so the interest cost reaches the seller net.
+        const cardInstallments = Math.min(
+          Math.max(Math.trunc(Number(data.installments ?? 1)) || 1, 1),
+          12,
+        );
+        let cardQuote: Awaited<ReturnType<typeof quoteCardOwnerShare>> = null;
+        if (canonicalEntry && /credit/i.test(data.payment_method ?? '')) {
+          try {
+            cardQuote = await quoteCardOwnerShare(
+              this.prisma,
+              'EBOOK',
+              Math.round(Number(pendingTx.amount) * 100),
+              cardInstallments,
+            );
+            // The owner share never exceeds what the buyer paid in total.
+            if (
+              cardQuote &&
+              Math.round(cardQuote.totalAmount * 100) > data.amount
+            )
+              cardQuote = null;
+          } catch (e) {
+            this.logger.warn(
+              `[DomWebhook][ebook] repricing do cartão falhou orderRef=${orderNumber}: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+          if (!cardQuote)
+            this.logger.warn(
+              `[DomWebhook][ebook] mantendo líquido gravado (PIX) orderRef=${orderNumber} installments=${cardInstallments}`,
+            );
+        }
+        let netDec: Prisma.Decimal;
+        if (cardQuote) {
+          netDec = new Prisma.Decimal(cardQuote.netAmount);
+        } else {
+          netDec = canonicalEntry
+            ? new Prisma.Decimal(pendingTx.netAmount!.toString())
             : this.calcNet(
                 data.amount / 100,
                 Number(data.installments ?? 1),
@@ -1127,6 +1164,7 @@ export class ProcessDomWebhookUseCase {
                 'EBOOK',
                 data.payment_method,
               );
+        }
         const custName =
           (data as any).customer_name || data.customer?.name || null;
         const custEmail =
@@ -1151,14 +1189,27 @@ export class ProcessDomWebhookUseCase {
               netAmount: netDec,
               totalFee: amountDec.sub(netDec),
               acquirerFee: new Prisma.Decimal(
-                resolveDomFeeReais({
-                  amountReais: data.amount / 100,
-                  paymentMethod: data.payment_method,
-                  installments: Number(data.installments ?? 1),
-                  domFeeFromGateway: data.dom_fee,
-                  tenantTag: 'EBOOK',
-                }),
+                cardQuote
+                  ? cardQuote.domFeeAmount
+                  : resolveDomFeeReais({
+                      amountReais: data.amount / 100,
+                      paymentMethod: data.payment_method,
+                      installments: Number(data.installments ?? 1),
+                      domFeeFromGateway: data.dom_fee,
+                      tenantTag: 'EBOOK',
+                    }),
               ),
+              ...(cardQuote
+                ? {
+                    paymentMethod: PaymentMethod.CREDIT_CARD,
+                    installments: cardInstallments,
+                    platformFee: new Prisma.Decimal(
+                      cardQuote.platformFeeAmount,
+                    ),
+                    financialSnapshot:
+                      cardQuote.financialSnapshot as unknown as Prisma.InputJsonValue,
+                  }
+                : {}),
               customerName: custName,
               customerEmail: custEmail,
               customerDocument: custDoc,
