@@ -1,7 +1,10 @@
 import { Optional } from '@nestjs/common';
 import { ReconcilePendingTransactionsUseCase } from '../../application/use-cases/webhook/reconcile-pending-transactions.use-case';
 import { deliveryProfile } from './delivery-profile';
-import { PlatformMerchantProvisioning } from './platform-merchant-provisioning';
+import {
+  PlatformMerchantProvisioning,
+  type MerchantProvisionInput,
+} from './platform-merchant-provisioning';
 import { Prisma } from '@prisma/client';
 import { coproductionOwnerNet } from '../coproduction/coproduction';
 import { platformMerchant } from './platform-merchant-lookup';
@@ -46,8 +49,13 @@ export class PlatformMerchantsService {
   async provision(
     context: PlatformContext,
     externalMerchantId: string,
-    body: { cnpj: string; legalName: string },
+    body: MerchantProvisionInput,
   ) {
+    if (body.email !== undefined && context.tag !== 'EBOOK')
+      throw new UnprocessableEntityException({
+        code: 'PLATFORM_CAPABILITY_UNAVAILABLE',
+        capability: 'merchant.account-creation',
+      });
     let namespace = this.namespace(context);
     try {
       namespace = (await this.resolve(context, externalMerchantId))

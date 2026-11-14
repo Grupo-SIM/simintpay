@@ -12,6 +12,7 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import type { MerchantProvisionInput } from './platform-merchant-provisioning';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
 import { PlatformMerchantsService } from './platform-merchants.service';
@@ -29,7 +30,7 @@ export class PlatformMerchantsController {
   provision(
     @Req() request: PlatformRequest,
     @Param('externalMerchantId') id: string,
-    @Body() body: { cnpj: string; legalName: string },
+    @Body() body: MerchantProvisionInput,
   ) {
     return this.merchants.provision(request.platformContext, id, body);
   }
