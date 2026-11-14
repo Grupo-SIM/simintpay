@@ -1115,13 +1115,18 @@ export class ProcessDomWebhookUseCase {
         );
         const amountDec = new Prisma.Decimal(data.amount / 100);
         // EBOOK usa só as taxas cadastradas (LIQUIDEZ), não o líquido informado pela DOM
-        const netDec = this.calcNet(
-          data.amount / 100,
-          Number(data.installments ?? 1),
-          undefined,
-          'EBOOK',
-          data.payment_method,
-        );
+        // Entry recorded by the canonical merchant route: the server already priced it (fees and buyer
+        // interest, with the quote kept in financialSnapshot); keep that net instead of the LIQUIDEZ shortcut.
+        const netDec =
+          pendingTx.financialSnapshot && pendingTx.netAmount !== null
+            ? new Prisma.Decimal(pendingTx.netAmount.toString())
+            : this.calcNet(
+                data.amount / 100,
+                Number(data.installments ?? 1),
+                undefined,
+                'EBOOK',
+                data.payment_method,
+              );
         const custName =
           (data as any).customer_name || data.customer?.name || null;
         const custEmail =
