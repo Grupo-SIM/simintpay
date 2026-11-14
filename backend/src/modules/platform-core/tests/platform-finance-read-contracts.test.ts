@@ -329,6 +329,7 @@ test('Ebook configuration preserves decimal liquidity and legacy percentage comm
     fixedTransactionFeeCents: 100,
     cashbackAmountCents: 100,
     affiliateCommissionRate: legacy.affiliateCommissionRate / 100,
+    withdrawal: expect.objectContaining({ percentFee: 0 }),
   });
 });
 test('Bosque inspection and read-only reconciliation preserve wallet and ledger decomposition', async () => {

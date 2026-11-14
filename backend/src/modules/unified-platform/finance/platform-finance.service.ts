@@ -150,6 +150,8 @@ export class PlatformFinanceService {
   async importEntry(
     context: FinancePlatformContext,
     body: Record<string, unknown>,
+    /** Account credited by the entry; defaults to the platform owner (platform-level import). */
+    beneficiaryUserId: string = context.ownerUserId,
   ) {
     if (!['PAGATG', 'EBOOK'].includes(context.tag))
       throw new UnprocessableEntityException({
@@ -217,7 +219,7 @@ export class PlatformFinanceService {
     return this.recordEntry(
       context.tag,
       {
-        userId: context.ownerUserId,
+        userId: beneficiaryUserId,
         domPaymentId: `${prefix}${body.referenceId.trim()}`,
         amount,
         netAmount: net,
@@ -499,7 +501,7 @@ export class PlatformFinanceService {
   }
 
   /** Same resolver the legacy taxas/fees endpoints use; money converted to cents. */
-  private withdrawalPolicy(tag: string) {
+  withdrawalPolicy(tag: string) {
     const fixed = resolveWithdrawalFixedFee(tag);
     const percent = getPlatformTaxaEffective(
       tag,
@@ -555,6 +557,7 @@ export class PlatformFinanceService {
         'TAXA_COMISSAO_AFILIADO',
         PLATFORM_TAXA_DEFAULTS.TAXA_COMISSAO_AFILIADO,
       ),
+      withdrawal: this.withdrawalPolicy(context.tag),
     };
   }
 

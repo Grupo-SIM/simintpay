@@ -75,6 +75,44 @@ export class PlatformMerchantsController {
   ) {
     return this.merchants.summary(request.platformContext, id);
   }
+  @Get('finance/transactions')
+  @Operation('finance:read')
+  transactions(
+    @Req() request: PlatformRequest,
+    @Param('externalMerchantId') id: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('status') status?: string,
+    @Query('description') description?: string,
+  ) {
+    return this.merchants.transactions(request.platformContext, id, {
+      page: Number(page),
+      limit: Number(limit),
+      startDate,
+      endDate,
+      status,
+      description,
+    });
+  }
+  @Get('finance/fees')
+  @Operation('finance:read')
+  fees(
+    @Req() request: PlatformRequest,
+    @Param('externalMerchantId') id: string,
+  ) {
+    return this.merchants.fees(request.platformContext, id);
+  }
+  @Post('finance/entries')
+  @Operation('ledger:write')
+  importEntry(
+    @Req() request: PlatformRequest,
+    @Param('externalMerchantId') id: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.merchants.importEntry(request.platformContext, id, body);
+  }
   @Get('finance/acquirer-costs')
   @Operation('finance:read')
   acquirerCosts(

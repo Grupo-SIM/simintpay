@@ -11,12 +11,19 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { PlatformPaymentsService } from '../unified-platform/payments/platform-payments.service';
 import { acquirerCostFloor } from '../financial-policy/acquirer-fees';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
 import { CreatePlatformPaymentDto } from '../unified-platform/payments/platform-payment.dto';
+import { platformFeeSchedule } from '../financial-policy/platform-fee-schedule';
+import {
+  getPlatformTaxaEffective,
+  domCashbackReais,
+} from '../platform-taxas/platform-taxas.store';
+import { PLATFORM_TAXA_DEFAULTS } from '../platform-taxas/platform-taxas.keys';
 import type { PlatformContext } from './platform-context.service';
 
 @Injectable()
@@ -145,6 +152,97 @@ export class PlatformMerchantsService {
       .mul(100)
       .round()
       .toNumber();
+  }
+  /** Merchant-scoped ledger rows (same visibility and platform-tag rules as the owner report), in cents. */
+  async transactions(
+    context: PlatformContext,
+    externalMerchantId: string,
+    query: {
+      page?: number;
+      limit?: number;
+      startDate?: string;
+      endDate?: string;
+      status?: string;
+      description?: string;
+    },
+  ) {
+    const merchant = await this.resolve(context, externalMerchantId);
+    // Legacy clients send the literal ALL to mean "no filter".
+    const all = (value?: string) =>
+      !value || value.toUpperCase() === 'ALL' ? undefined : value;
+    const result = await this.finance.transactions(
+      { ...context, ownerUserId: merchant.userId },
+      {
+        page: query.page,
+        limit: query.limit,
+        startDate: all(query.startDate),
+        endDate: all(query.endDate),
+        status: all(query.status)?.toUpperCase(),
+        search: all(query.description),
+      },
+    );
+    const serviceFeeCents = this.finance.cents(
+      getPlatformTaxaEffective(
+        context.tag,
+        'TAXA_SERVICO',
+        PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+      ),
+    );
+    return {
+      ...result,
+      data: result.data.map((row) => {
+        const commission = /\[AFFILIATE_COMMISSION\]/i.test(
+          row.description ?? '',
+        );
+        const feeCents = commission ? 0 : serviceFeeCents;
+        return {
+          ...row,
+          transactionFeeCents: feeCents,
+          sellerNetCents: row.netAmountCents - feeCents,
+        };
+      }),
+    };
+  }
+  /** Fees the seller really pays: withdrawal policy, per-transaction fees and the per-modality schedule. */
+  async fees(context: PlatformContext, externalMerchantId: string) {
+    await this.resolve(context, externalMerchantId);
+    const schedule = await platformFeeSchedule(this.prisma, context.tag);
+    return {
+      unit: 'cents',
+      withdrawal: this.finance.withdrawalPolicy(context.tag),
+      transaction: {
+        serviceFeeCents: this.finance.cents(
+          getPlatformTaxaEffective(
+            context.tag,
+            'TAXA_SERVICO',
+            PLATFORM_TAXA_DEFAULTS.TAXA_SERVICO,
+          ),
+        ),
+        fixedFeeCents: this.finance.cents(
+          getPlatformTaxaEffective(
+            context.tag,
+            'TAXA_FIXA_TRANSACAO',
+            PLATFORM_TAXA_DEFAULTS.TAXA_FIXA_TRANSACAO,
+          ),
+        ),
+        cashbackCents: this.finance.cents(domCashbackReais()),
+      },
+      ...schedule,
+    };
+  }
+  /** Ledger entry (pending sale or affiliate commission) attributed to this merchant's account. */
+  async importEntry(
+    context: PlatformContext,
+    externalMerchantId: string,
+    body: Record<string, unknown>,
+  ) {
+    if (context.tag !== 'EBOOK')
+      throw new UnprocessableEntityException({
+        code: 'PLATFORM_CAPABILITY_UNAVAILABLE',
+        capability: 'ledger.import',
+      });
+    const merchant = await this.resolve(context, externalMerchantId);
+    return this.finance.importEntry(context, body, merchant.userId);
   }
   async withdrawals(
     context: PlatformContext,
