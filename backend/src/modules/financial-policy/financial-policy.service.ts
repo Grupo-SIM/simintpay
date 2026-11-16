@@ -598,7 +598,7 @@ export async function simulateFinancialPolicy(
         n,
         fees:
           prisma.acquirerFeeSchedule && prisma.acquirerCatalogue
-            ? await listAcquirerFees(prisma, body.method, body.channel, n)
+            ? await listAcquirerFees(prisma, body.method, body.channel, n, tag)
             : [],
       })),
     );

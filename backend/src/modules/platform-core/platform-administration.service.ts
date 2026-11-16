@@ -600,8 +600,7 @@ export class PlatformAdministrationService {
           ))
         : 0;
 
-      const cashbackDeduction =
-        isMaquineta || isDelivery ? 0 : valorBruto * (cashbackFee / 100);
+      const cashbackDeduction = isMaquineta || isDelivery ? 0 : cashbackFee;
       const fallbackNet = Number(
         (valorBruto * liquidityFactor - fixedFee - cashbackDeduction).toFixed(
           2,
@@ -687,7 +686,7 @@ export class PlatformAdministrationService {
           valorLiquido:
             isDelivery || (t.netAmount != null && Number(t.netAmount) > 0)
               ? `Salvo no BD: R$ ${valorLiquido.toFixed(2)}`
-              : `(${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)}) - Fixo ${fixedFee.toFixed(2)} - Cb ${cashbackFee.toFixed(2)}% = ${valorLiquido.toFixed(2)}`,
+              : `(${valorBruto.toFixed(2)} * ${liquidityFactor.toFixed(2)}) - Fixo ${fixedFee.toFixed(2)} - Cb R$ ${cashbackFee.toFixed(2)} = ${valorLiquido.toFixed(2)}`,
           lucroAdmin: isCompleted
             ? isDelivery
               ? `Taxa plataforma(${taxaSimIntPay.toFixed(2)}) - custo registrado(${taxaDom.toFixed(2)}) = ${lucroAdmin.toFixed(2)}`
@@ -905,7 +904,9 @@ export class PlatformAdministrationService {
       const custoCashback = normalTxs.reduce(
         (sum, tx) =>
           sum +
-          (tx.isStandalone || isDeliveryAllocationSnapshot(tx.financialSnapshot)
+          (tx.isStandalone ||
+          (isDeliveryAllocationSnapshot(tx.financialSnapshot) &&
+            tx.acquirer === 'DOM')
             ? 0
             : TAXA_CASHBACK),
         0,

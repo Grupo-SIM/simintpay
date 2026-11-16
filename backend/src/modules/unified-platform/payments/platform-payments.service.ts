@@ -21,6 +21,7 @@ import {
   listAcquirerFees,
   orderByCost,
 } from '../../financial-policy/acquirer-fees';
+import { isDomCashbackActive } from '../../platform-taxas/platform-taxas.store';
 import { platformMerchant } from '../../platform-core/platform-merchant-lookup';
 import { PlatformPaymentLookup } from './platform-payment-lookup';
 import { PlatformPaymentExecution } from './platform-payment-execution';
@@ -346,6 +347,7 @@ export class PlatformPaymentsService {
             input.paymentMethod as 'PIX' | 'CREDIT_CARD',
             'ONLINE',
             installments,
+            platform.tag,
           )
         : [];
     const platformChargeContext =
@@ -618,6 +620,7 @@ export class PlatformPaymentsService {
   private async dispatchAttempts(args: {
     id: string;
     platform: {
+      tag: string;
       integrations: { key: string; encryptedValue: string | null }[];
     };
     input: CreatePlatformPaymentDto;
@@ -719,10 +722,12 @@ export class PlatformPaymentsService {
               description: `${args.adapter.description(args.input.description)} ${args.marker}`,
               customer: args.input.customer,
               card: args.input.card!,
+              cashbackScope: args.platform.tag,
             })
           : await this.gateways
               .byAcquirer(provider as Acquirer)
               .createPixCheckout(token, {
+                cashbackDisabled: !isDomCashbackActive(args.platform.tag),
                 codExternal: attempt.externalReference,
                 amount:
                   provider === 'FRENDZ'

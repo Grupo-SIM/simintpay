@@ -600,7 +600,7 @@ export class LegacyPlatformPaymentCore {
     kind: string,
   ): Promise<DomPagamentosResponse> {
     try {
-      const response = await postDomCheckout(this.domToken, request);
+      const response = await postDomCheckout(this.domToken, request, this.tag);
       if (!response.ok) {
         const messages: Record<number, string> = {
           400: response.data.message || 'Parâmetros de requisição inválidos',

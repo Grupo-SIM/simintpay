@@ -85,8 +85,7 @@ async function loadAcquirerFees(): Promise<Map<string, SyncedAcquirerFee>> {
       row.ratePpm + row.interestPpm > current.ratePpm + current.interestPpm
     )
       result.set(key, {
-        fixedCents:
-          row.fixedCents + domCashbackFixedCents(row.acquirerCode, row.channel),
+        fixedCents: row.fixedCents,
         ratePpm: row.ratePpm,
         interestPpm: row.interestPpm,
         base: row.base,
