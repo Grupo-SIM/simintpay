@@ -3,6 +3,7 @@ import {
   withCoproduction,
 } from '../../../modules/coproduction/coproduction.service';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { recordProductUse } from '../../../modules/offer/offer-writes-flag';
 import {
   loadChargePolicy,
   quoteFinancialCharge,
@@ -189,7 +190,9 @@ export class CheckoutSubscriptionLinkPixUseCase {
       },
     });
 
-    await this.repo.update(link.id, { currentUses: link.currentUses + 1 });
+    await recordProductUse(this.prisma, link.id, () =>
+      this.repo.update(link.id, { currentUses: link.currentUses + 1 }),
+    );
 
     return {
       id: order.id,

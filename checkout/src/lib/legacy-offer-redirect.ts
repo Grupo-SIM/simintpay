@@ -19,10 +19,18 @@ export const LEGACY_PRODUCT_PARAMS = [
 
 const NEW_OFFER_PARAM = 'ofertaCode';
 
-export function legacyRedirectEnabled(value: string | undefined): boolean {
-  return ['1', 'true', 'on', 'yes'].includes(
-    (value ?? '').trim().toLowerCase(),
-  );
+const on = (value: string | undefined) =>
+  ['1', 'true', 'on', 'yes'].includes((value ?? '').trim().toLowerCase());
+
+/**
+ * `CHECKOUT_LEGACY_TO_OFFER` or, from the writers cut (plan 0023, phase 4), `OFFER_WRITES_ONLY`:
+ * old URLs land on the offer checkout and never touch `PaymentLink`/`SubscriptionLink`.
+ */
+export function legacyRedirectEnabled(
+  value: string | undefined,
+  writesOnly?: string | undefined,
+): boolean {
+  return on(value) || on(writesOnly);
 }
 
 /** Devolve a URL de destino, ou `null` quando nada deve ser reescrito. */

@@ -25,6 +25,7 @@ import type { IPaymentLinkRepository } from '../../../core/repositories/payment-
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { recordProductUse } from '../../../modules/offer/offer-writes-flag';
 import { round2 } from './payment-link-fees.helper';
 
 import {
@@ -253,9 +254,11 @@ export class ChargePixPaymentLinkUseCase {
 
     // Incrementa contador de usos
     if (!isFunnel) {
-      await this.links.update(link.id, {
-        currentUses: ((link as any).currentUses ?? 0) + 1,
-      });
+      await recordProductUse(this.prisma, link.id, () =>
+        this.links.update(link.id, {
+          currentUses: ((link as any).currentUses ?? 0) + 1,
+        }),
+      );
     }
 
     return {

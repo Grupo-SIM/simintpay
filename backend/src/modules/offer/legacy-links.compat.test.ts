@@ -74,6 +74,11 @@ describe('OFFER_LEGACY_LINKS_COMPAT flag', () => {
     );
   });
 
+  test('OFFER_WRITES_ONLY=1 mounts the adapters too', () => {
+    expect(legacyLinksCompatEnabled({ OFFER_WRITES_ONLY: '1' })).toBe(true);
+    expect(legacyLinksCompatEnabled({ OFFER_WRITES_ONLY: '0' })).toBe(false);
+  });
+
   test('exactly one of the two controller sets is active', () => {
     for (const on of [false, true]) {
       const env = { OFFER_LEGACY_LINKS_COMPAT: on ? '1' : undefined };

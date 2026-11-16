@@ -24,6 +24,7 @@ import type { IBoletoRepository } from '../../../core/repositories/boleto.reposi
 import type { IUserRepository } from '../../../core/repositories/user.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
+import { recordProductUse } from '../../../modules/offer/offer-writes-flag';
 import { discardDraftOnRejection } from '../../../modules/unified-platform/payments/dom-rejection';
 import { paymentTracking } from '../../../modules/platform-core/payment-tracking';
 
@@ -190,9 +191,11 @@ export class ChargeBoletoPixUseCase {
       ),
     );
 
-    await this.boletos.update(boleto.id, {
-      currentUses: boleto.currentUses + 1,
-    });
+    await recordProductUse(this.prisma, boleto.id, () =>
+      this.boletos.update(boleto.id, {
+        currentUses: boleto.currentUses + 1,
+      }),
+    );
 
     return {
       ...result,

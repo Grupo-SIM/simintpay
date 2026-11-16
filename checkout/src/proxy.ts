@@ -14,6 +14,7 @@ export function proxy(request: NextRequest) {
     const target = offerRedirectTarget(request.nextUrl, {
       legacyEnabled: legacyRedirectEnabled(
         process.env.CHECKOUT_LEGACY_TO_OFFER,
+        process.env.OFFER_WRITES_ONLY,
       ),
     });
     if (target) return NextResponse.redirect(target);

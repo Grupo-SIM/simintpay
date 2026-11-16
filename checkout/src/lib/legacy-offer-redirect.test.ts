@@ -13,6 +13,15 @@ describe('legacy offer redirect', () => {
     expect(legacyRedirectEnabled(' TRUE ')).toBe(true);
   });
 
+  test('OFFER_WRITES_ONLY liga o redirecionamento legado (plano 0023, fase 4)', () => {
+    expect(legacyRedirectEnabled(undefined, '1')).toBe(true);
+    expect(legacyRedirectEnabled(undefined, '0')).toBe(false);
+    const target = offerRedirectTarget(url('subscriptionLinkCode=abc'), {
+      legacyEnabled: legacyRedirectEnabled(undefined, 'true'),
+    });
+    expect(target?.searchParams.get('oferta')).toBe('abc');
+  });
+
   test('parâmetro legado não redireciona com a flag desligada', () => {
     expect(
       offerRedirectTarget(url('simLinkCode=abc'), { legacyEnabled: false }),

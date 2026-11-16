@@ -1,7 +1,8 @@
 import type { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 
+// Legacy ids are uuids; links created by platform routes use a sha256 hex id.
 const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{64})$/i;
 
 type OfferReader = Pick<PrismaService, 'offer'>;
 

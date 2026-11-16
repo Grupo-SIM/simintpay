@@ -10,6 +10,7 @@ import {
   type StoredPaymentMethods,
 } from '../../application/helpers/accepted-payment-methods.helper';
 import { intervalForFrequency } from './legacy-offer-mapper';
+import { offerWritesOnlyEnabled } from './offer-writes-flag';
 import { readOfferFulfillment } from './offer-fulfillment';
 import type { CreateOfferDto, UpdateOfferDto } from './offer.dto';
 
@@ -26,7 +27,8 @@ export const LEGACY_LINKS_COMPAT_ENV = 'OFFER_LEGACY_LINKS_COMPAT';
 export function legacyLinksCompatEnabled(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  return env[LEGACY_LINKS_COMPAT_ENV] === '1';
+  // OFFER_WRITES_ONLY (phase 4) implies the adapters: the legacy CRUD must write only `Offer`.
+  return env[LEGACY_LINKS_COMPAT_ENV] === '1' || offerWritesOnlyEnabled(env);
 }
 
 /** Controllers the legacy modules register: dropped when the compat adapters are on. */
