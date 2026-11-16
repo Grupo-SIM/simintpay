@@ -100,14 +100,9 @@ const METRIC_TT = {
 type ConsolidadoResponse = {
   valorBruto?: number;
   lucroTotalMaster?: number;
-  taxaDom?: number;
-  custoCashback?: number;
-  taxaSimInt?: number;
   totalTransacoes?: number;
   totalRepasseConsolidado?: number;
   customersCount?: number;
-  taxaParcelamentoBruto?: number;
-  taxaParcelamentoSimIntPay?: number;
   taxaSaqueDOM?: number;
   saquesAprovados?: { valor?: number; quantidade?: number };
   adquirentes?: Array<{

@@ -526,22 +526,16 @@ type AdquirenteResumo = {
 };
 
 /**
- * Custo de adquirente por transação, aberto por adquirente. Usa o mesmo custo do
- * lucro: `realizedCents` do snapshot (fixo, % e juros) ou, no legado, MDR da tabela
- * + taxa fixa da plataforma + cashback.
+ * Custo de adquirente por transação, aberto por adquirente, a partir do
+ * `realizedCents` do snapshot (fixo, % e juros). Transação sem snapshot conta
+ * na adquirente, mas com custo zero.
  */
 function buildAdquirentesResumo(
   txs: {
-    userId: string;
     amount: unknown;
-    createdAt: Date;
-    platformTag: string | null;
-    installments: number | null;
-    paymentMethod?: string | null;
     acquirer?: string | null;
     financialSnapshot?: unknown;
   }[],
-  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
 ): AdquirenteResumo[] {
   const by = new Map<string, AdquirenteResumo>();
   for (const tx of txs) {
@@ -576,30 +570,6 @@ function buildAdquirentesResumo(
       row.taxaPorTransacao += fixed;
       row.parcelamento += interest;
       row.taxaPercentual += realized - fixed - interest;
-    } else {
-      const tag = consolidadoTagParaTransacao(
-        { userId: tx.userId, platformTag: tx.platformTag ?? null },
-        platforms,
-      );
-      const pm = String(tx.paymentMethod ?? 'PIX').toUpperCase();
-      const inst = Math.min(Math.max(Number(tx.installments ?? 1) || 1, 1), 12);
-      const metodo = pm.includes('BOLETO')
-        ? 'BOLETO'
-        : pm === 'DEBIT_CARD'
-          ? 'DEBIT_CARD'
-          : pm === 'CREDIT_CARD'
-            ? 'CREDIT_CARD'
-            : 'PIX';
-      const c = syncedAcquirerCostReais(
-        metodo,
-        'ONLINE',
-        metodo === 'CREDIT_CARD' ? inst : 1,
-        bruto,
-      );
-      row.taxaPercentual += c.pct;
-      row.taxaPorTransacao +=
-        c.fixa + getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
-      row.cashback += domCashbackReais();
     }
     by.set(nome, row);
   }
@@ -3653,22 +3623,6 @@ export class AdminController {
         .reduce((s, p) => s + p.subtotalDeducaoTaxaServico, 0)
         .toFixed(2),
     );
-    // taxaDomMdr = soma da taxa MDR (percentual) cobrada pela DOM por transação
-    const taxaDomMdr = Number(
-      txRowsLucro
-        .reduce((sum, tx) => {
-          const amount = Number(tx.amount);
-          if (!Number.isFinite(amount) || amount <= 0) return sum;
-          const pm = String(
-            (tx as { paymentMethod?: string }).paymentMethod ?? 'PIX',
-          );
-          const inst = Number(
-            (tx as { installments?: number }).installments ?? 1,
-          );
-          return sum + mdrDomPct(pm, inst, amount);
-        }, 0)
-        .toFixed(4),
-    );
     // Total de repasse = tudo que sobra após a retirada da taxa sim int (= valorBruto − taxaSimInt)
     const totalRepasseConsolidado = Number(
       (brutoTotal - taxaSimInt).toFixed(2),
@@ -4016,14 +3970,13 @@ export class AdminController {
       lucro: Number((boletoSimIntPay - boletoDom).toFixed(2)),
     };
 
-    const adquirentesResumo = buildAdquirentesResumo(txRowsLucro, platforms);
+    const adquirentesResumo = buildAdquirentesResumo(txRowsLucro);
     const payload: Record<string, unknown> = {
       totalTransacoes,
       customersCount,
       valorBruto: brutoTotal,
       taxaSimInt,
       taxaDom,
-      taxaDomMdr,
       adquirentes: adquirentesResumo.map((a) => ({
         ...a,
         taxaSaque: a.adquirente === 'DOM' ? taxaSaqueDOM : 0,
