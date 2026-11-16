@@ -53,6 +53,7 @@ Plano (aguardando aprovação). Parte frontend: [../../simintpay-front/plans/000
 - `credit.fee_transaction` = R$ 1,00 fixo também em 1x: confirmado pelo usuário e pela tela da DOM (3,99% + R$ 1,00 ao absorver juros). Hoje o código aplica R$ 0 em 1x e R$ 1 em 2x+: corrigir os caminhos afetados e testar. Conferir `fee_details` na conciliação para validar valores efetivamente debitados.
 - Mapeamento: `contract.ratePpm = mdr`, `contract.interestPpm = interest_rate_our`, `contract.fixedCents = fee_transaction`, base `BUYER_TOTAL`.
 - Fora do crédito: `pix_online` 0,98% + R$ 1; boleto **R$ 3,49 + R$ 1 por transação**, confirmado pela tela da DOM (`mdr_type: FIXED`); débito/crédito físico por bandeira (3,99). Sincronizar crédito online, PIX e boleto com parsing específico para `FIXED`; POS permanece manual até validar modalidade e roteamento por bandeira.
+- **Atualização (2026-11):** o débito online passou a ser sincronizado a partir de `debit_physical` (a DOM não expõe contrato online). Foram removidos os custos fixos no código: `TAXA_BOLETO_DOM*`, `POS_MDR_*`, `POS_TAXA_DOM_FIXA`, `MDR_PIX`, `MDR_CC_*`, `MDR_CC_MASTER_*`, `MDR_LINK_*` e `LINK_COST_*`. Estimativas e relatórios leem só `syncedAcquirerCostReais`/`syncedAcquirerRate`. Pendente de validação do desenvolvedor: relatórios de parcelamento passam a reportar `taxaParcelamentoSimIntPay = 0` e `taxaCartao`/`taxaPix` saíram das respostas de admin.
 
 ## Pontos a validar na implementação
 
