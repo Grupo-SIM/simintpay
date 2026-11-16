@@ -321,13 +321,16 @@ run('apply creates offers and external refs, keeps legacy intact', async () => {
   expect(result.refs).toBe(4);
   expect(await legacySnapshot()).toBe(before);
 
-  const offers = await db!.offer.findMany({ orderBy: { code: 'asc' } });
+  // Ordered in JS: the database collation decides how "PL-OK" and "PLAN-OK" compare.
+  const offers = (await db!.offer.findMany()).sort((a, b) =>
+    a.code < b.code ? -1 : a.code > b.code ? 1 : 0,
+  );
   expect(offers.map((o) => o.code)).toEqual([
     'BOL-OK',
-    'PLAN-OK',
     'PL-HOOK',
     'PL-LOW',
     'PL-OK',
+    'PLAN-OK',
     'PX-OLDEST',
     'SL-OK',
   ]);
