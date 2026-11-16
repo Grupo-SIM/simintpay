@@ -272,7 +272,8 @@ describe('DOM physical fee synchronization', () => {
     try {
       const { service, schedules } = mockDomSync(physicalNegotiation());
       const first = await service.syncDom();
-      expect(first.data.changed).toHaveLength(28);
+      // 15 online (credit 12x, PIX, boleto and debit priced like the physical debit) + 14 physical.
+      expect(first.data.changed).toHaveLength(29);
       const physical = schedules.filter((row) => row.channel === 'POS');
       expect(physical).toHaveLength(14);
       expect(physical.find((row) => row.method === 'PIX')).toMatchObject({
@@ -312,7 +313,7 @@ describe('DOM physical fee synchronization', () => {
       ).toMatchObject({ fixedCents: 100 });
       const second = await service.syncDom();
       expect(second.data.changed).toEqual([]);
-      expect(schedules).toHaveLength(28);
+      expect(schedules).toHaveLength(29);
     } finally {
       if (previousToken === undefined) delete process.env.DOM_TOKEN;
       else process.env.DOM_TOKEN = previousToken;
