@@ -181,7 +181,8 @@ describe('OfferCheckoutService', () => {
     const row = db.base.row();
     expect(money(row.netAmount)).toBe(92);
     expect(money(row.amount)).toBe(100);
-    expect(row.financialSnapshot.policyTag).toBe('GLOBAL');
+    // Without a platform the owner's own policy overrides GLOBAL (it inherits GLOBAL when empty).
+    expect(row.financialSnapshot.policyTag).toBe('USER:OWNER');
   });
 
   test('missing policy blocks the gateway and draft creation', async () => {

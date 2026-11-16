@@ -1,4 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
+import { makeOfferDb } from './offer-checkout.fixture';
+import {
+  PIX_LANE_POLICY,
+  useEmptyCaches,
+} from '../../application/use-cases/payment-link/charge-characterization.fixture';
 import { OfferService } from './offer.service';
 
 const existing = {
@@ -20,9 +25,18 @@ const existing = {
   maxUses: 10,
 };
 
+beforeAll(useEmptyCaches);
+
 function service() {
   const updates: any[] = [];
+  // The offer floor is derived from the financial policy and acquirer fees on every update.
+  const db = makeOfferDb(existing);
+  const policy = structuredClone(PIX_LANE_POLICY);
+  db.prisma.financialPolicyRevision.findMany = async () => [
+    { tag: 'GLOBAL', version: 1, document: policy },
+  ];
   const prisma: any = {
+    ...db.prisma,
     offer: {
       findUnique: async () => existing,
       update: async (args: any) => {
