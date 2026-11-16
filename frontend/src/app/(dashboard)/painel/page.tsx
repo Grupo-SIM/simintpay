@@ -819,9 +819,6 @@ export default function PainelPage() {
   const { resolvedTheme } = useTheme();
   const fieldTheme: 'light' | 'dark' =
     resolvedTheme === 'dark' ? 'dark' : 'light';
-  const [activeTab, setActiveTab] = useState<'simintpay' | 'futura-adquirente'>(
-    'simintpay',
-  );
   const [isLoading, setIsLoading] = useState(true);
   const [isChartLoading, setIsChartLoading] = useState(false);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -1730,61 +1727,13 @@ export default function PainelPage() {
         .stat-card { background: var(--painel-stat-bg); border: 1px solid var(--painel-stat-border); border-radius: 14px; padding: 18px; transition: background 0.2s; }
         .stat-card:hover { background: var(--painel-stat-bg-hover); }
         .privacy-blur { filter: blur(10px); user-select: none; pointer-events: none; }
-        .dash-tab-btn { padding: 7px 22px; border-radius: 24px; border: 1.5px solid var(--painel-period-border); background: transparent; color: var(--painel-period-fg); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: 'Inter', sans-serif; }
-        .dash-tab-btn:hover { background: var(--painel-period-hover-bg); }
-        .dash-tab-btn.active { background: #6d28d9; border-color: #6d28d9; color: #fff; }
       `}</style>
-
-      {/* ── Tab switcher (apenas módulo master/admin) ── */}
-      {isAdmin && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          <button
-            className={`dash-tab-btn${activeTab === 'simintpay' ? ' active' : ''}`}
-            onClick={() => setActiveTab('simintpay')}
-          >
-            Dom
-          </button>
-          <button
-            className={`dash-tab-btn${activeTab === 'futura-adquirente' ? ' active' : ''}`}
-            onClick={() => setActiveTab('futura-adquirente')}
-          >
-            Futura adquirente
-          </button>
-        </div>
-      )}
-
-      {activeTab === 'futura-adquirente' && (
-        <div
-          className="dk-page"
-          style={{
-            minHeight: 260,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            border: '1px solid var(--painel-card-border)',
-            borderRadius: 14,
-            background: 'var(--painel-stat-bg)',
-          }}
-        >
-          <p
-            style={{
-              margin: 0,
-              fontSize: 18,
-              fontWeight: 700,
-              color: 'var(--painel-heading)',
-            }}
-          >
-            Em breve
-          </p>
-        </div>
-      )}
 
       <div
         className="dk-page"
         style={{
           position: 'relative',
           minHeight: '100%',
-          display: activeTab === 'simintpay' ? undefined : 'none',
         }}
       >
         <LoadingOverlay show={isLoading} />
