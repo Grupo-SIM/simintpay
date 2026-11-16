@@ -123,7 +123,7 @@ test('client sees quick cards, October sales chart and chargebacks without admin
     });
     await page.goto(`http://127.0.0.1:${server.port}`);
     await page
-      .getByText('Receita líquida (mês atual)', { exact: true })
+      .getByText('Receita líquida (período)', { exact: true })
       .waitFor();
     await page.getByText('R$ 1.000,10', { exact: true }).waitFor();
     await page.getByText('R$ 996,10', { exact: true }).waitFor();

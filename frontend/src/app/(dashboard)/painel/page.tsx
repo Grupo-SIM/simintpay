@@ -854,14 +854,15 @@ export default function PainelPage() {
     transacoesHoje: number | null;
     saquesPendentesCount: number | null;
     saquesPendentesValor: number | null;
-    receitaMensalLiquida: number | null;
   }>({
     transacoesHoje: null,
     saquesPendentesCount: null,
     saquesPendentesValor: null,
-    receitaMensalLiquida: null,
   });
   const [isLoadingQuickStats, setIsLoadingQuickStats] = useState(false);
+  const [periodNetRevenue, setPeriodNetRevenue] = useState<number | null>(null);
+  const [isLoadingPeriodRevenue, setIsLoadingPeriodRevenue] = useState(true);
+  const periodRevenueRequest = useRef(0);
   const [pendingSaques, setPendingSaques] = useState<Saque[]>([]);
   const [adminSaqueModalOpen, setAdminSaqueModalOpen] = useState(false);
   const [adminSaqueActionType, setAdminSaqueActionType] = useState<
@@ -1232,75 +1233,48 @@ export default function PainelPage() {
 
       const today = startOfDayLocal(new Date());
       const todayStr = formatYmd(today);
-      const firstDayOfMonth = new Date(
-        today.getFullYear(),
-        today.getMonth(),
-        1,
-      );
-      const firstDayOfMonthStr = formatYmd(firstDayOfMonth);
 
       if (!isAdmin) {
-        const [todayResult, withdrawalsResult, monthResult] =
-          await Promise.allSettled([
-            api.get<ReportSummary>('/relatorios/financeiro', {
-              query: { startDate: todayStr, endDate: todayStr },
-            }),
-            api.get<ReportPage<Saque>>(endpoints.saque.list, {
-              query: { status: 'PENDING', page: 1, pageSize: 1 },
-            }),
-            api.get<ReportSummary>('/relatorios/financeiro', {
-              query: { startDate: firstDayOfMonthStr, endDate: todayStr },
-            }),
-          ]);
+        const [todayResult, withdrawalsResult] = await Promise.allSettled([
+          api.get<ReportSummary>('/relatorios/financeiro', {
+            query: { startDate: todayStr, endDate: todayStr },
+          }),
+          api.get<ReportPage<Saque>>(endpoints.saque.list, {
+            query: { status: 'PENDING', page: 1, pageSize: 1 },
+          }),
+        ]);
         setQuickStats({
           transacoesHoje:
             todayResult.status === 'fulfilled'
               ? todayResult.value.summary.salesCount +
-                (monthResult.status === 'fulfilled'
-                  ? (monthResult.value.coproducao?.hourly ?? [])
-                      .filter(({ bucket }) => bucket.startsWith(todayStr))
-                      .reduce((total, { count }) => total + count, 0)
-                  : 0)
+                (todayResult.value.coproducao?.hourly ?? [])
+                  .filter(({ bucket }) => bucket.startsWith(todayStr))
+                  .reduce((total, { count }) => total + count, 0)
               : null,
           saquesPendentesCount:
             withdrawalsResult.status === 'fulfilled'
               ? withdrawalsResult.value.total
               : null,
           saquesPendentesValor: null,
-          receitaMensalLiquida:
-            monthResult.status === 'fulfilled'
-              ? (monthResult.value.summary.netCents +
-                  (monthResult.value.coproducao?.creditedCents ?? 0)) /
-                100
-              : null,
         });
         return;
       }
 
-      const [transacoesHojeRes, saquesPendentesRes, receitaMensalRes] =
-        await Promise.allSettled([
-          api.get<{
-            items?: unknown[];
-            data?: { items?: unknown[] };
-            total?: number;
-          }>(endpoints.relatorios.transacoesPorStatus, {
-            query: { dataInicio: todayStr, dataFim: todayStr },
-          }),
-          api.get<{ total?: number; data?: Saque[] & { total?: number } }>(
-            endpoints.admin.saques.list,
-            {
-              query: { status: 'PENDING', page: 1, pageSize: 200 },
-            },
-          ),
-          api.get<unknown>(endpoints.relatorios.consolidado, {
-            query: {
-              periodType: CONSOLIDADO_PERIOD_TYPE,
-              dataInicio: firstDayOfMonthStr,
-              dataFim: todayStr,
-              transactionType: CONSOLIDADO_TX_TYPE,
-            },
-          }),
-        ]);
+      const [transacoesHojeRes, saquesPendentesRes] = await Promise.allSettled([
+        api.get<{
+          items?: unknown[];
+          data?: { items?: unknown[] };
+          total?: number;
+        }>(endpoints.relatorios.transacoesPorStatus, {
+          query: { dataInicio: todayStr, dataFim: todayStr },
+        }),
+        api.get<{ total?: number; data?: Saque[] & { total?: number } }>(
+          endpoints.admin.saques.list,
+          {
+            query: { status: 'PENDING', page: 1, pageSize: 200 },
+          },
+        ),
+      ]);
 
       let transacoesHoje: number | null = null;
       if (transacoesHojeRes.status === 'fulfilled') {
@@ -1335,17 +1309,10 @@ export default function PainelPage() {
         setPendingSaques([]);
       }
 
-      let receitaMensalLiquida: number | null = null;
-      if (receitaMensalRes.status === 'fulfilled') {
-        const res = unwrapConsolidadoPayload(receitaMensalRes.value);
-        receitaMensalLiquida = Number(res.lucroTotalMaster ?? 0);
-      }
-
       setQuickStats({
         transacoesHoje,
         saquesPendentesCount,
         saquesPendentesValor,
-        receitaMensalLiquida,
       });
     };
     return load()
@@ -1360,6 +1327,70 @@ export default function PainelPage() {
   useEffect(() => {
     fetchQuickStats();
   }, [fetchQuickStats]);
+
+  const periodStartKey = customRange.start
+    ? formatYmd(customRange.start)
+    : formatYmd(periodToInclusiveRange(selectedPeriod).start);
+  const periodEndKey = customRange.end
+    ? formatYmd(customRange.end)
+    : formatYmd(periodToInclusiveRange(selectedPeriod).end);
+
+  const periodRevenueScope = `${currentUser?.id ?? ''}:${isAdmin}:${periodStartKey}:${periodEndKey}`;
+  const [previousRevenueScope, setPreviousRevenueScope] =
+    useState(periodRevenueScope);
+  if (previousRevenueScope !== periodRevenueScope) {
+    setPreviousRevenueScope(periodRevenueScope);
+    setIsLoadingPeriodRevenue(Boolean(currentUser));
+  }
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const request = ++periodRevenueRequest.current;
+    const token =
+      typeof window !== 'undefined'
+        ? (localStorage.getItem('access_token') ?? undefined)
+        : undefined;
+    const api = createApiClient({
+      baseUrl: getDefaultApiBaseUrl(),
+      getToken: () => token,
+    });
+
+    const load = async (): Promise<number> => {
+      if (isAdmin) {
+        const res = unwrapConsolidadoPayload(
+          await api.get<unknown>(endpoints.relatorios.consolidado, {
+            query: {
+              periodType: CONSOLIDADO_PERIOD_TYPE,
+              dataInicio: periodStartKey,
+              dataFim: periodEndKey,
+              transactionType: CONSOLIDADO_TX_TYPE,
+            },
+          }),
+        );
+        return Number(res.lucroTotalMaster ?? 0);
+      }
+      const res = await api.get<ReportSummary>('/relatorios/financeiro', {
+        query: { startDate: periodStartKey, endDate: periodEndKey },
+      });
+      return (
+        (res.summary.netCents + (res.coproducao?.creditedCents ?? 0)) / 100
+      );
+    };
+
+    load()
+      .then((value) => {
+        if (request === periodRevenueRequest.current)
+          setPeriodNetRevenue(value);
+      })
+      .catch((err: unknown) => {
+        if (request === periodRevenueRequest.current) setPeriodNetRevenue(null);
+        console.error('[Dashboard] Falha ao carregar receita do período:', err);
+      })
+      .finally(() => {
+        if (request === periodRevenueRequest.current)
+          setIsLoadingPeriodRevenue(false);
+      });
+  }, [currentUser, isAdmin, periodStartKey, periodEndKey]);
 
   const openAdminSaqueModal = useCallback(
     (saque: Saque, type: 'APPROVE' | 'REJECT') => {
@@ -1654,6 +1685,10 @@ export default function PainelPage() {
     </>
   );
 
+  const periodLabel = customRange.start
+    ? 'Personalizado'
+    : (PERIODS.find((p) => p.key === selectedPeriod)?.label ?? '');
+
   const txt = (s: string): React.CSSProperties => ({
     fontSize: { xs: 11, sm: 12, md: 13 }[s as 'xs' | 'sm' | 'md'] ?? 13,
     color: 'var(--painel-muted)',
@@ -1843,6 +1878,48 @@ export default function PainelPage() {
           >
             {/* ── LEFT COLUMN ── */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Period filter (whole dashboard) */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 6,
+                    flexWrap: 'wrap',
+                    justifyContent: 'flex-end',
+                  }}
+                >
+                  {PERIODS.map((p) => (
+                    <button
+                      key={p.key}
+                      onClick={() => {
+                        setSelectedPeriod(p.key);
+                        setCustomRange({ start: null, end: null });
+                      }}
+                      className={`period-btn${selectedPeriod === p.key && !customRange.start ? ' active' : ''}`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ width: 280 }}>
+                  <DateRangePickerField
+                    label=""
+                    value={customRange}
+                    onChange={(next) => setCustomRange(next)}
+                    theme={fieldTheme}
+                  />
+                </div>
+              </div>
+
               {/* ── Quick stats ── */}
               <div className="grid gap-3.5 sm:grid-cols-3">
                 {/* Transações de hoje */}
@@ -1971,7 +2048,7 @@ export default function PainelPage() {
                   </p>
                 </div>
 
-                {/* Receita líquida mês atual */}
+                {/* Receita líquida do período filtrado */}
                 <div className="stat-card">
                   <div
                     style={{
@@ -2004,7 +2081,7 @@ export default function PainelPage() {
                         padding: '2px 8px',
                       }}
                     >
-                      Mês atual
+                      {periodLabel}
                     </span>
                   </div>
                   <p
@@ -2019,10 +2096,9 @@ export default function PainelPage() {
                     <BlurValue
                       show={showBalances}
                       value={
-                        isLoadingQuickStats ||
-                        quickStats.receitaMensalLiquida === null
+                        isLoadingPeriodRevenue || periodNetRevenue === null
                           ? '—'
-                          : formatBRL(quickStats.receitaMensalLiquida)
+                          : formatBRL(periodNetRevenue)
                       }
                     />
                   </p>
@@ -2033,7 +2109,7 @@ export default function PainelPage() {
                       marginTop: 4,
                     }}
                   >
-                    Receita líquida (mês atual)
+                    Receita líquida (período)
                   </p>
                 </div>
               </div>
@@ -2124,46 +2200,6 @@ export default function PainelPage() {
                         Análise da receita, taxas e lucros por período
                       </p>
                     ) : null}
-                  </div>
-
-                  {/* Period selector */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-end',
-                      gap: 8,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: 6,
-                        flexWrap: 'wrap',
-                        justifyContent: 'flex-end',
-                      }}
-                    >
-                      {PERIODS.map((p) => (
-                        <button
-                          key={p.key}
-                          onClick={() => {
-                            setSelectedPeriod(p.key);
-                            setCustomRange({ start: null, end: null });
-                          }}
-                          className={`period-btn${selectedPeriod === p.key && !customRange.start ? ' active' : ''}`}
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div style={{ width: 280 }}>
-                      <DateRangePickerField
-                        label=""
-                        value={customRange}
-                        onChange={(next) => setCustomRange(next)}
-                        theme={fieldTheme}
-                      />
-                    </div>
                   </div>
                 </div>
 
