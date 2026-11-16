@@ -23,11 +23,14 @@ import {
 import { compatLinkControllers } from './legacy-links.compat';
 import { LegacyLinksCompatService } from './legacy-links.compat.service';
 import { OfferService } from './offer.service';
+import { OfferSubscribersController } from './offer-subscribers.controller';
+import { OfferSubscribersService } from './offer-subscribers.service';
 
 @Module({
   imports: [ApiDomModule, BillingCoreModule],
   // OFFER_LEGACY_LINKS_COMPAT=1 swaps the legacy link controllers for these adapters.
   controllers: [
+    OfferSubscribersController,
     OfferController,
     ...compatLinkControllers([
       PaymentLinksCompatController,
@@ -36,6 +39,7 @@ import { OfferService } from './offer.service';
   ],
   providers: [
     OfferService,
+    OfferSubscribersService,
     LegacyLinksCompatService,
     OfferCheckoutService,
     EmailService,

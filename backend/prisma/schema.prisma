@@ -692,6 +692,10 @@ model BillingContract {
   graceEndsAt            DateTime?
   suspendedAt            DateTime?
   accessEndsAt           DateTime?
+  /// Momento da pausa; nulo quando o contrato não está pausado.
+  pausedAt               DateTime?
+  /// Dias que faltavam no período quando foi pausado; retomar recalcula o período a partir deles.
+  pausedRemainingDays    Int?
   version                Int                   @default(1)
   acquirer               Acquirer              @default(DOM)
   externalPlanId         String?
@@ -933,6 +937,8 @@ enum BillingContractStatus {
   SUSPENDED
   INACTIVE
   CANCELLED
+  /// Pausada pelo vendedor ou admin: o ciclo não cobra e o tempo restante fica guardado.
+  PAUSED
 }
 
 /// Who pays each cycle of a recurring offer.

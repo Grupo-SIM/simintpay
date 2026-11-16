@@ -141,6 +141,10 @@ export class OfferRenewalService {
       throw new ConflictException(
         'Esta assinatura foi cancelada e não pode ser renovada; contrate a oferta novamente.',
       );
+    if (contract.status === 'PAUSED')
+      throw new ConflictException(
+        'Esta assinatura está pausada; peça a retomada ao vendedor.',
+      );
     const paidCycles = await tx.charge.count({
       where: { contractId: contract.id, status: 'PAID' },
     });
