@@ -10,8 +10,10 @@ import { Prisma, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import {
   allocateNet,
+  canonicalProduct,
   productOwnerColumn,
   productTables,
+  productTagSql,
   validateAgreement,
   type Product,
   type Snapshot,
@@ -182,7 +184,15 @@ export class CoproductionService {
     };
   }
 
-  get(actorId: string, product: string, id: string) {
+  /** Legacy product keys follow the offer when `OFFER_PLATFORM_READS=1`; unknown keys stay for `authorize` to refuse. */
+  private key(product: string): string {
+    return Object.hasOwn(productTables, product)
+      ? canonicalProduct(product as Product)
+      : product;
+  }
+
+  get(actorId: string, requested: string, id: string) {
+    const product = this.key(requested);
     return this.prisma.$transaction(async (tx) => {
       const ownerId = await this.authorize(tx, actorId, product, id);
       const saved = await this.read(tx, product, id);
@@ -197,7 +207,8 @@ export class CoproductionService {
     });
   }
 
-  save(actorId: string, product: string, id: string, body: unknown) {
+  save(actorId: string, requested: string, id: string, body: unknown) {
+    const product = this.key(requested);
     const input = validateAgreement(body);
     return this.prisma.$transaction(async (tx) => {
       const ownerId = await this.authorize(tx, actorId, product, id);
@@ -359,6 +370,7 @@ export async function captureCoproduction(
   ownerUserId: string,
   platformTag?: string,
 ): Promise<Snapshot | null> {
+  product = canonicalProduct(product);
   const rows = await prisma.$queryRaw<
     Saved[]
   >`SELECT version, participants, mode FROM "CoproductionAgreement" WHERE product = ${product} AND "productId" = ${productId}`;
@@ -374,15 +386,7 @@ export async function captureCoproduction(
   if (product === 'plataformas') return null;
   if (!platformTag) {
     const table = Prisma.raw('"' + productTables[product] + '"');
-    const tagColumn = Prisma.raw(
-      product === 'planos-pix'
-        ? 'p."tenantTag"'
-        : product === 'links-assinatura'
-          ? 'coalesce(p."platformTag", p.plataformas[1])'
-          : product === 'ofertas'
-            ? 'p."platformTag"'
-            : 'p.plataformas[1]',
-    );
+    const tagColumn = Prisma.raw(productTagSql(product));
     const owner = Prisma.raw('p."' + productOwnerColumn(product) + '"');
     const products = await prisma.$queryRaw<{ tag: string | null }[]>(
       Prisma.sql`SELECT coalesce(${tagColumn}, fallback.tag) AS tag FROM ${table} p JOIN "User" u ON u.id = ${owner} LEFT JOIN "Platform" fallback ON fallback.id = u."platformId" WHERE p.id = ${productId}`,

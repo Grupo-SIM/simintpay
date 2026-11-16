@@ -2,25 +2,20 @@ import { canonicalTransactionPlatformTag } from '../platform-core/transaction-pl
 import { Prisma } from '@prisma/client';
 import { reportBuyerCpfSql } from '../../application/helpers/report-buyer.helper';
 import {
+  canonicalProduct,
   productOwnerColumn,
+  productTagSql,
   productTables,
   type Product,
 } from './coproduction';
 
 /** Match settlement inheritance, including an explicit empty OWN override. */
-function effectiveAgreements(product: Product) {
+function effectiveAgreements(requested: Product) {
+  const product = canonicalProduct(requested);
   if (product === 'plataformas')
     return Prisma.sql`SELECT "productId", participants FROM "CoproductionAgreement" WHERE product = ${product} AND mode = 'OWN'`;
   const table = Prisma.raw(`"${productTables[product]}"`);
-  const tag = Prisma.raw(
-    product === 'planos-pix'
-      ? 'p."tenantTag"'
-      : product === 'links-assinatura'
-        ? 'coalesce(p."platformTag", p.plataformas[1])'
-        : product === 'ofertas'
-          ? 'p."platformTag"'
-          : 'p.plataformas[1]',
-  );
+  const tag = Prisma.raw(productTagSql(product));
   const owner = Prisma.raw(`p."${productOwnerColumn(product)}"`);
   return Prisma.sql`SELECT p.id AS "productId", CASE WHEN own.mode = 'OWN' THEN own.participants ELSE inherited.participants END AS participants
     FROM ${table} p JOIN "User" u ON u.id = ${owner}

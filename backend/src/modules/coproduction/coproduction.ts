@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { offerPlatformReadsEnabled } from '../offer/offer-read-flag';
 
 export const productTables = {
   'links-pagamento': 'PaymentLink',
@@ -17,6 +18,35 @@ export function productOwnerColumn(product: Product): string {
     : 'userId';
 }
 export type Product = keyof typeof productTables;
+const legacyProducts: readonly Product[] = [
+  'links-pagamento',
+  'links-assinatura',
+  'boletos',
+  'planos',
+  'planos-pix',
+];
+/**
+ * With `OFFER_PLATFORM_READS=1` a legacy product key resolves to `ofertas` (same id): the table,
+ * owner column, platform tag and the agreement key all follow the offer. Off by default.
+ */
+export function canonicalProduct(
+  product: Product,
+  env: Record<string, string | undefined> = process.env,
+): Product {
+  return offerPlatformReadsEnabled(env) && legacyProducts.includes(product)
+    ? 'ofertas'
+    : product;
+}
+/** SQL expression (alias `p`) of the single platform tag of a product row. */
+export function productTagSql(product: Product): string {
+  return product === 'planos-pix'
+    ? 'p."tenantTag"'
+    : product === 'links-assinatura'
+      ? 'coalesce(p."platformTag", p.plataformas[1])'
+      : product === 'ofertas'
+        ? 'p."platformTag"'
+        : 'p.plataformas[1]';
+}
 export type Participant = { email: string; percentageBps: number };
 export type Agreement = {
   basis: 'NET';
