@@ -279,7 +279,7 @@ run('ownership and below-minimum rules are the offer ones', async () => {
   ).rejects.toThrow('Link de assinatura não encontrado');
   await expect(
     compat.createPaymentLink(seller, { titulo: 'Barato', valor: 5 } as any),
-  ).rejects.toThrow('14,99');
+  ).rejects.toThrow('11,00');
   // The other seller's list never contains it.
   const list = await compat.listPaymentLinks(other, {});
   expect(list.data.find((l) => l.id === created.data.id)).toBeUndefined();
@@ -309,7 +309,6 @@ run(
         createdByUserId: owner.id,
         platformTag: tag,
         code: `S${crypto.randomUUID().slice(0, 9).toUpperCase()}`,
-        kind: 'SUBSCRIPTION_LINK',
         name: 'Plano Mensal',
         amountCents: 3990,
         acceptedMethods: ['CREDIT_CARD'],
