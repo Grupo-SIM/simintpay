@@ -123,7 +123,7 @@ Segunda leva (mexem em arquivos da primeira, começam agora):
 
 - [ ] Arquivos de entrega e imagens de bump.
 - [x] Cupons: `POST /ofertas/public/:code/validate-voucher`, desconto antes das taxas na cobrança avulsa e no primeiro ciclo da assinatura, uso registrado ao pagar (idempotente por transação), campo de cupom no checkout, CRUD e capacidade PAGATG com ofertas.
-- [ ] Funil no checkout: seleção de bumps, imagens, tela de pós-compra de upsell e downsell.
+- [x] Funil no checkout: seleção de bumps, tela de pós-compra de upsell e downsell (`OfferFunnelScreen`, cobrança filha com `parentChargeId` no mesmo cartão ou PIX; recusar o upsell oferece o downsell). Imagens de bump seguem com o item de arquivos de entrega e imagens.
 - [ ] Pausa e retomada de assinatura, e lista de assinantes de ofertas para o vendedor.
 - [x] Remover comunidade e provisionamento (código, cron, relatórios, telas) e as tabelas.
   - Código removido: `CommunityManagementService`, `CommunityAccessCron`, rotas `/admin/comunidades*` e `backfill-comunidade`, `PlatformReportingService` (só servia comunidade), `PlatformAccessService`, provisionamento CONTROLE-MOTORISTA/PATRIMONIAL/BETAI nos webhooks da DOM, `PlatformBetai*`, `PlatformSaasAccessService`, `InternalBetaiModule`, capacidades `saas/*` de assinatura, telas `comunidades`, `betai-dashboard`, `BetaiReportPanel` e `api/betai`.

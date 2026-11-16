@@ -42,6 +42,16 @@ import {
 } from '@/lib/input-masks';
 import { validateBoletoCheckout } from '@/lib/boleto-checkout-validation';
 import { InstallmentSelect } from './InstallmentSelect';
+import {
+  OfferFunnelScreen,
+  type AcceptedFunnelOffer,
+} from './OfferFunnelScreen';
+import {
+  firstFunnelStage,
+  funnelOfferOf,
+  nextFunnelStage,
+  type FunnelStage,
+} from '@/lib/offer-funnel-model';
 import { OfferVoucherField } from './OfferVoucherField';
 import { voucherField, type AppliedVoucher } from '@/lib/offer-voucher-model';
 import { browserCheckoutTracking } from '@/lib/payment-tracking';
@@ -156,6 +166,13 @@ export default function OfferCheckout({
   const [consent, setConsent] = useState(false);
   const [voucher, setVoucher] = useState<AppliedVoucher | null>(null);
   const [blocked, setBlocked] = useState(false);
+  // Funil pós-compra: o pedido principal já está pago, mas o resumo só aparece ao fim do funil.
+  const [funnelStage, setFunnelStage] = useState<FunnelStage | null>(null);
+  const [parentChargeId, setParentChargeId] = useState<string | null>(null);
+  const [mainPaid, setMainPaid] = useState<number | null>(null);
+  const [funnelAccepted, setFunnelAccepted] = useState<AcceptedFunnelOffer[]>(
+    [],
+  );
 
   const [boleto, setBoleto] = useState<BoletoResult | null>(null);
   const [address, setAddress] = useState<BoletoAddressFields>(EMPTY_ADDRESS);
@@ -242,8 +259,12 @@ export default function OfferCheckout({
   // O mesmo SSE/polling do PIX serve ao boleto: a chave é o id do pagamento no gateway.
   usePixConfirmation(
     pix?.id ?? boleto?.paymentId ?? null,
-    paidAmount !== null,
-    () => setPaidAmount(boleto?.amount ?? (offer ? offerAmount(offer) : 0)),
+    paidAmount !== null || funnelStage !== null,
+    () =>
+      confirmMainPayment(
+        boleto?.amount ?? (offer ? offerAmount(offer) : 0),
+        parentChargeId,
+      ),
   );
   const recurring = offer ? isRecurringOffer(offer) : false;
   const autoCharge =
@@ -416,6 +437,21 @@ export default function OfferCheckout({
     setPricingLoading(true);
   }
 
+  /** Pedido principal pago: abre o funil (upsell/downsell) ou mostra o resumo final. */
+  function confirmMainPayment(amount: number, chargeId: string | null) {
+    const stage = offer ? firstFunnelStage(offer, method, chargeId) : 'done';
+    setMainPaid(amount);
+    if (stage === 'done') setPaidAmount(amount);
+    else setFunnelStage(stage);
+  }
+
+  function advanceFunnel(accepted: boolean) {
+    if (!offer || !funnelStage) return;
+    const next = nextFunnelStage(offer, funnelStage, accepted);
+    setFunnelStage(next);
+    if (next === 'done') setPaidAmount(mainPaid ?? offerAmount(offer));
+  }
+
   async function handleSubmit() {
     if (
       previewOffer ||
@@ -503,6 +539,7 @@ export default function OfferCheckout({
         return;
       }
       if (method === 'pix') {
+        setParentChargeId(data.chargeId ?? null);
         setPix({
           id: data.id,
           content: data.pixContent ?? null,
@@ -516,7 +553,11 @@ export default function OfferCheckout({
         return;
       }
       setRedirectUrl(data.redirectUrl ?? null);
-      setPaidAmount(Number(data.amount) || offerAmount(offer));
+      setParentChargeId(data.chargeId ?? null);
+      confirmMainPayment(
+        Number(data.amount) || offerAmount(offer),
+        data.chargeId ?? null,
+      );
     } catch {
       setError('Erro inesperado. Tente novamente.');
     } finally {
@@ -557,6 +598,49 @@ export default function OfferCheckout({
             ? (activePricing?.boletoAmount ?? base - discount)
             : base - discount;
 
+  if (
+    (funnelStage === 'upsell' || funnelStage === 'downsell') &&
+    parentChargeId
+  ) {
+    const funnelBump = funnelOfferOf(
+      offer,
+      funnelStage === 'upsell' ? 'UPSELL' : 'DOWNSELL',
+    );
+    if (funnelBump)
+      return (
+        <OfferFunnelScreen
+          key={funnelBump.code}
+          stage={funnelStage}
+          bump={funnelBump}
+          method={method}
+          customer={{
+            name,
+            email,
+            document: docDigits,
+            phone: phone.replace(/\D/g, ''),
+          }}
+          parentChargeId={parentChargeId}
+          card={
+            isCard
+              ? {
+                  holderName,
+                  holderDocument: holderDigits,
+                  number: cardNumber,
+                  cvv: cardCvv,
+                  month: cardMonth,
+                  year: cardYear,
+                }
+              : null
+          }
+          onAccepted={(accepted) => {
+            setFunnelAccepted((prev) => [...prev, accepted]);
+            advanceFunnel(true);
+          }}
+          onDeclined={() => advanceFunnel(false)}
+        />
+      );
+  }
+
   if (paidAmount !== null && recurring) {
     const next = done?.nextChargeAt
       ? new Date(done.nextChargeAt).toLocaleDateString('pt-BR')
@@ -596,24 +680,34 @@ export default function OfferCheckout({
     );
   }
 
-  if (paidAmount !== null)
+  if (paidAmount !== null) {
+    const grandTotal =
+      paidAmount + funnelAccepted.reduce((n, o) => n + o.amount, 0);
     return (
       <CheckoutSuccessScreen
-        headline={`${money(paidAmount)} pagos com sucesso`}
+        headline={`${money(grandTotal)} pagos com sucesso`}
         email={email}
         redirectUrl={redirectUrl}
-        total={money(paidAmount)}
+        total={money(grandTotal)}
         rows={
           <>
             <SummaryRow
               label={sanitizeCheckoutText(offer.name)}
               value={money(base)}
             />
+            {funnelAccepted.map((o) => (
+              <SummaryRow
+                key={o.code}
+                label={sanitizeCheckoutText(o.name)}
+                value={money(o.amount)}
+              />
+            ))}
             <SummaryRow muted label="Forma" value={METHOD_TITLE[method]} last />
           </>
         }
       />
     );
+  }
 
   return (
     <CheckoutFlow
