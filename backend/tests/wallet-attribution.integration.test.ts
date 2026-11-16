@@ -8,6 +8,7 @@ import {
   applyWalletEntry,
   setWalletBalance,
 } from '../src/modules/wallet-ledger/wallet-ledger';
+import { removeWalletConsistencyGuard } from './wallet-guard-fixture';
 import { readWalletAttribution } from '../src/modules/wallet-ledger/wallet-attribution';
 
 const url = process.env.COPRODUCTION_TEST_DATABASE_URL;
@@ -32,6 +33,7 @@ beforeAll(async () => {
       ),
       'utf8',
     );
+    await removeWalletConsistencyGuard(pg);
     await pg.query(sql);
   } finally {
     await pg.end();

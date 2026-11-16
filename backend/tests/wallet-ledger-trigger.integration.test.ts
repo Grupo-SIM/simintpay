@@ -9,6 +9,7 @@ import {
   lockWalletLedger,
   setWalletBalance,
 } from '../src/modules/wallet-ledger/wallet-ledger';
+import { removeWalletConsistencyGuard } from './wallet-guard-fixture';
 import { walletAmounts } from '../src/modules/wallet-ledger/wallet-balance';
 
 // Local disposable Postgres only (COPRODUCTION_TEST_DATABASE_URL, db push applied).
@@ -47,7 +48,10 @@ beforeAll(async () => {
   if (!url) return;
   // Triggers live only in migrations (db push does not create them). A shared test database may hold
   // drift rows, so the guard is skipped here and exercised by its own test below.
-  await withPg((pg) => pg.query(migrationSql.replace(guardRe, '')));
+  await withPg(async (pg) => {
+    await removeWalletConsistencyGuard(pg);
+    await pg.query(migrationSql.replace(guardRe, ''));
+  });
 });
 afterAll(async () => {
   await db?.$disconnect();

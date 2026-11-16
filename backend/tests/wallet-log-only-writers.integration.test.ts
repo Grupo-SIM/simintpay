@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Prisma, PrismaClient, type TransactionStatus } from '@prisma/client';
 import { Client } from 'pg';
+import { installWalletConsistencyGuard } from './wallet-guard-fixture';
 import { AffiliateCommissionService } from '../src/application/services/affiliate-commission.service';
 import { ApproveWithdrawalUseCase } from '../src/application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../src/application/use-cases/admin/reject-withdrawal.use-case';
@@ -46,6 +47,7 @@ beforeAll(async () => {
   await pg.connect();
   try {
     await pg.query(migrationSql.replace(guardRe, ''));
+    await installWalletConsistencyGuard(pg);
   } finally {
     await pg.end();
   }

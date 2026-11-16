@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { Client } from 'pg';
+import { installWalletConsistencyGuard } from './wallet-guard-fixture';
 import { PrismaWithdrawRepository } from '../src/infrastructure/database/repositories/prisma-withdraw.repository';
 import { initializePlatformRegistryCache } from '../src/modules/module.registry';
 import { initializePlatformTaxasCache } from '../src/modules/platform-taxas/platform-taxas.store';
@@ -99,6 +100,7 @@ beforeAll(async () => {
   await pg.connect();
   try {
     await pg.query(migrationSql.replace(guardRe, ''));
+    await installWalletConsistencyGuard(pg);
   } finally {
     await pg.end();
   }

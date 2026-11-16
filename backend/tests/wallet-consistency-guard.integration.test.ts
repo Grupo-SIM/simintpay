@@ -8,6 +8,7 @@ import { assertWalletLedgerConsistency } from '../src/modules/wallet-ledger/wall
 import { ApproveWithdrawalUseCase } from '../src/application/use-cases/admin/approve-withdrawal.use-case';
 import { RejectWithdrawalUseCase } from '../src/application/use-cases/admin/reject-withdrawal.use-case';
 import { PrismaWithdrawRepository } from '../src/infrastructure/database/repositories/prisma-withdraw.repository';
+import { removeWalletConsistencyGuard } from './wallet-guard-fixture';
 import type { PrismaService } from '../src/infrastructure/database/prisma/prisma.service';
 
 const url = process.env.COPRODUCTION_TEST_DATABASE_URL;
@@ -99,6 +100,15 @@ beforeAll(async () => {
   }
 });
 afterAll(async () => {
+  if (url) {
+    const pg = new Client({ connectionString: url });
+    await pg.connect();
+    try {
+      await removeWalletConsistencyGuard(pg);
+    } finally {
+      await pg.end();
+    }
+  }
   await db?.$disconnect();
 });
 

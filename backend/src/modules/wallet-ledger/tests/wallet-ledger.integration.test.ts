@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Client } from 'pg';
 import { applyWalletEntry, setWalletBalance } from '../wallet-ledger';
+import { removeWalletConsistencyGuard } from '../../../../tests/wallet-guard-fixture';
 import {
   findWalletLedgerDivergences,
   getWalletBalance,
@@ -37,6 +38,7 @@ beforeAll(async () => {
     /-- wallet-ledger-divergence-guard:begin[\s\S]*?-- wallet-ledger-divergence-guard:end/,
     '',
   );
+  await removeWalletConsistencyGuard(client);
   await client.query(sql);
   await client.end();
 });

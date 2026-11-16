@@ -8,6 +8,7 @@ import {
   readWalletAttribution,
   selectWalletPlatformAttribution,
 } from '../src/modules/wallet-ledger/wallet-attribution';
+import { removeWalletConsistencyGuard } from './wallet-guard-fixture';
 import { applyWalletEntry } from '../src/modules/wallet-ledger/wallet-ledger';
 
 const url = process.env.COPRODUCTION_TEST_DATABASE_URL;
@@ -25,6 +26,7 @@ beforeAll(async () => {
   const pg = new Client({ connectionString: url });
   await pg.connect();
   try {
+    await removeWalletConsistencyGuard(pg);
     await pg.query(
       readFileSync(
         resolve(
