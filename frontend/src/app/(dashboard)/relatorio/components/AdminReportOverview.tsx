@@ -62,8 +62,18 @@ function formatQueryDate(d: Date | null): string | null {
 const METRIC_TT = {
   totalTransacoes: 'Transações aprovadas no período.',
   receitaTotal: 'Valor bruto das vendas aprovadas.',
+  margemPct:
+    'Margem percentual aplicada pela Sim Int Pay, sem juros de parcelamento.',
+  margemTransacao: 'Taxa por transação cobrada pela Sim Int Pay.',
+  margemParcelamento:
+    'Margem dos juros de parcelamento que fica na Sim Int Pay.',
+  margemSaque: 'Taxa de saque cobrada pela Sim Int Pay.',
+  totalMargem:
+    'Receita Sim Int Pay. Menos as taxas de adquirentes, resulta no lucro líquido.',
+  parcelamentoAdq: 'Juros de parcelamento cobrados pela adquirente.',
+  totalAdquirente: 'Soma dos custos desta adquirente.',
   taxasAdquirentes:
-    'Custos de adquirente: MDR, taxa por transação e cashback da DOM (já inclui parcelamento e boleto) + taxa de saque DOM.',
+    'Soma dos custos de todas as adquirentes: taxa %, taxa por transação, cashback, parcelamento e saque.',
   valorLiquido: 'Líquido total das transações.',
   lucroLiquido:
     'Lucro das transações + receita de taxas de saque − custos de saque.',
@@ -100,6 +110,21 @@ type ConsolidadoResponse = {
   taxaParcelamentoSimIntPay?: number;
   taxaSaqueDOM?: number;
   saquesAprovados?: { valor?: number; quantidade?: number };
+  adquirentes?: Array<{
+    adquirente: string;
+    transacoes: number;
+    taxaPercentual: number;
+    taxaPorTransacao: number;
+    cashback: number;
+    parcelamento: number;
+    taxaSaque: number;
+  }>;
+  margemSimIntPay?: {
+    taxaPercentual: number;
+    taxaPorTransacao: number;
+    parcelamento: number;
+    taxaSaque: number;
+  };
   naoIdentificadas?: { valor?: number; quantidade?: number };
 };
 
@@ -304,11 +329,6 @@ export default function AdminReportOverview({
     return `${(((consolidado?.lucroTotalMaster ?? 0) / bruto) * 100).toFixed(2)}%`;
   })();
 
-  // ── Derivados de taxas DOM / Sim Int Pay ──────────────────────────────────
-  const _taxaDom = Number(consolidado?.taxaDom ?? 0);
-  const _cashback = Number(consolidado?.custoCashback ?? 0);
-  const _taxaSimInt = Number(consolidado?.taxaSimInt ?? 0);
-
   // Recorte só de boleto (enviado pelo backend no consolidado).
   const boletoResumo = (consolidado as Record<string, unknown>)?.boleto as
     | {
@@ -320,52 +340,35 @@ export default function AdminReportOverview({
       }
     | undefined;
 
-  /**
-   * MDR DOM: campo enviado pelo backend quando disponível (taxaDomMdr).
-   * Enquanto não existe no consolidado, fica nulo — não usamos taxa hardcoded
-   * pois cada plataforma/tipo de pagamento tem MDR diferente (PIX=0,98%, CC varia por parcela).
-   */
-  const mdrDom: number | null =
-    (consolidado as Record<string, unknown>)?.taxaDomMdr != null
-      ? Number((consolidado as Record<string, unknown>).taxaDomMdr)
-      : null;
-
-  /** R$1 fixo DOM por transação = taxaDom (R$4×N) − custoCashback (R$3×N). */
-  const taxaFixaTransacaoDom = Math.round((_taxaDom - _cashback) * 100) / 100;
-
-  /**
-   * Total DOM = fixos (R$4×N) + MDR percentual.
-   * Se backend ainda não envia taxaDomMdr, mostra apenas os fixos com nota no tooltip.
-   */
-  const totalTaxasDom =
-    mdrDom != null ? Math.round((_taxaDom + mdrDom) * 100) / 100 : _taxaDom;
-
-  /**
-   * Taxa % líquida Sim Int Pay = taxaSimInt (valorBruto − valorLíquido, bruto de todas as %)
-   * menos MDR DOM se disponível, caso contrário menos taxaDom (fixos) como melhor aproximação.
-   * A fórmula exata por transação é: (1 − LIQUIDEZ_plataforma) × valor − MDR_tipo_pagamento.
-   * Plataformas têm LIQUIDEZ configurável (ex: GLOBAL=9%, ATLAS=14%) e tipos de pagamento
-   * têm MDR distintos (PIX=0,98%, CC_1x=3,99%, CC_10x=18,64%), portanto o cálculo preciso
-   * requer o campo taxaDomMdr do backend.
-   */
-  const taxaSimIntPct =
-    mdrDom != null
-      ? Math.round((_taxaSimInt - mdrDom) * 100) / 100
-      : Math.round((_taxaSimInt - _taxaDom) * 100) / 100;
-
-  /** TAXA_SERVICO agregada (R$4×N elegíveis). Campo enviado pelo backend quando disponível. */
-  const taxaServicoTotal = Number(
-    (consolidado as Record<string, unknown>)?.taxaServico ?? 0,
-  );
-
-  /** Total de taxas de adquirentes: custos DOM por transação + taxa de saque DOM. */
+  const adquirentes = consolidado?.adquirentes ?? [];
+  const margem = consolidado?.margemSimIntPay ?? {
+    taxaPercentual: 0,
+    taxaPorTransacao: 0,
+    parcelamento: 0,
+    taxaSaque: 0,
+  };
+  const totalMargem =
+    Math.round(
+      (margem.taxaPercentual +
+        margem.taxaPorTransacao +
+        margem.parcelamento +
+        margem.taxaSaque) *
+        100,
+    ) / 100;
+  /** Soma dos custos de todas as adquirentes; mesma base do lucro líquido. */
   const totalTaxasAdquirentes =
-    Math.round((totalTaxasDom + Number(consolidado?.taxaSaqueDOM ?? 0)) * 100) /
-    100;
-
-  /** Total Sim Int Pay = % líquida + taxa serviço por transação. */
-  const totalTaxasSimInt =
-    Math.round((taxaSimIntPct + taxaServicoTotal) * 100) / 100;
+    Math.round(
+      adquirentes.reduce(
+        (s, a) =>
+          s +
+          a.taxaPercentual +
+          a.taxaPorTransacao +
+          a.cashback +
+          a.parcelamento +
+          a.taxaSaque,
+        0,
+      ) * 100,
+    ) / 100;
 
   if (isLoadingConsolidado) return <ReportSkeleton />;
   if (consolidadoError)
@@ -528,215 +531,149 @@ export default function AdminReportOverview({
           </section>
         )}
 
-        {/* ── Taxas Sim Int Pay ── */}
+        {/* ── Taxas Sim Int Pay: somente a margem aplicada ── */}
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
             Taxas Sim Int Pay
           </h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            <MetricCard
-              label="Taxa - Sim Int Pay (%)"
-              tooltip={METRIC_TT.taxaSimIntPct}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(taxaSimIntPct)
-              }
-              valueClassName="text-violet-600 dark:text-violet-400"
-              icon={Percent}
-              iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
-            />
-            <MetricCard
-              label="Taxa por transação - Sim Int Pay"
-              tooltip={METRIC_TT.taxaServicoDom}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(taxaServicoTotal)
-              }
-              valueClassName="text-violet-600 dark:text-violet-400"
-              icon={Receipt}
-              iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
-            />
-            <MetricCard
-              label="Parcelamento - Sim Int Pay"
-              tooltip="Margem do parcelamento que fica na Sim Int Pay."
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(consolidado?.taxaParcelamentoSimIntPay ?? 0)
-              }
-              icon={CreditCard}
-              iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
-              valueClassName="text-violet-600 dark:text-violet-400"
-            />
-            <MetricCard
-              label="Taxa de saque - Sim Int Pay"
-              tooltip={METRIC_TT.lucroSaque}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(
-                      (consolidado?.saquesAprovados?.quantidade ?? 0) * 2,
-                    )
-              }
-              valueClassName="text-violet-600 dark:text-violet-400"
-              icon={Wallet}
-              iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
-            />
-            <MetricCard
-              label="Total de taxas - Sim Int Pay"
-              tooltip={METRIC_TT.totalTaxasSimInt}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(totalTaxasSimInt)
-              }
-              valueClassName="text-violet-700 dark:text-violet-300"
-              icon={Wallet}
-              iconClassName="text-violet-700 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-300"
-            />
-          </div>
-        </section>
-
-        {/* ── Taxas de adquirentes ── */}
-        <section className="flex flex-col gap-3">
-          <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-            Taxas de adquirentes
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            <MetricCard
-              label="Taxa - DOM (%)"
-              tooltip={METRIC_TT.mdrDom}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : mdrDom != null
-                    ? formatBRL(mdrDom)
-                    : '—'
-              }
-              valueClassName="text-rose-600 dark:text-rose-400"
-              icon={Percent}
-              iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
-            />
-            <MetricCard
-              label="Taxa por transação - DOM"
-              tooltip={METRIC_TT.taxaFixaDom}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(taxaFixaTransacaoDom)
-              }
-              valueClassName="text-rose-600 dark:text-rose-400"
-              icon={Hash}
-              iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
-            />
-            <MetricCard
-              label="Taxa cashback - DOM"
-              tooltip={METRIC_TT.taxaCashbackDom}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(consolidado?.custoCashback)
-              }
-              valueClassName="text-rose-600 dark:text-rose-400"
-              icon={Gift}
-              iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
-            />
-            <MetricCard
-              label="Parcelamento - DOM"
-              tooltip="Parte do parcelamento repassada à DOM. Já incluída no MDR, não soma no total."
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(
-                      (consolidado?.taxaParcelamentoBruto ?? 0) -
-                        (consolidado?.taxaParcelamentoSimIntPay ?? 0),
-                    )
-              }
-              icon={CreditCard}
-              iconClassName="text-rose-700 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-300"
-              valueClassName="text-rose-700 dark:text-rose-300"
-            />
-            <MetricCard
-              label="Taxa de saque - DOM"
-              tooltip={METRIC_TT.taxaSaqueDOM}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(consolidado?.taxaSaqueDOM)
-              }
-              valueClassName="text-rose-600 dark:text-rose-400"
-              icon={Banknote}
-              iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
-            />
-            {boletoResumo && boletoResumo.quantidade > 0 && (
+            {[
+              [
+                'Margem (%)',
+                margem.taxaPercentual,
+                Percent,
+                METRIC_TT.margemPct,
+              ],
+              [
+                'Margem por transação',
+                margem.taxaPorTransacao,
+                Receipt,
+                METRIC_TT.margemTransacao,
+              ],
+              [
+                'Margem de parcelamento',
+                margem.parcelamento,
+                CreditCard,
+                METRIC_TT.margemParcelamento,
+              ],
+              [
+                'Margem de saque',
+                margem.taxaSaque,
+                Wallet,
+                METRIC_TT.margemSaque,
+              ],
+              ['Total de margem', totalMargem, Wallet, METRIC_TT.totalMargem],
+            ].map(([label, value, Icon, tooltip]) => (
               <MetricCard
-                label="Taxa de boleto - DOM"
-                tooltip="Custo DOM por boleto pago: R$ 3,49 + R$ 1,00. Já incluído nas taxas acima, não soma no total."
+                key={label as string}
+                label={label as string}
+                tooltip={tooltip as string}
                 value={
                   isLoadingConsolidado
                     ? 'Carregando...'
-                    : formatBRL(boletoResumo.taxaDom)
+                    : formatBRL(value as number)
                 }
-                valueClassName="text-rose-600 dark:text-rose-400"
-                icon={Receipt}
-                iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
+                valueClassName="text-violet-600 dark:text-violet-400"
+                icon={Icon as typeof Percent}
+                iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
               />
-            )}
-            <MetricCard
-              label="Total de taxas de adquirentes"
-              tooltip={METRIC_TT.taxasAdquirentes}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(totalTaxasAdquirentes)
-              }
-              valueClassName="text-rose-700 dark:text-rose-300"
-              icon={Building2}
-              iconClassName="text-rose-700 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-300"
-            />
+            ))}
           </div>
         </section>
 
-        {/* ── Saques ── */}
-        <section className="flex flex-col gap-3">
-          <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-            Saques
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            <MetricCard
-              label="Saques pendentes"
-              tooltip={METRIC_TT.saquesPendentes}
-              value={
-                isLoadingSaquesPendentes
-                  ? 'Carregando...'
-                  : `${saquesPendentesData?.total ?? 0} pendentes`
-              }
-              valueClassName="text-orange-600 dark:text-orange-400"
-              icon={Clock}
-              iconClassName="text-orange-600 bg-orange-50 dark:bg-orange-950/30 dark:text-orange-400"
-            />
-            <MetricCard
-              label="Saques aprovados"
-              tooltip={METRIC_TT.saquesAprovados}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : showSaqueValue
-                    ? formatBRL(consolidado?.saquesAprovados?.valor)
-                    : `${consolidado?.saquesAprovados?.quantidade ?? 0} aprovados`
-              }
-              valueClassName="text-amber-500"
-              icon={ArrowUpRight}
-              iconClassName="text-amber-500 bg-amber-50 dark:bg-amber-950/30"
-              onAction={() => setShowSaqueValue(!showSaqueValue)}
-              actionIcon={RefreshCw}
-            />
-          </div>
-        </section>
+        {/* ── Taxas de adquirentes: uma seção por adquirente com transação no período ── */}
+        {adquirentes.map((a) => {
+          const total =
+            a.taxaPercentual +
+            a.taxaPorTransacao +
+            a.cashback +
+            a.parcelamento +
+            a.taxaSaque;
+          const isDom = a.adquirente === 'DOM';
+          const itens: [string, number, typeof Percent, string][] = [
+            ['Taxa (%)', a.taxaPercentual, Percent, METRIC_TT.mdrDom],
+            [
+              'Taxa por transação',
+              a.taxaPorTransacao,
+              Hash,
+              METRIC_TT.taxaFixaDom,
+            ],
+            ...(isDom
+              ? ([
+                  [
+                    'Taxa de cashback',
+                    a.cashback,
+                    Gift,
+                    METRIC_TT.taxaCashbackDom,
+                  ],
+                ] as [string, number, typeof Percent, string][])
+              : []),
+            [
+              'Parcelamento',
+              a.parcelamento,
+              CreditCard,
+              METRIC_TT.parcelamentoAdq,
+            ],
+            ['Taxa de saque', a.taxaSaque, Banknote, METRIC_TT.taxaSaqueDOM],
+            ['Total', total, Building2, METRIC_TT.totalAdquirente],
+          ];
+          return (
+            <section key={a.adquirente} className="flex flex-col gap-3">
+              <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+                Taxas de adquirentes — {a.adquirente}
+              </h2>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+                {itens.map(([label, value, Icon, tooltip]) => (
+                  <MetricCard
+                    key={label}
+                    label={label}
+                    tooltip={tooltip}
+                    value={
+                      isLoadingConsolidado ? 'Carregando...' : formatBRL(value)
+                    }
+                    valueClassName="text-rose-600 dark:text-rose-400"
+                    icon={Icon}
+                    iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
 
         <AdminReportMovements
+          extra={
+            <>
+              <MetricCard
+                label="Saques pendentes"
+                tooltip={METRIC_TT.saquesPendentes}
+                value={
+                  isLoadingSaquesPendentes
+                    ? 'Carregando...'
+                    : `${saquesPendentesData?.total ?? 0} pendentes`
+                }
+                valueClassName="text-orange-600 dark:text-orange-400"
+                icon={Clock}
+                iconClassName="text-orange-600 bg-orange-50 dark:bg-orange-950/30 dark:text-orange-400"
+              />
+              <MetricCard
+                label="Saques aprovados"
+                tooltip={METRIC_TT.saquesAprovados}
+                value={
+                  isLoadingConsolidado
+                    ? 'Carregando...'
+                    : showSaqueValue
+                      ? formatBRL(consolidado?.saquesAprovados?.valor)
+                      : `${consolidado?.saquesAprovados?.quantidade ?? 0} aprovados`
+                }
+                valueClassName="text-amber-500"
+                icon={ArrowUpRight}
+                iconClassName="text-amber-500 bg-amber-50 dark:bg-amber-950/30"
+                onAction={() => setShowSaqueValue(!showSaqueValue)}
+                actionIcon={RefreshCw}
+              />
+            </>
+          }
           filters={{
             startDate: formatQueryDate(range.start) ?? undefined,
             endDate: formatQueryDate(range.end) ?? undefined,

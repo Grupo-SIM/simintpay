@@ -516,6 +516,102 @@ type LucroSimpayPorPlataforma = {
   transacoes: LucroSimpayLinhaTx[];
 };
 
+type AdquirenteResumo = {
+  adquirente: string;
+  transacoes: number;
+  taxaPercentual: number;
+  taxaPorTransacao: number;
+  cashback: number;
+  parcelamento: number;
+};
+
+/**
+ * Custo de adquirente por transação, aberto por adquirente. Usa o mesmo custo do
+ * lucro: `realizedCents` do snapshot (fixo, % e juros) ou, no legado, MDR da tabela
+ * + taxa fixa da plataforma + cashback.
+ */
+function buildAdquirentesResumo(
+  txs: {
+    userId: string;
+    amount: unknown;
+    createdAt: Date;
+    platformTag: string | null;
+    installments: number | null;
+    paymentMethod?: string | null;
+    acquirer?: string | null;
+    financialSnapshot?: unknown;
+  }[],
+  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
+): AdquirenteResumo[] {
+  const by = new Map<string, AdquirenteResumo>();
+  for (const tx of txs) {
+    const bruto = Number(tx.amount);
+    if (!Number.isFinite(bruto) || bruto <= 0) continue;
+    const realized = realizedAcquirerCost(tx);
+    const cost = ((
+      tx.financialSnapshot as Record<string, unknown> | null | undefined
+    )?.acquirerCost ?? {}) as Record<string, unknown>;
+    const nome = String(
+      (realized !== undefined ? cost.acquirer : undefined) ??
+        tx.acquirer ??
+        'DOM',
+    ).toUpperCase();
+    const row = by.get(nome) ?? {
+      adquirente: nome,
+      transacoes: 0,
+      taxaPercentual: 0,
+      taxaPorTransacao: 0,
+      cashback: 0,
+      parcelamento: 0,
+    };
+    row.transacoes += 1;
+    if (realized !== undefined) {
+      const fixed = Number(cost.fixedCents ?? 0) / 100;
+      const base =
+        Number(
+          (tx.financialSnapshot as Record<string, unknown>).originalCents ??
+            bruto * 100,
+        ) / 100;
+      const interest = (base * Number(cost.interestPpm ?? 0)) / 1_000_000;
+      row.taxaPorTransacao += fixed;
+      row.parcelamento += interest;
+      row.taxaPercentual += realized - fixed - interest;
+    } else {
+      const tag = consolidadoTagParaTransacao(
+        { userId: tx.userId, platformTag: tx.platformTag ?? null },
+        platforms,
+      );
+      const pm = String(tx.paymentMethod ?? 'PIX').toUpperCase();
+      const inst = Math.min(Math.max(Number(tx.installments ?? 1) || 1, 1), 12);
+      const metodo = pm.includes('BOLETO')
+        ? 'BOLETO'
+        : pm === 'DEBIT_CARD'
+          ? 'DEBIT_CARD'
+          : pm === 'CREDIT_CARD'
+            ? 'CREDIT_CARD'
+            : 'PIX';
+      const c = syncedAcquirerCostReais(
+        metodo,
+        'ONLINE',
+        metodo === 'CREDIT_CARD' ? inst : 1,
+        bruto,
+      );
+      row.taxaPercentual += c.pct;
+      row.taxaPorTransacao +=
+        c.fixa + getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
+      row.cashback += domCashbackReais();
+    }
+    by.set(nome, row);
+  }
+  return [...by.values()].map((r) => ({
+    ...r,
+    taxaPercentual: Number(r.taxaPercentual.toFixed(2)),
+    taxaPorTransacao: Number(r.taxaPorTransacao.toFixed(2)),
+    cashback: Number(r.cashback.toFixed(2)),
+    parcelamento: Number(r.parcelamento.toFixed(2)),
+  }));
+}
+
 function buildLucroSimpayDetalhePorPlataforma(
   txs: {
     id: string;
@@ -3490,6 +3586,7 @@ export class AdminController {
         platformTag: true,
         installments: true,
         paymentMethod: true,
+        acquirer: true,
         financialSnapshot: true,
       },
       orderBy: { createdAt: 'asc' },
@@ -3919,6 +4016,7 @@ export class AdminController {
       lucro: Number((boletoSimIntPay - boletoDom).toFixed(2)),
     };
 
+    const adquirentesResumo = buildAdquirentesResumo(txRowsLucro, platforms);
     const payload: Record<string, unknown> = {
       totalTransacoes,
       customersCount,
@@ -3926,6 +4024,22 @@ export class AdminController {
       taxaSimInt,
       taxaDom,
       taxaDomMdr,
+      adquirentes: adquirentesResumo.map((a) => ({
+        ...a,
+        taxaSaque: a.adquirente === 'DOM' ? taxaSaqueDOM : 0,
+      })),
+      margemSimIntPay: {
+        taxaPercentual: Number(
+          (
+            brutoTotal -
+            valorLiquidoTxBase -
+            totalParcelamentoSimIntPay
+          ).toFixed(2),
+        ),
+        taxaPorTransacao: taxaServicoConsolidado,
+        parcelamento: Number(totalParcelamentoSimIntPay.toFixed(2)),
+        taxaSaque: Number(totalLucroSaque.toFixed(2)),
+      },
       boleto,
       taxaServico: taxaServicoConsolidado,
       custoCashback,

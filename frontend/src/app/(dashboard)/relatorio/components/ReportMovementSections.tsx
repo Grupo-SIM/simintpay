@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   AlertTriangle,
   Clock,
@@ -14,10 +15,12 @@ export function ReportMovementSections({
   summary: s,
   coproducao,
   hasPlatforms = true,
+  extra,
 }: {
   summary: ReportSummary['summary'];
   coproducao?: ReportSummary['coproducao'];
   hasPlatforms?: boolean;
+  extra?: ReactNode;
 }) {
   const money = (value: number | undefined) =>
     value == null ? 'Não informado' : reportMoney(value);
@@ -85,6 +88,7 @@ export function ReportMovementSections({
           tooltip="Participações de coprodução creditadas na sua carteira. Não representa saldo disponível para saque."
         />
       )}
+      {extra}
     </ReportMetricSection>
   );
 }
