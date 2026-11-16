@@ -211,12 +211,17 @@ run(
       ).balance.toFixed(2);
     expect(await balance(f.partner.id)).toBe('3.33');
     expect(await balance(f.owner.id)).toBe('6.68');
-    expect(await coproductionTotals(db!, f.partner.id)).toEqual({
+    const totals = await coproductionTotals(db!, f.partner.id);
+    expect(totals).toMatchObject({
       count: 1,
       creditedCents: 333,
+      creditedCount: 1,
       lockedCents: 0,
       reversedCents: 0,
     });
+    expect(totals.hourly).toEqual([
+      { bucket: expect.any(String), count: 1, creditedCents: 333 },
+    ]);
     expect(
       (await coproductionTotals(db!, f.partner.id, { platform: 'UNRELATED' }))
         .count,
