@@ -391,3 +391,37 @@ run('audits and reassigns an Offer through ownerUserId', async () => {
     }),
   ).toBe(1);
 });
+
+run('rejects reassigning a legacy row that has an Offer twin', async () => {
+  const admin = await user('ADMIN'),
+    owner = await user();
+  const tag = (await platform(owner.id)).tag;
+  const legacy = await link(admin.id, [tag]);
+  // offer-migration-apply reuses the legacy id as the Offer id.
+  await db!.offer.create({
+    data: {
+      id: legacy.id,
+      ownerUserId: admin.id,
+      createdByUserId: admin.id,
+      platformTag: tag,
+      code: `TWN${id().slice(0, 8).toUpperCase()}`,
+      name: 'Twin',
+      amountCents: 1000,
+      acceptedMethods: ['PIX'],
+    } as never,
+  });
+  const twin = (await audit()).find(
+    (p) => p.productType === 'PaymentLink' && p.productId === legacy.id,
+  )!;
+  expect(twin.warnings).toContain('LEGACY_TWIN_OF_OFFER');
+  const offerRow = (await audit()).find(
+    (p) => p.productType === 'Offer' && p.productId === legacy.id,
+  )!;
+  expect(offerRow.stats.transactions).toBe(0);
+  const rejected = await reassignProducts(db!, [entry(legacy.id, owner.id)], {
+    apply: true,
+  }).catch((error) => error);
+  expect(rejected).toBeInstanceOf(ReassignmentRejected);
+  expect(rejected.results[0].detail).toBe('MIGRATED_TO_OFFER_USE_OFFER');
+  expect(await ownerOf(legacy.id)).toBe(admin.id);
+});

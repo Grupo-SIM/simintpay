@@ -3,9 +3,14 @@
  *
  *   DATABASE_URL=... bun scripts/audit-product-ownership.ts [--out=report.json] [--mapping=mapping.json]
  *
- * Classifies each PaymentLink, SubscriptionLink, Plan, PixCreditPlan and Boleto as OK,
- * PROPOSE_TRANSFER (target = owner of the single active registered platform, or an explicit mapping
- * entry) or NEEDS_DECISION. Targets are never inferred from names, e-mails or descriptions.
+ * Classifies each Offer and, while they still exist under their own name, each PaymentLink,
+ * SubscriptionLink, Plan, PixCreditPlan and Boleto as OK, PROPOSE_TRANSFER (target = owner of the
+ * single active registered platform, or an explicit mapping entry) or NEEDS_DECISION. Targets are
+ * never inferred from names, e-mails or descriptions.
+ *
+ * Plan 0023: Offer is the product table. A legacy table that is gone (dropped) or renamed to
+ * `<name>_legacy` (phase 5) is skipped, and its statistics are skipped too. A legacy row whose id is
+ * also an Offer is a stale twin: it is flagged LEGACY_TWIN_OF_OFFER and the Offer is authoritative.
  */
 import 'dotenv/config';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -154,9 +159,21 @@ export async function runAudit(
       ).map((r) => r.table_name),
     );
 
-    const stats = await collectStats(q);
+    const present = new Set<string>(
+      (
+        await q<{ name: string }>(
+          `SELECT c.relname AS name FROM pg_class c
+            WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'`,
+        )
+      ).map((r) => r.name),
+    );
+    const offerIds = new Set<string>(
+      (await q<{ id: string }>('SELECT id FROM "Offer"')).map((r) => r.id),
+    );
+    const stats = await collectStats(q, present);
     const rows: AuditRow[] = [];
     for (const type of PRODUCT_TYPES) {
+      if (!present.has(type)) continue;
       const products = await q(`SELECT to_jsonb(t) AS row FROM "${type}" t`);
       for (const { row } of products) {
         const tags = normalizeTags(
@@ -201,6 +218,8 @@ export async function runAudit(
         const explicit = mappingByKey.get(`${type}:${row.id}`)?.newOwnerUserId;
         const warnings = warningsFor(facts, platforms);
         if (!hasCreatedBy.has(type)) warnings.push('CREATED_BY_COLUMN_MISSING');
+        if (type !== 'Offer' && offerIds.has(row.id))
+          warnings.push('LEGACY_TWIN_OF_OFFER');
         rows.push({
           productType: type,
           productId: row.id,
@@ -262,21 +281,35 @@ export async function runAudit(
   }
 }
 
+/** Statistics per product; a source table that is gone (phase 5/6) contributes nothing. */
 async function collectStats(
   q: <T = any>(text: string, values?: unknown[]) => Promise<T[]>,
+  present: Set<string>,
 ) {
-  const tx = new Map(
-    (
-      await q(
+  const byId = async (
+    needs: string[],
+    text: string,
+    values: unknown[] = [],
+  ): Promise<Map<string, any>> =>
+    needs.every((t) => present.has(t))
+      ? new Map((await q(text, values)).map((r) => [r.id, r]))
+      : new Map();
+  const [{ legacyKey }] = await q<{ legacyKey: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'Transaction'
+        AND column_name = 'paymentLinkId') AS "legacyKey"`,
+  );
+  const tx = legacyKey
+    ? await byId(
+        ['Transaction'],
         `SELECT "paymentLinkId" AS id, count(*)::int AS n,
             coalesce(sum("netAmount") FILTER (WHERE status = 'COMPLETED'), 0)::text AS net
      FROM "Transaction" WHERE "paymentLinkId" IS NOT NULL GROUP BY 1`,
       )
-    ).map((r) => [r.id, r]),
-  );
-  const alloc = new Map(
-    (
-      await q(
+    : new Map<string, any>();
+  const alloc = legacyKey
+    ? await byId(
+        ['CoproductionAllocation', 'Transaction'],
         `SELECT t."paymentLinkId" AS id, count(*)::int AS n,
             count(*) FILTER (WHERE u.role::text = 'ADMIN')::int AS admins
      FROM "CoproductionAllocation" a
@@ -284,32 +317,24 @@ async function collectStats(
      JOIN "User" u ON u.id = a."userId"
      WHERE t."paymentLinkId" IS NOT NULL GROUP BY 1`,
       )
-    ).map((r) => [r.id, r]),
-  );
-  const subOrders = new Map(
-    (
-      await q(
-        `SELECT "subscriptionLinkId" AS id, count(*)::int AS n,
+    : new Map<string, any>();
+  const subOrders = await byId(
+    ['SubscriptionLinkOrder'],
+    `SELECT "subscriptionLinkId" AS id, count(*)::int AS n,
             count(*) FILTER (WHERE status <> ALL($1))::int AS active,
             coalesce(sum("amountCharged") FILTER (WHERE status <> ALL($1)), 0)::text AS net
      FROM "SubscriptionLinkOrder" GROUP BY 1`,
-        [SETTLED_ORDER_EXCLUDED],
-      )
-    ).map((r) => [r.id, r]),
+    [SETTLED_ORDER_EXCLUDED],
   );
-  const subs = new Map(
-    (
-      await q(
-        `SELECT "planId" AS id, count(*)::int AS n,
+  const subs = await byId(
+    ['Subscription'],
+    `SELECT "planId" AS id, count(*)::int AS n,
             count(*) FILTER (WHERE status = 'active')::int AS active
      FROM "Subscription" GROUP BY 1`,
-      )
-    ).map((r) => [r.id, r]),
   );
-  const pix = new Map(
-    (
-      await q(
-        `SELECT o."pixCreditPlanId" AS id, count(*)::int AS n,
+  const pix = await byId(
+    ['PixPlanOrder', 'Transaction'],
+    `SELECT o."pixCreditPlanId" AS id, count(*)::int AS n,
             coalesce(sum(t."netAmount") FILTER (WHERE t.status = 'COMPLETED'), 0)::text AS net,
             count(a."transactionId")::int AS allocs,
             count(a."transactionId") FILTER (WHERE u.role::text = 'ADMIN')::int AS admins
@@ -318,8 +343,28 @@ async function collectStats(
      LEFT JOIN "CoproductionAllocation" a ON a."transactionId" = t.id
      LEFT JOIN "User" u ON u.id = a."userId"
      WHERE o."pixCreditPlanId" IS NOT NULL GROUP BY 1`,
-      )
-    ).map((r) => [r.id, r]),
+  );
+  // Offer: sales by Transaction.offerId, subscribers by BillingContract.
+  const offerTx = await byId(
+    ['Transaction'],
+    `SELECT "offerId" AS id, count(*)::int AS n,
+            coalesce(sum("netAmount") FILTER (WHERE status = 'COMPLETED'), 0)::text AS net
+     FROM "Transaction" WHERE "offerId" IS NOT NULL GROUP BY 1`,
+  );
+  const offerAlloc = await byId(
+    ['CoproductionAllocation', 'Transaction'],
+    `SELECT t."offerId" AS id, count(*)::int AS n,
+            count(*) FILTER (WHERE u.role::text = 'ADMIN')::int AS admins
+     FROM "CoproductionAllocation" a
+     JOIN "Transaction" t ON t.id = a."transactionId"
+     JOIN "User" u ON u.id = a."userId"
+     WHERE t."offerId" IS NOT NULL GROUP BY 1`,
+  );
+  const contracts = await byId(
+    ['BillingContract'],
+    `SELECT "offerId" AS id, count(*)::int AS n,
+            count(*) FILTER (WHERE status::text = 'ACTIVE')::int AS active
+     FROM "BillingContract" WHERE "offerId" IS NOT NULL GROUP BY 1`,
   );
   return (type: ProductType, id: string): Stats => {
     const empty = {
@@ -372,6 +417,21 @@ async function collectStats(
           adminAllocations: p?.admins ?? 0,
         };
       }
+      case 'Offer': {
+        const t = offerTx.get(id),
+          a = offerAlloc.get(id),
+          c = contracts.get(id);
+        return {
+          ...empty,
+          transactions: t?.n ?? 0,
+          settledNet: t?.net ?? '0',
+          orders: c?.n ?? 0,
+          activeOrders: c?.active ?? 0,
+          allocations: a?.n ?? 0,
+          adminAllocations: a?.admins ?? 0,
+          note: 'orders = BillingContract rows (activeOrders = ACTIVE); transactions by Transaction.offerId',
+        };
+      }
       default:
         return {
           transactions: null,
@@ -380,7 +440,7 @@ async function collectStats(
           activeOrders: null,
           allocations: null,
           adminAllocations: null,
-          note: 'Boleto has no transaction link in the schema; Offer stats are not collected here',
+          note: 'Boleto has no transaction link in the schema; see the Offer row with the same id',
         };
     }
   };

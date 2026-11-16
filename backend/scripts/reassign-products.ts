@@ -4,7 +4,10 @@
  *   bun scripts/reassign-products.ts --mapping=mapping.json
  *   bun scripts/reassign-products.ts --apply --mapping=mapping.json --confirm-host=<db host> [--actor=<admin user id>]
  *
- * Changes ONLY the product's userId and records ProductOwnershipChange in the same transaction.
+ * Changes ONLY the product's owner column and records ProductOwnershipChange in the same transaction.
+ * Plan 0023: Offer is the product table (`ownerUserId`). A legacy productType is rejected once its
+ * table was renamed or dropped (LEGACY_TABLE_GONE_USE_OFFER) or while an Offer with the same id
+ * exists (MIGRATED_TO_OFFER_USE_OFFER): changing only the stale legacy row would split the owner.
  * Transactions, order snapshots, coproduction allocations/agreements, ledger and wallets are never
  * touched: past charges keep their frozen owner, future charges read product.userId.
  * The whole mapping is applied atomically: one rejected entry rolls back everything.
@@ -79,6 +82,22 @@ export async function reassignProducts(
         fromUserId: string | null,
         detail: string,
       ): EntryResult => ({ ...base, fromUserId, outcome: 'REJECTED', detail });
+      if (entry.productType !== 'Offer') {
+        const [{ present }] = await tx.$queryRaw<{ present: boolean }[]>`
+          SELECT to_regclass(${`public."${entry.productType}"`}) IS NOT NULL AS present`;
+        if (!present) {
+          results.push(reject(null, 'LEGACY_TABLE_GONE_USE_OFFER'));
+          continue;
+        }
+        const twin = await tx.offer.findUnique({
+          where: { id: entry.productId },
+          select: { id: true },
+        });
+        if (twin) {
+          results.push(reject(null, 'MIGRATED_TO_OFFER_USE_OFFER'));
+          continue;
+        }
+      }
       const table = Prisma.raw(`"${entry.productType}"`);
       const lock = options.apply ? Prisma.sql`FOR UPDATE` : Prisma.empty;
       const column = Prisma.raw(`"${ownerColumn(entry.productType)}"`);
