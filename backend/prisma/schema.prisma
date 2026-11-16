@@ -222,9 +222,12 @@ model Transaction {
   /// description on insert and by the migration backfill; editable afterwards.
   platformTag      String?
   paymentLinkId    String?
+  /// Offer that originated the sale (plan 0023, phase 1). Additive: legacy writers still fill `paymentLinkId`.
+  offerId          String?
   createdAt        DateTime                   @default(now())
   updatedAt        DateTime                   @updatedAt
   paymentLink      PaymentLink?               @relation(fields: [paymentLinkId], references: [id])
+  offer            Offer?                     @relation(fields: [offerId], references: [id], onDelete: Restrict)
   user             User                       @relation(fields: [userId], references: [id])
   salePushEvents SalePushEvent[]
   statusHistory    TransactionStatusHistory[]
@@ -234,6 +237,7 @@ model Transaction {
   charge                Charge?
 
   @@index([userId])
+  @@index([offerId])
   @@index([status])
   @@index([domPaymentId])
   @@index([createdAt])
@@ -1609,6 +1613,7 @@ model Offer {
   updatedAt       DateTime            @updatedAt
   contracts       BillingContract[]
   charges         Charge[]
+  transactions    Transaction[]
   accesses        OfferAccess[]
   codeAliases     OfferCodeAlias[]
 
