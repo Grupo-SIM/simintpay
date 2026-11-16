@@ -20,6 +20,64 @@ const run = db ? test : test.skip;
 
 let service: OfferCheckoutService;
 let ownerId: string;
+/** BOLETO lane the test needs: DOM costs R$ 4.49 and the platform adds R$ 0.51 (R$ 5.00 on R$ 100.00). */
+async function seedBoletoPolicy() {
+  const lane = {
+    active: true,
+    contract: {
+      fixedCents: 0,
+      ratePpm: 0,
+      interestPpm: 0,
+      cashbackCents: 0,
+      base: 'ORIGINAL',
+      reference: 'offer-checkout-boleto',
+    },
+    sim: { fixedCents: 51, ratePpm: 0, interestPpm: 0 },
+  };
+  const existing = await db!.financialPolicyRevision.findFirst({
+    where: { tag: 'GLOBAL' },
+    orderBy: { version: 'desc' },
+  });
+  const document = {
+    ...((existing?.document as object | undefined) ?? {
+      schemaVersion: 1,
+      owner: {},
+    }),
+    lanes: {
+      ...((existing?.document as { lanes?: object } | null)?.lanes ?? {}),
+      'DOM/BOLETO/ONLINE/1': lane,
+    },
+  };
+  if (existing)
+    await db!.financialPolicyRevision.update({
+      where: { id: existing.id },
+      data: { document },
+    });
+  else
+    await db!.financialPolicyRevision.create({
+      data: {
+        tag: 'GLOBAL',
+        version: 1,
+        actorId: ownerId,
+        document,
+        createdAt: new Date('2000-01-01T00:00:00.000Z'),
+      },
+    });
+  await db!.acquirerFeeSchedule.create({
+    data: {
+      acquirerCode: 'DOM',
+      method: 'BOLETO',
+      channel: 'ONLINE',
+      installments: 1,
+      fixedCents: 449,
+      ratePpm: 0,
+      interestPpm: 0,
+      base: 'ORIGINAL',
+      source: 'TEST',
+    },
+  });
+}
+
 const calls = { link: [] as any[], boleto: [] as any[] };
 
 const buyer = {
@@ -70,6 +128,7 @@ beforeAll(async () => {
     update: {},
     create: { code: 'DOM', name: 'DOM' },
   });
+  await seedBoletoPolicy();
   const gateway: any = {
     createPaymentLink: async (_t: string, input: any) => {
       calls.link.push(input);
