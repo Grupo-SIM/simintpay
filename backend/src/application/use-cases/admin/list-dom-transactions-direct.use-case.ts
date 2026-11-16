@@ -17,6 +17,7 @@ import {
   resolveDomFeeReais,
 } from '../../helpers/dom-fee-estimate.helper';
 import { isPixLikePayment } from '../../helpers/platform-fee-split.helper';
+import { offersReadEnabled } from '../../../shared/utils/offer-read-flag';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
 function platformTagFromKeywords(text: string | undefined | null): string {
@@ -167,6 +168,7 @@ export class ListDomTransactionsDirectUseCase {
               platformTag: true,
               netAmount: true,
               paymentLinkId: true,
+              offerId: true,
               user: { select: { platform: { select: { tag: true } } } },
             },
           })
@@ -180,21 +182,34 @@ export class ListDomTransactionsDirectUseCase {
       const linkId = extractPaymentLinkId(ce);
       if (linkId) payLinkIdsByCodExternal.set(ce, linkId);
     }
+    const useOffers = offersReadEnabled();
     const payLinkTagByCodExternal = new Map<string, string>();
     const payLinkTagByPaymentLinkId = new Map<string, string>();
     const allPayLinkIds = [
       ...new Set([
         ...[...payLinkIdsByCodExternal.values()],
         ...(dbTxs
-          .map((t) => (t as any).paymentLinkId as string | null)
+          .map(
+            (t) =>
+              ((useOffers ? (t as any).offerId : null) ??
+                (t as any).paymentLinkId) as string | null,
+          )
           .filter(Boolean) as string[]),
       ]),
     ];
     if (allPayLinkIds.length > 0) {
-      const payLinks = await this.prisma.paymentLink.findMany({
-        where: { id: { in: allPayLinkIds } },
-        select: { id: true, plataformas: true },
-      });
+      // Offer.id is the legacy PaymentLink id, so the cod_external parser keys work for both tables.
+      const payLinks = useOffers
+        ? (
+            await this.prisma.offer.findMany({
+              where: { id: { in: allPayLinkIds } },
+              select: { id: true, platformTag: true },
+            })
+          ).map((o) => ({ id: o.id, plataformas: [o.platformTag ?? ''] }))
+        : await this.prisma.paymentLink.findMany({
+            where: { id: { in: allPayLinkIds } },
+            select: { id: true, plataformas: true },
+          });
       for (const pl of payLinks) {
         const tag = ((pl.plataformas as string[])?.[0] ?? '').toUpperCase();
         if (tag && tag !== 'GLOBAL') payLinkTagByPaymentLinkId.set(pl.id, tag);
@@ -214,10 +229,17 @@ export class ListDomTransactionsDirectUseCase {
     const subLinkTagByCodExternal = new Map<string, string>();
     if (subLinkIdsByCodExternal.size > 0) {
       const linkIds = [...new Set(subLinkIdsByCodExternal.values())];
-      const subLinks = await this.prisma.subscriptionLink.findMany({
-        where: { id: { in: linkIds } },
-        select: { id: true, platformTag: true, plataformas: true },
-      });
+      const subLinks = useOffers
+        ? (
+            await this.prisma.offer.findMany({
+              where: { id: { in: linkIds } },
+              select: { id: true, platformTag: true },
+            })
+          ).map((o) => ({ ...o, plataformas: [] as string[] }))
+        : await this.prisma.subscriptionLink.findMany({
+            where: { id: { in: linkIds } },
+            select: { id: true, platformTag: true, plataformas: true },
+          });
       const tagById = new Map(
         subLinks.map((l) => [
           l.id,
@@ -265,14 +287,12 @@ export class ListDomTransactionsDirectUseCase {
         );
         if (payLinkTagByCe) tenantTag = payLinkTagByCe;
       }
-      if (
-        tenantTag === 'GLOBAL' &&
-        dbRecord &&
-        (dbRecord as any).paymentLinkId
-      ) {
-        const payLinkTag = payLinkTagByPaymentLinkId.get(
-          (dbRecord as any).paymentLinkId,
-        );
+      const dbLinkId = dbRecord
+        ? ((useOffers ? (dbRecord as any).offerId : null) ??
+          (dbRecord as any).paymentLinkId)
+        : null;
+      if (tenantTag === 'GLOBAL' && dbLinkId) {
+        const payLinkTag = payLinkTagByPaymentLinkId.get(dbLinkId);
         if (payLinkTag) tenantTag = payLinkTag;
       }
       const displayTag =

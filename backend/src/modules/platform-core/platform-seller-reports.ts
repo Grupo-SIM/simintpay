@@ -7,6 +7,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { computeBosqueAvailableSinceLastWithdrawal } from '../../application/helpers/bosque-available.helper';
+import { offersReadEnabled } from '../../shared/utils/offer-read-flag';
 import { getPlatformIntegrationValue } from '../platform-integrations/platform-integrations.store';
 const OWNER_BALANCE_TAGS = new Set([
   'RENOVADA',
@@ -20,6 +21,24 @@ export class PlatformSellerReports {
     private readonly prisma: PrismaService,
     private readonly expectedContext?: PlatformContext,
   ) {}
+
+  /** AreaFlix subscription products: legacy SubscriptionLink, or Offer (same id) behind OFFERS_READ_ENABLED. */
+  private async areaflixLinkIds(): Promise<string[]> {
+    if (offersReadEnabled()) {
+      const offers = await this.prisma.offer.findMany({
+        where: { platformTag: 'AREAFLIX' },
+        select: { id: true },
+      });
+      return offers.map((o) => o.id);
+    }
+    const links = await this.prisma.subscriptionLink.findMany({
+      where: {
+        OR: [{ platformTag: 'AREAFLIX' }, { plataformas: { has: 'AREAFLIX' } }],
+      },
+      select: { id: true },
+    });
+    return links.map((l) => l.id);
+  }
 
   private async assertCurrent(tag: string) {
     const platform = await this.prisma.platform.findUnique({
@@ -81,15 +100,9 @@ export class PlatformSellerReports {
     }
 
     if (upperTag === 'AREAFLIX') {
-      const areaflixLinks = await this.prisma.subscriptionLink.findMany({
-        where: {
-          OR: [
-            { platformTag: 'AREAFLIX' },
-            { plataformas: { has: 'AREAFLIX' } },
-          ],
-        },
-        select: { id: true },
-      });
+      const areaflixLinks = (await this.areaflixLinkIds()).map((id) => ({
+        id,
+      }));
       const linkIds = areaflixLinks.map((l) => l.id);
       if (linkIds.length === 0) return { totalContas: 0, sellersAtivos: 0 };
 
@@ -153,16 +166,7 @@ export class PlatformSellerReports {
 
     // ── AREAFLIX ──────────────────────────────────────────────────────────────
     if (upperTag === 'AREAFLIX' && !usarCarteiras) {
-      const links = await this.prisma.subscriptionLink.findMany({
-        where: {
-          OR: [
-            { platformTag: 'AREAFLIX' },
-            { plataformas: { has: 'AREAFLIX' } },
-          ],
-        },
-        select: { id: true },
-      });
-      const linkIds = links.map((l) => l.id);
+      const linkIds = await this.areaflixLinkIds();
       if (!linkIds.length) return empty;
 
       const statusFilter = somenteAtivos
