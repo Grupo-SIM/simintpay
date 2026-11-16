@@ -426,6 +426,9 @@ const ADMIN_FINANCE_KEYS = [
   'lucroSimpay',
 ] as const;
 
+/** Linhas desenhadas no gráfico; as demais séries aparecem só no hover. */
+const ADMIN_FINANCE_LINE_KEYS = ['valorBruto', 'lucroSimpay'] as const;
+
 const PIE_COLORS = {
   offers: '#7c3aed',
   maquinetas: '#3b82f6',
@@ -1462,7 +1465,7 @@ export default function PainelPage() {
   const masterChartYDomain = useMemo((): [number, number] | undefined => {
     if (!adminMaster || chartData.length === 0) return undefined;
     if (adminFinanceMulti) {
-      const keys = ADMIN_FINANCE_KEYS.filter((k) => adminFinSeries[k]);
+      const keys = ADMIN_FINANCE_LINE_KEYS.filter((k) => adminFinSeries[k]);
       if (keys.length === 0) return [0, 100];
       const vals = keys.flatMap((k) =>
         chartData.map((d) => Number((d as AdminFinanceChartPoint)[k])),
@@ -2174,7 +2177,7 @@ export default function PainelPage() {
                       marginBottom: 16,
                     }}
                   >
-                    {ADMIN_FINANCE_KEYS.map((key) => {
+                    {ADMIN_FINANCE_LINE_KEYS.map((key) => {
                       const on = adminFinSeries[key];
                       const col = adminFinanceChartConfig[key].color;
                       return (
@@ -2379,19 +2382,17 @@ export default function PainelPage() {
                                     gap: 6,
                                   }}
                                 >
-                                  {payload.map((item) => {
-                                    const key =
-                                      item.dataKey as keyof typeof adminFinanceChartConfig;
+                                  {ADMIN_FINANCE_KEYS.map((key) => {
                                     const cfg = adminFinanceChartConfig[key];
-                                    if (!cfg) return null;
+                                    const point = payload[0]
+                                      .payload as AdminFinanceChartPoint;
+                                    const value = Number(point[key]);
                                     const isLiquid = key === 'lucroSimpay';
                                     const liquidColor =
-                                      Number(item.value) < 0
-                                        ? '#ef4444'
-                                        : '#22c55e';
+                                      value < 0 ? '#ef4444' : '#22c55e';
                                     return (
                                       <div
-                                        key={String(item.dataKey)}
+                                        key={key}
                                         style={{
                                           display: 'flex',
                                           justifyContent: 'space-between',
@@ -2416,7 +2417,7 @@ export default function PainelPage() {
                                               : 'var(--painel-chart-tooltip-value)',
                                           }}
                                         >
-                                          {formatBRL(Number(item.value))}
+                                          {formatBRL(value)}
                                         </span>
                                       </div>
                                     );
@@ -2426,7 +2427,7 @@ export default function PainelPage() {
                             );
                           }}
                         />
-                        {ADMIN_FINANCE_KEYS.map((key) =>
+                        {ADMIN_FINANCE_LINE_KEYS.map((key) =>
                           adminFinSeries[key] ? (
                             <Line
                               key={key}
