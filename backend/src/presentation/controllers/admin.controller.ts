@@ -1,3 +1,7 @@
+import {
+  OfferLegacyWriter,
+  offerLegacyFreezeEnabled,
+} from '../../modules/offer/offer-legacy-freeze';
 import { offerPlatformReadsEnabled } from '../../modules/offer/offer-read-flag';
 import {
   listAreaflixOfferOrders,
@@ -6766,6 +6770,7 @@ export class AdminController {
     };
   }
 
+  @OfferLegacyWriter()
   @Post('cobrancas/gerar')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -6896,6 +6901,8 @@ export class AdminController {
   private async ensureCobrancaPaymentLinks(
     where: Prisma.CobrancaWhereInput = {},
   ) {
+    // Frozen (plan 0023, phase 4): reads must not create legacy payment links meanwhile.
+    if (offerLegacyFreezeEnabled()) return;
     const semLink = await this.prisma.cobranca.findMany({
       where: { ...where, mode: 'PAYABLE', status: 'PENDING', paymentRef: null },
       include: { user: { select: { id: true, name: true, email: true } } },

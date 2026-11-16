@@ -1,6 +1,15 @@
 import {
   BadRequestException,
-  Body, Controller, Delete, Get, NotFoundException, Param, Post, Put, Query, UseGuards,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
 } from '@nestjs/common';
 import { VoucherService } from '../../application/use-cases/voucher/voucher.service';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -24,6 +33,7 @@ import { CheckoutSubscriptionLinkPixUseCase } from '../../application/use-cases/
 import { ListSubscriptionLinkOrdersUseCase } from '../../application/use-cases/subscription-link/list-subscription-link-orders.use-case';
 import { SendSubscriptionLinkAccessEmailUseCase } from '../../application/use-cases/subscription-link/send-access-email.use-case';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 @Controller('links-assinatura')
 @ApiTags('Links de Assinatura')
@@ -46,11 +56,14 @@ export class SubscriptionLinkController {
   // ── Rotas públicas ──────────────────────────────────────────────────────────
 
   @Get('public/:code')
-  @ApiOperation({ summary: 'Detalhes públicos do link de assinatura (checkout)' })
+  @ApiOperation({
+    summary: 'Detalhes públicos do link de assinatura (checkout)',
+  })
   async getPublic(@Param('code') code: string) {
     return this.getPublicUC.execute(code);
   }
 
+  @OfferLegacyWriter()
   @Post('public/:code/assinar')
   @ApiOperation({ summary: 'Checkout por cartão de crédito' })
   async checkoutCard(
@@ -60,6 +73,7 @@ export class SubscriptionLinkController {
     return this.checkoutCardUC.execute({ code, dto });
   }
 
+  @OfferLegacyWriter()
   @Post('public/:code/pix')
   @ApiOperation({ summary: 'Checkout por PIX' })
   async checkoutPix(
@@ -99,7 +113,8 @@ export class SubscriptionLinkController {
     voucherCode: string,
     amount?: number,
   ) {
-    if (!voucherCode) throw new BadRequestException('Código do voucher é obrigatório');
+    if (!voucherCode)
+      throw new BadRequestException('Código do voucher é obrigatório');
 
     const link = await this.prisma.subscriptionLink.findUnique({
       where: { code: linkCode },
@@ -122,13 +137,18 @@ export class SubscriptionLinkController {
   async getOrderStatus(@Param('orderId') orderId: string) {
     const order = await this.prisma.subscriptionLinkOrder.findUnique({
       where: { id: orderId },
-      select: { id: true, status: true, subscriptionLink: { select: { code: true, redirectUrl: true } } },
+      select: {
+        id: true,
+        status: true,
+        subscriptionLink: { select: { code: true, redirectUrl: true } },
+      },
     });
     if (!order) throw new NotFoundException('Pedido não encontrado');
     const fallbackCheckoutUrl = order.subscriptionLink?.code
       ? `${process.env.SIMPAY_CHECKOUT_URL}/?subscriptionLinkCode=${encodeURIComponent(order.subscriptionLink.code)}`
       : null;
-    const accessUrl = order.subscriptionLink?.redirectUrl ?? fallbackCheckoutUrl;
+    const accessUrl =
+      order.subscriptionLink?.redirectUrl ?? fallbackCheckoutUrl;
     return {
       status: order.status,
       redirectUrl: order.subscriptionLink?.redirectUrl ?? null,
@@ -137,12 +157,17 @@ export class SubscriptionLinkController {
   }
 
   @Post('orders/:orderId/send-access-email')
-  @ApiOperation({ summary: 'Enviar e-mail de acesso ao conteúdo após assinatura' })
+  @ApiOperation({
+    summary: 'Enviar e-mail de acesso ao conteúdo após assinatura',
+  })
   async sendAccessEmail(
     @Param('orderId') orderId: string,
     @Body() body: { email?: string },
   ) {
-    return this.sendAccessEmailUC.execute({ orderId, customerEmail: body.email });
+    return this.sendAccessEmailUC.execute({
+      orderId,
+      customerEmail: body.email,
+    });
   }
 
   // ── Rotas autenticadas ──────────────────────────────────────────────────────
@@ -166,6 +191,7 @@ export class SubscriptionLinkController {
     });
   }
 
+  @OfferLegacyWriter()
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -181,13 +207,11 @@ export class SubscriptionLinkController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Buscar link de assinatura por id' })
-  async getOne(
-    @CurrentUser() user: JwtPayload,
-    @Param('id') id: string,
-  ) {
+  async getOne(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.getUC.execute({ userId: user.sub, role: user.role, id });
   }
 
+  @OfferLegacyWriter()
   @Put(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -197,17 +221,20 @@ export class SubscriptionLinkController {
     @Param('id') id: string,
     @Body() dto: UpdateSubscriptionLinkDto,
   ) {
-    return this.updateUC.execute({ userId: user.sub, role: user.role, id, dto });
+    return this.updateUC.execute({
+      userId: user.sub,
+      role: user.role,
+      id,
+      dto,
+    });
   }
 
+  @OfferLegacyWriter()
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Remover link de assinatura' })
-  async remove(
-    @CurrentUser() user: JwtPayload,
-    @Param('id') id: string,
-  ) {
+  async remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.deleteUC.execute({ userId: user.sub, role: user.role, id });
   }
 

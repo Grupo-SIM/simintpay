@@ -1,4 +1,19 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Post, Put, Query, UseGuards, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { BillingService } from '../../application/use-cases/billing/billing.service';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
@@ -13,8 +28,15 @@ import { GetSubscriptionDetailUseCase } from '../../application/use-cases/subscr
 import { RemoveInactiveSubscriptionHistoryUseCase } from '../../application/use-cases/subscription/remove-inactive-subscription-history.use-case';
 import { SubscriptionWebhookService } from '../../application/use-cases/subscription/subscription-webhook.service';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
+import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 @Controller()
 @ApiTags('Assinantes')
@@ -45,27 +67,52 @@ export class SubscriptionController {
   ): Promise<{ status: string }> {
     const data = body.data as Record<string, unknown> | undefined;
     const relations = data?.relations as Record<string, unknown> | undefined;
-    const event = String(body.event ?? '').replace(/\s+/g, '').toUpperCase();
-    const subscriptionId = typeof relations?.id_subscriber === 'string'
-      ? relations.id_subscriber
-      : event.startsWith('SIGNATURE-') && typeof data?.id === 'string'
-        ? data.id
-        : undefined;
-    const signature = typeof body.signature === 'string' ? body.signature : undefined;
-    if (!subscriptionId || !signature) throw new UnauthorizedException('Webhook DOM inválido');
-    const token = await this.billing.getDomWebhookToken(subscriptionId) ?? process.env.DOM_TOKEN;
+    const event = String(body.event ?? '')
+      .replace(/\s+/g, '')
+      .toUpperCase();
+    const subscriptionId =
+      typeof relations?.id_subscriber === 'string'
+        ? relations.id_subscriber
+        : event.startsWith('SIGNATURE-') && typeof data?.id === 'string'
+          ? data.id
+          : undefined;
+    const signature =
+      typeof body.signature === 'string' ? body.signature : undefined;
+    if (!subscriptionId || !signature)
+      throw new UnauthorizedException('Webhook DOM inválido');
+    const token =
+      (await this.billing.getDomWebhookToken(subscriptionId)) ??
+      process.env.DOM_TOKEN;
     if (!token) throw new UnauthorizedException('Webhook DOM não configurado');
     try {
-      await this.jwt.verifyAsync(signature, { secret: token, algorithms: ['HS256'] });
+      await this.jwt.verifyAsync(signature, {
+        secret: token,
+        algorithms: ['HS256'],
+      });
     } catch {
       throw new UnauthorizedException('Assinatura DOM inválida');
     }
     const paymentId = typeof data?.id === 'string' ? data.id : undefined;
-    const amount = typeof data?.amount === 'number' ? data.amount / 100 : undefined;
-    const mapped = event.includes('INVOICE-PAID') || event === 'CHARGE-APPROVED'
-      ? 'PAID' : event.includes('INVOICE-FAILED') || event === 'CHARGE-NOT_AUTHORIZED' || event === 'CHARGE-EXPIRE'
-        ? 'FAILED' : event === 'SIGNATURE-CANCELLED' ? 'CANCELLED' : undefined;
-    if (mapped) await this.billing.applyWorkspacePaymentEvent({ subscriptionId, eventKey: `dom:${signature}`, event: mapped, paymentId, amount });
+    const amount =
+      typeof data?.amount === 'number' ? data.amount / 100 : undefined;
+    const mapped =
+      event.includes('INVOICE-PAID') || event === 'CHARGE-APPROVED'
+        ? 'PAID'
+        : event.includes('INVOICE-FAILED') ||
+            event === 'CHARGE-NOT_AUTHORIZED' ||
+            event === 'CHARGE-EXPIRE'
+          ? 'FAILED'
+          : event === 'SIGNATURE-CANCELLED'
+            ? 'CANCELLED'
+            : undefined;
+    if (mapped)
+      await this.billing.applyWorkspacePaymentEvent({
+        subscriptionId,
+        eventKey: `dom:${signature}`,
+        event: mapped,
+        paymentId,
+        amount,
+      });
     await this.subscriptionWebhook.handleWebhook(body);
     return { status: 'ok' };
   }
@@ -87,13 +134,25 @@ export class SubscriptionController {
       },
     },
   })
-  @ApiResponse({ status: 400, schema: { example: { statusCode: 400, message: ['page must not be less than 1'] } } })
-  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
+  @ApiResponse({
+    status: 400,
+    schema: {
+      example: { statusCode: 400, message: ['page must not be less than 1'] },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    schema: { example: { statusCode: 401, message: 'Unauthorized' } },
+  })
   async listSubscribersRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Query() query: ListSubscribersQueryDto,
   ): Promise<{ data: unknown; page: number; pageSize: number; total: number }> {
-    return this.listSubscribers.execute({ userId: user?.sub ?? '', role: user?.role, query });
+    return this.listSubscribers.execute({
+      userId: user?.sub ?? '',
+      role: user?.role,
+      query,
+    });
   }
 
   @Get('assinantes/subscription/:id')
@@ -108,13 +167,20 @@ export class SubscriptionController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<unknown> {
-    return this.getDetail.execute({ userId: user?.sub ?? '', role: user?.role, id });
+    return this.getDetail.execute({
+      userId: user?.sub ?? '',
+      role: user?.role,
+      id,
+    });
   }
 
+  @OfferLegacyWriter()
   @Delete('assinantes/subscription/:id/history')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Ocultar assinatura inativa do histórico (somente admin master)' })
+  @ApiOperation({
+    summary: 'Ocultar assinatura inativa do histórico (somente admin master)',
+  })
   @ApiResponse({ status: 200, schema: { example: { removed: true } } })
   @ApiResponse({ status: 400 })
   @ApiResponse({ status: 403 })
@@ -130,6 +196,7 @@ export class SubscriptionController {
 
   /** Pausa a assinatura CC de um cliente pelo e-mail (usado pelo admin-pagatg).
    *  IMPORTANTE: declarado ANTES de /subscription/:id/* para evitar captura de "by-email" como :id. */
+  @OfferLegacyWriter()
   @Put('assinantes/subscription/by-email/pause')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -141,15 +208,21 @@ export class SubscriptionController {
     @CurrentUser() user: JwtPayload | undefined,
     @Body() body: { customerEmail: string },
   ) {
-    if (!body?.customerEmail) throw new BadRequestException('customerEmail é obrigatório');
+    if (!body?.customerEmail)
+      throw new BadRequestException('customerEmail é obrigatório');
 
     const order = await this.prisma.subscriptionLinkOrder.findFirst({
-      where: { customerEmail: body.customerEmail, domSubscriptionId: { not: null } },
+      where: {
+        customerEmail: body.customerEmail,
+        domSubscriptionId: { not: null },
+      },
       orderBy: { createdAt: 'desc' },
       select: { domSubscriptionId: true },
     });
     if (!order?.domSubscriptionId) {
-      throw new NotFoundException(`Nenhuma assinatura encontrada para ${body.customerEmail}`);
+      throw new NotFoundException(
+        `Nenhuma assinatura encontrada para ${body.customerEmail}`,
+      );
     }
 
     return this.pause.execute({
@@ -160,10 +233,13 @@ export class SubscriptionController {
   }
 
   /** Retoma a assinatura CC pausada de um cliente pelo e-mail (usado pelo admin-pagatg). */
+  @OfferLegacyWriter()
   @Put('assinantes/subscription/by-email/resume')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Retomar assinatura CC pausada pelo e-mail do cliente' })
+  @ApiOperation({
+    summary: 'Retomar assinatura CC pausada pelo e-mail do cliente',
+  })
   @ApiBody({ schema: { example: { customerEmail: 'cliente@example.com' } } })
   @ApiResponse({ status: 200 })
   @ApiResponse({ status: 404 })
@@ -171,15 +247,21 @@ export class SubscriptionController {
     @CurrentUser() user: JwtPayload | undefined,
     @Body() body: { customerEmail: string },
   ) {
-    if (!body?.customerEmail) throw new BadRequestException('customerEmail é obrigatório');
+    if (!body?.customerEmail)
+      throw new BadRequestException('customerEmail é obrigatório');
 
     const order = await this.prisma.subscriptionLinkOrder.findFirst({
-      where: { customerEmail: body.customerEmail, domSubscriptionId: { not: null } },
+      where: {
+        customerEmail: body.customerEmail,
+        domSubscriptionId: { not: null },
+      },
       orderBy: { createdAt: 'desc' },
       select: { domSubscriptionId: true },
     });
     if (!order?.domSubscriptionId) {
-      throw new NotFoundException(`Nenhuma assinatura encontrada para ${body.customerEmail}`);
+      throw new NotFoundException(
+        `Nenhuma assinatura encontrada para ${body.customerEmail}`,
+      );
     }
 
     // Verifica se há uma pausa registrada para este domSubscriptionId
@@ -197,33 +279,62 @@ export class SubscriptionController {
     });
   }
 
+  @OfferLegacyWriter()
   @Put('assinantes/subscription/:id/cancel')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cancelar assinatura' })
   @ApiResponse({ status: 200, schema: { example: { cancelled: true } } })
-  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
-  @ApiResponse({ status: 404, schema: { example: { statusCode: 404, message: 'Assinatura não encontrada' } } })
+  @ApiResponse({
+    status: 401,
+    schema: { example: { statusCode: 401, message: 'Unauthorized' } },
+  })
+  @ApiResponse({
+    status: 404,
+    schema: {
+      example: { statusCode: 404, message: 'Assinatura não encontrada' },
+    },
+  })
   async cancelRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ cancelled: true }> {
-    await this.cancel.execute({ userId: user?.sub ?? '', role: user?.role, id });
+    await this.cancel.execute({
+      userId: user?.sub ?? '',
+      role: user?.role,
+      id,
+    });
     return { cancelled: true };
   }
 
+  @OfferLegacyWriter()
   @Put('assinantes/subscription/:id/pause')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Pausar assinatura — cancela na DOM e guarda dias restantes' })
-  @ApiResponse({ status: 200, schema: { example: { remainingDays: 25, pausedAt: '2026-04-12T00:00:00.000Z', warningMessage: '...' } } })
+  @ApiOperation({
+    summary: 'Pausar assinatura — cancela na DOM e guarda dias restantes',
+  })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      example: {
+        remainingDays: 25,
+        pausedAt: '2026-04-12T00:00:00.000Z',
+        warningMessage: '...',
+      },
+    },
+  })
   @ApiResponse({ status: 400 })
   @ApiResponse({ status: 401 })
   @ApiResponse({ status: 404 })
   async pauseRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
-  ): Promise<{ remainingDays: number; pausedAt: string; warningMessage: string }> {
+  ): Promise<{
+    remainingDays: number;
+    pausedAt: string;
+    warningMessage: string;
+  }> {
     return this.pause.execute({
       userId: user?.sub ?? '',
       role: user?.role,
@@ -231,11 +342,20 @@ export class SubscriptionController {
     });
   }
 
+  @OfferLegacyWriter()
   @Put('assinantes/subscription/:id/resume')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Retomar assinatura pausada — calcula nova expiresAt com os dias restantes' })
-  @ApiResponse({ status: 200, schema: { example: { newExpiresAt: '2026-05-07T00:00:00.000Z', remainingDays: 25 } } })
+  @ApiOperation({
+    summary:
+      'Retomar assinatura pausada — calcula nova expiresAt com os dias restantes',
+  })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      example: { newExpiresAt: '2026-05-07T00:00:00.000Z', remainingDays: 25 },
+    },
+  })
   @ApiResponse({ status: 400 })
   @ApiResponse({ status: 401 })
   @ApiResponse({ status: 404 })

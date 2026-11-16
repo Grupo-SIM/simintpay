@@ -20,7 +20,10 @@ import { UpdatePlanUseCase } from '../../application/use-cases/plan/update-plan.
 import { DeletePlanUseCase } from '../../application/use-cases/plan/delete-plan.use-case';
 import { GetPublicPlanUseCase } from '../../application/use-cases/plan/get-public-plan.use-case';
 import { GetPublicPlanByCodeUseCase } from '../../application/use-cases/plan/get-public-plan-by-code.use-case';
-import { CreatePublicSubscriptionUseCase, CreatePublicSubscriptionInput } from '../../application/use-cases/plan/create-public-subscription.use-case';
+import {
+  CreatePublicSubscriptionUseCase,
+  CreatePublicSubscriptionInput,
+} from '../../application/use-cases/plan/create-public-subscription.use-case';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -28,6 +31,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 @Controller('planos')
 @ApiTags('Planos')
@@ -46,7 +50,9 @@ export class PlanController {
   // ── Rotas públicas (sem autenticação) ──────────────────────────────────────
 
   @Get('public/by-code/:code')
-  @ApiOperation({ summary: 'Detalhes públicos de um plano por código (checkout)' })
+  @ApiOperation({
+    summary: 'Detalhes públicos de um plano por código (checkout)',
+  })
   @ApiResponse({ status: 200 })
   @ApiResponse({ status: 404 })
   async getPublicPlanByCodeRoute(@Param('code') code: string) {
@@ -61,6 +67,7 @@ export class PlanController {
     return this.getPublic.execute(id);
   }
 
+  @OfferLegacyWriter()
   @Post('public/:id/subscribe')
   @ApiOperation({ summary: 'Criar assinatura via checkout público' })
   @ApiResponse({ status: 201 })
@@ -78,8 +85,18 @@ export class PlanController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Listar planos' })
-  @ApiResponse({ status: 200, schema: { example: { data: [{ id: 'uuid-plan-1', description: 'Plano Mensal', price: 99.9 }] } } })
-  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      example: {
+        data: [{ id: 'uuid-plan-1', description: 'Plano Mensal', price: 99.9 }],
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    schema: { example: { statusCode: 401, message: 'Unauthorized' } },
+  })
   async listRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Query('onlyMine') onlyMine?: string,
@@ -91,6 +108,7 @@ export class PlanController {
     });
   }
 
+  @OfferLegacyWriter()
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -110,9 +128,25 @@ export class PlanController {
       },
     },
   })
-  @ApiResponse({ status: 201, schema: { example: { data: { id: 'uuid-plan-1' } } } })
-  @ApiResponse({ status: 400, schema: { example: { statusCode: 400, message: ['tipo must be one of the following values: MENSAL, TRIMESTRAL, SEMESTRAL, ANUAL'] } } })
-  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
+  @ApiResponse({
+    status: 201,
+    schema: { example: { data: { id: 'uuid-plan-1' } } },
+  })
+  @ApiResponse({
+    status: 400,
+    schema: {
+      example: {
+        statusCode: 400,
+        message: [
+          'tipo must be one of the following values: MENSAL, TRIMESTRAL, SEMESTRAL, ANUAL',
+        ],
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    schema: { example: { statusCode: 401, message: 'Unauthorized' } },
+  })
   async createRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Body() dto: CreatePlanDto,
@@ -131,9 +165,14 @@ export class PlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ data: unknown }> {
-    return this.getById.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    return this.getById.execute({
+      userId: user?.sub ?? '',
+      role: user?.role ?? 'USER',
+      id,
+    });
   }
 
+  @OfferLegacyWriter()
   @Post(':id/desativar')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -145,9 +184,15 @@ export class PlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ data: unknown }> {
-    return this.update.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id, dto: { isActive: false } });
+    return this.update.execute({
+      userId: user?.sub ?? '',
+      role: user?.role ?? 'USER',
+      id,
+      dto: { isActive: false },
+    });
   }
 
+  @OfferLegacyWriter()
   @Post(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -160,21 +205,37 @@ export class PlanController {
     @Param('id') id: string,
     @Body() dto: UpdatePlanDto,
   ): Promise<{ data: unknown }> {
-    return this.update.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id, dto });
+    return this.update.execute({
+      userId: user?.sub ?? '',
+      role: user?.role ?? 'USER',
+      id,
+      dto,
+    });
   }
 
+  @OfferLegacyWriter()
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Remover plano' })
   @ApiResponse({ status: 200, schema: { example: { deleted: true } } })
-  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
-  @ApiResponse({ status: 404, schema: { example: { statusCode: 404, message: 'Plano não encontrado' } } })
+  @ApiResponse({
+    status: 401,
+    schema: { example: { statusCode: 401, message: 'Unauthorized' } },
+  })
+  @ApiResponse({
+    status: 404,
+    schema: { example: { statusCode: 404, message: 'Plano não encontrado' } },
+  })
   async deleteRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ deleted: true }> {
-    await this.del.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    await this.del.execute({
+      userId: user?.sub ?? '',
+      role: user?.role ?? 'USER',
+      id,
+    });
     return { deleted: true };
   }
 }

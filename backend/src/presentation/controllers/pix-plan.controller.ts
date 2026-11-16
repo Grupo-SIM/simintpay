@@ -36,6 +36,7 @@ import { PixPlanCheckoutDto } from '../../application/dtos/pix-plan/pix-plan-che
 import { PixPlanCheckoutByCodeDto } from '../../application/dtos/pix-plan/pix-plan-checkout-by-code.dto';
 import { CreatePixCreditPlanDto } from '../../application/dtos/pix-plan/create-pix-credit-plan.dto';
 import { PixPlanService } from '../../application/use-cases/pix-plan/pix-plan.service';
+import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 @Controller('payments')
 @ApiTags('PIX Plan')
@@ -54,7 +55,9 @@ export class PixPlanController {
   }
 
   @Get('pix-plan/link-code-details/:code/checkout')
-  @ApiOperation({ summary: 'Obter detalhes de link code PIX-PLAN para checkout' })
+  @ApiOperation({
+    summary: 'Obter detalhes de link code PIX-PLAN para checkout',
+  })
   @ApiParam({ name: 'code', description: 'Código do link PIX-PLAN' })
   @ApiResponse({ status: 200 })
   @ApiResponse({ status: 404 })
@@ -64,10 +67,13 @@ export class PixPlanController {
 
   // ── Rotas autenticadas ─────────────────────────────────────────────────────
 
+  @OfferLegacyWriter()
   @Post('pix-plan/checkout')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Criar pagamento PIX para plano com crédito de dias' })
+  @ApiOperation({
+    summary: 'Criar pagamento PIX para plano com crédito de dias',
+  })
   @ApiResponse({ status: 201 })
   @ApiResponse({ status: 401 })
   async createPixPlanCheckout(
@@ -77,6 +83,7 @@ export class PixPlanController {
     return this.pixPlanService.createPixPlanPayment(user?.sub ?? '', body);
   }
 
+  @OfferLegacyWriter()
   @Post('pix-plan/:id/link-code')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -88,7 +95,11 @@ export class PixPlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ) {
-    return this.pixPlanService.createPixPlanLinkCodeForPlan(user?.sub ?? '', id, user?.role);
+    return this.pixPlanService.createPixPlanLinkCodeForPlan(
+      user?.sub ?? '',
+      id,
+      user?.role,
+    );
   }
 
   @Get('pix-plan')
@@ -125,17 +136,23 @@ export class PixPlanController {
     });
   }
 
+  @OfferLegacyWriter()
   @Post('pix-plan')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Criar plano PIX de crédito (padrão body do /plan)' })
+  @ApiOperation({
+    summary: 'Criar plano PIX de crédito (padrão body do /plan)',
+  })
   @ApiResponse({ status: 201 })
   @ApiResponse({ status: 401 })
   async createPixCreditPlan(
     @CurrentUser() user: JwtPayload | undefined,
     @Body() body: CreatePixCreditPlanDto,
   ) {
-    return this.pixPlanService.createPixCreditPlanFromPublicDto(user?.sub ?? '', body);
+    return this.pixPlanService.createPixCreditPlanFromPublicDto(
+      user?.sub ?? '',
+      body,
+    );
   }
 
   @Get('pix-plan/:id')
@@ -149,9 +166,14 @@ export class PixPlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ) {
-    return this.pixPlanService.getPixCreditPlanById(user?.sub ?? '', id, user?.role);
+    return this.pixPlanService.getPixCreditPlanById(
+      user?.sub ?? '',
+      id,
+      user?.role,
+    );
   }
 
+  @OfferLegacyWriter()
   @Patch('pix-plan/:id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -164,9 +186,15 @@ export class PixPlanController {
     @Param('id') id: string,
     @Body() body: UpdatePixCreditPlanDto,
   ) {
-    return this.pixPlanService.updatePixCreditPlan(user?.sub ?? '', id, body, user?.role);
+    return this.pixPlanService.updatePixCreditPlan(
+      user?.sub ?? '',
+      id,
+      body,
+      user?.role,
+    );
   }
 
+  @OfferLegacyWriter()
   @Delete('pix-plan/:id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -178,23 +206,28 @@ export class PixPlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ) {
-    return this.pixPlanService.deletePixCreditPlan(user?.sub ?? '', id, user?.role);
+    return this.pixPlanService.deletePixCreditPlan(
+      user?.sub ?? '',
+      id,
+      user?.role,
+    );
   }
 
+  @OfferLegacyWriter()
   @Post('pix-plan/checkout-by-code')
   @ApiOperation({ summary: 'Criar pagamento PIX-PLAN a partir de um code' })
   @ApiResponse({ status: 201 })
   @ApiResponse({ status: 400 })
-  async createPixPlanPaymentFromCode(
-    @Body() body: PixPlanCheckoutByCodeDto,
-  ) {
+  async createPixPlanPaymentFromCode(@Body() body: PixPlanCheckoutByCodeDto) {
     return this.pixPlanService.createPixPlanPaymentFromCode(body);
   }
 
   @Get('plan-access')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Consultar acesso do cliente ao plano (crédito de dias)' })
+  @ApiOperation({
+    summary: 'Consultar acesso do cliente ao plano (crédito de dias)',
+  })
   @ApiQuery({ name: 'document', required: true, type: String })
   @ApiResponse({ status: 200 })
   async getPlanAccess(
@@ -208,7 +241,9 @@ export class PixPlanController {
   @Get('admin/pix-plan-access')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Listar todos os acessos ativos aos planos PIX (Admin)' })
+  @ApiOperation({
+    summary: 'Listar todos os acessos ativos aos planos PIX (Admin)',
+  })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'userId', required: false, type: String })
@@ -249,7 +284,9 @@ export class PixPlanController {
   @Post('plan-access/decrement-all')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Decrementar dias de todos os planos ativos (admin)' })
+  @ApiOperation({
+    summary: 'Decrementar dias de todos os planos ativos (admin)',
+  })
   @ApiResponse({ status: 200 })
   async decrementAllPlanDays() {
     return this.pixPlanService.decrementAllPlanDays();
@@ -267,7 +304,9 @@ export class PublicPixPlanController {
   ) {}
 
   @Get('pix-plan-access')
-  @ApiOperation({ summary: 'Listar acessos ativos aos planos PIX (Endpoint Público)' })
+  @ApiOperation({
+    summary: 'Listar acessos ativos aos planos PIX (Endpoint Público)',
+  })
   @ApiQuery({ name: 'userId', required: true, type: String })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -296,17 +335,22 @@ export class PublicPixPlanController {
   }
 
   @Get('purchase/:transactionId')
-  @ApiOperation({ summary: 'Obter detalhes de uma compra (PIX Plan ou Subscription)' })
+  @ApiOperation({
+    summary: 'Obter detalhes de uma compra (PIX Plan ou Subscription)',
+  })
   @ApiParam({ name: 'transactionId', required: true, type: String })
   @ApiResponse({ status: 200 })
   @ApiResponse({ status: 404 })
   async getPurchaseDetails(@Param('transactionId') transactionId: string) {
-    if (!transactionId) throw new BadRequestException('transactionId é obrigatório');
+    if (!transactionId)
+      throw new BadRequestException('transactionId é obrigatório');
     return this.pixPlanService.getPurchaseDetails(transactionId);
   }
 
   @Sse('pix-plan/status/sse/:transactionId')
-  @ApiOperation({ summary: 'SSE: receber confirmação de pagamento PIX-PLAN em tempo real' })
+  @ApiOperation({
+    summary: 'SSE: receber confirmação de pagamento PIX-PLAN em tempo real',
+  })
   @ApiParam({ name: 'transactionId', required: true, type: String })
   ssePaymentStatus(
     @Param('transactionId') transactionId: string,
@@ -320,14 +364,20 @@ export class PublicPixPlanController {
     if (!transactionId) return NEVER;
 
     const heartbeat$ = timer(0, 20000).pipe(
-      map(() => ({ data: { type: 'heartbeat' }, type: 'heartbeat' }) as MessageEvent),
+      map(
+        () =>
+          ({ data: { type: 'heartbeat' }, type: 'heartbeat' }) as MessageEvent,
+      ),
     );
     const payment$ = this.pixPlanEvents.getStream(transactionId).pipe(
-      map((event) => ({
-        data: event,
-        id: event.transactionId,
-        type: 'payment-status',
-      }) as MessageEvent),
+      map(
+        (event) =>
+          ({
+            data: event,
+            id: event.transactionId,
+            type: 'payment-status',
+          }) as MessageEvent,
+      ),
     );
     return merge(heartbeat$, payment$);
   }
@@ -340,6 +390,7 @@ export class PublicPixPlanController {
 export class BotPixPlanController {
   constructor(private readonly pixPlanService: PixPlanService) {}
 
+  @OfferLegacyWriter()
   @Delete('pix-plan/:id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -351,9 +402,14 @@ export class BotPixPlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ) {
-    return this.pixPlanService.deletePixCreditPlan(user?.sub ?? '', id, user?.role);
+    return this.pixPlanService.deletePixCreditPlan(
+      user?.sub ?? '',
+      id,
+      user?.role,
+    );
   }
 
+  @OfferLegacyWriter()
   @Patch('pix-plan/:id/status')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -362,7 +418,11 @@ export class BotPixPlanController {
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ) {
-    return this.pixPlanService.togglePixCreditPlanStatus(user?.sub ?? '', id, user?.role);
+    return this.pixPlanService.togglePixCreditPlanStatus(
+      user?.sub ?? '',
+      id,
+      user?.role,
+    );
   }
 
   /**
@@ -371,12 +431,17 @@ export class BotPixPlanController {
    * Protegido por x-pagatg-internal-token.
    */
   @Patch('admin/pix-plan-access/force-state-by-customer')
-  @ApiOperation({ summary: '[Interno] Forçar estado do acesso PIX por customerId (api-pagatg → api-machine)' })
+  @ApiOperation({
+    summary:
+      '[Interno] Forçar estado do acesso PIX por customerId (api-pagatg → api-machine)',
+  })
   async forceStateByCustomer(
     @Headers('x-pagatg-internal-token') internalToken: string,
-    @Body() body: { customerId: string; isActive: boolean; remainingDays: number },
+    @Body()
+    body: { customerId: string; isActive: boolean; remainingDays: number },
   ) {
-    const expected = (getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined);
+    const expected =
+      getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined;
     if (expected && internalToken !== expected) {
       throw new UnauthorizedException('Token interno inválido');
     }

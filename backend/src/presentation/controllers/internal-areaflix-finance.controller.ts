@@ -2,6 +2,7 @@ import { LegacyInternalAuthGuard } from '../../modules/platform-core/legacy-inte
 import { SetMetadata, UseGuards } from '@nestjs/common';
 import { InternalAreaflixFinanceService } from '../../modules/unified-platform/finance/legacy-areaflix-finance.service';
 import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
+import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 /**
  * Endpoints internos consumidos pelo saas-netflix-back (areaflix).
@@ -19,14 +20,18 @@ export class InternalAreaflixFinanceController {
   async wallet(
     @Query('cpf') cpf: string,
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.wallet(cpf, internalToken); }
+  ) {
+    return this.finance.wallet(cpf, internalToken);
+  }
 
   /** Verifica se existe conta simpay com o CPF/CNPJ informado (para liberar saques). */
   @Get('account')
   async accountStatus(
     @Query('cpf') cpf: string,
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.accountStatus(cpf, internalToken); }
+  ) {
+    return this.finance.accountStatus(cpf, internalToken);
+  }
 
   @Get('withdrawals')
   async withdrawals(
@@ -34,20 +39,25 @@ export class InternalAreaflixFinanceController {
     @Query('page') page = '1',
     @Query('limit') limit = '20',
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.withdrawals(cpf, page, limit, internalToken); }
+  ) {
+    return this.finance.withdrawals(cpf, page, limit, internalToken);
+  }
 
   /** Soma de saques ativos/concluídos (para o cálculo de saldo no lado areaflix). */
   @Get('withdrawals/totals')
   async withdrawalTotals(
     @Query('cpf') cpf: string,
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.withdrawalTotals(cpf, internalToken); }
+  ) {
+    return this.finance.withdrawalTotals(cpf, internalToken);
+  }
 
   /**
    * Transfere a titularidade de links criados pela conta de serviço da areaflix
    * para a conta simpay do admin (resolvida por CPF/CNPJ). A partir daí as vendas
    * creditam a carteira do próprio admin. Idempotente.
    */
+  @OfferLegacyWriter()
   @Post('claim-links')
   async claimLinks(
     @Body()
@@ -63,12 +73,16 @@ export class InternalAreaflixFinanceController {
       adminName?: string;
     },
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.claimLinks(body, internalToken); }
+  ) {
+    return this.finance.claimLinks(body, internalToken);
+  }
 
   /** Cria solicitação de saque — entra na fila do painel admin do simpay (platform: areaflix). */
   @Post('withdraw')
   async requestWithdraw(
     @Body() body: { cpf: string; amount: number; pixKey: string },
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.requestWithdraw(body, internalToken); }
+  ) {
+    return this.finance.requestWithdraw(body, internalToken);
+  }
 }

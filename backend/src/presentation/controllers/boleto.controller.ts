@@ -24,7 +24,13 @@ import { GetPublicBoletoUseCase } from '../../application/use-cases/boleto/get-p
 import { ChargeBoletoUseCase } from '../../application/use-cases/boleto/charge-boleto.use-case';
 import { ChargeBoletoPixUseCase } from '../../application/use-cases/boleto/charge-boleto-pix.use-case';
 import { PublicChargeBoletoDto } from '../../application/dtos/boleto/public-charge-boleto.dto';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 @Controller('boletos')
 @ApiTags('Boletos')
@@ -50,6 +56,7 @@ export class BoletoController {
     return this.getPublic.execute(id);
   }
 
+  @OfferLegacyWriter()
   @Post('public/:id/boleto')
   @ApiOperation({ summary: 'Gerar boleto (checkout público)' })
   @ApiResponse({ status: 201 })
@@ -61,8 +68,11 @@ export class BoletoController {
     return this.charge.execute({ ...body, boletoId: id });
   }
 
+  @OfferLegacyWriter()
   @Post('public/:id/pix')
-  @ApiOperation({ summary: 'Gerar cobrança PIX de um boleto (checkout público)' })
+  @ApiOperation({
+    summary: 'Gerar cobrança PIX de um boleto (checkout público)',
+  })
   @ApiResponse({ status: 201 })
   @ApiResponse({ status: 404 })
   async chargePixRoute(
@@ -77,20 +87,34 @@ export class BoletoController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Listar boletos' })
   @ApiResponse({ status: 200 })
-  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
+  @ApiResponse({
+    status: 401,
+    schema: { example: { statusCode: 401, message: 'Unauthorized' } },
+  })
   async listRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Query() query: ListBoletosQueryDto,
   ): Promise<{ data: unknown; page: number; pageSize: number; total: number }> {
-    return this.list.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', query });
+    return this.list.execute({
+      userId: user?.sub ?? '',
+      role: user?.role ?? 'USER',
+      query,
+    });
   }
 
+  @OfferLegacyWriter()
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Criar boleto' })
-  @ApiResponse({ status: 201, schema: { example: { data: { id: 'uuid-boleto-1' } } } })
-  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
+  @ApiResponse({
+    status: 201,
+    schema: { example: { data: { id: 'uuid-boleto-1' } } },
+  })
+  @ApiResponse({
+    status: 401,
+    schema: { example: { statusCode: 401, message: 'Unauthorized' } },
+  })
   async createRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Body() dto: CreateBoletoDto,
@@ -103,42 +127,78 @@ export class BoletoController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Buscar boleto por id' })
   @ApiResponse({ status: 200 })
-  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
-  @ApiResponse({ status: 404, schema: { example: { statusCode: 404, message: 'Boleto não encontrado' } } })
+  @ApiResponse({
+    status: 401,
+    schema: { example: { statusCode: 401, message: 'Unauthorized' } },
+  })
+  @ApiResponse({
+    status: 404,
+    schema: { example: { statusCode: 404, message: 'Boleto não encontrado' } },
+  })
   async getRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ data: unknown }> {
-    return this.getOne.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    return this.getOne.execute({
+      userId: user?.sub ?? '',
+      role: user?.role ?? 'USER',
+      id,
+    });
   }
 
+  @OfferLegacyWriter()
   @Put(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Atualizar boleto' })
-  @ApiResponse({ status: 200, schema: { example: { data: { id: 'uuid-boleto-1' } } } })
-  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
-  @ApiResponse({ status: 404, schema: { example: { statusCode: 404, message: 'Boleto não encontrado' } } })
+  @ApiResponse({
+    status: 200,
+    schema: { example: { data: { id: 'uuid-boleto-1' } } },
+  })
+  @ApiResponse({
+    status: 401,
+    schema: { example: { statusCode: 401, message: 'Unauthorized' } },
+  })
+  @ApiResponse({
+    status: 404,
+    schema: { example: { statusCode: 404, message: 'Boleto não encontrado' } },
+  })
   async updateRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
     @Body() dto: UpdateBoletoDto,
   ): Promise<{ data: unknown }> {
-    return this.update.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id, dto });
+    return this.update.execute({
+      userId: user?.sub ?? '',
+      role: user?.role ?? 'USER',
+      id,
+      dto,
+    });
   }
 
+  @OfferLegacyWriter()
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Remover boleto' })
   @ApiResponse({ status: 200, schema: { example: { deleted: true } } })
-  @ApiResponse({ status: 401, schema: { example: { statusCode: 401, message: 'Unauthorized' } } })
-  @ApiResponse({ status: 404, schema: { example: { statusCode: 404, message: 'Boleto não encontrado' } } })
+  @ApiResponse({
+    status: 401,
+    schema: { example: { statusCode: 401, message: 'Unauthorized' } },
+  })
+  @ApiResponse({
+    status: 404,
+    schema: { example: { statusCode: 404, message: 'Boleto não encontrado' } },
+  })
   async deleteRoute(
     @CurrentUser() user: JwtPayload | undefined,
     @Param('id') id: string,
   ): Promise<{ deleted: true }> {
-    await this.del.execute({ userId: user?.sub ?? '', role: user?.role ?? 'USER', id });
+    await this.del.execute({
+      userId: user?.sub ?? '',
+      role: user?.role ?? 'USER',
+      id,
+    });
     return { deleted: true };
   }
 }

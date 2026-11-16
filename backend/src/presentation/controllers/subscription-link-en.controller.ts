@@ -14,6 +14,7 @@ import { GetPublicSubscriptionLinkUseCase } from '../../application/use-cases/su
 import { CheckoutSubscriptionLinkCardUseCase } from '../../application/use-cases/subscription-link/checkout-subscription-link-card.use-case';
 import { CheckoutSubscriptionLinkPixUseCase } from '../../application/use-cases/subscription-link/checkout-subscription-link-pix.use-case';
 import type { CheckoutCardDto } from '../../application/dtos/subscription-link/checkout-subscription-link.dto';
+import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 /** Body que o checkout-form-generic envia para o checkout por cartão */
 class SubscriptionLinkCheckoutCardBody {
@@ -51,7 +52,9 @@ export class SubscriptionLinkEnController {
    * Retorna dados públicos do link com campos em inglês e taxa efetiva aplicada.
    */
   @Get('public/:code')
-  @ApiOperation({ summary: 'Dados públicos do link de assinatura (campos em inglês)' })
+  @ApiOperation({
+    summary: 'Dados públicos do link de assinatura (campos em inglês)',
+  })
   async getPublic(@Param('code') code: string) {
     const data = await this.getPublicUC.execute(code);
 
@@ -78,6 +81,7 @@ export class SubscriptionLinkEnController {
    * POST /subscription-links/checkout
    * Checkout por cartão de crédito — aceita { code, ...customerData, card } no body.
    */
+  @OfferLegacyWriter()
   @Post('checkout')
   @ApiOperation({ summary: 'Checkout por cartão (body com code)' })
   async checkoutCard(@Body() body: SubscriptionLinkCheckoutCardBody) {
@@ -98,6 +102,7 @@ export class SubscriptionLinkEnController {
    * POST /subscription-links/checkout/pix
    * Checkout por PIX — aceita { code, ...customerData } no body.
    */
+  @OfferLegacyWriter()
   @Post('checkout/pix')
   @ApiOperation({ summary: 'Checkout por PIX (body com code)' })
   async checkoutPix(@Body() body: SubscriptionLinkCheckoutPixBody) {

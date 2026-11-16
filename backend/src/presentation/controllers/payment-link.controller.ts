@@ -53,6 +53,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 /** Máximo de PDFs anexáveis a um link de pagamento (por envio). */
 const MAX_PDF_FILES = 20;
@@ -134,6 +135,7 @@ export class PaymentLinkController {
     }
   }
 
+  @OfferLegacyWriter()
   @Post('public/:id/charge')
   @ApiOperation({
     summary: 'Cobrar via link de pagamento (checkout público — cartão)',
@@ -152,6 +154,7 @@ export class PaymentLinkController {
     });
   }
 
+  @OfferLegacyWriter()
   @Post('public/:id/pix')
   @ApiOperation({
     summary:
@@ -252,6 +255,7 @@ export class PaymentLinkController {
     });
   }
 
+  @OfferLegacyWriter()
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -352,6 +356,7 @@ export class PaymentLinkController {
     };
   }
 
+  @OfferLegacyWriter()
   @Put(':id/ofertas')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -377,6 +382,7 @@ export class PaymentLinkController {
     return { data: saved.map(toAdminOfferView) };
   }
 
+  @OfferLegacyWriter()
   @Post(':id/ofertas/:offerId/arquivos')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -446,6 +452,7 @@ export class PaymentLinkController {
     return { files: created };
   }
 
+  @OfferLegacyWriter()
   @Delete(':id/ofertas/:offerId/arquivos/:fileId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -471,6 +478,7 @@ export class PaymentLinkController {
     return { deleted: true };
   }
 
+  @OfferLegacyWriter()
   @Post(':id/ofertas/imagem')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -505,6 +513,7 @@ export class PaymentLinkController {
     return { url: await this.storage.uploadFile(file, 'payment-link-offers') };
   }
 
+  @OfferLegacyWriter()
   @Put(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -556,6 +565,7 @@ export class PaymentLinkController {
     });
   }
 
+  @OfferLegacyWriter()
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -581,6 +591,7 @@ export class PaymentLinkController {
     return { deleted: true };
   }
 
+  @OfferLegacyWriter()
   @Post(':id/files')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -613,6 +624,7 @@ export class PaymentLinkController {
     });
   }
 
+  @OfferLegacyWriter()
   @Delete(':id/files/:fileId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

@@ -1,8 +1,21 @@
 import { LegacyInternalAuthGuard } from '../../modules/platform-core/legacy-internal-auth.guard';
 import { SetMetadata, UseGuards } from '@nestjs/common';
 import { InternalPagatgFinanceService } from '../../modules/unified-platform/finance/legacy-pagatg-finance.service';
-import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
-import { CreateVoucherDto, UpdateVoucherDto, ValidateVoucherDto } from '../../application/dtos/voucher/voucher.dto';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
+import {
+  CreateVoucherDto,
+  UpdateVoucherDto,
+  ValidateVoucherDto,
+} from '../../application/dtos/voucher/voucher.dto';
+import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 @Controller('internal/pagatg/finance')
 @SetMetadata('legacy-platform-tag', 'PAGATG')
@@ -15,7 +28,9 @@ export class InternalPagatgFinanceController {
     @Query('cpf') cpf: string,
     @Query('userId') userId?: string,
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.summary(cpf, userId, internalToken); }
+  ) {
+    return this.finance.summary(cpf, userId, internalToken);
+  }
 
   @Get('transactions')
   async transactions(
@@ -28,7 +43,19 @@ export class InternalPagatgFinanceController {
     @Query('status') status?: string,
     @Query('description') description?: string,
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.transactions(cpf, userId, page, limit, startDate, endDate, status, description, internalToken); }
+  ) {
+    return this.finance.transactions(
+      cpf,
+      userId,
+      page,
+      limit,
+      startDate,
+      endDate,
+      status,
+      description,
+      internalToken,
+    );
+  }
 
   @Get('withdrawals')
   async withdrawals(
@@ -37,13 +64,18 @@ export class InternalPagatgFinanceController {
     @Query('page') page = '1',
     @Query('limit') limit = '10',
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.withdrawals(cpf, userId, page, limit, internalToken); }
+  ) {
+    return this.finance.withdrawals(cpf, userId, page, limit, internalToken);
+  }
 
   @Post('withdraw')
   async requestWithdraw(
-    @Body() body: { cpf: string; userId?: string; amount: number; pixKey: string },
+    @Body()
+    body: { cpf: string; userId?: string; amount: number; pixKey: string },
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.requestWithdraw(body, internalToken); }
+  ) {
+    return this.finance.requestWithdraw(body, internalToken);
+  }
 
   /**
    * Cria ou atualiza um plano no api-machine espelhando o plano criado no api-pagatg.
@@ -51,9 +83,11 @@ export class InternalPagatgFinanceController {
    * O campo `code` recebe o código gerado pelo api-pagatg (ex: "3f8f67274"),
    * permitindo que o checkout encontre o plano via GET /planos/public/by-code/:code.
    */
+  @OfferLegacyWriter()
   @Post('plans')
   async upsertPlan(
-    @Body() body: {
+    @Body()
+    body: {
       cpf: string;
       userId?: string;
       code: string;
@@ -67,7 +101,9 @@ export class InternalPagatgFinanceController {
       isActive?: boolean;
     },
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.upsertPlan(body, internalToken); }
+  ) {
+    return this.finance.upsertPlan(body, internalToken);
+  }
 
   /**
    * Registra uma transação de assinatura pagatg no simpay.
@@ -76,7 +112,8 @@ export class InternalPagatgFinanceController {
    */
   @Post('record-transaction')
   async recordTransaction(
-    @Body() body: {
+    @Body()
+    body: {
       cpf: string;
       userId?: string;
       domPaymentId: string;
@@ -90,39 +127,50 @@ export class InternalPagatgFinanceController {
       paymentMethod?: string;
     },
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.recordTransaction(body, internalToken); }
+  ) {
+    return this.finance.recordTransaction(body, internalToken);
+  }
 
   @Get('vouchers')
   async listVouchers(
     @Query('cpf') cpf: string,
     @Query('userId') userId?: string,
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.listVouchers(cpf, userId, internalToken); }
+  ) {
+    return this.finance.listVouchers(cpf, userId, internalToken);
+  }
 
   @Post('vouchers')
   async createVoucher(
     @Body() body: { cpf: string; userId?: string; dto: CreateVoucherDto },
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.createVoucher(body, internalToken); }
+  ) {
+    return this.finance.createVoucher(body, internalToken);
+  }
 
   @Post('vouchers/validate')
   async validateVoucher(
     @Body() body: { cpf: string; userId?: string; dto: ValidateVoucherDto },
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.validateVoucher(body, internalToken); }
+  ) {
+    return this.finance.validateVoucher(body, internalToken);
+  }
 
   @Post('vouchers/update/:id')
   async updateVoucher(
     @Param('id') id: string,
     @Body() body: { cpf: string; userId?: string; dto: UpdateVoucherDto },
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.updateVoucher(id, body, internalToken); }
+  ) {
+    return this.finance.updateVoucher(id, body, internalToken);
+  }
 
   @Post('vouchers/delete/:id')
   async deleteVoucher(
     @Param('id') id: string,
     @Body() body: { cpf: string; userId?: string },
     @Headers('x-internal-token') internalToken?: string,
-  ) { return this.finance.deleteVoucher(id, body, internalToken); }
-
+  ) {
+    return this.finance.deleteVoucher(id, body, internalToken);
+  }
 }

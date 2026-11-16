@@ -1,3 +1,4 @@
+import { assertOfferLegacyWritable } from '../../offer/offer-legacy-freeze';
 import { offerPlatformReadsEnabled } from '../../offer/offer-read-flag';
 import { transactionPlatformTagData } from '../../platform-core/transaction-platform';
 import {
@@ -160,6 +161,8 @@ export class PlatformPaymentsService {
         capability: 'payments.' + input.paymentMethod,
       });
     if (input.linkId) {
+      // Frozen legacy writer (plan 0023, phase 4): the legacy link path also records Transaction.paymentLinkId.
+      if (!offerPlatformReadsEnabled()) assertOfferLegacyWritable();
       const link = offerPlatformReadsEnabled()
         ? await this.prisma.offer
             .findFirst({

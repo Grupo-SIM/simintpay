@@ -17,6 +17,7 @@ import {
   PlatformSubscriptionPlanDto,
 } from './platform-subscription-capabilities.dto';
 import { PlatformSubscriptionCapabilitiesService } from './platform-subscription-capabilities.service';
+import { OfferLegacyWriter } from '../offer/offer-legacy-freeze';
 
 @Controller('platforms/:tag')
 @UseGuards(PlatformAuthGuard)
@@ -25,6 +26,7 @@ export class PlatformSubscriptionCapabilitiesController {
     private readonly capabilities: PlatformSubscriptionCapabilitiesService,
   ) {}
 
+  @OfferLegacyWriter()
   @Post('subscriptions/plans')
   @SetMetadata('platform-operation', 'subscriptions:write')
   @UsePipes(
@@ -41,6 +43,7 @@ export class PlatformSubscriptionCapabilitiesController {
     return this.capabilities.createPlan(request.platformContext, body);
   }
 
+  @OfferLegacyWriter()
   @Post('subscriptions/plans/import')
   @SetMetadata('platform-operation', 'ledger:write')
   @UsePipes(

@@ -35,6 +35,7 @@ import { UpdatePaymentLinkDto } from '../../application/dtos/payment-link/update
 import { CreatePaymentLinkUseCase } from '../../application/use-cases/payment-link/create-payment-link.use-case';
 import { UpdatePaymentLinkUseCase } from '../../application/use-cases/payment-link/update-payment-link.use-case';
 import { ManagePaymentLinkFilesUseCase } from '../../application/use-cases/payment-link/manage-payment-link-files.use-case';
+import { OfferLegacyWriter } from '../offer/offer-legacy-freeze';
 type Request = { platformContext: PlatformContext };
 @Controller('platforms/:tag')
 @UseGuards(PlatformAuthGuard)
@@ -109,6 +110,7 @@ export class PlatformLinksController {
           );
       }
   }
+  @OfferLegacyWriter()
   @Post('links')
   @SetMetadata('platform-operation', 'links:write')
   async create(
@@ -161,6 +163,7 @@ export class PlatformLinksController {
   async get(@Req() req: Request, @Param('id') id: string) {
     return this.response(await this.ownedForRead(req.platformContext, id));
   }
+  @OfferLegacyWriter()
   @Patch('links/:id')
   @SetMetadata('platform-operation', 'links:write')
   async update(
@@ -182,6 +185,7 @@ export class PlatformLinksController {
       });
     return this.response(await this.owned(c, id));
   }
+  @OfferLegacyWriter()
   @Post('links/:id/files')
   @SetMetadata('platform-operation', 'links:write')
   @UseInterceptors(
