@@ -16,6 +16,28 @@ const issues = (raw: unknown) => {
   return '';
 };
 
+describe('parseOfferFulfillment: arquivos e imagem', () => {
+  test('mantém id e tamanho dos arquivos e valida imageUrl', () => {
+    const f = parseOfferFulfillment({
+      files: [
+        { id: 'x1', fileName: 'a.pdf', fileSize: 10, fileUrl: 'https://s/a' },
+        { fileName: 'b.pdf', fileUrl: 'https://s/b' },
+      ],
+      imageUrl: 'https://s/img.png',
+    });
+    expect(f.files[0]).toEqual({
+      id: 'x1',
+      fileName: 'a.pdf',
+      fileSize: 10,
+      fileUrl: 'https://s/a',
+    });
+    expect(f.files[1]).toEqual({ fileName: 'b.pdf', fileUrl: 'https://s/b' });
+    expect(f.imageUrl).toBe('https://s/img.png');
+    expect(parseOfferFulfillment(null).imageUrl).toBeNull();
+    expect(() => parseOfferFulfillment({ imageUrl: 'ftp://x' })).toThrow();
+  });
+});
+
 describe('parseOfferFulfillment', () => {
   test('null becomes an empty delivery; a full document is normalized', () => {
     expect(parseOfferFulfillment(null).files).toEqual([]);

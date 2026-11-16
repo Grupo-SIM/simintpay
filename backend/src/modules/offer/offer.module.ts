@@ -15,6 +15,8 @@ import {
 import { OfferCheckoutService } from './offer-checkout.service';
 import { OfferRenewalService } from './offer-renewal.service';
 import { OfferSubscribeService } from './offer-subscribe.service';
+import { OfferAssetsController } from './offer-assets.controller';
+import { OfferAssetsService } from './offer-assets.service';
 import { OfferController } from './offer.controller';
 import {
   PaymentLinksCompatController,
@@ -32,6 +34,7 @@ import { OfferSubscribersService } from './offer-subscribers.service';
   controllers: [
     OfferSubscribersController,
     OfferController,
+    OfferAssetsController,
     ...compatLinkControllers([
       PaymentLinksCompatController,
       SubscriptionLinksCompatController,
@@ -40,6 +43,7 @@ import { OfferSubscribersService } from './offer-subscribers.service';
   providers: [
     OfferService,
     OfferSubscribersService,
+    OfferAssetsService,
     LegacyLinksCompatService,
     OfferCheckoutService,
     EmailService,

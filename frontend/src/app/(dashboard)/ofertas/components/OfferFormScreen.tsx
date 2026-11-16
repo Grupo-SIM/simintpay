@@ -57,6 +57,7 @@ import {
   type Offer,
   type OfferInterval,
 } from '../offers';
+import { OfferAssetsSection } from './OfferAssetsSection';
 import { OfferBumpsSection } from './OfferBumpsSection';
 
 const textareaClass =
@@ -622,6 +623,11 @@ function FormBody({
               body={form.emailBody}
               title={form.name}
               redirectUrl={form.redirectUrl}
+            />
+            <OfferAssetsSection
+              offerId={id}
+              offerCode={offer?.code ?? null}
+              hasImage={Boolean(offer?.fulfillment?.imageUrl)}
             />
           </div>
         </div>

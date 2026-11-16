@@ -35,6 +35,8 @@ export type PublicBump = {
   name: string;
   description: string | null;
   amountCents: number;
+  /** Imagem da oferta no storage (rota pública do backend); ausente quando não há. */
+  imageUrl?: string | null;
 };
 
 /** Order bumps oferecidos no checkout (avulsos; upsell/downsell são pós-compra). */

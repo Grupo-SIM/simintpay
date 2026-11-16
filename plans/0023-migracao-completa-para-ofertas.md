@@ -121,7 +121,11 @@ Pontos que a primeira leva deixou em aberto:
 
 Segunda leva (mexem em arquivos da primeira, começam agora):
 
-- [ ] Arquivos de entrega e imagens de bump.
+- [x] Arquivos de entrega e imagens de bump.
+  - Armazenados em `Offer.fulfillment.files` (`id`, `fileName`, `fileSize`, `fileUrl`; máximo de 10 PDFs de 25 MB) e `Offer.fulfillment.imageUrl` (imagem de até 5 MB), sem tabela nova nem migration; mesmo storage do link de pagamento (`offer-files/` e `offer-images/`).
+  - Rotas do titular: `GET/POST /ofertas/:id/arquivos`, `DELETE /ofertas/:id/arquivos/:fileId`, `POST/DELETE /ofertas/:id/imagem`; imagem pública em `GET /ofertas/public/:code/imagem`. A edição da oferta mantém arquivos e imagem (só as rotas de upload os alteram).
+  - Entrega ao pagar já usava `fulfillment.files` (`OfferFulfillmentService`); `PublicBump.imageUrl` chega ao checkout.
+  - Pendente: a migração dos dados antigos (`PaymentLinkFile`/`PaymentLinkOfferFile` e `PaymentLinkOffer.imageUrl`) para `fulfillment` é da Fase 2 (hoje 0 linhas).
 - [x] Cupons: `POST /ofertas/public/:code/validate-voucher`, desconto antes das taxas na cobrança avulsa e no primeiro ciclo da assinatura, uso registrado ao pagar (idempotente por transação), campo de cupom no checkout, CRUD e capacidade PAGATG com ofertas.
 - [x] Funil no checkout: seleção de bumps, tela de pós-compra de upsell e downsell (`OfferFunnelScreen`, cobrança filha com `parentChargeId` no mesmo cartão ou PIX; recusar o upsell oferece o downsell). Imagens de bump seguem com o item de arquivos de entrega e imagens.
 - [x] Pausa e retomada de assinatura, e lista de assinantes de ofertas para o vendedor.

@@ -45,6 +45,12 @@ export const endpoints = {
       `/ofertas/assinantes/${encodeURIComponent(id)}/pause`,
     resumeSubscriber: (id: string) =>
       `/ofertas/assinantes/${encodeURIComponent(id)}/resume`,
+    publicImage: (code: string) =>
+      `/ofertas/public/${encodeURIComponent(code)}/imagem`,
+    files: (id: string) => `/ofertas/${encodeURIComponent(id)}/arquivos`,
+    file: (id: string, fileId: string) =>
+      `/ofertas/${encodeURIComponent(id)}/arquivos/${encodeURIComponent(fileId)}`,
+    image: (id: string) => `/ofertas/${encodeURIComponent(id)}/imagem`,
   },
   planos: {
     list: '/planos',

@@ -314,10 +314,8 @@ describe('formFromOffer', () => {
     });
     expect(form.keep.files).toHaveLength(1);
     const payload = offerPayload(form, 49.9);
-    const fulfillment = payload.fulfillment as {
-      files: unknown[];
-    };
-    expect(fulfillment.files).toHaveLength(1);
+    // Arquivos só mudam pelas rotas de upload; o corpo da edição não os reenvia.
+    expect(payload.fulfillment).not.toHaveProperty('files');
     expect(payload.metadata).toEqual({
       custom: true,
       boletoDueDays: 4,

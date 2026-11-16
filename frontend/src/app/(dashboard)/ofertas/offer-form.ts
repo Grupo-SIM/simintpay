@@ -345,10 +345,8 @@ function fulfillmentOf(form: OfferForm, create: boolean) {
   };
   const empty = !base.emailBody && !base.redirectUrl && base.bumps.length === 0;
   if (create && empty) return undefined;
-  return {
-    ...base,
-    files: form.keep.files,
-  };
+  // Arquivos e imagem não vão no corpo: o backend os mantém e só as rotas de upload os alteram.
+  return base;
 }
 
 /**

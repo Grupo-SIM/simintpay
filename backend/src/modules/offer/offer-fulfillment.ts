@@ -18,8 +18,15 @@ export type ChargeItem = {
   amountCents: number;
 };
 
+export const MAX_FULFILLMENT_FILE_BYTES = 25 * 1024 * 1024;
+export const MAX_FULFILLMENT_IMAGE_BYTES = 5 * 1024 * 1024;
+
 export type FulfillmentFile = {
+  /** Identificador estável para remoção; arquivos antigos (migrados) não têm. */
+  id?: string;
   fileName: string;
+  /** Tamanho em bytes, quando conhecido (upload pelo painel). */
+  fileSize?: number;
   /** URL do storage privado (só o host do STORJ_ENDPOINT é baixado). */
   fileUrl: string;
 };
@@ -31,6 +38,8 @@ export type OfferFulfillment = {
   emailBody: string | null;
   redirectUrl: string | null;
   bumps: FulfillmentBump[];
+  /** Imagem da oferta no storage privado, exibida quando ela é vendida como bump/upsell/downsell. */
+  imageUrl?: string | null;
 };
 
 export class OfferFulfillmentError extends Error {
@@ -47,6 +56,7 @@ const KEYS = new Set([
   // Legacy key: communities were discontinued; stored values are tolerated and dropped.
   'communityId',
   'bumps',
+  'imageUrl',
 ]);
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : null);
@@ -131,6 +141,7 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
     emailBody: null,
     redirectUrl: null,
     bumps: [],
+    imageUrl: null,
   };
   if (raw === null || raw === undefined) return empty;
   const issues: string[] = [];
@@ -152,7 +163,18 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
         const fileUrl = str(f?.fileUrl);
         if (!fileName || !fileUrl || !/^https?:\/\//i.test(fileUrl))
           issues.push('Arquivo precisa de fileName e fileUrl (http/https)');
-        else files.push({ fileName, fileUrl });
+        else {
+          const id = str(f?.id);
+          const size = f?.fileSize;
+          files.push({
+            ...(id ? { id } : {}),
+            fileName,
+            ...(typeof size === 'number' && Number.isFinite(size) && size >= 0
+              ? { fileSize: size }
+              : {}),
+            fileUrl,
+          });
+        }
       }
     }
   }
@@ -180,6 +202,9 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
 
   const emailBody = optionalText('emailBody', 20_000);
   const redirectUrl = optionalUrl('redirectUrl');
+  const imageUrl = optionalText('imageUrl', 2048);
+  if (imageUrl && !/^https?:\/\//i.test(imageUrl))
+    issues.push('imageUrl deve ser http/https');
 
   const bumps: FulfillmentBump[] = [];
   if (input.bumps !== undefined && input.bumps !== null) {
@@ -204,7 +229,7 @@ export function parseOfferFulfillment(raw: unknown): OfferFulfillment {
   }
 
   if (issues.length) throw new OfferFulfillmentError(issues);
-  return { files, emailBody, redirectUrl, bumps };
+  return { files, emailBody, redirectUrl, bumps, imageUrl };
 }
 
 /** Leitura tolerante para o checkout/entrega: JSON inválido já gravado vira entrega vazia. */

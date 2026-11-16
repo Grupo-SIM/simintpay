@@ -748,7 +748,7 @@ export default function OfferCheckout({
                     chamada: null,
                     titulo: bump.name,
                     descricao: bump.description,
-                    imagemUrl: null,
+                    imagemUrl: bump.imageUrl ?? null,
                     valor: bump.amountCents / 100,
                     valorOriginal: null,
                   }}

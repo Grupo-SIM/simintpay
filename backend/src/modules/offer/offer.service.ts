@@ -60,10 +60,23 @@ export type PublicBump = {
   description: string | null;
   amountCents: number;
   currency: string;
+  /** Rota pública da imagem; null quando a oferta não tem imagem. */
+  imageUrl: string | null;
 };
+
+function publicImageUrl(o: Offer): string | null {
+  if (!readOfferFulfillment(o.fulfillment).imageUrl) return null;
+  const base = (
+    process.env.PUBLIC_API_URL || 'https://simpay-back.simintermediacoes.com'
+  )
+    .trim()
+    .replace(/\/+$/, '');
+  return `${base}/ofertas/public/${encodeURIComponent(o.code)}/imagem?v=${o.updatedAt.getTime()}`;
+}
 
 function toPublicBump(o: Offer, role: PublicBump['role'] = 'BUMP'): PublicBump {
   return {
+    imageUrl: publicImageUrl(o),
     code: o.code,
     role,
     name: o.name,
@@ -283,7 +296,18 @@ export class OfferService {
               : undefined,
         maxUses: dto.maxUses,
         fulfillment: await this.checkFulfillment(
-          dto.fulfillment,
+          // Arquivos e imagem são geridos pelas rotas de upload: omitidos na edição, são mantidos.
+          dto.fulfillment && {
+            ...(readOfferFulfillment(existing.fulfillment).files.length
+              ? { files: readOfferFulfillment(existing.fulfillment).files }
+              : {}),
+            ...(readOfferFulfillment(existing.fulfillment).imageUrl
+              ? {
+                  imageUrl: readOfferFulfillment(existing.fulfillment).imageUrl,
+                }
+              : {}),
+            ...dto.fulfillment,
+          },
           existing.ownerUserId,
           existing.id,
         ),
@@ -464,6 +488,7 @@ export class OfferService {
           description: o.description,
           amountCents: o.amountCents,
           currency: o.currency,
+          imageUrl: publicImageUrl(o),
         },
       ];
     });
