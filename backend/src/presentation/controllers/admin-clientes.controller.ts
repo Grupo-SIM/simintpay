@@ -336,7 +336,7 @@ export class AdminClientesController {
 
     const clientes = await this.prisma.user.findMany({
       where,
-      orderBy: [{ clientStatus: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [{ name: 'asc' }, { createdAt: 'desc' }],
       select: {
         id: true,
         name: true,

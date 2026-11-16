@@ -77,7 +77,7 @@ export class AdminAfiliadosController {
 
     const affiliates = await this.prisma.user.findMany({
       where: { isAffiliate: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ name: 'asc' }, { createdAt: 'desc' }],
       select: {
         id: true,
         name: true,
@@ -167,6 +167,7 @@ export class AdminAfiliadosController {
           { email: { contains: q.trim(), mode: 'insensitive' } },
         ],
       },
+      orderBy: { name: 'asc' },
       take: 20,
       select: {
         id: true,

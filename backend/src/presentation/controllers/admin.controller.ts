@@ -1632,7 +1632,7 @@ export class AdminController {
     const items = await this.prisma.externalPlatformUser.findMany({
       where,
       include: { user: { select: { id: true, email: true, name: true } } },
-      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      orderBy: [{ name: 'asc' }, { createdAt: 'desc' }, { id: 'asc' }],
     });
     const requestedTag = canonicalTransactionPlatformTag(platform);
     const seen = new Set<string>();
@@ -1917,7 +1917,14 @@ export class AdminController {
 
     const extAllRowsRaw = await this.prisma.externalPlatformUser.findMany({
       where: extMatchWhere,
-      select: { cpf: true, cnpj: true, createdAt: true, userId: true },
+      select: {
+        cpf: true,
+        cnpj: true,
+        createdAt: true,
+        userId: true,
+        name: true,
+        user: { select: { name: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -2278,9 +2285,19 @@ export class AdminController {
 
     const moduleUserMap = new Map(moduleUsers.map((u) => [u.id, u]));
 
-    // ── 3. Merge and sort by createdAt desc, then paginate ────────────────────
-    type ExtId = { source: 'ext'; document: string; createdAt: Date };
-    type ModId = { source: 'mod'; userId: string; createdAt: Date };
+    // ── 3. Merge and sort alphabetically by name, then paginate ───────────────
+    type ExtId = {
+      source: 'ext';
+      document: string;
+      createdAt: Date;
+      sortName: string;
+    };
+    type ModId = {
+      source: 'mod';
+      userId: string;
+      createdAt: Date;
+      sortName: string;
+    };
     type Identity = ExtId | ModId;
 
     const allIdentities: Identity[] = [
@@ -2289,14 +2306,21 @@ export class AdminController {
           source: 'ext' as const,
           document: e.cpf || e.cnpj || '',
           createdAt: e.createdAt,
+          sortName: (e.user?.name?.trim() || e.name || '').trim(),
         }))
         .filter((e) => e.document !== ''),
       ...moduleUsers.map((u) => ({
         source: 'mod' as const,
         userId: u.id,
         createdAt: u.createdAt,
+        sortName: (u.name || '').trim(),
       })),
-    ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    ].sort(
+      (a, b) =>
+        a.sortName.localeCompare(b.sortName, 'pt-BR', {
+          sensitivity: 'base',
+        }) || b.createdAt.getTime() - a.createdAt.getTime(),
+    );
 
     const combinedTotal = allIdentities.length;
     const pagedIdentities = allIdentities.slice(
