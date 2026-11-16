@@ -1,6 +1,9 @@
-import { afterAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+import { Client } from 'pg';
 import { readPlatformBalanceSummary } from '../src/modules/platform-core/platform-balance-summary';
 
 const url = process.env.ADMIN_SUMMARY_TEST_DATABASE_URL;
@@ -16,6 +19,25 @@ if (
 const db = url
   ? new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) })
   : null;
+beforeAll(async () => {
+  if (!url) return;
+  // transaction_canonical_platform_tag() lives only in the migration (db push does not create it).
+  const pg = new Client({ connectionString: url });
+  await pg.connect();
+  try {
+    await pg.query(
+      readFileSync(
+        resolve(
+          import.meta.dir,
+          '../prisma/migrations/20261029120000_transaction_platform_tag/migration.sql',
+        ),
+        'utf8',
+      ),
+    );
+  } finally {
+    await pg.end();
+  }
+});
 afterAll(async () => {
   await db?.$disconnect();
 });

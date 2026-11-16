@@ -5,6 +5,7 @@ import { Client } from 'pg';
 import { runAudit } from '../audit-product-ownership';
 import { ReassignmentRejected, reassignProducts } from '../reassign-products';
 import { PrismaPaymentLinkRepository } from '../../src/infrastructure/database/repositories/prisma-payment-link.repository';
+import { removeWalletConsistencyGuard } from '../../tests/wallet-guard-fixture';
 import { mappingHash, type MappingEntry } from '../product-ownership';
 
 const url = process.env.OWNERSHIP_TEST_DATABASE_URL;
@@ -16,6 +17,8 @@ const db = url
 const pg = url ? new Client({ connectionString: url }) : null;
 beforeAll(async () => {
   await pg?.connect();
+  // Fixtures seed a Wallet before its BalanceLog row, which the consistency guard rejects.
+  if (pg) await removeWalletConsistencyGuard(pg);
 });
 afterAll(async () => {
   await pg?.end();
@@ -357,7 +360,6 @@ run('audits and reassigns an Offer through ownerUserId', async () => {
       createdByUserId: admin.id,
       platformTag: tag,
       code: `OWN${id().slice(0, 8).toUpperCase()}`,
-      kind: 'PAYMENT_LINK',
       name: 'Offer',
       amountCents: 5000,
       acceptedMethods: ['PIX'],
