@@ -185,11 +185,16 @@ SQL cru com nome de tabela antigo em `src` (só um arquivo):
 `Prisma.raw` com nome de tabela:
 
 - [x] `coproduction.service.ts` (2) e `coproduction-view.ts` (1): resolvem `"Offer"` com o flag. Ficam as entradas antigas de `productTables` até a Fase 6.
-- [ ] `scripts/reassign-products.ts` (`Prisma.raw` da tabela por `productType`): aceita `Offer`, mas ainda lê as antigas; revisar na Fase 4, quando os escritores cortarem.
+- [x] `scripts/reassign-products.ts` (`Prisma.raw` da tabela por `productType`): aceita `Offer`; um `productType` legado é recusado com `LEGACY_TABLE_GONE_USE_OFFER` (tabela renomeada/apagada) ou `MIGRATED_TO_OFFER_USE_OFFER` (já existe `Offer` com o mesmo id), para não dividir o dono entre a linha velha e a oferta.
 
 Scripts e SQL avulsos (ferramentas de migração e diagnóstico; devem continuar lendo as tabelas antigas até a Fase 5, depois ser removidos ou reapontados):
 
-- [ ] `scripts/diagnose-checkout-platforms.sql` (`FROM "PaymentLink" l`), `scripts/audit-product-ownership.ts` (consultas em `"paymentLinkId"`, `"subscriptionLinkId"`, `"planId"`, `"pixCreditPlanId"`), `scripts/offer-contract-migration.ts` (digest de `"SubscriptionLinkOrder"`) e `scripts/sql/migrate-paid-subscription-orders.sql` (`o."subscriptionLinkId"`). Fixtures SQL de teste: `coproduction/tests/coproduction-push.sql` (`CREATE TABLE "Plan"`) e `sale-push/tests/approval-trigger.sql`.
+- [x] Scripts adaptados (Fase 5, 2026-11-16):
+  - `scripts/diagnose-checkout-platforms.sql` lê `"Offer"` (`ownerUserId`, `platformTag`; ids iguais aos antigos) e deixou de usar a palavra reservada `references` como nome de CTE (o script já não rodava no Postgres).
+  - `scripts/audit-product-ownership.ts` pula tabela legada ausente ou renomeada, marca linha legada com `Offer` gêmea (`LEGACY_TWIN_OF_OFFER`) e coleta estatísticas de `Offer` por `Transaction.offerId`/`BillingContract`; cada consulta de estatística tolera a tabela ou a coluna ter sumido (Fase 5/6).
+  - `scripts/sql/migrate-paid-subscription-orders.sql` achava a oferta por `legacyType`/`legacyId`, que o `offer-migration-apply` deixou de gravar (usa o id antigo): agora casa por `Offer.id` (e ainda por `legacyId` para as ofertas-sombra antigas). **Roda antes da Fase 5** (lê `SubscriptionLinkOrder` pelo nome antigo) e fica obsoleto depois dela; `scripts/offer-contract-migration.ts` (que o executa) idem.
+  - Fixtures `coproduction/tests/coproduction-push.sql` e `sale-push/tests/approval-trigger.sql`: **mantidas**. O `CREATE TABLE "Plan"` é só um stub para a migration histórica imutável `202610140001_sale_push` (`ALTER TABLE "Plan"`) poder ser reexecutada no schema isolado; nenhuma lê dado de produto. Comentário no arquivo explica.
+  - Teste novo em `scripts/tests/product-ownership.integration.test.ts` (gêmea legada recusada, estatística de `Offer`).
 
 Migrations (`backend/prisma/migrations`): 22 arquivos citam as tabelas antigas, todos DDL (criação, `ALTER`, FKs `REFERENCES`); **nenhuma função, trigger ou view lê as tabelas antigas** (única função que cita uma delas, `202610140001_sale_push`, só faz `ALTER TABLE "Plan"`). A Fase 5 precisa de uma migration nova para soltar as FKs e renomear; as antigas não se editam.
 
@@ -220,14 +225,19 @@ Flag `OFFER_WRITES_ONLY=1` (`modules/offer/offer-writes-flag.ts`; também lido p
 
 ### Fase 5: repontar chaves e renomear
 
-- [ ] Soltar as FKs para as tabelas antigas e criar as novas `NOT VALID`, depois `VALIDATE`.
-- [ ] `ALTER TABLE ... RENAME TO "..._legacy"`. Nenhum código lê as tabelas renomeadas.
+- [x] **SQL revisável pronto, NÃO aplicado em banco real** (`backend/prisma/phase-sql/`, fora de `prisma/migrations` para o auto-migrate não rodar sozinho; ver o `README.md` da pasta com a ordem de execução):
+  - `phase5-repoint-and-rename.sql`: numa transação, trava as tabelas, roda pré-checagens que abortam (toda linha antiga com `Offer` de mesmo id, colisão de id, órfãos de `Transaction.paymentLinkId`, `offerId` igual a `paymentLinkId`, `ExternalRef` da DOM, coprodução em chave antiga, produto legado ainda ativo, funil/arquivos/assinatura viva/acesso PIX sem destino, funções e views citando tabela antiga), solta `Transaction_paymentLinkId_fkey` e a recria para `Offer` (`NOT VALID` + `VALIDATE`) e renomeia as 16 tabelas de produto para `..._legacy`. Padrão `ROLLBACK` (ensaio); só `-v finish=COMMIT` grava.
+  - Só `Transaction.paymentLinkId` é repontada: é a única FK de tabela que sobrevive. As FKs entre tabelas que viram `_legacy` acompanham o rename e caem juntas na Fase 6 (apontá-las para `Offer` faria um `RESTRICT`/`CASCADE` de dado morto travar ou apagar oferta viva). `Voucher`/`VoucherUsage` ficam (cupons portados, sem FK para produto).
+  - `phase5-rollback.sql`: devolve os nomes e a FK para `PaymentLink`; aborta se existir venda que só aponta para `Offer`.
+  - Ensaiado em Postgres descartável local com o schema atual e dados semeados (`phase-sql/tests/rehearse.sh`, 24 cenários: caminho feliz, rollback, reaplicação e cada pré-checagem). Antes de aplicar: rodar o ensaio na cópia restaurada de produção e `scripts/offer-parity-check.ts` sem divergência.
+  - Pendente: o dono aplicar (exige autorização por fase) e ajustar `schema.prisma`/código no mesmo release; nenhum código pode ler as tabelas renomeadas.
 
 ### Fase 6: observar e apagar
 
 - [ ] 2 a 4 semanas observando: webhooks sem correspondência, diferenças de relatório, erros 404 de URL antiga, chamadas dos sistemas vizinhos.
-- [ ] `DROP`, na ordem folha-primeiro (seção 8), e remover o código classe C, os módulos e as rotas legadas.
-- [ ] Remover `legacyType`, `legacyId`, `ExternalRef` de produto que ficar sem uso, `Transaction.paymentLinkId`, `PlanType` (se `PixPlanOrder` sair) e `CommunityLinkType`.
+- [x] **SQL do `DROP` pronto, NÃO aplicado** (`backend/prisma/phase-sql/phase6-drop.sql`), na ordem folha-primeiro da seção 8, sem `CASCADE`/`DELETE`/`TRUNCATE` (o `ON DELETE CASCADE` só dispara em `DELETE`, nunca em `DROP TABLE`; mesmo assim os filhos caem antes dos pais). Transação única, padrão `ROLLBACK`, exige `-v confirm="DROP-LEGACY:<banco>"`; tabela legada com linhas só cai com `-v accept_loss=<tabela>`; pré-checagens abortam se algum dos cinco produtos não tem `Offer`, se `Transaction.paymentLinkId` não casa com `offerId`, se tabela viva ainda referencia tabela `_legacy` ou se função/view cita tabela legada. Apaga também `Transaction.paymentLinkId` (FK e coluna) e o enum `PlanType`. Rollback: só backup/PITR depois do `COMMIT`. Ensaiado em Postgres descartável local (`phase-sql/tests/rehearse.sh`).
+- [ ] Remover o código classe C, os módulos e as rotas legadas (nada de código foi removido aqui; outros agentes cuidam do corte dos escritores).
+- [ ] Remover `Offer.legacyType`/`legacyId` e o índice único, o CHECK `CoproductionAgreement_product_check` (aceitar só `ofertas` e `plataformas`), `ExternalRef` de produto que ficar sem uso e `CommunityLinkType`: migration normal do Prisma, junto do release de código (o `phase6-drop.sql` não toca nisso porque o código ainda lê essas colunas). `Transaction.paymentLinkId` e `PlanType` saem no `phase6-drop.sql`.
 
 ## 8. Ordem de DROP (folhas primeiro)
 
@@ -268,6 +278,7 @@ Os ids guardados em banco desses projetos não aparecem numa busca por código: 
 
 Em uma cópia restaurada de produção, nunca no banco real:
 
+- **Ferramenta:** `backend/scripts/offer-parity-check.ts` (somente leitura: `BEGIN READ ONLY`, `default_transaction_read_only=on` e recusa qualquer instrução que não seja um único `SELECT`/`WITH`/`SHOW`) implementa os itens abaixo que dependem do banco, com `--baseline`/`--save-baseline` para comparar antes e depois de cada fase, e acha as tabelas pelo nome ou por `<nome>_legacy`. Sai com código 1 em qualquer divergência. Não cobre relatórios linha a linha, webhooks guardados nem o canário.
 - Contagem por tabela antiga contra `Offer` por origem, e zero órfãos em cada chave repontada.
 - Soma de `amount` e `netAmount` das `Transaction`, agrupada por status, meio e produto, igual antes e depois.
 - Relatórios de plataforma e de vendedor comparados linha a linha.
