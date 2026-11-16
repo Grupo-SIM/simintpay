@@ -1,3 +1,8 @@
+import {
+  alertUnresolvedWebhook,
+  offerWebhookResolutionEnabled,
+  resolveOfferBySubscriptionReference,
+} from '../../../modules/billing-core/webhook-offer-resolution';
 import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import { Injectable, Logger } from '@nestjs/common';
@@ -23,6 +28,30 @@ export class SubscriptionWebhookService {
   private readonly logger = new Logger(SubscriptionWebhookService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Plan 0023: behind the flag, offer-side resolution; always alerts when nothing matches. */
+  private async reportUnresolvedSubscription(
+    handler: string,
+    subscriberId: string,
+  ): Promise<void> {
+    if (offerWebhookResolutionEnabled()) {
+      const hit = await resolveOfferBySubscriptionReference(
+        this.prisma,
+        subscriberId,
+      );
+      if (hit) {
+        this.logger.log(
+          `[${handler}] ${subscriberId} resolvido na oferta ${hit.offerId ?? '-'} via ${hit.via}`,
+        );
+        return;
+      }
+    }
+    alertUnresolvedWebhook(
+      this.logger,
+      `subscription.${handler}`,
+      subscriberId,
+    );
+  }
 
   private getString(v: unknown): string | null {
     if (typeof v === 'string' && v.length > 0) return v;
@@ -130,6 +159,10 @@ export class SubscriptionWebhookService {
     if (!subscription) {
       this.logger.warn(
         `[handleInvoicePaid] Subscription não encontrada para ${subscriberId}`,
+      );
+      await this.reportUnresolvedSubscription(
+        'handleInvoicePaid',
+        subscriberId,
       );
       return;
     }
@@ -316,6 +349,10 @@ export class SubscriptionWebhookService {
     if (!subscription) {
       this.logger.warn(
         `[handleChargeApproved] Subscription não encontrada para ${subscriberId}`,
+      );
+      await this.reportUnresolvedSubscription(
+        'handleChargeApproved',
+        subscriberId,
       );
       return;
     }
@@ -795,6 +832,7 @@ export class SubscriptionWebhookService {
       this.logger.warn(
         `[handleCancelled] Subscription não encontrada para ${subscriberId}`,
       );
+      await this.reportUnresolvedSubscription('handleCancelled', subscriberId);
       return;
     }
 

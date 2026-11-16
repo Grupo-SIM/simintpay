@@ -1,3 +1,4 @@
+import { offerWebhookResolutionEnabled } from '../billing-core/webhook-offer-resolution';
 import { settleCoproduction } from '../coproduction/coproduction-settlement';
 import { AffiliateCommissionService } from '../../application/services/affiliate-commission.service';
 import { enqueueCashbackGrant } from './cashback-grant';
@@ -85,6 +86,20 @@ export async function settleFinalNet(
   return true;
 }
 
+type LinkRef = { paymentLinkId?: string | null; offerId?: string | null };
+
+/**
+ * Same product on both sides. Legacy compare by default; with OFFER_WEBHOOK_RESOLUTION the
+ * Offer id (which keeps the legacy link id after the migration) is also accepted, so a row
+ * carrying only `offerId` and one carrying only `paymentLinkId` still match.
+ */
+export function sameLinkOwner(a: LinkRef, b: LinkRef): boolean {
+  if ((a.paymentLinkId ?? null) === (b.paymentLinkId ?? null)) return true;
+  if (!offerWebhookResolutionEnabled()) return false;
+  const key = (r: LinkRef) => r.offerId ?? r.paymentLinkId ?? null;
+  return key(a) !== null && key(a) === key(b);
+}
+
 /** Unique gateway reference arbitrates response/webhook/polling races; existing ownership and snapshots are immutable. */
 export async function persistLinkCharge(
   p: Prisma.TransactionClient,
@@ -97,7 +112,7 @@ export async function persistLinkCharge(
     if (
       !draft ||
       draft.userId !== data.userId ||
-      (draft.paymentLinkId ?? null) !== (data.paymentLinkId ?? null) ||
+      !sameLinkOwner(draft, data) ||
       (draft.domPaymentId && draft.domPaymentId !== data.domPaymentId)
     )
       throw new ConflictException('Cobrança incompatível');
@@ -120,10 +135,7 @@ export async function persistLinkCharge(
     update: {},
     create: { ...data, status: 'PENDING', settlementBasis: 'FINAL_NET' },
   });
-  if (
-    row.userId !== data.userId ||
-    (row.paymentLinkId ?? null) !== (data.paymentLinkId ?? null)
-  )
+  if (row.userId !== data.userId || !sameLinkOwner(row, data))
     throw new ConflictException(
       'Referência de pagamento pertence a outra cobrança',
     );

@@ -1,3 +1,4 @@
+import { alertUnresolvedWebhook } from '../../../modules/billing-core/webhook-offer-resolution';
 import { settleEbookPayment } from '../../../modules/platform-core/ebook-settlement';
 import { transactionPlatformTagData } from '../../../modules/platform-core/transaction-platform';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
@@ -248,6 +249,7 @@ export class ProcessWebhookUseCase {
         this.logger.log(
           `[WEBHOOK] Transaction ${domPaymentId} not found, ignoring because we cannot determine the tenant user.`,
         );
+        alertUnresolvedWebhook(this.logger, 'webhook.payment', domPaymentId);
         return;
       }
 

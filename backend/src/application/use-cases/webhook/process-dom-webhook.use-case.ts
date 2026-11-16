@@ -1,3 +1,8 @@
+import {
+  alertUnresolvedWebhook,
+  offerWebhookResolutionEnabled,
+  resolveOfferByLinkReference,
+} from '../../../modules/billing-core/webhook-offer-resolution';
 import { quoteCardOwnerShare } from '../../../modules/financial-policy/platform-fee-schedule';
 import { settleEbookPayment } from '../../../modules/platform-core/ebook-settlement';
 import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
@@ -768,6 +773,7 @@ export class ProcessDomWebhookUseCase {
       this.logger.warn(
         `[DomWebhook] domPaymentId=${data.id} sem transação prévia. Ignorando criação para evitar mistura de tenant.`,
       );
+      alertUnresolvedWebhook(this.logger, 'dom.payment', data.id);
       return;
     }
   }
@@ -1763,6 +1769,20 @@ export class ProcessDomWebhookUseCase {
     return true;
   }
 
+  /** Plan 0023: the legacy link row is gone; behind the flag try the Offer, always alert on a miss. */
+  private async reportLinkWithoutLegacyRow(linkId: string): Promise<void> {
+    if (offerWebhookResolutionEnabled()) {
+      const hit = await resolveOfferByLinkReference(this.prisma, linkId);
+      if (hit) {
+        this.logger.log(
+          `[DomWebhook] link ${linkId} resolvido na oferta ${hit.offerId} via ${hit.via}`,
+        );
+        return;
+      }
+    }
+    alertUnresolvedWebhook(this.logger, 'dom.payment-link', linkId);
+  }
+
   private async sendPaymentLinkFilesToCustomer(tx: {
     id: string;
     paymentLinkId: string | null;
@@ -1776,7 +1796,10 @@ export class ProcessDomWebhookUseCase {
         where: { id: tx.paymentLinkId },
         include: { files: true },
       });
-      if (!link) return;
+      if (!link) {
+        await this.reportLinkWithoutLegacyRow(tx.paymentLinkId);
+        return;
+      }
       const signed = await this.prisma.platformIntegration.findFirst({
         where: {
           key: 'WEBHOOK_SECRET',
@@ -1834,7 +1857,11 @@ export class ProcessDomWebhookUseCase {
         where: { id: tx.paymentLinkId },
         include: { files: true },
       });
-      if (!link?.webhookUrl) return;
+      if (!link) {
+        await this.reportLinkWithoutLegacyRow(tx.paymentLinkId);
+        return;
+      }
+      if (!link.webhookUrl) return;
 
       const signed = await this.prisma.platformIntegration.findFirst({
         where: {
