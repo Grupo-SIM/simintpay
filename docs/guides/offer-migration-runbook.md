@@ -96,3 +96,14 @@ A migração cria a `Offer` e preserva o código público, mas **não** redireci
 1. Troque a URL divulgada (site, e-mail, campanhas) pela da oferta.
 2. Desative o link legado (`isActive = false`) quando a URL nova estiver no ar. Enquanto o link antigo estiver ativo, **um cartão pago nele continua criando uma assinatura na DOM**, e essa assinatura cobra por fora do agendador novo. Compradores que já pagaram nele seguem o playbook [subscription-migration-playbook.md](subscription-migration-playbook.md).
 3. Links com cartão recorrente só devem ser trocados depois de a sandbox da DOM validar o token com `customer_id` (ver o plano 0021).
+
+## Congelar e copiar o delta (Fase 4 do plano 0023)
+
+Depois da cópia da Fase 2, os escritores legados continuam gravando. Para fechar a diferença:
+
+1. **Congelar:** suba o processo com `OFFER_LEGACY_FREEZE=1` (ou `true`; padrão desligado). Checkouts públicos de link de pagamento, link de assinatura, boleto e plano, os CRUDs legados, as rotas de plataforma que gravam `PaymentLink`/`Plan`/`SubscriptionLink` e o plano PIX respondem **503** (`code: OFFER_LEGACY_FREEZE`, `Retry-After: 300`). Webhooks, leituras e liquidações em andamento seguem. Com o congelamento ligado, `POST /platforms/:tag/payments` com `linkId` legado (sem `OFFER_PLATFORM_READS`) também responde 503. Com `OFFER_LEGACY_LINKS_COMPAT`/`OFFER_PIXPLAN_COMPAT` ligados os controllers legados nem são montados e os adaptadores gravam em `Offer`.
+2. **Dry-run:** `bun --no-env-file scripts/offer-migration-delta.ts --database-url=...`. Mostra os produtos legados sem `Offer`, o diff por campo de cada `Offer` (`COPY` ou `CONFLICT`) e os acordos de coprodução que sobraram nas chaves antigas. Sai com código 1 se houver divergência sem resolução (`--allow-conflicts` aceita).
+3. **Aplicar:** `... --apply --i-understand-this-writes`. Cria o que falta, copia `usedCount` (só para cima), `isActive` e os campos que só o legado alterou desde a cópia, e re-chaveia acordos e revisões para `ofertas`. Nunca sobrescreve às cegas: `CONFLICT` fica como está.
+4. **Conflitos conhecidos:** valor legado abaixo do mínimo (`BELOW_MINIMUM`, corrija o legado ou aceite a oferta), contador da oferta maior que o legado (`OFFER_AHEAD`), campo editado nos dois lados (`BOTH_CHANGED`), `code` diferente. Decida e, se for o caso, force explicitamente com `--overwrite=<offerId,...>` (nunca aceita valor abaixo do mínimo).
+5. **`isActive`:** se os links legados foram desativados só pelo congelamento, use `--skip-active` (senão as ofertas ficam inativas).
+6. **Verificar:** `... --verify` roda o `--verify` do apply e compara também contador, ativo, nome, parcelas e intervalos, e acordo órfão em chave antiga. Sai com 1 em qualquer divergência.
