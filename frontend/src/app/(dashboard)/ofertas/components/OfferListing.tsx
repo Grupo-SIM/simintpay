@@ -1,6 +1,7 @@
 'use client';
 
-import { Check, Pencil, Plus, Power, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { Check, Pencil, Plus, Power, RefreshCw, Users } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import {
   keepPreviousData,
@@ -286,15 +287,23 @@ export function OfferListing({
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <h1 className="text-xl font-semibold">Ofertas</h1>
-        <ActionButton
-          variant="primary"
-          className="cursor-pointer"
-          data-testid="offer-create"
-          onClick={onCreate}
-        >
-          <Plus className="h-4 w-4" />
-          Criar oferta
-        </ActionButton>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/ofertas/assinantes">
+            <ActionButton className="cursor-pointer">
+              <Users className="h-4 w-4" />
+              Assinantes
+            </ActionButton>
+          </Link>
+          <ActionButton
+            variant="primary"
+            className="cursor-pointer"
+            data-testid="offer-create"
+            onClick={onCreate}
+          >
+            <Plus className="h-4 w-4" />
+            Criar oferta
+          </ActionButton>
+        </div>
       </div>
       <OfferFiltersBar
         filters={filters}

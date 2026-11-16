@@ -40,6 +40,11 @@ export const endpoints = {
     deactivate: (id: string) => `/ofertas/${encodeURIComponent(id)}`,
     publicByCode: (code: string) =>
       `/ofertas/public/${encodeURIComponent(code)}`,
+    subscribers: '/ofertas/assinantes',
+    pauseSubscriber: (id: string) =>
+      `/ofertas/assinantes/${encodeURIComponent(id)}/pause`,
+    resumeSubscriber: (id: string) =>
+      `/ofertas/assinantes/${encodeURIComponent(id)}/resume`,
   },
   planos: {
     list: '/planos',
