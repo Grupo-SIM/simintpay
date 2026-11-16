@@ -1,20 +1,22 @@
--- Read-only diagnostic for the current Platform schema.
+-- Read-only diagnostic for the current Platform schema (plan 0023: reads "Offer", the only product
+-- table; Offer.id is the old product id, so the output ids are unchanged).
 -- Run only against an explicitly authorized database. Never returns credentials.
 BEGIN TRANSACTION READ ONLY;
 
 -- Compare persisted link identifiers with the exact normalization used by checkout.
--- Includes every product; no identity inferred from a product's display name.
-WITH references AS (
-  SELECT l.id AS "linkId", l."userId", l.plataformas,
-         COALESCE(l.plataformas[1], member.tag, 'GLOBAL') AS reference
-  FROM "PaymentLink" l
-  JOIN "User" u ON u.id = l."userId"
+-- Includes every offer; no identity inferred from a product's display name.
+WITH product_refs AS (
+  SELECT l.id AS "linkId", l."ownerUserId" AS "userId",
+         array_remove(ARRAY[l."platformTag"], NULL) AS plataformas,
+         COALESCE(l."platformTag", member.tag, 'GLOBAL') AS reference
+  FROM "Offer" l
+  JOIN "User" u ON u.id = l."ownerUserId"
   LEFT JOIN "Platform" member ON member.id = u."platformId"
 ), normalized AS (
   SELECT *, CASE upper(replace(reference, '_', '-'))
     WHEN 'EBOOKSIM' THEN 'EBOOK'
     ELSE upper(replace(reference, '_', '-')) END AS tag
-  FROM references
+  FROM product_refs
 )
 SELECT n.*, p.id AS "platformId", p."isActive" AS "platformActive",
        owner."isActive" AS "platformOwnerActive", owner."isPurged" AS "platformOwnerPurged",

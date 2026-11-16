@@ -1,4 +1,7 @@
 -- Run only on disposable localhost PostgreSQL. Everything is rolled back.
+-- Plan 0023: the stub "Plan" table is NOT product data. The historical migration 202610140001_sale_push
+-- (immutable) runs `ALTER TABLE "Plan"`, so the isolated schema needs a "Plan" for it to replay.
+-- Nothing here reads PaymentLink/Plan/etc., so these fixtures stay valid after the legacy tables go.
 BEGIN;
 CREATE SCHEMA coproduction_push_test;
 SET LOCAL search_path TO coproduction_push_test;

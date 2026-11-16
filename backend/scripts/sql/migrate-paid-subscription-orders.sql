@@ -1,6 +1,12 @@
 -- Migrates legacy PAID PIX SubscriptionLinkOrder rows (no DOM subscription) into
 -- BillingContract + Charge (subscription-migration-playbook.md, CENARIO A).
 --
+-- Plan 0023 (phase 2): runs BEFORE phase 5. It reads "SubscriptionLinkOrder" by its old name, so it
+-- stops working once phase5-repoint-and-rename.sql renames the table to "SubscriptionLinkOrder_legacy"
+-- (and is obsolete after that: the 5 paid PIX orders must already be contracts). The Offer is found
+-- by id (offer-migration-apply reuses the legacy id and no longer writes legacyType/legacyId); the
+-- legacyType/legacyId match is kept only for Offers created by the older shadow-offer flow.
+--
 -- Idempotent: re-running changes nothing. Writes ONLY "BillingContract" and "Charge".
 -- It never touches Wallet, BalanceLog, Transaction, CoproductionAllocation or
 -- SubscriptionLinkOrder (the money was settled long ago) and never creates Offers.
@@ -48,7 +54,8 @@ WITH base AS (
   LEFT JOIN "Transaction" t
     ON t."domPaymentId" = o."domPixPaymentId" AND t.status = 'COMPLETED'
   LEFT JOIN "Offer" f
-    ON f."legacyType" = 'SubscriptionLink' AND f."legacyId" = o."subscriptionLinkId"
+    ON f.id = o."subscriptionLinkId"
+    OR (f."legacyType" = 'SubscriptionLink' AND f."legacyId" = o."subscriptionLinkId")
   WHERE o.status = 'paid'
     AND o."paymentMethod" = 'PIX'
     AND o."domSubscriptionId" IS NULL
@@ -142,7 +149,8 @@ WITH eligible AS (
     lower(btrim(o."customerEmail")) AS email_key
   FROM "SubscriptionLinkOrder" o
   JOIN "Transaction" t ON t."domPaymentId" = o."domPixPaymentId" AND t.status = 'COMPLETED'
-  JOIN "Offer" f ON f."legacyType" = 'SubscriptionLink' AND f."legacyId" = o."subscriptionLinkId"
+  JOIN "Offer" f ON f.id = o."subscriptionLinkId"
+    OR (f."legacyType" = 'SubscriptionLink' AND f."legacyId" = o."subscriptionLinkId")
   WHERE o.status = 'paid' AND o."paymentMethod" = 'PIX' AND o."domSubscriptionId" IS NULL
     AND f."intervalType" IS NOT NULL AND t.amount = o."amountCharged"
     AND t.amount > 0 AND t.amount * 100 = trunc(t.amount * 100)

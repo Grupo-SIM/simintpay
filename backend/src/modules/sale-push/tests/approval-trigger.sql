@@ -1,4 +1,7 @@
 -- Run against empty disposable LOCAL PostgreSQL: psql -v ON_ERROR_STOP=1 -f src/modules/sale-push/tests/approval-trigger.sql
+-- Plan 0023: the stub "Plan" table is NOT product data. The historical migration 202610140001_sale_push
+-- (immutable) runs `ALTER TABLE "Plan"`, so the isolated schema needs a "Plan" for it to replay.
+-- Nothing here reads PaymentLink/Plan/etc., so these fixtures stay valid after the legacy tables go.
 CREATE TABLE "User" (id TEXT PRIMARY KEY, "clientStatus" TEXT, "isActive" BOOLEAN DEFAULT true, "isPurged" BOOLEAN DEFAULT false);
 CREATE TABLE "Transaction" (id TEXT PRIMARY KEY, "userId" TEXT, amount DECIMAL(12,2), status TEXT, "createdAt" TIMESTAMPTZ DEFAULT now());
 CREATE TABLE "Plan" (id TEXT PRIMARY KEY);
