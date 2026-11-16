@@ -46,14 +46,13 @@ for (const tag of ['BOSQUE', 'RENOVADA']) {
       platformTaxaOverride: {
         findMany: async () => [
           { tag, key: 'TAXA_SAQUE_EXTRA', value: 3.5 },
-          { tag, key: 'TAXA_SAQUE_PERCENT', value: 0.01 },
           { tag, key: 'SAQUE_MIN', value: 50 },
         ],
       },
     } as any);
     expect(make([]).config(ctx(tag))).toEqual({
       unit: 'cents',
-      withdrawal: { minimumCents: 5000, fixedFeeCents: 350, percentFee: 0.01 },
+      withdrawal: { minimumCents: 5000, fixedFeeCents: 350, percentFee: 0 },
     });
   });
 }

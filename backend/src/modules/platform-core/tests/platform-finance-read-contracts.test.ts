@@ -38,7 +38,6 @@ beforeEach(async () =>
         definitions.flatMap(([tag]) => [
           { tag, key: 'TAXA_SERVICO', value: 4 },
           { tag, key: 'TAXA_FIXA_TRANSACAO', value: 1 },
-          { tag, key: 'TAXA_CASHBACK', value: 1 },
           { tag, key: 'SAQUE_MIN', value: 100 },
           { tag, key: 'TAXA_SAQUE_EXTRA', value: 3 },
         ]),
@@ -164,7 +163,7 @@ for (const [tag, Service, Controller] of definitions) {
           ? await f.controller.summary('12345678901')
           : await f.controller.summary('12345678901');
     const expected =
-      tag === 'BOSQUE' ? 66 : tag === 'EBOOK' ? 66 : tag === 'PAGATG' ? 74 : 90;
+      tag === 'BOSQUE' ? 66 : tag === 'EBOOK' ? 66 : tag === 'PAGATG' ? 75 : 90;
     expect(summary.availableBalance).toBe(expected);
     if (tag === 'ATLAS' || tag === 'RENOVADA' || tag === 'AREAFLIX') {
       const canonical = await f.finance.summary({
@@ -234,7 +233,7 @@ for (const [tag, Service, Controller] of definitions) {
         amount: 120,
         fee: 7,
         dom_fee: 3,
-        amountWithoutAllFee: tag === 'PAGATG' ? 108 : 106,
+        amountWithoutAllFee: tag === 'PAGATG' ? 109 : 106,
       });
       const canonical = await f.finance.transactions({
         id: 'p',
@@ -312,7 +311,7 @@ test('Ebook configuration preserves decimal liquidity and legacy percentage comm
   expect(legacy).toMatchObject({
     transactionFeeBrl: 4,
     taxaFixaTransacao: 1,
-    taxaCashback: 1,
+    taxaCashback: 0,
   });
   expect(
     f.finance.config({
@@ -327,7 +326,7 @@ test('Ebook configuration preserves decimal liquidity and legacy percentage comm
     pixMdrRate: legacy.mdrPix,
     transactionFeeCents: 400,
     fixedTransactionFeeCents: 100,
-    cashbackAmountCents: 100,
+    cashbackAmountCents: 0,
     affiliateCommissionRate: legacy.affiliateCommissionRate / 100,
     withdrawal: expect.objectContaining({ percentFee: 0 }),
   });

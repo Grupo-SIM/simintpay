@@ -12,11 +12,6 @@ beforeEach(async () => {
       findMany: async () => [{ tag: 'PAGATG', ownerUserId: 'owner' }],
     },
   } as any);
-  await initializePlatformTaxasCache({
-    platformTaxaOverride: {
-      findMany: async () => [{ tag: 'GLOBAL', key: 'LIQUIDEZ', value: 1 }],
-    },
-  } as any);
 });
 afterEach(async () => {
   await initializePlatformRegistryCache({
@@ -78,6 +73,8 @@ function fixture() {
       },
     },
     withdrawRequest: { findMany: async () => [{ createdAt: new Date() }] },
+    // Coproduction totals are read with raw SQL; the product under test has none.
+    $queryRaw: async () => [],
   };
   return {
     context,
@@ -98,9 +95,10 @@ test('customer alias and product report share projection with preserved reais/ce
     { platformContext: f.context },
     'hoje',
   );
-  expect(current.summary.ownerWalletAvailableBalanceCents).toBe(
-    old.summary.availableBalance * 100,
-  );
+  // LIQUIDEZ is no longer an editable override: the legacy alias (no product context) applies the
+  // global default factor, while the product report uses the product's own liquidity rule.
+  expect(old.summary.availableBalance).toBe(83.71);
+  expect(current.summary.ownerWalletAvailableBalanceCents).toBe(9000);
   expect(current.profit.total).toBe(Math.round(old.profit.total * 100));
   expect(current.profit.maquinetas).toBe(1234);
   expect(current.profit.offers).toBe(0);

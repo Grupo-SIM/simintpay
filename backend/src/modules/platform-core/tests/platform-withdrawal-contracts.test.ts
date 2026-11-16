@@ -49,7 +49,6 @@ beforeEach(async () =>
       findMany: async () =>
         definitions.flatMap(([tag]) => [
           { tag, key: 'TAXA_SAQUE_EXTRA', value: 3.5 },
-          { tag, key: 'TAXA_SAQUE_PERCENT', value: 0.02 },
           { tag, key: 'SAQUE_MIN', value: 100 },
         ]),
     },
@@ -72,6 +71,12 @@ function fixture(tag: string, Service: any, Controller: any) {
     isActive: true,
     owner: { isActive: true, isPurged: false },
   };
+  const walletRow = {
+    id: 'wallet',
+    balance: new Prisma.Decimal(1000),
+    lockedBalance: new Prisma.Decimal(10),
+    version: 2,
+  };
   const p: any = {
     platform: { findUnique: mock(async () => platform) },
     user: {
@@ -79,12 +84,8 @@ function fixture(tag: string, Service: any, Controller: any) {
       findMany: async () => [{ id: 'owner' }],
     },
     wallet: {
-      findUnique: async () => ({
-        id: 'wallet',
-        balance: new Prisma.Decimal(1000),
-        lockedBalance: new Prisma.Decimal(10),
-        version: 2,
-      }),
+      findUnique: async () => walletRow,
+      findUniqueOrThrow: async () => walletRow,
       updateMany: mock(async () => ({ count: 1 })),
     },
     withdrawRequest: {
@@ -98,6 +99,7 @@ function fixture(tag: string, Service: any, Controller: any) {
       count: async () => 0,
     },
     balanceLog: { create: mock(async () => ({})) },
+    $executeRaw: mock(async () => 1),
     $transaction: async (fn: any) => fn(p),
   };
   const finance = new PlatformFinanceService(p);
@@ -113,7 +115,8 @@ for (const [tag, Service, Controller, reserves] of definitions) {
       b = fixture(tag, Service, Controller);
     const legacyAmount = 100;
     const netBasis = tag === 'EBOOK' || tag === 'PAGATG';
-    const grossCents = netBasis ? 10550 : 10000;
+    // Percentage withdrawal fee is no longer editable (always 0): net basis adds only the fixed fee.
+    const grossCents = netBasis ? 10350 : 10000;
     const alias = await a.controller.requestWithdraw({
       cpf: '12345678901',
       userId: 'owner',
@@ -136,8 +139,10 @@ for (const [tag, Service, Controller, reserves] of definitions) {
     expect(canonical.grossAmountCents).toBe(grossCents);
     expect(canonical.amountCents + canonical.feeCents).toBe(grossCents);
     // Legacy no-reservation policies remain confined to inventoried aliases.
-    expect(a.p.wallet.updateMany).toHaveBeenCalledTimes(reserves ? 1 : 0);
-    expect(b.p.wallet.updateMany).toHaveBeenCalledTimes(1);
+    // The wallet is moved by the BalanceLog trigger: a reservation is one WITHDRAW_REQUESTED row.
+    expect(a.p.balanceLog.create).toHaveBeenCalledTimes(reserves ? 1 : 0);
+    expect(b.p.balanceLog.create).toHaveBeenCalledTimes(1);
+    expect(b.p.wallet.updateMany).not.toHaveBeenCalled();
   });
   test(`${tag} alias blocks missing/inactive registered platform before financial writes`, async () => {
     const f = fixture(tag, Service, Controller);
@@ -170,6 +175,6 @@ test('merchant quote keeps gross basis even for products with net-priced owner w
     new Prisma.Decimal(100),
     true,
   );
-  expect(quote.amount.toString()).toBe('94.5');
-  expect(quote.fee.toString()).toBe('5.5');
+  expect(quote.amount.toString()).toBe('96.5');
+  expect(quote.fee.toString()).toBe('3.5');
 });

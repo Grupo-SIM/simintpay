@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
+import { afterEach, expect, mock, test } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import { AtlasSyncService } from '../../atlas/services/atlas-sync.service';
 import { RevalidaSyncService } from '../../revalida/services/revalida-sync.service';
@@ -7,18 +7,6 @@ import { RevalidaDashboardController } from '../../revalida/controllers/revalida
 import { PlatformMaintenanceService } from '../../unified-platform/finance/platform-maintenance.service';
 import { initializePlatformTaxasCache } from '../../platform-taxas/platform-taxas.store';
 
-beforeEach(async () => {
-  await initializePlatformTaxasCache({
-    platformTaxaOverride: {
-      findMany: async () =>
-        ['ATLAS', 'REVALIDA'].map((tag) => ({
-          tag,
-          key: 'LIQUIDEZ',
-          value: 0.91,
-        })),
-    },
-  } as any);
-});
 afterEach(async () => {
   await initializePlatformTaxasCache({
     platformTaxaOverride: { findMany: async () => [] },
@@ -87,13 +75,14 @@ for (const tag of ['ATLAS', 'REVALIDA']) {
   test(`${tag} liquid balance alias and canonical gross cents produce same wallet and ledger amounts`, async () => {
     const legacy = fixture(tag, 20, 10),
       canonical = fixture(tag, 20, 10);
-    const response = await legacy.controller.setBalance({ balance: 91 });
+    // LIQUIDEZ is no longer editable per platform: the default factor (0.9301) applies.
+    const response = await legacy.controller.setBalance({ balance: 93.01 });
     expect(response).toMatchObject({
       success: true,
-      netBalance: 91,
-      grossBalance: 100,
+      netBalance: 93.01,
       userId: 'owner',
     });
+    expect(response.grossBalance).toBeCloseTo(100, 2);
     const result = await new PlatformMaintenanceService(canonical.p).run(
       canonical.context,
       'set-balance',
@@ -106,18 +95,11 @@ for (const tag of ['ATLAS', 'REVALIDA']) {
       balanceCents: 10000,
       lockedBalanceCents: 1000,
     });
-    expect(legacy.tx.wallet.updateMany.mock.calls).toEqual(
-      canonical.tx.wallet.updateMany.mock.calls,
-    );
+    // The wallet moves through the BalanceLog trigger: only the log row is written.
+    expect(legacy.tx.wallet.updateMany).not.toHaveBeenCalled();
     const legacyAudit = legacy.tx.balanceLog.create.mock.calls[0][0].data;
     const canonicalAudit = canonical.tx.balanceLog.create.mock.calls[0][0].data;
-    for (const field of [
-      'amount',
-      'balanceBefore',
-      'balanceAfter',
-      'lockedBefore',
-      'lockedAfter',
-    ])
+    for (const field of ['balanceDelta', 'lockedDelta'])
       expect(legacyAudit[field].eq(canonicalAudit[field])).toBe(true);
     expect(legacyAudit.action).toBe('WALLET_RECALCULATE');
     expect(legacyAudit.source).toBe('ADMIN_SYNC');
@@ -144,11 +126,13 @@ for (const tag of ['ATLAS', 'REVALIDA']) {
       before: { balanceCents: 10000, lockedBalanceCents: 1000 },
       after: { balanceCents: 0, lockedBalanceCents: 0 },
     });
-    expect(legacy.tx.wallet.updateMany.mock.calls).toEqual(
-      canonical.tx.wallet.updateMany.mock.calls,
-    );
+    expect(legacy.tx.wallet.updateMany).not.toHaveBeenCalled();
     const audit = legacy.tx.balanceLog.create.mock.calls[0][0].data;
-    expect(audit.amount.eq(-100)).toBe(true);
+    const canonicalAudit = canonical.tx.balanceLog.create.mock.calls[0][0].data;
+    expect(audit.balanceDelta.eq(-100)).toBe(true);
+    expect(audit.lockedDelta.eq(-10)).toBe(true);
+    expect(canonicalAudit.balanceDelta.eq(audit.balanceDelta)).toBe(true);
+    expect(canonicalAudit.lockedDelta.eq(audit.lockedDelta)).toBe(true);
     expect(audit.action).toBe(`${tag}_WALLET_ZERO`);
     expect(audit.metadata.platform).toBe(tag.toLowerCase());
   });

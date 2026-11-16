@@ -67,7 +67,7 @@ function fixture() {
       findMany: async ({ where }: any) =>
         withdrawals.filter((row) => matches(row, where)),
     },
-    balanceLog: { aggregate: async () => ({ _sum: { amount: 1 } }) },
+    balanceLog: { aggregate: async () => ({ _sum: { balanceDelta: 1 } }) },
   };
   return {
     context,
