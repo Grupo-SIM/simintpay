@@ -222,6 +222,14 @@ export function OfferFunnelScreen({
             GLASS,
           )}
         >
+          {bump.imageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={bump.imageUrl}
+              alt={title}
+              className="max-h-[260px] w-full rounded-[20px] object-cover"
+            />
+          )}
           <div className="text-[21px] font-medium lg:text-[26px]">{title}</div>
           {desc && (
             <div className="whitespace-pre-line text-sm leading-normal text-[#b8b2c6] lg:text-[15px]">
