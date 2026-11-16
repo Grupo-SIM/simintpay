@@ -190,21 +190,17 @@ export function FinancialSimulationCard({
         additiveTotals,
       )
     : undefined;
-  // Acquirer cost + merchant effective fee over the real amount (without interest).
-  const effectiveLabel =
-    effective && displayedContract && result?.originalCents
-      ? `${(
-          ((((displayedContract.ratePpm + effective.ratePpm) / 1_000_000) *
-            result.originalCents +
-            displayedContract.fixedCents +
-            effective.fixedCents) /
-            result.originalCents) *
-          100
-        ).toLocaleString('pt-BR', {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}%`
-      : '—';
+  // Total fees (acquirer + SimIntPay + additive) over the base amount; the buyer's interest is passed through, so it is netted out.
+  const effectiveLabel = result?.originalCents
+    ? `${(
+        ((result.contractedCostCents - result.buyerInterestCents) /
+          result.originalCents) *
+        100
+      ).toLocaleString('pt-BR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}%`
+    : '—';
   const format = (value?: number) =>
     value === undefined ? '—' : formatCents(value);
   const skeleton = (
