@@ -7,7 +7,7 @@ Guia para você migrar tudo. Os detalhes técnicos dos scripts estão em [offer-
 Planos, Planos por PIX, Links de pagamento, Links de assinatura e Boletos viram **Ofertas**. Uma oferta tem preço, meios de pagamento, recorrência, validade, limite de usos, entrega e coprodução, tudo no mesmo cadastro.
 
 - A migração **cria** as ofertas a partir dos produtos legados. **Não apaga nem altera** nenhum produto legado.
-- O código público de cada produto é preservado. A URL nova é `?oferta=<código>`. As URLs antigas continuam funcionando: o checkout as redireciona (307) para `?oferta=<mesmo valor>`, e a busca pública da oferta aceita o **código ou o ID** (o ID da oferta migrada é o ID do produto legado). Mesmo assim, troque as URLs divulgadas quando puder.
+- O código público de cada produto é preservado. A URL nova é `?oferta=<código>`. As URLs antigas continuam abrindo o **checkout legado** enquanto a variável `CHECKOUT_LEGACY_TO_OFFER` do app `checkout` estiver desligada (padrão). Depois de migrar os produtos (fase 2 do plano 0023), ligue `CHECKOUT_LEGACY_TO_OFFER=true`: o checkout passa a redirecionar (307) `simLinkCode`, `subscriptionLinkCode`, `simBoletoCode`, `simPlanCode`, `linkCode` e `subscriptionCode` para `?oferta=<mesmo valor>`, e a busca pública da oferta aceita o **código ou o ID** (o ID da oferta migrada é o ID do produto legado). `?code=PX-…` (plano PIX) não é redirecionado. Links novos com `?ofertaCode=` sempre vão para a oferta. Troque as URLs divulgadas quando puder.
 - As recorrências passam a ser cobradas pela SimIntPay, não mais pela DOM.
 - Cada script grava só com `--apply --i-understand-this-writes`. Sem isso, é sempre simulação.
 
