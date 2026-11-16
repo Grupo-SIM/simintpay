@@ -392,9 +392,21 @@ run(
     reset();
     const auto = await offer();
     const email = `f-${crypto.randomUUID()}@test.dev`;
+    // PIX is valid on AUTO_CHARGE offers (renewals go by emailed link), so boleto is the wrong method.
     await expect(
-      service().subscribe(auto.code, { paymentMethod: 'pix', ...buyer(email) }),
-    ).rejects.toThrow('cartão de crédito');
+      service().subscribe(auto.code, {
+        paymentMethod: 'boleto' as never,
+        ...buyer(email),
+      }),
+    ).rejects.toThrow('não aceitam boleto');
+    const manual = await offer({ renewalMode: 'MANUAL_PAY' });
+    await expect(
+      service().subscribe(manual.code, {
+        paymentMethod: 'credit_card',
+        ...buyer(email),
+        card,
+      }),
+    ).rejects.toThrow('começam por PIX');
     await expect(
       service().subscribe(auto.code, {
         paymentMethod: 'credit_card',
