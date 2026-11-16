@@ -165,6 +165,41 @@ Todos continuam lendo as tabelas antigas até a paridade fechar. Principais grup
 - **Coprodução:** `productTables`, `coproduction.service`, `coproduction-view` (SQL com nome de tabela).
 - **Admin:** `admin-clientes`, `admin.controller` (links, comunidades, vínculos).
 
+#### Progresso da Fase 3: plataformas, coprodução e admin (2026-11-16)
+
+Flag `OFFER_PLATFORM_READS=1` (`modules/offer/offer-read-flag.ts`), **desligado por padrão**: com ele ligado, esses leitores resolvem o mesmo id pela `Offer` (`Offer.id` = id antigo; link de pagamento = `renewalMode NONE`, link de assinatura = recorrente, plano PIX = `legacyType 'PixCreditPlan'`). Sem dual-write financeiro: o flag só troca de onde se lê e a transferência de titularidade (não financeira); quem grava dinheiro continua um só. Ligar só depois da Fase 2 (produtos copiados e acordos renomeados para `ofertas`). Testes de paridade com o flag desligado e ligado em cada item.
+
+- [x] **Coprodução:** `canonicalProduct` leva as cinco chaves antigas para `ofertas`; `coproduction.service` (`get`, `save`, `authorize`, `captureCoproduction`) e `coproduction-view` (`effectiveAgreements`, `sharedProductIds`, `coproductionInfo`) passam a usar a tabela `"Offer"`, a coluna `ownerUserId`, o `platformTag` e a chave de acordo `ofertas`. A expressão SQL de tag saiu para `productTagSql`. Teste: o SQL de cada chave antiga com o flag ligado é igual ao de `ofertas`; desligado, continua com a tabela antiga.
+- [x] **platform-core:** claim de links (`platform-link-claim`, `claimSelectors`: mesma seleção por id e plataforma, troca de dono em `Offer`), `platform-links.controller` (`GET links/:id` e o replay idempotente da criação leem `Offer`; criar, editar e anexar arquivos seguem nos use cases antigos até a Fase 4), `platform-subscription-capabilities.paymentStatus` (cobrança `PAID` da oferta no lugar do pedido pago), `platform-administration` (`plansCount` por `legacyType`), vouchers (`VoucherService.findResourceOwner`: dono por id, código ou alias `PX-` da oferta).
+- [x] **unified-platform:** `platform-payments.service` valida o `linkId` contra a oferta (valor em centavos, plataforma, ativa, não recorrente). `internal-areaflix-finance` e `legacy-areaflix-finance` só repassam os ids ao claim, sem consulta própria.
+- [x] **Admin:** `admin-clientes` (auditoria `planos`, `planos-pix`, `links-pagamento`, `links-assinatura` e o backfill de plataforma SIMINTPAY por `Offer`), `admin.controller` (`areaflix/orders` e clientes AreaFlix ativos a partir de cobranças `PAID` de ofertas recorrentes da plataforma AREAFLIX; filtro `paymentLink` de transações casa `paymentLinkId` ou `offerId`).
+- Fora deste lote (outros agentes): webhooks (`process-dom-webhook`, `process-webhook`, `subscription-webhook.service`, `link-settlement`) e relatórios (`owned-report-source`, `platform-*-reports`, `dashboard-summary`, `list-dom-transactions-direct`).
+
+**O que resta para a Fase 3 (levantamento de 2026-11-16, grep de SQL cru, `Prisma.raw` e delegates em `backend/src`, `backend/scripts` e `prisma/migrations`):**
+
+SQL cru com nome de tabela antigo em `src` (só um arquivo):
+
+- [ ] `application/services/owned-report-source.ts` (3 ocorrências): `LEFT JOIN "PaymentLink" l ON l.id = t."paymentLinkId"` (linha 47, perde venda em silêncio) e `JOIN "SubscriptionLink" sl ON sl.id = o."subscriptionLinkId"` (linhas 50 e 84). Com o teste `owned-platform-reports.sql.test.ts` (7 ocorrências). Grupo de relatórios.
+
+`Prisma.raw` com nome de tabela:
+
+- [x] `coproduction.service.ts` (2) e `coproduction-view.ts` (1): resolvem `"Offer"` com o flag. Ficam as entradas antigas de `productTables` até a Fase 6.
+- [ ] `scripts/reassign-products.ts` (`Prisma.raw` da tabela por `productType`): aceita `Offer`, mas ainda lê as antigas; revisar na Fase 4, quando os escritores cortarem.
+
+Scripts e SQL avulsos (ferramentas de migração e diagnóstico; devem continuar lendo as tabelas antigas até a Fase 5, depois ser removidos ou reapontados):
+
+- [ ] `scripts/diagnose-checkout-platforms.sql` (`FROM "PaymentLink" l`), `scripts/audit-product-ownership.ts` (consultas em `"paymentLinkId"`, `"subscriptionLinkId"`, `"planId"`, `"pixCreditPlanId"`), `scripts/offer-contract-migration.ts` (digest de `"SubscriptionLinkOrder"`) e `scripts/sql/migrate-paid-subscription-orders.sql` (`o."subscriptionLinkId"`). Fixtures SQL de teste: `coproduction/tests/coproduction-push.sql` (`CREATE TABLE "Plan"`) e `sale-push/tests/approval-trigger.sql`.
+
+Migrations (`backend/prisma/migrations`): 22 arquivos citam as tabelas antigas, todos DDL (criação, `ALTER`, FKs `REFERENCES`); **nenhuma função, trigger ou view lê as tabelas antigas** (única função que cita uma delas, `202610140001_sale_push`, só faz `ALTER TABLE "Plan"`). A Fase 5 precisa de uma migration nova para soltar as FKs e renomear; as antigas não se editam.
+
+Leitores por delegate do Prisma ainda nas tabelas antigas (47 arquivos no levantamento, sem contar testes), fora os já tratados acima:
+
+- Webhooks e liquidação (outro agente): `webhook/process-dom-webhook.use-case.ts`, `webhook/process-webhook.use-case.ts`, `subscription/subscription-webhook.service.ts`, `platform-core/link-settlement.ts`.
+- Relatórios (outro agente): `admin/list-dom-transactions-direct.use-case.ts`, `report/dashboard-summary.use-case.ts`, `platform-core/platform-seller-reports.ts`, `platform-core/platform-overview-reports.ts`.
+- Escritores e checkouts públicos (**Fase 4**, não migrar no flag): `payment-link/*` (charge, list, files, delivery, offers helper), `subscription-link/*` (checkout cartão e PIX, e-mail de acesso), `plan/*`, `pix-plan/pix-plan.service.ts`, `subscription/*` (cancelar, retomar, listar assinantes), `boleto/list-boletos`, `billing/billing.service.ts`, `cliente/delete-cliente`, `cliente/get-cliente-plan-access`, `infrastructure/cron/expiration-reminder.cron.ts`, os repositórios `prisma-{boleto,payment-link,pix-plan,plan,subscription-link,subscription}.repository.ts` e os controllers `payment-link`, `subscription-link`, `subscription`, `checkout`.
+- Escritas de plataforma que seguem nos use cases antigos até a Fase 4: `platform-links.controller` (criar, editar, arquivos), `platform-subscription-capabilities.createPlan` e `PlatformFinanceService.mirrorPlan` (gravam `Plan`/`SubscriptionLink`), `platform-payments.service` (grava `Transaction.paymentLinkId`; passar a gravar `offerId` no corte) e `admin.controller` (`ensureCobrancaPaymentLinks` e a criação de `PaymentLink` de cobrança, com `simLinkCode`).
+- `Transaction.paymentLinkId` ainda é a chave dos filtros e junções de leitura; o backfill para `offerId` é da migration `20261118110000_transaction_offer_id` (não aplicada em banco real).
+
 ### Fase 4: congelar, copiar o delta e cortar os escritores
 
 - [ ] Congelar: desativar os links legados (`isActive = false`) e ligar um flag de manutenção nos checkouts, nos controllers de CRUD e nas rotas de plataforma. Os contadores de uso ficam obsoletos na cópia: copiar de novo no fim.
