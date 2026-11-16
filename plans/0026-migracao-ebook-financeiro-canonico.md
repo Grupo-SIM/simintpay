@@ -288,14 +288,16 @@ Decisão: o SimIntPay corrige a entrada ao **confirmar o pagamento**, no webhook
 - [ ] Conferir/ajustar a taxa alvo da plataforma EBOOK em `/admin/taxas` e o custo das adquirentes sincronizado (sem linha, as modalidades saem `available: false`).
 - [ ] Validar em ambiente de teste um vendedor com vendas em EBOOK e em outra plataforma: `summary.availableBalanceCents` só EBOOK.
 
-### Fase C. back-ebook (outro repositório; não alterado aqui)
+### Fase C. back-ebook (outro repositório; implementado localmente, sem push)
 
-- [ ] `common/seller-fees.ts`: trocar `summary` por `finance/fees` (`percent = pix.processingRatePpm / 10000`, `fixedBrl = transaction.serviceFeeCents / 100`, `withdrawalBrl = withdrawal.fixedFeeCents / 100`), cache por vendedor mantido.
-- [ ] `checkout.service.ts` `notifyPendingTransaction`: `POST .../finance/entries` (`kind: pending`, centavos, `referenceId = orderNumber`, `netAmountCents` calculado com `fees`).
-- [ ] `checkout.service.ts` fallback de `config`: `GET /platforms/EBOOK/finance/config` (`liquidityRate`, `transactionFeeCents / 100`).
-- [ ] `affiliate/commission-delivery.ts`: `POST .../finance/entries` (`kind: commission`, `externalMerchantId` do afiliado), mantendo `referenceId` do snapshot; tratar 404 (afiliado sem vendedor) como erro de reconciliação manual.
-- [ ] `payments.controller.ts`: `summary`, `history`/`all-transactions-excel`, `withdrawals`, `withdraw` (`idempotencyKey`, bruto x líquido) pelas rotas por vendedor; centavos para reais na borda; `PAID`→`COMPLETED`; `accountExists` por 404 do `summary`.
-- [ ] Aplicar as decisões da Fase A2 no back-ebook: chamar o `PUT` (com `email`) na criação de vendedor/afiliado e remover `syncUserWithApiDom`, tokens (`admin_tokens`, `adminToken`) e `/custom-fees`; trocar `/admin/transacoes-dom` por consulta por `orderNumber`; manter `/checkout/ebook-url`. Confirmar que o app de checkout ignora `adminToken`.
+Branch `feat/simintpay-canonical-finance` do `back-ebook` (HEAD `fc0883b`). O caminho canônico só liga com `EBOOK_CANONICAL_FINANCE=true`, `SIMINTPAY_URL` e `SIMINTPAY_TOKEN` (alias `SIMINTPAY_PLATFORM_TOKEN`); sem a flag o legado continua. A remoção de `syncUserWithApiDom`, tokens e `/custom-fees` não depende da flag. Pendente: confirmar que o app de checkout ignora `adminToken` e o teste de ponta a ponta contra o SimIntPay local. Fase D deve definir as três variáveis.
+
+- [x] `common/seller-fees.ts`: trocar `summary` por `finance/fees` (`percent = pix.processingRatePpm / 10000`, `fixedBrl = transaction.serviceFeeCents / 100`, `withdrawalBrl = withdrawal.fixedFeeCents / 100`), cache por vendedor mantido.
+- [x] `checkout.service.ts` `notifyPendingTransaction`: `POST .../finance/entries` (`kind: pending`, centavos, `referenceId = orderNumber`, `netAmountCents` calculado com `fees`).
+- [x] `checkout.service.ts` fallback de `config`: `GET /platforms/EBOOK/finance/config` (`liquidityRate`, `transactionFeeCents / 100`).
+- [x] `affiliate/commission-delivery.ts`: `POST .../finance/entries` (`kind: commission`, `externalMerchantId` do afiliado), mantendo `referenceId` do snapshot; tratar 404 (afiliado sem vendedor) como erro de reconciliação manual.
+- [x] `payments.controller.ts`: `summary`, `history`/`all-transactions-excel`, `withdrawals`, `withdraw` (`idempotencyKey`, bruto x líquido) pelas rotas por vendedor; centavos para reais na borda; `PAID`→`COMPLETED`; `accountExists` por 404 do `summary`.
+- [x] Aplicar as decisões da Fase A2 no back-ebook: chamar o `PUT` (com `email`) na criação de vendedor/afiliado e remover `syncUserWithApiDom`, tokens (`admin_tokens`, `adminToken`) e `/custom-fees`; trocar `/admin/transacoes-dom` por consulta por `orderNumber`; manter `/checkout/ebook-url`. Confirmar que o app de checkout ignora `adminToken`.
 - [ ] Teste de ponta a ponta contra o SimIntPay local (sem banco remoto).
 
 ### Fase D. Virada (dono/ops)
