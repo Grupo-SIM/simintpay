@@ -71,17 +71,6 @@ export type ReportTransaction = {
   feesCents: number;
   netCents: number | null;
 };
-export type PlatformBalance = ReportPlatform & {
-  owner: { id: string; name: string; email: string };
-  walletScope: 'owner' | 'shared-owner';
-  balanceCents: number;
-  availableBalanceCents: number;
-  pendingWithdrawalsGrossCents: number;
-  earnedCents: number;
-  withdrawnGrossCents: number;
-  ownerWalletBalanceCents: number;
-  historicalAttributionComplete: boolean;
-};
 export const reportMoney = (cents: number) =>
   (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 export const reportStatus: Record<string, string> = {

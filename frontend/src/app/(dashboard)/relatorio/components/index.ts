@@ -9,8 +9,6 @@ export { ReportPagination } from './ReportPagination';
 export { ReportPlatformSelect } from './ReportPlatformSelect';
 export { ReportSkeleton } from './ReportSkeleton';
 export { ReportSummaryCards } from './ReportSummaryCards';
-export { PlatformBalancesView } from './PlatformBalancesView';
-export { PlatformBalanceDetail } from './PlatformBalanceDetail';
 export { ReportFilterFields } from './ReportFilterFields';
 export { ReportMetricSection } from './ReportMetricSection';
 export { ReportsLayout } from './ReportsLayout';

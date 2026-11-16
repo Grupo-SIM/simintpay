@@ -582,41 +582,7 @@ test('admin unified report retains balances, paginated balances and database-onl
       calls.some((url) => url.startsWith('/api/coproducao/recebimentos')),
     ).toBe(false);
 
-    await page
-      .getByRole('tab', { name: 'Saldos por Plataforma', exact: true })
-      .click();
-    await page
-      .getByRole('alert')
-      .filter({ hasText: 'Não foi possível carregar' })
-      .waitFor();
-    expect(
-      await page.getByText('Disponível projetado', { exact: true }).count(),
-    ).toBe(0);
-    failBalances = false;
-    await page
-      .getByRole('button', { name: 'Tentar novamente', exact: true })
-      .click();
-    await page
-      .getByRole('button')
-      .filter({ hasText: 'A Plataforma Nova (Inativa)' })
-      .click();
-    await page
-      .getByText('Carteira compartilhada do dono', { exact: true })
-      .waitFor();
-    expect(await page.getByText('R$ 900,00', { exact: true }).count()).toBe(1);
-    expect(await page.getByText(/-.*10,00/).count()).toBeGreaterThan(0);
-    await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Próxima', exact: true }).click();
-    await page.getByText('Z Plataforma (Inativa)', { exact: true }).waitFor();
-    expect(
-      calls.some((url) =>
-        url.includes('saldos-plataformas?page=2&pageSize=12'),
-      ),
-    ).toBe(true);
-    await page
-      .getByRole('tab', { name: 'Relatório Financeiro', exact: true })
-      .click();
-    expect(await page.getByRole('tab').count()).toBe(2);
+    expect(await page.getByRole('tab').count()).toBe(0);
     expect(
       await page.getByRole('tab', { name: 'Relatório por Produto' }).count(),
     ).toBe(0);

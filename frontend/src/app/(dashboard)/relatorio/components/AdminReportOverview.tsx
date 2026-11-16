@@ -62,7 +62,8 @@ function formatQueryDate(d: Date | null): string | null {
 const METRIC_TT = {
   totalTransacoes: 'Transações aprovadas no período.',
   receitaTotal: 'Valor bruto das vendas aprovadas.',
-  taxaAdquirenteProxima: 'Reservado para futura adquirente.',
+  taxasAdquirentes:
+    'Custos de adquirente: MDR, taxa por transação e cashback da DOM (já inclui parcelamento e boleto) + taxa de saque DOM.',
   valorLiquido: 'Líquido total das transações.',
   lucroLiquido:
     'Lucro das transações + receita de taxas de saque − custos de saque.',
@@ -80,7 +81,6 @@ const METRIC_TT = {
   mdrDom: 'MDR percentual da DOM (varia por método e parcela).',
   taxaFixaDom: 'R$ 1 por transação cobrado pela DOM.',
   taxaCashbackDom: 'R$ 3 por transação de cashback DOM.',
-  totalTaxasDom: 'Custo DOM total: MDR + R$ 1 + R$ 3 por transação.',
   // ── Bloco Sim Int Pay ──
   taxaSimIntPct: 'Margem percentual da Sim Int Pay, já sem o MDR DOM.',
   taxaServicoDom: 'R$ 4 por transação cobrados pela Sim Int Pay.',
@@ -358,6 +358,11 @@ export default function AdminReportOverview({
     (consolidado as Record<string, unknown>)?.taxaServico ?? 0,
   );
 
+  /** Total de taxas de adquirentes: custos DOM por transação + taxa de saque DOM. */
+  const totalTaxasAdquirentes =
+    Math.round((totalTaxasDom + Number(consolidado?.taxaSaqueDOM ?? 0)) * 100) /
+    100;
+
   /** Total Sim Int Pay = % líquida + taxa serviço por transação. */
   const totalTaxasSimInt =
     Math.round((taxaSimIntPct + taxaServicoTotal) * 100) / 100;
@@ -380,6 +385,20 @@ export default function AdminReportOverview({
             }
             valueClassName="text-sky-600 dark:text-sky-400"
             icon={Hash}
+            iconClassName="text-sky-600 bg-sky-50 dark:bg-sky-950/30 dark:text-sky-400"
+          />
+          <MetricCard
+            label="Quantidade de clientes"
+            tooltip={METRIC_TT.quantidadeClientes}
+            value={
+              isLoadingConsolidado
+                ? 'Carregando...'
+                : consolidado?.customersCount == null
+                  ? 'Não informado'
+                  : consolidado.customersCount.toLocaleString('pt-BR')
+            }
+            valueClassName="text-sky-600 dark:text-sky-400"
+            icon={Users}
             iconClassName="text-sky-600 bg-sky-50 dark:bg-sky-950/30 dark:text-sky-400"
           />
           <MetricCard
@@ -407,26 +426,16 @@ export default function AdminReportOverview({
             iconClassName="text-cyan-600 bg-cyan-50 dark:bg-cyan-950/30 dark:text-cyan-400"
           />
           <MetricCard
-            label="Quantidade de clientes"
-            tooltip={METRIC_TT.quantidadeClientes}
+            label="Taxas de adquirentes"
+            tooltip={METRIC_TT.taxasAdquirentes}
             value={
               isLoadingConsolidado
                 ? 'Carregando...'
-                : consolidado?.customersCount == null
-                  ? 'Não informado'
-                  : consolidado.customersCount.toLocaleString('pt-BR')
+                : formatBRL(totalTaxasAdquirentes)
             }
-            valueClassName="text-sky-600 dark:text-sky-400"
-            icon={Users}
-            iconClassName="text-sky-600 bg-sky-50 dark:bg-sky-950/30 dark:text-sky-400"
-          />
-          <MetricCard
-            label="ROI"
-            tooltip={METRIC_TT.roi}
-            value={roiFormatado}
-            valueClassName="text-purple-600 dark:text-purple-400"
-            icon={Target}
-            iconClassName="text-purple-600 bg-purple-50 dark:bg-purple-950/30 dark:text-purple-400"
+            valueClassName="text-rose-600 dark:text-rose-400"
+            icon={Building2}
+            iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
           />
           <MetricCard
             label="Lucro líquido"
@@ -439,6 +448,14 @@ export default function AdminReportOverview({
             valueClassName="text-amber-600 dark:text-amber-400"
             icon={DollarSign}
             iconClassName="text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400"
+          />
+          <MetricCard
+            label="ROI"
+            tooltip={METRIC_TT.roi}
+            value={roiFormatado}
+            valueClassName="text-purple-600 dark:text-purple-400"
+            icon={Target}
+            iconClassName="text-purple-600 bg-purple-50 dark:bg-purple-950/30 dark:text-purple-400"
           />
         </ReportMetricSection>
 
@@ -542,6 +559,32 @@ export default function AdminReportOverview({
               iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
             />
             <MetricCard
+              label="Parcelamento - Sim Int Pay"
+              tooltip="Margem do parcelamento que fica na Sim Int Pay."
+              value={
+                isLoadingConsolidado
+                  ? 'Carregando...'
+                  : formatBRL(consolidado?.taxaParcelamentoSimIntPay ?? 0)
+              }
+              icon={CreditCard}
+              iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
+              valueClassName="text-violet-600 dark:text-violet-400"
+            />
+            <MetricCard
+              label="Taxa de saque - Sim Int Pay"
+              tooltip={METRIC_TT.lucroSaque}
+              value={
+                isLoadingConsolidado
+                  ? 'Carregando...'
+                  : formatBRL(
+                      (consolidado?.saquesAprovados?.quantidade ?? 0) * 2,
+                    )
+              }
+              valueClassName="text-violet-600 dark:text-violet-400"
+              icon={Wallet}
+              iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
+            />
+            <MetricCard
               label="Total de taxas - Sim Int Pay"
               tooltip={METRIC_TT.totalTaxasSimInt}
               value={
@@ -556,10 +599,10 @@ export default function AdminReportOverview({
           </div>
         </section>
 
-        {/* ── Taxas DOM ── */}
+        {/* ── Taxas de adquirentes ── */}
         <section className="flex flex-col gap-3">
           <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-            Taxas DOM
+            Taxas de adquirentes
           </h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             <MetricCard
@@ -601,41 +644,8 @@ export default function AdminReportOverview({
               iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
             />
             <MetricCard
-              label="Total de taxas - DOM"
-              tooltip={METRIC_TT.totalTaxasDom}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(totalTaxasDom)
-              }
-              valueClassName="text-rose-700 dark:text-rose-300"
-              icon={Building2}
-              iconClassName="text-rose-700 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-300"
-            />
-          </div>
-        </section>
-
-        {/* ── Parcelamento ── */}
-        <section className="flex flex-col gap-3">
-          <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-            Parcelamento
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            <MetricCard
-              label="Juros brutos"
-              tooltip="Total do parcelamento no crédito: MDR DOM + margem Master."
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(consolidado?.taxaParcelamentoBruto ?? 0)
-              }
-              icon={CreditCard}
-              iconClassName="text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400"
-              valueClassName="text-amber-600 dark:text-amber-400"
-            />
-            <MetricCard
               label="Parcelamento - DOM"
-              tooltip="Parte do parcelamento repassada à DOM."
+              tooltip="Parte do parcelamento repassada à DOM. Já incluída no MDR, não soma no total."
               value={
                 isLoadingConsolidado
                   ? 'Carregando...'
@@ -649,16 +659,42 @@ export default function AdminReportOverview({
               valueClassName="text-rose-700 dark:text-rose-300"
             />
             <MetricCard
-              label="Parcelamento - Sim Int Pay"
-              tooltip="Margem do parcelamento que fica na Sim Int Pay."
+              label="Taxa de saque - DOM"
+              tooltip={METRIC_TT.taxaSaqueDOM}
               value={
                 isLoadingConsolidado
                   ? 'Carregando...'
-                  : formatBRL(consolidado?.taxaParcelamentoSimIntPay ?? 0)
+                  : formatBRL(consolidado?.taxaSaqueDOM)
               }
-              icon={CreditCard}
-              iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
-              valueClassName="text-violet-600 dark:text-violet-400"
+              valueClassName="text-rose-600 dark:text-rose-400"
+              icon={Banknote}
+              iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
+            />
+            {boletoResumo && boletoResumo.quantidade > 0 && (
+              <MetricCard
+                label="Taxa de boleto - DOM"
+                tooltip="Custo DOM por boleto pago: R$ 3,49 + R$ 1,00. Já incluído nas taxas acima, não soma no total."
+                value={
+                  isLoadingConsolidado
+                    ? 'Carregando...'
+                    : formatBRL(boletoResumo.taxaDom)
+                }
+                valueClassName="text-rose-600 dark:text-rose-400"
+                icon={Receipt}
+                iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
+              />
+            )}
+            <MetricCard
+              label="Total de taxas de adquirentes"
+              tooltip={METRIC_TT.taxasAdquirentes}
+              value={
+                isLoadingConsolidado
+                  ? 'Carregando...'
+                  : formatBRL(totalTaxasAdquirentes)
+              }
+              valueClassName="text-rose-700 dark:text-rose-300"
+              icon={Building2}
+              iconClassName="text-rose-700 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-300"
             />
           </div>
         </section>
@@ -697,32 +733,6 @@ export default function AdminReportOverview({
               onAction={() => setShowSaqueValue(!showSaqueValue)}
               actionIcon={RefreshCw}
             />
-            <MetricCard
-              label="Taxa de Saque — DOM"
-              tooltip={METRIC_TT.taxaSaqueDOM}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(consolidado?.taxaSaqueDOM)
-              }
-              valueClassName="text-rose-600 dark:text-rose-400"
-              icon={Building2}
-              iconClassName="text-rose-600 bg-rose-50 dark:bg-rose-950/30 dark:text-rose-400"
-            />
-            <MetricCard
-              label="Taxa de Saque — Simintpay"
-              tooltip={METRIC_TT.lucroSaque}
-              value={
-                isLoadingConsolidado
-                  ? 'Carregando...'
-                  : formatBRL(
-                      (consolidado?.saquesAprovados?.quantidade ?? 0) * 2,
-                    )
-              }
-              valueClassName="text-violet-600 dark:text-violet-400"
-              icon={Wallet}
-              iconClassName="text-violet-600 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-400"
-            />
           </div>
         </section>
 
@@ -734,16 +744,18 @@ export default function AdminReportOverview({
           }}
         />
 
-        <ReportMetricSection title="Atribuição das vendas">
-          <MetricCard
-            label="Vendas não identificadas"
-            value={formatBRL(consolidado?.naoIdentificadas?.valor)}
-            detail={`${consolidado?.naoIdentificadas?.quantidade ?? 0} vendas`}
-            icon={HelpCircle}
-            valueClassName="text-amber-600 dark:text-amber-400"
-            iconClassName="text-amber-600 dark:text-amber-400"
-          />
-        </ReportMetricSection>
+        {(consolidado?.naoIdentificadas?.quantidade ?? 0) > 0 && (
+          <ReportMetricSection title="Atribuição das vendas">
+            <MetricCard
+              label="Vendas não identificadas"
+              value={formatBRL(consolidado?.naoIdentificadas?.valor)}
+              detail={`${consolidado?.naoIdentificadas?.quantidade ?? 0} vendas`}
+              icon={HelpCircle}
+              valueClassName="text-amber-600 dark:text-amber-400"
+              iconClassName="text-amber-600 dark:text-amber-400"
+            />
+          </ReportMetricSection>
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

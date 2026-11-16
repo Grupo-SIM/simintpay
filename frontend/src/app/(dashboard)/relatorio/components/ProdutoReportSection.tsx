@@ -65,7 +65,6 @@ import { ActionButton } from './ActionButton';
 import { DateRangePickerField } from './DateRangePickerField';
 import type { DateRange } from '../types';
 import type { Plataforma as PlataformaDetalhe } from './LucroSimpayDetalhePanel';
-import { PlatformBalancesView } from './PlatformBalancesView';
 import { ReportPlatformSelect } from './ReportPlatformSelect';
 import { ReportSkeleton } from './ReportSkeleton';
 import { ReportError } from './ReportError';
@@ -4843,12 +4842,6 @@ function GenericPlatformPanel({
 
 type Props = {
   effectiveDateRange: DateRange;
-  /**
-   * Qual visão renderizar. Controlado pelas abas do topo da página
-   * (Relatório Financeiro / Relatório por Produto / Saldos por Plataforma) —
-   * o componente não tem mais sub-abas próprias.
-   */
-  view?: 'relatorio' | 'saldos';
   platform?: ReportPlatform;
   method?: string;
 };
@@ -4862,7 +4855,6 @@ function formatDateBR(ymd: string | undefined | null): string {
 
 export function ProdutoReportSection({
   effectiveDateRange,
-  view = 'relatorio',
   platform,
   method = 'all',
 }: Props) {
@@ -4888,8 +4880,8 @@ export function ProdutoReportSection({
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Header — só na visão de produto; PlatformBalancesView já traz o próprio título. */}
-      {!platform && view !== 'saldos' && (
+      {/* Header — só na visão de produto. */}
+      {!platform && (
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-100 dark:bg-white/5">
             <Package className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
@@ -4906,99 +4898,92 @@ export function ProdutoReportSection({
         </div>
       )}
 
-      {view === 'saldos' ? (
-        <PlatformBalancesView />
-      ) : (
-        <>
-          {!platform && (
-            <ReportPlatformSelect value={selected} onChange={setSelected} />
-          )}
+      <>
+        {!platform && (
+          <ReportPlatformSelect value={selected} onChange={setSelected} />
+        )}
 
-          {/* Panel */}
-          {selectedTag && produtoAtual && (
+        {/* Panel */}
+        {selectedTag && produtoAtual && (
+          <div
+            className="rounded-3xl border bg-white shadow-sm dark:bg-zinc-900/40"
+            style={{ borderColor: `${produtoAtual.accent}30` }}
+          >
+            {/* Panel header */}
             <div
-              className="rounded-3xl border bg-white shadow-sm dark:bg-zinc-900/40"
-              style={{ borderColor: `${produtoAtual.accent}30` }}
+              className="flex items-center gap-3 border-b p-6"
+              style={{ borderColor: `${produtoAtual.accent}20` }}
             >
-              {/* Panel header */}
               <div
-                className="flex items-center gap-3 border-b p-6"
-                style={{ borderColor: `${produtoAtual.accent}20` }}
+                className="flex h-10 w-10 items-center justify-center rounded-2xl"
+                style={{ background: `${produtoAtual.accent}18` }}
               >
-                <div
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl"
-                  style={{ background: `${produtoAtual.accent}18` }}
-                >
-                  {produtoAtual.icon === 'tv' ? (
-                    <Tv
-                      className="h-5 w-5"
-                      style={{ color: produtoAtual.accent }}
-                    />
-                  ) : (
-                    <Building2
-                      className="h-5 w-5"
-                      style={{ color: produtoAtual.accent }}
-                    />
-                  )}
-                </div>
-                <div>
-                  <h3
-                    className="text-lg font-black uppercase tracking-tight"
+                {produtoAtual.icon === 'tv' ? (
+                  <Tv
+                    className="h-5 w-5"
                     style={{ color: produtoAtual.accent }}
-                  >
-                    {produtoAtual.label}
-                  </h3>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-500">
-                    Dashboard + relatório consolidado + transações ·{' '}
-                    {dataInicio && dataFim
-                      ? `${formatDateBR(dataInicio)} a ${formatDateBR(dataFim)}`
-                      : 'período filtrado'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-6">
-                {!config ||
-                (method !== 'all' &&
-                  ['AREAFLIX', 'ATLAS'].includes(selectedTag)) ? (
-                  <OwnedReportContent
-                    filters={{
-                      platform: selectedTag,
-                      startDate: dataInicio,
-                      endDate: dataFim,
-                      paymentMethod: method === 'all' ? undefined : method,
-                    }}
-                    product
-                  />
-                ) : selectedTag === 'AREAFLIX' ? (
-                  <AreaflixPanel
-                    dashDataInicio={dataInicio}
-                    dashDataFim={dataFim}
-                  />
-                ) : selectedTag === 'ATLAS' ? (
-                  <AtlasPanel
-                    dashDataInicio={dataInicio}
-                    dashDataFim={dataFim}
                   />
                 ) : (
-                  <GenericPlatformPanel
-                    key={`${selectedTag}:${dataInicio}:${dataFim}:${method}`}
-                    unified
-                    initialMethod={method === 'all' ? '' : method}
-                    tag={selectedTag}
-                    accent={produtoAtual.accent}
-                    isEbook={
-                      selectedTag === 'EBOOK' || selectedTag === 'EBOOKSIM'
-                    }
-                    dashDataInicio={dataInicio}
-                    dashDataFim={dataFim}
+                  <Building2
+                    className="h-5 w-5"
+                    style={{ color: produtoAtual.accent }}
                   />
                 )}
               </div>
+              <div>
+                <h3
+                  className="text-lg font-black uppercase tracking-tight"
+                  style={{ color: produtoAtual.accent }}
+                >
+                  {produtoAtual.label}
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-500">
+                  Dashboard + relatório consolidado + transações ·{' '}
+                  {dataInicio && dataFim
+                    ? `${formatDateBR(dataInicio)} a ${formatDateBR(dataFim)}`
+                    : 'período filtrado'}
+                </p>
+              </div>
             </div>
-          )}
-        </>
-      )}
+
+            <div className="p-6">
+              {!config ||
+              (method !== 'all' &&
+                ['AREAFLIX', 'ATLAS'].includes(selectedTag)) ? (
+                <OwnedReportContent
+                  filters={{
+                    platform: selectedTag,
+                    startDate: dataInicio,
+                    endDate: dataFim,
+                    paymentMethod: method === 'all' ? undefined : method,
+                  }}
+                  product
+                />
+              ) : selectedTag === 'AREAFLIX' ? (
+                <AreaflixPanel
+                  dashDataInicio={dataInicio}
+                  dashDataFim={dataFim}
+                />
+              ) : selectedTag === 'ATLAS' ? (
+                <AtlasPanel dashDataInicio={dataInicio} dashDataFim={dataFim} />
+              ) : (
+                <GenericPlatformPanel
+                  key={`${selectedTag}:${dataInicio}:${dataFim}:${method}`}
+                  unified
+                  initialMethod={method === 'all' ? '' : method}
+                  tag={selectedTag}
+                  accent={produtoAtual.accent}
+                  isEbook={
+                    selectedTag === 'EBOOK' || selectedTag === 'EBOOKSIM'
+                  }
+                  dashDataInicio={dataInicio}
+                  dashDataFim={dataFim}
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </>
     </div>
   );
 }
