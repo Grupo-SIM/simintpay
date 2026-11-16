@@ -1,4 +1,6 @@
 import { afterAll, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { emptyPolicy, laneKey, METHODS, CHANNELS } from '../financial-policy';
@@ -38,6 +40,47 @@ test.skipIf(!prisma)(
   'real local database: migration audit, policy revisions, quote, idempotent settlement and refund',
   async () => {
     const db = prisma!;
+    // Historic state that predates the policy migration: a platform with customised interest and a
+    // charge without snapshot, audited by the migration's own INSERT ... SELECT (re-run for this tag).
+    const historicOwner = await db.user.create({
+      data: {
+        email: `${crypto.randomUUID()}@finance.local`,
+        password: 'local-test',
+        name: 'Historic',
+      },
+    });
+    await db.platform.create({
+      data: {
+        tag: 'FINANCE-HISTORIC',
+        name: 'Historic',
+        ownerUserId: historicOwner.id,
+        customerInterestRates: { '2': 0.123 },
+        absorbCustomerInterest: true,
+      },
+    });
+    await db.transaction.create({
+      data: {
+        id: 'finance-historic-tx',
+        userId: historicOwner.id,
+        amount: 100,
+        netAmount: 87.25,
+      },
+    });
+    const auditSql = readFileSync(
+      resolve(
+        import.meta.dir,
+        '../../../../prisma/migrations/20261019000000_financial_policy/migration.sql',
+      ),
+      'utf8',
+    )
+      .match(
+        /INSERT INTO "FinancialPolicyRevision"[\s\S]*?FROM "Platform";/,
+      )![0]
+      .replace(
+        'FROM "Platform";',
+        `FROM "Platform" WHERE "tag" = 'FINANCE-HISTORIC'`,
+      );
+    await db.$executeRawUnsafe(auditSql);
     const legacy = await db.transaction.findUniqueOrThrow({
       where: { id: 'finance-historic-tx' },
     });
@@ -123,6 +166,17 @@ test.skipIf(!prisma)(
     const visible: Record<string, unknown> = { ...quote.financialSnapshot };
     delete visible.policyTag;
     delete visible.interestOnly;
+    // The saved snapshot also carries the audit data of the charge (acquirer cost and platform fee
+    // mode); the owner simulation never exposes it.
+    for (const field of [
+      'acquirerCost',
+      'additiveFeeCents',
+      'interestCostCents',
+      'platformFeeMode',
+      'processingCostCents',
+      'targetFeePpm',
+    ])
+      delete visible[field];
     expect(quote.financialSnapshot.interestOnly).toBe(true);
     expect(simulation.data[0].result).toMatchObject(visible);
     const snapshot = quote.financialSnapshot;
@@ -197,14 +251,16 @@ test.skipIf(!prisma)(
       quoteReportedPos(context, pos.totalAmount, 'CREDIT_CARD', 2)
         ?.financialSnapshot.originalCents,
     ).toBe(10001);
-    expect(
-      quoteReportedPos(
-        await loadChargePolicy(db, platform.tag, new Date('2000-01-01')),
-        100,
-        'CREDIT_CARD',
-        2,
-      ),
-    ).toBeNull();
+    const oldPolicy = await loadChargePolicy(
+      db,
+      platform.tag,
+      new Date('2000-01-01'),
+    );
+    // Before any policy existed the lane is unconfigured; platforms always carry a fee mode now, so
+    // the quote is refused instead of silently returning null.
+    expect(() => quoteReportedPos(oldPolicy, 100, 'CREDIT_CARD', 2)).toThrow(
+      'Taxas da plataforma não configuradas para esta modalidade',
+    );
   },
   30000,
 );
