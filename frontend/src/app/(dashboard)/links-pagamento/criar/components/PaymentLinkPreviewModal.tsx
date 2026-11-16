@@ -198,7 +198,7 @@ export function PaymentLinkPreviewModal({
             ref={iframeRef}
             src={url}
             title="Checkout em modo de prévia, pagamentos desabilitados"
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-forms allow-scripts allow-same-origin"
             referrerPolicy="no-referrer"
             onError={() => setStatus('error')}
             className={`h-full border-0 ${mobile ? 'w-[390px] max-w-full' : 'w-full'} ${status === 'ready' ? 'visible' : 'invisible'}`}
