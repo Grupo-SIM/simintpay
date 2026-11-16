@@ -117,6 +117,7 @@ beforeAll(async () => {
   await db.$executeRaw`INSERT INTO "EbookSettlement" (id,"manifestId","orderNumber","manifestHash",manifest,identities,"capabilityHash",funding,state,"providerPaymentId","transactionId") VALUES ('enrollment-test','11111111-1111-4111-8111-111111111111','TEST-1',${ebookHash(manifest)},${JSON.stringify(manifest)}::jsonb,'{}'::jsonb,'test',${JSON.stringify(funding)}::jsonb,'PENDING','fake-provider-payment',${transactionId})`;
 });
 afterAll(async () => {
+  delete process.env.DOM_TOKEN;
   await db?.$disconnect();
 });
 run(
@@ -306,7 +307,8 @@ run(
     await initializePlatformIntegrationsCache(db!);
     await initializePlatformRegistryCache(db!);
     process.env.INTERNAL_SERVICE_TOKEN = 'local-internal-test';
-    process.env.DOM_TOKEN = 'fake-local-only';
+    // One central DOM account: every platform charges with the global DOM_TOKEN.
+    process.env.DOM_TOKEN = 'local-fake-token';
     await db!.webhookEvent.deleteMany({
       where: { eventId: 'local-fake-event' },
     });
@@ -470,7 +472,6 @@ run(
     ).toBe(2);
     expect(legacy).toBe(0);
     delete process.env.INTERNAL_SERVICE_TOKEN;
-    delete process.env.DOM_TOKEN;
   },
 );
 run(
