@@ -34,11 +34,75 @@ const migrationSql = readFileSync(
 const guardRe =
   /-- wallet-ledger-divergence-guard:begin[\s\S]*?-- wallet-ledger-divergence-guard:end/;
 
+/**
+ * Fixed GLOBAL policy and DOM costs so the numbers never depend on what a migration seeds.
+ * Acquirer cost (DOM, ORIGINAL base): PIX 0.98%, card 1x 3.99% + R$ 1.00. The platform adds R$ 4.00 + 8.02% on PIX and R$ 4.00 + 4.01% on card, so the seller pays R$ 13.00 on R$ 100.00 in both (the buyer total is the plain amount: current quotes pass only contracted interest).
+ */
+const lane = (simRatePpm: number) => ({
+  active: true,
+  contract: {
+    fixedCents: 0,
+    ratePpm: 0,
+    interestPpm: 0,
+    cashbackCents: 0,
+    base: 'ORIGINAL',
+    reference: 'characterization',
+  },
+  sim: { fixedCents: 400, ratePpm: simRatePpm, interestPpm: 0 },
+});
+async function seedCharacterizationPolicy() {
+  const document = {
+    schemaVersion: 1,
+    lanes: {
+      'DOM/PIX/ONLINE/1': lane(80_200),
+      'DOM/CREDIT_CARD/ONLINE/1': lane(40_100),
+    },
+    owner: {},
+  };
+  await db!.acquirerFeeSchedule.createMany({
+    data: [
+      ['PIX', 0, 9_800],
+      ['CREDIT_CARD', 100, 39_900],
+    ].map(([method, fixedCents, ratePpm]) => ({
+      acquirerCode: 'DOM',
+      method: method as string,
+      channel: 'ONLINE',
+      installments: 1,
+      fixedCents: fixedCents as number,
+      ratePpm: ratePpm as number,
+      interestPpm: 0,
+      base: 'ORIGINAL',
+      source: 'TEST',
+    })),
+  });
+  const existing = await db!.financialPolicyRevision.findFirst({
+    where: { tag: 'GLOBAL', version: 1 },
+  });
+  if (existing) {
+    await db!.financialPolicyRevision.update({
+      where: { id: existing.id },
+      data: { document, createdAt: new Date('2000-01-01T00:00:00.000Z') },
+    });
+    return;
+  }
+  const actor = await newUser();
+  await db!.financialPolicyRevision.create({
+    data: {
+      tag: 'GLOBAL',
+      version: 1,
+      actorId: actor.id,
+      document,
+      createdAt: new Date('2000-01-01T00:00:00.000Z'),
+    },
+  });
+}
+
 const oldToken = process.env.DOM_TOKEN;
 beforeAll(async () => {
   if (!url) return;
   process.env.DOM_TOKEN = 'test-token';
   await useEmptyCaches();
+  await seedCharacterizationPolicy();
   const pg = new Client({ connectionString: url });
   await pg.connect();
   try {
@@ -148,7 +212,13 @@ run(
     });
     expect(tx.domPaymentId).toStartWith('pay-');
     expect(tx.pixContent).toBe('copy');
-    expect(tx.financialSnapshot).toBeNull();
+    // The quote is frozen on the charge so renewals and reports never re-resolve today's fees.
+    expect(tx.financialSnapshot).toMatchObject({
+      key: 'DOM/PIX/ONLINE/1',
+      netCents: 8700,
+      contractedCostCents: 1300,
+      acquirerCost: { realizedCents: 98 },
+    });
     expect((await walletOf(owner.id)).balance.toFixed(2)).toBe('0.00');
     expect(
       (await db!.paymentLink.findUniqueOrThrow({ where: { id: link.id } }))
@@ -187,7 +257,7 @@ run(
     const tx = await db!.transaction.findUniqueOrThrow({
       where: { id: out.transactionId },
     });
-    expect(stored(tx)).toEqual(['104.99', '87.00', '17.99', '4.99', '13.00']);
+    expect(stored(tx)).toEqual(['100.00', '87.00', '13.00', '4.99', '8.01']);
     expect(tx.status).toBe('COMPLETED');
     expect((await walletOf(owner.id)).balance.toFixed(2)).toBe('87.00');
   },
@@ -341,7 +411,8 @@ run(
       where: { id: out.transactionId },
     });
     expect(stored(tx)).toEqual(['100.00', '87.00', '13.00', '0.98', '12.02']);
-    expect(tx.financialSnapshot).toEqual({
+    expect(tx.financialSnapshot).toMatchObject({
+      netCents: 8700,
       coproduction: {
         basis: 'NET',
         version: 4,
