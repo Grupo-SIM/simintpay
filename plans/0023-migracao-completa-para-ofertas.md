@@ -116,7 +116,7 @@ Pontos que a primeira leva deixou em aberto:
 
 - [x] **Coprodução na migração:** `offer-migration-apply` renomeia acordos e revisões (`links-pagamento`, `links-assinatura`, `boletos`, `planos`, `planos-pix` para `ofertas`, mesmo `productId`) na mesma transação que cria a `Offer`; recusa com `COPRODUCTION_CONFLICT` se já existir acordo diferente em `ofertas`; `--verify` acusa acordo que sobrou na chave antiga. `coproductionKeyFor` não depende mais de `legacyType` (sempre `ofertas` + id da oferta).
 - [x] Os adaptadores REST gravam a `coproduction` enviada na criação (`OfferService.create(actor, dto, { coproduction })`, na mesma transação da oferta). `DELETE` continua desativando em vez de apagar, por decisão.
-- [ ] O webhook da plataforma envia `x-simintpay-signature`, e o `saas-netflix-back` espera `x-simpay-token`.
+- [x] O webhook da plataforma envia `x-simintpay-signature`, e o `saas-netflix-back` espera `x-simpay-token`. Resolvido no consumidor (verificado, sem mudança nesta repo): o `saas-netflix-back` já tem `POST /webhooks-simintpay` (HMAC-SHA256 do corpo bruto em `x-simintpay-signature`, segredo `SIMINTPAY_WEBHOOK_SECRET` = `WEBHOOK_SECRET` da plataforma). Os emissores legados de link continuam em `x-simpay-token` para `/webhooks-simpay`. Pendente do ops: apontar a URL do webhook da plataforma AREAFLIX para `/webhooks-simintpay` e configurar o segredo.
 - [ ] Testes de integração já quebrados em `main` por mudança de preço (renovação/reativação, ledger do ciclo, preço do ciclo, `stored-card-vault`), independentes desta leva.
 
 Segunda leva (mexem em arquivos da primeira, começam agora):
@@ -136,7 +136,7 @@ Segunda leva (mexem em arquivos da primeira, começam agora):
 
 ### Fase 1: expandir o schema (migration aditiva)
 
-- [ ] `Transaction.offerId` (nulo, indexado, FK para `Offer`), preenchido por `UPDATE ... SET "offerId" = "paymentLinkId"`. As vendas de assinatura já se ligam pela `Charge` criada na migração de contratos.
+- [x] `Transaction.offerId` (nulo, indexado, FK para `Offer`), preenchido por `UPDATE ... SET "offerId" = "paymentLinkId"`. As vendas de assinatura já se ligam pela `Charge` criada na migração de contratos. Migration `20261118110000_transaction_offer_id` (só arquivo, **não aplicada em banco real**): o backfill só preenche links cujo `Offer` já existe (a FK recusaria o resto) e pelas `Charge`; é idempotente, então rode de novo depois do `offer-migration-apply`. Testada só em Postgres descartável local (`backend/tests/transaction-offer-id.integration.test.ts`). Nenhum escritor grava `offerId` ainda.
 - [x] ~~`CommunityLinkBinding.offerId`~~: não se aplica, a comunidade foi descontinuada e a tabela removida.
 - [ ] Qualquer coluna nova de `Offer` decidida na Fase 0.
 - [ ] Ensaio: restaurar um backup em Postgres descartável, `migrate deploy`, rodar a fase inteira e a paridade da seção 10.

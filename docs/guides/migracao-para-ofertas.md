@@ -144,3 +144,19 @@ Apagar as ofertas criadas é seguro enquanto nenhuma venda tiver sido feita nela
 - [ ] Um PIX real de teste numa oferta migrada
 - [ ] Sandbox da DOM validada antes de trocar os links de assinatura no cartão
 - [ ] URLs trocadas e produtos legados desativados
+
+## Paridade do checkout de oferta com os checkouts legados
+
+Verificada no código de `checkout/src/components` em 2026-11-18. O `OfferCheckout` já cobre: PIX, crédito parcelado e débito, boleto com endereço, recorrência (`card-customer` + `subscribe`, com teste grátis), cupom, order bump (seleção), UTM e tracking, `redirectUrl` e tela de sucesso. Falta, ou depende de outra frente:
+
+| Item                                                                              | Legado que tem                    | Situação                                                                                                                                                       |
+| --------------------------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tela de pós-compra do funil (upsell e downsell)                                   | `simlink` (`LinkOffers`)          | em andamento na branch `feat/offer-funnel`                                                                                                                     |
+| Imagem do produto e dos bumps                                                     | `simlink` (`ProductImage`)        | em andamento em `feat/offer-files`; `OfferCheckout` passa `imagemUrl: null`                                                                                    |
+| Arquivos de entrega após a compra                                                 | `simlink`                         | em andamento em `feat/offer-files`                                                                                                                             |
+| Acesso ao grupo do Telegram após o pagamento (link de convite na tela de sucesso) | `simpixplan` (`telegram-success`) | **falta**; depende do crédito de dias (`OfferAccess`) e das rotas de compat PAGATG                                                                             |
+| Entrada por `?code=PX-…` (plano PIX)                                              | `CheckoutRouter`                  | **falta**: o alias `OfferCodeAlias` só é resolvido nas rotas de compat, não em `GET /ofertas/public/:code`; por isso o redirecionamento legado não cobre `PX-` |
+| Pausa e retomada da assinatura                                                    | assinatura legada                 | em andamento em `feat/offer-pause-subscribers`                                                                                                                 |
+| Redirecionamento das URLs legadas                                                 | `proxy.ts`                        | feito, atrás de `CHECKOUT_LEGACY_TO_OFFER` (desligado por padrão)                                                                                              |
+
+Sem diferença encontrada: endereço do boleto (mesmos campos e máscaras do boleto avulso), cupom (`validate-voucher`) e parcelas.
