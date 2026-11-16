@@ -9,12 +9,16 @@ export function PlatformSelectionHeader({
   platforms,
   selectedTag,
   onSelect,
+  onSelectUser,
+  userLabel,
   admin = false,
   actions,
 }: {
   platforms: Platform[];
   selectedTag?: string;
   onSelect: (tag: string) => void;
+  onSelectUser?: (tag: string, label: string) => void;
+  userLabel?: string | null;
   admin?: boolean;
   actions?: ReactNode;
 }) {
@@ -23,7 +27,7 @@ export function PlatformSelectionHeader({
     selectedTag === 'GLOBAL'
       ? 'Padrão global'
       : selectedTag?.startsWith('USER:')
-        ? 'Selecionar plataforma'
+        ? (userLabel ?? 'Usuário')
         : (platforms.find((platform) => platform.tag === selectedTag)?.name ??
           'Plataformas');
   return (
@@ -48,6 +52,10 @@ export function PlatformSelectionHeader({
           admin={admin}
           onSelect={(tag) => {
             onSelect(tag);
+            setOpen(false);
+          }}
+          onSelectUser={(tag, label) => {
+            onSelectUser?.(tag, label);
             setOpen(false);
           }}
           onClose={() => setOpen(false)}

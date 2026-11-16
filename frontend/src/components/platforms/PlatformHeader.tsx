@@ -38,7 +38,7 @@ export function PlatformHeader({
           <span>
             <span className="block text-xs text-zinc-500 dark:text-zinc-400">
               {admin
-                ? 'Selecionar configuração financeira'
+                ? 'Selecionar plataforma'
                 : 'Selecionar ou gerenciar plataformas'}
             </span>
             <span className="font-semibold">{selectedName}</span>

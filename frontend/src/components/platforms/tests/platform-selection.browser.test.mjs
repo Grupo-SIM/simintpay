@@ -163,11 +163,9 @@ test('admin manages platforms and selects product financial owners', async () =>
       expect(created.ownerUserId).toBe('other');
       await page.keyboard.press('Escape');
       await page.goto(`http://127.0.0.1:${server.port}/?admin`);
-      await page
-        .getByRole('button', { name: /Selecionar configuração financeira/ })
-        .click();
+      await page.getByRole('button', { name: /Selecionar plataforma/ }).click();
       const picker = page.getByRole('dialog', {
-        name: 'Selecionar configuração financeira',
+        name: 'Selecionar plataforma',
       });
       expect(
         await picker.getByRole('button', { name: 'Padrão global' }).count(),
@@ -205,9 +203,7 @@ test('admin manages platforms and selects product financial owners', async () =>
         document.querySelector('header')?.textContent.includes('Outra loja'),
       );
       expect(requests).toContain('/api/platforms/OTHER/financial-policy');
-      await page
-        .getByRole('button', { name: /Selecionar configuração financeira/ })
-        .click();
+      await page.getByRole('button', { name: /Selecionar plataforma/ }).click();
       await page
         .getByRole('dialog')
         .getByRole('button', { name: 'Padrão global' })

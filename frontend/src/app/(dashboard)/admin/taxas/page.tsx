@@ -9,7 +9,6 @@ import { useClienteApi } from '@/app/(dashboard)/cliente/_shared';
 import { FinancialPolicyEditor } from '@/components/platforms/FinancialPolicyEditor';
 import { CashbackDomSection } from '@/components/platforms/CashbackDomSection';
 import { TaxaScopeToggle } from '@/components/platforms/TaxaScopeToggle';
-import { UserTaxaPicker } from '@/components/platforms/UserTaxaPicker';
 import { WithdrawalSection } from '@/components/platforms/WithdrawalSection';
 import { PlatformSelectionHeader } from '@/components/platforms/PlatformSelectionHeader';
 import type { Platform } from '@/components/platforms/types';
@@ -80,16 +79,11 @@ export default function AdminTaxasPlataformasPage() {
           setTag(next);
           setUserLabel(null);
         }}
-        actions={
-          <UserTaxaPicker
-            selectedTag={tag}
-            selectedLabel={userLabel}
-            onSelect={(next, label) => {
-              setTag(next);
-              setUserLabel(label);
-            }}
-          />
-        }
+        onSelectUser={(next, label) => {
+          setTag(next);
+          setUserLabel(label);
+        }}
+        userLabel={userLabel}
       />
       {isUser && (
         <p role="status" className="text-sm font-medium">
