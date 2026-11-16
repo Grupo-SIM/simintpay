@@ -1,3 +1,4 @@
+import { offerPlatformReadsEnabled } from '../../offer/offer-read-flag';
 import { transactionPlatformTagData } from '../../platform-core/transaction-platform';
 import {
   captureCoproduction,
@@ -159,15 +160,30 @@ export class PlatformPaymentsService {
         capability: 'payments.' + input.paymentMethod,
       });
     if (input.linkId) {
-      const link = await this.prisma.paymentLink.findFirst({
-        where: {
-          id: input.linkId,
-          userId: platform.ownerUserId,
-          plataformas: { has: platform.tag },
-          isActive: true,
-        },
-      });
-      if (!link || !link.amount.mul(100).equals(input.amountCents))
+      const link = offerPlatformReadsEnabled()
+        ? await this.prisma.offer
+            .findFirst({
+              where: {
+                id: input.linkId,
+                ownerUserId: platform.ownerUserId,
+                platformTag: platform.tag,
+                renewalMode: 'NONE',
+                isActive: true,
+              },
+              select: { amountCents: true },
+            })
+            .then((offer) => offer && { cents: offer.amountCents })
+        : await this.prisma.paymentLink
+            .findFirst({
+              where: {
+                id: input.linkId,
+                userId: platform.ownerUserId,
+                plataformas: { has: platform.tag },
+                isActive: true,
+              },
+            })
+            .then((row) => row && { cents: row.amount.mul(100).toNumber() });
+      if (!link || link.cents !== input.amountCents)
         throw new UnprocessableEntityException({
           code: 'INVALID_LINK_PAYMENT',
         });

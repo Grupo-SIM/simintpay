@@ -1,3 +1,4 @@
+import { offerPlatformReadsEnabled } from '../offer/offer-read-flag';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
 import {
   Injectable,
@@ -118,6 +119,26 @@ export class PlatformSubscriptionCapabilitiesService {
 
   async paymentStatus(context: PlatformContext, code: string) {
     const current = await this.current(context, 'subscriptions.status');
+    if (offerPlatformReadsEnabled()) {
+      // Same lookup through `Offer` (recurring offer of the platform and owner); a paid cycle is a
+      // PAID `Charge`, the successor of a paid `SubscriptionLinkOrder`.
+      const offer = await this.prisma.offer.findFirst({
+        where: {
+          code,
+          ownerUserId: current.ownerUserId,
+          platformTag: current.tag,
+          renewalMode: { not: 'NONE' },
+        },
+        select: { id: true },
+      });
+      if (!offer) throw new NotFoundException('Assinatura não encontrada');
+      const charge = await this.prisma.charge.findFirst({
+        where: { offerId: offer.id, status: 'PAID' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      return { paid: !!charge, paidAt: charge?.createdAt ?? null };
+    }
     const link = await this.prisma.subscriptionLink.findFirst({
       where: {
         code,

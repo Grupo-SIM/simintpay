@@ -118,3 +118,53 @@ describe('corporate subscription capabilities', () => {
     expect(f.findOrder).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('paymentStatus through Offer (OFFER_PLATFORM_READS)', () => {
+  const run = async (charge: { createdAt: Date } | null) => {
+    process.env.OFFER_PLATFORM_READS = '1';
+    try {
+      const context: PlatformContext = {
+        id: 'platform',
+        tag: 'PAGATG',
+        ownerUserId: 'owner',
+        acquirer: 'DOM',
+      };
+      const offerFind = mock<(arg: unknown) => Promise<any>>(async () => ({
+        id: 'offer-1',
+      }));
+      const chargeFind = mock<(arg: unknown) => Promise<any>>(
+        async () => charge,
+      );
+      const legacy = mock(async () => null);
+      const service = new PlatformSubscriptionCapabilitiesService(
+        {
+          offer: { findFirst: offerFind },
+          charge: { findFirst: chargeFind },
+          subscriptionLink: { findFirst: legacy },
+        } as never,
+        { resolve: async () => ({ ...context }) } as never,
+        {} as never,
+      );
+      const result = await service.paymentStatus(context, 'code');
+      return { result, offerFind, chargeFind, legacy };
+    } finally {
+      delete process.env.OFFER_PLATFORM_READS;
+    }
+  };
+
+  test('paid cycle is a PAID charge of the platform offer', async () => {
+    const paidAt = new Date('2026-02-02');
+    const { result, offerFind, legacy } = await run({ createdAt: paidAt });
+    expect(result).toEqual({ paid: true, paidAt });
+    expect((offerFind.mock.calls[0][0] as any).where).toMatchObject({
+      code: 'code',
+      ownerUserId: 'owner',
+      platformTag: 'PAGATG',
+    });
+    expect(legacy).not.toHaveBeenCalled();
+  });
+
+  test('no paid charge reports unpaid, same shape as the legacy order lookup', async () => {
+    expect((await run(null)).result).toEqual({ paid: false, paidAt: null });
+  });
+});

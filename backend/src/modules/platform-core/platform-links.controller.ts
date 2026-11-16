@@ -25,6 +25,8 @@ import { ModuleRef } from '@nestjs/core';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { createHash } from 'node:crypto';
+import { offerPlatformReadsEnabled } from '../offer/offer-read-flag';
+import { paymentLinkDetail } from '../offer/legacy-links.compat';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -55,6 +57,25 @@ export class PlatformLinksController {
     if (!link)
       throw new NotFoundException('Link não encontrado nesta plataforma');
     return link;
+  }
+  /**
+   * Read of a platform link. Legacy table by default; with `OFFER_PLATFORM_READS=1` the same id
+   * resolves through `Offer` (a non-recurring offer of the platform) and is shown in the legacy
+   * link shape. Writes keep the legacy use cases until phase 4.
+   */
+  private async ownedForRead(c: PlatformContext, id: string) {
+    if (!offerPlatformReadsEnabled()) return this.owned(c, id);
+    const offer = await this.prisma.offer.findFirst({
+      where: {
+        id,
+        ownerUserId: c.ownerUserId,
+        platformTag: c.tag,
+        renewalMode: 'NONE',
+      },
+    });
+    if (!offer)
+      throw new NotFoundException('Link não encontrado nesta plataforma');
+    return paymentLinkDetail(offer);
   }
   private response(data: { id: string }) {
     const base = process.env.SIMPAY_CHECKOUT_URL;
@@ -106,6 +127,14 @@ export class PlatformLinksController {
     const id = createHash('sha256')
       .update(`platform-link:${c.id}:${key}`)
       .digest('hex');
+    if (
+      offerPlatformReadsEnabled() &&
+      (await this.prisma.offer.findUnique({
+        where: { id },
+        select: { id: true },
+      }))
+    )
+      return this.response(await this.ownedForRead(c, id));
     const existing = await this.prisma.paymentLink.findUnique({
       where: { id },
     });
@@ -130,7 +159,7 @@ export class PlatformLinksController {
   @Get('links/:id')
   @SetMetadata('platform-operation', 'links:read')
   async get(@Req() req: Request, @Param('id') id: string) {
-    return this.response(await this.owned(req.platformContext, id));
+    return this.response(await this.ownedForRead(req.platformContext, id));
   }
   @Patch('links/:id')
   @SetMetadata('platform-operation', 'links:write')

@@ -5,9 +5,42 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
+import { offerPlatformReadsEnabled } from '../offer/offer-read-flag';
 import { lockWalletLedger } from '../wallet-ledger/wallet-ledger';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 
+/**
+ * Selectors of the claimable links of a platform. Legacy tables by default; with
+ * `OFFER_PLATFORM_READS=1` the same ids resolve through `Offer` (`Offer.id` is the legacy id,
+ * a payment link is a non-recurring offer, a subscription link a recurring one).
+ */
+export function claimSelectors(
+  tag: string,
+  paymentIds: string[],
+  subscriptionIds: string[],
+  onOffers = offerPlatformReadsEnabled(),
+) {
+  if (onOffers)
+    return {
+      payment: {
+        id: { in: paymentIds },
+        platformTag: tag,
+        renewalMode: 'NONE' as const,
+      },
+      subscription: {
+        id: { in: subscriptionIds },
+        platformTag: tag,
+        renewalMode: { not: 'NONE' as const },
+      },
+    };
+  return {
+    payment: { id: { in: paymentIds }, plataformas: { has: tag } },
+    subscription: {
+      id: { in: subscriptionIds },
+      OR: [{ platformTag: tag }, { plataformas: { has: tag } }],
+    },
+  };
+}
 export type LinkClaim = {
   paymentLinkIds?: string[];
   subscriptionLinkIds?: string[];
@@ -53,19 +86,37 @@ export class PlatformLinkClaim {
           platform.ownerUserId !== targetUserId
         )
           throw new ForbiddenException('Vínculo exige dono atual ativo');
-        const [payments, subscriptions] = await Promise.all([
-          p.paymentLink.findMany({
-            where: { id: { in: paymentIds }, plataformas: { has: tag } },
-            select: { id: true },
-          }),
-          p.subscriptionLink.findMany({
-            where: {
-              id: { in: subscriptionIds },
-              OR: [{ platformTag: tag }, { plataformas: { has: tag } }],
-            },
-            select: { id: true },
-          }),
-        ]);
+        const onOffers = offerPlatformReadsEnabled();
+        const where = claimSelectors(
+          tag,
+          paymentIds,
+          subscriptionIds,
+          onOffers,
+        );
+        const [payments, subscriptions] = await Promise.all(
+          onOffers
+            ? [
+                p.offer.findMany({
+                  where: where.payment as Prisma.OfferWhereInput,
+                  select: { id: true },
+                }),
+                p.offer.findMany({
+                  where: where.subscription as Prisma.OfferWhereInput,
+                  select: { id: true },
+                }),
+              ]
+            : [
+                p.paymentLink.findMany({
+                  where: where.payment as Prisma.PaymentLinkWhereInput,
+                  select: { id: true },
+                }),
+                p.subscriptionLink.findMany({
+                  where:
+                    where.subscription as Prisma.SubscriptionLinkWhereInput,
+                  select: { id: true },
+                }),
+              ],
+        );
         if (
           payments.length !== paymentIds.length ||
           subscriptions.length !== subscriptionIds.length
@@ -145,22 +196,40 @@ export class PlatformLinkClaim {
           }
           transferred = amount.toNumber();
         }
-        const paymentsResult = await p.paymentLink.updateMany({
-          where: {
-            id: { in: paymentIds },
-            plataformas: { has: tag },
-            userId: { not: targetUserId },
-          },
-          data: { userId: targetUserId },
-        });
-        const subscriptionsResult = await p.subscriptionLink.updateMany({
-          where: {
-            id: { in: subscriptionIds },
-            OR: [{ platformTag: tag }, { plataformas: { has: tag } }],
-            userId: { not: targetUserId },
-          },
-          data: { userId: targetUserId },
-        });
+        const notOwner = { not: targetUserId };
+        const [paymentsResult, subscriptionsResult] = onOffers
+          ? [
+              await p.offer.updateMany({
+                where: {
+                  ...(where.payment as Prisma.OfferWhereInput),
+                  ownerUserId: notOwner,
+                },
+                data: { ownerUserId: targetUserId },
+              }),
+              await p.offer.updateMany({
+                where: {
+                  ...(where.subscription as Prisma.OfferWhereInput),
+                  ownerUserId: notOwner,
+                },
+                data: { ownerUserId: targetUserId },
+              }),
+            ]
+          : [
+              await p.paymentLink.updateMany({
+                where: {
+                  ...(where.payment as Prisma.PaymentLinkWhereInput),
+                  userId: notOwner,
+                },
+                data: { userId: targetUserId },
+              }),
+              await p.subscriptionLink.updateMany({
+                where: {
+                  ...(where.subscription as Prisma.SubscriptionLinkWhereInput),
+                  userId: notOwner,
+                },
+                data: { userId: targetUserId },
+              }),
+            ];
         return {
           claimed: true,
           targetUserId,
