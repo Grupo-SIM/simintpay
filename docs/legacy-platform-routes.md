@@ -508,7 +508,7 @@ Fonte: [src/presentation/controllers/admin.controller.ts](../backend/src/present
 
 | Método / caminho                                        | Auth            | Operação equivalente no núcleo | HTTP / unidade            |
 | ------------------------------------------------------- | --------------- | ------------------------------ | ------------------------- |
-| GET `/admin/plataformas/saldos-resumo`                  | anônimo         | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
+| GET `/admin/plataformas/saldos-resumo`                  | guard explícito | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
 | GET `/admin/plataformas/taxas`                          | guard explícito | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
 | PATCH `/admin/plataformas/taxas/:tag`                   | guard explícito | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
 | GET `/admin/plataformas/simintpay-clientes`             | guard explícito | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
@@ -516,9 +516,9 @@ Fonte: [src/presentation/controllers/admin.controller.ts](../backend/src/present
 | GET `/admin/plataformas/minhas-taxas`                   | guard explícito | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
 | GET `/admin/plataformas`                                | guard explícito | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
 | GET `/admin/plataformas/:tag/comunidades`               | anônimo         | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
-| GET `/admin/plataformas/atlas/breakdown`                | anônimo         | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
-| GET `/admin/plataformas/:tag/distribuicao-metodo`       | anônimo         | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
-| GET `/admin/plataformas/:tag/transacoes`                | anônimo         | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
+| GET `/admin/plataformas/atlas/breakdown`                | guard explícito | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
+| GET `/admin/plataformas/:tag/distribuicao-metodo`       | guard explícito | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
+| GET `/admin/plataformas/:tag/transacoes`                | guard explícito | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
 | GET `/admin/plataformas/:tag/usuarios`                  | anônimo         | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
 | PATCH `/admin/plataformas/:tag/usuarios/:userId/toggle` | anônimo         | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
 | GET `/admin/relatorios/plataforma-consolidado`          | guard explícito | `/platforms/:tag/finance`      | 200 / R$ quando monetário |
