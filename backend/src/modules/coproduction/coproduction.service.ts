@@ -319,9 +319,14 @@ export class CoproductionService {
               state: string;
               createdAt: Date;
               product: string;
+              originName: string | null;
             }[]
-          >(Prisma.sql`SELECT a."transactionId", a.amount, a.state, a."createdAt", t."financialSnapshot" #>> '{coproduction,product}' AS product
-          FROM "CoproductionAllocation" a JOIN "Transaction" t ON t.id = a."transactionId" WHERE ${predicate}
+          >(Prisma.sql`SELECT a."transactionId", a.amount, a.state, a."createdAt", t."financialSnapshot" #>> '{coproduction,product}' AS product,
+          coalesce(o.name, pl.name, l.title) AS "originName"
+          FROM "CoproductionAllocation" a JOIN "Transaction" t ON t.id = a."transactionId"
+          LEFT JOIN "Offer" o ON o.id = t."offerId"
+          LEFT JOIN "Platform" pl ON pl.tag = t."platformTag"
+          LEFT JOIN "PaymentLink" l ON l.id = t."paymentLinkId" WHERE ${predicate}
           ORDER BY a."createdAt" DESC, a."transactionId" ASC LIMIT 10 OFFSET ${offset}`),
         ]);
         const cents = (amount: Prisma.Decimal) =>

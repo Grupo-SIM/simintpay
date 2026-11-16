@@ -80,7 +80,7 @@ export function CoproductionReceipts({
             title="Recebimentos de coprodução"
             columns={[
               { label: 'Data' },
-              { label: 'Produto' },
+              { label: 'Origem' },
               { label: 'Status' },
               { label: 'Valor', numeric: true },
             ]}
@@ -107,7 +107,7 @@ export function CoproductionReceipts({
                   {new Date(row.createdAt).toLocaleDateString('pt-BR')}
                 </td>
                 <td className="px-5 py-4 font-medium">
-                  {products[row.product] ?? 'Produto'}
+                  {row.originName ?? products[row.product] ?? 'Produto'}
                 </td>
                 <td className="whitespace-nowrap px-5 py-4 text-xs text-zinc-600 dark:text-zinc-300">
                   {states[row.state] ?? 'Indisponível'}

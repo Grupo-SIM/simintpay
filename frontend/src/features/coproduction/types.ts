@@ -36,6 +36,7 @@ export type CoproductionReceipts = {
     state: 'AVAILABLE' | 'LOCKED' | 'REVERSED';
     createdAt: string;
     product: CoproductionProduct;
+    originName: string | null;
   }[];
   summary: {
     creditedCents: number;
