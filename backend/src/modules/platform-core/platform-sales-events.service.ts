@@ -73,6 +73,22 @@ type Stored = {
   deliveredAt: Date | null;
   emailDeliveredAt: Date | null;
 };
+/**
+ * Events that the legacy receiver (`saas-netflix-back` `POST /webhooks-simpay`) authenticates with
+ * the static `x-simpay-token` header instead of the HMAC signature.
+ */
+const LEGACY_TOKEN_EVENTS = new Set([
+  'purchase_approved',
+  'purchase_refunded',
+  'subscription_activated',
+]);
+function legacyTokenHeader(event: unknown): Record<string, string> {
+  const token = process.env.SIMPAY_WEBHOOK_TOKEN;
+  return token && LEGACY_TOKEN_EVENTS.has(String(event))
+    ? { 'x-simpay-token': token }
+    : {};
+}
+
 /** Durable snapshots rebuilt from financial state/history; never trusts checkout-supplied amounts. */
 @Injectable()
 export class PlatformSalesEventsService {
@@ -275,6 +291,7 @@ export class PlatformSalesEventsService {
           headers: {
             'content-type': 'application/json',
             'x-simintpay-signature': signature,
+            ...legacyTokenHeader((row.payload as { event?: string }).event),
           },
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);

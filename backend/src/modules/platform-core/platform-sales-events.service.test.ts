@@ -231,3 +231,51 @@ test('offer sales carry the sold items and offer ids to the platform webhook', a
     ],
   });
 });
+test('delivery also sends the legacy x-simpay-token for purchase/subscription events and never for informational ones', async () => {
+  const previous = process.env.SIMPAY_WEBHOOK_TOKEN;
+  process.env.SIMPAY_WEBHOOK_TOKEN = 'legacy-token';
+  try {
+    const f = fixture();
+    const sent: { event: string; headers: Record<string, string> }[] = [];
+    globalThis.fetch = mock(async (_url: any, init: any) => {
+      sent.push({ event: JSON.parse(init.body).event, headers: init.headers });
+      return new Response('ok');
+    }) as typeof fetch;
+    await f.service.run();
+    expect(sent.length).toBeGreaterThan(0);
+    for (const { event, headers } of sent) {
+      // The signature stays for the signed receiver in every case.
+      expect(headers['x-simintpay-signature']).toBeString();
+      if (
+        [
+          'purchase_approved',
+          'purchase_refunded',
+          'subscription_activated',
+        ].includes(event)
+      )
+        expect(headers['x-simpay-token']).toBe('legacy-token');
+      else expect(headers['x-simpay-token']).toBeUndefined();
+    }
+    expect(sent.some((s) => s.event === 'purchase_approved')).toBe(true);
+  } finally {
+    if (previous === undefined) delete process.env.SIMPAY_WEBHOOK_TOKEN;
+    else process.env.SIMPAY_WEBHOOK_TOKEN = previous;
+  }
+});
+test('delivery omits x-simpay-token when SIMPAY_WEBHOOK_TOKEN is not configured', async () => {
+  const previous = process.env.SIMPAY_WEBHOOK_TOKEN;
+  delete process.env.SIMPAY_WEBHOOK_TOKEN;
+  try {
+    const f = fixture();
+    const headers: Record<string, string>[] = [];
+    globalThis.fetch = mock(async (_url: any, init: any) => {
+      headers.push(init.headers);
+      return new Response('ok');
+    }) as typeof fetch;
+    await f.service.run();
+    expect(headers.length).toBeGreaterThan(0);
+    for (const h of headers) expect(h['x-simpay-token']).toBeUndefined();
+  } finally {
+    if (previous !== undefined) process.env.SIMPAY_WEBHOOK_TOKEN = previous;
+  }
+});
