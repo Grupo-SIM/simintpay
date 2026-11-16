@@ -1,3 +1,5 @@
+import { offerWritesOnlyEnabled } from '../../offer/offer-writes-flag';
+import { mirrorPlanOffer } from '../../offer/mirror-plan-offer';
 import { EbookSimConfig } from '../../ebooksim/ebooksim.config';
 import { PLATFORM_TAXA_DEFAULTS } from '../../platform-taxas/platform-taxas.keys';
 import { merchantWithdrawalDelivery } from '../../platform-core/platform-merchant-delivery';
@@ -398,6 +400,8 @@ export class PlatformFinanceService {
           platform.acquirer !== context.acquirer)
       )
         throw new ConflictException('Contexto da plataforma mudou');
+      if (offerWritesOnlyEnabled())
+        return mirrorPlanOffer(p, tag, userId, code, data);
       const existing = await p.plan.findUnique({ where: { code } });
       if (
         existing &&

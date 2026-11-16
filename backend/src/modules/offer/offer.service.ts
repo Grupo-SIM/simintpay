@@ -167,7 +167,7 @@ export class OfferService {
   async create(
     actor: OfferActor,
     dto: CreateOfferDto,
-    options: { coproduction?: unknown } = {},
+    options: { coproduction?: unknown; id?: string } = {},
   ): Promise<Offer> {
     const { owner, platformTag, createdByUserId } = await resolveFinancialOwner(
       this.users,
@@ -213,6 +213,7 @@ export class OfferService {
             db.offer.create({
               data: {
                 ...this.persistable(normalized),
+                ...(options.id ? { id: options.id } : {}),
                 ownerUserId: owner.id,
                 createdByUserId,
                 platformTag,

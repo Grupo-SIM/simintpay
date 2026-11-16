@@ -26,7 +26,15 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { createHash } from 'node:crypto';
 import { offerPlatformReadsEnabled } from '../offer/offer-read-flag';
-import { paymentLinkDetail } from '../offer/legacy-links.compat';
+import { offerWritesOnlyEnabled } from '../offer/offer-writes-flag';
+import {
+  paymentLinkCreated,
+  paymentLinkDetail,
+  paymentLinkToCreateOffer,
+  paymentLinkToUpdateOffer,
+} from '../offer/legacy-links.compat';
+import { OfferService } from '../offer/offer.service';
+import { OfferAssetsService } from '../offer/offer-assets.service';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -62,10 +70,15 @@ export class PlatformLinksController {
   /**
    * Read of a platform link. Legacy table by default; with `OFFER_PLATFORM_READS=1` the same id
    * resolves through `Offer` (a non-recurring offer of the platform) and is shown in the legacy
-   * link shape. Writes keep the legacy use cases until phase 4.
+   * link shape. Writes keep the legacy use cases unless `OFFER_WRITES_ONLY=1` (phase 4), which
+   * also makes every read here go through `Offer`.
    */
   private async ownedForRead(c: PlatformContext, id: string) {
-    if (!offerPlatformReadsEnabled()) return this.owned(c, id);
+    if (!offerPlatformReadsEnabled() && !offerWritesOnlyEnabled())
+      return this.owned(c, id);
+    return paymentLinkDetail(await this.ownedOffer(c, id));
+  }
+  private async ownedOffer(c: PlatformContext, id: string) {
     const offer = await this.prisma.offer.findFirst({
       where: {
         id,
@@ -76,7 +89,33 @@ export class PlatformLinksController {
     });
     if (!offer)
       throw new NotFoundException('Link não encontrado nesta plataforma');
-    return paymentLinkDetail(offer);
+    return offer;
+  }
+  private actor(c: PlatformContext) {
+    return { id: c.ownerUserId, role: 'USER' };
+  }
+  private async createOffer(
+    c: PlatformContext,
+    id: string,
+    body: CreatePaymentLinkDto,
+  ) {
+    const dto = { ...body, isStandalone: false, plataformas: [c.tag] };
+    try {
+      const offer = await this.modules
+        .get(OfferService, { strict: false })
+        .create(this.actor(c), paymentLinkToCreateOffer(dto, c.ownerUserId), {
+          id,
+          coproduction: body.coproduction,
+        });
+      return this.response(paymentLinkCreated(offer));
+    } catch (error) {
+      const concurrent = await this.prisma.offer.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      if (concurrent) return this.response(await this.ownedForRead(c, id));
+      throw error;
+    }
   }
   private response(data: { id: string }) {
     const base = process.env.SIMPAY_CHECKOUT_URL;
@@ -130,13 +169,14 @@ export class PlatformLinksController {
       .update(`platform-link:${c.id}:${key}`)
       .digest('hex');
     if (
-      offerPlatformReadsEnabled() &&
+      (offerPlatformReadsEnabled() || offerWritesOnlyEnabled()) &&
       (await this.prisma.offer.findUnique({
         where: { id },
         select: { id: true },
       }))
     )
       return this.response(await this.ownedForRead(c, id));
+    if (offerWritesOnlyEnabled()) return this.createOffer(c, id, body);
     const existing = await this.prisma.paymentLink.findUnique({
       where: { id },
     });
@@ -175,6 +215,20 @@ export class PlatformLinksController {
     if (body.plataformas !== undefined)
       throw new BadRequestException('Plataforma definida pela credencial');
     const c = req.platformContext;
+    if (offerWritesOnlyEnabled()) {
+      const existing = await this.ownedOffer(c, id);
+      await this.modules
+        .get(OfferService, { strict: false })
+        .update(
+          this.actor(c),
+          id,
+          paymentLinkToUpdateOffer(
+            { ...body, isStandalone: false, plataformas: [c.tag] },
+            existing,
+          ),
+        );
+      return this.response(await this.ownedForRead(c, id));
+    }
     await this.owned(c, id);
     await this.modules
       .get(UpdatePaymentLinkUseCase, { strict: false })
@@ -200,6 +254,19 @@ export class PlatformLinksController {
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     const c = req.platformContext;
+    if (offerWritesOnlyEnabled()) {
+      await this.ownedOffer(c, id);
+      if (!files?.length) throw new BadRequestException('Envie PDFs');
+      for (const file of files)
+        if (
+          file.mimetype !== 'application/pdf' ||
+          file.buffer.subarray(0, 5).toString() !== '%PDF-'
+        )
+          throw new BadRequestException('Apenas PDFs');
+      return this.modules
+        .get(OfferAssetsService, { strict: false })
+        .uploadFiles(this.actor(c), id, files);
+    }
     await this.owned(c, id);
     if (!files?.length) throw new BadRequestException('Envie PDFs');
     const results: unknown[] = [];

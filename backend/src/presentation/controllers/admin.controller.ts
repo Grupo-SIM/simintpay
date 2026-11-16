@@ -2,6 +2,8 @@ import {
   OfferLegacyWriter,
   offerLegacyFreezeEnabled,
 } from '../../modules/offer/offer-legacy-freeze';
+import { offerWritesOnlyEnabled } from '../../modules/offer/offer-writes-flag';
+import { generateOfferCode } from '../../modules/offer/offer-code';
 import { offerPlatformReadsEnabled } from '../../modules/offer/offer-read-flag';
 import {
   listAreaflixOfferOrders,
@@ -6853,18 +6855,12 @@ export class AdminController {
 
       // Link de pagamento automático: dono = MASTER (o valor pago cai para o master),
       // plataforma SIMINTPAY (agrupamento/relatórios), um link por cliente.
-      const link = await this.prisma.paymentLink.create({
-        data: {
-          userId: masterId,
-          title: titulo,
-          description: titulo,
-          amount,
-          maxInstallments: 12,
-          plataformas: ['SIMINTPAY'],
-          domPaymentLinkId,
-        },
-        select: { id: true },
-      });
+      const link = await this.createCobrancaLink(
+        masterId,
+        titulo,
+        amount,
+        domPaymentLinkId,
+      );
 
       const cob = await this.prisma.cobranca.create({
         data: {
@@ -6891,6 +6887,43 @@ export class AdminController {
     }
 
     return { total: itens.length, criadas: cobrancas.length, cobrancas };
+  }
+
+  /** Checkout link of a cobrança: an `Offer` with `OFFER_WRITES_ONLY=1`, a `PaymentLink` otherwise. */
+  private async createCobrancaLink(
+    userId: string,
+    titulo: string,
+    amount: number,
+    domPaymentLinkId: string | null,
+  ): Promise<{ id: string }> {
+    if (offerWritesOnlyEnabled())
+      return this.prisma.offer.create({
+        data: {
+          ownerUserId: userId,
+          createdByUserId: userId,
+          code: generateOfferCode(),
+          name: titulo,
+          description: titulo,
+          amountCents: Math.round(amount * 100),
+          acceptedMethods: ['CREDIT_CARD', 'PIX'],
+          maxInstallments: 12,
+          platformTag: 'SIMINTPAY',
+          metadata: domPaymentLinkId ? { domPaymentLinkId } : undefined,
+        },
+        select: { id: true },
+      });
+    return this.prisma.paymentLink.create({
+      data: {
+        userId,
+        title: titulo,
+        description: titulo,
+        amount,
+        maxInstallments: 12,
+        plataformas: ['SIMINTPAY'],
+        domPaymentLinkId,
+      },
+      select: { id: true },
+    });
   }
 
   /**
@@ -6938,18 +6971,12 @@ export class AdminController {
       }
 
       try {
-        const link = await this.prisma.paymentLink.create({
-          data: {
-            userId: cob.createdByUserId,
-            title: titulo,
-            description: titulo,
-            amount,
-            maxInstallments: 12,
-            plataformas: ['SIMINTPAY'],
-            domPaymentLinkId,
-          },
-          select: { id: true },
-        });
+        const link = await this.createCobrancaLink(
+          cob.createdByUserId,
+          titulo,
+          amount,
+          domPaymentLinkId,
+        );
         await this.prisma.cobranca.update({
           where: { id: cob.id },
           data: { paymentRef: link.id },
@@ -6989,12 +7016,17 @@ export class AdminController {
 
     const refs = pendentes.map((p) => p.paymentRef!);
     const pagas = await this.prisma.transaction.findMany({
-      where: { paymentLinkId: { in: refs }, status: 'COMPLETED' },
-      select: { paymentLinkId: true, createdAt: true },
+      where: {
+        OR: [{ paymentLinkId: { in: refs } }, { offerId: { in: refs } }],
+        status: 'COMPLETED',
+      },
+      select: { paymentLinkId: true, offerId: true, createdAt: true },
     });
     if (pagas.length === 0) return;
 
-    const pagoEm = new Map(pagas.map((t) => [t.paymentLinkId!, t.createdAt]));
+    const pagoEm = new Map(
+      pagas.map((t) => [(t.offerId ?? t.paymentLinkId)!, t.createdAt]),
+    );
     const quitadas = pendentes.filter((p) => pagoEm.has(p.paymentRef!));
     if (quitadas.length === 0) return;
 

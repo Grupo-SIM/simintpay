@@ -1,3 +1,6 @@
+import { offerWritesOnlyEnabled } from '../offer/offer-writes-flag';
+import { OfferService } from '../offer/offer.service';
+import { subscriptionLinkToCreateOffer } from '../offer/legacy-links.compat';
 import { offerPlatformReadsEnabled } from '../offer/offer-read-flag';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
 import {
@@ -56,6 +59,33 @@ export class PlatformSubscriptionCapabilitiesService {
       unsupportedCapability('subscriptions.create.FRENDZ');
     if (!Number.isSafeInteger(body.amountCents) || body.amountCents <= 0)
       throw new BadRequestException('amountCents inválido');
+    if (offerWritesOnlyEnabled()) {
+      const offer = await this.modules
+        .get(OfferService, { strict: false })
+        .create(
+          { id: current.ownerUserId, role: 'USER' },
+          subscriptionLinkToCreateOffer(
+            {
+              nome: body.name,
+              descricao: body.description,
+              valor: new Prisma.Decimal(body.amountCents).div(100).toNumber(),
+              frequencia: body.frequency,
+              paymentMethods: 'BOTH',
+              platformTag: current.tag,
+              plataformas: [current.tag],
+            } as never,
+            current.ownerUserId,
+          ),
+        );
+      return {
+        id: offer.id,
+        code: offer.code,
+        name: offer.name,
+        amountCents: offer.amountCents,
+        frequency: body.frequency,
+        isActive: offer.isActive,
+      };
+    }
     const result = await this.modules
       .get(CreateSubscriptionLinkUseCase, { strict: false })
       .execute({

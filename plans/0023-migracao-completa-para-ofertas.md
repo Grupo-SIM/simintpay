@@ -207,6 +207,17 @@ Leitores por delegate do Prisma ainda nas tabelas antigas (47 arquivos no levant
 - [x] Cópia do delta (código): `backend/scripts/offer-migration-delta.ts` (dry-run por padrão, `--apply --i-understand-this-writes`, `--verify`, `--skip-active`, `--overwrite=<ids>`) reaproveita `offer-migration-apply`: cria Offers faltantes, copia `usedCount` (só para cima), `isActive` e campos alterados só no legado, re-chaveia coprodução que sobrou em chaves antigas e mostra diff por campo sem sobrescrever conflitos. Cobre as divergências lidas no banco real: PaymentLink `6099b034` (5,00 contra 10000 centavos, `BELOW_MINIMUM`), SubscriptionLink `ea9d8262` (`usedCount` 6 contra `currentUses` 5, `OFFER_AHEAD`) e acordo do link `2fa81db4` em `links-pagamento`. Testado só em Postgres descartável local (`tests/offer-migration-delta.integration.test.ts`). Runbook em `docs/guides/offer-migration-runbook.md`. Pendente do dono: rodar dry-run, decidir os conflitos, aplicar e `--verify` no banco real, e a paridade da seção 10.
 - [ ] Cortar: checkouts públicos, webhooks e CRUD passam a gravar só em `Offer`. Manter os **adaptadores REST** que sistemas vizinhos chamam (seção 9) respondendo a partir de `Offer`.
 
+#### Progresso da Fase 4: escritores (2026-11-16)
+
+Flag `OFFER_WRITES_ONLY=1` (`modules/offer/offer-writes-flag.ts`; também lido pelo `checkout`), **desligado por padrão**: o caminho legado segue igual com ele desligado. Sem dual-write financeiro. O congelamento (503 dos escritores legados) e a Fase 5 ficam com outros agentes.
+
+- [x] **URLs antigas:** `checkout/src/proxy.ts` (`legacyRedirectEnabled` aceita o flag) manda `?simLinkCode=`, `?subscriptionLinkCode=`, `?simBoletoCode=`, `?simPlanCode=` para `?oferta=`; `findOfferByCodeOrId` também resolve ids sha256 (links de plataforma). Nada toca `PaymentLink`/`SubscriptionLink`.
+- [x] **Adaptadores REST:** `legacyLinksCompatEnabled` fica verdadeiro com o flag, montando `/links-pagamento` e `/links-assinatura` sobre `Offer` (criar, listar, editar, desativar).
+- [x] **Plataformas:** `platform-links.controller` (criar com idempotência por id, editar, anexar PDF, ler), `createPlan` e `mirrorPlan` (`mirror-plan-offer.ts`) gravam `Offer`; `platform-payments.service` grava `Transaction.offerId` (`transactionProductRef`); `admin.controller` cria a oferta de cobrança (`createCobrancaLink`) e a baixa lê `offerId`.
+- [x] **Contadores:** `recordProductUse` incrementa `Offer.usedCount` nos checkouts legados de link, boleto e assinatura quando o flag está ligado (a coluna `currentUses` não muda).
+- [x] Testes: `offer/tests/offer-writes-only.integration.test.ts` (Postgres local descartável, flag ligado e desligado em cada ponto), `legacy-links.compat.test.ts`, `legacy-offer-redirect.test.ts`.
+- [ ] Pendente: `scripts/reassign-products.ts` (escritor de script, sem flag); `/internal/billing` e webhooks seguem a Fase 3; `subscription_activated` pela oferta (seção 9); conferir em cópia restaurada antes de ligar.
+
 ### Fase 5: repontar chaves e renomear
 
 - [ ] Soltar as FKs para as tabelas antigas e criar as novas `NOT VALID`, depois `VALIDATE`.

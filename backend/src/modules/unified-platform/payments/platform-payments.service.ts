@@ -1,4 +1,5 @@
 import { assertOfferLegacyWritable } from '../../offer/offer-legacy-freeze';
+import { transactionProductRef } from '../../offer/offer-writes-flag';
 import { offerPlatformReadsEnabled } from '../../offer/offer-read-flag';
 import { transactionPlatformTagData } from '../../platform-core/transaction-platform';
 import {
@@ -270,7 +271,8 @@ export class PlatformPaymentsService {
         : existing.description;
       if (
         existing.userId !== financialUserId ||
-        (existing.paymentLinkId ?? undefined) !== input.linkId ||
+        (existing.offerId ?? existing.paymentLinkId ?? undefined) !==
+          input.linkId ||
         !(existing.financialSnapshot
           ? new Prisma.Decimal(
               (
@@ -591,7 +593,7 @@ export class PlatformPaymentsService {
             beneficiaryUserId: financialUserId,
           },
         },
-        ...(input.linkId ? { paymentLinkId: input.linkId } : {}),
+        ...transactionProductRef(input.linkId),
         ...financialFields,
         ...(finalSnapshot ? { financialSnapshot: finalSnapshot } : {}),
         status: 'DRAFT',
