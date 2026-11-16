@@ -512,11 +512,13 @@ function CBRow({
   count,
   amount,
   maxCount,
+  show,
 }: {
   label: string;
   count: number;
   amount: number;
   maxCount: number;
+  show: boolean;
 }) {
   const pct = maxCount > 0 ? Math.min((count / maxCount) * 100, 100) : 0;
   return (
@@ -541,7 +543,7 @@ function CBRow({
             color: 'var(--painel-fg-strong)',
           }}
         >
-          {formatBRL(amount)}
+          <BlurValue show={show} value={formatBRL(amount)} />
         </span>
       </div>
       <div
@@ -2864,6 +2866,7 @@ export default function PainelPage() {
                       count={cb?.refunds?.count ?? 0}
                       amount={cb?.refunds?.amount ?? 0}
                       maxCount={maxCBCount}
+                      show={showBalances}
                     />
                   </div>
                 </div>
@@ -2944,6 +2947,7 @@ export default function PainelPage() {
                         count={cb?.chargebacks?.count ?? 0}
                         amount={cb?.chargebacks?.amount ?? 0}
                         maxCount={maxCBCount}
+                        show={showBalances}
                       />
                     </div>
                   </div>
