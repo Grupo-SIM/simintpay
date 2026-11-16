@@ -1,3 +1,8 @@
+import { offerPlatformReadsEnabled } from '../../modules/offer/offer-read-flag';
+import {
+  listAreaflixOfferOrders,
+  paidAreaflixEmails,
+} from './admin-areaflix-offers';
 import { getRequestIp } from '../../shared/utils/request.utils';
 import { AuthTokensService } from '../../application/use-cases/auth/auth-tokens.service';
 import {
@@ -268,7 +273,13 @@ function buildConsolidadoTransactionWhere(
   }
 
   if (input.paymentLink?.trim()) {
-    and.push({ paymentLinkId: input.paymentLink.trim() });
+    // `Transaction.offerId` is backfilled from `paymentLinkId` (same id): either column matches.
+    const link = input.paymentLink.trim();
+    and.push(
+      offerPlatformReadsEnabled()
+        ? { OR: [{ paymentLinkId: link }, { offerId: link }] }
+        : { paymentLinkId: link },
+    );
   }
 
   if (input.planName?.trim()) {
@@ -2429,30 +2440,32 @@ export class AdminController {
             .then((rows) => new Set(rows.map((r) => r.userId)))
         : Promise.resolve(new Set<string>()),
 
-      areaflixEmails.length > 0
-        ? this.prisma.subscriptionLink
-            .findMany({
-              where: {
-                webhookUrl: { contains: 'areaflix', mode: 'insensitive' },
-              },
-              select: { id: true },
-            })
-            .then((links) => {
-              const ids = links.map((l) => l.id);
-              if (ids.length === 0) return new Set<string>();
-              return this.prisma.subscriptionLinkOrder
-                .findMany({
-                  where: {
-                    subscriptionLinkId: { in: ids },
-                    customerEmail: { in: areaflixEmails },
-                    status: { in: ['paid', 'active', 'approved'] },
-                  },
-                  select: { customerEmail: true },
-                  distinct: ['customerEmail'],
-                })
-                .then((rows) => new Set(rows.map((r) => r.customerEmail)));
-            })
-        : Promise.resolve(new Set<string>()),
+      areaflixEmails.length > 0 && offerPlatformReadsEnabled()
+        ? paidAreaflixEmails(this.prisma, areaflixEmails)
+        : areaflixEmails.length > 0
+          ? this.prisma.subscriptionLink
+              .findMany({
+                where: {
+                  webhookUrl: { contains: 'areaflix', mode: 'insensitive' },
+                },
+                select: { id: true },
+              })
+              .then((links) => {
+                const ids = links.map((l) => l.id);
+                if (ids.length === 0) return new Set<string>();
+                return this.prisma.subscriptionLinkOrder
+                  .findMany({
+                    where: {
+                      subscriptionLinkId: { in: ids },
+                      customerEmail: { in: areaflixEmails },
+                      status: { in: ['paid', 'active', 'approved'] },
+                    },
+                    select: { customerEmail: true },
+                    distinct: ['customerEmail'],
+                  })
+                  .then((rows) => new Set(rows.map((r) => r.customerEmail)));
+              })
+          : Promise.resolve(new Set<string>()),
     ]);
 
     // Product projections reuse persisted snapshots and explicit ownership.
@@ -7373,6 +7386,17 @@ export class AdminController {
     const p = page ? Number(page) : 1;
     const ps = pageSize ? Number(pageSize) : 50;
     const skip = (p - 1) * ps;
+
+    if (offerPlatformReadsEnabled()) {
+      const listed = await listAreaflixOfferOrders(this.prisma, {
+        skip,
+        take: ps,
+        status,
+        customerEmail,
+        customerName,
+      });
+      return { ...listed, page: p, pageSize: ps };
+    }
 
     // Filtrar apenas links de assinatura que pertencem à Areaflix (webhookUrl contém "areaflix")
     const areaflixLinks = await this.prisma.subscriptionLink.findMany({

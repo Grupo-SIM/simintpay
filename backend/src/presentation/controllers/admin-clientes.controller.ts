@@ -1,3 +1,9 @@
+import { offerPlatformReadsEnabled } from '../../modules/offer/offer-read-flag';
+import {
+  offerAuditRow,
+  offerGroupWhere,
+  type OfferGroup,
+} from './admin-clientes-offers';
 import {
   Body,
   BadRequestException,
@@ -258,6 +264,8 @@ export class AdminClientesController {
     }
 
     // Alvo: link/plano de cliente SEM plataforma atribuída.
+    if (offerPlatformReadsEnabled())
+      return this.backfillOffers(clientIds, apply, withSubs, TAG);
     const where = { userId: { in: clientIds }, plataformas: { isEmpty: true } };
 
     const [paymentLinks, plans, subscriptionLinks] = await Promise.all([
@@ -317,6 +325,83 @@ export class AdminClientesController {
           : 'ignorado (use includeSubscriptions=true)',
       },
     };
+  }
+
+  /** Same backfill through `Offer` (flag `OFFER_PLATFORM_READS=1`): offers without platform. */
+  private async backfillOffers(
+    clientIds: string[],
+    apply: boolean,
+    withSubs: boolean,
+    tag: string,
+  ) {
+    const base = { ownerUserId: { in: clientIds }, platformTag: null };
+    const groups: OfferGroup[] = [
+      'paymentLink',
+      'plan',
+      ...(withSubs ? (['subscriptionLink'] as const) : []),
+    ];
+    const where = (g: OfferGroup) => ({ ...base, ...offerGroupWhere(g) });
+    const skipped = 'ignorado (use includeSubscriptions=true)';
+    if (!apply) {
+      const counts = await Promise.all(
+        groups.map((g) => this.prisma.offer.count({ where: where(g) })),
+      );
+      const byGroup = Object.fromEntries(groups.map((g, i) => [g, counts[i]]));
+      const amostraPaymentLinks = await this.prisma.offer.findMany({
+        where: where('paymentLink'),
+        select: { id: true, name: true, ownerUserId: true },
+        take: 10,
+      });
+      return {
+        dryRun: true,
+        clientes: clientIds.length,
+        afetados: {
+          paymentLinks: byGroup.paymentLink,
+          plans: byGroup.plan,
+          subscriptionLinks: withSubs ? byGroup.subscriptionLink : skipped,
+        },
+        amostraPaymentLinks: amostraPaymentLinks.map((o) => ({
+          id: o.id,
+          title: o.name,
+          userId: o.ownerUserId,
+        })),
+        comoAplicar: 'Rode de novo com dry=false para gravar.',
+      };
+    }
+    const results = await Promise.all(
+      groups.map((g) =>
+        this.prisma.offer.updateMany({
+          where: where(g),
+          data: { platformTag: tag },
+        }),
+      ),
+    );
+    const byGroup = Object.fromEntries(
+      groups.map((g, i) => [g, results[i].count]),
+    );
+    return {
+      dryRun: false,
+      tag,
+      clientes: clientIds.length,
+      atualizados: {
+        paymentLinks: byGroup.paymentLink,
+        plans: byGroup.plan,
+        subscriptionLinks: withSubs ? byGroup.subscriptionLink : skipped,
+      },
+    };
+  }
+
+  private async offerAudit(group: OfferGroup, clientId?: string) {
+    const rows = await this.prisma.offer.findMany({
+      where: {
+        ...offerGroupWhere(group),
+        owner: { clientStatus: { not: null } },
+        ...(clientId ? { ownerUserId: clientId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { owner: { select: { id: true, name: true, email: true } } },
+    });
+    return rows.map((r) => offerAuditRow(r, group));
   }
 
   // ── Gestão / aprovação ────────────────────────────────────────────────────
@@ -408,6 +493,12 @@ export class AdminClientesController {
     @Query('clientId') clientId?: string,
   ) {
     await this.assertMaster(authUser);
+    if (offerPlatformReadsEnabled())
+      return {
+        data: (await this.offerAudit('plan', clientId)).map((r) =>
+          this.attach(r),
+        ),
+      };
     const rows = await this.prisma.plan.findMany({
       where: {
         user: { clientStatus: { not: null } },
@@ -425,14 +516,16 @@ export class AdminClientesController {
     @Query('clientId') clientId?: string,
   ) {
     await this.assertMaster(authUser);
-    const rows = await this.prisma.pixCreditPlan.findMany({
-      where: {
-        user: { clientStatus: { not: null } },
-        ...(clientId ? { userId: clientId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      include: { user: { select: { id: true, name: true, email: true } } },
-    });
+    const rows = offerPlatformReadsEnabled()
+      ? await this.offerAudit('pixPlan', clientId)
+      : await this.prisma.pixCreditPlan.findMany({
+          where: {
+            user: { clientStatus: { not: null } },
+            ...(clientId ? { userId: clientId } : {}),
+          },
+          orderBy: { createdAt: 'desc' },
+          include: { user: { select: { id: true, name: true, email: true } } },
+        });
     // PixCreditPlan não tem campo `name` — só `description`. A UI espera `name`.
     return {
       data: rows.map((r) => {
@@ -448,6 +541,12 @@ export class AdminClientesController {
     @Query('clientId') clientId?: string,
   ) {
     await this.assertMaster(authUser);
+    if (offerPlatformReadsEnabled())
+      return {
+        data: (await this.offerAudit('paymentLink', clientId)).map((r) =>
+          this.attach(r),
+        ),
+      };
     const rows = await this.prisma.paymentLink.findMany({
       where: {
         user: { clientStatus: { not: null } },
@@ -465,6 +564,12 @@ export class AdminClientesController {
     @Query('clientId') clientId?: string,
   ) {
     await this.assertMaster(authUser);
+    if (offerPlatformReadsEnabled())
+      return {
+        data: (await this.offerAudit('subscriptionLink', clientId)).map((r) =>
+          this.attach(r),
+        ),
+      };
     const rows = await this.prisma.subscriptionLink.findMany({
       where: {
         user: { clientStatus: { not: null } },
