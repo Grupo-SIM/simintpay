@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type BillingContract } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
+import { PagatgNotifier } from '../offer-access/pagatg-notifier';
 import type { OfferActor } from './offer.service';
 import type { ListOfferSubscribersQueryDto } from './offer-subscribers.dto';
 import {
@@ -22,7 +23,10 @@ import {
  */
 @Injectable()
 export class OfferSubscribersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pagatg: PagatgNotifier,
+  ) {}
 
   async list(actor: OfferActor, query: ListOfferSubscribersQueryDto) {
     const page = query.page ?? 1;
@@ -129,6 +133,7 @@ export class OfferSubscribersService {
       throw new ConflictException(
         'A assinatura mudou enquanto era pausada; tente novamente.',
       );
+    await this.notifyPagatg(contract, 'SIGNATURE-PAUSED');
     return { remainingDays, pausedAt: now.toISOString() };
   }
 
@@ -159,10 +164,34 @@ export class OfferSubscribersService {
       throw new ConflictException(
         'A assinatura mudou enquanto era retomada; tente novamente.',
       );
+    await this.notifyPagatg(contract, 'SIGNATURE-RESUMED');
     return {
       newExpiresAt: period.currentPeriodEnd.toISOString(),
       remainingDays,
     };
+  }
+
+  /** Avisa o api-pagatg (Telegram) da pausa/retomada; nunca lança nem desfaz a mudança. */
+  private async notifyPagatg(
+    contract: BillingContract,
+    type: 'SIGNATURE-PAUSED' | 'SIGNATURE-RESUMED',
+  ): Promise<void> {
+    await this.pagatg.notifySignature({
+      type,
+      data: {
+        customer: {
+          id: contract.userId,
+          name: contract.customerName,
+          email: contract.customerEmail,
+          document: contract.customerDocument,
+        },
+        plan: { id: contract.offerId, description: contract.description },
+        subscription: {
+          id: contract.externalSubscriptionId ?? contract.id,
+          status: type === 'SIGNATURE-PAUSED' ? 'PAUSED' : 'ACTIVE',
+        },
+      },
+    });
   }
 
   private async owned(

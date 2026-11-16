@@ -26,6 +26,7 @@ import { compatLinkControllers } from './legacy-links.compat';
 import { LegacyLinksCompatService } from './legacy-links.compat.service';
 import { OfferService } from './offer.service';
 import { OfferSubscribersController } from './offer-subscribers.controller';
+import { PagatgNotifier } from '../offer-access/pagatg-notifier';
 import { OfferSubscribersService } from './offer-subscribers.service';
 
 @Module({
@@ -43,6 +44,7 @@ import { OfferSubscribersService } from './offer-subscribers.service';
   providers: [
     OfferService,
     OfferSubscribersService,
+    PagatgNotifier,
     OfferAssetsService,
     LegacyLinksCompatService,
     OfferCheckoutService,

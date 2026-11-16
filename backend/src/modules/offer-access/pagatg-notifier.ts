@@ -23,6 +23,21 @@ export type PagatgFetch = (
   },
 ) => Promise<{ ok: boolean; status: number }>;
 
+/** Corpo de `POST {PAGATG.BACKEND_URL}/webhook/signature` (idêntico ao da pausa/retomada legada). */
+export type PagatgSignaturePayload = {
+  type: 'SIGNATURE-PAUSED' | 'SIGNATURE-RESUMED';
+  data: {
+    customer: {
+      id: string | null;
+      name: string | null;
+      email: string | null;
+      document?: string | null;
+    };
+    plan: { id: string | null; description: string | null };
+    subscription: { id: string; status: 'PAUSED' | 'ACTIVE' };
+  };
+};
+
 const TIMEOUT_MS = 10_000;
 
 /**
@@ -37,13 +52,26 @@ export class PagatgNotifier {
   fetchImpl: PagatgFetch = (url, init) => fetch(url, init);
 
   async notify(payload: PagatgCreditPayload): Promise<boolean> {
+    return this.post('/webhook/pix-credit', payload, payload.status);
+  }
+
+  /** `POST {PAGATG.BACKEND_URL}/webhook/signature`: pausa/retomada de assinatura (corpo do legado). */
+  async notifySignature(payload: PagatgSignaturePayload): Promise<boolean> {
+    return this.post('/webhook/signature', payload, payload.type);
+  }
+
+  private async post(
+    path: string,
+    payload: object,
+    label: string,
+  ): Promise<boolean> {
     try {
       const base = (
         (getPlatformIntegrationValue('PAGATG', 'BACKEND_URL') ?? undefined) ||
         ''
       ).replace(/\/+$/, '');
       if (!base) return false;
-      const url = `${base}/webhook/pix-credit`;
+      const url = `${base}${path}`;
       const unsafe = unsafeUrlReason(url);
       if (unsafe) {
         this.logger.error(`[PagatgNotifier] URL recusada (${unsafe})`);
@@ -64,12 +92,12 @@ export class PagatgNotifier {
       });
       if (!res.ok)
         this.logger.error(
-          `[PagatgNotifier] api-pagatg respondeu ${res.status} (${payload.status})`,
+          `[PagatgNotifier] api-pagatg respondeu ${res.status} (${label})`,
         );
       return res.ok;
     } catch (error) {
       this.logger.error(
-        `[PagatgNotifier] Erro ao notificar api-pagatg (${payload.status}): ${error instanceof Error ? error.message : String(error)}`,
+        `[PagatgNotifier] Erro ao notificar api-pagatg (${label}): ${error instanceof Error ? error.message : String(error)}`,
       );
       return false;
     }
