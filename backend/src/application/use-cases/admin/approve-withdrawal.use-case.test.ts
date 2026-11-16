@@ -41,6 +41,7 @@ describe('withdrawal approval historical balance', () => {
             status: 'PENDING',
             platform: 'renovada',
             grossAmount: new Prisma.Decimal(100),
+            fee: new Prisma.Decimal(0),
             user: {
               wallet: {
                 id: 'wallet',
