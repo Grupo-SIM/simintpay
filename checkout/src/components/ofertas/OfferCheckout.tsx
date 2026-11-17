@@ -54,6 +54,7 @@ import {
 } from '@/lib/offer-funnel-model';
 import { OfferVoucherField } from './OfferVoucherField';
 import { voucherField, type AppliedVoucher } from '@/lib/offer-voucher-model';
+import { buyerPrefillFromQuery } from '@/lib/offer-buyer-prefill';
 import { browserCheckoutTracking } from '@/lib/payment-tracking';
 import { sanitizeCheckoutText } from '@/lib/text-utils';
 import {
@@ -184,18 +185,11 @@ export default function OfferCheckout({
   } | null>(null);
 
   // Dados já informados pelo parceiro (?name=&document=&email=&phone=) iniciam preenchidos.
-  const [name, setName] = useState(
-    () => searchParams.get('name')?.trim() ?? '',
-  );
-  const [document, setDocument] = useState(() =>
-    maskCpfCnpj(searchParams.get('document') ?? ''),
-  );
-  const [email, setEmail] = useState(
-    () => searchParams.get('email')?.trim() ?? '',
-  );
-  const [phone, setPhone] = useState(() =>
-    maskPhoneBr(searchParams.get('phone') ?? ''),
-  );
+  const [prefill] = useState(() => buyerPrefillFromQuery(searchParams));
+  const [name, setName] = useState(prefill.name);
+  const [document, setDocument] = useState(prefill.document);
+  const [email, setEmail] = useState(prefill.email);
+  const [phone, setPhone] = useState(prefill.phone);
   const [cardNumber, setCardNumber] = useState('');
   const [cardMonth, setCardMonth] = useState('');
   const [cardYear, setCardYear] = useState('');
