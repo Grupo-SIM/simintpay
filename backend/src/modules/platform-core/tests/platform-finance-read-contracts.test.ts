@@ -132,6 +132,7 @@ function fixture(tag: string, Service: any, Controller: any) {
       findUnique: async () => (state.userExists ? { id: 'owner' } : null),
     },
     wallet: { findFirst: async () => wallet, findUnique: async () => wallet },
+    offerAccess: { findMany: async () => [] },
     transaction: model(txs),
     withdrawRequest: model(withdrawals),
     platform: { count: async () => 2 },

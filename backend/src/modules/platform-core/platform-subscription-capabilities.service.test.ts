@@ -14,14 +14,12 @@ function fixture(tag = 'PAGATG') {
     ownerUserId: 'current-owner',
     acquirer: 'DOM',
   };
-  const execute = mock(async () => ({
-    data: {
-      id: 'link',
-      codigo: 'code',
-      nome: 'Plan',
-      valor: 12.34,
-      ativo: true,
-    },
+  const execute = mock(async (..._args: unknown[]) => ({
+    id: 'link',
+    code: 'code',
+    name: 'Plan',
+    amountCents: 1234,
+    isActive: true,
   }));
   const findFirst = mock(async () => ({ id: 'link' }) as { id: string } | null);
   const findOrder = mock(async () => ({
@@ -35,7 +33,7 @@ function fixture(tag = 'PAGATG') {
   const service = new PlatformSubscriptionCapabilitiesService(
     prisma as never,
     { resolve } as never,
-    { get: () => ({ execute }) } as never,
+    { get: () => ({ create: execute }) } as never,
   );
   return { service, context, execute, findFirst, findOrder, resolve };
 }
@@ -50,20 +48,16 @@ describe('corporate subscription capabilities', () => {
       userId: 'attacker',
       email: 'attacker@example.com',
     } as never);
-    expect(f.execute).toHaveBeenCalledWith({
-      userId: 'current-owner',
-      role: 'USER',
-      dto: {
-        nome: 'Plan',
-        descricao: undefined,
-        valor: 12.34,
-        frequencia: 'MENSAL',
-        isStandalone: true,
-        paymentMethods: 'BOTH',
+    expect(f.execute).toHaveBeenCalledWith(
+      { id: 'current-owner', role: 'USER' },
+      expect.objectContaining({
+        kind: 'SUBSCRIPTION_LINK',
+        name: 'Plan',
+        amountCents: 1234,
         platformTag: 'PAGATG',
-        plataformas: ['PAGATG'],
-      },
-    });
+        ownerUserId: 'current-owner',
+      }),
+    );
     expect(result.amountCents).toBe(1234);
     expect(result).not.toHaveProperty('valor');
   });

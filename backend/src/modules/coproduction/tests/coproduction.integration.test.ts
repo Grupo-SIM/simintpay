@@ -527,7 +527,7 @@ run(
     for (const [kind, create] of products) {
       const saved = await createWithCoproduction(
         db! as never,
-        kind,
+        'ofertas',
         f.owner.id,
         config,
         create as (tx: Prisma.TransactionClient) => Promise<{ id: string }>,
@@ -537,7 +537,7 @@ run(
       ).toMatchObject({ version: 1, participants: config.participants });
       const agreement = await captureCoproduction(
         db!,
-        kind,
+        'ofertas',
         saved.id,
         f.owner.id,
       );
