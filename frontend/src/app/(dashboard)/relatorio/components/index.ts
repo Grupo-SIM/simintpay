@@ -1,5 +1,3 @@
-export { default as AdminReports } from './AdminReports';
-export { OwnerReports } from './OwnerReports';
 export { OwnedReportContent } from './OwnedReportContent';
 export { OwnedReportProfitChart } from './OwnedReportProfitChart';
 export { OwnedReportSeries } from './OwnedReportSeries';
