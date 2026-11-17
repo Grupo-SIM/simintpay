@@ -588,6 +588,84 @@ export class ReconcilePendingTransactionsUseCase {
     }
   }
 
+  /**
+   * Sincronização periódica com a DOM (a cada 5 min): (1) liquida PENDING que o polling rápido
+   * (30 min) já não cobre e cujo webhook se perdeu; (2) aponta pagamentos que existem na DOM mas
+   * não têm transação local. Não cria transações financeiras a partir da DOM: faltam oferta,
+   * taxas e tenant confiáveis, e creditar com dados incompletos seria pior que alertar.
+   */
+  async syncWithAcquirer(): Promise<{
+    checked: number;
+    completed: number;
+    unmatched: number;
+  }> {
+    const prefix = '[Reconcile][sync]';
+    const result = { checked: 0, completed: 0, unmatched: 0 };
+    try {
+      const settled = await this.execute({
+        sinceHours: 72,
+        minAgeMinutes: 5,
+        limit: 500,
+      });
+      result.checked = settled.checked;
+      result.completed = settled.completed;
+    } catch (err) {
+      this.logger.error(
+        `${prefix} reconcile falhou: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const token = process.env.DOM_TOKEN;
+    if (!token) return result;
+    try {
+      const now = Date.now();
+      const rows: DomTransactionItem[] = [];
+      for (let page = 1; page <= 40; page++) {
+        const res = await this.gateway.listDomTransactions(token, {
+          page,
+          limit: 100,
+          begin_date: this.toYmd(new Date(now - 72 * 3_600_000)),
+          end_date: this.toYmd(new Date(now + 86_400_000)),
+        });
+        const txs = res.transactions ?? [];
+        rows.push(...txs);
+        if (txs.length < 100) break;
+      }
+      const ids = rows.map((r) => String(r.id)).filter(Boolean);
+      const refs = rows
+        .map((r) => r.cod_external)
+        .filter((v): v is string => !!v);
+      if (ids.length === 0) return result;
+      const known = await this.prisma.transaction.findMany({
+        where: { OR: [{ domPaymentId: { in: ids } }, { id: { in: refs } }] },
+        select: { id: true, domPaymentId: true },
+      });
+      const seen = new Set(
+        known.flatMap(
+          (t) => [t.id, t.domPaymentId].filter(Boolean) as string[],
+        ),
+      );
+      for (const r of rows) {
+        if (
+          seen.has(String(r.id)) ||
+          (r.cod_external && seen.has(r.cod_external))
+        )
+          continue;
+        result.unmatched++;
+        this.logger.warn(
+          `${prefix} DOM sem transação local: domPaymentId=${r.id} cod_external=${r.cod_external ?? '-'} status=${r.status} amount=${r.amount} created_at=${r.created_at}`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `${prefix} listagem DOM falhou: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    this.logger.log(
+      `${prefix} done: pendingChecked=${result.checked} completed=${result.completed} unmatched=${result.unmatched}`,
+    );
+    return result;
+  }
+
   /** YYYY-MM-DD para o begin_date/end_date da listagem DOM. */
   private toYmd(d: Date): string {
     return d.toISOString().slice(0, 10);

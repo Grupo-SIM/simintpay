@@ -14,6 +14,7 @@ export class DomPaymentPollingService
   private readonly logger = new Logger(DomPaymentPollingService.name);
   private timer?: ReturnType<typeof setInterval>;
   private draftTimer?: ReturnType<typeof setInterval>;
+  private syncTimer?: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly reconcile: ReconcilePendingTransactionsUseCase,
@@ -36,13 +37,21 @@ export class DomPaymentPollingService
       60_000,
     );
     this.draftTimer.unref();
+    // Sincronização completa com a DOM a cada 5 min, cobrindo o que o polling de 30 min já não alcança.
+    this.syncTimer = setInterval(
+      () => void this.reconcile.syncWithAcquirer(),
+      300_000,
+    );
+    this.syncTimer.unref();
   }
 
   onApplicationShutdown(): void {
     if (this.timer) clearInterval(this.timer);
     if (this.draftTimer) clearInterval(this.draftTimer);
+    if (this.syncTimer) clearInterval(this.syncTimer);
     this.timer = undefined;
     this.draftTimer = undefined;
+    this.syncTimer = undefined;
     this.logger.log('[Reconcile][poll] stopped');
   }
 }
