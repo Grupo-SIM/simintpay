@@ -21,6 +21,7 @@ import {
   PrismaFulfillmentMarkers,
 } from '../src/modules/offer/offer-fulfillment.service';
 import { PrismaOfferSalesEventOutbox } from '../src/modules/offer/offer-sales-event-outbox';
+import { offerMinimumCents } from '../src/modules/offer/offer-minimum';
 import { OfferService } from '../src/modules/offer/offer.service';
 
 setDefaultTimeout(60_000);
@@ -277,9 +278,20 @@ run('ownership and below-minimum rules are the offer ones', async () => {
   await expect(
     compat.getSubscriptionLink(seller, created.data.id),
   ).rejects.toThrow('Link de assinatura não encontrado');
+  // The floor comes from the financial policy in the database, so derive the
+  // expected message from the same calculation instead of a fixed amount.
+  const offer = await db!.offer.findUniqueOrThrow({
+    where: { id: created.data.id },
+  });
+  const floorCents = await offerMinimumCents(
+    db as never,
+    offer.platformTag,
+    offer.acceptedMethods,
+  );
+  const floor = (floorCents / 100).toFixed(2).replace('.', ',');
   await expect(
     compat.createPaymentLink(seller, { titulo: 'Barato', valor: 5 } as any),
-  ).rejects.toThrow('11,00');
+  ).rejects.toThrow(floor);
   // The other seller's list never contains it.
   const list = await compat.listPaymentLinks(other, {});
   expect(list.data.find((l) => l.id === created.data.id)).toBeUndefined();
