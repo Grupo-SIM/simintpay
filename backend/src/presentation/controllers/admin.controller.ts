@@ -3559,27 +3559,6 @@ export class AdminController {
         .toFixed(2),
     );
     const taxaSimInt = Number((brutoTotal - valorLiquidoTxBase).toFixed(2));
-    const taxaDom = Number(
-      plataformasLucroDetalhe
-        .reduce(
-          (s, p) =>
-            s + p.subtotalDeducaoTaxaFixa + p.subtotalDeducaoTaxaCashback,
-          0,
-        )
-        .toFixed(2),
-    );
-    // Custo cashback = soma do cashback DOM (configuração global, padrão R$3) por transação
-    const custoCashback = Number(
-      plataformasLucroDetalhe
-        .reduce((s, p) => s + p.subtotalDeducaoTaxaCashback, 0)
-        .toFixed(2),
-    );
-    // taxaServico = TAXA_SERVICO × N transações elegíveis (exclui BOSQUE/RENOVADA; apenas após 2026-05-18)
-    const taxaServicoConsolidado = Number(
-      plataformasLucroDetalhe
-        .reduce((s, p) => s + p.subtotalDeducaoTaxaServico, 0)
-        .toFixed(2),
-    );
     // Total de repasse = tudo que sobra após a retirada da taxa sim int (= valorBruto − taxaSimInt)
     const totalRepasseConsolidado = Number(
       (brutoTotal - taxaSimInt).toFixed(2),
@@ -3839,8 +3818,7 @@ export class AdminController {
       }
     }
 
-    // Parcelamento global de cartão: snapshot imutável quando disponível; linhas
-    // legadas ou sem campos de juros continuam com estimativas das taxas atuais.
+    // Parcelamento global de cartão: somente snapshot imutável; sem snapshot, zero.
     let totalParcelamentoBruto = 0;
     let totalParcelamentoSimIntPay = 0;
     for (const tx of txRowsLucro) {
@@ -3878,24 +3856,6 @@ export class AdminController {
           continue;
         }
       }
-      const inst = Math.min(
-        Math.max(
-          Number((tx as { installments?: number }).installments ?? 1) || 1,
-          1,
-        ),
-        12,
-      );
-      const tag = consolidadoTagParaTransacao(
-        { userId: tx.userId, platformTag: tx.platformTag ?? null },
-        platforms,
-      );
-      const domFee = estimateDomFeeReais({
-        amountReais: amount,
-        paymentMethod: (tx as { paymentMethod?: string }).paymentMethod,
-        installments: inst,
-        tenantTag: tag,
-      });
-      totalParcelamentoBruto += domFee;
     }
 
     // Recorte só de boleto para os cards do relatório (quantidade, bruto, DOM, SimIntPay, lucro).
@@ -3928,32 +3888,31 @@ export class AdminController {
     };
 
     const adquirentesResumo = buildAdquirentesResumo(txRowsLucro);
+    // Parte da Sim por transação com snapshot: total do comprador − líquido gravado.
+    const parteSimSnapshot = txRowsLucro.reduce(
+      (s, tx) =>
+        realizedAcquirerCost(tx) === undefined
+          ? s
+          : s + snapshotBuyerTotal(tx) - Number(tx.netAmount ?? 0),
+      0,
+    );
     const payload: Record<string, unknown> = {
       totalTransacoes,
       customersCount,
       valorBruto: brutoTotal,
       taxaSimInt,
-      taxaDom,
       adquirentes: adquirentesResumo.map((a) => ({
         ...a,
         taxaSaque: a.adquirente === 'DOM' ? taxaSaqueDOM : 0,
       })),
       margemSimIntPay: {
         taxaPercentual: Number(
-          (
-            brutoTotal -
-            valorLiquidoTxBase -
-            totalParcelamentoSimIntPay
-          ).toFixed(2),
+          (parteSimSnapshot - totalParcelamentoSimIntPay).toFixed(2),
         ),
-        taxaPorTransacao: taxaServicoConsolidado,
         parcelamento: Number(totalParcelamentoSimIntPay.toFixed(2)),
         taxaSaque: Number(totalLucroSaque.toFixed(2)),
       },
       boleto,
-      taxaServico: taxaServicoConsolidado,
-      custoCashback,
-      // Totais mistos: snapshots usam juros capturados; legado usa estimativa atual.
       taxaParcelamentoBruto: Math.round(totalParcelamentoBruto * 100) / 100,
       taxaParcelamentoSimIntPay:
         Math.round(totalParcelamentoSimIntPay * 100) / 100,

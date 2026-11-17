@@ -64,7 +64,6 @@ const METRIC_TT = {
   receitaTotal: 'Valor bruto das vendas aprovadas.',
   margemPct:
     'Margem percentual aplicada pela Sim Int Pay, sem juros de parcelamento.',
-  margemTransacao: 'Taxa por transação cobrada pela Sim Int Pay.',
   margemParcelamento:
     'Margem dos juros de parcelamento que fica na Sim Int Pay.',
   margemSaque: 'Taxa de saque cobrada pela Sim Int Pay.',
@@ -116,7 +115,6 @@ type ConsolidadoResponse = {
   }>;
   margemSimIntPay?: {
     taxaPercentual: number;
-    taxaPorTransacao: number;
     parcelamento: number;
     taxaSaque: number;
   };
@@ -338,17 +336,12 @@ export default function AdminReportOverview({
   const adquirentes = consolidado?.adquirentes ?? [];
   const margem = consolidado?.margemSimIntPay ?? {
     taxaPercentual: 0,
-    taxaPorTransacao: 0,
     parcelamento: 0,
     taxaSaque: 0,
   };
   const totalMargem =
     Math.round(
-      (margem.taxaPercentual +
-        margem.taxaPorTransacao +
-        margem.parcelamento +
-        margem.taxaSaque) *
-        100,
+      (margem.taxaPercentual + margem.parcelamento + margem.taxaSaque) * 100,
     ) / 100;
   /** Soma dos custos de todas as adquirentes; mesma base do lucro líquido. */
   const totalTaxasAdquirentes =
@@ -538,12 +531,6 @@ export default function AdminReportOverview({
                 margem.taxaPercentual,
                 Percent,
                 METRIC_TT.margemPct,
-              ],
-              [
-                'Margem por transação',
-                margem.taxaPorTransacao,
-                Receipt,
-                METRIC_TT.margemTransacao,
               ],
               [
                 'Margem de parcelamento',
