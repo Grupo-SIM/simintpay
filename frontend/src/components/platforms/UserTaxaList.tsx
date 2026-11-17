@@ -15,9 +15,11 @@ export const userTaxaTag = (id: string) => `USER:${id.toUpperCase()}`;
 export function UserTaxaList({
   selectedTag,
   onSelect,
+  onSelectGlobal,
 }: {
   selectedTag?: string;
   onSelect: (tag: string, label: string) => void;
+  onSelectGlobal?: () => void;
 }) {
   const api = useClienteApi();
   const [search, setSearch] = useState('');
@@ -54,6 +56,16 @@ export function UserTaxaList({
         className="max-h-64 space-y-2 pr-1"
         aria-label="Usuários disponíveis"
       >
+        {onSelectGlobal && (
+          <button
+            type="button"
+            onClick={onSelectGlobal}
+            aria-pressed={selectedTag === 'GLOBAL'}
+            className="flex w-full cursor-pointer items-center justify-between rounded-xl border p-4 text-left"
+          >
+            Padrão global{selectedTag === 'GLOBAL' && <Check size={18} />}
+          </button>
+        )}
         {users.isPending || local !== search ? (
           <p role="status" className="py-4 text-sm text-zinc-500">
             Carregando usuários...
@@ -67,33 +79,39 @@ export function UserTaxaList({
             Nenhum usuário encontrado.
           </p>
         ) : (
-          users.data.data.map((user) => {
-            const tag = userTaxaTag(user.id);
-            const active = selectedTag === tag;
-            return (
-              <button
-                key={user.id}
-                type="button"
-                onClick={() => onSelect(tag, user.name ?? user.email)}
-                aria-pressed={active}
-                className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors hover:border-violet-400/40 hover:bg-violet-500/5 ${active ? 'border-violet-500/40 bg-violet-500/10' : 'border-zinc-200 bg-zinc-50 dark:border-white/10 dark:bg-white/5'}`}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">
-                    {user.name ?? user.email}
-                  </span>
-                  {user.name && (
-                    <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
-                      {user.email}
+          [...users.data.data]
+            .sort((a, b) =>
+              (a.name ?? a.email).localeCompare(b.name ?? b.email, 'pt-BR', {
+                sensitivity: 'base',
+              }),
+            )
+            .map((user) => {
+              const tag = userTaxaTag(user.id);
+              const active = selectedTag === tag;
+              return (
+                <button
+                  key={user.id}
+                  type="button"
+                  onClick={() => onSelect(tag, user.name ?? user.email)}
+                  aria-pressed={active}
+                  className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors hover:border-violet-400/40 hover:bg-violet-500/5 ${active ? 'border-violet-500/40 bg-violet-500/10' : 'border-zinc-200 bg-zinc-50 dark:border-white/10 dark:bg-white/5'}`}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">
+                      {user.name ?? user.email}
                     </span>
+                    {user.name && (
+                      <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
+                        {user.email}
+                      </span>
+                    )}
+                  </span>
+                  {active && (
+                    <Check size={18} className="shrink-0 text-violet-500" />
                   )}
-                </span>
-                {active && (
-                  <Check size={18} className="shrink-0 text-violet-500" />
-                )}
-              </button>
-            );
-          })
+                </button>
+              );
+            })
         )}
       </ScrollArea>
     </div>

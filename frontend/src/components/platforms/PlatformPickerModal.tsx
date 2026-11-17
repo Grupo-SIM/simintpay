@@ -86,13 +86,13 @@ export function PlatformPickerModal({
   return (
     <Modal
       open
-      title={admin ? 'Selecionar plataforma' : 'Plataformas'}
+      title={admin ? 'Selecionar alvo' : 'Plataformas'}
       onClose={onClose}
       maxWidth="max-w-xl"
     >
       <div
         role="dialog"
-        aria-label={admin ? 'Selecionar plataforma' : 'Gerenciar plataformas'}
+        aria-label={admin ? 'Selecionar alvo' : 'Gerenciar plataformas'}
         className="space-y-5 text-zinc-900 dark:text-zinc-100"
       >
         <div className="flex items-center gap-3">
@@ -133,6 +133,7 @@ export function PlatformPickerModal({
           <UserTaxaList
             selectedTag={selectedTag}
             onSelect={(tag, label) => onSelectUser?.(tag, label)}
+            onSelectGlobal={() => onSelect('GLOBAL')}
           />
         ) : (
           <>
