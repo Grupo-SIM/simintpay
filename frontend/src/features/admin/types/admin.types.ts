@@ -6,12 +6,12 @@ export type Lead = {
   email: string;
   phone: string;
   cpf?: string;
-  razaoSocial: string;
-  cnpj: string;
-  faturamento: string;
-  tempoOperacao: string;
+  razaoSocial?: string | null;
+  cnpj?: string | null;
+  faturamento?: string | null;
+  tempoOperacao?: string | null;
   modeloOperacao?: string;
-  cargo: string;
+  cargo?: string | null;
   comoConheceu?: string;
   status: LeadStatus;
   createdAt: string;

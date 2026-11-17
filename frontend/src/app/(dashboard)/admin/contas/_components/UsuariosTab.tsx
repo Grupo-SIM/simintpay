@@ -826,7 +826,7 @@ export default function UsuariosTab({
     : leads
         .filter((l) =>
           leadTerm
-            ? [l.name, l.email, l.razaoSocial, l.cnpj, l.cpf ?? '']
+            ? [l.name, l.email, l.razaoSocial ?? '', l.cnpj ?? '', l.cpf ?? '']
                 .join(' ')
                 .toLowerCase()
                 .includes(leadTerm)
@@ -1393,10 +1393,10 @@ export default function UsuariosTab({
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-zinc-800 dark:text-zinc-200">
-                          {l.razaoSocial || '—'}
+                          {l.razaoSocial || l.name || '—'}
                         </div>
                         <div className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                          {formatDocument(l.cnpj)}
+                          {formatDocument(l.cnpj ?? l.cpf ?? '')}
                         </div>
                       </td>
                       <td className="px-4 py-3">

@@ -1,4 +1,12 @@
-import { IsString, IsEmail, IsOptional, IsEnum, IsNotEmpty, Matches } from 'class-validator';
+import {
+  IsString,
+  IsEmail,
+  IsOptional,
+  IsEnum,
+  IsNotEmpty,
+  Matches,
+  ValidateIf,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsDocument } from '../../validators/is-document.validator';
 
@@ -34,6 +42,10 @@ export enum CargoEmpresa {
   OUTRO = 'OUTRO',
 }
 
+/** Dados da empresa só são exigidos quando o documento informado é um CNPJ (pessoa jurídica). */
+const isCompanyLead = (o: { cpf?: unknown }) =>
+  typeof o.cpf === 'string' && o.cpf.replace(/\D/g, '').length === 14;
+
 export class CreateLeadDto {
   @ApiProperty({ example: 'João Silva' })
   @IsString()
@@ -50,15 +62,23 @@ export class CreateLeadDto {
   @IsNotEmpty()
   email: string;
 
-  @ApiProperty({ example: 'Empresa LTDA' })
+  @ApiPropertyOptional({
+    example: 'Empresa LTDA',
+    description: 'Obrigatório quando o documento é CNPJ',
+  })
+  @ValidateIf(isCompanyLead)
   @IsString()
   @IsNotEmpty()
-  razaoSocial: string;
+  razaoSocial?: string;
 
-  @ApiProperty({ example: '12.345.678/0001-90' })
+  @ApiPropertyOptional({
+    example: '12.345.678/0001-90',
+    description: 'Opcional: assume o documento quando ele já é um CNPJ',
+  })
+  @IsOptional()
   @IsString()
   @Matches(/^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/, { message: 'CNPJ inválido' })
-  cnpj: string;
+  cnpj?: string;
 
   @ApiProperty({ example: '123.456.789-09 ou 12.345.678/0001-90' })
   @IsString()
@@ -66,29 +86,45 @@ export class CreateLeadDto {
   @IsDocument({ message: 'CPF ou CNPJ inválido' })
   cpf: string;
 
-  @ApiProperty({ enum: Faturamento, example: Faturamento.DE_50K_A_100K })
+  @ApiPropertyOptional({
+    enum: Faturamento,
+    example: Faturamento.DE_50K_A_100K,
+  })
+  @ValidateIf(isCompanyLead)
   @IsEnum(Faturamento)
-  faturamento: Faturamento;
+  faturamento?: Faturamento;
 
-  @ApiProperty({ enum: TempoOperacao, example: TempoOperacao.DE_1_A_3_ANOS })
+  @ApiPropertyOptional({
+    enum: TempoOperacao,
+    example: TempoOperacao.DE_1_A_3_ANOS,
+  })
+  @ValidateIf(isCompanyLead)
   @IsEnum(TempoOperacao)
-  tempoOperacao: TempoOperacao;
+  tempoOperacao?: TempoOperacao;
 
-  @ApiPropertyOptional({ enum: ModeloOperacao, example: ModeloOperacao.ECOMMERCE })
+  @ApiPropertyOptional({
+    enum: ModeloOperacao,
+    example: ModeloOperacao.ECOMMERCE,
+  })
   @IsOptional()
   @IsEnum(ModeloOperacao)
   modeloOperacao?: ModeloOperacao;
 
-  @ApiProperty({ enum: CargoEmpresa, example: CargoEmpresa.SOCIO })
+  @ApiPropertyOptional({ enum: CargoEmpresa, example: CargoEmpresa.SOCIO })
+  @ValidateIf(isCompanyLead)
   @IsEnum(CargoEmpresa)
-  cargo: CargoEmpresa;
+  cargo?: CargoEmpresa;
 
   @ApiPropertyOptional({ example: 'Google' })
   @IsOptional()
   @IsString()
   comoConheceu?: string;
 
-  @ApiPropertyOptional({ example: 'ABC123', description: 'Código de indicação do afiliado (query ?ref= do link público)' })
+  @ApiPropertyOptional({
+    example: 'ABC123',
+    description:
+      'Código de indicação do afiliado (query ?ref= do link público)',
+  })
   @IsOptional()
   @IsString()
   referredByCode?: string;

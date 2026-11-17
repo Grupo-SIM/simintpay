@@ -7,6 +7,7 @@ const labelMap: Record<string, string> = {
   name: 'Nome',
   phone: 'Telefone',
   email: 'E-mail',
+  cpf: 'CPF/CNPJ',
   razaoSocial: 'Razão Social',
   cnpj: 'CNPJ',
   faturamento: 'Faturamento',

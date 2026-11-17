@@ -154,6 +154,58 @@ export default function CadastroPage() {
   );
 
   const documentIsCnpj = onlyDigits(form.cpf).length === 14;
+  const documentIsCpf = onlyDigits(form.cpf).length === 11;
+
+  async function submitLead(fields: Record<string, string>) {
+    const api = createApiClient({ baseUrl: getDefaultApiBaseUrl() });
+    setLoading(true);
+    try {
+      const payload = {
+        ...fields,
+        ...(referredByCode ? { referredByCode } : {}),
+      };
+
+      await api.post<{ data: { id: string }; message: string }>(
+        endpoints.leads.create,
+        payload,
+      );
+
+      fetch('/api/send-lead-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).catch(() => null);
+
+      setStep('success');
+    } catch (err) {
+      const e = err as unknown;
+      if (e instanceof ApiError) {
+        if (e.status === 409) {
+          const msg = e.message.toLowerCase();
+          setErrors((prev) => ({ ...prev, email: e.message }));
+          if (msg.includes('cnpj'))
+            setErrors((prev) => ({
+              ...prev,
+              [step === 1 ? 'cpf' : 'cnpj']: e.message,
+            }));
+          return;
+        }
+        toast({
+          type: 'error',
+          title: 'Não foi possível enviar',
+          description: e.message,
+        });
+        return;
+      }
+      toast({
+        type: 'error',
+        title: 'Erro inesperado',
+        description: 'Tente novamente em instantes.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   if (step === 'success') {
     return (
@@ -221,6 +273,16 @@ export default function CadastroPage() {
             }
             setErrors(nextErrors);
             if (Object.keys(nextErrors).length) return;
+            if (documentIsCpf) {
+              // Pessoa física: não há dados de empresa, envia direto.
+              await submitLead({
+                name: form.name.trim(),
+                phone: form.phone.trim(),
+                email: form.email.trim().toLowerCase(),
+                cpf: form.cpf.trim(),
+              });
+              return;
+            }
             setStep(2);
             return;
           }
@@ -240,63 +302,21 @@ export default function CadastroPage() {
           setErrors(nextErrors);
           if (Object.keys(nextErrors).length) return;
 
-          const api = createApiClient({ baseUrl: getDefaultApiBaseUrl() });
-          setLoading(true);
-          try {
-            const payload = {
-              name: form.name.trim(),
-              phone: form.phone.trim(),
-              email: form.email.trim().toLowerCase(),
-              cpf: form.cpf.trim(),
-              razaoSocial: form.razaoSocial.trim(),
-              cnpj: cnpjValue.trim(),
-              faturamento: form.faturamento,
-              tempoOperacao: form.tempoOperacao,
-              ...(form.modeloOperacao
-                ? { modeloOperacao: form.modeloOperacao }
-                : {}),
-              cargo: form.cargo,
-              ...(form.comoConheceu ? { comoConheceu: form.comoConheceu } : {}),
-              ...(referredByCode ? { referredByCode } : {}),
-            };
-
-            await api.post<{ data: { id: string }; message: string }>(
-              endpoints.leads.create,
-              payload,
-            );
-
-            fetch('/api/send-lead-email', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            }).catch(() => null);
-
-            setStep('success');
-          } catch (err) {
-            const e = err as unknown;
-            if (e instanceof ApiError) {
-              if (e.status === 409) {
-                const msg = e.message.toLowerCase();
-                setErrors((prev) => ({ ...prev, email: e.message }));
-                if (msg.includes('cnpj'))
-                  setErrors((prev) => ({ ...prev, cnpj: e.message }));
-                return;
-              }
-              toast({
-                type: 'error',
-                title: 'Não foi possível enviar',
-                description: e.message,
-              });
-              return;
-            }
-            toast({
-              type: 'error',
-              title: 'Erro inesperado',
-              description: 'Tente novamente em instantes.',
-            });
-          } finally {
-            setLoading(false);
-          }
+          await submitLead({
+            name: form.name.trim(),
+            phone: form.phone.trim(),
+            email: form.email.trim().toLowerCase(),
+            cpf: form.cpf.trim(),
+            razaoSocial: form.razaoSocial.trim(),
+            cnpj: cnpjValue.trim(),
+            faturamento: form.faturamento,
+            tempoOperacao: form.tempoOperacao,
+            ...(form.modeloOperacao
+              ? { modeloOperacao: form.modeloOperacao }
+              : {}),
+            cargo: form.cargo,
+            ...(form.comoConheceu ? { comoConheceu: form.comoConheceu } : {}),
+          });
         }}
       >
         {step === 1 ? (
@@ -353,10 +373,17 @@ export default function CadastroPage() {
 
             <button
               type="submit"
+              disabled={loading}
               className="lp-submit-btn"
               style={{ marginTop: 6 }}
             >
-              Próximo
+              {loading ? (
+                <span className="lp-spinner" />
+              ) : documentIsCpf ? (
+                'Enviar solicitação'
+              ) : (
+                'Próximo'
+              )}
             </button>
           </>
         ) : (

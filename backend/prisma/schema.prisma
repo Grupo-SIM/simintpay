@@ -871,13 +871,13 @@ model Lead {
   name            String
   phone           String
   email           String
-  razaoSocial     String
-  cnpj            String
+  razaoSocial     String?
+  cnpj            String?
   cpf             String?
-  faturamento     String
-  tempoOperacao   String
+  faturamento     String?
+  tempoOperacao   String?
   modeloOperacao  String?
-  cargo           String
+  cargo           String?
   comoConheceu    String?
   referredByCode  String?
   status          LeadStatus @default(PENDING)

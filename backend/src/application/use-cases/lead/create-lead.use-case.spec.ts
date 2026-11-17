@@ -40,3 +40,25 @@ describe('CreateLeadUseCase — referredByCode', () => {
     );
   });
 });
+
+describe('CreateLeadUseCase — pessoa física', () => {
+  const cpfDto: any = {
+    name: 'Maria',
+    phone: '11999999999',
+    email: 'maria@email.com',
+    cpf: '123.456.789-09',
+  };
+
+  it('cria o lead só com CPF, sem dados de empresa', async () => {
+    const { uc, leads } = build();
+    await uc.execute(cpfDto);
+    expect(leads.create).toHaveBeenCalledWith(
+      expect.objectContaining({ cpf: '12345678909', cnpj: undefined }),
+    );
+    expect(leads.hasIdentityConflict).toHaveBeenCalledWith(
+      'maria@email.com',
+      '12345678909',
+      '12345678909',
+    );
+  });
+});

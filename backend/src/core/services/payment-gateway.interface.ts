@@ -503,12 +503,12 @@ export interface IPaymentGateway {
     name: string;
     phone: string;
     email: string;
-    razaoSocial: string;
-    cnpj: string;
-    faturamento: string;
-    tempoOperacao: string;
+    razaoSocial?: string;
+    cnpj?: string;
+    faturamento?: string;
+    tempoOperacao?: string;
     modeloOperacao?: string;
-    cargo: string;
+    cargo?: string;
     comoConheceu?: string;
   }): Promise<{ data: { id: string }; message: string }>;
 

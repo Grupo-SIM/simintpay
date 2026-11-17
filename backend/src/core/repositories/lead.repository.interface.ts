@@ -6,13 +6,13 @@ export type CreateLeadData = {
   name: string;
   phone: string;
   email: string;
-  razaoSocial: string;
-  cnpj: string;
+  razaoSocial?: string;
+  cnpj?: string;
   cpf?: string;
-  faturamento: string;
-  tempoOperacao: string;
+  faturamento?: string;
+  tempoOperacao?: string;
   modeloOperacao?: string;
-  cargo: string;
+  cargo?: string;
   comoConheceu?: string;
   referredByCode?: string;
 };

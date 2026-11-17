@@ -15,15 +15,17 @@ export class CreateLeadUseCase {
   async execute(dto: CreateLeadDto) {
     const email = dto.email.trim().toLowerCase();
     const cpf = dto.cpf.replace(/\D/g, '');
-    const cnpj = dto.cnpj.replace(/\D/g, '');
+    // Pessoa física não tem CNPJ: a checagem de conflito usa o próprio documento.
+    const cnpj =
+      dto.cnpj?.replace(/\D/g, '') || (cpf.length === 14 ? cpf : undefined);
 
-    if (await this.users.hasIdentityConflict(email, cpf, cnpj)) {
+    if (await this.users.hasIdentityConflict(email, cpf, cnpj ?? cpf)) {
       throw new ConflictException(
         'Já existe uma conta com este e-mail, CPF ou CNPJ',
       );
     }
 
-    if (await this.leads.hasIdentityConflict(email, cpf, cnpj)) {
+    if (await this.leads.hasIdentityConflict(email, cpf, cnpj ?? cpf)) {
       throw new ConflictException(
         'Já existe uma solicitação pendente ou aprovada com este e-mail, CPF ou CNPJ',
       );
