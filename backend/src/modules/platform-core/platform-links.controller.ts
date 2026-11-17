@@ -25,7 +25,6 @@ import { ModuleRef } from '@nestjs/core';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { createHash } from 'node:crypto';
-import { offerPlatformReadsEnabled } from '../offer/offer-read-flag';
 import { offerWritesOnlyEnabled } from '../offer/offer-writes-flag';
 import {
   paymentLinkCreated,
@@ -68,14 +67,10 @@ export class PlatformLinksController {
     return link;
   }
   /**
-   * Read of a platform link. Legacy table by default; with `OFFER_PLATFORM_READS=1` the same id
-   * resolves through `Offer` (a non-recurring offer of the platform) and is shown in the legacy
-   * link shape. Writes keep the legacy use cases unless `OFFER_WRITES_ONLY=1` (phase 4), which
-   * also makes every read here go through `Offer`.
+   * Read of a platform link: the id resolves through `Offer` (a non-recurring offer of the
+   * platform) and is shown in the legacy link shape.
    */
   private async ownedForRead(c: PlatformContext, id: string) {
-    if (!offerPlatformReadsEnabled() && !offerWritesOnlyEnabled())
-      return this.owned(c, id);
     return paymentLinkDetail(await this.ownedOffer(c, id));
   }
   private async ownedOffer(c: PlatformContext, id: string) {
@@ -169,11 +164,10 @@ export class PlatformLinksController {
       .update(`platform-link:${c.id}:${key}`)
       .digest('hex');
     if (
-      (offerPlatformReadsEnabled() || offerWritesOnlyEnabled()) &&
-      (await this.prisma.offer.findUnique({
+      await this.prisma.offer.findUnique({
         where: { id },
         select: { id: true },
-      }))
+      })
     )
       return this.response(await this.ownedForRead(c, id));
     if (offerWritesOnlyEnabled()) return this.createOffer(c, id, body);

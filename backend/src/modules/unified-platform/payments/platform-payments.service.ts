@@ -1,6 +1,4 @@
-import { assertOfferLegacyWritable } from '../../offer/offer-legacy-freeze';
 import { transactionProductRef } from '../../offer/offer-writes-flag';
-import { offerPlatformReadsEnabled } from '../../offer/offer-read-flag';
 import { transactionPlatformTagData } from '../../platform-core/transaction-platform';
 import {
   captureCoproduction,
@@ -162,31 +160,18 @@ export class PlatformPaymentsService {
         capability: 'payments.' + input.paymentMethod,
       });
     if (input.linkId) {
-      // Frozen legacy writer (plan 0023, phase 4): the legacy link path also records Transaction.paymentLinkId.
-      if (!offerPlatformReadsEnabled()) assertOfferLegacyWritable();
-      const link = offerPlatformReadsEnabled()
-        ? await this.prisma.offer
-            .findFirst({
-              where: {
-                id: input.linkId,
-                ownerUserId: platform.ownerUserId,
-                platformTag: platform.tag,
-                renewalMode: 'NONE',
-                isActive: true,
-              },
-              select: { amountCents: true },
-            })
-            .then((offer) => offer && { cents: offer.amountCents })
-        : await this.prisma.paymentLink
-            .findFirst({
-              where: {
-                id: input.linkId,
-                userId: platform.ownerUserId,
-                plataformas: { has: platform.tag },
-                isActive: true,
-              },
-            })
-            .then((row) => row && { cents: row.amount.mul(100).toNumber() });
+      const link = await this.prisma.offer
+        .findFirst({
+          where: {
+            id: input.linkId,
+            ownerUserId: platform.ownerUserId,
+            platformTag: platform.tag,
+            renewalMode: 'NONE',
+            isActive: true,
+          },
+          select: { amountCents: true },
+        })
+        .then((offer) => offer && { cents: offer.amountCents });
       if (!link || link.cents !== input.amountCents)
         throw new UnprocessableEntityException({
           code: 'INVALID_LINK_PAYMENT',
@@ -687,12 +672,10 @@ export class PlatformPaymentsService {
       try {
         permit = await this.breaker.begin(provider, operation);
       } catch (error) {
-        if (
-          !(
-            error instanceof CircuitOpenException ||
-            error instanceof CircuitUnavailableException
-          )
-        )
+        if (!(
+          error instanceof CircuitOpenException ||
+          error instanceof CircuitUnavailableException
+        ))
           throw error;
         // An open/unavailable circuit cannot have sent a provider request.
         // Only an open circuit permits trying a different healthy provider.

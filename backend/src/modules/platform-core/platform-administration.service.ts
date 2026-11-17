@@ -1,4 +1,3 @@
-import { offerPlatformReadsEnabled } from '../offer/offer-read-flag';
 import { readPlatformBalanceSummary } from './platform-balance-summary';
 import {
   coproductionOwnerNet,
@@ -104,16 +103,12 @@ export class PlatformAdministrationService {
           ...platform,
           cpf: platform.owner.cpf ?? platform.owner.cnpj ?? '',
           firstSeen: platform.createdAt,
-          plansCount: offerPlatformReadsEnabled()
-            ? await this.prisma.offer.count({
-                where: {
-                  platformTag: platform.tag,
-                  legacyType: 'PixCreditPlan',
-                },
-              })
-            : await this.prisma.pixCreditPlan.count({
-                where: { tenantTag: platform.tag },
-              }),
+          plansCount: await this.prisma.offer.count({
+            where: {
+              platformTag: platform.tag,
+              legacyType: 'PixCreditPlan',
+            },
+          }),
           transactionsCount: await this.prisma.transaction.count({
             where: whereTransactionPlatform(platform.tag),
           }),

@@ -184,7 +184,7 @@ export class CoproductionService {
     };
   }
 
-  /** Legacy product keys follow the offer when `OFFER_PLATFORM_READS=1`; unknown keys stay for `authorize` to refuse. */
+  /** Legacy product keys follow the offer; unknown keys stay for `authorize` to refuse. */
   private key(product: string): string {
     return Object.hasOwn(productTables, product)
       ? canonicalProduct(product as Product)

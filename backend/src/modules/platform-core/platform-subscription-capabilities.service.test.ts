@@ -100,29 +100,11 @@ describe('corporate subscription capabilities', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(f.execute).not.toHaveBeenCalled();
   });
-  test('status requires matching current owner and platform even when owner is shared', async () => {
-    const f = fixture();
-    await f.service.paymentStatus(f.context, 'code');
-    expect(f.findFirst).toHaveBeenCalledWith({
-      where: {
-        code: 'code',
-        userId: 'current-owner',
-        OR: [{ platformTag: 'PAGATG' }, { plataformas: { has: 'PAGATG' } }],
-      },
-      select: { id: true },
-    });
-    f.findFirst.mockResolvedValueOnce(null);
-    await expect(
-      f.service.paymentStatus(f.context, 'other-platform'),
-    ).rejects.toBeInstanceOf(NotFoundException);
-    expect(f.findOrder).toHaveBeenCalledTimes(1);
-  });
 });
 
-describe('paymentStatus through Offer (OFFER_PLATFORM_READS)', () => {
+describe('paymentStatus through Offer ', () => {
   const run = async (charge: { createdAt: Date } | null) => {
-    process.env.OFFER_PLATFORM_READS = '1';
-    try {
+    {
       const context: PlatformContext = {
         id: 'platform',
         tag: 'PAGATG',
@@ -135,36 +117,31 @@ describe('paymentStatus through Offer (OFFER_PLATFORM_READS)', () => {
       const chargeFind = mock<(arg: unknown) => Promise<any>>(
         async () => charge,
       );
-      const legacy = mock(async () => null);
       const service = new PlatformSubscriptionCapabilitiesService(
         {
           offer: { findFirst: offerFind },
           charge: { findFirst: chargeFind },
-          subscriptionLink: { findFirst: legacy },
         } as never,
         { resolve: async () => ({ ...context }) } as never,
         {} as never,
       );
       const result = await service.paymentStatus(context, 'code');
-      return { result, offerFind, chargeFind, legacy };
-    } finally {
-      delete process.env.OFFER_PLATFORM_READS;
+      return { result, offerFind, chargeFind };
     }
   };
 
   test('paid cycle is a PAID charge of the platform offer', async () => {
     const paidAt = new Date('2026-02-02');
-    const { result, offerFind, legacy } = await run({ createdAt: paidAt });
+    const { result, offerFind } = await run({ createdAt: paidAt });
     expect(result).toEqual({ paid: true, paidAt });
     expect((offerFind.mock.calls[0][0] as any).where).toMatchObject({
       code: 'code',
       ownerUserId: 'owner',
       platformTag: 'PAGATG',
     });
-    expect(legacy).not.toHaveBeenCalled();
   });
 
-  test('no paid charge reports unpaid, same shape as the legacy order lookup', async () => {
+  test('no paid charge reports unpaid', async () => {
     expect((await run(null)).result).toEqual({ paid: false, paidAt: null });
   });
 });

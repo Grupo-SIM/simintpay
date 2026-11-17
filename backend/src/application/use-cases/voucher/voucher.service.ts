@@ -5,7 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DiscountType } from '@prisma/client';
-import { offerPlatformReadsEnabled } from '../../../modules/offer/offer-read-flag';
 import { findOfferByCodeOrId } from '../../../modules/offer/find-offer-by-code-or-id';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import type {
@@ -125,9 +124,8 @@ export class VoucherService {
   }
 
   /**
-   * Owner of the plan or link a voucher is checked against. Legacy tables by default; with
-   * `OFFER_PLATFORM_READS=1` the same id or code resolves through `Offer` (and its code aliases,
-   * which carry the old `PX-` plan link codes).
+   * Owner of the plan or link a voucher is checked against. The id or code resolves through
+   * `Offer` (and its code aliases, which carry the old `PX-` plan link codes).
    */
   async findResourceOwner(dto: {
     planId?: string;
@@ -138,61 +136,33 @@ export class VoucherService {
     | { kind: 'none' }
   > {
     const linkCode = dto.linkCode?.trim();
-    if (offerPlatformReadsEnabled()) {
-      const insensitive = { equals: linkCode, mode: 'insensitive' as const };
-      const offer = await this.prisma.offer.findFirst({
-        where: {
-          OR: [
-            ...(dto.planId ? [{ id: dto.planId }] : []),
-            ...(linkCode
-              ? [
-                  { code: insensitive },
-                  {
-                    codeAliases: {
-                      some: { code: insensitive, isActive: true },
-                    },
+    const insensitive = { equals: linkCode, mode: 'insensitive' as const };
+    const offer = await this.prisma.offer.findFirst({
+      where: {
+        OR: [
+          ...(dto.planId ? [{ id: dto.planId }] : []),
+          ...(linkCode
+            ? [
+                { code: insensitive },
+                {
+                  codeAliases: {
+                    some: { code: insensitive, isActive: true },
                   },
-                ]
-              : []),
-          ],
-        },
-        select: { ownerUserId: true, description: true, legacyType: true },
-      });
-      if (!offer) return { kind: 'none' };
-      return offer.legacyType === 'PixCreditPlan'
-        ? {
-            kind: 'plan',
-            userId: offer.ownerUserId,
-            description: offer.description,
-          }
-        : { kind: 'link', userId: offer.ownerUserId };
-    }
-    const pixPlan = await this.prisma.pixCreditPlan.findFirst({
-      where: {
-        OR: [
-          { id: dto.planId || undefined },
-          {
-            linkCodes: {
-              some: { code: { equals: linkCode, mode: 'insensitive' } },
-            },
-          },
+                },
+              ]
+            : []),
         ],
       },
-      select: { userId: true, description: true },
+      select: { ownerUserId: true, description: true, legacyType: true },
     });
-    if (pixPlan) return { kind: 'plan', ...pixPlan };
-    const subLink = await (this.prisma as any).subscriptionLink.findFirst({
-      where: {
-        OR: [
-          { id: dto.planId || undefined },
-          { code: { equals: linkCode, mode: 'insensitive' } },
-        ],
-      },
-      select: { userId: true },
-    });
-    return subLink
-      ? { kind: 'link', userId: subLink.userId }
-      : { kind: 'none' };
+    if (!offer) return { kind: 'none' };
+    return offer.legacyType === 'PixCreditPlan'
+      ? {
+          kind: 'plan',
+          userId: offer.ownerUserId,
+          description: offer.description,
+        }
+      : { kind: 'link', userId: offer.ownerUserId };
   }
 
   async validateVoucher(userId: string, dto: ValidateVoucherDto) {
@@ -343,15 +313,10 @@ export class VoucherService {
       // Se tivermos o ID do plano, buscamos a descrição para resolver shadow user
       let description: string | null = null;
       if (dto.planId) {
-        const plan = offerPlatformReadsEnabled()
-          ? await this.prisma.offer.findUnique({
-              where: { id: dto.planId },
-              select: { description: true },
-            })
-          : await this.prisma.pixCreditPlan.findUnique({
-              where: { id: dto.planId },
-              select: { description: true },
-            });
+        const plan = await this.prisma.offer.findUnique({
+          where: { id: dto.planId },
+          select: { description: true },
+        });
         description = plan?.description ?? null;
       }
       resolvedOwnerId = await this.resolveEffectiveMerchantId(

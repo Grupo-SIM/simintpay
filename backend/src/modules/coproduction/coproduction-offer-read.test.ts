@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { Prisma } from '@prisma/client';
 import {
   canonicalProduct,
   productOwnerColumn,
-  productTables,
   productTagSql,
   type Product,
 } from './coproduction';
@@ -16,7 +15,6 @@ const legacy = [
   'planos',
   'planos-pix',
 ] as const;
-const ON = { OFFER_PLATFORM_READS: '1' };
 
 function recorder() {
   const queries: Prisma.Sql[] = [];
@@ -31,48 +29,30 @@ function recorder() {
   };
 }
 
-describe('coproduction reads through Offer (OFFER_PLATFORM_READS)', () => {
-  afterEach(() => {
-    delete process.env.OFFER_PLATFORM_READS;
-  });
-
-  test('default keeps the legacy product keys and tables', () => {
-    for (const product of legacy) {
-      expect(canonicalProduct(product, {})).toBe(product);
-      expect(productTables[product]).not.toBe('Offer');
-    }
-  });
-
-  test('flag on resolves every legacy key to ofertas and leaves platforms alone', () => {
+describe('coproduction reads through Offer', () => {
+  test('every legacy key resolves to ofertas and leaves platforms alone', () => {
     for (const product of legacy)
-      expect(canonicalProduct(product, ON)).toBe('ofertas');
-    expect(canonicalProduct('plataformas', ON)).toBe('plataformas');
-    expect(canonicalProduct('ofertas', ON)).toBe('ofertas');
+      expect(canonicalProduct(product)).toBe('ofertas');
+    expect(canonicalProduct('plataformas')).toBe('plataformas');
+    expect(canonicalProduct('ofertas')).toBe('ofertas');
     expect(productOwnerColumn('ofertas')).toBe('ownerUserId');
     expect(productTagSql('ofertas')).toBe('p."platformTag"');
   });
 
-  test('flag on: the listing SQL of a legacy key equals the one of the offer (table, owner, tag, agreement key)', async () => {
+  test('the listing SQL of a legacy key equals the one of the offer (table, owner, tag, agreement key)', async () => {
     const offer = recorder();
     await sharedProductIds(offer.db, 'ofertas', 'u');
     const expected = offer.queries[0];
     for (const product of legacy) {
-      process.env.OFFER_PLATFORM_READS = '1';
-      const flagged = recorder();
-      await sharedProductIds(flagged.db, product as Product, 'u');
-      expect(flagged.queries[0].sql).toBe(expected.sql);
-      expect(flagged.queries[0].values).toEqual(expected.values);
-      expect(flagged.queries[0].sql).toContain('"Offer"');
-      delete process.env.OFFER_PLATFORM_READS;
-      const plain = recorder();
-      await sharedProductIds(plain.db, product as Product, 'u');
-      expect(plain.queries[0].sql).toContain(`"${productTables[product]}"`);
-      expect(plain.queries[0].sql).not.toContain('"Offer"');
+      const r = recorder();
+      await sharedProductIds(r.db, product as Product, 'u');
+      expect(r.queries[0].sql).toBe(expected.sql);
+      expect(r.queries[0].values).toEqual(expected.values);
+      expect(r.queries[0].sql).toContain('"Offer"');
     }
   });
 
-  test('flag on: info lookup keys the agreement by ofertas', async () => {
-    process.env.OFFER_PLATFORM_READS = '1';
+  test('info lookup keys the agreement by ofertas', async () => {
     const r = recorder();
     await coproductionInfo(r.db, 'links-pagamento', 'u', [
       { id: 'p1', userId: 'seller' },

@@ -1,23 +1,9 @@
-import { afterEach, expect, mock, test } from 'bun:test';
+import { expect, mock, test } from 'bun:test';
 import { VoucherService } from './voucher.service';
-
-afterEach(() => {
-  delete process.env.OFFER_PLATFORM_READS;
-});
 
 function service(over: Record<string, unknown> = {}) {
   const prisma = {
     offer: {
-      findFirst: mock<(arg: unknown) => Promise<any>>(
-        async () => null as unknown,
-      ),
-    },
-    pixCreditPlan: {
-      findFirst: mock<(arg: unknown) => Promise<any>>(
-        async () => null as unknown,
-      ),
-    },
-    subscriptionLink: {
       findFirst: mock<(arg: unknown) => Promise<any>>(
         async () => null as unknown,
       ),
@@ -27,30 +13,7 @@ function service(over: Record<string, unknown> = {}) {
   return { prisma, service: new VoucherService(prisma as never) };
 }
 
-test('default: the owner comes from the legacy plan, then the subscription link', async () => {
-  const { prisma, service: s } = service();
-  prisma.pixCreditPlan.findFirst.mockImplementation(async () => ({
-    userId: 'plan-owner',
-    description: 'd',
-  }));
-  expect(await s.findResourceOwner({ planId: 'p' })).toEqual({
-    kind: 'plan',
-    userId: 'plan-owner',
-    description: 'd',
-  });
-  prisma.pixCreditPlan.findFirst.mockImplementation(async () => null);
-  prisma.subscriptionLink.findFirst.mockImplementation(async () => ({
-    userId: 'link-owner',
-  }));
-  expect(await s.findResourceOwner({ linkCode: 'c' })).toEqual({
-    kind: 'link',
-    userId: 'link-owner',
-  });
-  expect(prisma.offer.findFirst).not.toHaveBeenCalled();
-});
-
-test('flag on: id, code or PX alias resolve the owner through Offer, plans by legacyType', async () => {
-  process.env.OFFER_PLATFORM_READS = '1';
+test('id, code or PX alias resolve the owner through Offer, plans by legacyType', async () => {
   const { prisma, service: s } = service();
   prisma.offer.findFirst.mockImplementation(async () => ({
     ownerUserId: 'o',
@@ -79,6 +42,4 @@ test('flag on: id, code or PX alias resolve the owner through Offer, plans by le
   expect(await s.findResourceOwner({ linkCode: 'x' })).toEqual({
     kind: 'none',
   });
-  expect(prisma.pixCreditPlan.findFirst).not.toHaveBeenCalled();
-  expect(prisma.subscriptionLink.findFirst).not.toHaveBeenCalled();
 });
