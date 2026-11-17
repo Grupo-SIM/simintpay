@@ -57,7 +57,12 @@ export function loadCyclePolicyContext(
   offer: Pick<Offer, 'platformTag' | 'ownerUserId'>,
   at?: Date,
 ): Promise<CyclePolicyContext> {
-  return loadChargePolicy(prisma, cyclePolicyTag(offer), at);
+  return loadChargePolicy(
+    prisma,
+    cyclePolicyTag(offer),
+    at,
+    'ownerUserId' in offer ? offer.ownerUserId : undefined,
+  );
 }
 
 /**
@@ -69,18 +74,23 @@ export function quoteOfferCycle(
   offer: Pick<Offer, 'platformTag' | 'ownerUserId' | 'amountCents'>,
   method: PaymentMethod,
   installments = 1,
+  /** Amount the fees apply to, in cents, when it is not the offer price (bumps, voucher). */
+  baseAmountCents: number = offer.amountCents,
 ): CycleQuote {
   const platformTag = (offer.platformTag ?? 'GLOBAL').toUpperCase();
   const isPix = method === 'PIX';
   const isDebit = method === 'DEBIT_CARD';
   const taxaTag = cyclePolicyTag(offer);
-  const effectiveInstallments = isPix || isDebit ? 1 : installments;
+  const isBoleto = method === 'BOLETO';
+  const effectiveInstallments = isPix || isDebit || isBoleto ? 1 : installments;
   const financialMethod = isPix
     ? 'PIX'
     : isDebit
       ? 'DEBIT_CARD'
-      : 'CREDIT_CARD';
-  const baseAmount = offer.amountCents / 100;
+      : isBoleto
+        ? 'BOLETO'
+        : 'CREDIT_CARD';
+  const baseAmount = baseAmountCents / 100;
   const financialQuote = quoteFinancialCharge(
     context,
     baseAmount,
@@ -96,22 +106,26 @@ export function quoteOfferCycle(
   }
   const { totalAmount, domFeeAmount, netAmount } = financialQuote;
   const domFee = round2(domFeeAmount);
-  const totalFee = round2(totalAmount - netAmount);
+  // Boleto records the same fees as the legacy quoted boleto (ChargeBoletoUseCase).
+  const totalFee = isBoleto
+    ? financialQuote.platformFeeTotal
+    : round2(totalAmount - netAmount);
   return {
     platformTag,
     policyTag: taxaTag,
     method,
     installments: effectiveInstallments,
-    baseAmountCents: offer.amountCents,
+    baseAmountCents,
     totalAmount,
     interestAmount: financialQuote.interestAmount ?? 0,
     netAmount,
     domFee,
     totalFee,
-    platformFee: round2(totalFee - domFee),
+    platformFee: isBoleto
+      ? financialQuote.platformProfit
+      : round2(totalFee - domFee),
     financialSnapshot: financialQuote.financialSnapshot as
-      | Prisma.InputJsonValue
-      | undefined,
+      Prisma.InputJsonValue | undefined,
   };
 }
 
@@ -122,12 +136,14 @@ export async function priceOfferCycle(
   method: PaymentMethod,
   installments = 1,
   at?: Date,
+  baseAmountCents?: number,
 ): Promise<CycleQuote> {
   return quoteOfferCycle(
     await loadCyclePolicyContext(prisma, offer, at),
     offer,
     method,
     installments,
+    baseAmountCents,
   );
 }
 
@@ -178,7 +194,6 @@ export function frozenQuoteFrom(
     totalFee,
     platformFee: num('platformFee') ?? round2(totalFee - domFee),
     financialSnapshot: (s.financial ?? undefined) as
-      | Prisma.InputJsonValue
-      | undefined,
+      Prisma.InputJsonValue | undefined,
   };
 }

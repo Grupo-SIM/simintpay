@@ -14,7 +14,6 @@ import {
 } from '@prisma/client';
 import { normalizeBoletoAddress } from './offer-boleto-address';
 import { platformGatewayToken } from '../../application/helpers/explicit-platform.helper';
-import { round2 } from '../../application/use-cases/payment-link/payment-link-fees.helper';
 import { USER_REPOSITORY } from '../../core/repositories/user.repository.interface';
 import type { IUserRepository } from '../../core/repositories/user.repository.interface';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
@@ -27,10 +26,8 @@ import {
   captureCoproduction,
   withCoproduction,
 } from '../coproduction/coproduction.service';
-import {
-  loadChargePolicy,
-  quoteFinancialCharge,
-} from '../financial-policy/financial-charge';
+import { priceOfferCycle } from '../billing-core/cycle-pricing';
+import { isDomCashbackActive } from '../platform-taxas/platform-taxas.store';
 import { paymentTracking } from '../platform-core/payment-tracking';
 import { persistLinkCharge } from '../platform-core/link-settlement';
 import { transactionPlatformTagData } from '../platform-core/transaction-platform';
@@ -186,14 +183,12 @@ export class OfferCheckoutService {
             title: offer.name,
             amountCents: offer.amountCents,
           },
-          ...bumps.map(
-            (b): ChargeItem => ({
-              role: 'BUMP',
-              offerId: b.id,
-              title: b.name,
-              amountCents: b.amountCents,
-            }),
-          ),
+          ...bumps.map((b): ChargeItem => ({
+            role: 'BUMP',
+            offerId: b.id,
+            title: b.name,
+            amountCents: b.amountCents,
+          })),
         ];
     const itemsCents = items.reduce((n, i) => n + i.amountCents, 0);
     // Cupom: o desconto sai do valor da venda, antes das taxas (taxas e coprodução incidem sobre
@@ -208,42 +203,16 @@ export class OfferCheckoutService {
         )
       : null;
     const chargedBaseCents = voucher ? voucher.finalAmountCents : itemsCents;
-    const baseAmount = chargedBaseCents / 100;
-    const financialContext = await loadChargePolicy(
+    const financialQuote = await priceOfferCycle(
       this.prisma,
-      platformTag,
-      undefined,
-      offer.ownerUserId,
-    );
-    const financialQuote = quoteFinancialCharge(
-      financialContext,
-      baseAmount,
-      isPix
-        ? 'PIX'
-        : isDebit
-          ? 'DEBIT_CARD'
-          : isBoleto
-            ? 'BOLETO'
-            : 'CREDIT_CARD',
+      offer,
+      method,
       installments,
-      'ONLINE',
-      false,
+      undefined,
+      chargedBaseCents,
     );
-    if (!financialQuote) {
-      throw new BadRequestException(
-        'Taxas da plataforma não configuradas para esta modalidade',
-      );
-    }
-    const { totalAmount, domFeeAmount, netAmount } = financialQuote;
-
-    const domFee = round2(domFeeAmount);
-    // Boleto grava as mesmas taxas do boleto legado com cotação (ChargeBoletoUseCase).
-    const totalFee = isBoleto
-      ? financialQuote.platformFeeTotal
-      : round2(totalAmount - netAmount);
-    const platformFee = isBoleto
-      ? financialQuote.platformProfit
-      : round2(totalFee - domFee);
+    const { totalAmount, netAmount, domFee, totalFee, platformFee } =
+      financialQuote;
 
     const key = coproductionKeyFor(offer);
     const coproduction = await captureCoproduction(
@@ -393,7 +362,7 @@ export class OfferCheckoutService {
         txId,
         async () => {
           const out = await gateway.chargeBoletoForLink(domToken, {
-            cashbackDisabled: !financialContext.cashbackActive,
+            cashbackDisabled: !isDomCashbackActive(financialQuote.policyTag),
             amount: totalAmount,
             description,
             customerName: input.customerName,
@@ -448,7 +417,7 @@ export class OfferCheckoutService {
     if (isPix) {
       const result = await discardDraftOnRejection(releasing, txId, () =>
         gateway.chargePixForLink(domToken, {
-          cashbackDisabled: !financialContext.cashbackActive,
+          cashbackDisabled: !isDomCashbackActive(financialQuote.policyTag),
           domLinkId,
           amount: totalAmount,
           description,
@@ -479,7 +448,7 @@ export class OfferCheckoutService {
 
     const result = await discardDraftOnRejection(releasing, txId, () =>
       gateway.chargePaymentLink(domToken, {
-        cashbackDisabled: !financialContext.cashbackActive,
+        cashbackDisabled: !isDomCashbackActive(financialQuote.policyTag),
         domLinkId,
         amount: totalAmount,
         description,
