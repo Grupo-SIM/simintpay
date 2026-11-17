@@ -1,26 +1,16 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
 import CreditCardForm from '@/components/card/creditCardForm';
-import SimPlanCheckout from '@/components/simplan/SimPlanCheckout';
-import SimLinkCheckout from '@/components/simlink/SimLinkCheckout';
 import SimPixPlanCheckout from '@/components/simpixplan/SimPixPlanCheckout';
-import SimSubscriptionLinkCheckout from '@/components/simsubscriptionlink/SimSubscriptionLinkCheckout';
 import OfferCheckout from '@/components/ofertas/OfferCheckout';
 import OfferRenewal from '@/components/ofertas/OfferRenewal';
-import SimBoletoCheckout from '@/components/simboleto/SimBoletoCheckout';
 import { CheckoutFooter } from '@/components/checkout/CheckoutChrome';
 import { CheckoutUiCard } from '@/components/checkout/CheckoutUiCard';
 import { AlertCircle } from 'lucide-react';
 
+// Os parâmetros dos links antigos (simLinkCode, simPlanCode, ...) são redirecionados para `?oferta=` em `proxy.ts`.
 // Parâmetros que identificam o que está sendo cobrado no fluxo genérico (CreditCardForm).
-const GENERIC_CHECKOUT_PARAMS = [
-  'linkCode',
-  'subscriptionCode',
-  'data',
-  'value',
-  'orderId',
-  'id',
-];
+const GENERIC_CHECKOUT_PARAMS = ['data', 'value', 'orderId', 'id'];
 
 function InvalidCheckoutLink() {
   return (
@@ -45,32 +35,12 @@ function InvalidCheckoutLink() {
 
 export default function CheckoutRouter() {
   const searchParams = useSearchParams();
-  const simPlanCode = searchParams.get('simPlanCode');
-  const simLinkCode = searchParams.get('simLinkCode');
-  const simBoletoCode = searchParams.get('simBoletoCode');
-  const subscriptionLinkCode = searchParams.get('subscriptionLinkCode');
   const oferta = searchParams.get('oferta');
   const code = searchParams.get('code');
 
   if (oferta) {
     if (searchParams.has('renovar')) return <OfferRenewal />;
     return <OfferCheckout />;
-  }
-
-  if (simPlanCode) {
-    return <SimPlanCheckout />;
-  }
-
-  if (simBoletoCode) {
-    return <SimBoletoCheckout />;
-  }
-
-  if (simLinkCode) {
-    return <SimLinkCheckout />;
-  }
-
-  if (subscriptionLinkCode) {
-    return <SimSubscriptionLinkCheckout />;
   }
 
   if (code && (/^PX-/i.test(code) || /^PX_/i.test(code))) {
