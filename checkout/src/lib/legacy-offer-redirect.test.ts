@@ -1,34 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  legacyRedirectEnabled,
-  offerRedirectTarget,
-} from './legacy-offer-redirect';
+import { offerRedirectTarget } from './legacy-offer-redirect';
 
 const url = (query: string) => new URL(`https://pay.test/?${query}`);
 
 describe('legacy offer redirect', () => {
-  test('flag fica desligada por padrão', () => {
-    expect(legacyRedirectEnabled(undefined)).toBe(false);
-    expect(legacyRedirectEnabled('false')).toBe(false);
-    expect(legacyRedirectEnabled(' TRUE ')).toBe(true);
-  });
-
-  test('OFFER_WRITES_ONLY liga o redirecionamento legado (plano 0023, fase 4)', () => {
-    expect(legacyRedirectEnabled(undefined, '1')).toBe(true);
-    expect(legacyRedirectEnabled(undefined, '0')).toBe(false);
-    const target = offerRedirectTarget(url('subscriptionLinkCode=abc'), {
-      legacyEnabled: legacyRedirectEnabled(undefined, 'true'),
-    });
-    expect(target?.searchParams.get('oferta')).toBe('abc');
-  });
-
-  test('parâmetro legado não redireciona com a flag desligada', () => {
-    expect(
-      offerRedirectTarget(url('simLinkCode=abc'), { legacyEnabled: false }),
-    ).toBeNull();
-  });
-
-  test('parâmetros legados viram ?oferta= com a flag ligada', () => {
+  test('parâmetros legados viram ?oferta= preservando o restante da query', () => {
     for (const param of [
       'simLinkCode',
       'subscriptionLinkCode',
@@ -37,31 +13,23 @@ describe('legacy offer redirect', () => {
       'linkCode',
       'subscriptionCode',
     ]) {
-      const target = offerRedirectTarget(url(`${param}=abc&utm=x`), {
-        legacyEnabled: true,
-      });
+      const target = offerRedirectTarget(url(`${param}=abc&utm=x&name=Ana`));
       expect(target?.searchParams.get('oferta')).toBe('abc');
       expect(target?.searchParams.has(param)).toBe(false);
       expect(target?.searchParams.get('utm')).toBe('x');
+      expect(target?.searchParams.get('name')).toBe('Ana');
     }
   });
 
-  test('ofertaCode sempre redireciona, mesmo com a flag desligada', () => {
-    const target = offerRedirectTarget(url('ofertaCode=abc'), {
-      legacyEnabled: false,
-    });
+  test('ofertaCode também vira ?oferta=', () => {
+    const target = offerRedirectTarget(url('ofertaCode=abc'));
     expect(target?.searchParams.get('oferta')).toBe('abc');
     expect(target?.searchParams.has('ofertaCode')).toBe(false);
   });
 
-  test('oferta existente e plano PIX (code=PX-) ficam como estão', () => {
-    expect(
-      offerRedirectTarget(url('oferta=abc&simLinkCode=x'), {
-        legacyEnabled: true,
-      }),
-    ).toBeNull();
-    expect(
-      offerRedirectTarget(url('code=PX-1'), { legacyEnabled: true }),
-    ).toBeNull();
+  test('oferta existente, plano PIX (code=PX-) e URL sem produto ficam como estão', () => {
+    expect(offerRedirectTarget(url('oferta=abc&simLinkCode=x'))).toBeNull();
+    expect(offerRedirectTarget(url('code=PX-1'))).toBeNull();
+    expect(offerRedirectTarget(url('value=10&store=ebook'))).toBeNull();
   });
 });

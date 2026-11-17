@@ -1,12 +1,10 @@
 /**
  * Redirecionamento das URLs legadas do checkout para o checkout unificado de oferta (`?oferta=`).
  *
- * `?ofertaCode=` (links novos) sempre vira `?oferta=`. Os parâmetros dos produtos legados
- * (`simLinkCode`, `subscriptionLinkCode`, `simBoletoCode`, `simPlanCode`, `linkCode`,
- * `subscriptionCode`) só são redirecionados com `CHECKOUT_LEGACY_TO_OFFER=true`: o público
- * `GET /ofertas/public/:code` resolve por código e, na falta, por id, mas só depois que o dono
- * migrar os produtos para `Offer` (plano 0023, fase 2). Até lá o checkout legado continua padrão.
- * `?code=PX-…` (plano PIX) não é redirecionado: o alias de código só existe nas rotas de compat.
+ * Os parâmetros dos produtos legados (`simLinkCode`, `subscriptionLinkCode`, `simBoletoCode`,
+ * `simPlanCode`, `linkCode`, `subscriptionCode`) e `?ofertaCode=` viram sempre `?oferta=`, com o
+ * mesmo valor: `GET /ofertas/public/:code` resolve por código e, na falta, por id. É uma
+ * retrocompatibilidade permanente, sem flag. `?code=PX-…` (plano PIX) não é redirecionado.
  */
 export const LEGACY_PRODUCT_PARAMS = [
   'simPlanCode',
@@ -19,30 +17,12 @@ export const LEGACY_PRODUCT_PARAMS = [
 
 const NEW_OFFER_PARAM = 'ofertaCode';
 
-const on = (value: string | undefined) =>
-  ['1', 'true', 'on', 'yes'].includes((value ?? '').trim().toLowerCase());
-
-/**
- * `CHECKOUT_LEGACY_TO_OFFER` or, from the writers cut (plan 0023, phase 4), `OFFER_WRITES_ONLY`:
- * old URLs land on the offer checkout and never touch `PaymentLink`/`SubscriptionLink`.
- */
-export function legacyRedirectEnabled(
-  value: string | undefined,
-  writesOnly?: string | undefined,
-): boolean {
-  return on(value) || on(writesOnly);
-}
-
 /** Devolve a URL de destino, ou `null` quando nada deve ser reescrito. */
-export function offerRedirectTarget(
-  url: URL,
-  options: { legacyEnabled: boolean },
-): URL | null {
+export function offerRedirectTarget(url: URL): URL | null {
   const params = url.searchParams;
   if (params.get('oferta')) return null;
 
-  const candidates: string[] = [NEW_OFFER_PARAM];
-  if (options.legacyEnabled) candidates.unshift(...LEGACY_PRODUCT_PARAMS);
+  const candidates: string[] = [...LEGACY_PRODUCT_PARAMS, NEW_OFFER_PARAM];
   const found = candidates.find((param) => params.get(param));
   if (!found) return null;
 

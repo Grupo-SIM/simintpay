@@ -3,20 +3,12 @@ import {
   configuredPreviewParents,
   previewFramePolicy,
 } from './lib/payment-link-preview';
-import {
-  legacyRedirectEnabled,
-  offerRedirectTarget,
-} from './lib/legacy-offer-redirect';
+import { offerRedirectTarget } from './lib/legacy-offer-redirect';
 
 /** Keep ordinary checkout embedding unchanged; scope preview policy to this route. */
 export function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === '/') {
-    const target = offerRedirectTarget(request.nextUrl, {
-      legacyEnabled: legacyRedirectEnabled(
-        process.env.CHECKOUT_LEGACY_TO_OFFER,
-        process.env.OFFER_WRITES_ONLY,
-      ),
-    });
+    const target = offerRedirectTarget(request.nextUrl);
     if (target) return NextResponse.redirect(target);
     return NextResponse.next();
   }
