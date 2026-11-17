@@ -74,6 +74,7 @@ const METRIC_TT = {
   taxasAdquirentes: 'Soma dos custos de todas as adquirentes.',
   valorLiquido: 'Líquido total das transações.',
   lucroLiquido: 'Margem de taxas + taxas de saque - custos de saque.',
+  lucroLiquidoPlataforma: 'Margem de taxas das vendas da plataforma.',
   roi: 'Lucro líquido ÷ receita total.',
   totalRepasse: 'Líquido das vendas destinado aos clientes.',
   saquesPendentes: 'Saques aguardando aprovação.',
@@ -433,7 +434,11 @@ export default function AdminReportOverview({
           />
           <MetricCard
             label="Lucro líquido"
-            tooltip={METRIC_TT.lucroLiquido}
+            tooltip={
+              platformScoped
+                ? METRIC_TT.lucroLiquidoPlataforma
+                : METRIC_TT.lucroLiquido
+            }
             value={
               isLoadingConsolidado
                 ? 'Carregando...'
