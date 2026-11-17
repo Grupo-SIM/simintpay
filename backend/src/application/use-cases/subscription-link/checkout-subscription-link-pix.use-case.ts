@@ -14,8 +14,10 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { openFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
 import { SUBSCRIPTION_LINK_REPOSITORY } from '../../../core/repositories/subscription-link.repository.interface';
 import { USER_REPOSITORY } from '../../../core/repositories/user.repository.interface';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
@@ -45,6 +47,8 @@ function mapPlanFrequencyToDom(linkFrequency: string): {
 
 @Injectable()
 export class CheckoutSubscriptionLinkPixUseCase {
+  private readonly logger = new Logger(CheckoutSubscriptionLinkPixUseCase.name);
+
   constructor(
     @Inject(SUBSCRIPTION_LINK_REPOSITORY)
     private readonly repo: ISubscriptionLinkRepository,
@@ -189,6 +193,27 @@ export class CheckoutSubscriptionLinkPixUseCase {
         pixExpire,
       },
     });
+
+    if (order.financialSnapshot)
+      await openFinancialSubscription(this.prisma, {
+        snapshot: order.financialSnapshot,
+        amount: order.amountCharged,
+        paymentId: result.id,
+        userId: order.userId,
+        method: 'PIX',
+        name: link.name,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        customerDocument: order.customerDocument,
+        tracking: order.tracking,
+        pixContent: result.pixContent ?? null,
+        pixExpire,
+      }).catch((error: unknown) =>
+        // O Pix já foi emitido; a sincronização periódica refaz esta gravação.
+        this.logger.error(
+          `[SubLinkPix] Transaction PENDING não gravada order=${order.id}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
 
     await recordProductUse(this.prisma, link.id, () =>
       this.repo.update(link.id, { currentUses: link.currentUses + 1 }),

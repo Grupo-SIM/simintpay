@@ -6,7 +6,10 @@ import {
 } from '../../../modules/billing-core/webhook-offer-resolution';
 import { quoteCardOwnerShare } from '../../../modules/financial-policy/platform-fee-schedule';
 import { settleEbookPayment } from '../../../modules/platform-core/ebook-settlement';
-import { settleFinancialSubscription } from '../../../modules/financial-policy/financial-subscription';
+import {
+  closeFinancialSubscription,
+  settleFinancialSubscription,
+} from '../../../modules/financial-policy/financial-subscription';
 import { applyWalletEntry } from '../../../modules/wallet-ledger/wallet-ledger';
 import {
   loadChargePolicy,
@@ -1544,19 +1547,28 @@ export class ProcessDomWebhookUseCase {
     });
 
     if (!order) return false;
-    if (domStatus === 'paid' && order.financialSnapshot)
-      await settleFinancialSubscription(this.prisma, {
-        snapshot: order.financialSnapshot,
-        amount: order.amountCharged,
-        paymentId: domPixPaymentId,
-        userId: order.userId,
-        method: 'PIX',
-        name: order.subscriptionLink.name,
-        customerName: order.customerName,
-        customerEmail: order.customerEmail,
-        customerDocument: order.customerDocument,
-        tracking: order.tracking,
-      });
+    const financialInput = order.financialSnapshot
+      ? {
+          snapshot: order.financialSnapshot,
+          amount: order.amountCharged,
+          paymentId: domPixPaymentId,
+          userId: order.userId,
+          method: 'PIX' as const,
+          name: order.subscriptionLink.name,
+          customerName: order.customerName,
+          customerEmail: order.customerEmail,
+          customerDocument: order.customerDocument,
+          tracking: order.tracking,
+        }
+      : null;
+    if (domStatus === 'paid' && financialInput)
+      await settleFinancialSubscription(this.prisma, financialInput);
+    if ((domStatus === 'expired' || domStatus === 'failed') && financialInput)
+      await closeFinancialSubscription(
+        this.prisma,
+        financialInput,
+        domStatus === 'expired' ? 'EXPIRED' : 'FAILED',
+      );
 
     this.logger.log(
       `[DomWebhook] SubscriptionLinkOrder ${order.id} encontrada para domPixPaymentId=${domPixPaymentId}, status=${domStatus}`,
@@ -1725,8 +1737,7 @@ export class ProcessDomWebhookUseCase {
             customerDocument: order.customerDocument,
             customerPhone: order.customerPhone ?? undefined,
             tracking: (order.tracking ?? undefined) as
-              | Prisma.InputJsonValue
-              | undefined,
+              Prisma.InputJsonValue | undefined,
           },
         });
 

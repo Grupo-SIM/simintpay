@@ -6,20 +6,59 @@ import { persistLinkCharge } from '../platform-core/link-settlement';
 import { cents } from './financial-policy';
 import { restoreFinancialCharge } from './financial-charge';
 
-export async function settleFinancialSubscription(
+type FinancialSubscriptionInput = {
+  snapshot: Prisma.JsonValue | null | undefined;
+  amount: Prisma.Decimal;
+  paymentId: string;
+  userId: string;
+  method: 'PIX' | 'CREDIT_CARD';
+  name: string;
+  customerName?: string | null;
+  customerEmail?: string | null;
+  customerDocument?: string | null;
+  tracking?: Prisma.JsonValue | null;
+  pixContent?: string | null;
+  pixExpire?: Date | null;
+  createdAt?: Date;
+};
+
+/** Pagamento confirmado: cria (ou promove a PENDING existente) e credita a carteira. */
+export function settleFinancialSubscription(
   prisma: PrismaService,
-  input: {
-    snapshot: Prisma.JsonValue | null | undefined;
-    amount: Prisma.Decimal;
-    paymentId: string;
-    userId: string;
-    method: 'PIX' | 'CREDIT_CARD';
-    name: string;
-    customerName?: string | null;
-    customerEmail?: string | null;
-    customerDocument?: string | null;
-    tracking?: Prisma.JsonValue | null;
-  },
+  input: FinancialSubscriptionInput,
+) {
+  return persistFinancialSubscription(
+    prisma,
+    input,
+    TransactionStatus.COMPLETED,
+  );
+}
+
+/**
+ * Pix gerado: grava a Transaction PENDING com o mesmo snapshot que o pagamento usaria, para a
+ * venda aparecer na listagem, entrar na reconciliação e ser promovida sem duplicar (upsert pelo
+ * domPaymentId em `persistLinkCharge`).
+ */
+export function openFinancialSubscription(
+  prisma: PrismaService,
+  input: FinancialSubscriptionInput,
+) {
+  return persistFinancialSubscription(prisma, input, TransactionStatus.PENDING);
+}
+
+/** Pix expirado/falho: encerra a Transaction PENDING correspondente. */
+export function closeFinancialSubscription(
+  prisma: PrismaService,
+  input: FinancialSubscriptionInput,
+  status: 'EXPIRED' | 'FAILED',
+) {
+  return persistFinancialSubscription(prisma, input, TransactionStatus[status]);
+}
+
+async function persistFinancialSubscription(
+  prisma: PrismaService,
+  input: FinancialSubscriptionInput,
+  status: TransactionStatus,
 ) {
   const agreement = snapshotFrom(input.snapshot);
   const legacy =
@@ -78,10 +117,12 @@ export async function settleFinancialSubscription(
         customerEmail: input.customerEmail,
         customerDocument: input.customerDocument,
         tracking: (input.tracking ?? undefined) as
-          | Prisma.InputJsonValue
-          | undefined,
+          Prisma.InputJsonValue | undefined,
+        ...(input.pixContent ? { pixContent: input.pixContent } : {}),
+        ...(input.pixExpire ? { pixExpire: input.pixExpire } : {}),
+        ...(input.createdAt ? { createdAt: input.createdAt } : {}),
       },
-      TransactionStatus.COMPLETED,
+      status,
     );
   });
   return quote;
