@@ -1,3 +1,4 @@
+import { legacyOriginWhere } from '../offer/offer-legacy-origin';
 import { readPlatformBalanceSummary } from './platform-balance-summary';
 import {
   coproductionOwnerNet,
@@ -106,7 +107,7 @@ export class PlatformAdministrationService {
           plansCount: await this.prisma.offer.count({
             where: {
               platformTag: platform.tag,
-              legacyType: 'PixCreditPlan',
+              ...legacyOriginWhere('PixCreditPlan'),
             },
           }),
           transactionsCount: await this.prisma.transaction.count({

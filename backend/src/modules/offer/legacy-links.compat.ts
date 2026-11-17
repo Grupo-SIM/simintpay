@@ -9,7 +9,7 @@ import {
   normalizeStoredPaymentMethods,
   type StoredPaymentMethods,
 } from '../../application/helpers/accepted-payment-methods.helper';
-import { intervalForFrequency } from './legacy-offer-mapper';
+import { intervalForFrequency } from './offer-interval';
 import { readOfferFulfillment } from './offer-fulfillment';
 import type { CreateOfferDto, UpdateOfferDto } from './offer.dto';
 

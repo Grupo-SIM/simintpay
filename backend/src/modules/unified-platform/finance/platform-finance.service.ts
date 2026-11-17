@@ -1,4 +1,7 @@
-import { mirrorPlanOffer } from '../../offer/mirror-plan-offer';
+import {
+  mirrorPlanOffer,
+  type PlanMirror,
+} from '../../offer/mirror-plan-offer';
 import { EbookSimConfig } from '../../ebooksim/ebooksim.config';
 import { PLATFORM_TAXA_DEFAULTS } from '../../platform-taxas/platform-taxas.keys';
 import { merchantWithdrawalDelivery } from '../../platform-core/platform-merchant-delivery';
@@ -381,7 +384,7 @@ export class PlatformFinanceService {
     tag: string,
     userId: string,
     code: string,
-    data: Omit<Prisma.PlanUncheckedCreateInput, 'userId' | 'code'>,
+    data: PlanMirror,
     context?: FinancePlatformContext,
   ) {
     return this.prisma.$transaction(async (p) => {

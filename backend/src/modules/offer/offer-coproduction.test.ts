@@ -11,9 +11,10 @@ describe('coproductionKeyFor', () => {
 
   test('an offer migrated from a legacy product (same id) reads the renamed agreement', () => {
     expect(
-      coproductionKeyFor({ id: 'legacy-1', legacyType: 'PaymentLink' } as {
-        id: string;
-      }),
+      coproductionKeyFor({
+        id: 'legacy-1',
+        metadata: { legacyType: 'PaymentLink' },
+      } as { id: string }),
     ).toEqual({ product: 'ofertas', productId: 'legacy-1' });
   });
 });

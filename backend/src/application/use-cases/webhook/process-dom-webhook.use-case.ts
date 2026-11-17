@@ -316,21 +316,12 @@ export class ProcessDomWebhookUseCase {
   /**
    * Resolve o tenantTag de um usuário sem platform:
    * 1. platform.tag do usuário (existente)
-   * 2. plataformas[0] de qualquer plano ativo do usuário
-   * 3. GLOBAL como fallback
+   * 2. GLOBAL como fallback
    */
   private async resolveTenantTagForUser(userId: string): Promise<string> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        platform: { select: { tag: true } },
-        plans: {
-          where: { isActive: true },
-          select: { plataformas: true },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-      },
+      select: { platform: { select: { tag: true } } },
     });
     if (user?.platform?.tag) return user.platform.tag.toUpperCase();
     return 'GLOBAL';

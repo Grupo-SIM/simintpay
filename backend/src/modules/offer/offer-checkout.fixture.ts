@@ -23,8 +23,6 @@ export function makeOffer(over: Record<string, unknown> = {}): any {
     usedCount: 0,
     renewalMode: 'NONE',
     metadata: null,
-    legacyType: null,
-    legacyId: null,
     ...over,
   };
 }

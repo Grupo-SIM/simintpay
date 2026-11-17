@@ -517,6 +517,8 @@ async function persistAgreement(
   actorId: string,
   mode: 'OWN' | 'INHERIT' = 'OWN',
 ) {
+  // The database only accepts `ofertas` and `plataformas`; legacy keys are aliases of `ofertas`.
+  product = canonicalProduct(product);
   await tx.$executeRaw`INSERT INTO "CoproductionAgreement" (product, "productId", version, participants, "actorId", mode)
     VALUES (${product}, ${id}, ${version}, ${JSON.stringify(participants)}::jsonb, ${actorId}, ${mode})
     ON CONFLICT (product, "productId") DO UPDATE SET version = EXCLUDED.version, participants = EXCLUDED.participants, "actorId" = EXCLUDED."actorId", mode = EXCLUDED.mode, "updatedAt" = now()`;

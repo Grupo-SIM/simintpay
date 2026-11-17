@@ -1,9 +1,13 @@
 import type { Prisma } from '@prisma/client';
+import {
+  legacyOriginWhere,
+  noLegacyOriginWhere,
+} from '../../modules/offer/offer-legacy-origin';
 
 /**
  * Plan 0023, phase 3: the admin client audit lists and backfills legacy products. The
  * groups are selected through `Offer` (the id is the legacy id,
- * `legacyType` says where a migrated offer came from, native offers fall in the recurring or
+ * the origin in `metadata` (`legacyOriginWhere`) says where a migrated offer came from, native offers fall in the recurring or
  * one-off group by `renewalMode`).
  */
 export type OfferGroup =
@@ -12,18 +16,18 @@ export type OfferGroup =
 export function offerGroupWhere(group: OfferGroup): Prisma.OfferWhereInput {
   switch (group) {
     case 'plan':
-      return { legacyType: 'Plan' };
+      return legacyOriginWhere('Plan');
     case 'pixPlan':
-      return { legacyType: 'PixCreditPlan' };
+      return legacyOriginWhere('PixCreditPlan');
     case 'paymentLink':
       return {
         renewalMode: 'NONE',
-        OR: [{ legacyType: null }, { legacyType: 'PaymentLink' }],
+        OR: [noLegacyOriginWhere(), legacyOriginWhere('PaymentLink')],
       };
     case 'subscriptionLink':
       return {
         renewalMode: { not: 'NONE' },
-        OR: [{ legacyType: null }, { legacyType: 'SubscriptionLink' }],
+        OR: [noLegacyOriginWhere(), legacyOriginWhere('SubscriptionLink')],
       };
   }
 }

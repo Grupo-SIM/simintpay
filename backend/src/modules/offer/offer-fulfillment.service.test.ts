@@ -19,8 +19,6 @@ function setup(
     id: 'offer-1',
     name: 'Curso',
     amountCents: 10000,
-    legacyType: null,
-    legacyId: null,
     fulfillment,
   };
   const charge: any = {

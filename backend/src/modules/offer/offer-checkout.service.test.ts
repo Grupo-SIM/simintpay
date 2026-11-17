@@ -165,8 +165,7 @@ describe('OfferCheckoutService', () => {
 
     // A migrated offer keeps the legacy id; the migration renamed its agreement to `ofertas`.
     const migrated = await lookups({
-      legacyType: 'PaymentLink',
-      legacyId: 'legacy-link-1',
+      metadata: { legacyType: 'PaymentLink', legacyId: 'legacy-link-1' },
     });
     expect(migrated.seen[0]).toEqual(['ofertas', migrated.offer.id]);
   });

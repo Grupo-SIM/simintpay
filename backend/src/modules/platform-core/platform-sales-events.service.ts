@@ -6,7 +6,13 @@ import { PrismaService } from '../../infrastructure/database/prisma/prisma.servi
 import { decryptPlatformSecret } from '../platform-integrations/platform-secrets';
 import type { PlatformContext } from './platform-context.service';
 import type { ChargeItem } from '../offer/offer-fulfillment';
+import { legacyOriginOf } from '../offer/offer-legacy-origin';
 const OFFER_ITEM_TYPE = { MAIN: 'PRINCIPAL', BUMP: 'ORDER_BUMP' } as const;
+
+function legacyLinkId(metadata: unknown): string | null {
+  const origin = legacyOriginOf(metadata);
+  return origin?.type === 'PaymentLink' ? origin.id : null;
+}
 
 /** Offer sale facts for the platform payload: items as sold (snapshot) plus offer/charge ids. */
 async function offerSalesByTransaction(
@@ -40,10 +46,7 @@ async function offerSalesByTransaction(
       offerId: c.offer.id,
       chargeId: c.id,
       // Offers migrated from a legacy link keep the link id the platform already knows.
-      linkId:
-        c.offer.legacyType === 'PaymentLink' && c.offer.legacyId
-          ? c.offer.legacyId
-          : c.offer.id,
+      linkId: legacyLinkId(c.offer.metadata) ?? c.offer.id,
       items: items.map((i) => ({
         tipo: OFFER_ITEM_TYPE[i.role as 'MAIN' | 'BUMP'] ?? i.role,
         ...(i.role === 'MAIN' ? {} : { offerId: i.offerId }),

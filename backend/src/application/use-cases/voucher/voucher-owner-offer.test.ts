@@ -13,12 +13,12 @@ function service(over: Record<string, unknown> = {}) {
   return { prisma, service: new VoucherService(prisma as never) };
 }
 
-test('id, code or PX alias resolve the owner through Offer, plans by legacyType', async () => {
+test('id, code or PX alias resolve the owner through Offer, plans by the metadata origin', async () => {
   const { prisma, service: s } = service();
   prisma.offer.findFirst.mockImplementation(async () => ({
     ownerUserId: 'o',
     description: 'd',
-    legacyType: 'PixCreditPlan',
+    metadata: { legacyType: 'PixCreditPlan', legacyId: 'p' },
   }));
   expect(await s.findResourceOwner({ planId: 'p', linkCode: 'PX-1' })).toEqual({
     kind: 'plan',
@@ -32,7 +32,7 @@ test('id, code or PX alias resolve the owner through Offer, plans by legacyType'
   prisma.offer.findFirst.mockImplementation(async () => ({
     ownerUserId: 'o2',
     description: null,
-    legacyType: 'SubscriptionLink',
+    metadata: { legacyType: 'SubscriptionLink', legacyId: 'c' },
   }));
   expect(await s.findResourceOwner({ linkCode: 'c' })).toEqual({
     kind: 'link',

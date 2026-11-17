@@ -1,10 +1,22 @@
 import { ConflictException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { generateOfferCode } from './offer-code';
-import { intervalForFrequency } from './legacy-offer-mapper';
+import { intervalForFrequency } from './offer-interval';
 import { acceptedMethodList } from '../../application/helpers/accepted-payment-methods.helper';
 
-type PlanMirror = Omit<Prisma.PlanUncheckedCreateInput, 'userId' | 'code'>;
+/** Fields of a partner plan import, stored as a recurring `Offer`. */
+export type PlanMirror = {
+  name: string;
+  price: number | string | Prisma.Decimal;
+  type?: string | null;
+  frequency?: number | null;
+  domPlanId?: string | null;
+  redirectUrl?: string | null;
+  webhookUrl?: string | null;
+  emailBody?: string | null;
+  isActive?: boolean;
+  paymentMethods?: string | null;
+};
 
 /**
  * The platform plan import is stored as a recurring `Offer`

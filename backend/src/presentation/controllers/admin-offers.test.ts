@@ -78,9 +78,13 @@ test('AreaFlix emails come from paid charges only', async () => {
   expect([...(await paidAreaflixEmails(db, ['a@x.com']))]).toEqual(['a@x.com']);
 });
 
-test('audit groups split by legacyType and recurrence; rows keep the legacy shape', () => {
-  expect(offerGroupWhere('plan')).toEqual({ legacyType: 'Plan' });
-  expect(offerGroupWhere('pixPlan')).toEqual({ legacyType: 'PixCreditPlan' });
+test('audit groups split by the metadata origin and recurrence; rows keep the legacy shape', () => {
+  expect(offerGroupWhere('plan')).toEqual({
+    metadata: { path: ['legacyType'], equals: 'Plan' },
+  });
+  expect(offerGroupWhere('pixPlan')).toEqual({
+    metadata: { path: ['legacyType'], equals: 'PixCreditPlan' },
+  });
   expect(offerGroupWhere('paymentLink').renewalMode).toBe('NONE');
   expect(offerGroupWhere('subscriptionLink').renewalMode).toEqual({
     not: 'NONE',

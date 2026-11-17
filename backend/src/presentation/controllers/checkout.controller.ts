@@ -1,3 +1,4 @@
+import { legacyOriginOf } from '../../modules/offer/offer-legacy-origin';
 import {
   enrollEbook,
   claimEbookPayment,
@@ -758,7 +759,7 @@ export class CheckoutController {
 
     const charge = tx.charge;
     const offer = charge?.offer ?? null;
-    const isPixPlan = offer?.legacyType === 'PixCreditPlan';
+    const isPixPlan = legacyOriginOf(offer?.metadata)?.type === 'PixCreditPlan';
     const isSub = !!offer && !isPixPlan && offer.renewalMode !== 'NONE';
     const daysCredited =
       charge?.periodStart && charge.periodEnd

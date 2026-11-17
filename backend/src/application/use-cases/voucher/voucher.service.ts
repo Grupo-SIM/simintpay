@@ -1,3 +1,4 @@
+import { legacyOriginOf } from '../../../modules/offer/offer-legacy-origin';
 import {
   BadRequestException,
   Injectable,
@@ -153,10 +154,10 @@ export class VoucherService {
             : []),
         ],
       },
-      select: { ownerUserId: true, description: true, legacyType: true },
+      select: { ownerUserId: true, description: true, metadata: true },
     });
     if (!offer) return { kind: 'none' };
-    return offer.legacyType === 'PixCreditPlan'
+    return legacyOriginOf(offer.metadata)?.type === 'PixCreditPlan'
       ? {
           kind: 'plan',
           userId: offer.ownerUserId,

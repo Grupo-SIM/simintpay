@@ -43,6 +43,7 @@ import {
   loadCyclePolicyContext,
   quoteOfferCycle,
 } from '../billing-core/cycle-pricing';
+import { pickLegacyOrigin, withoutLegacyOrigin } from './offer-legacy-origin';
 import {
   OfferValidationError,
   validateOfferInput,
@@ -233,7 +234,7 @@ export class OfferService {
         trialDays: dto.trialDays,
         retryDays: dto.retryDays,
         graceDays: dto.graceDays,
-        metadata: dto.metadata,
+        metadata: withoutLegacyOrigin(dto.metadata),
         acquirer: getModuleAcquirer(platformTag),
       },
       platformTag,
@@ -311,8 +312,14 @@ export class OfferService {
         dto.retryDays === undefined ? existing.retryDays : dto.retryDays,
       graceDays:
         dto.graceDays === undefined ? existing.graceDays : dto.graceDays,
-      metadata:
-        dto.metadata ?? (existing.metadata as Record<string, unknown> | null),
+      metadata: dto.metadata
+        ? {
+            ...withoutLegacyOrigin(dto.metadata),
+            ...pickLegacyOrigin(
+              existing.metadata as Record<string, unknown> | null,
+            ),
+          }
+        : (existing.metadata as Record<string, unknown> | null),
       acquirer: getModuleAcquirer(existing.platformTag),
     };
     if (dto.amountCents !== undefined) {

@@ -173,8 +173,7 @@ test('offer sales carry the sold items and offer ids to the platform webhook', a
         id: 'o1',
         name: 'Curso',
         amountCents: 2500,
-        legacyType: null,
-        legacyId: null,
+        metadata: null,
       },
     },
   ]);
