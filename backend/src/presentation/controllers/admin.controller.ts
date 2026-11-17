@@ -318,18 +318,17 @@ function transacaoEntraNoLucroSimpayConsolidado(
 }
 
 /** Líquido da transação para o consolidado: netAmount quando existir, senão bruto × LIQUIDEZ da plataforma. */
-function valorLiquidoTransacaoConsolidado(
-  tx: { amount: unknown; netAmount: unknown | null },
-  tagPlataforma: string,
-): number {
+function valorLiquidoTransacaoConsolidado(tx: {
+  amount: unknown;
+  netAmount: unknown | null;
+}): number {
   const bruto = Number(tx.amount);
-  const L = getPlatformTaxaEffective(tagPlataforma, 'LIQUIDEZ', 0.91);
   const rawNet = tx.netAmount;
   if (rawNet != null && rawNet !== undefined && String(rawNet) !== '') {
     const n = Number(rawNet);
     if (Number.isFinite(n)) return n;
   }
-  return bruto * L;
+  return bruto;
 }
 
 /** Resumo dos cards: só plataformas + COMPLETED + intervalo (ignora filtros de tabela). */
@@ -648,32 +647,21 @@ function buildLucroSimpayDetalhePorPlataforma(
     const cbKey = `${tag}_CASHBACK_DOM_CUSTO`;
     const servicoKey = `${tag}_TAXA_SERVICO`;
 
-    const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
-    const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
-    const taxaCashback = domCashbackReais();
-    const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag)
-      ? 0
-      : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
-    const taxaServico =
-      taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag)
-        ? taxaServicoRate
-        : 0;
+    // Só vale o snapshot financeiro: parte da Sim = total do comprador − líquido
+    // gravado; lucro = parte − custo realizado da adquirente. Sem snapshot, zero.
+    const liquidezLojista = 0;
+    const taxaFixa = 0;
+    const taxaCashback = 0;
+    const taxaServicoRate = 0;
+    const taxaServico = 0;
 
     const bruto = Number(tx.amount);
     const realized = realizedAcquirerCost(tx);
     const parteAdmin =
       realized === undefined
-        ? bruto * (1 - liquidezLojista)
+        ? 0
         : snapshotBuyerTotal(tx) - Number(tx.netAmount ?? 0);
-    const pm = String(tx.paymentMethod ?? 'PIX');
-    const inst = Number(tx.installments ?? 1);
-    const taxaMdr = realized ?? mdrDomPct(pm, inst, bruto);
-    // Snapshot buyer total and recorded net are the actual buyer charge and
-    // seller repass; current platform rates are only for legacy transactions.
-    const lucroTx =
-      realized === undefined
-        ? parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback
-        : parteAdmin - realized;
+    const lucroTx = realized === undefined ? 0 : parteAdmin - realized;
     totalLucroSimpay += lucroTx;
 
     if (!byTag.has(tag)) {
@@ -698,18 +686,12 @@ function buildLucroSimpayDetalhePorPlataforma(
 
     const formulaParte =
       realized === undefined
-        ? `${bruto.toFixed(2)} × (1 − ${liquidezLojista}) = ${parteAdmin.toFixed(2)}`
+        ? 'Sem snapshot financeiro: 0'
         : `${snapshotBuyerTotal(tx).toFixed(2)} − ${Number(tx.netAmount ?? 0).toFixed(2)} = ${parteAdmin.toFixed(2)}`;
-    const mdrLabel =
-      taxaMdr > 0
-        ? ` − ${taxaMdr.toFixed(4)}(${realized === undefined ? 'MDR' : 'custo adquirente'})`
-        : '';
-    const fixedLabel =
-      realized === undefined ? ` − ${taxaFixa} − ${taxaCashback}` : '';
     const formulaLucro =
-      realized === undefined && taxaServico > 0
-        ? `${parteAdmin.toFixed(2)} + ${taxaServico}(serv)${mdrLabel}${fixedLabel} = ${lucroTx.toFixed(2)}`
-        : `${parteAdmin.toFixed(2)}${mdrLabel}${fixedLabel} = ${lucroTx.toFixed(2)}`;
+      realized === undefined
+        ? 'Sem snapshot financeiro: 0'
+        : `${parteAdmin.toFixed(2)} − ${realized.toFixed(4)}(custo adquirente) = ${lucroTx.toFixed(2)}`;
 
     agg.transacoes.push({
       id: tx.id,
@@ -719,9 +701,9 @@ function buildLucroSimpayDetalhePorPlataforma(
       liquidezLojista,
       parteAdminMasterBruto: Number(parteAdmin.toFixed(2)),
       formulaParteAdmin: formulaParte,
-      taxaFixaTransacao: realized === undefined ? taxaFixa : 0,
-      taxaCashback: realized === undefined ? taxaCashback : 0,
-      taxaServico: realized === undefined ? taxaServico : 0,
+      taxaFixaTransacao: 0,
+      taxaCashback: 0,
+      taxaServico: 0,
       lucroTransacao: Number(lucroTx.toFixed(2)),
       formulaLucro,
       installments: Number(tx.installments ?? 1),
@@ -729,7 +711,6 @@ function buildLucroSimpayDetalhePorPlataforma(
     agg.subtotalBruto += bruto;
     agg.subtotalParte += parteAdmin;
     agg.subtotalLucro += lucroTx;
-    agg.subtotalTaxaServico += realized === undefined ? taxaServico : 0;
   }
 
   const platformTagsResolvidas = new Set(platforms.map((p) => p.tag));
@@ -740,12 +721,10 @@ function buildLucroSimpayDetalhePorPlataforma(
     const fixaKey = `${p.tag}_TAXA_FIXA_TRANSACAO`;
     const cbKey = `${p.tag}_CASHBACK_DOM_CUSTO`;
     const servicoKey = `${p.tag}_TAXA_SERVICO`;
-    const L = getPlatformTaxaEffective(p.tag, 'LIQUIDEZ', 0.91);
-    const tf = getPlatformTaxaEffective(p.tag, 'TAXA_FIXA_TRANSACAO', 1.0);
-    const tc = domCashbackReais();
-    const ts = TAGS_SEM_TAXA_SERVICO.has(p.tag)
-      ? 0
-      : getPlatformTaxaEffective(p.tag, 'TAXA_SERVICO', 4.0);
+    const L = 0;
+    const tf = 0;
+    const tc = 0;
+    const ts = 0;
 
     if (!hit) {
       return {
@@ -870,45 +849,14 @@ function snapshotBuyerTotal(tx: {
   return Number(tx.amount);
 }
 
-function lucroSimpayUmaTransacaoConsolidado(
-  tx: {
-    userId: string;
-    amount: unknown;
-    netAmount?: unknown | null;
-    description?: string | null;
-    platformTag: string | null;
-    installments?: number | null;
-    createdAt?: Date;
-    paymentMethod?: string | null;
-    financialSnapshot?: unknown;
-  },
-  platforms: ReadonlyArray<ConsolidadoPlatformEntry>,
-): number {
-  const tag = consolidadoTagParaTransacao(
-    { userId: tx.userId, platformTag: tx.platformTag ?? null },
-    platforms,
-  );
-  const liquidezLojista = getPlatformTaxaEffective(tag, 'LIQUIDEZ', 0.91);
-  const taxaFixa = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
-  const taxaCashback = domCashbackReais();
-  const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag)
-    ? 0
-    : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
-  const taxaServico =
-    taxaServicoRate > 0 &&
-    tx.createdAt != null &&
-    tx.createdAt >= getTaxaServicoEffectiveDate(tag)
-      ? taxaServicoRate
-      : 0;
-  const bruto = Number(tx.amount);
+function lucroSimpayUmaTransacaoConsolidado(tx: {
+  amount: unknown;
+  netAmount?: unknown | null;
+  financialSnapshot?: unknown;
+}): number {
   const realized = realizedAcquirerCost(tx);
-  if (realized !== undefined)
-    return snapshotBuyerTotal(tx) - Number(tx.netAmount ?? 0) - realized;
-  const parteAdmin = bruto * (1 - liquidezLojista);
-  const pm = String(tx.paymentMethod ?? 'PIX');
-  const inst = Number(tx.installments ?? 1);
-  const taxaMdr = mdrDomPct(pm, inst, bruto);
-  return parteAdmin + taxaServico - taxaMdr - taxaFixa - taxaCashback;
+  if (realized === undefined) return 0;
+  return snapshotBuyerTotal(tx) - Number(tx.netAmount ?? 0) - realized;
 }
 
 function listYmdInclusiveSp(dataInicio: string, dataFim: string): string[] {
@@ -949,7 +897,7 @@ function buildLucroTotalMasterHistoricoDiario(
   const lucroPorDia = new Map<string, number>();
   for (const tx of txRowsLucro) {
     const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
-    const l = lucroSimpayUmaTransacaoConsolidado(tx, platforms);
+    const l = lucroSimpayUmaTransacaoConsolidado(tx);
     lucroPorDia.set(ymd, (lucroPorDia.get(ymd) ?? 0) + l);
   }
   const feePorDia = new Map<string, number>();
@@ -1007,7 +955,7 @@ function buildLucroTotalMasterHistoricoPorHora(
     const d = dayjs(tx.createdAt).tz(TZ);
     if (d.format('YYYY-MM-DD') !== ymd) continue;
     const h = d.hour();
-    const l = lucroSimpayUmaTransacaoConsolidado(tx, platforms);
+    const l = lucroSimpayUmaTransacaoConsolidado(tx);
     lucroPorHora.set(h, (lucroPorHora.get(h) ?? 0) + l);
   }
   const feePorHora = new Map<number, number>();
@@ -1095,30 +1043,19 @@ function accumTxFinancePorDia(
   const taxaServico = new Map<string, number>();
   for (const tx of txRowsLucro) {
     const ymd = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM-DD');
-    const tag = consolidadoTagParaTransacao(
-      { userId: tx.userId, platformTag: tx.platformTag ?? null },
-      platforms,
-    );
     const b = Number(tx.amount);
     if (Number.isFinite(b)) {
       bruto.set(ymd, (bruto.get(ymd) ?? 0) + b);
     }
-    const liq = valorLiquidoTransacaoConsolidado(tx, tag);
+    const liq = valorLiquidoTransacaoConsolidado(tx);
     liquido.set(ymd, (liquido.get(ymd) ?? 0) + liq);
-    const l = lucroSimpayUmaTransacaoConsolidado(tx, platforms);
+    const l = lucroSimpayUmaTransacaoConsolidado(tx);
     lucro.set(ymd, (lucro.get(ymd) ?? 0) + l);
-    const tc = domCashbackReais();
-    cashback.set(ymd, (cashback.get(ymd) ?? 0) + tc);
-    const tf = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
-    taxaAdquirente.set(ymd, (taxaAdquirente.get(ymd) ?? 0) + tf + tc);
-    const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag)
-      ? 0
-      : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
-    const taxaServicoTx =
-      taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag)
-        ? taxaServicoRate
-        : 0;
-    taxaServico.set(ymd, (taxaServico.get(ymd) ?? 0) + taxaServicoTx);
+    // Custo real da adquirente (snapshot); sem snapshot, zero.
+    taxaAdquirente.set(
+      ymd,
+      (taxaAdquirente.get(ymd) ?? 0) + (realizedAcquirerCost(tx) ?? 0),
+    );
   }
   return { bruto, liquido, lucro, cashback, taxaAdquirente, taxaServico };
 }
@@ -1216,34 +1153,20 @@ function buildDashboardFinanceHistoricoPorHora(
     const d = dayjs(tx.createdAt).tz(TZ);
     if (d.format('YYYY-MM-DD') !== ymdTarget) continue;
     const h = d.hour();
-    const tag = consolidadoTagParaTransacao(
-      { userId: tx.userId, platformTag: tx.platformTag ?? null },
-      platforms,
-    );
     const b = Number(tx.amount);
     if (Number.isFinite(b)) {
       bruto.set(h, (bruto.get(h) ?? 0) + b);
     }
     liquido.set(
       h,
-      (liquido.get(h) ?? 0) + valorLiquidoTransacaoConsolidado(tx, tag),
+      (liquido.get(h) ?? 0) + valorLiquidoTransacaoConsolidado(tx),
     );
-    lucro.set(
+    lucro.set(h, (lucro.get(h) ?? 0) + lucroSimpayUmaTransacaoConsolidado(tx));
+    // Custo real da adquirente (snapshot); sem snapshot, zero.
+    taxaAdquirente.set(
       h,
-      (lucro.get(h) ?? 0) + lucroSimpayUmaTransacaoConsolidado(tx, platforms),
+      (taxaAdquirente.get(h) ?? 0) + (realizedAcquirerCost(tx) ?? 0),
     );
-    const tc = domCashbackReais();
-    cashback.set(h, (cashback.get(h) ?? 0) + tc);
-    const tf = getPlatformTaxaEffective(tag, 'TAXA_FIXA_TRANSACAO', 1.0);
-    taxaAdquirente.set(h, (taxaAdquirente.get(h) ?? 0) + tf + tc);
-    const taxaServicoRate = TAGS_SEM_TAXA_SERVICO.has(tag)
-      ? 0
-      : getPlatformTaxaEffective(tag, 'TAXA_SERVICO', 4.0);
-    const taxaServicoTx =
-      taxaServicoRate > 0 && tx.createdAt >= getTaxaServicoEffectiveDate(tag)
-        ? taxaServicoRate
-        : 0;
-    taxaServico.set(h, (taxaServico.get(h) ?? 0) + taxaServicoTx);
   }
   const fee = new Map<number, number>();
   const profit = new Map<number, number>();
@@ -1522,12 +1445,7 @@ export class AdminController {
   })
   async criarConta(
     @Body()
-    body: {
-      email: string;
-      password: string;
-      cpf?: string;
-      cnpj?: string;
-    },
+    body: { email: string; password: string; cpf?: string; cnpj?: string },
   ) {
     const { email, password, cpf, cnpj } = body;
 
@@ -3636,11 +3554,7 @@ export class AdminController {
     const valorLiquidoTxBase = Number(
       txRowsLucro
         .reduce((s, tx) => {
-          const tag = consolidadoTagParaTransacao(
-            { userId: tx.userId, platformTag: tx.platformTag ?? null },
-            platforms,
-          );
-          return s + valorLiquidoTransacaoConsolidado(tx, tag);
+          return s + valorLiquidoTransacaoConsolidado(tx);
         }, 0)
         .toFixed(2),
     );
@@ -3815,7 +3729,7 @@ export class AdminController {
               { userId: tx.userId, platformTag: tx.platformTag ?? null },
               platforms,
             );
-            return s + valorLiquidoTransacaoConsolidado(tx, tag);
+            return s + valorLiquidoTransacaoConsolidado(tx);
           }, 0)
           .toFixed(2),
       );
@@ -4307,12 +4221,8 @@ export class AdminController {
         continue;
       const mes = dayjs(tx.createdAt).tz(TZ).format('YYYY-MM');
       const bruto = Number(tx.amount);
-      const lucro = lucroSimpayUmaTransacaoConsolidado(tx, platforms);
-      const tag = consolidadoTagParaTransacao(
-        { userId: tx.userId, platformTag: tx.platformTag ?? null },
-        platforms,
-      );
-      const liquido = valorLiquidoTransacaoConsolidado(tx, tag);
+      const lucro = lucroSimpayUmaTransacaoConsolidado(tx);
+      const liquido = valorLiquidoTransacaoConsolidado(tx);
       const prev = byMonth.get(mes) ?? {
         bruto: 0,
         lucro: 0,
@@ -4416,7 +4326,7 @@ export class AdminController {
               { userId: tx.userId, platformTag: tx.platformTag ?? null },
               platforms,
             );
-            return s + valorLiquidoTransacaoConsolidado(tx, tag);
+            return s + valorLiquidoTransacaoConsolidado(tx);
           }, 0)
           .toFixed(2),
       );
