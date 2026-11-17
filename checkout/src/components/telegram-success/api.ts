@@ -143,3 +143,20 @@ export async function regenerateInviteLink(
 
   return data as { inviteLink: string };
 }
+
+/** Convite do Telegram de um plano PIX pelo código `PX-` (mesma chamada do checkout legado). */
+export async function fetchPixInviteLink(
+  pixPlanCode: string,
+  email: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/group-pages/public/invite-link-by-pix-code?linkCode=${encodeURIComponent(pixPlanCode)}&email=${encodeURIComponent(email)}`,
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { inviteLink?: string };
+    return data?.inviteLink ?? null;
+  } catch {
+    return null;
+  }
+}

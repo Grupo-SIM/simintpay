@@ -27,6 +27,8 @@ export type PublicOffer = {
   pricing?: OfferCheckoutPricing;
   /** Imagem do produto (rota pública do backend); ausente quando não há. */
   imageUrl?: string | null;
+  /** Código `PX-` do plano PIX de origem; chave do convite do Telegram. */
+  pixPlanCode?: string | null;
   /** Order bumps vendáveis com a oferta (`GET /ofertas/public/:code`). */
   bumps?: PublicBump[];
 };

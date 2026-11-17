@@ -152,3 +152,18 @@ run('deactivated, expired and exhausted offers are not public', async () => {
     'não encontrada',
   );
 });
+
+run('public offer exposes the PX- alias as pixPlanCode', async () => {
+  const offer = await service.create(seller, {
+    name: 'Plano PIX com alias',
+    amountCents: 3000,
+    acceptedMethods: ['PIX'],
+    maxInstallments: 1,
+  });
+  expect((await service.getPublicByCode(offer.code)).pixPlanCode).toBeNull();
+  const code = `PX-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
+  await db!.offerCodeAlias.create({
+    data: { offerId: offer.id, kind: 'PX', code },
+  });
+  expect((await service.getPublicByCode(offer.code)).pixPlanCode).toBe(code);
+});

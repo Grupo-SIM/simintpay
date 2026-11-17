@@ -7,6 +7,7 @@
  * Ofertas recorrentes (`renewalMode` AUTO_CHARGE com cartão, MANUAL_PAY com PIX) usam
  * `card-customer` + `subscribe`: o cartão é tokenizado no navegador (SDK) e só o token vai à API.
  */
+import { usePixPlanInvite } from './use-pix-plan-invite';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -559,6 +560,12 @@ export default function OfferCheckout({
     }
   }
 
+  const invite = usePixPlanInvite(
+    offer?.pixPlanCode,
+    email,
+    paidAmount !== null && !(offer && isRecurringOffer(offer)),
+  );
+
   if (fetching) return <CheckoutLoadingScreen message="Carregando a oferta…" />;
   if (offerError || !offer)
     return (
@@ -675,13 +682,24 @@ export default function OfferCheckout({
   }
 
   if (paidAmount !== null) {
+    const telegram = Boolean(offer.pixPlanCode);
     const grandTotal =
       paidAmount + funnelAccepted.reduce((n, o) => n + o.amount, 0);
     return (
       <CheckoutSuccessScreen
         headline={`${money(grandTotal)} pagos com sucesso`}
         email={email}
-        redirectUrl={redirectUrl}
+        redirectUrl={telegram ? invite.inviteLink : redirectUrl}
+        accessLabel={telegram ? 'Acessar grupo no Telegram' : undefined}
+        extra={
+          telegram && !invite.inviteLink ? (
+            <p className="text-xs text-[#7d778b]">
+              {invite.fetching
+                ? 'Gerando link de acesso…'
+                : 'Verifique seu e-mail para obter o link de acesso.'}
+            </p>
+          ) : undefined
+        }
         total={money(grandTotal)}
         rows={
           <>

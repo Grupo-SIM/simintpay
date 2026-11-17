@@ -86,7 +86,11 @@ function toPublicBump(o: Offer, role: PublicBump['role'] = 'BUMP'): PublicBump {
   };
 }
 
-export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
+export function toPublicOffer(
+  offer: Offer,
+  bumps: PublicBump[] = [],
+  pixPlanCode: string | null = null,
+) {
   const metadata = (offer.metadata ?? {}) as Record<string, unknown>;
   return {
     code: offer.code,
@@ -104,6 +108,8 @@ export function toPublicOffer(offer: Offer, bumps: PublicBump[] = []) {
     expiresAt: offer.expiresAt,
     requiresBuyerAddress: metadata.requiresBuyerAddress === true,
     imageUrl: publicImageUrl(offer),
+    /** Código `PX-` do plano PIX de origem: a chave do convite do Telegram no api-pagatg. */
+    pixPlanCode,
     bumps,
   };
 }
@@ -463,7 +469,16 @@ export class OfferService {
       (offer.expiresAt && offer.expiresAt <= now) ||
       (offer.maxUses !== null && offer.usedCount >= offer.maxUses);
     if (unavailable) throw new NotFoundException('Oferta não encontrada');
-    return toPublicOffer(offer, await this.publicBumps(offer, now));
+    const pixAlias = await this.prisma.offerCodeAlias.findFirst({
+      where: { offerId: offer.id, kind: 'PX', isActive: true },
+      orderBy: { createdAt: 'desc' },
+      select: { code: true },
+    });
+    return toPublicOffer(
+      offer,
+      await this.publicBumps(offer, now),
+      pixAlias?.code ?? null,
+    );
   }
 
   /** Bumps/upsell/downsell vendáveis, só com dados seguros (sem entrega, titular ou id interno). */
