@@ -27,7 +27,7 @@ describe('payment link preview messages', () => {
       'https://checkout.simintermediacoes.com/old?token=secret',
       'https://dashboard.example',
     );
-    expect(url.pathname).toBe('/preview/payment-link');
+    expect(url.pathname).toBe('/preview/offer');
     expect([...url.searchParams.keys()]).toEqual(['parentOrigin']);
     expect(url.searchParams.get('parentOrigin')).toBe(
       'https://dashboard.example',

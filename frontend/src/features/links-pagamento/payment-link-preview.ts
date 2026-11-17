@@ -15,8 +15,12 @@ export type PaymentLinkPreviewDraft = {
   debitAmount: number;
 };
 
-export function checkoutPreviewUrl(baseUrl: string, parentOrigin: string) {
-  const url = new URL('/preview/payment-link', baseUrl);
+export function checkoutPreviewUrl(
+  baseUrl: string,
+  parentOrigin: string,
+  path: '/preview/offer' | '/preview/funnel' = '/preview/offer',
+) {
+  const url = new URL(path, baseUrl);
   if (url.username || url.password)
     throw new Error('Origem de checkout inválida.');
   if (

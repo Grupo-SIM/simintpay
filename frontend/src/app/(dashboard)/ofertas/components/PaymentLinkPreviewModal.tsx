@@ -42,14 +42,12 @@ export function PaymentLinkPreviewModal({
   );
   const [preview] = useState(() => {
     try {
-      const url = checkoutPreviewUrl(
+      return checkoutPreviewUrl(
         process.env.NEXT_PUBLIC_CHECKOUT_BASE_URL ||
           'https://checkout.simintermediacoes.com',
         window.location.origin,
+        funnelPreview ? '/preview/funnel' : '/preview/offer',
       );
-      if (offerPreview) url.pathname = '/preview/offer';
-      if (funnelPreview) url.pathname = '/preview/funnel';
-      return url;
     } catch {
       return null;
     }
