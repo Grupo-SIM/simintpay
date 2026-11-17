@@ -1,5 +1,6 @@
 import { whereTransactionPlatform } from '../../../modules/platform-core/transaction-platform';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interface';
 import type {
@@ -24,6 +25,9 @@ const FAILURE_STATUSES: Record<string, string> = {
 };
 
 /** Janela, idade mínima e prazo de expiração para DRAFTs sem domPaymentId. */
+const IMPORT_WINDOW_HOURS = 24;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ORPHAN_WINDOW_HOURS = 72;
 const ORPHAN_MIN_AGE_MINUTES = 2;
 const ORPHAN_EXPIRE_AFTER_HOURS = 26;
@@ -591,16 +595,16 @@ export class ReconcilePendingTransactionsUseCase {
   /**
    * Sincronização periódica com a DOM (a cada 5 min): (1) liquida PENDING que o polling rápido
    * (30 min) já não cobre e cujo webhook se perdeu; (2) aponta pagamentos que existem na DOM mas
-   * não têm transação local. Não cria transações financeiras a partir da DOM: faltam oferta,
-   * taxas e tenant confiáveis, e creditar com dados incompletos seria pior que alertar.
+   * não têm transação local, importando-as das últimas 24h (ver `importMissingFromDom`).
    */
   async syncWithAcquirer(): Promise<{
     checked: number;
     completed: number;
     unmatched: number;
+    imported: number;
   }> {
     const prefix = '[Reconcile][sync]';
-    const result = { checked: 0, completed: 0, unmatched: 0 };
+    const result = { checked: 0, completed: 0, unmatched: 0, imported: 0 };
     try {
       const settled = await this.execute({
         sinceHours: 72,
@@ -623,7 +627,9 @@ export class ReconcilePendingTransactionsUseCase {
         const res = await this.gateway.listDomTransactions(token, {
           page,
           limit: 100,
-          begin_date: this.toYmd(new Date(now - 72 * 3_600_000)),
+          begin_date: this.toYmd(
+            new Date(now - IMPORT_WINDOW_HOURS * 3_600_000),
+          ),
           end_date: this.toYmd(new Date(now + 86_400_000)),
         });
         const txs = res.transactions ?? [];
@@ -650,10 +656,16 @@ export class ReconcilePendingTransactionsUseCase {
           (r.cod_external && seen.has(r.cod_external))
         )
           continue;
+        if (
+          new Date(r.created_at).getTime() <
+          now - IMPORT_WINDOW_HOURS * 3_600_000
+        )
+          continue;
         result.unmatched++;
         this.logger.warn(
           `${prefix} DOM sem transação local: domPaymentId=${r.id} cod_external=${r.cod_external ?? '-'} status=${r.status} amount=${r.amount} created_at=${r.created_at}`,
         );
+        if (await this.importMissingFromDom(r)) result.imported++;
       }
     } catch (err) {
       this.logger.warn(
@@ -661,9 +673,144 @@ export class ReconcilePendingTransactionsUseCase {
       );
     }
     this.logger.log(
-      `${prefix} done: pendingChecked=${result.checked} completed=${result.completed} unmatched=${result.unmatched}`,
+      `${prefix} done: pendingChecked=${result.checked} completed=${result.completed} unmatched=${result.unmatched} imported=${result.imported}`,
     );
     return result;
+  }
+
+  /**
+   * Recria a Transaction + Charge de uma cobrança Pix que existe na DOM mas nunca foi gravada
+   * localmente (o `cod_external` é o id que o checkout pretendia usar). Os valores financeiros
+   * (taxas, líquido, snapshot, coprodução, tenant) vêm da venda anterior mais recente da MESMA
+   * oferta com o mesmo valor, ou seja, a mesma política que o checkout aplicaria. Sem um modelo
+   * inequívoco (oferta ambígua, valor diferente, cupom/funil) não importa, só alerta.
+   * Depois de importar, liquida pelo caminho do webhook se a DOM já marcou como paga.
+   */
+  private async importMissingFromDom(
+    row: DomTransactionItem,
+  ): Promise<boolean> {
+    const prefix = '[Reconcile][import]';
+    const txId = row.cod_external ?? '';
+    const skip = (reason: string) => {
+      this.logger.warn(
+        `${prefix} skipped: domPaymentId=${row.id} reason=${reason}`,
+      );
+      return false;
+    };
+    if (!UUID_RE.test(txId)) return skip('cod_external-not-uuid');
+    if (String(row.payment_method ?? '').toLowerCase() !== 'pix')
+      return skip(`method-${row.payment_method}`);
+    const amountCents = Math.round(Number(row.amount) * 100);
+    if (!(amountCents > 0)) return skip('invalid-amount');
+
+    const siblings = await this.prisma.charge.findMany({
+      where: {
+        method: 'PIX',
+        amountCents,
+        offerId: { not: null },
+        contractId: null,
+        transaction: {
+          acquirer: 'DOM',
+          settlementBasis: 'FINAL_NET',
+          financialSnapshot: { not: Prisma.AnyNull },
+        },
+      },
+      include: { transaction: true, offer: true },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+    });
+    const product = String(row.product_first ?? '')
+      .split('|')[0]
+      .trim()
+      .toLowerCase();
+    const usable = siblings.filter((c) => {
+      const snap = (c.snapshot ?? {}) as Record<string, unknown>;
+      return (
+        c.transaction &&
+        c.offer &&
+        !snap.voucher &&
+        !snap.parentChargeId &&
+        (!product || c.offer.name.trim().toLowerCase() === product)
+      );
+    });
+    const offerIds = new Set(usable.map((c) => c.offerId));
+    if (offerIds.size !== 1)
+      return skip(`offer-${offerIds.size === 0 ? 'not-found' : 'ambiguous'}`);
+    const model = usable[0];
+    const t = model.transaction!;
+    const offer = model.offer!;
+    const createdAt = new Date(row.created_at);
+
+    try {
+      await this.prisma.$transaction(async (p) => {
+        const claimed = await p.offer.updateMany({
+          where: {
+            id: offer.id,
+            isActive: true,
+            ...(offer.maxUses !== null
+              ? { usedCount: { lt: offer.maxUses } }
+              : {}),
+          },
+          data: { usedCount: { increment: 1 } },
+        });
+        if (claimed.count !== 1) throw new Error('offer-unavailable');
+        await p.transaction.create({
+          data: {
+            id: txId,
+            status: 'PENDING',
+            acquirer: 'DOM',
+            settlementBasis: 'FINAL_NET',
+            userId: t.userId,
+            amount: t.amount,
+            netAmount: t.netAmount,
+            totalFee: t.totalFee,
+            acquirerFee: t.acquirerFee,
+            platformFee: t.platformFee,
+            paymentMethod: 'PIX',
+            installments: 1,
+            description: t.description,
+            platformTag: t.platformTag,
+            financialSnapshot: t.financialSnapshot as Prisma.InputJsonValue,
+            domPaymentId: String(row.id),
+            externalPaymentId: String(row.id),
+            customerName: row.customer_name ?? undefined,
+            customerEmail: row.customer_email ?? undefined,
+            customerDocument:
+              row.customer_document?.replace(/\D/g, '') ?? undefined,
+            customerPhone: row.customer_phone?.replace(/\D/g, '') ?? undefined,
+            pixQrCode: row.pix_qrcode ?? undefined,
+            pixContent: row.pix_content ?? undefined,
+            pixExpire: row.pix_expire ? new Date(row.pix_expire) : undefined,
+            ...(Number.isNaN(createdAt.getTime()) ? {} : { createdAt }),
+          },
+        });
+        await p.charge.create({
+          data: {
+            offerId: offer.id,
+            ownerUserId: model.ownerUserId,
+            amountCents,
+            currency: model.currency,
+            method: 'PIX',
+            customerName: row.customer_name ?? undefined,
+            customerEmail: row.customer_email ?? undefined,
+            customerDocument:
+              row.customer_document?.replace(/\D/g, '') ?? undefined,
+            transactionId: txId,
+            attempts: 1,
+            snapshot: model.snapshot as Prisma.InputJsonValue,
+          },
+        });
+      });
+    } catch (err) {
+      return skip(
+        `create-failed:${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    this.logger.warn(
+      `${prefix} imported: tx=${txId} domPaymentId=${row.id} offer=${offer.id} status=${row.status}`,
+    );
+    await this.execute({ transactionId: txId, direct: true, minAgeMinutes: 0 });
+    return true;
   }
 
   /** YYYY-MM-DD para o begin_date/end_date da listagem DOM. */
