@@ -8,7 +8,29 @@ import {
 } from './offers';
 
 export type BumpRole = 'BUMP' | 'UPSELL' | 'DOWNSELL';
-export type FormBump = { offerId: string; role: BumpRole };
+/** Entrada do funil; a posição é a ordem do array. Remover a entrada é a exclusão lógica. */
+export type FormBump = {
+  offerId: string;
+  role: BumpRole;
+  /** Chamada em destaque (até 120). */
+  headline?: string | null;
+  /** Preço "de" riscado, em centavos; deve ser maior que o preço da oferta. */
+  originalAmountCents?: number | null;
+  /** Só upsell/downsell: segundos de 30 a 3600. */
+  countdownSeconds?: number | null;
+  /** Ausente equivale a ativo. */
+  isActive?: boolean;
+};
+
+export const MAX_ORDER_BUMPS = 5;
+export const MAX_HEADLINE = 120;
+export const MIN_COUNTDOWN_SECONDS = 30;
+export const MAX_COUNTDOWN_SECONDS = 3600;
+export const bumpRoleLimits: Record<BumpRole, number> = {
+  BUMP: MAX_ORDER_BUMPS,
+  UPSELL: 1,
+  DOWNSELL: 1,
+};
 
 export const BUMP_ROLES: BumpRole[] = ['BUMP', 'UPSELL', 'DOWNSELL'];
 export const bumpRoleLabels: Record<BumpRole, string> = {
@@ -116,10 +138,12 @@ export function formFromOffer(
     unknown
   >;
   const bumps = Array.isArray(fulfillment.bumps)
-    ? (fulfillment.bumps as FormBump[]).filter(
-        (bump) =>
-          typeof bump?.offerId === 'string' && BUMP_ROLES.includes(bump.role),
-      )
+    ? (fulfillment.bumps as FormBump[])
+        .filter(
+          (bump) =>
+            typeof bump?.offerId === 'string' && BUMP_ROLES.includes(bump.role),
+        )
+        .map(normalizeBump)
     : [];
   return {
     name: offer.name,
@@ -224,14 +248,79 @@ export function unsafeUrlReason(raw: string): string | null {
   return null;
 }
 
-/** Problemas dos bumps segundo o contrato de offer-fulfillment.ts; null quando válidos. */
-export function bumpsProblem(bumps: FormBump[]): string | null {
+const isFunnelRole = (role: BumpRole) => role !== 'BUMP';
+
+/** Mantém só os campos conhecidos e válidos do tipo; os opcionais ausentes ficam fora. */
+export function normalizeBump(bump: FormBump): FormBump {
+  const out: FormBump = { offerId: bump.offerId, role: bump.role };
+  if (typeof bump.headline === 'string' && bump.headline.trim() !== '')
+    out.headline = bump.headline;
+  if (
+    typeof bump.originalAmountCents === 'number' &&
+    bump.originalAmountCents > 0
+  )
+    out.originalAmountCents = bump.originalAmountCents;
+  if (
+    isFunnelRole(bump.role) &&
+    typeof bump.countdownSeconds === 'number' &&
+    Number.isFinite(bump.countdownSeconds)
+  )
+    out.countdownSeconds = bump.countdownSeconds;
+  if (bump.isActive === false) out.isActive = false;
+  return out;
+}
+
+/**
+ * Problemas dos bumps segundo o contrato de offer-fulfillment.ts; null quando válidos.
+ * `amountOf` (preço atual de cada oferta) habilita a checagem do preço "de".
+ */
+export function bumpsProblem(
+  bumps: FormBump[],
+  amountOf?: (offerId: string) => number | undefined,
+): string | null {
   const count = (role: BumpRole) =>
     bumps.filter((bump) => bump.role === role).length;
   if (new Set(bumps.map((b) => b.offerId)).size !== bumps.length)
     return 'Oferta repetida em bumps.';
+  for (const role of BUMP_ROLES)
+    if (count(role) > bumpRoleLimits[role])
+      return role === 'BUMP'
+        ? `Use no máximo ${MAX_ORDER_BUMPS} order bumps.`
+        : `Use no máximo um ${bumpRoleLabels[role].toLowerCase()}.`;
   if (count('DOWNSELL') > 0 && count('UPSELL') === 0)
     return 'O downsell exige um upsell configurado.';
+  for (const bump of bumps) {
+    const problem = bumpEntryProblem(bump, amountOf?.(bump.offerId));
+    if (problem) return problem;
+  }
+  return null;
+}
+
+/** Problema dos campos de uma entrada (chamada, preço "de", cronômetro); null quando válida. */
+export function bumpEntryProblem(
+  bump: FormBump,
+  amountCents?: number,
+): string | null {
+  if ((bump.headline ?? '').trim().length > MAX_HEADLINE)
+    return `A chamada deve ter no máximo ${MAX_HEADLINE} caracteres.`;
+  const original = bump.originalAmountCents;
+  if (original != null) {
+    if (!Number.isSafeInteger(original) || original <= 0)
+      return 'O valor "de" deve ser maior que zero.';
+    if (amountCents !== undefined && original <= amountCents)
+      return 'O valor "de" deve ser maior que o preço da oferta.';
+  }
+  const seconds = bump.countdownSeconds;
+  if (seconds != null) {
+    if (!isFunnelRole(bump.role))
+      return 'O cronômetro vale só para upsell e downsell.';
+    if (
+      !Number.isInteger(seconds) ||
+      seconds < MIN_COUNTDOWN_SECONDS ||
+      seconds > MAX_COUNTDOWN_SECONDS
+    )
+      return `O cronômetro deve ficar entre ${MIN_COUNTDOWN_SECONDS} e ${MAX_COUNTDOWN_SECONDS} segundos.`;
+  }
   return null;
 }
 
@@ -248,6 +337,50 @@ export function addBump(
 
 export const removeBump = (bumps: FormBump[], offerId: string): FormBump[] =>
   bumps.filter((bump) => bump.offerId !== offerId);
+
+/** Troca o papel mantendo posição e demais campos (o cronômetro cai ao virar order bump). */
+export function setBumpRole(
+  bumps: FormBump[],
+  offerId: string,
+  role: BumpRole,
+): { bumps: FormBump[] } | { error: string } {
+  const next = bumps.map((bump) =>
+    bump.offerId === offerId ? normalizeBump({ ...bump, role }) : bump,
+  );
+  const problem = bumpsProblem(next);
+  return problem ? { error: problem } : { bumps: next };
+}
+
+/** Altera campos de uma entrada sem mudar a ordem. */
+export const patchBump = (
+  bumps: FormBump[],
+  offerId: string,
+  patch: Partial<Omit<FormBump, 'offerId' | 'role'>>,
+): FormBump[] =>
+  bumps.map((bump) =>
+    bump.offerId === offerId ? { ...bump, ...patch } : bump,
+  );
+
+/** Move a entrada `delta` posições (a ordem do array é a posição); fora dos limites não muda. */
+export function moveBump(
+  bumps: FormBump[],
+  offerId: string,
+  delta: number,
+): FormBump[] {
+  const from = bumps.findIndex((bump) => bump.offerId === offerId);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= bumps.length) return bumps;
+  const next = [...bumps];
+  [next[from], next[to]] = [next[to], next[from]];
+  return next;
+}
+
+/** Corpo de cada entrada no fulfillment: só campos preenchidos; chamada aparada. */
+export function bumpPayload(bump: FormBump): FormBump {
+  const clean = normalizeBump(bump);
+  if (clean.headline) clean.headline = clean.headline.trim();
+  return clean;
+}
 
 /** Ofertas avulsas, ativas, de outro registro e ainda não escolhidas. */
 export function bumpCandidates(
@@ -341,7 +474,7 @@ function fulfillmentOf(form: OfferForm, create: boolean) {
   const base = {
     emailBody: form.emailBody.trim(),
     redirectUrl: form.redirectUrl.trim(),
-    bumps: form.bumps,
+    bumps: form.bumps.map(bumpPayload),
   };
   const empty = !base.emailBody && !base.redirectUrl && base.bumps.length === 0;
   if (create && empty) return undefined;

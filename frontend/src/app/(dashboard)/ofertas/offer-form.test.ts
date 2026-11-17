@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import {
   addBump,
+  bumpPayload,
+  moveBump,
+  patchBump,
+  setBumpRole,
   applyPreset,
   bumpCandidates,
   bumpsProblem,
@@ -124,28 +128,29 @@ describe('unsafeUrlReason', () => {
 });
 
 describe('bumps', () => {
-  test('funil sem limites quantitativos, com upsell obrigatório para downsell', () => {
+  test('funil: limites 5/1/1, downsell exige upsell, duplicado', () => {
     let bumps: FormBump[] = [];
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 5; i++) {
       const r = addBump(bumps, `b${i}`, 'BUMP');
       if ('error' in r) throw new Error(r.error);
       bumps = r.bumps;
     }
-    expect('bumps' in addBump(bumps, 'b12', 'BUMP')).toBe(true);
+    expect(addBump(bumps, 'b5', 'BUMP')).toEqual({
+      error: 'Use no máximo 5 order bumps.',
+    });
     expect(addBump([], 'd', 'DOWNSELL')).toEqual({
       error: 'O downsell exige um upsell configurado.',
     });
     const up = addBump([], 'u', 'UPSELL');
     if ('error' in up) throw new Error(up.error);
-    expect('bumps' in addBump(up.bumps, 'u2', 'UPSELL')).toBe(true);
-    expect(
-      bumpsProblem([
-        ...up.bumps,
-        { offerId: 'd1', role: 'DOWNSELL' },
-        { offerId: 'd2', role: 'DOWNSELL' },
-      ]),
-    ).toBeNull();
-    expect('bumps' in addBump(up.bumps, 'd', 'DOWNSELL')).toBe(true);
+    expect(addBump(up.bumps, 'u2', 'UPSELL')).toEqual({
+      error: 'Use no máximo um upsell.',
+    });
+    const down = addBump(up.bumps, 'd', 'DOWNSELL');
+    if ('error' in down) throw new Error(down.error);
+    expect(addBump(down.bumps, 'd2', 'DOWNSELL')).toEqual({
+      error: 'Use no máximo um downsell.',
+    });
     expect(
       bumpsProblem([
         { offerId: 'a', role: 'BUMP' },
@@ -153,6 +158,71 @@ describe('bumps', () => {
       ]),
     ).toBe('Oferta repetida em bumps.');
     expect(removeBump(up.bumps, 'u')).toEqual([]);
+  });
+
+  test('entrada: chamada, preço "de" e cronômetro', () => {
+    const up: FormBump = { offerId: 'u', role: 'UPSELL' };
+    expect(bumpsProblem([{ ...up, countdownSeconds: 29 }])).toMatch(
+      /entre 30 e 3600/,
+    );
+    expect(bumpsProblem([{ ...up, countdownSeconds: 3601 }])).toMatch(
+      /entre 30 e 3600/,
+    );
+    expect(bumpsProblem([{ ...up, countdownSeconds: 30 }])).toBeNull();
+    expect(
+      bumpsProblem([{ offerId: 'b', role: 'BUMP', countdownSeconds: 60 }]),
+    ).toBe('O cronômetro vale só para upsell e downsell.');
+    expect(bumpsProblem([{ ...up, headline: 'x'.repeat(121) }])).toMatch(/120/);
+    const priced = [{ ...up, originalAmountCents: 1000 }];
+    expect(bumpsProblem(priced, () => 1000)).toMatch(/maior que o preço/);
+    expect(bumpsProblem(priced, () => 900)).toBeNull();
+    expect(bumpsProblem(priced)).toBeNull();
+  });
+
+  test('papel, edição e reordenação mantêm campos e posição', () => {
+    const list: FormBump[] = [
+      { offerId: 'a', role: 'UPSELL', countdownSeconds: 60, headline: 'Oi' },
+      { offerId: 'b', role: 'BUMP' },
+      { offerId: 'c', role: 'BUMP', isActive: false },
+    ];
+    const r = setBumpRole(list, 'a', 'BUMP');
+    if ('error' in r) throw new Error(r.error);
+    expect(r.bumps[0]).toEqual({ offerId: 'a', role: 'BUMP', headline: 'Oi' });
+    expect(moveBump(list, 'c', -1).map((b) => b.offerId)).toEqual([
+      'a',
+      'c',
+      'b',
+    ]);
+    expect(moveBump(list, 'a', -1)).toBe(list);
+    expect(moveBump(list, 'c', 1)).toBe(list);
+    expect(patchBump(list, 'b', { isActive: false })[1].isActive).toBe(false);
+  });
+
+  test('payload envia só campos preenchidos da entrada', () => {
+    expect(
+      bumpPayload({
+        offerId: 'a',
+        role: 'UPSELL',
+        headline: '  Espere  ',
+        originalAmountCents: 5000,
+        countdownSeconds: 90,
+        isActive: true,
+      }),
+    ).toEqual({
+      offerId: 'a',
+      role: 'UPSELL',
+      headline: 'Espere',
+      originalAmountCents: 5000,
+      countdownSeconds: 90,
+    });
+    expect(
+      bumpPayload({
+        offerId: 'b',
+        role: 'BUMP',
+        headline: ' ',
+        isActive: false,
+      }),
+    ).toEqual({ offerId: 'b', role: 'BUMP', isActive: false });
   });
 
   test('candidatos: só avulsas ativas, sem a própria nem as já escolhidas', () => {

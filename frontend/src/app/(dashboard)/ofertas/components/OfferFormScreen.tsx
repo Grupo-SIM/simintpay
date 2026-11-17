@@ -215,6 +215,21 @@ function FormBody({
             : form.bumps
                 .filter((bump) => bump.role === 'BUMP')
                 .map((bump) => bump.offerId),
+          // Chamada, preço "de" e ativo de cada order bump, para a prévia igualar o checkout.
+          ...(recurring
+            ? {}
+            : {
+                bumps: form.bumps
+                  .filter((bump) => bump.role === 'BUMP')
+                  .map(
+                    ({ offerId, headline, originalAmountCents, isActive }) => ({
+                      offerId,
+                      headline: headline?.trim() || null,
+                      originalAmountCents: originalAmountCents ?? null,
+                      isActive: isActive !== false,
+                    }),
+                  ),
+              }),
           selectedBumpOfferIds,
           ...(id
             ? { offerId: id }
