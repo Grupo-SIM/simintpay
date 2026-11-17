@@ -3448,28 +3448,6 @@ export class AdminController {
     };
   }
 
-  /** Ids de saques aprovados atribuídos à plataforma (mesma regra de tag do consolidado), sem filtro de taxa/data. */
-  private async getPlatformWithdrawIds(tag: string): Promise<Set<string>> {
-    const rows = await this.prisma.withdrawRequest.findMany({
-      where: { status: 'APPROVED' },
-      select: {
-        id: true,
-        platform: true,
-        user: { select: { platform: { select: { tag: true } } } },
-      },
-    });
-    return new Set(
-      rows
-        .filter(
-          (w) =>
-            normalizePlatformTag(
-              w.platform ?? w.user?.platform?.tag ?? 'GLOBAL',
-            ) === tag,
-        )
-        .map((w) => w.id),
-    );
-  }
-
   @Get('relatorios/consolidado')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
@@ -3616,24 +3594,9 @@ export class AdminController {
     let totalTaxaSaque: number;
     let totalLucroSaque: number;
     if (tagFiltro) {
-      // ADMIN_WITHDRAW_FEE_INC é custo de saque de adquirente (platformTag
-      // GLOBAL, sem withdrawId): não é atribuível a plataforma => 0.
+      // Saque não é atribuível a plataforma: a visão por plataforma não o inclui.
       totalTaxaSaque = 0;
-      const idsSaquesPlataforma = await this.getPlatformWithdrawIds(tagFiltro);
-      const profitLogs = await this.prisma.balanceLog.findMany({
-        where: {
-          ...masterWithdrawLogBase,
-          action: 'ADMIN_WITHDRAW_PROFIT_INC',
-        },
-        select: { bookkeepingAmount: true, metadata: true },
-      });
-      totalLucroSaque = profitLogs.reduce((sum, log) => {
-        const wid = (log.metadata as { withdrawId?: string } | null)
-          ?.withdrawId;
-        return wid && idsSaquesPlataforma.has(wid)
-          ? sum + Number(log.bookkeepingAmount || 0)
-          : sum;
-      }, 0);
+      totalLucroSaque = 0;
     } else {
       const [feeIncAgg, profitIncAgg] = await Promise.all([
         this.prisma.balanceLog.aggregate({
@@ -3697,14 +3660,7 @@ export class AdminController {
         },
       },
     });
-    const withdrawsAprovados = tagFiltro
-      ? withdrawsAprovadosBase.filter(
-          (w) =>
-            normalizePlatformTag(
-              w.platform ?? w.user?.platform?.tag ?? 'GLOBAL',
-            ) === tagFiltro,
-        )
-      : withdrawsAprovadosBase;
+    const withdrawsAprovados = tagFiltro ? [] : withdrawsAprovadosBase;
 
     // Saques aprovados com a regra nova (toda a taxa é lucro) trazem o valor no
     // próprio log; os demais seguem a regra antiga, preservando o histórico.
@@ -3850,27 +3806,9 @@ export class AdminController {
             in: ['ADMIN_WITHDRAW_FEE_INC', 'ADMIN_WITHDRAW_PROFIT_INC'],
           },
         },
-        select: {
-          createdAt: true,
-          bookkeepingAmount: true,
-          action: true,
-          ...(tagFiltro ? { metadata: true } : {}),
-        },
+        select: { createdAt: true, bookkeepingAmount: true, action: true },
       });
-      let withdrawLogsHistorico = withdrawLogsHistoricoBase;
-      if (tagFiltro) {
-        const idsSaquesPlataforma =
-          await this.getPlatformWithdrawIds(tagFiltro);
-        withdrawLogsHistorico = withdrawLogsHistoricoBase.filter((log) => {
-          if (log.action !== 'ADMIN_WITHDRAW_PROFIT_INC') return false;
-          const wid = (
-            (log as { metadata?: unknown }).metadata as {
-              withdrawId?: string;
-            } | null
-          )?.withdrawId;
-          return Boolean(wid && idsSaquesPlataforma.has(wid));
-        });
-      }
+      const withdrawLogsHistorico = tagFiltro ? [] : withdrawLogsHistoricoBase;
       if (isSingleCalendarDaySp(di, df)) {
         lucroTotalMasterHistorico = buildLucroTotalMasterHistoricoPorHora(
           txRowsLucro,

@@ -220,6 +220,7 @@ export default function AdminReportOverview({
   const { data: saquesPendentesData, isLoading: isLoadingSaquesPendentes } =
     useQuery({
       queryKey: ['saques-pendentes-admin'],
+      enabled: !platformScoped,
       staleTime: 60_000,
       queryFn: async () => {
         return api.get<{ total: number }>(endpoints.admin.saques.list, {
@@ -466,7 +467,9 @@ export default function AdminReportOverview({
                 CreditCard,
                 METRIC_TT.margemParcelamento,
               ],
-              ['Saque', margem.taxaSaque, Wallet, METRIC_TT.margemSaque],
+              ...(platformScoped
+                ? []
+                : [['Saque', margem.taxaSaque, Wallet, METRIC_TT.margemSaque]]),
               ['Total', totalMargem, Wallet, METRIC_TT.totalMargem],
             ].map(([label, value, Icon, tooltip]) => (
               <MetricCard
@@ -508,7 +511,14 @@ export default function AdminReportOverview({
               CreditCard,
               METRIC_TT.parcelamentoAdq,
             ],
-            ['Saque', a.taxaSaque, Banknote, METRIC_TT.taxaSaqueDOM],
+            ...(platformScoped
+              ? ([] as [string, number, typeof Percent, string][])
+              : ([['Saque', a.taxaSaque, Banknote, METRIC_TT.taxaSaqueDOM]] as [
+                  string,
+                  number,
+                  typeof Percent,
+                  string,
+                ][])),
             ...(isDom
               ? ([
                   ['Cashback', a.cashback, Gift, METRIC_TT.taxaCashbackDom],
@@ -554,32 +564,34 @@ export default function AdminReportOverview({
             ) : undefined
           }
           extra={
-            <>
-              <MetricCard
-                label="Saques pendentes"
-                tooltip={METRIC_TT.saquesPendentes}
-                value={
-                  isLoadingSaquesPendentes
-                    ? 'Carregando...'
-                    : `${saquesPendentesData?.total ?? 0} pendentes`
-                }
-                valueClassName="text-orange-600 dark:text-orange-400"
-                icon={Clock}
-                iconClassName="text-orange-600 bg-orange-50 dark:bg-orange-950/30 dark:text-orange-400"
-              />
-              <MetricCard
-                label="Saques aprovados"
-                value={
-                  isLoadingConsolidado
-                    ? 'Carregando...'
-                    : formatBRL(consolidado?.saquesAprovados?.valor)
-                }
-                detail={`${consolidado?.saquesAprovados?.quantidade ?? 0} ${consolidado?.saquesAprovados?.quantidade === 1 ? 'saque' : 'saques'}`}
-                valueClassName="text-amber-500"
-                icon={ArrowUpRight}
-                iconClassName="text-amber-500 bg-amber-50 dark:bg-amber-950/30"
-              />
-            </>
+            platformScoped ? undefined : (
+              <>
+                <MetricCard
+                  label="Saques pendentes"
+                  tooltip={METRIC_TT.saquesPendentes}
+                  value={
+                    isLoadingSaquesPendentes
+                      ? 'Carregando...'
+                      : `${saquesPendentesData?.total ?? 0} pendentes`
+                  }
+                  valueClassName="text-orange-600 dark:text-orange-400"
+                  icon={Clock}
+                  iconClassName="text-orange-600 bg-orange-50 dark:bg-orange-950/30 dark:text-orange-400"
+                />
+                <MetricCard
+                  label="Saques aprovados"
+                  value={
+                    isLoadingConsolidado
+                      ? 'Carregando...'
+                      : formatBRL(consolidado?.saquesAprovados?.valor)
+                  }
+                  detail={`${consolidado?.saquesAprovados?.quantidade ?? 0} ${consolidado?.saquesAprovados?.quantidade === 1 ? 'saque' : 'saques'}`}
+                  valueClassName="text-amber-500"
+                  icon={ArrowUpRight}
+                  iconClassName="text-amber-500 bg-amber-50 dark:bg-amber-950/30"
+                />
+              </>
+            )
           }
           filters={{
             platform: platform?.tag,
