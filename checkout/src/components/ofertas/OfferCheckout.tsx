@@ -14,7 +14,7 @@ import dynamic from 'next/dynamic';
 import { CheckCircle, Loader2 } from 'lucide-react';
 import { getTokenCard } from '@/components/sdk';
 import { SIM_API_URL } from '@/lib/api-config';
-import { CheckoutFlow } from '@/components/checkout/CheckoutFlow';
+import { CheckoutFlow, StepNumber } from '@/components/checkout/CheckoutFlow';
 import {
   CheckoutGlassField,
   CheckoutGlassInput,
@@ -749,9 +749,7 @@ export default function OfferCheckout({
             )}
           >
             <div className="hidden items-center gap-3 lg:flex">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-sm font-semibold">
-                3
-              </span>
+              <StepNumber n={3} />
               <div>
                 <div className="text-xl font-medium">
                   Adicione ao seu pedido

@@ -29,6 +29,15 @@ import {
  * - desktop (lg): sem etapas, tudo na mesma tela com o resumo fixo à direita.
  * Cada checkout só informa o conteúdo das etapas; chamadas de API e regras ficam com ele.
  */
+/** Selo numerado dos blocos do desktop (1 dados, 2 pagamento, 3 order bump). */
+export function StepNumber({ n }: { n: number }) {
+  return (
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-semibold">
+      {n}
+    </span>
+  );
+}
+
 export function CheckoutFlow({
   product,
   orderExtra,
@@ -192,28 +201,27 @@ export function CheckoutFlow({
         <Logo />
         <ProtectedPill compact />
       </div>
-      {step === 0 ? (
-        <div className="flex flex-col gap-4 lg:hidden">
-          <div className="text-2xl font-medium">Seu pedido</div>
-        </div>
-      ) : (
-        <>
-          <MobileTopBar
-            title={
-              step === 1
-                ? 'Seus dados'
-                : paymentSplit && step === 3
-                  ? paymentSplit.detalheTitle
-                  : pagamentoTitle
-            }
-            onBack={() => {
-              onStepChange?.();
-              setStep(step - 1);
-            }}
-          />
-          <MobileProgress step={step} total={paymentSplit ? 3 : 2} />
-        </>
-      )}
+      <MobileTopBar
+        title={
+          step === 0
+            ? 'Seu pedido'
+            : step === 1
+              ? 'Seus dados'
+              : paymentSplit && step === 3
+                ? paymentSplit.detalheTitle
+                : pagamentoTitle
+        }
+        hideBack={step === 0}
+        onBack={
+          step === 0
+            ? undefined
+            : () => {
+                onStepChange?.();
+                setStep(step - 1);
+              }
+        }
+      />
+      <MobileProgress step={step} total={paymentSplit ? 3 : 2} />
 
       <form
         onSubmit={handleSubmit}
@@ -292,10 +300,13 @@ export function CheckoutFlow({
                 GLASS,
               )}
             >
-              <div className="hidden lg:block">
-                <div className="text-2xl font-medium">Seus dados</div>
-                <div className="mt-1 text-sm text-[#a9a3b8]">
-                  {dadosSubtitle}
+              <div className="hidden items-center gap-3 lg:flex">
+                <StepNumber n={1} />
+                <div>
+                  <div className="text-2xl font-medium">Seus dados</div>
+                  <div className="mt-1 text-sm text-[#a9a3b8]">
+                    {dadosSubtitle}
+                  </div>
                 </div>
               </div>
               {dados}
@@ -316,8 +327,9 @@ export function CheckoutFlow({
                 GLASS,
               )}
             >
-              <div className="hidden text-2xl font-medium lg:block">
-                {pagamentoTitle}
+              <div className="hidden items-center gap-3 lg:flex">
+                <StepNumber n={2} />
+                <div className="text-2xl font-medium">{pagamentoTitle}</div>
               </div>
               {pagamento}
               {status}
