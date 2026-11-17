@@ -7,7 +7,6 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import { computeUserNetBalance } from '../../application/helpers/user-platform-net-balance.helper';
 import { computeBosqueAvailableSinceLastWithdrawal } from '../../application/helpers/bosque-available.helper';
-import { offersReadEnabled } from '../../shared/utils/offer-read-flag';
 import { getPlatformIntegrationValue } from '../platform-integrations/platform-integrations.store';
 const OWNER_BALANCE_TAGS = new Set([
   'RENOVADA',
@@ -22,22 +21,13 @@ export class PlatformSellerReports {
     private readonly expectedContext?: PlatformContext,
   ) {}
 
-  /** AreaFlix subscription products: legacy SubscriptionLink, or Offer (same id) behind OFFERS_READ_ENABLED. */
+  /** AreaFlix subscription products: Offer (same id as the legacy link). */
   private async areaflixLinkIds(): Promise<string[]> {
-    if (offersReadEnabled()) {
-      const offers = await this.prisma.offer.findMany({
-        where: { platformTag: 'AREAFLIX' },
-        select: { id: true },
-      });
-      return offers.map((o) => o.id);
-    }
-    const links = await this.prisma.subscriptionLink.findMany({
-      where: {
-        OR: [{ platformTag: 'AREAFLIX' }, { plataformas: { has: 'AREAFLIX' } }],
-      },
+    const offers = await this.prisma.offer.findMany({
+      where: { platformTag: 'AREAFLIX' },
       select: { id: true },
     });
-    return links.map((l) => l.id);
+    return offers.map((o) => o.id);
   }
 
   private async assertCurrent(tag: string) {

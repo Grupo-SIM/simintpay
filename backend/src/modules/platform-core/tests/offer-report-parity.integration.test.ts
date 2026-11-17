@@ -3,7 +3,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { ownedReportSource } from '../../../application/services/owned-report-source';
 
-/** Plan 0023 phase 3: owned report totals are identical reading legacy tables or Offer (same id). */
+/** Plan 0023 phase 3: owned report rows and totals are read through Offer. */
 const url = process.env.COPRODUCTION_TEST_DATABASE_URL;
 if (
   url &&
@@ -19,7 +19,7 @@ afterAll(async () => {
 });
 
 test.skipIf(!db)(
-  'owned report source returns the same rows and totals with legacy and Offer reads',
+  'owned report source returns the rows and totals of sales that carry only offerId',
   async () => {
     const s = crypto.randomUUID().slice(0, 8).toUpperCase();
     const owner = await db!.user.create({
@@ -55,24 +55,20 @@ test.skipIf(!db)(
         },
       });
     }
-    const read = async (useOffers: boolean) =>
-      db!.$queryRaw<
-        { id: string; amount: Prisma.Decimal; netAmount: Prisma.Decimal }[]
-      >(
-        Prisma.sql`SELECT id, amount, "netAmount" FROM (${ownedReportSource(
-          [{ id: platform.id, tag: platform.tag, ownerUserId: owner.id }],
-          {},
-          useOffers,
-        )}) r ORDER BY id`,
-      );
-    const [legacy, viaOffer] = [await read(false), await read(true)];
-    expect(legacy).toHaveLength(2);
-    expect(viaOffer.map((r) => r.id)).toEqual(legacy.map((r) => r.id));
-    const total = (rows: typeof legacy) =>
+    const rows = await db!.$queryRaw<
+      { id: string; amount: Prisma.Decimal; netAmount: Prisma.Decimal }[]
+    >(
+      Prisma.sql`SELECT id, amount, "netAmount" FROM (${ownedReportSource(
+        [{ id: platform.id, tag: platform.tag, ownerUserId: owner.id }],
+        {},
+      )}) r ORDER BY id`,
+    );
+    expect(rows).toHaveLength(2);
+    expect(
       rows
         .reduce((sum, r) => sum.plus(r.netAmount), new Prisma.Decimal(0))
-        .toString();
-    expect(total(viaOffer)).toBe(total(legacy));
+        .toString(),
+    ).toBe('35.5');
   },
   30000,
 );

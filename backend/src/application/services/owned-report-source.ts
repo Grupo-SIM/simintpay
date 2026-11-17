@@ -1,6 +1,5 @@
 import { Prisma } from '@prisma/client';
 import { reportBuyerCpfSql } from '../helpers/report-buyer.helper';
-import { offersReadEnabled } from '../../shared/utils/offer-read-flag';
 
 type PlatformScope = { id: string; tag: string; ownerUserId: string }[];
 type Period = { start?: Date; end?: Date; paymentMethod?: string };
@@ -19,31 +18,16 @@ function period(alias: Prisma.Sql, filters: Period) {
     ${filters.paymentMethod ? Prisma.sql`AND ${alias}."paymentMethod"::text = ${filters.paymentMethod}` : Prisma.empty}`;
 }
 
-function subscriptionTags(useOffers: boolean) {
-  if (useOffers)
-    return Prisma.sql`ARRAY(SELECT DISTINCT ${canonical(Prisma.sql`sl."platformTag"`)} WHERE sl."platformTag" IS NOT NULL AND sl."platformTag" <> '')`;
-  return Prisma.sql`ARRAY(SELECT DISTINCT ${canonical(Prisma.sql`tag`)} FROM (
-      SELECT unnest(sl.plataformas) AS tag
-      UNION ALL SELECT sl."platformTag" WHERE sl."platformTag" IS NOT NULL
-    ) bindings WHERE tag IS NOT NULL AND tag <> '')`;
+function subscriptionTags() {
+  return Prisma.sql`ARRAY(SELECT DISTINCT ${canonical(Prisma.sql`sl."platformTag"`)} WHERE sl."platformTag" IS NOT NULL AND sl."platformTag" <> '')`;
 }
 
 /** One projection for cards, charts and details. Reads only; never changes historical wallets. */
-export function ownedReportSource(
-  scope: PlatformScope,
-  filters: Period,
-  useOffers = offersReadEnabled(),
-) {
-  // Offer.id is the legacy product id, so the same keys join either table. Offers carry a single tag.
-  const productTable = (legacy: string) =>
-    useOffers ? Prisma.raw('"Offer"') : Prisma.raw(`"${legacy}"`);
-  const linkTags = useOffers
-    ? Prisma.sql`ARRAY(SELECT DISTINCT ${canonical(Prisma.sql`l."platformTag"`)} WHERE l."platformTag" IS NOT NULL AND l."platformTag" <> '')`
-    : Prisma.sql`ARRAY(SELECT DISTINCT ${canonical(Prisma.sql`tag`)} FROM unnest(coalesce(l.plataformas, ARRAY[]::text[])) tag)`;
-  const saleLinkId = useOffers
-    ? Prisma.sql`coalesce(t."offerId", t."paymentLinkId")`
-    : Prisma.sql`t."paymentLinkId"`;
-  const subscriptionLink = productTable('SubscriptionLink');
+export function ownedReportSource(scope: PlatformScope, filters: Period) {
+  // Offer.id is the legacy product id; offers carry a single tag. `paymentLinkId` is a fallback
+  // only while Transaction.paymentLinkId exists.
+  const linkTags = Prisma.sql`ARRAY(SELECT DISTINCT ${canonical(Prisma.sql`l."platformTag"`)} WHERE l."platformTag" IS NOT NULL AND l."platformTag" <> '')`;
+  const saleLinkId = Prisma.sql`coalesce(t."offerId", t."paymentLinkId")`;
   const ids = scope.map((p) => p.id);
   const selected = ids.length
     ? Prisma.sql`p.id IN (${Prisma.join(ids)})`
@@ -61,11 +45,11 @@ export function ownedReportSource(
         WHEN t."paymentMethod"::text <> 'CREDIT_CARD' THEN 0 ELSE NULL END AS interest,
       t.description, t."customerName"
     FROM "Transaction" t
-    LEFT JOIN ${productTable('PaymentLink')} l ON l.id = ${saleLinkId}
+    LEFT JOIN "Offer" l ON l.id = ${saleLinkId}
     LEFT JOIN LATERAL (
       SELECT ARRAY(SELECT DISTINCT tag FROM "SubscriptionLinkOrder" o
-        JOIN ${subscriptionLink} sl ON sl.id = o."subscriptionLinkId"
-        CROSS JOIN LATERAL unnest(${subscriptionTags(useOffers)}) tag
+        JOIN "Offer" sl ON sl.id = o."subscriptionLinkId"
+        CROSS JOIN LATERAL unnest(${subscriptionTags()}) tag
         WHERE o."userId" = t."userId" AND (
           EXISTS (SELECT 1 FROM regexp_matches(coalesce(t.description, ''), ${String.raw`subOrder=([^\s\]]+)`}, 'gi') m WHERE m[1] = o.id)
           OR (o."domPixPaymentId" IS NOT NULL AND (t."domPaymentId" = o."domPixPaymentId" OR t."externalPaymentId" = o."domPixPaymentId"))
@@ -98,8 +82,8 @@ export function ownedReportSource(
         WHEN o."paymentMethod"::text <> 'CREDIT_CARD' THEN 0 ELSE NULL END AS interest,
       sl.name AS description, o."customerName"
     FROM "SubscriptionLinkOrder" o
-    JOIN ${subscriptionLink} sl ON sl.id = o."subscriptionLinkId"
-    CROSS JOIN LATERAL (SELECT ${subscriptionTags(useOffers)} AS tags) link
+    JOIN "Offer" sl ON sl.id = o."subscriptionLinkId"
+    CROSS JOIN LATERAL (SELECT ${subscriptionTags()} AS tags) link
     JOIN "Platform" p ON p."ownerUserId" = o."userId" AND link.tags = ARRAY[p.tag]
     WHERE ${selected} AND o.status = 'paid' ${period(Prisma.sql`o`, filters)}
       AND NOT EXISTS (
