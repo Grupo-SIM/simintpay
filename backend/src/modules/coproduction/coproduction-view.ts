@@ -154,7 +154,7 @@ function coproductionPeriod(range?: CoproductionRange) {
   return Prisma.sql`
     ${range?.start ? Prisma.sql`AND t."createdAt" >= ${range.start}` : Prisma.empty}
     ${range?.end ? Prisma.sql`AND t."createdAt" <= ${range.end}` : Prisma.empty}
-    ${range?.platform ? Prisma.sql`AND t."platformTag" = ${canonicalTransactionPlatformTag(range.platform)}` : Prisma.empty}
+    ${range?.platform ? Prisma.sql`AND t."platformTag" IN (${Prisma.join(range.platform.split(',').map((tag) => canonicalTransactionPlatformTag(tag) ?? ''))})` : Prisma.empty}
     ${range?.paymentMethod ? Prisma.sql`AND t."paymentMethod"::text = ${range.paymentMethod}` : Prisma.empty}`;
 }
 

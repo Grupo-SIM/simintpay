@@ -1,9 +1,11 @@
 'use client';
 import { useProductPlatforms } from '@/hooks/use-product-platforms';
 import { adminPlatformLabel } from '@/lib/product-platforms';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { useCurrentUser } from '@/hooks/use-current-user';
 import { Check } from 'lucide-react';
-import { useReportApi, useReportQuery } from '@/hooks/use-report-api';
+import { useReportApi } from '@/hooks/use-report-api';
 import { useDebouncedInput } from '@/hooks/use-debounced-input';
 import { CustomSelect } from '@/components/ui/CustomSelect';
 import {
@@ -13,19 +15,21 @@ import {
   CommandList,
 } from '@/components/ui/Command';
 import { ReportError } from './ReportError';
-import { ReportPagination } from './ReportPagination';
 import type { ReportPage, ReportPlatform } from './report-types';
+
+const PAGE_SIZE = 10;
 
 export function ReportPlatformSelect({
   value,
   onChange,
   allowAll = false,
 }: {
-  value: ReportPlatform | null;
-  onChange: (platform: ReportPlatform | null) => void;
+  value: ReportPlatform[];
+  onChange: (platforms: ReportPlatform[]) => void;
   allowAll?: boolean;
 }) {
   const catalog = useProductPlatforms();
+  const { user } = useCurrentUser();
   const label = (platform: ReportPlatform) =>
     adminPlatformLabel(
       {
@@ -37,36 +41,63 @@ export function ReportPlatformSelect({
   const api = useReportApi();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [local, setLocal] = useDebouncedInput(search, (next) => {
-    setSearch(next);
-    setPage(1);
-  });
-  const query = useReportQuery({
-    queryKey: ['catalog', search, page],
-    queryFn: ({ signal }) =>
+  const [local, setLocal] = useDebouncedInput(search, setSearch);
+  const query = useInfiniteQuery({
+    queryKey: [
+      'reports',
+      user?.id,
+      user?.isAdmin ? 'admin' : 'owner',
+      'catalog',
+      search,
+    ],
+    enabled: !!user && open,
+    initialPageParam: 1,
+    queryFn: ({ signal, pageParam }) =>
       api.get<ReportPage<ReportPlatform>>('/relatorios/plataformas', {
-        query: { search, page, pageSize: 20 },
+        query: { search, page: pageParam, pageSize: PAGE_SIZE },
         signal,
       }),
+    getNextPageParam: (last) =>
+      last.page * last.pageSize < last.total ? last.page + 1 : undefined,
   });
-  const select = (platform: ReportPlatform | null) => {
-    onChange(platform);
-    setOpen(false);
-  };
+  const platforms = query.data?.pages.flatMap((page) => page.data) ?? [];
+  const sentinel = useRef<HTMLDivElement>(null);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || !hasNextPage) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting) && !isFetchingNextPage)
+        void fetchNextPage();
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, platforms.length]);
+  const toggle = (platform: ReportPlatform) =>
+    onChange(
+      value.some((item) => item.id === platform.id)
+        ? value.filter((item) => item.id !== platform.id)
+        : [...value, platform],
+    );
+  const allLabel = catalog.user?.isAdmin
+    ? 'Todas as plataformas'
+    : 'Todas as minhas plataformas';
+  const selection = value.length
+    ? value.length <= 2
+      ? value
+          .map((item) => `${item.name}${item.isActive ? '' : ' (Inativa)'}`)
+          .join(', ')
+      : `${value.length} plataformas selecionadas`
+    : allowAll
+      ? allLabel
+      : undefined;
   return (
     <CustomSelect
       label="Plataforma"
       search={{
         open,
         onOpenChange: setOpen,
-        selection: value
-          ? `${value.name}${value.isActive ? '' : ' (Inativa)'}`
-          : allowAll
-            ? catalog.user?.isAdmin
-              ? 'Todas as plataformas'
-              : 'Todas as minhas plataformas'
-            : undefined,
+        selection,
         placeholder: 'Selecione uma plataforma',
         content: (
           <Command shouldFilter={false}>
@@ -81,12 +112,16 @@ export function ReportPlatformSelect({
               {allowAll && (
                 <CommandItem
                   value="all"
-                  onSelect={() => select(null)}
+                  onSelect={() => {
+                    onChange([]);
+                    setOpen(false);
+                  }}
                   className="cursor-pointer"
                 >
-                  {catalog.user?.isAdmin
-                    ? 'Todas as plataformas'
-                    : 'Todas as minhas plataformas'}
+                  <Check
+                    className={`h-4 w-4 ${value.length === 0 ? 'opacity-100' : 'opacity-0'}`}
+                  />
+                  {allLabel}
                 </CommandItem>
               )}
               {query.isPending || catalog.isLoading || local !== search ? (
@@ -103,36 +138,38 @@ export function ReportPlatformSelect({
                     catalog.retry();
                   }}
                 />
-              ) : query.data.data.length === 0 ? (
+              ) : platforms.length === 0 ? (
                 <p className="p-4 text-sm text-zinc-500">
                   Nenhuma plataforma encontrada.
                 </p>
               ) : (
-                query.data.data.map((platform) => (
-                  <CommandItem
-                    className="cursor-pointer"
-                    key={platform.id}
-                    value={platform.id}
-                    onSelect={() => select(platform)}
-                  >
-                    <Check
-                      className={`h-4 w-4 ${value?.id === platform.id ? 'opacity-100' : 'opacity-0'}`}
-                    />
-                    {label(platform)}
-                  </CommandItem>
-                ))
+                <>
+                  {platforms.map((platform) => (
+                    <CommandItem
+                      className="cursor-pointer"
+                      key={platform.id}
+                      value={platform.id}
+                      onSelect={() => toggle(platform)}
+                    >
+                      <Check
+                        className={`h-4 w-4 ${value.some((item) => item.id === platform.id) ? 'opacity-100' : 'opacity-0'}`}
+                      />
+                      {label(platform)}
+                    </CommandItem>
+                  ))}
+                  {hasNextPage && (
+                    <div
+                      ref={sentinel}
+                      role="status"
+                      aria-label="Carregando mais plataformas"
+                      className="p-3 text-center text-xs text-zinc-500"
+                    >
+                      Carregando…
+                    </div>
+                  )}
+                </>
               )}
             </CommandList>
-            {query.data && (
-              <div className="border-t p-3">
-                <ReportPagination
-                  page={page}
-                  total={query.data.total}
-                  pageSize={20}
-                  onChange={setPage}
-                />
-              </div>
-            )}
           </Command>
         ),
       }}

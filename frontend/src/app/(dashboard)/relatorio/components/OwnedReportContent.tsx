@@ -52,6 +52,7 @@ export function OwnedReportContent({
       <ReportSummaryCards data={query.data} />
       {product &&
         filters.platform &&
+        !filters.platform.includes(',') &&
         consolidadoTagFor(filters.platform) === 'ATLAS' && (
           <AtlasExtraCards filters={filters} />
         )}

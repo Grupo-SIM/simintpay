@@ -3492,12 +3492,15 @@ export class AdminController {
     @Query('plataforma') plataforma?: string,
   ) {
     const platforms = await resolveConsolidadoPlatforms(this.prisma);
-    const tagFiltro = plataforma?.trim()
-      ? normalizePlatformTag(plataforma.trim())
-      : null;
+    const tagsFiltro = (plataforma ?? '')
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .map((tag) => normalizePlatformTag(tag));
+    const tagFiltro = tagsFiltro.length ? new Set(tagsFiltro) : null;
     const platformIds = (
       tagFiltro
-        ? platforms.filter((p) => normalizePlatformTag(p.tag) === tagFiltro)
+        ? platforms.filter((p) => tagFiltro.has(normalizePlatformTag(p.tag)))
         : platforms
     ).map((p) => p.id);
     const whereResumo = buildConsolidadoResumoWhere(
@@ -3528,12 +3531,13 @@ export class AdminController {
       orderBy: { createdAt: 'asc' },
     });
     const txRowsTodas = tagFiltro
-      ? txRowsTodasBase.filter(
-          (t) =>
+      ? txRowsTodasBase.filter((t) =>
+          tagFiltro.has(
             consolidadoTagParaTransacao(
               { userId: t.userId, platformTag: t.platformTag ?? null },
               platforms,
-            ) === tagFiltro,
+            ),
+          ),
         )
       : txRowsTodasBase;
 

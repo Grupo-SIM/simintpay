@@ -33,7 +33,6 @@ import {
   applyLucroSimpayDetalheConsolidadoMerges,
   unwrapConsolidadoPayload,
 } from '../utils/consolidadoLucroMerge';
-import type { ReportPlatform } from './report-types';
 import { AdminReportMovements } from './AdminReportMovements';
 import { OwnedReportSeries } from './OwnedReportSeries';
 import { ReportResultsTable } from './ReportResultsTable';
@@ -125,7 +124,8 @@ export default function AdminReportOverview({
 }: {
   range: DateRange;
   method?: string;
-  platform?: ReportPlatform;
+  /** Comma-separated platform tags; omitted for the all-platforms view. */
+  platform?: string;
 }) {
   const platformScoped = !!platform;
   const api = useMemo(
@@ -155,7 +155,7 @@ export default function AdminReportOverview({
       formatQueryDate(effectiveDateRange.end),
       DEFAULT_TRANSACTION_TYPE,
       filters.detalharLucro,
-      platform?.tag,
+      platform,
     ],
     queryFn: async () => {
       return api.get<ConsolidadoResponse>(endpoints.relatorios.consolidado, {
@@ -165,7 +165,7 @@ export default function AdminReportOverview({
           dataInicio: formatQueryDate(effectiveDateRange.start) ?? undefined,
           dataFim: formatQueryDate(effectiveDateRange.end) ?? undefined,
           transactionType: DEFAULT_TRANSACTION_TYPE,
-          plataforma: platform?.tag,
+          plataforma: platform,
           ...(filters.detalharLucro ? { detalharLucro: '1' } : {}),
         },
       });
@@ -183,7 +183,7 @@ export default function AdminReportOverview({
         formatQueryDate(effectiveDateRange.end),
         DEFAULT_PERIOD_TYPE,
         DEFAULT_TRANSACTION_TYPE,
-        platform?.tag,
+        platform,
       ],
       enabled: needsSeparateLucroChartFetch,
       queryFn: async () => {
@@ -194,7 +194,7 @@ export default function AdminReportOverview({
             dataInicio: formatQueryDate(effectiveDateRange.start) ?? undefined,
             dataFim: formatQueryDate(effectiveDateRange.end) ?? undefined,
             transactionType: DEFAULT_TRANSACTION_TYPE,
-            plataforma: platform?.tag,
+            plataforma: platform,
             detalharLucro: '1',
           },
         });
@@ -599,7 +599,7 @@ export default function AdminReportOverview({
             )
           }
           filters={{
-            platform: platform?.tag,
+            platform: platform,
             startDate: formatQueryDate(range.start) ?? undefined,
             endDate: formatQueryDate(range.end) ?? undefined,
             paymentMethod: method === 'all' ? undefined : method,

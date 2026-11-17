@@ -44,6 +44,9 @@ const platformSelect = {
   ownerUserId: true,
   isActive: true,
 } as const;
+/** `platform` accepts one tag or a comma-separated list of tags. */
+const platformTags = (value?: string) =>
+  value === undefined ? [] : value.split(',').map((tag) => tag.trim());
 function validateFilters(filters: Filters) {
   for (const key of [
     'platform',
@@ -59,7 +62,10 @@ function validateFilters(filters: Filters) {
   }
   if (
     filters.platform !== undefined &&
-    !/^[A-Za-z][A-Za-z0-9_-]{1,49}$/.test(filters.platform)
+    (platformTags(filters.platform).length > 50 ||
+      !platformTags(filters.platform).every((tag) =>
+        /^[A-Za-z][A-Za-z0-9_-]{1,49}$/.test(tag),
+      ))
   )
     throw new BadRequestException('Plataforma inválida');
 }
@@ -152,15 +158,24 @@ export class OwnedPlatformReportsService {
     allowParticipant = false,
   ) {
     const actor = await this.actor(db, user);
-    const normalized = canonicalTransactionPlatformTag(tag);
+    const tags = platformTags(tag);
+    const many = tags.length > 1;
+    const canonical = tags.map((item) => canonicalTransactionPlatformTag(item));
+    const normalized = many ? undefined : canonical[0];
     const platforms = await db.platform.findMany({
       where: {
         ...(actor.role === 'ADMIN' ? {} : { ownerUserId: actor.id }),
-        ...(normalized ? { tag: normalized } : {}),
+        ...(many
+          ? { tag: { in: canonical.filter((item): item is string => !!item) } }
+          : normalized
+            ? { tag: normalized }
+            : {}),
       },
       select: platformSelect,
     });
-    if (tag && platforms.length === 0) {
+    if (many && (platforms.length === 0 || canonical.some((item) => !item)))
+      throw new ForbiddenException('Plataforma indisponível para esta conta');
+    if (tag && !many && platforms.length === 0) {
       if (!normalized)
         throw new ForbiddenException('Plataforma indisponível para esta conta');
       const shared =

@@ -94,16 +94,17 @@ test('owner scope, searchable database catalog, inactive history, pagination, fa
         });
       if (url.pathname === '/api/relatorios/plataformas') {
         const search = url.searchParams.get('search') ?? '',
-          page = Number(url.searchParams.get('page') ?? 1);
+          page = Number(url.searchParams.get('page') ?? 1),
+          size = Number(url.searchParams.get('pageSize') ?? 20);
         const matches = (noPlatforms ? [] : catalog).filter((p) =>
           p.name.toLowerCase().includes(search.toLowerCase()),
         );
         return route.fulfill({
           json: {
-            data: matches.slice((page - 1) * 20, page * 20),
+            data: matches.slice((page - 1) * size, page * size),
             total: matches.length,
             page,
-            pageSize: 20,
+            pageSize: size,
           },
         });
       }
@@ -258,10 +259,13 @@ test('owner scope, searchable database catalog, inactive history, pagination, fa
     await page
       .getByRole('combobox', { name: 'Plataforma', exact: true })
       .click();
-    await page
-      .getByRole('button', { name: 'Próxima', exact: true })
-      .last()
-      .click();
+    // Infinite scroll: pages of 10 load as the list sentinel scrolls into view.
+    for (let i = 0; i < 4; i++)
+      await page
+        .getByRole('option')
+        .last()
+        .scrollIntoViewIfNeeded()
+        .catch(() => undefined);
     await page.getByRole('option', { name: 'Loja 20', exact: true }).waitFor();
     const search = page.getByRole('combobox', {
       name: 'Pesquisar plataforma',
@@ -281,6 +285,7 @@ test('owner scope, searchable database catalog, inactive history, pagination, fa
     ).toBe(true);
     await search.press('ArrowDown');
     await search.press('Enter');
+    await search.press('Escape');
     await page.getByText('R$ 123,00', { exact: true }).first().waitFor();
     expect(
       calls.some(

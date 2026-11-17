@@ -44,16 +44,18 @@ export function UnifiedReports() {
   const { resolvedTheme } = useTheme();
   const client = useQueryClient();
   const { toast } = useToast();
-  const [platform, setPlatform] = useState<ReportPlatform | null>(null);
+  const [platform, setPlatform] = useState<ReportPlatform[]>([]);
   const [range, setRange] = useState<DateRange>(currentPeriod);
   const [method, setMethod] = useState('all');
   const [accessLost, setAccessLost] = useState(false);
   const clearSelection = useCallback(() => {
-    setPlatform(null);
+    setPlatform([]);
     setAccessLost(true);
   }, []);
   const filters = {
-    platform: platform?.tag,
+    platform: platform.length
+      ? platform.map((item) => item.tag).join(',')
+      : undefined,
     startDate: ymd(range.start),
     endDate: ymd(range.end),
     paymentMethod: method === 'all' ? undefined : method,
@@ -83,7 +85,7 @@ export function UnifiedReports() {
             <Button
               variant="outline"
               onClick={() => {
-                setPlatform(null);
+                setPlatform([]);
                 setRange(currentPeriod());
                 setMethod('all');
                 toast({ type: 'info', title: 'Filtros restaurados' });
@@ -110,23 +112,24 @@ export function UnifiedReports() {
           </p>
         )}
         {admin ? (
-          platform ? (
+          platform.length ? (
             <div className="space-y-4">
               <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-                {platform.name}
+                {platform.map((item) => item.name).join(', ')}
               </h2>
               <div
-                key={`${platform.id}:${filters.startDate}:${filters.endDate}:${method}`}
+                key={`${platform.map((item) => item.id).join(',')}:${filters.startDate}:${filters.endDate}:${method}`}
                 className="space-y-6"
               >
                 <AdminOverview
                   range={range}
                   method={method}
-                  platform={platform}
+                  platform={filters.platform}
                 />
-                {consolidadoTagFor(platform.tag) === 'ATLAS' && (
-                  <AtlasExtraCards filters={filters} />
-                )}
+                {platform.length === 1 &&
+                  consolidadoTagFor(platform[0].tag) === 'ATLAS' && (
+                    <AtlasExtraCards filters={filters} />
+                  )}
                 <OwnedReportSeries filters={filters} kind="mensal" />
                 <div className="grid gap-4 xl:grid-cols-2">
                   <OwnedReportSeries filters={filters} kind="metodos" />
@@ -148,7 +151,7 @@ export function UnifiedReports() {
           )
         ) : (
           <OwnedReportContent
-            key={platform?.id ?? 'all'}
+            key={filters.platform ?? 'all'}
             filters={filters}
             onAccessLost={clearSelection}
           />
