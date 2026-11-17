@@ -15,6 +15,8 @@ type Over = {
   contractId?: string | null;
   firstPaidId?: string;
   netAmount?: number | null;
+  /** Charge created by offer-renewal to reopen a suspended contract. */
+  reactivation?: boolean;
   enqueue?: (event: OfferSalesEvent) => Promise<boolean>;
 };
 
@@ -39,7 +41,7 @@ function setup(over: Over = {}) {
     customerEmail: 'ana@test.dev',
     customerName: 'Ana',
     customerDocument: '123.456.789-09',
-    snapshot: {},
+    snapshot: over.reactivation ? { reactivation: true } : {},
   };
   const tx = {
     id: 'tx-1',
@@ -135,6 +137,17 @@ describe('subscription_activated', () => {
     const f = setup({ firstPaidId: 'charge-1' });
     expect(await f.service.deliver(paid)).toBe('done');
     expect(f.events).toHaveLength(0);
+  });
+
+  test('a paid reactivation of a suspended contract re-activates (once)', async () => {
+    const f = setup({ firstPaidId: 'charge-1', reactivation: true });
+    expect(await f.service.deliver(paid)).toBe('done');
+    await f.service.deliver(paid);
+    expect(f.events).toHaveLength(1);
+    expect(f.events[0]).toMatchObject({
+      event: 'subscription_activated',
+      orderId: 'tx-1',
+    });
   });
 
   test('one-off offers and charges without a contract send nothing', async () => {

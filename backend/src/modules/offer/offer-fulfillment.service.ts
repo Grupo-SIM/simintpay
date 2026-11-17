@@ -19,6 +19,7 @@ import {
   onChargeSettled,
   type ChargeSettledEvent,
 } from '../billing-core/charge-settlement';
+import { isReactivationCharge } from '../billing-core/contract-advance';
 import { readOfferFulfillment, type ChargeItem } from './offer-fulfillment';
 import {
   OFFER_SALES_EVENT_OUTBOX,
@@ -174,7 +175,10 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    // `subscription_activated`: só quando o PRIMEIRO ciclo do contrato é pago. A liquidação do
+    // `subscription_activated`: quando o contrato é ATIVADO, isto é, no PRIMEIRO ciclo pago
+    // (offer-subscribe, offer-checkout, webhook da DOM) e na cobrança de reativação de um
+    // contrato suspenso (offer-renewal). Renovação de ciclo não reemite. Idempotente por
+    // contrato e ativação: marcador na Charge mais o `eventId` do outbox. A liquidação do
     // líquido (netAmount) pode aparecer um instante depois; sem ele o passo tenta de novo.
     if (
       !refunded &&
@@ -187,7 +191,7 @@ export class OfferFulfillmentService implements OnModuleInit, OnModuleDestroy {
         orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
         select: { id: true },
       });
-      if (first?.id === charge.id) {
+      if (first?.id === charge.id || isReactivationCharge(charge)) {
         if (tx.netAmount === null) return 'retry';
         await this.once(charge.id, 'subscriptionActivated', () =>
           this.outbox!.enqueue({
