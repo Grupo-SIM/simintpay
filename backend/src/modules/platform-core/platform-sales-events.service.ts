@@ -75,15 +75,18 @@ type Stored = {
 };
 /**
  * Events that the legacy receiver (`saas-netflix-back` `POST /webhooks-simpay`) authenticates with
- * the static `x-simpay-token` header instead of the HMAC signature.
+ * the static `x-simpay-token` header instead of the HMAC signature. The token is the platform's own
+ * `WEBHOOK_SECRET` integration value, so each platform authenticates with its own credential.
  */
 const LEGACY_TOKEN_EVENTS = new Set([
   'purchase_approved',
   'purchase_refunded',
   'subscription_activated',
 ]);
-function legacyTokenHeader(event: unknown): Record<string, string> {
-  const token = process.env.SIMPAY_WEBHOOK_TOKEN;
+function legacyTokenHeader(
+  event: unknown,
+  token: string,
+): Record<string, string> {
   return token && LEGACY_TOKEN_EVENTS.has(String(event))
     ? { 'x-simpay-token': token }
     : {};
@@ -276,10 +279,8 @@ export class PlatformSalesEventsService {
       if (url.protocol !== 'https:' || url.username || url.password)
         throw new Error('Webhook exige HTTPS');
       const body = JSON.stringify(row.payload);
-      const signature = createHmac(
-        'sha256',
-        decryptPlatformSecret(config.encryptedValue),
-      )
+      const webhookSecret = decryptPlatformSecret(config.encryptedValue);
+      const signature = createHmac('sha256', webhookSecret)
         .update(body)
         .digest('hex');
       if (!row.deliveredAt) {
@@ -291,7 +292,10 @@ export class PlatformSalesEventsService {
           headers: {
             'content-type': 'application/json',
             'x-simintpay-signature': signature,
-            ...legacyTokenHeader((row.payload as { event?: string }).event),
+            ...legacyTokenHeader(
+              (row.payload as { event?: string }).event,
+              webhookSecret,
+            ),
           },
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
