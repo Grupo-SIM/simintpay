@@ -2,6 +2,38 @@
 
 Plano proposto em 2026-11-06. **Nada foi executado. Nenhuma autorização de escrita em banco real.** Continua o [plano 0021](0021-oferta-unica-recorrencia-propria.md) (modelo `Offer`, `Charge`, `BillingContract`) e substitui a ideia de "ofertas-sombra com UUID novo" por uma migração definitiva.
 
+## Estado final (2026-11-17): código completo, operação pendente
+
+Todo o código planejado está em `main`; plano arquivado como **code-complete**. A migração de dados para `Offer` já está em produção (confirmado pelo dono), então as fases 1, 2 e 5 foram cumpridas fora do código; os scripts de migração, o `phase-sql`, as flags de transição (`OFFER_WEBHOOK_RESOLUTION`, `OFFERS_READ_ENABLED`, `OFFER_PLATFORM_READS`, `OFFER_WRITES_ONLY`, `OFFER_LEGACY_FREEZE`, `OFFER_LEGACY_LINKS_COMPAT`, `OFFER_PIXPLAN_COMPAT`) e os guias de migração foram removidos.
+
+Estado do código:
+
+- `Offer` é o único leitor e escritor de produto: webhooks, relatórios, plataformas, admin, coprodução, checkouts e cron. Nenhum `prisma.<modelo legado>` fora de `schema.prisma` e das migrations antigas.
+- Adaptadores REST para sistemas vizinhos mantidos sobre `Offer`: `/links-pagamento`, `/links-assinatura`, `/payments/pix-plan*`, `plan-access`.
+- Checkout: componentes legados apagados; `?code=`, `?data=`, `?value=<código>` e `PX-` redirecionam para `?oferta=`; fluxo de pagamento direto (ebook, pagatg, `orderId`) preservado. Rotas de cartão, SSE e voucher do `checkout.controller` restauradas depois de um corte indevido (`8b55136d`).
+- Frontend: páginas legadas removidas; coluna "Tipo" removida (o rótulo era derivado).
+- Funil (`Offer.fulfillment.bumps`): `headline`, `originalAmountCents`, `countdownSeconds` (30..3600, só UPSELL/DOWNSELL; **o legado não tinha timer**, é recurso novo, só no cliente), `isActive`; limites 5 BUMP / 1 UPSELL / 1 DOWNSELL e downsell exige upsell na escrita; editor por entrada no dashboard; tela 6a–6c no checkout. Decisões: título/descrição/imagem/e-mail/arquivos vêm da oferta do bump (sem override), editar o bump vale para todos os funis, sem preço por entrada.
+- Migration `20261121090000_drop_legacy_product_tables` (hand-written, uma transação, sem `CASCADE`, com pré-checagens que abortam): remove 16 tabelas legadas, `Transaction.paymentLinkId`, `Offer.legacyType`/`legacyId` (copiados antes para `Offer.metadata`), o enum `PlanType`, e restringe o CHECK de coprodução a `ofertas` e `plataformas`. **Não aplicada em nenhum banco real.**
+
+Mudanças de comportamento a conhecer:
+
+- `Offer` não tem `webhookUrl` por link: links migrados com webhook próprio passam a usar o webhook da plataforma.
+- Os parâmetros `?data=` e `adminToken` (token de admin de link) se perdem no redirecionamento para `?oferta=`.
+- A página de sucesso de assinatura é estática (e-mail de acesso sai na liquidação pelo `OfferFulfillmentService`).
+- Campos de contrato mantidos por compatibilidade: `paymentLinkId` na resposta de `list-transactions` (preenchido por `offerId`) e `paymentLinkIds` nos corpos de claim de plataforma.
+
+Pendências abertas (não marcadas como concluídas; dependem do dono):
+
+- [ ] **Antes de aplicar a migration de drop**, conferir em produção por fora: linhas nas tabelas auxiliares que caem com os dados (`PaymentLinkOfferSale`, `SubscriptionLinkOrder`, `Subscription`, `SubscriptionPause`, `CustomerPlanAccess`, `PixPlanOrder` e outras; a migration só imprime as contagens) e os bloqueios que ela detecta (produto legado sem `Offer` de mesmo id, `paymentLinkId` diferente de `offerId`, função/view citando as tabelas, colisão de chave de coprodução).
+- [ ] Aplicar as migrations pendentes e fazer backup/PITR antes do `COMMIT` do drop (sem rollback pelo código).
+- [ ] Observação de 2 a 4 semanas (Fase 6): webhooks sem correspondência (`[OFFER_WEBHOOK_UNRESOLVED]`), 404 de URL antiga, chamadas dos sistemas vizinhos.
+- [ ] Rotas que o checkout chama e não existem neste repositório (`group-pages/public/*`, `checkout/orders/:id`): confirmar que pertencem a outro serviço.
+- [ ] Apontar o webhook da plataforma AREAFLIX para `/webhooks-simintpay` e configurar o segredo no `saas-netflix-back` (ops).
+- [ ] Validação visual do editor de funil no dashboard e dos fluxos de cobrança e PIX do `OfferFunnelScreen` (só a prévia foi vista em navegador); CTA mobile abaixo do card sem mockup de referência.
+- [ ] Remover `Offer.metadata.legacyType/legacyId` e os usos de `offer-legacy-origin.ts` quando a origem deixar de ser necessária; remover as chaves antigas de coprodução (`legacyProductAliases`) quando nenhum cliente as enviar.
+- [ ] Suítes opt-in já obsoletas e que falham na baseline: `owned-platform-reports.sql.test.ts`, `canonical-owner-persistence`; `delivery-payment-settlement` (2 testes, mock sem `wallet.findUniqueOrThrow`).
+
+
 ## 1. Objetivo e decisões do dono
 
 - `Offer` passa a ser a **única** tabela de produto. Planos, Planos PIX, Links de pagamento, Links de assinatura e Boletos deixam de existir como tabelas, código e rotas.

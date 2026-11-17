@@ -1,6 +1,6 @@
 # Mapa do legado e migração dos webhooks para o canal assinado
 
-Plano proposto em 2026-11-13. **Nada aqui autoriza migration, comando contra banco remoto, deploy ou configuração em produção.** Complementa [0023](0023-migracao-completa-para-ofertas.md) (fases de dados) com (1) o inventário do que ainda é legado em 2026-11-13 (HEAD `7402859b`) e (2) a migração dos webhooks externos do token estático `x-simpay-token` para o webhook assinado (`x-simintpay-signature`).
+Plano proposto em 2026-11-13. **Nada aqui autoriza migration, comando contra banco remoto, deploy ou configuração em produção.** Complementa [0023](done/0023-migracao-completa-para-ofertas.md) (fases de dados) com (1) o inventário do que ainda é legado em 2026-11-13 (HEAD `7402859b`) e (2) a migração dos webhooks externos do token estático `x-simpay-token` para o webhook assinado (`x-simintpay-signature`).
 
 ## 1. Webhooks: estado e decisão
 

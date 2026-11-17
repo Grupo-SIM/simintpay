@@ -82,4 +82,4 @@ A persistência vazia de planos ajuda o backfill, mas não justifica apagar suas
 
 ## Descartado (2026-11-17)
 
-Substituído pelo [0021](../0021-oferta-unica-recorrencia-propria.md), que refina e substitui as fases D–F, e executado pelo [0023](../0023-migracao-completa-para-ofertas.md).
+Substituído pelo [0021](../done/0021-oferta-unica-recorrencia-propria.md), que refina e substitui as fases D–F, e executado pelo [0023](../done/0023-migracao-completa-para-ofertas.md).

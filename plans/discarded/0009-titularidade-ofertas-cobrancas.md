@@ -102,4 +102,4 @@ Pendente (por isso o plano permanece em `plans/`): (1) o usuário aprovar o mapa
 
 ## Descartado (2026-11-17)
 
-Absorvido por [0021](../0021-oferta-unica-recorrencia-propria.md), [0023](../0023-migracao-completa-para-ofertas.md) e [0026](../0026-migracao-ebook-financeiro-canonico.md). O contrato `ownerUserId`/`createdByUserId` já existe no schema e no código. O inventário e os relatórios de documento restantes seguem nesses planos.
+Absorvido por [0021](../done/0021-oferta-unica-recorrencia-propria.md), [0023](../done/0023-migracao-completa-para-ofertas.md) e [0026](../0026-migracao-ebook-financeiro-canonico.md). O contrato `ownerUserId`/`createdByUserId` já existe no schema e no código. O inventário e os relatórios de documento restantes seguem nesses planos.

@@ -1,6 +1,27 @@
 # Oferta única, recorrência própria e adquirente substituível
 
-Plano proposto em 2026-11-05. **Nenhuma implementação, migração ou comando contra banco remoto autorizado.** Refina e substitui as fases D–F do [plano 0010](discarded/0010-unificacao-ofertas-cobrancas.md) com três decisões novas: (1) recorrência e planos são sempre da SimIntPay, nunca do adquirente; (2) `BillingContract` passa a ser a assinatura de uma oferta; (3) o escopo é a unificação completa, em fases. Depende de [0009](discarded/0009-titularidade-ofertas-cobrancas.md) (titularidade) e se apoia em [0008](0008-taxas-adquirentes-lucro.md)/[0018](done/0018-safe-acquirer-retry-breaker.md).
+Plano proposto em 2026-11-05. **Nenhuma implementação, migração ou comando contra banco remoto autorizado.** Refina e substitui as fases D–F do [plano 0010](../discarded/0010-unificacao-ofertas-cobrancas.md) com três decisões novas: (1) recorrência e planos são sempre da SimIntPay, nunca do adquirente; (2) `BillingContract` passa a ser a assinatura de uma oferta; (3) o escopo é a unificação completa, em fases. Depende de [0009](../discarded/0009-titularidade-ofertas-cobrancas.md) (titularidade) e se apoia em [0008](../0008-taxas-adquirentes-lucro.md)/[0018](0018-safe-acquirer-retry-breaker.md).
+
+## Estado final (2026-11-17): código completo, validação externa pendente
+
+Todo o código planejado está em `main`. Este plano foi arquivado como **code-complete**; os itens abaixo seguem **abertos e não foram validados**, e dependem do dono ou de ambientes externos.
+
+Entregue nesta rodada:
+
+- `offer-pricing.ts` unificado com o checkout avulso: `billing-core/cycle-pricing.ts` é a fonte única (inclui boleto, base com bump e cupom).
+- Renovação e reativação por cartão (`OfferRenewDto.paymentMethod`, `pix` por padrão): duas fases, idempotente por `cycle:<chargeId>:<attempts>`, recusa com 409 sem cartão guardado utilizável.
+- `runDue` e a renovação reabrem a cobrança do ciclo em `EXPIRED` (e `FAILED` na renovação) sem criar segunda cobrança.
+- Funil com paridade (ver plano 0023): título, preço "de", desconto, timer opcional só no cliente, limites 5/1/1, `isActive`.
+- Tabelas legadas, `Transaction.paymentLinkId` e `Offer.legacyType`/`legacyId` removidos do schema (migration escrita, **não aplicada**).
+
+Pendências abertas (não marcadas como concluídas):
+
+- [ ] Validar na DOM sandbox: cartão com token de carteira e `upsell: true`, `getTokenCard` com `customer_id`, repetição de `getOrCreateDomCustomer`, chave pública vs `DOM_TOKEN`, e a renovação por cartão (só exercitada com gateway simulado).
+- [ ] Fuso de `pixExpire` na tela de renovação; a tela de renovação do frontend ainda só envia PIX.
+- [ ] `trialDays`: decisão de produto (sem autorização de cartão no cadastro, nada entregue no trial).
+- [ ] Sem fallback automático quando uma tentativa de cartão fica `UNKNOWN`: depende do conciliador.
+- [ ] Aplicar as migrations em banco real (decisão e janela do dono).
+
 
 ## 1. Decisões
 
