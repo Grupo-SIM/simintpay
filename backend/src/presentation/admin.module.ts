@@ -9,7 +9,6 @@ import { LinkExternalPlatformUserService } from '../application/services/link-ex
 import { CpfLookupService } from '../infrastructure/http/cpf-lookup.service';
 import { SyncDomTransactionsCron } from '../infrastructure/cron/sync-dom-transactions.cron';
 import { SyncMaquinetasCron } from '../infrastructure/cron/sync-maquinetas.cron';
-import { ExpirationReminderCron } from '../infrastructure/cron/expiration-reminder.cron';
 import { CashbackGrantCron } from '../infrastructure/cron/cashback-grant.cron';
 import { WalletConsistencyCron } from '../infrastructure/cron/wallet-consistency.cron';
 import { AdminController } from './controllers/admin.controller';
@@ -78,7 +77,6 @@ import { SyncAcquirerWithdrawalsCron } from '../infrastructure/cron/sync-acquire
     SyncAcquirerWithdrawalsCron,
     SyncDomTransactionsCron,
     SyncMaquinetasCron,
-    ExpirationReminderCron,
     WalletConsistencyCron,
     CashbackGrantCron,
     ListLeadsUseCase,

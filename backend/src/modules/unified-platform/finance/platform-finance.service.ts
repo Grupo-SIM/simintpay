@@ -1,4 +1,3 @@
-import { offerWritesOnlyEnabled } from '../../offer/offer-writes-flag';
 import { mirrorPlanOffer } from '../../offer/mirror-plan-offer';
 import { EbookSimConfig } from '../../ebooksim/ebooksim.config';
 import { PLATFORM_TAXA_DEFAULTS } from '../../platform-taxas/platform-taxas.keys';
@@ -406,27 +405,7 @@ export class PlatformFinanceService {
           platform.acquirer !== context.acquirer)
       )
         throw new ConflictException('Contexto da plataforma mudou');
-      if (offerWritesOnlyEnabled())
-        return mirrorPlanOffer(p, tag, userId, code, data);
-      const existing = await p.plan.findUnique({ where: { code } });
-      if (
-        existing &&
-        (existing.userId !== userId || !existing.plataformas.includes(tag))
-      ) {
-        throw new ConflictException({
-          code: 'PLAN_PLATFORM_CONFLICT',
-          message: 'Plano sem vínculo explícito com plataforma e conta',
-        });
-      }
-      const row = existing
-        ? await p.plan.update({
-            where: { code },
-            data: { ...data, plataformas: [tag] },
-          })
-        : await p.plan.create({
-            data: { ...data, userId, code, plataformas: [tag] },
-          });
-      return { success: true, id: row.id, created: !existing };
+      return mirrorPlanOffer(p, tag, userId, code, data);
     });
   }
 

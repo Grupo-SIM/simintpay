@@ -5,11 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Offer } from '@prisma/client';
-import type { CreatePaymentLinkDto } from '../../application/dtos/payment-link/create-payment-link.dto';
-import type { ListPaymentLinksQueryDto } from '../../application/dtos/payment-link/list-payment-links.query.dto';
-import type { UpdatePaymentLinkDto } from '../../application/dtos/payment-link/update-payment-link.dto';
-import type { CreateSubscriptionLinkDto } from '../../application/dtos/subscription-link/create-subscription-link.dto';
-import type { UpdateSubscriptionLinkDto } from '../../application/dtos/subscription-link/update-subscription-link.dto';
+import type { CreatePaymentLinkDto } from './legacy-dto/create-payment-link.dto';
+import type { ListPaymentLinksQueryDto } from './legacy-dto/list-payment-links.query.dto';
+import type { UpdatePaymentLinkDto } from './legacy-dto/update-payment-link.dto';
+import type { CreateSubscriptionLinkDto } from './legacy-dto/create-subscription-link.dto';
+import type { UpdateSubscriptionLinkDto } from './legacy-dto/update-subscription-link.dto';
 import { USER_REPOSITORY } from '../../core/repositories/user.repository.interface';
 import type { IUserRepository } from '../../core/repositories/user.repository.interface';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';

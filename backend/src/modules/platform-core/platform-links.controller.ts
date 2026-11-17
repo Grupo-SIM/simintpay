@@ -25,24 +25,19 @@ import { ModuleRef } from '@nestjs/core';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { createHash } from 'node:crypto';
-import { offerWritesOnlyEnabled } from '../offer/offer-writes-flag';
 import {
   paymentLinkCreated,
   paymentLinkDetail,
   paymentLinkToCreateOffer,
   paymentLinkToUpdateOffer,
 } from '../offer/legacy-links.compat';
+import { CreatePaymentLinkDto } from '../offer/legacy-dto/create-payment-link.dto';
+import { UpdatePaymentLinkDto } from '../offer/legacy-dto/update-payment-link.dto';
 import { OfferService } from '../offer/offer.service';
 import { OfferAssetsService } from '../offer/offer-assets.service';
 import { PlatformAuthGuard } from './platform-auth.guard';
 import type { PlatformContext } from './platform-context.service';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
-import { CreatePaymentLinkDto } from '../../application/dtos/payment-link/create-payment-link.dto';
-import { UpdatePaymentLinkDto } from '../../application/dtos/payment-link/update-payment-link.dto';
-import { CreatePaymentLinkUseCase } from '../../application/use-cases/payment-link/create-payment-link.use-case';
-import { UpdatePaymentLinkUseCase } from '../../application/use-cases/payment-link/update-payment-link.use-case';
-import { ManagePaymentLinkFilesUseCase } from '../../application/use-cases/payment-link/manage-payment-link-files.use-case';
-import { OfferLegacyWriter } from '../offer/offer-legacy-freeze';
 type Request = { platformContext: PlatformContext };
 @Controller('platforms/:tag')
 @UseGuards(PlatformAuthGuard)
@@ -58,18 +53,7 @@ export class PlatformLinksController {
     private readonly prisma: PrismaService,
     private readonly modules: ModuleRef,
   ) {}
-  private async owned(c: PlatformContext, id: string) {
-    const link = await this.prisma.paymentLink.findFirst({
-      where: { id, userId: c.ownerUserId, plataformas: { has: c.tag } },
-    });
-    if (!link)
-      throw new NotFoundException('Link não encontrado nesta plataforma');
-    return link;
-  }
-  /**
-   * Read of a platform link: the id resolves through `Offer` (a non-recurring offer of the
-   * platform) and is shown in the legacy link shape.
-   */
+  /** Read of a platform link: the offer with the same id, shown in the legacy link shape. */
   private async ownedForRead(c: PlatformContext, id: string) {
     return paymentLinkDetail(await this.ownedOffer(c, id));
   }
@@ -144,7 +128,6 @@ export class PlatformLinksController {
           );
       }
   }
-  @OfferLegacyWriter()
   @Post('links')
   @SetMetadata('platform-operation', 'links:write')
   async create(
@@ -170,34 +153,14 @@ export class PlatformLinksController {
       })
     )
       return this.response(await this.ownedForRead(c, id));
-    if (offerWritesOnlyEnabled()) return this.createOffer(c, id, body);
-    const existing = await this.prisma.paymentLink.findUnique({
-      where: { id },
-    });
-    if (existing) return this.response(await this.owned(c, id));
-    try {
-      const result = await this.modules
-        .get(CreatePaymentLinkUseCase, { strict: false })
-        .execute({
-          userId: c.ownerUserId,
-          id,
-          dto: { ...body, isStandalone: false, plataformas: [c.tag] },
-        });
-      return this.response(result.data);
-    } catch (error) {
-      const concurrent = await this.prisma.paymentLink.findUnique({
-        where: { id },
-      });
-      if (concurrent) return this.response(await this.owned(c, id));
-      throw error;
-    }
+    return this.createOffer(c, id, body);
   }
+
   @Get('links/:id')
   @SetMetadata('platform-operation', 'links:read')
   async get(@Req() req: Request, @Param('id') id: string) {
     return this.response(await this.ownedForRead(req.platformContext, id));
   }
-  @OfferLegacyWriter()
   @Patch('links/:id')
   @SetMetadata('platform-operation', 'links:write')
   async update(
@@ -209,31 +172,20 @@ export class PlatformLinksController {
     if (body.plataformas !== undefined)
       throw new BadRequestException('Plataforma definida pela credencial');
     const c = req.platformContext;
-    if (offerWritesOnlyEnabled()) {
-      const existing = await this.ownedOffer(c, id);
-      await this.modules
-        .get(OfferService, { strict: false })
-        .update(
-          this.actor(c),
-          id,
-          paymentLinkToUpdateOffer(
-            { ...body, isStandalone: false, plataformas: [c.tag] },
-            existing,
-          ),
-        );
-      return this.response(await this.ownedForRead(c, id));
-    }
-    await this.owned(c, id);
+    const existing = await this.ownedOffer(c, id);
     await this.modules
-      .get(UpdatePaymentLinkUseCase, { strict: false })
-      .execute({
+      .get(OfferService, { strict: false })
+      .update(
+        this.actor(c),
         id,
-        userId: c.ownerUserId,
-        dto: { ...body, isStandalone: false, plataformas: [c.tag] },
-      });
-    return this.response(await this.owned(c, id));
+        paymentLinkToUpdateOffer(
+          { ...body, isStandalone: false, plataformas: [c.tag] },
+          existing,
+        ),
+      );
+    return this.response(await this.ownedForRead(c, id));
   }
-  @OfferLegacyWriter()
+
   @Post('links/:id/files')
   @SetMetadata('platform-operation', 'links:write')
   @UseInterceptors(
@@ -248,55 +200,19 @@ export class PlatformLinksController {
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     const c = req.platformContext;
-    if (offerWritesOnlyEnabled()) {
-      await this.ownedOffer(c, id);
-      if (!files?.length) throw new BadRequestException('Envie PDFs');
-      for (const file of files)
-        if (
-          file.mimetype !== 'application/pdf' ||
-          file.buffer.subarray(0, 5).toString() !== '%PDF-'
-        )
-          throw new BadRequestException('Apenas PDFs');
-      return this.modules
-        .get(OfferAssetsService, { strict: false })
-        .uploadFiles(this.actor(c), id, files);
-    }
-    await this.owned(c, id);
+    await this.ownedOffer(c, id);
     if (!files?.length) throw new BadRequestException('Envie PDFs');
-    const results: unknown[] = [];
-    for (const file of files) {
+    for (const file of files)
       if (
         file.mimetype !== 'application/pdf' ||
         file.buffer.subarray(0, 5).toString() !== '%PDF-'
       )
         throw new BadRequestException('Apenas PDFs');
-      const hash = createHash('sha256').update(file.buffer).digest('hex');
-      const name = `${hash}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-      // Advisory lock serializes retries across API instances, including storage upload.
-      await this.prisma.$transaction(
-        async (tx) => {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id + ':' + hash}))`;
-          const existing = await tx.paymentLinkFile.findFirst({
-            where: { paymentLinkId: id, fileName: name },
-          });
-          if (existing) {
-            results.push(existing);
-            return;
-          }
-          const result = await this.modules
-            .get(ManagePaymentLinkFilesUseCase, { strict: false })
-            .uploadFiles({
-              userId: c.ownerUserId,
-              linkId: id,
-              files: [{ ...file, originalname: name }],
-            });
-          results.push(...result.files);
-        },
-        { timeout: 60_000 },
-      );
-    }
-    return { files: results };
+    return this.modules
+      .get(OfferAssetsService, { strict: false })
+      .uploadFiles(this.actor(c), id, files);
   }
+
   @Get('pricing/simulation')
   @SetMetadata('platform-operation', 'reports:read')
   async simulation(@Req() req: Request, @Query('amountCents') raw: string) {

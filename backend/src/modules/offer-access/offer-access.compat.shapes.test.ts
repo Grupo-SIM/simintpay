@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import { PixPlanService } from '../../application/use-cases/pix-plan/pix-plan.service';
 import { OfferAccessCompatService } from './offer-access.compat.service';
 import { OfferAccessService } from './offer-access.service';
-import { offerPixPlanCompatEnabled } from './pixplan-compat-flag';
 
 /**
  * The same logical fixture feeds the legacy PixPlanService (PixCreditPlan / PixPlanLinkCode /
@@ -188,19 +187,6 @@ describe('compat responses match the legacy PIX plan controller', () => {
     );
     await expect(c.compat.getLinkCodeDetails('PX-NOPE')).rejects.toThrow(
       'Link code PIX-PLAN não encontrado',
-    );
-  });
-});
-
-describe('OFFER_PIXPLAN_COMPAT flag', () => {
-  it('is off by default and on for 1/true', () => {
-    expect(offerPixPlanCompatEnabled({})).toBe(false);
-    expect(offerPixPlanCompatEnabled({ OFFER_PIXPLAN_COMPAT: '0' })).toBe(
-      false,
-    );
-    expect(offerPixPlanCompatEnabled({ OFFER_PIXPLAN_COMPAT: '1' })).toBe(true);
-    expect(offerPixPlanCompatEnabled({ OFFER_PIXPLAN_COMPAT: 'true' })).toBe(
-      true,
     );
   });
 });

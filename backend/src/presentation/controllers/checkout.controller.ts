@@ -9,6 +9,8 @@ import {
 } from '../../modules/platform-core/ebook-pending-adoption';
 import { recoverEbookPayment } from '../../modules/platform-core/ebook-recovery';
 import { timingSafeEqual } from 'node:crypto';
+import { findOfferByCodeOrId } from '../../modules/offer/find-offer-by-code-or-id';
+import { findOfferByAlias } from '../../modules/offer-access/find-offer-by-alias';
 import { transactionPlatformTagData } from '../../modules/platform-core/transaction-platform';
 import {
   loadChargePolicy,
@@ -366,410 +368,49 @@ export class CheckoutController {
       where: {
         OR: [{ domPaymentId: id }, { id }, { externalPaymentId: id }],
       },
-      select: { status: true, domPaymentId: true },
-    });
-
-    if (!tx) throw new NotFoundException('Pagamento não encontrado');
-
-    const statusMap: Record<string, string> = {
-      COMPLETED: 'COMPLETED',
-      PENDING: 'PENDING',
-      FAILED: 'FAILED',
-      EXPIRED: 'EXPIRED',
-      DRAFT: 'PENDING',
-    };
-
-    return {
-      id,
-      status: statusMap[tx.status] ?? tx.status,
-    };
-  }
-
-  @Sse('pix/:paymentId/sse')
-  @ApiOperation({
-    summary:
-      'SSE: receber confirmação de pagamento PIX em tempo real (ebook/pagatg)',
-  })
-  ssePaymentStatus(
-    @Param('paymentId') paymentId: string,
-    @Res({ passthrough: true }) res: Response,
-  ): Observable<MessageEvent> {
-    // Headers obrigatórios para SSE funcionar atrás de nginx/proxy
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.setHeader('Cache-Control', 'no-cache, no-store');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-
-    if (!this.checkoutEvents) {
-      return NEVER;
-    }
-
-    // Heartbeat a cada 8s para evitar timeout do nginx/proxy
-    const heartbeat$ = timer(0, 8000).pipe(
-      map(
-        () =>
-          ({ data: { type: 'heartbeat' }, type: 'heartbeat' }) as MessageEvent,
-      ),
-    );
-
-    const payment$ = this.checkoutEvents.getStream(paymentId).pipe(
-      map(
-        (event) =>
-          ({
-            data: event,
-            id: event.domPaymentId,
-            type: 'payment-status',
-          }) as MessageEvent,
-      ),
-    );
-
-    return merge(heartbeat$, payment$);
-  }
-
-  /**
-   * Retorna as opções de parcelamento pela política financeira para checkout de cartão avulso (ebook).
-   * Usado pelo frontend antes de exibir o dropdown de parcelas.
-   */
-  @Post('card/installment-options')
-  @ApiOperation({
-    summary:
-      'Calcular opções de parcelamento pela política financeira por plataforma',
-  })
-  async getCardInstallmentOptions(
-    @Body() body: { price: number; store?: string; maxInstallments?: number },
-  ) {
-    const price = Number(body.price);
-    if (!Number.isFinite(price) || price <= 0)
-      throw new BadRequestException('Valor inválido');
-
-    const store = String(body.store || 'GLOBAL').toUpperCase();
-    // Aceita qualquer plataforma configurada; CARDMACHINE sem tag específica cai em GLOBAL
-    const tenantTag = store === 'CARDMACHINE' ? 'GLOBAL' : store;
-    if (tenantTag !== 'GLOBAL' && !getRegisteredPlatform(tenantTag))
-      throw new BadRequestException('Plataforma não cadastrada');
-    const max = Math.min(Math.max(Number(body.maxInstallments) || 1, 1), 12);
-
-    const financialContext = await loadChargePolicy(this.prisma, tenantTag);
-    const options = [];
-    for (let n = 1; n <= max; n++) {
-      const quote = quoteFinancialCharge(
-        financialContext,
-        price,
-        'CREDIT_CARD',
-        n,
-      );
-      if (quote) {
-        options.push({
-          installments: n,
-          masterRate: quote.platformFeeRate / 100,
-          interestAmount: quote.interestAmount,
-          domRate: 0,
-          domFeeAmount: 0,
-          totalAmount: quote.totalAmount,
-          installmentAmount: quote.installmentAmount,
-          hasInterest: quote.interestAmount > 0,
-        });
-        continue;
-      }
-      throw new BadRequestException({ code: 'FINANCIAL_POLICY_MISSING' });
-    }
-    return { options };
-  }
-
-  /**
-   * Endpoint público para pagamento com cartão de crédito avulso (ebook e outros).
-   * Substitui o endpoint api-dom.jbmidia.com/payments/credit-card para store=ebook.
-   * Aplica os juros da política financeira por parcela para calcular o valor que o comprador paga.
-   */
-  @Post('card')
-  @ApiOperation({
-    summary: 'Criar pagamento com cartão de crédito avulso (ebook/store)',
-  })
-  async createPublicCard(
-    @Body()
-    body: {
-      price: number;
-      holder_name: string;
-      token: string;
-      bin: string;
-      brand: string;
-      installments: number;
-      description: string;
-      name: string;
-      email: string;
-      document: string;
-      document_type?: 'CPF' | 'CNPJ';
-      mobile_phone?: string;
-      store?: string;
-      orderNumber?: string;
-      settlementId?: string;
-      settlementToken?: string;
-      tracking?: Record<string, string>;
-    },
-  ) {
-    const domToken = platformGatewayToken(
-      String(body.store || 'EBOOK'),
-      process.env.DOM_TOKEN,
-    );
-    if (!domToken)
-      throw new BadRequestException('Gateway de pagamento não configurado');
-
-    const price = Number(body.price);
-    if (!Number.isFinite(price) || price <= 0)
-      throw new BadRequestException('Valor inválido');
-    if (!body.holder_name?.trim())
-      throw new BadRequestException('Nome do titular é obrigatório');
-    if (!body.token)
-      throw new BadRequestException('Token do cartão é obrigatório');
-    if (!body.email?.includes('@'))
-      throw new BadRequestException('Email inválido');
-    if (!body.document)
-      throw new BadRequestException('Documento é obrigatório');
-
-    const n = Math.min(Math.max(Number(body.installments) || 1, 1), 12);
-    const store = String(body.store || 'ebook').toUpperCase();
-    const tenantTag = store === 'CARDMACHINE' ? 'GLOBAL' : store;
-    if (tenantTag !== 'GLOBAL' && !getRegisteredPlatform(tenantTag))
-      throw new BadRequestException('Plataforma não cadastrada');
-    const orderNumber = body.orderNumber
-      ? String(body.orderNumber).trim()
-      : null;
-    const description = String(body.description ?? '').trim() || 'Pedido ebook';
-    const documentType =
-      body.document_type ??
-      (body.document.replace(/\D/g, '').length <= 11 ? 'CPF' : 'CNPJ');
-
-    const financialQuote = quoteFinancialCharge(
-      await loadChargePolicy(this.prisma, tenantTag),
-      price,
-      'CREDIT_CARD',
-      n,
-    );
-    if (!financialQuote)
-      throw new BadRequestException({ code: 'FINANCIAL_POLICY_MISSING' });
-    const totalAmount = financialQuote.totalAmount;
-    const domFeeAmount = financialQuote.domFeeAmount;
-    const installmentAmount = Math.round((totalAmount / n) * 100) / 100;
-
-    // Pedido Ebook sem manifesto: paga a entrada pendente do vendedor (EBOOK_PENDING_<pedido>) em vez de
-    // criar um rascunho FINAL_NET do dono da plataforma, que nunca a concluiria.
-    let transaction: { id: string } | null = await findAdoptableEbookEntry(
-      this.prisma,
-      {
-        store,
-        orderNumber,
-        settlementId: body.settlementId,
-        price,
-      },
-    );
-    const adopted = transaction !== null;
-
-    if (!transaction) {
-      const ebookUserId = getPlatformOwnerId(tenantTag);
-      if (!ebookUserId)
-        throw new BadRequestException('Plataforma sem dono ativo cadastrado');
-
-      const netAmountDec = new Prisma.Decimal(financialQuote.netAmount);
-      const netAmount = Number(netAmountDec.toFixed(2));
-      const totalFee = Math.round((totalAmount - netAmount) * 100) / 100;
-      const domFee = Math.round(domFeeAmount * 100) / 100;
-      const platformFee = Math.round((totalFee - domFee) * 100) / 100;
-
-      transaction = await this.prisma.transaction.create({
-        data: {
-          userId: ebookUserId,
-          ...(financialQuote
-            ? {
-                financialSnapshot: financialQuote.financialSnapshot,
-                settlementBasis: 'FINAL_NET' as const,
-              }
-            : {}),
-          amount: new Prisma.Decimal(totalAmount),
-          netAmount: netAmountDec,
-          status: 'DRAFT',
-          paymentMethod: 'CREDIT_CARD',
-          installments: n,
-          totalFee: new Prisma.Decimal(totalFee),
-          acquirerFee: new Prisma.Decimal(domFee),
-          platformFee: new Prisma.Decimal(platformFee),
-          ...transactionPlatformTagData(tenantTag),
-          description: `${description} [TENANT:${tenantTag}]${orderNumber ? ` [ORDER:${orderNumber}]` : ''}`,
-          customerName: body.name.trim(),
-          customerEmail: body.email.trim(),
-          customerDocument: body.document.replace(/\D/g, ''),
-          customerPhone: (body.mobile_phone ?? '').replace(/\D/g, ''),
-          tracking: paymentTracking(body.tracking),
-        },
-      });
-    }
-
-    const enrolled = adopted
-      ? false
-      : await claimEbookPayment(
-          this.prisma,
-          body,
-          transaction.id,
-          financialQuote,
-        );
-    // Chamar DOM API diretamente para criar transação de cartão
-    const domUrl =
-      'https://apiv3.dompagamentos.com.br/checkout/production/transactions';
-    const domBody = {
-      cod_external: transaction.id,
-      customer: {
-        document: body.document.replace(/\D/g, ''),
-        document_type: documentType,
-        email: body.email.trim(),
-        mobile_phone: (body.mobile_phone ?? '').replace(/\D/g, ''),
-        name: body.name.trim(),
-      },
-      items: {
-        description,
-        price,
-        quantity: 1,
-      },
-      payment: {
-        credit_card: {
-          holder_name: body.holder_name,
-          token: body.token,
-          bin: body.bin,
-          brand: body.brand,
-          installments: n,
-          installment_amount: installmentAmount,
-        },
-        payment_method: 'credit_card',
-        total: totalAmount,
-      },
-    };
-
-    const domResponse = await fetch(domUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${domToken}`,
-        accept: 'application/json',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(domBody),
-    });
-
-    const domData = await domResponse.json();
-    if (!domResponse.ok) {
-      throw new BadRequestException(
-        domData?.message || 'Erro ao processar pagamento no gateway',
-      );
-    }
-
-    const domPaymentId = domData?.data?.id ?? domData?.id;
-    if (enrolled) {
-      await bindEbookPayment(this.prisma, transaction.id, domPaymentId ?? '');
-    }
-    if (domPaymentId && adopted) {
-      await bindAdoptedEbookEntry(this.prisma, transaction.id, {
-        externalPaymentId: domPaymentId,
-        acquirer: Acquirer.DOM,
-        method: 'CREDIT_CARD',
-        installments: n,
-      });
-    } else if (domPaymentId) {
-      await this.prisma.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: 'PENDING',
-          domPaymentId,
-          ...trackingUpdate(body.tracking),
-        },
-      });
-    }
-
-    return {
-      id: domPaymentId ?? transaction.id,
-      transactionId: transaction.id,
-      status: domData?.data?.status ?? domData?.status ?? 'PENDING',
-      installments: n,
-      installmentAmount,
-      totalAmount,
-    };
-  }
-
-  @Post('public/validate-voucher')
-  @ApiOperation({
-    summary: 'Validar voucher para checkout público (PIX Plan ou Avulso)',
-  })
-  async validateVoucher(
-    @Body() body: { linkCode: string; voucherCode: string; amount: number },
-  ) {
-    // Busca o plano pelo code para descobrir o dono (userId)
-    const plan = await this.prisma.pixCreditPlan.findFirst({
-      where: { linkCodes: { some: { code: body.linkCode } } },
-    });
-
-    if (!plan)
-      throw new NotFoundException('Plano não encontrado para este código');
-
-    const result = await this.voucherService.validateVoucherPublic({
-      code: body.voucherCode,
-      amount: body.amount,
-      channel: 'PAGATG',
-      linkCode: body.linkCode,
-      planId: plan.id,
-      targetOwnerId: plan.userId,
-    });
-
-    return result;
-  }
-
-  @Get('public/purchase/:id')
-  @ApiOperation({
-    summary: 'Detalhes públicos de uma compra (checkout success)',
-  })
-  async getPurchaseDetails(@Param('id') id: string) {
-    const tx = await this.prisma.transaction.findFirst({
-      where: {
-        OR: [{ domPaymentId: id }, { id }, { externalPaymentId: id }],
-      },
-      include: {
-        pixPlanOrder: { include: { pixCreditPlan: true } },
-      },
+      include: { charge: { include: { offer: true } } },
     });
 
     if (!tx) {
-      // Tentar buscar direto na SubscriptionLinkOrder (algumas assinaturas não criam Transaction imediatamente ou usam ID diferente)
-      const order = await this.prisma.subscriptionLinkOrder.findUnique({
+      // Algumas assinaturas não criam Transaction imediatamente: o id é o do contrato.
+      const contract = await this.prisma.billingContract.findUnique({
         where: { id },
-        include: { subscriptionLink: true },
+        include: { offer: true },
       });
 
-      if (!order) throw new NotFoundException('Compra não encontrada');
+      if (!contract) throw new NotFoundException('Compra não encontrada');
 
       return {
-        id: order.id,
+        id: contract.id,
         type: 'SUBSCRIPTION',
-        status: order.status.toUpperCase(),
+        status: contract.status,
         payment_method: 'credit_card', // Fallback
-        description: order.subscriptionLink?.name || 'Assinatura',
+        description: contract.offer?.name || 'Assinatura',
         customer: {
-          email: order.customerEmail,
-          name: order.customerName,
+          email: contract.customerEmail,
+          name: contract.customerName,
         },
         subscription: {
-          createdAt: order.createdAt,
+          createdAt: contract.createdAt,
           plan: {
-            description: order.subscriptionLink?.name,
-            value: Number(order.amountCharged),
+            description: contract.offer?.name,
+            value: Number(contract.unitAmount),
           },
         },
       };
     }
 
-    const isPixPlan = !!tx.pixPlanOrder;
-    // Busca se existe uma ordem de assinatura vinculada (via domPaymentId do PIX ou ID da transação)
-    const subOrder = await this.prisma.subscriptionLinkOrder.findFirst({
-      where: {
-        OR: [{ domPixPaymentId: tx.domPaymentId ?? undefined }, { id: tx.id }],
-      },
-      include: { subscriptionLink: true },
-    });
-    const isSub = !!subOrder;
+    const charge = tx.charge;
+    const offer = charge?.offer ?? null;
+    const isPixPlan = offer?.legacyType === 'PixCreditPlan';
+    const isSub = !!offer && !isPixPlan && offer.renewalMode !== 'NONE';
+    const daysCredited =
+      charge?.periodStart && charge.periodEnd
+        ? Math.round(
+            (charge.periodEnd.getTime() - charge.periodStart.getTime()) /
+              86_400_000,
+          )
+        : 0;
 
     return {
       id: tx.id,
@@ -786,22 +427,23 @@ export class CheckoutController {
         amount: Number(tx.amount),
       },
       plan:
-        isPixPlan && tx.pixPlanOrder?.pixCreditPlan
+        isPixPlan && offer
           ? {
-              name: tx.pixPlanOrder.pixCreditPlan.description || 'Plano PIX',
-              price: Number(tx.pixPlanOrder.pixCreditPlan.price),
-              daysCredited: tx.pixPlanOrder.daysCredited,
+              name: offer.description || offer.name || 'Plano PIX',
+              price: offer.amountCents / 100,
+              daysCredited,
             }
           : null,
-      subscription: subOrder
-        ? {
-            createdAt: tx.createdAt,
-            plan: {
-              description: subOrder.subscriptionLink?.name,
-              value: Number(subOrder.amountCharged ?? tx.amount),
-            },
-          }
-        : null,
+      subscription:
+        isSub && offer
+          ? {
+              createdAt: tx.createdAt,
+              plan: {
+                description: offer.name,
+                value: Number(tx.amount),
+              },
+            }
+          : null,
       planAccess: isPixPlan
         ? {
             isActive: tx.status === 'COMPLETED',

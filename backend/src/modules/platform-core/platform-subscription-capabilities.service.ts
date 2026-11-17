@@ -1,4 +1,3 @@
-import { offerWritesOnlyEnabled } from '../offer/offer-writes-flag';
 import { OfferService } from '../offer/offer.service';
 import { subscriptionLinkToCreateOffer } from '../offer/legacy-links.compat';
 import { PlatformFinanceService } from '../unified-platform/finance/platform-finance.service';
@@ -10,7 +9,6 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
-import { CreateSubscriptionLinkUseCase } from '../../application/use-cases/subscription-link/create-subscription-link.use-case';
 import {
   PlatformContextService,
   type PlatformContext,
@@ -58,56 +56,30 @@ export class PlatformSubscriptionCapabilitiesService {
       unsupportedCapability('subscriptions.create.FRENDZ');
     if (!Number.isSafeInteger(body.amountCents) || body.amountCents <= 0)
       throw new BadRequestException('amountCents inválido');
-    if (offerWritesOnlyEnabled()) {
-      const offer = await this.modules
-        .get(OfferService, { strict: false })
-        .create(
-          { id: current.ownerUserId, role: 'USER' },
-          subscriptionLinkToCreateOffer(
-            {
-              nome: body.name,
-              descricao: body.description,
-              valor: new Prisma.Decimal(body.amountCents).div(100).toNumber(),
-              frequencia: body.frequency,
-              paymentMethods: 'BOTH',
-              platformTag: current.tag,
-              plataformas: [current.tag],
-            } as never,
-            current.ownerUserId,
-          ),
-        );
-      return {
-        id: offer.id,
-        code: offer.code,
-        name: offer.name,
-        amountCents: offer.amountCents,
-        frequency: body.frequency,
-        isActive: offer.isActive,
-      };
-    }
-    const result = await this.modules
-      .get(CreateSubscriptionLinkUseCase, { strict: false })
-      .execute({
-        userId: current.ownerUserId,
-        role: 'USER',
-        dto: {
-          nome: body.name,
-          descricao: body.description,
-          valor: new Prisma.Decimal(body.amountCents).div(100).toNumber(),
-          frequencia: body.frequency,
-          isStandalone: true,
-          paymentMethods: 'BOTH',
-          platformTag: current.tag,
-          plataformas: [current.tag],
-        },
-      });
+    const offer = await this.modules
+      .get(OfferService, { strict: false })
+      .create(
+        { id: current.ownerUserId, role: 'USER' },
+        subscriptionLinkToCreateOffer(
+          {
+            nome: body.name,
+            descricao: body.description,
+            valor: new Prisma.Decimal(body.amountCents).div(100).toNumber(),
+            frequencia: body.frequency,
+            paymentMethods: 'BOTH',
+            platformTag: current.tag,
+            plataformas: [current.tag],
+          } as never,
+          current.ownerUserId,
+        ),
+      );
     return {
-      id: result.data.id,
-      code: result.data.codigo,
-      name: result.data.nome,
-      amountCents: new Prisma.Decimal(result.data.valor).mul(100).toNumber(),
+      id: offer.id,
+      code: offer.code,
+      name: offer.name,
+      amountCents: offer.amountCents,
       frequency: body.frequency,
-      isActive: result.data.ativo,
+      isActive: offer.isActive,
     };
   }
 

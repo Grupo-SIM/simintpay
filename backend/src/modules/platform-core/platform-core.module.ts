@@ -5,7 +5,6 @@ import { ReportSessionGuard } from './report-session.guard';
 import { PlatformLinksController } from './platform-links.controller';
 import { PlatformSalesEventsController } from './platform-sales-events.controller';
 import { PlatformSalesEventsService } from './platform-sales-events.service';
-import { PaymentLinkModule } from '../../presentation/payment-link.module';
 import { PlatformReportProjectionsController } from './platform-report-projections.controller';
 import { PlatformSubscriptionCapabilitiesController } from './platform-subscription-capabilities.controller';
 import { PlatformSubscriptionCapabilitiesService } from './platform-subscription-capabilities.service';
@@ -31,7 +30,6 @@ import { PlatformEventsModule } from './platform-events.module';
 
 @Module({
   imports: [
-    PaymentLinkModule,
     WebhookModule,
     PrismaModule,
     ApiDomModule,

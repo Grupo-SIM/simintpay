@@ -7,7 +7,7 @@ import { acceptedMethodList } from '../../application/helpers/accepted-payment-m
 type PlanMirror = Omit<Prisma.PlanUncheckedCreateInput, 'userId' | 'code'>;
 
 /**
- * Phase 4 (`OFFER_WRITES_ONLY=1`): the platform plan import is stored as a recurring `Offer`
+ * The platform plan import is stored as a recurring `Offer`
  * identified by the partner code (`OfferCodeAlias`-free: the partner code is the offer code).
  * Same ownership and platform conflict rule as the legacy `Plan` mirror.
  */

@@ -10,11 +10,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { CreatePaymentLinkDto } from '../../application/dtos/payment-link/create-payment-link.dto';
-import { ListPaymentLinksQueryDto } from '../../application/dtos/payment-link/list-payment-links.query.dto';
-import { UpdatePaymentLinkDto } from '../../application/dtos/payment-link/update-payment-link.dto';
-import { CreateSubscriptionLinkDto } from '../../application/dtos/subscription-link/create-subscription-link.dto';
-import { UpdateSubscriptionLinkDto } from '../../application/dtos/subscription-link/update-subscription-link.dto';
+import { CreatePaymentLinkDto } from './legacy-dto/create-payment-link.dto';
+import { ListPaymentLinksQueryDto } from './legacy-dto/list-payment-links.query.dto';
+import { UpdatePaymentLinkDto } from './legacy-dto/update-payment-link.dto';
+import { CreateSubscriptionLinkDto } from './legacy-dto/create-subscription-link.dto';
+import { UpdateSubscriptionLinkDto } from './legacy-dto/update-subscription-link.dto';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
@@ -27,8 +27,8 @@ const actorOf = (user: JwtPayload | undefined): OfferActor => ({
 });
 
 /**
- * `/links-pagamento` adapter backed by `Offer`. Mounted instead of `PaymentLinkController` when
- * `OFFER_LEGACY_LINKS_COMPAT=1` (see `legacy-links.compat.ts`). Charge, PIX, file and funnel
+ * `/links-pagamento` adapter backed by `Offer`. The only controller of that path (the legacy
+ * link controllers were removed). Charge, PIX, file and funnel
  * routes are not ported: the new checkout uses `/ofertas`.
  */
 @Controller('links-pagamento')

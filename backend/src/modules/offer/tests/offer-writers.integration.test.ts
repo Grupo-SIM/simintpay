@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import 'reflect-metadata';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
@@ -7,17 +7,8 @@ import { PrismaUserRepository } from '../../../infrastructure/database/repositor
 import { PlatformFinanceService } from '../../unified-platform/finance/platform-finance.service';
 import { PlatformLinksController } from '../../platform-core/platform-links.controller';
 import { LegacyLinksCompatService } from '../legacy-links.compat.service';
-import {
-  compatLinkControllers,
-  legacyLinkControllers,
-} from '../legacy-links.compat';
 import { initializePlatformRegistryCache } from '../../module.registry';
 import { OfferAssetsService } from '../offer-assets.service';
-import {
-  OFFER_WRITES_ONLY_ENV,
-  recordProductUse,
-  transactionProductRef,
-} from '../offer-writes-flag';
 import { OfferService } from '../offer.service';
 
 const url = process.env.OFFER_TEST_DATABASE_URL;
@@ -29,12 +20,6 @@ const db = url
 afterAll(async () => {
   await db?.$disconnect();
 });
-beforeEach(() => {
-  delete process.env[OFFER_WRITES_ONLY_ENV];
-});
-const on = () => {
-  process.env[OFFER_WRITES_ONLY_ENV] = '1';
-};
 
 async function seed() {
   const prisma = db!;
@@ -88,57 +73,6 @@ async function seed() {
 }
 
 test.skipIf(!db)(
-  'usage counter: Offer.usedCount with the flag, legacy column without',
-  async () => {
-    const { prisma, owner, sfx } = await seed();
-    const offer = await prisma.offer.create({
-      data: {
-        ownerUserId: owner.id,
-        createdByUserId: owner.id,
-        code: `UC${sfx}`.toUpperCase(),
-        name: 'uc',
-        amountCents: 5000,
-        acceptedMethods: ['PIX'],
-      } as never,
-    });
-    let legacyCalls = 0;
-    const legacy = async () => {
-      legacyCalls++;
-    };
-    await recordProductUse(prisma as never, offer.id, legacy);
-    expect(legacyCalls).toBe(1);
-    expect(
-      (await prisma.offer.findUnique({ where: { id: offer.id } }))!.usedCount,
-    ).toBe(0);
-    on();
-    await recordProductUse(prisma as never, offer.id, legacy);
-    await recordProductUse(prisma as never, offer.id, legacy);
-    expect(legacyCalls).toBe(1);
-    expect(
-      (await prisma.offer.findUnique({ where: { id: offer.id } }))!.usedCount,
-    ).toBe(2);
-  },
-);
-
-test('transaction product reference follows the flag', () => {
-  expect(transactionProductRef('l1', {})).toEqual({ paymentLinkId: 'l1' });
-  expect(transactionProductRef('l1', { OFFER_WRITES_ONLY: '1' })).toEqual({
-    offerId: 'l1',
-  });
-  expect(transactionProductRef(undefined, { OFFER_WRITES_ONLY: '1' })).toEqual(
-    {},
-  );
-});
-
-test('REST adapters: legacy controllers off, compat controllers on', () => {
-  expect(legacyLinkControllers(['L'], {})).toEqual(['L']);
-  expect(compatLinkControllers(['C'], {})).toEqual([]);
-  const env = { OFFER_WRITES_ONLY: '1' };
-  expect(legacyLinkControllers(['L'], env)).toEqual([]);
-  expect(compatLinkControllers(['C'], env)).toEqual(['C']);
-});
-
-test.skipIf(!db)(
   'REST adapters answer from Offer: create, list, edit, deactivate',
   async () => {
     const { prisma, owner, tag, users, offers } = await seed();
@@ -168,11 +102,10 @@ test.skipIf(!db)(
 );
 
 test.skipIf(!db)(
-  'platform routes: flag on writes only Offer (create, replay, edit, files)',
+  'platform routes write only Offer (create, replay, edit, files)',
   async () => {
     const { prisma, modules, context } = await seed();
     process.env.SIMPAY_CHECKOUT_URL = 'https://checkout.test/';
-    on();
     const controller = new PlatformLinksController(
       prisma as never,
       modules as never,
@@ -220,39 +153,7 @@ test.skipIf(!db)(
 );
 
 test.skipIf(!db)(
-  'platform routes: flag off keeps the legacy use cases (Offer untouched)',
-  async () => {
-    const { prisma, modules, context } = await seed();
-    process.env.SIMPAY_CHECKOUT_URL = 'https://checkout.test/';
-    let executed = 0;
-    const legacyModules = {
-      get: () => ({
-        execute: async () => {
-          executed++;
-          return { data: { id: 'legacy-id' } };
-        },
-      }),
-    };
-    const controller = new PlatformLinksController(
-      prisma as never,
-      legacyModules as never,
-    );
-    const result = await controller.create(
-      { platformContext: context } as never,
-      { titulo: 'Livro', valor: 27 } as never,
-      'key-2',
-    );
-    expect(executed).toBe(1);
-    expect(result.data.id).toBe('legacy-id');
-    expect(
-      await prisma.offer.count({ where: { platformTag: context.tag } }),
-    ).toBe(0);
-    void modules;
-  },
-);
-
-test.skipIf(!db)(
-  'platform plan import (mirrorPlan): Offer with the flag, Plan without',
+  'platform plan import (mirrorPlan) writes Offer',
   async () => {
     const { prisma, owner, tag } = await seed();
     const service = new PlatformFinanceService(prisma as never);
@@ -263,7 +164,6 @@ test.skipIf(!db)(
       paymentMethods: 'CREDIT_CARD',
     } as never;
     const code = `PLAN${tag}`;
-    on();
     const first = await service.mirrorPlan(tag, owner.id, code, data);
     expect(first.created).toBe(true);
     const again = await service.mirrorPlan(tag, owner.id, code, {
@@ -284,19 +184,11 @@ test.skipIf(!db)(
     await expect(
       service.mirrorPlan(tag, other.id, code, data),
     ).rejects.toThrow();
-    delete process.env[OFFER_WRITES_ONLY_ENV];
-    await service.mirrorPlan(tag, owner.id, `LEG${tag}`, data);
-    expect(
-      await prisma.plan.findUnique({ where: { code: `LEG${tag}` } }),
-    ).not.toBeNull();
-    expect(
-      await prisma.offer.findUnique({ where: { code: `LEG${tag}` } }),
-    ).toBeNull();
   },
 );
 
 test.skipIf(!db)(
-  'admin cobrança link: Offer with the flag, PaymentLink without',
+  'admin cobrança link is an Offer',
   async () => {
     const { prisma, owner } = await seed();
     const make = (
@@ -309,14 +201,6 @@ test.skipIf(!db)(
         ) => Promise<{ id: string }>;
       }
     ).createCobrancaLink.bind({ prisma });
-    const legacy = await make(owner.id, 'Cobrança', 20, null);
-    expect(
-      await prisma.paymentLink.findUnique({ where: { id: legacy.id } }),
-    ).not.toBeNull();
-    expect(
-      await prisma.offer.findUnique({ where: { id: legacy.id } }),
-    ).toBeNull();
-    on();
     const offer = await make(owner.id, 'Cobrança', 20, null);
     expect(
       (await prisma.offer.findUnique({ where: { id: offer.id } }))!.platformTag,

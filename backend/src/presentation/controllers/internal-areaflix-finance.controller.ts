@@ -2,7 +2,6 @@ import { LegacyInternalAuthGuard } from '../../modules/platform-core/legacy-inte
 import { SetMetadata, UseGuards } from '@nestjs/common';
 import { InternalAreaflixFinanceService } from '../../modules/unified-platform/finance/legacy-areaflix-finance.service';
 import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
-import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 /**
  * Endpoints internos consumidos pelo saas-netflix-back (areaflix).
@@ -57,7 +56,6 @@ export class InternalAreaflixFinanceController {
    * para a conta simpay do admin (resolvida por CPF/CNPJ). A partir daí as vendas
    * creditam a carteira do próprio admin. Idempotente.
    */
-  @OfferLegacyWriter()
   @Post('claim-links')
   async claimLinks(
     @Body()

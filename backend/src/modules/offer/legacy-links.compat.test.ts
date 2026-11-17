@@ -20,9 +20,6 @@ import { USER_REPOSITORY } from '../../core/repositories/user.repository.interfa
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { PrismaService } from '../../infrastructure/database/prisma/prisma.service';
 import {
-  compatLinkControllers,
-  legacyLinkControllers,
-  legacyLinksCompatEnabled,
   paymentLinkToCreateOffer,
   paymentLinkToUpdateOffer,
   subscriptionLinkToCreateOffer,
@@ -63,109 +60,16 @@ const row = (over: Record<string, unknown> = {}): any => ({
   ...over,
 });
 
-describe('OFFER_LEGACY_LINKS_COMPAT flag', () => {
-  test('is off unless exactly "1"', () => {
-    expect(legacyLinksCompatEnabled({})).toBe(false);
-    expect(legacyLinksCompatEnabled({ OFFER_LEGACY_LINKS_COMPAT: '0' })).toBe(
-      false,
-    );
-    expect(legacyLinksCompatEnabled({ OFFER_LEGACY_LINKS_COMPAT: '1' })).toBe(
-      true,
-    );
-  });
-
-  test('OFFER_WRITES_ONLY=1 mounts the adapters too', () => {
-    expect(legacyLinksCompatEnabled({ OFFER_WRITES_ONLY: '1' })).toBe(true);
-    expect(legacyLinksCompatEnabled({ OFFER_WRITES_ONLY: '0' })).toBe(false);
-  });
-
-  test('exactly one of the two controller sets is active', () => {
-    for (const on of [false, true]) {
-      const env = { OFFER_LEGACY_LINKS_COMPAT: on ? '1' : undefined };
-      const legacy = legacyLinkControllers(['legacy'], env);
-      const compat = compatLinkControllers(['compat'], env);
-      expect(legacy.length + compat.length).toBe(1);
-      expect(legacy.length === 1).toBe(!on);
-    }
-  });
-});
-
-describe('modules mount exactly one controller per legacy path', () => {
-  const pathsOf = (mod: unknown) =>
-    (Reflect.getMetadata('controllers', mod as object) as object[]).map(
-      (c) => Reflect.getMetadata('path', c) as string,
-    );
-
-  async function mounted(flag: '0' | '1') {
-    // Module decorators read the env at import time: import fresh copies per setting.
-    const before = process.env.OFFER_LEGACY_LINKS_COMPAT;
-    process.env.OFFER_LEGACY_LINKS_COMPAT = flag;
-    try {
-      const q = `?flag=${flag}-${Math.random()}`;
-      const pay = await import(`../../presentation/payment-link.module.ts${q}`);
-      const sub = await import(
-        `../../presentation/subscription-link.module.ts${q}`
-      );
-      const offer = await import(`./offer.module.ts${q}`);
-      return [
-        ...pathsOf(pay.PaymentLinkModule),
-        ...pathsOf(sub.SubscriptionLinkModule),
-        ...pathsOf(offer.OfferModule),
-      ];
-    } finally {
-      if (before === undefined) delete process.env.OFFER_LEGACY_LINKS_COMPAT;
-      else process.env.OFFER_LEGACY_LINKS_COMPAT = before;
-    }
-  }
-
-  test('flag off: legacy controllers only', async () => {
-    const paths = await mounted('0');
-    expect(paths.filter((p) => p === 'links-pagamento')).toHaveLength(1);
-    expect(paths.filter((p) => p === 'links-assinatura')).toHaveLength(1);
-    expect(paths).toContain('subscription-links');
-  });
-
-  test('flag on: compat controllers only (still one per path)', async () => {
-    const paths = await mounted('1');
-    expect(paths.filter((p) => p === 'links-pagamento')).toHaveLength(1);
-    expect(paths.filter((p) => p === 'links-assinatura')).toHaveLength(1);
-    expect(paths).toContain('subscription-links');
-  });
-
-  test('the controller behind each path changes with the flag', async () => {
-    const owners = async (flag: '0' | '1') => {
-      const before = process.env.OFFER_LEGACY_LINKS_COMPAT;
-      process.env.OFFER_LEGACY_LINKS_COMPAT = flag;
-      try {
-        const q = `?who=${flag}-${Math.random()}`;
-        const pay = await import(
-          `../../presentation/payment-link.module.ts${q}`
-        );
-        const offer = await import(`./offer.module.ts${q}`);
-        return {
-          legacy: (
-            Reflect.getMetadata('controllers', pay.PaymentLinkModule) as {
-              name: string;
-            }[]
-          ).map((c) => c.name),
-          offer: (
-            Reflect.getMetadata('controllers', offer.OfferModule) as {
-              name: string;
-            }[]
-          ).map((c) => c.name),
-        };
-      } finally {
-        if (before === undefined) delete process.env.OFFER_LEGACY_LINKS_COMPAT;
-        else process.env.OFFER_LEGACY_LINKS_COMPAT = before;
-      }
-    };
-    const off = await owners('0');
-    expect(off.legacy).toEqual(['PaymentLinkController']);
-    expect(off.offer).not.toContain('PaymentLinksCompatController');
-    const on = await owners('1');
-    expect(on.legacy).toEqual([]);
-    expect(on.offer).toContain('PaymentLinksCompatController');
-    expect(on.offer).toContain('SubscriptionLinksCompatController');
+describe('offer module mounts the legacy link adapters', () => {
+  test('one controller per legacy path, always', async () => {
+    const offer = await import('./offer.module.ts');
+    const names = (
+      Reflect.getMetadata('controllers', offer.OfferModule) as {
+        name: string;
+      }[]
+    ).map((c) => c.name);
+    expect(names).toContain('PaymentLinksCompatController');
+    expect(names).toContain('SubscriptionLinksCompatController');
   });
 });
 

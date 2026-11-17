@@ -1,8 +1,3 @@
-import {
-  OfferLegacyWriter,
-  offerLegacyFreezeEnabled,
-} from '../../modules/offer/offer-legacy-freeze';
-import { offerWritesOnlyEnabled } from '../../modules/offer/offer-writes-flag';
 import { generateOfferCode } from '../../modules/offer/offer-code';
 import {
   listAreaflixOfferOrders,
@@ -6641,7 +6636,6 @@ export class AdminController {
     };
   }
 
-  @OfferLegacyWriter()
   @Post('cobrancas/gerar')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -6758,38 +6752,25 @@ export class AdminController {
     return { total: itens.length, criadas: cobrancas.length, cobrancas };
   }
 
-  /** Checkout link of a cobrança: an `Offer` with `OFFER_WRITES_ONLY=1`, a `PaymentLink` otherwise. */
+  /** Checkout link of a cobrança: an `Offer`. */
   private async createCobrancaLink(
     userId: string,
     titulo: string,
     amount: number,
     domPaymentLinkId: string | null,
   ): Promise<{ id: string }> {
-    if (offerWritesOnlyEnabled())
-      return this.prisma.offer.create({
-        data: {
-          ownerUserId: userId,
-          createdByUserId: userId,
-          code: generateOfferCode(),
-          name: titulo,
-          description: titulo,
-          amountCents: Math.round(amount * 100),
-          acceptedMethods: ['CREDIT_CARD', 'PIX'],
-          maxInstallments: 12,
-          platformTag: 'SIMINTPAY',
-          metadata: domPaymentLinkId ? { domPaymentLinkId } : undefined,
-        },
-        select: { id: true },
-      });
-    return this.prisma.paymentLink.create({
+    return this.prisma.offer.create({
       data: {
-        userId,
-        title: titulo,
+        ownerUserId: userId,
+        createdByUserId: userId,
+        code: generateOfferCode(),
+        name: titulo,
         description: titulo,
-        amount,
+        amountCents: Math.round(amount * 100),
+        acceptedMethods: ['CREDIT_CARD', 'PIX'],
         maxInstallments: 12,
-        plataformas: ['SIMINTPAY'],
-        domPaymentLinkId,
+        platformTag: 'SIMINTPAY',
+        metadata: domPaymentLinkId ? { domPaymentLinkId } : undefined,
       },
       select: { id: true },
     });
@@ -6803,8 +6784,6 @@ export class AdminController {
   private async ensureCobrancaPaymentLinks(
     where: Prisma.CobrancaWhereInput = {},
   ) {
-    // Frozen (plan 0023, phase 4): reads must not create legacy payment links meanwhile.
-    if (offerLegacyFreezeEnabled()) return;
     const semLink = await this.prisma.cobranca.findMany({
       where: { ...where, mode: 'PAYABLE', status: 'PENDING', paymentRef: null },
       include: { user: { select: { id: true, name: true, email: true } } },

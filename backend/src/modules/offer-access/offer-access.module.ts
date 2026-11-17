@@ -12,24 +12,20 @@ import { OfferAccessCompatService } from './offer-access.compat.service';
 import { OfferAccessCron } from './offer-access.cron';
 import { OfferAccessReminderService } from './offer-access-reminder.service';
 import { OfferAccessService } from './offer-access.service';
-import { offerPixPlanCompatEnabled } from './pixplan-compat-flag';
 import { PagatgNotifier } from './pagatg-notifier';
 
 /**
- * Crédito de dias das ofertas com renovação. O serviço, o cron e os lembretes sempre rodam.
- * As rotas de compatibilidade do plano PIX (mesmos caminhos do `PixPlanController` legado) só são
- * montadas com `OFFER_PIXPLAN_COMPAT=1`; o `PixPlanModule` legado desmonta as suas na mesma
- * condição, então exatamente um dos dois controllers responde por cada caminho.
+ * Crédito de dias das ofertas com renovação. O serviço, o cron e os lembretes rodam sempre, e as
+ * rotas de compatibilidade do plano PIX (`/payments/pix-plan*`, `/payments/plan-access`) respondem
+ * a partir de ofertas.
  */
 @Module({
   imports: [BillingCoreModule, OfferModule],
-  controllers: offerPixPlanCompatEnabled()
-    ? [
-        PixPlanCompatController,
-        PublicPixPlanCompatController,
-        BotPixPlanCompatController,
-      ]
-    : [],
+  controllers: [
+    PixPlanCompatController,
+    PublicPixPlanCompatController,
+    BotPixPlanCompatController,
+  ],
   providers: [
     EmailService,
     PagatgNotifier,

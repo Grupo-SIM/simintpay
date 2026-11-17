@@ -1,16 +1,15 @@
 import { BadRequestException } from '@nestjs/common';
 import type { Offer } from '@prisma/client';
-import type { CreatePaymentLinkDto } from '../../application/dtos/payment-link/create-payment-link.dto';
-import type { UpdatePaymentLinkDto } from '../../application/dtos/payment-link/update-payment-link.dto';
-import type { CreateSubscriptionLinkDto } from '../../application/dtos/subscription-link/create-subscription-link.dto';
-import type { UpdateSubscriptionLinkDto } from '../../application/dtos/subscription-link/update-subscription-link.dto';
+import type { CreatePaymentLinkDto } from './legacy-dto/create-payment-link.dto';
+import type { UpdatePaymentLinkDto } from './legacy-dto/update-payment-link.dto';
+import type { CreateSubscriptionLinkDto } from './legacy-dto/create-subscription-link.dto';
+import type { UpdateSubscriptionLinkDto } from './legacy-dto/update-subscription-link.dto';
 import {
   acceptedMethodList,
   normalizeStoredPaymentMethods,
   type StoredPaymentMethods,
 } from '../../application/helpers/accepted-payment-methods.helper';
 import { intervalForFrequency } from './legacy-offer-mapper';
-import { offerWritesOnlyEnabled } from './offer-writes-flag';
 import { readOfferFulfillment } from './offer-fulfillment';
 import type { CreateOfferDto, UpdateOfferDto } from './offer.dto';
 
@@ -20,32 +19,6 @@ import type { CreateOfferDto, UpdateOfferDto } from './offer.dto';
  * the exact legacy response shapes. Every rule (ownership, minimum amount, platform, SSRF,
  * acquirer capabilities) stays in `OfferService`.
  */
-
-/** Env flag that mounts the compat controllers INSTEAD of the legacy ones (default off). */
-export const LEGACY_LINKS_COMPAT_ENV = 'OFFER_LEGACY_LINKS_COMPAT';
-
-export function legacyLinksCompatEnabled(
-  env: Record<string, string | undefined> = process.env,
-): boolean {
-  // OFFER_WRITES_ONLY (phase 4) implies the adapters: the legacy CRUD must write only `Offer`.
-  return env[LEGACY_LINKS_COMPAT_ENV] === '1' || offerWritesOnlyEnabled(env);
-}
-
-/** Controllers the legacy modules register: dropped when the compat adapters are on. */
-export function legacyLinkControllers<T>(
-  controllers: T[],
-  env: Record<string, string | undefined> = process.env,
-): T[] {
-  return legacyLinksCompatEnabled(env) ? [] : controllers;
-}
-
-/** Controllers the offer module registers: only when the compat adapters are on. */
-export function compatLinkControllers<T>(
-  controllers: T[],
-  env: Record<string, string | undefined> = process.env,
-): T[] {
-  return legacyLinksCompatEnabled(env) ? controllers : [];
-}
 
 type Method = 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BOLETO';
 type Interval = 'DAY' | 'WEEK' | 'MONTH' | 'YEAR';

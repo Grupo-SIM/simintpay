@@ -4,7 +4,6 @@ import { PrismaClient } from '@prisma/client';
 import { Client } from 'pg';
 import { runAudit } from '../audit-product-ownership';
 import { ReassignmentRejected, reassignProducts } from '../reassign-products';
-import { PrismaPaymentLinkRepository } from '../../src/infrastructure/database/repositories/prisma-payment-link.repository';
 import { removeWalletConsistencyGuard } from '../../tests/wallet-guard-fixture';
 import { mappingHash, type MappingEntry } from '../product-ownership';
 
@@ -326,29 +325,6 @@ run('detects a concurrent owner change before writing', async () => {
   expect(error).toBeInstanceOf(ReassignmentRejected);
   expect(await ownerOf(product.id)).toBe(racer.id);
 });
-
-run(
-  'delegated members that created a product can neither read nor edit it afterwards',
-  async () => {
-    const owner = await user(),
-      member = await user();
-    const product = await db!.paymentLink.create({
-      data: {
-        userId: owner.id,
-        createdByUserId: member.id,
-        title: 'Delegated',
-        amount: 10,
-      },
-    });
-    const repo = new PrismaPaymentLinkRepository(db as never);
-    expect(
-      await repo.findByIdForUser({ id: product.id, userId: member.id }),
-    ).toBeNull();
-    expect(
-      await repo.findByIdForUser({ id: product.id, userId: owner.id }),
-    ).not.toBeNull();
-  },
-);
 
 run('audits and reassigns an Offer through ownerUserId', async () => {
   const admin = await user('ADMIN'),

@@ -19,10 +19,10 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { NEVER, Observable, merge, timer } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { CreatePixCreditPlanDto } from '../../application/dtos/pix-plan/create-pix-credit-plan.dto';
-import { PixPlanCheckoutByCodeDto } from '../../application/dtos/pix-plan/pix-plan-checkout-by-code.dto';
-import { PixPlanCheckoutDto } from '../../application/dtos/pix-plan/pix-plan-checkout.dto';
-import { UpdatePixCreditPlanDto } from '../../application/dtos/pix-plan/update-pix-credit-plan.dto';
+import { CreatePixCreditPlanDto } from './legacy-dto/create-pix-credit-plan.dto';
+import { PixPlanCheckoutByCodeDto } from './legacy-dto/pix-plan-checkout-by-code.dto';
+import { PixPlanCheckoutDto } from './legacy-dto/pix-plan-checkout.dto';
+import { UpdatePixCreditPlanDto } from './legacy-dto/update-pix-credit-plan.dto';
 import { CurrentUser } from '../../infrastructure/security/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import type { JwtPayload } from '../../infrastructure/security/strategies/jwt.strategy';
@@ -33,8 +33,8 @@ import { OfferAccessService } from './offer-access.service';
 
 /**
  * Rotas de compatibilidade para o api-pagatg: mesmos caminhos, autenticação e JSON do
- * `PixPlanController` legado, apoiadas em Offer/OfferAccess/OfferCodeAlias. Só são montadas
- * com `OFFER_PIXPLAN_COMPAT=1` (veja `offer-access.module.ts`); sem a flag o legado responde.
+ * `PixPlanController` legado, apoiadas em Offer/OfferAccess/OfferCodeAlias. São as
+ * únicas rotas desses caminhos (o controller legado foi removido).
  */
 @Controller('payments')
 @ApiTags('PIX Plan (ofertas)')

@@ -17,9 +17,6 @@ import { AuthModule } from './presentation/auth.module';
 import { WebhookModule } from './presentation/webhook.module';
 import { RabbitMqModule } from './infrastructure/queue/rabbitmq.module';
 import { TransactionsModule } from './presentation/transactions.module';
-import { PaymentLinkModule } from './presentation/payment-link.module';
-import { BoletoModule } from './presentation/boleto.module';
-import { PlanModule } from './presentation/plan.module';
 import { SubscriptionModule } from './presentation/subscription.module';
 import { ReportModule } from './presentation/report.module';
 import { SettingsModule } from './presentation/settings.module';
@@ -36,7 +33,6 @@ import { MasterModule } from './modules/master/master.module';
 import { AtlasModule } from './modules/atlas/atlas.module';
 import { ZeroGrauModule } from './modules/zero-grau/zero-grau.module';
 import { PixPlanModule } from './presentation/pix-plan.module';
-import { SubscriptionLinkModule } from './presentation/subscription-link.module';
 import { CheckoutModule } from './presentation/checkout.module';
 import { ClienteModule } from './presentation/cliente.module';
 import { ClienteDashboardModule } from './modules/cliente/cliente-dashboard.module';
@@ -70,11 +66,7 @@ import { IntegrationFinanceModule } from './modules/integrations/integration-fin
     AuthModule,
     WebhookModule,
     TransactionsModule,
-    PaymentLinkModule,
-    BoletoModule,
-    PlanModule,
     PixPlanModule,
-    SubscriptionLinkModule,
     CheckoutModule,
     SubscriptionModule,
     ReportModule,

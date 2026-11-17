@@ -46,64 +46,43 @@ export class DeleteClienteUseCase {
       );
     }
 
-    // 2. Buscar e cancelar assinaturas ativas (Cartão)
-    const activeSubscriptions = await this.prisma.subscription.findMany({
+    // 2. Buscar e cancelar as assinaturas ativas das ofertas do vendedor para este cliente
+    const contracts = await this.prisma.billingContract.findMany({
       where: {
-        customerId: cliente.id,
-        status: { notIn: ['canceled', 'cancelled', 'inactive'] },
+        offer: { ownerUserId: cliente.userId },
+        customerEmail: { equals: cliente.email, mode: 'insensitive' },
+        status: { not: 'CANCELLED' },
       },
     });
 
-    for (const sub of activeSubscriptions) {
-      if (sub.domSubscriptionId) {
-        try {
+    for (const contract of contracts) {
+      try {
+        if (contract.externalSubscriptionId)
           await this.gateway.cancelSubscription(
             domToken,
-            sub.domSubscriptionId,
+            contract.externalSubscriptionId,
           );
-          await this.prisma.subscription.update({
-            where: { id: sub.id },
-            data: { status: 'canceled' },
-          });
-        } catch (error) {
-          console.error(
-            `[DeleteCliente] Erro ao cancelar assinatura ${sub.id}:`,
-            error.message,
-          );
-        }
+        await this.prisma.billingContract.update({
+          where: { id: contract.id },
+          data: {
+            status: 'CANCELLED',
+            accessEndsAt: contract.currentPeriodEnd,
+          },
+        });
+      } catch (error) {
+        console.error(
+          `[DeleteCliente] Erro ao cancelar assinatura ${contract.id}:`,
+          error.message,
+        );
       }
     }
 
-    // 3. Buscar e cancelar link orders ativas (Recorrência via Link)
-    const activeLinkOrders = await this.prisma.subscriptionLinkOrder.findMany({
-      where: {
-        customerEmail: cliente.email,
-        userId: cliente.userId,
-        status: { notIn: ['canceled', 'cancelled', 'inactive'] },
-      },
+    // 3. Remover os acessos por crédito de dias (ofertas) do cliente
+    await this.prisma.offerAccess.deleteMany({
+      where: { ownerUserId: cliente.userId, customerId: cliente.id },
     });
 
-    for (const sub of activeLinkOrders) {
-      if (sub.domSubscriptionId) {
-        try {
-          await this.gateway.cancelSubscription(
-            domToken,
-            sub.domSubscriptionId,
-          );
-          await this.prisma.subscriptionLinkOrder.update({
-            where: { id: sub.id },
-            data: { status: 'canceled' },
-          });
-        } catch (error) {
-          console.error(
-            `[DeleteCliente] Erro ao cancelar link order ${sub.id}:`,
-            error.message,
-          );
-        }
-      }
-    }
-
-    // 4. Remover acessos de plano PIX (créditos)
+    // 4. Linhas antigas de acesso de plano PIX seguram o cliente por FK até a tabela ser apagada
     await this.prisma.customerPlanAccess.deleteMany({
       where: { customerId: cliente.id },
     });

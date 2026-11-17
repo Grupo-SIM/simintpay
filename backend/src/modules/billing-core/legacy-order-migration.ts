@@ -1,5 +1,5 @@
 /**
- * `SubscriptionLinkOrder.status` of a pending Pix order that scripts/offer-pending-order-migration.ts
+ * `SubscriptionLinkOrder.status` of a pending Pix order that the removed offer-pending-order-migration script
  * moved to the offer model (BillingContract + Charge + Transaction). The DOM webhook skips the
  * legacy handler for these orders, so the payment settles through the Transaction/Charge path.
  */

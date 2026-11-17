@@ -33,9 +33,9 @@ import { PAYMENT_GATEWAY } from '../../../core/services/payment-gateway.interfac
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 import type { IPixPlanRepository } from '../../../core/repositories/pix-plan.repository.interface';
 import type { IPaymentGateway } from '../../../core/services/payment-gateway.interface';
-import type { PixPlanCheckoutDto } from '../../dtos/pix-plan/pix-plan-checkout.dto';
-import type { PixPlanCheckoutByCodeDto } from '../../dtos/pix-plan/pix-plan-checkout-by-code.dto';
-import type { CreatePixCreditPlanDto } from '../../dtos/pix-plan/create-pix-credit-plan.dto';
+import type { PixPlanCheckoutDto } from '../../../modules/offer-access/legacy-dto/pix-plan-checkout.dto';
+import type { PixPlanCheckoutByCodeDto } from '../../../modules/offer-access/legacy-dto/pix-plan-checkout-by-code.dto';
+import type { CreatePixCreditPlanDto } from '../../../modules/offer-access/legacy-dto/create-pix-credit-plan.dto';
 import {
   coproductionInfo,
   sharedProductIds,

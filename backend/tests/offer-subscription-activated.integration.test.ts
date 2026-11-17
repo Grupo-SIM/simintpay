@@ -1,11 +1,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
-import {
-  makeFakePrisma,
-  useEmptyCaches,
-} from '../src/application/use-cases/payment-link/charge-characterization.fixture';
-import { CheckoutSubscriptionLinkCardUseCase } from '../src/application/use-cases/subscription-link/checkout-subscription-link-card.use-case';
+import { useEmptyCaches } from '../src/application/use-cases/payment-link/charge-characterization.fixture';
 import {
   OfferFulfillmentService,
   PrismaFulfillmentMarkers,
@@ -29,91 +25,6 @@ beforeAll(async () => {
 afterAll(() => {
   globalThis.fetch = realFetch;
 });
-
-/** Runs the legacy card checkout and returns the body it posts to the link's webhook. */
-async function legacyPayload() {
-  const posted: any[] = [];
-  globalThis.fetch = (async (_url: unknown, init: any) => {
-    posted.push({ headers: init.headers, body: JSON.parse(init.body) });
-    return new Response('ok');
-  }) as never;
-  const fake = makeFakePrisma({ financial: true });
-  fake.prisma.financialPolicyRevision.findMany = async () =>
-    [
-      {
-        tag: 'GLOBAL',
-        version: 1,
-        document: {
-          schemaVersion: 1,
-          lanes: {
-            'DOM/CREDIT_CARD/ONLINE/1': {
-              active: true,
-              contract: {
-                reference: 'Signed',
-                fixedCents: 0,
-                ratePpm: 0,
-                cashbackCents: 0,
-                interestPpm: 0,
-                base: 'ORIGINAL',
-              },
-              sim: { fixedCents: 0, ratePpm: 0, interestPpm: 0 },
-            },
-          },
-          owner: {},
-          interestFree: false,
-        },
-      },
-    ] as never;
-  const link: any = {
-    id: 'legacy-link-id',
-    userId: 'owner',
-    isActive: true,
-    name: 'Plano Mensal',
-    amount: 39.9,
-    domPlanId: 'dom-plan',
-    frequencyType: 'MONTHLY',
-    webhookUrl: 'https://hook.example.com/in',
-    platformTag: null,
-    plataformas: ['GLOBAL'],
-    maxUses: null,
-    currentUses: 0,
-    paymentMethods: 'BOTH',
-  };
-  const useCase = new CheckoutSubscriptionLinkCardUseCase(
-    {
-      findByCode: async () => link,
-      update: async () => undefined,
-      createOrder: async () => ({ id: 'order-1', status: 'pending' }),
-    } as never,
-    {} as never,
-    {
-      createPlan: async () => ({ id: 'p' }),
-      createSubscriptionFromCheckout: async () => ({
-        id: 'dom-sub',
-        status: 'active',
-      }),
-    } as never,
-    {
-      sendSubscriptionAccess: async () => undefined,
-      sendEbookAccessEmail: async () => undefined,
-    } as never,
-    {} as never,
-    fake.prisma,
-  );
-  await useCase.execute({
-    code: 'c',
-    dto: {
-      customerName: 'Ana',
-      customerEmail: 'ana@test.dev',
-      customerDocument: '12345678909',
-      customerPhone: '11999999999',
-      card: {},
-    } as never,
-  });
-  await new Promise((r) => setTimeout(r, 20));
-  globalThis.fetch = realFetch;
-  return posted[0].body as Record<string, unknown>;
-}
 
 async function setup() {
   const owner = await db!.user.create({
@@ -215,34 +126,32 @@ async function setup() {
   return { offer, cycle, service, events };
 }
 
-run('offer payload carries every field of the legacy payload', async () => {
-  const legacy = await legacyPayload();
-  const f = await setup();
-  const first = await f.cycle(new Date('2026-01-01T00:00:00Z'));
-  await f.service.deliver({ transactionId: first.tx.id, kind: 'PAID' });
-  const [event] = await f.events();
-  const offerBody = event.payload;
+run(
+  'offer payload carries every field the saas-netflix-back reads',
+  async () => {
+    const f = await setup();
+    const first = await f.cycle(new Date('2026-01-01T00:00:00Z'));
+    await f.service.deliver({ transactionId: first.tx.id, kind: 'PAID' });
+    const [event] = await f.events();
+    const offerBody = event.payload;
 
-  expect(legacy.event).toBe('subscription_activated');
-  expect(offerBody.event).toBe(legacy.event);
-  // Same field names the saas-netflix-back reads; the legacy only adds the buyer document.
-  for (const key of Object.keys(legacy).filter((k) => k !== 'cpf'))
-    expect(Object.keys(offerBody), key).toContain(key);
-  for (const key of [
-    'customerEmail',
-    'customerName',
-    'planName',
-    'paymentMethod',
-    'frequencyType',
-    'amountCharged',
-    'netAmount',
-    'phone',
-  ])
-    expect(offerBody[key], key).toEqual(legacy[key]);
-  // `linkId` is the old id, which an offer reuses.
-  expect(offerBody.linkId).toBe(f.offer.id);
-  expect(offerBody.orderId).toBe(first.tx.id);
-});
+    expect(offerBody.event).toBe('subscription_activated');
+    for (const key of [
+      'customerEmail',
+      'customerName',
+      'planName',
+      'paymentMethod',
+      'frequencyType',
+      'amountCharged',
+      'netAmount',
+      'phone',
+    ])
+      expect(Object.keys(offerBody), key).toContain(key);
+    // `linkId` is the old id, which an offer reuses.
+    expect(offerBody.linkId).toBe(f.offer.id);
+    expect(offerBody.orderId).toBe(first.tx.id);
+  },
+);
 
 run(
   'idempotent per contract; a paid reactivation activates it again once',

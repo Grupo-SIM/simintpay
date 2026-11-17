@@ -15,7 +15,6 @@ import {
   UpdateVoucherDto,
   ValidateVoucherDto,
 } from '../../application/dtos/voucher/voucher.dto';
-import { OfferLegacyWriter } from '../../modules/offer/offer-legacy-freeze';
 
 @Controller('internal/pagatg/finance')
 @SetMetadata('legacy-platform-tag', 'PAGATG')
@@ -83,7 +82,6 @@ export class InternalPagatgFinanceController {
    * O campo `code` recebe o código gerado pelo api-pagatg (ex: "3f8f67274"),
    * permitindo que o checkout encontre o plano via GET /planos/public/by-code/:code.
    */
-  @OfferLegacyWriter()
   @Post('plans')
   async upsertPlan(
     @Body()

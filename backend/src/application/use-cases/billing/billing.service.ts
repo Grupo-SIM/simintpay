@@ -1032,14 +1032,6 @@ export class BillingService {
         if (updated.count !== 1)
           throw new ConflictException('Contrato alterado concorrentemente');
 
-        await tx.subscription.updateMany({
-          where: { domSubscriptionId: change.contract.externalSubscriptionId },
-          data: { domSubscriptionId: migration.subscriptionId },
-        });
-        await tx.subscriptionLinkOrder.updateMany({
-          where: { domSubscriptionId: change.contract.externalSubscriptionId },
-          data: { domSubscriptionId: migration.subscriptionId },
-        });
         return tx.billingQuantityChange.update({
           where: { id: change.id },
           data: {

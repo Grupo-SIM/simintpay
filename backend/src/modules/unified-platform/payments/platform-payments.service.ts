@@ -1,4 +1,3 @@
-import { transactionProductRef } from '../../offer/offer-writes-flag';
 import { transactionPlatformTagData } from '../../platform-core/transaction-platform';
 import {
   captureCoproduction,
@@ -578,7 +577,7 @@ export class PlatformPaymentsService {
             beneficiaryUserId: financialUserId,
           },
         },
-        ...transactionProductRef(input.linkId),
+        ...(input.linkId ? { offerId: input.linkId } : {}),
         ...financialFields,
         ...(finalSnapshot ? { financialSnapshot: finalSnapshot } : {}),
         status: 'DRAFT',

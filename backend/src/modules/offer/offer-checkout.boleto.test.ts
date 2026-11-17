@@ -6,13 +6,7 @@ import {
   expect,
   test,
 } from 'bun:test';
-import { Prisma } from '@prisma/client';
-import { ChargeBoletoUseCase } from '../../application/use-cases/boleto/charge-boleto.use-case';
-import {
-  makeFakePrisma,
-  money,
-  useEmptyCaches,
-} from '../../application/use-cases/payment-link/charge-characterization.fixture';
+import { useEmptyCaches } from '../../application/use-cases/payment-link/charge-characterization.fixture';
 import { Acquirer } from '../../core/services/acquirer.enum';
 import { acquirerCapabilities } from '../../core/services/acquirer-capabilities';
 import { markPreDispatchNoCharge } from '../unified-platform/payments/dom-rejection';
@@ -431,87 +425,5 @@ describe('recurring offers do not take boleto', () => {
         service.subscribe('CODE', { paymentMethod: 'boleto', ...buyer }),
       ).rejects.toThrow('Ofertas recorrentes não aceitam boleto');
     }
-  });
-});
-
-/** Same fixture charged by the legacy ChargeBoletoUseCase and by the offer. */
-async function legacyBoleto(amount: number, opts: { quote: boolean }) {
-  const db = makeFakePrisma();
-  if (opts.quote) withBoletoQuote(db.prisma);
-  const sent: any[] = [];
-  const boleto: any = {
-    id: 'boleto-1',
-    userId: 'owner',
-    isActive: true,
-    expiresAt: null,
-    maxUses: null,
-    currentUses: 0,
-    amount: new Prisma.Decimal(amount),
-    title: 'Curso',
-    description: null,
-    plataformas: ['GLOBAL'],
-    vencimentoDias: 5,
-  };
-  const use = new ChargeBoletoUseCase(
-    { findById: async () => boleto, update: async () => boleto } as never,
-    { findById: async () => ({ id: 'owner', platform: null }) } as never,
-    {
-      chargeBoletoForLink: async (_t: string, input: any) => {
-        sent.push(input);
-        return boletoResult({ amount: input.amount });
-      },
-    } as never,
-    db.prisma,
-  );
-  const out = await use.execute({
-    boletoId: 'boleto-1',
-    ...buyer,
-    ...address,
-  });
-  return { numbers: money(db.row()), out, sent: sent[0] };
-}
-
-describe('offer boleto == legacy ChargeBoletoUseCase (characterization)', () => {
-  test('same buyer total, seller net and fee split for R$ 100,00 (financial policy BOLETO lane)', async () => {
-    const legacy = await legacyBoleto(100, { quote: true });
-    const f = setup({}, { quote: true });
-    const out = await f.charge();
-
-    expect(money(f.db.base.row())).toEqual(legacy.numbers);
-    expect(out.amount).toBe(legacy.out.amount);
-    expect(f.db.charges[0].amountCents).toBe(
-      Math.round(legacy.numbers.amount * 100),
-    );
-    expect(f.calls.boleto[0].input.expireDays).toBe(legacy.sent.expireDays);
-    expect(f.calls.boleto[0].input.address).toEqual(legacy.sent.address);
-    expect(f.calls.boleto[0].input.amount).toBe(legacy.sent.amount);
-    // Frozen numbers: a silent pricing change in either flow fails here.
-    expect(legacy.numbers).toEqual({
-      amount: 100,
-      netAmount: 95,
-      totalFee: 5,
-      acquirerFee: 1.5,
-      platformFee: 3.5,
-    });
-  });
-
-  test('also equal at other amounts (R$ 14,99 and R$ 1.234,56)', async () => {
-    for (const [amount, cents] of [
-      [14.99, 1499],
-      [1234.56, 123456],
-    ] as const) {
-      const legacy = await legacyBoleto(amount, { quote: true });
-      const f = setup({ amountCents: cents }, { quote: true });
-      await f.charge();
-      expect(money(f.db.base.row())).toEqual(legacy.numbers);
-    }
-  });
-
-  test('without a BOLETO policy lane both flows refuse with FINANCIAL_POLICY_MISSING', async () => {
-    await expect(legacyBoleto(100, { quote: false })).rejects.toThrow();
-    const f = setup({}, { quote: false });
-    await expect(f.charge()).rejects.toThrow();
-    expect(f.db.charges).toHaveLength(0);
-    expect(f.offer.usedCount).toBe(0);
   });
 });

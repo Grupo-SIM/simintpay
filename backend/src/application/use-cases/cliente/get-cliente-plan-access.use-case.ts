@@ -6,8 +6,8 @@ export class GetClientePlanAccessUseCase {
   constructor(private readonly prisma: PrismaService) {}
 
   async executeByCustomerId(input: { userId: string; customerId: string }) {
-    const access = await this.prisma.customerPlanAccess.findFirst({
-      where: { userId: input.userId, customerId: input.customerId },
+    const access = await this.prisma.offerAccess.findFirst({
+      where: { ownerUserId: input.userId, customerId: input.customerId },
       orderBy: { expiresAt: 'desc' },
     });
 
@@ -21,12 +21,26 @@ export class GetClientePlanAccessUseCase {
 
     if (!customer) return this.buildResponse(null);
 
-    return this.executeByCustomerId({ userId: input.userId, customerId: customer.id });
+    return this.executeByCustomerId({
+      userId: input.userId,
+      customerId: customer.id,
+    });
   }
 
-  private buildResponse(access: { isActive: boolean; expiresAt: Date; totalDaysCredited: number } | null) {
+  private buildResponse(
+    access: {
+      isActive: boolean;
+      expiresAt: Date;
+      totalDaysCredited: number;
+    } | null,
+  ) {
     if (!access) {
-      return { isActive: false, expiresAt: null, remainingDays: 0, totalDaysCredited: 0 };
+      return {
+        isActive: false,
+        expiresAt: null,
+        remainingDays: 0,
+        totalDaysCredited: 0,
+      };
     }
 
     const now = Date.now();
