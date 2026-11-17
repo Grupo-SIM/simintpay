@@ -3,6 +3,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { ApiTags, ApiExcludeController } from '@nestjs/swagger';
 import { QUEUE_SERVICE } from '../../../core/services/queue.interface';
 import type { IQueueService } from '../../../core/services/queue.interface';
+import { assertDomWebhookSignature } from '../../../shared/utils/dom-webhook-signature';
 import { QueueNames } from '../../../infrastructure/queue/queue-names';
 
 @ApiTags('Renovada Webhooks')
@@ -17,6 +18,7 @@ export class RenovadaWebhookNewController {
   @Post('/dom')
   @HttpCode(200)
   async domWebhook(@Body() body: unknown): Promise<{ status: string }> {
+    assertDomWebhookSignature(body);
     await this.queueService.publish(QueueNames.DOM_WEBHOOK_DIRECT, body);
     return { status: 'ok' };
   }
@@ -24,6 +26,7 @@ export class RenovadaWebhookNewController {
   @Post('/')
   @HttpCode(200)
   async webhook(@Body() body: unknown): Promise<{ status: string }> {
+    assertDomWebhookSignature(body);
     await this.queueService.publish(QueueNames.DOM_WEBHOOK_DIRECT, body);
     return { status: 'ok' };
   }

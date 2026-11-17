@@ -9,19 +9,31 @@ import { unsupportedCapability } from '../../platform-core/platform-adapters';
 
 @Injectable()
 export class BosqueWebhookService {
-  constructor(private readonly prisma: PrismaService, private readonly modules: ModuleRef) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly modules: ModuleRef,
+  ) {}
   async processWebhook(body: unknown): Promise<void> {
-    const platform = await new PlatformContextService(this.prisma).resolve('BOSQUE');
+    const platform = await new PlatformContextService(this.prisma).resolve(
+      'BOSQUE',
+    );
     if (platform.acquirer !== 'DOM') unsupportedCapability('webhooks.DOM');
-    await new PlatformWebhookSettlement(this.prisma, this.modules.get(ProcessWebhookUseCase, { strict: false })).apply(platform, body, false);
+    await new PlatformWebhookSettlement(
+      this.prisma,
+      this.modules.get(ProcessWebhookUseCase, { strict: false }),
+    ).apply(platform, body, false);
   }
   verifyWebhookSignature(payload: string, signature: string): boolean {
     const secret = process.env.DOM_WEBHOOK_SECRET;
-    // Existing anonymous alias contract only. Canonical ingress always requires scoped secret.
-    if (!secret) return true;
+    // Fail-closed: sem segredo configurado nenhum webhook anônimo é aceito.
+    if (!secret) return false;
     if (typeof signature !== 'string') return false;
-    const expected = Buffer.from(createHmac('sha256', secret).update(payload).digest('hex'));
+    const expected = Buffer.from(
+      createHmac('sha256', secret).update(payload).digest('hex'),
+    );
     const supplied = Buffer.from(signature);
-    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+    return (
+      supplied.length === expected.length && timingSafeEqual(supplied, expected)
+    );
   }
 }

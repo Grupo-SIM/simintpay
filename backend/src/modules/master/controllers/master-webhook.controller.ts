@@ -1,8 +1,16 @@
-import { Body, Controller, HttpCode, Inject, Logger, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Inject,
+  Logger,
+  Post,
+} from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { QUEUE_SERVICE } from '../../../core/services/queue.interface';
 import type { IQueueService } from '../../../core/services/queue.interface';
+import { assertDomWebhookSignature } from '../../../shared/utils/dom-webhook-signature';
 import { QueueNames } from '../../../infrastructure/queue/queue-names';
 
 @Controller('webhook')
@@ -20,6 +28,7 @@ export class MasterWebhookController {
   @ApiOperation({ summary: 'Receber webhooks DOM da conta master/admin' })
   @ApiResponse({ status: 200, schema: { example: { status: 'ok' } } })
   async handle(@Body() body: unknown): Promise<{ status: string }> {
+    assertDomWebhookSignature(body);
     await this.queueService.publish(QueueNames.DOM_WEBHOOK_DIRECT, body);
     return { status: 'ok' };
   }

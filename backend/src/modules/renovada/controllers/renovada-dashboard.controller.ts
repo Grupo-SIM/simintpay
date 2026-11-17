@@ -1,10 +1,16 @@
 import { PlatformSellerReports } from '../../platform-core/platform-seller-reports';
-import { Controller, Get, Query, Param } from '@nestjs/common';
+import { Controller, Get, Query, Param, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../../infrastructure/security/guards/jwt-auth.guard';
+import { RolesGuard } from '../../../infrastructure/security/guards/roles.guard';
+import { Roles } from '../../../infrastructure/security/decorators/roles.decorator';
+import { Role } from '@prisma/client';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PlatformDashboardService } from '../services/renovada-dashboard.service';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
 @ApiTags('Admin Platforms')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN)
 @Controller('admin/plataformas')
 export class PlatformDashboardController {
   constructor(

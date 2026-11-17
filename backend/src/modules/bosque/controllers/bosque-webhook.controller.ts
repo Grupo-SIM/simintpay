@@ -1,5 +1,6 @@
 import { Controller, Post, Body, Headers, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiExcludeController } from '@nestjs/swagger';
+import { assertDomWebhookSignature } from '../../../shared/utils/dom-webhook-signature';
 import { BosqueWebhookService } from '../services/bosque-webhook.service';
 
 @ApiTags('Bosque Webhooks')
@@ -11,6 +12,7 @@ export class BosqueWebhookController {
   @Post('/dom')
   @HttpCode(200)
   async domWebhook(@Body() body: any) {
+    assertDomWebhookSignature(body);
     return await this.webhookService.processWebhook(body);
   }
 

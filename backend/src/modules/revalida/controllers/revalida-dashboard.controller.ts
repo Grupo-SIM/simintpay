@@ -1,11 +1,25 @@
 import { PlatformOwnerMirror } from '../../platform-core/platform-owner-mirror';
-import { Controller, Get, Query, Post, Body, GoneException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  Post,
+  Body,
+  GoneException,
+  UseGuards,
+} from '@nestjs/common';
+import { JwtAuthGuard } from '../../../infrastructure/security/guards/jwt-auth.guard';
+import { RolesGuard } from '../../../infrastructure/security/guards/roles.guard';
+import { Roles } from '../../../infrastructure/security/decorators/roles.decorator';
+import { Role } from '@prisma/client';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RevalidaDashboardService } from '../services/revalida-dashboard.service';
 import { RevalidaSyncService } from '../services/revalida-sync.service';
 import { PrismaService } from '../../../infrastructure/database/prisma/prisma.service';
 
 @ApiTags('Revalida Dashboard')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN)
 @Controller('dashboard/revalida')
 export class RevalidaDashboardController {
   constructor(
@@ -22,11 +36,11 @@ export class RevalidaDashboardController {
 
   @Get('sales')
   @ApiOperation({ summary: '[REVALIDA] Listar vendas (paginado)' })
-  async getSales(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.dashboardService.getSales(Number(page ?? 1), Number(limit ?? 10));
+  async getSales(@Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.dashboardService.getSales(
+      Number(page ?? 1),
+      Number(limit ?? 10),
+    );
   }
 
   @Get('withdrawals')
@@ -35,7 +49,10 @@ export class RevalidaDashboardController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.dashboardService.getWithdrawals(Number(page ?? 1), Number(limit ?? 10));
+    return this.dashboardService.getWithdrawals(
+      Number(page ?? 1),
+      Number(limit ?? 10),
+    );
   }
 
   @Get('summary')
@@ -45,17 +62,28 @@ export class RevalidaDashboardController {
   }
 
   @Post('setup')
-  @ApiOperation({ summary: '[REVALIDA] Criar usuário revalida no banco (executar uma vez)' })
+  @ApiOperation({
+    summary: '[REVALIDA] Criar usuário revalida no banco (executar uma vez)',
+  })
   async setup() {
-    throw new GoneException('Cadastre a plataforma e atribua um dono existente pelo admin.');
+    throw new GoneException(
+      'Cadastre a plataforma e atribua um dono existente pelo admin.',
+    );
   }
 
   @Post('sync-external-user')
-  @ApiOperation({ summary: '[REVALIDA] Registra/atualiza o usuário Revalida na listagem de plataformas do admin' })
-  async syncExternalUser() { return new PlatformOwnerMirror(this.prisma).sync('REVALIDA'); }
+  @ApiOperation({
+    summary:
+      '[REVALIDA] Registra/atualiza o usuário Revalida na listagem de plataformas do admin',
+  })
+  async syncExternalUser() {
+    return new PlatformOwnerMirror(this.prisma).sync('REVALIDA');
+  }
 
   @Post('sync-full')
-  @ApiOperation({ summary: '[REVALIDA] Sincronização manual completa (histórico)' })
+  @ApiOperation({
+    summary: '[REVALIDA] Sincronização manual completa (histórico)',
+  })
   async syncFull() {
     return this.syncService.syncFull();
   }

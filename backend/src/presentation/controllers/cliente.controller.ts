@@ -7,7 +7,13 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { InternalTokenGuard } from '../../infrastructure/security/guards/internal-token.guard';
 import { JwtAuthGuard } from '../../infrastructure/security/guards/jwt-auth.guard';
 import { DeleteClienteUseCase } from '../../application/use-cases/cliente/delete-cliente.use-case';
 import { ListClientesUseCase } from '../../application/use-cases/cliente/list-clientes.use-case';
@@ -53,6 +59,7 @@ export class ClienteController {
   }
 
   @Get('email/:email')
+  @UseGuards(InternalTokenGuard)
   @ApiOperation({ summary: 'Buscar cliente por e-mail' })
   @ApiResponse({ status: 200, description: 'Cliente encontrado.' })
   @ApiResponse({ status: 404, description: 'Cliente não encontrado.' })
@@ -103,6 +110,7 @@ export class ClienteController {
   }
 
   @Get(':id')
+  @UseGuards(InternalTokenGuard)
   @ApiOperation({ summary: 'Buscar cliente por ID' })
   @ApiResponse({ status: 200, description: 'Cliente encontrado.' })
   @ApiResponse({ status: 404, description: 'Cliente não encontrado.' })

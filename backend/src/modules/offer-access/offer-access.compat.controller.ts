@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Body,
   Controller,
   Delete,
@@ -201,13 +202,18 @@ export class PublicPixPlanCompatController {
   ) {}
 
   @Get('pix-plan-access')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   listAccess(
+    @CurrentUser() user: JwtPayload | undefined,
     @Query('userId') userId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('isActive') isActive?: string,
   ) {
     if (!userId) throw new BadRequestException('userId é obrigatório');
+    if (user?.sub !== userId && user?.role !== 'ADMIN')
+      throw new ForbiddenException('Sem permissão para este usuário');
     return this.compat.listAccess({
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? Math.min(parseInt(limit, 10), 100) : 20,
@@ -290,7 +296,7 @@ export class BotPixPlanCompatController {
   ) {
     const expected =
       getPlatformIntegrationValue('PAGATG', 'INTERNAL_TOKEN') ?? undefined;
-    if (expected && internalToken !== expected)
+    if (!expected || internalToken !== expected)
       throw new UnauthorizedException('Token interno inválido');
     return this.access.forceStateByCustomer(
       body.customerId,
